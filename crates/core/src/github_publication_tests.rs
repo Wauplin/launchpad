@@ -61,7 +61,7 @@ pub(crate) async fn mock(f: impl Fn(&str) -> (u16, String) + Send + Sync + 'stat
 async fn publication_errors_distinguish_rejection_from_uncertain_delivery() {
     let root = std::env::temp_dir().join(format!("lp-gh-errors-{}", uuid::Uuid::new_v4()));
     let db = crate::db::open_cache(&root).unwrap();
-    let client = GitHub::new(UserEnv::for_host("unused"), db);
+    let client = GitHub::new(UserEnv::from_vars(Default::default()), db);
     for (status, body, uncertain) in [
         (403, "{}", false),
         (422, "{}", false),

@@ -1,6 +1,5 @@
 //! Git helpers. Shells out to the `git` CLI (it uses your SSH configuration as is), except for reading
-//! remotes, which parses `.git/config` directly so that scanning 200 folders stays fast. Paths may be on
-//! an SSH host (`hostfs.rs`).
+//! remotes, which parses `.git/config` directly so that scanning 200 folders stays fast.
 
 use std::path::{Path, PathBuf};
 
@@ -12,7 +11,7 @@ use crate::shellenv::UserEnv;
 pub(crate) fn resolve_on(base: &Path, target: &str) -> PathBuf {
     let p = Path::new(target);
     if p.is_absolute() || target.starts_with('/') {
-        PathBuf::from(crate::hosts::loc::rehost(&base.to_string_lossy(), target))
+        PathBuf::from(String::from(target))
     } else {
         base.join(p)
     }
@@ -21,10 +20,10 @@ pub(crate) fn resolve_on(base: &Path, target: &str) -> PathBuf {
 /// The git directory of a checkout: `.git/`, or the target of a `.git` file (worktrees, submodules).
 pub async fn git_dir(repo: &Path) -> Option<PathBuf> {
     let dot = repo.join(".git");
-    if crate::hostfs::metadata(&dot).await.ok()?.is_dir() {
+    if crate::files::metadata(&dot).await.ok()?.is_dir() {
         return Some(dot);
     }
-    let text = crate::hostfs::read_to_string(&dot).await.ok()?;
+    let text = crate::files::read_to_string(&dot).await.ok()?;
     let target = text.strip_prefix("gitdir:")?.trim();
     Some(resolve_on(repo, target))
 }
@@ -32,15 +31,15 @@ pub async fn git_dir(repo: &Path) -> Option<PathBuf> {
 /// Remote URLs from the git config: `[(name, url)]`.
 pub async fn remotes(repo: &Path) -> Vec<(String, String)> {
     // A bare repository (Home Git mirrors) is its own Git directory.
-    let bare = crate::hostfs::is_file(&repo.join("HEAD")).await && crate::hostfs::is_dir(&repo.join("objects")).await;
+    let bare = crate::files::is_file(&repo.join("HEAD")).await && crate::files::is_dir(&repo.join("objects")).await;
     let Some(dir) = (if bare { Some(repo.to_path_buf()) } else { git_dir(repo).await }) else { return vec![] };
     // Worktrees keep their config in the main repository (`commondir`).
-    let common = crate::hostfs::read_to_string(dir.join("commondir"))
+    let common = crate::files::read_to_string(dir.join("commondir"))
         .await
         .ok()
         .map(|c| resolve_on(&dir, c.trim()))
         .unwrap_or(dir);
-    let Ok(text) = crate::hostfs::read_to_string(common.join("config")).await else { return vec![] };
+    let Ok(text) = crate::files::read_to_string(common.join("config")).await else { return vec![] };
     let mut out = Vec::new();
     let mut current: Option<String> = None;
     for line in text.lines() {

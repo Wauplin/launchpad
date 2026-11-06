@@ -1,5 +1,5 @@
 // The phone's status button: the connection dot, and an amber warning with its count when something needs a look
-// (connection, Home, runners, machines, harnesses, quota, spending limits, GitHub rate limit). The sheet says why
+// (connection, Home, runners, harnesses, quota, spending limits, GitHub rate limit). The sheet says why
 // and links to the place that fixes it, then shows the quota meters.
 
 import { Icon } from "@/components/Icon";
@@ -10,7 +10,6 @@ import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
 import { useInbox } from "@/features/inbox/data";
 import { formatAge, formatReset, resetLabel } from "@/lib/format";
-import { linkLabel } from "@/lib/hosts";
 import { useStatus } from "@/lib/queries";
 import { spendLabel, spendPercent, useProfiles, useQuotas, windowLabel } from "@/lib/profiles";
 import { outdatedLabel, useOfflineRunners, useOutdatedRunners } from "@/lib/runners";
@@ -35,7 +34,6 @@ function useStatusWarnings(): Warning[] {
   if (data.role === "runner" && data.home?.compat === "outdated") out.push({ key: "self-outdated", text: "This runner needs an update: Home sends it no new sessions.", to: "/settings/runners" });
   if (outdated.length) out.push({ key: "outdated", text: `${outdatedLabel(outdated)}: no new sessions until then.`, to: "/settings/runners" });
   if (offline.length) out.push({ key: "runners-offline", text: `${offline.join(", ")} ${offline.length === 1 ? "is" : "are"} offline.`, to: "/settings/runners" });
-  for (const h of data.hosts) if (h.state !== "connected") out.push({ key: `host-${h.host.id}`, text: `${h.host.id} is ${linkLabel[h.state].toLowerCase()}.`, to: "/settings/hosts" });
   // Home runs no agents: its runners report their own harnesses. Only harnesses a profile uses count as missing.
   if (data.role !== "home") for (const h of harnesses) if (profiles.some((p) => p.harness === h.id) && !data.harnesses[h.id]?.version) out.push({ key: `harness-${h.id}`, text: `${h.name} is not found on this machine.`, to: "/setup" });
   for (const e of quotas) {

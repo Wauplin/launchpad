@@ -117,7 +117,7 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     for d in &spec.add_dirs {
         args.extend(["--add-dir".into(), d.clone()]);
     }
-    let mut cmd = launchpad_core::procs::child_command(&app.env.on(spec.host.as_deref()).jailed(spec.jail.clone()), "claude", Some(&spec.cwd));
+    let mut cmd = launchpad_core::procs::child_command(&app.env.jailed(spec.jail.clone()), "claude", Some(&spec.cwd));
     cmd.process_tree().args(&args)
         .envs(spec.env.iter().cloned())
         .env("LAUNCHPAD_ENV", app.paths.app_env.name())
@@ -179,11 +179,6 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
         let error = match status {
             Ok(s) if s.success() || stopping => None,
             Ok(s) => Some(format!("claude exited ({s}): {}", stderr_tail.lock().unwrap().join("\n"))),
-            // The host lost the process: Interrupted, resumable on the host.
-            Err(e) if launchpad_core::exec::is_lost(&e) => {
-                out_sink.emit(EventBody::Notice { text: format!("{e}") }).await;
-                None
-            }
             Err(e) => Some(format!("claude: {e}")),
         };
         cancel_questions(&out_sink, &st).await;
@@ -1003,13 +998,13 @@ impl harness::Harness for Adapter {
     async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<harness::trace::TraceFile>> {
         let id = harness::trace::conversation(session)?;
         let root = harness::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await?;
-        trace_files(&root, launchpad_core::hosts::loc::native(&session.cwd), id).await
+        trace_files(&root, &session.cwd, id).await
     }
     /// Claude Code finds a conversation under the slug of its working folder.
     async fn restore_native(&self, app: &App, session: &Session, files: Vec<harness::trace::TraceFile>) -> Result<()> {
         harness::trace::conversation(session)?;
         let root = harness::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await?;
-        let encoded: String = launchpad_core::hosts::loc::native(&session.cwd).chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+        let encoded: String = session.cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
         let dir = root.join("projects").join(encoded);
         for f in files {
             harness::trace::write(&dir, &f.name, &f.data)?;

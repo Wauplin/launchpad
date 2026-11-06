@@ -145,7 +145,7 @@ fn on_home(app: &App, mut p: Project) -> Project {
 }
 
 pub async fn open(app: &App, root: &str, rev: Option<&str>) -> Result<Source> {
-    let root = crate::hostfs::canonicalize(root).await.with_context(|| format!("{root} does not exist"))?;
+    let root = crate::files::canonicalize(root).await.with_context(|| format!("{root} does not exist"))?;
     let projects: Vec<Project> = crate::projects::list(app).await?.into_iter().map(|p| on_home(app, p)).collect();
     let project = project_for_root(&projects, &root).await
         .with_context(|| format!("{} is not a registered project or one of its worktrees", root.display()))?;
@@ -336,7 +336,7 @@ async fn commit_diff_file_at(env: &UserEnv, root: &Path, sha: &str, path: &str) 
 /// The main checkout of a linked worktree, checked against git's own records: the worktree's `.git`
 /// file points to `<main>/.git/worktrees/<name>`, whose `gitdir` file points back to the worktree.
 pub(crate) async fn main_worktree(root: &Path) -> Option<PathBuf> {
-    use crate::hostfs::{canonicalize, read_to_string};
+    use crate::files::{canonicalize, read_to_string};
     let dir = crate::git::git_dir(root).await?;
     let back = read_to_string(dir.join("gitdir")).await.ok()?;
     if canonicalize(crate::git::resolve_on(&dir, back.trim())).await.ok()? != canonicalize(root.join(".git")).await.ok()? {
@@ -361,15 +361,15 @@ async fn repository_root(root: &Path) -> Option<PathBuf> {
 /// repo/sub never grants the code API access to the whole repository or sibling folders.
 pub(crate) async fn project_for_root(projects: &[Project], root: &Path) -> Option<Project> {
     for p in projects {
-        if crate::hostfs::canonicalize(&p.path).await.is_ok_and(|path| path == root) {
+        if crate::files::canonicalize(&p.path).await.is_ok_and(|path| path == root) {
             return Some(p.clone());
         }
     }
     let checkout = repository_root(root).await?;
     let main = main_worktree(&checkout).await?;
-    let counterpart = crate::hostfs::canonicalize(main.join(root.strip_prefix(&checkout).ok()?)).await.ok()?;
+    let counterpart = crate::files::canonicalize(main.join(root.strip_prefix(&checkout).ok()?)).await.ok()?;
     for p in projects {
-        if crate::hostfs::canonicalize(&p.path).await.is_ok_and(|path| path == counterpart) {
+        if crate::files::canonicalize(&p.path).await.is_ok_and(|path| path == counterpart) {
             return Some(p.clone());
         }
     }
@@ -387,7 +387,7 @@ fn check_path(path: &str) -> Result<&Path> {
 
 /// The file on disk, after following symlinks, must stay inside the root.
 async fn inside(root: &Path, rel: &Path) -> Result<PathBuf> {
-    let full = crate::hostfs::canonicalize(root.join(rel)).await.with_context(|| format!("{} does not exist", rel.display()))?;
+    let full = crate::files::canonicalize(root.join(rel)).await.with_context(|| format!("{} does not exist", rel.display()))?;
     if !full.starts_with(root) {
         bail!("{} is outside the folder", rel.display());
     }
@@ -457,9 +457,9 @@ pub async fn sources(app: &App, project: &Project) -> Result<CodeSources> {
                 branch = Some(b.trim_start_matches("refs/heads/").to_string());
             }
         }
-        let Some(path) = path.map(|p| PathBuf::from(crate::hosts::loc::rehost(&project.path, &p)).join(subdir).to_string_lossy().into_owned()) else { continue };
-        if !crate::hostfs::is_dir(&path).await { continue }
-        let path = crate::hostfs::canonicalize(&path).await.map(|p| p.to_string_lossy().into_owned()).unwrap_or(path);
+        let Some(path) = path.map(|p| PathBuf::from(String::from(&p)).join(subdir).to_string_lossy().into_owned()) else { continue };
+        if !crate::files::is_dir(&path).await { continue }
+        let path = crate::files::canonicalize(&path).await.map(|p| p.to_string_lossy().into_owned()).unwrap_or(path);
         let is_main = path == project.path;
         worktrees.push(Worktree { path, branch, main: is_main });
     }
@@ -523,7 +523,7 @@ async fn base(env: &UserEnv, src: &Source) -> Option<(String, String)> {
 pub async fn files(app: &App, src: &Source) -> Result<FileList> {
     let env = &app.env;
     if !src.git {
-        let files = crate::hostfs::walk(&src.root).await?;
+        let files = crate::files::walk(&src.root).await?;
         return Ok(FileList { git: false, files, changes: BTreeMap::new(), base: None });
     }
     let root = &src.root;
@@ -617,14 +617,14 @@ async fn read(env: &UserEnv, src: &Source, path: &str, limit: u64) -> Result<std
         }
         None => {
             let full = inside(&src.root, rel).await?;
-            let meta = crate::hostfs::metadata(&full).await?;
+            let meta = crate::files::metadata(&full).await?;
             if meta.is_dir() {
                 bail!("{path} is a folder (a git submodule?)");
             }
             if meta.len > limit {
                 return Ok(Err(meta.len));
             }
-            Ok(Ok(crate::hostfs::read_limited(&full, limit).await?))
+            Ok(Ok(crate::files::read_limited(&full, limit).await?))
         }
     }
 }
@@ -634,7 +634,7 @@ pub async fn raw(app: &App, src: &Source, path: &str) -> Result<Vec<u8>> {
     read(&app.env, src, path, 4 * MAX_LOAD).await?.map_err(|size| anyhow::anyhow!("{path} is too large ({size} bytes)"))
 }
 
-/// Files on SSH hosts and git objects are read at once, up to this size.
+/// Git objects are read at once, up to this size.
 const MAX_DOWNLOAD: u64 = 512 * 1024 * 1024;
 
 /// Bytes of a download: a working-tree file on this computer streams from disk at any size.
@@ -644,9 +644,9 @@ pub enum Download {
 }
 
 pub async fn download(app: &App, src: &Source, path: &str) -> Result<Download> {
-    if src.rev.is_none() && crate::hosts::loc::split_path(&src.root).is_none() {
+    if src.rev.is_none() {
         let full = inside(&src.root, check_path(path)?).await?;
-        let meta = crate::hostfs::metadata(&full).await?;
+        let meta = crate::files::metadata(&full).await?;
         if meta.is_dir() {
             bail!("{path} is a folder");
         }
@@ -949,10 +949,10 @@ pub async fn commit(app: &App, src: &Source) -> Result<CommitInfo> {
 /// Filename completion without computing working-tree diffs. Ignore-aware walking includes empty
 /// folders; ls-files also includes tracked dotfiles and tracked files covered by ignore rules.
 pub async fn prompt_paths(app: &App, src: &Source) -> Result<Vec<String>> {
-    let mut paths: std::collections::BTreeSet<String> = crate::hostfs::walk_paths(&src.root, true).await?.into_iter().collect();
+    let mut paths: std::collections::BTreeSet<String> = crate::files::walk_paths(&src.root, true).await?.into_iter().collect();
     if src.git {
         for path in split_z(&run_raw(&app.env, &src.root, &["ls-files", "--cached", "--deduplicate", "-z"]).await?) {
-            if !paths.contains(&path) && crate::hostfs::is_file(src.root.join(&path)).await { paths.insert(path); }
+            if !paths.contains(&path) && crate::files::is_file(src.root.join(&path)).await { paths.insert(path); }
         }
     }
     let parents: Vec<_> = paths.iter().flat_map(|p| p.match_indices('/').map(|(i, _)| p[..=i].to_string())).collect();

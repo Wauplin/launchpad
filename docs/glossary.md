@@ -4,7 +4,7 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 
 | Use | Instead of | Meaning |
 | --- | --- | --- |
-| Folder | project, Add project, projects root folder | A directory registered in Launchpad (local or on a host). "Project" stays in the code. The projects root is the "Folders root". |
+| Folder | project, Add project, projects root folder | A directory registered in Launchpad. "Project" stays in the code. The projects root is the "Folders root". |
 | Temporary folder | scratch folder, New scratch folder | An empty folder Launchpad created for an agent in `<data_dir>/tmp/`; saved on Home at every turn end; removed when its last agent is archived and deleted from Home 30 days later (Resume brings it back until then), unless you click **Keep as folder** (move and rename into the folders root). The `tmp-MMDD-` prefix stays hidden. |
 | Worktree / Checkout | task worktree, Agent branches, Open worktree, Project checkout | Worktree: a task's own branch and folder. Checkout: the folder's main working copy. |
 | Local PR | pre-draft PR, pre-draft, Local pre-draft | A PR prepared in Launchpad on a branch of Home Git, published or merged with a click. |

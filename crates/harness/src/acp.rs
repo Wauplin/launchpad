@@ -112,8 +112,6 @@ impl Connection {
             let error = error.or_else(|| match status {
                 Ok(status) if status.success() || conn.stopping.load(Ordering::SeqCst) => None,
                 Ok(status) => Some(format!("ACP process exited ({status})")),
-                // Ended on an unreachable host: Interrupted, resumable there.
-                Err(error) if launchpad_core::exec::is_lost(&error) => None,
                 Err(error) => Some(error.to_string()),
             });
             let _ = conn.incoming.send(Incoming::Exited(error));

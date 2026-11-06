@@ -1,17 +1,13 @@
 // Settings part of the demo world: harness descriptors and models, devices, terminals, sign-in checks, usage history
-// and the SSH configuration. Status, configuration and profiles live in `core.ts`.
+// and Home and runners. Status, configuration and profiles live in `core.ts`.
 
 import type { AgentRun } from "@/gen/AgentRun";
 import type { BurstRun } from "@/gen/BurstRun";
 import type { RunnerStatus } from "@/gen/RunnerStatus";
-import type { Check } from "@/gen/Check";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessDescriptor } from "@/gen/HarnessDescriptor";
-import type { HostStatus } from "@/gen/HostStatus";
 import type { ModelInfo } from "@/gen/ModelInfo";
-import type { Profile } from "@/gen/Profile";
 import type { SignInCheck } from "@/gen/SignInCheck";
-import type { SshConfigHost } from "@/gen/SshConfigHost";
 import type { TerminalInfo } from "@/gen/TerminalInfo";
 import { clock } from "../daemon";
 import { P, ROOT, USER } from "./ids";
@@ -129,37 +125,7 @@ export function settingsWorld() {
     check: { id: "huggingface", profile: null, name: "Hugging Face CLI", cli_found: true, signed_in: true, detail: `Account ${USER}`, command: "hf auth login" },
     account: USER,
   };
-  const sshConfig: SshConfigHost[] = [
-    { alias: "gpu-box", hostname: "gpu-box.lan", user: "demo", proxy_jump: null },
-    { alias: "build-runner", hostname: "10.0.4.17", user: "ci", proxy_jump: "bastion" },
-  ];
-  return { harnesses, harnessDefaults, routerModels, devices, terminals, githubCheck: gh, huggingface, sshConfig, agentRuns: agentRuns(), homeFolder: HOME, ...homeWorld() };
-}
-
-/** Preflight checks of a connected demo host (`POST /api/hosts/{id}/checks`), with one entry per profile that has an environment. */
-export function hostChecks(destination: string, profiles: Profile[]): Check[] {
-  const check = (id: string, name: string, detail: string, extra: Partial<Check> = {}): Check => ({ id, name, ok: true, detail, command: null, found: null, signed_in: null, ...extra });
-  return [
-    check("ssh", "SSH connection", `to ${destination} · 18 ms · system OpenSSH with your ~/.ssh/config`),
-    check("system", "System", "Linux x86_64 · user demo"),
-    check("helper", "Launchpad helper", "Installed in ~/.local/share/launchpad-host, build demo (same as this daemon)"),
-    check("git", "Git", "git version 2.x"),
-    check("gh", "GitHub CLI", `Signed in as ${USER} · publication and merges push from this host`),
-    check("claude", "Claude Code", "2.1.0 · signed in · same account as this computer", { found: true, signed_in: true }),
-    check("codex", "Codex", "0.80.0 · signed in · same account as this computer", { found: true, signed_in: true }),
-    check("opencode", "OpenCode", "1.2.0 · signed in", { found: true, signed_in: true }),
-    ...profiles.filter((p) => Object.keys(p.env).length).map((p) => check(`profile:${p.id}`, p.name, "signed in", { found: true, signed_in: true })),
-  ];
-}
-
-/** The `gpu-box` SSH machine, connected and checked. */
-export function demoHost(id: string, destination: string, profiles: Profile[], projectsRoot = "~/projects"): HostStatus {
-  return {
-    host: { id, destination, port: null, projects_root: projectsRoot, created_at: clock.ago(60 * 24 * 20) },
-    state: "connected", error: null, since: clock.ago(42),
-    info: { os: "Linux", arch: "x86_64", home: HOME, user: "demo", shell: "/bin/bash", cli: `${HOME}/.local/share/launchpad-host/bin/demo/launchpad` },
-    latency_ms: 18, prompt: null, checks: hostChecks(destination, profiles), checked_at: clock.ago(41),
-  };
+  return { harnesses, harnessDefaults, routerModels, devices, terminals, githubCheck: gh, huggingface, agentRuns: agentRuns(), homeFolder: HOME, ...homeWorld() };
 }
 
 /** Home and runners (the "Home & runners" chapter switches the demo to the Home role): the owner's laptop runner

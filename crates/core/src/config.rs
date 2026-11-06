@@ -138,10 +138,6 @@ pub struct Profile {
     /// Rolling spending limits of a pay-as-you-go profile, summed over all its sessions.
     #[serde(default)]
     pub spend_limits: Vec<SpendLimit>,
-    /// On SSH hosts, resolve `${NAME}` references on this computer and send the values with the process
-    /// start. Otherwise the host resolves them from its own login shell. Literal values are always sent.
-    #[serde(default)]
-    pub send_credentials: bool,
     /// The harness login in Home's vault (Settings → Credentials and tools). None: the harness's first login.
     #[serde(default)]
     pub login: Option<String>,

@@ -18,7 +18,7 @@ pub trait Extensions: Send + Sync {
     /// A turn ended: routine run records and `session_done` triggers (`crons::turn_ended`).
     fn turn_ended(&self, _app: &App, _session: &Session) {}
     /// Instructions added to a session's initial prompt about agent-written GitHub text and channels.
-    fn suggestion_instruction(&self, _app: &App, _session_id: &str, _cwd: &str) -> Option<String> {
+    fn suggestion_instruction(&self, _app: &App, _session_id: &str) -> Option<String> {
         None
     }
     /// A bot was paused or resumed: its routines follow.

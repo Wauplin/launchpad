@@ -1,17 +1,11 @@
-//! Commands on this computer or on an SSH host. The host comes from the working folder (`devbox:/path`)
-//! or from a host environment (`UserEnv::for_host`); host locations in arguments become native paths.
-//! On a host, the helper runs the command with the host's login-shell environment plus the variables
-//! set here, and owns long-running processes so they survive a lost connection.
+//! Commands started by the daemon, with the user environment and, for contained sessions, in a jail.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context as TaskContext, Poll};
 
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::hosts::{Conn, RemoteProc, loc};
 use crate::shellenv::UserEnv;
 
 pub type Stdin = Box<dyn AsyncWrite + Send + Unpin>;
@@ -76,31 +70,12 @@ pub struct Output {
     pub stderr: Vec<u8>,
 }
 
-/// A process on a host that ended while the host was unreachable (the host or its helper restarted).
-/// The turn is Interrupted, never Done or Failed on a guess.
-#[derive(Debug)]
-pub struct ProcessLost(pub String);
-impl std::fmt::Display for ProcessLost {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-impl std::error::Error for ProcessLost {}
-
-pub fn is_lost(e: &std::io::Error) -> bool {
-    e.get_ref().is_some_and(|inner| inner.is::<ProcessLost>())
-}
-
-fn io_error(e: anyhow::Error) -> std::io::Error {
-    std::io::Error::other(format!("{e:#}"))
-}
-
 pub struct Cmd {
     program: String,
     args: Vec<OsString>,
     envs: Vec<(OsString, OsString)>,
     cwd: Option<PathBuf>,
-    /// The user environment of this computer, or the overrides of a host environment.
+    /// The user environment.
     env: UserEnv,
     io: [Option<Io>; 3],
     kill_on_drop: bool,
@@ -125,7 +100,7 @@ impl Cmd {
         }
     }
 
-    /// Harness children also die with the daemon (`PR_SET_PDEATHSIG`) on this computer.
+    /// Harness children also die with the daemon (`PR_SET_PDEATHSIG`).
     pub(crate) fn child(mut self) -> Cmd {
         self.child = true;
         self
@@ -164,7 +139,7 @@ impl Cmd {
         }
         self
     }
-    /// Runs the command in a jail (on this computer).
+    /// Runs the command in a jail.
     pub fn jail(&mut self, jail: Option<Arc<crate::jail::Jail>>) -> &mut Self {
         self.env = self.env.jailed(jail);
         self
@@ -193,16 +168,6 @@ impl Cmd {
     pub fn kill_on_drop(&mut self, kill: bool) -> &mut Self {
         self.kill_on_drop = kill;
         self
-    }
-
-    /// The host that runs the command, None for this computer.
-    pub fn host(&self) -> std::io::Result<Option<String>> {
-        let from_cwd = self.cwd.as_deref().and_then(loc::host_of_path);
-        match (from_cwd, self.env.host()) {
-            (Some(a), Some(b)) if a != b => Err(std::io::Error::other(format!("the folder is on {a} but the command runs on {b}"))),
-            (Some(a), _) => Ok(Some(a.to_string())),
-            (None, b) => Ok(b.map(str::to_string)),
-        }
     }
 
     fn local(&self) -> tokio::process::Command {
@@ -253,18 +218,6 @@ impl Cmd {
         cmd
     }
 
-    /// Program, arguments, folder and variables as the host sees them.
-    fn remote_parts(&self, host: &str) -> (Vec<String>, Option<String>, Vec<(String, String)>) {
-        let local = |s: &OsStr| loc::localize_arg(host, &s.to_string_lossy());
-        let mut argv = vec![self.program.clone()];
-        argv.extend(self.args.iter().map(|a| local(a)));
-        let cwd = self.cwd.as_ref().map(|c| loc::native(&c.to_string_lossy()).to_string());
-        // A host environment holds only overrides; this computer's variables never go to a host.
-        let mut env: Vec<(String, String)> = if self.env.host().is_some() { self.env.vars().iter().map(|(k, v)| (k.clone(), loc::localize_arg(host, v))).collect() } else { vec![] };
-        env.extend(self.envs.iter().map(|(k, v)| (k.to_string_lossy().into_owned(), local(v))));
-        (argv, cwd, env)
-    }
-
     pub async fn output(&mut self) -> std::io::Result<Output> {
         if self.process_tree {
             if self.io[1].is_none() { self.stdout(Io::Piped); }
@@ -279,39 +232,27 @@ impl Cmd {
             }
             return child.wait_with_output().await;
         }
-        match self.host()? {
-            None => {
-                let mut cmd = self.local();
-                if self.io[1].is_none() {
-                    cmd.stdout(std::process::Stdio::piped());
-                }
-                if self.io[2].is_none() {
-                    cmd.stderr(std::process::Stdio::piped());
-                }
-                let Some(data) = self.stdin_data.clone() else {
-                    let out = cmd.output().await?;
-                    return Ok(Output { status: out.status.into(), stdout: out.stdout, stderr: out.stderr });
-                };
-                cmd.stdin(std::process::Stdio::piped());
-                let mut child = cmd.spawn()?;
-                if let Some(mut w) = child.stdin.take() {
-                    tokio::spawn(async move {
-                        use tokio::io::AsyncWriteExt;
-                        let _ = w.write_all(&data).await;
-                    });
-                }
-                let out = child.wait_with_output().await?;
-                Ok(Output { status: out.status.into(), stdout: out.stdout, stderr: out.stderr })
-            }
-            Some(host) => {
-                let conn = crate::hosts::conn(&host).map_err(io_error)?;
-                let (argv, cwd, env) = self.remote_parts(&host);
-                let stdin = self.stdin_data.clone().map(crate::hosts::proto::B64);
-                let v = conn.request(crate::hosts::proto::Op::Exec { argv, cwd, env, stdin }).await.map_err(io_error)?;
-                let r: crate::hosts::proto::ExecResult = serde_json::from_value(v).map_err(|e| io_error(e.into()))?;
-                Ok(Output { status: ExitStatus { code: r.code, signal: r.signal }, stdout: r.stdout.0, stderr: r.stderr.0 })
-            }
+        let mut cmd = self.local();
+        if self.io[1].is_none() {
+            cmd.stdout(std::process::Stdio::piped());
         }
+        if self.io[2].is_none() {
+            cmd.stderr(std::process::Stdio::piped());
+        }
+        let Some(data) = self.stdin_data.clone() else {
+            let out = cmd.output().await?;
+            return Ok(Output { status: out.status.into(), stdout: out.stdout, stderr: out.stderr });
+        };
+        cmd.stdin(std::process::Stdio::piped());
+        let mut child = cmd.spawn()?;
+        if let Some(mut w) = child.stdin.take() {
+            tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                let _ = w.write_all(&data).await;
+            });
+        }
+        let out = child.wait_with_output().await?;
+        Ok(Output { status: out.status.into(), stdout: out.stdout, stderr: out.stderr })
     }
 
     pub async fn status(&mut self) -> std::io::Result<ExitStatus> {
@@ -319,51 +260,35 @@ impl Cmd {
     }
 
     pub async fn spawn(&mut self) -> std::io::Result<Proc> {
-        match self.host()? {
-            None => {
-                let mut child = self.local().spawn()?;
-                #[cfg(target_os = "macos")]
-                let group_guard = if self.process_tree {
-                    match MacGroupGuard::start(child.id().expect("spawned process has a PID")) {
-                        Ok(guard) => Some(guard),
-                        Err(e) => {
-                            if let Some(pid) = child.id() { kill_tree(pid, true); }
-                            let _ = child.wait().await;
-                            return Err(e);
-                        }
-                    }
-                } else { None };
-                Ok(Proc {
-                    stdin: child.stdin.take().map(|w| Box::new(w) as Stdin),
-                    stdout: child.stdout.take().map(|r| Box::new(r) as Reader),
-                    stderr: child.stderr.take().map(|r| Box::new(r) as Reader),
-                    tree_pid: if self.process_tree { child.id() } else { None },
-                    inner: Inner::Local(child),
-                    #[cfg(target_os = "macos")]
-                    group_guard,
-                })
+        let mut child = self.local().spawn()?;
+        #[cfg(target_os = "macos")]
+        let group_guard = if self.process_tree {
+            match MacGroupGuard::start(child.id().expect("spawned process has a PID")) {
+                Ok(guard) => Some(guard),
+                Err(e) => {
+                    if let Some(pid) = child.id() { kill_tree(pid, true); }
+                    let _ = child.wait().await;
+                    return Err(e);
+                }
             }
-            Some(host) => {
-                let conn = crate::hosts::conn(&host).map_err(io_error)?;
-                let (argv, cwd, env) = self.remote_parts(&host);
-                let stdin = self.io[0] == Some(Io::Piped);
-                let (p, [out, err]) = conn.spawn(argv, cwd, env, None, stdin).await.map_err(io_error)?;
-                Ok(Proc::remote(conn, p, out, err, stdin, self.io[1] == Some(Io::Piped), self.io[2] == Some(Io::Piped), self.kill_on_drop))
-            }
-        }
+        } else { None };
+        Ok(Proc {
+            stdin: child.stdin.take().map(|w| Box::new(w) as Stdin),
+            stdout: child.stdout.take().map(|r| Box::new(r) as Reader),
+            stderr: child.stderr.take().map(|r| Box::new(r) as Reader),
+            tree_pid: if self.process_tree { child.id() } else { None },
+            child,
+            #[cfg(target_os = "macos")]
+            group_guard,
+        })
     }
-}
-
-enum Inner {
-    Local(tokio::process::Child),
-    Remote { conn: Arc<Conn>, p: Arc<RemoteProc>, kill_on_drop: bool },
 }
 
 pub struct Proc {
     pub stdin: Option<Stdin>,
     pub stdout: Option<Reader>,
     pub stderr: Option<Reader>,
-    inner: Inner,
+    child: tokio::process::Child,
     tree_pid: Option<u32>,
     #[cfg(target_os = "macos")]
     group_guard: Option<MacGroupGuard>,
@@ -412,7 +337,6 @@ impl Drop for MacGroupGuard {
 pub enum Killer {
     Local(Option<u32>),
     LocalTree(u32),
-    Remote(Arc<Conn>, Arc<RemoteProc>),
 }
 
 impl Killer {
@@ -435,10 +359,6 @@ impl Killer {
                 }
             }
             Killer::Local(None) => {}
-            #[cfg(unix)]
-            Killer::Remote(conn, p) => conn.signal(p, if force { libc::SIGKILL } else { libc::SIGTERM }, true),
-            #[cfg(not(unix))]
-            Killer::Remote(conn, p) => conn.signal(p, if force { 9 } else { 15 }, true),
         }
     }
 }
@@ -455,60 +375,26 @@ fn kill_tree(pid: u32, force: bool) {
 }
 
 impl Proc {
-    /// A process on a host, with the pipes the caller asked for.
-    #[allow(clippy::too_many_arguments)]
-    pub fn remote(conn: Arc<Conn>, p: Arc<RemoteProc>, out: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>, err: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>, stdin: bool, stdout: bool, stderr: bool, kill_on_drop: bool) -> Proc {
-        Proc {
-            stdin: stdin.then(|| Box::new(RemoteStdin { conn: conn.clone(), p: p.clone() }) as Stdin),
-            stdout: stdout.then(|| Box::new(ChanReader::new(out)) as Reader),
-            stderr: stderr.then(|| Box::new(ChanReader::new(err)) as Reader),
-            inner: Inner::Remote { conn, p, kill_on_drop },
-            tree_pid: None,
-            #[cfg(target_os = "macos")]
-            group_guard: None,
-        }
-    }
-
     pub fn id(&self) -> Option<u32> {
-        match &self.inner {
-            Inner::Local(c) => c.id(),
-            Inner::Remote { .. } => None,
-        }
+        self.child.id()
     }
 
     pub fn killer(&self) -> Killer {
-        match &self.inner {
-            Inner::Local(c) => self.tree_pid.map(Killer::LocalTree).unwrap_or_else(|| Killer::Local(c.id())),
-            Inner::Remote { conn, p, .. } => Killer::Remote(conn.clone(), p.clone()),
-        }
+        self.tree_pid.map(Killer::LocalTree).unwrap_or_else(|| Killer::Local(self.child.id()))
     }
 
     pub async fn wait(&mut self) -> std::io::Result<ExitStatus> {
-        match &mut self.inner {
-            Inner::Local(c) => {
-                let status = c.wait().await?;
-                // A shell can exit while detached descendants still write into its folder.
-                if let Some(pid) = self.tree_pid.take() { kill_tree(pid, true); }
-                #[cfg(target_os = "macos")]
-                if let Some(mut guard) = self.group_guard.take() { guard.finish().await; }
-                Ok(status.into())
-            },
-            Inner::Remote { conn, p, .. } => conn.wait(p).await,
-        }
+        let status = self.child.wait().await?;
+        // A shell can exit while detached descendants still write into its folder.
+        if let Some(pid) = self.tree_pid.take() { kill_tree(pid, true); }
+        #[cfg(target_os = "macos")]
+        if let Some(mut guard) = self.group_guard.take() { guard.finish().await; }
+        Ok(status.into())
     }
 
     pub fn start_kill(&mut self) -> std::io::Result<()> {
         if let Some(pid) = self.tree_pid { kill_tree(pid, true); }
-        match &mut self.inner {
-            Inner::Local(c) => c.start_kill(),
-            Inner::Remote { conn, p, .. } => {
-                #[cfg(unix)]
-                conn.signal(p, libc::SIGKILL, true);
-                #[cfg(not(unix))]
-                conn.signal(p, 9, true);
-                Ok(())
-            }
-        }
+        self.child.start_kill()
     }
 
     pub async fn kill(&mut self) -> std::io::Result<()> {
@@ -551,73 +437,5 @@ impl Proc {
 impl Drop for Proc {
     fn drop(&mut self) {
         if let Some(pid) = self.tree_pid { kill_tree(pid, true); }
-        if let Inner::Remote { conn, p, kill_on_drop: true } = &self.inner
-            && !p.exited()
-        {
-            conn.release(p);
-        }
-    }
-}
-
-struct RemoteStdin {
-    conn: Arc<Conn>,
-    p: Arc<RemoteProc>,
-}
-
-impl AsyncWrite for RemoteStdin {
-    fn poll_write(self: Pin<&mut Self>, _: &mut TaskContext<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
-        if self.p.exited() {
-            return Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "the process has exited")));
-        }
-        self.conn.write(&self.p, buf);
-        Poll::Ready(Ok(buf.len()))
-    }
-    fn poll_flush(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
-        Poll::Ready(Ok(()))
-    }
-    fn poll_shutdown(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
-        self.conn.close_input(&self.p);
-        Poll::Ready(Ok(()))
-    }
-}
-
-impl Drop for RemoteStdin {
-    fn drop(&mut self) {
-        self.conn.close_input(&self.p);
-    }
-}
-
-/// Output chunks from the connection as a byte stream; EOF once the process exited (or was lost).
-pub struct ChanReader {
-    rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
-    buf: Vec<u8>,
-    pos: usize,
-}
-
-impl ChanReader {
-    pub fn new(rx: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>) -> ChanReader {
-        ChanReader { rx, buf: vec![], pos: 0 }
-    }
-}
-
-impl AsyncRead for ChanReader {
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>, out: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
-        loop {
-            if self.pos < self.buf.len() {
-                let n = (self.buf.len() - self.pos).min(out.remaining());
-                let pos = self.pos;
-                out.put_slice(&self.buf[pos..pos + n]);
-                self.pos += n;
-                return Poll::Ready(Ok(()));
-            }
-            match self.rx.poll_recv(cx) {
-                Poll::Ready(Some(chunk)) => {
-                    self.buf = chunk;
-                    self.pos = 0;
-                }
-                Poll::Ready(None) => return Poll::Ready(Ok(())),
-                Poll::Pending => return Poll::Pending,
-            }
-        }
     }
 }

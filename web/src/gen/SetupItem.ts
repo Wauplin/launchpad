@@ -8,7 +8,7 @@ import type { MissingPart } from "./MissingPart";
 export type SetupItem = { 
 /**
  * `github`, `git`, `profile`, `jail`, `vault_login`, `vault_git`, `folder`, `presets`, `devices`, `huggingface`,
- * `hosts` or `extension`.
+ * or `extension`.
  */
 id: string, title: string, importance: Importance, state: ItemState, why: string, found: Array<Found>, missing: Array<MissingPart>, 
 /**

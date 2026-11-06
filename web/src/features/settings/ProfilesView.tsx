@@ -23,7 +23,6 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
-import { useHosts } from "@/lib/hosts";
 import { useConfig, useHarnessDefaults, useStatus, type ConfigResponse } from "@/lib/queries";
 import { costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, usesModelReference, useProfileModels, windowLabel } from "@/lib/profiles";
 import { useOpenTerminal } from "@/features/terminals/lib";
@@ -72,7 +71,7 @@ let nextKey = 0;
 const toDraft = (v: Profile): Draft => ({ ...v, key: `saved-${v.id}`, env: Object.entries(v.env).map(([k, x]) => [k, x ?? ""]), budget: v.budget_usd == null ? "" : String(v.budget_usd), limits: v.spend_limits.map(toLimitDraft), saved: true, template: null });
 
 /** Key order does not matter in the comparison with the saved profiles. */
-const canonical = (v: Profile) => [v.id, v.name, v.harness, Object.entries(v.env).sort(), v.model, v.effort, v.billing, v.budget_usd, v.models_url, v.spend_limits.map((l) => [l.usd, l.hours]), v.send_credentials, v.login];
+const canonical = (v: Profile) => [v.id, v.name, v.harness, Object.entries(v.env).sort(), v.model, v.effort, v.billing, v.budget_usd, v.models_url, v.spend_limits.map((l) => [l.usd, l.hours]), v.login];
 
 function slug(name: string, taken: string[]) {
   const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "profile";
@@ -116,29 +115,18 @@ function source(d: Draft, harness: HarnessDescriptor | undefined): string {
 const useSignIn = () => useQuery({ queryKey: ["sign-in"], queryFn: () => api.get<SignInCheck[]>("/api/setup/sign-in"), staleTime: 60_000 });
 
 /** Whether a profile can run on one machine: installed and signed in, from the last check. */
-type Machine = { host: string | null; label: string; installed: boolean | null; signedIn: boolean | null; detail: string; command: string | null; reachable: boolean };
+type Machine = { label: string; installed: boolean | null; signedIn: boolean | null; detail: string; command: string | null; reachable: boolean };
 
 function useMachines(d: Draft): Machine[] {
   const local = useSignIn().data;
-  const hosts = useHosts();
   const own = d.env.length > 0;
   const mine = local?.find((c) => (own ? c.profile === d.id : c.profile === null && c.id === d.harness));
   const rows: Machine[] = [{
-    host: null, label: "This computer", reachable: true,
+    label: "This computer", reachable: true,
     installed: mine ? mine.cli_found : null, signedIn: mine?.cli_found ? mine.signed_in : null,
     detail: !mine ? "Checking…" : !mine.cli_found ? "Not installed" : mine.signed_in === true ? `Signed in${mine.detail ? ` · ${mine.detail}` : ""}` : mine.signed_in === false ? `Not signed in${mine.detail ? ` · ${mine.detail}` : ""}` : `Sign-in unknown${mine.detail ? ` · ${mine.detail}` : ""}`,
     command: mine && mine.signed_in !== true ? mine.command : null,
   }];
-  for (const h of hosts) {
-    const c = h.checks.find((x) => x.id === (own ? `profile:${d.id}` : d.harness));
-    const reachable = h.state === "connected";
-    rows.push({
-      host: h.host.id, label: h.host.id, reachable,
-      installed: c?.found ?? null, signedIn: c?.signed_in ?? null,
-      detail: !reachable ? (h.state === "connecting" ? "Connecting…" : "Not connected") : !c ? "Not checked yet" : c.detail,
-      command: c?.command ?? null,
-    });
-  }
   return rows;
 }
 
@@ -223,7 +211,7 @@ export function ProfilesView() {
     for (let i = 2; name && taken.includes(name); i++) name = `${base} ${i}`;
     const billing = t?.billing ?? (h.capabilities.quota ? "subscription" : "pay_as_you_go");
     const key = `new-${nextKey++}`;
-    setDrafts((all) => all && [...all, { key, id: "", name, harness: h.id, env: t ? t.env.map(([k, v]) => [k, v]) : [], model: null, effort: null, billing, budget: "", limits: [], models_url: t?.models_url ?? null, send_credentials: false, login: null, saved: false, template: t }]);
+    setDrafts((all) => all && [...all, { key, id: "", name, harness: h.id, env: t ? t.env.map(([k, v]) => [k, v]) : [], model: null, effort: null, billing, budget: "", limits: [], models_url: t?.models_url ?? null, login: null, saved: false, template: t }]);
     setOpen((o) => new Set(o).add(key));
     setAdding(false);
   };
@@ -324,7 +312,7 @@ function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDel
           {d.saved && status?.role !== "home" && machines.map((m) => (
             <span key={m.label} className="inline-flex items-center gap-1" title={`${m.label}: ${m.detail}`}>
               <i className={`inline-block size-1.5 rounded-full ${machineTone(m)}`} aria-hidden />
-              <span className="text-ink-2">{m.host ?? "This computer"}</span>
+              <span className="text-ink-2">{m.label}</span>
             </span>
           ))}
           {d.saved ? <ConfirmButton icon="trash" title={`Delete ${d.name || "profile"}`} consequence="Sessions using it fail on resume." confirmLabel="Delete" onConfirm={onDelete}>{""}</ConfirmButton> : <button className="iconbtn" title="Discard this new profile" aria-label="Discard this new profile" onClick={() => void onDelete()}><Icon name="trash" size={14} /></button>}
@@ -363,7 +351,6 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
   // Advanced settings start open while the environment still needs values.
   const [advanced, setAdvanced] = useState(() => !d.saved && d.env.length > 0);
   const setHarness = (h: HarnessDescriptor) => onChange((x) => ({ ...x, harness: h.id, model: null, effort: null, billing: h.capabilities.quota ? x.billing : "pay_as_you_go", budget: h.capabilities.cost ? x.budget : "" }));
-  const references = d.env.some(([, v]) => /\$\{(?!LAUNCHPAD_MODEL\})/.test(v));
   // Keys of a profile that does not use a subscription login are shown at the top level, not under Advanced.
   const credentials = d.billing === "subscription" ? [] : d.env.flatMap(([k], j) => (harness?.env_vars.find((x) => x.name === k.trim())?.secret ? [j] : []));
   return (
@@ -490,23 +477,14 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
             <b className="pt-1 font-[650]">Login</b>
             <VaultLoginSelect kind={harness.vault_login.kind} value={d.login} onChange={(login) => onChange((x) => ({ ...x, login }))} />
           </div>}
-          <div className={row}>
-            <b className="pt-1 font-[650]">SSH hosts</b>
-            <label className="flex items-start gap-2">
-              <input type="checkbox" className="mt-0.5 accent-teal" checked={d.send_credentials} onChange={(e) => onChange((x) => ({ ...x, send_credentials: e.target.checked }))} />
-              <span>Send credentials to SSH hosts <span className="text-ink-3">· {"${NAME}"} references{references ? "" : " (none in this profile)"} are resolved on this computer and sent with each process start on a host, so the host needs no copy of the key. When off, each host resolves them from its own login shell. Literal values are always sent; subscription logins (sign-in files) are never copied.</span></span>
-            </label>
-          </div>
         </>}
       </div>
     </div>
   );
 }
 
-/** Where this profile can run: this computer and each SSH host, with sign-in and install actions. */
+/** Whether this profile runs on this computer, with sign-in and install actions. */
 function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) {
-  const qc = useQueryClient();
-  const hosts = useHosts();
   const terminal = useOpenTerminal();
   const signIn = useSignIn();
   const [checking, setChecking] = useState(false);
@@ -516,8 +494,7 @@ function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) 
   const recheck = async () => {
     setChecking(true);
     try {
-      await Promise.all([signIn.refetch(), ...hosts.filter((h) => h.state === "connected").map((h) => api.post(`/api/hosts/${h.host.id}/checks`))]);
-      void qc.invalidateQueries({ queryKey: ["status"] });
+      await signIn.refetch();
     } catch (e) {
       toastError(e);
     } finally {
@@ -533,8 +510,8 @@ function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) 
               <i className={`inline-block size-2 shrink-0 rounded-full ${machineTone(m)}`} aria-hidden />
               <b className="font-[650]">{m.label}</b>
               <span className="min-w-0 flex-1 truncate text-ink-3" title={m.detail}>{m.detail}</span>
-              {m.reachable && m.installed === false && <button className="btn btn-sm" title="Runs the official install command in a visible terminal" onClick={() => void terminal.profileSetup(d.id, m.host, true)}><Icon name="term" size={12} />Install</button>}
-              {m.reachable && m.installed !== false && m.signedIn !== true && (!m.host && externalSetup() ? <SpaceSettingsButton profile={d.id} label="Sign in from Space settings" /> : <button className="btn btn-sm" title="Runs the sign-in command with this profile's environment in a visible terminal" onClick={() => void terminal.profileSetup(d.id, m.host)}><Icon name="term" size={12} />Sign in</button>)}
+              {m.reachable && m.installed === false && <button className="btn btn-sm" title="Runs the official install command in a visible terminal" onClick={() => void terminal.profileSetup(d.id, true)}><Icon name="term" size={12} />Install</button>}
+              {m.reachable && m.installed !== false && m.signedIn !== true && (externalSetup() ? <SpaceSettingsButton profile={d.id} label="Sign in from Space settings" /> : <button className="btn btn-sm" title="Runs the sign-in command with this profile's environment in a visible terminal" onClick={() => void terminal.profileSetup(d.id)}><Icon name="term" size={12} />Sign in</button>)}
             </span>
             {m.command && m.installed !== false && m.signedIn !== true && (
               <span className="flex flex-wrap items-center gap-2 pl-4">
@@ -547,7 +524,7 @@ function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) 
       </span>
       <span className="flex flex-wrap items-center gap-2">
         <button className="btn btn-sm w-fit" disabled={checking || signIn.isFetching} onClick={() => void recheck()}><Icon name="refresh" size={12} />{checking ? "Checking…" : "Check again"}</button>
-        <span className="text-xs text-ink-3">Launchpad only reads the status; it never signs in or refreshes a token. Profiles not ready on a host are disabled in the composer for its projects.</span>
+        <span className="text-xs text-ink-3">Launchpad only reads the status; it never signs in or refreshes a token.</span>
       </span>
     </span>
   );

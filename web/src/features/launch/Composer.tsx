@@ -1,6 +1,5 @@
 import { OutdatedRunnerNotice, RunnerChoice, runnerName, ToolsChoice, useLaunchRunners, useLaunchTools } from "./LaunchExtras";
 import { isDesktopShell } from "@/lib/platform";
-import { hostOf, profileOnHost, useHosts } from "@/lib/hosts";
 import { isPhone } from "@/lib/phone";
 import { Sheet } from "@/mobile/Sheet";
 import { useStatus } from "@/lib/queries";
@@ -268,7 +267,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   // Published Local PRs stay available: their agents push to the published branch.
   const existingPrChoices = (localPrs.data ?? []).filter((p) => p.project_id === targetId && !p.archived && !p.merged && (!p.pushed_head || !!p.published_url));
   const recentSessions = (sessions ?? []).filter(scope.hasSession);
-  const hosts = useHosts();
   // Recent folders of this workspace, newest first, as one-tap target chips.
   const recentFolders: Project[] = [];
   for (const session of [...recentSessions].sort((a, b) => b.started_at - a.started_at)) {
@@ -340,12 +338,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   // The daemon renders and checks the prompt at launch; Launch does not wait for a preview.
   const agentPresets = availablePresets(config?.presets ?? [], "agent");
   const hasPrompt = !!spec.text.trim() || items > 0 || agentPresets.some((p) => spec.presets.includes(p.id) && p.text.trim());
-  // The host follows from the project: harnesses missing or signed out there cannot launch.
-  const targetHost = hostOf(target?.path);
-  const hostStatus = targetHost ? (hosts.find((h) => h.host.id === targetHost) ?? null) : null;
-  const hostProfile = (p: Profile | null) => (p ? profileOnHost(hostStatus, p) : null);
-  const hostBlocker = targetHost && !hostStatus ? `Unknown host ${targetHost}` : hostStatus?.state === "needs_setup" ? `${targetHost} needs setup in Settings → Machines` : hostProfile(profile)?.ok === false ? hostProfile(profile)!.reason : spec.context_projects.some((c) => hostOf(projects.find((p) => p.id === c.project_id)?.path) !== targetHost) && spec.target.kind !== "temp" ? "Context folders must be on the same machine as the folder" : null;
-  const blocker = editGone ? "This scheduled agent already started or was cancelled" : editing && timing === "later" && !scheduled ? "Add a start condition, or choose Start now" : selectedWorktree?.busy ? "Stop the active agent before using this worktree" : hostBlocker ? hostBlocker : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : !scope.workspace.id ? "Waiting for the workspace to load" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const blocker = editGone ? "This scheduled agent already started or was cancelled" : editing && timing === "later" && !scheduled ? "Add a start condition, or choose Start now" : selectedWorktree?.busy ? "Stop the active agent before using this worktree" : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : !scope.workspace.id ? "Waiting for the workspace to load" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -647,7 +640,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {spec.model && spec.model !== fallbackModel && <Token>{modelLabel}</Token>}
           {!!efforts.length && spec.effort && spec.effort !== (profile?.effort ?? defaults?.effort) && <Token>{effortLabel}</Token>}
           {harness?.capabilities.permission_modes && spec.permission_mode && spec.permission_mode !== "yolo" && <Token>{spec.permission_mode === "auto" ? "Auto approval" : "Ask for approval"}</Token>}
-          {targetHost && <Token warn={hostStatus?.state !== "connected"} title={hostStatus?.state === "connected" ? `The agent runs on ${targetHost}` : `${targetHost} is ${hostStatus?.state ?? "unknown"}: the launch waits up to 25 s for a connection`}>on {targetHost}</Token>}
           {spec.runner_id && <Token warn={launchRunners.some((r) => r.runner.id === spec.runner_id && r.compat === "outdated")} title="The runner this launch goes to">on {runnerName(launchRunners, spec.runner_id)}</Token>}
           {toolsOff.length > 0 && <Token title={`Off for this launch: ${toolsOff.map((t) => t.name).join(", ")}`}>{toolsOff.length} tool{toolsOff.length === 1 ? "" : "s"} off</Token>}
           {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
@@ -710,8 +702,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                 {profiles.map((o) => (
                   <button
                     key={o.id}
-                    title={hostProfile(o)?.ok === false ? hostProfile(o)!.reason : `${harnessName(o.harness)} · ${o.billing === "pay_as_you_go" ? "pay as you go" : "subscription"}`}
-                    disabled={hostProfile(o)?.ok === false}
+                    title={`${harnessName(o.harness)} · ${o.billing === "pay_as_you_go" ? "pay as you go" : "subscription"}`}
                     onClick={() => { setBudgetText(null); set((s) => withProfile(s, o)); }}
                     className={`inline-flex h-[26px] shrink-0 items-center disabled:cursor-not-allowed disabled:opacity-45 gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[13px] ${
                       spec.profile === o.id ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"

@@ -39,20 +39,19 @@ async fn main() -> Result<()> {
         id: "permission-check".into(), name: "Permission check".into(),
         harness: HarnessKind::parse("codex").unwrap(),
         env: [("PERMISSION_CHECK_FIXTURE".into(), "1".into())].into(),
-        model: None, effort: None, billing: Default::default(), budget_usd: None, models_url: None, spend_limits: vec![], send_credentials: false, login: None,
+        model: None, effort: None, billing: Default::default(), budget_usd: None, models_url: None, spend_limits: vec![], login: None,
     });
     config.save(settings)?;
     let state_db = core::db::open_state(&paths.state_db())?;
     let cache_db = core::db::open_cache(&paths.cache_db())?;
     let env = core::shellenv::UserEnv::resolve().await;
     let status = core::status::StatusHandle::new(bus.clone());
-    let hosts = core::hosts::Hosts::start(Arc::new(paths.clone()), env.clone(), state_db.clone(), status.clone()).await?;
     let app = core::App {
         browser: Default::default(),
         runners: Default::default(),
         home_backups: Default::default(),
         proxy: Default::default(),
-        paths: Arc::new(paths.clone()), config, state_db, cache_db: cache_db.clone(), status, hosts,
+        paths: Arc::new(paths.clone()), config, state_db, cache_db: cache_db.clone(), status,
         harnesses: core::harness::Registry::new(&env), github: core::github::GitHub::new(env.clone(), cache_db), env, bus,
         sessions: core::sessions::Sessions::new(), models: Default::default(), extras: Default::default(),
         suggestion_locks: Default::default(),

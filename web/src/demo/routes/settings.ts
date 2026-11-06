@@ -1,15 +1,14 @@
-// Demo routes: harnesses and models, configuration, profiles, sign-in checks, usage history, machines (SSH hosts),
+// Demo routes: harnesses and models, configuration, profiles, sign-in checks, usage history,
 // devices and pairing, and the desktop-only actions (`/api/open`, `/api/window`).
 
 import { toast } from "@/components/Toast";
 import type { Config } from "@/gen/Config";
-import type { HostStatus } from "@/gen/HostStatus";
 import type { QuotaStatus } from "@/gen/QuotaStatus";
 import type { SignInCheck } from "@/gen/SignInCheck";
 import type { ProfileSpend } from "@/gen/ProfileSpend";
 import { clock, DemoError, notInDemo, onClock, publish, route, type DemoRequest } from "../daemon";
 import { world } from "../world";
-import { demoHost, HOME, hostChecks, seeded } from "../world/settings";
+import { seeded } from "../world/settings";
 
 const configResponse = () => ({ config: world.config, error: null, remote: false });
 
@@ -41,8 +40,7 @@ function syncProfiles() {
     const old = world.status.spend.find((s) => s.profile === p.id);
     return { profile: p.id, name: p.name, harness: p.harness, windows: p.spend_limits.map((l) => ({ hours: l.hours, limit_usd: l.usd, used_usd: old?.windows.find((w) => w.hours === l.hours)?.used_usd ?? 0, available_at: null })) };
   });
-  const hosts = world.status.hosts.map((h) => (h.state === "connected" ? { ...h, checks: hostChecks(h.host.destination, profiles), checked_at: clock.now() } : h));
-  world.status = { ...world.status, quotas, spend, hosts };
+  world.status = { ...world.status, quotas, spend };
   publishStatus();
 }
 
@@ -139,24 +137,6 @@ const inRange = (req: DemoRequest) => {
 };
 route("GET", "/api/analytics/runs", (req) => { const ok = inRange(req); return world.agentRuns.filter((r) => ok(r.started_at)); });
 
-// ---------------------------------------------------------------- machines (SSH hosts)
-
-const host = (id: string): HostStatus => world.status.hosts.find((h) => h.host.id === id) ?? notFound(`unknown host ${id}`);
-function setHost(id: string, patch: Partial<HostStatus>) {
-  world.status = { ...world.status, hosts: world.status.hosts.map((h) => (h.host.id === id ? { ...h, ...patch } : h)) };
-  publishStatus();
-}
-/** Connecting takes a moment, then the machine is ready (`connecting` → `connected` with fresh checks). */
-function connect(id: string) {
-  setHost(id, { state: "connecting", since: clock.now(), error: null, info: null, latency_ms: null, checks: [], checked_at: null });
-  setTimeout(() => {
-    const h = world.status.hosts.find((x) => x.host.id === id);
-    if (!h) return;
-    const ready = demoHost(id, h.host.destination, world.config.profiles, h.host.projects_root);
-    setHost(id, { ...ready, host: h.host, since: clock.now(), checked_at: clock.now() });
-  }, 1500);
-}
-
 // Home and runners: the demo runs in one process (role all), except in the "Home & runners" chapter, which
 // switches to the Home role and shows the laptop runner and recent Burst jobs.
 route("GET", "/api/runners", () => (world.status.role === "home" ? world.runners : []));
@@ -238,55 +218,6 @@ route("DELETE", "/api/vault/tools/:id", notInDemo);
 route("PUT", "/api/vault/identity", notInDemo);
 route("POST", "/api/vault/leases/:id/revoke", notInDemo);
 route("GET", "/api/sessions/:id/access", () => []);
-route("GET", "/api/hosts", () => world.status.hosts);
-route("GET", "/api/hosts/ssh-config", () => world.sshConfig);
-route("POST", "/api/hosts", ({ body }) => {
-  const b = body as { destination: string; id?: string | null; port?: number | null; projects_root?: string | null };
-  const destination = b.destination?.trim();
-  if (!destination) throw new DemoError(400, "Enter an SSH destination");
-  const id = (b.id?.trim() || destination.split("@").pop()!.split(".")[0]!).toLowerCase().replace(/[^a-z0-9-]/g, "-");
-  if (world.status.hosts.some((h) => h.host.id === id)) throw new DemoError(400, `a host named ${id} already exists`);
-  const hostRecord = { id, destination, port: b.port ?? null, projects_root: b.projects_root?.trim() || "~/projects", created_at: clock.now() };
-  world.status = { ...world.status, hosts: [...world.status.hosts, { host: hostRecord, state: "connecting", error: null, since: clock.now(), info: null, latency_ms: null, prompt: null, checks: [], checked_at: null }] };
-  connect(id);
-  return hostRecord;
-});
-route("PATCH", "/api/hosts/:id", ({ params, body }) => {
-  const h = host(params.id);
-  const projects_root = (body as { projects_root?: string | null }).projects_root?.trim() || h.host.projects_root;
-  setHost(params.id, { host: { ...h.host, projects_root } });
-  return { ...h.host, projects_root };
-});
-route("DELETE", "/api/hosts/:id", ({ params }) => {
-  host(params.id);
-  const used = world.projects.filter((p) => p.path.startsWith(`${params.id}:`));
-  if (used.length) throw new DemoError(400, `Remove the folders on ${params.id} first: ${used.map((p) => p.name).join(", ")}`);
-  world.status = { ...world.status, hosts: world.status.hosts.filter((h) => h.host.id !== params.id) };
-  publishStatus();
-  return { ok: true };
-});
-route("POST", "/api/hosts/:id/retry", ({ params }) => { host(params.id); connect(params.id); return { ok: true }; });
-route("POST", "/api/hosts/:id/checks", ({ params }) => {
-  const h = host(params.id);
-  const checks = h.state === "connected" ? hostChecks(h.host.destination, world.config.profiles) : [{ id: "ssh", name: "SSH connection", ok: false, detail: h.error ?? "Not connected", command: null, found: null, signed_in: null }];
-  setHost(params.id, { checks, checked_at: clock.now() });
-  return checks;
-});
-route("POST", "/api/hosts/:id/prompt", ({ params }) => { setHost(params.id, { prompt: null }); return { ok: true }; });
-route("GET", "/api/hosts/:id/browse", ({ params, query }) => {
-  const h = host(params.id);
-  if (h.state !== "connected") throw new DemoError(400, `${params.id} is not connected`);
-  const asked = query.get("path")?.trim();
-  const path = !asked ? `${HOME}/projects` : asked === "~" ? HOME : asked.startsWith("~/") ? `${HOME}/${asked.slice(2)}` : asked;
-  if (!path.startsWith("/")) throw new DemoError(400, "use an absolute folder or ~/…");
-  const tree: Record<string, string[]> = {
-    [HOME]: ["datasets", "projects"],
-    [`${HOME}/projects`]: ["inference-bench", "model-training"],
-    [`${HOME}/datasets`]: ["invoices-2026"],
-  };
-  const parent = path === "/" ? null : path.replace(/\/[^/]+\/?$/, "") || "/";
-  return { path, location: `${params.id}:${path}`, parent, home: HOME, git: /\/projects\/[^/]+$/.test(path), entries: (tree[path] ?? []).map((name) => ({ name })) };
-});
 
 // ---------------------------------------------------------------- devices and pairing
 

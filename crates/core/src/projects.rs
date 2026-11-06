@@ -109,7 +109,7 @@ pub async fn list(app: &App) -> Result<Vec<Project>> {
             Ok(rows)
         })
         .await?;
-    refresh_metadata(app, projects, false).await
+    refresh_metadata(app, projects).await
 }
 
 pub async fn get(app: &App, id: &str) -> Result<Option<Project>> {
@@ -118,21 +118,19 @@ pub async fn get(app: &App, id: &str) -> Result<Option<Project>> {
         .state_db
         .call(move |c| Ok(c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE id = ?1"), [id], from_row).optional()?))
         .await?;
-    Ok(refresh_metadata(app, project.into_iter().collect(), false).await?.pop())
+    Ok(refresh_metadata(app, project.into_iter().collect()).await?.pop())
 }
 
-/// Remote metadata is derived from disk, never from the registration-time snapshot. Projects on SSH hosts
-/// are only read by the periodic refresh (`include_hosts`), so listing projects never waits for a network.
-async fn refresh_metadata(app: &App, projects: Vec<Project>, include_hosts: bool) -> Result<Vec<Project>> {
+/// Remote metadata is derived from disk, never from the registration-time snapshot.
+async fn refresh_metadata(app: &App, projects: Vec<Project>) -> Result<Vec<Project>> {
     if projects.is_empty() {
         return Ok(projects);
     }
     let checks = projects.into_iter().map(|mut p| async move {
-        let remote = crate::hosts::loc::host_of(&p.path).is_some();
         // Keep the last known mapping when a folder is temporarily unavailable.
         // Git folders of Home keep the remote they were registered with: Home's mirror and runners' clones
         // are Launchpad's own copies.
-        if (include_hosts || !remote) && !p.home_git && !p.plain && crate::hostfs::is_dir(&p.path).await {
+        if !p.home_git && !p.plain && crate::files::is_dir(&p.path).await {
             let (remote_url, gh_repo, gh_upstream) = remote_info(Path::new(&p.path)).await;
             if p.remote_url != remote_url || p.gh_repo != gh_repo || p.gh_upstream != gh_upstream {
                 (p.remote_url, p.gh_repo, p.gh_upstream) = (remote_url, gh_repo, gh_upstream);
@@ -184,7 +182,7 @@ pub fn spawn(app: &App) {
                 let rows = st.query_map([], from_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
                 Ok(rows)
             }).await;
-            if let Err(e) = async { refresh_metadata(&app, all?, true).await }.await {
+            if let Err(e) = async { refresh_metadata(&app, all?).await }.await {
                 tracing::warn!("project metadata refresh: {e:#}");
             }
         }
@@ -215,7 +213,7 @@ async fn remote_info(path: &Path) -> (Option<String>, Option<String>, Option<Str
 
 /// Registers a folder in a workspace. A folder already registered in the same workspace is returned, an
 /// Unassigned one joins the workspace, and a folder of another workspace is refused: one folder belongs to
-/// one workspace. A folder on an SSH host is `<host>:<path>`.
+/// one workspace.
 pub async fn register(app: &App, path: &Path, is_temp: bool, workspace_id: &str) -> Result<Project> {
     register_as(app, path, is_temp, workspace_id, uuid::Uuid::new_v4().to_string()).await
 }
@@ -223,11 +221,8 @@ pub async fn register(app: &App, path: &Path, is_temp: bool, workspace_id: &str)
 /// `register` with the ID of a new record.
 async fn register_as(app: &App, path: &Path, is_temp: bool, workspace_id: &str, id: String) -> Result<Project> {
     let workspace = crate::workspace::get(app, workspace_id).await.context("choose a workspace for the folder")?;
-    if let Some(host) = crate::hosts::loc::host_of_path(path) {
-        anyhow::ensure!(app.hosts.record(host).is_some(), "unknown host {host}; add it in Settings → Hosts");
-    }
-    let path = crate::hostfs::canonicalize(path).await.with_context(|| format!("{} does not exist", path.display()))?;
-    if !crate::hostfs::is_dir(&path).await {
+    let path = crate::files::canonicalize(path).await.with_context(|| format!("{} does not exist", path.display()))?;
+    if !crate::files::is_dir(&path).await {
         bail!("{} is not a folder", path.display());
     }
     let (remote_url, gh_repo, gh_upstream) = remote_info(&path).await;
@@ -247,7 +242,7 @@ async fn register_as(app: &App, path: &Path, is_temp: bool, workspace_id: &str, 
         workspace_id: Some(workspace.id.clone()),
         runner_id: None,
         // Home and a single-process daemon serve every Git folder from Home Git.
-        home_git: !is_temp && app.paths.role != crate::role::Role::Runner && crate::hosts::loc::host_of_path(&path).is_none() && crate::git::git_dir(&path).await.is_some(),
+        home_git: !is_temp && app.paths.role != crate::role::Role::Runner && crate::git::git_dir(&path).await.is_some(),
         plain: false,
     };
     let saved = p.clone();
@@ -279,7 +274,7 @@ async fn register_as(app: &App, path: &Path, is_temp: bool, workspace_id: &str, 
         };
         bail!("{} is already a folder of {other}; clone the repository again to use it in {}", e.path, workspace.name);
     }
-    let project = refresh_metadata(app, vec![existing.unwrap_or(saved)], true).await?.pop().unwrap();
+    let project = refresh_metadata(app, vec![existing.unwrap_or(saved)]).await?.pop().unwrap();
     app.bus.publish("projects", "changed", serde_json::Value::Null);
     Ok(project)
 }
@@ -344,7 +339,7 @@ pub async fn register_remote(app: &App, name: &str, url: &str, workspace_id: &st
 /// Runner: adds a local Git checkout as a folder of Home. Home registers its remote; a checkout without a
 /// remote is imported into Home Git (every branch and tag). The runner never works in the checkout itself.
 pub async fn add_to_home(app: &App, path: &Path, workspace_id: &str) -> Result<Project> {
-    let path = crate::hostfs::canonicalize(path).await.with_context(|| format!("{} does not exist", path.display()))?;
+    let path = crate::files::canonicalize(path).await.with_context(|| format!("{} does not exist", path.display()))?;
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let (remote_url, _, _) = remote_info(&path).await;
     let v = crate::home_link::home_request("POST", "/api/projects/remote", Some(serde_json::json!({"name": name, "url": remote_url.clone().unwrap_or_default(), "workspace_id": workspace_id}))).await?;
@@ -511,7 +506,7 @@ pub async fn create_plain(app: &App, name: &str, workspace_id: &str) -> Result<P
 /// Runner: a local folder without Git becomes a plain folder of Home; its files are uploaded once. The runner
 /// then works in its own copy, never in the original folder.
 pub async fn import_plain(app: &App, path: &Path, workspace_id: &str) -> Result<Project> {
-    let path = crate::hostfs::canonicalize(path).await.with_context(|| format!("{} does not exist", path.display()))?;
+    let path = crate::files::canonicalize(path).await.with_context(|| format!("{} does not exist", path.display()))?;
     anyhow::ensure!(path.is_dir(), "{} is not a folder", path.display());
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let p: Project = if crate::home_git::here(app) {
@@ -545,7 +540,7 @@ pub async fn adopt_git_folders(app: &App) -> Result<()> {
         Ok(rows)
     }).await?;
     for p in candidates {
-        if crate::hosts::loc::host_of(&p.path).is_none() && crate::git::git_dir(Path::new(&p.path)).await.is_some() {
+        if crate::git::git_dir(Path::new(&p.path)).await.is_some() {
             let id = p.id.clone();
             app.state_db.call(move |c| Ok(c.execute("UPDATE project SET home_git = 1 WHERE id = ?1", [id])?)).await?;
         }
@@ -598,25 +593,17 @@ pub async fn unregister(app: &App, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// The projects root of this computer, or of an SSH host (as a host location).
-pub fn projects_root(app: &App, host: Option<&str>) -> Result<PathBuf> {
-    match host {
-        Some(h) => Ok(PathBuf::from(app.hosts.projects_root(h)?)),
-        None => Ok(app.config.get().projects_root()),
-    }
-}
-
-/// "Scan projects root": git repositories in the projects root (one level deep), here or on a host.
-pub async fn discover(app: &App, host: Option<&str>) -> Result<Vec<Discovered>> {
-    let root = projects_root(app, host)?;
+/// "Scan projects root": git repositories in the projects root (one level deep).
+pub async fn discover(app: &App) -> Result<Vec<Discovered>> {
+    let root = app.config.get().projects_root();
     let registered: std::collections::HashSet<String> = list(app).await?.into_iter().map(|p| p.path).collect();
-    let entries = crate::hostfs::read_dir(&root).await.with_context(|| format!("read {}", root.display()))?;
+    let entries = crate::files::read_dir(&root).await.with_context(|| format!("read {}", root.display()))?;
     let found = entries.into_iter().filter(|e| !e.name.starts_with('.') && matches!(e.kind.as_str(), "dir" | "symlink")).map(|e| {
         let path = root.join(&e.name);
         async move {
             crate::git::git_dir(&path).await?;
             let (_, gh_repo, _) = remote_info(&path).await;
-            let canonical = crate::hostfs::canonicalize(&path).await.unwrap_or(path.clone());
+            let canonical = crate::files::canonicalize(&path).await.unwrap_or(path.clone());
             Some((e.name, canonical.to_string_lossy().to_string(), gh_repo))
         }
     });
@@ -661,7 +648,7 @@ async fn temp_at(app: &App, base: &str, workspace_id: &str, id: String) -> Resul
 
 /// The name of a session's temporary folder, from its working directory (`<data_dir>/tmp/tmp-…`).
 pub fn temp_name(cwd: &str) -> Option<String> {
-    let path = Path::new(crate::hosts::loc::native(cwd));
+    let path = Path::new(cwd);
     let name = path.file_name()?.to_string_lossy().into_owned();
     (path.parent()?.file_name()? == "tmp" && name.starts_with("tmp-")).then_some(name)
 }
@@ -675,7 +662,7 @@ pub async fn ensure_temp(app: &App, s: &crate::model::Session) -> Result<Option<
         if !p.is_temp {
             return Ok(None);
         }
-        if crate::hosts::loc::host_of_path(Path::new(&p.path)).is_some() || Path::new(&p.path).is_dir() {
+        if Path::new(&p.path).is_dir() {
             return Ok(Some(p));
         }
         // Registered, but its folder is gone: registered again below.

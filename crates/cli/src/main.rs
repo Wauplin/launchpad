@@ -9,41 +9,30 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use launchpad_core::paths::Paths;
 
-/// The daemon API: over its local port, or, for agents on an SSH host, through the Launchpad helper there.
+/// The daemon API, over its local port.
 #[derive(Clone)]
-enum Client {
-    Local { base: String, token: String, http: reqwest::Client },
-    Helper(std::path::PathBuf),
+struct Client {
+    base: String,
+    token: String,
+    http: reqwest::Client,
 }
 
 impl Client {
     fn new(paths: &Paths) -> Result<Client> {
-        let helper = std::env::var_os(launchpad_core::hosts::helper::HELPER_ENV).map(std::path::PathBuf::from).or_else(|| {
-            let exe = std::env::current_exe().ok()?;
-            let bin = dirs_home()?.join(launchpad_core::hosts::helper::BIN_DIR);
-            exe.starts_with(&bin).then(|| launchpad_core::hosts::helper::dir(paths.app_env.name()))
-        });
-        Ok(match helper {
-            Some(dir) => Client::Helper(dir),
-            // LAUNCHPAD_TOKEN: a restricted credential (a session's CLI token).
-            None => Client::Local { base: paths.base_url(), token: match std::env::var("LAUNCHPAD_TOKEN") { Ok(t) if !t.trim().is_empty() => t.trim().to_string(), _ => paths.token()? }, http: reqwest::Client::new() },
-        })
+        // LAUNCHPAD_TOKEN: a restricted credential (a session's CLI token).
+        let token = match std::env::var("LAUNCHPAD_TOKEN") { Ok(t) if !t.trim().is_empty() => t.trim().to_string(), _ => paths.token()? };
+        Ok(Client { base: paths.base_url(), token, http: reqwest::Client::new() })
     }
 
     /// `path` includes the query. Returns the status and body text.
     async fn send(&self, method: &str, path: &str, body: Option<serde_json::Value>) -> Result<(u16, String)> {
-        match self {
-            Client::Local { base, token, http } => {
-                let mut req = http.request(reqwest::Method::from_bytes(method.as_bytes())?, format!("{base}{path}")).bearer_auth(token);
-                if let Some(body) = body {
-                    req = req.json(&body);
-                }
-                let res = req.send().await.context("is the daemon running?")?;
-                let status = res.status().as_u16();
-                Ok((status, res.text().await?))
-            }
-            Client::Helper(dir) => launchpad_core::hosts::helper::cli_request(dir, method, path, body.map(|b| b.to_string())).await,
+        let mut req = self.http.request(reqwest::Method::from_bytes(method.as_bytes())?, format!("{}{path}", self.base)).bearer_auth(&self.token);
+        if let Some(body) = body {
+            req = req.json(&body);
         }
+        let res = req.send().await.context("is the daemon running?")?;
+        let status = res.status().as_u16();
+        Ok((status, res.text().await?))
     }
 
     async fn json(&self, method: &str, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value> {
@@ -52,10 +41,6 @@ impl Client {
         anyhow::ensure!((200..300).contains(&status), "{}", body["error"].as_str().unwrap_or("request failed"));
         Ok(body)
     }
-}
-
-fn dirs_home() -> Option<std::path::PathBuf> {
-    std::env::var_os("HOME").map(std::path::PathBuf::from)
 }
 
 fn query(path: &str, pairs: &[(&str, &str)]) -> String {
@@ -233,12 +218,6 @@ enum Command {
     Url,
     /// Print a five-minute pairing link and QR code for a browser or phone.
     Pair,
-    /// The Launchpad helper on an SSH host (started by the daemon over ssh).
-    #[command(hide = true)]
-    HostHelper {
-        #[command(subcommand)]
-        command: HostHelper,
-    },
     /// Write the TypeScript types shared with the UI.
     #[command(hide = true)]
     GenTypes {
@@ -278,22 +257,6 @@ async fn context_command(paths: &Paths, what: &str, workspace: Option<String>) -
     let body = Client::new(paths)?.json("GET", &path, None).await?;
     println!("{}", serde_json::to_string_pretty(&body)?);
     Ok(())
-}
-
-#[derive(Subcommand)]
-enum HostHelper {
-    /// Run the helper server (detached; owns harness and terminal processes).
-    Serve {
-        #[arg(long, default_value = "prod")]
-        env: String,
-    },
-    /// Pipe stdio to the helper server, starting it when needed.
-    Bridge {
-        #[arg(long, default_value = "prod")]
-        env: String,
-    },
-    /// Print the helper build.
-    Version,
 }
 
 #[derive(Subcommand)]
@@ -542,32 +505,12 @@ async fn pr_command(paths: &Paths, command: Pr) -> Result<()> {
     Ok(())
 }
 
-/// `SSH_ASKPASS` for Launchpad's `ssh`: the question appears in the UI; the answer goes to `ssh` on stdout.
-async fn askpass(paths: &Paths, host: &str, prompt: &str) -> Result<()> {
-    let token = paths.token()?;
-    let res = reqwest::Client::new()
-        .post(format!("{}/api/hosts/{host}/askpass", paths.base_url()))
-        .bearer_auth(token)
-        .timeout(std::time::Duration::from_secs(240))
-        .json(&serde_json::json!({"prompt": prompt}))
-        .send()
-        .await?;
-    anyhow::ensure!(res.status().is_success(), "cancelled");
-    let body: serde_json::Value = res.json().await?;
-    println!("{}", body["answer"].as_str().unwrap_or(""));
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     launchpad_core::set_build(env!("LAUNCHPAD_COMMIT"), env!("LAUNCHPAD_SOURCE"));
     launchpad_harness::install();
     launchpad_core::ext::install(Box::new(extensions::Extensions));
     let paths = Paths::from_env();
-    if let Ok(host) = std::env::var("LAUNCHPAD_ASKPASS") {
-        let prompt = std::env::args().nth(1).unwrap_or_default();
-        return askpass(&paths, &host, &prompt).await;
-    }
     let cli = Cli::parse();
     match cli.command {
         Command::Suggest { command } => suggest_command(&paths, command).await,
@@ -638,19 +581,6 @@ async fn main() -> Result<()> {
             }
             println!("{text}");
             Ok(())
-        }
-        Command::HostHelper { command } => {
-            match command {
-                HostHelper::Serve { env } => {
-                    init_tracing();
-                    launchpad_core::hosts::helper::serve(&env).await
-                }
-                HostHelper::Bridge { env } => launchpad_core::hosts::helper::bridge(&env).await,
-                HostHelper::Version => {
-                    println!("{}", launchpad_core::hosts::build_id());
-                    Ok(())
-                }
-            }
         }
         Command::BrowserMcp { data_dir } => {
             let mut paths = paths;

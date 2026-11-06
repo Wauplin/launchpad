@@ -3,7 +3,6 @@ import type { MessageContext } from "@/gen/MessageContext";
 import { Icon, type IconName } from "@/components/Icon";
 import { SkillChips } from "@/features/launch/SkillChips";
 import { AddContextMenu } from "@/features/launch/AddContextMenu";
-import { hostOf } from "@/lib/hosts";
 import { useProjects, useSession, useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
 
@@ -19,7 +18,7 @@ export function MessageContextPicker({ sessionId, value, onChange, disabled }: {
   const scope = useScope();
   const noFolders = session?.launch_spec.target.kind === "browser" && !session.launch_spec.target.project_id;
   // Only the folders of this window's workspace: other workspaces show counts, never their content.
-  const available = (noFolders ? [] : scope.projects).filter((p) => p.id !== session?.project_id && hostOf(p.path) === hostOf(session?.cwd ?? "") && !value.context_projects.some((c) => c.project_id === p.id));
+  const available = (noFolders ? [] : scope.projects).filter((p) => p.id !== session?.project_id && !value.context_projects.some((c) => c.project_id === p.id));
   const addProject = (id: string) => onChange({ ...value, context_projects: [...value.context_projects, { project_id: id, branch: null, editable: false }] });
   const recent: { key: string; label: string; add: () => void }[] = [];
   const seen = new Set<string>();

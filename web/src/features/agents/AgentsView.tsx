@@ -10,7 +10,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState } from "react";
 import type { Session } from "@/gen/Session";
 import { HarnessMark } from "@/components/HarnessMark";
-import { HostLabel } from "@/components/HostLabel";
 import { isRunning, isDone, isQuotaPaused, isStopped, isUnseen, needsYou, sessionPlace } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
@@ -65,7 +64,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
           {informative(s) ? <StatusBadge s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{formatAge(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
         </span>
         <span className={`col-span-2 line-clamp-2 text-[12px] leading-[1.3] text-ink-3 ${dim ? "" : canMarkUnread ? "agent-row-line-2 pr-14" : "agent-row-line-1 pr-7"}`} title={line ? `${project} · ${line}` : project}>
-          <HostLabel path={s.cwd} className="mr-1 align-[1px]" /><span className="text-ink-2">{sessionPlace(s, project)}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
+          <span className="text-ink-2">{sessionPlace(s, project)}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
         </span>
       </button>
       {canMarkUnread && <button

@@ -64,7 +64,7 @@ async fn title(app: &App, session: &Session) -> Result<Option<Named>> {
             cmd.jail(jail).envs(env);
         }
         None => {
-            cmd.envs(crate::profiles::env(app, session.harness, &session.launch_spec, session.model.as_deref(), None)?);
+            cmd.envs(crate::profiles::env(app, session.harness, &session.launch_spec, session.model.as_deref())?);
         }
     }
     cmd.arg(prompt).stdin(crate::exec::Io::Null);

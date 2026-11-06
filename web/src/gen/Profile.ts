@@ -30,11 +30,6 @@ models_url: string | null,
  */
 spend_limits: Array<SpendLimit>, 
 /**
- * On SSH hosts, resolve `${NAME}` references on this computer and send the values with the process
- * start. Otherwise the host resolves them from its own login shell. Literal values are always sent.
- */
-send_credentials: boolean, 
-/**
  * The harness login in Home's vault (Settings → Credentials and tools). None: the harness's first login.
  */
 login: string | null, };

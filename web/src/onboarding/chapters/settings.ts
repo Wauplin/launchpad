@@ -1,4 +1,4 @@
-// Chapter 10: profiles, spending limits, presets, devices, repositories without a folder and SSH machines.
+// Chapter 10: profiles, spending limits, presets, devices, and repositories without a folder.
 
 import type { Chapter } from "../tour/types";
 import { clickAnchor } from "./helpers";
@@ -8,7 +8,7 @@ const qrShown = () => /demo\.invalid/.test(document.querySelector("main")?.textC
 
 export const settings: Chapter = {
   ...meta("settings"),
-  learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Pair a phone with a QR code; SSH machines run agents elsewhere", "Settings has two parts: This workspace, and Launchpad, shared by every workspace", "Repositories without a folder reach no Inbox; Settings → GitHub lists them"],
+  learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Pair a phone with a QR code", "Settings has two parts: This workspace, and Launchpad, shared by every workspace", "Repositories without a folder reach no Inbox; Settings → GitHub lists them"],
   steps: [
     {
       id: "settings.trace-sync", route: "/settings/huggingface", anchor: "settings.trace-sync",
@@ -50,11 +50,6 @@ export const settings: Chapter = {
       id: "settings.github-repos", route: "/settings/github", anchor: "settings.github-repos",
       title: "Repositories without a folder",
       body: "Notifications of repositories with no folder belong to no workspace: no Inbox or count shows them. This list does. Add to clones one into a workspace, whose Inbox then shows its items; Open on GitHub checks the others there. This page is under Launchpad, shared by every workspace; This workspace, at the top, holds its bots, tools and MCP servers.",
-    },
-    {
-      id: "settings.machines", route: "/settings/hosts", anchor: "settings.machines",
-      title: "SSH machines",
-      body: "Folders can live on other computers over SSH. Agents run there with the same controls; each machine shows its checks. Credentials are never copied.",
     },
   ],
 };

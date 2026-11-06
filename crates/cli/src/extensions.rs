@@ -13,9 +13,9 @@ impl launchpad_core::ext::Extensions for Extensions {
     fn turn_ended(&self, app: &App, session: &Session) {
         crons::turn_ended(app, session);
     }
-    fn suggestion_instruction(&self, app: &App, session_id: &str, cwd: &str) -> Option<String> {
-        let text = launchpad_github::suggestions::instruction(app, session_id, cwd);
-        Some(match launchpad_channels::channels::instruction(app, session_id, cwd) {
+    fn suggestion_instruction(&self, app: &App, session_id: &str) -> Option<String> {
+        let text = launchpad_github::suggestions::instruction(app, session_id);
+        Some(match launchpad_channels::channels::instruction(app, session_id) {
             Some(channels) => format!("{text}\n\n{channels}"),
             None => text,
         })

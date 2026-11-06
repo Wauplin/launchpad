@@ -6,7 +6,6 @@ mod api;
 mod bots;
 mod channels;
 mod code;
-mod hosts;
 mod items;
 mod kb_http;
 mod mcp;
@@ -36,7 +35,6 @@ pub fn router() -> Router<Ctx> {
         .merge(channels::router())
         .merge(prompt_context::router())
         .merge(setup::router())
-        .merge(hosts::router())
         .merge(mcp::router())
         .merge(vault::router())
         .merge(kb_http::router())

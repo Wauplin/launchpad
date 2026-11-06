@@ -30,32 +30,22 @@ pub fn supports_cost(app: &App, harness: HarnessKind, spec: &LaunchSpec, model: 
 }
 
 /// Environment overrides for processes of this spec, with `~/` and `${NAME}` references expanded.
-/// `model` is the session's current model (the profile default applies when it is None) and `host`
-/// the SSH host of the session folder.
-pub fn env(app: &App, harness: HarnessKind, spec: &LaunchSpec, model: Option<&str>, host: Option<&str>) -> Result<Vec<(String, String)>> {
+/// `model` is the session's current model (the profile default applies when it is None).
+pub fn env(app: &App, harness: HarnessKind, spec: &LaunchSpec, model: Option<&str>) -> Result<Vec<(String, String)>> {
     let Some(v) = resolve(app, harness, spec)? else { return Ok(vec![]) };
-    profile_env(app, &v, model.or(v.model.as_deref()), host)
+    profile_env(app, &v, model.or(v.model.as_deref()))
 }
 
-/// The environment of a profile, with `~/` and `${NAME}` references expanded for the machine that runs it.
-///
-/// On an SSH host, `~/` is the host's home folder. `${LAUNCHPAD_MODEL}` is always resolved here; other
-/// references are resolved here and sent only when the profile allows sending credentials, otherwise the
-/// host helper resolves them from the host's own login shell (`host_values`).
-pub fn profile_env(app: &App, v: &Profile, model: Option<&str>, host: Option<&str>) -> Result<Vec<(String, String)>> {
-    let home = match host {
-        Some(h) => Some(app.hosts.home(h).with_context(|| format!("{h} is not connected"))?),
-        None => None,
-    };
+/// The environment of a profile, with `~/` and `${NAME}` references expanded.
+pub fn profile_env(app: &App, v: &Profile, model: Option<&str>) -> Result<Vec<(String, String)>> {
     v.env
         .iter()
         .map(|(key, value)| {
-            let value = match (value.strip_prefix("~/"), &home) {
-                (Some(rest), Some(home)) => format!("{}/{rest}", home.trim_end_matches('/')),
-                (Some(_), None) => crate::paths::expand_home(value).to_string_lossy().into_owned(),
-                (None, _) => value.clone(),
+            let value = match value.strip_prefix("~/") {
+                Some(_) => crate::paths::expand_home(value).to_string_lossy().into_owned(),
+                None => value.clone(),
             };
-            let value = expand(&value, |name| lookup(app, host.filter(|_| !v.send_credentials), model, name))
+            let value = expand(&value, |name| lookup(app, model, name))
                 .with_context(|| format!("{key} of the profile {:?}", v.name))?;
             Ok((key.clone(), value))
         })
@@ -77,26 +67,6 @@ pub fn contained_env(app: &App, harness: HarnessKind, spec: &LaunchSpec, model: 
                 refs.get(name).cloned().with_context(|| format!("${{{name}}} is not a variable of a tool granted to this session: add it in Settings → Credentials and tools on Home"))
             })
             .with_context(|| format!("{key} of the profile {:?}", v.name))?;
-            Ok((key.clone(), value))
-        })
-        .collect()
-}
-
-/// Resolves the `${NAME}` references left for a host (see `profile_env`) from its login-shell environment,
-/// with the same `HF_TOKEN` fallback as on this computer. Runs in the host helper.
-pub fn host_values(login: &crate::shellenv::UserEnv, env: &[(String, String)]) -> Result<Vec<(String, String)>> {
-    env.iter()
-        .map(|(key, value)| {
-            let value = expand(value, |name| {
-                if let Some(v) = login.get(name).filter(|v| !v.is_empty()) {
-                    return Ok(v.to_string());
-                }
-                if name == "HF_TOKEN" {
-                    return hf_token(|k| login.get(k).map(str::to_string)).context("no Hugging Face token on this host: run hf auth login there, set HF_TOKEN in its login shell, or allow sending credentials in the profile");
-                }
-                bail!("${{{name}}} is not set in the login shell of this host; set it there, or allow sending credentials in the profile")
-            })
-            .with_context(|| format!("{key} of the profile environment"))?;
             Ok((key.clone(), value))
         })
         .collect()
@@ -169,14 +139,13 @@ fn expand(value: &str, mut lookup: impl FnMut(&str) -> Result<String>) -> Result
 }
 
 /// `${LAUNCHPAD_MODEL}` is the session model; other names come from the login shell environment of
-/// this computer, and `HF_TOKEN` falls back to the token saved by `hf auth login`. With `host` set,
-/// references are left for the host helper, so local credentials are not copied there implicitly.
-fn lookup(app: &App, host: Option<&str>, model: Option<&str>, name: &str) -> Result<String> {
+/// this computer, and `HF_TOKEN` falls back to the token saved by `hf auth login`.
+fn lookup(app: &App, model: Option<&str>, name: &str) -> Result<String> {
     if name == "LAUNCHPAD_MODEL" {
         return model.map(str::to_string).context("${LAUNCHPAD_MODEL} needs a model: choose one in the composer or a default model for the profile");
     }
     // Contained sessions never read the machine's variables: `contain` resolves them from the lease.
-    if host.is_some() || crate::contain::contained(app, None) {
+    if crate::contain::contained(app) {
         return Ok(format!("${{{name}}}"));
     }
     if let Some(v) = app.env.get(name).filter(|v| !v.is_empty()) {
@@ -268,19 +237,15 @@ mod tests {
     }
 
     #[test]
-    fn accounts_follow_the_login_folder_and_hosts_resolve_their_own_references() {
+    fn accounts_follow_the_login_folder() {
         let profile = |env: &[(&str, &str)]| Profile {
             id: "p".into(), name: "P".into(), harness: crate::model::HarnessKind::new("claude"),
             env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
-            model: None, effort: None, billing: Billing::Subscription, budget_usd: None, models_url: None, spend_limits: vec![], send_credentials: false, login: None,
+            model: None, effort: None, billing: Billing::Subscription, budget_usd: None, models_url: None, spend_limits: vec![], login: None,
         };
         assert_eq!(account_of(&profile(&[])), "claude");
         // Variables other than the login folder do not change the account.
         assert_eq!(account_of(&profile(&[("DISABLE_TELEMETRY", "1")])), "claude");
         assert_eq!(account_of(&profile(&[("CLAUDE_CONFIG_DIR", "~/.claude-work")])), "claude CLAUDE_CONFIG_DIR=~/.claude-work");
-        let login = crate::shellenv::UserEnv::for_host("h").with(&[("TOKEN".into(), "abc".into())]);
-        let env = |v: &str| vec![("KEY".to_string(), v.to_string())];
-        assert_eq!(host_values(&login, &env("Bearer ${TOKEN}")).unwrap(), env("Bearer abc"));
-        assert!(host_values(&login, &env("${MISSING}")).is_err());
     }
 }

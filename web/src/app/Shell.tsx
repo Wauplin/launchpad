@@ -14,7 +14,6 @@ import { WorkspaceRail } from "@/features/workspaces/Rail";
 import { NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
-import { HostPrompts } from "./HostPrompt";
 import { isDemo } from "@/demo/mode";
 import { WelcomeGate } from "@/onboarding/WelcomeGate";
 import { useAskPanel } from "@/stores/ask";
@@ -82,7 +81,6 @@ export function Shell() {
       </div>
       <StatusBar />
       <Toasts />
-      <HostPrompts />
       {isDemo && <Suspense fallback={null}><TourRoot /></Suspense>}
       {addOpen && <Suspense fallback={null}><AddFolderDialog /></Suspense>}
     </div>

@@ -21,7 +21,6 @@ const SETTINGS: Record<string, string> = {
   profiles: "Profiles",
   presets: "Presets",
   usage: "Usage",
-  hosts: "Machines",
   devices: "Devices",
   github: "GitHub",
   huggingface: "Hugging Face",

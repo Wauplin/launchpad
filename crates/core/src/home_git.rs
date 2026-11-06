@@ -73,7 +73,7 @@ fn upstream(app: &App, p: &Project) -> Option<String> {
     if let Some(url) = p.remote_url.clone().filter(|u| !u.trim().is_empty()) {
         return Some(url);
     }
-    (app.paths.role == crate::role::Role::All && crate::hosts::loc::host_of(&p.path).is_none() && Path::new(&p.path).join(".git").exists()).then(|| p.path.clone())
+    (app.paths.role == crate::role::Role::All && Path::new(&p.path).join(".git").exists()).then(|| p.path.clone())
 }
 
 /// Creates the mirror of a Git folder on first use and fetches it. Returns its path.

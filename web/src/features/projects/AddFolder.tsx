@@ -3,15 +3,13 @@
 // exactly one workspace, chosen here (the window's by default).
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import type { Discovered } from "@/gen/Discovered";
 import type { Project } from "@/gen/Project";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { Empty, ErrorState, FilterChip, FilterChips, Loading, Tabs, Token } from "@/components/ui";
+import { Empty, ErrorState, Loading, Tabs, Token } from "@/components/ui";
 import { api } from "@/lib/api";
-import { useHosts } from "@/lib/hosts";
 import { usePhone } from "@/lib/phone";
 import { useConfig, useProjects, useStatus } from "@/lib/queries";
 import { useScope, useWorkspaces } from "@/lib/workspace";
@@ -46,7 +44,6 @@ export function AddFolderDialog() {
 
 function Body({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
-  const hosts = useHosts();
   const config = useConfig().data?.config;
   const projects = useProjects().data ?? [];
   const workspaces = useWorkspaces().data ?? [];
@@ -55,36 +52,29 @@ function Body({ onClose }: { onClose: () => void }) {
   const preset = useAddFolder((s) => s.preset);
   // Clone first everywhere; Home never holds untracked projects, so it has no Browse.
   const [tab, setTab] = useState<"browse" | "clone" | "plain">("clone");
-  const [machine, setMachine] = useState<string | null>(null);
-  const host = hosts.some((h) => h.host.id === machine) ? machine : null;
-  const hostInfo = hosts.find((h) => h.host.id === host);
   const [at, setAt] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const [chosenId, setChosenId] = useState<string | null>(preset.workspaceId ?? null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setAt(null); setPicked(new Set()); }, [host]);
   const browse = useQuery({
-    queryKey: ["browse", host, at],
-    queryFn: () => api.get<Browse>(`${host ? `/api/hosts/${host}/browse` : "/api/projects/browse"}${at ? `?path=${encodeURIComponent(at)}` : ""}`),
+    queryKey: ["browse", at],
+    queryFn: () => api.get<Browse>(`/api/projects/browse${at ? `?path=${encodeURIComponent(at)}` : ""}`),
     enabled: tab === "browse",
   });
   useEffect(() => { if (browse.data) setTyped(browse.data.path); }, [browse.data]);
-  const discover = useQuery({ queryKey: ["discover", host], queryFn: () => api.post<Discovered[]>("/api/projects/discover", { host }), staleTime: 60_000, enabled: tab === "browse" });
-  // A folder is known by its location (`host:/path` on hosts), the same form as Project.path.
-  const location = (native: string) => (host ? `${host}:${native}` : native);
+  const discover = useQuery({ queryKey: ["discover"], queryFn: () => api.post<Discovered[]>("/api/projects/discover", {}), staleTime: 60_000, enabled: tab === "browse" });
   const registered = useMemo(() => new Set(projects.map((p) => p.path)), [projects]);
   const suggestions = (discover.data ?? []).filter((d) => !d.registered).slice(0, 12);
   const d = browse.data;
   const toggle = (native: string) => setPicked((s) => { const n = new Set(s); if (n.has(native)) n.delete(native); else n.add(native); return n; });
-  const nativeOf = (path: string) => (host && path.startsWith(`${host}:`) ? path.slice(host.length + 1) : path);
   const chosen = workspaces.find((w) => w.id === (chosenId ?? defaultWorkspace(current, workspaces))) ?? null;
   const add = async () => {
     if (!chosen) return;
     setBusy(true);
     const added: Project[] = [];
     try {
-      for (const path of picked) added.push(await api.post<Project>("/api/projects", { path, host, workspace_id: chosen.id }));
+      for (const path of picked) added.push(await api.post<Project>("/api/projects", { path, workspace_id: chosen.id }));
       await qc.invalidateQueries({ queryKey: ["projects"] });
       await qc.invalidateQueries({ queryKey: ["discover"] });
       toast(`Added ${added.length === 1 ? added[0].name : `${added.length} folders`} to ${chosen.name}`);
@@ -97,7 +87,7 @@ function Body({ onClose }: { onClose: () => void }) {
     }
   };
   const row = (native: string, label: string, git: boolean, enter?: () => void) => {
-    const known = registered.has(location(native));
+    const known = registered.has(native);
     return (
       <div key={native} className="flex h-10 items-center gap-2 border-b border-line-2 px-3 text-[13px] last:border-0">
         <input type="checkbox" className="accent-teal" aria-label={`Add ${label}`} disabled={known} checked={known || picked.has(native)} onChange={() => toggle(native)} />
@@ -114,26 +104,21 @@ function Body({ onClose }: { onClose: () => void }) {
     <>
       <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto p-4">
         <Tabs label="How to add" className="min-h-[33px]" value={tab} onChange={setTab} items={[{ id: "clone" as const, label: "Clone from GitHub", icon: "branch" as const }, ...(role === "home" ? [] : [{ id: "browse" as const, label: "Browse", icon: "folder" as const }]), { id: "plain" as const, label: "New plain folder", icon: "plus" as const }]} />
-        <FilterChips label="Machine">
-          <FilterChip active={host === null} onClick={() => setMachine(null)}>This computer</FilterChip>
-          {hosts.map((h) => <FilterChip key={h.host.id} active={host === h.host.id} title={h.state === "connected" ? h.host.destination : h.error ?? h.state} onClick={() => setMachine(h.host.id)}>{h.host.id}{h.state !== "connected" && <span className="text-danger-ink">·</span>}</FilterChip>)}
-          <Link to="/settings/hosts" className="lp-chip no-underline" onClick={onClose}><Icon name="plus" size={11} />New host…</Link>
-        </FilterChips>
         {tab === "plain" ? <NewPlainFolder workspaceId={chosen?.id ?? null} onDone={onClose} /> : tab === "clone" ? (
-          <CloneFromGitHub key={host ?? "local"} host={host} root={host ? `${host}:${hostInfo?.host.projects_root ?? ""}` : config?.projects_root} workspace={chosen} initialRepo={preset.repo} onDone={onClose} />
+          <CloneFromGitHub root={config?.projects_root} workspace={chosen} initialRepo={preset.repo} onDone={onClose} />
         ) : (
           <>
             {role === "runner" && <p className="rounded-[6px] bg-attn-soft px-2.5 py-2 text-[12px] text-attn">Folders added here are tracked by Home and backed up to Home's cloud bucket: Git folders send their branches, folders without Git have their files copied.</p>}
             {suggestions.length > 0 && (
               <section className="grid gap-1">
                 <div className="seclabel">Git repositories in the folders root</div>
-                <div className="grid max-h-[200px] overflow-y-auto rounded-lg border border-line">{suggestions.map((s) => row(nativeOf(s.path), s.gh_repo ? `${s.name} · ${s.gh_repo}` : s.name, true))}</div>
+                <div className="grid max-h-[200px] overflow-y-auto rounded-lg border border-line">{suggestions.map((s) => row(s.path, s.gh_repo ? `${s.name} · ${s.gh_repo}` : s.name, true))}</div>
               </section>
             )}
             <section className="grid gap-1.5">
               <div className="seclabel">Any folder</div>
               <div className="flex flex-wrap gap-1.5">
-                <input className="field-input h-[30px] min-w-0 flex-1 basis-[260px] font-mono text-xs" aria-label="Folder path" placeholder={host ? "/home/me/work or ~/work" : "~/work/some-folder"} value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && typed.trim()) setAt(typed.trim()); }} />
+                <input className="field-input h-[30px] min-w-0 flex-1 basis-[260px] font-mono text-xs" aria-label="Folder path" placeholder="~/work/some-folder" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && typed.trim()) setAt(typed.trim()); }} />
                 <button className="btn btn-sm" disabled={!typed.trim()} onClick={() => setAt(typed.trim())}>Go</button>
                 {d?.parent && <button className="btn btn-sm" onClick={() => setAt(d.parent)}><Icon name="up" size={12} />Up</button>}
                 <button className="btn btn-sm" onClick={() => setAt("~")}>Home</button>

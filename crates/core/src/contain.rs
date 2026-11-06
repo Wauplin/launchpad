@@ -27,9 +27,9 @@ pub fn harness_home(app: &App, id: &str) -> PathBuf {
     session_dir(app, id).join("home")
 }
 
-/// Whether sessions of this daemon run contained: everywhere agents run, except on SSH hosts (their own helper).
-pub fn contained(app: &App, host: Option<&str>) -> bool {
-    app.paths.role.runs_agents() && host.is_none() && cfg!(target_os = "linux")
+/// Whether sessions of this daemon run contained: everywhere agents run, on Linux.
+pub fn contained(app: &App) -> bool {
+    app.paths.role.runs_agents() && cfg!(target_os = "linux")
 }
 
 /// Variables that place a session's harness state in its own home (also used to find native traces).
@@ -68,7 +68,7 @@ static LOOP: std::sync::Once = std::sync::Once::new();
 
 /// Prepares a contained start: lease, proxy, harness home, tools and jail. Fails visibly without a login.
 pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
-    if !contained(app, start.host.as_deref()) {
+    if !contained(app) {
         return Ok(start);
     }
     let s = app.sessions.get(&start.session_id).context("no such session")?;
@@ -417,7 +417,7 @@ pub async fn prune(app: &App) -> Result<()> {
 
 /// Native harness state of a contained session (traces): its own home.
 pub fn trace_overrides(app: &App, session: &Session) -> Vec<(String, String)> {
-    if contained(app, crate::hosts::loc::host_of(&session.cwd)) && session.runner_id.is_none() {
+    if contained(app) && session.runner_id.is_none() {
         home_env(app, &session.id)
     } else {
         vec![]
@@ -426,7 +426,7 @@ pub fn trace_overrides(app: &App, session: &Session) -> Vec<(String, String)> {
 
 /// The environment and jail of an auxiliary process of a session (title requests), sharing its lease.
 pub async fn auxiliary(app: &App, session: &Session, cwd: &Path) -> Result<Option<(Vec<(String, String)>, Option<Arc<crate::jail::Jail>>)>> {
-    if !contained(app, crate::hosts::loc::host_of(&session.cwd)) {
+    if !contained(app) {
         return Ok(None);
     }
     let spec = StartSpec {
@@ -436,7 +436,6 @@ pub async fn auxiliary(app: &App, session: &Session, cwd: &Path) -> Result<Optio
         session_id: session.id.clone(),
         harness_session_id: None,
         resume: false,
-        host: None,
         cwd: cwd.to_path_buf(),
         title: session.title.clone(),
         model: session.model.clone(),

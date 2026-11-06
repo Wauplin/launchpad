@@ -1,6 +1,6 @@
-//! Host setup helpers used from a browser: sign-in checks (Settings → Profiles) and Clone from GitHub.
+//! Setup helpers used from a browser: sign-in checks (Settings → Profiles) and Clone from GitHub.
 use crate::{Ctx, error::{ApiError, ApiResult}};
-use axum::{Json, Router, extract::{Path, Query, State}, routing::{get, post}};
+use axum::{Json, Router, extract::{Path, State}, routing::{get, post}};
 use launchpad_core::{model::Project, signin, terminals::TerminalInfo};
 use launchpad_setup::{onboarding, project_clone, setup_checklist};
 use serde::Deserialize;
@@ -34,25 +34,19 @@ async fn refresh_clone_suggestions(State(s): State<Ctx>) -> ApiResult<Vec<projec
 #[derive(Deserialize)]
 struct Clone {
     repo: String,
-    /// Clone onto this SSH host, into its projects root.
-    host: Option<String>,
     /// The one workspace of the new folder (required).
     workspace_id: String,
 }
 
 async fn clone(State(s): State<Ctx>, Json(b): Json<Clone>) -> ApiResult<Project> {
     // Folders of Home: Home mirrors the repository, runners clone it on first use.
-    if b.host.is_none() && s.app.paths.role == launchpad_core::role::Role::Runner {
+    if s.app.paths.role == launchpad_core::role::Role::Runner {
         let v = launchpad_core::home_link::home_request("POST", "/api/projects/clone", Some(serde_json::json!({"repo": b.repo, "workspace_id": b.workspace_id}))).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
         let p: Project = serde_json::from_value(v).map_err(|e| ApiError::bad_request(format!("{e}")))?;
         launchpad_core::projects::store_home(&s.app, vec![p.clone()], false).await?;
         return Ok(Json(launchpad_core::projects::get(&s.app, &p.id).await?.unwrap_or(p)));
     }
-    let p = if b.host.is_none() {
-        project_clone::clone_to_home(&s.app, &b.repo, &b.workspace_id).await
-    } else {
-        project_clone::clone(&s.app, &b.repo, b.host.as_deref(), &b.workspace_id).await
-    };
+    let p = project_clone::clone_to_home(&s.app, &b.repo, &b.workspace_id).await;
     Ok(Json(p.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }
 
@@ -69,33 +63,12 @@ async fn patch_onboarding(State(s): State<Ctx>, Json(p): Json<onboarding::Patch>
     Ok(Json(onboarding::patch(&s.app, p).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }
 
-#[derive(Deserialize)]
-struct HostQuery {
-    /// SSH host, or none for this computer.
-    host: Option<String>,
-}
-
-fn known_host(s: &Ctx, host: Option<String>) -> Result<Option<String>, ApiError> {
-    let host = host.filter(|h| !h.is_empty());
-    if let Some(h) = &host
-        && s.app.hosts.status(h).is_none()
-    {
-        return Err(ApiError::not_found(format!("unknown machine {h}")));
-    }
-    Ok(host)
-}
-
-/// Every setup item of this computer or an SSH host: state, detected values with their source, missing parts.
-async fn checklist(State(s): State<Ctx>, Query(q): Query<HostQuery>) -> ApiResult<setup_checklist::Checklist> {
-    let host = known_host(&s, q.host)?;
-    let devices = if host.is_none() {
-        let remote = s.auth.remote();
-        let tailscale = if remote { None } else { Some(s.app.env.which("tailscale").is_some()) };
-        Some(setup_checklist::devices(remote, &s.auth.origin(), tailscale))
-    } else {
-        None
-    };
-    Ok(Json(setup_checklist::checklist(&s.app, host.as_deref(), devices).await))
+/// Every setup item of this computer: state, detected values with their source, missing parts.
+async fn checklist(State(s): State<Ctx>) -> ApiResult<setup_checklist::Checklist> {
+    let remote = s.auth.remote();
+    let tailscale = if remote { None } else { Some(s.app.env.which("tailscale").is_some()) };
+    let devices = Some(setup_checklist::devices(remote, &s.auth.origin(), tailscale));
+    Ok(Json(setup_checklist::checklist(&s.app, devices).await))
 }
 
 async fn checklist_summary(State(s): State<Ctx>) -> Json<setup_checklist::ChecklistSummary> {
@@ -105,27 +78,23 @@ async fn checklist_summary(State(s): State<Ctx>) -> Json<setup_checklist::Checkl
 #[derive(Deserialize)]
 struct Fix {
     part: String,
-    host: Option<String>,
 }
 
 /// Opens a setup terminal with the fixed command of a missing part. Parts detected as set up are refused.
 async fn fix(State(s): State<Ctx>, Path(item): Path<String>, Json(b): Json<Fix>) -> ApiResult<TerminalInfo> {
-    let host = known_host(&s, b.host)?;
-    let (title, command) = setup_checklist::fix_command(&s.app, host.as_deref(), &item, &b.part).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
+    let (title, command) = setup_checklist::fix_command(&s.app, &item, &b.part).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
     setup_checklist::invalidate();
-    Ok(Json(s.app.terminals.open_setup_command(&s.app, &title, &command, host.as_deref()).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
+    Ok(Json(s.app.terminals.open_setup_command(&s.app, &title, &command).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }
 
 #[derive(Deserialize)]
 struct Identity {
     name: Option<String>,
     email: Option<String>,
-    host: Option<String>,
 }
 
 async fn git_identity(State(s): State<Ctx>, Json(b): Json<Identity>) -> ApiResult<serde_json::Value> {
-    let host = known_host(&s, b.host)?;
-    setup_checklist::set_identity(&s.app, host.as_deref(), b.name.as_deref(), b.email.as_deref()).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
+    setup_checklist::set_identity(&s.app, b.name.as_deref(), b.email.as_deref()).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

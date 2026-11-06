@@ -9,7 +9,7 @@ For a Home in a private Space, see the [Home-only deployment](../deploy/hf-home/
 
 ## Pair a runner
 
-On a Home in a Space, open **Settings → Home and runners**: the Runners card lists the runners and requests waiting for approval, and **Add a runner** shows the steps and the install command (one line, with Copy). Run `hf auth login` on a Linux x86_64 machine (or set `HF_TOKEN`), then run the command there: without a Hugging Face sign-in, it says so and stops. It checks the machine, installs Home's own build next to any other Launchpad, starts the runner as a user service that keeps running after you log out, then asks for approval. On a Mac or an ARM machine, use Burst. Run it again to update the runner. See [Add a runner](../deploy/hf-home/README.md#add-a-runner).
+On a Home in a Space, open **Settings → Home and runners**: the Runners card lists the runners and requests waiting for approval, and **Add a runner** shows the steps and the install command (one line, with Copy). The **This computer** card sets the folders root and the command that opens links. Run `hf auth login` on a Linux x86_64 machine (or set `HF_TOKEN`), then run the command there: without a Hugging Face sign-in, it says so and stops. It checks the machine, installs Home's own build next to any other Launchpad, starts the runner as a user service that keeps running after you log out, then asks for approval. On a Mac or an ARM machine, use Burst. Run it again to update the runner. See [Add a runner](../deploy/hf-home/README.md#add-a-runner).
 
 On another Home, pair by hand:
 

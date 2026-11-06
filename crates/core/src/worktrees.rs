@@ -367,7 +367,7 @@ pub async fn continue_pull_request(app: &App, project: &Project, pr: &PullReques
 
 /// The pull request a worktree folder continues, if any.
 pub async fn pull_request_at(app: &App, root: &str) -> Option<PullRequestBranch> {
-    list(app).await.ok()?.into_iter().find(|w| w.state == WorktreeState::Active && crate::hosts::loc::within(root, &w.root))?.pull_request
+    list(app).await.ok()?.into_iter().find(|w| w.state == WorktreeState::Active && std::path::Path::new(root).starts_with(&w.root))?.pull_request
 }
 
 /// Pushes the branch to Home unless Home already has it. Never overwrites a tip Home got elsewhere (a
@@ -488,7 +488,7 @@ pub async fn join(app: &App, source_session: &str, session_id: &str) -> Result<V
 
 /// Launch instructions: where to work, and how the task ends. Overrides checkout workflow rules only.
 pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, String)], projects: &[Project], when_done: crate::model::WhenDone) -> String {
-    let cli = worktrees.first().map(|(w, _)| app.cli_command_in(&w.root)).unwrap_or_else(|| app.paths.cli_command());
+    let cli = app.paths.cli_command();
     let name = |id: &str| projects.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_else(|| "folder".into());
     let mut text = String::from(
         "Launchpad worktree: Launchpad created fresh Git worktrees for this task and manages them. This launch setting overrides repository or preset instructions to work on the main branch, in the main checkout, or to create, merge or delete worktrees yourself; follow all other repository rules (checks, documentation, commit conventions).",
@@ -540,7 +540,7 @@ pub async fn run_setup(app: &App, project: &Project, folder: &str, sink: &crate:
     }
     sink.emit(EventBody::Notice { text: format!("Running the worktree setup of {}: {command}", project.name) }).await;
     let started = std::time::Instant::now();
-    let mut cmd = if cfg!(windows) && crate::hosts::loc::host_of(folder).is_none() {
+    let mut cmd = if cfg!(windows) {
         let mut c = crate::procs::child_command(&app.env, "powershell", Some(Path::new(folder)));
         c.args(["-NoProfile", "-Command", command]);
         c
@@ -564,8 +564,7 @@ async fn setup_output(cmd: &mut crate::exec::Cmd, cancelled: &mut tokio::sync::w
         _ = cancelled.wait_for(|cancel| *cancel) => "setup cancelled",
         _ = tokio::time::sleep(timeout) => "setup did not finish within 30 minutes",
     };
-    // Keep ownership until exit is confirmed, including SSH helper-owned processes. Dropping a
-    // remote Exec request cannot cancel it; setup deliberately uses Spawn instead.
+    // Keep ownership until exit is confirmed.
     killer.kill().await;
     if let Some((sessions, id)) = owner {
         sessions.wait_for_shutdown(&id, async move { output.await??; Ok(()) }).await.with_context(|| reason)?;
@@ -898,10 +897,10 @@ async fn finish_local_pr(app: &App, session_id: &str) -> Result<String> {
     let others: Vec<String> = all.iter().filter(|o| !o.primary && o.state == WorktreeState::Active).map(|o| format!("`{}`", o.branch)).collect();
     let mut text = format!(
         "Local PR opened on Home from branch `{}` (id {}), based on `{}`. Now set its title and description: write the description to a file, then run `{} pr update --title \"…\" --body-file <file>` in `{}`. Then end your turn and report the Local PR as opened for review. Do not open a pull request on GitHub.",
-        p.branch, p.id, p.base_branch, app.cli_command_in(&w.root), w.root
+        p.branch, p.id, p.base_branch, app.paths.cli_command(), w.root
     );
     if !others.is_empty() {
-        text.push_str(&format!(" The branches of your other worktrees ({}) can join the same change set: run `{} pr create` in each of them.", others.join(", "), app.cli_command_in(&w.root)));
+        text.push_str(&format!(" The branches of your other worktrees ({}) can join the same change set: run `{} pr create` in each of them.", others.join(", "), app.paths.cli_command()));
     }
     Ok(text)
 }
@@ -921,7 +920,7 @@ fn conflict_message(app: &App, w: &TaskWorktree, reason: &str, session_id: &str)
         "Launchpad could not merge branch `{}` into `{base}`: {reason}\nIn your worktree `{}`, run `git fetch origin`, rebase onto `origin/{base}`, resolve the conflicts, re-run the relevant checks, and commit. Then run `{} work finish --session-id {session_id}` again. Do not merge into `{base}` yourself.\nWhen you finish this recovery turn, make your final message a concise, self-contained summary of the original task and this recovery: lead with the overall outcome, preserve the substantive results from your previous task summary, and update the checks actually performed and their results, remaining work or limitations, and merge status. Report the merge as requested, not completed. The user sees this as the run's final message, so include the task results even though this is a follow-up turn.",
         w.branch,
         w.root,
-        app.cli_command_in(&w.root),
+        app.paths.cli_command(),
     )
 }
 
@@ -1101,6 +1100,6 @@ pub fn spawn(app: &App) {
 pub async fn sizes(app: &App) -> Result<HashMap<String, u64>> {
     let records: Vec<TaskWorktree> = list(app).await?.into_iter().filter(|w| w.state == WorktreeState::Active).collect();
     let roots: Vec<String> = records.iter().map(|w| w.root.clone()).collect();
-    let sizes = crate::hostfs::disk_usage(&roots).await;
+    let sizes = crate::files::disk_usage(&roots).await;
     Ok(records.into_iter().zip(sizes).map(|(w, s)| (w.id, s)).collect())
 }

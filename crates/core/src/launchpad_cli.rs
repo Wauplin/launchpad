@@ -33,7 +33,7 @@ A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"targ
         }
         let owner: Vec<&str> = ACTIONS.iter().filter(|a| a.access == ActionAccess::Owner).map(|a| a.help).collect();
         out.push_str(&format!(
-            "\nEach direct change goes to the owner's activity list with Undo (`{cli} activity list`). Only the owner's click runs these, never you: {}. Propose a ready card for merge, publish, post, send, run CI and Inbox done, and a tool card for tools. Everything else (profiles, the rest of config.toml, the Outbox, channels, credentials, devices, terminals, hosts, runners, setup fixes, folder setup commands, paid usage) is refused: ask the owner. `{cli} api <GET|POST|PUT|PATCH|DELETE> <path> [--body-file <file.json>]` reads any other state (GET) and runs the same actions by their API path.",
+            "\nEach direct change goes to the owner's activity list with Undo (`{cli} activity list`). Only the owner's click runs these, never you: {}. Propose a ready card for merge, publish, post, send, run CI and Inbox done, and a tool card for tools. Everything else (profiles, the rest of config.toml, the Outbox, channels, credentials, devices, terminals, runners, setup fixes, folder setup commands, paid usage) is refused: ask the owner. `{cli} api <GET|POST|PUT|PATCH|DELETE> <path> [--body-file <file.json>]` reads any other state (GET) and runs the same actions by their API path.",
             owner.iter().map(|h| h[..1].to_lowercase() + &h[1..]).collect::<Vec<_>>().join("; ")
         ));
     }

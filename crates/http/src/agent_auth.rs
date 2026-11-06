@@ -36,7 +36,7 @@ fn access_of(app: &App, id: &str) -> Option<LaunchpadAccess> {
 fn admin_allows(method: &Method, path: &str) -> bool {
     if *method == Method::GET {
         let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-        const CLOSED: &[&str] = &["config", "devices", "terminals", "hosts", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "channels", "outbox", "review-state", "plain", "kb", "knowledge", "code", "browser"];
+        const CLOSED: &[&str] = &["config", "devices", "terminals", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "channels", "outbox", "review-state", "plain", "kb", "knowledge", "code", "browser"];
         return p.first() == Some(&"api") && p.get(1).is_some_and(|a| !CLOSED.contains(a));
     }
     actions::find(method.as_str(), path).is_some_and(|a| a.access == ActionAccess::Admin)
@@ -157,7 +157,7 @@ mod tests {
     use super::*;
     #[test]
     fn machine_and_publication_routes_are_not_cli_routes() {
-        for path in ["/api/config", "/api/terminals", "/api/setup/fix", "/api/hosts", "/api/vault", "/api/code/file", "/api/devices/pair"] {
+        for path in ["/api/config", "/api/terminals", "/api/setup/fix", "/api/vault", "/api/code/file", "/api/devices/pair"] {
             assert!(!read_allowed(path));
             assert!(!own_write(path));
         }

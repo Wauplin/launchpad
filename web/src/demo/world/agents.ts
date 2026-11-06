@@ -241,7 +241,7 @@ export function agentsWorld() {
       status("in_terminal"),
     ] });
 
-  // Archived: one with subagents, one on the SSH machine gpu-box.
+  // Archived: one with subagents, one benchmark run.
   const a11y = add({ id: "demo-s-a11y", title: "Audit accessibility of the checkout pages", project: P.storefront, harness: "claude", minutesAgo: 60 * 30, status: "closed",
     events: [
       user("Audit the accessibility of the cart and checkout pages. Use one subagent per page and merge the findings."),
@@ -268,12 +268,12 @@ export function agentsWorld() {
   a11y.archived_done = true;
   a11y.live = false;
   a11y.ended_at = a11y.status_since;
-  const gpu = add({ id: "demo-s-gpubench", title: "Benchmark the reconciliation job on gpu-box", project: P.billing, harness: "codex", minutesAgo: 60 * 50, status: "closed",
-    cwd: "gpu-box:/home/demo/projects/billing-api",
+  const gpu = add({ id: "demo-s-gpubench", title: "Benchmark the reconciliation job", project: P.billing, harness: "codex", minutesAgo: 60 * 50, status: "closed",
+    cwd: "/home/demo/projects/billing-api",
     events: [
-      user("On gpu-box, benchmark the nightly reconciliation job with the full March data set."),
+      user("Benchmark the nightly reconciliation job with the full March data set."),
       ...tool("Shell", "cargo run --release --bin reconcile -- --month 2026-03 --dry-run", "Loaded 4,812,331 ledger rows in 6.2s\nMatched 4,809,977 (99.95%)\nUnmatched 2,354 → reports/unmatched-2026-03.csv\nTotal: 41.8s"),
-      say("**The reconciliation of March takes 41.8 s on gpu-box** (6.2 s loading, 35.6 s matching). 2,354 rows are unmatched; they are listed in `reports/unmatched-2026-03.csv` on gpu-box."),
+      say("**The reconciliation of March takes 41.8 s** (6.2 s loading, 35.6 s matching). 2,354 rows are unmatched; they are listed in `reports/unmatched-2026-03.csv`."),
       ...end(2), status("waiting"), status("closed"),
     ] });
   gpu.archived_done = true;

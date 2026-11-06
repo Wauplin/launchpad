@@ -28,8 +28,8 @@ pub enum Incoming {
         method: String,
         params: Value,
     },
-    /// The process exited. Running turns are lost. `lost`: it ended on an unreachable host (Interrupted).
-    Exited { lost: bool },
+    /// The process exited. Running turns are lost.
+    Exited,
 }
 
 /// A server rejection is distinct from a transport error or timeout: only an explicit
@@ -170,8 +170,7 @@ impl CodexServer {
             }
             let status = child.wait().await;
             tracing::warn!("codex app-server exited: {status:?}");
-            let lost = status.as_ref().is_err_and(launchpad_core::exec::is_lost);
-            let _ = incoming.send(Incoming::Exited { lost });
+            let _ = incoming.send(Incoming::Exited);
         });
         Ok(p)
     }

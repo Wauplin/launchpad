@@ -23,8 +23,7 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
     { to: "/settings/usage", label: "Usage", icon: "clock", keywords: "analytics activity cost tokens spend month" },
   ] },
   { group: "Machines & access", items: [
-    { to: "/settings/hosts", label: "Machines", icon: "term", keywords: "ssh hosts remote computer" },
-    { to: "/settings/runners", label: "Home and runners", icon: "window", keywords: "runner home burst vm jail update connect approve jobs" },
+    { to: "/settings/runners", label: "Home and runners", icon: "window", keywords: "runner home burst vm jail update connect approve jobs machines computer folders root browser links" },
     { to: "/settings/credentials", label: "Credentials and tools", icon: "sliders", keywords: "vault tokens secrets logins mcp tools proxy launchpad cli access admin" },
     { to: "/settings/channels", label: "Channels", icon: "send", keywords: "telegram webhook outbox hooks messages" },
     { to: "/settings/devices", label: "Devices", icon: "window", keywords: "browser pair qr phone sign out tailscale remote access" },

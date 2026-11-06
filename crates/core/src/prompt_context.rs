@@ -1,7 +1,6 @@
 //! Read-only, bounded composer discovery. Native locations belong to harness adapters.
 use crate::{
-    App, hostfs,
-    hosts::loc,
+    App, files,
     model::{HarnessKind, LaunchSpec, SkillRef},
 };
 use anyhow::{Context, Result, ensure};
@@ -177,20 +176,16 @@ async fn skill_roots(
     if let Some(root) = root {
         crate::code::open(app, root, None).await?;
     }
-    let host = root.and_then(loc::host_of);
-    let home = match host {
-        Some(h) => app.hosts.home(h).context("Machine is not connected")?,
-        None => dirs::home_dir()
-            .context("Home folder unavailable")?
-            .to_string_lossy()
-            .into_owned(),
-    };
+    let home = dirs::home_dir()
+        .context("Home folder unavailable")?
+        .to_string_lossy()
+        .into_owned();
     let spec = LaunchSpec {
         profile: profile.map(str::to_string),
         ..Default::default()
     };
-    let overrides = crate::profiles::env(app, harness, &spec, None, host)?;
-    let env = app.env.on(host).with(&overrides);
+    let overrides = crate::profiles::env(app, harness, &spec, None)?;
+    let env = app.env.with(&overrides);
     let mut roots = vec![];
     for location in app.harnesses.get(harness).skill_locations() {
         let base = if location.project {
@@ -200,23 +195,7 @@ async fn skill_roots(
                 .to_string_lossy()
                 .into_owned()
         } else {
-            let configured = if let Some(key) = location.config {
-                if host.is_some() {
-                    let output = crate::procs::command(&env, "printenv", None)
-                        .arg(key)
-                        .output()
-                        .await?;
-                    if output.status.success() {
-                        Some(String::from_utf8(output.stdout)?.trim().to_string())
-                    } else {
-                        None
-                    }
-                } else {
-                    env.get(key).map(str::to_string)
-                }
-            } else {
-                None
-            };
+            let configured = location.config.and_then(|key| env.get(key).map(str::to_string));
             let base = configured.filter(|v| !v.is_empty()).unwrap_or_else(|| {
                 std::path::Path::new(&home)
                     .join(location.base)
@@ -227,12 +206,10 @@ async fn skill_roots(
                 std::path::Path::new(&base).is_absolute(),
                 "Skill configuration folder must be absolute: {base}"
             );
-            loc::join(
-                host,
-                &std::path::Path::new(&base)
-                    .join(location.suffix)
-                    .to_string_lossy(),
-            )
+            std::path::Path::new(&base)
+                .join(location.suffix)
+                .to_string_lossy()
+                .into_owned()
         };
         if !roots.contains(&base) {
             roots.push(base);
@@ -267,7 +244,7 @@ pub async fn skills(
     let mut names = HashSet::new();
     let mut canonical = HashSet::new();
     for source in roots {
-        let entries = match hostfs::read_dir(&source).await {
+        let entries = match files::read_dir(&source).await {
             Ok(entries) => entries,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => {
@@ -286,8 +263,8 @@ pub async fn skills(
             let path = std::path::Path::new(&source).join(&entry.name);
             let doc = path.join("SKILL.md");
             let read = async {
-                let canonical = hostfs::canonicalize(&path).await?;
-                let bytes = hostfs::read_limited(&doc, 256 * 1024).await?;
+                let canonical = files::canonicalize(&path).await?;
+                let bytes = files::read_limited(&doc, 256 * 1024).await?;
                 let text = String::from_utf8(bytes)?;
                 let text = text.replace("\r\n", "\n");
                 let front = text
@@ -357,7 +334,7 @@ pub async fn render_skills(
         lines.push(
             app.harnesses
                 .get(harness)
-                .skill_instruction(name, loc::native(path)),
+                .skill_instruction(name, path),
         );
     }
     Ok(format!("\n\nSelected skills:\n{}", lines.join("\n")))

@@ -15,7 +15,6 @@ import { TerminalsChip } from "@/features/terminals/TerminalDock";
 import { isDesktopShell } from "@/lib/platform";
 import { HostChip } from "./Connection";
 import { Link } from "@tanstack/react-router";
-import { linkLabel, useHosts } from "@/lib/hosts";
 import { outdatedLabel, useOutdatedRunners } from "@/lib/runners";
 
 /** Runners with another build than Home's take no new sessions: a warning that opens Settings → Home and runners. */
@@ -28,23 +27,6 @@ function OutdatedRunners({ data }: { data: Status }) {
   return (
     <Link to="/settings/runners" className="inline-flex items-center gap-1 rounded bg-attn-soft px-1.5 font-semibold text-attn hover:underline" title={title}>
       <Icon name="alert" size={12} />{label}
-    </Link>
-  );
-}
-
-/** Compact health of the SSH hosts; quota meters stay per account, not per machine. */
-function Hosts() {
-  const hosts = useHosts();
-  if (hosts.length === 0) return null;
-  return (
-    <Link to="/settings/hosts" className="inline-flex items-center gap-1.5 rounded px-1 hover:bg-select" title="Settings → Machines">
-      <span className="text-ink-3">Hosts:</span>
-      {hosts.map((h) => (
-        <span key={h.host.id} className="inline-flex items-center gap-1" title={`${h.host.id}: ${linkLabel[h.state]}${h.error ? ` · ${h.error}` : ""}`}>
-          <i className={`inline-block size-1.5 rounded-full ${h.state === "connected" ? "bg-gh-open" : h.state === "connecting" ? "bg-attn" : "bg-gh-closed"}`} aria-hidden />
-          <span className={h.state === "connected" ? "" : "font-semibold text-gh-closed"}>{h.host.id}</span>
-        </span>
-      ))}
     </Link>
   );
 }
@@ -210,7 +192,6 @@ export function StatusBar() {
           {quota.map((e) => <StaleQuota key={e.key} e={e} />)}
           {low.map(([k, v]) => <span key={k} className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={`Resets ${formatReset(v.reset_at)}`}>GitHub {k} {v.remaining} calls left</span>)}
           <span className="ml-auto inline-flex items-center gap-2.5">
-            <Hosts />
             {isDesktopShell ? !online && <span className="font-semibold text-gh-closed">Daemon disconnected, reconnecting…</span> : <HostChip />}
             {data.env === "dev" && <span className="font-mono text-ink-3" title={`Running commit: ${data.commit}`}>{data.commit.slice(0, 7)}</span>}
             <TerminalsChip />

@@ -809,7 +809,7 @@ pub async fn session_stores(app: &App, session_id: &str) -> Vec<(String, PathBuf
     {
         if p.plain {
             out.push((p.id.clone(), PathBuf::from(&p.path)));
-        } else if p.is_temp && crate::hosts::loc::host_of_path(Path::new(&p.path)).is_none() {
+        } else if p.is_temp {
             out.push((temp_store(&p.id), PathBuf::from(&p.path)));
         }
     }

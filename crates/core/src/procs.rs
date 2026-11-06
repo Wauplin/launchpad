@@ -1,5 +1,5 @@
-//! Child processes started by the daemon: harnesses and git, on this computer or on an SSH host
-//! (`exec.rs`). Integrated terminals use a PTY (`terminals.rs`).
+//! Child processes started by the daemon: harnesses and git (`exec.rs`). Integrated terminals use a PTY
+//! (`terminals.rs`).
 
 use std::path::Path;
 
@@ -8,13 +8,13 @@ use anyhow::{Context, Result};
 use crate::exec::{Cmd, Io};
 use crate::shellenv::UserEnv;
 
-/// A command with the user environment, on the host of `cwd` (or of `env`).
+/// A command with the user environment.
 pub fn command(env: &UserEnv, program: &str, cwd: Option<&Path>) -> Cmd {
     Cmd::new(env, program, cwd)
 }
 
-/// Like [`command`]; on this computer the child gets SIGTERM when the daemon exits, so a restarted dev
-/// daemon never leaves orphan agents behind. On a host, the helper stops it when another daemon boot connects.
+/// Like [`command`]; the child gets SIGTERM when the daemon exits, so a restarted dev daemon never leaves
+/// orphan agents behind.
 pub fn child_command(env: &UserEnv, program: &str, cwd: Option<&Path>) -> Cmd {
     Cmd::new(env, program, cwd).child()
 }

@@ -349,7 +349,7 @@ route("POST", "/api/terminals", ({ body }) => {
 route("POST", "/api/profiles/:id/setup", ({ params, body }) => {
   const p = world.config.profiles.find((x) => x.id === params.id);
   if (!p) throw new DemoError(400, `unknown profile ${params.id}`);
-  const b = (body ?? {}) as { host?: string | null; install?: boolean };
+  const b = (body ?? {}) as { install?: boolean };
   const commands: Record<string, [string, string]> = {
     claude: ["claude auth login", "curl -fsSL https://claude.ai/install.sh | bash"],
     codex: ["codex login --device-auth", "npm install -g @openai/codex"],
@@ -359,7 +359,7 @@ route("POST", "/api/profiles/:id/setup", ({ params, body }) => {
   const vars = world.harnesses.find((h) => h.id === p.harness)?.account_env ?? [];
   const prefix = vars.flatMap((v) => (p.env[v] ? [`${v}=${p.env[v]}`] : [])).join(" ");
   const command = b.install ? install : `${prefix ? `${prefix} ` : ""}${signIn}`;
-  return openDemoTerminal({ kind: "command", cwd: b.host ? `${b.host}:${HOME}` : HOME, setup: true, title: `${b.install ? "Install" : "Sign in"} · ${p.name}`, command });
+  return openDemoTerminal({ kind: "command", cwd: HOME, setup: true, title: `${b.install ? "Install" : "Sign in"} · ${p.name}`, command });
 });
 
 route("POST", "/api/terminals/close-all", () => {

@@ -17,8 +17,7 @@ pub mod exec;
 pub mod git;
 pub mod github;
 pub mod harness;
-pub mod hostfs;
-pub mod hosts;
+pub mod files;
 pub mod model;
 pub mod notify;
 pub mod operations;
@@ -114,7 +113,6 @@ pub struct App {
     /// Serializes task worktree creation, merges and cleanup. Take the session action lock first.
     pub worktree_lock: Arc<tokio::sync::Mutex<()>>,
     pub terminals: terminals::Terminals,
-    pub hosts: hosts::Hosts,
     pub browser: browser::Broker,
     /// Live runner tunnels (Home).
     pub runners: runners::Hub,
@@ -164,7 +162,6 @@ impl App {
         let status = status::StatusHandle::new(bus.clone());
         let harnesses = harness::Registry::new(&env);
         let github = github::GitHub::new(env.clone(), cache_db.clone());
-        let hosts = hosts::Hosts::start(paths.clone(), env.clone(), state_db.clone(), status.clone()).await?;
         let app = App {
             paths,
             config,
@@ -181,7 +178,6 @@ impl App {
             predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
             worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
             terminals: terminals::Terminals::default(),
-            hosts,
             browser: browser::Broker::default(),
             runners: runners::Hub::default(),
             home_backups: home_backup::Backups::default(),
@@ -213,24 +209,7 @@ impl App {
         worktrees::spawn(&app);
         today::spawn(&app);
         handoff::spawn(&app);
-        app.hosts.set_app(&app);
-        hosts::preflight::spawn(&app);
         Ok(app)
-    }
-}
-
-impl App {
-    /// The `launchpad` invocation given to agents: this daemon's CLI, or the helper's on an SSH host.
-    pub fn cli_command_on(&self, host: Option<&str>) -> String {
-        match host {
-            Some(_) => format!("LAUNCHPAD_ENV={} \"$HOME/{}/launchpad\"", self.paths.app_env.name(), hosts::helper::BIN_DIR),
-            None => self.paths.cli_command(),
-        }
-    }
-
-    /// The `launchpad` invocation for agents working in `path`.
-    pub fn cli_command_in(&self, path: &str) -> String {
-        self.cli_command_on(hosts::loc::host_of(path))
     }
 }
 
@@ -297,8 +276,6 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     kb::Notes::export_all(cfg)?;
     kb::Hit::export_all(cfg)?;
     kb::NativeMemory::export_all(cfg)?;
-    hosts::HostStatus::export_all(cfg)?;
-    hosts::sshconfig::SshConfigHost::export_all(cfg)?;
     bots::Bot::export_all(cfg)?;
     Ok(())
 }

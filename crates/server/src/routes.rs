@@ -45,17 +45,12 @@ async fn get_config(State(s): State<Server>) -> Json<Value> {
 
 async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiResult<Value> {
     let remote = s.auth.remote();
-    let profiles_changed = s.app.config.update(|saved| {
+    s.app.config.update(|saved| {
         anyhow::ensure!(config.server == saved.server, "Edit [server] in config.toml and restart the daemon");
         anyhow::ensure!(!remote || config.commands == saved.commands, "Edit [commands] in config.toml on the host");
-        let changed = config.profiles != saved.profiles;
         *saved = config;
-        Ok(changed)
+        Ok(())
     }).map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
-    if profiles_changed {
-        // Host checks include each profile with its own environment.
-        launchpad_core::hosts::preflight::recheck_all(&s.app);
-    }
     Ok(Json(config_response(&s, None)))
 }
 

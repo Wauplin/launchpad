@@ -343,10 +343,10 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
 }
 /// Included in every launched session, with the exact daemon and session identity (followed by the channels'
 /// instruction, when the owner has some).
-pub fn instruction(app: &App, session: &str, cwd: &str) -> String {
+pub fn instruction(app: &App, session: &str) -> String {
     format!(
         "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes; an approving review may add --merge squash|merge|rebase (the owner's Post click then merges at that head), and a review may add --run-ci (Post also approves the head's GitHub Actions runs that wait for a maintainer). For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
-        app.cli_command_in(cwd)
+        app.paths.cli_command()
     )
 }
 

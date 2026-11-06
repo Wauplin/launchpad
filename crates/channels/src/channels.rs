@@ -241,12 +241,12 @@ pub async fn names(app: &App) -> Vec<String> {
 }
 
 /// The part of a session's prompt about channels, when there is one.
-pub fn instruction(app: &App, session: &str, cwd: &str) -> Option<String> {
+pub fn instruction(app: &App, session: &str) -> Option<String> {
     let names = NAMES.lock().unwrap().clone();
     if names.is_empty() {
         return None;
     }
-    let cli = app.cli_command_in(cwd);
+    let cli = app.paths.cli_command();
     Some(format!(
         "To send a message through one of the owner's channels ({}), write it to a file and run `{cli} send <channel> --body-file <file> [--title \"…\"] --session-id {session}`. `telegram` goes directly to the owner's own chat; other channels reach other people, so the message waits in the owner's Outbox until they click Send. Send messages only when the task asks for it.",
         names.join(", ")

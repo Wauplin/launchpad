@@ -96,8 +96,6 @@ async fn get_project(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<
 #[derive(Deserialize)]
 struct AddProject {
     path: String,
-    /// The SSH host of `path` (a native path on that host, `~` for its home).
-    host: Option<String>,
     /// The one workspace of the folder (required).
     workspace_id: String,
 }
@@ -137,20 +135,12 @@ async fn browse_local(State(s): State<Ctx>, Query(q): Query<BrowseLocal>) -> Api
 }
 
 async fn add_project(State(s): State<Ctx>, Json(b): Json<AddProject>) -> ApiResult<Project> {
-    let path = match b.host.as_deref() {
-        Some(h) => {
-            let home = s.app.hosts.home(h).ok_or_else(|| ApiError::bad_request(format!("{h} is not connected")))?;
-            let p = b.path.trim();
-            let native = if p == "~" { home } else if let Some(rest) = p.strip_prefix("~/") { format!("{}/{rest}", home.trim_end_matches('/')) } else { p.to_string() };
-            std::path::PathBuf::from(launchpad_core::hosts::loc::join(Some(h), &native))
-        }
-        None => launchpad_core::paths::expand_home(b.path.trim()),
-    };
+    let path = launchpad_core::paths::expand_home(b.path.trim());
     // A runner's Git checkout becomes a folder of Home; the runner works in its own clones of it.
     let git = launchpad_core::git::git_dir(&path).await.is_some();
-    let p = if s.app.paths.role == launchpad_core::role::Role::Runner && b.host.is_none() && git {
+    let p = if s.app.paths.role == launchpad_core::role::Role::Runner && git {
         projects::add_to_home(&s.app, &path, &b.workspace_id).await
-    } else if b.host.is_none() && !git {
+    } else if !git {
         // A folder without Git becomes a plain folder of Home: agents work in a synced copy.
         projects::import_plain(&s.app, &path, &b.workspace_id).await
     } else {
@@ -272,15 +262,8 @@ async fn open_window(State(s): State<Ctx>, Json(b): Json<OpenWindow>) -> ApiResu
     Ok(Json(json!({"ok": true})))
 }
 
-#[derive(Deserialize, Default)]
-struct Discover {
-    /// Scan the projects root of this SSH host instead of this computer's.
-    host: Option<String>,
-}
-
-async fn discover(State(s): State<Ctx>, body: Option<Json<Discover>>) -> ApiResult<Vec<Discovered>> {
-    let host = body.map(|b| b.0).unwrap_or_default().host;
-    Ok(Json(projects::discover(&s.app, host.as_deref()).await.map_err(bad)?))
+async fn discover(State(s): State<Ctx>) -> ApiResult<Vec<Discovered>> {
+    Ok(Json(projects::discover(&s.app).await.map_err(bad)?))
 }
 
 async fn patch_project(State(s): State<Ctx>, Path(id): Path<String>, Json(patch): Json<ProjectPatch>) -> ApiResult<Project> {
@@ -609,10 +592,7 @@ async fn task_output(State(s): State<Ctx>, Path(id): Path<String>, Query(q): Que
         _ => None,
     });
     let Some(file) = file else { return Ok(Json(json!({"text": null}))) };
-    // The harness reports a path on the machine of the session.
-    let host = s.app.sessions.get(&id).and_then(|x| launchpad_core::hosts::loc::host_of(&x.cwd).map(str::to_string));
-    let file = if file.starts_with('/') { launchpad_core::hosts::loc::join(host.as_deref(), &file) } else { file };
-    let text = launchpad_core::hostfs::tail(&file, 4096).await.ok().map(|b| String::from_utf8_lossy(&b).to_string());
+    let text = launchpad_core::files::tail(&file, 4096).await.ok().map(|b| String::from_utf8_lossy(&b).to_string());
     Ok(Json(json!({"text": text})))
 }
 

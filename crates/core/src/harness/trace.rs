@@ -10,30 +10,22 @@ pub struct TraceFile {
 }
 
 pub fn environment(app: &App, session: &Session) -> Result<UserEnv> {
-    let host = crate::hosts::loc::host_of(&session.cwd);
     let contained = crate::contain::trace_overrides(app, session);
     if !contained.is_empty() {
-        return Ok(app.env.on(host).with(&contained));
+        return Ok(app.env.with(&contained));
     }
-    let overrides = crate::profiles::env(app, session.harness, &session.launch_spec, session.model.as_deref(), host)?;
-    Ok(app.env.on(host).with(&overrides))
+    let overrides = crate::profiles::env(app, session.harness, &session.launch_spec, session.model.as_deref())?;
+    Ok(app.env.with(&overrides))
 }
 
 pub async fn root(app: &App, session: &Session, key: &str, default: &str) -> Result<PathBuf> {
     let env = environment(app, session)?;
-    let host = env.host();
-    let home = match host {
-        Some(h) => app.hosts.home(h).context("trace host is disconnected")?,
-        None => env.get("HOME").or_else(|| env.get("USERPROFILE")).map(str::to_string)
-            .or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).context("no home directory")?,
-    };
-    let value = if host.is_some() {
-        // Read only the requested variable in the host's actual login/profile environment.
-        crate::procs::output(&env, "printenv", &[key], None).await.ok()
-    } else { env.get(key).map(str::to_string) };
+    let home = env.get("HOME").or_else(|| env.get("USERPROFILE")).map(str::to_string)
+        .or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).context("no home directory")?;
+    let value = env.get(key).map(str::to_string);
     let path = value.filter(|v| !v.is_empty()).unwrap_or_else(|| Path::new(&home).join(default).to_string_lossy().into_owned());
     anyhow::ensure!(!path.contains("${"), "unresolved trace directory");
-    Ok(PathBuf::from(crate::hosts::loc::join(host, &path)))
+    Ok(PathBuf::from(path))
 }
 
 pub fn conversation(session: &Session) -> Result<&str> {
@@ -52,7 +44,7 @@ pub fn write(dir: &Path, name: &str, data: &[u8]) -> Result<()> {
 }
 
 pub async fn read(path: &Path, name: String) -> Result<TraceFile> {
-    let mut data = crate::hostfs::read_limited(path, 256 * 1024 * 1024).await?;
+    let mut data = crate::files::read_limited(path, 256 * 1024 * 1024).await?;
     // A live JSONL writer may be halfway through its last record. Retry that tail next pass.
     if name.ends_with(".jsonl") && !data.ends_with(b"\n") {
         let end = data.iter().rposition(|b| *b == b'\n').map_or(0, |n| n + 1);
@@ -65,7 +57,7 @@ pub async fn files(root: &Path, depth: usize) -> Result<Vec<PathBuf>> {
     let mut pending = vec![(root.to_path_buf(), depth)];
     let mut files = vec![];
     while let Some((dir, depth)) = pending.pop() {
-        let entries = match crate::hostfs::read_dir(&dir).await {
+        let entries = match crate::files::read_dir(&dir).await {
             Ok(v) => v,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => return Err(e.into()),

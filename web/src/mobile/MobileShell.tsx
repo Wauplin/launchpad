@@ -10,7 +10,6 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useLayoutEffect, useState } from "react";
 import { IconSprite, Icon, type IconName } from "@/components/Icon";
 import { Toasts } from "@/components/Toast";
-import { HostPrompts } from "@/app/HostPrompt";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
 import { useInboxNeeds } from "@/features/inbox/data";
@@ -117,7 +116,6 @@ export function MobileShell() {
       <Composer />
       {menu && <WorkspaceSheet onClose={() => setMenu(false)} />}
       <Toasts />
-      <HostPrompts />
       {addOpen && <Suspense fallback={null}><AddFolderDialog /></Suspense>}
     </div>
   );

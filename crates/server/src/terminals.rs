@@ -60,15 +60,13 @@ async fn open(State(s): State<Server>, Json(b): Json<Open>) -> ApiResult<Termina
 
 #[derive(Deserialize)]
 struct ProfileSetup {
-    /// SSH host, or none for this computer.
-    host: Option<String>,
     /// Run the install command instead of the sign-in command.
     #[serde(default)]
     install: bool,
 }
 
 async fn profile_setup(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<ProfileSetup>) -> ApiResult<TerminalInfo> {
-    Ok(Json(s.app.terminals.open_profile_setup(&s.app, &id, b.host.as_deref(), b.install).await.map_err(bad)?))
+    Ok(Json(s.app.terminals.open_profile_setup(&s.app, &id, b.install).await.map_err(bad)?))
 }
 
 async fn close(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {

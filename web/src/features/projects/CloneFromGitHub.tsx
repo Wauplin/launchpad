@@ -14,7 +14,7 @@ const SHOWN = 30;
 
 /** `workspace`: the one workspace of the new folder, chosen in the Add folder dialog (null: not chosen yet).
  * `initialRepo`: a repository to fill in (Settings → GitHub → Add to). */
-export function CloneFromGitHub({ root, host = null, workspace, initialRepo, onDone }: { root: string | undefined; host?: string | null; workspace: Workspace | null; initialRepo?: string; onDone?: () => void }) {
+export function CloneFromGitHub({ root, workspace, initialRepo, onDone }: { root: string | undefined; workspace: Workspace | null; initialRepo?: string; onDone?: () => void }) {
   const qc = useQueryClient();
   const [repo, setRepo] = useState(initialRepo ?? "");
   const [cloning, setCloning] = useState<string | null>(null);
@@ -26,7 +26,7 @@ export function CloneFromGitHub({ root, host = null, workspace, initialRepo, onD
     if (!workspace) return;
     setCloning(name);
     try {
-      const p = await api.post<Project>("/api/projects/clone", { repo: name, host, workspace_id: workspace.id });
+      const p = await api.post<Project>("/api/projects/clone", { repo: name, workspace_id: workspace.id });
       toast(`Cloned ${name} into ${p.path} and added it to ${workspace.name}`);
       onDone?.();
       setRepo("");
@@ -48,8 +48,8 @@ export function CloneFromGitHub({ root, host = null, workspace, initialRepo, onD
           {cloning ? "Cloning…" : "Clone"}
         </button>
       </div>
-      {cloning && <div className="text-xs text-ink-2">Cloning {cloning} on {host ?? "the daemon host"}. Large repositories can take a few minutes.</div>}
-      <p className="text-xs text-ink-3">Uses <code className="font-mono">gh repo clone</code> with the GitHub CLI sign-in and Git protocol of {host ?? "the daemon host"} (<code className="font-mono">git clone</code> over HTTPS without the GitHub CLI).</p>
+      {cloning && <div className="text-xs text-ink-2">Cloning {cloning} on the daemon machine. Large repositories can take a few minutes.</div>}
+      <p className="text-xs text-ink-3">Uses <code className="font-mono">gh repo clone</code> with the GitHub CLI sign-in and Git protocol of the daemon machine (<code className="font-mono">git clone</code> over HTTPS without the GitHub CLI).</p>
       {q.isLoading && <div className="text-xs text-ink-3">Loading your repositories…</div>}
       {q.data && q.data.length === 0 && <div className="text-xs text-ink-3">No other repository found on GitHub yet. Type owner/name.</div>}
       {matches.length > 0 && (

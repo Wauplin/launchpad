@@ -29,7 +29,7 @@ export const folders: Chapter = {
     {
       id: "folders.add", route: "/projects", anchor: "folders.add",
       title: "Add folder",
-      body: "Folders in the sidebar lists the folders of the workspace. Add folder registers one you work in: Git repositories of your folders root are suggested, any folder can be browsed, and Clone from GitHub clones one. On SSH machines too.",
+      body: "Folders in the sidebar lists the folders of the workspace. Add folder registers one you work in: Git repositories of your folders root are suggested, any folder can be browsed, and Clone from GitHub clones one.",
     },
     {
       id: "folders.knowledge", route: "/knowledge", anchor: "knowledge.notes",

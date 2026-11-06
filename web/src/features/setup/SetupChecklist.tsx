@@ -14,11 +14,10 @@ import type { MissingPart } from "@/gen/MissingPart";
 import type { Profile } from "@/gen/Profile";
 import type { Project } from "@/gen/Project";
 import { Icon } from "@/components/Icon";
-import { Badge, ConfirmButton, ErrorState, FilterChip, FilterChips, Loading } from "@/components/ui";
+import { Badge, ConfirmButton, ErrorState, Loading } from "@/components/ui";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
-import { nativePath, useHosts } from "@/lib/hosts";
 import { useConfig, useProjects, useStatus } from "@/lib/queries";
 import { isDesktopShell } from "@/lib/platform";
 import { useComposer } from "@/stores/composer";
@@ -48,15 +47,15 @@ const PAY_CHOICES = [
   { kind: "provider", label: "Another model provider", detail: "OpenCode, for example with the Hugging Face router" },
 ];
 
-const checklistKey = (host: string | null) => ["setup-checklist", host ?? ""] as const;
+const checklistKey = ["setup-checklist"] as const;
 
-function useChecklist(host: string | null) {
+function useChecklist() {
   const qc = useQueryClient();
   return useQuery({
-    queryKey: checklistKey(host),
+    queryKey: checklistKey,
     queryFn: async () => {
-      const c = await api.get<Checklist>(`/api/setup/checklist${host ? `?host=${encodeURIComponent(host)}` : ""}`);
-      if (!host) qc.setQueryData(SUMMARY_KEY, { required_left: c.required_left });
+      const c = await api.get<Checklist>("/api/setup/checklist");
+      qc.setQueryData(SUMMARY_KEY, { required_left: c.required_left });
       return c;
     },
     staleTime: 30_000,
@@ -84,9 +83,7 @@ export function SetupChecklist() {
 }
 
 function MachineSetupChecklist() {
-  const hosts = useHosts();
-  const [host, setHost] = useState<string | null>(null);
-  const q = useChecklist(host);
+  const q = useChecklist();
   const qc = useQueryClient();
   const recheck = () => {
     void q.refetch();
@@ -97,22 +94,16 @@ function MachineSetupChecklist() {
   const onboarding = useOnboarding().data;
   const patchOnboarding = usePatchOnboarding();
   const dismissed = onboarding?.dismissed ?? [];
-  const machine = host ?? "this computer";
+  const machine = "this computer";
   const items = q.data?.items ?? [];
   const required = items.filter((i) => i.importance === "required");
   const optional = items.filter((i) => i.importance !== "required");
   const hidden: { id: string; title: string }[] = optional.filter((i) => dismissed.includes(`setup:${i.id}`));
-  if (!host && dismissed.includes("setup:slack")) hidden.push({ id: "slack", title: "Slack" });
+  if (dismissed.includes("setup:slack")) hidden.push({ id: "slack", title: "Slack" });
   const shown = optional.filter((i) => !dismissed.includes(`setup:${i.id}`));
   const ready = !!q.data && q.data.required_left === 0;
   return (
     <div className="grid gap-3">
-      {hosts.length > 0 && (
-        <FilterChips label="Machine">
-          <FilterChip active={host === null} onClick={() => setHost(null)}>This computer</FilterChip>
-          {hosts.map((h) => <FilterChip key={h.host.id} active={host === h.host.id} onClick={() => setHost(h.host.id)} disabled={h.state !== "connected"} title={h.state === "connected" ? undefined : "Not connected"}>{h.host.id}</FilterChip>)}
-        </FilterChips>
-      )}
       <div className="flex flex-wrap items-center gap-2">
         {q.data ? (
           ready ? (
@@ -127,18 +118,18 @@ function MachineSetupChecklist() {
       {q.error && <ErrorState error={q.error} onRetry={recheck} />}
       {!q.data && q.isFetching && <Loading what="setup checks" />}
       {q.data && <>
-        <Section title="Required">{required.map((i) => <ItemCard key={i.id} item={i} host={host} recheck={recheck} />)}</Section>
-        <Section title={host ? "Optional" : "Recommended and optional"}>
-          {!host && <NotificationsItem />}
-          {!host && !dismissed.includes("setup:slack") && <SlackItem onHide={() => void patchOnboarding({ dismiss: ["setup:slack"] }).catch(toastError)} />}
-          {shown.map((i) => <ItemCard key={i.id} item={i} host={host} recheck={recheck} onHide={i.state === "missing" ? () => void patchOnboarding({ dismiss: [`setup:${i.id}`] }).catch(toastError) : undefined} />)}
+        <Section title="Required">{required.map((i) => <ItemCard key={i.id} item={i} recheck={recheck} />)}</Section>
+        <Section title="Recommended and optional">
+          <NotificationsItem />
+          {!dismissed.includes("setup:slack") && <SlackItem onHide={() => void patchOnboarding({ dismiss: ["setup:slack"] }).catch(toastError)} />}
+          {shown.map((i) => <ItemCard key={i.id} item={i} recheck={recheck} onHide={i.state === "missing" ? () => void patchOnboarding({ dismiss: [`setup:${i.id}`] }).catch(toastError) : undefined} />)}
           {hidden.length > 0 && (
             <p className="m-0 flex flex-wrap items-center gap-1.5 text-[12px] text-ink-3">Hidden: {hidden.map((i) => i.title).join(", ")}
               <button type="button" className="btn btn-sm btn-ghost" onClick={() => void patchOnboarding({ restore: hidden.map((i) => `setup:${i.id}`) }).catch(toastError)}>Show</button>
             </p>
           )}
         </Section>
-        {!host && <FinishCard ready={ready} />}
+        <FinishCard ready={ready} />
       </>}
     </div>
   );
@@ -189,7 +180,7 @@ function FoundList({ item }: { item: SetupItem }) {
   );
 }
 
-function ItemCard({ item, host, recheck, onHide }: { item: SetupItem; host: string | null; recheck: () => void; onHide?: () => void }) {
+function ItemCard({ item, recheck, onHide }: { item: SetupItem; recheck: () => void; onHide?: () => void }) {
   const missing = item.state === "missing";
   // Identity keys are one form; the profile, folder and presets steps have their own controls.
   const identity = item.missing.filter((p) => p.id === "user.name" || p.id === "user.email");
@@ -199,16 +190,15 @@ function ItemCard({ item, host, recheck, onHide }: { item: SetupItem; host: stri
       <FoundList item={item} />
       {item.id === "github" && <GitHubExpectations />}
       {/* More workspaces can be added at any time, so the form stays once the first one exists. */}
-      {item.id === "workspace" && host === null && <WorkspaceCreator />}
+      {item.id === "workspace" && <WorkspaceCreator />}
       {/* A satisfied item only explains what Launchpad uses: no fix, change or switch actions. */}
       {missing && <>
-        {identity.length > 0 && <IdentityForm keys={identity.map((p) => p.id)} host={host} onSaved={recheck} />}
-        {item.id === "profile" && <ProfileStep item={item} host={host} onDone={recheck} />}
-        {item.id === "folder" && <FolderStep item={item} host={host} onDone={recheck} />}
+        {identity.length > 0 && <IdentityForm keys={identity.map((p) => p.id)} onSaved={recheck} />}
+        {item.id === "profile" && <ProfileStep item={item} onDone={recheck} />}
+        {item.id === "folder" && <FolderStep item={item} onDone={recheck} />}
         {item.id === "presets" && <PresetsStep onDone={recheck} />}
-        {parts.map((p) => <PartRow key={p.id} item={item.id} part={p} host={host} />)}
+        {parts.map((p) => <PartRow key={p.id} item={item.id} part={p} />)}
         {item.id === "devices" && <SettingsLink to="/settings/devices">Open Settings → Devices</SettingsLink>}
-        {item.id === "hosts" && <SettingsLink to="/settings/hosts">Open Settings → Machines</SettingsLink>}
         {(item.id === "vault_login" || item.id === "vault_git") && <SettingsLink to="/settings/credentials">Open Settings → Credentials and tools</SettingsLink>}
         {item.id === "huggingface" && item.missing.some((p) => p.id === "enable") && <SettingsLink to="/settings/huggingface">Open Settings → Hugging Face</SettingsLink>}
       </>}
@@ -221,9 +211,9 @@ function SettingsLink({ to, children }: { to: string; children: ReactNode }) {
 }
 
 /** One missing part: what is missing, and its fixed command with Copy and Run in terminal. */
-function PartRow({ item, part, host }: { item: string; part: MissingPart; host: string | null }) {
+function PartRow({ item, part }: { item: string; part: MissingPart }) {
   const terminal = useOpenTerminal();
-  if (!host && externalSetup()) return <div className="grid gap-1.5 rounded-lg border border-line-2 bg-chrome p-2.5"><div className="text-[13px] font-semibold">{part.label}</div><span className="text-[12px] text-ink-3">On a Space, sign-ins happen in the Space settings panel (gear at the top right, above Launchpad).</span><SpaceSettingsButton primary label="Sign in from Space settings" /></div>;
+  if (externalSetup()) return <div className="grid gap-1.5 rounded-lg border border-line-2 bg-chrome p-2.5"><div className="text-[13px] font-semibold">{part.label}</div><span className="text-[12px] text-ink-3">On a Space, sign-ins happen in the Space settings panel (gear at the top right, above Launchpad).</span><SpaceSettingsButton primary label="Sign in from Space settings" /></div>;
   return (
     <div className="grid gap-1.5 rounded-lg border border-line-2 bg-chrome p-2.5">
       <div className="text-[13px] font-semibold">{part.label}</div>
@@ -233,7 +223,7 @@ function PartRow({ item, part, host }: { item: string; part: MissingPart; host: 
         <div className="flex flex-wrap items-center gap-1.5">
           <button type="button" className="btn btn-sm" onClick={() => void copyText(part.command!).then(() => toast("Command copied"))}><Icon name="copy" size={12} />Copy</button>
           {part.runnable && (
-            <ConfirmButton tone="publish" icon="term" consequence={part.sudo ? "Opens a visible terminal; type your password there. Launchpad never types it." : "Opens a visible terminal that runs this command. You can read and stop it."} confirmLabel="Run" onConfirm={() => terminal.setupFix(item, part.id, host)}>Run in terminal</ConfirmButton>
+            <ConfirmButton tone="publish" icon="term" consequence={part.sudo ? "Opens a visible terminal; type your password there. Launchpad never types it." : "Opens a visible terminal that runs this command. You can read and stop it."} confirmLabel="Run" onConfirm={() => terminal.setupFix(item, part.id)}>Run in terminal</ConfirmButton>
           )}
         </div>
       </>}
@@ -241,7 +231,7 @@ function PartRow({ item, part, host }: { item: string; part: MissingPart; host: 
   );
 }
 
-function IdentityForm({ keys, host, onSaved }: { keys: string[]; host: string | null; onSaved: () => void }) {
+function IdentityForm({ keys, onSaved }: { keys: string[]; onSaved: () => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
@@ -251,7 +241,7 @@ function IdentityForm({ keys, host, onSaved }: { keys: string[]; host: string | 
   const save = async () => {
     setBusy(true);
     try {
-      await api.post("/api/setup/git-identity", { host, ...(askName ? { name: name.trim() } : {}), ...(askEmail ? { email: email.trim() } : {}) });
+      await api.post("/api/setup/git-identity", { ...(askName ? { name: name.trim() } : {}), ...(askEmail ? { email: email.trim() } : {}) });
       toast("Saved in your global Git configuration");
       onSaved();
     } catch (e) { toastError(e); } finally { setBusy(false); }
@@ -267,7 +257,7 @@ function IdentityForm({ keys, host, onSaved }: { keys: string[]; host: string | 
   );
 }
 
-function ProfileStep({ item, host, onDone }: { item: SetupItem; host: string | null; onDone: () => void }) {
+function ProfileStep({ item, onDone }: { item: SetupItem; onDone: () => void }) {
   const qc = useQueryClient();
   const terminal = useOpenTerminal();
   const profiles = useConfig().data?.config.profiles ?? [];
@@ -284,7 +274,7 @@ function ProfileStep({ item, host, onDone }: { item: SetupItem; host: string | n
   };
   const signIns = item.missing.filter((p) => p.id.startsWith("sign_in:"));
   return <>
-    {item.logins.length > 0 && host === null && (
+    {item.logins.length > 0 && (
       <div className="grid gap-1.5">
         <div className="text-[13px] font-semibold">Signed-in logins found</div>
         {item.logins.map((l) => (
@@ -301,7 +291,7 @@ function ProfileStep({ item, host, onDone }: { item: SetupItem; host: string | n
       return (
         <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line-2 bg-chrome p-2.5 text-[13px]">
           <span className="min-w-0 flex-1"><b>{profile?.name ?? id}</b>{p.detail && <span className="text-[12px] text-ink-3"> · {p.detail}</span>}</span>
-          {!host && externalSetup() ? <SpaceSettingsButton primary profile={id} label="Sign in from Space settings" /> : <ConfirmButton tone="publish" icon="term" consequence="Opens a visible terminal with the agent's sign-in command." confirmLabel="Sign in" onConfirm={() => terminal.profileSetup(id, host)}>Sign in</ConfirmButton>}
+          {externalSetup() ? <SpaceSettingsButton primary profile={id} label="Sign in from Space settings" /> : <ConfirmButton tone="publish" icon="term" consequence="Opens a visible terminal with the agent's sign-in command." confirmLabel="Sign in" onConfirm={() => terminal.profileSetup(id)}>Sign in</ConfirmButton>}
         </div>
       );
     })}
@@ -322,7 +312,7 @@ function ProfileStep({ item, host, onDone }: { item: SetupItem; host: string | n
   </>;
 }
 
-function FolderStep({ item, host, onDone }: { item: SetupItem; host: string | null; onDone: () => void }) {
+function FolderStep({ item, onDone }: { item: SetupItem; onDone: () => void }) {
   const qc = useQueryClient();
   const showAdd = useAddFolder((s) => s.show);
   const current = useScope().workspace;
@@ -334,7 +324,7 @@ function FolderStep({ item, host, onDone }: { item: SetupItem; host: string | nu
     if (!workspace) return;
     setBusy(path);
     try {
-      const p = await api.post<Project>("/api/projects", { path: host ? nativePath(path) : path, host, workspace_id: workspace.id });
+      const p = await api.post<Project>("/api/projects", { path, workspace_id: workspace.id });
       toast(`Added ${p.name} to ${workspace.name}`);
       await qc.invalidateQueries({ queryKey: ["projects"] });
       void qc.invalidateQueries({ queryKey: ["workspaces"] });
@@ -349,7 +339,7 @@ function FolderStep({ item, host, onDone }: { item: SetupItem; host: string | nu
       {item.suggestions.map((path) => (
         <div key={path} className="flex items-center gap-2 rounded-lg border border-line-2 bg-chrome px-2.5 py-1.5 text-[13px]">
           <Icon name="folder" size={13} />
-          <span className="min-w-0 flex-1 truncate" title={path}>{nativePath(path)}</span>
+          <span className="min-w-0 flex-1 truncate" title={path}>{path}</span>
           <button type="button" className="btn btn-sm" disabled={busy !== null || !workspace} onClick={() => void add(path)}><Icon name="plus" size={12} />Add</button>
         </div>
       ))}

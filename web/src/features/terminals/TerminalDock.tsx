@@ -1,7 +1,6 @@
 // Bottom dock with one tab per integrated terminal of the current workspace (plus setup terminals, which have
 // no folder and show everywhere). Hide keeps the processes running. Phones show it as the /terminals page.
 
-import { HostLabel } from "@/components/HostLabel";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
 import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
@@ -58,7 +57,6 @@ const Chip = ({ t }: { t: TerminalInfo }) => (
   <>
     {t.setup && <span className="flex-none rounded border border-line px-1 text-[11px] leading-4 text-ink-3">Setup</span>}
     {t.place && <span className="max-w-[140px] flex-none truncate rounded border border-line px-1 font-mono text-[11px] leading-4 text-ink-2" title={t.branch ? `${t.place} · ${t.branch}` : t.place}>{t.place}</span>}
-    <HostLabel path={t.cwd} />
   </>
 );
 

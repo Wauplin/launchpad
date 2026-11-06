@@ -26,7 +26,6 @@ flowchart TB
     H --> C1[claude -p stream-json]
     H --> C2[codex app-server]
     H --> C3[opencode acp]
-    H -.->|ssh| HH[host helper on SSH hosts]
     G --> GH[api.github.com]
     S --> GIT[git worktrees]
 ```

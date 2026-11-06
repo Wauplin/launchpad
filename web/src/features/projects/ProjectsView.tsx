@@ -4,7 +4,6 @@ import { PhoneHeader } from "@/mobile/PhoneHeader";
 // card for folders registered before workspaces were required.
 
 import { useQueryClient } from "@tanstack/react-query";
-import { HostLabel } from "@/components/HostLabel";
 import { Link } from "@tanstack/react-router";
 import { memo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -69,7 +68,6 @@ export function TempProjectCard({ p }: { p: Project }) {
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5 rounded-lg border border-line p-3.5">
       <div className="flex items-center gap-2">
-        <HostLabel path={p.path} />
         <span className="min-w-0 truncate font-mono text-[13px] font-semibold" title={p.path}>
           {p.name.replace(/^tmp-\d{4}-/, "") || p.name}
         </span>
@@ -127,7 +125,7 @@ function UnassignedFolders({ folders, workspaces }: { folders: Project[]; worksp
         {folders.map((p) => (
           <div key={p.id} className="flex min-h-[44px] flex-wrap items-center gap-2 border-b border-line-2 px-3 py-1.5 text-[13px] last:border-0">
             <span className="grid min-w-0 flex-1 basis-[200px]">
-              <span className="flex min-w-0 items-center gap-2"><span className="truncate font-semibold">{p.name}</span><HostLabel path={p.path} />{p.is_temp && <span className="text-[11px] text-ink-3">temporary</span>}</span>
+              <span className="flex min-w-0 items-center gap-2"><span className="truncate font-semibold">{p.name}</span>{p.is_temp && <span className="text-[11px] text-ink-3">temporary</span>}</span>
               <span className="truncate font-mono text-[12px] text-ink-3" title={p.path}>{p.path}</span>
             </span>
             {workspaces.map((w) => <button key={w.id} className="btn btn-sm" onClick={() => void assign(p, w)}>{w.name}</button>)}
@@ -146,7 +144,7 @@ const FolderRow = memo(function FolderRow({ p }: { p: Project }) {
       <div className="grid min-w-0 flex-1 gap-0.5">
         <span className="flex min-w-0 items-center gap-2">
           <Link to="/projects/$id" params={{ id: p.id }} className="truncate font-semibold text-ink no-underline hover:underline">{p.name}</Link>
-          <HostLabel path={p.path} />
+          
           {p.gh_repo && !phone && <span className="truncate font-mono text-[12px] text-ink-3">{p.gh_repo}</span>}
         </span>
         <span className="truncate font-mono text-[12px] text-ink-3" title={p.path}>{p.description || p.path}</span>

@@ -3,8 +3,6 @@
 
 import { ProposalCard, useProposalList } from "@/features/proposals/ProposalCard";
 import { FollowUpAgent } from "./FollowUpAgent";
-import { HostLabel } from "@/components/HostLabel";
-import { hostOf, linkLabel, useHost } from "@/lib/hosts";
 import { useProfile } from "@/lib/profiles";
 import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle, RunSettingsChip } from "./SessionSummary";
 import { Tabs } from "@/components/ui";
@@ -446,7 +444,6 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           <button className="iconbtn session-back order-first shrink-0 self-start" title="Back to agents" aria-label="Back to agents" onClick={onClear}><Icon name="chev" size={20} className="rotate-90" /></button>
         </div>
         <span className="session-meta order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3 tabular-nums">
-          <HostLabel path={s.cwd} />
           <StatusBadge s={s} />
           <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{place} <Icon name="chev" size={12} /></button>
           {stateChips}
@@ -484,8 +481,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             <span className="flex min-w-0 [&>div]:min-w-0 [&_button]:max-w-full"><WorktreeChip session={s} /></span>
             {localPr && <button className="shrink-0 text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Local PR</button>}
             {(profileLabel || contextShare) && <span className="min-w-0 truncate">{[profileLabel, contextShare].filter(Boolean).join(" · ")}</span>}
-            <HostLabel path={s.cwd} />
-          </span>
+            </span>
           {/* Outside the clipped meta line (and portaled), so ⓘ and its panel stay visible when the line is cut. */}
           <Popover viewport align="right" width={280} className="shrink-0" trigger={({ toggle }) => <button className="iconbtn size-6! shrink-0 text-ink-3" title="Session details" aria-label="Session details" onClick={toggle}><Icon name="info" size={13} /></button>}>
             {() => <dl className="grid gap-2 p-2 text-[12px] text-ink-2">
@@ -516,7 +512,6 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         <span className="min-w-0 flex-1 break-words">Could not load session events: {log.error}</span>
         <button className="btn btn-sm" disabled={log.loading} onClick={() => void load(sessionId)}>{log.loading ? "Loading…" : "Retry"}</button>
       </div>}
-      <HostBand cwd={s.cwd} running={running} />
       {s.capacity_retry_at != null && <div role="status" className="flex flex-wrap items-center gap-2 border-b border-line bg-teal-soft px-3 py-2 text-xs text-teal-ink">
         <Icon name="clock" size={16} />Model at capacity · automatic retry {s.capacity_retry_count + 1} scheduled for {new Date(s.capacity_retry_at).toLocaleTimeString()}. Resume now or archive to cancel.
       </div>}
@@ -599,24 +594,6 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         {primary && <span className="session-bottom-primary flex min-w-0 flex-1 items-center gap-2"><StatePrimary s={s} primary={primary} /></span>}
       </div>}
       </div>
-    </div>
-  );
-}
-
-/** The host of the session folder is not connected: a connection state, never a session status. */
-function HostBand({ cwd, running }: { cwd: string; running: boolean }) {
-  const id = hostOf(cwd);
-  const h = useHost(id);
-  if (!id || !h || h.state === "connected") return null;
-  const since = new Date(Number(h.since)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-attn-line bg-attn-soft px-3 py-2 text-[12px]" role="status">
-      <span className="min-w-0 flex-1">
-        <b>{id} is {linkLabel[h.state].toLowerCase()}{h.state === "connecting" ? "" : ` since ${since}`}.</b>{" "}
-        {running ? "The agent keeps running on the host; its output appears here when the connection returns. Stop is sent once it is back." : "Changes, files and new turns need the host; Launchpad reconnects every 15 s."}
-        {h.error && <span className="block text-ink-3">{h.error}</span>}
-      </span>
-      <button className="btn btn-sm" onClick={() => void api.post(`/api/hosts/${id}/retry`).catch(toastError)}>Retry now</button>
     </div>
   );
 }

@@ -543,17 +543,14 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
                     } else { entry };
                     request(&server, entry, id, &method, &params).await;
                 }
-                Ok(Incoming::Exited { lost }) => {
+                Ok(Incoming::Exited) => {
                     // Every live thread is lost. Done sessions resume when you send a message.
                     let all: Vec<(String, ThreadSession)> =
                         router_threads.lock().unwrap().drain().collect();
                     for (_, (sink, state)) in all {
                         cancel_requests(&sink, &state).await;
                         if sink.agent_id.is_some() { sink.set_status(SessionStatus::Interrupted).await; continue; }
-                        if lost {
-                            sink.emit(EventBody::Notice { text: "The Codex app-server on the host ended while it was unreachable (the host or its helper restarted).".into() }).await;
-                        }
-                        sink.exited((!lost).then(|| "codex app-server exited".into())).await;
+                        sink.exited(Some("codex app-server exited".into())).await;
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => tracing::warn!("codex router lagged by {n} messages"),
@@ -1116,8 +1113,8 @@ pub const REGISTRATION: harness::Registration = harness::Registration {
             || key == "CODEX_SANDBOX_NETWORK_DISABLED"
     },
 };
-/// A host (None: this computer) and profile environment.
-type ProfileEnv = (Option<String>, Vec<(String, String)>);
+/// A profile environment.
+type ProfileEnv = Vec<(String, String)>;
 pub struct Adapter {
     env: launchpad_core::shellenv::UserEnv,
     /// The shared app-server, also used for quotas and models.
@@ -1156,12 +1153,12 @@ impl harness::Harness for Adapter {
         }
     }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
-        if spec.env.is_empty() && spec.host.is_none() && spec.jail.is_none() {
+        if spec.env.is_empty() && spec.jail.is_none() {
             return start(app, &self.server, &self.threads, spec, sink).await;
         }
         let (server, threads) = {
             let mut servers = self.profile_servers.lock().unwrap();
-            servers.entry((spec.host.clone(), spec.env.clone())).or_insert_with(|| {
+            servers.entry(spec.env.clone()).or_insert_with(|| {
                 let server = CodexServer::new(spec.process_env(&self.env));
                 let threads = Threads::default();
                 spawn_router(app, &server, &threads);

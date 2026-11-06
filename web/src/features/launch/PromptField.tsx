@@ -6,7 +6,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Icon, type IconName } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { useSessions } from "@/lib/queries";
-import { hostOf } from "@/lib/hosts";
 import { useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
 import { usePhone } from "@/lib/phone";
@@ -64,10 +63,8 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   if (mention?.trigger === "@" && !noFolders && debounced === mention.query) {
     const hits = files.data?.hits ?? [];
     for (const hit of hits) {
-      if (root && hostOf(root) !== hostOf(hit.root)) continue;
-      const nativeRoot = hit.root.replace(/^[^/:]+:(?=\/)/, "");
-      const path = relativePaths && root === hit.root ? hit.path : `${nativeRoot.replace(/[\\/]$/, "")}/${hit.path}`;
-      suggestions.push({ id: `${hit.root}:${hit.path}`, group: hit.directory ? "Folder" : "File", label: hit.path, detail: !root && hostOf(hit.root) ? `${hit.project} · select its machine’s folder first` : hit.project, unavailable: !root && !!hostOf(hit.root), token: /\s/.test(path) ? JSON.stringify(path) : path, icon: hit.directory ? "folder" : "file" });
+      const path = relativePaths && root === hit.root ? hit.path : `${hit.root.replace(/[\\/]$/, "")}/${hit.path}`;
+      suggestions.push({ id: `${hit.root}:${hit.path}`, group: hit.directory ? "Folder" : "File", label: hit.path, detail: hit.project, token: /\s/.test(path) ? JSON.stringify(path) : path, icon: hit.directory ? "folder" : "file" });
     }
   }
   if (mention?.trigger === "/" && !noFolders) for (const skill of skills.data?.hits ?? []) {
@@ -76,7 +73,7 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   }
   if (mention?.trigger === "#") {
     // Only the folders of this window's workspace: other workspaces show counts, never their content.
-    const folders = noFolders ? [] : scope.projects.filter((p) => p.id !== projectId && hostOf(p.path) === hostOf(root ?? "") && rank(`${p.name} ${p.path} ${p.description}`) !== null).sort((a,b) => (rank(a.name) ?? 100) - (rank(b.name) ?? 100));
+    const folders = noFolders ? [] : scope.projects.filter((p) => p.id !== projectId && rank(`${p.name} ${p.path} ${p.description}`) !== null).sort((a,b) => (rank(a.name) ?? 100) - (rank(b.name) ?? 100));
     for (const p of folders.slice(0, 10)) suggestions.push({ id: p.id, group: "Project", label: p.name, detail: p.path, token: `#${p.name.replace(/\s+/g, "-")}`, icon: "folder", pick: { kind: "project", value: { project_id: p.id, branch: null, editable: false } } });
     for (const s of sessions.filter((s) => s.id !== sessionId && s.last_seq > 0 && scope.hasSession(s) && rank(`${s.title} ${s.cwd}`) !== null).sort((a,b) => b.started_at - a.started_at).slice(0, 10)) suggestions.push({ id: s.id, group: "Trace", label: s.title, detail: `${s.cwd} · through event ${s.last_seq}`, token: `#trace:${s.title.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 40) || "agent"}`, icon: "agents", pick: { kind: "trace", value: { session_id: s.id, through_seq: s.last_seq } } });
     const github = new Map<string, GitHubRef>();

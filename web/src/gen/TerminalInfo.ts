@@ -11,7 +11,7 @@ folder: string,
  */
 place: string | null, branch: string | null, 
 /**
- * No project: a sign-in, install or host command. Shown in every workspace with a Setup chip.
+ * No project: a sign-in or install command. Shown in every workspace with a Setup chip.
  */
 setup: boolean, 
 /**

@@ -61,7 +61,7 @@ The tour runs in demo mode: a fictional organization with prerecorded agent runs
 
 ### The setup checklist
 
-**Finish setup** in the sidebar (route `/setup`) checks this computer and each SSH host:
+**Finish setup** in the sidebar (route `/setup`) checks this computer:
 
 - Git identity, GitHub CLI sign-in, Git credentials and SSH key.
 - Each harness: installed and signed in.
@@ -70,7 +70,7 @@ The tour runs in demo mode: a fictional organization with prerecorded agent runs
 - A first folder.
 - On Linux, where every agent runs contained: bubblewrap installed and able to create a jail (on Ubuntu 24.04, the AppArmor profile that allows it), a login in the vault for each profile's agent, and the Git identity of agents (both in **Settings → Credentials and tools**). Agents in the jail never use this computer's sign-ins or Git configuration.
 
-- Recommended and optional: notifications, **Slack for agents** (a read-only Slack token, and optionally a write one, see [Credentials and tools](home-and-runners.md#credentials-and-tools)), starter presets, phones and other devices, SSH machines. **Not now** hides an optional item.
+- Recommended and optional: notifications, **Slack for agents** (a read-only Slack token, and optionally a write one, see [Credentials and tools](home-and-runners.md#credentials-and-tools)), starter presets, phones and other devices. **Not now** hides an optional item.
 
 Items that are already done show what was found and where. For missing items, a button runs the official command in a visible terminal. The checklist never overwrites an existing Git identity, credential, SSH key or harness login.
 
@@ -101,7 +101,7 @@ The agent appears in **Agents → Running**. When it finishes, a card waits in *
 
 - **One action per row.** Lists show one button per row or card: **Done** on Inbox rows, **Launch** on Folders rows, the main action on Today cards. Hover the row, or focus it with the keyboard, for the other actions (on Folders: **Files**, **Terminal** and **⋯**). On touch screens they are always visible.
 - **Page explanations.** A page explains itself under its title on your first visit on this device. After that, click **ⓘ** next to the title to read it again.
-- **Settings search.** On a laptop, Settings replaces the sidebar with its pages (**Back to Launchpad** returns to the page you were on); the field at the top finds pages by name and by keyword: "telegram" finds Channels and "ssh" finds Machines.
+- **Settings search.** On a laptop, Settings replaces the sidebar with its pages (**Back to Launchpad** returns to the page you were on); the field at the top finds pages by name and by keyword: "telegram" finds Channels and "runner" finds Home and runners.
 
 ### Connect GitHub
 

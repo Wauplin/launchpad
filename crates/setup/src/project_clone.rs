@@ -2,7 +2,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use serde::Serialize;
 use serde_json::Value;
 use ts_rs::TS;
@@ -117,67 +117,6 @@ pub async fn refresh_suggestions(app: &App) -> Result<Vec<CloneSuggestion>> {
 pub async fn clone_to_home(app: &App, input: &str, workspace_id: &str) -> Result<Project> {
     let (owner, repo) = parse_repo(input)?;
     launchpad_core::projects::register_remote(app, &repo, &format!("https://github.com/{owner}/{repo}.git"), workspace_id).await
-}
-
-/// Clones into `<projects_root>/<name>` with `gh repo clone` (its configured protocol and credentials),
-/// or `git clone` over HTTPS without a signed-in GitHub CLI. A hidden staging folder keeps Discover from listing a
-/// partial clone; no prompt can block the request.
-/// On an SSH host, the clone runs there with the host's own `gh` or `git` credentials.
-/// A repository already cloned for another workspace gets a second folder, `<name>-<workspace>`.
-pub async fn clone(app: &App, input: &str, host: Option<&str>, workspace_id: &str) -> Result<Project> {
-    let workspace = launchpad_core::workspace::get(app, workspace_id).await.context("choose a workspace for the folder")?;
-    let (owner, repo) = parse_repo(input)?;
-    let root = launchpad_core::projects::projects_root(app, host)?;
-    launchpad_core::hostfs::create_dir_all(&root).await.with_context(|| format!("create {}", root.display()))?;
-    let mut dest = root.join(&repo);
-    if launchpad_core::hostfs::exists(&dest).await {
-        let canonical = launchpad_core::hostfs::canonicalize(&dest).await.unwrap_or(dest.clone()).to_string_lossy().into_owned();
-        let elsewhere = launchpad_core::projects::list(app).await?.into_iter()
-            .any(|p| p.path == canonical && p.workspace_id.as_ref().is_some_and(|w| *w != workspace.id));
-        if !elsewhere {
-            bail!("{} already exists; use Discover to add it", dest.display());
-        }
-        dest = root.join(format!("{repo}-{}", launchpad_core::compose::slug_from(&workspace.name)));
-        if launchpad_core::hostfs::exists(&dest).await {
-            bail!("{} already exists; use Discover to add it", dest.display());
-        }
-    }
-    let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| repo.clone());
-    let staging = root.join(format!(".{name}.cloning-{}", &uuid::Uuid::new_v4().to_string()[..8]));
-    let full = format!("{owner}/{repo}");
-    let staging_s = staging.to_string_lossy().into_owned();
-    let gh = match host {
-        Some(h) => launchpad_core::hosts::conn(h)?.request(launchpad_core::hosts::proto::Op::Which { programs: vec!["gh".into()] }).await.ok().and_then(|v| v[0].as_str().map(str::to_string)).is_some(),
-        // A signed-out `gh` refuses even public repositories; plain Git still clones those.
-        None => app.env.which("gh").is_some_and(|p| p.is_file()) && launchpad_core::procs::output(&app.env, "gh", &["auth", "token"], None).await.is_ok(),
-    };
-    let mut cmd = if gh {
-        let mut c = launchpad_core::procs::command(&app.env, "gh", Some(&root));
-        c.args(["repo", "clone", &full, &staging_s]);
-        c
-    } else {
-        let mut c = launchpad_core::procs::command(&app.env, "git", Some(&root));
-        c.args(["clone", &format!("https://github.com/{full}.git"), &staging_s]);
-        c
-    };
-    cmd.env("GIT_TERMINAL_PROMPT", "0").env("GH_PROMPT_DISABLED", "1").stdin(launchpad_core::exec::Io::Null);
-    let result = tokio::time::timeout(Duration::from_secs(15 * 60), cmd.output()).await;
-    let ok = match result {
-        Ok(Ok(out)) if out.status.success() => Ok(()),
-        Ok(Ok(out)) => Err(anyhow::anyhow!("clone failed: {}", String::from_utf8_lossy(&out.stderr).trim())),
-        Ok(Err(e)) => Err(anyhow::Error::new(e).context("run the clone command")),
-        Err(_) => Err(anyhow::anyhow!("clone did not finish within 15 minutes")),
-    };
-    if let Err(e) = ok {
-        let _ = launchpad_core::hostfs::remove_dir_all(&staging).await;
-        return Err(e);
-    }
-    if launchpad_core::hostfs::exists(&dest).await {
-        let _ = launchpad_core::hostfs::remove_dir_all(&staging).await;
-        bail!("{} appeared during the clone; use Discover to add it", dest.display());
-    }
-    launchpad_core::hostfs::rename(&staging, &dest).await.with_context(|| format!("move the clone to {}", dest.display()))?;
-    launchpad_core::projects::register(app, &dest, false, &workspace.id).await
 }
 
 #[cfg(test)]

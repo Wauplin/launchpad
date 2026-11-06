@@ -140,9 +140,6 @@ pub struct MergeLocal {
     pub head: String,
 }
 
-/// The repository skill, installed as a managed copy for agents on SSH hosts.
-pub const SKILL: &str = include_str!("../../../skills/launchpad/SKILL.md");
-
 pub fn link_skill() -> Result<()> {
     let installed = std::env::current_exe()?
         .parent()
@@ -309,7 +306,7 @@ async fn create_record(app: &App, q: Create) -> Result<Predraft> {
     Ok(p)
 }
 /// Launch instructions for an agent that works on a Local PR's branch.
-pub fn instruction(app: &App, p: &Predraft, cwd: &str) -> String {
+pub fn instruction(app: &App, p: &Predraft) -> String {
     match &p.published_url {
         Some(url) => format!(
             "You are continuing Local PR {} (branch `{}`), published as {url}. Commit your work on this branch; Launchpad pushes it to Home and Home pushes it to the pull request. Never force-push or rewrite commits that are already pushed. Do not open another pull request. Comments and reviews still go through `launchpad suggest`; never post them yourself.",
@@ -317,7 +314,7 @@ pub fn instruction(app: &App, p: &Predraft, cwd: &str) -> String {
         ),
         None => format!(
             "You are working on Local PR {} (branch `{}`). Commit your work on this branch; Launchpad pushes it to Home. Do not open a pull request on GitHub. When done, set the title and description with `{} pr update --title \"…\" --body-file <file>`.",
-            p.id, p.branch, app.cli_command_in(cwd)
+            p.id, p.branch, app.paths.cli_command()
         ),
     }
 }

@@ -46,7 +46,7 @@ Run only what your change can break, and rebuild only what you changed; CI runs 
 - **Never stop or restart the production daemon (port 7317)** unless the owner asks: it runs the agents, maybe including you. Restarting a daemon interrupts its running turns and ends its terminals.
 - **Nothing reaches GitHub without an owner click.** Automated checks never post comments or reviews, request reviewers, change labels, state or draft status, merge real items, publish Local PRs, post real suggestions or mute real threads. Local unread and viewed markers and unsent drafts are safe. Use throwaway local bare remotes for publication checks.
 - Agent-written comments and reviews go through `launchpad suggest comment|review` (reviews need `--head <inspected commit>`; Local PRs use `--predraft <id>`). The CLI never publishes.
-- Automated checks clean up after themselves: close the terminals they open, never type into harness TUIs, pause or delete test routines, cancel test follow-ups, scheduled launches and HF jobs, discard test worktrees (use throwaway repositories), close throwaway browsers and servers, remove test SSH hosts.
+- Automated checks clean up after themselves: close the terminals they open, never type into harness TUIs, pause or delete test routines, cancel test follow-ups, scheduled launches and HF jobs, discard test worktrees (use throwaway repositories), close throwaway browsers and servers.
 - Never run setup fixes that change the real machine's configuration, and never write trace copies or backups to a real bucket (use a local folder destination).
 - Never refresh the Claude OAuth token; only read it. Never log in, refresh tokens or copy credentials to hosts on the owner's behalf.
 - Never retry an uncertain operation automatically after a crash (launch/send claims, quota continuations, scheduled launches, Ask proposals, merges, browser actions, GitHub posts). Show the uncertainty and let the owner check.
@@ -66,7 +66,7 @@ Run only what your change can break, and rebuild only what you changed; CI runs 
 ### Harnesses and sessions
 
 - `crates/core/src/harness/mod.rs` is the common contract and `crates/harness/src/lib.rs` the registration list; each adapter owns startup/resume, discovery, monitors, markers, terminal commands and title hooks. No harness identity branches in core, server or React (UI metadata: `GET /api/harnesses`). See `docs/harness-adapters.md`.
-- Adapters start processes with `procs::child_command(&app.env.on(spec.host), …)` and the native `spec.cwd` (works on SSH hosts). `exec::is_lost` exits are Interrupted.
+- Adapters start processes with `procs::child_command(&app.env, …)` and `spec.cwd`. `exec::is_lost` exits are Interrupted.
 - Shared session states: Done means waiting for input; Running includes starting, working and background commands (including Codex background commands until real completion); never infer Done from a silent command. Stopped differs from Interrupted and Failed. Idle checks for publication, merge and root Stop include child turns and commands that outlive a turn.
 - Needs you = an open question, or Done/Failed/Interrupted and unseen. `Session::needs_you()` and `needsYou`/`isUnseen` (`web/src/lib/sessionStatus.ts`) are the only predicates. A session becomes seen only after a focused, visible, recently used window showed it for 1.5 s (notification suppression uses the same rule); a bot page counts as showing its current session.
 - Today is the decision list: Home computes it once for every window (`today::compute`, the core's items plus `ext::Extensions::today` for the feature crates), serves it at `GET /api/today` (Home-owned; runners forward it) and announces changes with the `today`/`changed` bus event; session updates recompute only when the set of sessions that need you changed. Every attention count (sidebar, rail, phone, window title, app badge) reads only this list; agents join it through `Session::needs_you()`. Each item names its main action from the action list. An item whose place resolves to no workspace is not listed (repositories without a folder never show); only shared things show in every workspace (outdated runners, tool or preset proposals without a workspace, Outbox messages without a session). A Merge from a Today card needs the session Done, its runner present and a safe branch; the card stays until the merge completed.
@@ -101,11 +101,9 @@ The Git and storage design is in `docs/architecture.md`; these rules must hold.
 - Files reads Git folders from a browse copy (`home_git::browse_copy`), never the bare mirror. Every `/api/code/*` request goes through `code::open` (registered folders and their worktrees only); code API paths use forward slashes. HTML previews are static, sanitized and sandboxed with no permissions; keep highlighting limits shared with the viewer and terminate stalled highlight workers.
 - Folder remote metadata is derived from local Git configuration; broadcast only when it changes.
 
-### SSH hosts
+### Other machines
 
-- A host folder is `<host>:<absolute path>` in every path field. Run commands through `procs::command` and file operations through `hostfs`; never `std::fs` or `tokio::process` directly on project, session or worktree paths. Re-host Git output paths with `hosts::loc::rehost`.
-- Unreachable is a host state, never a session status. Preflight is read-only; only owner clicks run install or sign-in commands, in a visible terminal.
-- Test with a throwaway host (local Docker sshd or `hf jobs run --ssh`) and an isolated daemon.
+- Agents run on this computer or on runners; there are no SSH hosts. Another machine joins as a runner that pairs itself with Home (`launchpad connect`), never through a connection Home opens into it.
 
 ### Remote access and devices
 

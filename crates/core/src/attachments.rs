@@ -194,30 +194,19 @@ pub fn validate_images(images: &[ImageAttachment]) -> Result<()> {
     Ok(())
 }
 
-/// The private attachment folder of a session: in the data folder here, or in the helper folder of its host.
-pub fn dir(app: &crate::App, host: Option<&str>, id: &str) -> PathBuf {
-    match host {
-        Some(h) => {
-            let home = app.hosts.home(h).unwrap_or_else(|| "/nonexistent".into());
-            PathBuf::from(crate::hosts::loc::join(Some(h), &format!("{}/.local/share/launchpad-host/{}/attachments/{id}", home.trim_end_matches('/'), app.paths.app_env.name())))
-        }
-        None => app.paths.data_dir.join("attachments").join(id),
-    }
+/// The private attachment folder of a session, in the data folder.
+pub fn dir(app: &crate::App, id: &str) -> PathBuf {
+    app.paths.data_dir.join("attachments").join(id)
 }
 
-/// Keep files outside the checkout; numbered names avoid collisions and path traversal. Files of a session
-/// on an SSH host go to a private folder on that host.
+/// Keep files outside the checkout; numbered names avoid collisions and path traversal.
 pub async fn prepare(
     app: &crate::App,
-    host: Option<&str>,
     id: &str,
     files: &[FileAttachment],
 ) -> Result<(Vec<ImageAttachment>, Option<std::path::PathBuf>, String)> {
     let mut images = Vec::new();
-    if let Some(h) = host {
-        ensure!(files.iter().all(|f| is_image(&f.data_url)) || app.hosts.home(h).is_some(), "{h} is not connected: attached files cannot be copied there now");
-    }
-    let dir = dir(app, host, id);
+    let dir = dir(app, id);
     let mut paths = Vec::new();
     for file in files {
         if is_image(&file.data_url) {
@@ -226,7 +215,7 @@ pub async fn prepare(
                 data_url: to_data_url(&file.data_url)?,
             });
         } else {
-            crate::hostfs::create_dir_all_mode(&dir, Some(0o700)).await?;
+            crate::files::create_dir_all_mode(&dir, Some(0o700)).await?;
             let name: String = file
                 .name
                 .chars()
@@ -246,8 +235,8 @@ pub async fn prepare(
                 &hex::encode(Sha256::digest(&bytes))[..8],
                 if name.is_empty() { "attachment" } else { &name }
             ));
-            crate::hostfs::write_mode(&path, &bytes, Some(0o600)).await?;
-            paths.push(format!("- {}", crate::hosts::loc::native(&path.to_string_lossy())));
+            crate::files::write_mode(&path, &bytes, Some(0o600)).await?;
+            paths.push(format!("- {}", path.display()));
         }
     }
     let has_files = !paths.is_empty();
@@ -269,7 +258,7 @@ pub async fn for_message(app: &crate::App, id: &str, text: &str, files: &[FileAt
         return Ok((text.to_string(), Vec::new()));
     }
     validate(files)?;
-    let s = app.sessions.get(id).context("no such session")?;
-    let (images, _, instruction) = prepare(app, crate::hosts::loc::host_of(&s.cwd), id, files).await?;
+    ensure!(app.sessions.get(id).is_some(), "no such session");
+    let (images, _, instruction) = prepare(app, id, files).await?;
     Ok((format!("{text}{instruction}").trim_start().to_string(), images))
 }

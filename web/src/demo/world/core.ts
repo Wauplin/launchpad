@@ -6,7 +6,6 @@ import type { Status } from "@/gen/Status";
 import type { Workspace } from "@/gen/Workspace";
 import { clock } from "../daemon";
 import { ORG, P, ROOT, TMP, WS } from "./ids";
-import { demoHost } from "./settings";
 
 const project = (id: string, name: string, repo: string | null, description: string, extra: Partial<Project> = {}): Project => ({
   id, name, path: `${ROOT}/${name}`, remote_url: repo ? `git@github.com:${repo}.git` : null, gh_repo: repo, gh_upstream: null,
@@ -42,9 +41,9 @@ export function coreWorld() {
       { id: "local-pr", label: "Open a Local PR when done", text: "When the task is done, open a Local PR with `launchpad pr create`.", bots: false, agent: true },
     ],
     profiles: [
-      { id: "claude-max", name: "Claude · Max", harness: "claude", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], send_credentials: false, login: null },
-      { id: "codex-plus", name: "Codex · Plus", harness: "codex", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], send_credentials: false, login: null },
-      { id: "opencode-router", name: "OpenCode · HF router", harness: "opencode", env: { OPENAI_API_KEY: "${HF_TOKEN}" }, model: "open-labs/open-coder-70b", effort: null, billing: "pay_as_you_go", budget_usd: null, models_url: "https://router.example.com/v1/models", spend_limits: [{ usd: 5, hours: 24 }], send_credentials: false, login: null },
+      { id: "claude-max", name: "Claude · Max", harness: "claude", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], login: null },
+      { id: "codex-plus", name: "Codex · Plus", harness: "codex", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], login: null },
+      { id: "opencode-router", name: "OpenCode · HF router", harness: "opencode", env: { OPENAI_API_KEY: "${HF_TOKEN}" }, model: "open-labs/open-coder-70b", effort: null, billing: "pay_as_you_go", budget_usd: null, models_url: "https://router.example.com/v1/models", spend_limits: [{ usd: 5, hours: 24 }], login: null },
     ],
     home: { backup: "", git_name: "", git_email: "", burst: { enabled: true, monthly_cap_usd: 20, flavor: "cpu-basic" }, time_zone: "" },
     runner: { boundary: "jail" },
@@ -69,7 +68,6 @@ export function coreWorld() {
     sessions: { running: 0, done: 0, quota_paused: 0 },
     time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,
     utc_offset_minutes: -new Date().getTimezoneOffset(),
-    hosts: [demoHost("gpu-box", "gpu-box", config.profiles)],
     spend: [{ profile: "opencode-router", name: "OpenCode · HF router", harness: "opencode", windows: [{ hours: 24, limit_usd: 5, used_usd: 1.84, available_at: null }] }],
     cost_unavailable_profiles: [], runner_update: null,
   };

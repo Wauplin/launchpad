@@ -7,7 +7,6 @@ import { Icon, type IconName } from "@/components/Icon";
 import { SettingRow } from "@/components/ui";
 import { useSetupSummary } from "@/features/setup/summary";
 import { delegatedAccess } from "@/lib/deployment";
-import { useHosts } from "@/lib/hosts";
 import { layoutChoice, setLayoutChoice } from "@/lib/phone";
 import { useConfig } from "@/lib/queries";
 import { useOfflineRunners, useOutdatedRunners, useRunners } from "@/lib/runners";
@@ -47,8 +46,6 @@ export function PhoneSettings() {
   const layout = layoutChoice();
   const workspace = useScope().workspace;
   const config = useConfig().data?.config;
-  const hosts = useHosts();
-  const away = hosts.filter((h) => h.state !== "connected").length;
   const runners = (useRunners().data ?? []).filter((r) => r.runner.state === "approved");
   const offline = useOfflineRunners().length;
   const outdated = useOutdatedRunners().length;
@@ -81,7 +78,6 @@ export function PhoneSettings() {
       <Group title="On a computer">
         <p className="m-0 border-b border-line-2 px-4 py-2 text-[13px] text-ink-3">Open Launchpad on a computer to change these.</p>
         <Status icon="agents" label="Profiles" state={config ? count(config.profiles.length, "profile") : undefined} attn={config?.profiles.length === 0} />
-        <Status icon="term" label="Machines" state={hosts.length ? away ? `${away} not connected` : count(hosts.length, "host") : undefined} attn={away > 0} />
         {runners.length > 0 && <Status icon="window" label="Home and runners" state={outdated ? `${outdated} to update` : offline ? `${offline} offline` : count(runners.length, "runner")} attn={outdated + offline > 0} />}
         <Status icon="sliders" label="Credentials and tools" />
         <Status icon="huggingface" label="Hugging Face" />

@@ -81,8 +81,6 @@ pub struct StartSpec {
     pub session_id: String,
     pub harness_session_id: Option<String>,
     pub resume: bool,
-    /// The SSH host of the session folder; `cwd` and `add_dirs` are then paths on that host.
-    pub host: Option<String>,
     pub cwd: PathBuf,
     pub title: String,
     pub model: Option<String>,
@@ -97,7 +95,7 @@ pub struct StartSpec {
 impl StartSpec {
     /// The environment of the session's native processes: profile overrides and the jail.
     pub fn process_env(&self, base: &crate::shellenv::UserEnv) -> crate::shellenv::UserEnv {
-        base.on(self.host.as_deref()).with(&self.env).jailed(self.jail.clone())
+        base.with(&self.env).jailed(self.jail.clone())
     }
 }
 
@@ -359,11 +357,11 @@ impl Sessions {
     }
 
     fn ensure_shutdown_finished(&self, id: &str) -> Result<()> {
-        anyhow::ensure!(!self.inner.shutdowns.lock().unwrap().contains_key(id), "The previous process is still stopping. Wait for its exit or for the SSH host to reconnect.");
+        anyhow::ensure!(!self.inner.shutdowns.lock().unwrap().contains_key(id), "The previous process is still stopping. Wait for its exit.");
         Ok(())
     }
 
-    /// Keep ownership in a background task when a host cannot acknowledge shutdown promptly.
+    /// Keep ownership in a background task when a process cannot acknowledge shutdown promptly.
     pub(crate) async fn wait_for_shutdown<F>(&self, id: &str, wait: F) -> Result<()>
     where F: std::future::Future<Output = Result<()>> + Send + 'static {
         self.wait_for_shutdown_timeout(id, wait, std::time::Duration::from_secs(5)).await
@@ -806,9 +804,7 @@ impl Sessions {
             Target::Temp => (None, None),
             Target::None => (None, None),
         };
-        // The session runs on the machine of its folder; agents there use the helper's `launchpad` CLI.
-        let host = cwd.as_deref().and_then(crate::hosts::loc::host_of).map(str::to_string);
-        let cli = app.cli_command_on(host.as_deref());
+        let cli = app.paths.cli_command();
         let config = app.config.get();
         let mut context = Vec::new();
         let mut add_dirs = Vec::new();
@@ -819,8 +815,6 @@ impl Sessions {
         let worktree_launch = project_target && (spec.worktree.is_some() || home_git);
         for cp in &spec.context_projects {
             if let Some(p) = crate::projects::get(app, &cp.project_id).await? {
-                let on = crate::hosts::loc::host_of(&p.path).map(str::to_string);
-                anyhow::ensure!(on == host, "Context project {} is on {} but the agent runs on {}: Launchpad does not copy projects between machines.", p.name, on.as_deref().unwrap_or("this computer"), host.as_deref().unwrap_or("this computer"));
                 add_dirs.push(p.path.clone());
                 context.push(ContextInfo { path: p.path, description: p.description, branch: cp.branch.clone(), editable: cp.editable, own_worktree: cp.editable && !in_checkout });
             } else { anyhow::bail!("Context folder no longer exists; remove it and select it again"); }
@@ -922,7 +916,7 @@ impl Sessions {
             spec.effort.clone().or_else(|| profile.as_ref().and_then(|v| v.effort.clone())),
         );
         let mut preview = self.resolve(app, &spec, true).await?;
-        let env = crate::profiles::env(app, harness, &spec, model.as_deref(), preview.cwd.as_deref().and_then(crate::hosts::loc::host_of))?;
+        let env = crate::profiles::env(app, harness, &spec, model.as_deref())?;
         if preview.prompt.trim().is_empty() {
             bail!("the prompt is empty");
         }
@@ -952,7 +946,7 @@ impl Sessions {
                 Target::Temp => {
                     let workspace = spec.workspace_id.as_deref().context("a temporary folder needs a workspace: launch it from a workspace")?;
                     let p = crate::projects::create_temp(app, &spec.text, workspace).await?;
-                    preview.prompt.push_str(&format!("\n\n{}", temp_instruction(&app.cli_command_in(&p.path), &id, workspace, &p.path)));
+                    preview.prompt.push_str(&format!("\n\n{}", temp_instruction(&app.paths.cli_command(), &id, workspace, &p.path)));
                     (p.path, Some(p.id))
                 }
                 Target::Project { project_id } => (preview.cwd.clone().unwrap_or_default(), Some(project_id.clone())),
@@ -968,7 +962,7 @@ impl Sessions {
                     let opts = WorktreeOptions { base: Some(p.base_branch.clone()), ..Default::default() };
                     let (w, folder) = crate::worktrees::plan(app, &id, &project, &opts, true, &preview.title, Some(&p.branch)).await?;
                     created.push(w.id.clone());
-                    preview.prompt.push_str(&format!("\n\n{}", crate::predrafts::instruction(app, &p, &folder)));
+                    preview.prompt.push_str(&format!("\n\n{}", crate::predrafts::instruction(app, &p)));
                     worktrees.push((w, folder.clone()));
                     setups.push((project, folder.clone()));
                     let project_id = p.project_id.clone();
@@ -1031,10 +1025,10 @@ impl Sessions {
                 let when_done = if in_checkout || local_pr.as_ref().is_some_and(|(p, _)| p.is_some()) { crate::model::WhenDone::Keep } else { opts.clone().unwrap_or_default().when_done };
                 preview.prompt.push_str(&format!("\n\n{}", crate::worktrees::instruction(app, &id, &worktrees, &projects, when_done)));
             }
-            let (images, attachment_dir, instruction) = crate::attachments::prepare(app, crate::hosts::loc::host_of(&cwd), &id, &spec.attachments).await?;
+            let (images, attachment_dir, instruction) = crate::attachments::prepare(app, &id, &spec.attachments).await?;
             if let Some(dir) = attachment_dir { preview.add_dirs.push(dir.to_string_lossy().into_owned()); }
             preview.prompt.push_str(&instruction);
-            if !matches!(spec.target, Target::Browser { .. }) && let Some(text) = crate::ext::extensions().suggestion_instruction(app, &id, &cwd) { preview.prompt.push_str(&format!("\n\n{text}")); }
+            if !matches!(spec.target, Target::Browser { .. }) && let Some(text) = crate::ext::extensions().suggestion_instruction(app, &id) { preview.prompt.push_str(&format!("\n\n{text}")); }
             let now = now_ms();
             let session = Session {
                 runner_id: None,
@@ -1066,7 +1060,7 @@ impl Sessions {
                 last_message: None,
             };
             Self::persist(&app.state_db, &session).await?;
-            let (host, native_cwd, add_dirs) = on_machine(&cwd, preview.add_dirs)?;
+            let add_dirs = preview.add_dirs;
             let start = StartSpec {
                 browser: spec.target.browser_only(),
                 browser_tools: spec.target.is_browser(),
@@ -1074,8 +1068,7 @@ impl Sessions {
                 session_id: id.clone(),
                 harness_session_id: None,
                 resume: false,
-                host,
-                cwd: native_cwd,
+                cwd: PathBuf::from(&cwd),
                 title: preview.title,
                 model,
                 effort,
@@ -1266,7 +1259,7 @@ impl Sessions {
         }
         // A temporary folder removed at Archive (or after a move) comes back with its files from Home; Home
         // deletes them 30 days after Archive, and the agent then continues in an empty folder.
-        let had_folder = crate::hostfs::is_dir(std::path::Path::new(&s.cwd)).await;
+        let had_folder = crate::files::is_dir(std::path::Path::new(&s.cwd)).await;
         let restored = match crate::projects::ensure_temp(app, &s).await? {
             Some(p) => {
                 if p.path != s.cwd {
@@ -1291,8 +1284,8 @@ impl Sessions {
         let s = self.get(id).context("no such session")?;
         let worktrees = crate::worktrees::for_session(app, id).await?;
         let mut add_dirs = Vec::new();
-        let attachment_dir = crate::attachments::dir(app, crate::hosts::loc::host_of(&s.cwd), &s.id);
-        if crate::hostfs::is_dir(&attachment_dir).await { add_dirs.push(attachment_dir.to_string_lossy().into_owned()); }
+        let attachment_dir = crate::attachments::dir(app, &s.id);
+        if crate::files::is_dir(&attachment_dir).await { add_dirs.push(attachment_dir.to_string_lossy().into_owned()); }
         for cp in &s.launch_spec.context_projects {
             if let Some(p) = crate::projects::get(app, &cp.project_id).await? {
                 // Editable context projects resolve to their recorded worktree, never to today's checkout.
@@ -1308,11 +1301,11 @@ impl Sessions {
             let dir = crate::worktrees::folder(w);
             if !add_dirs.contains(&dir) { add_dirs.push(dir); }
         }
-        if !crate::hostfs::is_dir(&s.cwd).await {
+        if !crate::files::is_dir(&s.cwd).await {
             bail!("the folder {} no longer exists", s.cwd);
         }
-        let (host, cwd, add_dirs) = on_machine(&s.cwd, add_dirs)?;
-        let env = crate::profiles::env(app, s.harness, &s.launch_spec, s.model.as_deref(), host.as_deref())?;
+        let cwd = PathBuf::from(&s.cwd);
+        let env = crate::profiles::env(app, s.harness, &s.launch_spec, s.model.as_deref())?;
         let start = StartSpec {
             browser: s.launch_spec.target.browser_only(),
             browser_tools: s.launch_spec.target.is_browser(),
@@ -1320,7 +1313,6 @@ impl Sessions {
             session_id: s.id.clone(),
             harness_session_id: s.harness_session_id.clone(),
             resume: s.harness_session_id.is_some(),
-            host,
             cwd,
             title: s.title.clone(),
             model: s.model.clone(),
@@ -1693,7 +1685,6 @@ impl Sessions {
             anyhow::ensure!(!session.launch_spec.target.browser_only(), "This session cannot attach project folders");
             anyhow::ensure!(!cp.editable, "Follow-up context folders must be read-only");
             let project = crate::projects::get(app, &cp.project_id).await?.context("context project no longer exists")?;
-            anyhow::ensure!(crate::hosts::loc::host_of(&project.path) == crate::hosts::loc::host_of(&session.cwd), "Context folders must be on the same machine as the agent");
             folders.push(ContextInfo { path: project.path, description: project.description, branch: cp.branch.clone(), editable: false, own_worktree: false });
         }
         let mut traces = Vec::new();
@@ -1724,7 +1715,7 @@ impl Sessions {
                     prompt.push_str(&format!("\n- {}: browser_trace index {index}, through event {through}", source.title));
                 }
             } else {
-                prompt.push_str(&crate::compose::trace_references(&traces, &app.cli_command_in(&session.cwd)));
+                prompt.push_str(&crate::compose::trace_references(&traces, &app.paths.cli_command()));
             }
         }
         self.send_locked(app, id, &prompt, images, InputMode::Manual, client_id).await
@@ -2069,7 +2060,7 @@ impl Sessions {
     pub(crate) async fn close_in_locked(&self, app: &App, path: &str) -> Result<()> {
         app.terminals.close_in(path).await?;
         let ids: Vec<String> =
-            self.list().into_iter().filter(|s| crate::hosts::loc::within(&s.cwd, path)).map(|s| s.id).collect();
+            self.list().into_iter().filter(|s| std::path::Path::new(&s.cwd).starts_with(path)).map(|s| s.id).collect();
         for id in ids {
             if self.get(&id).is_some_and(|s| s.live || s.status.is_running() || s.status.is_done() || s.quota_pause.is_some()) {
                 self.close_locked(app, &id).await?;
@@ -2122,16 +2113,6 @@ impl Sessions {
             sink.emit(EventBody::Error { message: e }).await;
         }
     }
-}
-
-/// The host of a session folder and the folder and extra directories as that machine sees them.
-fn on_machine(cwd: &str, add_dirs: Vec<String>) -> Result<(Option<String>, PathBuf, Vec<String>)> {
-    use crate::hosts::loc;
-    let host = loc::host_of(cwd).map(str::to_string);
-    for d in &add_dirs {
-        anyhow::ensure!(loc::host_of(d) == host.as_deref(), "{d} is on another machine than the session folder {cwd}");
-    }
-    Ok((host, PathBuf::from(loc::native(cwd)), add_dirs.iter().map(|d| loc::native(d).to_string()).collect()))
 }
 
 fn check_budget(harness: HarnessKind, budget_usd: Option<f64>) -> Result<()> {
@@ -2462,10 +2443,8 @@ impl Sink {
     }
 
     /// The subscription login of the session (`profiles::account`), for quota readings its process reports.
-    /// None on an SSH host, whose login may be another account than the one monitored here.
     pub fn quota_account(&self) -> Option<String> {
         let s = self.sessions.get(&self.id)?;
-        if crate::hosts::loc::host_of(&s.cwd).is_some() { return None; }
         Some(crate::profiles::account(&self.app, s.harness, &s.launch_spec))
     }
 }

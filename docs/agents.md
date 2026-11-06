@@ -26,7 +26,7 @@ A profile is one way to run an agent: a harness, what pays for the work, an opti
 | Pay as you go | Claude Code with an API key or the Hugging Face router, Codex with an OpenAI API key, OpenCode | Optional cost limit per session and rolling spending limits per profile |
 
 - **Several accounts**: a profile that sets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` uses another subscription login. Each login has its own quota meters.
-- **Works on**: each profile shows whether the harness is installed and signed in on this computer and on each SSH host, with **Install** and **Sign in** buttons that run the official command in a visible terminal.
+- **Works on**: each profile shows whether the harness is installed and signed in on this computer, with **Install** and **Sign in** buttons that run the official command in a visible terminal.
 - **Environment values** can use `~/`, `${NAME}` (a variable of your login shell) and `${LAUNCHPAD_MODEL}`. Sessions store only the profile ID, never the values.
 
 Profiles live in `config.toml` (see [Configuration](configuration.md#profiles)).

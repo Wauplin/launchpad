@@ -71,7 +71,6 @@ route("POST", "/api/projects/discover", (): Discovered[] => [
 ]);
 
 route("POST", "/api/projects", ({ body }) => {
-  if (body?.host) throw new DemoError(400, "SSH machines are not part of this step of the demo.");
   return register(String(body?.path ?? "").replace(/^~/, "/home/demo"), null, body?.workspace_id ?? null);
 });
 

@@ -71,11 +71,8 @@ async fn check(app: &App, env: UserEnv, id: crate::model::HarnessKind, profile: 
     SignInCheck { id: id.as_str().into(), profile, name, cli_found, signed_in: result.signed_in, detail: result.detail, command: adapter.sign_in_command().into() }
 }
 
-/// The program is on the user `PATH`. On an SSH host (where `which` cannot look), it answers `--version`.
+/// The program is on the user `PATH`.
 pub async fn found(env: &UserEnv, program: &str) -> bool {
-    if env.host().is_some() {
-        return status_output(env, program, &["--version"]).await.is_ok_and(|(ok, _, _)| ok);
-    }
     env.which(program).is_some_and(|p| p.is_file())
 }
 
@@ -97,18 +94,13 @@ async fn github(env: &UserEnv) -> SignInCheck {
 
 /// Every registered harness (its default login), each profile with its own environment, and the GitHub CLI.
 pub async fn check_all(app: &App) -> Vec<SignInCheck> {
-    check_all_on(app, None).await
-}
-
-/// Like [`check_all`], on this computer or on an SSH host (each profile with its host environment).
-pub async fn check_all_on(app: &App, host: Option<&str>) -> Vec<SignInCheck> {
-    let base = app.env.on(host);
+    let base = app.env.clone();
     let base_ref = &base;
     let defaults = futures_util::future::join_all(registrations().iter().map(|r| check(app, base.clone(), r.descriptor.id, None)));
     let profiles = futures_util::future::join_all(app.config.get().profiles.into_iter().filter(|v| !v.env.is_empty()).map(|v| async move {
         let command = crate::profiles::sign_in_command(app, &v);
         // The model only matters for model references; any value checks the sign-in.
-        match crate::profiles::profile_env(app, &v, Some(v.model.as_deref().unwrap_or("default")), host) {
+        match crate::profiles::profile_env(app, &v, Some(v.model.as_deref().unwrap_or("default"))) {
             Ok(env) => SignInCheck { command, ..check(app, base_ref.with(&env), v.harness, Some((v.id.clone(), v.name.clone()))).await },
             Err(e) => SignInCheck {
                 id: v.harness.as_str().into(), profile: Some(v.id.clone()), name: v.name.clone(), cli_found: true, signed_in: Some(false),
