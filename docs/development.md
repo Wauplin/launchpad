@@ -28,6 +28,22 @@ After changing a Rust type shared with the UI, regenerate the TypeScript types:
 cargo run -p launchpad -- gen-types    # writes web/src/gen/
 ```
 
+## Screenshots
+
+`web/scripts/shots.mjs` takes screenshots of a list of pages at several zoom levels and in the phone layout. It needs no extra package and no server to start: it serves this checkout's `web/dist` from a small server inside the script, and that server forwards API calls to the daemon. It runs `pnpm build` first when `web/src` is newer than `web/dist`.
+
+```sh
+node web/scripts/shots.mjs --demo --views 100,120,150,phone / /agents /bots     # demo data, no daemon
+node web/scripts/shots.mjs --views 120,phone / settings=/settings/workspace     # real data from the dev daemon (port 7318)
+```
+
+- Each file is `<out>/<prefix><view>-<name>.png` (default folder `/tmp/lp-shots`). A page is `/path` or `name=/path`.
+- For each screenshot, the script prints a line with the problems it found: sideways scrolling, bar items that leave the screen or overlap, page errors, failed requests. It exits with code 1 when a screenshot has a problem.
+- Real data: the first run signs in to the daemon with its token (`~/.local/share/launchpad-dev/token`, or `--token-file`) as the device "Screenshots (headless)". The cookie is kept in `~/.cache/launchpad-shots/` for later runs. The script refuses the production daemon (port 7317). Use `--daemon http://127.0.0.1:<port>` for a scratch daemon.
+- Clicks before a screenshot: `--pages <file.json>` with entries like `{"name": "launch", "path": "/", "click": ["text=Launch"]}`. A click is a CSS selector or `text=<button label>`. Entries can also have `eval` (JavaScript) and `wait` (milliseconds).
+- Page explanations and the welcome dialog stay closed (`--first-visit` shows them). `--wait 1500` gives syntax colors in Files time to load. `--base http://127.0.0.1:5173` uses a running `pnpm dev` server instead of `web/dist`.
+- Several runs can go at the same time: each one uses its own Chrome profile, server port and browser contexts. Run `node web/scripts/shots.mjs --help` for every option.
+
 ## Checks
 
 ```sh
@@ -66,6 +82,10 @@ Testing policy: keep tests few, fast and free of mocks. Add a test only for a sm
 - **Hugging Face Space**: see [deploy/hf-space/README.md](../deploy/hf-space/README.md).
 - **Icons**: `packaging/icons/source.png` is the master. Regenerate exports with `python3 packaging/generate-icons.py`.
 - **New harness**: see [Harness adapters](harness-adapters.md).
+
+## Agent runs with several steps
+
+For a plan with several steps, the skill [`.claude/skills/implement-review-docs`](../.claude/skills/implement-review-docs/SKILL.md) runs three fresh subagents per step: an implementer, a reviewer and a docs agent. The docs agent of one step runs at the same time as the implementer of the next step. The skill's `prose-check.py` runs proselint and a reading-ease score on the Markdown lines a change adds.
 
 ## Conventions
 

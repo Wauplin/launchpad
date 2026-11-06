@@ -14,7 +14,7 @@ export function WelcomeGate() {
   const patch = usePatchOnboarding();
   const o = q.data;
   const home = useStatus().data?.role === "home";
-  if (!o || o.welcome) return null;
+  if (!o || o.welcome || window.__lpScreenshots) return null;
   if (o.fresh_install) return <WelcomeDialog />;
   // On Home the setup page is the first step; the tour does not cover Home and runners yet.
   if (o.dismissed.includes("banner") || home) return null;

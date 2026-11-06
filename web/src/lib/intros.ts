@@ -7,6 +7,14 @@ import { storageAllowed } from "./clientStorage";
 
 const KEY = "launchpad.intros-seen";
 
+declare global {
+  interface Window {
+    /** Set by the screenshot script (web/scripts/shots.mjs) before the page loads: no page explanation or welcome dialog opens by itself. */
+    __lpScreenshots?: boolean;
+  }
+}
+const hidden = typeof window !== "undefined" && !!window.__lpScreenshots;
+
 function read(): Set<string> {
   if (isDemo) return new Set();
   try { return new Set(JSON.parse(localStorage.getItem(KEY) ?? "[]") as string[]); } catch { return new Set(); }
@@ -16,11 +24,11 @@ const seen = read();
 
 /** `open` is true on the first visit of `id` (null: no explanation); `toggle` shows or hides it afterwards. */
 export function useIntro(id: string | null): { open: boolean; toggle: () => void } {
-  const [state, setState] = useState(() => ({ id, open: !!id && !seen.has(id) }));
+  const [state, setState] = useState(() => ({ id, open: !!id && !hidden && !seen.has(id) }));
   // A new page (id) starts from its own first-visit state; the same page keeps what the owner chose.
   let current = state;
   if (state.id !== id) {
-    current = { id, open: !!id && !seen.has(id) };
+    current = { id, open: !!id && !hidden && !seen.has(id) };
     setState(current);
   }
   useEffect(() => {
