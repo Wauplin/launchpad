@@ -116,11 +116,11 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
   const suggestions = useSuggestionList().data;
   const { cards: changed, activity } = useChanges(bot, ids);
   const byProposal = useMemo(() => new Map((proposals ?? []).map((p) => [p.id, p])), [proposals]);
-  const byItem = useMemo(() => new Map((today?.items ?? []).map((i) => [i.id, i])), [today]);
+  const byItem = useMemo(() => new Map((today?.items ?? []).flatMap((i) => [i, ...i.grouped]).map((i) => [i.id, i])), [today]);
   const bySuggestion = useMemo(() => new Map((suggestions ?? []).map((s) => [s.id, s])), [suggestions]);
   const cards = useMemo<ChatCard[]>(() => [
     ...(proposals ?? []).filter((p) => p.session_id && ids.has(p.session_id)).map((p): ChatCard => ({ kind: "proposal", id: p.id, session_id: p.session_id!, at: p.created_at, v: `${p.state}${p.updated_at}` })),
-    ...(today?.items ?? []).filter((i) => READY.has(i.kind) && i.session_id && ids.has(i.session_id)).map((i): ChatCard => ({ kind: "ready", id: i.id, session_id: i.session_id!, at: i.at, v: "" })),
+    ...(today?.items ?? []).flatMap((i) => [i, ...i.grouped]).filter((i) => READY.has(i.kind) && i.session_id && ids.has(i.session_id)).map((i): ChatCard => ({ kind: "ready", id: i.id, session_id: i.session_id!, at: i.at, v: "" })),
     ...changed,
   ], [proposals, today, changed, ids]);
 

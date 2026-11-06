@@ -38,4 +38,9 @@ at: number,
 /**
  * Done list only: what happened, such as "Sent to team-chat".
  */
-outcome: string | null, };
+outcome: string | null, 
+/**
+ * Items shown inside this card instead of on their own: the Local PRs of an agent that needs you. One card
+ * per session, so each counts once.
+ */
+grouped: Array<TodayItem>, };

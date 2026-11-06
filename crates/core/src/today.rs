@@ -4,6 +4,8 @@
 //! the crates above it add theirs through `ext::Extensions::today`. Each item names its main action from the
 //! action list (`actions::ACTIONS`). A bus event (`today`/`changed`) tells windows when the list changed.
 //!
+//! One card per session: the Local PRs of an agent that needs you go inside its card (`Item::grouped`).
+//!
 //! The same predicates as before decide membership: `Session::needs_you()` for agents, waiting proposals, Outbox
 //! drafts and unposted suggestions. Handled items of the last 30 days form the Done list.
 use std::time::Duration;
@@ -105,6 +107,10 @@ pub struct Item {
     pub at: i64,
     /// Done list only: what happened, such as "Sent to team-chat".
     pub outcome: Option<String>,
+    /// Items shown inside this card instead of on their own: the Local PRs of an agent that needs you. One card
+    /// per session, so each counts once.
+    #[serde(default)]
+    pub grouped: Vec<Item>,
     #[serde(skip)]
     #[ts(skip)]
     pub place: Place,
@@ -122,7 +128,7 @@ impl Item {
             Kind::Routine => "routine",
             Kind::Runner => "runner",
         };
-        Item { id: format!("{prefix}:{record}"), kind, filter, title: title.into(), detail: String::new(), workspaces: vec![], record: record.into(), session_id: None, action: None, github: None, at, outcome: None, place }
+        Item { id: format!("{prefix}:{record}"), kind, filter, title: title.into(), detail: String::new(), workspaces: vec![], record: record.into(), session_id: None, action: None, github: None, at, outcome: None, grouped: vec![], place }
     }
     pub fn detail(mut self, detail: impl Into<String>) -> Item {
         self.detail = detail.into();
@@ -193,16 +199,38 @@ fn session_item(s: &Session) -> Option<Item> {
     Some(item.session(Some(s.id.clone())))
 }
 
-/// The core's own items: agents that need you, Local PRs to publish, runners to update.
+/// Puts each Local PR whose session is in the list into that session's card: a finished agent's main action
+/// becomes reviewing its Local PR. The other Local PRs stay cards of their own.
+fn group_local_prs(sessions: &mut [Item], local_prs: Vec<Item>) -> Vec<Item> {
+    let mut alone = vec![];
+    for pr in local_prs {
+        match sessions.iter_mut().find(|s| s.session_id.is_some() && s.session_id == pr.session_id) {
+            Some(s) => {
+                if s.kind == Kind::Finished {
+                    s.action = pr.action.clone();
+                }
+                s.grouped.push(pr);
+            }
+            None => alone.push(pr),
+        }
+    }
+    alone
+}
+
+/// The core's own items: agents that need you (with their Local PRs), Local PRs to publish, runners to update.
 async fn core_items(app: &App) -> Vec<Item> {
     let mut out: Vec<Item> = app.sessions.list().iter().filter_map(session_item).collect();
     match crate::predrafts::list(app).await {
-        Ok(list) => out.extend(list.into_iter().filter(|p| !p.archived && p.published_url.is_none() && p.merged.is_none()).map(|p| {
-            Item::new(Kind::LocalPr, Filter::Review, &p.id, &p.title, Place::Project(p.project_id.clone()), p.created_at)
-                .detail(format!("Local PR · {} → {}", p.branch, p.base_branch))
-                .session(p.session_id.clone())
-                .action("local-pr.publish")
-        })),
+        Ok(list) => {
+            let prs = list.into_iter().filter(|p| !p.archived && p.published_url.is_none() && p.merged.is_none()).map(|p| {
+                Item::new(Kind::LocalPr, Filter::Review, &p.id, &p.title, Place::Project(p.project_id.clone()), p.created_at)
+                    .detail(format!("Local PR · {} → {}", p.branch, p.base_branch))
+                    .session(p.session_id.clone())
+                    .action("local-pr.publish")
+            });
+            let alone = group_local_prs(&mut out, prs.collect());
+            out.extend(alone);
+        }
         Err(e) => tracing::warn!("Today: Local PRs: {e:#}"),
     }
     if app.paths.role != crate::role::Role::Runner {
@@ -256,6 +284,9 @@ pub async fn compute(app: &App) -> Result<Today> {
     let (mut items, mut done) = (vec![], vec![]);
     for mut item in all {
         let Some(workspaces) = resolve(app, &projects, &item.place) else { continue };
+        for g in &mut item.grouped {
+            g.workspaces = workspaces.clone();
+        }
         item.workspaces = workspaces;
         if item.outcome.is_some() {
             if item.at >= since {
@@ -275,7 +306,7 @@ pub async fn compute(app: &App) -> Result<Today> {
 const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons"];
 
 /// What windows show of a waiting item: when it changes, they refetch.
-type ItemKey = (String, Vec<String>, Option<String>, String);
+type ItemKey = (String, Vec<String>, Option<String>, String, Vec<String>);
 
 /// What of the sessions can change the list: the ones that need you, with their title, question and status.
 fn sessions_key(app: &App) -> Vec<(String, String, bool, i64, Option<String>)> {
@@ -330,7 +361,7 @@ pub fn spawn(app: &App) {
                 }
             };
             last_sessions = Some(sessions);
-            let key: Vec<_> = today.items.iter().map(|i| (i.id.clone(), i.workspaces.clone(), i.action.clone(), i.title.clone())).collect();
+            let key: Vec<_> = today.items.iter().map(|i| (i.id.clone(), i.workspaces.clone(), i.action.clone(), i.title.clone(), i.grouped.iter().map(|g| g.id.clone()).collect())).collect();
             if last.as_ref() != Some(&key) {
                 last = Some(key);
                 app.bus.publish("today", "changed", serde_json::json!({ "count": today.items.len() }));

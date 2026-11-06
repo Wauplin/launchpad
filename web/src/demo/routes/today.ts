@@ -17,7 +17,7 @@ const PREFIX: Record<TodayKind, string> = { question: "session", finished: "sess
 const ORDER: TodayFilter[] = ["answer", "review", "approve", "send", "github", "fix"];
 
 function item(kind: TodayKind, filter: TodayFilter, record: string, title: string, place: Place, at: number, more: Partial<Draft> = {}): Draft {
-  return { id: `${PREFIX[kind]}:${record}`, kind, filter, title, detail: "", record, session_id: null, action: null, github: null, at, outcome: null, place, ...more };
+  return { id: `${PREFIX[kind]}:${record}`, kind, filter, title, detail: "", record, session_id: null, action: null, github: null, at, outcome: null, grouped: [], place, ...more };
 }
 const line = (text: string) => (text.split("\n").map((l) => l.trim()).find(Boolean) ?? "").slice(0, 160);
 const specPlace = (spec: LaunchSpec): Place => spec.target.kind === "project" || spec.target.kind === "predraft" ? { project: spec.target.project_id } : { workspace: spec.workspace_id };
@@ -50,9 +50,15 @@ function drafts(): Draft[] {
     else if (s.status === "waiting") out.push(item("finished", "review", s.id, s.title, place, s.status_since, { ...more, action: "worktree.merge" }));
     else out.push(item("failed", "review", s.id, s.title, place, s.status_since, { ...more, detail: s.status === "error" ? "Failed" : "Interrupted", action: "session.resume" }));
   }
+  // One card per session: a Local PR of an agent that needs you goes inside its card.
   for (const p of world.predrafts) {
     if (p.archived || p.published_url || p.merged) continue;
-    out.push(item("local_pr", "review", p.id, p.title, { project: p.project_id }, p.created_at, { detail: `Local PR · ${p.branch} → ${p.base_branch}`, session_id: p.session_id, action: "local-pr.publish" }));
+    const pr = item("local_pr", "review", p.id, p.title, { project: p.project_id }, p.created_at, { detail: `Local PR · ${p.branch} → ${p.base_branch}`, session_id: p.session_id, action: "local-pr.publish" });
+    const s = p.session_id ? out.find((x) => x.session_id === p.session_id && PREFIX[x.kind] === "session") : undefined;
+    if (!s) { out.push(pr); continue; }
+    if (s.kind === "finished") s.action = pr.action;
+    const { place: _, ...g } = pr;
+    s.grouped.push({ ...g, workspaces: [] });
   }
   for (const p of world.proposals) {
     const b = p.body;
@@ -112,7 +118,7 @@ route("GET", "/api/today", (): Today => {
   for (const { place, ...d } of drafts()) {
     const workspaces = resolve(place);
     if (!workspaces) continue;
-    const it = { ...d, workspaces };
+    const it = { ...d, workspaces, grouped: d.grouped.map((g) => ({ ...g, workspaces })) };
     if (it.outcome !== null) { if (it.at >= since) done.push(it); } else items.push(it);
   }
   items.sort((a, b) => ORDER.indexOf(a.filter) - ORDER.indexOf(b.filter) || b.at - a.at);

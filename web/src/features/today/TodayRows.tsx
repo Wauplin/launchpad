@@ -52,6 +52,8 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
   const look = LOOK[item.kind];
   const title = <span className="block truncate text-[13px] font-semibold" title={item.title}>{item.title}</span>;
   const metaLine = <div className="flex min-w-0 items-center gap-x-1.5 text-[12px] text-ink-3">{meta ?? <span className="truncate">{item.detail}</span>}{age && <span className="flex-none whitespace-nowrap">· {ago(item.at)}</span>}</div>;
+  // The agent's Local PRs: links, so on the phone they sit under the line's button, not inside it.
+  const grouped = item.grouped.map((g) => <LocalPrLine key={g.id} item={g} />);
   const kind = <span className={`grid size-6 flex-none place-items-center ${look.color}`} title={look.name} aria-label={look.name} role="img"><Icon name={icon ?? look.icon} size={16} /></span>;
   const chev = (size: number) => <Icon name="chev" size={size} className={`flex-none text-ink-3 transition-transform ${expanded ? "rotate-180" : ""}`} />;
   const label = expanded ? "Hide the details" : "Show the details";
@@ -65,6 +67,7 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
           : <div className="flex min-w-0 flex-[1_1_160px] items-center gap-2.5 pl-3">{kind}<div className="min-w-0 flex-1">{to ?? title}{metaLine}</div></div>}
         {/* An armed confirmation (Merge) wraps under the title instead of pushing the row sideways. */}
         {buttons && main && <div className="ml-auto flex max-w-full flex-none items-center justify-end pl-2">{main}</div>}
+        {grouped.length > 0 && <div className="w-full min-w-0 pl-[46px]">{grouped}</div>}
       </div>
       {expanded && opens && <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 px-3 pb-3">
         {details}
@@ -82,6 +85,7 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
               ? <button type="button" className="flex max-w-full items-center gap-1 text-left hover:underline" title={label} aria-expanded={expanded} onClick={() => toggle(item.id)}>{title}{chev(11)}</button>
               : to ?? title}
             {metaLine}
+            {grouped}
           </div>
         </div>
         <span className="ml-auto max-w-full">
@@ -92,6 +96,17 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
     </article>
   );
 }
+
+/** A Local PR of the row's agent (`TodayItem.grouped`): one line under the meta line that opens its page. */
+const LocalPrLine = ({ item }: { item: TodayItem }) => (
+  <Link className="flex min-w-0 items-center gap-1.5 text-[12px] text-teal no-underline hover:underline" to="/predrafts/$id" params={{ id: item.record }} title={`${item.title}: publish to GitHub or merge locally from its page`}>
+    <Icon name="pr-local" size={13} className="flex-none" /><span className="truncate">{item.detail}</span><span className="flex-none whitespace-nowrap text-ink-3">· {ago(item.at)}</span>
+  </Link>
+);
+
+/** Review: opens the page of a Local PR (publish to GitHub or merge locally there). */
+const ReviewLocalPr = ({ id }: { id: string }) =>
+  <Link className="btn btn-sm no-underline" to="/predrafts/$id" params={{ id }} title="Publish to GitHub or merge locally from its page">Review</Link>;
 
 /** The main button of a row whose decision needs reading first: it opens the card. */
 const Expand = ({ item, expanded, toggle, children }: Pick<RowProps, "item" | "expanded" | "toggle"> & { children: ReactNode }) =>
@@ -124,9 +139,11 @@ function QuestionRow(p: RowProps) {
     details={ask && s?.live ? <AskCard row={ask} sessionId={item.record} live={s.live} hint="Or open the agent to type another answer." /> : <Last text={s?.last_message ?? (item.detail || "The agent asked a question.")} />} />;
 }
 
-/** Merge when safe, else Review changes when there is work, else Archive; the branch facts in the details. */
+/** Review its Local PR when it wrote one, else Merge when safe, else Review changes when there is work, else
+ * Archive; the branch facts in the details. */
 function FinishedRow(p: RowProps) {
   const { item } = p;
+  const pr = item.grouped.find((g) => g.kind === "local_pr");
   const s = useSession(item.record);
   const loading = useSessionWorktrees(item.record).isPending;
   const branch = useBranch(item.record, s);
@@ -134,10 +151,11 @@ function FinishedRow(p: RowProps) {
   const work = !!w && (w.ahead > 0 || w.dirty_files > 0);
   const archiveMain = !loading && !safe && !work;
   return <Row {...p} age={!s} meta={<SessionMeta s={s} item={item} />}
-    main={safe ? <MergeButton sessionId={item.record} branch={branch} label="Merge" primary={false} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)} />
+    main={pr ? <ReviewLocalPr id={pr.record} />
+      : safe ? <MergeButton sessionId={item.record} branch={branch} label="Merge" primary={false} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)} />
       : work ? <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record, view: "changes" }} title="Review the changes of the agent">Review</Link>
       : archiveMain && <ActionButton name="session.archive" params={{ id: item.record }} />}
-    menu={SessionMenu({ id: item.record, archive: !archiveMain })}
+    menu={SessionMenu({ id: item.record, archive: !!pr || !archiveMain })}
     details={(s?.last_message || facts) && <>
       <Last text={s?.last_message} />
       {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={13} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
@@ -156,7 +174,7 @@ function FailedRow(p: RowProps) {
 function LocalPrRow(p: RowProps) {
   const { item } = p;
   return <Row {...p}
-    main={<Link className="btn btn-sm no-underline" to="/predrafts/$id" params={{ id: item.record }} title="Publish to GitHub or merge locally from its page">Review</Link>}
+    main={<ReviewLocalPr id={item.record} />}
     menu={!!item.session_id && ((close) => <OpenAgent id={item.session_id!} close={close} />)} />;
 }
 
