@@ -22,8 +22,12 @@ use crate::worktrees::{TaskWorktree, WorktreeState};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HandoffFile {
     pub name: String,
-    /// base64
+    /// base64. Empty in Home's `session_handoff` row, which names the content by `sha256` instead.
+    #[serde(default)]
     pub data: String,
+    /// Home: the file's content in the blob store (`plain::blob_path`), never in `state.db`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -96,7 +100,7 @@ async fn snapshot(app: &App, id: &str) -> Result<Handoff> {
         harness_session_id: s.harness_session_id.clone(),
         cwd: s.cwd.clone(),
         worktrees: crate::worktrees::for_session(app, id).await?,
-        files: files.into_iter().map(|f| HandoffFile { name: f.name, data: base64::engine::general_purpose::STANDARD.encode(f.data) }).collect(),
+        files: files.into_iter().map(|f| HandoffFile { name: f.name, data: base64::engine::general_purpose::STANDARD.encode(f.data), sha256: None }).collect(),
         is_final: false,
         at: now_ms(),
     })
@@ -319,9 +323,17 @@ pub async fn adopt(app: &App, id: &str) -> Result<()> {
 // ------------------------------------------------------------------ Home
 
 /// Home: stores a runner's handoff of a session it runs (current generation only).
-pub async fn store(app: &App, runner_id: &str, h: Handoff) -> Result<()> {
+/// The native files go to the blob store; the row keeps their names and hashes.
+pub async fn store(app: &App, runner_id: &str, mut h: Handoff) -> Result<()> {
     let s = app.sessions.get(&h.session_id).context("no such session")?;
     ensure!(s.runner_id.as_deref() == Some(runner_id) && s.generation == h.generation, "this session runs elsewhere now");
+    for f in &mut h.files {
+        let data = base64::engine::general_purpose::STANDARD.decode(&f.data)?;
+        let sha = hex::encode(Sha256::digest(&data));
+        crate::plain::write_blob(app, &sha, &data).await?;
+        f.sha256 = Some(sha);
+        f.data.clear();
+    }
     let (id, generation, json) = (h.session_id.clone(), h.generation, serde_json::to_string(&h)?);
     let runner = runner_id.to_string();
     app.state_db
@@ -345,7 +357,13 @@ pub async fn latest(app: &App, id: &str) -> Result<Option<Handoff>> {
         .state_db
         .call(move |c| Ok(rusqlite::OptionalExtension::optional(c.query_row("SELECT json FROM session_handoff WHERE session_id = ?1", [key], |r| r.get(0)))?))
         .await?;
-    Ok(json.and_then(|j| serde_json::from_str(&j).ok()))
+    let Some(mut h) = json.and_then(|j| serde_json::from_str::<Handoff>(&j).ok()) else { return Ok(None) };
+    for f in &mut h.files {
+        if let Some(sha) = &f.sha256 {
+            f.data = base64::engine::general_purpose::STANDARD.encode(crate::plain::read_blob(app, sha).await?);
+        }
+    }
+    Ok(Some(h))
 }
 
 /// Home: what the new runner of a moved session fetches.

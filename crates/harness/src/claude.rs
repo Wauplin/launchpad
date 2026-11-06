@@ -1076,9 +1076,20 @@ impl harness::Harness for Adapter {
         std::fs::write(&path, serde_json::to_string_pretty(&settings)?)?;
         Ok(vec![("CLAUDE_CODE_DISABLE_AUTO_MEMORY".into(), "1".into())])
     }
-    /// No `history.jsonl` (prompt history).
-    fn contained_history(&self, _home: &std::path::Path) -> Result<Vec<(String, String)>> {
-        Ok(vec![("CLAUDE_CODE_SKIP_PROMPT_HISTORY".into(), "1".into())])
+    /// No prompt history: `history.jsonl` points to `/dev/null`. Never `CLAUDE_CODE_SKIP_PROMPT_HISTORY`: it also
+    /// turns off the session transcript, so `--resume` and native traces find no conversation.
+    fn contained_history(&self, home: &std::path::Path) -> Result<Vec<(String, String)>> {
+        let dir = home.join(".claude");
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("history.jsonl");
+        if std::fs::read_link(&path).ok().as_deref() != Some(std::path::Path::new("/dev/null")) {
+            if std::fs::symlink_metadata(&path).is_ok() {
+                std::fs::remove_file(&path)?;
+            }
+            #[cfg(unix)]
+            std::os::unix::fs::symlink("/dev/null", &path)?;
+        }
+        Ok(vec![])
     }
     fn native_memories(&self, home: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
         // `~/.claude/projects/<folder path with / as ->/memory/`.
