@@ -5,7 +5,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { Empty } from "@/components/ui";
+import { Empty, MoreMenu } from "@/components/ui";
+import { ActionMenuItem } from "@/components/ActionButton";
+import { MenuItem } from "@/components/Popover";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useRef, useState } from "react";
 import type { Session } from "@/gen/Session";
@@ -24,29 +26,22 @@ import { useMarkSeen, useWindowFocused } from "./useSeen";
 import { age, formatReset } from "@/lib/format";
 import { toastError } from "@/components/Toast";
 import { usePhone } from "@/lib/phone";
-import { runAction } from "@/lib/actions";
 
 /** Statuses whose badge tells more than the group heading. */
 const informative = (s: Session) => s.open_question || s.status === "error" || s.status === "interrupted" || s.status === "quota_paused";
 
 const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onClick, onMarkUnread }: { s: Session; project: string; selected: boolean; pinned: boolean; onClick: () => void; onMarkUnread: () => void }) {
-  const [acting, setActing] = useState(false);
   const dim = s.status === "closed";
   const stop = isRunning(s) || isQuotaPaused(s);
   const canMarkUnread = !isUnseen(s) && (isDone(s) || s.status === "error" || s.status === "interrupted");
-  const action = stop ? "Stop" : "Archive";
-  const act = async (unread = false) => {
-    setActing(true);
-    try {
-      if (unread) onMarkUnread();
-      await runAction(unread ? "session.unread" : stop ? "session.stop" : "session.archive", { id: s.id });
-    }
-    catch (e) { toastError(e); }
-    finally { setActing(false); }
-  };
   const needs = needsYou(s);
-  const quotaDetail = s.quota_pause?.error ?? s.quota_pause?.blockers.map((b) => `${b.window} reset ${b.resets_at === null ? "unknown" : formatReset(b.resets_at)}`).join(" · ");
-  const line = s.quota_pause ? quotaDetail || "Waiting for a quota update" : isNoUpdate(s.last_message) ? "No update (a routine with nothing to report)" : s.last_message ?? (s.usage.cost_usd != null ? `$${s.usage.cost_usd.toFixed(2)}` : "");
+  const blockers = s.quota_pause?.blockers ?? [];
+  const quotaDetail = s.quota_pause?.error ?? blockers.map((b) => `${b.window} reset ${b.resets_at === null ? "unknown" : formatReset(b.resets_at)}`).join(" · ");
+  // One short phrase in the row (the latest reset); every window in the tooltip.
+  const lastReset = blockers.length && blockers.every((b) => b.resets_at !== null) ? Math.max(...blockers.map((b) => b.resets_at!)) : null;
+  const quotaLine = s.quota_pause?.error ?? (lastReset !== null ? `resets ${formatReset(lastReset)}` : quotaDetail);
+  const line = s.quota_pause ? quotaLine || "Waiting for a quota update" : isNoUpdate(s.last_message) ? "No update (a routine with nothing to report)" : s.last_message ?? (s.usage.cost_usd != null ? `$${s.usage.cost_usd.toFixed(2)}` : "");
+  const full = s.quota_pause ? quotaDetail || line : line;
   return (
     <div className="group relative" data-tour="agents.row" data-tour-id={s.id}>
       <button
@@ -63,30 +58,19 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
         <span className="flex items-center gap-1 text-[12px] whitespace-nowrap text-ink-3">
           {informative(s) ? <SessionStatus s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{age(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
         </span>
-        <span className={`col-span-2 line-clamp-2 text-[12px] leading-[1.3] text-ink-3 ${dim ? "" : canMarkUnread ? "agent-row-line-2 pr-14" : "agent-row-line-1 pr-7"}`} title={line ? `${project} · ${line}` : project}>
+        <span className="agent-row-line col-span-2 line-clamp-2 pr-8 text-[12px] leading-[1.3] text-ink-3" title={full ? `${project} · ${full}` : project}>
           <span className="text-ink-2">{sessionPlace(s, project)}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
         </span>
       </button>
-      {canMarkUnread && <button
-        type="button"
-        title="Mark unread for later"
-        aria-label={`Mark ${s.title} unread`}
-        disabled={acting}
-        onClick={() => void act(true)}
-        className="agent-row-action agent-row-unread absolute bottom-2 right-9 flex h-6 w-6 items-center justify-center rounded text-ink-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-sunk hover:text-ink disabled:cursor-wait [@media(hover:none)]:opacity-100"
-      >
-        <Icon name="mail" size={14} />
-      </button>}
-      {!dim && <button
-        type="button"
-        title={`${action} session`}
-        aria-label={`${action} ${s.title}`}
-        disabled={acting}
-        onClick={() => void act()}
-        className={`agent-row-action absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded text-ink-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-sunk hover:text-ink disabled:cursor-wait [@media(hover:none)]:opacity-100 ${acting ? "opacity-100" : ""}`}
-      >
-        {acting ? <span className="lp-spin" /> : <Icon name={stop ? "stop" : "archive"} size={14} />}
-      </button>}
+      {/* The row opens the session; Stop, Archive, Mark unread and Pin in ⋯. */}
+      <span className="agent-row-action lp-row-more absolute right-1.5 bottom-1.5">
+        <MoreMenu label={`More actions for ${s.title}`}>{(close) => <>
+          {stop && <ActionMenuItem name="session.stop" params={{ id: s.id }} close={close} />}
+          {!stop && !dim && <ActionMenuItem name="session.archive" params={{ id: s.id }} close={close} detail="It stays resumable" />}
+          {canMarkUnread && <ActionMenuItem name="session.unread" params={{ id: s.id }} close={() => { close(); onMarkUnread(); }} label="Mark unread" detail="Return to Today for later" icon="mail" />}
+          <MenuItem icon={<span className="text-teal-ink">{pinned ? "★" : "☆"}</span>} label={pinned ? "Unpin" : "Pin"} detail="Pinned sessions show first" onClick={() => { close(); useLayout.getState().togglePin(s.id); }} />
+        </>}</MoreMenu>
+      </span>
     </div>
   );
 });

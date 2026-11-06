@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { action, actionConfirm, runAction, type ActionName, type ActionParams } from "@/lib/actions";
 import { ConfirmButton } from "./ui";
+import { MenuItem } from "./Popover";
 import { Icon, type IconName } from "./Icon";
 import { toastError } from "./Toast";
 
@@ -56,4 +57,30 @@ export function ActionButton<T = unknown>({ name, params, vars, body, query, bef
       {icon && <Icon name={icon} size={12} />}{label}
     </button>
   );
+}
+
+/**
+ * One action of the action list as an item of a ⋯ menu (RowActions). The menu closes first, then the action runs.
+ * An action with a confirmation shows its ConfirmButton at the bottom of the menu instead (put those last).
+ */
+export function ActionMenuItem<T = unknown>({ name, params, vars, body, query, close, onDone, label, detail, icon: iconOverride }: {
+  name: ActionName;
+  params?: ActionParams;
+  vars?: Record<string, string>;
+  body?: Record<string, unknown>;
+  query?: Record<string, string>;
+  close: () => void;
+  onDone?: (result: T) => unknown;
+  label?: ReactNode;
+  detail?: ReactNode;
+  icon?: IconName | null;
+}) {
+  const a = action(name);
+  if (actionConfirm(name, { ...vars, ...params }))
+    return <div className="mt-0.5 border-t border-line-2 px-2 pt-1.5 pb-0.5"><ActionButton name={name} params={params} vars={vars} body={body} query={query} onDone={async (r: T) => { close(); await onDone?.(r); }}>{label}</ActionButton></div>;
+  const icon = (iconOverride === null ? undefined : iconOverride ?? a.icon ?? undefined) as IconName | undefined;
+  return <MenuItem icon={icon && <Icon name={icon} size={14} />} label={label ?? a.label} detail={detail} onClick={() => {
+    close();
+    runAction<T>(name, params, body, query).then((r) => onDone?.(r)).catch(toastError);
+  }} />;
 }

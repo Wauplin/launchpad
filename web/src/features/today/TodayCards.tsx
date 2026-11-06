@@ -8,11 +8,11 @@ import type { Proposal } from "@/gen/Proposal";
 import type { Session } from "@/gen/Session";
 import type { Suggestion } from "@/gen/Suggestion";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
-import { ActionButton } from "@/components/ActionButton";
+import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon, type IconName } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
-import { Loading } from "@/components/ui";
+import { Loading, MoreMenu } from "@/components/ui";
 import { AskCard } from "@/features/agents/AskCard";
 import { buildRows } from "@/features/agents/rows";
 import { SessionStatus } from "@/features/agents/SessionBits";
@@ -109,13 +109,13 @@ export function useBranch(sessionId: string, s: Session | null) {
 
 /** Merge the branch into its base (call only when `useBranch(…).safe`). `onMerged` runs after a merge that went
  * through; a merge that waits or stopped keeps the card, with Review changes. */
-export function MergeButton({ sessionId, branch: { t, base }, onMerged, className, label }: { sessionId: string; branch: ReturnType<typeof useBranch>; onMerged?: () => Promise<unknown>; className?: string; label?: string }) {
+export function MergeButton({ sessionId, branch: { t, base }, onMerged, className, label, primary = true }: { sessionId: string; branch: ReturnType<typeof useBranch>; onMerged?: () => Promise<unknown>; className?: string; label?: string; primary?: boolean }) {
   const qc = useQueryClient();
   const merged = async (r: WorktreeInfo) => {
     void qc.invalidateQueries({ queryKey: ["worktrees"] });
     if (r.worktree.merged) await onMerged?.();
   };
-  return <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} query={{ session: worktreeSession(t!) ?? sessionId }} primary className={className} onDone={merged}>{label ?? `Merge into ${base}`}</ActionButton>;
+  return <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} query={{ session: worktreeSession(t!) ?? sessionId }} primary={primary} title={`Merge ${t!.branch} into ${base}`} className={className} onDone={merged}>{label ?? `Merge into ${base}`}</ActionButton>;
 }
 
 /** The branch line and Merge (only when safe) or Review changes. `onMerged` runs after a merge that went through. */
@@ -133,15 +133,15 @@ export function BranchActions({ sessionId, s, onMerged, children }: { sessionId:
   </>;
 }
 
-/** Archive and Mark seen: on hover and focus of the card (always on touch screens), next to its one main action.
- * `archiveMain`: nothing to merge or review, so Archive is the main action and stays visible. */
+/** Archive and Mark seen in ⋯, next to the card's one main action. `archiveMain`: nothing to merge or review, so
+ * Archive is the main action and stays visible. */
 export function Later({ id, archiveMain = false }: { id: string; archiveMain?: boolean }) {
   return <>
     {archiveMain && <ActionButton name="session.archive" params={{ id }} primary />}
-    <span className="lp-row-more inline-flex flex-wrap items-center gap-1.5">
-      {!archiveMain && <ActionButton name="session.archive" params={{ id }} />}
-      <ActionButton name="session.seen" params={{ id }} title="Keep the agent and remove the card" />
-    </span>
+    <MoreMenu label="More actions">{(close) => <>
+      {!archiveMain && <ActionMenuItem name="session.archive" params={{ id }} close={close} detail="It stays resumable" />}
+      <ActionMenuItem name="session.seen" params={{ id }} close={close} detail="Keep the agent and remove the card" />
+    </>}</MoreMenu>
   </>;
 }
 

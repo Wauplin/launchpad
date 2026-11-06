@@ -18,7 +18,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { Icon } from "@/components/Icon";
 import { runAction } from "@/lib/actions";
 import { toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader, RowActions } from "@/components/ui";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
 import { age, ago } from "@/lib/format";
@@ -76,7 +76,7 @@ const ThreadRow = memo(function ThreadRow({ t, selected, projects, ready, select
         <span className="mt-1 flex items-center gap-2 overflow-hidden text-[11px] text-ink-3">
           <span className="truncate">{t.repo}{t.number !== null && ` #${t.number}`}</span>
           {t.state && <span className={`flex-none ${t.state === "merged" ? "text-gh-merged" : t.state === "open" ? "text-gh-open" : ""}`}>{t.state}</span>}
-          <span className={`min-w-0 truncate ${whyOf(t.reason) === "other" ? "text-ink-2" : "font-semibold text-attn"}`}>{reason(t.reason)}</span>
+          <span className={`min-w-0 truncate ${forYou(t) ? "font-semibold text-attn" : "text-ink-2"}`}>{reason(t.reason)}</span>
           {ready && t.number !== null && <ReadyChip t={t} s={ready} />}
           {!phone && t.participant_count > 0 && <span className="truncate" title={t.participants.join(", ")}>{t.participants.slice(0, 2).join(", ")}{t.participant_count > 2 && ` +${t.participant_count - 2}`}</span>}
           <span className="ml-auto flex-none">{age(Date.parse(t.updated_at))}</span>
@@ -84,14 +84,22 @@ const ThreadRow = memo(function ThreadRow({ t, selected, projects, ready, select
         </span>
       </span>
     </button>
-    <button className="btn btn-sm flex-none" title="Mark as done on GitHub" aria-label={`Mark ${t.title} as done`} disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} />{!phone && "Done"}</button>
-    {/* One visible action (Done); Launch and + Add on hover. The phone offers them in the preview. */}
-    {!phone && <span className="lp-row-more flex flex-none items-center gap-2">
-      <LaunchButton small primary={false} ctx={launchContext(t, projects)} />
-      {t.number !== null && (t.kind === "Issue" || t.kind === "PullRequest") && <AddContext refItem={reference(t.repo, { number: t.number, title: t.title, url: t.url }, t.kind === "PullRequest" ? "pr" : "issue")} />}
-    </span>}
+    {phone
+      ? <button className="btn btn-sm flex-none" title="Mark as done on GitHub" aria-label={`Mark ${t.title} as done`} disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} /></button>
+      : <RowActions label={`More actions for ${t.title}`} width={72} main={<button className="btn btn-sm" title="Mark as done on GitHub" disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} />Done</button>} more={(close) => <ThreadMenu t={t} projects={projects} close={close} />} />}
   </div>;
 });
+
+/** The ⋯ of an Inbox row: Launch an agent with the item as context, and + Add to the open draft. */
+function ThreadMenu({ t, projects, close }: { t: Thread; projects: Project[]; close: () => void }) {
+  const draft = useComposer((s) => s.open);
+  const ref = t.number !== null && (t.kind === "Issue" || t.kind === "PullRequest") ? reference(t.repo, { number: t.number, title: t.title, url: t.url }, t.kind === "PullRequest" ? "pr" : "issue") : null;
+  const added = useComposer((s) => !!ref && s.spec.github_refs.some((g) => g.url === ref.url));
+  return <>
+    <MenuItem icon={<Icon name="play" size={14} />} label="Launch" detail="An agent with this item as context" onClick={() => { close(); useComposer.getState().start(launchContext(t, projects)); }} />
+    {ref && draft && <MenuItem icon={<Icon name="plus" size={14} />} label={added ? "Added to the draft" : "Add to the draft"} disabled={added} onClick={() => { close(); useComposer.getState().update((s) => ({ ...s, github_refs: [...s.github_refs, ref] })); }} />}
+  </>;
+}
 
 function RepoPicker({ threads, selected }: { threads: Thread[]; selected: string | null }) {
   const phone = usePhone();
@@ -290,7 +298,7 @@ export function InboxView() {
     {(error || data?.status.error) && <ErrorState className="m-2" error={error ?? data?.status.error} action={<span className="text-ink-2">Cached notifications remain available. Sign in with gh auth login if needed.</span>} />}
     <div className="inbox-filters flex flex-none flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
       <FilterChips tour="inbox.reasons" label="Why you were notified">
-        {whys.map(([k, label, title]) => <FilterChip key={k} active={view.why === k} title={title} count={counts[k]} onClick={() => useView.setState({ why: k, scroll: 0 })}>{label}</FilterChip>)}
+        {whys.map(([k, label, title]) => <FilterChip key={k} active={view.why === k} title={title} count={counts[k]} countNeeds={k === "you" && counts[k] > 0} onClick={() => useView.setState({ why: k, scroll: 0 })}>{label}</FilterChip>)}
       </FilterChips>
       {!phone && <><label className="ml-auto flex items-center gap-2 text-[12px]"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
       <RepoPicker threads={counted} selected={view.repo} /></>}

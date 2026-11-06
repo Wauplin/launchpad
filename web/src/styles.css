@@ -664,11 +664,9 @@ button {
 .lp-phone .lp-tab { min-height: 44px; flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
 .lp-phone .lp-chip { min-height: 36px; flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
 .lp-phone .page-header { padding: 8px 12px 0; }
-/* Agents rows: Mark unread and Archive/Stop get 44 px targets in the row's bottom-right corner. */
-.lp-phone .agent-row-action { width: 44px; height: 44px; bottom: 0; right: 0; }
-.lp-phone .agent-row-action.agent-row-unread { right: 44px; }
-.lp-phone .agent-row-line-1 { padding-right: 44px; }
-.lp-phone .agent-row-line-2 { padding-right: 88px; }
+/* Agents rows: the 44 px ⋯ sits in the row's bottom-right corner. */
+.lp-phone .agent-row-action { bottom: 0; right: 0; }
+.lp-phone .agent-row-line { padding-right: 44px; }
 /* Bot chat: the steps line and the Open trace / Open in Agents links. */
 .lp-phone .chat-tap { min-height: 44px; display: inline-flex; align-items: center; }
 .lp-phone [data-tour="chat.chips"] .lp-chip { min-height: 44px; white-space: nowrap; }

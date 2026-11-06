@@ -234,21 +234,27 @@ export function IconButton({ icon, label, className = "", children, ...props }: 
   );
 }
 
+/** ⋯ that opens a menu of actions (MenuItem, ActionMenuItem, ConfirmButton last). `children` gets `close`. */
+export function MoreMenu({ label, width, children }: { label: string; width?: number; children: (close: () => void) => ReactNode }) {
+  return (
+    <Popover viewport align="right" width={width} label={label} trigger={({ open, toggle }) => <IconButton icon="more" label={label} aria-expanded={open} aria-haspopup="dialog" onClick={toggle} />}>
+      {(close) => <div className="grid gap-px">{children(close)}</div>}
+    </Popover>
+  );
+}
+
 /**
- * The actions of a list row or card: one visible main action (an outline button with a label) in a fixed-width
- * column on the right, then ⋯ with the others. ⋯ shows on hover and keyboard focus of the row (the row needs the
- * `group` class) and always on touch screens. `more` renders the menu (MenuItem, links, ConfirmButton).
+ * The actions of a list row or card: one visible main action (an outline button with a label) in a column of at
+ * least `width` px on the right, then ⋯ with the others. ⋯ shows on hover and keyboard focus of the row (the row
+ * needs the `group` class) and always on touch screens. `more` renders the menu (MenuItem, ActionMenuItem,
+ * ConfirmButton last); without it, an invisible placeholder keeps the columns aligned.
  */
-export function RowActions({ main, more, label, width = 104, menuWidth }: { main?: ReactNode; more?: (close: () => void) => ReactNode; label: string; width?: number; menuWidth?: number }) {
+export function RowActions({ main, more, label, width = 104, menuWidth }: { main?: ReactNode; more?: ((close: () => void) => ReactNode) | false | null; label: string; width?: number; menuWidth?: number }) {
   return (
     <span className="flex flex-none items-center gap-1">
-      <span className="flex justify-end" style={{ width }}>{main}</span>
+      <span className="flex justify-end" style={{ minWidth: width }}>{main}</span>
       {more
-        ? <span className="lp-row-more flex flex-none">
-            <Popover viewport align="right" width={menuWidth} label={label} trigger={({ open, toggle }) => <IconButton icon="more" label={label} aria-expanded={open} aria-haspopup="dialog" onClick={toggle} />}>
-              {(close) => <div className="grid gap-px">{more(close)}</div>}
-            </Popover>
-          </span>
+        ? <span className="lp-row-more flex flex-none"><MoreMenu label={label} width={menuWidth}>{more}</MoreMenu></span>
         : <span className="iconbtn invisible" aria-hidden="true" />}
     </span>
   );

@@ -7,7 +7,8 @@ import type { LaunchSpec } from "@/gen/LaunchSpec";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon, type IconName } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { ConfirmButton, ErrorState, Token } from "@/components/ui";
+import { MenuItem } from "@/components/Popover";
+import { ConfirmButton, ErrorState, MoreMenu, Token } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useProfiles } from "@/lib/profiles";
 import { useProjects, useSessions } from "@/lib/queries";
@@ -117,8 +118,9 @@ function readyLink(body: Ready): { to: string; params?: Record<string, string>; 
 
 /** A ready click: an owner action an agent prepared. The owner's click runs the action's own call with its
  * confirmation, as on its page (a merge shows the branch and Merge only when safe); then the card is started. */
-function ReadyBody({ p, body }: { p: Proposal; body: Ready }) {
+function ReadyBody({ p, body, dismiss }: { p: Proposal; body: Ready; dismiss: () => void }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const known = body.action in ACTIONS;
   const name = body.action as ActionName;
   const session = useSessions().data?.find((s) => s.id === body.session_id) ?? null;
@@ -133,15 +135,20 @@ function ReadyBody({ p, body }: { p: Proposal; body: Ready }) {
   const route = a.route.match(/\{(\w+)\}/g)?.map((x) => x.slice(1, -1)) ?? [];
   const params = Object.fromEntries(route.map((k, i) => [k, body.args[i] ?? ""]));
   const link = readyLink(body);
+  // The action is the one visible button; the page link and Dismiss go in ⋯.
+  const more = <MoreMenu label="More actions">{(close) => <>
+    {link && <MenuItem icon={<Icon name="ext" size={14} />} label={link.label} onClick={() => { close(); void navigate({ to: link.to as never, params: link.params as never, search: link.search as never }); }} />}
+    <MenuItem icon={<Icon name="x" size={14} />} label="Dismiss" onClick={() => { close(); dismiss(); }} />
+  </>}</MoreMenu>;
   return (
     <>
       <span className="flex flex-wrap gap-1"><Token icon="alert">Your click · {a.help}</Token></span>
       {Object.keys(body.input).length > 0 && <span className="text-[12px] text-ink-2 [overflow-wrap:anywhere]">{Object.entries(body.input).map(([k, v]) => `${k.replace(/_/g, " ")}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join(" · ")}</span>}
       {waiting && (name === "worktree.merge" && body.session_id
-        ? <BranchActions sessionId={body.session_id} s={session} onMerged={ran}>{link && <Link className="btn btn-sm no-underline" to={link.to as never} params={link.params as never} search={link.search as never}>{link.label}</Link>}</BranchActions>
+        ? <BranchActions sessionId={body.session_id} s={session} onMerged={ran}>{more}</BranchActions>
         : <div className="flex flex-wrap items-center gap-1.5">
             <ActionButton name={name} params={params} body={body.input} primary vars={{ base: "the base branch", branch: "the branch", channel: "its channel", ...params }} onDone={() => ran().catch(toastError)} />
-            {link && <Link className="btn btn-sm no-underline" to={link.to as never} params={link.params as never} search={link.search as never}>{link.label}</Link>}
+            {more}
           </div>)}
     </>
   );
@@ -193,12 +200,13 @@ async function editInComposer(p: Proposal, qc: QueryClient) {
   if (p.body.kind === "cron") toast(`Pick Repeat on a schedule… in Launch ▾ (cron ${p.body.schedule})`);
 }
 
-function EditButton({ p }: { p: Proposal }) {
+/** Edit in the composer, from the card's ⋯ (last: replacing a draft asks first). */
+function EditMenuItem({ p, close }: { p: Proposal; close: () => void }) {
   const qc = useQueryClient();
   const hasDraft = useComposer((s) => s.open && (!!s.spec.text.trim() || s.spec.github_refs.length > 0));
   if (!specOf(p)) return null;
-  if (hasDraft) return <ConfirmButton tone="publish" consequence="Replace the current draft? This card is then replaced by what you launch." confirmLabel="Replace draft" onConfirm={() => editInComposer(p, qc)}>Edit</ConfirmButton>;
-  return <button className="btn btn-sm" title="Open it in the composer to change anything; this card is then replaced by what you launch" onClick={() => void editInComposer(p, qc)}>Edit</button>;
+  if (hasDraft) return <div className="mt-0.5 border-t border-line-2 px-2 pt-1.5 pb-0.5"><ConfirmButton tone="publish" icon="pencil" consequence="Replace the current draft? This card is then replaced by what you launch." confirmLabel="Replace draft" onConfirm={() => { close(); return editInComposer(p, qc); }}>Edit</ConfirmButton></div>;
+  return <MenuItem icon={<Icon name="pencil" size={14} />} label="Edit" detail="In the composer; this card is then replaced by what you launch" onClick={() => { close(); void editInComposer(p, qc); }} />;
 }
 
 const SessionRow = memo(function SessionRow({ s }: { s: Session }) {
@@ -251,7 +259,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       {p.body.kind === "bot" && <BotBody body={p.body} />}
       {p.body.kind === "routine" && <RoutineBody body={p.body} />}
       {p.body.kind === "bot_instructions" && <BotInstructionsBody body={p.body} />}
-      {p.body.kind === "ready" && <ReadyBody p={p} body={p.body} />}
+      {p.body.kind === "ready" && <ReadyBody p={p} body={p.body} dismiss={() => void act("dismiss")} />}
       {statusSessions.length > 0 && <div className="grid">{statusSessions.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
       {session && <SessionRow s={session} />}
       {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={11} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "settings" }}>Settings</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : p.body.kind === "ready" ? "Done" : "Started"}</span>}
@@ -259,15 +267,16 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       {p.state === "dismissed" && <span className="text-[12px] text-ink-3">Dismissed</span>}
       {p.state === "failed" && p.error && <ErrorState error={p.error} />}
       {p.state === "uncertain" && <div className="grid gap-1.5 text-[12px] text-attn">Delivery not confirmed. Check Agents before starting a new attempt.<button className="btn btn-sm w-fit" disabled={busy} onClick={() => void act("recheck")}>I checked Agents — check again</button></div>}
-      {(p.state === "proposed" || p.state === "failed") && p.body.kind === "ready" && <button className="btn btn-sm btn-ghost w-fit" disabled={busy} onClick={() => void act("dismiss")}>Dismiss</button>}
       {(p.state === "proposed" || p.state === "failed") && p.body.kind !== "status" && p.body.kind !== "ready" && (
         <div className="flex flex-wrap items-center gap-1.5">
           <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void act("accept")}><Icon name="play" size={12} />{busy ? "Starting…" : START[p.body.kind]}</button>
-          <EditButton p={p} />
-          <button className="btn btn-sm btn-ghost ml-auto" disabled={busy} onClick={() => void act("dismiss")}>Dismiss</button>
+          <MoreMenu label="More actions">{(close) => <>
+            <MenuItem icon={<Icon name="x" size={14} />} label="Dismiss" disabled={busy} onClick={() => { close(); void act("dismiss"); }} />
+            <EditMenuItem p={p} close={close} />
+          </>}</MoreMenu>
         </div>
       )}
-      {p.body.kind === "status" && p.state === "proposed" && <button className="btn btn-sm btn-ghost w-fit" onClick={() => void act("dismiss")}>Dismiss</button>}
+      {p.body.kind === "status" && p.state === "proposed" && <button className="btn btn-sm w-fit" onClick={() => void act("dismiss")}>Dismiss</button>}
     </article>
   );
 });
