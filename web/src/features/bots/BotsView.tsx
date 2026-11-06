@@ -399,6 +399,7 @@ function InstructionsEditor({ bot, onSave }: { bot: Bot; onSave: (text: string) 
   const phone = usePhone();
   const [text, setText] = useState(bot.instructions);
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"read" | "edit">("read");
   const [busy, setBusy] = useState(false);
   const dirty = text !== bot.instructions;
   const save = async () => { setBusy(true); const ok = await onSave(text); setBusy(false); if (ok) setOpen(false); };
@@ -411,7 +412,7 @@ function InstructionsEditor({ bot, onSave }: { bot: Bot; onSave: (text: string) 
   const preview = useRef<HTMLDivElement>(null);
   const [cut, setCut] = useState(false);
   useLayoutEffect(() => { const el = preview.current; if (el) setCut(el.scrollHeight > el.clientHeight + 1); }, [text]);
-  const editor = <textarea className="field-input min-h-0 flex-1 resize-none py-2 text-[13px] leading-5" value={text} onChange={(e) => setText(e.target.value)} aria-label="BOT.md" autoFocus />;
+  const editor = <textarea className="field-input h-auto min-h-0 flex-1 resize-none py-2 text-[13px] leading-5" value={text} onChange={(e) => setText(e.target.value)} aria-label="BOT.md" autoFocus />;
   return <Section title="BOT.md · what it does" action={<button className="btn btn-sm" title="Read and edit BOT.md in a large editor" onClick={() => setOpen(true)}><Icon name="expand" size={12} />Expand</button>}>
     <div ref={preview} className="relative max-h-[168px] cursor-pointer overflow-hidden rounded-md bg-sunk px-3 py-2" title="Expand BOT.md" onClick={() => setOpen(true)}>
       {text.trim() ? <Markdown text={text} className="text-[12px]" /> : <span className="text-[12px] text-ink-3">No instructions yet. Expand to write what {bot.settings.name} does.</span>}
@@ -419,7 +420,16 @@ function InstructionsEditor({ bot, onSave }: { bot: Bot; onSave: (text: string) 
     </div>
     {dirty && <div className="flex items-center justify-end gap-1.5"><span className="mr-auto text-[12px] text-attn">Unsaved changes</span>{buttons}</div>}
     {open && (phone
-      ? <Sheet title="BOT.md" full onClose={close}><div className="flex min-h-0 flex-1 flex-col gap-2 p-3">{editor}{dirty && <div className="flex justify-end gap-1.5">{buttons}</div>}</div></Sheet>
+      ? <Sheet title="BOT.md" full onClose={close}>
+        {/* Read first (no keyboard on open); Save and Discard stay above the keyboard. */}
+        <div className="flex h-full min-h-0 flex-col gap-2 p-3">
+          <div className="flex flex-none items-center gap-1.5">
+            <Tabs label="BOT.md view" items={[{ id: "read", label: "Read" }, { id: "edit", label: "Edit" }]} value={mode} onChange={setMode} className="mr-auto" />
+            {buttons}
+          </div>
+          {mode === "edit" ? editor : <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-wrap:anywhere]">{text.trim() ? <Markdown text={text} className="text-[15px]" /> : <span className="text-[13px] text-ink-3">No instructions yet. Tap Edit to write what {bot.settings.name} does.</span>}</div>}
+        </div>
+      </Sheet>
       : <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-6" onClick={close} onKeyDown={(e) => { if (e.key === "Escape") close(); }}>
         <div role="dialog" aria-modal="true" aria-label={`BOT.md of ${bot.settings.name}`} className="flex h-[calc(86vh/var(--lp-zoom,1))] w-[min(1200px,calc(92vw/var(--lp-zoom,1)))] flex-col overflow-hidden rounded-xl border border-line bg-paper shadow-[0_20px_60px_-20px_rgba(23,32,43,.6)]" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-2 border-b border-line-2 px-4 py-2.5">
