@@ -13,7 +13,7 @@ header{padding:22px 24px 16px}h1{margin:0 0 4px;font-size:18px;font-weight:650}h
 ol.steps{list-style:none;margin:0;padding:0}ol.steps>li{border-top:1px solid var(--line-2);padding:14px 24px;display:grid;grid-template-columns:28px 1fr;gap:0 12px}
 ol.steps>li.active{background:linear-gradient(var(--teal-soft),var(--teal-soft)) left/3px 100% no-repeat}
 .dot{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:12px;font-weight:650;color:var(--ink-3)}
-ol.steps>li.done .dot{background:var(--teal);border-color:var(--teal);color:#fff}ol.steps>li.active .dot{border-color:var(--teal);color:var(--teal-ink)}
+ol.steps>li.done .dot{background:var(--teal);border-color:var(--teal);color:#fff}ol.steps>li.active:not(.done) .dot{border-color:var(--teal);color:var(--teal-ink)}
 h2{margin:1px 0 0;font-size:15px;font-weight:650;display:flex;gap:8px;align-items:center}.tag{font-size:11px;font-weight:500;color:var(--ink-3);border:1px solid var(--line-2);border-radius:999px;padding:0 7px}
 .state{color:var(--ink-2)}ol.steps>li.done .state{color:var(--teal-ink)}
 .body{grid-column:2;display:grid;gap:10px;margin-top:10px;min-width:0}.stack{display:grid;gap:10px;min-width:0}
@@ -56,6 +56,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
 
 <li id="s-key"><span class="dot"></span><div><h2>Credential key</h2><div class="state"></div></div>
   <div class="body">
+  <p id="key-on" class="hint" hidden>Encryption is on. The key is the <code>LP_HOME_KEY</code> secret of this Space: keep your copy, Home needs it to restore its credentials if the Space is ever deleted.</p>
   <div id="key-form" class="stack">
     <p class="hint">Home encrypts every credential it stores (logins, tokens, SSH key) with this key. Save it somewhere safe: you need it to restore Home if its Space is ever deleted.</p>
     <label class="choice"><input type="radio" name="keymode" value="generate" checked><span><b>Generate a strong key</b> (recommended)<br><small>Home never displays it. Copy it to your password manager or download it as a file.</small></span></label>
@@ -138,7 +139,7 @@ code{font-family:var(--mono);font-size:12px;background:var(--code);padding:1px 4
 </div></main>
 <script>
 const $=s=>document.querySelector(s);
-let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,defaults={},reopened=new Set(),foldersOpen=false,repos=null,cloningRepo=null,cloneQueue=[],cloneErrors=[],wsChosen=null;
+let keyTried=false,csrf="",st=null,actionError="",busy=false,generatedKey=null,keyKept=false,defaults={},reopened=new Set(),opened=null,foldersOpen=false,repos=null,cloningRepo=null,cloneQueue=[],cloneErrors=[],wsChosen=null;
 const NAMES={huggingface:"Hugging Face",github:"GitHub",codex:"Codex",claude:"Claude Code"};
 const STEP={huggingface:"huggingface",github:"github",codex:"profile",claude:"profile"};
 const count=(n,w)=>n?`${n} ${w}${n===1?"":"s"}`:`no ${w}`;
@@ -153,11 +154,13 @@ function render(s){
   if(!s)return;st=s;csrf=s.csrf;$("#bucket").textContent=s.bucket;
   const login=s.login&&s.login.running?s.login:null;
   const order=s.steps.map(x=>x.id),required=s.steps.filter(x=>x.required);
-  const active=order.find(k=>!isDone(s,k));
+  // `next` is the first step left; `opened` is a finished step the owner opened again to review or change it.
+  if(opened&&!s.steps.some(x=>x.id===opened&&x.done))opened=null;
+  const next=order.find(k=>!isDone(s,k)),active=opened||next;
   $("#bar").style.width=`${Math.round(100*order.filter(k=>isDone(s,k)).length/order.length)}%`;
   $("#progress").textContent=s.complete?"Home is ready. The steps left are optional: do them now, or open Home.":`${required.length-s.left} of ${required.length} required steps done`;
   const ol=$("ol.steps");if([...ol.children].map(li=>li.id).join()!==order.map(k=>"s-"+k).join())order.forEach(k=>ol.appendChild($("#s-"+k)));
-  s.steps.forEach((x,i)=>{const li=$("#s-"+x.id),d=x.done&&isDone(s,x.id);li.className=d?"done":x.id===active?"active":"";
+  s.steps.forEach((x,i)=>{const li=$("#s-"+x.id),d=x.done&&isDone(s,x.id);li.className=[d&&"done",x.id===active&&"active"].filter(Boolean).join(" ");
     li.querySelector("h2").innerHTML=esc(x.title)+(x.tag?` <span class="tag">${esc(x.tag)}</span>`:"");
     li.querySelector(".dot").textContent=d?"✓":i+1;li.querySelector(".body").hidden=x.id!==active;});
   const hf=s.huggingface,key=s.key,gh=s.github,pr=s.profile,fo=s.folders,ru=s.runner;
@@ -173,13 +176,15 @@ function render(s){
   $("#s-agent .state").textContent=s.agent.done?"Done":skipped("agent")?"Skipped":live.length?"Ready to run":burst.available?"Ready to run on Burst":"Needs a connected runner";
   $("#s-bot .state").textContent=s.bot.done?"Created":skipped("bot")?"Skipped":"No bot yet";
   // A skipped step can be opened again; it stays skipped on Home until it is done.
+  s.steps.filter(x=>x.done&&x.id!==active).forEach(x=>{const b=document.createElement("button");b.className="link";b.textContent="Open";b.onclick=()=>openStep(x.id);$(`#s-${x.id} .state`).append(" · ",b);});
+  if(opened){const b=document.createElement("button");b.className="link";b.textContent="Close";b.onclick=()=>openStep(null);$(`#s-${opened} .state`).append(" · ",b);}
   s.steps.filter(x=>x.skipped&&x.id!==active).forEach(x=>{const b=document.createElement("button");b.className="link";b.textContent="Do it now";b.onclick=()=>{reopened.add(x.id);render(st);};$(`#s-${x.id} .state`).append(" · ",b);});
   $("#burst-hint").innerHTML=burst.available?`<b>Burst</b> <span class="tag">nothing to install</span> Agents can run now: when no runner takes a launch, Home starts an HF Job in your namespace for it (about $0.01 per hour, capped at $${esc(burst.cap)} per month in Settings → Home and runners). It holds no token and stops after each turn.`:`Burst is not available: ${esc(burst.unavailable||"")}. Connect a runner to run agents.`;
   $("#runner-burst").hidden=!burst.available||live.length>0;
 
   // Key step.
   const mode=document.querySelector("input[name=keymode]:checked").value;
-  $("#key-form").hidden=key.state!=="off";$("#key-manual").hidden=key.state!=="manual";$("#key-restarting").hidden=key.state!=="restarting";
+  $("#key-on").hidden=key.state!=="on";$("#key-form").hidden=key.state!=="off";$("#key-manual").hidden=key.state!=="manual";$("#key-restarting").hidden=key.state!=="restarting";
   $("#key-generate").hidden=mode!=="generate";$("#key-own").hidden=mode!=="own";
   if(active==="key"&&key.state==="off"&&mode==="generate"&&!generatedKey&&!busy&&!keyTried)newKey();
   const own=$("#own-key").value.trim(),own2=$("#own-key2").value.trim();
@@ -244,9 +249,11 @@ function render(s){
   }
   const failed=s.login&&!s.login.running&&s.login.error;
   $("#error").textContent=actionError||failed||key.error||hf.error||gh.error||"";$("#note").hidden=!!$("#error").textContent;
-  $("#open").hidden=!s.complete;$("#open").className=`btn${s.complete&&!active?" primary":""}`;
-  $("#open").textContent=s.complete&&active?"Skip and open Home":"Open Home";
+  $("#open").hidden=!s.complete;$("#open").className=`btn${s.complete&&!next?" primary":""}`;
+  $("#open").textContent=s.complete&&next?"Skip and open Home":"Open Home";
 }
+/** Opens a finished step again (or closes it with null). The folders step stays open until its Continue. */
+function openStep(k){if(opened==="folders"&&k!=="folders")foldersOpen=false;opened=k;if(k==="identity")delete $("#git-name").dataset.filled;render(st);}
 function fill(sel,items){const el=typeof sel==="string"?$(sel):sel,v=el.value,html=items.map(([id,n])=>`<option value="${esc(id)}">${esc(n)}</option>`).join("");if(el.dataset.html!==html){el.innerHTML=html;el.dataset.html=html;if(items.some(([id])=>id===v))el.value=v;}}
 async function newKey(){keyTried=true;busy=true;try{const r=await post("/_home/key/"+(st.key.pending?"copy":"new"),{});if(r)generatedKey=r.passphrase;}finally{busy=false;render(st);}}
 function copy(button,text,label="Copy"){navigator.clipboard.writeText(text).then(()=>{button.textContent="Copied";setTimeout(()=>button.textContent=label,1500);},()=>{actionError="Could not copy. Use Download key file instead.";render(st);});}
@@ -337,17 +344,17 @@ $("#key-save").onclick=()=>{const mode=document.querySelector("input[name=keymod
 $("#restart").onclick=()=>act("/_home/restart",{});
 $("#ssh-copy").onclick=e=>copy(e.target,$("#ssh-pub").value);
 $("#ssh-create").onclick=()=>act("/_home/ssh",{});
-$("#ssh-done").onclick=()=>act("/_home/ssh/done",{});
+$("#ssh-done").onclick=async()=>{if(await act("/_home/ssh/done",{})&&opened==="ssh")openStep(null);};
 $("#ssh-skip").onclick=$("#ssh-skip2").onclick=()=>{reopened.delete("ssh");skip("ssh");};
 $("#git-name").oninput=$("#git-email").oninput=()=>render(st);
-$("#git-save").onclick=async()=>{const name=$("#git-name").value.trim(),email=$("#git-email").value.trim();if(!name||!email.includes("@")){actionError="Enter a name and an email address.";render(st);return;}busy=true;await api("PUT","/api/vault/identity",{name,email});busy=false;};
-$("#profile-save").onclick=()=>act("/_home/profile",{profiles:[...$("#profile-list").children].map(r=>({id:r.dataset.profile,model:r.querySelector("[data-model]").value||null,effort:r.querySelector("[data-effort]").value||null}))});
+$("#git-save").onclick=async()=>{const name=$("#git-name").value.trim(),email=$("#git-email").value.trim();if(!name||!email.includes("@")){actionError="Enter a name and an email address.";render(st);return;}busy=true;await api("PUT","/api/vault/identity",{name,email});busy=false;if(!actionError&&opened==="identity")openStep(null);};
+$("#profile-save").onclick=async()=>{if(await act("/_home/profile",{profiles:[...$("#profile-list").children].map(r=>({id:r.dataset.profile,model:r.querySelector("[data-model]").value||null,effort:r.querySelector("[data-effort]").value||null}))})&&opened==="profile")openStep(null);};
 $("#ws-create").onclick=async()=>{const name=$("#ws-name").value.trim()||(st.folders.workspaces.length?"":"Personal");if(!name)return;const w=await api("POST","/api/workspaces",{name});if(w){wsChosen=w.id;$("#ws-name").value="";}};
 $("#ws-name").onkeydown=e=>{if(e.key==="Enter")$("#ws-create").click();};
 $("#repo").oninput=renderRepos;
 $("#repo").onkeydown=e=>{if(e.key==="Enter"&&!$("#repo-clone").disabled)$("#repo-clone").click();};
 $("#repo-clone").onclick=()=>clone($("#repo").value.trim());
-$("#folders-done").onclick=()=>{foldersOpen=false;render(st);};
+$("#folders-done").onclick=()=>{foldersOpen=false;if(opened==="folders")opened=null;render(st);};
 $("#install-copy").onclick=e=>copy(e.target,st.install);
 $("#runner-skip").onclick=$("#runner-burst").onclick=()=>{reopened.delete("runner");skip("runner");};
 $("#agent-runner").onchange=()=>render(st);

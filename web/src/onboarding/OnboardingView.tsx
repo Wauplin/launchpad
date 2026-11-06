@@ -5,6 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { Icon } from "@/components/Icon";
 import { SettingsPage, Card } from "@/features/settings/SettingsView";
 import { enterDemo } from "@/demo/mode";
+import { delegatedAccess } from "@/lib/deployment";
 import { usePhone } from "@/lib/phone";
 import { CHAPTER_META } from "./chapters/meta";
 import { useOnboarding, usePatchOnboarding } from "./data";
@@ -43,9 +44,16 @@ export function OnboardingView() {
           </ol>
         </Card>
       )}
-      <Card title="Setup" end={<Link to={"/setup" as never} className="btn btn-sm no-underline">Open</Link>}>
-        <p className="m-0 text-[13px] text-ink-2">The setup checklist checks GitHub CLI, Git, agent profiles and a first folder on this machine, and shows only what is still missing.</p>
-      </Card>
+      {delegatedAccess() ? (
+        <Card title="Home setup" end={<a href="/_home/setup" className="btn btn-sm no-underline">Open the setup page</a>}>
+          <p className="m-0 text-[13px] text-ink-2">The setup page of this Home walks through every step again: Hugging Face, credential key, GitHub, SSH key, Git identity, agent profile, folders, runners, a first agent and a bot. Open any finished step to change it.</p>
+          <Link to={"/setup" as never} className="w-fit text-[12px]">Show the checklist here</Link>
+        </Card>
+      ) : (
+        <Card title="Setup" end={<Link to={"/setup" as never} className="btn btn-sm no-underline">Open</Link>}>
+          <p className="m-0 text-[13px] text-ink-2">The setup checklist checks GitHub CLI, Git, agent profiles and a first folder on this machine, and shows only what is still missing.</p>
+        </Card>
+      )}
     </SettingsPage>
   );
 }
