@@ -9,7 +9,7 @@ import { Badge, ErrorState, FilterChip, FilterChips } from "@/components/ui";
 import { ActionButton } from "@/components/ActionButton";
 import { runAction } from "@/lib/actions";
 import { Icon } from "@/components/Icon";
-import { toast } from "@/components/Toast";
+import { toast, toastError } from "@/components/Toast";
 import type { Suggestion } from "@/gen/Suggestion";
 import type { SuggestionTarget } from "@/gen/SuggestionTarget";
 export function useSuggestions(target: SuggestionTarget) {
@@ -19,20 +19,25 @@ export function useSuggestions(target: SuggestionTarget) {
 export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head, onPosted }: { suggestion: Suggestion; head?: string; onPosted?: () => void }) {
   const qc = useQueryClient();
   // Unsaved edits live in the daemon so they follow the owner across devices.
-  const edit = useReviewState<{ body?: string; event?: string }>(`suggestion:${s.id}`, {});
+  const edit = useReviewState<{ body?: string; event?: string; merge?: string | null; run_ci?: boolean }>(`suggestion:${s.id}`, {});
   const [editingLocal, setEditing] = useState(false);
-  const editing = editingLocal || edit.value.body !== undefined || edit.value.event !== undefined;
+  const editing = editingLocal || Object.values(edit.value).some((v) => v !== undefined);
   const body = editing ? edit.value.body ?? s.body : s.body;
   const event = editing ? edit.value.event ?? s.event : s.event;
+  // Follow-ups of a review, run by the same Post click: merge (approving reviews only) or run the waiting workflows.
+  const merge = event === "APPROVE" ? (editing && edit.value.merge !== undefined ? edit.value.merge : s.merge) : null;
+  const runCi = editing && edit.value.run_ci !== undefined ? edit.value.run_ci : s.run_ci;
+  const followup = merge ? `then merge (${merge})` : runCi ? "then run CI" : "";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const local = s.target.kind === "predraft";
   const stale = !local && s.kind === "review" && head !== undefined && s.head !== head;
   function clear() { void edit.clear(); }
-  const save = () => api.patch(`/api/suggestions/${s.id}`, { body, event });
-  const posted = () => { toast(local ? "Suggestion saved to the Local PR notes" : s.kind === "review" ? "Suggested review posted" : "Suggested comment posted"); onPosted?.(); };
+  const save = () => api.patch(`/api/suggestions/${s.id}`, { body, event, merge, run_ci: runCi });
+  const posted = () => { toast(local ? "Suggestion saved to the Local PR notes" : s.kind === "review" ? (merge ? "Review posted and pull request merged" : runCi ? "Review posted and workflows approved" : "Suggested review posted") : "Suggested comment posted"); onPosted?.(); };
   const settled = () => { clear(); setEditing(false); void qc.invalidateQueries({ queryKey: ["suggestions"] }); };
-  const failed = (e: unknown) => { setError(e); void qc.invalidateQueries({ queryKey: ["suggestions"] }); };
+  // A failed merge or workflow approval after a posted review removes the card from Today: the toast keeps it seen.
+  const failed = (e: unknown) => { setError(e); toastError(e); onPosted?.(); void qc.invalidateQueries({ queryKey: ["suggestions"] }); };
   async function run(action: "save" | "post") {
     setBusy(true); setError(null);
     try {
@@ -44,15 +49,17 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
   }
   return <article data-tour="suggestion.card" className="rounded-lg border border-teal/40 bg-teal-soft p-4">
     <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px]">
-      <b className="text-teal-ink">Suggestion by {s.author}</b><span>{s.kind === "review" ? `Review · ${event === "APPROVE" ? "approve" : event === "REQUEST_CHANGES" ? "request changes" : "comment"}` : local ? "Note" : "Comment"}</span>
+      <b className="text-teal-ink">Suggestion by {s.author}</b><span>{s.kind === "review" ? `Review · ${event === "APPROVE" ? "approve" : event === "REQUEST_CHANGES" ? "request changes" : "comment"}${followup && `, ${followup}`}` : local ? "Note" : "Comment"}</span>
       {s.head && <span className="font-mono" title={s.head}>{s.head.slice(0, 7)}</span>}
       {s.status === "posted" && <Badge tone="ok" icon="check">{local ? "Saved to Local PR notes" : "Posted"}</Badge>}
     </div>
     {editing && s.status === "draft" ? <div className="grid gap-2">
       <textarea aria-label="Suggested text" className="field-input min-h-40" value={body} disabled={busy} onChange={(e) => { const v = e.target.value; edit.set((o) => ({ ...o, body: v })); }} />
       {s.kind === "review" && <FilterChips label="Suggested review type">{([["COMMENT", "Comment"], ["APPROVE", "Approve"], ["REQUEST_CHANGES", "Request changes"]] as const).map(([id, label]) => <FilterChip key={id} active={event === id} disabled={busy} onClick={() => edit.set((o) => ({ ...o, event: id }))}>{label}</FilterChip>)}</FilterChips>}
+      {s.kind === "review" && !local && <FilterChips label="After posting">{([["none", "Nothing else"], ["merge", "Merge"], ["run_ci", "Run CI"]] as const).filter(([id]) => id !== "merge" || event === "APPROVE").map(([id, label]) => <FilterChip key={id} active={(id === "merge" ? !!merge : id === "run_ci" ? runCi && !merge : !merge && !runCi)} disabled={busy} onClick={() => edit.set((o) => ({ ...o, merge: id === "merge" ? merge ?? s.merge ?? "squash" : null, run_ci: id === "run_ci" }))}>{label}</FilterChip>)}</FilterChips>}
     </div> : <Markdown text={s.body} />}
     {stale && s.status === "draft" && <p className="mt-3 flex items-center gap-1.5 text-[12px] text-attn"><Icon name="alert" size={12} />The PR head changed. Ask the agent for a fresh review before posting.</p>}
+    {s.followup_error && <p className="mt-3 flex items-center gap-1.5 text-[12px] text-attn"><Icon name="alert" size={12} />{s.followup_error}</p>}
     {["posting", "uncertain"].includes(s.status) && <p className="mt-3 flex items-center gap-1.5 text-[12px] text-attn"><Icon name="alert" size={12} />Publication was attempted. Check GitHub before discarding or creating another suggestion. Automatic retries are disabled.</p>}
     {!!error && <ErrorState className="mt-2" error={error} />}
     <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -61,7 +68,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
         {editing && <button className="btn btn-sm" disabled={busy} onClick={() => { clear(); setEditing(false); }}>Cancel edit</button>}
         {local
           ? <button className="btn btn-primary btn-sm" disabled={busy || !body.trim()} onClick={() => void run("post")}>{busy ? "Working…" : "Add to local notes"}</button>
-          : <ActionButton name="suggestion.post" params={{ id: s.id }} primary disabled={busy || stale || !body.trim()} before={async () => { setError(null); if (editing) await save(); }} onDone={() => { posted(); settled(); }} onError={failed}>{s.kind === "review" ? "Post review" : "Post comment"}</ActionButton>}
+          : <ActionButton name="suggestion.post" params={{ id: s.id }} consequence={merge ? `Posts this review to GitHub as you, then merges the pull request (${merge}) at the reviewed commit.` : runCi ? "Posts this review to GitHub as you, then approves the waiting GitHub Actions runs of the reviewed commit: the pull request's code runs in the repository's CI." : undefined} primary disabled={busy || stale || !body.trim()} before={async () => { setError(null); if (editing) await save(); }} onDone={() => { posted(); settled(); }} onError={failed}>{s.kind === "review" ? (merge ? "Post review and merge" : runCi ? "Post review and run CI" : "Post review") : "Post comment"}</ActionButton>}
         <span className="text-[12px] text-ink-3">{local ? "Stays on this machine." : "Posts to GitHub when you click."}</span>
       </>}
       {s.status !== "posted" && <ActionButton name="suggestion.discard" params={{ id: s.id }} disabled={busy || s.status === "posting"} consequence={["posting", "uncertain"].includes(s.status) ? "Check GitHub first: it may already be posted." : undefined} onDone={() => { toast("Suggestion discarded"); settled(); }} onError={failed} />}

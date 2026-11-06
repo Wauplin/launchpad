@@ -114,7 +114,7 @@ pub async fn detail(app: &App, repo: &str, n: u64, force: bool) -> Result<Value>
     let common = r#"id number title url body bodyHTML state createdAt updatedAt author { login avatarUrl } participants(first:8) { nodes { login avatarUrl } } assignees(first:20) { nodes { login } } labels(first:50) { nodes { name color } } milestone { title }"#;
     let events = r#"__typename ... on IssueComment { id body bodyHTML url createdAt author { login avatarUrl } } ... on ClosedEvent { createdAt actor { login } } ... on ReopenedEvent { createdAt actor { login } } ... on LabeledEvent { createdAt actor { login } label { name } } ... on UnlabeledEvent { createdAt actor { login } label { name } } ... on AssignedEvent { createdAt actor { login } assignee { ... on User { login } } } ... on UnassignedEvent { createdAt actor { login } assignee { ... on User { login } } } ... on RenamedTitleEvent { createdAt actor { login } previousTitle currentTitle } ... on CrossReferencedEvent { createdAt actor { login } source { ... on Issue { title url number } ... on PullRequest { title url number } } }"#;
     let pr_events = r#"... on PullRequestReview { id body bodyHTML url submittedAt state author { login avatarUrl } } ... on PullRequestCommit { commit { oid messageHeadline committedDate url author { name } } } ... on MergedEvent { createdAt actor { login } } ... on ReadyForReviewEvent { createdAt actor { login } } ... on ConvertToDraftEvent { createdAt actor { login } } ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { ... on User { login } ... on Team { name } } }"#;
-    let pr = r#"isDraft merged mergeable mergeStateStatus reviewDecision headRefName baseRefName headRefOid baseRefOid viewerCanUpdate viewerCanMergeAsAdmin repository { mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed } reviewRequests(first:30) { nodes { requestedReviewer { ... on User { login } ... on Team { name slug } } } } reviews(last:30) { nodes { state author { login } } } closingIssuesReferences(first:30) { nodes { number title url } } commits(last:1) { nodes { commit { statusCheckRollup { state contexts(first:100) { nodes { __typename ... on CheckRun { name conclusion status detailsUrl } ... on StatusContext { context state targetUrl } } } } } } }"#;
+    let pr = r#"isDraft merged mergeable mergeStateStatus reviewDecision headRefName baseRefName headRefOid baseRefOid viewerCanUpdate viewerCanMergeAsAdmin repository { mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed } reviewRequests(first:30) { nodes { requestedReviewer { ... on User { login } ... on Team { name slug } } } } reviews(last:30) { nodes { state author { login } } } closingIssuesReferences(first:30) { nodes { number title url } } commits(last:1) { nodes { commit { checkSuites(first:30) { nodes { conclusion app { slug } } } statusCheckRollup { state contexts(first:100) { nodes { __typename ... on CheckRun { name conclusion status detailsUrl } ... on StatusContext { context state targetUrl } } } } } } }"#;
     let key = format!("item:{repo}:{n}");
     if !force && let Some(mut v) = cached(app, key.clone()).await? {
         if now_ms() - v["fetched_at"].as_i64().unwrap_or(0) < 60_000 {
@@ -309,6 +309,7 @@ pub async fn mutate(app: &App, repo: &str, n: u64, action: &str, body: Value) ->
                 json!({"sha":body["sha"],"merge_method":body["merge_method"]}),
             )
         }
+        "run-ci" => return approve_runs(app, repo, n, body["head"].as_str().unwrap_or("")).await,
         "draft" | "ready" => {
             let d = detail(app, repo, n, true).await?;
             let op = if action == "draft" {
@@ -337,6 +338,35 @@ pub async fn mutate(app: &App, repo: &str, n: u64, action: &str, body: Value) ->
         ensure!(v["merged"] == true, "{}", v["message"]);
     }
     Ok(v)
+}
+
+/// Approves the GitHub Actions runs of the PR's head that wait for a maintainer (pull requests from forks of
+/// first-time contributors), so they start. `head` is the commit the owner or the agent inspected: a newer head
+/// refuses, since approving runs executes the PR's code in the repository's CI.
+async fn approve_runs(app: &App, repo: &str, n: u64, head: &str) -> Result<Value> {
+    ensure!(head.len() == 40 && head.bytes().all(|b| b.is_ascii_hexdigit()), "give the inspected head commit (40 characters)");
+    let head = head.to_ascii_lowercase();
+    let current = detail(app, repo, n, true).await?;
+    ensure!(current["__typename"] == "PullRequest", "workflow approval needs a pull request");
+    ensure!(current["state"] == "OPEN", "pull request is no longer open");
+    ensure!(current["headRefOid"].as_str() == Some(head.as_str()), "PR head changed; inspect the new commits before running CI");
+    let runs = app
+        .github
+        .request(Method::GET, &format!("/repos/{repo}/actions/runs?head_sha={head}&status=action_required&per_page=100"), None, false)
+        .await?
+        .value;
+    let ids: Vec<u64> = runs["workflow_runs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|r| r["head_sha"].as_str() == Some(head.as_str()) && (r["conclusion"] == "action_required" || r["status"] == "action_required"))
+        .filter_map(|r| r["id"].as_u64())
+        .collect();
+    ensure!(!ids.is_empty(), "no workflow run of {} waits for approval", &head[..7]);
+    for id in &ids {
+        app.github.request(Method::POST, &format!("/repos/{repo}/actions/runs/{id}/approve"), None, false).await?;
+    }
+    Ok(json!({"approved": ids.len()}))
 }
 
 fn image_url(url: &str) -> Result<reqwest::Url> {

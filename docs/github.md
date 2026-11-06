@@ -50,6 +50,10 @@ launchpad suggest review --repo owner/repo --number 123 --head <commit> --body-f
 
 A suggestion appears as a card on the item's Conversation tab and in [Today](today.md) → **GitHub**. **Edit**, then **Post review** (or **Post comment**) publishes it under your account after you confirm. **Discard** deletes it; for a suggestion that is posted or uncertain, the confirmation asks you to check GitHub first.
 
+A review can also do one more thing with the same click. An approving review with `--merge squash|merge|rebase` shows **Post review and merge**: it posts the review, then merges the pull request at the reviewed commit. A review with `--run-ci` shows **Post review and run CI**: it posts the review, then approves the GitHub Actions runs of the reviewed commit that wait for a maintainer (pull requests from forks of first-time contributors). **Edit** changes or removes the follow-up (**After posting**). If the merge or the approval fails, the review stays posted, the card shows the error and nothing is retried.
+
+When workflow runs of a pull request wait for approval, its **Checks** section shows **Approve and run workflows**. Agents can prepare the same click as a ready card (`github.run-ci`, see [Bots](bots.md#proposals)). It runs the pull request's code in the repository's CI, so it stays your click, like GitHub's own button.
+
 ## Local PRs
 
 A Local PR is a pull request that exists only in Launchpad: a branch on Home Git, a title, a description and review notes. Review and publish it from any device, also while the machine that ran the agent sleeps. Publish it to GitHub when it is worth it, or merge it on Home.

@@ -106,6 +106,7 @@ function readyLink(body: Ready): { to: string; params?: Record<string, string>; 
     case "outbox.send": return { to: "/", search: { filter: "send" }, label: "Open in Today" };
     case "suggestion.post": return { to: "/", search: { filter: "github" }, label: "Open in Today" };
     case "inbox.done": return { to: "/inbox", label: "Open the Inbox" };
+    case "github.run-ci": return { to: "/github/$owner/$repo/$number", params: { owner: body.args[0] ?? "", repo: body.args[1] ?? "", number: body.args[2] ?? "" }, label: "Open the pull request" };
     default: return body.session_id ? { to: "/agents", search: { session: body.session_id, view: "changes" }, label: "Review changes" } : null;
   }
 }

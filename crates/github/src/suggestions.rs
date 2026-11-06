@@ -32,6 +32,16 @@ pub struct Suggestion {
     /// A durable claim prevents duplicate submissions after a crash or lost response.
     pub status: String,
     pub url: Option<String>,
+    /// A review that approves can also merge the pull request (merge, squash or rebase) at the reviewed head, right
+    /// after the review is posted, with the same click.
+    #[serde(default)]
+    pub merge: Option<String>,
+    /// A review can also approve the GitHub Actions runs of the reviewed head that wait for a maintainer.
+    #[serde(default)]
+    pub run_ci: bool,
+    /// What failed after the review was posted (the merge or the workflow approval). Never retried.
+    #[serde(default)]
+    pub followup_error: Option<String>,
 }
 #[derive(Deserialize)]
 pub struct Create {
@@ -42,6 +52,10 @@ pub struct Create {
     pub event: String,
     pub head: Option<String>,
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub merge: Option<String>,
+    #[serde(default)]
+    pub run_ci: bool,
 }
 fn comment_event() -> String {
     "COMMENT".into()
@@ -50,6 +64,24 @@ fn comment_event() -> String {
 pub struct Edit {
     pub body: String,
     pub event: String,
+    #[serde(default)]
+    pub merge: Option<String>,
+    #[serde(default)]
+    pub run_ci: bool,
+}
+/// The follow-ups of a review: merge only after an approval, both only on a GitHub pull request, never both (the
+/// workflows would still run when the merge happens).
+fn validate_followups(kind: &SuggestionKind, event: &str, target: &SuggestionTarget, merge: Option<&str>, run_ci: bool) -> Result<()> {
+    if merge.is_none() && !run_ci {
+        return Ok(());
+    }
+    ensure!(*kind == SuggestionKind::Review && matches!(target, SuggestionTarget::GitHub { .. }), "only reviews of GitHub pull requests can merge or run CI");
+    ensure!(!(merge.is_some() && run_ci), "merge or run CI, not both: merge after the checks passed");
+    if let Some(m) = merge {
+        ensure!(["merge", "squash", "rebase"].contains(&m), "merge method is merge, squash or rebase");
+        ensure!(event == "APPROVE", "only an approving review can merge");
+    }
+    Ok(())
 }
 fn validate(body: &str, event: &str, kind: &SuggestionKind) -> Result<()> {
     ensure!(
@@ -103,6 +135,7 @@ async fn save(app: &App, s: &Suggestion) -> Result<()> {
 }
 pub async fn create(app: &App, q: Create) -> Result<Suggestion> {
     validate(&q.body, &q.event, &q.kind)?;
+    validate_followups(&q.kind, &q.event, &q.target, q.merge.as_deref(), q.run_ci)?;
     match &q.target {
         SuggestionTarget::GitHub { repo, number } => {
             items::validate(repo)?;
@@ -147,6 +180,9 @@ pub async fn create(app: &App, q: Create) -> Result<Suggestion> {
         created_at: launchpad_core::util::now_ms(),
         status: "draft".into(),
         url: None,
+        merge: q.merge,
+        run_ci: q.run_ci,
+        followup_error: None,
     };
     save(app, &s).await?;
     Ok(s)
@@ -157,8 +193,11 @@ pub async fn edit(app: &App, id: &str, q: Edit) -> Result<Suggestion> {
     let mut s = get(app, id).await?;
     ensure!(s.status == "draft", "only unposted drafts can be edited");
     validate(&q.body, &q.event, &s.kind)?;
+    validate_followups(&s.kind, &q.event, &s.target, q.merge.as_deref(), q.run_ci)?;
     s.body = q.body;
     s.event = q.event;
+    s.merge = q.merge;
+    s.run_ci = q.run_ci;
     save(app, &s).await?;
     Ok(s)
 }
@@ -284,13 +323,49 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
     }
     s.status = "posted".into();
     save(app, &s).await?;
+    if let SuggestionTarget::GitHub { repo, number } = &s.target {
+        // The follow-ups run once, after the review is saved as posted: a failure stays on the card, never retried.
+        let head = s.head.clone().unwrap_or_default();
+        let followup = if s.run_ci {
+            items::mutate(app, repo, *number, "run-ci", json!({"head": head})).await.err().map(|e| format!("Running the workflows failed: {e:#}"))
+        } else if let Some(method) = &s.merge {
+            items::mutate(app, repo, *number, "merge", json!({"sha": head, "merge_method": method})).await.err().map(|e| format!("The merge failed: {e:#}. Check the pull request on GitHub before merging from its page."))
+        } else {
+            None
+        };
+        if let Some(error) = followup {
+            s.followup_error = Some(error.clone());
+            save(app, &s).await?;
+            anyhow::bail!("The review was posted. {error}");
+        }
+    }
     Ok(s)
 }
 /// Included in every launched session, with the exact daemon and session identity (followed by the channels'
 /// instruction, when the owner has some).
 pub fn instruction(app: &App, session: &str, cwd: &str) -> String {
     format!(
-        "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes. For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
+        "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes; an approving review may add --merge squash|merge|rebase (the owner's Post click then merges at that head), and a review may add --run-ci (Post also approves the head's GitHub Actions runs that wait for a maintainer). For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
         app.cli_command_in(cwd)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn followups_need_an_approving_github_review() {
+        let gh = SuggestionTarget::GitHub { repo: "o/r".into(), number: 1 };
+        let local = SuggestionTarget::Predraft { id: "p".into() };
+        let (review, comment) = (SuggestionKind::Review, SuggestionKind::Comment);
+        assert!(validate_followups(&comment, "COMMENT", &gh, None, false).is_ok());
+        assert!(validate_followups(&review, "APPROVE", &gh, Some("squash"), false).is_ok());
+        assert!(validate_followups(&review, "COMMENT", &gh, Some("squash"), false).is_err());
+        assert!(validate_followups(&review, "APPROVE", &gh, Some("fast-forward"), false).is_err());
+        assert!(validate_followups(&review, "APPROVE", &local, Some("squash"), false).is_err());
+        assert!(validate_followups(&review, "COMMENT", &gh, None, true).is_ok());
+        assert!(validate_followups(&comment, "COMMENT", &gh, None, true).is_err());
+        assert!(validate_followups(&review, "APPROVE", &gh, Some("merge"), true).is_err());
+    }
 }

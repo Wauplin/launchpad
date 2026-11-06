@@ -2,8 +2,21 @@
 import type { SuggestionKind } from "./SuggestionKind";
 import type { SuggestionTarget } from "./SuggestionTarget";
 
-export type Suggestion = { id: string, target: SuggestionTarget, kind: SuggestionKind, body: string, event: string, head: string | null, author: string, session_id: string | null, created_at: number,
+export type Suggestion = { id: string, target: SuggestionTarget, kind: SuggestionKind, body: string, event: string, head: string | null, author: string, session_id: string | null, created_at: number, 
 /**
  * A durable claim prevents duplicate submissions after a crash or lost response.
  */
-status: string, url: string | null, };
+status: string, url: string | null, 
+/**
+ * A review that approves can also merge the pull request (merge, squash or rebase) at the reviewed head, right
+ * after the review is posted, with the same click.
+ */
+merge: string | null, 
+/**
+ * A review can also approve the GitHub Actions runs of the reviewed head that wait for a maintainer.
+ */
+run_ci: boolean, 
+/**
+ * What failed after the review was posted (the merge or the workflow approval). Never retried.
+ */
+followup_error: string | null, };

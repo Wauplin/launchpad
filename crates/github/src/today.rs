@@ -15,12 +15,20 @@ pub async fn items(app: &App) -> Vec<Item> {
         Ok(list) => {
             for s in list {
                 let SuggestionTarget::GitHub { repo, number } = &s.target else { continue };
-                let what = if s.kind == SuggestionKind::Review { "Review" } else { "Comment" };
+                let what = match (&s.kind, &s.merge, s.run_ci) {
+                    (SuggestionKind::Review, Some(_), _) => "Approve and merge",
+                    (SuggestionKind::Review, None, true) => "Review and run CI",
+                    (SuggestionKind::Review, None, false) => "Review",
+                    _ => "Comment",
+                };
                 let item = Item::new(Kind::Suggestion, Filter::Github, &s.id, format!("{what} on {repo}#{number}"), Place::Repo(repo.clone()), s.created_at)
                     .session(s.session_id.clone())
                     .detail(format!("Suggestion by {} · {}", s.author, line(&s.body)));
                 out.push(match s.status.as_str() {
-                    "posted" => item.handled(format!("Posted to {repo}#{number}")),
+                    "posted" => item.handled(match &s.followup_error {
+                        Some(e) => format!("Posted to {repo}#{number}; {}", line(e)),
+                        None => format!("Posted to {repo}#{number}"),
+                    }),
                     "posting" | "uncertain" => item.detail("Uncertain: check GitHub before you discard it").action("suggestion.discard"),
                     _ => {
                         if s.kind == SuggestionKind::Review {

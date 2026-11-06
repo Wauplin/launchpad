@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/components/Toast";
 import { Icon, type IconName } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
+import { ActionButton } from "@/components/ActionButton";
 import { Badge, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader, Tabs, type BadgeTone } from "@/components/ui";
 import { useInbox, useInboxAction } from "@/features/inbox/InboxView";
 import { LaunchButton } from "@/features/launch/LaunchButton";
@@ -148,7 +149,11 @@ function Section({ title, children, aside }: { title: string; children: ReactNod
 }
 
 function Checks({ item }: { item: Item }) {
+  const qc = useQueryClient();
   const list = item.commits?.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? [];
+  // GitHub Actions runs of a fork's pull request that wait for a maintainer's approval.
+  const waiting = item.state === "OPEN" && !!item.headRefOid && (item.commits?.nodes[0]?.commit.checkSuites?.nodes ?? []).some((s) => s.conclusion === "ACTION_REQUIRED" && s.app?.slug === "github-actions");
+  const [owner, repo] = item.repo.split("/");
   const [open, setOpen] = useState(false);
   const sorted = useMemo(() => [...list].sort((a, b) => ({ fail: 0, pending: 1, pass: 2 })[checkResult(a)] - ({ fail: 0, pending: 1, pass: 2 })[checkResult(b)]), [list]);
   const n = { pass: 0, fail: 0, pending: 0 };
@@ -157,6 +162,8 @@ function Checks({ item }: { item: Item }) {
   const v = useVirtualizer({ count: open ? sorted.length : 0, getScrollElement: () => ref.current, estimateSize: () => 28, overscan: 4, useFlushSync: false });
   const summary = [n.pass && `${n.pass} passing`, n.fail && `${n.fail} failing`, n.pending && `${n.pending} pending`].filter(Boolean).join(" · ");
   return <Section title="Checks" aside={list.length > 0 && <button className="text-[12px] text-teal-ink hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide" : "Show all"}</button>}>
+    {waiting && <ActionButton name="github.run-ci" params={{ owner, repo, number: String(item.number) }} body={{ head: item.headRefOid }} className="w-full justify-center"
+      onDone={() => { toast("Workflows approved"); void api.post<Item>(itemPath(item.repo, item.number), { force: true }).then((fresh) => qc.setQueryData(itemKey(item.repo, item.number), fresh)).catch(() => {}); }} />}
     {list.length ? <span className={`flex items-center gap-1.5 ${n.fail ? "text-danger-ink" : n.pending ? "text-attn" : "text-gh-open"}`}><Icon name={n.fail ? "xcircle" : n.pending ? "clock" : "okcircle"} size={13} />{summary}</span> : <span className="text-ink-3">No checks</span>}
     {open && <div ref={ref} className="overflow-auto" style={{ height: Math.min(224, sorted.length * 28) }}>
       <div className="relative" style={{ height: v.getTotalSize() }}>

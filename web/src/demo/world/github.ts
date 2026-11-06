@@ -302,7 +302,7 @@ export function githubWorld() {
   ];
   const suggestions: Suggestion[] = [{
     id: "demo-sg-118", target: { kind: "git_hub", repo: REPO.storefront, number: 118 }, kind: "review", event: "COMMENT", head: it(REPO.storefront, 118).headRefOid ?? null,
-    author: "Claude Code", session_id: null, created_at: clock.ago(40), status: "draft", url: null,
+    author: "Claude Code", session_id: null, created_at: clock.ago(40), status: "draft", url: null, merge: null, run_ci: false, followup_error: null,
     body: "The saved carts work well and the tests cover the limit of five.\n\nTwo suggestions before merging:\n\n- `savedCarts()` throws when the stored value is not valid JSON; return `[]` instead.\n- `saveCart` stores the full cart lines, including prices. Prices can change, so store the SKUs and quantities only and read prices again when the cart is restored.",
   }];
   /** Review state values (`/api/review-state`): viewed markers, unsent replies and drafts. */
@@ -352,7 +352,7 @@ export function addSuggestion(o: { repo: string; number: number; kind: Suggestio
   const item = world.ghItems[`${o.repo}#${o.number}`];
   const s: Suggestion = {
     id: `demo-sg-${clock.now().toString(36)}`, target: { kind: "git_hub", repo: o.repo, number: o.number }, kind: o.kind, body: o.body, event: o.event ?? "COMMENT",
-    head: o.kind === "review" ? item?.headRefOid ?? null : null, author: o.author ?? "OpenCode", session_id: o.sessionId, created_at: clock.now(), status: "draft", url: null,
+    head: o.kind === "review" ? item?.headRefOid ?? null : null, author: o.author ?? "OpenCode", session_id: o.sessionId, created_at: clock.now(), status: "draft", url: null, merge: null, run_ci: false, followup_error: null,
   };
   world.suggestions = [...world.suggestions, s];
   publish("suggestions", "updated", s);

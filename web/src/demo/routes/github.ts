@@ -194,6 +194,10 @@ route("POST", "/api/items/:owner/:repo/:number/:action", ({ params, body }) => {
       githubDemo(`merged #${item.number} (${body?.merge_method ?? "squash"})`);
       break;
     }
+    case "run-ci":
+      if (item.__typename !== "PullRequest" || body?.head !== item.headRefOid) throw new DemoError(400, "PR head changed; inspect the new commits before running CI");
+      githubDemo(`approved the waiting workflows of #${item.number}`);
+      break;
     case "draft": case "ready":
       item.isDraft = params.action === "draft";
       event(item.isDraft ? "ConvertToDraftEvent" : "ReadyForReviewEvent");
@@ -349,6 +353,7 @@ route("POST", "/api/suggestions", ({ body }) => {
   const s: Suggestion = {
     id: `demo-sg-${clock.now().toString(36)}`, target: body.target, kind: body.kind, body: String(body.body ?? ""), event: body.event ?? "COMMENT", head: body.head ?? null,
     author: "Agent", session_id: body.session_id ?? null, created_at: clock.now(), status: "draft", url: null,
+    merge: body.merge ?? null, run_ci: !!body.run_ci, followup_error: null,
   };
   world.suggestions = [...world.suggestions, s];
   return saveSuggestion(s);
@@ -359,6 +364,8 @@ route("PATCH", "/api/suggestions/:id", ({ params, body }) => {
   if (!String(body?.body ?? "").trim()) throw new DemoError(400, "suggestion must contain 1–65536 bytes of text");
   s.body = body.body;
   s.event = body.event ?? s.event;
+  s.merge = s.event === "APPROVE" ? body.merge ?? null : null;
+  s.run_ci = !!body.run_ci && !s.merge;
   return saveSuggestion(s);
 });
 route("DELETE", "/api/suggestions/:id", ({ params }) => {
@@ -382,6 +389,12 @@ route("POST", "/api/suggestions/:id/post", ({ params }) => {
     else comment(item, s.body);
     s.url = item.url;
     githubDemo(`posted the agent's ${s.kind} on #${item.number}`);
+    if (s.kind === "review" && s.merge && item.__typename === "PullRequest" && !item.isDraft && item.mergeable === "MERGEABLE") {
+      item.merged = true;
+      item.state = "MERGED";
+      touch(item);
+      githubDemo(`merged #${item.number} (${s.merge})`);
+    } else if (s.kind === "review" && s.run_ci) githubDemo(`approved the waiting workflows of #${item.number}`);
   }
   s.status = "posted";
   return saveSuggestion(s);

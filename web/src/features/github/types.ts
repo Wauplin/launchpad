@@ -79,6 +79,7 @@ export type Item = {
   }>;
   commits?: Connection<{
     commit: {
+      checkSuites?: Connection<{ conclusion?: string | null; app?: { slug: string } | null }>;
       statusCheckRollup?: {
         state: string;
         contexts: Connection<{

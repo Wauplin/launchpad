@@ -320,6 +320,12 @@ struct SuggestArgs {
     event: String,
     #[arg(long)]
     head: Option<String>,
+    /// With `--event approve`: the owner's Post click also merges the pull request at the reviewed head.
+    #[arg(long, value_parser = ["squash", "merge", "rebase"])]
+    merge: Option<String>,
+    /// The owner's Post click also approves the reviewed head's GitHub Actions runs that wait for a maintainer.
+    #[arg(long, conflicts_with = "merge")]
+    run_ci: bool,
     #[arg(long)]
     session_id: Option<String>,
 }
@@ -333,7 +339,7 @@ async fn suggest_command(paths: &Paths, command: Suggest) -> Result<()> {
         None => serde_json::json!({"kind":"git_hub","repo":q.repo,"number":q.number}),
     };
     let body = Client::new(paths)?
-        .json("POST", "/api/suggestions", Some(serde_json::json!({"target":target,"kind":kind,"body":std::fs::read_to_string(q.body_file)?,"event":q.event.replace('-', "_").to_uppercase(),"head":q.head,"session_id":q.session_id})))
+        .json("POST", "/api/suggestions", Some(serde_json::json!({"target":target,"kind":kind,"body":std::fs::read_to_string(q.body_file)?,"event":q.event.replace('-', "_").to_uppercase(),"head":q.head,"merge":q.merge,"run_ci":q.run_ci,"session_id":q.session_id})))
         .await?;
     println!("{}", serde_json::to_string_pretty(&body)?);
     Ok(())

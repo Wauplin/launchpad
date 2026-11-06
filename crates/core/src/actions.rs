@@ -15,7 +15,7 @@ pub enum ActionEffect {
     Record,
     /// Starts agent work (launch, message, run a routine now).
     Starts,
-    /// Reaches GitHub or other people (merge, publish, post, send, Inbox done): the owner's click only.
+    /// Reaches GitHub or other people (merge, publish, post, send, run CI, Inbox done): the owner's click only.
     Outside,
     /// Money, credentials or the machine: the owner's click only.
     Machine,
@@ -149,6 +149,7 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "local-pr.publish", route: "/api/predrafts/{id}/publish", label: "Publish", icon: Some("pr"), help: "Publish a Local PR to GitHub", input: &[f("remote_branch", Text), f("draft", Bool), f("head", Text), opt("fork", Bool)], confirm: Some("Home pushes the reviewed commit and opens the pull request on GitHub."), effect: Outside, access: Owner, ready: true, ..A },
     Action { name: "local-pr.merge", route: "/api/predrafts/{id}/merge-local", label: "Merge", icon: Some("branch"), help: "Merge a Local PR into its base branch", input: &[f("head", Text)], confirm: Some("Home pushes the reviewed commit to {base} on the folder's remote, then fast-forwards {base} on Home; if the remote refuses the push, nothing is merged."), effect: Outside, access: Owner, ready: true, ..A },
     Action { name: "suggestion.post", route: "/api/suggestions/{id}/post", label: "Post", icon: Some("comment"), help: "Post an agent's suggested comment or review to GitHub", confirm: Some("Posts this text to GitHub as you."), effect: Outside, access: Owner, ready: true, ..A },
+    Action { name: "github.run-ci", route: "/api/items/{owner}/{repo}/{number}/run-ci", label: "Approve and run workflows", icon: Some("play"), help: "Approve the GitHub Actions runs that wait for a maintainer on a pull request's head (pull requests from forks)", input: &[f("head", Text)], confirm: Some("Runs this pull request's code in the repository's GitHub Actions."), effect: Outside, access: Owner, ready: true, ..A },
     Action { name: "suggestion.discard", method: "DELETE", route: "/api/suggestions/{id}", label: "Discard", help: "Discard a suggestion", confirm: Some("Deletes the local suggestion."), access: Owner, ..A },
     Action { name: "outbox.send", route: "/api/outbox/{id}/send", label: "Send", icon: Some("send"), help: "Send an Outbox message", confirm: Some("Sends this message to {channel} now."), effect: Outside, access: Owner, ready: true, ..A },
     Action { name: "outbox.discard", route: "/api/outbox/{id}/discard", label: "Discard", help: "Discard an Outbox message", confirm: Some("Moves the draft to Discarded."), access: Owner, ..A },
