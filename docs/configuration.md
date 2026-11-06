@@ -68,7 +68,7 @@ Credentials and tools live in Home's database, never in `config.toml`: edit them
 
 Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `ask_launchpad` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later.
 
-A bot with admin access to the Launchpad CLI can change a few shared settings when you ask it in chat: presets, `notify`, the GitHub poll interval and the number of worktrees kept. Each change has **Undo** in the chat. Every other setting stays yours.
+A bot with admin access to the Launchpad CLI can change a few shared settings when you ask it in chat: presets, `notify`, the GitHub poll interval and the number of worktrees kept. Each change shows in the chat as a **Changed** line with the value before and after. Every other setting stays yours.
 
 The daemon watches the file and applies most changes live. Changes to `[server]` need a daemon restart.
 

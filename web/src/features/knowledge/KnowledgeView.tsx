@@ -4,7 +4,7 @@
 // harness memories. Home stores everything; every change is restorable for 30 days.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useSearch } from "@tanstack/react-router";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Icon } from "@/components/Icon";
@@ -74,7 +74,9 @@ export function KnowledgeView() {
   const notes = useQuery({ queryKey: ["knowledge", ws, "notes"], queryFn: () => api.get<Notes>(`/api/knowledge/${ws}`), enabled: !!ws });
   const changes = useQuery({ queryKey: ["knowledge", ws, "changes"], queryFn: () => api.get<{ changes: Change[] }>(`/api/knowledge/${ws}/changes`), enabled: !!ws });
   const unseen = (changes.data?.changes ?? []).filter((c) => c.id > (notes.data?.seen ?? 0) && c.author?.kind === "agent").length;
-  useEffect(() => { setSelected(null); setHistoryOf(null); setPanel("note"); }, [ws]);
+  // A link to one note (`/knowledge?note=<path>`, from a bot chat's Changed line) opens it.
+  const linked = (useSearch({ strict: false }) as { note?: string }).note;
+  useEffect(() => { setSelected(linked ?? null); setHistoryOf(null); setPanel("note"); if (linked) setTab("notes"); }, [ws, linked]);
   useEffect(() => {
     if (!selected && notes.data && !phone) setSelected(notes.data.files.some((f) => f.path === "INDEX.md") ? "INDEX.md" : notes.data.files[0]?.path ?? null);
   }, [notes.data, selected, phone]);

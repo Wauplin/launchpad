@@ -28,17 +28,16 @@ import { ProposalCard, useProposalList } from "@/features/proposals/ProposalCard
 import { useSuggestionList } from "@/features/suggestions/data";
 import { useToday, type TodayItem } from "@/features/today/data";
 import { BranchActions, ItemCard, useBranch } from "@/features/today/TodayCards";
-import { runAction, type ActionName } from "@/lib/actions";
+import { runAction } from "@/lib/actions";
 import { ACTIONS } from "@/gen/actions";
 import type { Activity } from "@/gen/Activity";
-import { ActionButton } from "@/components/ActionButton";
-import { activityLine, useActivity } from "./activity";
+import { activityLine, activityLink, activityParts, useActivity } from "./activity";
 import { api } from "@/lib/api";
 import { pastedImages } from "@/lib/attachments";
 import { daemonAsset } from "@/lib/connection";
 import { formatAge } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
-import { useSession } from "@/lib/queries";
+import { useCrons, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
 import { isRunning } from "@/lib/sessionStatus";
 import { sendPresence } from "@/lib/ws";
@@ -55,21 +54,23 @@ const time = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digi
 const folded = new WeakMap<SessionLog, ReturnType<typeof foldTrace>>();
 
 /** What the thread's sessions changed: knowledge-base notes, and Launchpad records they changed directly at admin
- * access (the activity list, with Undo). Changed lines at their turn. */
-function useChanges(bot: Bot, ids: Set<string>): { cards: ChatCard[]; activity: Map<string, Activity> } {
+ * access (the activity list). Changed lines at their turn. */
+function useChanges(bot: Bot, ids: Set<string>): { cards: ChatCard[]; activity: Map<string, Activity | Change> } {
   const ws = bot.workspace_id;
   const kb = useQuery({ queryKey: ["knowledge", ws, "changes"], queryFn: () => api.get<{ changes: Change[] }>(`/api/knowledge/${ws}/changes`) }).data?.changes;
   const done = useActivity(ws).data;
   return useMemo(() => {
-    const line = (c: Change) => `${c.new_sha256 ? (c.sha256 ? "Edited" : "Created") : "Removed"} ${c.path}${c.added != null ? ` · +${c.added} −${c.removed ?? 0}` : ""}`;
     const of = (c: Change) => c.author?.session_id ?? c.session_id;
     const mine = (done ?? []).filter((a) => ids.has(a.session_id));
     return {
       cards: [
-        ...(kb ?? []).filter((c) => ids.has(of(c) ?? "")).map((c): ChatCard => ({ kind: "changed", id: `kb${c.id}`, session_id: of(c)!, at: c.at, v: "", text: line(c) })),
-        ...mine.map((a): ChatCard => ({ kind: "changed", id: `act${a.id}`, session_id: a.session_id, at: a.created_at, v: String(a.undone_at ?? ""), text: activityLine(a) })),
+        ...(kb ?? []).filter((c) => ids.has(of(c) ?? "")).map((c): ChatCard => ({ kind: "changed", id: `kb${c.id}`, session_id: of(c)!, at: c.at, v: "", text: kbLine(c) })),
+        ...mine.map((a): ChatCard => ({ kind: "changed", id: `act${a.id}`, session_id: a.session_id, at: a.created_at, v: "", text: activityLine(a) })),
       ],
-      activity: new Map(mine.map((a) => [`act${a.id}`, a])),
+      activity: new Map<string, Activity | Change>([
+        ...(kb ?? []).map((c): [string, Change] => [`kb${c.id}`, c]),
+        ...mine.map((a): [string, Activity] => [`act${a.id}`, a]),
+      ]),
     };
   }, [kb, done, ids]);
 }
@@ -235,7 +236,7 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
 
 // ---------------------------------------------------------------- rows
 
-const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item: ChatItem; data: Proposal | TodayItem | Activity | undefined; extra: Suggestion | undefined; canContinue: boolean }) {
+const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item: ChatItem; data: Proposal | TodayItem | Activity | Change | undefined; extra: Suggestion | undefined; canContinue: boolean }) {
   switch (item.t) {
     case "divider":
       return <div className="pt-4 pb-2"><Separator>
@@ -249,9 +250,9 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
       </div></div>;
     case "routine":
-      return <div className="py-1.5"><Separator><span className="flex items-center gap-1.5" title="A routine started this run"><Icon name="refresh" size={12} />Routine “{item.title}” · {item.cause}</span></Separator></div>;
+      return <div className="py-1.5"><Separator><span className="flex items-center gap-1.5" title="A routine started this run"><Icon name="refresh" size={12} />Routine “<RoutineName title={item.title} />” · {item.cause}</span></Separator></div>;
     case "quiet":
-      return <div className="flex items-center gap-1.5 py-1 text-[12px] text-ink-3" title="The run had nothing to report: no notification"><Icon name="refresh" size={12} /><span className="truncate">{item.title} · {item.cause}{item.at ? ` · ${time(item.at)}` : ""} · no update</span></div>;
+      return <div className="flex items-center gap-1.5 py-1 text-[12px] text-ink-3" title="The run had nothing to report: no notification"><Icon name="refresh" size={12} /><span className="truncate"><RoutineName title={item.title} /> · {item.cause}{item.at ? ` · ${time(item.at)}` : ""} · no update</span></div>;
     case "answer":
       return <div className="py-1.5 text-[13px]"><AssistantRow text={item.text} streaming={item.streaming} /></div>;
     case "steps":
@@ -261,10 +262,17 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
     case "ended":
       return <EndedRow item={item} canContinue={canContinue} />;
     case "card":
-      if (item.kind === "changed") return <div className="flex min-h-7 items-center gap-2 py-1 text-[12px] text-ink-2" data-tour="chat.changed">
-        <span className="rounded bg-sunk px-1.5 text-[11px] font-semibold text-ink-3">Changed</span><span className="min-w-0 flex-1 truncate" title={data ? `${(ACTIONS as Record<string, { help: string }>)[(data as Activity).action]?.help ?? ""}: ${item.text}` : item.text ?? undefined}>{item.text}</span>
-        {data && <UndoButton a={data as Activity} />}
-      </div>;
+      if (item.kind === "changed") {
+        // `act…` lines are direct changes (the activity list), `kb…` lines knowledge-base changes.
+        const a = item.id.startsWith("act") ? data as Activity | undefined : undefined;
+        const c = item.id.startsWith("kb") ? data as Change | undefined : undefined;
+        return <div className="flex min-h-7 items-center gap-2 py-1 text-[12px] text-ink-2" data-tour="chat.changed">
+          <span className="rounded bg-sunk px-1.5 text-[11px] font-semibold text-ink-3">Changed</span>
+          <span className="min-w-0 flex-1 truncate" title={a ? `${(ACTIONS as Record<string, { help: string }>)[a.action]?.help ?? ""}: ${item.text}` : item.text ?? undefined}>
+            {a ? <ActivityText a={a} /> : c ? <KbText c={c} /> : item.text}
+          </span>
+        </div>;
+      }
       if (!data) return null;
       return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] py-1.5">{item.kind === "proposal" ? <ProposalCard p={data as Proposal} /> : <ItemCard item={data as TodayItem} proposal={undefined} suggestion={extra} />}</div>;
     case "changes":
@@ -274,18 +282,29 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
   }
 }, (a, b) => a.item.key === b.item.key && a.item.v === b.item.v && a.data === b.data && a.extra === b.extra && a.canContinue === b.canContinue);
 
-/** Undo of a direct change: the undo action itself (the same call and confirmation as its button), then the
- * change is marked undone. */
-function UndoButton({ a }: { a: Activity }) {
-  const qc = useQueryClient();
-  if (a.undone_at) return <span className="flex-none text-[11px] text-ink-3">Undone</span>;
-  const u = a.undo;
-  if (!u || !(u.action in ACTIONS)) return null;
-  const name = u.action as ActionName;
-  const keys = ACTIONS[name].route.match(/\{(\w+)\}/g)?.map((x) => x.slice(1, -1)) ?? [];
-  const params = Object.fromEntries(keys.map((k, i) => [k, u.args[i] ?? ""]));
-  return <ActionButton name={name} params={params} body={u.body ?? undefined} vars={{ name: a.target ?? "it" }} icon={null} className="chat-tap flex-none" title="Put back what was there before this change"
-    onDone={async () => { await api.post(`/api/activity/${a.id}/undone`); await qc.invalidateQueries({ queryKey: ["activity"] }); }}>Undo</ActionButton>;
+/** A name in a chat line that opens its page: the same text, underlined on hover. */
+const NAME_LINK = "text-inherit no-underline hover:underline";
+
+const kbVerb = (c: Change) => c.new_sha256 ? (c.sha256 ? "Edited" : "Created") : "Removed";
+const kbStats = (c: Change) => c.added != null ? ` · +${c.added} −${c.removed ?? 0}` : "";
+const kbLine = (c: Change) => `${kbVerb(c)} ${c.path}${kbStats(c)}`;
+
+/** A knowledge-base change: the note's path opens it in Knowledge (a removed note has nothing to open). */
+function KbText({ c }: { c: Change }) {
+  return <>{kbVerb(c)} {c.new_sha256 ? <Link to="/knowledge" search={{ note: c.path }} className={NAME_LINK}>{c.path}</Link> : c.path}{kbStats(c)}</>;
+}
+
+/** A routine run's title: opens the routine in Schedules when a routine still has that title. */
+function RoutineName({ title }: { title: string }) {
+  const id = useCrons().data?.find((c) => c.title === title)?.id;
+  return id ? <Link to="/schedules" search={{ routine: id }} className={NAME_LINK}>{title}</Link> : <>{title}</>;
+}
+
+/** A direct change: the record's name opens its page. */
+function ActivityText({ a }: { a: Activity }) {
+  const p = activityParts(a);
+  const link = activityLink(a);
+  return <>{p.before}{p.target && (link ? <Link {...link} className={NAME_LINK}>{p.target}</Link> : p.target)}{p.after}</>;
 }
 
 function StepsRow({ item }: { item: Extract<ChatItem, { t: "steps" }> }) {

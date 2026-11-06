@@ -33,7 +33,7 @@ export const ask: Chapter = {
     {
       id: "ask.panel", route: "/", anchor: "ask.panel",
       title: "The chat beside the page",
-      body: "Ask opens the bot's chat as a panel: the same chat as its page. Its answers end in cards: proposals you start, ready clicks for what stays yours, and changes it made directly, each with Undo.",
+      body: "Ask opens the bot's chat as a panel: the same chat as its page. Its answers end in cards: proposals you start, ready clicks for what stays yours, and changes it made directly.",
       enter: () => useAskPanel.getState().show(ASK_BOT),
     },
     {
@@ -44,8 +44,8 @@ export const ask: Chapter = {
     },
     {
       id: "ask.changed", route: ASK_ROUTE, anchor: "chat.changed",
-      title: "Changed, with Undo",
-      body: "With admin access, Ask Launchpad changes Launchpad's own records directly: bots, routines, schedules, folder settings, presets and notifications. Each change is a Changed line with the value before and after, and Undo puts the value back.",
+      title: "Changed",
+      body: "With admin access, Ask Launchpad changes Launchpad's own records directly: bots, routines, schedules, folder settings, presets and notifications. Each change is a Changed line with the value before and after; names of notes, bots and routines open their page.",
     },
     {
       id: "ask.thread", route: ASK_ROUTE, anchor: "bots.thread",

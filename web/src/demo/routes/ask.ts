@@ -1,4 +1,4 @@
-// Demo routes of Step 6: the activity list (what Ask Launchpad changed directly, with Undo), ready cards that run
+// Demo routes of Step 6: the activity list (what Ask Launchpad changed directly), ready cards that run
 // from their own button, and the shared settings list that admin sessions may change.
 
 import type { Proposal } from "@/gen/Proposal";
