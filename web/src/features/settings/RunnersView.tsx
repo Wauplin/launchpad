@@ -45,20 +45,44 @@ function useInstallCommand(): string | null {
   return typeof q.data?.install === "string" ? q.data.install : null;
 }
 
+/** A shell command on one line, scrolling sideways, with Copy: people copy it, they do not read it. */
+function CommandLine({ command }: { command: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md border border-line-2 bg-code px-2.5 py-1.5 font-mono text-[12px]" title={command}>{command}</code>
+      <button className="btn btn-sm shrink-0" onClick={() => void copyText(command).then(() => toast("Copied"))}><Icon name="copy" size={12} />Copy</button>
+    </div>
+  );
+}
+
+function Step({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <li className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-2 text-[13px] text-ink-2">
+      <span className="grid h-5 w-5 place-items-center rounded-full bg-sunk text-[11px] font-semibold text-ink-3">{n}</span>
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5 pt-px">{children}</div>
+    </li>
+  );
+}
+
+/** The steps that install and pair a runner, inside the Runners card. */
 function AddRunner() {
   const command = useInstallCommand();
   const space = delegatedAccess();
   return (
-    <Card title="Add a runner">
-      <span className="text-[13px] text-ink-2">{space ? "On your Linux x86_64 laptop or a Linux server, run this in a terminal. On a Mac or an ARM machine, use Burst." : "On the machine, start launchpad daemon --role runner, then run:"}</span>
-      {command === null ? <Loading what="the install command" /> : (
-        <div className="flex items-start gap-2">
-          <pre className="m-0 min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md border border-line-2 bg-code px-2.5 py-2 font-mono text-[12px]">{command}</pre>
-          <button className="btn btn-sm" onClick={() => void copyText(command).then(() => toast("Copied"))}><Icon name="copy" size={12} />Copy</button>
-        </div>
-      )}
-      <span className="text-[12px] text-ink-3">{space ? "It needs your Hugging Face sign-in on that machine: run hf auth login there first (or set HF_TOKEN). The script checks the machine (Linux x86_64, bubblewrap, Git), installs a runner with the same build as Home, next to any other Launchpad, starts it as a user service that keeps running after you log out, then asks for your approval below. Run it again to update the runner." : "It prints a code. Approve the request below when the codes match."}</span>
-    </Card>
+    <div className="grid gap-2.5">
+      <b className="text-[13px] text-ink">Add a runner</b>
+      <ol className="m-0 grid list-none gap-2.5 p-0">
+        <Step n={1}>{space
+          ? <span>On a Linux x86_64 machine (your laptop or a server), sign in to Hugging Face: <code className="font-mono text-[12px]">hf auth login</code> (or set <code className="font-mono text-[12px]">HF_TOKEN</code>).</span>
+          : <span>On the machine, start <code className="font-mono text-[12px]">launchpad daemon --role runner</code>.</span>}</Step>
+        <Step n={2}>
+          <span>Run this in a terminal there:</span>
+          {command === null ? <Loading what="the install command" /> : <CommandLine command={command} />}
+        </Step>
+        <Step n={3}><span>It prints a code. Approve the runner here when the same code shows up above.</span></Step>
+      </ol>
+      <span className="text-[12px] text-ink-3">{space ? "The script checks the machine (bubblewrap, Git), installs Home's build next to any other Launchpad and keeps the runner running as a user service. Run it again to update the runner. On a Mac or an ARM machine, use Burst below." : "The runner keeps its own folders, next to any other Launchpad on that machine."}</span>
+    </div>
   );
 }
 
@@ -74,12 +98,7 @@ function UpdateRunner({ r }: { r: RunnerStatus }) {
   const byHand = space ? (
     <>
       <span>{oneClick ? "Or, in" : "In"} a terminal on {name}, run the install command again. It downloads Home's build, replaces the runner and restarts it; the runner stays paired.</span>
-      {command !== null && (
-        <div className="flex items-start gap-2">
-          <pre className="m-0 min-w-0 flex-1 whitespace-pre-wrap break-all rounded-md border border-line-2 bg-code px-2.5 py-2 font-mono text-[12px]">{command}</pre>
-          <button className="btn btn-sm" onClick={() => void copyText(command).then(() => toast("Copied"))}><Icon name="copy" size={12} />Copy</button>
-        </div>
-      )}
+      {command !== null && <CommandLine command={command} />}
     </>
   ) : (
     <span>{oneClick ? "Or, on" : "On"} {name}, install Launchpad at Home's commit <span className="font-mono">{home.slice(0, 12)}</span> (the same way you installed it), then restart its runner daemon (<span className="font-mono">launchpad daemon --role runner</span>). It stays paired.</span>
@@ -106,27 +125,32 @@ function UpdateRunner({ r }: { r: RunnerStatus }) {
 function HomeRunners() {
   const qc = useQueryClient();
   const runners = useRunners();
+  const [adding, setAdding] = useState(false);
   const pending = (runners.data ?? []).filter((r) => r.runner.state === "pending");
   const approved = (runners.data ?? []).filter((r) => r.runner.state === "approved");
   const refresh = () => qc.invalidateQueries({ queryKey: ["runners"] });
+  // With no runner yet, the steps to add one are the content of the card; afterwards they wait behind Add a runner.
+  const showAdd = adding || approved.length === 0;
   return (
     <SettingsPage title="Home and runners" intro="This is Home: it keeps every record and runs no agents. Runners run them: your own Linux machines, and Burst jobs that Home starts when none of them takes a launch.">
       {runners.isLoading ? <Loading what="runners" /> : runners.error ? <ErrorState error={runners.error} /> : (
         <>
-          {pending.length > 0 && (
-            <Card title={`Waiting for approval · ${pending.length}`}>
-              {pending.map((r) => (
-                <div key={r.runner.id} className="flex flex-wrap items-center gap-2 text-[13px]">
-                  <span className="min-w-0 flex-1"><b>{r.runner.name}</b> <span className="text-ink-3">· {r.runner.os} · asked {formatAge(r.runner.created_at)} ago</span></span>
-                  <span className="font-mono text-[15px] font-semibold tracking-wide" title="Compare with the code in the terminal">{r.runner.code}</span>
-                  <ConfirmButton tone="publish" consequence={`Lets ${r.runner.name} run agents for this Home. Approve only if the terminal shows ${r.runner.code}.`} confirmLabel="Approve" onConfirm={() => api.post(`/api/runners/${r.runner.id}/approve`, {}).then(() => { toast(`Approved ${r.runner.name}`); return refresh(); }, toastError)}>Approve</ConfirmButton>
-                  <ConfirmButton icon="trash" consequence="Refuses this request." confirmLabel="Remove" onConfirm={() => api.delete(`/api/runners/${r.runner.id}`).then(refresh, toastError)}>Remove</ConfirmButton>
-                </div>
-              ))}
-            </Card>
-          )}
-          <Card title="Runners" tour="settings.runners">
-            {approved.length === 0 ? <Empty icon="term">No runner yet. Add one with the command below.</Empty> : approved.map((r) => (
+          <Card title={approved.length ? `Runners · ${approved.length}` : "Runners"} tour="settings.runners" end={approved.length > 0 && !adding && <button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />Add a runner</button>}>
+            {pending.map((r) => (
+              <div key={r.runner.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-attn-soft px-3 py-2 text-[13px]">
+                <span className="grid min-w-0 flex-1 basis-[240px]">
+                  <span className="flex flex-wrap items-center gap-x-2"><b>{r.runner.name}</b><Badge tone="attn">waiting for approval</Badge></span>
+                  <span className="text-[12px] text-ink-3">{r.runner.os} · asked {formatAge(r.runner.created_at)} ago · approve only if its terminal shows this code</span>
+                </span>
+                <span className="flex items-center gap-2">
+                <span className="font-mono text-[15px] font-semibold tracking-wide" title="Compare with the code in the terminal">{r.runner.code}</span>
+                <ConfirmButton tone="publish" consequence={`Lets ${r.runner.name} run agents for this Home. Approve only if the terminal shows ${r.runner.code}.`} confirmLabel="Approve" onConfirm={() => api.post(`/api/runners/${r.runner.id}/approve`, {}).then(() => { toast(`Approved ${r.runner.name}`); setAdding(false); return refresh(); }, toastError)}>Approve</ConfirmButton>
+                <ConfirmButton icon="trash" consequence="Refuses this request." confirmLabel="Refuse" onConfirm={() => api.delete(`/api/runners/${r.runner.id}`).then(refresh, toastError)}>Refuse</ConfirmButton>
+                </span>
+              </div>
+            ))}
+            {approved.length === 0 && pending.length === 0 && <span className="text-[13px] text-ink-3">No runner yet. Until you add one, launches go to Burst (below) when it is on.</span>}
+            {approved.map((r) => (
               <div key={r.runner.id} className="grid gap-2">
               <div className="flex flex-wrap items-center gap-2 text-[13px]">
                 <span className="grid min-w-0 flex-1">
@@ -138,8 +162,13 @@ function HomeRunners() {
               {r.compat === "outdated" && <UpdateRunner r={r} />}
               </div>
             ))}
+            {showAdd && (
+              <div className={approved.length > 0 || pending.length > 0 ? "grid gap-2.5 border-t border-line pt-3" : "grid gap-2.5"}>
+                <AddRunner />
+                {adding && approved.length > 0 && <button className="btn btn-ghost btn-sm w-fit" onClick={() => setAdding(false)}>Hide</button>}
+              </div>
+            )}
           </Card>
-          <AddRunner />
           <BurstCard />
         </>
       )}
