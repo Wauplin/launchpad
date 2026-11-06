@@ -90,7 +90,7 @@ Home keeps each Git folder as a bare mirror. For **Files**, it keeps a read-only
 
 ## Plain and asset folders
 
-A **plain folder** has no Git: Home stores its files (Add folders → **New plain folder**, or add a folder without Git from Browse on a runner, which copies its files once). Runners work in a synced copy: it comes down from Home before a session starts and goes back at the end of every turn. One agent works in a plain folder at a time; another launch fails until the first agent is archived. Changes compares with the start of the session. Home keeps every overwritten version and every deleted file for 30 days: the folder page lists them under **Versions and trash**, with **Restore**.
+A **plain folder** has no Git: Home stores its files (Add folders → **New plain folder**, or add a folder without Git from Browse on a runner, which copies its files once). Runners work in a synced copy: it comes down from Home before a session starts and goes back at the end of every turn. One agent works in a plain folder at a time; another launch fails until the first agent is archived. Changes compares with the start of the session. Files shows the files Home holds (the state at the end of the last turn), read-only. Home keeps every overwritten version and every deleted file for 30 days: the folder page lists them under **Versions and trash**, with **Restore**.
 
 A plain folder can become a Git folder: on its folder page, open **Settings** and click **Turn into a Git folder**. Its current files become the first commit of `main` in a new Home Git folder without a remote; agents then work in worktrees and branches.
 

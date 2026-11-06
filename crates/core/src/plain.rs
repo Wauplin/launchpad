@@ -784,6 +784,44 @@ pub async fn in_sync(app: &App, id: &str, dir: &Path) -> bool {
     true
 }
 
+/// Home: creates or updates a read-only copy of a plain folder's current files for Files (Home keeps only the
+/// store, never a working copy). Shares `home_git::browse_dir` with Git folders. Returns its path.
+pub async fn browse_copy(app: &App, id: &str) -> Result<PathBuf> {
+    let dir = crate::home_git::browse_dir(app, id);
+    let lock = app.suggestion_locks.get(&format!("home-browse:{id}"));
+    let _lock = lock.lock().await;
+    let tree = tree(app, id).await?;
+    let marker = dir.with_extension("version");
+    let current = tokio::fs::read_to_string(&marker).await.ok().and_then(|v| v.trim().parse::<i64>().ok());
+    if dir.is_dir() && !dir.join(".git").exists() && current == Some(tree.version) {
+        return Ok(dir);
+    }
+    if dir.join(".git").exists() {
+        // Left by a Git folder of the same ID: never mix the two.
+        tokio::fs::remove_dir_all(&dir).await?;
+    }
+    tokio::fs::create_dir_all(&dir).await?;
+    let wanted: std::collections::HashSet<&str> = tree.files.iter().map(|e| e.path.as_str()).collect();
+    for rel in walk(&dir) {
+        if !wanted.contains(rel.as_str()) {
+            let _ = tokio::fs::remove_file(dir.join(&rel)).await;
+        }
+    }
+    for e in &tree.files {
+        check_path(&e.path)?;
+        let path = dir.join(&e.path);
+        if path.exists() && hash_file(&path).await.is_ok_and(|(h, _, _)| h == e.sha256) {
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        tokio::fs::write(&path, read_blob(app, &e.sha256).await?).await?;
+    }
+    tokio::fs::write(&marker, tree.version.to_string()).await?;
+    Ok(dir)
+}
+
 /// Forgets what a copy synced (its folder was removed from this disk).
 pub async fn forget_copy(app: &App, dir: &Path) {
     let _ = tokio::fs::remove_file(state_file(app, dir)).await;

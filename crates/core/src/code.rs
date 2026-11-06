@@ -135,18 +135,39 @@ pub struct CommitInfo {
 
 // ---------------------------------------------------------------- sources and checks
 
-/// Checks a root (and resolves a revision) before anything is read.
-/// Home: Git folders are read from their browse copy (the mirror is bare).
+/// Home keeps no working copy of its folders: a Git folder is read from its browse copy (the mirror is bare),
+/// a plain folder from a copy of its store.
 fn on_home(app: &App, mut p: Project) -> Project {
-    if app.paths.role == crate::role::Role::Home && p.home_git {
+    if app.paths.role == crate::role::Role::Home && (p.home_git || p.plain) {
         p.path = crate::home_git::browse_dir(app, &p.id).to_string_lossy().into_owned();
     }
     p
 }
 
+/// Home: creates or updates the copy `on_home` reads. Returns its path (None: the folder is read in place).
+async fn home_copy(app: &App, p: &Project) -> Result<Option<PathBuf>> {
+    if app.paths.role != crate::role::Role::Home {
+        return Ok(None);
+    }
+    if p.home_git {
+        return crate::home_git::browse_copy(app, p).await.map(Some);
+    }
+    if p.plain {
+        return crate::plain::browse_copy(app, &p.id).await.map(Some);
+    }
+    Ok(None)
+}
+
+/// Checks a root (and resolves a revision) before anything is read. On Home, a folder's own path (what the UI
+/// knows) stands for its copy.
 pub async fn open(app: &App, root: &str, rev: Option<&str>) -> Result<Source> {
-    let root = crate::files::canonicalize(root).await.with_context(|| format!("{root} does not exist"))?;
-    let projects: Vec<Project> = crate::projects::list(app).await?.into_iter().map(|p| on_home(app, p)).collect();
+    let all = crate::projects::list(app).await?;
+    let root = match all.iter().find(|p| p.path == root || on_home(app, (*p).clone()).path == root) {
+        Some(p) => home_copy(app, p).await?.map(|d| d.to_string_lossy().into_owned()).unwrap_or_else(|| root.to_string()),
+        None => root.to_string(),
+    };
+    let root = crate::files::canonicalize(&root).await.with_context(|| format!("{root} does not exist"))?;
+    let projects: Vec<Project> = all.into_iter().map(|p| on_home(app, p)).collect();
     let project = project_for_root(&projects, &root).await
         .with_context(|| format!("{} is not a registered project or one of its worktrees", root.display()))?;
     let git = repository_root(&root).await.is_some();
@@ -434,13 +455,14 @@ pub(crate) async fn default_branch(env: &UserEnv, root: &Path) -> Option<String>
 
 /// Working trees (`git worktree list`) and revisions of a project.
 pub async fn sources(app: &App, project: &Project) -> Result<CodeSources> {
-    if app.paths.role == crate::role::Role::Home && project.home_git {
-        crate::home_git::browse_copy(app, project).await?;
-    }
+    let copy = home_copy(app, project).await?;
+    // The UI keeps the folder's own path: `open` maps it to the copy again.
+    let original = project.path.clone();
     let project = &on_home(app, project.clone());
     let root = Path::new(&project.path);
     let main = Worktree { path: project.path.clone(), branch: None, main: true };
     let Some(checkout) = repository_root(root).await else {
+        let main = Worktree { path: if copy.is_some() { original } else { main.path }, ..main };
         return Ok(CodeSources { git: false, default_branch: None, worktrees: vec![main], refs: vec![] });
     };
     let subdir = root.strip_prefix(&checkout)?;
@@ -465,6 +487,10 @@ pub async fn sources(app: &App, project: &Project) -> Result<CodeSources> {
     }
     if !worktrees.iter().any(|w| w.main) {
         worktrees.insert(0, main);
+    }
+    if copy.is_some() {
+        worktrees.retain(|w| w.main);
+        worktrees[0].path = original;
     }
     worktrees.sort_by_key(|w| !w.main);
 
