@@ -43,42 +43,55 @@ export const OUTCOME_CLASS: Record<RunOutcome, string> = {
 export const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const WEEKDAYS = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"];
-const num = (v: string) => (/^\d+$/.test(v) ? Number(v) : NaN);
+/** A plain number within [lo, hi], else NaN. */
+const num = (v: string, lo: number, hi: number) => {
+  const n = /^\d+$/.test(v) ? Number(v) : NaN;
+  return n >= lo && n <= hi ? n : NaN;
+};
+/** The N of `*\/N` when N divides `whole` evenly (so the runs are really N apart), else null. */
+const step = (v: string, whole: number) => {
+  const n = Number(v.match(/^\*\/(\d+)$/)?.[1]);
+  return n > 0 && n < whole && whole % n === 0 ? n : null;
+};
 const list = (items: string[]) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`);
+const two = (n: number) => String(n).padStart(2, "0");
 
 /**
  * A five-field cron expression in words: "Every day at 03:00", "Weekdays at 09:00", "Mondays at 09:00",
- * "Every hour", "Every 15 minutes". Expressions it cannot say simply come back unchanged.
+ * "Every hour", "Every 15 minutes". Expressions it cannot say exactly (ranges, names, steps that do not divide the
+ * hour or the day, months) come back unchanged: never a wrong sentence.
  */
 export function describeCron(expr: string): string {
-  const f = expr.trim().split(/\s+/);
-  if (f.length !== 5) return expr.trim();
+  const raw = expr.trim();
+  const f = raw.split(/\s+/);
+  if (f.length !== 5) return raw;
   const [min, hour, dom, mon, dow] = f;
-  if (mon !== "*") return expr.trim();
-  const m = num(min);
-  const step = (v: string) => v.match(/^\*\/(\d+)$/)?.[1];
+  if (mon !== "*") return raw;
+  const m = num(min, 0, 59);
   if (hour === "*" && dom === "*" && dow === "*") {
     if (min === "*") return "Every minute";
-    if (step(min)) return `Every ${step(min)} minutes`;
+    const every = step(min, 60);
+    if (every) return every === 1 ? "Every minute" : `Every ${every} minutes`;
     if (m === 0) return "Every hour";
-    if (!isNaN(m)) return `Every hour at :${String(m).padStart(2, "0")}`;
-    return expr.trim();
+    return isNaN(m) ? raw : `Every hour at :${two(m)}`;
   }
-  if (isNaN(m)) return expr.trim();
-  if (step(hour) && dom === "*" && dow === "*") return `Every ${step(hour)} hours`;
-  const hours = hour.split(",").map(num);
-  if (hours.some(isNaN)) return expr.trim();
-  const at = `at ${list(hours.map((h) => `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`))}`;
+  if (isNaN(m)) return raw;
+  const everyH = step(hour, 24);
+  if (everyH && dom === "*" && dow === "*") return `Every ${everyH} hours${m ? ` at :${two(m)}` : ""}`;
+  const hours = hour.split(",").map((h) => num(h, 0, 23));
+  if (hours.some(isNaN)) return raw;
+  const at = `at ${list([...new Set(hours)].sort((a, b) => a - b).map((h) => `${two(h)}:${two(m)}`))}`;
   if (dom === "*" && dow === "*") return `Every day ${at}`;
   if (dom === "*" && dow === "1-5") return `Weekdays ${at}`;
-  if (dom === "*" && (dow === "0,6" || dow === "6,0")) return `Weekends ${at}`;
   if (dom === "*") {
-    const days = dow.split(",").map(num);
-    if (days.some((d) => isNaN(d) || d < 0 || d > 7)) return expr.trim();
-    return `${list(days.map((d) => WEEKDAYS[d % 7]))} ${at}`;
+    const days = [...new Set(dow.split(",").map((d) => num(d, 0, 7) % 7))].sort((a, b) => a - b);
+    if (days.some(isNaN)) return raw;
+    if (days.join() === "0,6") return `Weekends ${at}`;
+    return `${list(days.map((d) => WEEKDAYS[d]))} ${at}`;
   }
-  if (dow === "*" && !isNaN(num(dom))) return `Every month on day ${dom} ${at}`;
-  return expr.trim();
+  const day = num(dom, 1, 31);
+  if (dow === "*" && !isNaN(day)) return `Every month on day ${day} ${at}`;
+  return raw;
 }
 
 /** `time_zone` absent: a record saved before schedules kept a zone runs in the server's time. */

@@ -35,7 +35,7 @@ import { activityLine, activityLink, activityParts, useActivity } from "./activi
 import { api } from "@/lib/api";
 import { pastedImages } from "@/lib/attachments";
 import { daemonAsset } from "@/lib/connection";
-import { age, ago, when } from "@/lib/format";
+import { age, when } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useCrons, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
@@ -238,7 +238,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
   switch (item.t) {
     case "divider":
       return <div className="pt-4 pb-2"><Separator>
-        <span>Session {item.index} · started {ago(item.at)}{item.reason ? ` because ${item.reason}` : ""}</span>
+        <span>Session {item.index} · started {when(item.at)}{item.reason ? ` because ${item.reason}` : ""}</span>
         <Link to="/agents" search={{ session: item.sessionId }} className="chat-tap text-teal-ink no-underline hover:underline" title="The whole trace of this session in Agents">Open in Agents</Link>
       </Separator></div>;
     case "user":

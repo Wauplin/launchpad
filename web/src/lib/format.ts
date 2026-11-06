@@ -9,8 +9,8 @@ const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(
 /** Calendar days from today to `d`: 0 today, -1 yesterday, 1 tomorrow. */
 const dayOffset = (d: Date) => Math.round((midnight(d) - midnight(new Date())) / DAY_MS);
 const year = (d: Date) => (d.getFullYear() === new Date().getFullYear() ? "" : `, ${d.getFullYear()}`);
-/** Locale time with hour and minute, never seconds. */
-const clock = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+/** Locale time with hour and minute, never seconds: "3:00 AM" (en-US), "03:00" (en-GB). */
+const clock = (d: Date) => d.toLocaleTimeString([], { timeStyle: "short" });
 
 /** Compact age for dense lists: "just now", "5 min", "3 h", "yesterday", "Oct 3" ("Oct 3, 2025" in another year). */
 export function age(ms: number): string {

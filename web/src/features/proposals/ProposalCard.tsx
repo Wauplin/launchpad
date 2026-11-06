@@ -48,7 +48,7 @@ function RoutineBody({ body }: { body: Extract<Proposal["body"], { kind: "routin
   return (
     <>
       <span className="flex flex-wrap gap-1">
-        <Token icon="refresh" tone="warn">Routine of {bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"}</Token>
+        <Token icon="refresh">Routine of {bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"}</Token>
         <Token title={cronTitle(body)}>{triggerSummary({ ...body, time_zone: browserZone() }, (id) => projects.find((p) => p.id === id)?.name ?? "a folder")}</Token>
       </span>
       <p className="m-0 line-clamp-4 text-[12px] whitespace-pre-wrap text-ink-2">{body.instructions}</p>
@@ -135,7 +135,7 @@ function ReadyBody({ p, body }: { p: Proposal; body: Ready }) {
   const link = readyLink(body);
   return (
     <>
-      <span className="flex flex-wrap gap-1"><Token icon="alert" tone="warn">Your click · {a.help}</Token></span>
+      <span className="flex flex-wrap gap-1"><Token icon="alert">Your click · {a.help}</Token></span>
       {Object.keys(body.input).length > 0 && <span className="text-[12px] text-ink-2 [overflow-wrap:anywhere]">{Object.entries(body.input).map(([k, v]) => `${k.replace(/_/g, " ")}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join(" · ")}</span>}
       {waiting && (name === "worktree.merge" && body.session_id
         ? <BranchActions sessionId={body.session_id} s={session} onMerged={ran}>{link && <Link className="btn btn-sm no-underline" to={link.to as never} params={link.params as never} search={link.search as never}>{link.label}</Link>}</BranchActions>
@@ -242,8 +242,8 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
         </div>
       </div>
       {spec && <SpecTokens spec={spec} />}
-      {p.body.kind === "cron" && <Token tone="warn" icon="refresh" title={`Cron: ${p.body.schedule}`}>Creates a routine · {describeCron(p.body.schedule)} ({browserZone()})</Token>}
-      {p.body.kind === "schedule" && <Token tone="warn" icon="clock">{p.body.conditions.length} start condition{p.body.conditions.length === 1 ? "" : "s"}</Token>}
+      {p.body.kind === "cron" && <Token icon="refresh" title={`Cron: ${p.body.schedule}`}>Creates a routine · {describeCron(p.body.schedule)} ({browserZone()})</Token>}
+      {p.body.kind === "schedule" && <Token icon="clock">{p.body.conditions.length} start condition{p.body.conditions.length === 1 ? "" : "s"}</Token>}
       {spec && !started && <p className="m-0 line-clamp-3 text-[12px] whitespace-pre-wrap text-ink-2">{spec.text}</p>}
       {p.body.kind === "message" && !started && <p className="m-0 line-clamp-3 text-[12px] whitespace-pre-wrap text-ink-2">To “{sessions.find((s) => s.id === (p.body as { session_id: string }).session_id)?.title ?? "an agent"}”: {p.body.text}</p>}
       {p.body.kind === "preset" && <PresetBody body={p.body} />}

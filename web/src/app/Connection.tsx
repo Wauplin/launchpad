@@ -7,7 +7,7 @@ import { useStatus } from "@/lib/queries";
 import { lastMessageAt, onConnectionChange } from "@/lib/ws";
 import { useServerTimeZone } from "@/lib/serverTime";
 
-const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { timeStyle: "short" });
 
 /** `online`, and the time of the last message received while offline (null while online). */
 export function useConnection() {

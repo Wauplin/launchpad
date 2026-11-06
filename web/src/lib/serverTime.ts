@@ -49,5 +49,6 @@ export function useServerTimeZone(): ServerTimeZone | null {
 /** The wall-clock time of `at` on the daemon host, for hints next to times entered in this browser. */
 export function serverTimeOf(tz: ServerTimeZone, at: number): string | null {
   if (!tz.zone) return null;
-  return new Date(at).toLocaleString(undefined, { timeZone: tz.zone, weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const d = new Date(at);
+  return `${d.toLocaleDateString(undefined, { timeZone: tz.zone, weekday: "short" })} ${d.toLocaleTimeString(undefined, { timeZone: tz.zone, timeStyle: "short" })}`;
 }
