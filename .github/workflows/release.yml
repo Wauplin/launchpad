@@ -1,0 +1,46 @@
+name: Release
+
+# Manual release of the selected branch's latest commit (Actions → Release →
+# Run workflow). The tag is vYYYY.MM.DD.N (UTC date, N counts the releases of
+# that day from 1). Tags pushed by this workflow do not start ci.yml again.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One release at a time, so two runs never pick the same tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Pick the release tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Next vYYYY.MM.DD.N tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          day="v$(date -u +%Y.%m.%d)"
+          last=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$day." --jq '.[].ref' \
+            | sed -n "s#^refs/tags/$day\.\([0-9][0-9]*\)\$#\1#p" | sort -n | tail -n 1)
+          tag="$day.$(( ${last:-0} + 1 ))"
+          echo "Release tag: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build and publish
+    needs: version
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build.yml
+    with:
+      release-tag: ${{ needs.version.outputs.tag }}

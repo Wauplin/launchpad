@@ -78,6 +78,6 @@ The [getting started guide](docs/getting-started.md) covers prebuilt packages, h
 
 ## Project status
 
-Launchpad is a personal tool, built for one user on their own machines. Every paired device has full access. It has no versioned releases and no data migrations: expect breaking changes.
+Launchpad is a personal tool, built for one user on their own machines. Every paired device has full access. Releases are dated snapshots (`vYYYY.MM.DD.N`), not stable versions, and there are no data migrations: expect breaking changes.
 
 Coding agents that work on this repository follow the rules in [AGENTS.md](AGENTS.md).

@@ -72,7 +72,9 @@ Testing policy: keep tests few, fast and free of mocks. Add a test only for a sm
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
 - On pushes to `main`, pull requests and tags: Clippy, UI type checks and UI tests on Linux, and debug tests on Linux.
-- On tags only: release builds and tests on Ubuntu 22.04 (Linux x86_64 only; macOS and Windows jobs are paused), with downloadable packages kept 90 days.
+- On tags only: release builds and tests on Ubuntu 22.04 (Linux x86_64 only; macOS and Windows jobs are paused), with downloadable packages kept 90 days. The build steps live in [`.github/workflows/build.yml`](../.github/workflows/build.yml), shared with releases.
+
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) makes a release when started by hand (Actions → Release → Run workflow, on the branch to release). It tags the branch's latest commit `vYYYY.MM.DD.N` (UTC date; `N` counts that day's releases from 1, so several releases per day are possible), runs the release build and tests, and creates a GitHub release with generated notes and the `launchpad-linux-x86_64.tar.gz` package and its SHA-256 file. Runs wait for each other, so two runs never pick the same tag. The tag it pushes does not start `ci.yml` again.
 
 [`.github/workflows/hf-space.yml`](../.github/workflows/hf-space.yml) builds and publishes the Hugging Face Space image on every push to `main` (see [Hugging Face](hugging-face.md#updates)).
 
