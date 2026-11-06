@@ -94,6 +94,8 @@ Moves (`handoff.rs`): runners post a handoff (native conversation files from `Ha
 
 MCP (`mcp.rs`): servers live in `mcp_server` with their token as a `mcp-<id>` vault entry. A lease names granted servers; `Harness::contained_mcp` points the harness at `/lp/<key>/mcp/<id>` on the runner proxy, which sends each request as an exchange with an `Mcp` target (in process on `all`). The gateway checks the lease and grant, refuses `tools/call` and filters `tools/list` for tools that are off, adds the token, streams the answer back and logs each call.
 
+Default tools (`tool_defaults.rs`): workspace and folder layers in `tool_defaults` (Home), the bot layer in `bot.toml` `[tools]`. Home resolves them with the launch's `tools_off`/`tools_on` in `LeaseRequest::off` when it builds a lease (and in the MCP gateway); runners compute nothing.
+
 The knowledge base (`kb.rs`) is the only agent memory. Runners mirror each workspace's knowledge base to `<data_dir>/knowledge/<workspace name>/` (every minute, before a session starts and after each write); the jail mounts it read-only as `$LAUNCHPAD_KB`, and `Harness::contained_memory` turns the harness's own memory off and writes its user instructions (the knowledge base and `INDEX.md`). `launchpad kb` posts writes to the runner (`/api/kb`), which uploads contents as blobs and sends the writes to Home (`FromRunner::Call` "kb"); Home checks the session's runner, takes the author from its own session record and applies writes one at a time. A write whose base changed is kept as a `.concurrent-<id>` sibling. Owner edits in a runner's mirror are sent as the owner's.
 
 ## Sessions and harnesses

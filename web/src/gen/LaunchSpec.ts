@@ -50,9 +50,14 @@ agent_traces: Array<AgentTraceRef>, model: string | null, effort: string | null,
  */
 workspace_id: string | null, 
 /**
- * Tools of Home's registry switched off for this launch (they are granted per workspace).
+ * Tools of Home's registry (IDs, `mcp:<server>`) switched off for this launch, over the default tools
+ * (`tool_defaults`). Only tools granted to the workspace can be on.
  */
 tools_off: Array<string>, 
+/**
+ * Granted tools switched on for this launch although the defaults leave them off.
+ */
+tools_on?: Array<string>, 
 /**
  * The runner chosen for this launch (for example a Local VM for Docker). None: Home picks one.
  */

@@ -1,6 +1,6 @@
 # Configuration
 
-Most settings are editable in **Settings** and saved as soon as they change. Settings has two parts: **This workspace** (its name, folders, bots, granted tools and MCP servers, Delete) and **Launchpad** (shared by every workspace). On a laptop, opening Settings replaces the sidebar with the list of Settings pages; **Back to Launchpad** at its top (or **Close settings** at its bottom) returns to the page you were on. The search field at the top of that list finds a page by its name or a keyword. Settings that apply to the whole daemon are written to `config.toml`. Settings that apply to one device (zoom, theme, layout) stay in that browser.
+Most settings are editable in **Settings** and saved as soon as they change. Settings has two parts: **This workspace** (its name, folders, bots, granted tools and MCP servers with their defaults, Delete) and **Launchpad** (shared by every workspace). On a laptop, opening Settings replaces the sidebar with the list of Settings pages; **Back to Launchpad** at its top (or **Close settings** at its bottom) returns to the page you were on. The search field at the top of that list finds a page by its name or a keyword. Settings that apply to the whole daemon are written to `config.toml`. Settings that apply to one device (zoom, theme, layout) stay in that browser.
 
 ## Files and folders
 

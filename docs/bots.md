@@ -28,6 +28,8 @@ A proposal is an inert card: a launch, a message to a session, a scheduled launc
 
 A **ready click** prepares an action that stays yours: merge a branch, publish or merge a Local PR, post a suggestion, send an Outbox message, approve the waiting GitHub Actions runs of a pull request from a fork (**Approve and run workflows**), mark Inbox threads done. The card shows what it acts on and the button of that action; the click runs the same call as the button on its page, with the same confirmation. Accepting the card never runs it, and Start all and auto mode skip it.
 
+`[tools]` in `bot.toml` sets the bot's [default tools](home-and-runners.md#default-tools) over those of its workspace and folder (Settings tab → **Default tools**).
+
 `proposals` in `bot.toml` sets the bot's proposal mode: `manual` (the default: every card waits for your click) or `auto` (new launches, messages and schedules apply at once; crons, routines, presets, bots, tools, `BOT.md` changes and ready clicks still wait).
 
 ## Create a bot

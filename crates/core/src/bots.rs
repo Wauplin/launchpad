@@ -62,6 +62,11 @@ pub struct BotSettings {
     /// What it may do with the Launchpad CLI tool: read, propose (the default) or admin.
     #[serde(default)]
     pub launchpad: crate::vault::LaunchpadAccess,
+    /// Default tools of its sessions (`tool_defaults`): tool ID or `mcp:<server>` → on or off, over the
+    /// workspace's and the folder's defaults. Only tools granted to its workspace apply.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    #[ts(optional, as = "Option<crate::tool_defaults::ToolChoice>")]
+    pub tools: crate::tool_defaults::ToolChoice,
 }
 
 /// The profile a bot runs with: its own, or the default when bot.toml names none.
@@ -239,6 +244,7 @@ async fn check_settings(app: &App, workspace_id: &str, s: &BotSettings) -> Resul
     if let Some(p) = &s.profile {
         ensure!(app.config.get().profiles.iter().any(|x| &x.id == p), "no profile {p}: choose one in the bot's Settings");
     }
+    crate::tool_defaults::check(&s.tools)?;
     Ok(())
 }
 
@@ -253,7 +259,7 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
     let profile = c.profile.filter(|p| !p.is_empty());
     let folder = c.folder.filter(|f| !f.is_empty());
     let own: Option<String> = None;
-    let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad };
+    let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, tools: Default::default() };
     check_settings(app, &c.workspace_id, &settings).await?;
     let instructions = if c.instructions.trim().is_empty() { format!("# {name}\n") } else { format!("{}\n", c.instructions.trim_end()) };
     let (id2, ws, slug2, at) = (id.clone(), c.workspace_id.clone(), slug.clone(), now_ms());

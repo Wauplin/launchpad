@@ -553,9 +553,26 @@ pub struct LeaseRequest {
     /// Tools switched off for this launch.
     #[serde(default)]
     pub tools_off: Vec<String>,
+    /// Tools switched on for this launch although the defaults leave them off.
+    #[serde(default)]
+    pub tools_on: Vec<String>,
+    /// The session's folder: its default tools (`tool_defaults`).
+    #[serde(default)]
+    pub project_id: Option<String>,
     /// The bot of the session: Home reads its Launchpad CLI access from its `bot.toml`.
     #[serde(default)]
     pub bot_id: Option<String>,
+}
+
+impl LeaseRequest {
+    /// The tools and MCP servers (`mcp:<id>`) of Home's registry that are off for this session: its defaults
+    /// (workspace, folder, bot) and its launch's own choice. Grants are checked separately.
+    pub async fn off(&self, app: &App) -> Result<Vec<String>> {
+        let layers = crate::tool_defaults::layers(app, self.workspace_id.as_deref(), self.project_id.as_deref(), self.bot_id.as_deref()).await?;
+        let layers: Vec<&crate::tool_defaults::ToolChoice> = layers.iter().collect();
+        let keys = tools(app).await?.into_iter().map(|t| t.id).chain(crate::mcp::list(app).await?.into_iter().map(|s| crate::mcp::launch_off(&s.id)));
+        Ok(keys.filter(|k| !crate::tool_defaults::is_on(&layers, &self.tools_off, &self.tools_on, k)).collect())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -733,10 +750,11 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         }
         None => None,
     };
-    // Granted tools and their credentials.
+    // Granted tools that are on (`tool_defaults`), and their credentials.
+    let off = req.off(app).await?;
     let mut tools_out = vec![];
     for t in tools(app).await? {
-        if !t.granted(req.workspace_id.as_deref()) || req.tools_off.contains(&t.id) {
+        if !t.granted(req.workspace_id.as_deref()) || off.contains(&t.id) {
             continue;
         }
         if let Some(cid) = &t.credential {
@@ -772,7 +790,7 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         git_name: Some(home.git_name).filter(|s| !s.trim().is_empty()),
         git_email: Some(home.git_email).filter(|s| !s.trim().is_empty()),
         relayed: false,
-        mcp: crate::mcp::granted(app, req.workspace_id.as_deref(), &req.tools_off).await?,
+        mcp: crate::mcp::granted(app, req.workspace_id.as_deref(), &off).await?,
         launchpad,
     })
 }

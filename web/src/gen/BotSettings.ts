@@ -20,4 +20,9 @@ folder?: string | null, permission_mode: PermissionMode, proposals: ProposalMode
 /**
  * What it may do with the Launchpad CLI tool: read, propose (the default) or admin.
  */
-launchpad: LaunchpadAccess, };
+launchpad: LaunchpadAccess, 
+/**
+ * Default tools of its sessions (`tool_defaults`): tool ID or `mcp:<server>` → on or off, over the
+ * workspace's and the folder's defaults. Only tools granted to its workspace apply.
+ */
+tools?: { [key in string]: boolean }, };

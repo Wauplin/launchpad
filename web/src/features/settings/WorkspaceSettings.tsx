@@ -1,5 +1,5 @@
-// Settings → This workspace: the window's workspace (name, its bots, the tools and MCP servers granted to it,
-// another window, Delete). Everything else in Settings is shared by every workspace.
+// Settings → This workspace: the window's workspace (name, its bots, the tools and MCP servers granted to it and
+// which of them new sessions get by default, another window, Delete). Everything else in Settings is shared by every workspace.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -12,6 +12,8 @@ import { api } from "@/lib/api";
 import { botInitial, useBots } from "@/lib/bots";
 import { newWindowWord, openWindow, useScope, useWorkspaces } from "@/lib/workspace";
 import { Card, SavedInput, SettingsPage } from "./SettingsView";
+import { ToolDefaultsEditor, useSaveToolDefaults } from "./ToolDefaults";
+import { useToolDefaults } from "@/lib/toolDefaults";
 
 const granted = (workspaces: string[], id: string) => workspaces.includes("*") || workspaces.includes(id);
 
@@ -25,6 +27,8 @@ export function WorkspaceSettings() {
   const mcp = useQuery({ queryKey: ["mcp"], queryFn: () => api.get<McpServer[]>("/api/mcp"), staleTime: 30_000 });
   const tools = (vault.data?.tools ?? []).filter((t) => granted(t.workspaces, w.id));
   const servers = (mcp.data ?? []).filter((s) => granted(s.workspaces, w.id));
+  const defaults = useToolDefaults();
+  const saveDefaults = useSaveToolDefaults("workspace", w.id);
   const last = workspaces.length <= 1;
   if (!w.id) return <SettingsPage title="This workspace"><Loading /></SettingsPage>;
   return (
@@ -49,12 +53,9 @@ export function WorkspaceSettings() {
         ))}
       </Card>
       <Card title="Tools and MCP servers" end={<Link to="/settings/credentials" className="btn btn-sm no-underline">Edit in Credentials and tools</Link>}>
-        <span className="text-[12px] text-ink-3">Sessions of {w.name} get these tools and MCP servers. Their tokens stay on Home; you grant them per workspace in Credentials and tools.</span>
+        <span className="text-[12px] text-ink-3">Sessions of {w.name} can use these tools and MCP servers. Their tokens stay on Home; you grant them per workspace in Credentials and tools. Off: a new session gets it only when a folder, a bot or the composer switches it on.</span>
         {vault.isLoading || mcp.isLoading ? <Loading /> : tools.length + servers.length === 0 ? <Empty icon="term">Nothing is granted to {w.name}.</Empty> : (
-          <div className="grid gap-1 text-[13px]">
-            {tools.map((t) => <span key={t.id} className="flex items-center gap-2"><Icon name="term" size={13} className="text-ink-3" /><b>{t.name}</b><span className="text-[12px] text-ink-3">tool{t.workspaces.includes("*") ? " · every workspace" : ""}</span></span>)}
-            {servers.map((s) => <span key={s.id} className="flex items-center gap-2"><Icon name="spark" size={13} className="text-ink-3" /><b>{s.name}</b><span className="text-[12px] text-ink-3">MCP server · {s.tools.length - s.tools_off.length} tools on{s.workspaces.includes("*") ? " · every workspace" : ""}</span></span>)}
-          </div>
+          <ToolDefaultsEditor workspaceId={w.id} above={null} value={defaults.data?.workspaces[w.id] ?? {}} onChange={(v) => void saveDefaults(v).catch(toastError)} />
         )}
       </Card>
       <Card title="Delete">

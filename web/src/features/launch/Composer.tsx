@@ -1,4 +1,4 @@
-import { OutdatedRunnerNotice, RunnerChoice, runnerName, ToolsChoice, useGrantedMcp, useGrantedTools, useLaunchRunners } from "./LaunchExtras";
+import { OutdatedRunnerNotice, RunnerChoice, runnerName, ToolsChoice, useLaunchRunners, useLaunchTools } from "./LaunchExtras";
 import { isDesktopShell } from "@/lib/platform";
 import { hostOf, profileOnHost, useHosts } from "@/lib/hosts";
 import { isPhone } from "@/lib/phone";
@@ -297,8 +297,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   }, [open, spec.profile, profiles]);
   const launchRunners = useLaunchRunners();
   const role = useStatus().data?.role;
-  const grantedTools = useGrantedTools(spec);
-  const grantedMcp = useGrantedMcp(spec);
+  // The lease takes the workspace of the session's folder, else the launch's.
+  const toolsWorkspace = projects.find((p) => p.id === targetId)?.workspace_id ?? spec.workspace_id;
+  const launchTools = useLaunchTools(spec, toolsWorkspace, targetId);
+  const toolsOff = launchTools.items.filter((t) => !t.on);
   if (!open) return null;
 
   const refreshingModels = refreshModels.isPending || providerModels.isFetching;
@@ -647,7 +649,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {harness?.capabilities.permission_modes && spec.permission_mode && spec.permission_mode !== "yolo" && <Token>{spec.permission_mode === "auto" ? "Auto approval" : "Ask for approval"}</Token>}
           {targetHost && <Token warn={hostStatus?.state !== "connected"} title={hostStatus?.state === "connected" ? `The agent runs on ${targetHost}` : `${targetHost} is ${hostStatus?.state ?? "unknown"}: the launch waits up to 25 s for a connection`}>on {targetHost}</Token>}
           {spec.runner_id && <Token warn={launchRunners.some((r) => r.runner.id === spec.runner_id && r.compat === "outdated")} title="The runner this launch goes to">on {runnerName(launchRunners, spec.runner_id)}</Token>}
-          {(spec.tools_off ?? []).length > 0 && <Token title={`Switched off for this launch: ${(spec.tools_off ?? []).join(", ")}`}>{(spec.tools_off ?? []).length} tool{(spec.tools_off ?? []).length === 1 ? "" : "s"} off</Token>}
+          {toolsOff.length > 0 && <Token title={`Off for this launch: ${toolsOff.map((t) => t.name).join(", ")}`}>{toolsOff.length} tool{toolsOff.length === 1 ? "" : "s"} off</Token>}
           {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
           {scheduled && <Token warn title="Starts when all start conditions are met">start: {conditions.length} condition{conditions.length === 1 ? "" : "s"}</Token>}
           {cron && <Token warn title={`Routine schedule ${cron.schedule}`}>routine {cron.schedule}</Token>}
@@ -724,7 +726,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             </span>
           </OptionRow>
           {role === "home" && <OptionRow label="Runner"><RunnerChoice spec={spec} set={set} /></OptionRow>}
-          {(grantedTools.length > 0 || grantedMcp.length > 0) && <OptionRow label="Tools"><ToolsChoice spec={spec} set={set} /></OptionRow>}
+          {launchTools.items.length > 0 && <OptionRow label="Tools"><ToolsChoice spec={spec} set={set} workspaceId={toolsWorkspace} folderId={targetId} /></OptionRow>}
           {harness?.capabilities.permission_modes && <OptionRow label="Permissions">
             <div className="grid gap-1.5">
               <select className="field-input w-auto text-xs" aria-label="Permission mode" value={spec.permission_mode ?? "yolo"} onChange={(e) => set((s) => ({ ...s, permission_mode: e.target.value as LaunchSpec["permission_mode"] }))}>

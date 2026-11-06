@@ -57,7 +57,7 @@ async fn request(app: &App, s: &Session) -> Result<LeaseRequest> {
         None => s.launch_spec.workspace_id.clone(),
     };
     let login = s.launch_spec.profile.as_deref().and_then(|id| app.config.get().profile(id).and_then(|p| p.login.clone()));
-    Ok(LeaseRequest { session_id: s.id.clone(), generation: s.generation, harness: s.harness, login, workspace_id, tools_off: s.launch_spec.tools_off.clone(), bot_id: s.launch_spec.bot.as_ref().map(|b| b.id.clone()) })
+    Ok(LeaseRequest { session_id: s.id.clone(), generation: s.generation, harness: s.harness, login, workspace_id, tools_off: s.launch_spec.tools_off.clone(), tools_on: s.launch_spec.tools_on.clone(), project_id: s.project_id.clone(), bot_id: s.launch_spec.bot.as_ref().map(|b| b.id.clone()) })
 }
 
 /// Sends a lease call to Home (or answers it here in an `all` daemon).

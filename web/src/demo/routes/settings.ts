@@ -211,6 +211,16 @@ route("PUT", "/api/mcp/:id/tools/:tool", ({ params, body }) => {
   demoMcp = demoMcp.map((s) => s.id !== params.id ? s : { ...s, tools_off: on ? s.tools_off.filter((t) => t !== params.tool) : [...s.tools_off.filter((t) => t !== params.tool), params.tool] });
   return demoMcp.find((s) => s.id === params.id);
 });
+// Default tools of workspaces and folders, kept in memory.
+const demoToolDefaults: { workspaces: Record<string, Record<string, boolean>>; folders: Record<string, Record<string, boolean>> } = { workspaces: {}, folders: {} };
+route("GET", "/api/tool-defaults", () => demoToolDefaults);
+route("GET", "/api/tool-defaults/:scope/:id", ({ params }) => ({ tools: (params.scope === "folder" ? demoToolDefaults.folders : demoToolDefaults.workspaces)[params.id] ?? {} }));
+route("PUT", "/api/tool-defaults/:scope/:id", ({ params, body }) => {
+  const tools = (body as { tools: Record<string, boolean> }).tools;
+  const layer = params.scope === "folder" ? demoToolDefaults.folders : demoToolDefaults.workspaces;
+  if (Object.keys(tools).length) layer[params.id] = tools; else delete layer[params.id];
+  return { tools };
+});
 route("GET", "/api/burst", () => world.status.role === "home"
   ? { config: world.config.home.burst, unavailable: null, month_usd: 0.01, runs: world.burstRuns }
   : { config: world.config.home.burst, unavailable: "Burst runners are started by Home", month_usd: 0, runs: [] });

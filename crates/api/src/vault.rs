@@ -4,6 +4,7 @@
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use launchpad_core::tool_defaults;
 use launchpad_core::vault::{self, HomeToken, VaultEntry, Kind, LeaseInfo, LoginKind, Tool, VaultOverview};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -23,6 +24,8 @@ pub fn router() -> Router<Ctx> {
         .route("/api/vault/leases", get(leases))
         .route("/api/vault/leases/{id}/revoke", post(revoke))
         .route("/api/sessions/{id}/access", get(access))
+        .route("/api/tool-defaults", get(tool_defaults))
+        .route("/api/tool-defaults/{scope}/{id}", get(tool_choice).put(set_tool_choice))
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -122,4 +125,25 @@ async fn access(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Vec<l
 
 async fn test_tool(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<vault::ToolTest> {
     Ok(Json(vault::test_tool(&s.app, &id).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
+}
+
+async fn tool_defaults(State(s): State<Ctx>) -> ApiResult<tool_defaults::ToolDefaults> {
+    Ok(Json(tool_defaults::all(&s.app).await?))
+}
+
+#[derive(serde::Serialize, Deserialize)]
+struct ChoiceBody {
+    #[serde(default)]
+    tools: tool_defaults::ToolChoice,
+}
+
+async fn tool_choice(State(s): State<Ctx>, Path((scope, id)): Path<(String, String)>) -> ApiResult<ChoiceBody> {
+    let scope = tool_defaults::Scope::parse(&scope).map_err(bad)?;
+    Ok(Json(ChoiceBody { tools: tool_defaults::get(&s.app, scope, &id).await? }))
+}
+
+/// Default tools of a workspace or a folder (`tools.defaults`).
+async fn set_tool_choice(State(s): State<Ctx>, Path((scope, id)): Path<(String, String)>, Json(b): Json<ChoiceBody>) -> ApiResult<ChoiceBody> {
+    let scope = tool_defaults::Scope::parse(&scope).map_err(bad)?;
+    Ok(Json(ChoiceBody { tools: tool_defaults::set(&s.app, scope, &id, b.tools).await.map_err(bad)? }))
 }

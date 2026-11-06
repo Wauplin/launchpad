@@ -37,9 +37,19 @@ Burst needs Home to run in a Hugging Face Space, with its Hugging Face login, an
 
 ## MCP servers
 
-Settings → Credentials and tools → **MCP servers**: add a remote MCP server (Streamable HTTP) with its address and token. Home reads its tools. Every tool starts off, also tools that a later **Refresh tools** finds: turn on each tool agents may use (the server's read only and destructive labels help, but they are hints, not guarantees). Choose where the server is granted when you save: the current workspace by default, chosen workspaces or every workspace. The composer's **Tools** option can leave it out of one launch.
+Settings → Credentials and tools → **MCP servers**: add a remote MCP server (Streamable HTTP) with its address and token. Home reads its tools. Every tool starts off, also tools that a later **Refresh tools** finds: turn on each tool agents may use (the server's read only and destructive labels help, but they are hints, not guarantees). Choose where the server is granted when you save: the current workspace by default, chosen workspaces or every workspace. Which sessions get it by default is set by the [default tools](#default-tools).
 
 Agents on every runner, Burst included, reach a granted server at a local address on their runner proxy. Each request goes through the tunnel to Home's gateway, which checks the session's lease, hides and refuses the tools that are off, adds the token and forwards the request. The token never leaves Home. Each tool call appears in the session's access log. A tool that is on acts directly with the server's token.
+
+## Default tools
+
+A grant decides where a tool or an MCP server can be used. The default tools decide which of the granted ones a new session gets without a click. There are three levels, and the most specific one wins:
+
+- **Workspace:** Settings → This workspace → **Tools and MCP servers**, On or Off for each granted item. Without a choice, an item is on.
+- **Folder:** the folder's Settings tab → **Default tools**: Inherit (the workspace's choice), On or Off.
+- **Bot:** the bot's Settings tab → **Default tools** (`[tools]` in `bot.toml`, for example `gh = false` or `"mcp:gmail" = true`), over the workspace and the bot's folder.
+
+The composer's **Tools** option starts from these defaults for the chosen folder and switches any granted item on or off for one launch. Home applies the defaults each time it builds a session's lease, so a changed default applies at the session's next start or resume. An admin session can set the workspace and folder defaults with `launchpad do tools.defaults workspace|folder <id> --tools '{"gh": false}'`.
 
 ## Notifications and routines
 
@@ -104,7 +114,7 @@ Home keeps every credential agents use: open **Settings → Credentials and tool
 
 - **Harness logins:** a Claude Code token (`claude setup-token`) and a Codex ChatGPT login (from then on only Home refreshes it, so do not use that login elsewhere). On a Home in a Space, **Add a Claude Code login** or **Add a Codex login** runs the sign-in on Home itself, like the setup page: open the link, approve with the subscription account (for Claude Code, paste the code it shows back), and the login goes into the vault with an optional name and a new profile that uses it. Elsewhere, paste the token or `auth.json` (**Paste a login instead** in a Space). A profile can name its login; otherwise the harness's first login is used.
 - **Tokens and the SSH key:** tokens and API keys for tools, and one private SSH key. Secrets are write-only: Launchpad never shows them again.
-- **Tools:** adding a tool asks only for its API token, with a link to create one. For GitHub CLI and Hugging Face CLI, **Use Home's token** lends Home's own login instead (agents then act with Home's full access: a fine-grained token is safer). The **Advanced** section holds the rest. Each entry says how a runner installs the CLI (GitHub release, download URL, `cargo`, `uv tool` or `npm`), which variables get a placeholder (for example `GH_TOKEN`), on which hosts the proxy adds which token (Bearer, Basic, a header or a query parameter), and in which workspaces it is granted. GitHub CLI and Hugging Face CLI are ready-made; **Copy as TOML** exports the list. The composer's options can switch a granted tool off for one launch.
+- **Tools:** adding a tool asks only for its API token, with a link to create one. For GitHub CLI and Hugging Face CLI, **Use Home's token** lends Home's own login instead (agents then act with Home's full access: a fine-grained token is safer). The **Advanced** section holds the rest. Each entry says how a runner installs the CLI (GitHub release, download URL, `cargo`, `uv tool` or `npm`), which variables get a placeholder (for example `GH_TOKEN`), on which hosts the proxy adds which token (Bearer, Basic, a header or a query parameter), and in which workspaces it is granted. GitHub CLI and Hugging Face CLI are ready-made; **Copy as TOML** exports the list. Which granted tools a new session gets is set by the [default tools](#default-tools).
 - **Proposed tools:** an agent that needs a CLI or API can propose a tool (`launchpad propose tool`). The card (in Today → Approve) shows what runners would install, the variables and the hosts that receive the token; **Add tool** adds it after you confirm (its token is always a new entry, never an existing one), then **Paste its token** opens its form. Tool proposals never start in auto mode.
 - **Test:** a tool with a check URL (GitHub, Hugging Face and OpenRouter have one; set it under Advanced for others) has **Test**: Home sends one request there with the token and shows whether the host accepts it. The token never leaves Home.
 - **Git identity:** the author of agents' commits on every runner.

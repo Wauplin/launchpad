@@ -6,6 +6,8 @@
 // Creating saves; the first task is a separate Send.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ToolDefaultsEditor } from "@/features/settings/ToolDefaults";
+import { useLayers } from "@/lib/toolDefaults";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { HarnessMark } from "@/components/HarnessMark";
@@ -515,6 +517,7 @@ function SettingsPanel({ bot }: { bot: Bot }) {
   const models = useHarnessDefaults(profile && !profile.models_url ? profile.harness : null).data?.models ?? [];
   const folders = projects.filter((p) => p.workspace_id === bot.workspace_id && !p.is_temp);
   const dirty = JSON.stringify(s) !== JSON.stringify(bot.settings);
+  const toolLayers = useLayers(bot.workspace_id, s.folder ?? null);
   const running = botThread(sessions, bot.id).some((x) => ["starting", "working", "background"].includes(x.status));
   const save = async () => {
     try { await api.patch<Bot>(`/api/bots/${bot.id}`, { settings: s }); await qc.invalidateQueries({ queryKey: ["bots"] }); toast(s.profile !== bot.settings.profile || (s.folder ?? null) !== (bot.settings.folder ?? null) ? "Saved: the next message starts a new session" : "Saved"); } catch (e) { toastError(e); }
@@ -556,6 +559,11 @@ function SettingsPanel({ bot }: { bot: Bot }) {
         <legend className="pb-1 text-[12px] font-semibold text-ink-2">Launchpad CLI</legend>
         {CLI_ACCESS.map((m) => <label key={m.id} className="flex min-h-[28px] items-start gap-2 text-[13px]"><input type="radio" className="mt-1" name="bot-launchpad" checked={(s.launchpad ?? "propose") === m.id} onChange={() => setS({ ...s, launchpad: m.id })} /><span><span className="font-semibold">{m.label}</span> <span className="text-ink-3">· {m.detail}</span></span></label>)}
       </fieldset>
+      <div className="grid gap-1">
+        <span className="text-[12px] font-semibold text-ink-2">Default tools</span>
+        <span className="text-[12px] text-ink-3">Over the defaults of the workspace and the bot's folder.</span>
+        <ToolDefaultsEditor workspaceId={bot.workspace_id} above={toolLayers.slice(0, 2)} value={s.tools ?? {}} onChange={(tools) => setS({ ...s, tools })} />
+      </div>
       {dirty && <div className="flex justify-end gap-1.5"><button className="btn btn-sm btn-ghost" onClick={() => setS(bot.settings)}>Discard</button><button className="btn btn-sm btn-primary" disabled={!s.name.trim()} onClick={() => void save()}>Save</button></div>}
     </Section>
     <Section title="What it can reach">

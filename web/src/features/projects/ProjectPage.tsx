@@ -1,4 +1,5 @@
 import { usePhone } from "@/lib/phone";
+import { FolderToolDefaults } from "@/features/settings/ToolDefaults";
 import { PhoneHeader, PhoneActions } from "@/mobile/PhoneHeader";
 // A project: running agents, GitHub items, worktrees and all agents.
 
@@ -196,6 +197,11 @@ function FolderSettings({ p }: { p: Project }) {
               <FilterChip key={value} active={p.when_done === value} onClick={() => p.when_done !== value && void done.run(() => patch({ when_done: value }))}>{label}</FilterChip>
             ))}
           </FilterChips>
+        </SettingRow>
+      )}
+      {!p.is_temp && (
+        <SettingRow label="Default tools" hint="What new agents of this folder get, over the workspace's defaults; the composer can change it per launch.">
+          <FolderToolDefaults folderId={p.id} workspaceId={p.workspace_id} />
         </SettingRow>
       )}
       {p.plain && (

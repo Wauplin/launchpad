@@ -442,8 +442,13 @@ pub struct LaunchSpec {
     pub effort: Option<String>,
     /// The workspace of the window that launched it. A new scratch folder joins it; other targets keep their own.
     pub workspace_id: Option<String>,
-    /// Tools of Home's registry switched off for this launch (they are granted per workspace).
+    /// Tools of Home's registry (IDs, `mcp:<server>`) switched off for this launch, over the default tools
+    /// (`tool_defaults`). Only tools granted to the workspace can be on.
     pub tools_off: Vec<String>,
+    /// Granted tools switched on for this launch although the defaults leave them off.
+    #[ts(optional, as = "Option<Vec<String>>")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tools_on: Vec<String>,
     /// The runner chosen for this launch (for example a Local VM for Docker). None: Home picks one.
     pub runner_id: Option<String>,
     /// A session of a bot's thread: Home composes it from the bot's files (`bots::message`).

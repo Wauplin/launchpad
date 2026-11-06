@@ -1,5 +1,5 @@
 // Composer options of Home and runners: the runner a launch goes to (for example a Local VM for Docker) and the
-// registry tools granted to the session, which can be switched off for one launch.
+// registry tools granted to the session, on by their defaults and switched on or off for one launch.
 
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import { FilterChip, FilterChips } from "@/components/ui";
@@ -10,6 +10,8 @@ import { outdatedLabel, useRunners } from "@/lib/runners";
 import { Link } from "@tanstack/react-router";
 import { canSelfUpdate, UpdateRunnerButton } from "@/features/settings/RunnerUpdate";
 import { useBurst } from "@/lib/burst";
+import { useBots } from "@/lib/bots";
+import { defaultOn, flipLaunch, launchOn, mcpKey, useLayers } from "@/lib/toolDefaults";
 
 type Set = (f: (s: LaunchSpec) => LaunchSpec) => void;
 
@@ -89,16 +91,31 @@ export function useGrantedMcp(spec: LaunchSpec) {
   return servers.data.filter((s) => s.workspaces.includes("*") || (spec.workspace_id !== null && s.workspaces.includes(spec.workspace_id)));
 }
 
-export function ToolsChoice({ spec, set }: { spec: LaunchSpec; set: Set }) {
-  const tools = useGrantedTools(spec);
-  const mcp = useGrantedMcp(spec);
-  if (!tools.length && !mcp.length) return null;
+/** The granted tools and MCP servers of a launch, with their state: the defaults of its workspace, folder and bot,
+ *  then the launch's own clicks. */
+export function useLaunchTools(spec: LaunchSpec, workspaceId: string | null, folderId: string | null) {
+  const tools = useGrantedTools({ ...spec, workspace_id: workspaceId });
+  const mcp = useGrantedMcp({ ...spec, workspace_id: workspaceId });
+  const bot = useBots().data?.find((b) => b.id === spec.bot?.id)?.settings.tools;
+  const layers = useLayers(workspaceId, folderId, bot);
   const off = spec.tools_off ?? [];
-  const flip = (id: string) => set((s) => ({ ...s, tools_off: off.includes(id) ? off.filter((x) => x !== id) : [...off, id] }));
+  const on = spec.tools_on ?? [];
+  const items = [...tools.map((t) => ({ key: t.id, name: t.name })), ...mcp.map((s) => ({ key: mcpKey(s.id), name: `${s.name} · MCP` }))];
+  return {
+    items: items.map((i) => ({ ...i, on: launchOn(layers, off, on, i.key), byDefault: defaultOn(layers, i.key) })),
+    flip: (key: string) => flipLaunch(layers, off, on, key),
+  };
+}
+
+export function ToolsChoice({ spec, set, workspaceId, folderId }: { spec: LaunchSpec; set: Set; workspaceId: string | null; folderId: string | null }) {
+  const { items, flip } = useLaunchTools(spec, workspaceId, folderId);
+  if (!items.length) return null;
   return (
-    <FilterChips label="Tools">
-      {tools.map((t) => <FilterChip key={t.id} active={!off.includes(t.id)} onClick={() => flip(t.id)}>{t.name}</FilterChip>)}
-      {mcp.map((s) => <FilterChip key={s.id} active={!off.includes(`mcp:${s.id}`)} onClick={() => flip(`mcp:${s.id}`)}>{s.name} · MCP</FilterChip>)}
-    </FilterChips>
+    <span className="grid gap-1">
+      <FilterChips label="Tools">
+        {items.map((t) => <FilterChip key={t.key} active={t.on} onClick={() => set((s) => ({ ...s, ...flip(t.key) }))}>{t.name}</FilterChip>)}
+      </FilterChips>
+      <span className="text-[12px] text-ink-3">{items.some((t) => t.on !== t.byDefault) ? "Changed for this launch. " : ""}Defaults come from the workspace, the folder and the bot.</span>
+    </span>
   );
 }

@@ -291,7 +291,7 @@ async fn discover(app: &App, s: &McpServer) -> Result<Vec<McpTool>> {
 
 // ------------------------------------------------------------------ leases
 
-/// Servers granted to a session's lease.
+/// Servers granted to a session's lease, except those that are off for it.
 pub async fn granted(app: &App, workspace: Option<&str>, tools_off: &[String]) -> Result<Vec<LeaseMcp>> {
     Ok(list(app).await?.into_iter().filter(|s| s.granted(workspace) && !tools_off.contains(&launch_off(&s.id))).map(|s| LeaseMcp { id: s.id, name: s.name }).collect())
 }
@@ -335,7 +335,7 @@ pub async fn gateway(app: &App, runner_id: Option<&str>, lease_id: &str, server:
     let req = info.request.context("this lease names no MCP server")?;
     crate::vault::check_owner(app, runner_id, &req.session_id, req.generation)?;
     let s = get(app, server).await?;
-    ensure!(s.granted(req.workspace_id.as_deref()) && !req.tools_off.contains(&launch_off(&s.id)), "{} is not granted to this session", s.name);
+    ensure!(s.granted(req.workspace_id.as_deref()) && !req.off(app).await?.contains(&launch_off(&s.id)), "{} is not granted to this session", s.name);
     let m = reqwest::Method::from_bytes(method.as_bytes())?;
     let mut r = request(app, &s, m.clone()).await?;
     for (k, v) in &headers {
