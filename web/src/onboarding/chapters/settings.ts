@@ -12,8 +12,8 @@ export const settings: Chapter = {
   steps: [
     {
       id: "settings.trace-sync", route: "/settings/huggingface", anchor: "settings.trace-sync",
-      title: "Traces across instances",
-      body: "Use the same Hugging Face bucket on your laptop and Space to sync traces for folders with matching names. Find imported traces in Synced traces below Archived in Agents, or through search. They are read only; New agent here starts a local follow-up. Workspaces, logins, settings and worktrees stay separate.",
+      title: "Traces in your bucket",
+      body: "Home copies the original conversation of every agent to its backup bucket, one file per trace, under <workspace>/traces/<folder>/. Open them with the bucket's trace viewer on Hugging Face.",
     },
     {
       id: "settings.profiles", route: "/settings/profiles", anchor: "settings.profiles",

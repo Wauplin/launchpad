@@ -9,7 +9,7 @@ const storageKey = (workspace: string | null) => (workspace ? `launchpad.layout.
 
 export type Dock = { open: boolean; height: number; active: string | null };
 
-export type AgentGroup = "Done" | "Running" | "Quota paused" | "Stopped" | "Interrupted" | "Failed" | "In terminal" | "Archived" | "Synced traces";
+export type AgentGroup = "Done" | "Running" | "Quota paused" | "Stopped" | "Interrupted" | "Failed" | "In terminal" | "Archived";
 
 type LayoutStore = {
   pinned: string[];
@@ -25,8 +25,7 @@ type LayoutStore = {
 };
 
 /** Groups collapsed until you expand them. */
-const collapsedByDefault: AgentGroup[] = ["Synced traces"];
-export const isCollapsed = (groups: Partial<Record<AgentGroup, boolean>>, group: AgentGroup) => groups[group] ?? collapsedByDefault.includes(group);
+export const isCollapsed = (groups: Partial<Record<AgentGroup, boolean>>, group: AgentGroup) => groups[group] ?? false;
 
 const defaultDock: Dock = { open: false, height: 320, active: null };
 const defaults = { pinned: [], collapsedGroups: {}, selectedSession: null, dock: defaultDock };

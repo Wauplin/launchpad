@@ -46,8 +46,8 @@ pub mod repo_cache;
 pub mod analytics;
 pub mod review_state;
 pub mod terminals;
-pub mod trace_backup;
-pub(crate) mod trace_sync;
+pub mod hf;
+pub(crate) mod trace_copies;
 mod titles;
 pub mod util;
 pub mod profiles;
@@ -116,7 +116,6 @@ pub struct App {
     pub terminals: terminals::Terminals,
     pub hosts: hosts::Hosts,
     pub browser: browser::Broker,
-    pub trace_backup: trace_backup::BackupStatus,
     /// Live runner tunnels (Home).
     pub runners: runners::Hub,
     pub home_backups: home_backup::Backups,
@@ -184,7 +183,6 @@ impl App {
             terminals: terminals::Terminals::default(),
             hosts,
             browser: browser::Broker::default(),
-            trace_backup: trace_backup::BackupStatus::default(),
             runners: runners::Hub::default(),
             home_backups: home_backup::Backups::default(),
             proxy: proxy::Proxy::default(),
@@ -204,7 +202,6 @@ impl App {
             let app = app.clone();
             tokio::spawn(async move { if let Err(e) = attachments::collect_garbage(&app).await { tracing::warn!("upload cleanup: {e:#}"); } });
         }
-        trace_backup::spawn(&app);
         home_backup::spawn(&app);
         burst::spawn(&app);
         status::spawn_monitors(&app);

@@ -564,26 +564,19 @@ pub fn devices(remote: bool, origin: &str, tailscale: Option<bool>) -> SetupItem
 }
 
 async fn huggingface(app: &App) -> SetupItem {
-    let mut it = item("huggingface", "Hugging Face trace backup", Importance::Optional, "Keep agent traces in a private Hugging Face bucket.");
-    let (check, account) = launchpad_core::trace_backup::check(&app.env).await;
+    let mut it = item("huggingface", "Hugging Face CLI", Importance::Optional, "Sign in to Hugging Face on this computer.");
+    let (check, account) = launchpad_core::hf::check(&app.env).await;
     if !check.cli_found {
         let command = if cfg!(windows) { r#"powershell -ExecutionPolicy ByPass -c "irm https://hf.co/cli/install.ps1 | iex""# } else { "curl -LsSf https://hf.co/cli/install.sh | bash" };
         it.missing.push(part("install", "Install the hf CLI", Some("Other ways: brew install hf, or pip install -U huggingface_hub.".into()), Some(command.into()), true, false));
         return it;
     }
     match account {
-        Some(a) => it.found.push(found("Account", a, Some("hf auth whoami".into()))),
-        None => {
-            it.missing.push(part("sign_in", "Sign in to Hugging Face", None, Some("hf auth login".into()), true, false));
-            return it;
+        Some(a) => {
+            it.state = ItemState::Ready;
+            it.found.push(found("Account", a, Some("hf auth whoami".into())));
         }
-    }
-    let config = app.config.get().trace_backup;
-    if config.enabled {
-        it.state = ItemState::Ready;
-        it.found.push(found("Backup", "enabled", Some("Settings → Hugging Face".into())));
-    } else {
-        it.missing.push(part("enable", "Turn on trace backup", Some("In Settings → Hugging Face.".into()), None, false, false));
+        None => it.missing.push(part("sign_in", "Sign in to Hugging Face", None, Some("hf auth login".into()), true, false)),
     }
     it
 }

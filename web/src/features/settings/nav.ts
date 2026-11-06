@@ -29,7 +29,7 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
     { to: "/settings/channels", label: "Channels", icon: "send", keywords: "telegram webhook outbox hooks messages" },
     { to: "/settings/devices", label: "Devices", icon: "window", keywords: "browser pair qr phone sign out tailscale remote access" },
     { to: "/settings/github", label: "GitHub", icon: "pr", keywords: "token account repositories poll rate limit inbox" },
-    { to: "/settings/huggingface", label: "Hugging Face", icon: "huggingface", keywords: "trace backup sync bucket hf token" },
+    { to: "/settings/huggingface", label: "Hugging Face", icon: "huggingface", keywords: "traces bucket backup hf token" },
   ] },
   { group: "Maintenance", items: [{ to: "/settings/worktrees", label: "Maintenance", icon: "archive", keywords: "disk cleanup worktrees local prs kept trash" }] },
   { group: "Help", items: [{ to: "/settings/onboarding", label: "Onboarding", icon: "spark", keywords: "tour demo setup checklist help" }] },

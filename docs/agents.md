@@ -65,7 +65,6 @@ Launchpad saves a temporary folder's files on Home at the end of every turn, exc
 - **Running**: starting, working, or waiting on background commands.
 - **Quota paused**: held until subscription quota is available again.
 - **Done**, **Stopped**, **Interrupted**, **Failed**, **In terminal** and **Archived** for local sessions. Routines and scheduled launches are on the **Schedules** page.
-- **Synced traces**, below Archived: read-only traces imported from other instances, collapsed by default. Search reveals matching traces in this group. Open one to read it or use it as context for a new local agent; it cannot be resumed or archived here.
 
 A session **needs you** when it has an open question, or when it finished, failed or was interrupted and you have not seen it yet. Such sessions wait as cards in [Today](today.md) and stay bold in their group here. A session counts as seen after it was on screen for 1.5 seconds in a window you used recently. The sidebar shows only how many agents run or wait for quota.
 

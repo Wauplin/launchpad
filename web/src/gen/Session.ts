@@ -7,10 +7,6 @@ import type { Usage } from "./Usage";
 
 export type Session = { id: string, harness: HarnessKind, 
 /**
- * Bucket source of a read-only trace owned by another Launchpad instance.
- */
-imported_from?: string, 
-/**
  * On Home: the runner that runs this session. None: this daemon runs it.
  */
 runner_id?: string, 

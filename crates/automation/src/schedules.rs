@@ -123,7 +123,6 @@ async fn validate(
     resume_session_id: Option<&String>,
 ) -> Result<(String, Option<i64>)> {
     let title = if let Some(id) = resume_session_id {
-        anyhow::ensure!(app.sessions.get(id).is_none_or(|s| s.imported_from.is_none()), "This is a synced trace. Start a new agent here instead.");
         let s = app.sessions.get(id).context("no such session")?;
         format!("Follow-up · {}", s.title)
     } else {

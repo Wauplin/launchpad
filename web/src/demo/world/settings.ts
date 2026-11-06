@@ -18,8 +18,8 @@ import { P, ROOT, USER } from "./ids";
 
 /** A paired browser, as `GET /api/devices` returns it (Unix seconds). */
 export type DemoDevice = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
-/** `GET /api/setup/trace-backup`. */
-export type DemoTraceBackup = { check: SignInCheck; account: string | null; error: string | null; last_upload: number | null; last_sync: number | null };
+/** `GET /api/setup/huggingface`. */
+export type DemoHuggingFace = { check: SignInCheck; account: string | null };
 
 export const HOME = "/home/demo";
 
@@ -125,15 +125,15 @@ export function settingsWorld() {
     { id: "demo-term-billing", kind: "shell", title: "billing-api · main", cwd: `${ROOT}/billing-api`, project_id: P.billing, session_id: null, alive: true, exit_code: null, created_at: clock.ago(12), folder: "billing-api", place: "checkout", branch: "main", setup: false, busy: false, notice: null },
   ];
   const gh: SignInCheck = { id: "github", profile: null, name: "GitHub CLI", cli_found: true, signed_in: true, detail: `Logged in to github.com account ${USER}`, command: "gh auth login" };
-  const traceBackup: DemoTraceBackup = {
+  const huggingface: DemoHuggingFace = {
     check: { id: "huggingface", profile: null, name: "Hugging Face CLI", cli_found: true, signed_in: true, detail: `Account ${USER}`, command: "hf auth login" },
-    account: USER, error: null, last_upload: null, last_sync: clock.ago(1),
+    account: USER,
   };
   const sshConfig: SshConfigHost[] = [
     { alias: "gpu-box", hostname: "gpu-box.lan", user: "demo", proxy_jump: null },
     { alias: "build-runner", hostname: "10.0.4.17", user: "ci", proxy_jump: "bastion" },
   ];
-  return { harnesses, harnessDefaults, routerModels, devices, terminals, githubCheck: gh, traceBackup, sshConfig, agentRuns: agentRuns(), homeFolder: HOME, ...homeWorld() };
+  return { harnesses, harnessDefaults, routerModels, devices, terminals, githubCheck: gh, huggingface, sshConfig, agentRuns: agentRuns(), homeFolder: HOME, ...homeWorld() };
 }
 
 /** Preflight checks of a connected demo host (`POST /api/hosts/{id}/checks`), with one entry per profile that has an environment. */

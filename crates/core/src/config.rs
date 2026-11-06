@@ -24,7 +24,6 @@ pub struct Config {
     pub server: ServerConfig,
     pub commands: Commands,
     pub github: GitHub,
-    pub trace_backup: TraceBackup,
     pub agents: Agents,
     pub worktrees: Worktrees,
     pub presets: Vec<Preset>,
@@ -177,35 +176,6 @@ pub struct GitHub {
     pub poll_interval_seconds: u64,
 }
 
-/// Optional daemon-side export of stored trace events to Hugging Face.
-#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
-#[serde(default)]
-pub struct TraceBackup {
-    pub enabled: bool,
-    pub bucket: String,
-    /// Relative destination inside the bucket; empty keeps the bucket-root layout.
-    pub prefix: String,
-}
-
-impl Default for TraceBackup {
-    fn default() -> Self {
-        // The same `<account>/launchpad` bucket as a Launchpad Space, so laptops, servers and Spaces share traces.
-        Self { enabled: false, bucket: "launchpad".into(), prefix: "traces".into() }
-    }
-}
-
-impl TraceBackup {
-    pub fn validate(&self) -> Result<()> {
-        fn component(s: &str) -> bool {
-            !s.is_empty() && s.len() <= 128 && s != "." && s != ".."
-                && !s.starts_with('-') && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-        }
-        anyhow::ensure!(self.bucket.split('/').count() <= 2 && self.bucket.split('/').all(component), "Bucket must be a name or namespace/name using letters, digits, dots, dashes or underscores");
-        anyhow::ensure!(self.prefix.is_empty() || (self.prefix.len() <= 512 && self.prefix.split('/').all(component)), "Prefix must be a relative path of nonempty names using letters, digits, dots, dashes or underscores, without traversal");
-        Ok(())
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
 pub struct Agents {
@@ -251,7 +221,6 @@ impl Default for Config {
             server: ServerConfig::default(),
             commands: Commands::default(),
             github: GitHub::default(),
-            trace_backup: TraceBackup::default(),
             agents: Agents::default(),
             worktrees: Worktrees::default(),
             profiles: vec![],
@@ -297,11 +266,6 @@ browser = "xdg-open"
 [github]
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
-[trace_backup]
-enabled = false                    # optional Hugging Face trace sync
-bucket = "launchpad"                # <your account>/launchpad, shared with a Launchpad Space
-prefix = "traces"
-
 [agents]
 notify = true                       # completion, automatic stops and automatic quota resumption
 
@@ -318,7 +282,6 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         self.server.bind.parse::<std::net::IpAddr>().context("server.bind must be an IP address")?;
         self.server.origin()?;
-        self.trace_backup.validate()?;
         let mut ids = std::collections::HashSet::new();
         for v in &self.profiles {
             anyhow::ensure!(

@@ -33,7 +33,6 @@ export function coreWorld() {
     server: { bind: "127.0.0.1", public_origin: null, auto_tailnet: true },
     commands: { browser: "" },
     github: { poll_interval_seconds: 60 },
-    trace_backup: { enabled: false, bucket: "launchpad", prefix: "traces" },
     agents: { notify: true },
     worktrees: { keep: 10 },
     presets: [

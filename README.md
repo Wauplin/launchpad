@@ -40,7 +40,7 @@ Launchpad is a desktop app to launch, follow and review coding agents (Claude Co
 | **SSH hosts** | Run agents and terminals on other machines over SSH. [Read more](docs/ssh-hosts.md) |
 | **Home, runners and the jail** | [Private Space POC](deploy/hf-home/README.md): one Home keeps every record, credential and branch, with a guided setup that ends with a first agent, and bucket backup with encrypted credentials, plus harness and Hub CLIs for discovery and quota checks; runners run agents in a bubblewrap jail, with Home's logins and tokens added by a proxy (agents only see placeholders), or in a Local VM for Docker. When no runner is online, Home runs the session on **Burst**, an HF Job that holds no token and stops after each turn (monthly cap); sessions move between runners between turns. MCP servers are configured once on Home and reached from every runner through Home's gateway. [Read more](docs/home-and-runners.md) |
 | **Knowledge** | One knowledge base per workspace, the only memory agents have: notes and media that agents read as files and write through Launchpad, with the author of every change, diffs, Restore for 30 days, a gardener and a one-click import of Claude Code and Codex memories. [Read more](docs/knowledge.md) |
-| **Hugging Face** | Run Launchpad in a private Hugging Face Space, and sync agent traces to a Hugging Face bucket. Read-only synced traces have their own searchable group below Archived. [Read more](docs/hugging-face.md) |
+| **Hugging Face** | Run Launchpad in a private Hugging Face Space. Home copies the original conversation of every agent to its bucket, one file per trace, readable in the bucket's trace viewer. [Read more](docs/hugging-face.md) |
 | **Chrome extension** | Give an agent the browser tabs you choose. [Read more](extension/README.md) |
 
 ## Getting started
@@ -68,7 +68,7 @@ The [getting started guide](docs/getting-started.md) covers prebuilt packages, h
 - [GitHub](docs/github.md): inbox, pull requests, review, local PRs and agent suggestions.
 - [Remote access and phones](docs/remote-access.md): pairing, Tailscale, phone layout, notifications and headless servers.
 - [SSH hosts](docs/ssh-hosts.md): agents on other machines.
-- [Hugging Face](docs/hugging-face.md): Launchpad in a Space, trace sync and Hugging Face models.
+- [Hugging Face](docs/hugging-face.md): Launchpad in a Space, trace copies and Hugging Face models.
 - [Knowledge](docs/knowledge.md): the knowledge base of each workspace, the only memory agents have.
 - [Bots](docs/bots.md): persistent agents with one thread, instructions and notes.
 - [Channels and the Outbox](docs/channels.md): Telegram, Slack, Discord and webhook channels, the Outbox and incoming hooks.

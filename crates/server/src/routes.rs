@@ -35,7 +35,6 @@ fn config_response(s: &Server, error: Option<String>) -> Value {
     json!({
         "config": s.app.config.get(), "error": error, "remote": s.auth.remote(),
         "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true"),
-        "managed_trace_destination": std::env::var_os("LAUNCHPAD_TRACE_BACKUP_BUCKET").is_some(),
         "external_setup": std::env::var("LAUNCHPAD_EXTERNAL_SETUP").ok()
             .filter(|s| s.starts_with('/') && !s.starts_with("//") && !s.contains('\\'))
     })
@@ -69,9 +68,6 @@ struct GeneralPatch {
     presets: Option<Vec<launchpad_core::config::Preset>>,
     notify: Option<bool>,
     github_poll_interval_seconds: Option<u64>,
-    trace_backup_enabled: Option<bool>,
-    trace_backup_bucket: Option<String>,
-    trace_backup_prefix: Option<String>,
     worktrees_keep: Option<u32>,
     browser: Option<String>,
 }
@@ -80,9 +76,6 @@ async fn patch_general_config(State(s): State<Server>, Json(patch): Json<General
         return Err(crate::error::ApiError::bad_request("Edit [commands] in config.toml on the host"));
     }
     s.app.config.update(|config| {
-        if let Some(v) = patch.trace_backup_enabled { config.trace_backup.enabled = v; }
-        if let Some(v) = patch.trace_backup_bucket { config.trace_backup.bucket = v; }
-        if let Some(v) = patch.trace_backup_prefix { config.trace_backup.prefix = v; }
         if let Some(value) = patch.projects_root { config.projects_root = value; }
         if let Some(value) = patch.remove_published_worktree { config.remove_published_worktree = value; }
         if let Some(value) = patch.presets { config.presets = value; }
@@ -96,7 +89,7 @@ async fn patch_general_config(State(s): State<Server>, Json(patch): Json<General
 }
 
 /// The shared settings: the closed list of config.toml values that sessions with admin Launchpad CLI access may
-/// change (`settings.set` in the action list), with Undo. Profiles, server, commands, trace sync and the rest of
+/// change (`settings.set` in the action list), with Undo. Profiles, server, commands and the rest of
 /// config.toml stay the owner's. The keys match the PATCH body, so the activity list can put old values back.
 fn shared(config: &Config) -> Value {
     json!({

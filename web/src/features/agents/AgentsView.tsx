@@ -32,9 +32,9 @@ const informative = (s: Session) => s.open_question || s.status === "error" || s
 
 const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onClick, onMarkUnread }: { s: Session; project: string; selected: boolean; pinned: boolean; onClick: () => void; onMarkUnread: () => void }) {
   const [acting, setActing] = useState(false);
-  const dim = s.status === "closed" || !!s.imported_from;
+  const dim = s.status === "closed";
   const stop = isRunning(s) || isQuotaPaused(s);
-  const canMarkUnread = !s.imported_from && !isUnseen(s) && (isDone(s) || s.status === "error" || s.status === "interrupted");
+  const canMarkUnread = !isUnseen(s) && (isDone(s) || s.status === "error" || s.status === "interrupted");
   const action = stop ? "Stop" : "Archive";
   const act = async (unread = false) => {
     setActing(true);
@@ -119,7 +119,6 @@ export function AgentsView() {
   const sessions = allSessions.filter(scope.hasSession);
   const [panelLoad, setPanelLoad] = useState(0);
   const [filter, setFilter] = useState("");
-  const [syncedSearchCollapsed, setSyncedSearchCollapsed] = useState(false);
   const [debounced, setDebounced] = useState("");
   const [pinsOnly, setPinsOnly] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -168,8 +167,7 @@ export function AgentsView() {
   const filtered = sessions.filter((s) => (!pinsOnly || pinned.includes(s.id)) && (!needle || [s.title, s.cwd, s.prompt, s.last_message ?? "", projectName(projects, s.project_id, s.cwd)].some((t) => t.toLocaleLowerCase().includes(needle)) || (debounced === filter.trim() && matches.data?.includes(s.id))));
   const order = (a: Session, b: Session) => b.started_at - a.started_at;
   const newest = (a: Session, b: Session) => b.status_since - a.status_since;
-  const local = filtered.filter((s) => !s.imported_from);
-  const synced = filtered.filter((s) => !!s.imported_from).sort(newest);
+  const local = filtered;
   const done = local.filter(isDone).sort(newest);
   const running = local.filter((s) => isRunning(s)).sort(order);
   const quotaPaused = local.filter(isQuotaPaused).sort(order);
@@ -197,12 +195,8 @@ export function AgentsView() {
   }, [visible, clearSession]);
 
   type Item = { kind: "group"; title: AgentGroup; count: number; highlight?: boolean; detail?: string } | { kind: "session"; session: Session } | { kind: "more" } | { kind: "archive-old" };
-  // Search reveals matching synced traces even when their group is normally collapsed.
-  const groupCollapsed = (title: AgentGroup) => title === "Synced traces" && needle ? syncedSearchCollapsed : isCollapsed(collapsedGroups, title);
-  const toggleListGroup = (title: AgentGroup) => {
-    if (title === "Synced traces" && needle) setSyncedSearchCollapsed((collapsed) => !collapsed);
-    else toggleGroup(title);
-  };
+  const groupCollapsed = (title: AgentGroup) => isCollapsed(collapsedGroups, title);
+  const toggleListGroup = toggleGroup;
   // Groups with no items are not shown at all.
   const group = (title: AgentGroup, rows: Item[], opts: { highlight?: boolean; detail?: string; tail?: Item[] } = {}): Item[] => rows.length ? [{ kind: "group", title, count: rows.length, highlight: opts.highlight, detail: opts.detail }, ...(groupCollapsed(title) ? [] : [...rows, ...(opts.tail ?? [])])] : [];
   const sessionRows = (list: Session[]) => list.map((session) => ({ kind: "session" as const, session }));
@@ -215,7 +209,6 @@ export function AgentsView() {
     ...group("Failed", sessionRows(failed)),
     ...group("In terminal", sessionRows(inTerminal)),
     ...group("Archived", sessionRows(archived.slice(0, archivedLimit)), { tail: archived.length > archivedLimit ? [{ kind: "more" }] : [] }).map((i) => (i.kind === "group" ? { ...i, count: archived.length } : i)),
-    ...group("Synced traces", sessionRows(synced), { detail: "Read-only" }),
   ];
   const size = (i: Item) => (i.kind === "session" ? 68 : i.kind === "archive-old" ? 44 : 34);
   const key = (i: Item) => (i.kind === "session" ? i.session.id : i.kind === "group" ? `group-${i.title}` : i.kind);
@@ -228,7 +221,7 @@ export function AgentsView() {
     <div className="flex h-full min-h-0">
       <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "w-[280px] flex-none border-r border-line"}`}>
         <div className="grid gap-2 border-b border-line p-2">
-          <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setSyncedSearchCollapsed(false); setArchivedLimit(30); }} />
+          <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
           <div className="flex flex-wrap items-center gap-2"><button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button>{phone && <span className="ml-auto"><LaunchButton small label="New agent" title="Open the composer (the draft if one exists)" /></span>}</div>
           {matches.isFetching && <span className="text-xs text-ink-3">Searching messages…</span>}
           {matches.error && <span className="text-xs text-danger-ink">{matches.error.message}</span>}

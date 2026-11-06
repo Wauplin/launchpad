@@ -7,4 +7,8 @@ export type BackupInfo = { destination: string | null, last_complete_at: number 
 /**
  * Vault secrets in backups are sealed with `LAUNCHPAD_HOME_KEY`.
  */
-credentials_encrypted: boolean, };
+credentials_encrypted: boolean, 
+/**
+ * Why the last pass could not write every trace copy (`trace_copies`).
+ */
+traces_error: string | null, };

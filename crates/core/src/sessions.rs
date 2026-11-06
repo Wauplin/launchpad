@@ -230,7 +230,7 @@ impl Sessions {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
                             effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending,
-                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, imported_from, runner_id, generation
+                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation
                      FROM session",
                 )?;
                 let rows = st
@@ -245,9 +245,8 @@ impl Sessions {
                         let title_pending = r.get::<_, Option<bool>>(19)?.unwrap_or_else(||
                             spec.harness.is_some() && !spec.text.trim().is_empty() && title == title_from(&spec.text, ""));
                         Ok(Session {
-                            imported_from: r.get(25)?,
-                            runner_id: r.get(26)?,
-                            generation: r.get(27)?,
+                            runner_id: r.get(25)?,
+                            generation: r.get(26)?,
                             id: r.get(0)?,
                             harness: HarnessKind::parse(&r.get::<_, String>(1)?).ok_or_else(|| rusqlite::Error::InvalidParameterName("unregistered stored harness".into()))?,
                             harness_session_id: r.get(2)?,
@@ -284,7 +283,7 @@ impl Sessions {
             let mut recs = self.inner.records.lock().unwrap();
             for mut s in rows {
                 // Replicas: another instance or a runner owns their processes.
-                if s.imported_from.is_some() || s.runner_id.is_some() { recs.insert(s.id.clone(), s); continue; }
+                if s.runner_id.is_some() { recs.insert(s.id.clone(), s); continue; }
                 let mut changed = false;
                 if !crate::profiles::supports_cost(app, s.harness, &s.launch_spec, s.model.as_deref()) && crate::harness::registration(s.harness).descriptor.capabilities.cost {
                     changed = !s.usage.cost_unavailable;
@@ -323,7 +322,7 @@ impl Sessions {
             Ok(by_session)
         }).await?;
         for s in self.list() {
-            if s.imported_from.is_some() || s.runner_id.is_some() { continue; }
+            if s.runner_id.is_some() { continue; }
             let pending = unanswered_requests(&decisions.remove(&s.id).unwrap_or_default());
             let sink = self.sink(app, &s.id);
             for request_id in pending {
@@ -448,8 +447,7 @@ impl Sessions {
     }
 
     fn ensure_local(&self, id: &str) -> Result<()> {
-        let s = self.get(id).context("no such session")?;
-        anyhow::ensure!(s.imported_from.is_none(), "This trace belongs to another Launchpad instance. Use New agent here to follow up locally.");
+        self.get(id).context("no such session")?;
         Ok(())
     }
 
@@ -461,13 +459,13 @@ impl Sessions {
     pub(crate) fn store(c: &rusqlite::Connection, s: &Session) -> Result<()> {
         c.execute(
             "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
-                open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, imported_from, runner_id, generation)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
+                open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)
              ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
                 status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
                 ended_at = ?17, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
-                seen_at = ?21, archived_done = ?23, capacity_retry_count = ?24, capacity_retry_at = ?25, imported_from = ?26,
-                runner_id = ?27, generation = ?28",
+                seen_at = ?21, archived_done = ?23, capacity_retry_count = ?24, capacity_retry_at = ?25,
+                runner_id = ?26, generation = ?27",
             params![
                 s.id,
                 s.harness.as_str(),
@@ -494,28 +492,11 @@ impl Sessions {
                 s.archived_done,
                 s.capacity_retry_count,
                 s.capacity_retry_at,
-                s.imported_from,
                 s.runner_id,
                 s.generation,
             ],
         )?;
         crate::replica::queue(c, &crate::replica::Item::Session { session: Box::new(s.clone()) })?;
-        Ok(())
-    }
-
-    /// Commit a remote snapshot and its event chunks before exposing it to viewers.
-    pub(crate) async fn import_trace(&self, app: &App, mut session: Session, events: Vec<SessionEvent>, cursor: String) -> Result<()> {
-        let _action = self.action_lock().await;
-        if let Some(current) = self.get(&session.id) {
-            if current.imported_from.is_none() || current.project_id != session.project_id { return Ok(()); }
-            session.seen_at = current.seen_at.max(session.status_since);
-        }
-        let stored = session.clone();
-        let last_seq = app.state_db.call(move |c| crate::trace_sync::store(c, stored, events, cursor)).await?;
-        session.last_seq = last_seq;
-        self.inner.records.lock().unwrap().insert(session.id.clone(), session.clone());
-        app.bus.publish("sessions", "updated", serde_json::to_value(session.light())?);
-        self.publish_counts(app);
         Ok(())
     }
 
@@ -528,7 +509,7 @@ impl Sessions {
             Item::Session { session } => {
                 let mut s = *session;
                 let current = self.get(&s.id);
-                let stale = current.as_ref().is_some_and(|c| c.generation > s.generation || c.imported_from.is_some() || (c.runner_id.is_none() && c.generation >= s.generation));
+                let stale = current.as_ref().is_some_and(|c| c.generation > s.generation || (c.runner_id.is_none() && c.generation >= s.generation));
                 if !stale {
                     s.runner_id = Some(runner.clone());
                     // Either side may have shown it to the owner.
@@ -1056,7 +1037,6 @@ impl Sessions {
             if !matches!(spec.target, Target::Browser { .. }) && let Some(text) = crate::ext::extensions().suggestion_instruction(app, &id, &cwd) { preview.prompt.push_str(&format!("\n\n{text}")); }
             let now = now_ms();
             let session = Session {
-                imported_from: None,
                 runner_id: None,
                 generation: 1,
                 id: id.clone(),
@@ -1970,7 +1950,6 @@ impl Sessions {
 
     /// Caller holds the session action lock (for atomic worktree discard).
     pub(crate) async fn close_locked(&self, app: &App, id: &str) -> Result<()> {
-        if self.get(id).is_some_and(|s| s.imported_from.is_some()) { return Ok(()); }
         self.update(app, id, |s| s.capacity_retry_at = None).await?;
         crate::browser::revoke_session(app, id).await?;        let setup = self.inner.setups.lock().unwrap().remove(id);
         if let Some(task) = setup { self.wait_for_shutdown(id, async move { task.stop().await; Ok(()) }).await?; }

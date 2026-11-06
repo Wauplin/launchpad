@@ -1,6 +1,6 @@
 # Launchpad on Hugging Face Spaces
 
-A headless Launchpad in a private Docker Space, with a small control plane in front of it: browser-only setup, `~/projects` on a live bucket volume, a latest-only backup of everything else, a separate encrypted credential vault and explicit image updates. Everything Space-specific lives in this folder; Launchpad itself only gained generic hooks (trace prefix, delegated-access presentation, packaged commit).
+A headless Launchpad in a private Docker Space, with a small control plane in front of it: browser-only setup, `~/projects` on a live bucket volume, a latest-only backup of everything else, a separate encrypted credential vault and explicit image updates. Everything Space-specific lives in this folder; Launchpad itself only gained generic hooks (delegated-access presentation, packaged commit).
 
 Status: built and checked locally against a real private Space and bucket. The main update channel is published by CI after merge/push; its first run requires the GHCR package to be public (see below).
 
@@ -51,7 +51,7 @@ The control plane runs as root; the daemon, agents, Git and shells run as the `a
 
 Only the latest state is kept. Nothing in the bucket is versioned, and the connector never deletes bucket files.
 
-The bucket defaults to `<namespace>/launchpad`, the same default as Launchpad's trace sync on other machines: `projects/` and `traces/` are at the root so other machines can use them too; the Space's own state is under `space/`.
+The bucket defaults to `<namespace>/launchpad`: `projects/` is at the root; the Space's own state is under `space/`.
 
 - `projects/`: a Space bucket volume mounted at `/home/agent/projects` (`set_space_volumes`, subfolder `projects`). Files persist as they are written; there is no snapshot or upload job. Everything there is stored, including dependency and build folders, `.env` files and `.git`, in readable form. Behavior (symlinks, executable bits, locking, speed) is the volume's. Startup refuses to run when the volume is configured but not mounted, or not writable by the `agent` user.
 - `space/manifest.json` names the latest objects: credential-free SQLite snapshots (`state/`), the config projection (`config/`), `state/runtime.json`, `credentials/checkpoint.aead` (the credential references of exactly that state) and `home/agents.tar.gz`. A changed object is written to the slot (`space/a/` or `space/b/`) its previous version does not use, then the manifest is replaced, so the manifest never points at a partial object and at most two copies exist. An idle machine uploads nothing.
@@ -59,7 +59,6 @@ The bucket defaults to `<namespace>/launchpad`, the same default as Launchpad's 
 - `space/credentials.aead`: credential files, watched and reconciled every 30 seconds, overwritten in place. Vault objects are AES-256-GCM with HKDF keys bound to installation, seal ID and key identity; the seal ID travels in the object.
 - `space/pre-update/`: one restore point written before an image update and replaced by the next one. `space/update.json` records it for rollback.
 - `space/next/`: credential copies under a new key during a planned key change; startup uses them when the current copy is under another key.
-- `traces/`: Launchpad's own trace exporter (bucket and prefix are locked to these on the Space), enabled once the Hugging Face agent token is connected. Laptops and servers with default trace sync settings write and import here too.
 
 Other folders in `/home/agent` (caches, folders registered outside `~/projects`, shell history) are lost on restart.
 

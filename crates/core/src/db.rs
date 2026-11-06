@@ -244,8 +244,11 @@ CREATE TABLE IF NOT EXISTS activity (id TEXT PRIMARY KEY, session_id TEXT NOT NU
     let bot_columns = conn.prepare("PRAGMA table_info(bot)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !bot_columns.iter().any(|c| c == "paused") { conn.execute_batch("ALTER TABLE bot ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;")?; }
     if !device_columns.iter().any(|c| c == "last_seen_at") { conn.execute_batch("ALTER TABLE browser_device ADD COLUMN last_seen_at INTEGER;")?; }
-    conn.execute_batch("CREATE TABLE IF NOT EXISTS trace_import_cursor (source TEXT PRIMARY KEY, json TEXT NOT NULL);")?;
-    if !has("imported_from") { conn.execute_batch("ALTER TABLE session ADD COLUMN imported_from TEXT;")?; }
+    // Traces imported from other instances (peer trace sync, removed): Home is the only source now.
+    if has("imported_from") {
+        conn.execute_batch("DELETE FROM session_event WHERE session_id IN (SELECT id FROM session WHERE imported_from IS NOT NULL);
+            DELETE FROM session WHERE imported_from IS NOT NULL; ALTER TABLE session DROP COLUMN imported_from; DROP TABLE IF EXISTS trace_import_cursor;")?;
+    }
     if !has("capacity_retry_count") { conn.execute_batch("ALTER TABLE session ADD COLUMN capacity_retry_count INTEGER NOT NULL DEFAULT 0;")?; }
     if !has("capacity_retry_at") { conn.execute_batch("ALTER TABLE session ADD COLUMN capacity_retry_at INTEGER;")?; }
     if !has("quota_pause_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN quota_pause_json TEXT;")?; }

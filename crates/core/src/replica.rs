@@ -43,7 +43,7 @@ pub(crate) fn queue(c: &Connection, item: &Item) -> Result<()> {
         return Ok(());
     }
     if let Item::Session { session } = item
-        && (session.imported_from.is_some() || session.runner_id.is_some())
+        && session.runner_id.is_some()
     {
         return Ok(());
     }

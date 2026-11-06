@@ -49,7 +49,6 @@ async fn main() -> Result<()> {
     let hosts = core::hosts::Hosts::start(Arc::new(paths.clone()), env.clone(), state_db.clone(), status.clone()).await?;
     let app = core::App {
         browser: Default::default(),
-        trace_backup: Default::default(),
         runners: Default::default(),
         home_backups: Default::default(),
         proxy: Default::default(),

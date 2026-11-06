@@ -43,7 +43,7 @@ function resolve(place: Place): string[] | null {
 function drafts(): Draft[] {
   const out: Draft[] = [];
   for (const s of world.sessions) {
-    if (s.imported_from || !needsYou(s)) continue;
+    if (!needsYou(s)) continue;
     const place = { session: s.id };
     const more = { detail: s.last_message ? line(s.last_message) : "", session_id: s.id };
     if (s.open_question) out.push(item("question", "answer", s.id, s.title, place, s.status_since, { ...more, action: "session.answer" }));

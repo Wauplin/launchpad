@@ -401,7 +401,7 @@ async def serve():
         if not state['ready']:
             raise ValueError('Finish setup first')
         checks = await runtime.api('GET', '/api/setup/sign-in')
-        hf = await runtime.api('GET', '/api/setup/trace-backup')
+        hf = await runtime.api('GET', '/api/setup/huggingface')
         profiles = await refresh_profiles()
 
         def signed(tool):
@@ -666,12 +666,6 @@ async def serve():
                 raise web.HTTPServiceUnavailable(text='Backups are more than ten minutes behind. Open Space settings to retry the backup.')
         if path == '/api/config' and request.method in ('PATCH', 'PUT'):
             body = await request.json()
-            backup = body.get('trace_backup', {})
-            if (body.get('trace_backup_bucket', deployment.bucket) != deployment.bucket
-                    or body.get('trace_backup_prefix', 'traces') != 'traces'
-                    or backup.get('bucket', deployment.bucket) != deployment.bucket
-                    or backup.get('prefix', 'traces') != 'traces'):
-                raise ValueError('This Space manages the trace destination')
             # Config is bounded JSON, unlike the streaming upload/download routes.
             return web.json_response(await runtime.api(request.method, path, body))
         if path.startswith('/api/profiles/') and path.endswith('/setup'):

@@ -96,21 +96,12 @@ route("PUT", "/api/config", ({ body }) => {
 });
 
 type GeneralPatch = Partial<{
-  projects_root: string; remove_published_worktree: boolean; presets: Config["presets"]; notify: boolean; github_poll_interval_seconds: number;
-  trace_backup_enabled: boolean; trace_backup_bucket: string; trace_backup_prefix: string; worktrees_keep: number; browser: string;
+  projects_root: string; remove_published_worktree: boolean; presets: Config["presets"]; notify: boolean; github_poll_interval_seconds: number; worktrees_keep: number; browser: string;
 }>;
 
 route("PATCH", "/api/config", ({ body }) => {
   const p = (body ?? {}) as GeneralPatch;
   const c: Config = structuredClone(world.config);
-  if (p.trace_backup_enabled !== undefined) {
-    c.trace_backup.enabled = p.trace_backup_enabled;
-    // The demo simulates both directions without reaching a real bucket.
-    world.traceBackup.last_sync = p.trace_backup_enabled ? clock.now() : world.traceBackup.last_sync;
-    world.traceBackup.last_upload = p.trace_backup_enabled ? clock.now() : world.traceBackup.last_upload;
-  }
-  if (p.trace_backup_prefix !== undefined) c.trace_backup.prefix = p.trace_backup_prefix;
-  if (p.trace_backup_bucket !== undefined) c.trace_backup.bucket = p.trace_backup_bucket;
   if (p.projects_root !== undefined) c.projects_root = p.projects_root;
   if (p.remove_published_worktree !== undefined) c.remove_published_worktree = p.remove_published_worktree;
   if (p.presets !== undefined) c.presets = p.presets;
@@ -138,7 +129,7 @@ route("GET", "/api/setup/sign-in", (): SignInCheck[] => {
     world.githubCheck,
   ];
 });
-route("GET", "/api/setup/trace-backup", () => world.traceBackup);
+route("GET", "/api/setup/huggingface", () => world.huggingface);
 
 const inRange = (req: DemoRequest) => {
   const from = Number(req.query.get("from"));
@@ -173,7 +164,7 @@ route("GET", "/api/runner/launches", () => []);
 route("GET", "/api/runners/:id/status", () => ({ ...world.status, role: "runner", runner_update: null }));
 route("POST", "/api/runners/:id/update", notInDemo);
 route("DELETE", "/api/runners/:id/update", notInDemo);
-route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: null, error: null }));
+route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: null, error: null, credentials_encrypted: false, traces_error: null }));
 
 // Credentials and tools: a sample vault. Secrets never reach the browser, in the demo either.
 const demoTemplates = [

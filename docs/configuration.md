@@ -48,11 +48,6 @@ browser = "xdg-open"                # opens external links
 [github]
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
-[trace_backup]
-enabled = false                     # Hugging Face trace sync
-bucket = "launchpad"                  # <your account>/launchpad, shared with a Launchpad Space
-prefix = "traces"
-
 [agents]
 notify = true                       # desktop notifications
 

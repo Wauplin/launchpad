@@ -479,7 +479,6 @@ pub async fn launch(app: &App, spec: LaunchSpec, id: String, automatic: bool) ->
     let s = Session {
         id: id.clone(),
         harness,
-        imported_from: None,
         runner_id: Some(run.runner_id.clone()),
         generation: 1,
         harness_session_id: None,

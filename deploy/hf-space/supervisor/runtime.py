@@ -19,7 +19,6 @@ class Runtime:
     def configure(self):
         config = tomlkit.parse(home_open(CONFIG).read().decode()).unwrap() if CONFIG.exists() else {}
         config['server'] = {'bind':'127.0.0.1','public_origin':self.deployment.origin,'auto_tailnet':False}
-        config['trace_backup'] = {'enabled':True,'bucket':self.deployment.bucket,'prefix':'traces'}
         config['projects_root'] = str(HOME/'projects')
         atomic(CONFIG, tomlkit.dumps(config).encode())
         # New each machine; never stored in the bucket.
@@ -29,7 +28,7 @@ class Runtime:
     async def start(self):
         if self.process is not None: await self.close()
         self.configure()
-        self.process = await spawn('/usr/local/bin/launchpad','daemon',extra={'LAUNCHPAD_TRACE_BACKUP_BUCKET':self.deployment.bucket,'LAUNCHPAD_TRACE_BACKUP_PREFIX':'traces'})
+        self.process = await spawn('/usr/local/bin/launchpad','daemon')
         for _ in range(120):
             if self.process.returncode is not None: raise ValueError('Launchpad exited during startup; inspect the image and restored data')
             try:

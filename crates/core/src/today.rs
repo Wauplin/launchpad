@@ -170,7 +170,7 @@ pub fn parse_time(s: &str) -> i64 {
 }
 
 fn session_item(s: &Session) -> Option<Item> {
-    if s.imported_from.is_some() || !s.needs_you() {
+    if !s.needs_you() {
         return None;
     }
     let place = Place::Session(s.id.clone());
@@ -273,7 +273,7 @@ type ItemKey = (String, Vec<String>, Option<String>, String);
 
 /// What of the sessions can change the list: the ones that need you, with their title, question and status.
 fn sessions_key(app: &App) -> Vec<(String, String, bool, i64, Option<String>)> {
-    let mut key: Vec<_> = app.sessions.list().into_iter().filter(|s| s.imported_from.is_none() && s.needs_you()).map(|s| (s.id, s.title, s.open_question, s.status_since, s.project_id)).collect();
+    let mut key: Vec<_> = app.sessions.list().into_iter().filter(|s| s.needs_you()).map(|s| (s.id, s.title, s.open_question, s.status_since, s.project_id)).collect();
     key.sort();
     key
 }

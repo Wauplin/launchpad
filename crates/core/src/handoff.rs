@@ -156,20 +156,13 @@ pub async fn clean_archived(app: &App, id: &str) -> Result<bool> {
         return Ok(false);
     }
     let dir = crate::contain::session_dir(app, id);
-    let idle = |s: &Session| s.status == crate::model::SessionStatus::Closed && !s.live && s.imported_from.is_none() && !app.sessions.setup_running(id) && app.terminals.tui_of(id).is_none();
+    let idle = |s: &Session| s.status == crate::model::SessionStatus::Closed && !s.live && !app.sessions.setup_running(id) && app.terminals.tui_of(id).is_none();
     let Some(s) = app.sessions.get(id).filter(|s| idle(s)) else { return Ok(false) };
     if !dir.exists() {
         return Ok(false);
     }
     let h = snapshot(app, id).await?;
     ensure!(s.harness_session_id.is_none() || !h.files.is_empty(), "no native conversation found");
-    // Trace backup reads the same files: keep them until it uploaded this exact version.
-    if app.config.get().trace_backup.enabled {
-        let files = h.files.iter().map(|f| Ok(crate::harness::trace::TraceFile { name: f.name.clone(), data: base64::engine::general_purpose::STANDARD.decode(&f.data)? })).collect::<Result<Vec<_>>>()?;
-        if !crate::trace_backup::backed_up(app, id, &files) {
-            return Ok(false);
-        }
-    }
     answer(to_home(app, reqwest::Method::POST, &format!("/api/handoff/{id}"))?.json(&h)).await?;
     let _action = app.sessions.action_lock().await;
     // Nothing may have changed since Home confirmed its copy.
@@ -298,7 +291,6 @@ pub async fn adopt(app: &App, id: &str) -> Result<()> {
         ensure!(local.generation < s.generation, "this runner already has the session");
     }
     s.runner_id = None;
-    s.imported_from = None;
     s.live = false;
     s.open_question = false;
     let (mut worktrees, files) = match a.handoff {

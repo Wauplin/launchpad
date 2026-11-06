@@ -8,7 +8,7 @@ use serde::Deserialize;
 pub fn router() -> Router<Ctx> {
     Router::new()
         .route("/api/setup/sign-in", get(sign_in))
-        .route("/api/setup/trace-backup", get(trace_backup))
+        .route("/api/setup/huggingface", get(huggingface))
         .route("/api/projects/clone", get(clone_suggestions).post(clone))
         .route("/api/projects/clone/suggestions", post(refresh_clone_suggestions))
         .route("/api/onboarding", get(onboarding).patch(patch_onboarding))
@@ -56,10 +56,9 @@ async fn clone(State(s): State<Ctx>, Json(b): Json<Clone>) -> ApiResult<Project>
     Ok(Json(p.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }
 
-async fn trace_backup(State(s): State<Ctx>) -> Json<serde_json::Value> {
-    let (check, account) = launchpad_core::trace_backup::check(&s.app.env).await;
-    let state = s.app.trace_backup.0.read().unwrap().clone();
-    Json(serde_json::json!({"check": check, "account": account, "error": state.error, "last_upload": state.last_upload, "last_sync": state.last_sync}))
+async fn huggingface(State(s): State<Ctx>) -> Json<serde_json::Value> {
+    let (check, account) = launchpad_core::hf::check(&s.app.env).await;
+    Json(serde_json::json!({"check": check, "account": account}))
 }
 
 async fn onboarding(State(s): State<Ctx>) -> ApiResult<onboarding::OnboardingState> {

@@ -490,7 +490,7 @@ pub async fn prune(app: &App) -> Result<()> {
 
 /// Native harness state of a contained session (traces): its own home.
 pub fn trace_overrides(app: &App, session: &Session) -> Vec<(String, String)> {
-    if contained(app, crate::hosts::loc::host_of(&session.cwd)) && session.runner_id.is_none() && session.imported_from.is_none() {
+    if contained(app, crate::hosts::loc::host_of(&session.cwd)) && session.runner_id.is_none() {
         home_env(app, &session.id)
     } else {
         vec![]

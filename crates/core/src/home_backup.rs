@@ -51,9 +51,9 @@ impl Store {
         }
     }
 
-    async fn put(&self, env: &UserEnv, key: &str, data: Vec<u8>) -> Result<()> {
+    pub(crate) async fn put(&self, env: &UserEnv, key: &str, data: Vec<u8>) -> Result<()> {
         match self {
-            Store::Bucket(b) => crate::trace_backup::hf(env, &["buckets", "cp", "-", &format!("hf://buckets/{b}/{key}"), "--quiet"], Some(data)).await.map(|_| ()),
+            Store::Bucket(b) => crate::hf::hf(env, &["buckets", "cp", "-", &format!("hf://buckets/{b}/{key}"), "--quiet"], Some(data)).await.map(|_| ()),
             Store::Dir(d) => {
                 let path = d.join(key);
                 tokio::fs::create_dir_all(path.parent().context("bad key")?).await?;
@@ -83,7 +83,7 @@ impl Store {
     async fn list(&self, env: &UserEnv, prefix: &str) -> Result<Vec<String>> {
         match self {
             Store::Bucket(b) => {
-                let out = match crate::trace_backup::hf(env, &["buckets", "ls", &format!("{b}/{prefix}"), "-R", "--format", "json"], None).await {
+                let out = match crate::hf::hf(env, &["buckets", "ls", &format!("{b}/{prefix}"), "-R", "--format", "json"], None).await {
                     Ok(out) => out,
                     // A prefix that does not exist yet.
                     Err(_) => return Ok(vec![]),
@@ -113,9 +113,9 @@ impl Store {
         }
     }
 
-    async fn remove(&self, env: &UserEnv, key: &str) -> Result<()> {
+    pub(crate) async fn remove(&self, env: &UserEnv, key: &str) -> Result<()> {
         match self {
-            Store::Bucket(b) => crate::trace_backup::hf(env, &["buckets", "rm", &format!("{b}/{key}"), "--quiet"], None).await.map(|_| ()),
+            Store::Bucket(b) => crate::hf::hf(env, &["buckets", "rm", &format!("{b}/{key}"), "--quiet"], None).await.map(|_| ()),
             Store::Dir(d) => Ok(tokio::fs::remove_file(d.join(key)).await?),
         }
     }
@@ -146,6 +146,8 @@ pub struct BackupInfo {
     pub error: Option<String>,
     /// Vault secrets in backups are sealed with `LAUNCHPAD_HOME_KEY`.
     pub credentials_encrypted: bool,
+    /// Why the last pass could not write every trace copy (`trace_copies`).
+    pub traces_error: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -358,10 +360,15 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
     if let Err(e) = readable(app, &store).await {
         tracing::warn!("home backup: readable copies: {e:#}");
     }
+    let traces = crate::trace_copies::run(app, &store).await;
+    if let Err(e) = &traces {
+        tracing::warn!("home backup: trace copies: {e:#}");
+    }
+    backups.info.lock().unwrap().traces_error = traces.err().map(|e| format!("{e:#}"));
     Ok(true)
 }
 
-/// Top-level names the bucket already uses (Home backups, the Space connector, trace sync).
+/// Top-level names the bucket already uses (Home backups, the Space connector, older trace exports).
 const RESERVED: &[&str] = &[ROOT, "space", "projects", "traces", "backups", "credentials"];
 
 /// The bucket prefix of a workspace: its name, like its knowledge base folder on runners.

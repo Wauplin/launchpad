@@ -8,7 +8,7 @@
 - [GitHub](github.md): inbox, issues and pull requests, suggestions and Local PRs.
 - [Remote access and phones](remote-access.md): pairing, Tailscale, the phone layout, notifications and headless servers.
 - [SSH hosts](ssh-hosts.md): agents and terminals on other machines.
-- [Hugging Face](hugging-face.md): open models, trace sync to buckets and Launchpad in a Space.
+- [Hugging Face](hugging-face.md): open models, trace copies in the Home bucket and Launchpad in a Space.
 - [Home and runners](home-and-runners.md): one Home that keeps records, runners that run agents (in progress).
 - [Knowledge](knowledge.md): the knowledge base of each workspace, the only memory agents have.
 - [Bots](bots.md): persistent agents with one thread, their instructions in `BOT.md` and their notes in the knowledge base.

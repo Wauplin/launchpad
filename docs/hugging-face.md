@@ -3,7 +3,7 @@
 Launchpad integrates with Hugging Face in three ways:
 
 - **Open models**: run Claude Code on open models through Hugging Face Inference Providers.
-- **Trace sync**: export agent traces to a Hugging Face bucket, and import traces from your other Launchpad instances.
+- **Traces**: Home copies the original conversation of every agent to its bucket, one file per trace.
 - **Spaces**: run a complete Launchpad in a private Hugging Face Space, usable from any browser.
 
 ## Open models through Inference Providers
@@ -12,25 +12,21 @@ In **Settings → Profiles → New profile**, choose **Another model provider**,
 
 The token comes from `HF_TOKEN`, or from the token saved by `hf auth login`. OpenCode profiles can use the same router.
 
-## Trace sync to a bucket
+## Traces in the Home bucket
 
-Open **Settings → Hugging Face**. Launchpad checks the `hf` CLI and its sign-in (`hf auth whoami`) on the daemon's machine. Turn on trace sync and choose a bucket and prefix (default `<your account>/launchpad`, prefix `traces`: the same place a Launchpad Space exports to, so every machine and Space syncs into one bucket). Missing buckets are created private; Launchpad never changes the visibility of an existing bucket.
-
-Each session is uploaded to:
+Home copies the original conversation of every agent to its backup destination (on a hosted Home, the private bucket mounted at `/backups`), one file per trace, next to the backups. The bucket view on Hugging Face opens these files in its trace viewer.
 
 ```text
-hf://buckets/<namespace>/<bucket>/<prefix>/<folder name>/<YYYYMMDD_HHMM>_<session id>/
-├── <native trace files>          # Claude JSONL, Codex rollout-*.jsonl or OpenCode export, unchanged
-├── launchpad.json                # run record: launch settings, prompt, usage, status, timestamps
-└── launchpad-events-<seq>.jsonl  # Launchpad's normalized events, append-only chunks
+<workspace>/traces/<folder>/<YYYYMMDD_HHMM>_<session id>/
+├── <native trace files>   # Claude Code JSONL, Codex rollout-*.jsonl or OpenCode export, unchanged
+└── launchpad.json         # session record: workspace and folder names, launch settings, prompt, usage, status, timestamps
 ```
 
-- Native traces keep their original format, so tools that read those formats work on them directly.
-- The worker runs every minute, uploads only what changed and retries failures without blocking agents.
-- Disabling sync or archiving a session never deletes remote data.
+- The start time is in UTC, so the sessions of a folder sort by start time. Bot sessions without a folder are under `bot <slug>`.
+- A runner sends the conversation of a session to Home at the end of every turn (the handoff). After each backup, Home uploads the files that changed since the last pass. A failed upload is retried after the next backup and shows in **Settings → Hugging Face**.
+- Renaming a workspace or folder moves the copies of its sessions. Archiving a session never deletes them.
+- Home never reads the copies back: `state.db` in the backups stays the source. Settings → Hugging Face shows the layout and any copy error.
 - Traces can contain sensitive data: prompts, tool output and file paths. Keep the bucket private.
-
-**Sync between machines**: instances that use the same bucket and prefix import each other's traces for folders with the same name. Imported sessions appear in **Synced traces** below **Archived** in Agents, collapsed by default and revealed by search. They are read-only: use **New agent here** or **Use trace as context** to continue the work locally. Credentials, profiles, settings and worktrees are never synced.
 
 ## Run Launchpad in a Space
 
@@ -43,7 +39,6 @@ flowchart LR
         C["Control plane<br/>setup, backups, updates"] --> L["launchpad daemon<br/>agents, terminals"]
     end
     C -->|"projects/ (volume), space/ (latest state)"| K[("Private bucket<br/>&lt;account&gt;/launchpad")]
-    L -->|"traces/ (shared with your other machines)"| K
 ```
 
 ### Setup

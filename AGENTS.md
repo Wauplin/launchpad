@@ -47,7 +47,7 @@ Run only what your change can break, and rebuild only what you changed; CI runs 
 - **Nothing reaches GitHub without an owner click.** Automated checks never post comments or reviews, request reviewers, change labels, state or draft status, merge real items, publish Local PRs, post real suggestions or mute real threads. Local unread and viewed markers and unsent drafts are safe. Use throwaway local bare remotes for publication checks.
 - Agent-written comments and reviews go through `launchpad suggest comment|review` (reviews need `--head <inspected commit>`; Local PRs use `--predraft <id>`). The CLI never publishes.
 - Automated checks clean up after themselves: close the terminals they open, never type into harness TUIs, pause or delete test routines, cancel test follow-ups, scheduled launches and HF jobs, discard test worktrees (use throwaway repositories), close throwaway browsers and servers, remove test SSH hosts.
-- Never run setup fixes that change the real machine's configuration, and never enable trace backup against a real account.
+- Never run setup fixes that change the real machine's configuration, and never write trace copies or backups to a real bucket (use a local folder destination).
 - Never refresh the Claude OAuth token; only read it. Never log in, refresh tokens or copy credentials to hosts on the owner's behalf.
 - Never retry an uncertain operation automatically after a crash (launch/send claims, quota continuations, scheduled launches, Ask proposals, merges, browser actions, GitHub posts). Show the uncertainty and let the owner check.
 
@@ -147,10 +147,10 @@ The Git and storage design is in `docs/architecture.md`; these rules must hold.
 - Shells open only in a registered folder, one of its worktrees or a session folder.
 - Shell snippets in agent messages run only on an owner click (Run in terminal), never automatically, and never from repository or GitHub Markdown.
 
-### Trace backup and sync
+### Trace copies
 
-- Off by default. Adapters export native traces unchanged (`Harness::native_trace`); never synthesize native traces from normalized events. Launchpad metadata goes in `launchpad.json` and `launchpad-events-*.jsonl`.
-- Never log in, change bucket visibility or delete remote files. Imported traces are read-only replicas: locally owned session IDs always win, and replicas are never re-exported.
+- Home copies each session's native files from its latest handoff, unchanged, after each backup (`trace_copies.rs`): `<workspace>/traces/<folder>/<YYYYMMDD_HHMM>_<id>/`, one file per trace plus `launchpad.json`. Adapters export native traces unchanged (`Harness::native_trace`); never synthesize native traces from normalized events. Home never reads the copies back.
+- There is no peer trace sync between instances. Never log in or change bucket visibility; only a renamed workspace or folder deletes the old copies.
 
 ### Home and runners
 
@@ -160,7 +160,7 @@ The replication, relay, move and Burst design is in `docs/architecture.md`; thes
 - Workspaces, Git folders, Home Git and Local PRs are Home's: runners keep copies and forward changes (`home_client::home_owned`); Home accepts only `home_client::home_accepts` paths from a runner, and only runner-authenticated paths in tunnel exchanges (`exchange::home`). The tunnel protocol is the same whichever side dialed (`server::wire`).
 - Seen and unread are recorded on Home. Archive of a session whose runner is away closes the record on Home (`runners::archive_away`) and is delivered once when the runner reconnects.
 - Runner updates (`self_update.rs`) start only on an owner click, wait until no session of the runner is running, verify Home's build (SHA-256, OS, architecture) and restart in place. Test them only with scratch daemons and copies of the binary, never on the owner's runners.
-- Moves (`handoff.rs`) happen only between turns: Home increases the generation and names the new runner first; the old runner's final handoff pushes branches and saves leftovers to `lp-scratch/…`. Runners remove an archived session's folder only after Home confirmed the unchanged native files (and trace backup uploaded them when it is on); a start restores them from Home. Contained harnesses keep no prompt history (`Harness::contained_history`). Adapters own `native_trace` and `restore_native`; never synthesize a conversation from events.
+- Moves (`handoff.rs`) happen only between turns: Home increases the generation and names the new runner first; the old runner's final handoff pushes branches and saves leftovers to `lp-scratch/…`. Runners remove an archived session's folder only after Home confirmed the unchanged native files; a start restores them from Home. Contained harnesses keep no prompt history (`Harness::contained_history`). Adapters own `native_trace` and `restore_native`; never synthesize a conversation from events.
 - Home backups: content-addressed objects, manifest written last, restore only from a complete manifest with matching hashes. Prune only under `home/`. Test with a local folder destination, never a real bucket.
 - Burst (`burst.rs`): the runner secret is derived, never stored, and a Burst lease carries no secret (`token_relay`). One job per session; stop it only after the final handoff and a newer complete Home backup. Starts claimed before a Home restart are cancelled, never retried. Respect `[home.burst]`. Test with a scratch Home and scratch bucket (`LAUNCHPAD_BURST_IMAGE`, `_COMMAND`, `_VOLUMES`) and cancel every test job.
 

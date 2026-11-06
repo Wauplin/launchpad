@@ -21,8 +21,6 @@ def validate_config(method, value):
         raise ValueError("Expected a configuration object")
     if method == "PUT" and value.get("home", {}).get("backup") != "/backups":
         raise ValueError("Home backup is required and its bucket mount is managed by the deployment")
-    if any(k.startswith("trace_backup_") for k in value) or value.get("trace_backup", {}).get("enabled"):
-        raise ValueError("Home backup is always on; legacy trace sync settings do not apply")
 
 
 class HomeProxy(Proxy):
@@ -86,7 +84,6 @@ def configure(backup, config):
     document = tomlkit.parse(config.read_text() if config.exists() else "")
     document.setdefault("server", {}).update(bind="127.0.0.1", public_origin="https://" + os.environ["SPACE_HOST"], auto_tailnet=False)
     document.setdefault("home", {})["backup"] = str(backup)
-    document.setdefault("trace_backup", {})["enabled"] = False
     config.write_text(tomlkit.dumps(document))
     config.chmod(0o600)
 
