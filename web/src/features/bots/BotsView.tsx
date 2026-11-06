@@ -126,7 +126,7 @@ const BotRow = memo(function BotRow({ bot, thread, folder }: { bot: Bot; thread:
     </span>
     <span className="hidden flex-none text-right text-[12px] text-ink-3 sm:block">
       <span className="block">{folder}</span>
-      <span className="block">{last ? `${formatAgo(last.status_since)}` : "never ran"}</span>
+      <span className="block">{last ? formatAgo(last.status_since) : "never ran"}</span>
     </span>
   </Link>;
 });

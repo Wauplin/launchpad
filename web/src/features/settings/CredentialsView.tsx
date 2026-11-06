@@ -429,7 +429,7 @@ export function LeaseRow({ lease, title, onDone }: { lease: LeaseInfo; title?: s
     <div className="flex flex-wrap items-center gap-2 text-[13px]">
       <span className="grid min-w-0 flex-1 gap-0.5">
         {title && <span className="truncate font-semibold">{title}</span>}
-        <span className="flex flex-wrap items-center gap-1">{lease.credentials.map((c) => <Token key={c}>{c}</Token>)}{lease.tools.map((t) => <Token key={t} tone="teal">{t}</Token>)}<span className="text-[12px] text-ink-3">since {formatAgo(lease.created_at)} · renewed {formatAgo(lease.renewed_at)}</span></span>
+        <span className="flex flex-wrap items-center gap-1">{lease.credentials.map((c) => <Token key={c}>{c}</Token>)}{lease.tools.map((t) => <Token key={t} tone="teal">{t}</Token>)}<span className="text-[12px] text-ink-3">started {formatAgo(lease.created_at)} · renewed {formatAgo(lease.renewed_at)}</span></span>
       </span>
       <ConfirmButton consequence="Stops adding these tokens to the session's requests at once (while its runner is connected). The agent keeps running without them." confirmLabel="Revoke" onConfirm={() => api.post(`/api/vault/leases/${lease.id}/revoke`, {}).then(() => { toast("Revoked"); return onDone(); }, toastError)}>Revoke</ConfirmButton>
     </div>

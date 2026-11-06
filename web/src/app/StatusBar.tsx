@@ -7,7 +7,7 @@ import type { Status } from "@/gen/Status";
 import type { ProfileSpend } from "@/gen/ProfileSpend";
 import { spendLabel, spendPercent, useQuotas, windowLabel, type QuotaEntry } from "@/lib/profiles";
 import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/components/HarnessMark";
-import { formatAge, formatAgo, formatReset, resetLabel } from "@/lib/format";
+import { formatAgo, formatReset, resetLabel } from "@/lib/format";
 import { onConnectionChange } from "@/lib/ws";
 import { Popover } from "@/components/Popover";
 import { Icon } from "@/components/Icon";
@@ -104,7 +104,7 @@ function StaleQuota({ e }: { e: QuotaEntry }) {
   const name = useQuotaName(e);
   const s = e.q;
   if (s.quota_at === null || Date.now() - s.quota_at <= 15 * 60_000) return null;
-  return <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={s.quota_error ?? undefined}>{name} quota reading {formatAge(s.quota_at)} old</span>;
+  return <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={s.quota_error ?? undefined}>{name} quota read {formatAgo(s.quota_at)}</span>;
 }
 
 const emptyStatus: HarnessStatus = { version: null, version_error: null, updating_to: null };
