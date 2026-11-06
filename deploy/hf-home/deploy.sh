@@ -198,21 +198,32 @@ if [ "$WAIT" = 0 ]; then
 fi
 
 step "Waiting for the build and the first start (a few minutes; much longer when the Space builder compiles)"
-deadline=$(( $(date +%s) + 3600 )); last=""
+# elapsed <seconds>: "42s" or "3m 05s".
+elapsed() { if [ "$1" -ge 60 ]; then printf '%dm %02ds' $(( $1 / 60 )) $(( $1 % 60 )); else printf '%ds' "$1"; fi; }
+# On a terminal, one line per stage counts up in place; elsewhere, each stage prints once when it ends.
+TTY=0; [ -t 1 ] && TTY=1
+start=$(date +%s); deadline=$(( start + 3600 )); last="" since=$start polled=0 stage=""
 while :; do
-  info="$(hf spaces info "$SPACE" --format json 2>/dev/null || echo '{}')"
-  stage="$(printf '%s' "$info" | json runtime.stage 2>/dev/null || true)"
-  sha="$(printf '%s' "$info" | json runtime.raw.sha 2>/dev/null || true)"
-  if [ "$sha" = "$TARGET" ]; then
-    [ "$stage" != "$last" ] && ok "$stage" && last="$stage"
+  now=$(date +%s)
+  if [ $(( now - polled )) -ge 10 ]; then
+    polled=$now
+    info="$(hf spaces info "$SPACE" --format json 2>/dev/null || echo '{}')"
+    stage="$(printf '%s' "$info" | json runtime.stage 2>/dev/null || true)"
+    sha="$(printf '%s' "$info" | json runtime.raw.sha 2>/dev/null || true)"
+    [ "$sha" = "$TARGET" ] || stage="waiting for the new commit"
+    if [ "$TTY" = 1 ]; then printf '\r\033[K'; fi
+    if [ "$stage" != "$last" ]; then
+      [ -z "$last" ] || ok "$last in $(elapsed $(( now - since )))"
+      last="$stage" since=$now
+    fi
     case "$stage" in
-      RUNNING) break ;;
+      RUNNING) ok "RUNNING after $(elapsed $(( now - start )))"; break ;;
       BUILD_ERROR|RUNTIME_ERROR|CONFIG_ERROR|NO_APP_FILE|PAUSED|STOPPED|DELETING)
-        die "the Space stopped in $stage. Read the logs with: hf spaces logs $SPACE --build   (or without --build for the run logs)" ;;
+        die "the Space stopped in $stage after $(elapsed $(( now - start ))). Read the logs with: hf spaces logs $SPACE --build   (or without --build for the run logs)" ;;
     esac
+    [ "$now" -lt "$deadline" ] || die "the Space is not running after one hour (stage $stage). See https://huggingface.co/spaces/$SPACE"
   fi
-  [ "$(date +%s)" -lt "$deadline" ] || die "the Space is not running after one hour (stage $stage). See https://huggingface.co/spaces/$SPACE"
-  sleep 15
+  if [ "$TTY" = 1 ]; then printf '\r\033[K    %s for %s (total %s)' "$last" "$(elapsed $(( now - since )))" "$(elapsed $(( now - start )))"; sleep 1; else sleep 10; fi
 done
 
 step "Checking Home"
@@ -229,5 +240,5 @@ else
   ok "Home is up; open it to finish the setup steps"
 fi
 
-printf '\n\033[32mLaunchpad Home is ready:\033[0m %s\n' "$HOST"
+printf '\n\033[32mLaunchpad Home is ready\033[0m after %s: %s\n' "$(elapsed $(( $(date +%s) - start )))" "$HOST"
 printf 'Space: https://huggingface.co/spaces/%s\n' "$SPACE"
