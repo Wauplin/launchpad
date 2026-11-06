@@ -164,7 +164,9 @@ function render(s){
   const order=s.steps.map(x=>x.id),required=s.steps.filter(x=>x.required);
   // `next` is the first step left; `opened` is a finished step the owner opened again to review or change it.
   if(opened&&!s.steps.some(x=>x.id===opened&&x.done))opened=null;
-  const next=order.find(k=>!isDone(s,k)),active=opened||next;
+  // A runner waiting for approval opens its step, even when the step is done or skipped: the code and Approve are there.
+  const waiting=((s.runner||{}).runners||[]).some(r=>r.state==="pending");
+  const next=order.find(k=>!isDone(s,k)),active=opened||(waiting?"runner":next);
   $("#bar").style.width=`${Math.round(100*order.filter(k=>isDone(s,k)).length/order.length)}%`;
   $("#progress").textContent=s.complete?"Home is ready. The steps left are optional: do them now, or open Home.":`${required.length-s.left} of ${required.length} required steps done`;
   const ol=$("ol.steps");if([...ol.children].map(li=>li.id).join()!==order.map(k=>"s-"+k).join())order.forEach(k=>ol.appendChild($("#s-"+k)));
@@ -181,7 +183,8 @@ function render(s){
   $("#s-workspaces .state").textContent=s.workspaces.done?(s.workspaces.workspaces||[]).map(w=>w.name).join(", "):"No workspace yet";
   $("#s-folders .state").textContent=fo.done?`${(fo.workspaces||[]).map(w=>w.name).join(", ")} · ${(fo.projects||[]).length} folder${(fo.projects||[]).length===1?"":"s"}`:"No folder yet";
   const live=(ru.runners||[]).filter(r=>r.connected),paired=(ru.runners||[]).filter(r=>r.state==="approved"&&!r.connected),burst=ru.burst||{available:false};
-  $("#s-runner .state").textContent=live.length?`Connected: ${live.map(r=>r.name).join(", ")}${burst.available?" · Burst when it is off":""}`:paired.length?`Paired: ${paired.map(r=>r.name).join(", ")} (offline now)${burst.available?" · Burst meanwhile":""}`:skipped("runner")?(burst.available?"Burst for now":"Skipped"):burst.available?"Burst is ready: nothing to install":"No runner yet";
+  const asking=(ru.runners||[]).filter(r=>r.state==="pending");
+  $("#s-runner .state").textContent=asking.length?`${asking.map(r=>r.name).join(", ")} asks to connect: approve below`:live.length?`Connected: ${live.map(r=>r.name).join(", ")}${burst.available?" · Burst when it is off":""}`:paired.length?`Paired: ${paired.map(r=>r.name).join(", ")} (offline now)${burst.available?" · Burst meanwhile":""}`:skipped("runner")?(burst.available?"Burst for now":"Skipped"):burst.available?"Burst is ready: nothing to install":"No runner yet";
   $("#s-agent .state").textContent=s.agent.done?"Done":skipped("agent")?"Skipped":live.length?"Ready to run":burst.available?"Ready to run on Burst":"Needs a connected runner";
   $("#s-bot .state").textContent=s.bot.done?"Created":skipped("bot")?"Skipped":"No bot yet";
   // A skipped step can be opened again; it stays skipped on Home until it is done.
@@ -189,7 +192,7 @@ function render(s){
   if(opened){const b=document.createElement("button");b.className="link";b.textContent="Close";b.onclick=()=>openStep(null);$(`#s-${opened} .state`).append(" · ",b);}
   s.steps.filter(x=>x.skipped&&x.id!==active).forEach(x=>{const b=document.createElement("button");b.className="link";b.textContent="Do it now";b.onclick=()=>{reopened.add(x.id);render(st);};$(`#s-${x.id} .state`).append(" · ",b);});
   $("#burst-hint").innerHTML=burst.available?`<b>Burst</b> <span class="tag">nothing to install</span> Agents can run now: when no runner takes a launch, Home starts an HF Job in your namespace for it (about $0.01 per hour, capped at $${esc(burst.cap)} per month in Settings → Home and runners). It holds no token and stops after each turn.`:`Burst is not available: ${esc(burst.unavailable||"")}. Connect a runner to run agents.`;
-  $("#runner-burst").hidden=!burst.available||live.length>0;
+  $("#runner-burst").hidden=!burst.available||live.length>0||asking.length>0;
 
   // Key step.
   const mode=document.querySelector("input[name=keymode]:checked").value;
