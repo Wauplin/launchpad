@@ -20,6 +20,26 @@ pub async fn start(app: &App) -> Result<()> {
     Ok(())
 }
 
+/// Decodes stored JSON records, skipping the ones this build cannot read (for example a record that names a
+/// removed variant). Each unreadable record is logged once per process, not at every scheduler tick.
+pub(crate) fn decode_rows<T>(kind: &str, rows: Vec<(String, String)>, decode: impl Fn(&str) -> Result<T>) -> Vec<T> {
+    use std::{collections::HashSet, sync::Mutex};
+    static WARNED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+    rows.into_iter()
+        .filter_map(|(id, json)| match decode(&json) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                let key = format!("{kind}:{id}");
+                let mut warned = WARNED.lock().unwrap_or_else(|p| p.into_inner());
+                if warned.get_or_insert_with(HashSet::new).insert(key) {
+                    tracing::warn!("ignoring unreadable {kind} {id}: {e:#}");
+                }
+                None
+            }
+        })
+        .collect()
+}
+
 /// Writes the TypeScript versions of this crate's types shared with the UI (ts-rs).
 pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     use ts_rs::TS;

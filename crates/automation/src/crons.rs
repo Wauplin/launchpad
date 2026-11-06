@@ -291,13 +291,11 @@ fn changed(app: &App) {
 pub async fn list(app: &App) -> Result<Vec<CronAgent>> {
     app.state_db
         .call(|c| {
-            let mut st = c.prepare("SELECT json FROM cron_agent ORDER BY rowid")?;
+            let mut st = c.prepare("SELECT id, json FROM cron_agent ORDER BY rowid")?;
             let rows = st
-                .query_map([], |r| r.get::<_, String>(0))?
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            rows.into_iter()
-                .map(|s| Ok(serde_json::from_str(&s)?))
-                .collect()
+            Ok(crate::decode_rows("routine", rows, |s| Ok(serde_json::from_str(s)?)))
         })
         .await
 }

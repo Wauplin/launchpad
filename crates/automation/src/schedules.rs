@@ -63,20 +63,18 @@ pub struct ScheduledLaunch {
 pub async fn list(app: &App) -> Result<Vec<ScheduledLaunch>> {
     app.state_db
         .call(|c| {
-            let mut st = c.prepare("SELECT json FROM scheduled_launch ORDER BY rowid")?;
+            let mut st = c.prepare("SELECT id, json FROM scheduled_launch ORDER BY rowid")?;
             let rows = st
-                .query_map([], |r| r.get::<_, String>(0))?
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            rows.into_iter()
-                .map(|s| {
-                    let mut v: serde_json::Value = serde_json::from_str(&s)?;
-                    // Records written before multiple conditions stored a single `delay`.
-                    if let Some(delay) = v.as_object_mut().and_then(|o| o.remove("delay")) {
-                        v["conditions"] = serde_json::json!([delay]);
-                    }
-                    Ok(serde_json::from_value(v)?)
-                })
-                .collect()
+            Ok(crate::decode_rows("scheduled launch", rows, |s| {
+                let mut v: serde_json::Value = serde_json::from_str(s)?;
+                // Records written before multiple conditions stored a single `delay`.
+                if let Some(delay) = v.as_object_mut().and_then(|o| o.remove("delay")) {
+                    v["conditions"] = serde_json::json!([delay]);
+                }
+                Ok(serde_json::from_value(v)?)
+            }))
         })
         .await
 }
