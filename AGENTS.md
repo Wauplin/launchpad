@@ -23,7 +23,7 @@ Launchpad is a personal desktop app (Linux first, macOS and Windows supported) t
 - Chrome extension: `cd extension && pnpm install --frozen-lockfile && pnpm build` after installing `web/` dependencies; see `extension/README.md`.
 - Icons: keep `packaging/icons/source.png` unchanged; regenerate with `python3 packaging/generate-icons.py`; `packaging/install-icons.sh` updates installed icons.
 - Agent CLI: read-only context `launchpad folders|bots|sessions|profiles|presets|inbox|schedules|proposals list [--workspace …]`, `launchpad sessions show <id>`, `launchpad today`, `launchpad activity list`; `launchpad propose …` (inert proposal; `propose ready` prepares an owner click); `launchpad do <group>.<verb> <ids…> [--<field> <value>] [--body-file <file>]` and the short verb `launchpad <group> <verb> …` (the admin actions of the action list); `launchpad api <method> <path> [--body-file]` (the API at admin access); `launchpad pr create|update|show|list` (Local PRs); `launchpad send <channel>|telegram --body-file <file> [--title …] --session-id <id>`.
-- CI (`.github/workflows/ci.yml`): lint and debug tests on main, pull requests and tags; release builds only on tags, Linux on Ubuntu 22.04 (verify a downloaded binary before changing that baseline); build the UI before the release daemon so it embeds the assets. `.github/workflows/hf-space.yml` publishes the Space image on main pushes. Keep CI and this file in sync.
+- CI (`.github/workflows/ci.yml`): lint and debug tests on main, pull requests and tags; Linux only (no macOS or Windows jobs for now); release builds only on tags, on Ubuntu 22.04 (verify a downloaded binary before changing that baseline); build the UI before the release daemon so it embeds the assets. `.github/workflows/hf-space.yml` publishes the Space image on main pushes. Keep CI and this file in sync.
 - Production install/update: `packaging/install.sh` (Linux/macOS, `--headless`, `--prebuilt`) and `packaging/install.ps1` (Windows). They restart the production daemon: only run them when the owner asks.
 
 ## Checks to run (keep iteration fast)
@@ -54,7 +54,7 @@ Run only what your change can break, and rebuild only what you changed; CI runs 
 ### General
 
 - Single user: no backward compatibility, versioning or migration framework. `cache.db` can be deleted and rebuilt; keep `state.db` schema changes simple.
-- Linux (Ubuntu) is primary; gate OS-specific APIs and keep native release builds and tests in CI.
+- Linux (Ubuntu) is primary; gate OS-specific APIs. CI currently runs tests and release builds on Linux only.
 - Crate layering: `launchpad-core` depends on no other Launchpad crate; the feature crates (`harness`, `channels`, `github`, `automation`, `setup`) depend only on the core, never on each other; `server` never depends on `api` or a feature crate. The core reaches the crates above it only through `harness::install` and `ext::Extensions`, both installed by `crates/cli`. Put new code in the highest crate that can hold it; move code into the core only when the core calls it.
 - Phase 7 extensions need an owner-approved scope. The daemon owns harnesses and terminals; there are no session workers.
 - Click only: every action is a visible button. Keyboard shortcuts are limited to `Ctrl+F` in Files, `Ctrl+T`/`Cmd+T` for a new terminal, terminal clipboard and clear keys, normal text-editing keys, `Enter`/`Shift+Enter` in the session message box, the top-bar field (Enter sends with the primary button, Shift+Enter adds a line) and the find field, and `@`, `/`, `#` suggestions in prompts.

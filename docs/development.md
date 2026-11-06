@@ -55,8 +55,8 @@ Testing policy: keep tests few, fast and free of mocks. Add a test only for a sm
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
-- On pushes to `main`, pull requests and tags: Clippy, UI type checks and UI tests on Linux, and debug tests on Linux, macOS and Windows.
-- On tags only: release builds and tests on Ubuntu 22.04, macOS 15 (ARM64 and Intel) and Windows 2025, with downloadable packages kept 90 days.
+- On pushes to `main`, pull requests and tags: Clippy, UI type checks and UI tests on Linux, and debug tests on Linux.
+- On tags only: release builds and tests on Ubuntu 22.04 (Linux x86_64 only; macOS and Windows jobs are paused), with downloadable packages kept 90 days.
 
 [`.github/workflows/hf-space.yml`](../.github/workflows/hf-space.yml) builds and publishes the Hugging Face Space image on every push to `main` (see [Hugging Face](hugging-face.md#updates)).
 

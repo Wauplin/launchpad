@@ -32,11 +32,10 @@ Run the same command again to update. The installer restarts the daemon, which i
 
 ### Prebuilt packages
 
-CI builds packages for Linux x86_64, macOS (Apple Silicon and Intel) and Windows x86_64 on tagged commits. Download the artifact from the [GitHub Actions runs](https://github.com/Wauplin/launchpad/actions/workflows/ci.yml), extract it and run:
+CI builds packages for Linux x86_64 only on tagged commits (macOS and Windows packages are paused; build from source on those systems). Download the artifact from the [GitHub Actions runs](https://github.com/Wauplin/launchpad/actions/workflows/ci.yml), extract it and run:
 
 ```sh
-bash packaging/install.sh --prebuilt                                     # Linux, macOS
-powershell -ExecutionPolicy Bypass -File packaging/install.ps1 -Prebuilt  # Windows
+bash packaging/install.sh --prebuilt
 ```
 
 ### Other ways to run it
