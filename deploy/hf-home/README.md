@@ -23,14 +23,20 @@ Home backup is mandatory: the gateway refuses config writes that disable or redi
 
 ## Deploy
 
-From a clean committed checkout of the Home/runner branch:
+Create the bucket and the Space:
 
 ```sh
 hf buckets create Wauplin/launchpad-home-bucket --private
 hf repos create Wauplin/launchpad-home --type space --sdk docker --private --flavor cpu-basic -v hf://buckets/Wauplin/launchpad-home-bucket:/backups
 ```
 
-Export the committed repository to a temporary directory, copy `deploy/hf-home/Dockerfile` to its root, set its `ARG LAUNCHPAD_REVISION` default to the full source commit, and replace the root README with this Space card:
+### From a release (recommended)
+
+Upload `deploy/hf-home/Dockerfile.release` as the Space's `Dockerfile`, with the Space card below as `README.md`. The image downloads the release archive of the tag in `ARG LAUNCHPAD_RELEASE`, checks it against the release's `.sha256` file, and takes the deploy files (gateway, setup page, runner installer, tool versions) from the source of the commit named in the archive. Nothing is compiled on the Space builder. To update Home, edit the `LAUNCHPAD_RELEASE` line in the Space's Dockerfile on the Hub to a newer tag: the Space rebuilds and restarts. Runners update with the install command afterwards.
+
+### From source
+
+From a clean committed checkout, export the committed repository to a temporary directory, copy `deploy/hf-home/Dockerfile` to its root, set its `ARG LAUNCHPAD_REVISION` default to the full source commit, and replace the root README with this Space card:
 
 ```yaml
 ---
