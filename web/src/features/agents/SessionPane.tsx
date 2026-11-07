@@ -45,6 +45,7 @@ import { TerminalMenu } from "@/features/terminals/TerminalMenu";
 import { Sheet } from "@/mobile/Sheet";
 import { WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
 import { usePhone } from "@/lib/phone";
+import { PhoneBar } from "@/mobile/PhoneHeader";
 import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
 import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextChips } from "./MessageContext";
 import { PromptField } from "@/features/launch/PromptField";
@@ -416,6 +417,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       {hasFinal && <MenuItem icon={<Icon name="comment" size={14} />} label="Jump to the final message" detail="In the trace" onClick={() => { close(); setView("trace"); setJumpFinal((n) => n + 1); }} />}
       {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Today for later" onClick={() => { close(); onClear(); void act(s.id, "session.unread"); }} />}
       {phone && <>
+        <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename" onClick={() => { close(); setTitle(s.title); setRenaming(true); }} />
         <MenuItem label="Session details" detail="Branch, usage and New agent here" onClick={() => { close(); setDetailsOpen(true); }} />
         {terminalsHere && !noShell && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder (the checkout when its worktree is gone)" onClick={() => { close(); void openTerminal.folder(s.cwd); }} />}
       </>}
@@ -440,12 +442,10 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         <SessionStatus s={s} />
         {!archivePrimary && primary}
       </div>}
-      {phone ? <div className="session-header @container grid grid-cols-[18px_1fr] items-center gap-x-[9px] gap-y-0.5 border-b border-line-2 py-2 pr-2.5 pl-3">
-        <div className="session-heading order-2 flex min-w-0 items-center gap-1">
-          {titleEl}
-          <button className="iconbtn session-back order-first shrink-0 self-start" title="Back to agents" aria-label="Back to agents" onClick={onClear}><Icon name="chev" size={20} className="rotate-90" /></button>
-        </div>
-        <span className="session-meta order-3 col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3 tabular-nums">
+      {phone ? <><PhoneBar title={<>{isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}</>} onBack={onClear} backLabel="Back to agents" end={actionsMenu} />
+      <div className="session-header @container grid items-center border-b border-line-2">
+        {renaming && <div className="session-heading flex min-w-0 items-center gap-1">{titleEl}</div>}
+        <span className="session-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3 tabular-nums">
           <SessionStatus s={s} />
           <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{place} <Icon name="chev" size={12} /></button>
           {stateChips}
@@ -454,10 +454,9 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           {viewTabs}
           <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
             {canExpand && <button className="iconbtn session-expand" aria-label={readingExpanded ? "Collapse session view" : "Expand session view"} title={readingExpanded ? "Collapse session view" : "Expand session view"} aria-pressed={readingExpanded} onClick={() => setExpanded((value) => !value)}><Icon name={readingExpanded ? "collapse" : "expand"} size={18} /></button>}
-            {actionsMenu}
           </div>
         </div>
-      </div> : <div className="session-header @container grid gap-0.5 border-b border-line-2 pt-1.5 pr-2.5 pl-3">
+      </div></> : <div className="session-header @container grid gap-0.5 border-b border-line-2 pt-1.5 pr-2.5 pl-3">
         {/* Row 1: title, the one status, the state's primary action, Terminal and ⋯. Row 2: views and one muted meta line. */}
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <div className="session-heading flex min-w-0 flex-1 basis-56 items-center gap-2">

@@ -467,26 +467,15 @@ button {
   }
 }
 
-/* Phone agent view: title, live status/action, then a swipeable view strip. */
+/* Phone agent view: the title, ‹ and ⋯ live in the shell's bar (PhoneBar); here the status line, then the view strip. */
 .lp-phone .session-header {
   grid-template-columns: minmax(0, 1fr) 44px;
   gap: 2px 4px;
   flex-shrink: 0;
-  padding: 6px 12px 0;
+  padding: 2px 12px 0;
 }
-.lp-phone .session-heading { grid-column: 1; grid-row: 1; gap: 4px; }
-.lp-phone .session-back,
+.lp-phone .session-heading { grid-column: 1 / -1; grid-row: 1; gap: 4px; padding-top: 4px; }
 .lp-phone .session-actions .iconbtn { width: 44px; height: 44px; }
-.lp-phone .session-title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  font-size: 15px;
-  line-height: 20px;
-  min-height: 44px;
-}
 .lp-phone .session-meta { grid-column: 1 / -1; grid-row: 2; font-size: 12px; gap: 4px 8px; }
 .lp-phone .session-meta .btn,
 .lp-phone .session-details { min-height: 44px; }
@@ -495,7 +484,6 @@ button {
 .lp-phone .session-meta > .relative { width: 100%; }
 .lp-phone .session-toolbar,
 .lp-phone .session-actions { display: contents; }
-.lp-phone .session-actions > div { grid-column: 2; grid-row: 1; align-self: start; }
 .lp-phone .session-actions button { min-height: 44px; }
 .lp-phone .session-views {
   grid-column: 1 / -1;
@@ -533,8 +521,7 @@ button {
   padding-bottom: env(safe-area-inset-bottom);
 }
 .lp-phone .session-expanded .session-heading,
-.lp-phone .session-expanded .session-meta,
-.lp-phone .session-expanded .session-actions > div { display: none; }
+.lp-phone .session-expanded .session-meta { display: none; }
 .lp-phone .session-expanded .session-header { padding-top: 0; }
 .lp-phone .session-expanded .session-views,
 .lp-phone .session-expanded .session-expand { grid-row: 1; }
@@ -564,6 +551,9 @@ button {
 /* Keep key labels centered without the inherited body line height. */
 .lp-phone .terminal-keybar .btn { line-height: 1; }
 .lp-phone .phone-page-content { padding: 12px; gap: 16px; }
+/* Phone Today: the row's one-word outline button, one minimum width and no icon, so the column never moves. */
+.lp-phone .today-main .btn { min-width: 88px; justify-content: center; }
+.lp-phone .today-main .btn > svg { display: none; }
 .lp-phone .phone-page-header { min-width: 0; }
 .lp-phone .phone-page-title { overflow-wrap: anywhere; }
 .lp-phone .phone-action-content { overflow-wrap: anywhere; }

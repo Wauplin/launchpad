@@ -1,7 +1,7 @@
 import { usePhone } from "@/lib/phone";
-import { PhoneHeader } from "@/mobile/PhoneHeader";
+import { PhoneHeader, useBack } from "@/mobile/PhoneHeader";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams, useSearch } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
@@ -288,6 +288,9 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const projects = useProjects().data ?? [];
   const project = projectForRepo(projects, repo);
   const notes = usePrNotes(repo, number);
+  const navigate = useNavigate();
+  // A pull request opens from the Inbox, Today or a folder: back returns there (the Inbox without history).
+  const back = useBack(() => void navigate({ to: "/inbox" }));
   async function refresh(force = true) {
     setRefreshing(true);
     try { qc.setQueryData(key, await api.post<Item>(path, { force })); setError(null); }
@@ -338,11 +341,12 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const tabs = isPr ? <Tabs tour="item.tabs" label="Pull request views" value={tab} onChange={setTab} items={[{ id: "conversation", label: "Conversation" }, { id: "files", label: "Changes", count: current.length || undefined, title: current.length ? `${current.length} line comments for your next review` : undefined }, { id: "threads", label: "Review threads", count: item?.reviewThreads?.nodes.length || undefined }]} /> : undefined;
   return <div className="flex h-full flex-col">
     {phone ? <>
-      <PhoneHeader title={item?.title ?? `#${number}`} subtitle={<span className="flex flex-wrap items-center gap-1.5">{meta}</span>} primary={isPr ? agentReview : launch} actions={<>{isPr && launch}{item && <AddContext refItem={reference(repo, item, isPr ? "pr" : "issue")} />}<button className="btn btn-sm" onClick={openOnGitHub}>Open on GitHub</button><button className="btn btn-sm" disabled={refreshing} onClick={() => void refresh()}>Refresh</button></>} details={item && <Controls key={item.updatedAt} item={item} act={act} busy={busy} />} />
+      <PhoneHeader title={item?.title ?? `#${number}`} onBack={back} backLabel="Back" subtitle={<span className="flex flex-wrap items-center gap-1.5">{meta}</span>} primary={isPr ? agentReview : launch} actions={<>{isPr && launch}{item && <AddContext refItem={reference(repo, item, isPr ? "pr" : "issue")} />}<button className="btn btn-sm" onClick={openOnGitHub}>Open on GitHub</button><button className="btn btn-sm" disabled={refreshing} onClick={() => void refresh()}>Refresh</button></>} details={item && <Controls key={item.updatedAt} item={item} act={act} busy={busy} />} />
       {tabs && <div className="px-3">{tabs}</div>}
     </> : <PageHeader title={item?.title ?? `#${number}`} meta={meta} actions={actions} tabs={tabs} />}
     {(!!error || q.error) && <ErrorState className="m-2" error={error ?? q.error} onRetry={() => void refresh()} />}
-    {item && <SuggestionBanner item={item} onReview={reviewDraft} />}
+    {/* The phone's Conversation starts with the suggestion card itself: the banner would repeat its Post review. */}
+    {item && !(phone && tab === "conversation") && <SuggestionBanner item={item} onReview={reviewDraft} />}
     {item ? <div className="@container relative flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         {!phone && <div className="flex flex-none justify-end border-b border-line-2 px-3 py-1 @min-[760px]:hidden"><button type="button" className="btn btn-sm" aria-expanded={panel} onClick={() => setPanel(!panel)}><Icon name="sliders" size={12} />Status, checks and labels</button></div>}

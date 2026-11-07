@@ -21,7 +21,7 @@ import { usePhone } from "@/lib/phone";
 import { useCrons, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { browserZone, cronTitle, routineState, triggerSummary } from "@/lib/routines";
 import { useScope } from "@/lib/workspace";
-import { PhoneHeader } from "@/mobile/PhoneHeader";
+import { PhoneBar, PhoneHeader } from "@/mobile/PhoneHeader";
 import { BRIEF, BRIEF_TITLE, RoutineDetails, RunStrip } from "./Routines";
 
 type Tab = "routines" | "launches";
@@ -101,8 +101,9 @@ function OpenComposer() {
 }
 
 function Side({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const phone = usePhone();
   return <div className="flex h-full flex-col bg-paper">
-    <div className="flex items-center gap-2 border-b border-line px-4 py-3"><b className="min-w-0 flex-1 truncate text-sm">{title}</b><button className="btn btn-sm" onClick={onClose}>Close panel</button></div>
+    {phone ? <PhoneBar title={title} onBack={onClose} backLabel="Back to schedules" /> : <div className="flex items-center gap-2 border-b border-line px-4 py-3"><b className="min-w-0 flex-1 truncate text-sm">{title}</b><button className="btn btn-sm" onClick={onClose}>Close panel</button></div>}
     <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
   </div>;
 }

@@ -2,7 +2,7 @@
 // no folder and show everywhere). Hide keeps the processes running. Phones show it as the /terminals page.
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
 import type { TerminalInfo } from "@/gen/TerminalInfo";
 import { Icon, type IconName } from "@/components/Icon";
@@ -14,7 +14,7 @@ import { useProjects, useSessions } from "@/lib/queries";
 import { useZoomScale } from "@/lib/zoom";
 import { useScope } from "@/lib/workspace";
 import { useLayout } from "@/stores/layout";
-import { PhoneHeader } from "@/mobile/PhoneHeader";
+import { PhoneHeader, useBack } from "@/mobile/PhoneHeader";
 import { TerminalPanel } from "./TerminalPanel";
 import { TerminalMenu } from "./TerminalMenu";
 import { closeNeedsConfirm, folderName, refreshTerminals, terminalStatus, useOpenTerminal, useScopedTerminals, useTerminals, useTerminalsHere } from "./lib";
@@ -126,7 +126,7 @@ function Dock({ fill }: { fill?: boolean }) {
   const scale = useZoomScale();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const router = useRouter();
+  const back = useBack(() => void navigate({ to: "/" }));
   const active = terminals.find((t) => t.id === dock.active) ?? terminals[terminals.length - 1];
   const folder = useCurrentFolder(active);
   const projects = useProjects().data;
@@ -207,9 +207,10 @@ function Dock({ fill }: { fill?: boolean }) {
   return (
     <TerminalPanel phone={phone} open={!!dock.open} scale={scale}>
       {phone ? (
-        <PhoneHeader
+        // Mounted while hidden on other pages: only the visible page takes the shell's bar.
+        fill && <PhoneHeader
           title="Terminals"
-          onBack={() => { if (window.history.length > 1) router.history.back(); else void navigate({ to: "/" }); }}
+          onBack={back}
           backLabel="Back"
           primary={<div className="flex items-center gap-1">{switcher}{dockMenu}</div>}
           subtitle={active ? `${kindLabel(active)} · ${active.cwd}` : undefined}

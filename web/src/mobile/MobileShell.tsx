@@ -1,5 +1,5 @@
-// Phone shell: a top bar with the workspace sheet (workspaces with their counts, nothing else), the page title and
-// a status that warns, one page at a time, and bottom tabs (Today · Agents · Ask · Inbox · More). Ask opens the
+// Phone shell: a top bar with the workspace sheet (workspaces with their counts, nothing else), the section title and
+// a status that warns (a detail page replaces it with its ‹, title and ⋯: `PhoneBar`), one page at a time, and bottom tabs (Today · Agents · Ask · Inbox · More). Ask opens the
 // chat of the workspace's default bot (`askTarget`); More holds the other places. Same daemon, rules and feature
 // components as the desktop shell; only the frame differs. Every action stays a visible button.
 
@@ -7,7 +7,7 @@ import { recordingZoom } from "@/lib/zoom";
 import { lazy, Suspense } from "react";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import { IconSprite, Icon, type IconName } from "@/components/Icon";
 import { Count } from "@/components/ui";
 import { Toasts } from "@/components/Toast";
@@ -22,7 +22,7 @@ import { NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
 import { askTarget, useBots } from "@/lib/bots";
 import { isRunning } from "@/lib/sessionStatus";
 import { ServerStatus } from "./ServerStatus";
-import { MORE_PLACES, pageTitle } from "./PhoneHeader";
+import { MORE_PLACES, PhoneBarContext, pageTitle } from "./PhoneHeader";
 import { WorkspaceSheet } from "./WorkspaceSheet";
 
 const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then((m) => ({ default: m.AddFolderDialog })));
@@ -88,11 +88,17 @@ export function MobileShell() {
   const terminals = path.startsWith("/terminals");
   const viewport = useTerminalViewport(terminals);
   const workspaceName = scope.workspace.name;
+  // The top bar a detail page fills (`PhoneBar`); while one is mounted, the section bar hides.
+  const [barEl, setBarEl] = useState<HTMLElement | null>(null);
+  const [claims, setClaims] = useState(0);
+  const bar = useMemo(() => ({ el: barEl, claim: () => { setClaims((n) => n + 1); return () => setClaims((n) => n - 1); } }), [barEl]);
   return (
+    <PhoneBarContext.Provider value={bar}>
     <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]" style={viewport ? { position: "fixed", insetInline: 0, top: viewport.top, height: viewport.height } : recordingZoom() ? { height: `calc(100dvh / ${recordingZoom()})` } : undefined}>
       <IconSprite />
       {/* Equal side columns keep every section title centered on the viewport. */}
-      <header className="grid min-h-12 flex-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-chrome px-2">
+      <div ref={setBarEl} className={claims > 0 ? "phone-bar flex min-h-12 flex-none items-center gap-1 border-b border-line bg-chrome py-0.5 pr-1 pl-1" : "hidden"} />
+      <header className={`${claims > 0 ? "hidden" : "grid"} min-h-12 flex-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-chrome px-2`}>
         <button className="btn btn-ghost max-w-full min-w-0 justify-self-start px-2!" aria-label={`Workspace: ${workspaceName}. Change workspace${inMenu > 0 ? ` (${inMenu} waiting)` : ""}`} onClick={() => setMenu(true)}>
           <span className="truncate font-semibold text-ink">{workspaceName}</span><Icon name="chev" size={14} className="shrink-0" />
           <Count n={inMenu} needs title={`${inMenu} waiting in Today of other workspaces`} className="shrink-0" />
@@ -119,5 +125,6 @@ export function MobileShell() {
       <Toasts />
       {addOpen && <Suspense fallback={null}><AddFolderDialog /></Suspense>}
     </div>
+    </PhoneBarContext.Provider>
   );
 }

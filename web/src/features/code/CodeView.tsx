@@ -1,5 +1,5 @@
 import { daemonAsset } from "@/lib/connection";
-import { PhoneActions } from "@/mobile/PhoneHeader";
+import { PhoneActions, PhoneBar, useBack } from "@/mobile/PhoneHeader";
 // Code viewer (sketch S7): one source at a time (a working tree or a git
 // revision), a file tree, tabs, colored code with changed-line bars, find in file (Ctrl+F) and
 // search in the project. Selected lines become agent context. Read only.
@@ -47,6 +47,7 @@ const sizeText = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n /
 export function CodeView() {
   const { id } = useParams({ strict: false }) as { id: string };
   const search = useSearch({ strict: false }) as CodeSearch;
+  const phone = usePhone();
   const project = useProject(id);
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -63,8 +64,15 @@ export function CodeView() {
     if (search.root && !search.session) setLast(id, { root: search.root, rev: search.rev, path: search.path, view: search.view });
   }, [id, search.root, search.rev, search.path, search.view, search.session, setLast]);
 
-  if (!project) return <Empty fill icon="folder">This folder is not registered in Launchpad.</Empty>;
-  if (!search.root) return null;
+  // Phone ‹: the agent or pull request Files was opened from, else the previous page, else the folder.
+  const prParts = search.pr?.match(/^([^/]+)\/([^#]+)#(\d+)$/);
+  const back = useBack(() => void navigate({ to: "/projects/$id", params: { id } }));
+  const backTo = search.session ? () => void navigate({ to: "/agents", search: { session: search.session } })
+    : prParts ? () => void navigate({ to: "/github/$owner/$repo/$number", params: { owner: prParts[1], repo: prParts[2], number: prParts[3] } })
+    : back;
+  const bar = phone && <PhoneBar title={search.path ? basename(search.path) : project?.name ?? "Files"} onBack={backTo} backLabel={search.session ? "Back to the agent" : prParts ? "Back to the pull request" : "Back"} />;
+  if (!project) return <>{bar}<Empty fill icon="folder">This folder is not registered in Launchpad.</Empty></>;
+  if (!search.root) return bar || null;
   const diff = !!search.rev && search.view === "diff";
   const go = (next: CodeSearch) => void navigate({ to: "/projects/$id/code", params: { id }, search: { root: search.root, rev: search.rev, session: search.session, pr: search.pr, ...next } });
   const showCode = () => {
@@ -73,9 +81,10 @@ export function CodeView() {
     go({ path: selected && selected.status !== "removed" ? selected.filename : diff ? undefined : search.path });
   };
   return <div className="flex h-full min-h-0 flex-col">
+    {bar}
     {search.rev && <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper px-3 py-2">
-      {search.session && <BackToSession id={search.session} />}
-      {search.pr && <BackToPr pr={search.pr} />}
+      {search.session && !phone && <BackToSession id={search.session} />}
+      {search.pr && !phone && <BackToPr pr={search.pr} />}
       <span className="min-w-0 truncate font-mono text-xs text-ink-3" title={search.rev}>{diff ? "Commit" : "Revision"} {search.rev.slice(0, 12)}</span>
       <Tabs className="ml-auto border-b-0" label="Commit view" value={diff ? "diff" : "files"} onChange={(v) => (v === "diff" ? go({ view: "diff", path: search.path }) : showCode())} items={[{ id: "diff", label: "Diff" }, { id: "files", label: "Files" }]} />
     </div>}
@@ -140,12 +149,12 @@ function Viewer({ project, root, rev, path, line, session, pr }: { project: Proj
 
   return (
     <div className={`code-layout h-full ${phone ? "flex flex-col" : "grid grid-cols-[284px_minmax(0,1fr)]"}`}>
-      {phone && <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1">
-        <button className="btn btn-sm" aria-expanded={browserOpen} onClick={() => setBrowserOpen((v) => !v)}><Icon name={browserOpen ? "x" : "folder"} size={16} />{browserOpen ? "Close tree" : "Tree & search"}</button>
-        <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{path ?? project.name}</span>
-        {session && !rev && <BackToSession id={session} />}
-        {pr && !rev && <BackToPr pr={pr} />}
-      </div>}
+      {phone && <>
+        <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1">
+          <button className="btn btn-sm" aria-expanded={browserOpen} onClick={() => setBrowserOpen((v) => !v)}><Icon name={browserOpen ? "x" : "folder"} size={16} />{browserOpen ? "Close tree" : "Tree & search"}</button>
+          <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{path ? `${project.name} · ${path}` : project.name}</span>
+        </div>
+      </>}
       <aside className={`code-browser min-h-0 min-w-0 flex-col border-r border-line bg-paper ${phone ? browserOpen ? "flex flex-1" : "hidden" : "flex"}`}>
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2 px-2.5 pt-2.5 pb-1">
           {session && !rev && !phone && <BackToSession id={session} />}
@@ -222,23 +231,21 @@ function tabHint(t: string, tabs: string[]): string | null {
   return dirname(t) || "/";
 }
 
-/** Shown when the viewer was opened from an agent session. */
+/** Shown when the viewer was opened from an agent session (laptop; the phone's ‹ in the bar goes there). */
 function BackToSession({ id }: { id: string }) {
-  const phone = usePhone();
   const navigate = useNavigate();
   const title = useSessions().data?.find((s) => s.id === id)?.title;
   if (!title) return null;
-  return <button aria-label="Back to agent" className={phone ? "iconbtn shrink-0 text-teal-ink" : "truncate text-left text-xs text-teal-ink hover:underline"} title={`Back to the agent "${title}"`} onClick={() => void navigate({ to: "/agents", search: { session: id } })}>{phone ? <Icon name="chev" size={20} className="rotate-90" /> : <>← Back to agent · {title}</>}</button>;
+  return <button aria-label="Back to agent" className="truncate text-left text-xs text-teal-ink hover:underline" title={`Back to the agent "${title}"`} onClick={() => void navigate({ to: "/agents", search: { session: id } })}>← Back to agent · {title}</button>;
 }
 
 /** Shown when Files was opened from a pull request's Changes: `pr` is `owner/repo#number`. */
 function BackToPr({ pr }: { pr: string }) {
-  const phone = usePhone();
   const navigate = useNavigate();
   const m = pr.match(/^([^/]+)\/([^#]+)#(\d+)$/);
   if (!m) return null;
   const [, owner, repo, number] = m;
-  return <button aria-label={`Back to PR #${number}`} className={phone ? "iconbtn shrink-0 text-teal-ink" : "truncate text-left text-xs text-teal-ink hover:underline"} title={`Back to ${owner}/${repo}#${number}`} onClick={() => void navigate({ to: "/items/$owner/$repo/$number", params: { owner, repo, number }, search: { tab: "files" } as never })}>{phone ? <Icon name="chev" size={20} className="rotate-90" /> : <>← Back to PR #{number}</>}</button>;
+  return <button aria-label={`Back to PR #${number}`} className="truncate text-left text-xs text-teal-ink hover:underline" title={`Back to ${owner}/${repo}#${number}`} onClick={() => void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number } })}>← Back to PR #{number}</button>;
 }
 
 /** The branch of the task worktree that lived at `root`, if Launchpad knows it. */

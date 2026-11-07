@@ -1,8 +1,34 @@
 // Small shared phone chrome. Features keep their own actions and state; desktop headers stay separate.
-import type { ReactNode } from "react";
+// The shell's top bar is the only title bar of a phone page: a tab page shows its section title there, a detail
+// page puts its ‹, title and ⋯ there with `PhoneBar` (a portal into the bar, so the page keeps its own state).
+import { createContext, useContext, useLayoutEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "@/components/Icon";
 import { Popover } from "@/components/Popover";
-import { useRouterState } from "@tanstack/react-router";
+import { useRouter, useRouterState } from "@tanstack/react-router";
+
+/** The shell's top bar: the element a detail page fills, and `claim` (returns its release) to hide the section bar. */
+export type PhoneBarSlot = { el: HTMLElement | null; claim: () => () => void };
+export const PhoneBarContext = createContext<PhoneBarSlot | null>(null);
+
+/** Back for pages that have no single parent (PR page, Files, Terminals): the previous page of this window when
+ * there is one, else `fallback` (an installed app opened on a link has no history). */
+export function useBack(fallback: () => void) {
+  const router = useRouter();
+  return () => { if (router.history.canGoBack()) router.history.back(); else fallback(); };
+}
+
+/** A detail page's bar: ‹, the title (up to two lines) and the page's menu or ⓘ in `end`. Render one per page. */
+export function PhoneBar({ title, onBack, backLabel = "Back", end }: { title: ReactNode; onBack?: () => void; backLabel?: string; end?: ReactNode }) {
+  const slot = useContext(PhoneBarContext);
+  useLayoutEffect(() => slot?.claim(), [slot]);
+  if (!slot?.el) return null;
+  return createPortal(<>
+    {onBack ? <button className="iconbtn shrink-0" aria-label={backLabel} title={backLabel} onClick={onBack}><Icon name="chev" size={20} className="rotate-90" /></button> : <span className="w-2 shrink-0" />}
+    <h1 className="phone-page-title m-0 flex min-h-11 min-w-0 flex-1 items-center text-[15px] leading-5 font-semibold"><span className="line-clamp-2 break-words">{title}</span></h1>
+    {end}
+  </>, slot.el);
+}
 
 /** Places of the More tab (the tab shows as current on them). */
 export const MORE_PLACES = ["/more", "/bots", "/schedules", "/projects", "/knowledge", "/terminals", "/settings", "/setup"];
@@ -40,23 +66,20 @@ export function PhoneActions({ label = "Actions & details", children, details, c
   </Popover>;
 }
 
-/** A page's own header under the shell's top bar. A title the top bar already shows is not repeated: only the
- * subtitle, primary button and actions remain, and nothing at all when there are none. */
+/** A page's header on the phone. With `onBack` (a detail page), the ‹, title and ⋯ go in the shell's bar and only
+ * the subtitle and primary button stay in the page. On a tab page the bar keeps the section title: the page shows
+ * one line with its own name (when it differs), subtitle, primary button and ⋯, and nothing when there is none. */
 export function PhoneHeader({ title, subtitle, onBack, backLabel = "Back", primary, actions, details }: { title: ReactNode; subtitle?: ReactNode; onBack?: () => void; backLabel?: string; primary?: ReactNode; actions?: ReactNode; details?: ReactNode }) {
   const shellTitle = useRouterState({ select: (s) => pageTitle(s.location.pathname) });
-  if (!onBack && title === shellTitle) {
-    if (!subtitle && !primary && !actions && !details) return null;
-    return <header className="phone-page-header flex min-w-0 shrink-0 items-center gap-2 border-b border-line px-3 py-1.5">
-      <div className="min-w-0 flex-1 break-words text-xs leading-4 text-ink-3">{subtitle}</div>{primary}
-      {(actions || details) && <PhoneActions children={actions} details={details} />}
-    </header>;
-  }
-  return <header className="phone-page-header shrink-0 border-b border-line px-3 pt-1.5 pb-2">
-    <div className="flex min-w-0 items-start gap-1">
-      {onBack && <button className="iconbtn shrink-0" aria-label={backLabel} title={backLabel} onClick={onBack}><Icon name="chev" size={20} className="rotate-90" /></button>}
-      <h1 className="phone-page-title flex min-h-11 min-w-0 flex-1 items-center text-[15px] leading-5 font-semibold"><span className="line-clamp-2 break-words">{title}</span></h1>
-      {(actions || details) && <PhoneActions children={actions} details={<><p className="break-words font-semibold">{title}</p>{details}</>} />}
-    </div>
-    {(subtitle || primary) && <div className="flex min-w-0 items-center gap-2 pt-1"><div className="min-w-0 flex-1 break-words text-xs leading-4 text-ink-3">{subtitle}</div>{primary}</div>}
+  const menu = (actions || details) && <PhoneActions children={actions} details={onBack ? <><p className="break-words font-semibold">{title}</p>{details}</> : details} />;
+  const line = (lead: ReactNode, end: ReactNode) => <header className="phone-page-header flex min-w-0 shrink-0 items-center gap-2 border-b border-line px-3 py-1.5">
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 break-words text-xs leading-4 text-ink-3">{lead}</div>{primary}{end}
   </header>;
+  if (onBack) return <>
+    <PhoneBar title={title} onBack={onBack} backLabel={backLabel} end={menu} />
+    {(subtitle || primary) && line(subtitle, null)}
+  </>;
+  const own = title !== shellTitle;
+  if (!own && !subtitle && !primary && !menu) return null;
+  return line(<>{own && <b className="text-[13px] text-ink">{title}</b>}{subtitle}</>, menu);
 }

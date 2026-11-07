@@ -9,6 +9,8 @@ import { useComposer } from "@/stores/composer";
 import { toastError } from "@/components/Toast";
 import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
+import { usePhone } from "@/lib/phone";
+import { PhoneBar } from "@/mobile/PhoneHeader";
 import { useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, dependencyAgent } from "@/features/launch/DelaySelector";
 
@@ -20,6 +22,7 @@ export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledL
   const sessions = useSessions().data ?? [];
   const projects = useProjects().data ?? [];
   const [busy, setBusy] = useState(false);
+  const phone = usePhone();
   // Editing replaces the composer draft: confirm when it holds something else.
   const draft = useComposer((s) => s.open && s.editing !== launch.id && (!!s.spec.text.trim() || s.spec.attachments.length + s.spec.github_refs.length + s.spec.files.length + s.spec.agent_traces.length > 0));
   const edit = () => useComposer.getState().editSchedule(launch);
@@ -36,10 +39,10 @@ export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledL
     finally { setBusy(false); }
   };
   return <div className="flex h-full flex-col bg-paper">
-    <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+    {phone ? <PhoneBar title={launch.title} onBack={onClose} backLabel="Back to schedules" /> : <div className="flex items-center gap-2 border-b border-line px-4 py-3">
       <b className="min-w-0 flex-1 truncate text-sm">{launch.title}</b>
       <button className="btn btn-sm" onClick={onClose}>Close panel</button>
-    </div>
+    </div>}
     <div className="grid gap-4 overflow-y-auto p-4 text-sm">
       <div className="grid gap-2 rounded-lg border border-line bg-chrome p-3">
         <b>{launch.resume_session_id ? "Follow-up · " : ""}{launch.status === "starting" ? "Starting…" : launch.status === "failed" ? "Launch needs attention" : "Scheduled"}</b>

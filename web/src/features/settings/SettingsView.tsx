@@ -5,7 +5,7 @@ import { usePhone, layoutChoice, setLayoutChoice, type LayoutChoice } from "@/li
 // Daemon settings go to config.toml, which can also be edited by hand.
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { Config } from "@/gen/Config";
 import type { Preset } from "@/gen/Preset";
@@ -17,6 +17,7 @@ import { DEFAULT_ZOOM, ZOOM_LEVELS, useZoom } from "@/lib/zoom";
 import { useConfig, type ConfigResponse } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
 import { PhoneSettings } from "./PhoneSettings";
+import { PhoneBar } from "@/mobile/PhoneHeader";
 
 /** A section of a Settings page. */
 export function Card({ title, end, children, id, tour }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string; tour?: string }) {
@@ -32,24 +33,29 @@ export function Card({ title, end, children, id, tour }: { title: string; end?: 
 }
 
 /** The layout of every Settings page: one title, one short intro (first visit only, then behind ⓘ). On the laptop the
- * settings sidebar (app/SettingsSidebar.tsx) lists the pages; on phones a link goes back to the list. */
+ * settings sidebar (app/SettingsSidebar.tsx) lists the pages; on phones the title, ⓘ and ‹ (back to the list on
+ * /settings) go in the shell's bar. */
 export function SettingsPage({ title, intro, info, actions, children, tour }: { title?: string; intro?: React.ReactNode; info?: string; actions?: React.ReactNode; children: React.ReactNode; tour?: string }) {
   const phone = usePhone();
+  const navigate = useNavigate();
   // The intro shows on the first visit of the page on this device, then behind ⓘ.
   const explain = useIntro(intro && title ? `settings:${title}` : null);
-  // The phone lists the pages on /settings (PhoneSettings); each page links back to it.
-  const nav = phone && <Link to="/settings" className="btn btn-ghost w-fit px-1! no-underline"><Icon name="chev" size={14} className="rotate-90" />All settings</Link>;
+  const about = intro ? <IntroButton {...explain} /> : info && <span className={phone ? "grid size-11 shrink-0 place-items-center text-ink-3" : "text-ink-3"} title={info} aria-label={info}><Icon name="info" size={14} /></span>;
+  const explanation = intro && explain.open && <p className="m-0 w-full text-[13px] text-ink-2">{intro}{info && <span className="mt-1 block text-[12px] text-ink-3">{info}</span>}</p>;
   return (
     <div className="h-full overflow-y-auto">
+      {phone && <PhoneBar title={title ?? "Settings"} onBack={() => void navigate({ to: "/settings" })} backLabel="All settings" end={about} />}
       <div className="phone-page-content mx-auto grid max-w-[900px] grid-cols-[minmax(0,1fr)] gap-5 p-6">
-        {nav}
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4" data-tour={tour}>
-          {title && (
+          {phone ? (explanation || actions) && <div className="flex flex-wrap items-center gap-2">
+            {explanation}
+            {actions && <span className="ml-auto flex flex-wrap gap-2">{actions}</span>}
+          </div> : title && (
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className={`m-0 font-semibold ${phone ? "text-[15px]" : "text-[18px]"}`}>{title}</h1>
-              {intro ? <IntroButton {...explain} /> : info && <span className="text-ink-3" title={info} aria-label={info}><Icon name="info" size={14} /></span>}
+              <h1 className="m-0 text-[18px] font-semibold">{title}</h1>
+              {about}
               {actions && <span className="ml-auto flex flex-wrap gap-2">{actions}</span>}
-              {intro && explain.open && <p className="m-0 w-full text-[13px] text-ink-2">{intro}{info && <span className="mt-1 block text-[12px] text-ink-3">{info}</span>}</p>}
+              {explanation}
             </div>
           )}
           {children}
