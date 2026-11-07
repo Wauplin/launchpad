@@ -43,14 +43,15 @@ type Menu = ((close: () => void) => ReactNode) | false | null | undefined;
 
 /** The line: icon, title (opens the details when there are some, else `to`), meta, then the action group: `main`
  * (one outline button in a fixed column) and ⋯ with the other actions (`menu`). On the phone the line keeps only
- * `main`: a tap on the title or meta opens the details with the other actions, so each row stays one line high. */
+ * `main`, a one-word outline button of one minimum width without its icon (the column never moves), and the title
+ * up to two lines: a tap on the title or meta opens the details with the other actions. */
 function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, main, menu, details, card = false }: RowProps & { icon?: IconName; meta?: ReactNode; age?: boolean; to?: ReactNode; main?: ReactNode; menu?: Menu; details?: ReactNode; card?: boolean }) {
   // `card`: the details are a full card with its own buttons, so the line hides its buttons while it is open.
   const buttons = !(card && expanded && details);
   const phone = usePhone();
   const opens = !!details || (phone && !!menu);
   const look = LOOK[item.kind];
-  const title = <span className="block truncate text-[13px] font-semibold" title={item.title}>{item.title}</span>;
+  const title = <span className={`block text-[13px] font-semibold ${phone ? "line-clamp-2 break-words" : "truncate"}`} title={item.title}>{item.title}</span>;
   const metaLine = <div className="flex min-w-0 items-center gap-x-1.5 text-[12px] text-ink-3">{meta ?? <span className="truncate">{item.detail}</span>}{age && <span className="flex-none whitespace-nowrap">· {ago(item.at)}</span>}</div>;
   // The agent's Local PRs: links, so on the phone they sit under the line's button, not inside it.
   const grouped = item.grouped.map((g) => <LocalPrLine key={g.id} item={g} phone={phone} />);
@@ -62,11 +63,11 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
       <div className="flex min-h-[60px] min-w-0 flex-wrap items-center gap-y-1 py-1.5 pr-3">
         {opens
           ? <button type="button" className="flex min-h-11 min-w-0 flex-[1_1_160px] items-center gap-2.5 pl-3 text-left" aria-expanded={expanded} aria-label={`${item.title}: ${label.toLowerCase()}`} onClick={() => toggle(item.id)}>
-            {kind}<span className="min-w-0 flex-1">{title}{metaLine}</span>{chev(12)}
+            {kind}<span className="min-w-0 flex-1">{title}{metaLine}</span>
           </button>
           : <div className="flex min-w-0 flex-[1_1_160px] items-center gap-2.5 pl-3">{kind}<div className="min-w-0 flex-1">{to ?? title}{metaLine}</div></div>}
         {/* An armed confirmation (Merge) wraps under the title instead of pushing the row sideways. */}
-        {buttons && main && <div className="ml-auto flex max-w-full flex-none items-center justify-end pl-2">{main}</div>}
+        {buttons && main && <div className="today-main ml-auto flex max-w-full min-w-[88px] flex-none items-center justify-end pl-2">{main}</div>}
         {grouped.length > 0 && <div className="w-full min-w-0 pl-[46px]">{grouped}</div>}
       </div>
       {expanded && opens && <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 px-3 pb-3">
@@ -179,9 +180,13 @@ function LocalPrRow(p: RowProps) {
     menu={!!item.session_id && ((close) => <OpenAgent id={item.session_id!} close={close} />)} />;
 }
 
+/** One-word Start labels for the phone's button column (the full label is the tooltip and the card's button). */
+const SHORT: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create", status: "", preset: "Save", tool: "Add", bot: "Create", routine: "Add", bot_instructions: "Apply", ready: "" };
+
 /** Start in one click when it is a plain start; ready, status and uncertain cards open first. */
 function ProposalRow({ p: proposal, ...p }: RowProps & { p: Proposal | undefined }) {
   const qc = useQueryClient();
+  const phone = usePhone();
   const { item } = p;
   if (!proposal) return <Row {...p} />;
   const waiting = proposal.state === "proposed" || proposal.state === "failed";
@@ -195,7 +200,7 @@ function ProposalRow({ p: proposal, ...p }: RowProps & { p: Proposal | undefined
   const run = (action: "accept" | "dismiss") => () => void act(action).catch(toastError);
   return <Row {...p} icon={proposalIcon(proposal)} meta={item.detail ? undefined : <span className="truncate">{proposal.note ? proposal.note : "Proposal"}</span>}
     main={plain
-      ? <button type="button" className="btn btn-sm" onClick={run("accept")}><Icon name="play" size={12} />{START[proposal.body.kind]}</button>
+      ? <button type="button" className="btn btn-sm" title={START[proposal.body.kind]} onClick={run("accept")}><Icon name="play" size={12} />{phone ? SHORT[proposal.body.kind] : START[proposal.body.kind]}</button>
       : <Expand {...p}>{proposal.body.kind === "status" ? "Show" : "Review"}</Expand>}
     menu={(plain || proposal.body.kind === "status") && ((close) => <MenuItem icon={<Icon name="x" size={14} />} label="Dismiss" onClick={() => { close(); run("dismiss")(); }} />)}
     details={<ProposalCard p={proposal} />} card />;

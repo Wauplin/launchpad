@@ -23,6 +23,7 @@ import { ProposalCard } from "@/features/proposals/ProposalCard";
 import { SuggestionCard } from "@/features/suggestions/Suggestions";
 import { runAction } from "@/lib/actions";
 import { ago } from "@/lib/format";
+import { isPhone } from "@/lib/phone";
 import { projectName, useProjects, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
 import { isDone } from "@/lib/sessionStatus";
@@ -56,7 +57,8 @@ export const OpenSession = ({ id, view }: { id: string; view?: "changes" }) => <
 export function SessionMeta({ s, item }: { s: Session | null; item: TodayItem }) {
   const projects = useProjects().data;
   if (!s) return <span className="truncate">{item.detail}</span>;
-  return <><HarnessMark harness={s.harness} size={13} /><span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span><SessionStatus s={s} /></>;
+  // The phone's line keeps the room for the folder and status; the harness shows on the agent's page.
+  return <>{!isPhone && <HarnessMark harness={s.harness} size={13} />}<span className="truncate">{projectName(projects, s.project_id, s.cwd)}</span><SessionStatus s={s} /></>;
 }
 
 /** Loads the newest events of a session (the same tail page the session view uses). */

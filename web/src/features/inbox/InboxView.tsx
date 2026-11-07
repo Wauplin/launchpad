@@ -85,7 +85,7 @@ const ThreadRow = memo(function ThreadRow({ t, selected, projects, ready, select
       </span>
     </button>
     {phone
-      ? <button className="btn btn-sm flex-none" title="Mark as done on GitHub" aria-label={`Mark ${t.title} as done`} disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} /></button>
+      ? <button className="btn btn-sm flex-none justify-center" title="Mark as done on GitHub" aria-label={`Mark ${t.title} as done`} disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} />Done</button>
       : <RowActions label={`More actions for ${t.title}`} width={72} main={<button className="btn btn-sm" title="Mark as done on GitHub" disabled={busy} onClick={() => act(t, "done")}><Icon name="check" size={12} />Done</button>} more={(close) => <ThreadMenu t={t} projects={projects} close={close} />} />}
   </div>;
 });
