@@ -1,5 +1,5 @@
 import { daemonAsset } from "@/lib/connection";
-import { PhoneActions, PhoneBar, useBack } from "@/mobile/PhoneHeader";
+import { PhoneActions, PhoneBar, useLeave } from "@/mobile/PhoneHeader";
 // Code viewer (sketch S7): one source at a time (a working tree or a git
 // revision), a file tree, tabs, colored code with changed-line bars, find in file (Ctrl+F) and
 // search in the project. Selected lines become agent context. Read only.
@@ -64,12 +64,12 @@ export function CodeView() {
     if (search.root && !search.session) setLast(id, { root: search.root, rev: search.rev, path: search.path, view: search.view });
   }, [id, search.root, search.rev, search.path, search.view, search.session, setLast]);
 
-  // Phone ‹: the agent or pull request Files was opened from, else the previous page, else the folder.
+  // Phone ‹: the page Files was opened from (over the files shown since); opened from a link, the agent or pull
+  // request it names, else the folder.
   const prParts = search.pr?.match(/^([^/]+)\/([^#]+)#(\d+)$/);
-  const back = useBack(() => void navigate({ to: "/projects/$id", params: { id } }));
-  const backTo = search.session ? () => void navigate({ to: "/agents", search: { session: search.session } })
-    : prParts ? () => void navigate({ to: "/github/$owner/$repo/$number", params: { owner: prParts[1], repo: prParts[2], number: prParts[3] } })
-    : back;
+  const backTo = useLeave(() => void (search.session ? navigate({ to: "/agents", search: { session: search.session } })
+    : prParts ? navigate({ to: "/github/$owner/$repo/$number", params: { owner: prParts[1], repo: prParts[2], number: prParts[3] } })
+    : navigate({ to: "/projects/$id", params: { id } })));
   const bar = phone && <PhoneBar title={search.path ? basename(search.path) : project?.name ?? "Files"} onBack={backTo} backLabel={search.session ? "Back to the agent" : prParts ? "Back to the pull request" : "Back"} />;
   if (!project) return <>{bar}<Empty fill icon="folder">This folder is not registered in Launchpad.</Empty></>;
   if (!search.root) return bar || null;

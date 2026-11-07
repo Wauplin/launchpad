@@ -119,9 +119,11 @@ function StatusDetails() {
   </div>;
 }
 
-export function ServerStatus() {
+/** `warningsOnly`: a detail page's bar shows the button only while something needs a look. */
+export function ServerStatus({ warningsOnly = false }: { warningsOnly?: boolean }) {
   const [open, setOpen] = useState(false);
   const warnings = useStatusWarnings().length;
+  if (warningsOnly && !warnings && !open) return null;
   return <>
     <button type="button" className="phone-connection iconbtn shrink-0" aria-label={`Server status and quotas${warnings ? `: ${warnings} warning${warnings === 1 ? "" : "s"}` : ""}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
       {warnings

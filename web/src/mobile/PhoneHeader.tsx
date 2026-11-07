@@ -1,7 +1,7 @@
 // Small shared phone chrome. Features keep their own actions and state; desktop headers stay separate.
 // The shell's top bar is the only title bar of a phone page: a tab page shows its section title there, a detail
 // page puts its ‹, title and ⋯ there with `PhoneBar` (a portal into the bar, so the page keeps its own state).
-import { createContext, useContext, useLayoutEffect, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "@/components/Icon";
 import { Popover } from "@/components/Popover";
@@ -16,6 +16,18 @@ export const PhoneBarContext = createContext<PhoneBarSlot | null>(null);
 export function useBack(fallback: () => void) {
   const router = useRouter();
   return () => { if (router.history.canGoBack()) router.history.back(); else fallback(); };
+}
+
+/** Back for a page that adds its own history entries (Files: each file is one): returns to the page before the first
+ * entry it showed, so the page it was opened from never comes back with a new entry (no PR ↔ Files loop); `fallback`
+ * when it was the window's first page. */
+export function useLeave(fallback: () => void) {
+  const router = useRouter();
+  const first = useRef(router.history.location.state.__TSR_index);
+  return () => {
+    const now = router.history.location.state.__TSR_index;
+    if (first.current > 0 && now >= first.current) router.history.go(first.current - now - 1); else fallback();
+  };
 }
 
 /** A detail page's bar: ‹, the title (up to two lines) and the page's menu or ⓘ in `end`. Render one per page. */

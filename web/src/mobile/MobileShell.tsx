@@ -1,5 +1,6 @@
 // Phone shell: a top bar with the workspace sheet (workspaces with their counts, nothing else), the section title and
-// a status that warns (a detail page replaces it with its ‹, title and ⋯: `PhoneBar`), one page at a time, and bottom tabs (Today · Agents · Ask · Inbox · More). Ask opens the
+// a status that warns (a detail page replaces the bar with its ‹, title and ⋯: `PhoneBar`, and keeps the status only
+// while it warns), one page at a time, and bottom tabs (Today · Agents · Ask · Inbox · More). Ask opens the
 // chat of the workspace's default bot (`askTarget`); More holds the other places. Same daemon, rules and feature
 // components as the desktop shell; only the frame differs. Every action stays a visible button.
 
@@ -97,14 +98,18 @@ export function MobileShell() {
     <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]" style={viewport ? { position: "fixed", insetInline: 0, top: viewport.top, height: viewport.height } : recordingZoom() ? { height: `calc(100dvh / ${recordingZoom()})` } : undefined}>
       <IconSprite />
       {/* Equal side columns keep every section title centered on the viewport. */}
-      <div ref={setBarEl} className={claims > 0 ? "phone-bar flex min-h-12 flex-none items-center gap-1 border-b border-line bg-chrome py-0.5 pr-1 pl-1" : "hidden"} />
+      {/* A detail page's bar: its ‹, title and ⋯ (portal), then the status button only while something needs a look. */}
+      <div className={claims > 0 ? "phone-bar flex min-h-12 flex-none items-center gap-1 border-b border-line bg-chrome py-0.5 pr-1 pl-1" : "hidden"}>
+        <div ref={setBarEl} className="flex min-w-0 flex-1 items-center gap-1" />
+        {claims > 0 && <ServerStatus warningsOnly />}
+      </div>
       <header className={`${claims > 0 ? "hidden" : "grid"} min-h-12 flex-none grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-line bg-chrome px-2`}>
         <button className="btn btn-ghost max-w-full min-w-0 justify-self-start px-2!" aria-label={`Workspace: ${workspaceName}. Change workspace${inMenu > 0 ? ` (${inMenu} waiting)` : ""}`} onClick={() => setMenu(true)}>
           <span className="truncate font-semibold text-ink">{workspaceName}</span><Icon name="chev" size={14} className="shrink-0" />
           <Count n={inMenu} needs title={`${inMenu} waiting in Today of other workspaces`} className="shrink-0" />
         </button>
         <b className="max-w-[40vw] min-w-0 truncate text-center text-[15px]">{onAsk ? "Ask" : pageTitle(path)}</b>
-        <div className="flex min-w-0 justify-end"><ServerStatus /></div>
+        <div className="flex min-w-0 justify-end">{claims === 0 && <ServerStatus />}</div>
       </header>
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {empty ? <NoWorkspace /> : !terminals && <Outlet />}
