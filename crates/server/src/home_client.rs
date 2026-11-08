@@ -162,13 +162,14 @@ async fn call_home(op: String, body: serde_json::Value) -> anyhow::Result<(u16, 
 }
 
 /// Requests about records Home owns, which a runner sends to Home: workspace changes (the runner keeps a copy
-/// for reading) and Home Git.
+/// for reading), Home Git, and the context reads of the Launchpad CLI (only Home sees the sessions, schedules and
+/// Inbox of every runner).
 pub(crate) fn home_owned(path: &str) -> bool {
     path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/") || path.starts_with("/api/plain/") || path.starts_with("/api/knowledge/") || path.starts_with("/api/vault") || path == "/api/mcp" || path.starts_with("/api/mcp/")
         || path == "/api/tool-defaults" || path.starts_with("/api/tool-defaults/")
         || path == "/api/proposals" || path.starts_with("/api/proposals/")
         || path == "/api/launch/crons" || (path.starts_with("/api/launch/crons/") && path != "/api/launch/crons/next")
-        || path == "/api/bots" || path.starts_with("/api/bots/") || path == "/api/context/bots"
+        || path == "/api/bots" || path.starts_with("/api/bots/") || path.starts_with("/api/context/")
         || (path.starts_with("/api/sessions/") && path.ends_with("/access"))
         || path == "/api/suggestions" || path.starts_with("/api/suggestions/")
         || path == "/api/channels" || path.starts_with("/api/channels/") || path == "/api/outbox" || path.starts_with("/api/outbox/")
@@ -178,7 +179,12 @@ pub(crate) fn home_owned(path: &str) -> bool {
 
 /// Home: requests a runner may send through its tunnel (as Home's owner).
 pub(crate) fn home_accepts(path: &str) -> bool {
-    home_owned(path) || path.starts_with("/api/projects") || path.starts_with("/api/predrafts")
+    home_owned(path) || path.starts_with("/api/projects") || path.starts_with("/api/predrafts") || trace_id(path).is_some()
+}
+
+/// `/api/sessions/{id}/trace`: the session's ID.
+fn trace_id(path: &str) -> Option<&str> {
+    path.strip_prefix("/api/sessions/").and_then(|r| r.strip_suffix("/trace")).filter(|id| !id.is_empty() && !id.contains('/'))
 }
 
 /// Runner: requests about records Home owns go to Home; the runner's copy follows Home's snapshots.
@@ -187,7 +193,7 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
     let path = req.uri().path();
     let forwarded = home_owned(path) && (req.method() != axum::http::Method::GET || !(path == "/api/workspaces" || path.starts_with("/api/workspaces/")));
     // The trace of a session that ran on another runner (a bot's earlier session, a context trace): Home has it.
-    let elsewhere = req.method() == axum::http::Method::GET && path.strip_prefix("/api/sessions/").and_then(|r| r.strip_suffix("/trace")).is_some_and(|id| !id.contains('/') && s.app.sessions.get(id).is_none());
+    let elsewhere = req.method() == axum::http::Method::GET && trace_id(path).is_some_and(|id| s.app.sessions.get(id).is_none());
     let forwarded = forwarded || elsewhere;
     if s.app.paths.role != role::Role::Runner || !forwarded {
         return next.run(req).await;
