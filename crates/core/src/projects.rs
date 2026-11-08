@@ -35,26 +35,26 @@ fn from_row(r: &Row) -> rusqlite::Result<Project> {
     })
 }
 
-/// Runner: queues the stored folder for Home in the caller's transaction. Git folders of Home are Home's
-/// records: the runner only keeps Home's copy.
+/// Runner: queues a temporary folder for Home in the caller's transaction, so Home knows where it is now. Git
+/// and plain folders are Home's records: the runner only keeps Home's copy.
 fn queue(c: &rusqlite::Connection, id: &str) -> Result<()> {
     if !crate::replica::enabled() {
         return Ok(());
     }
-    if let Some(project) = c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE id = ?1"), [id], from_row).optional()?.filter(|p| !p.home_git && !p.plain) {
+    if let Some(project) = c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE id = ?1"), [id], from_row).optional()?.filter(|p| p.is_temp) {
         crate::replica::queue(c, &crate::replica::Item::Project { project })?;
     }
     Ok(())
 }
 
-/// Home: stores a folder replicated from the runner whose disk has it.
+/// Home: stores a temporary folder replicated from the runner that has it now. Every other folder is Home's.
 pub(crate) async fn apply_replica(app: &App, runner_id: &str, n: u64, item: crate::replica::Item) -> Result<()> {
     let runner = runner_id.to_string();
     app.state_db
         .call(move |c| {
             let tx = c.transaction()?;
             match item {
-                crate::replica::Item::Project { project: p } => {
+                crate::replica::Item::Project { project: p } if p.is_temp => {
                     // A folder of this Home itself, or of another runner, is never overwritten.
                     let owner: Option<Option<String>> = tx.query_row("SELECT runner_id FROM project WHERE id = ?1", [&p.id], |r| r.get(0)).optional()?;
                     if owner.as_ref().is_none_or(|o| o.as_deref() == Some(runner.as_str())) {
@@ -211,15 +211,9 @@ async fn remote_info(path: &Path) -> (Option<String>, Option<String>, Option<Str
     (origin, gh_repo, gh_upstream)
 }
 
-/// Registers a folder in a workspace. A folder already registered in the same workspace is returned, an
-/// Unassigned one joins the workspace, and a folder of another workspace is refused: one folder belongs to
-/// one workspace.
-pub async fn register(app: &App, path: &Path, is_temp: bool, workspace_id: &str) -> Result<Project> {
-    register_as(app, path, is_temp, workspace_id, uuid::Uuid::new_v4().to_string()).await
-}
-
-/// `register` with the ID of a new record.
-async fn register_as(app: &App, path: &Path, is_temp: bool, workspace_id: &str, id: String) -> Result<Project> {
+/// Registers a temporary folder of this disk in a workspace. Every other folder is stored by Home (Home Git or a
+/// plain folder) and runs on any runner: a disk path is never a folder by itself.
+async fn register_temp(app: &App, path: &Path, workspace_id: &str, id: String) -> Result<Project> {
     let workspace = crate::workspace::get(app, workspace_id).await.context("choose a workspace for the folder")?;
     let path = crate::files::canonicalize(path).await.with_context(|| format!("{} does not exist", path.display()))?;
     if !crate::files::is_dir(&path).await {
@@ -234,15 +228,14 @@ async fn register_as(app: &App, path: &Path, is_temp: bool, workspace_id: &str, 
         gh_repo,
         gh_upstream,
         description: String::new(),
-        is_temp,
+        is_temp: true,
         pinned: false,
         created_at: now_ms(),
         worktree_setup: String::new(),
         when_done: Default::default(),
         workspace_id: Some(workspace.id.clone()),
         runner_id: None,
-        // Home and a single-process daemon serve every Git folder from Home Git.
-        home_git: !is_temp && app.paths.role != crate::role::Role::Runner && crate::git::git_dir(&path).await.is_some(),
+        home_git: false,
         plain: false,
     };
     let saved = p.clone();
@@ -336,21 +329,37 @@ pub async fn register_remote(app: &App, name: &str, url: &str, workspace_id: &st
     Ok(saved)
 }
 
-/// Runner: adds a local Git checkout as a folder of Home. Home registers its remote; a checkout without a
-/// remote is imported into Home Git (every branch and tag). The runner never works in the checkout itself.
-pub async fn add_to_home(app: &App, path: &Path, workspace_id: &str) -> Result<Project> {
+/// Adds a local Git checkout as a Git folder of Home, named `name` (the checkout's folder name when None). Home
+/// registers its remote; a checkout without a remote is imported into Home Git (every branch and tag). Agents
+/// never work in the checkout itself: every runner clones the folder from Home.
+pub async fn add_to_home(app: &App, path: &Path, name: Option<&str>, workspace_id: &str) -> Result<Project> {
     let path = crate::files::canonicalize(path).await.with_context(|| format!("{} does not exist", path.display()))?;
-    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let name = name.map(str::to_string).unwrap_or_else(|| path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
     let (remote_url, _, _) = remote_info(&path).await;
-    let v = crate::home_link::home_request("POST", "/api/projects/remote", Some(serde_json::json!({"name": name, "url": remote_url.clone().unwrap_or_default(), "workspace_id": workspace_id}))).await?;
-    let p: Project = serde_json::from_value(v)?;
+    let here = crate::home_git::here(app);
+    let p: Project = if here {
+        register_remote(app, &name, &remote_url.clone().unwrap_or_default(), workspace_id).await?
+    } else {
+        serde_json::from_value(crate::home_link::home_request("POST", "/api/projects/remote", Some(serde_json::json!({"name": name, "url": remote_url.clone().unwrap_or_default(), "workspace_id": workspace_id}))).await?)?
+    };
     if remote_url.is_none() {
-        let header = crate::repo_cache::daemon_header(app)?;
-        let url = crate::repo_cache::home_url(app, &p.id);
-        crate::home_git::git_in(app, &path, &["-c", &header, "-c", &format!("http.extraHeader={}: 1", crate::home_git::IMPORT_HEADER), "push", "--quiet", &url, "refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*"], 1800).await
-            .context("import the folder into Home Git")?;
+        let refs = ["refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*"];
+        if here {
+            let mirror = crate::home_git::ensure(app, &p).await?;
+            let mut cmd = crate::procs::command(&app.env, "git", Some(&path));
+            cmd.args(["push", "--quiet"]).arg(&mirror).args(refs).stdin(crate::exec::Io::Null).env("LP_IMPORT", "1");
+            let out = cmd.output().await?;
+            ensure!(out.status.success(), "import the folder into Home Git: {}", String::from_utf8_lossy(&out.stderr).trim());
+        } else {
+            let header = crate::repo_cache::daemon_header(app)?;
+            let url = crate::repo_cache::home_url(app, &p.id);
+            crate::home_git::git_in(app, &path, &["-c", &header, "-c", &format!("http.extraHeader={}: 1", crate::home_git::IMPORT_HEADER), "push", "--quiet", &url, refs[0], refs[1]], 1800).await
+                .context("import the folder into Home Git")?;
+        }
     }
-    store_home(app, vec![p.clone()], false).await?;
+    if !here {
+        store_home(app, vec![p.clone()], false).await?;
+    }
     get(app, &p.id).await?.context("no such folder")
 }
 
@@ -529,6 +538,26 @@ pub async fn import_plain(app: &App, path: &Path, workspace_id: &str) -> Result<
     get(app, &p.id).await?.context("no such folder")
 }
 
+/// Every daemon: forgets folder records that only one disk had (registered before every folder was stored by
+/// Home). Their files stay on disk; add them again to store them on Home. Temporary folders stay: their files
+/// are on Home.
+pub async fn forget_disk_folders(app: &App) -> Result<()> {
+    let gone = app.state_db.call(|c| {
+        let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM project WHERE home_git = 0 AND plain = 0 AND is_temp = 0"))?;
+        let rows = st.query_map([], from_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(st);
+        c.execute("DELETE FROM project WHERE home_git = 0 AND plain = 0 AND is_temp = 0", [])?;
+        Ok(rows)
+    }).await?;
+    for p in &gone {
+        tracing::warn!("folder {} ({}) existed only on one disk: forgotten; add it again to store it on Home", p.name, p.path);
+    }
+    if !gone.is_empty() {
+        app.bus.publish("projects", "changed", serde_json::Value::Null);
+    }
+    Ok(())
+}
+
 /// Home and `all`: Git checkouts registered before Home Git become Home Git folders.
 pub async fn adopt_git_folders(app: &App) -> Result<()> {
     if !crate::home_git::here(app) {
@@ -596,19 +625,22 @@ pub async fn unregister(app: &App, id: &str) -> Result<()> {
 /// "Scan projects root": git repositories in the projects root (one level deep).
 pub async fn discover(app: &App) -> Result<Vec<Discovered>> {
     let root = app.config.get().projects_root();
-    let registered: std::collections::HashSet<String> = list(app).await?.into_iter().map(|p| p.path).collect();
+    let folders = list(app).await?;
+    // A checkout added before is a folder of Home with this checkout's remote; runners keep their own clones.
+    let remotes: std::collections::HashSet<String> = folders.iter().filter_map(|p| p.remote_url.clone()).collect();
+    let registered: std::collections::HashSet<String> = folders.into_iter().map(|p| p.path).collect();
     let entries = crate::files::read_dir(&root).await.with_context(|| format!("read {}", root.display()))?;
     let found = entries.into_iter().filter(|e| !e.name.starts_with('.') && matches!(e.kind.as_str(), "dir" | "symlink")).map(|e| {
         let path = root.join(&e.name);
         async move {
             crate::git::git_dir(&path).await?;
-            let (_, gh_repo, _) = remote_info(&path).await;
+            let (remote, gh_repo, _) = remote_info(&path).await;
             let canonical = crate::files::canonicalize(&path).await.unwrap_or(path.clone());
-            Some((e.name, canonical.to_string_lossy().to_string(), gh_repo))
+            Some((e.name, canonical.to_string_lossy().to_string(), gh_repo, remote))
         }
     });
-    let mut out: Vec<Discovered> = futures_util::future::join_all(found).await.into_iter().flatten().map(|(name, path, gh_repo)| Discovered {
-        registered: registered.contains(&path),
+    let mut out: Vec<Discovered> = futures_util::future::join_all(found).await.into_iter().flatten().map(|(name, path, gh_repo, remote)| Discovered {
+        registered: registered.contains(&path) || remote.is_some_and(|r| remotes.contains(&r)),
         name,
         path,
         gh_repo,
@@ -643,7 +675,7 @@ async fn temp_at(app: &App, base: &str, workspace_id: &str, id: String) -> Resul
         n += 1;
     }
     std::fs::create_dir_all(&path).with_context(|| format!("create {}", path.display()))?;
-    register_as(app, &path, true, workspace_id, id).await
+    register_temp(app, &path, workspace_id, id).await
 }
 
 /// The name of a session's temporary folder, from its working directory (`<data_dir>/tmp/tmp-…`).
@@ -751,45 +783,79 @@ pub async fn after_archive(app: &App, session_id: &str) {
     }
 }
 
-/// Keep as folder: moves a temporary folder to `<projects_root>/<name>` and makes it a normal project. Moves
-/// the native adapter history too, so past sessions stay resumable. Refused while a session runs there.
-pub async fn promote(app: &App, id: &str, name: &str) -> Result<Project> {
+/// Keep as folder, on the disk that has the temporary folder: it becomes a folder stored by Home, so it runs on
+/// any runner. A Git repository becomes a new Git folder of Home (its agents keep the temporary folder); other
+/// files become a plain folder with the same ID: every file goes up to Home, Home moves the store
+/// (`keep_temp`), and this disk's copy moves to the plain folder's place with its sessions and the native
+/// adapter history, so past sessions stay resumable. Refused while an agent works there.
+pub async fn keep_as_folder(app: &App, id: &str, name: &str) -> Result<Project> {
     let p = get(app, id).await?.context("no such project")?;
     let old = check_temp(app, &p)?;
     let name = name.trim();
-    if name.is_empty() || name.contains('/') || name.starts_with('.') {
-        bail!("invalid folder name");
+    ensure!(!name.is_empty() && !name.contains('/') && !name.starts_with('.'), "invalid folder name");
+    let mine: Vec<crate::model::Session> = app.sessions.list().into_iter().filter(|s| s.project_id.as_deref() == Some(id)).collect();
+    ensure!(!mine.iter().any(|s| app.sessions.is_busy(s)), "an agent works in {}; keep it when its turn ended", p.name);
+    if old.join(".git").exists() {
+        let workspace = p.workspace_id.as_deref().context("this temporary folder has no workspace")?;
+        return add_to_home(app, &old, Some(name), workspace).await;
     }
-    let root = app.config.get().projects_root();
-    std::fs::create_dir_all(&root).with_context(|| format!("create {}", root.display()))?;
-    let new = std::fs::canonicalize(&root)?.join(name);
-    if new.exists() {
-        bail!("{} already exists", new.display());
-    }
-    // A shell would keep running in the renamed folder under its old path.
+    // The author of the last upload: an agent of the folder on this disk, else Launchpad itself.
+    let author = mine.iter().max_by_key(|s| s.started_at).map(|s| s.id.clone()).unwrap_or_else(|| format!("keep-{}", uuid::Uuid::new_v4()));
+    crate::plain::sync_up(app, &crate::plain::temp_store(id), &old, &author).await.context("save the files on Home")?;
+    let kept = crate::plain::home::keep(app, id, name).await?;
+    let new = crate::plain::copy_dir(app, id);
+    ensure!(!new.exists(), "{} already exists", new.display());
+    // A shell would keep running in the moved folder under its old path.
     app.terminals.close_in(&old.to_string_lossy()).await?;
-    move_dir(&old, &new).await?;
-    let (old_s, new_s) = (
-        old.to_string_lossy().to_string(),
-        new.to_string_lossy().to_string(),
-    );
-    for descriptor in app.harnesses.descriptors() {
-        app.harnesses
-            .get(descriptor.id)
-            .project_moved(&old_s, &new_s);
+    if let Some(parent) = new.parent() {
+        tokio::fs::create_dir_all(parent).await?;
     }
-    let (id2, name2) = (id.to_string(), name.to_string());
-    let new_path = new_s.clone();
-    app.state_db
-        .call(move |c| {
-            c.execute("UPDATE project SET path = ?1, name = ?2, is_temp = 0 WHERE id = ?3", params![new_path, name2, id2])?;
-            queue(c, &id2)
-        })
-        .await?;
+    move_dir(&old, &new).await?;
+    crate::plain::moved_copy(app, &old, &new).await;
+    let (old_s, new_s) = (old.to_string_lossy().to_string(), new.to_string_lossy().to_string());
+    for descriptor in app.harnesses.descriptors() {
+        app.harnesses.get(descriptor.id).project_moved(&old_s, &new_s);
+    }
+    if !crate::home_git::here(app) {
+        store_home(app, vec![kept], false).await?;
+    }
     // Sessions keep working from the new folder.
     app.sessions.move_cwd(app, &old_s, &new_s).await?;
     app.bus.publish("projects", "changed", serde_json::Value::Null);
     get(app, id).await?.context("no such project")
+}
+
+/// Home: Keep as folder. A temporary folder becomes a plain folder with the same ID: the files and history of
+/// its store `tmp-<id>` move to the folder's own store, and its one open agent, if any, holds the lock (a plain
+/// folder has one agent at a time).
+pub async fn keep_temp(app: &App, id: &str, name: &str) -> Result<Project> {
+    ensure!(crate::home_git::here(app), "folders are changed on Home");
+    let name = name.trim();
+    ensure!(!name.is_empty() && !name.contains('/') && !name.starts_with('.'), "invalid folder name");
+    let p = get(app, id).await?.context("no such folder")?;
+    ensure!(p.is_temp, "{} is not a temporary folder", p.name);
+    let open: Vec<String> = app.sessions.list().into_iter().filter(|s| s.project_id.as_deref() == Some(id) && s.status != crate::model::SessionStatus::Closed).map(|s| s.id).collect();
+    ensure!(open.len() <= 1, "{} agents are open in {}; archive all but one first (a plain folder has one agent at a time)", open.len(), p.name);
+    let (id2, name2, temp, path) = (id.to_string(), name.to_string(), crate::plain::temp_store(id), crate::plain::copy_dir(app, id).to_string_lossy().into_owned());
+    let holder = open.into_iter().next();
+    app.state_db
+        .call(move |c| {
+            let tx = c.transaction()?;
+            for table in ["plain_file", "plain_history", "plain_state"] {
+                tx.execute(&format!("UPDATE {table} SET store = ?2 WHERE store = ?1"), params![temp, id2])?;
+            }
+            tx.execute("INSERT INTO plain_state (store, version) VALUES (?1, 0) ON CONFLICT DO NOTHING", [&id2])?;
+            tx.execute("DELETE FROM plain_lock WHERE store = ?1 OR store = ?2", params![temp, id2])?;
+            if let Some(s) = holder {
+                tx.execute("INSERT INTO plain_lock (store, session_id, at) VALUES (?1, ?2, ?3)", params![id2, s, now_ms()])?;
+            }
+            tx.execute("UPDATE project SET name = ?2, path = ?3, is_temp = 0, plain = 1, home_git = 0, runner_id = NULL WHERE id = ?1", params![id2, name2, path])?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await?;
+    app.bus.publish("projects", "changed", serde_json::Value::Null);
+    get(app, id).await?.context("no such folder")
 }
 
 /// Renames a folder, or copies it and deletes the original when the target is on another file system.

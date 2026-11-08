@@ -561,8 +561,6 @@ impl Hub {
     }
 }
 
-/// Home: the runner for a new session. The one chosen in the composer, the one whose disk has the folder, or
-/// the first that takes launches from other devices.
 /// The runner of the session whose folder a launch continues in (New agent here, Run in → existing worktree).
 fn source_runner(app: &App, spec: &crate::model::LaunchSpec) -> Option<String> {
     match &spec.target {
@@ -571,6 +569,8 @@ fn source_runner(app: &App, spec: &crate::model::LaunchSpec) -> Option<String> {
     }
 }
 
+/// Home: the runner for a new session. The one chosen in the composer, else the first that takes launches from
+/// other devices: every folder is stored by Home, so any runner opens it.
 pub async fn launch_runner(app: &App, spec: &crate::model::LaunchSpec) -> Result<String> {
     use crate::model::Target;
     let project = match &spec.target {
@@ -588,24 +588,22 @@ pub async fn launch_runner(app: &App, spec: &crate::model::LaunchSpec) -> Result
         anyhow::ensure!(available.contains(&r), refused(name_of(r.clone()).await, "The runner of that session"));
         return Ok(r);
     }
-    if let Some(r) = &spec.runner_id {
-        anyhow::ensure!(available.contains(r), refused(name_of(r.clone()).await, "The chosen runner"));
-        if let Some(project) = &project {
-            let p = crate::projects::get(app, project).await?.context("no such folder")?;
-            anyhow::ensure!(p.home_git || p.plain || p.runner_id.as_deref() == Some(r.as_str()), "{} exists only on another runner's disk", p.name);
-        }
-        return Ok(r.clone());
+    let folder = match project {
+        Some(id) => Some(crate::projects::get(app, &id).await?.context("no such folder")?),
+        None => None,
+    };
+    // Git and plain folders are stored by Home and run on any runner: it clones or syncs the folder on first use.
+    // A temporary folder is on the runner of its agents until it is kept as a folder.
+    if let Some(p) = &folder {
+        anyhow::ensure!(p.home_git || p.plain || p.is_temp, "{} is not stored on Home: add it again in Folders", p.name);
     }
-    let first = |available: Vec<String>| available.into_iter().next().context("no runner takes launches now: connect one, or check its guard in Settings → Home and runners");
-    let Some(project) = project else { return first(available) };
-    let p = crate::projects::get(app, &project).await?.context("no such folder")?;
-    // A Git folder of Home runs on any runner: it clones the folder on first use. A plain folder syncs.
-    if p.home_git || p.plain {
-        return first(available);
+    let temp_runner = folder.filter(|p| p.is_temp).and_then(|p| p.runner_id);
+    if let Some(r) = spec.runner_id.clone().or(temp_runner.clone()) {
+        anyhow::ensure!(temp_runner.as_ref().is_none_or(|t| t == &r), "this temporary folder is on {}: choose that runner, or keep it as a folder", name_of(temp_runner.clone().unwrap_or_default()).await.unwrap_or_else(|| "another runner".into()));
+        anyhow::ensure!(available.contains(&r), refused(name_of(r.clone()).await, if spec.runner_id.is_some() { "The chosen runner" } else { "Its runner" }));
+        return Ok(r);
     }
-    let r = p.runner_id.with_context(|| format!("{} is not on a runner", p.name))?;
-    anyhow::ensure!(available.contains(&r), refused(name_of(r.clone()).await, "Its runner"));
-    Ok(r)
+    available.into_iter().next().context("no runner takes launches now: connect one, or check its guard in Settings → Home and runners")
 }
 
 fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> {

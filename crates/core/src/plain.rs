@@ -625,6 +625,14 @@ pub(crate) mod home {
         v["version"].as_i64().context("version missing")
     }
 
+    /// Keep as folder: the temporary folder `id` becomes a plain folder of Home (`projects::keep_temp`).
+    pub async fn keep(app: &App, id: &str, name: &str) -> Result<crate::model::Project> {
+        if crate::home_git::here(app) {
+            return crate::projects::keep_temp(app, id, name).await;
+        }
+        Ok(serde_json::from_value(json(request(app, reqwest::Method::POST, &format!("/api/plain/{id}/keep"), None)?.json(&serde_json::json!({"name": name}))).await?)?)
+    }
+
     pub async fn lock(app: &App, id: &str, session: &str, take: bool) -> Result<()> {
         if crate::home_git::here(app) {
             return if take { super::lock(app, id, session).await } else { super::unlock(app, id, session).await };
@@ -820,6 +828,15 @@ pub async fn browse_copy(app: &App, id: &str) -> Result<PathBuf> {
     }
     tokio::fs::write(&marker, tree.version.to_string()).await?;
     Ok(dir)
+}
+
+/// What a copy synced follows it to its new place (Keep as folder).
+pub async fn moved_copy(app: &App, old: &Path, new: &Path) {
+    let to = state_file(app, new);
+    if let Some(parent) = to.parent() {
+        let _ = tokio::fs::create_dir_all(parent).await;
+    }
+    let _ = tokio::fs::rename(state_file(app, old), to).await;
 }
 
 /// Forgets what a copy synced (its folder was removed from this disk).

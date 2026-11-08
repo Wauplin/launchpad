@@ -215,6 +215,9 @@ impl App {
         if let Err(e) = projects::adopt_git_folders(&app).await {
             tracing::warn!("Home Git folders: {e:#}");
         }
+        if let Err(e) = projects::forget_disk_folders(&app).await {
+            tracing::warn!("folders of one disk: {e:#}");
+        }
         worktrees::spawn(&app);
         today::spawn(&app);
         handoff::spawn(&app);

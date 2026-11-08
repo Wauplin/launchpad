@@ -282,7 +282,7 @@ async fn relocate(app: &App, s: &mut Session, worktrees: &mut [TaskWorktree]) ->
         s.cwd = p.path;
         return Ok(());
     }
-    bail!("this session's folder exists only on the runner it ran on")
+    bail!("this session's folder is no longer stored on Home")
 }
 
 /// A runner takes over a session Home moved here: it fetches the handoff, records the worktrees and puts the

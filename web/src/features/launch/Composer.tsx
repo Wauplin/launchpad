@@ -473,7 +473,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const effortLabel = spec.effort ?? profile?.effort ?? defaults?.effort ?? null;
   const worktreeMode = spec.target.kind === "project" && !!spec.worktree && gitTarget;
   // Only values that differ from the defaults show in the option line; a new worktree is the default for Git folders.
-  const runIn = spec.target.kind === "session_folder" ? (selectedWorktree ? `worktree · ${selectedWorktree.branch}` : "previous agent’s folder") : spec.target.kind === "predraft" ? "new Local PR" : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? (pushToPr ? `PR #${pushToPr.number}` : null) : spec.target.kind === "project" && gitTarget ? "checkout" : null;
+  const runIn = spec.target.kind === "session_folder" ? (selectedWorktree ? `worktree · ${selectedWorktree.branch}` : "previous agent’s folder") : spec.target.kind === "predraft" ? "new Local PR" : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? (pushToPr ? `PR #${pushToPr.number}` : null) : null;
   const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
   const billingText = !supportsCost && harness?.capabilities.cost ? costUnavailableMessage : payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
   // Where it runs and what happens when done, first on the options line ("New worktree from main · keep branch").
@@ -619,7 +619,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               <Branch projectId={c.project_id} branch={c.branch} onChange={(branch) => set((s) => ({ ...s, context_projects: s.context_projects.map((x) => (x.project_id === c.project_id ? { ...x, branch } : x)) }))} />
               <button
                 className={`inline-flex h-5 items-center rounded-[5px] border px-1.5 text-[11px] ${c.editable ? "border-teal bg-teal-soft font-semibold text-teal-ink" : "border-line bg-paper text-ink-2"}`}
-                title={c.editable ? (spec.target.kind === "project" && !worktreeMode ? "Editable: the agent may modify this checkout. Click to make it read-only." : "Editable: the agent gets its own worktree of this project. Click to make it read-only.") : "Read-only reference. Click to let the agent modify it."}
+                title={c.editable ? (spec.target.kind === "project" && !worktreeMode ? "Editable: the agent may modify this folder. Click to make it read-only." : "Editable: the agent gets its own worktree of this project. Click to make it read-only.") : "Read-only reference. Click to let the agent modify it."}
                 aria-pressed={c.editable}
                 onClick={() => set((s) => ({ ...s, context_projects: s.context_projects.map((x) => (x.project_id === c.project_id ? { ...x, editable: !x.editable } : x)) }))}
               >{c.editable ? "editable" : "read-only"}</button>
@@ -668,7 +668,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               }}>
                 {spec.target.kind === "session_folder" && !selectedWorktree && <option value="session_folder">Previous agent’s folder</option>}
                 {gitTarget && <option value="worktree">New worktree</option>}
-                {!target.home_git && <option value="project">{gitTarget ? "Checkout" : "Folder (no Git)"}</option>}
+                {!target.home_git && <option value="project">{target.plain ? "Folder (no Git)" : "Temporary folder"}</option>}
                 {gitTarget && <option value="predraft">New Local PR</option>}
                 {!!worktreeChoices.length && <optgroup label="Existing worktrees">{worktreeChoices.map((w) => <option key={w.id} value={`worktree:${w.id}`} disabled={w.busy}>{w.branch}{w.busy ? " · Agent active" : ""}</option>)}</optgroup>}
                 {existing && !existingPrChoices.some((p) => p.id === existing.id) && <option value={`predraft:${existing.id}`} disabled>Local PR: {existing.title} · Unavailable</option>}

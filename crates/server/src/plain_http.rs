@@ -28,6 +28,7 @@ pub fn router() -> Router<Server> {
         .route("/api/plain/{id}/restore", post(restore))
         .route("/api/plain/assets/{project}", post(create_asset).get(list_assets))
         .route("/api/plain/{id}/untrash", post(untrash))
+        .route("/api/plain/{id}/keep", post(keep))
         .route("/api/assets", post(create_in_worktree))
 }
 
@@ -109,6 +110,20 @@ struct Restore {
 async fn restore(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap, Json(b): Json<Restore>) -> ApiResult<Value> {
     caller(&s, &headers).await?;
     Ok(Json(json!({"version": plain::restore(&s.app, &id, b.change).await.map_err(bad)?})))
+}
+
+#[derive(Deserialize)]
+struct Keep {
+    name: String,
+}
+
+/// Keep as folder, from the runner that has the temporary folder `id` (it moves its copy afterwards).
+async fn keep(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap, Json(b): Json<Keep>) -> ApiResult<launchpad_core::model::Project> {
+    caller(&s, &headers).await?;
+    if !headers.contains_key(crate::runners::CREDENTIAL_HEADER) {
+        return Err(ApiError::bad_request("Keep as folder runs on the runner that has the temporary folder"));
+    }
+    Ok(Json(launchpad_core::projects::keep_temp(&s.app, &id, &b.name).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]

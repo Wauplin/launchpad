@@ -136,15 +136,12 @@ async fn browse_local(State(s): State<Ctx>, Query(q): Query<BrowseLocal>) -> Api
 
 async fn add_project(State(s): State<Ctx>, Json(b): Json<AddProject>) -> ApiResult<Project> {
     let path = launchpad_core::paths::expand_home(b.path.trim());
-    // A runner's Git checkout becomes a folder of Home; the runner works in its own clones of it.
-    let git = launchpad_core::git::git_dir(&path).await.is_some();
-    let p = if s.app.paths.role == launchpad_core::role::Role::Runner && git {
-        projects::add_to_home(&s.app, &path, &b.workspace_id).await
-    } else if !git {
-        // A folder without Git becomes a plain folder of Home: agents work in a synced copy.
-        projects::import_plain(&s.app, &path, &b.workspace_id).await
+    // Every folder is stored by Home and runs on any runner: a Git checkout becomes a Git folder of Home (runners
+    // work in their own clones), a folder without Git a plain folder (runners work in a synced copy).
+    let p = if launchpad_core::git::git_dir(&path).await.is_some() {
+        projects::add_to_home(&s.app, &path, None, &b.workspace_id).await
     } else {
-        projects::register(&s.app, &path, false, &b.workspace_id).await
+        projects::import_plain(&s.app, &path, &b.workspace_id).await
     };
     Ok(Json(p.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }
@@ -318,7 +315,7 @@ async fn promote(State(s): State<Ctx>, Path(id): Path<String>, Json(b): Json<Pro
     if s.app.sessions.running_in(&p.path) {
         return Err(ApiError::conflict("a session is running in this folder: close it first"));
     }
-    Ok(Json(projects::promote(&s.app, &id, &b.name).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
+    Ok(Json(projects::keep_as_folder(&s.app, &id, &b.name).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }
 
 // ---------------------------------------------------------------- launch

@@ -23,7 +23,7 @@ when_done: WhenDone,
  */
 workspace_id: string | null, 
 /**
- * On Home: the runner whose disk has this folder. None: this daemon's disk.
+ * On Home: the runner that has this temporary folder now. None for every other folder: Home stores it.
  */
 runner_id?: string, 
 /**

@@ -60,10 +60,9 @@ async fn main() -> Result<()> {
     };
     let result = async {
         for name in ["codex", "claude"] {
-            let folder = root.join(name);
-            std::fs::create_dir_all(&folder)?;
             let ws = core::workspace::create(&app, "Permission check").await?;
-            let project = core::projects::register(&app, &folder, false, &ws.id).await?;
+            let project = core::projects::create_temp(&app, name, &ws.id).await?;
+            let folder = std::path::PathBuf::from(&project.path);
             let spec = LaunchSpec { harness: Some(HarnessKind::parse(name).unwrap()), profile: (name == "codex").then(|| "permission-check".into()), permission_mode: PermissionMode::Approvals,
                 target: Target::Project { project_id: project.id },
                 text: "Run a shell command to write the text success into a file called permission-check.txt in the current directory. Use the shell, not an edit tool. Then reply done. Do not do anything else.".into(), ..Default::default() };

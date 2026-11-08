@@ -131,9 +131,8 @@ route("POST", "/api/projects/:id/promote", ({ params, body }) => {
   const p = projectOf(params.id);
   const name = String(body?.name ?? "").trim();
   if (!/^[\w.-]+$/.test(name)) throw new DemoError(400, "Use letters, digits, dots, dashes or underscores.");
-  if (world.projects.some((x) => x.name === name && x.id !== p.id)) throw new DemoError(400, `${name} already exists in the folders root`);
   const old = p.path;
-  Object.assign(p, { name, path: `${ROOT}/${name}`, is_temp: false });
+  Object.assign(p, { name, path: `/home/demo/.local/share/launchpad-runner/plain/${p.id}`, is_temp: false, plain: true });
   if (world.codeTrees[p.id] === undefined && world.codeRoots[old]) delete world.codeRoots[old];
   projectsChanged();
   return p;

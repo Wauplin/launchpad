@@ -470,7 +470,7 @@ pub async fn launch(app: &App, spec: LaunchSpec, id: String, automatic: bool) ->
     ensure!(app.sessions.get(&id).is_none(), "a session with this id already exists");
     if let crate::model::Target::Project { project_id } | crate::model::Target::Predraft { project_id } = &spec.target {
         let p = crate::projects::get(app, project_id).await?.context("no such folder")?;
-        ensure!(p.home_git || p.plain, "{} exists only on a runner's disk: Burst cannot open it", p.name);
+        ensure!(p.home_git || p.plain, "{} is not stored on Home: Burst cannot open it", p.name);
     }
     let pending = Pending::Launch { spec: Box::new(spec.clone()), session_id: id.clone(), automatic };
     let run = start(app, Some(id.clone()), pending).await?;

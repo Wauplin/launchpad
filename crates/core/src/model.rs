@@ -645,7 +645,7 @@ pub struct Project {
     /// The one workspace of this folder. None: Unassigned (folders registered before workspaces were required).
     #[serde(default)]
     pub workspace_id: Option<String>,
-    /// On Home: the runner whose disk has this folder. None: this daemon's disk.
+    /// On Home: the runner that has this temporary folder now. None for every other folder: Home stores it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub runner_id: Option<String>,
