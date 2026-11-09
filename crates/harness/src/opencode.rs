@@ -133,6 +133,19 @@ impl harness::Harness for Adapter {
         let env = harness::trace::environment(app, session)?;
         export_trace(&env, id).await
     }
+    /// OpenCode keeps conversations in its own database: its own `opencode import` reads the unchanged
+    /// `opencode export` file back, in the session's folder so the conversation belongs to its project here.
+    async fn restore_native(&self, app: &App, session: &Session, files: Vec<harness::trace::TraceFile>) -> Result<()> {
+        let id = harness::trace::conversation(session)?;
+        let file = files.into_iter().find(|f| f.name == format!("{id}.json")).ok_or_else(|| anyhow::anyhow!("no OpenCode export of this conversation"))?;
+        let env = harness::trace::environment(app, session)?;
+        let path = launchpad_core::contain::harness_home(app, &session.id).join(format!(".launchpad-import-{id}.json"));
+        std::fs::write(&path, &file.data)?;
+        let cwd = std::path::Path::new(&session.cwd);
+        let result = launchpad_core::procs::output(&env, "opencode", &["import", &path.to_string_lossy()], cwd.is_dir().then_some(cwd)).await;
+        let _ = std::fs::remove_file(&path);
+        result.map(|_| ())
+    }
     async fn models(&self, app: &App) -> Result<Vec<ModelInfo>> {
         let output = launchpad_core::procs::output(&app.env, "opencode", &["models"], None).await?;
         Ok(output
