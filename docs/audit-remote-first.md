@@ -1,7 +1,5 @@
 # Audit: Home + runners only (remote-first)
 
-Status: the findings below were addressed in commits `0df9bba..45d959b`. The rules in [AGENTS.md](../AGENTS.md) are current; this report is kept as written.
-
 Date: 2026-11-09. Scope: the whole repository (crates, web, desktop, packaging, deploy, docs). Read-only audit, nothing implemented. Target model: Home (a server, normally on an HF Space) runs no agents; agents run only on registered runners or Burst; every folder, agent and worktree is remote; everything a review, merge or resume needs lives on Home.
 
 Legend: **[V]** verified by reading the code during the audit; **[R]** found by a reviewer pass reading the code, not re-checked line by line; **[?]** suspicion.
