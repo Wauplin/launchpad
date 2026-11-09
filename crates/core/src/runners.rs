@@ -418,6 +418,11 @@ async fn interrupt_away(app: &App, away: &mut HashMap<String, i64>) {
         }
         let name = runner_name(app, &r).await;
         let note = format!("{name} went offline during this turn. Launchpad marked the session Interrupted after {} minutes: send a message to continue it on another runner from its last saved turn.", AWAY_GRACE_MS / 60_000);
+        // The runner may have come back (and sent its record) while this check ran: then its record stands.
+        let unchanged = |c: &crate::model::Session| c.generation == s.generation && c.runner_id == s.runner_id && (c.status.is_running() || c.open_question);
+        if app.runners.connected(&r) || !app.sessions.get(&s.id).is_some_and(|c| unchanged(&c)) {
+            continue;
+        }
         match app.sessions.end_replica(app, &s.id, crate::model::SessionStatus::Interrupted, Some(note)).await {
             Ok(_) => tracing::info!("session {} interrupted: runner {r} away", s.id),
             Err(e) => tracing::warn!("session {} of away runner {r}: {e:#}", s.id),
@@ -425,8 +430,8 @@ async fn interrupt_away(app: &App, away: &mut HashMap<String, i64>) {
     }
 }
 
-/// A runner's name for messages: Burst, its name, or "its runner".
-async fn runner_name(app: &App, id: &str) -> String {
+/// A runner's name for messages: Burst, its name, or "Its runner".
+pub async fn runner_name(app: &App, id: &str) -> String {
     if is_burst(app, id).await || crate::burst::get(app, id).await.ok().flatten().is_some() {
         return "Burst".into();
     }
@@ -702,6 +707,12 @@ pub async fn place(app: &App, id: &str) -> Result<Place> {
     let _lock = lock.lock().await;
     let s = app.sessions.get(id).context("no such session")?;
     let Some(r) = s.runner_id.clone() else { return Ok(Place::Here) };
+    // A Burst job is starting for it: the job moves the session and sends the first request, so nothing else
+    // may reach the old runner (if it comes back) or start a second job meanwhile. Later requests wait in the
+    // job's record and follow the first one (`burst::continue_session`).
+    if crate::burst::starting_for(app, id).await {
+        return Ok(Place::Burst);
+    }
     if holds(app, &s).await {
         return Ok(Place::Runner(r));
     }
@@ -784,6 +795,10 @@ async fn move_pinned(app: &App, spec: &crate::model::LaunchSpec) -> Result<()> {
         Some(c) => Some(c.clone()).filter(|c| app.runners.available().contains(c)).context("The chosen runner does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update")?,
         None => pick(app, None).with_context(|| format!("{name} has this folder and is offline, and no other runner takes launches now: connect a runner, or send its agent a message to continue it on Burst"))?,
     };
+    // All or none: a temporary folder never ends up split between two runners by a refused move.
+    if let Some(reason) = sessions.iter().find_map(crate::handoff::blocked) {
+        bail!("{name} has this folder and is offline, and its agent cannot move: {reason}");
+    }
     for s in &sessions {
         crate::handoff::move_to(app, &s.id, &to).await?;
     }

@@ -340,8 +340,9 @@ pub async fn release(app: &App, id: &str, generation: u32) -> Result<()> {
     }
     // Its temporary folder leaves this disk when Home has every file and no other agent here uses it; otherwise
     // it stays, with the files Home lacks.
+    // A Git repository in it stays too: Home's copy of a temporary folder never holds Git data.
     if let Some(pid) = &s.project_id
-        && crate::projects::get(app, pid).await?.is_some_and(|p| p.is_temp)
+        && crate::projects::get(app, pid).await?.is_some_and(|p| p.is_temp && !std::path::Path::new(&p.path).join(".git").exists())
         && !app.sessions.list().iter().any(|o| o.id != id && o.project_id.as_deref() == Some(pid.as_str()) && o.status != crate::model::SessionStatus::Closed)
         && let Err(e) = crate::projects::remove_temp_copy(app, pid, false).await
     {
@@ -446,7 +447,8 @@ pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
     ensure!(from != to, "the session already runs there");
     ensure!(app.runners.connected(to), "the chosen runner is not connected");
     let mut lost_files = false;
-    if app.runners.connected(&from) {
+    let offline = !app.runners.connected(&from);
+    if !offline {
         let (status, body) = app.runners.request(&from, "POST", &format!("/api/sessions/{id}/handoff"), Some(serde_json::json!({"final": true}).to_string())).await?;
         ensure!((200..300).contains(&status), "{}", serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or(body));
     } else {
@@ -454,9 +456,14 @@ pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
         lost_files = !h.is_final && h.worktrees.iter().any(|w| w.state == WorktreeState::Active);
     }
     let s = app.sessions.reassign(app, id, to).await?;
-    if !app.runners.connected(&from) {
-        // The old runner still holds the older generation: it releases it when it is back.
+    if offline {
+        // The old runner still holds the older generation: it releases it when it is back (at once if it came
+        // back during the move, after its own delivery ran).
         crate::runners::release_later(app, &from, id, s.generation).await?;
+        if app.runners.connected(&from) {
+            let (app, from) = (app.clone(), from.clone());
+            tokio::spawn(async move { crate::runners::deliver_pending(&app, &from).await });
+        }
     }
     if let Some(pid) = &s.project_id {
         crate::projects::move_temp(app, pid, to).await?;

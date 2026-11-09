@@ -567,6 +567,16 @@ async fn fail_continuation(app: &App, id: &str, error: &str, message: bool) {
     }
 }
 
+/// Home: whether a Burst job is starting to take this session (its move and request still to come).
+pub async fn starting_for(app: &App, id: &str) -> bool {
+    starting(app, id).await.ok().flatten().is_some()
+}
+
+/// The job starting to take this session, if any.
+async fn starting(app: &App, id: &str) -> Result<Option<BurstRun>> {
+    Ok(runs(app).await?.into_iter().find(|r| r.active() && r.session_id.as_deref() == Some(id) && r.pending.is_some()))
+}
+
 /// Home: a request for a session no runner takes (`runners::place`): a new job takes the session, then the
 /// request (`input`, `resume`, `answer`).
 pub async fn continue_session(app: &App, id: &str, action: &str, body: Option<String>, key: Option<String>) -> Result<()> {
@@ -575,7 +585,7 @@ pub async fn continue_session(app: &App, id: &str, action: &str, body: Option<St
         bail!("{reason}");
     }
     // A job is already starting for this session (a second message while the first one waits): this one follows it.
-    if let Some(r) = runs(app).await?.into_iter().find(|r| r.active() && r.session_id.as_deref() == Some(id) && r.pending.is_some()) {
+    if let Some(r) = starting(app, id).await? {
         ensure!(!matches!(r.pending, Some(Pending::Launch { .. })), "This agent is still starting on Burst: send your message once it runs");
         let mut accepted = false;
         let queued = Queued { action: action.to_string(), body: body.clone(), key: key.clone() };
@@ -612,7 +622,7 @@ pub async fn move_session(app: &App, id: &str) -> Result<()> {
         bail!("{reason}");
     }
     ensure!(s.runner_id.is_some(), "this session has no runner");
-    ensure!(!runs(app).await?.iter().any(|r| r.active() && r.session_id.as_deref() == Some(id) && r.pending.is_some()), "Burst is already starting for this session");
+    ensure!(!starting_for(app, id).await, "Burst is already starting for this session");
     start(app, Some(id.to_string()), Pending::Move { session_id: id.to_string() }).await.map(|_| ())
 }
 

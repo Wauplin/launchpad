@@ -791,11 +791,18 @@ pub(crate) async fn release_moved(app: &App, session_id: &str, generation: u32) 
             continue;
         }
         if w.state == WorktreeState::Active && Path::new(&w.root).is_dir() {
+            // A shell there would write after the capture, into a folder that is about to go.
+            app.terminals.close_in(&w.root).await?;
             let head = git(app, &w.root, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
             let tip = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch)).await?.unwrap_or(head);
             if w.pushed.as_deref() != Some(tip.as_str()) {
                 let scratch = format!("lp-scratch/{}-gen{generation}", w.branch.trim_start_matches("lp/"));
-                crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{tip}:refs/heads/{scratch}")], 900)
+                // As the daemon, not the session: Home refuses the Git requests of a session that now runs
+                // elsewhere (`home_git::check_session`). The empty value drops the worktree's session header.
+                let header = crate::repo_cache::daemon_header(app)?;
+                let url = crate::repo_cache::home_url(app, &w.project_id);
+                let args = ["-c", "http.extraHeader=", "-c", header.as_str(), "push", "--quiet", url.as_str(), &format!("+{tip}:refs/heads/{scratch}")];
+                crate::home_git::git_in(app, Path::new(&w.root), &args, 900)
                     .await
                     .with_context(|| format!("Home did not confirm the leftovers of {}", w.branch))?;
                 tracing::info!("released worktree {}: leftovers on {scratch}", w.root);

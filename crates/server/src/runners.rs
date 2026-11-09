@@ -644,7 +644,7 @@ async fn offline(s: &Server, runner: &str, parts: &[&str], body: Option<&str>) -
         }
         .await,
         _ => {
-            let name = runners::list(&s.app).await.ok().and_then(|l| l.into_iter().find(|r| r.runner.id == runner)).map(|r| r.runner.name).unwrap_or_else(|| "Its runner".into());
+            let name = runners::runner_name(&s.app, runner).await;
             return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} is offline")).into_response();
         }
     };
