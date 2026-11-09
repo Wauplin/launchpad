@@ -5,7 +5,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { Empty, MoreMenu } from "@/components/ui";
+import { BotChip, Empty, MoreMenu } from "@/components/ui";
 import { ActionMenuItem } from "@/components/ActionButton";
 import { MenuItem } from "@/components/Popover";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -52,8 +52,9 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
         <span className="row-span-2 mt-px">
           <HarnessMark harness={s.harness} size={18} />
         </span>
-        <span className={`truncate text-[13px] leading-[1.35] ${dim ? "font-medium text-ink-2" : needs ? "font-semibold" : "font-medium"}`} title={s.title}>
-          {pinned ? "★ " : ""}{s.title}
+        <span className={`flex min-w-0 items-center gap-1.5 text-[13px] leading-[1.35] ${dim ? "font-medium text-ink-2" : needs ? "font-semibold" : "font-medium"}`} title={s.title}>
+          {s.launch_spec.bot && <BotChip name={s.launch_spec.bot.name} />}
+          <span className="min-w-0 truncate">{pinned ? "★ " : ""}{s.title}</span>
         </span>
         <span className="flex items-center gap-1 text-[12px] whitespace-nowrap text-ink-3">
           {informative(s) ? <SessionStatus s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{age(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}

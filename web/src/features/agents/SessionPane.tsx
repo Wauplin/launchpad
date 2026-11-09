@@ -6,7 +6,7 @@ import { ProposalCard, useProposalList } from "@/features/proposals/ProposalCard
 import { FollowUpAgent } from "./FollowUpAgent";
 import { useProfile } from "@/lib/profiles";
 import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle, RunSettingsChip } from "./SessionSummary";
-import { Tabs } from "@/components/ui";
+import { BotChip, Tabs } from "@/components/ui";
 import { SubagentsPanel, subagents } from "./SubagentsPanel";
 import { GitPanel } from "./GitPanel";
 import { ProcessesPanel } from "./ProcessesPanel";
@@ -469,6 +469,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <div className="session-heading flex min-w-0 flex-1 basis-56 items-center gap-2">
             <HarnessMark harness={s.harness} size={16} />
+            {s.launch_spec.bot && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} className="flex min-w-0 max-w-[40%] shrink-0 no-underline hover:opacity-80" aria-label={`Open ${s.launch_spec.bot.name}`}><BotChip name={s.launch_spec.bot.name} className="max-w-full" /></Link>}
             {titleEl}
             {!renaming && <SessionStatus s={s} />}
           </div>
@@ -485,7 +486,6 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           {/* The meta line and ⓘ wrap together under the views when less than 192 px remain beside them. */}
           <div className="flex min-w-0 flex-1 basis-48 items-center gap-1">
           <span className="session-meta flex min-w-0 flex-1 items-center gap-x-1.5 overflow-hidden text-[12px] whitespace-nowrap text-ink-3 tabular-nums">
-            {s.launch_spec.bot && <><Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} className="shrink-0 text-teal-ink hover:underline" title="This session belongs to a bot's thread">{s.launch_spec.bot.name}</Link>·</>}
             <span className="max-w-[40%] shrink-0 truncate" title={s.cwd}>{place}</span>
             <span className="flex min-w-0 [&>div]:min-w-0 [&_button]:max-w-full"><WorktreeChip session={s} /></span>
             {localPr && <button className="shrink-0 text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Local PR</button>}

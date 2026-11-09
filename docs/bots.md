@@ -51,7 +51,7 @@ You can also ask Ask Launchpad: "Create a bot that watches the Xet changelog." I
 
 ## The thread
 
-A bot has one thread: a chain of sessions. Your messages go to its current session, which is a normal agent session (listed in Agents too, with the bot's name).
+A bot has one thread: a chain of sessions. Your messages go to its current session, which is a normal agent session (listed in Agents too, with a small teal chip of the bot's name before its title, also in the session header, where it links to the bot).
 
 A new session starts:
 

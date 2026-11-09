@@ -296,6 +296,11 @@ export function Token({ tone = "neutral", icon, children, title, className = "" 
   );
 }
 
+/** The bot a session belongs to, as a small chip before its title (Agents list, session header). Teal like every bot mark. */
+export function BotChip({ name, className = "" }: { name: string; className?: string }) {
+  return <span title={`This session belongs to ${name}'s thread`} className={`inline-flex h-4 max-w-[45%] shrink-0 items-center rounded px-1.5 align-[1px] text-[11px] font-semibold whitespace-nowrap bg-teal-soft text-teal-ink ${className}`}><span className="truncate">{name}</span></span>;
+}
+
 export type SettingScope = "device" | "all";
 
 /** "This device" (browser storage) or "All devices" (daemon config). */
