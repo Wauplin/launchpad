@@ -420,7 +420,7 @@ pub async fn feedback(app: &App, id: &str) -> Result<()> {
     );
     let sent_notes = p.notes.clone();
     drop(_lock);
-    crate::sessions::send_anywhere(app, &session, &message).await?;
+    crate::runners::send_anywhere(app, &session, &message, vec![], None).await?;
     let _lock = app.predraft_lock.lock().await;
     p = get(app, id).await?;
     if p.notes == sent_notes {

@@ -222,6 +222,7 @@ impl App {
         worktrees::spawn(&app);
         today::spawn(&app);
         handoff::spawn(&app);
+        runners::spawn(&app);
         Ok(app)
     }
 }

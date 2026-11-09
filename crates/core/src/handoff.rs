@@ -320,6 +320,43 @@ pub async fn adopt(app: &App, id: &str) -> Result<()> {
     app.sessions.adopt(app, s).await
 }
 
+/// Runner: Home moved this session on while this runner was away (Home's generation is `generation`). What
+/// still runs stops, each worktree's commits and uncommitted files go to `lp-scratch/…` on Home, the folders
+/// and the local record go. When Home's record still names this runner (Home kept its temporary folder as a
+/// folder), the session is adopted again from Home.
+pub async fn release(app: &App, id: &str, generation: u32) -> Result<()> {
+    ensure!(app.paths.role == crate::role::Role::Runner, "only runners release sessions");
+    let Some(s) = app.sessions.get(id) else { return Ok(()) };
+    if s.generation >= generation {
+        return Ok(());
+    }
+    if let Some(t) = app.terminals.tui_of(id) {
+        app.terminals.close_and_wait(&[t]).await?;
+    }
+    {
+        let _action = app.sessions.action_lock().await;
+        app.sessions.detach(app, id).await?;
+        crate::worktrees::release_moved(app, id, s.generation).await?;
+    }
+    // Its temporary folder leaves this disk when Home has every file and no other agent here uses it; otherwise
+    // it stays, with the files Home lacks.
+    if let Some(pid) = &s.project_id
+        && crate::projects::get(app, pid).await?.is_some_and(|p| p.is_temp)
+        && !app.sessions.list().iter().any(|o| o.id != id && o.project_id.as_deref() == Some(pid.as_str()) && o.status != crate::model::SessionStatus::Closed)
+        && let Err(e) = crate::projects::remove_temp_copy(app, pid, false).await
+    {
+        tracing::warn!("temporary folder of released session {id} stays: {e:#}");
+    }
+    app.sessions.forget_local(app, id).await?;
+    SENT.lock().unwrap().remove(id);
+    let _ = tokio::fs::remove_dir_all(crate::contain::session_dir(app, id)).await;
+    tracing::info!("released session {id}: Home moved it on (generation {generation})");
+    if let Err(e) = adopt(app, id).await {
+        tracing::debug!("session {id} stays released: {e:#}");
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------------------ Home
 
 /// Home: stores a runner's handoff of a session it runs (current generation only).
@@ -397,7 +434,8 @@ pub async fn offline_copy(app: &App, s: &Session) -> Result<Handoff> {
 }
 
 /// Home: moves an idle session to `to` (a connected runner). The old runner prepares the move when it is
-/// connected; otherwise its last handoff is used (its uncommitted files stay there).
+/// connected; otherwise its last handoff is used, and the old runner releases its copy when it is back
+/// (`release`: unsaved work goes to `lp-scratch/…`).
 pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
     ensure!(app.paths.role == crate::role::Role::Home, "only Home moves sessions");
     let s = app.sessions.get(id).context("no such session")?;
@@ -416,6 +454,10 @@ pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
         lost_files = !h.is_final && h.worktrees.iter().any(|w| w.state == WorktreeState::Active);
     }
     let s = app.sessions.reassign(app, id, to).await?;
+    if !app.runners.connected(&from) {
+        // The old runner still holds the older generation: it releases it when it is back.
+        crate::runners::release_later(app, &from, id, s.generation).await?;
+    }
     if let Some(pid) = &s.project_id {
         crate::projects::move_temp(app, pid, to).await?;
     }
@@ -424,7 +466,7 @@ pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
     let name = if crate::runners::is_burst(app, to).await { "Burst".to_string() } else { crate::runners::list(app).await?.into_iter().find(|r| r.runner.id == to).map(|r| r.runner.name).unwrap_or_else(|| "another runner".into()) };
     let mut text = format!("Moved to {name}.");
     if lost_files {
-        text.push_str(" Its previous runner was offline: files not committed there stay on that machine.");
+        text.push_str(" Its previous runner was offline: it continues from its last saved turn, and work that runner did not save yet goes to an lp-scratch branch on Home when it is back.");
     }
     crate::sessions::notice_anywhere(app, id, &text).await;
     Ok(s)

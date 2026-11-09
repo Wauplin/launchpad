@@ -778,6 +778,37 @@ async fn remove_clean(app: &App, w: &mut TaskWorktree) -> Result<()> {
     save(app, w).await
 }
 
+/// Runner: a session Home moved on while this runner was away (`handoff::release`). Its worktrees' commits and
+/// uncommitted files go to `lp-scratch/<branch>-gen<generation>` on Home (the branch itself belongs to the newer
+/// generation now), then the folders and records go. A worktree another open session here still uses only
+/// loses this session. The caller holds the session action lock.
+pub(crate) async fn release_moved(app: &App, session_id: &str, generation: u32) -> Result<()> {
+    let _lock = app.worktree_lock.lock().await;
+    for mut w in for_session(app, session_id).await? {
+        if w.sessions.iter().any(|id| id != session_id && app.sessions.get(id).is_some_and(|s| s.status != SessionStatus::Closed)) {
+            w.sessions.retain(|id| id != session_id);
+            save(app, &w).await?;
+            continue;
+        }
+        if w.state == WorktreeState::Active && Path::new(&w.root).is_dir() {
+            let head = git(app, &w.root, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
+            let tip = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch)).await?.unwrap_or(head);
+            if w.pushed.as_deref() != Some(tip.as_str()) {
+                let scratch = format!("lp-scratch/{}-gen{generation}", w.branch.trim_start_matches("lp/"));
+                crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{tip}:refs/heads/{scratch}")], 900)
+                    .await
+                    .with_context(|| format!("Home did not confirm the leftovers of {}", w.branch))?;
+                tracing::info!("released worktree {}: leftovers on {scratch}", w.root);
+            }
+            git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
+        }
+        let id = w.id.clone();
+        app.state_db.call(move |c| Ok(c.execute("DELETE FROM task_worktree WHERE id = ?1", [id])?)).await?;
+        app.bus.publish("worktrees", "removed", json!({"id": w.id}));
+    }
+    Ok(())
+}
+
 /// Settings → Worktrees "Remove folder": removal after Home confirmed the branch.
 pub async fn remove(app: &App, id: &str) -> Result<TaskWorktree> {
     let _action = app.sessions.action_lock().await;

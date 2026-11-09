@@ -654,10 +654,14 @@ impl Sessions {
     }
 
     /// Home: ends a replicated session on Home alone, when its runner cannot do it (offline or removed). Only
-    /// the record changes: Home adds no event, so the runner's sequence stays its own.
-    pub(crate) async fn end_replica(&self, app: &App, id: &str, status: SessionStatus) -> Result<Session> {
+    /// the record changes: Home adds no event, so the runner's sequence stays its own; `note` becomes its last
+    /// message.
+    pub(crate) async fn end_replica(&self, app: &App, id: &str, status: SessionStatus, note: Option<String>) -> Result<Session> {
         let _action = self.action_lock().await;
         let s = self.update(app, id, |s| {
+            if let Some(n) = note {
+                s.last_message = Some(n);
+            }
             s.change_status(status);
             s.status_since = now_ms();
             s.live = false;
@@ -671,6 +675,25 @@ impl Sessions {
         .await?;
         self.publish_counts(app);
         Ok(s)
+    }
+
+    /// Runner: forgets a session Home moved on while this runner was away (`handoff::release`). Its record and
+    /// events leave this disk only, without a replica item: Home holds the newer generation.
+    pub(crate) async fn forget_local(&self, app: &App, id: &str) -> Result<()> {
+        self.inner.records.lock().unwrap().remove(id);
+        let key = id.to_string();
+        app.state_db
+            .call(move |c| {
+                let tx = c.transaction()?;
+                tx.execute("DELETE FROM session_event WHERE session_id = ?1", [&key])?;
+                tx.execute("DELETE FROM session WHERE id = ?1", [&key])?;
+                tx.commit()?;
+                Ok(())
+            })
+            .await?;
+        self.publish_counts(app);
+        app.bus.publish("sessions", "changed", Value::Null);
+        Ok(())
     }
 
     /// Home: the session moves to another runner, in a new generation. Records and events of the older one are
@@ -2509,18 +2532,6 @@ pub async fn notice_anywhere(app: &App, id: &str, text: &str) {
                 app.sessions.sink(app, id).emit(EventBody::Notice { text: text.to_string() }).await;
             }
         }
-    }
-}
-
-/// A Launchpad message to a session's agent, wherever it runs (Home sends it to the runner).
-pub async fn send_anywhere(app: &App, id: &str, text: &str) -> Result<()> {
-    match runner_of(app, id) {
-        Some(r) => {
-            let (status, body) = app.runners.request(&r, "POST", &format!("/api/sessions/{id}/input"), Some(serde_json::json!({"text": text}).to_string())).await?;
-            anyhow::ensure!((200..300).contains(&status), "{}", serde_json::from_str::<Value>(&body).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or(body));
-            Ok(())
-        }
-        None => app.sessions.send(app, id, text, vec![]).await,
     }
 }
 

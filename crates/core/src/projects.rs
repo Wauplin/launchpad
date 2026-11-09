@@ -859,6 +859,25 @@ pub async fn keep_temp(app: &App, id: &str, name: &str) -> Result<Project> {
     get(app, id).await?.context("no such folder")
 }
 
+/// Home: Keep as folder while the runner of the temporary folder is away. Home keeps the files it holds
+/// (`keep_temp`; changes the runner did not save yet stay on that runner). The folder's open agents get a new
+/// generation on the same runner: when it is back, it releases its copy and adopts them again in the kept
+/// folder (`handoff::release`); a message before that moves them to another runner (`runners::place`).
+pub async fn keep_away(app: &App, id: &str, name: &str) -> Result<Project> {
+    let p = get(app, id).await?.context("no such folder")?;
+    ensure!(p.is_temp, "{} is not a temporary folder", p.name);
+    let runner = p.runner_id.clone().context("this temporary folder has no runner")?;
+    ensure!(!app.runners.connected(&runner), "its runner is connected: keep it there");
+    let open: Vec<crate::model::Session> = app.sessions.list().into_iter().filter(|s| s.project_id.as_deref() == Some(id) && s.status != crate::model::SessionStatus::Closed).collect();
+    ensure!(!open.iter().any(|s| s.status.is_running() || s.open_question), "an agent's turn is still open in {}; keep it when its turn ended", p.name);
+    let kept = keep_temp(app, id, name).await?;
+    for s in open.into_iter().filter(|s| s.runner_id.as_deref() == Some(runner.as_str())) {
+        let s = app.sessions.reassign(app, &s.id, &runner).await?;
+        crate::runners::release_later(app, &runner, &s.id, s.generation).await?;
+    }
+    Ok(kept)
+}
+
 /// Renames a folder, or copies it and deletes the original when the target is on another file system.
 async fn move_dir(old: &Path, new: &Path) -> Result<()> {
     match std::fs::rename(old, new) {

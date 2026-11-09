@@ -160,7 +160,7 @@ async fn runners(State(s): State<Ctx>) -> ApiResult<Value> {
 fn run_json(r: &launchpad_core::burst::BurstRun, now: i64) -> Value {
     let pending = r.pending.as_ref().map(|p| match p {
         launchpad_core::burst::Pending::Launch { session_id, .. } => json!({"kind": "launch", "session_id": session_id}),
-        launchpad_core::burst::Pending::Message { session_id, .. } => json!({"kind": "message", "session_id": session_id}),
+        launchpad_core::burst::Pending::Request { session_id, action, .. } => json!({"kind": "request", "action": action, "session_id": session_id}),
         launchpad_core::burst::Pending::Move { session_id } => json!({"kind": "move", "session_id": session_id}),
     });
     json!({

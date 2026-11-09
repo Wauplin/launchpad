@@ -327,7 +327,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
     let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, runner.burst, out_tx);
     tokio::spawn({
         let (app, id) = (s.app.clone(), runner.id.clone());
-        async move { runners::deliver_archives(&app, &id).await }
+        async move { runners::deliver_pending(&app, &id).await }
     });
     if runner.burst {
         launchpad_core::burst::connected(&s.app, &runner.id).await;
@@ -499,41 +499,22 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         // A launch: a runner that takes it, else Burst (`runners::launch_anywhere`).
         None => return launch(&s, body.as_deref(), headers).await,
     };
-    // Its runner is away (offline, or a stopped Burst job): Home answers reviews from Home Git.
-    if !s.app.runners.connected(&runner)
-        && let Some(r) = away(&s, get, &parts, &uri, body.as_deref()).await
+    // A message, Resume or an answer: placed like every continuation (its runner, else another one, else Burst).
+    if method == axum::http::Method::POST
+        && let ["api", "sessions", id, action @ ("input" | "resume" | "answer")] = parts.as_slice()
     {
-        return r;
-    }
-    // A session whose Burst job stopped: a message starts a new job, Archive is Home's.
-    if !s.app.runners.connected(&runner)
-        && let ["api", "sessions", id, rest @ ..] = parts.as_slice()
-        && let Some(session) = s.app.sessions.get(id)
-        && launchpad_core::burst::needs_new_job(&s.app, &session).await
-    {
-        return burst_stopped(&s, id, rest, body.as_deref(), headers).await;
-    }
-    // Archive while the runner is offline or removed: Home closes the record, the runner follows on reconnect.
-    // Its undo drops the pending Archive.
-    if !s.app.runners.connected(&runner)
-        && let ["api", "sessions", id, "close"] = parts.as_slice()
-    {
-        return match runners::archive_away(&s.app, id).await {
-            Ok(()) => Json(json!({"ok": true})).into_response(),
-            Err(e) => ApiError::bad_request(format!("{e:#}")).into_response(),
-        };
-    }
-    if !s.app.runners.connected(&runner)
-        && let ["api", "sessions", id, "unarchive"] = parts.as_slice()
-    {
-        return match runners::unarchive_away(&s.app, id).await {
-            Ok(()) => Json(json!({"ok": true})).into_response(),
+        let key = headers.into_iter().find(|(k, _)| k == "idempotency-key").map(|(_, v)| v);
+        return match runners::continue_anywhere(&s.app, id, action, body, key).await {
+            Ok((status, body)) => (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response(),
             Err(e) => ApiError::bad_request(format!("{e:#}")).into_response(),
         };
     }
     if !s.app.runners.connected(&runner) {
-        let name = runners::list(&s.app).await.ok().and_then(|l| l.into_iter().find(|r| r.runner.id == runner)).map(|r| r.runner.name).unwrap_or_else(|| "its runner".into());
-        return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} is offline")).into_response();
+        // Its runner is away (offline, or a stopped Burst job): Home answers reviews from Home Git.
+        if let Some(r) = away(&s, get, &parts, &uri, body.as_deref()).await {
+            return r;
+        }
+        return offline(&s, &runner, &parts, body.as_deref()).await;
     }
     match s.app.runners.request_with(&runner, method.as_str(), &path_and_query, body, headers).await {
         Ok((status, body)) if binary => from_envelope(status, &body),
@@ -647,27 +628,28 @@ async fn launch(s: &Server, body: Option<&str>, headers: Vec<(String, String)>) 
     }
 }
 
-/// Requests for a session whose Burst job has stopped.
-async fn burst_stopped(s: &Server, id: &str, rest: &[&str], body: Option<&str>, headers: Vec<(String, String)>) -> Response {
+/// Requests Home answers itself while the runner is away: Archive (the runner follows when it is back) and its
+/// undo (the pending Archive is dropped), and Keep as folder (from Home's copy of the files). Everything else waits for the runner.
+async fn offline(s: &Server, runner: &str, parts: &[&str], body: Option<&str>) -> Response {
     #[derive(Deserialize)]
-    struct Input {
-        text: String,
-        #[serde(default)]
-        files: Vec<launchpad_core::model::FileAttachment>,
+    struct Keep {
+        name: String,
     }
-    let result = match rest {
-        ["input"] => match serde_json::from_str::<Input>(body.unwrap_or("{}")) {
-            Ok(i) => {
-                let key = headers.into_iter().find(|(k, _)| k == "idempotency-key").map(|(_, v)| v);
-                runners::send_anywhere(&s.app, id, &i.text, i.files, key).await
-            }
-            Err(e) => Err(anyhow::anyhow!("{e}")),
-        },
-        [action] => runners::session_action(&s.app, id, action).await,
-        _ => Err(anyhow::anyhow!("This session's Burst runner has stopped: send a message to continue it")),
+    let result: anyhow::Result<Value> = match parts {
+        ["api", "sessions", id, "close"] => runners::archive_away(&s.app, id).await.map(|_| json!({"ok": true})),
+        ["api", "sessions", id, "unarchive"] => runners::unarchive_away(&s.app, id).await.map(|_| json!({"ok": true})),
+        ["api", "projects", id, "promote"] => async {
+            let b: Keep = serde_json::from_str(body.unwrap_or("{}"))?;
+            Ok(json!(launchpad_core::projects::keep_away(&s.app, id, &b.name).await?))
+        }
+        .await,
+        _ => {
+            let name = runners::list(&s.app).await.ok().and_then(|l| l.into_iter().find(|r| r.runner.id == runner)).map(|r| r.runner.name).unwrap_or_else(|| "Its runner".into());
+            return ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} is offline")).into_response();
+        }
     };
     match result {
-        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Ok(v) => Json(v).into_response(),
         Err(e) => ApiError::bad_request(format!("{e:#}")).into_response(),
     }
 }

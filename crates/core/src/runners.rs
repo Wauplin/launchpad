@@ -255,7 +255,7 @@ pub async fn remove(app: &App, id: &str) -> Result<()> {
     app.runners.disconnect(id);
     let orphans: Vec<String> = app.sessions.list().into_iter().filter(|s| s.runner_id.as_deref() == Some(id) && (s.status.is_running() || s.quota_pause.is_some())).map(|s| s.id).collect();
     for sid in orphans {
-        if let Err(e) = app.sessions.end_replica(app, &sid, crate::model::SessionStatus::Interrupted).await {
+        if let Err(e) = app.sessions.end_replica(app, &sid, crate::model::SessionStatus::Interrupted, None).await {
             tracing::warn!("session {sid} of removed runner {id}: {e:#}");
         }
     }
@@ -264,12 +264,17 @@ pub async fn remove(app: &App, id: &str) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------- Archive while a runner is away
+// ---------------------------------------------------------------- What a runner learns when it is back
 
+/// Something Home did to a session while its runner was away, delivered once when the runner reconnects.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 struct PendingArchive {
     runner: String,
     session: String,
+    /// None: the owner archived the session. Some: Home moved it on (generation on Home), so the runner saves
+    /// what only it has to `lp-scratch/…` and drops its copy (`handoff::release`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    release: Option<u32>,
 }
 
 static ARCHIVES: Mutex<()> = Mutex::new(());
@@ -287,7 +292,7 @@ fn write_archives(app: &App, list: &[PendingArchive]) -> Result<()> {
     Ok(())
 }
 
-/// Removes and returns the pending archives that match.
+/// Removes and returns the pending items that match.
 fn take_archives(app: &App, matches: impl Fn(&str, &str) -> bool) -> Result<Vec<PendingArchive>> {
     let _lock = ARCHIVES.lock().unwrap();
     let (taken, kept): (Vec<_>, Vec<_>) = read_archives(app).into_iter().partition(|a| matches(&a.runner, &a.session));
@@ -297,23 +302,29 @@ fn take_archives(app: &App, matches: impl Fn(&str, &str) -> bool) -> Result<Vec<
     Ok(taken)
 }
 
+/// Adds an item for a runner Home knows (a removed one never comes back).
+async fn deliver_later(app: &App, item: PendingArchive) -> Result<()> {
+    if !load(app).await?.into_iter().any(|(r, _)| r.id == item.runner) {
+        return Ok(());
+    }
+    let _lock = ARCHIVES.lock().unwrap();
+    let mut list = read_archives(app);
+    list.retain(|a| !(a.runner == item.runner && a.session == item.session && a.release.is_some() && item.release.is_some()));
+    if !list.contains(&item) {
+        list.push(item);
+        write_archives(app, &list)?;
+    }
+    Ok(())
+}
+
 /// Home: Archive of a session whose runner is offline or removed. The record closes on Home now; an offline
-/// runner receives the Archive when it reconnects (`deliver_archives`), a removed one never comes back.
+/// runner receives the Archive when it reconnects (`deliver_pending`), a removed one never comes back.
 pub async fn archive_away(app: &App, id: &str) -> Result<()> {
     let s = app.sessions.get(id).context("no such session")?;
     let runner = s.runner_id.clone().context("this session runs on Home")?;
     anyhow::ensure!(!app.runners.connected(&runner), "its runner is connected");
-    let known = load(app).await?.into_iter().any(|(r, _)| r.id == runner);
-    if known {
-        let _lock = ARCHIVES.lock().unwrap();
-        let mut list = read_archives(app);
-        let item = PendingArchive { runner, session: id.to_string() };
-        if !list.contains(&item) {
-            list.push(item);
-            write_archives(app, &list)?;
-        }
-    }
-    app.sessions.end_replica(app, id, crate::model::SessionStatus::Closed).await?;
+    deliver_later(app, PendingArchive { runner, session: id.to_string(), release: None }).await?;
+    app.sessions.end_replica(app, id, crate::model::SessionStatus::Closed, None).await?;
     Ok(())
 }
 
@@ -322,17 +333,38 @@ pub async fn unarchive_away(app: &App, id: &str) -> Result<()> {
     let s = app.sessions.get(id).context("no such session")?;
     let runner = s.runner_id.clone().context("this session runs on Home")?;
     anyhow::ensure!(!app.runners.connected(&runner), "its runner is connected");
-    take_archives(app, |_, session| session == id)?;
+    {
+        let _lock = ARCHIVES.lock().unwrap();
+        let (dropped, kept): (Vec<_>, Vec<_>) = read_archives(app).into_iter().partition(|a| a.session == id && a.release.is_none());
+        if !dropped.is_empty() {
+            write_archives(app, &kept)?;
+        }
+    }
     app.sessions.unarchive(app, id).await?;
     Ok(())
 }
 
-/// Home: a runner that reconnected receives the Archives clicked while it was away, once each.
-pub async fn deliver_archives(app: &App, runner_id: &str) {
+/// Home: `runner` still holds an older generation of a session Home moved on while it was away; it releases
+/// its copy when it reconnects.
+pub async fn release_later(app: &App, runner: &str, session: &str, generation: u32) -> Result<()> {
+    deliver_later(app, PendingArchive { runner: runner.to_string(), session: session.to_string(), release: Some(generation) }).await
+}
+
+/// Home: a runner that reconnected receives the Archives clicked and the moves made while it was away, once each.
+pub async fn deliver_pending(app: &App, runner_id: &str) {
     let Ok(list) = take_archives(app, |r, _| r == runner_id) else { return };
     let mut failed = vec![];
     for a in list {
-        match app.runners.request(runner_id, "POST", &format!("/api/sessions/{}/close", a.session), None).await {
+        let sent = match a.release {
+            None => app.runners.request(runner_id, "POST", &format!("/api/sessions/{}/close", a.session), None).await,
+            Some(generation) => app.runners.request(runner_id, "POST", &format!("/api/sessions/{}/release", a.session), Some(serde_json::json!({"generation": generation}).to_string())).await,
+        };
+        match sent {
+            // A release that failed (Home did not confirm the leftovers) is tried again at the next connection.
+            Ok((status, body)) if status >= 300 && a.release.is_some() => {
+                tracing::warn!("Release of {} on its runner: {status} {body}", a.session);
+                failed.push(a);
+            }
             Ok((status, body)) if status >= 300 => tracing::warn!("Archive of {} on its runner: {status} {body}", a.session),
             Ok(_) => {}
             // The tunnel dropped again: the next connection delivers it.
@@ -345,6 +377,60 @@ pub async fn deliver_archives(app: &App, runner_id: &str) {
         list.extend(failed);
         let _ = write_archives(app, &list);
     }
+}
+
+// ---------------------------------------------------------------- Sessions of a runner that left
+
+/// How long Home waits for a runner that left while its sessions worked or asked a question.
+pub const AWAY_GRACE_MS: i64 = 10 * 60_000;
+
+/// Home: every 30 s, sessions that still work (or ask) on a runner gone for `AWAY_GRACE_MS` become
+/// Interrupted with a note, so they continue elsewhere from their last handoff. A runner that comes back
+/// with the same generation replaces the record with its own.
+pub fn spawn(app: &App) {
+    if app.paths.role != crate::role::Role::Home {
+        return;
+    }
+    let app = app.clone();
+    tokio::spawn(async move {
+        let mut away: HashMap<String, i64> = HashMap::new();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            interrupt_away(&app, &mut away).await;
+        }
+    });
+}
+
+async fn interrupt_away(app: &App, away: &mut HashMap<String, i64>) {
+    let now = now_ms();
+    away.retain(|r, _| !app.runners.connected(r));
+    let open: Vec<crate::model::Session> =
+        app.sessions.list().into_iter().filter(|s| (s.status.is_running() || s.open_question) && s.runner_id.as_deref().is_some_and(|r| !app.runners.connected(r))).collect();
+    for s in open {
+        let Some(r) = s.runner_id.clone() else { continue };
+        let since = *away.entry(r.clone()).or_insert(now);
+        if now - since < AWAY_GRACE_MS {
+            continue;
+        }
+        // A Burst job that is starting or reconnecting: `burst::tick` watches it.
+        if crate::burst::get(app, &r).await.ok().flatten().is_some_and(|run| run.active()) {
+            continue;
+        }
+        let name = runner_name(app, &r).await;
+        let note = format!("{name} went offline during this turn. Launchpad marked the session Interrupted after {} minutes: send a message to continue it on another runner from its last saved turn.", AWAY_GRACE_MS / 60_000);
+        match app.sessions.end_replica(app, &s.id, crate::model::SessionStatus::Interrupted, Some(note)).await {
+            Ok(_) => tracing::info!("session {} interrupted: runner {r} away", s.id),
+            Err(e) => tracing::warn!("session {} of away runner {r}: {e:#}", s.id),
+        }
+    }
+}
+
+/// A runner's name for messages: Burst, its name, or "its runner".
+async fn runner_name(app: &App, id: &str) -> String {
+    if is_burst(app, id).await || crate::burst::get(app, id).await.ok().flatten().is_some() {
+        return "Burst".into();
+    }
+    load(app).await.ok().and_then(|l| l.into_iter().find(|(r, _)| r.id == id)).map(|(r, _)| r.name).unwrap_or_else(|| "Its runner".into())
 }
 
 pub async fn list(app: &App) -> Result<Vec<RunnerStatus>> {
@@ -569,16 +655,150 @@ impl Hub {
     }
 }
 
-/// The runner of the session whose folder a launch continues in (New agent here, Run in → existing worktree).
-fn source_runner(app: &App, spec: &crate::model::LaunchSpec) -> Option<String> {
-    match &spec.target {
-        crate::model::Target::SessionFolder { session_id } => app.sessions.get(session_id).and_then(|s| s.runner_id),
-        _ => None,
+// ---------------------------------------------------------------- Placement
+
+/// Where a session's next request goes (`place`).
+#[derive(Debug, PartialEq)]
+pub enum Place {
+    /// This daemon holds the session (a runner, or a session without a runner).
+    Here,
+    /// A connected runner holds it now: its own, or the one it just moved to.
+    Runner(String),
+    /// No runner takes it: a new Burst job continues it (the caller starts the job with its request).
+    Burst,
+}
+
+/// Among `available` runners (in any order), `prefer` when it is one of them, else the least busy (fewest
+/// running sessions), then the first by ID.
+fn choose(available: &[String], prefer: Option<&str>, busy: impl Fn(&str) -> usize) -> Option<String> {
+    if let Some(p) = prefer.filter(|p| available.iter().any(|a| a == p)) {
+        return Some(p.to_string());
+    }
+    available.iter().min_by_key(|r| (busy(r.as_str()), r.to_string())).cloned()
+}
+
+/// Home: the runner for new work among those that take launches: `prefer` (the previous runner) when it
+/// does, else the least busy.
+pub fn pick(app: &App, prefer: Option<&str>) -> Option<String> {
+    let sessions = app.sessions.list();
+    choose(&app.runners.available(), prefer, |r| sessions.iter().filter(|s| s.runner_id.as_deref() == Some(r) && s.status.is_running()).count())
+}
+
+/// Whether a session's runner holds it now: connected, and not a Burst job that has stopped or is stopping.
+async fn holds(app: &App, s: &crate::model::Session) -> bool {
+    s.runner_id.as_deref().is_some_and(|r| app.runners.connected(r)) && !crate::burst::needs_new_job(app, s).await
+}
+
+/// Home: where a request that continues a session goes (a message, Resume, an answer), in the owner's order:
+/// its runner when connected; else, between turns, a move to another runner that takes launches (`pick`);
+/// else Burst; else a clear error. Burst is always last. The move happens here; Burst is only named (the
+/// caller starts the job with its request).
+pub async fn place(app: &App, id: &str) -> Result<Place> {
+    if app.paths.role != crate::role::Role::Home {
+        return Ok(Place::Here);
+    }
+    // One placement at a time per session: a second message waits and finds the session moved.
+    let lock = app.suggestion_locks.get(&format!("place:{id}"));
+    let _lock = lock.lock().await;
+    let s = app.sessions.get(id).context("no such session")?;
+    let Some(r) = s.runner_id.clone() else { return Ok(Place::Here) };
+    if holds(app, &s).await {
+        return Ok(Place::Runner(r));
+    }
+    let stopped = crate::burst::needs_new_job(app, &s).await;
+    if !stopped && is_burst(app, &r).await {
+        bail!("This session's Burst runner is reconnecting: try again in a minute.");
+    }
+    let name = runner_name(app, &r).await;
+    if s.status.is_running() || s.open_question {
+        bail!(
+            "{name} is offline and this session's turn is still open there. It continues elsewhere once {name} is back or after Launchpad marks it Interrupted ({} minutes after its runner left).",
+            AWAY_GRACE_MS / 60_000
+        );
+    }
+    if let Some(reason) = crate::handoff::blocked(&s) {
+        bail!("{reason}");
+    }
+    if let Some(to) = pick(app, None) {
+        crate::handoff::move_to(app, id, &to).await?;
+        return Ok(Place::Runner(to));
+    }
+    if let Some(why) = crate::burst::unavailable(app).await {
+        bail!("{name} is offline, no other runner takes this session, and Burst cannot: {why}.");
+    }
+    Ok(Place::Burst)
+}
+
+/// Home: a request that continues a session (`input`, `resume`, `answer`), placed first (`place`). Returns
+/// the runner's answer; a Burst start answers at once (the job sends the request once it is up).
+pub async fn continue_anywhere(app: &App, id: &str, action: &str, body: Option<String>, key: Option<String>) -> Result<(u16, String)> {
+    match place(app, id).await? {
+        Place::Here => bail!("this session runs on no runner"),
+        Place::Runner(r) => {
+            let headers = key.map(|k| vec![("idempotency-key".to_string(), k)]).unwrap_or_default();
+            app.runners.request_with(&r, "POST", &format!("/api/sessions/{id}/{action}"), body, headers).await
+        }
+        Place::Burst => {
+            crate::burst::continue_session(app, id, action, body, key).await?;
+            Ok((200, serde_json::json!({"ok": true}).to_string()))
+        }
     }
 }
 
-/// Home: the runner for a new session. The one chosen in the composer, else the first that takes launches from
-/// other devices: every folder is stored by Home, so any runner opens it.
+/// The runner a launch must continue on: the session whose folder it continues in (New agent here, Run in),
+/// or the runner of its temporary folder.
+async fn pinned_runner(app: &App, spec: &crate::model::LaunchSpec) -> Result<Option<String>> {
+    use crate::model::Target;
+    Ok(match &spec.target {
+        Target::SessionFolder { session_id } => app.sessions.get(session_id).and_then(|s| s.runner_id),
+        Target::Project { project_id } | Target::Predraft { project_id } => crate::projects::get(app, project_id).await?.filter(|p| p.is_temp).and_then(|p| p.runner_id),
+        _ => None,
+    })
+}
+
+/// Home: a launch pinned to a runner that is away (offline, or a stopped Burst job): the sessions it
+/// continues from move first to the chosen runner, else the least busy one (their worktrees come back from
+/// Home Git, a temporary folder from its files on Home).
+async fn move_pinned(app: &App, spec: &crate::model::LaunchSpec) -> Result<()> {
+    use crate::model::Target;
+    let Some(from) = pinned_runner(app, spec).await? else { return Ok(()) };
+    let sessions: Vec<crate::model::Session> = match &spec.target {
+        Target::SessionFolder { session_id } => app.sessions.get(session_id).into_iter().collect(),
+        Target::Project { project_id } | Target::Predraft { project_id } => app
+            .sessions
+            .list()
+            .into_iter()
+            .filter(|s| s.project_id.as_deref() == Some(project_id.as_str()) && s.runner_id.as_deref() == Some(from.as_str()) && s.status != crate::model::SessionStatus::Closed)
+            .collect(),
+        _ => vec![],
+    };
+    let away = match sessions.first() {
+        Some(s) => !holds(app, s).await,
+        None => !app.runners.connected(&from),
+    };
+    if !away {
+        return Ok(());
+    }
+    let name = runner_name(app, &from).await;
+    let to = match &spec.runner_id {
+        Some(c) => Some(c.clone()).filter(|c| app.runners.available().contains(c)).context("The chosen runner does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update")?,
+        None => pick(app, None).with_context(|| format!("{name} has this folder and is offline, and no other runner takes launches now: connect a runner, or send its agent a message to continue it on Burst"))?,
+    };
+    for s in &sessions {
+        crate::handoff::move_to(app, &s.id, &to).await?;
+    }
+    // A temporary folder without an open agent follows the launch.
+    if sessions.is_empty()
+        && let Target::Project { project_id } | Target::Predraft { project_id } = &spec.target
+    {
+        crate::projects::move_temp(app, project_id, &to).await?;
+    }
+    Ok(())
+}
+
+/// Home: the runner for a new session. The one chosen in the composer (never another); else the runner the
+/// launch is pinned to (a session's folder, a temporary folder); else the bot's previous runner or the least
+/// busy one that takes launches from other devices: every folder is stored by Home, so any runner opens it.
 pub async fn launch_runner(app: &App, spec: &crate::model::LaunchSpec) -> Result<String> {
     use crate::model::Target;
     let project = match &spec.target {
@@ -586,32 +806,23 @@ pub async fn launch_runner(app: &App, spec: &crate::model::LaunchSpec) -> Result
         _ => None,
     };
     let available = app.runners.available();
-    let name_of = |id: String| async move {
-        list(app).await.ok().and_then(|l| l.into_iter().find(|x| x.runner.id == id)).map(|x| x.runner.name)
-    };
-    let refused = |name: Option<String>, fallback: &str| anyhow::anyhow!("{} does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update", name.unwrap_or_else(|| fallback.into()));
-    // Continue in a session's folder: its worktrees exist only on that session's runner.
-    if let Some(r) = source_runner(app, spec) {
-        anyhow::ensure!(spec.runner_id.as_ref().is_none_or(|c| c == &r), "this agent continues in another session's folder, which is on {}: choose that runner", name_of(r.clone()).await.unwrap_or_else(|| "another runner".into()));
-        anyhow::ensure!(available.contains(&r), refused(name_of(r.clone()).await, "The runner of that session"));
+    let refused = |name: String| anyhow::anyhow!("{name} does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update");
+    if let Some(r) = pinned_runner(app, spec).await? {
+        let what = if matches!(spec.target, Target::SessionFolder { .. }) { "this agent continues in another session's folder" } else { "this temporary folder" };
+        anyhow::ensure!(spec.runner_id.as_ref().is_none_or(|c| c == &r), "{what} is on {}: choose that runner", runner_name(app, &r).await);
+        anyhow::ensure!(available.contains(&r), refused(runner_name(app, &r).await));
         return Ok(r);
     }
-    let folder = match project {
-        Some(id) => Some(crate::projects::get(app, &id).await?.context("no such folder")?),
-        None => None,
-    };
-    // Git and plain folders are stored by Home and run on any runner: it clones or syncs the folder on first use.
-    // A temporary folder is on the runner of its agents until it is kept as a folder.
-    if let Some(p) = &folder {
+    if let Some(id) = project {
+        let p = crate::projects::get(app, &id).await?.context("no such folder")?;
         anyhow::ensure!(p.home_git || p.plain || p.is_temp, "{} is not stored on Home: add it again in Folders", p.name);
     }
-    let temp_runner = folder.filter(|p| p.is_temp).and_then(|p| p.runner_id);
-    if let Some(r) = spec.runner_id.clone().or(temp_runner.clone()) {
-        anyhow::ensure!(temp_runner.as_ref().is_none_or(|t| t == &r), "this temporary folder is on {}: choose that runner, or keep it as a folder", name_of(temp_runner.clone().unwrap_or_default()).await.unwrap_or_else(|| "another runner".into()));
-        anyhow::ensure!(available.contains(&r), refused(name_of(r.clone()).await, if spec.runner_id.is_some() { "The chosen runner" } else { "Its runner" }));
-        return Ok(r);
+    if let Some(r) = &spec.runner_id {
+        anyhow::ensure!(available.contains(r), refused("The chosen runner".into()));
+        return Ok(r.clone());
     }
-    available.into_iter().next().context("no runner takes launches now: connect one, or check its guard in Settings → Home and runners")
+    let previous = spec.bot.as_ref().and_then(|b| b.previous.as_ref()).and_then(|p| app.sessions.get(&p.session_id)).and_then(|s| s.runner_id);
+    pick(app, previous.as_deref()).context("no runner takes launches now: connect one, or check its guard in Settings → Home and runners")
 }
 
 fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> {
@@ -619,7 +830,9 @@ fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> 
     Ok(serde_json::from_str(body)?)
 }
 
-/// Starts a session where agents run: here, or on Home through a runner (sent once, never retried).
+/// Starts a session where agents run: here, or on Home through a runner (sent once, never retried). Home
+/// places it like a message (`place`): the chosen runner (no fallback), else the runner it is pinned to (its
+/// sessions move first when that runner is away), else another runner, else Burst.
 pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
     if app.paths.role != crate::role::Role::Home {
         return if automatic { app.sessions.launch_automatic(app, spec, id).await } else { app.sessions.launch_with_id(app, spec, id).await };
@@ -629,24 +842,12 @@ pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: 
     if spec.runner_id.as_deref() == Some(crate::burst::CHOICE) {
         return crate::burst::launch(app, spec, id, automatic).await;
     }
-    // New agent here or Run in, in the folder of a session whose Burst job stopped: that session moves to a
-    // runner that takes launches first (its worktrees come back from their branches on Home Git).
-    if let crate::model::Target::SessionFolder { session_id } = &spec.target
-        && let Some(source) = app.sessions.get(session_id)
-        && crate::burst::needs_new_job(app, &source).await
-    {
-        let available = app.runners.available();
-        let to = match &spec.runner_id {
-            Some(r) => available.contains(r).then(|| r.clone()),
-            None => available.into_iter().next(),
-        };
-        let to = to.context("That session's Burst runner has stopped: connect a runner to continue in its folder, or send that session a message to continue it on Burst")?;
-        crate::handoff::move_to(app, session_id, &to).await?;
-    }
+    move_pinned(app, &spec).await?;
+    let pinned = pinned_runner(app, &spec).await?.is_some();
     let runner = match launch_runner(app, &spec).await {
         Ok(r) => r,
-        // No runner takes it (the laptop is off): Burst, unless a runner was chosen or Burst is unavailable.
-        Err(e) if spec.runner_id.is_none() && source_runner(app, &spec).is_none() && app.runners.available().is_empty() => match crate::burst::unavailable(app).await {
+        // No runner takes it (the laptop is off): Burst, unless a runner was chosen or the launch is pinned.
+        Err(e) if spec.runner_id.is_none() && !pinned && app.runners.available().is_empty() => match crate::burst::unavailable(app).await {
             None => return crate::burst::launch(app, spec, id, automatic).await,
             Some(why) => bail!("{e:#}. {why}."),
         },
@@ -656,20 +857,15 @@ pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: 
     answer(status, &body)
 }
 
-/// A session action (`close`, `stop`, …) wherever the session runs.
+/// A session action (`close`, `stop`, …) wherever the session runs. Archive of a session whose runner is
+/// away (offline, a stopped Burst job) is Home's alone (`archive_away`).
 pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
-    if let Some(s) = app.sessions.get(id).filter(|_| app.paths.role == crate::role::Role::Home)
-        && crate::burst::needs_new_job(app, &s).await
-    {
-        // Its Burst job has stopped: nothing runs there, so Archive is Home's alone.
-        ensure_burst_action(action)?;
-        match action {
-            "close" => { app.sessions.set_replica_status(app, id, crate::model::SessionStatus::Closed).await?; }
-            _ => { app.sessions.unarchive(app, id).await?; }
-        }
-        return Ok(());
-    }
     match app.sessions.get(id).and_then(|s| s.runner_id).filter(|_| app.paths.role == crate::role::Role::Home) {
+        Some(r) if !app.runners.connected(&r) => match action {
+            "close" => archive_away(app, id).await,
+            "unarchive" => unarchive_away(app, id).await,
+            _ => bail!("{} is offline: only Archive and its undo work until it is back", runner_name(app, &r).await),
+        },
         Some(r) => {
             let (status, body) = app.runners.request(&r, "POST", &format!("/api/sessions/{id}/{action}"), None).await?;
             answer::<serde_json::Value>(status, &body).map(|_| ())
@@ -682,44 +878,35 @@ pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
     }
 }
 
-/// What Home can do itself for a session whose Burst job has stopped: Archive and its undo.
-pub fn ensure_burst_action(action: &str) -> Result<()> {
-    anyhow::ensure!(action == "close" || action == "unarchive", "This session's Burst runner has stopped: send a message to continue it");
-    Ok(())
+/// A message to a session wherever it runs, placed like the owner's messages (`place`). `files` are
+/// attachments the session's machine stores.
+pub async fn send_anywhere(app: &App, id: &str, text: &str, mut files: Vec<crate::model::FileAttachment>, key: Option<String>) -> Result<()> {
+    if app.paths.role == crate::role::Role::Home && app.sessions.get(id).is_some_and(|s| s.runner_id.is_some()) {
+        crate::attachments::inline_files(&mut files)?;
+        let body = serde_json::json!({"text": text, "files": files}).to_string();
+        let (status, body) = continue_anywhere(app, id, "input", Some(body), key).await?;
+        return answer::<serde_json::Value>(status, &body).map(|_| ());
+    }
+    let (text, images) = crate::attachments::for_message(app, id, text, &files).await?;
+    match key {
+        Some(k) => app.sessions.send_with_id(app, id, &text, images, k).await,
+        None => app.sessions.send(app, id, &text, images).await,
+    }
 }
 
-/// A message to a session wherever it runs. `files` are attachments the session's machine stores.
-pub async fn send_anywhere(app: &App, id: &str, text: &str, mut files: Vec<crate::model::FileAttachment>, key: Option<String>) -> Result<()> {
-    if app.paths.role == crate::role::Role::Home {
-        crate::attachments::inline_files(&mut files)?;
-    }
-    if let Some(s) = app.sessions.get(id).filter(|_| app.paths.role == crate::role::Role::Home)
-        && crate::burst::needs_new_job(app, &s).await
-    {
-        return crate::burst::continue_session(app, id, text.to_string(), files, key).await;
-    }
-    // Its runner is offline (the laptop sleeps): the session continues on Burst, like Move to Burst.
-    if let Some(s) = app.sessions.get(id).filter(|_| app.paths.role == crate::role::Role::Home)
-        && let Some(r) = s.runner_id.as_deref().filter(|r| !app.runners.connected(r))
-        && !is_burst(app, r).await
-    {
-        if let Some(why) = crate::burst::unavailable(app).await {
-            bail!("This session's runner is offline, and Burst cannot take it: {why}.");
-        }
-        return crate::burst::continue_session(app, id, text.to_string(), files, key).await;
-    }
-    match app.sessions.get(id).and_then(|s| s.runner_id).filter(|_| app.paths.role == crate::role::Role::Home) {
-        Some(r) => {
-            let headers = key.map(|k| vec![("idempotency-key".to_string(), k)]).unwrap_or_default();
-            let (status, body) = app.runners.request_with(&r, "POST", &format!("/api/sessions/{id}/input"), Some(serde_json::json!({"text": text, "files": files}).to_string()), headers).await?;
-            answer::<serde_json::Value>(status, &body).map(|_| ())
-        }
-        None => {
-            let (text, images) = crate::attachments::for_message(app, id, text, &files).await?;
-            match key {
-                Some(k) => app.sessions.send_with_id(app, id, &text, images, k).await,
-                None => app.sessions.send(app, id, &text, images).await,
-            }
-        }
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn choose_prefers_the_previous_runner_then_the_least_busy() {
+        let available = vec!["b".to_string(), "a".to_string(), "c".to_string()];
+        let busy = |r: &str| match r {
+            "a" => 2,
+            "b" => 1,
+            _ => 1,
+        };
+        assert_eq!(super::choose(&available, Some("a"), busy).as_deref(), Some("a"));
+        assert_eq!(super::choose(&available, Some("gone"), busy).as_deref(), Some("b"));
+        assert_eq!(super::choose(&available, None, |_| 0).as_deref(), Some("a"));
+        assert_eq!(super::choose(&[], Some("a"), busy), None);
     }
 }

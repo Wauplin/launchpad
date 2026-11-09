@@ -2,7 +2,8 @@
 //!
 //! - `/api/handoff/{id}` (runner credential): a runner sends the handoff of a session it runs (POST), and the
 //!   new runner of a moved session fetches it (GET).
-//! - `/api/sessions/{id}/handoff`, `/api/sessions/{id}/adopt` (runner, from Home through the tunnel).
+//! - `/api/sessions/{id}/handoff`, `/api/sessions/{id}/adopt`, `/api/sessions/{id}/release` (runner, from Home
+//!   through the tunnel).
 //! - `/api/sessions/{id}/move` (Home, owner): Move to another runner or to Burst.
 //! - `/api/burst` (Home, owner): settings, this month's cost and recent runs; Stop.
 
@@ -28,6 +29,7 @@ pub fn router() -> Router<Server> {
         .route("/api/handoff/{id}", get(adoption).post(store).layer(axum::extract::DefaultBodyLimit::max(HANDOFF_MAX)))
         .route("/api/sessions/{id}/handoff", post(handoff))
         .route("/api/sessions/{id}/adopt", post(adopt))
+        .route("/api/sessions/{id}/release", post(release))
         .route("/api/sessions/{id}/move", post(move_session))
         .route("/api/burst", get(overview))
         .route("/api/burst/config", put(set_config))
@@ -87,6 +89,20 @@ async fn handoff(State(s): State<Server>, Path(id): Path<String>, body: Option<J
 /// Runner: takes over a session Home moved here.
 async fn adopt(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Value> {
     launchpad_core::handoff::adopt(&s.app, &id).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+struct ReleaseBody {
+    generation: u32,
+}
+
+/// Runner: Home moved this session on while this runner was away (sent when it reconnects).
+async fn release(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<ReleaseBody>) -> ApiResult<Value> {
+    if s.app.paths.role != Role::Runner {
+        return Err(ApiError::bad_request("only runners release sessions"));
+    }
+    launchpad_core::handoff::release(&s.app, &id, b.generation).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 
