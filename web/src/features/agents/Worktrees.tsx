@@ -110,6 +110,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
   // Its runner is away: Home shows the branch it holds, and Merge and Create Local PR run on Home.
   const away = i.away;
   const onHome = w.state === "active" || (!!away && w.state === "removed");
+  const merged = !!w.merged && i.ahead === 0 && i.dirty_files === 0;
   const canMerge = merge && onHome && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id;
   return (
     <div className="grid gap-1.5 text-[12px]">
@@ -130,9 +131,9 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
         {w.merge && w.merge.phase !== "waiting" && session && <ActionButton name="worktree.fix-merge" params={{ id: w.id }} query={{ session: decodeURIComponent(owner) }} disabled={busy || running} onDone={() => toast("Sent to the agent")} />}
         <TerminalMenu cwd={i.path} small phone={isPhone} align="left" />
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}
-        {onHome && w.primary && !w.merge && !w.pull_request && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}
+        {!merged && onHome && w.primary && !w.merge && !w.pull_request && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}
         {w.state === "removed" && !away && <button className="btn btn-sm" disabled={busy} onClick={() => void act("restore", "Worktree restored")}>Restore folder</button>}
-        {(w.state === "active" || w.state === "removed") && !away && <button className="btn btn-sm text-gh-closed" disabled={busy || running} title={`Delete the folder and the branch, including uncommitted work${w.primary ? ", and archive its agents" : ""}. The branch tip stays restorable on Home for 30 days.`} onClick={() => { if (!confirm) return setConfirm(true); setConfirm(false); void act("discard", "Worktree discarded"); }}>{confirm ? `Confirm: delete ${i.ahead ? `${i.ahead} unmerged commits and ` : ""}the folder` : "Discard"}</button>}
+        {!merged && (w.state === "active" || w.state === "removed") && !away && <button className="btn btn-sm text-gh-closed" disabled={busy || running} title={`Delete the folder and the branch, including uncommitted work${w.primary ? ", and archive its agents" : ""}. The branch tip stays restorable on Home for 30 days.`} onClick={() => { if (!confirm) return setConfirm(true); setConfirm(false); void act("discard", "Worktree discarded"); }}>{confirm ? `Confirm: delete ${i.ahead ? `${i.ahead} unmerged commits and ` : ""}the folder` : "Discard"}</button>}
         {confirm && <button className="btn btn-sm" onClick={() => setConfirm(false)}>Cancel</button>}
       </div>
     </div>
