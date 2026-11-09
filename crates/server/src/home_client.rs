@@ -162,7 +162,7 @@ async fn call_home(op: String, body: serde_json::Value) -> anyhow::Result<(u16, 
 }
 
 /// Requests about records Home owns, which a runner sends to Home: workspace changes (the runner keeps a copy
-/// for reading), Home Git, and the context reads of the Launchpad CLI (only Home sees the sessions, schedules and
+/// for reading), Home Git, review drafts (`/api/review-state`, so they follow the owner to every window), and the context reads of the Launchpad CLI (only Home sees the sessions, schedules and
 /// Inbox of every runner).
 pub(crate) fn home_owned(path: &str) -> bool {
     path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/") || path.starts_with("/api/plain/") || path.starts_with("/api/knowledge/") || path.starts_with("/api/vault") || path == "/api/mcp" || path.starts_with("/api/mcp/")
@@ -175,6 +175,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/channels" || path.starts_with("/api/channels/") || path == "/api/outbox" || path.starts_with("/api/outbox/")
         || path == "/api/today"
         || path == "/api/activity" || path.starts_with("/api/activity/") || path == "/api/settings/shared"
+        || path == "/api/review-state"
 }
 
 /// Home: requests a runner may send through its tunnel (as Home's owner). Sessions: reads, and the admin actions
