@@ -473,7 +473,7 @@ async fn handle_message(sink: &Sink, st: &Arc<Mutex<State>>, writer: &Arc<Claude
                 else if interrupted { SessionStatus::Interrupted }
                 else if background { SessionStatus::Background } else { SessionStatus::Waiting }).await;
         }
-        "rate_limit_event" => if let Some(account) = sink.quota_account() { rate_limit_event(&sink.app().status, &account, &msg["rate_limit_info"]) },
+        "rate_limit_event" => if let Some(account) = sink.quota_account() { rate_limit_event(sink.app(), &account, &msg["rate_limit_info"]) },
         "control_cancel_request" => {
             let request_id = msg["request_id"].as_str().unwrap_or("");
             let removed = st.lock().unwrap().questions.remove(request_id).is_some();
@@ -1123,7 +1123,7 @@ impl harness::Harness for Adapter {
     }
 }
 /// Quota from a Claude `rate_limit_event` (fractions and Unix seconds).
-pub fn rate_limit_event(status: &launchpad_core::status::StatusHandle, account: &str, info: &Value) {
+pub fn rate_limit_event(app: &App, account: &str, info: &Value) {
     let windows = &info["unifiedWindows"];
     let win = |k: &str| -> Option<launchpad_core::status::QuotaWindow> {
         let w = &windows[k];
@@ -1136,7 +1136,7 @@ pub fn rate_limit_event(status: &launchpad_core::status::StatusHandle, account: 
     if five.is_none() && week.is_none() {
         return;
     }
-    status.update_quota(account, five, week);
+    launchpad_core::quota::session_reading(app, account, five, week);
 }
 
 /// Polls the usage of one login: `CLAUDE_CONFIG_DIR` selects its configuration folder (default `~/.claude`).
@@ -1168,8 +1168,13 @@ fn spawn_quota(app: &App, account: launchpad_core::quota::QuotaAccount) -> tokio
                 }
                 Err(e) => {
                     tracing::info!("claude usage ({}): {e:#}", account.key);
-                    a.status.quota_error(&account.key, format!("{e:#}"));
-                    if let Some(limit) = e.downcast_ref::<UsageRateLimited>() {
+                    let limit = e.downcast_ref::<UsageRateLimited>();
+                    // Running sessions also report readings (`rate_limit_event`): a 429 keeps a recent one.
+                    let recent = launchpad_core::quota::reading(&a, &account.key).quota_at.is_some_and(|at| now_ms() - at < 10 * 60_000);
+                    if limit.is_none() || !recent {
+                        a.status.quota_error(&account.key, format!("{e:#}"));
+                    }
+                    if let Some(limit) = limit {
                         rate_limit_delay = if rate_limit_delay == 0 { 300 } else { (rate_limit_delay * 2).min(1800) };
                         tokio::time::sleep(std::time::Duration::from_secs(rate_limit_delay.max(limit.retry_after))).await;
                         continue;

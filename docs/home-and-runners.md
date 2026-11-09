@@ -122,7 +122,7 @@ Home keeps every credential agents use: open **Settings → Credentials and tool
 
 When a session starts, its runner gets a **lease** from Home: the session's login, its granted tools and their tokens. The runner keeps the lease in its proxy's memory only. Agents see placeholders: when a request goes to a host of the lease, the proxy adds the real token and records host, method and path in the session's access log (Summary → Run → Credentials), naming actions such as "opened PR #3421". Other traffic passes through untouched. What a request may do is decided by the token's scopes: use fine-grained tokens. Summary → Run → Credentials lists the tools and MCP servers of the workspace, green for those the agent holds. An agent keeps its tools until it ends: to change them, stop it and launch a new one. Stop and Archive end the lease, and a runner that cannot reach Home drops it after an hour.
 
-Quota: Home reads the quota of each vault login once and sends the readings to every runner, so quota protection works the same everywhere.
+Quota: Home reads the quota of each vault login once and sends the readings to every runner, so quota protection works the same everywhere. Running Claude Code sessions also report the quota they see, and runners pass it to Home, so the reading stays current while Anthropic's usage endpoint refuses Home's checks (429).
 
 ## The jail
 

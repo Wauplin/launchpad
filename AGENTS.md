@@ -84,7 +84,7 @@ Run only what your change can break, and rebuild only what you changed; CI runs 
 ### Profiles, quota and costs
 
 - Profiles (`[[profiles]]` in config.toml) are the only way to run an agent; none are built in. Sessions store the profile ID, never environment values; missing IDs or changed harnesses fail visibly on resume.
-- One quota monitor per subscription login, checks use the session's login. On Linux the logins are Home's vault logins (`quota::vault_key`); runners receive the readings. When the Claude token expired or the usage call fails (except 429), use Claude Code's `get_usage` control request.
+- One quota monitor per subscription login, checks use the session's login. On Linux the logins are Home's vault logins (`quota::vault_key`); runners receive the readings and send Home the complete readings of their running sessions (`quota::session_reading`, at most one per login every 15 s). When the Claude token expired or the usage call fails (except 429), use Claude Code's `get_usage` control request; a 429 keeps a reading younger than 10 minutes.
 - Allow paid usage defaults to false and is never remembered. Exhausted quota holds input or pauses into Quota paused; continuing needs fresh confirmed capacity in both windows, never a reset time alone (null reset = window not started). Owner messages during a pause wait in the durable pending continuation and are delivered in order with it; Stop and Archive discard them.
 - Cost and rolling spend limits apply only to harnesses reporting USD; reaching one refuses input, interrupts best effort and never resumes automatically. Claude adds only increases of its per-process `total_cost_usd`. Terminal TUIs are outside quota protection.
 

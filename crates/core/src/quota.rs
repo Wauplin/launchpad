@@ -188,6 +188,54 @@ pub fn apply_home_readings(app: &App, quotas: BTreeMap<String, QuotaStatus>) {
     });
 }
 
+/// Home: the monitored key of a reading, with `vault:default:<harness>` resolved to the harness's first login
+/// (the same choice as `vault_readings`).
+fn resolve_vault_key(app: &App, key: &str) -> Option<String> {
+    let Some(harness) = key.strip_prefix("vault:default:") else { return Some(key.to_string()) };
+    app.status.get().quotas.into_iter().find(|(k, v)| k.starts_with("vault:") && !k.starts_with("vault:default:") && v.harness == harness).map(|(k, _)| k)
+}
+
+/// A reading reported by a running session (Claude's `rate_limit_event`). Vault logins are monitored on Home
+/// for every runner, so a runner also sends complete readings to Home: they keep the quota known while the
+/// usage endpoint refuses Home's polls (429).
+pub fn session_reading(app: &App, account: &str, five: Option<crate::status::QuotaWindow>, week: Option<crate::status::QuotaWindow>) {
+    if !vault_quotas() || !account.starts_with("vault:") {
+        app.status.update_quota(account, five, week);
+        return;
+    }
+    if app.paths.role != crate::role::Role::Runner {
+        if let Some(key) = resolve_vault_key(app, account) { app.status.update_quota(&key, five, week); }
+        return;
+    }
+    app.status.update_quota(account, five.clone(), week.clone());
+    if five.is_none() || week.is_none() { return; }
+    // Sessions report after most model requests: send at most one reading per login every 15 seconds.
+    static SENT: std::sync::LazyLock<std::sync::Mutex<HashMap<String, std::time::Instant>>> = std::sync::LazyLock::new(Default::default);
+    {
+        let mut sent = SENT.lock().unwrap();
+        if sent.get(account).is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(15)) { return; }
+        sent.insert(account.to_string(), std::time::Instant::now());
+    }
+    let body = serde_json::json!({"key": account, "five_hour": five, "weekly": week});
+    tokio::spawn(async move {
+        if let Err(e) = crate::home_link::home_call("quota", body).await {
+            tracing::debug!("send a session quota reading to Home: {e:#}");
+        }
+    });
+}
+
+/// Home: a session's complete reading sent by a runner (`session_reading`).
+pub fn runner_reading(app: &App, body: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    use anyhow::Context;
+    let key = body["key"].as_str().filter(|k| k.starts_with("vault:")).context("key")?;
+    let five: crate::status::QuotaWindow = serde_json::from_value(body["five_hour"].clone()).context("five_hour")?;
+    let week: crate::status::QuotaWindow = serde_json::from_value(body["weekly"].clone()).context("weekly")?;
+    if let Some(key) = resolve_vault_key(app, key) {
+        app.status.update_quota(&key, Some(five), Some(week));
+    }
+    Ok(serde_json::Value::Null)
+}
+
 /// Home: vault readings, with the first login of each harness as its default.
 fn vault_readings(app: &App) -> BTreeMap<String, QuotaStatus> {
     let all = app.status.get().quotas;
