@@ -47,12 +47,14 @@ pub fn home_env(app: &App, id: &str) -> Vec<(String, String)> {
     ]
 }
 
-/// The lease request of a session.
-async fn request(app: &App, s: &Session) -> Result<LeaseRequest> {
-    let workspace_id = match &s.project_id {
+/// The lease request of a session. Home builds the same from its own record (`vault::grant`), so a folder it
+/// does not know yet (a runner's new temporary folder) falls back to the launch's workspace.
+pub(crate) async fn request(app: &App, s: &Session) -> Result<LeaseRequest> {
+    let folder = match &s.project_id {
         Some(p) => crate::projects::get(app, p).await?.and_then(|p| p.workspace_id),
-        None => s.launch_spec.workspace_id.clone(),
+        None => None,
     };
+    let workspace_id = folder.or_else(|| s.launch_spec.workspace_id.clone());
     let login = s.launch_spec.profile.as_deref().and_then(|id| app.config.get().profile(id).and_then(|p| p.login.clone()));
     Ok(LeaseRequest { session_id: s.id.clone(), generation: s.generation, harness: s.harness, login, workspace_id, tools_off: s.launch_spec.tools_off.clone(), tools_on: s.launch_spec.tools_on.clone(), project_id: s.project_id.clone(), bot_id: s.launch_spec.bot.as_ref().map(|b| b.id.clone()) })
 }

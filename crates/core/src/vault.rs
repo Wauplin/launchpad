@@ -736,6 +736,16 @@ pub(crate) fn check_owner(app: &App, runner_id: Option<&str>, session_id: &str, 
     Ok(())
 }
 
+/// Home: what a session's lease holds (workspace, folder, bot, login, tools on and off), read from Home's own
+/// record of the session (`contain::request`), never from what the runner asked; only the generation is the
+/// runner's (`check_owner` compared it). Call after `check_owner`.
+async fn own_request(app: &App, req: &LeaseRequest) -> Result<LeaseRequest> {
+    let s = app.sessions.get(&req.session_id).context("Home did not place this session on this runner")?;
+    let mut own = crate::contain::request(app, &s).await?;
+    own.generation = req.generation;
+    Ok(own)
+}
+
 /// The tools and MCP servers of a lease (`mcp:<id>`, the keys of the default tools), for the session's Summary.
 fn lease_tools(lease: &Lease) -> Vec<String> {
     lease.tools.iter().map(|t| t.id.clone()).chain(lease.mcp.iter().map(|m| crate::mcp::launch_off(&m.id))).collect()
@@ -745,6 +755,7 @@ fn lease_tools(lease: &Lease) -> Vec<String> {
 pub async fn grant(app: &App, runner_id: Option<&str>, req: &LeaseRequest) -> Result<Lease> {
     ensure_home(app)?;
     check_owner(app, runner_id, &req.session_id, req.generation)?;
+    let req = &own_request(app, req).await?;
     let lease = build(app, &uuid::Uuid::new_v4().to_string(), req).await?;
     let lease = relay_if_burst(app, runner_id, lease).await;
     let now = now_ms();
@@ -864,6 +875,7 @@ pub async fn renew(app: &App, runner_id: Option<&str>, lease_id: &str, req: &Lea
     anyhow::ensure!(info.revoked_at.is_none(), "this lease was revoked");
     anyhow::ensure!(info.runner_id.as_deref() == runner_id, "this lease belongs to another runner");
     check_owner(app, runner_id, &req.session_id, req.generation)?;
+    let req = &own_request(app, req).await?;
     let lease = build(app, lease_id, req).await?;
     let lease = relay_if_burst(app, runner_id, lease).await;
     info.renewed_at = now_ms();

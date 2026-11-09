@@ -510,7 +510,17 @@ impl Sessions {
                 if !stale {
                     s.runner_id = Some(runner.clone());
                     // Either side may have shown it to the owner.
-                    if let Some(c) = &current { s.seen_at = s.seen_at.max(c.seen_at); s.last_seq = s.last_seq.max(c.last_seq); }
+                    if let Some(c) = &current {
+                        s.seen_at = s.seen_at.max(c.seen_at);
+                        s.last_seq = s.last_seq.max(c.last_seq);
+                        // What the lease holds stays as Home placed it (`vault::grant` reads it from this record).
+                        s.harness = c.harness;
+                        s.launch_spec.profile = c.launch_spec.profile.clone();
+                        s.launch_spec.workspace_id = c.launch_spec.workspace_id.clone();
+                        s.launch_spec.bot = c.launch_spec.bot.clone();
+                        s.launch_spec.tools_off = c.launch_spec.tools_off.clone();
+                        s.launch_spec.tools_on = c.launch_spec.tools_on.clone();
+                    }
                 }
                 let stored = s.clone();
                 app.state_db.call(move |c| {
@@ -971,7 +981,12 @@ impl Sessions {
         if app.paths.role == crate::role::Role::Runner {
             let mut placed = spec.clone();
             placed.attachments.clear();
-            crate::home_link::home_call("place", serde_json::json!({"session_id": id, "spec": placed})).await.context("record the launch on Home")?;
+            if let Err(e) = crate::home_link::home_call("place", serde_json::json!({"session_id": id, "spec": placed})).await {
+                // Home may have recorded it before the answer was lost (a timeout): `Forget` removes that record.
+                let forget = id.clone();
+                let _ = app.state_db.call(move |c| crate::replica::queue(c, &crate::replica::Item::Forget { id: forget })).await;
+                return Err(e.context("record the launch on Home"));
+            }
         }
         let prepared = async {
             if let Target::Browser { grants, act, .. } = &spec.target { crate::browser::claim(app, &id, grants, *act).await?; }
