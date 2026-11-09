@@ -20,19 +20,19 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,targe
 FROM node:24.14.1-bookworm-slim
 COPY --from=build /launchpad /usr/local/bin/launchpad
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv git openssh-client ca-certificates curl tini && rm -rf /var/lib/apt/lists/*
-COPY deploy/hf-space/release.json /opt/space/release.json
-COPY deploy/hf-space/supervisor/install_tools.py /opt/space/install_tools.py
-RUN --mount=type=cache,target=/root/.npm python3 /opt/space/install_tools.py
+COPY deploy/hf-home/release.json /opt/home/release.json
+COPY deploy/hf-home/install_tools.py /opt/home/install_tools.py
+RUN --mount=type=cache,target=/root/.npm python3 /opt/home/install_tools.py
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential'
 # Tools agents use on a Burst runner (compilers, Rust, pnpm, jq, Chromium…).
-COPY deploy/hf-home/agent-tools.sh /opt/space/agent-tools.sh
-RUN sh /opt/space/agent-tools.sh
-COPY deploy/hf-space/requirements.txt /opt/home/requirements.txt
+COPY deploy/hf-home/agent-tools.sh /opt/home/agent-tools.sh
+RUN sh /opt/home/agent-tools.sh
+COPY deploy/hf-home/requirements.txt /opt/home/requirements.txt
 RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r /opt/home/requirements.txt && ln -s /opt/venv/bin/hf /usr/local/bin/hf && ln -s /opt/venv/bin/uv /usr/local/bin/uv && ln -s /opt/venv/bin/uvx /usr/local/bin/uvx
 RUN userdel node && useradd --uid 1000 --create-home --shell /bin/bash user
 # A Burst runner adds its own CA to the system store, so its agents trust the runner proxy (launchpad_core::netcap).
 RUN chown user /etc/ssl/certs/ca-certificates.crt
-COPY deploy/hf-space/gateway/__init__.py deploy/hf-space/gateway/proxy.py /opt/home/gateway/
+COPY deploy/hf-home/gateway/__init__.py deploy/hf-home/gateway/proxy.py /opt/home/gateway/
 COPY deploy/hf-home/main.py deploy/hf-home/onboarding.py deploy/hf-home/setup.html deploy/hf-home/install-runner.sh /opt/home/
 ENV PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/home/user
 WORKDIR /opt/home

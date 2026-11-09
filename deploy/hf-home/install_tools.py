@@ -8,7 +8,7 @@ import subprocess
 import tarfile
 from pathlib import Path
 
-versions=json.loads(Path('/opt/space/release.json').read_text())['tools']
+versions=json.loads(Path('/opt/home/release.json').read_text())['tools']
 if any(not re.fullmatch(r'\d+\.\d+\.\d+',str(v)) for v in versions.values()): raise ValueError('Tool versions must be exact semver releases')
 subprocess.run(['npm','install','-g',f"@openai/codex@{versions['codex']}",f"@anthropic-ai/claude-code@{versions['claude']}",f"opencode-ai@{versions['opencode']}"],check=True)
 version=versions['gh']
