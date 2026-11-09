@@ -142,7 +142,8 @@ impl harness::Harness for Adapter {
         let path = launchpad_core::contain::harness_home(app, &session.id).join(format!(".launchpad-import-{id}.json"));
         std::fs::write(&path, &file.data)?;
         let cwd = std::path::Path::new(&session.cwd);
-        let result = launchpad_core::procs::output(&env, "opencode", &["import", &path.to_string_lossy()], cwd.is_dir().then_some(cwd)).await;
+        let file_arg = path.to_string_lossy().into_owned();
+        let result = launchpad_core::procs::output(&env, "opencode", &["import", file_arg.as_str()], cwd.is_dir().then_some(cwd)).await;
         let _ = std::fs::remove_file(&path);
         result.map(|_| ())
     }
