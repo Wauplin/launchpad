@@ -31,7 +31,7 @@ import { abandonOperation } from "@/lib/operations";
 import { api, ApiError } from "@/lib/api";
 import { pastedImages } from "@/lib/attachments";
 import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "./MessageAttachments";
-import { projectName, useProjects, useSession } from "@/lib/queries";
+import { projectName, useProjects, useSession, useSettled } from "@/lib/queries";
 import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
 import { buildRows } from "./rows";
 import { EventRow } from "./EventRow";
@@ -241,6 +241,9 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   }, [s, view, sessionRunning]);
   const git = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${sessionId}/git`), refetchInterval: 5000 });
   const history = useQuery({ queryKey: ["session-git-commits", sessionId, ""], queryFn: () => api.get<SessionGitHistory | null>(`/api/sessions/${sessionId}/git-commits`), refetchInterval: 5000 });
+  // Settled outcomes: a failed Git query (a folder that is not Git) goes back to pending at each poll, which made Archive blink.
+  const gitState = useSettled(git);
+  const historyState = useSettled(history);
   const isGit = !!git.data || !!history.data;
   const current: View = view === "processes" && !hasProcesses ? "trace" : view === "changes" && !isGit ? "summary" : view ?? "summary";
   // Running opens Trace by default (decision 10 allows Summary while running, with a "Working…" band).
@@ -339,8 +342,8 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   // that is not a Home Git folder means it is not a Git folder.
   const gitFolder = !!projects?.find((p) => p.id === s.project_id)?.home_git;
   const failed = (e: unknown) => !(e instanceof ApiError) || e.status >= 500 || gitFolder;
-  const gitLoading = git.isPending || history.isPending;
-  const gitUnknown = !changed && !gitLoading && (history.isError || (git.isError && failed(git.error)));
+  const gitLoading = gitState.pending || historyState.pending;
+  const gitUnknown = !changed && !gitLoading && (historyState.error != null || (gitState.error != null && failed(gitState.error)));
   const showChanges = (main: boolean) => { setGitMain(main); setView("changes"); };
   const onlyMain = (git.data?.files.length ?? 0) === 0 && mainChanges > 0;
   const archive = () => void act(s.id, "session.archive");

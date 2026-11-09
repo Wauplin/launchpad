@@ -1,6 +1,7 @@
 // Query hooks for daemon data. WebSocket events keep them current (see ws.ts).
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useRef } from "react";
 import type { Config } from "@/gen/Config";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { CronAgent } from "@/gen/CronAgent";
@@ -52,4 +53,15 @@ export const useSchedules = () => useQuery({ queryKey: ["schedules"], queryFn: (
 
 export function useStatus() {
   return useQuery({ queryKey: ["status"], queryFn: () => api.get<import("@/gen/Status").Status>("/api/status"), staleTime: Infinity });
+}
+
+/** A polled query's last settled outcome. TanStack Query puts a query that failed and never had data back to pending at
+ * each refetch (`isPending` true, `error` null), so state derived from it would blink at every poll; this keeps the last
+ * error until the refetch settles. `pending` is true only before the first answer. */
+export function useSettled(q: UseQueryResult<unknown>): { pending: boolean; error: unknown } {
+  const last = useRef<unknown>(null);
+  if (q.isError) last.current = q.error;
+  else if (q.isSuccess) last.current = null;
+  const error = q.isError ? q.error : q.isPending && q.errorUpdatedAt > 0 ? last.current : null;
+  return { pending: q.isPending && error == null, error };
 }
