@@ -2,15 +2,15 @@
 import type { RefInfo } from "./RefInfo";
 import type { Worktree } from "./Worktree";
 
-export type CodeSources = { git: boolean,
+export type CodeSources = { git: boolean, 
 /**
  * `origin/main`: the base for change letters.
  */
-default_branch: string | null,
+default_branch: string | null, 
 /**
  * The project checkout first.
  */
-worktrees: Array<Worktree>,
+worktrees: Array<Worktree>, 
 /**
  * Local and remote branches, tags and fetched PR heads, most recent first.
  */

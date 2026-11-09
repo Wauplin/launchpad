@@ -3,7 +3,7 @@
 /**
  * A GitHub pull request, by repository and number.
  */
-export type PullRequestRef = {
+export type PullRequestRef = { 
 /**
  * `owner/repo` of the base repository.
  */

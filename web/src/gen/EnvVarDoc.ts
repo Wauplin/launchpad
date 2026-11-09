@@ -3,19 +3,19 @@
 /**
  * One environment variable the harness CLI reads, as documented by its vendor.
  */
-export type EnvVarDoc = { name: string,
+export type EnvVarDoc = { name: string, 
 /**
  * Heading in the variable picker, for example Account or Models.
  */
-group: string, description: string,
+group: string, description: string, 
 /**
  * Value the CLI uses when the variable is unset.
  */
-default: string | null,
+default: string | null, 
 /**
  * Example shown as a placeholder when there is no default.
  */
-example: string | null,
+example: string | null, 
 /**
  * Credential: hidden in the editor until shown.
  */

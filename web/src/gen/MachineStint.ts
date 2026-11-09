@@ -3,7 +3,7 @@
 /**
  * Consecutive turns of a session that ended on the same machine.
  */
-export type MachineStint = {
+export type MachineStint = { 
 /**
  * The runner's name when the turns ended, or `None` for the daemon that answers (it ran them itself).
  */

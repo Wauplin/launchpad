@@ -3,11 +3,11 @@
 /**
  * One provider of a router model, with its reported prices in USD per million tokens.
  */
-export type ModelProvider = { name: string, context_length: number | null, input_usd: number | null,
+export type ModelProvider = { name: string, context_length: number | null, input_usd: number | null, 
 /**
  * Cached input (cache read), when the provider reports it.
  */
-cached_input_usd: number | null, output_usd: number | null,
+cached_input_usd: number | null, output_usd: number | null, 
 /**
  * Output tokens per second, as measured by the router.
  */

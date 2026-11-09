@@ -7,11 +7,11 @@ import type { QuotaPausePhase } from "./QuotaPausePhase";
 /**
  * A durable pending continuation. Claim it before sending; uncertain claims need user action.
  */
-export type QuotaPause = { phase: QuotaPausePhase, blockers: Array<QuotaBlock>, message: string, images: Array<ImageAttachment>,
+export type QuotaPause = { phase: QuotaPausePhase, blockers: Array<QuotaBlock>, message: string, images: Array<ImageAttachment>, 
 /**
  * Existing queued input, or None for an interrupted turn's continuation message.
  */
-client_id: string | null, error: string | null,
+client_id: string | null, error: string | null, 
 /**
  * Owner steering, delivered with the continuation in submission order.
  */

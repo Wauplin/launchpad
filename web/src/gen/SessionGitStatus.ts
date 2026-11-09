@@ -2,11 +2,11 @@
 import type { SessionGitChanges } from "./SessionGitChanges";
 import type { SessionGitFile } from "./SessionGitFile";
 
-export type SessionGitStatus = { branch: string, files: Array<SessionGitFile>,
+export type SessionGitStatus = { branch: string, files: Array<SessionGitFile>, 
 /**
  * Commits absent from locally cached remote refs; no fetch is performed.
  */
-unpushed_commits: number | null,
+unpushed_commits: number | null, 
 /**
  * Working tree compared with main, including staged and unstaged tracked changes.
  */

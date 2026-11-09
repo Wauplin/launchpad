@@ -3,7 +3,7 @@
 /**
  * Network front door. File edits require restart; pairing can apply verified HTTPS live.
  */
-export type ServerConfig = { bind: string, public_origin: string | null,
+export type ServerConfig = { bind: string, public_origin: string | null, 
 /**
  * Discover and listen on this machine's Tailscale address when no origin is configured.
  */

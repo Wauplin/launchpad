@@ -5,7 +5,7 @@ export type ProjectPatch = { name: string | null, description: string | null, pi
 /**
  * Command run in each new task worktree of this project before the agent starts.
  */
-worktree_setup: string | null, when_done: WhenDone | null,
+worktree_setup: string | null, when_done: WhenDone | null, 
 /**
  * Moves the folder to another workspace (also assigns an Unassigned folder).
  */

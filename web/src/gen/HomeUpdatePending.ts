@@ -3,11 +3,11 @@
 /**
  * An update started from Home, kept until its runners were updated (24 hours).
  */
-export type HomeUpdatePending = { version: string, commit: string,
+export type HomeUpdatePending = { version: string, commit: string, 
 /**
  * Update the runners once Home runs `commit`.
  */
-update_runners: boolean, requested_at: number,
+update_runners: boolean, requested_at: number, 
 /**
  * Runners asked to update (each one once).
  */

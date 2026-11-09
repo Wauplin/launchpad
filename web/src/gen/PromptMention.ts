@@ -3,7 +3,7 @@
 /**
  * A selected prompt occurrence. Offsets are UTF-16 units, matching textarea selection APIs.
  */
-export type PromptMention = { id: string, start: number, end: number, text: string, key: string,
+export type PromptMention = { id: string, start: number, end: number, text: string, key: string, 
 /**
  * True when the attachment exists only because of mentions, not a manual picker selection.
  */

@@ -3,11 +3,11 @@
 /**
  * A memory file of a harness on a runner, offered for import.
  */
-export type NativeMemory = {
+export type NativeMemory = { 
 /**
  * Where it goes in the knowledge base: `imported/<harness>/<group>/<file>`.
  */
-path: string,
+path: string, 
 /**
  * Where it is on the runner.
  */

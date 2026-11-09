@@ -4,19 +4,19 @@ import type { SessionEvent } from "./SessionEvent";
 /**
  * Summary facts of the events before a page (`seq < before`).
  */
-export type EarlierFacts = { before: number,
+export type EarlierFacts = { before: number, 
 /**
  * The first user message of the session (the initial task).
  */
-first_user: SessionEvent | null, last_assistant: SessionEvent | null,
+first_user: SessionEvent | null, last_assistant: SessionEvent | null, 
 /**
  * The last question, with its answers when it was answered (anywhere in the log).
  */
-last_ask: SessionEvent | null, last_ask_answers: Array<string> | null, turns: number,
+last_ask: SessionEvent | null, last_ask_answers: Array<string> | null, turns: number, 
 /**
  * Sum of the turn durations; `None` when a turn has no recorded duration.
  */
-turns_duration_ms: number | null,
+turns_duration_ms: number | null, 
 /**
  * Native child agent metadata events (`subagent`).
  */

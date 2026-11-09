@@ -5,7 +5,7 @@ import type { Author } from "./Author";
  * One change of a store: `sha256` is the content before (None: the file was created), `new_sha256` after
  * (None: deleted, now in the trash).
  */
-export type Change = { id: number, path: string, sha256: string | null, new_sha256: string | null, at: number, session_id: string | null,
+export type Change = { id: number, path: string, sha256: string | null, new_sha256: string | null, at: number, session_id: string | null, 
 /**
  * Knowledge base changes: who wrote it, and the lines added and removed.
  */

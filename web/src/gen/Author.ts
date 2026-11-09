@@ -4,11 +4,11 @@ import type { AuthorKind } from "./AuthorKind";
 /**
  * Who made a knowledge base change.
  */
-export type Author = { kind: AuthorKind,
+export type Author = { kind: AuthorKind, 
 /**
  * The session title, "You", "Launchpad" or where an import came from.
  */
-name: string, session_id: string | null, model: string | null,
+name: string, session_id: string | null, model: string | null, 
 /**
  * The runner's name.
  */

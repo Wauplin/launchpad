@@ -7,11 +7,11 @@ import type { Runner } from "./Runner";
 /**
  * A runner with its live state, for Settings.
  */
-export type RunnerStatus = { runner: Runner, connected: boolean,
+export type RunnerStatus = { runner: Runner, connected: boolean, 
 /**
  * Build comparison while connected.
  */
-compat: Compat | null, guard: Guard | null,
+compat: Compat | null, guard: Guard | null, 
 /**
  * The last network check the owner ran on it (`netcap::network_check`), until Home restarts.
  */

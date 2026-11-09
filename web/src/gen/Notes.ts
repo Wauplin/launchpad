@@ -2,11 +2,11 @@
 import type { Concurrent } from "./Concurrent";
 import type { Entry } from "./Entry";
 
-export type Notes = { workspace_id: string, version: number, files: Array<Entry>, concurrent: Array<Concurrent>,
+export type Notes = { workspace_id: string, version: number, files: Array<Entry>, concurrent: Array<Concurrent>, 
 /**
  * The change you last marked seen.
  */
-seen: number,
+seen: number, 
 /**
  * The prompt of the gardener, for the composer.
  */

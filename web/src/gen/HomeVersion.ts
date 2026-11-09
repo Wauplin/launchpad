@@ -3,19 +3,19 @@
 /**
  * A version of Launchpad Home can install.
  */
-export type HomeVersion = {
+export type HomeVersion = { 
 /**
  * A release tag, or a full `main` commit.
  */
-version: string, commit: string,
+version: string, commit: string, 
 /**
  * Published (release) or committed (main), Unix milliseconds.
  */
-at: number,
+at: number, 
 /**
  * The release page, or the comparison with the deployed commit.
  */
-url: string,
+url: string, 
 /**
  * Main: how many commits of `main` are newer than the deployed one (of the 30 newest; None: more).
  */

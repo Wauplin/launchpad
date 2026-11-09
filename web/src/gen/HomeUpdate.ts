@@ -3,35 +3,35 @@ import type { HomeUpdateChannel } from "./HomeUpdateChannel";
 import type { HomeUpdatePending } from "./HomeUpdatePending";
 import type { HomeVersion } from "./HomeVersion";
 
-export type HomeUpdate = {
+export type HomeUpdate = { 
 /**
  * Why this Home cannot update itself from here; None: it can.
  */
-unsupported: string | null,
+unsupported: string | null, 
 /**
  * The Space ID (`namespace/name`).
  */
-space: string | null, channel: HomeUpdateChannel | null,
+space: string | null, channel: HomeUpdateChannel | null, 
 /**
  * What the Space's Dockerfile installs: a release tag or a main commit.
  */
-deployed: string | null,
+deployed: string | null, 
 /**
  * The commit this Home runs.
  */
-running: string,
+running: string, 
 /**
  * The newest version of the channel.
  */
-latest: HomeVersion | null,
+latest: HomeVersion | null, 
 /**
  * `latest` is newer than `deployed`.
  */
-available: boolean,
+available: boolean, 
 /**
  * The Space builds or starts another revision than the one running (an update on its way).
  */
-building: boolean,
+building: boolean, 
 /**
  * The Space's stage on the Hub (RUNNING, BUILDING, BUILD_ERROR…).
  */

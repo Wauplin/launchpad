@@ -4,11 +4,11 @@ import type { Asset } from "./Asset";
 /**
  * An asset folder on the folder page.
  */
-export type AssetInfo = { asset: Asset, files: number, size: number,
+export type AssetInfo = { asset: Asset, files: number, size: number, 
 /**
  * The last change of its files (or its creation).
  */
-last_change: number,
+last_change: number, 
 /**
  * A branch, kept tip or note still names it, or a session holds it.
  */

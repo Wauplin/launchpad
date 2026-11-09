@@ -3,11 +3,11 @@
 /**
  * A file from the code viewer, given to the agent as a reference: it reads the file itself.
  */
-export type FileRef = {
+export type FileRef = { 
 /**
  * The working tree, or the project checkout for a revision.
  */
-root: string,
+root: string, 
 /**
  * None: the file on disk in `root`.
  */
