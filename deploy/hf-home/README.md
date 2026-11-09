@@ -28,11 +28,10 @@ Home backup is mandatory: the gateway refuses config writes that disable or redi
 curl -fsSL https://raw.githubusercontent.com/Wauplin/launchpad/main/deploy/hf-home/deploy.sh | bash
 ```
 
-It checks `curl`, `tar`, `python3` and the hf CLI (recent enough for buckets and Space volumes) and your Hugging Face sign-in. It then creates or checks the private bucket `<Space ID>-bucket` and the private Docker Space (default `<your user>/launchpad-home`, `cpu-basic`, the bucket mounted read-write at `/backups`). It refuses a public bucket or Space, other volumes, or a Space Dockerfile it did not write (`--force` replaces it). It uploads the Dockerfile and the Space card (and deletes other files of the Space), waits until the Space runs the uploaded commit, and checks that `/_home/status` answers. Options (after `bash -s --`):
+It checks `curl`, `python3` and the hf CLI (recent enough for buckets and Space volumes) and your Hugging Face sign-in. It then creates or checks the private bucket `<Space ID>-bucket` and the private Docker Space (default `<your user>/launchpad-home`, `cpu-basic`, the bucket mounted read-write at `/backups`). It refuses a public bucket or Space, other volumes, or a Space Dockerfile it did not write (`--force` replaces it). It uploads the Dockerfile and the Space card (and deletes other files of the Space), waits until the Space runs the uploaded commit, and checks that `/_home/status` answers. Options (after `bash -s --`):
 
 - `--release <tag>`: deploy this release (default: the latest one).
-- `--source [<ref>]`: deploy a branch, tag or commit (default: `main`). CI builds the package of every push to `main` and attaches it to the `main-build` prerelease as `launchpad-linux-x86_64-<commit>.tar.gz` (the 20 newest commits). When the commit has one, the Space uses it with `Dockerfile.release`, like a release, and compiles nothing. Otherwise (a commit that is not on `main`, an older one, or a push that CI has not finished building, about 15 minutes), the Space builder compiles the daemon: much slower, and it needs more memory.
-- `--compile`: with `--source`, always compile on the Space builder.
+- `--main`: deploy the latest `main`. CI builds the package of every push to `main` and attaches it to the `main-build` prerelease as `launchpad-linux-x86_64-<commit>.tar.gz` (the 20 newest commits). The script takes the newest `main` commit that has one (CI needs about 15 minutes after a push) and the Space uses it with `Dockerfile.release`, like a release. Nothing is compiled on the Space builder.
 - `--space <[namespace/]name>`, `--bucket <namespace/name>`: other names. A bucket that is not `<Space ID>-bucket` is set as the `LP_HOME_BUCKET` Space variable.
 - `--no-wait`: return after the upload.
 

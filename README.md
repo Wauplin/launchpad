@@ -12,7 +12,7 @@ Deploy your own Launchpad Home as a private Hugging Face Space with one command.
 curl -fsSL https://raw.githubusercontent.com/Wauplin/launchpad/main/deploy/hf-home/deploy.sh | bash
 ```
 
-The script checks your tools and sign-in, creates a private backup bucket and a private Docker Space (`<your user>/launchpad-home`), deploys the latest release, waits for the build and checks that Home answers. Then open the Space URL it prints and follow the setup page. Run the same command again to update to the newest release. Add `bash -s -- --source` to build from the `main` branch instead (`--source <ref>` for another branch, tag or commit), and `--help` for the other options. See [deploy/hf-home/README.md](deploy/hf-home/README.md).
+The script checks your tools and sign-in, creates a private backup bucket and a private Docker Space (`<your user>/launchpad-home`), deploys the latest release, waits for the build and checks that Home answers. Then open the Space URL it prints and follow the setup page. Run the same command again to update to the newest release. Add `bash -s -- --main` to deploy the latest `main` instead (CI's package of the newest built commit), and `--help` for the other options. See [deploy/hf-home/README.md](deploy/hf-home/README.md).
 
 ## Why Launchpad
 
