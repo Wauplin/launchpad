@@ -25,6 +25,8 @@ const RULES = {
   gap: (line) => [...line.matchAll(/(?<![\w-])gap(?:-[xy])?-\[[^\]]+\]/g)].map((m) => m[0]),
   // Colors come from the theme tokens (styles.css), which have a dark value.
   hex: (line) => [...line.matchAll(/(?<=["'`[_(,])#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![\w])/g)].map((m) => m[0]),
+  // Tailwind's palette (red-600, gray-200…) has no dark value either; white and black stay for overlays and filled buttons.
+  palette: (line) => [...line.matchAll(/(?<![\w-])(?:[\w-]+:)*(?:bg|text|border|ring|fill|stroke|outline|divide|from|via|to|shadow|accent|caret|decoration)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}(?![\w-])/g)].map((m) => m[0]),
   // Icon buttons have one size (IconButton, .iconbtn); a forced size-…! makes another one.
   "size-override": (line) => [...line.matchAll(/(?<![\w-])!?size-[\w.[\]]+!?/g)].filter((m) => m[0].startsWith("!") || m[0].endsWith("!")).map((m) => m[0]),
   // Icons: 12 inline, 14 in icon buttons, 16 in navigation.

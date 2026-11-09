@@ -130,7 +130,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
       {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, payload).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
       {reading && <div className="mb-1 text-[12px] text-ink-3">Reading attachments…</div>}
       {!ask && <PresetChips surface={presetSurface} selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
-      <div className="session-message-input flex items-end gap-2 rounded-card border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
+      <div className="session-message-input flex items-end gap-2 rounded-control border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
         <PromptField
           compact inputRef={ref}
           document={{ ...EMPTY_CONTEXT, ...context, text }}

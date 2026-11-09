@@ -133,7 +133,7 @@ export function CommandField() {
   const askLabel = bot ? `Ask ${bot.settings.name}` : "Ask";
   return (
     <div className="flex min-w-[280px] max-w-text flex-1 items-center gap-1.5" data-tour="topbar.field">
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-card border border-line bg-paper px-2 py-1 focus-within:border-teal">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-control border border-line bg-paper px-2 py-1 focus-within:border-teal">
         <Icon name="spark" size={14} className="flex-none text-teal-ink" />
         {!ctx.botId && bots.length > 1 && bot && <select className="min-w-0 max-w-[120px] shrink bg-transparent text-[12px] font-semibold outline-none" aria-label="Bot that Ask talks to" title="Ask sends to this bot" value={bot.id} onChange={(e) => setPicked(e.target.value)}>{bots.map((b) => <option key={b.id} value={b.id}>{b.settings.name}</option>)}</select>}
         {ctx.label && <span className="flex min-w-[28px] max-w-[180px] shrink items-center gap-1 rounded bg-sunk px-1.5 text-[11px] text-ink-2" title="The page you are on goes with Ask and Launch">

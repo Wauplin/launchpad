@@ -51,10 +51,10 @@ export function day(ms: number): string {
   return `${MONTHS[d.getMonth()]} ${d.getDate()}${year(d)}`;
 }
 
-/** A month: "November" ("November 2025" in another year). */
+/** A month in English like the other labels: "November" ("November 2025" in another year). */
 export function month(ms: number): string {
   const d = new Date(ms);
-  return `${d.toLocaleDateString([], { month: "long" })}${d.getFullYear() === new Date().getFullYear() ? "" : ` ${d.getFullYear()}`}`;
+  return `${d.toLocaleDateString("en-US", { month: "long" })}${d.getFullYear() === new Date().getFullYear() ? "" : ` ${d.getFullYear()}`}`;
 }
 
 /** Quota reset (Unix seconds, rounded to the minute: the usage endpoint returns times like 13:29:59.7). */

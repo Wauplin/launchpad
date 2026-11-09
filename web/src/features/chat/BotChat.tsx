@@ -417,7 +417,7 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void attachments.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
         <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
         {phone && !text && !files.length && !answering && !blocked && !busy && <QuickChips onSend={(t) => void send(t)} onFill={(t) => { setText(t); requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } }); }} />}
-        <div className="session-message-input flex items-end gap-2 rounded-card border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
+        <div className="session-message-input flex items-end gap-2 rounded-control border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
           <textarea ref={ref} rows={1} value={text} disabled={busy || blocked} aria-label={`Message ${bot.settings.name}`}
             placeholder={busyTurn ? `${bot.settings.name} is working: Stop it or wait for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? `Answer or message ${bot.settings.name}…` : `Message ${bot.settings.name}…`}
             onChange={(e) => setText(e.target.value)}
