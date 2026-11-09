@@ -52,6 +52,15 @@ pub enum Pending {
     Move { session_id: String },
 }
 
+/// A message that came while the job was starting: sent after what the job was started for.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Queued {
+    pub text: String,
+    #[serde(default)]
+    pub files: Vec<crate::model::FileAttachment>,
+    pub key: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct BurstRun {
     pub runner_id: String,
@@ -75,6 +84,10 @@ pub struct BurstRun {
     #[serde(default)]
     #[ts(skip)]
     pub pending: Option<Pending>,
+    /// Messages to the session that came while `pending` was not done yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(skip)]
+    pub queued: Vec<Queued>,
 }
 
 impl BurstRun {
@@ -327,6 +340,7 @@ async fn start(app: &App, session_id: Option<String>, pending: Pending) -> Resul
         cost_per_minute,
         error: None,
         pending: Some(pending),
+        queued: vec![],
     };
     let created = hf(app, reqwest::Method::POST, &format!("/api/jobs/{namespace}"), Some(spec)).await.map_err(|e| {
         let text = format!("{e:#}");
@@ -366,7 +380,7 @@ pub async fn stop(app: &App, runner_id: &str, error: Option<String>) -> Result<(
         match &r.pending {
             Some(Pending::Launch { session_id, .. }) => fail_placeholder(app, session_id).await,
             Some(Pending::Message { session_id, .. }) => fail_continuation(app, session_id, e, true).await,
-            Some(Pending::Move { session_id }) => fail_continuation(app, session_id, e, false).await,
+            Some(Pending::Move { session_id }) => fail_continuation(app, session_id, e, !r.queued.is_empty()).await,
             None => {}
         }
     }
@@ -385,6 +399,7 @@ pub async fn stop(app: &App, runner_id: &str, error: Option<String>) -> Result<(
             r.error = error;
         }
         r.pending = None;
+        r.queued.clear();
     })
     .await?;
     // Its credential ends with the job; the run record keeps what the UI shows.
@@ -450,7 +465,21 @@ async fn drive(app: &App, runner_id: &str) {
     };
     match result {
         Ok(()) => {
-            let _ = update(app, runner_id, |r| r.pending = None).await;
+            // Messages that came meanwhile follow in order; later ones go to the connected runner directly.
+            let mut queued = vec![];
+            let _ = update(app, runner_id, |r| {
+                r.pending = None;
+                queued = std::mem::take(&mut r.queued);
+            })
+            .await;
+            let session_id = run.session_id.clone().unwrap_or_default();
+            for q in queued {
+                if let Err(e) = crate::runners::send_anywhere(app, &session_id, &q.text, q.files, q.key).await {
+                    tracing::warn!("Burst {runner_id}: queued message: {e:#}");
+                    crate::sessions::notice_anywhere(app, &session_id, &format!("A message sent while Burst was starting could not be delivered: {e:#}. Send it again.")).await;
+                    break;
+                }
+            }
         }
         Err(e) => {
             tracing::warn!("Burst {runner_id}: {e:#}");
@@ -539,7 +568,29 @@ pub async fn continue_session(app: &App, id: &str, text: String, files: Vec<crat
     if let Some(reason) = crate::handoff::blocked(&s) {
         bail!("{reason}");
     }
-    ensure!(!runs(app).await?.iter().any(|r| r.active() && r.session_id.as_deref() == Some(id) && r.pending.is_some()), "Burst is already starting for this session");
+    // A job is already starting for this session (a second message while the first one waits): this one follows it.
+    if let Some(r) = runs(app).await?.into_iter().find(|r| r.active() && r.session_id.as_deref() == Some(id) && r.pending.is_some()) {
+        ensure!(!matches!(r.pending, Some(Pending::Launch { .. })), "This agent is still starting on Burst: send your message once it runs");
+        let mut accepted = false;
+        let queued = Queued { text: text.clone(), files: files.clone(), key: key.clone() };
+        update(app, &r.runner_id, |r| {
+            if !r.active() || r.pending.is_none() {
+                return;
+            }
+            accepted = true;
+            let same = |k: &Option<String>| key.is_some() && k == &key;
+            let known = matches!(&r.pending, Some(Pending::Message { key: k, .. }) if same(k)) || r.queued.iter().any(|q| same(&q.key));
+            if !known {
+                r.queued.push(queued);
+            }
+        })
+        .await?;
+        if accepted {
+            return Ok(());
+        }
+        // The job finished starting meanwhile: the message goes to the session where it runs now.
+        return Box::pin(crate::runners::send_anywhere(app, id, &text, files, key)).await;
+    }
     if s.runner_id.as_ref().is_some_and(|r| !app.runners.connected(r)) {
         crate::handoff::offline_copy(app, &s).await?;
     }
@@ -749,7 +800,7 @@ mod tests {
     }
 
     fn run(created: i64, stopped: Option<i64>) -> BurstRun {
-        BurstRun { runner_id: "r".into(), job_id: None, namespace: "n".into(), flavor: "cpu-basic".into(), url: None, state: BurstState::Stopped, session_id: None, created_at: created, connected_at: None, stopped_at: stopped, cost_per_minute: 0.01, error: None, pending: None }
+        BurstRun { runner_id: "r".into(), job_id: None, namespace: "n".into(), flavor: "cpu-basic".into(), url: None, state: BurstState::Stopped, session_id: None, created_at: created, connected_at: None, stopped_at: stopped, cost_per_minute: 0.01, error: None, pending: None, queued: vec![] }
     }
 
     #[test]
