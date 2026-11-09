@@ -751,9 +751,7 @@ impl Supervisor {
                     return policy::parse_capture_answer(&String::from_utf8_lossy(&line));
                 }
                 line.push(b);
-            } else if r == 0 {
-                return libc::ECONNRESET;
-            } else if errno() != libc::EAGAIN {
+            } else if r == 0 || errno() != libc::EAGAIN {
                 return libc::ECONNRESET;
             }
         }
