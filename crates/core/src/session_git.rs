@@ -21,6 +21,10 @@ pub struct GitStatus {
     /// Working tree compared with main, including staged and unstaged tracked changes.
     pub main_changes: Option<GitChanges>,
     pub main_files: Vec<GitFile>,
+    /// Home answers for an away runner from its last snapshot (`files` then lists the uncommitted files Home
+    /// has): when that snapshot was taken.
+    #[ts(type = "number | null")]
+    pub uncommitted_at: Option<i64>,
 }
 #[derive(Serialize, TS)]
 #[ts(rename = "SessionGitChanges")]
@@ -235,6 +239,7 @@ pub async fn status(app: &App, id: &str) -> Result<GitStatus> {
         unpushed_commits,
         main_changes,
         main_files,
+        uncommitted_at: None,
     })
 }
 

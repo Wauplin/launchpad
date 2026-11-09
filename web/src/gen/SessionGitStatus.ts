@@ -10,4 +10,9 @@ unpushed_commits: number | null,
 /**
  * Working tree compared with main, including staged and unstaged tracked changes.
  */
-main_changes: SessionGitChanges | null, main_files: Array<SessionGitFile>, };
+main_changes: SessionGitChanges | null, main_files: Array<SessionGitFile>, 
+/**
+ * Home answers for an away runner from its last snapshot (`files` then lists the uncommitted files Home
+ * has): when that snapshot was taken.
+ */
+uncommitted_at: number | null, };

@@ -438,7 +438,7 @@ pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
     agents_idle(app, &p)?;
     ensure!(p.pushed_head.is_none(), "branch was pushed during publication; retry Publish before discarding");
     if crate::projects::get(app, &p.project_id).await?.is_some() {
-        crate::home_git::delete(app, &p.project_id, &p.branch).await?;
+        crate::home_git::delete(app, &p.project_id, &p.branch, None).await?;
     }
     p.archived = true;
     save(app, &p).await?;

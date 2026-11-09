@@ -380,9 +380,18 @@ pub async fn restore(app: &App, project_id: &str, branch: &str, commit: &str) ->
     after_push(app, project_id, &before, None).await
 }
 
-/// Deletes a Launchpad branch on Home; its tip stays restorable.
-pub async fn delete(app: &App, project_id: &str, branch: &str) -> Result<()> {
+/// Deletes a Launchpad branch on Home; its tip stays restorable. `worktree`: the snapshot of that worktree
+/// (`refs/lp-snapshots/<id>`) goes too.
+pub async fn delete(app: &App, project_id: &str, branch: &str, worktree: Option<&str>) -> Result<()> {
     ensure!(branch.starts_with("lp/") || branch.starts_with("lp-scratch/"), "only Launchpad branches can be deleted");
+    if let Some(id) = worktree {
+        ensure!(!id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'), "invalid worktree");
+        let r = crate::worktrees::snapshot_ref(id);
+        if tip(app, project_id, &r).await?.is_some() {
+            git(app, &mirror(app, project_id), &["update-ref", "-d", &r]).await?;
+            crate::home_backup::changed();
+        }
+    }
     let before = launchpad_refs(app, project_id).await?;
     if before.contains_key(&format!("refs/heads/{branch}")) {
         git(app, &mirror(app, project_id), &["update-ref", "-d", &format!("refs/heads/{branch}")]).await?;
@@ -454,7 +463,7 @@ pub async fn push(app: &App, project_id: &str, remote: &str, commit: &str, branc
     git_in(app, &mirror(app, project_id), &["push", "--quiet", remote, &format!("{commit}:refs/heads/{branch}")], 300).await.map(|_| ())
 }
 
-/// Deletes kept tips and leftover branches older than 30 days.
+/// Deletes kept tips, leftover branches and snapshots older than 30 days.
 pub async fn prune(app: &App) -> Result<()> {
     let Ok(mut entries) = tokio::fs::read_dir(root(app)).await else { return Ok(()) };
     let cutoff = now_ms() - KEEP_MS;
@@ -468,7 +477,8 @@ pub async fn prune(app: &App) -> Result<()> {
                 git(app, &dir, &["update-ref", "-d", r]).await?;
             }
         }
-        let scratch = git(app, &dir, &["for-each-ref", "--format=%(refname) %(committerdate:unix)", "refs/heads/lp-scratch/"]).await.unwrap_or_default();
+        // Leftover branches and snapshots of uncommitted files (`worktrees::snapshot`) by their commit's date.
+        let scratch = git(app, &dir, &["for-each-ref", "--format=%(refname) %(committerdate:unix)", "refs/heads/lp-scratch/", "refs/lp-snapshots/"]).await.unwrap_or_default();
         for l in scratch.lines() {
             if let Some((r, t)) = l.split_once(' ')
                 && t.parse::<i64>().is_ok_and(|t| t * 1000 < cutoff)

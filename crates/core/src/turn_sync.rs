@@ -4,7 +4,8 @@
 //! The turn's end stores the session's new status together with an `unsaved` mark (`Session::unsaved`), in the
 //! same record Home receives, so Home never shows a turn as saved before it is: windows show it as saving.
 //! The runner then saves the turn and clears the mark. A failure keeps the mark with its reason, and the runner
-//! retries every few minutes and when its tunnel to Home comes back (`kick`).
+//! retries every few minutes and when its tunnel to Home comes back (`kick`). During a turn, its files go to
+//! Home every five minutes (`periodic`): worktree snapshots and plain and temporary folders.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -17,6 +18,8 @@ use crate::model::Unsaved;
 use crate::util::now_ms;
 
 const RETRY_EVERY: Duration = Duration::from_secs(3 * 60);
+/// While a turn runs, its files go to Home this often (`periodic`).
+const PERIODIC_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// One save per session at a time; a move holds it too (`hold`), so it never pushes beside a save.
 static LOCKS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = LazyLock::new(Default::default);
@@ -89,17 +92,41 @@ async fn attempt(app: &App, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// While a turn runs: the uncommitted files of its worktrees (`worktrees::snapshots_of`) and its plain,
+/// temporary and asset folders (`plain::after_turn`) go to Home, so a machine that disappears mid-turn loses at
+/// most a few minutes of work. Skipped while a save or a move of the session runs.
+async fn periodic(app: &App, id: &str) {
+    let Ok(_saving) = lock_of(id).try_lock_owned() else { return };
+    if let Err(e) = crate::worktrees::snapshots_of(app, id).await {
+        tracing::debug!("snapshot of {id} on Home: {e:#}");
+    }
+    if let Err(e) = crate::plain::after_turn(app, id).await {
+        tracing::debug!("files of {id} on Home: {e:#}");
+    }
+}
+
 /// The tunnel to Home is back: retry the turns not saved yet.
 pub fn kick() {
     WAKE.notify_one();
 }
 
 /// Retries every few minutes, and after `kick`, the turns not saved on Home yet (sessions between turns only:
-/// a running one saves again at its turn end; an archived one is left to Archive).
+/// a running one saves again at its turn end; an archived one is left to Archive). Saves the files of running
+/// turns every five minutes (`periodic`).
 pub fn spawn(app: &App) {
     if app.paths.role != crate::role::Role::Runner {
         return;
     }
+    let periodic_app = app.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(PERIODIC_EVERY).await;
+            let running: Vec<String> = periodic_app.sessions.list().into_iter().filter(|s| periodic_app.sessions.is_busy(s)).map(|s| s.id).collect();
+            for id in running {
+                periodic(&periodic_app, &id).await;
+            }
+        }
+    });
     let app = app.clone();
     tokio::spawn(async move {
         loop {

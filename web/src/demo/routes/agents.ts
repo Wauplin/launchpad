@@ -169,13 +169,14 @@ const gitFixture = (id: string) => {
 
 route("GET", "/api/sessions/:id/git", (r): SessionGitStatus => {
   const g = gitFixture(r.params.id);
-  if (!g) return { branch: "main", files: [], unpushed_commits: 0, main_changes: null, main_files: [] };
+  if (!g) return { branch: "main", files: [], unpushed_commits: 0, main_changes: null, main_files: [], uncommitted_at: null };
   const all = g.files.map((f) => ({ ...f, status: g.committed ? "M " : f.status }));
   const counts = Object.values(g.patches).join("\n").split("\n");
   return {
     branch: g.branch, files: g.committed || g.merged_into ? [] : all, unpushed_commits: g.commits.length,
     main_changes: g.merged_into || !g.files.length ? null : { files: g.files.length, additions: counts.filter((l) => l.startsWith("+") && !l.startsWith("+++")).length, deletions: counts.filter((l) => l.startsWith("-") && !l.startsWith("---")).length },
     main_files: g.merged_into ? [] : g.files.map((f) => ({ ...f, status: f.status.trim() === "??" ? "A" : f.status.trim() })),
+    uncommitted_at: null,
   };
 });
 route("GET", "/api/sessions/:id/git-commits", (r): SessionGitHistory | null => {

@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useReviewState } from "@/lib/reviewState";
+import { ago } from "@/lib/format";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { ConfirmButton, Empty, ErrorState, Choice, Choices, Loading } from "@/components/ui";
@@ -98,6 +99,7 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
       <div className="flex flex-wrap gap-2"><button className="btn btn-sm btn-primary" disabled={sending} onClick={() => void send()}>{sending ? "Sending…" : `Send ${notes.value.length} note${notes.value.length === 1 ? "" : "s"}`}</button><button className="btn btn-sm" disabled={sending} onClick={() => setPreview(false)}>Cancel</button></div>
       {notes.value.map((n, i) => <div key={i} className="flex items-start gap-2"><span className="min-w-0 flex-1 truncate">{n.path}{n.line != null ? `:${n.line}` : ""} · {n.text}</span><button className="btn btn-sm" onClick={() => notes.set((all) => all.filter((_, j) => j !== i))}>Remove</button></div>)}
     </div>}
+    {status.data?.uncommitted_at != null && !committed && <div className="border-b border-line px-3 py-1.5 text-[12px] text-ink-3">Uncommitted files as of {ago(status.data.uncommitted_at)}, from Home's last snapshot. Newer changes stay on the runner.</div>}
     {status.error && !committed && (notGit ? <Empty icon="info">This folder is not a Git repository.</Empty> : <ErrorState className="m-2" error={status.error} />)}
     {status.isPending && <Loading what="Git status" />}
     {!notGit && !status.isPending && <DiffReview

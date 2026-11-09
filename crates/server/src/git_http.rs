@@ -248,9 +248,17 @@ async fn restore(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<
     Ok(Json(json!({"ok": true})))
 }
 
-async fn delete(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<BranchCommit>) -> ApiResult<Value> {
+#[derive(Deserialize)]
+struct DeleteBranch {
+    branch: String,
+    /// The worktree whose snapshot goes too.
+    #[serde(default)]
+    worktree: Option<String>,
+}
+
+async fn delete(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<DeleteBranch>) -> ApiResult<Value> {
     home_folder(&s, &id).await?;
-    home_git::delete(&s.app, &id, &b.branch).await.map_err(bad)?;
+    home_git::delete(&s.app, &id, &b.branch, b.worktree.as_deref()).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

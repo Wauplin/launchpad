@@ -210,7 +210,8 @@ pub async fn runner_for(app: &App, root: Option<&str>, project: Option<&str>) ->
 
 /// Home: what to read for a folder of a session whose runner is away (offline, or a stopped Burst job) or whose
 /// worktree folder is gone from it: a plain or temporary folder from Home's store, a task worktree from its
-/// branch on Home. Returns the folder and the revision to read.
+/// branch on Home, or from its last snapshot (with the uncommitted files) when that is newer. Returns the folder
+/// and the revision to read.
 async fn away_copy(app: &App, all: &[Project], root: &str) -> Result<Option<(PathBuf, Option<String>)>> {
     for (s, w) in sessions_at(app, root).await {
         // A record its runners sent, else one of its last handoff.
@@ -223,6 +224,16 @@ async fn away_copy(app: &App, all: &[Project], root: &str) -> Result<Option<(Pat
         {
             let dir = crate::home_git::browse_copy(app, p).await?;
             let rest = inside_of(root, &w.root).unwrap_or_default();
+            // Home's last snapshot of the worktree when it is newer than the branch (with the uncommitted files);
+            // the browse copy shares the mirror's objects.
+            let mirror = crate::home_git::mirror(app, &p.id);
+            let head = crate::home_git::tip(app, &p.id, &format!("refs/heads/{}", w.branch)).await.ok().flatten();
+            let snap = crate::home_git::tip(app, &p.id, &crate::worktrees::snapshot_ref(&w.id)).await.ok().flatten();
+            if let (Some(head), Some(snap)) = (head, snap)
+                && crate::worktrees::newer_snapshot(app, &mirror, &snap, &head).await.is_some()
+            {
+                return Ok(Some((dir.join(rest), Some(snap))));
+            }
             return Ok(Some((dir.join(rest), Some(format!("origin/{}", w.branch)))));
         }
         if let Some(rest) = inside_of(root, &s.cwd)

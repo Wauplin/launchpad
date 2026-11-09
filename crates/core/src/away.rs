@@ -4,9 +4,10 @@
 //!
 //! Home still has the branches (Home Git) and the records: runners send each record whenever it changes
 //! (`replica::Item::Worktree`, with the branch tip in the folder), and every handoff holds them too. Changes, the
-//! worktree list, Merge and Create Local PR use those, so finished work stays reviewable. Uncommitted files and
-//! commits the runner did not push stay on that machine; a record whose tip differs from Home's branch shows them
-//! as not on Home. Home is also the source of truth for what it did itself: a branch's merge (`branch_merge`)
+//! worktree list, Merge and Create Local PR use those, so finished work stays reviewable. Changes and Files also
+//! show the uncommitted files of the worktree's last snapshot on Home (`worktrees::snapshot`, as of when it was
+//! taken); newer work stays on that machine, and a record whose tip differs from Home's branch shows it as not
+//! on Home. Home is also the source of truth for what it did itself: a branch's merge (`branch_merge`)
 //! and its Local PR, looked up by folder and branch (`from_home`), so they survive a runner's reconnection.
 
 use std::path::{Path, PathBuf};
@@ -300,13 +301,39 @@ async fn fork_point(app: &App, dir: &Path, w: &TaskWorktree, head: &str) -> Resu
     }
 }
 
-/// Changes: the committed branch on Home compared with its base. Uncommitted files are not on Home.
+/// Home's snapshot of the worktree's files (`worktrees::snapshot`) when it holds work the branch on Home lacks:
+/// the snapshot commit and when it was taken.
+async fn snapshot(app: &App, dir: &Path, w: &TaskWorktree, head: &str) -> Option<(String, i64)> {
+    let snap = crate::home_git::tip(app, &w.project_id, &crate::worktrees::snapshot_ref(&w.id)).await.ok().flatten()?;
+    crate::worktrees::newer_snapshot(app, dir, &snap, head).await?;
+    let at = git(app, dir, &["show", "-s", "--format=%ct", &snap]).await.ok()?.parse::<i64>().ok()? * 1000;
+    Some((snap, at))
+}
+
+/// The files that differ between two commits, with a working-tree status (` M`, ` D`, `??` for new files).
+async fn changed_files(app: &App, dir: &Path, from: &str, to: &str) -> Result<Vec<GitFile>> {
+    let out = crate::procs::command(&app.env, "git", Some(dir)).args(["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-status", "-z", from, to, "--"]).output().await?;
+    ensure!(out.status.success(), "could not read the uncommitted files");
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut parts = text.split('\0').filter(|p| !p.is_empty());
+    let mut files = vec![];
+    while let (Some(status), Some(path)) = (parts.next(), parts.next()) {
+        let status = if status.starts_with('A') { "??".to_string() } else { format!(" {}", &status[..1]) };
+        files.push(GitFile { path: path.into(), status, previous: None });
+    }
+    Ok(files)
+}
+
+/// Changes: the branch on Home compared with its base, and the uncommitted files of Home's last snapshot (as of
+/// when it was taken). Newer files stay on the runner.
 pub async fn status(app: &App, s: &Session) -> Result<GitStatus> {
     let w = primary(app, &s.id).await?;
     let dir = mirror(app, &w)?;
     let head = head(app, &w).await.with_context(|| format!("{} is not on Home", w.branch))?;
     let base = fork_point(app, &dir, &w, &head).await?;
-    let stat = git(app, &dir, &["diff", "--no-ext-diff", "--no-textconv", "--numstat", &base, &head, "--"]).await?;
+    let snap = snapshot(app, &dir, &w, &head).await;
+    let tip = snap.as_ref().map(|(c, _)| c.clone()).unwrap_or_else(|| head.clone());
+    let stat = git(app, &dir, &["diff", "--no-ext-diff", "--no-textconv", "--numstat", &base, &tip, "--"]).await?;
     let mut changes = GitChanges { files: 0, additions: Some(0), deletions: Some(0) };
     for line in stat.lines() {
         let mut parts = line.split('\t');
@@ -314,10 +341,14 @@ pub async fn status(app: &App, s: &Session) -> Result<GitStatus> {
         changes.additions = changes.additions.zip(parts.next().and_then(|n| n.parse::<u32>().ok())).map(|(a, b)| a + b);
         changes.deletions = changes.deletions.zip(parts.next().and_then(|n| n.parse::<u32>().ok())).map(|(a, b)| a + b);
     }
-    let names = crate::procs::command(&app.env, "git", Some(&dir)).args(["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", &base, &head, "--"]).output().await?;
+    let names = crate::procs::command(&app.env, "git", Some(&dir)).args(["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", &base, &tip, "--"]).output().await?;
     ensure!(names.status.success(), "could not read the changed files");
     let main_files = String::from_utf8_lossy(&names.stdout).split('\0').filter(|p| !p.is_empty()).map(|p| GitFile { path: p.into(), status: "Δ".into(), previous: None }).collect();
-    Ok(GitStatus { branch: w.branch, files: vec![], unpushed_commits: None, main_changes: Some(changes), main_files })
+    let files = match &snap {
+        Some((c, _)) => changed_files(app, &dir, &head, c).await?,
+        None => vec![],
+    };
+    Ok(GitStatus { branch: w.branch, files, unpushed_commits: None, main_changes: Some(changes), main_files, uncommitted_at: snap.map(|(_, at)| at) })
 }
 
 /// The commits of the branch on Home.
@@ -334,12 +365,14 @@ pub async fn diff(app: &App, s: &Session, path: &str, main: bool, committed: boo
     if committed {
         return crate::session_git::committed_diff_in(app, &w, &dir, path, commit).await;
     }
-    if !main {
-        bail!("{}: its uncommitted files are not on Home", reason(app, s).await);
-    }
     let head = head(app, &w).await.with_context(|| format!("{} is not on Home", w.branch))?;
-    let base = fork_point(app, &dir, &w, &head).await?;
-    let patch = git(app, &dir, &["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", &base, &head, "--", path]).await?;
+    let snap = snapshot(app, &dir, &w, &head).await.map(|(c, _)| c);
+    let (from, to) = match (main, snap) {
+        (true, snap) => (fork_point(app, &dir, &w, &head).await?, snap.unwrap_or(head)),
+        (false, Some(snap)) => (head, snap),
+        (false, None) => bail!("{}: Home has no uncommitted files of it", reason(app, s).await),
+    };
+    let patch = git(app, &dir, &["--literal-pathspecs", "diff", "--no-ext-diff", "--no-textconv", "--no-color", &from, &to, "--", path]).await?;
     Ok(GitDiff { staged: String::new(), truncated: patch.len() > 200_000, unstaged: crate::sessions::truncate_output(&patch, 200_000) })
 }
 

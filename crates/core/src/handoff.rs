@@ -479,7 +479,7 @@ pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
     let name = if crate::runners::is_burst(app, to).await { "Burst".to_string() } else { crate::runners::list(app).await?.into_iter().find(|r| r.runner.id == to).map(|r| r.runner.name).unwrap_or_else(|| "another runner".into()) };
     let mut text = format!("Moved to {name}.");
     if lost_files {
-        text.push_str(" Its previous runner was offline: it continues from its last saved turn, and work that runner did not save yet goes to an lp-scratch branch on Home when it is back.");
+        text.push_str(" Its previous runner was offline: it continues from its last saved turn and Home's last snapshot of its uncommitted files; work that runner did not save goes to an lp-scratch branch on Home when it is back.");
     }
     crate::sessions::notice_anywhere(app, id, &text).await;
     Ok(s)

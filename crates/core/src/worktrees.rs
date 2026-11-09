@@ -1,9 +1,10 @@
 //! Task worktrees owned by Launchpad, on the runner that runs the agent.
 //!
 //! Each session gets fresh worktrees of its folders, cloned from Home Git (`repo_cache`). A worktree is
-//! disposable: the runner pushes its branch to Home at the end of every turn and records snapshots during
-//! long turns, and removes the folder only after Home confirmed the push. Uncommitted files left at removal
-//! go to a scratch branch on Home. Merges happen on Home (`home_git::merge`); a branch that needs a rebase
+//! disposable: the runner pushes its branch to Home at the end of every turn, and a snapshot of every file
+//! (`refs/lp-snapshots/<worktree>`) at the end of every turn and every five minutes during turns. It removes the
+//! folder only after Home confirmed the push. Uncommitted files left at removal go to a scratch branch on Home,
+//! and a folder cloned again gets them back from the snapshot. Merges happen on Home (`home_git::merge`); a branch that needs a rebase
 //! goes back to its agent.
 
 use std::collections::HashMap;
@@ -173,8 +174,6 @@ pub struct WorktreeInfo {
 }
 
 const MAX_AGENT_RETRIES: u32 = 3;
-/// Snapshots of running sessions' worktrees go to Home this often.
-const SNAPSHOT_EVERY: Duration = Duration::from_secs(5 * 60);
 
 async fn git(app: &App, dir: &str, args: &[&str]) -> Result<String> {
     crate::home_git::git_in(app, Path::new(dir), args, 120).await
@@ -478,43 +477,71 @@ pub async fn push_unlocked(app: &App, w: &mut TaskWorktree) -> Result<bool> {
     result
 }
 
-/// After every turn (`turn_sync`): the session's branches go to Home. Errors name each branch that failed.
+/// After every turn (`turn_sync`): the session's branches go to Home, then a snapshot of their files.
+/// Errors name each branch that failed.
 pub async fn after_turn(app: &App, session_id: &str) -> Result<()> {
     let mut failed = vec![];
     for mut w in for_session(app, session_id).await?.into_iter().filter(|w| w.state == WorktreeState::Active) {
         if let Err(e) = push_unlocked(app, &mut w).await {
             failed.push(format!("{}: {e:#}", w.branch));
+        } else if let Err(e) = snapshot(app, &w).await {
+            failed.push(format!("{} (uncommitted files): {e:#}", w.branch));
         }
     }
     ensure!(failed.is_empty(), "push to Home failed ({})", failed.join("; "));
     Ok(())
 }
 
-/// During long turns: the state of every file (committed or not) goes to `refs/lp-snapshots/<worktree>` on
-/// Home, so nothing is lost if the machine disappears.
-async fn snapshots(app: &App, last: &mut HashMap<String, String>) {
-    let Ok(records) = list(app).await else { return };
-    for w in records.iter().filter(|w| w.state == WorktreeState::Active) {
-        let running = w.sessions.iter().filter_map(|id| app.sessions.get(id)).any(|s| app.sessions.is_busy(&s));
-        if !running || !Path::new(&w.root).is_dir() {
-            continue;
-        }
-        let tree = match crate::repo_cache::capture(app, Path::new(&w.root), "Launchpad snapshot").await {
-            Ok(Some(commit)) => commit,
-            Ok(None) => git(app, &w.root, &["rev-parse", "HEAD"]).await.unwrap_or_default(),
-            Err(e) => {
-                tracing::debug!("snapshot {}: {e:#}", w.root);
-                continue;
-            }
-        };
-        let content = git(app, &w.root, &["rev-parse", &format!("{tree}^{{tree}}")]).await.unwrap_or_default();
-        if last.get(&w.id) == Some(&content) {
-            continue;
-        }
-        if crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{tree}:refs/lp-snapshots/{}", w.id)], 900).await.is_ok() {
-            last.insert(w.id.clone(), content);
+/// The snapshot ref of a worktree on Home: the state of every file (committed or not, without ignored files).
+pub fn snapshot_ref(worktree_id: &str) -> String {
+    format!("refs/lp-snapshots/{worktree_id}")
+}
+
+/// What each worktree's snapshot last pushed (`<HEAD>:<tree>`), so an unchanged one is not pushed again.
+static SNAPSHOTS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, String>>> = std::sync::LazyLock::new(Default::default);
+
+/// Pushes the state of every file of the worktree to `refs/lp-snapshots/<worktree>` on Home: a commit on top of
+/// `HEAD` with the uncommitted files, or `HEAD` itself when there are none. Home shows it while the runner is away
+/// (`away`), and a folder cloned again from Home gets the uncommitted files back (`restore`).
+pub(crate) async fn snapshot(app: &App, w: &TaskWorktree) -> Result<()> {
+    if w.state != WorktreeState::Active || !Path::new(&w.root).is_dir() {
+        return Ok(());
+    }
+    let head = git(app, &w.root, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
+    let commit = crate::repo_cache::capture(app, Path::new(&w.root), "Launchpad snapshot").await?.unwrap_or_else(|| head.clone());
+    let tree = git(app, &w.root, &["rev-parse", &format!("{commit}^{{tree}}")]).await?;
+    let key = format!("{head}:{tree}");
+    if SNAPSHOTS.lock().unwrap().get(&w.id) == Some(&key) {
+        return Ok(());
+    }
+    crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{commit}:{}", snapshot_ref(&w.id))], 900).await?;
+    SNAPSHOTS.lock().unwrap().insert(w.id.clone(), key);
+    Ok(())
+}
+
+/// While a turn runs (`turn_sync::periodic`): snapshots of the session's worktrees, so nothing is lost if the
+/// machine disappears.
+pub async fn snapshots_of(app: &App, session_id: &str) -> Result<()> {
+    let mut failed = vec![];
+    for w in for_session(app, session_id).await?.into_iter().filter(|w| w.state == WorktreeState::Active) {
+        if let Err(e) = snapshot(app, &w).await {
+            failed.push(format!("{}: {e:#}", w.branch));
         }
     }
+    ensure!(failed.is_empty(), "snapshot on Home failed ({})", failed.join("; "));
+    Ok(())
+}
+
+/// A snapshot that holds work the branch at `head` lacks: taken on top of `head` or of a later commit, with
+/// other files. Returns that commit (the snapshot's parent); None for an older or an unchanged snapshot.
+/// `dir`: a repository that has both commits (Home's mirror, a runner's cache).
+pub(crate) async fn newer_snapshot(app: &App, dir: &Path, snapshot: &str, head: &str) -> Option<String> {
+    let g = |args: Vec<String>| async move { crate::home_git::git_in(app, dir, &args.iter().map(String::as_str).collect::<Vec<_>>(), 60).await };
+    let parent = g(vec!["rev-parse".into(), "--verify".into(), "--quiet".into(), format!("{snapshot}^1")]).await.ok()?;
+    g(vec!["merge-base".into(), "--is-ancestor".into(), head.into(), parent.clone()]).await.ok()?;
+    let a = g(vec!["rev-parse".into(), format!("{snapshot}^{{tree}}")]).await.ok()?;
+    let b = g(vec!["rev-parse".into(), format!("{head}^{{tree}}")]).await.ok()?;
+    (a != b).then_some(parent)
 }
 
 /// Removes worktrees created for a launch that failed before its agent started.
@@ -801,9 +828,10 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
     let _lock = app.worktree_lock.lock().await;
     let mut w = get(app, id).await?;
     ensure!(!Path::new(&w.root).exists(), "{} already exists", w.root);
-    let start = match git(app, &cache_s, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{}^{{commit}}", w.branch)]).await {
-        Ok(c) if !c.is_empty() => c,
-        _ => {
+    let branch = git(app, &cache_s, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{}^{{commit}}", w.branch)]).await.ok().filter(|c| !c.is_empty());
+    let start = match &branch {
+        Some(c) => c.clone(),
+        None => {
             let base = w.base_branch.clone().context("the branch is gone from Home and there is no base branch to restart from")?;
             git(app, &cache_s, &["rev-parse", "--verify", &format!("refs/remotes/origin/{base}^{{commit}}")]).await?
         }
@@ -811,17 +839,49 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
     let _ = git(app, &cache_s, &["worktree", "prune"]).await;
     git(app, &cache_s, &["worktree", "add", "--quiet", "--no-track", "-B", &w.branch, &w.root, &start]).await?;
     configure(app, &w, w.sessions.last().map(String::as_str).unwrap_or_default()).await?;
+    // Work newer than the branch on Home (uncommitted files, commits of a turn its runner never finished) comes
+    // back from the last snapshot.
+    let reapplied = match &branch {
+        Some(_) => reapply_snapshot(app, &cache, &w, &start).await.unwrap_or_else(|e| {
+            tracing::warn!("snapshot of {}: {e:#}", w.branch);
+            None
+        }),
+        None => None,
+    };
     w.state = WorktreeState::Active;
     w.cleanup_note = None;
+    w.head = Some(reapplied.as_ref().map(|(head, _)| head.clone()).unwrap_or_else(|| start.clone()));
     w.pushed = Some(start);
     w.push_note = None;
     save(app, &w).await?;
     let mut text = format!("Worktree cloned again from branch {} on Home. Ignored files such as installed dependencies were not restored; run the setup again if needed.", w.branch);
-    if let Some(l) = &w.leftovers {
+    if let Some((_, at)) = reapplied {
+        text.push_str(&format!(" Its uncommitted files came back from Home's last snapshot ({}).", crate::util::local_time(at / 1000)));
+    } else if let Some(l) = &w.leftovers {
         text.push_str(&format!(" {} uncommitted files from before are on the branch {} (`git checkout origin/{} -- .` brings them back).", l.files, l.branch, l.branch));
     }
     notice(app, &w, &text).await;
     Ok(w)
+}
+
+/// A folder cloned again at `start` (the branch on Home): when Home's snapshot of the worktree is newer, its
+/// commits and its uncommitted files come back (the files stay uncommitted). Returns the new `HEAD` and when the
+/// snapshot was taken.
+async fn reapply_snapshot(app: &App, cache: &Path, w: &TaskWorktree, start: &str) -> Result<Option<(String, i64)>> {
+    let r = snapshot_ref(&w.id);
+    // No snapshot on Home: nothing to bring back.
+    if crate::repo_cache::git(app, cache, &["fetch", "--quiet", "--no-tags", "origin", &format!("+{r}:{r}")], true, 600).await.is_err() {
+        return Ok(None);
+    }
+    let cache_s = cache.to_string_lossy().into_owned();
+    let snap = git(app, &cache_s, &["rev-parse", "--verify", &format!("{r}^{{commit}}")]).await?;
+    let Some(parent) = newer_snapshot(app, cache, &snap, start).await else { return Ok(None) };
+    if parent != start {
+        git(app, &w.root, &["reset", "--quiet", "--hard", &parent]).await?;
+    }
+    git(app, &w.root, &["restore", "--source", &snap, "--worktree", "--", ":/"]).await?;
+    let at = git(app, &cache_s, &["show", "-s", "--format=%ct", &snap]).await?.parse::<i64>().unwrap_or(0) * 1000;
+    Ok(Some((parent, at)))
 }
 
 /// Removes a folder once Home has everything: the branch is pushed, and uncommitted files go to a scratch
@@ -837,6 +897,7 @@ async fn remove_clean(app: &App, w: &mut TaskWorktree) -> Result<()> {
         let branch = git(app, &w.root, &["branch", "--show-current"]).await?;
         ensure!(branch == w.branch, "the worktree is on another branch ({branch})");
         push(app, w).await.context("Home did not confirm the branch")?;
+        snapshot(app, w).await.context("Home did not confirm the uncommitted files")?;
         let dirty = dirty_files(app, &w.root).await?;
         if !dirty.is_empty() {
             let commit = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch)).await?.context("leftover files could not be saved")?;
@@ -937,10 +998,12 @@ async fn discard_locked(app: &App, w: &mut TaskWorktree) -> Result<()> {
         git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
     }
     let _ = git(app, &w.repo, &["branch", "-D", &w.branch]).await;
-    if w.pushed.is_some() || w.from_branch {
-        let body = json!({"branch": w.branch});
+    // Also when nothing was pushed yet: a snapshot of a running turn may be on Home.
+    {
+        SNAPSHOTS.lock().unwrap().remove(&w.id);
+        let body = json!({"branch": w.branch, "worktree": w.id});
         let deleted = if crate::home_git::here(app) {
-            crate::home_git::delete(app, &w.project_id, &w.branch).await
+            crate::home_git::delete(app, &w.project_id, &w.branch, Some(&w.id)).await
         } else {
             crate::home_link::home_request("POST", &format!("/api/home-git/{}/delete", w.project_id), Some(body)).await.map(|_| ())
         };
@@ -1291,8 +1354,8 @@ async fn retention(app: &App) {
     }
 }
 
-/// Retries waiting merges every 15 s, snapshots running worktrees every five minutes, and applies retention
-/// every hour (and at startup).
+/// Retries waiting merges every 15 s and applies retention every hour (and at startup). Snapshots of running
+/// worktrees: `turn_sync::spawn`.
 pub fn spawn(app: &App) {
     if !app.paths.role.runs_agents() {
         return;
@@ -1300,13 +1363,9 @@ pub fn spawn(app: &App) {
     let app = app.clone();
     tokio::spawn(async move {
         let mut tick: u64 = 0;
-        let mut last = HashMap::new();
         loop {
             if tick.is_multiple_of(240) {
                 retention(&app).await;
-            }
-            if tick > 0 && tick.is_multiple_of(SNAPSHOT_EVERY.as_secs() / 15) {
-                snapshots(&app, &mut last).await;
             }
             if let Ok(records) = list(&app).await {
                 for w in records.iter().filter(|w| w.merge.as_ref().is_some_and(|m| m.phase == MergePhase::Waiting)) {
