@@ -208,6 +208,9 @@ fn label(id: &str) -> (&'static str, bool) {
         "tcp_v6" => ("IPv6 connection (depends on the network)", false),
         "captured" => ("The runner proxy received that connection", true),
         "ca_store" => ("Runner CA in the system certificate store", true),
+        "nondumpable_unix" => ("Unix sockets work in a non-dumpable process (Chrome)", true),
+        "nondumpable_udp" => ("UDP other than DNS is refused in a non-dumpable process", true),
+        "nondumpable_tcp" => ("A non-dumpable process connects through the capture", true),
         _ => ("Other check", false),
     }
 }

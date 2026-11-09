@@ -142,8 +142,10 @@ An agent reaches the same addresses with the same credentials in the jail, on a 
 - **Policy:** `localhost` is reached directly (the Launchpad CLI, harness logins, the agent's own servers). UDP reaches DNS (port 53) only: QUIC falls back to TCP, and other UDP (NTP, `ping`, WebRTC) is refused. IPv4 and IPv6 follow the same rules. io_uring is blocked.
 - **Requirements:** Linux 5.9 or newer, on x86_64 or arm64. A runner where the capture cannot run starts no agent and says why.
 - Processes an agent leaves running after its main process exits lose their network.
+- **Browsers:** headless Chrome and Playwright work under the capture, with their crash handler and helper processes. In the jail, Chrome uses its own sandbox. On Burst, HF Jobs refuse the user namespaces that Chrome's sandbox needs: the image's `chromium` adds `--no-sandbox` itself, Playwright does by default, and another Chrome needs it passed.
+- Where the kernel allows it (the jail on most systems), agents run in their own user namespace: groups other than their own show as `nogroup`, and files of other users as `nobody`.
 
-**Check network** (Settings → Home and runners, on each connected runner) runs a fixed probe in a real session sandbox on that runner: capture, DNS, refused UDP, IPv4 and IPv6, the runner CA in the system store, and a connection the proxy received. A failed required check marks the runner **network differs**; IPv6 depends on the runner's network and is only reported.
+**Check network** (Settings → Home and runners, on each connected runner) runs a fixed probe in a real session sandbox on that runner: capture, DNS, refused UDP, IPv4 and IPv6, the runner CA in the system store, the same checks from a non-dumpable process (as Chrome's helpers are), and a connection the proxy received. A failed required check marks the runner **network differs**; IPv6 depends on the runner's network and is only reported.
 
 ### Local VM
 

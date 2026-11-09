@@ -144,7 +144,10 @@ export function demoNetworkCheck(at: number): NetworkCheck {
       item("tcp_v4", "IPv4 connection from a client that ignores proxy settings", "connected to 18.244.202.73:443"),
       item("tcp_v6", "IPv6 connection (depends on the network)", "connected to [2600:9000:2001::1]:443", false),
       item("ca_store", "Runner CA in the system certificate store", "the runner CA is in /etc/ssl/certs/ca-certificates.crt"),
-      item("captured", "The runner proxy received that connection", "2 connection(s) through the capture port"),
+      item("nondumpable_unix", "Unix sockets work in a non-dumpable process (Chrome)", "sendmsg on a Unix socket works (non-dumpable)"),
+      item("nondumpable_udp", "UDP other than DNS is refused in a non-dumpable process", "UDP to port 443: refused"),
+      item("nondumpable_tcp", "A non-dumpable process connects through the capture", "connected to 18.244.202.73:443 (peer 18.244.202.73:443)"),
+      item("captured", "The runner proxy received that connection", "3 connection(s) through the capture port"),
     ],
   };
 }

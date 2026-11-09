@@ -12,9 +12,18 @@
 //! - Loopback connects go to their address. UDP reaches port 53 only. Other socket families, io_uring and TCP
 //!   Fast Open are refused.
 //!
-//! It stays the agent's parent, so it may read the agent's memory under Yama's ptrace rules; it forwards the
-//! signals sent to it and exits with the program's status. Processes still running after the program exits lose
-//! their network calls (the listener closes with the supervisor).
+//! It reads the agent's memory and descriptors (`process_vm_readv`, `/proc/<pid>/fd`, `pidfd_getfd`), which the
+//! kernel allows like a ptrace attach:
+//! - Yama allows ancestors only: the supervisor is the agent's parent and the subreaper of the processes that
+//!   detach (Chrome's crash handler double-forks).
+//! - Non-dumpable processes (Chrome's helpers, ssh-agent) need `CAP_SYS_PTRACE` in their user namespace: the
+//!   program starts in a new user namespace that the supervisor owns and holds every capability over, while the
+//!   program drops all of its own (`Reach::Namespace`). Where user namespaces are refused (HF Jobs), the filter
+//!   makes `prctl(PR_SET_DUMPABLE, 0)` succeed without effect instead (`Reach::KeepDumpable`).
+//! - A process it still cannot read gets EFAULT for the checked calls: never an unchecked network call.
+//!
+//! It forwards the signals sent to it and exits with the program's status. Processes still running after the
+//! program exits lose their network calls (the listener closes with the supervisor).
 
 use std::collections::{HashMap, VecDeque};
 use std::ffi::CString;
@@ -119,8 +128,9 @@ fn assemble(prog: &[Ins]) -> Vec<SockFilter> {
 }
 
 /// The filter. `handoff`: the one descriptor allowed to `sendmsg` unchecked, which carries the listener to the
-/// supervisor before the program starts.
-fn filter(handoff: RawFd) -> Vec<SockFilter> {
+/// supervisor before the program starts. `keep_dumpable`: `prctl(PR_SET_DUMPABLE, 0)` succeeds without effect,
+/// for machines where the supervisor cannot read non-dumpable processes (see `Reach`).
+fn filter(handoff: RawFd, keep_dumpable: bool) -> Vec<SockFilter> {
     use Ins::*;
     use To::*;
     let nr = |n: libc::c_long| n as u32;
@@ -142,7 +152,13 @@ fn filter(handoff: RawFd) -> Vec<SockFilter> {
         Jeq(nr(libc::SYS_io_uring_setup), L("enosys"), Next),
         Jeq(nr(libc::SYS_io_uring_enter), L("enosys"), Next),
         Jeq(nr(libc::SYS_io_uring_register), L("enosys"), Next),
+        Jeq(nr(libc::SYS_prctl), L("prctl"), Next),
         Ret(RET_ALLOW),
+        Label("prctl"),
+        Ld(arg_lo(0)),
+        Jeq(libc::PR_SET_DUMPABLE as u32, Next, L("allow")),
+        Ld(arg_lo(1)),
+        Jeq(0, if keep_dumpable { L("success") } else { L("allow") }, L("allow")),
         Label("socket"),
         Ld(arg_lo(0)),
         Jeq(libc::AF_UNIX as u32, L("allow"), Next),
@@ -173,6 +189,9 @@ fn filter(handoff: RawFd) -> Vec<SockFilter> {
         Ret(RET_NOTIF),
         Label("allow"),
         Ret(RET_ALLOW),
+        // Returns 0 without running the system call.
+        Label("success"),
+        Ret(ret_errno(0)),
         Label("enosys"),
         Ret(ret_errno(libc::ENOSYS)),
         Label("eafnosupport"),
@@ -260,8 +279,14 @@ fn run(port: u16, key: String, program: &[String]) -> ! {
     }
     // SAFETY: as above.
     unsafe { libc::close(pair[1]) };
-    let prog = filter(handoff);
+    let reach = Reach::detect();
+    let (prog, keep_prog) = (filter(handoff, false), filter(handoff, true));
     let fprog = SockFprog { len: prog.len() as u16, filter: prog.as_ptr() };
+    let keep_fprog = SockFprog { len: keep_prog.len() as u16, filter: keep_prog.as_ptr() };
+    // SAFETY: plain system calls.
+    let (uid, gid) = unsafe { (libc::geteuid(), libc::getegid()) };
+    let uid_map = format!("{uid} {uid} 1");
+    let gid_map = format!("{gid} {gid} 1");
     let mut ack = [0u8; 1];
     // SAFETY: fork in a single-threaded process (netcap runs before any runtime starts). The child only makes
     // system calls on memory prepared above, then execs.
@@ -274,10 +299,16 @@ fn run(port: u16, key: String, program: &[String]) -> ! {
         unsafe {
             libc::close(pair[0]);
             libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+            let keep_dumpable = match reach {
+                Reach::Capable => false,
+                Reach::KeepDumpable => true,
+                Reach::Namespace => !own_namespace(handoff, uid_map.as_bytes(), gid_map.as_bytes()),
+            };
             if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
                 child_fail(handoff, b"no_new_privs refused\n");
             }
-            let listener = libc::syscall(libc::SYS_seccomp, libc::SECCOMP_SET_MODE_FILTER, libc::SECCOMP_FILTER_FLAG_NEW_LISTENER, &fprog as *const SockFprog) as libc::c_int;
+            let fprog: *const SockFprog = if keep_dumpable { &keep_fprog } else { &fprog };
+            let listener = libc::syscall(libc::SYS_seccomp, libc::SECCOMP_SET_MODE_FILTER, libc::SECCOMP_FILTER_FLAG_NEW_LISTENER, fprog) as libc::c_int;
             if listener < 0 {
                 child_fail(handoff, b"seccomp user notification refused (Linux 5.9 or newer is needed)\n");
             }
@@ -299,6 +330,10 @@ fn run(port: u16, key: String, program: &[String]) -> ! {
     CHILD.store(pid, Ordering::Relaxed);
     // SAFETY: plain system calls on descriptors this process owns.
     unsafe { libc::close(handoff) };
+    // Processes that detach from their parent (crash handlers, daemons) come back to the supervisor instead of
+    // the sandbox's init, so it stays their ancestor for Yama's ptrace rules.
+    // SAFETY: sets a flag of this process.
+    unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) };
     // SAFETY: as above.
     let listener = match unsafe { recv_fd(pair[0]) } {
         Some(fd) => fd,
@@ -344,6 +379,105 @@ fn run(port: u16, key: String, program: &[String]) -> ! {
     unsafe { libc::pthread_sigmask(libc::SIG_UNBLOCK, &set, std::ptr::null_mut()) };
     let status = wait_child(pid);
     exit_like(status)
+}
+
+/// How the supervisor reads the memory and descriptors of a process that made itself non-dumpable (Chrome,
+/// crashpad, ssh-agent): `process_vm_readv`, `pidfd_getfd` and `/proc/<pid>/fd` then need `CAP_SYS_PTRACE` in the
+/// user namespace of the process, and without them every checked `sendmsg` or `connect` would fail with EFAULT.
+#[derive(Clone, Copy, PartialEq)]
+enum Reach {
+    /// The supervisor already has `CAP_SYS_PTRACE` (a privileged machine): nothing changes.
+    Capable,
+    /// The program starts in a new user namespace that the supervisor owns, so the supervisor has every
+    /// capability over it from its own namespace, and the program drops all of them (`own_namespace`).
+    Namespace,
+    /// No user namespaces (HF Jobs refuse them; Ubuntu 24.04 removes their capabilities through AppArmor):
+    /// `prctl(PR_SET_DUMPABLE, 0)` succeeds without effect, so processes stay readable.
+    KeepDumpable,
+}
+
+impl Reach {
+    fn detect() -> Reach {
+        // SAFETY: capget into locals.
+        let mut head = CapHeader { version: CAP_V3, pid: 0 };
+        let mut data = [CapData::default(); 2];
+        if unsafe { libc::syscall(libc::SYS_capget, &mut head, data.as_mut_ptr()) } != 0 {
+            return Reach::KeepDumpable;
+        }
+        let ptrace = 19; // CAP_SYS_PTRACE
+        if data[ptrace / 32].effective & (1 << (ptrace % 32)) != 0 {
+            return Reach::Capable;
+        }
+        // A program with capabilities would lose them in a new namespace.
+        if data.iter().any(|d| d.permitted != 0) {
+            return Reach::KeepDumpable;
+        }
+        // Ubuntu 24.04 confines an unconfined process that creates a namespace to a profile without capabilities.
+        if std::fs::read_to_string("/proc/sys/kernel/apparmor_restrict_unprivileged_userns").is_ok_and(|v| v.trim() == "1") {
+            return Reach::KeepDumpable;
+        }
+        Reach::Namespace
+    }
+}
+
+const CAP_V3: u32 = 0x2008_0522;
+
+#[repr(C)]
+struct CapHeader {
+    version: u32,
+    pid: libc::c_int,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct CapData {
+    effective: u32,
+    permitted: u32,
+    inheritable: u32,
+}
+
+/// In the child, before exec: moves it to a new user namespace mapping only its own user and group, then drops
+/// every capability it has there (bounding set included, so no exec regains one). Whether the namespace holds:
+/// false when the kernel refuses it, the program then keeps its namespace and the filter keeps it dumpable.
+/// SAFETY: async-signal-safe calls only, on memory prepared before fork.
+unsafe fn own_namespace(handoff: RawFd, uid_map: &[u8], gid_map: &[u8]) -> bool {
+    unsafe {
+        if libc::unshare(libc::CLONE_NEWUSER) != 0 {
+            return false;
+        }
+        let write = |path: &std::ffi::CStr, data: &[u8]| {
+            let fd = libc::open(path.as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC);
+            let ok = fd >= 0 && libc::write(fd, data.as_ptr().cast(), data.len()) == data.len() as isize;
+            if fd >= 0 {
+                libc::close(fd);
+            }
+            ok
+        };
+        // Without a mapping the program would run as the overflow user: never start it like that.
+        if !write(c"/proc/self/uid_map", uid_map) {
+            child_fail(handoff, b"user namespace refused its user mapping\n");
+        }
+        write(c"/proc/self/setgroups", b"deny");
+        if !write(c"/proc/self/gid_map", gid_map) {
+            child_fail(handoff, b"user namespace refused its group mapping\n");
+        }
+        // A refused drop means the capabilities are not usable here (an AppArmor profile): the supervisor's
+        // probably are not either.
+        let mut usable = true;
+        for cap in 0..64 {
+            if libc::prctl(libc::PR_CAPBSET_DROP, cap, 0, 0, 0) != 0 {
+                usable &= errno() == libc::EINVAL && cap > 0;
+                break;
+            }
+        }
+        libc::prctl(libc::PR_CAP_AMBIENT, libc::PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
+        let mut head = CapHeader { version: CAP_V3, pid: 0 };
+        let data = [CapData::default(); 2];
+        if libc::syscall(libc::SYS_capset, &mut head, data.as_ptr()) != 0 {
+            child_fail(handoff, b"capabilities could not be dropped\n");
+        }
+        usable
+    }
 }
 
 /// SAFETY: async-signal-safe calls only (used in the child after fork).
@@ -398,11 +532,12 @@ unsafe fn recv_fd(sock: RawFd) -> Option<RawFd> {
     }
 }
 
+/// Waits for the program; the orphans it leaves behind (the supervisor is their subreaper) are reaped meanwhile.
 fn wait_child(pid: libc::pid_t) -> libc::c_int {
     let mut status = 0;
     loop {
-        // SAFETY: waits for this process's own child.
-        let r = unsafe { libc::waitpid(pid, &mut status, 0) };
+        // SAFETY: waits for this process's own children.
+        let r = unsafe { libc::waitpid(-1, &mut status, 0) };
         if r == pid {
             return status;
         }
@@ -559,12 +694,12 @@ impl Supervisor {
         } else if nr == libc::SYS_connect {
             self.connect(n)
         } else if nr == libc::SYS_sendto {
-            self.send_check(n.pid, a[0], a[4], a[5] as usize)
+            self.send_check(n, a[0], a[4], a[5] as usize)
         } else if nr == libc::SYS_sendmsg {
             match read_mem(n.pid, a[1], 16) {
                 Some(h) => {
                     let (name, len) = (u64::from_ne_bytes(h[0..8].try_into().unwrap()), u32::from_ne_bytes(h[8..12].try_into().unwrap()));
-                    if name == 0 || len == 0 { Reply::Continue } else { self.send_check(n.pid, a[0], name, len as usize) }
+                    if name == 0 || len == 0 { Reply::Continue } else { self.send_check(n, a[0], name, len as usize) }
                 }
                 None => Reply::Err(libc::EFAULT),
             }
@@ -574,7 +709,7 @@ impl Supervisor {
                 Some(v) => {
                     for m in v.chunks(64) {
                         let (name, len) = (u64::from_ne_bytes(m[0..8].try_into().unwrap()), u32::from_ne_bytes(m[8..12].try_into().unwrap()));
-                        if name != 0 && len != 0 && let Reply::Err(e) = self.send_check(n.pid, a[0], name, len as usize) {
+                        if name != 0 && len != 0 && let Reply::Err(e) = self.send_check(n, a[0], name, len as usize) {
                             return Reply::Err(e);
                         }
                     }
@@ -586,7 +721,7 @@ impl Supervisor {
             self.getpeername(n)
         } else if nr == libc::SYS_listen {
             // A listening socket never connects: its copy goes.
-            if let Ok(ino) = inode(n.pid, a[0]) {
+            if let Ok(ino) = self.inode(n, a[0]) {
                 self.table.lock().unwrap().copies.remove(&ino);
             }
             Reply::Continue
@@ -627,14 +762,14 @@ impl Supervisor {
     }
 
     /// `sendto`, `sendmsg` and `sendmmsg` with an address: UDP reaches port 53 only.
-    fn send_check(&self, pid: u32, fd: u64, addr: u64, len: usize) -> Reply {
-        let Some(bytes) = read_mem(pid, addr, len.min(128)) else { return Reply::Err(libc::EFAULT) };
+    fn send_check(&self, n: &libc::seccomp_notif, fd: u64, addr: u64, len: usize) -> Reply {
+        let Some(bytes) = read_mem(n.pid, addr, len.min(128)) else { return Reply::Err(libc::EFAULT) };
         let dest = match parse_addr(&bytes) {
             Ok(Some(d)) => d,
             Ok(None) => return Reply::Continue,
             Err(e) => return Reply::Err(e),
         };
-        let ino = match inode(pid, fd) {
+        let ino = match self.inode(n, fd) {
             Ok(i) => i,
             Err(e) => return Reply::Err(e),
         };
@@ -656,7 +791,7 @@ impl Supervisor {
             Ok(None) => return Reply::Continue,
             Err(e) => return Reply::Err(e),
         };
-        let ino = match inode(n.pid, fd) {
+        let ino = match self.inode(n, fd) {
             Ok(i) => i,
             Err(e) => return Reply::Err(e),
         };
@@ -758,9 +893,46 @@ impl Supervisor {
         libc::ECONNRESET
     }
 
+    /// The socket inode behind a descriptor of the notifying process. A non-dumpable process's `/proc/<pid>/fd`
+    /// belongs to root, which the supervisor's namespace does not map: a copy of the descriptor tells then.
+    fn inode(&self, n: &libc::seccomp_notif, fd: u64) -> Result<u64, i32> {
+        let e = match proc_inode(n.pid, fd) {
+            Err(e @ (libc::EACCES | libc::EPERM)) => e,
+            other => return other,
+        };
+        // SAFETY: opens a pidfd, then (once the notification proves the PID still names the notifying process)
+        // copies the descriptor into this process; both are closed below.
+        unsafe {
+            let pidfd = libc::syscall(libc::SYS_pidfd_open, n.pid as libc::pid_t, 0) as RawFd;
+            if pidfd < 0 {
+                return Err(e);
+            }
+            let pidfd = OwnedFd::from_raw_fd(pidfd);
+            if !self.valid(n.id) {
+                return Err(libc::ESRCH);
+            }
+            let copy = libc::syscall(libc::SYS_pidfd_getfd, pidfd.as_raw_fd(), fd as libc::c_int, 0) as RawFd;
+            if copy < 0 {
+                return Err(match errno() {
+                    libc::EBADF => libc::EBADF,
+                    _ => e,
+                });
+            }
+            let copy = OwnedFd::from_raw_fd(copy);
+            let mut st: libc::stat = std::mem::zeroed();
+            if libc::fstat(copy.as_raw_fd(), &mut st) != 0 {
+                return Err(e);
+            }
+            if st.st_mode & libc::S_IFMT != libc::S_IFSOCK {
+                return Err(libc::ENOTSOCK);
+            }
+            Ok(st.st_ino)
+        }
+    }
+
     fn getpeername(&self, n: &libc::seccomp_notif) -> Reply {
         let (fd, addr, lenp) = (n.data.args[0], n.data.args[1], n.data.args[2]);
-        let Ok(ino) = inode(n.pid, fd) else { return Reply::Continue };
+        let Ok(ino) = self.inode(n, fd) else { return Reply::Continue };
         let Some(original) = self.table.lock().unwrap().peers.get(&ino).cloned() else { return Reply::Continue };
         let Some(len) = read_mem(n.pid, lenp, 4).map(|b| u32::from_ne_bytes(b[..4].try_into().unwrap()) as usize) else { return Reply::Err(libc::EFAULT) };
         if !self.valid(n.id) {
@@ -875,8 +1047,8 @@ fn write_mem(pid: u32, addr: u64, data: &[u8]) -> bool {
     n == data.len() as isize
 }
 
-/// The socket inode behind a descriptor of the agent.
-fn inode(pid: u32, fd: u64) -> Result<u64, i32> {
+/// The socket inode behind a descriptor of the agent, from `/proc/<pid>/fd`.
+fn proc_inode(pid: u32, fd: u64) -> Result<u64, i32> {
     let link = std::fs::read_link(format!("/proc/{pid}/fd/{fd}")).map_err(|e| match e.raw_os_error() {
         Some(libc::ENOENT) => libc::EBADF,
         Some(e) => e,
@@ -894,6 +1066,102 @@ fn fd_inode(fd: RawFd) -> Option<u64> {
 
 // ------------------------------------------------------------------ self-test
 
+/// The probe's checks as Chrome's crash handler would see them: from a non-dumpable process that detached from
+/// its parent (a double fork), a Unix socket works, UDP other than DNS stays refused, and a TCP connect to `dest`
+/// still goes through the capture.
+fn nondumpable(dest: SocketAddr) -> Vec<serde_json::Value> {
+    let failed = |detail: &str| vec![serde_json::json!({"id": "nondumpable_unix", "ok": false, "detail": detail})];
+    let mut pipe = [0; 2];
+    // SAFETY: a pipe, then a double fork in this single-threaded probe: the grandchild runs the checks, writes
+    // them to the pipe and exits; the parent reads them.
+    unsafe {
+        if libc::pipe(pipe.as_mut_ptr()) != 0 {
+            return failed("pipe");
+        }
+        let child = libc::fork();
+        if child == 0 {
+            libc::close(pipe[0]);
+            let parent = libc::getpid();
+            if libc::fork() == 0 {
+                // Detached once its parent exited.
+                for _ in 0..500 {
+                    if libc::getppid() != parent {
+                        break;
+                    }
+                    libc::usleep(2_000);
+                }
+                let out = serde_json::Value::Array(orphan_checks(dest)).to_string();
+                libc::write(pipe[1], out.as_ptr().cast(), out.len());
+                libc::_exit(0);
+            }
+            libc::_exit(0);
+        }
+        libc::close(pipe[1]);
+        if child < 0 {
+            libc::close(pipe[0]);
+            return failed("fork");
+        }
+        libc::waitpid(child, std::ptr::null_mut(), 0);
+        let mut out = vec![];
+        let mut buf = [0u8; 4096];
+        loop {
+            let n = libc::read(pipe[0], buf.as_mut_ptr().cast(), buf.len());
+            if n <= 0 {
+                break;
+            }
+            out.extend_from_slice(&buf[..n as usize]);
+        }
+        libc::close(pipe[0]);
+        serde_json::from_slice(&out).unwrap_or_else(|_| failed("the detached process gave no answer"))
+    }
+}
+
+fn orphan_checks(dest: SocketAddr) -> Vec<serde_json::Value> {
+    let mut checks = vec![];
+    let mut add = |id: &str, ok: bool, detail: String| checks.push(serde_json::json!({"id": id, "ok": ok, "detail": detail}));
+    // SAFETY: changes this process's own flag.
+    unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) };
+    // SAFETY: reads this process's own flag.
+    let state = if unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) } == 0 { "non-dumpable" } else { "kept dumpable by the capture" };
+    // The crash handler's handshake: sendmsg on a Unix socket pair.
+    let mut pair = [0; 2];
+    // SAFETY: a socket pair and a one-byte sendmsg from locals; the pair is closed below.
+    let sent = unsafe {
+        if libc::socketpair(libc::AF_UNIX, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, 0, pair.as_mut_ptr()) != 0 {
+            Err(errno())
+        } else {
+            let mut byte = [b'x'];
+            let mut iov = libc::iovec { iov_base: byte.as_mut_ptr().cast(), iov_len: 1 };
+            let mut msg: libc::msghdr = std::mem::zeroed();
+            msg.msg_iov = &mut iov;
+            msg.msg_iovlen = 1;
+            let r = if libc::sendmsg(pair[0], &msg, 0) == 1 { Ok(()) } else { Err(errno()) };
+            libc::close(pair[0]);
+            libc::close(pair[1]);
+            r
+        }
+    };
+    add("nondumpable_unix", sent.is_ok(), match sent {
+        Ok(()) => format!("sendmsg on a Unix socket works ({state})"),
+        Err(e) => format!("sendmsg on a Unix socket failed: {}", std::io::Error::from_raw_os_error(e)),
+    });
+    match std::net::UdpSocket::bind("0.0.0.0:0") {
+        Ok(u) => {
+            let r = u.send_to(b"launchpad", "192.0.2.1:443").map_err(|e| e.raw_os_error());
+            add("nondumpable_udp", r == Err(Some(libc::EACCES)), format!("UDP to port 443: {}", if r == Err(Some(libc::EACCES)) { "refused".into() } else { format!("{r:?}") }));
+        }
+        Err(e) => add("nondumpable_udp", false, format!("{e}")),
+    }
+    match std::net::TcpStream::connect_timeout(&dest, Duration::from_secs(20)) {
+        Ok(s) => {
+            let peer = s.peer_addr().map(|p| p.to_string()).unwrap_or_default();
+            add("nondumpable_tcp", peer == dest.to_string(), format!("connected to {dest} (peer {peer})"));
+        }
+        Err(e) => add("nondumpable_tcp", false, format!("{dest}: {e}")),
+    }
+    checks
+}
+
 /// `launchpad netcap --self-test`: whether capture works on this machine (exit 0), by running the probe's quick
 /// checks under a supervisor.
 fn self_test() -> ! {
@@ -901,13 +1169,23 @@ fn self_test() -> ! {
     run(1, "self-test".into(), &[exe, "netcap-probe".into(), "--quick".into()])
 }
 
-/// `launchpad netcap-probe [--quick] [--ca <file>] [--host <name>]`: checks run by a process under capture, as
-/// a client that ignores proxy settings would see them; prints a JSON list of `{id, ok, detail}`.
+/// `launchpad netcap-probe [--quick] [--ca <file>] [--host <name>] [--nondumpable <ip:port>]`: checks run by a
+/// process under capture, as a client that ignores proxy settings would see them; prints a JSON list of
+/// `{id, ok, detail}`. The full probe ends with the checks of a non-dumpable process, connecting to `<host>:443`;
+/// `--nondumpable` runs only those, connecting to the given address.
 pub fn probe(args: &[String]) -> ! {
     let quick = args.iter().any(|a| a == "--quick");
+    if let Some(dest) = args.iter().position(|a| a == "--nondumpable").and_then(|i| args.get(i + 1)) {
+        let Ok(dest) = dest.parse::<SocketAddr>() else { fail("--nondumpable needs an ip:port") };
+        let checks = nondumpable(dest);
+        let ok = checks.iter().all(|c| c["ok"] == true);
+        println!("{}", serde_json::Value::Array(checks));
+        std::process::exit(if ok { 0 } else { 1 })
+    }
     let ca = args.iter().position(|a| a == "--ca").and_then(|i| args.get(i + 1)).cloned();
     let host = args.iter().position(|a| a == "--host").and_then(|i| args.get(i + 1)).cloned().unwrap_or_else(|| "huggingface.co".into());
     let mut checks: Vec<serde_json::Value> = vec![];
+    let mut v4 = None;
     let mut add = |id: &str, ok: bool, detail: String| checks.push(serde_json::json!({"id": id, "ok": ok, "detail": detail}));
     // Sockets come from the supervisor.
     match std::net::UdpSocket::bind("0.0.0.0:0") {
@@ -939,6 +1217,7 @@ pub fn probe(args: &[String]) -> ! {
         match (host.as_str(), 443).to_socket_addrs() {
             Ok(addrs) => {
                 let addrs: Vec<SocketAddr> = addrs.collect();
+                v4 = addrs.iter().find(|a| a.is_ipv4()).copied();
                 add("dns", !addrs.is_empty(), format!("{host}: {} addresses", addrs.len()));
                 for (id, want_v6) in [("tcp_v4", false), ("tcp_v6", true)] {
                     match addrs.iter().find(|a| a.is_ipv6() == want_v6) {
@@ -965,6 +1244,9 @@ pub fn probe(args: &[String]) -> ! {
                 None => "the runner CA is not in the system certificate store".into(),
             });
         }
+    }
+    if let Some(dest) = v4 {
+        checks.extend(nondumpable(dest));
     }
     // The quick checks (the self-test) all pass; the full probe reports and the runner judges.
     let ok = !quick || checks.iter().all(|c| c["ok"] == true);

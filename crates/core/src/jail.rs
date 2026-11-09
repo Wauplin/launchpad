@@ -14,7 +14,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// System folders mounted read-only when they exist.
-const SYSTEM: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc", "/opt", "/nix", "/run/systemd/resolve", "/run/resolvconf"];
+const SYSTEM: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc", "/opt", "/nix", "/run/systemd/resolve", "/run/resolvconf", "/var/cache/fontconfig"];
 
 /// Folders of the home folder that hold toolchains (never credentials), mounted read-only when they exist.
 pub const HOME_TOOLCHAINS: &[&str] = &[
