@@ -3,6 +3,7 @@
 
 pub mod activity;
 pub mod crons;
+pub mod failures;
 pub mod proposals;
 pub mod schedules;
 pub mod today;
@@ -15,6 +16,9 @@ use launchpad_core::App;
 pub async fn start(app: &App) -> Result<()> {
     schedules::recover(app).await?;
     proposals::recover(app).await?;
+    if let Err(e) = failures::record_start(app).await {
+        tracing::warn!("daemon start record: {e:#}");
+    }
     schedules::spawn(app);
     crons::spawn(app);
     Ok(())

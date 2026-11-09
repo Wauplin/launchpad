@@ -33,8 +33,17 @@ A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"targ
         }
         let owner: Vec<&str> = ACTIONS.iter().filter(|a| a.access == ActionAccess::Owner).map(|a| a.help).collect();
         out.push_str(&format!(
-            "\nEach direct change goes to the owner's activity list with Undo (`{cli} activity list`). Only the owner's click runs these, never you: {}. Propose a ready card for merge, publish, post, send, run CI and Inbox done, and a tool card for tools. Everything else (profiles, the rest of config.toml, the Outbox, channels, credentials, devices, terminals, runners, setup fixes, folder setup commands, paid usage) is refused: ask the owner. `{cli} api <GET|POST|PUT|PATCH|DELETE> <path> [--body-file <file.json>]` reads any other state (GET) and runs the same actions by their API path.",
+            "\nEach direct change goes to the owner's activity list with Undo (`{cli} activity list`). Only the owner's click runs these, never you: {}. Propose a ready card for merge, publish, post, send, run CI and Inbox done, and a tool card for tools. Every other change (profiles, the rest of config.toml, the Outbox, channels, credentials, devices, terminals, runners, Burst, setup fixes, folder setup commands, paid usage) is refused: ask the owner. `{cli} api <GET|POST|PUT|PATCH|DELETE> <path> [--body-file <file.json>]` reads any other state (GET) and runs the same actions by their API path.",
             owner.iter().map(|h| h[..1].to_lowercase() + &h[1..]).collect::<Vec<_>>().join("; ")
+        ));
+        out.push_str(&format!(
+            "\n\n## Diagnose Launchpad\n\nYou may read Launchpad's own state to find out why something failed (no secret is ever shown: tokens and credentials are redacted or left out):\n\
+- `{cli} health`: everything failing now, by area (sessions, runners, Burst, routines, schedules, cards, quota, harnesses, MCP, channels, GitHub, backups, Home update, setup), with the ids to look at. Start here.\n\
+- `{cli} logs [--session <id>] [--runner <id or name> | --home | --local] [--since 2h] [--level warn] [--grep <text>] [--json]`: recent log lines of Home and every connected runner, oldest first; `--session` keeps the lines about a session and its Burst runners. The real reason of a failure is usually here.\n\
+- `{cli} sessions show <id>`: a session with its runner, generation, launch spec, last error (`failure`), Burst runs and latest handoff.\n\
+- `{cli} failures [--since 1d]`: what Home noticed failing (sessions, Burst jobs, routine runs, scheduled launches, runners offline with work, Home restarts).\n\
+- `{cli} runners list`, `{cli} burst runs [--session <id>]`, `{cli} burst job <runner id>` (the HF Job's stage and log), `{cli} home` (uptime, starts and whether each stopped cleanly, backups, update), `{cli} tools list` (tools, credential names, MCP servers and their errors), `{cli} channels list`.\n\
+A routine with the trigger {{\"kind\": \"failure\", \"events\": [\"any\"]}} tells you about new failures without polling. Diagnose, then report what failed and why, with the fix you propose; act on Launchpad records only as your instructions allow.\n"
         ));
     }
     out

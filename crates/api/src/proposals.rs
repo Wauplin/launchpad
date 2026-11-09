@@ -125,6 +125,7 @@ fn session_json(s: &Session) -> Value {
         "id": s.id, "title": s.title, "status": s.status, "needs_you": s.needs_you(), "folder_id": s.project_id, "cwd": s.cwd,
         "harness": s.harness, "profile": s.launch_spec.profile, "started_at": s.started_at, "status_since": s.status_since,
         "last_message": s.last_message, "open_question": s.open_question,
+        "runner_id": s.runner_id, "generation": s.generation, "ended_at": s.ended_at, "live": s.live, "bot": s.launch_spec.bot.as_ref().map(|b| &b.id),
     })
 }
 
@@ -141,7 +142,7 @@ async fn session(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Valu
     let mut v = session_json(&x);
     v["prompt"] = json!(x.launch_spec.text.chars().take(4000).collect::<String>());
     v["usage"] = json!(x.usage);
-    Ok(Json(v))
+    Ok(Json(crate::diagnostics::session_detail(&s, &x, v).await))
 }
 
 /// Profiles without their environment (keys stay private), with the quota of each subscription login.

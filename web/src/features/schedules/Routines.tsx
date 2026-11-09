@@ -13,6 +13,7 @@ import { CronFields, DEFAULT_CRON, conditionSummary } from "@/features/launch/Cr
 import type { Bot } from "@/gen/Bot";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { CronCondition } from "@/gen/CronCondition";
+import type { FailureKind } from "@/gen/FailureKind";
 import type { GithubEvent } from "@/gen/GithubEvent";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { Preview } from "@/gen/Preview";
@@ -23,7 +24,7 @@ import type { Trigger } from "@/gen/Trigger";
 import { api } from "@/lib/api";
 import { ago, when } from "@/lib/format";
 import { useProjects } from "@/lib/queries";
-import { GITHUB_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, cronTitle, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
+import { FAILURE_EVENTS, GITHUB_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, cronTitle, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
 
 export type RoutineDraft = { trigger: Trigger; schedule: string; conditions: CronCondition[] };
 
@@ -55,9 +56,10 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, onChange,
   const folders = projects.filter((p) => p.workspace_id === workspaceId && !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const [fieldsValid, setFieldsValid] = useState(true);
   const t = draft.trigger;
-  const valid = fieldsValid && (t.kind !== "github" || t.events.length > 0);
+  const valid = fieldsValid && ((t.kind !== "github" && t.kind !== "failure") || t.events.length > 0);
   useEffect(() => onValidityChange(valid), [valid, onValidityChange]);
-  const kind = (k: Trigger["kind"]) => onChange({ ...draft, trigger: k === "schedule" ? { kind: "schedule" } : k === "github" ? { kind: "github", repo: null, events: ["review_requested"] } : { kind: "session_done", folder: null }, schedule: draft.schedule || DEFAULT_CRON.schedule });
+  const kind = (k: Trigger["kind"]) => onChange({ ...draft, trigger: k === "schedule" ? { kind: "schedule" } : k === "github" ? { kind: "github", repo: null, events: ["review_requested"] } : k === "failure" ? { kind: "failure", events: ["any"] } : { kind: "session_done", folder: null }, schedule: draft.schedule || DEFAULT_CRON.schedule });
+  const toggleFailure = (e: FailureKind) => t.kind === "failure" && onChange({ ...draft, trigger: { ...t, events: t.events.includes(e) ? t.events.filter((x) => x !== e) : [...t.events, e] } });
   const toggle = (e: GithubEvent) => t.kind === "github" && onChange({ ...draft, trigger: { ...t, events: t.events.includes(e) ? t.events.filter((x) => x !== e) : [...t.events, e] } });
   // In a thread (a bot, Ask Launchpad), a run waits for the thread anyway: no "previous run" condition.
   const conditions = inThread ? draft.conditions.filter((c) => c.kind !== "previous_run_finished") : draft.conditions;
@@ -66,7 +68,15 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, onChange,
       <Choice active={t.kind === "schedule"} onClick={() => kind("schedule")}>On a schedule</Choice>
       <Choice active={t.kind === "github"} onClick={() => kind("github")}>GitHub activity</Choice>
       <Choice active={t.kind === "session_done"} onClick={() => kind("session_done")}>When an agent is done</Choice>
+      <Choice active={t.kind === "failure"} onClick={() => kind("failure")}>When Launchpad fails</Choice>
     </Choices>
+    {t.kind === "failure" && <div className="grid gap-2">
+      <div className="grid gap-1"><span className="text-[12px] font-semibold text-ink-2">Failures</span>
+        <Choices label="Failures">{FAILURE_EVENTS.map((e) => <Choice key={e.id} active={t.events.includes(e.id)} onClick={() => toggleFailure(e.id)}>{e.label}</Choice>)}</Choices>
+        {!t.events.length && <p role="alert" className="m-0 text-[12px] text-gh-closed">Pick at least one kind of failure.</p>}
+      </div>
+      <p className="m-0 text-[12px] text-ink-3">Launchpad checks every 30 seconds for failures in this workspace, plus runners, Home restarts and Burst jobs. New failures found in one check start one run with their ids and reasons. A routine never runs for its own runs or its bot's sessions.</p>
+    </div>}
     {t.kind === "github" && <div className="grid gap-2">
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Repository
         <select className="field-input font-normal" value={t.repo ?? ""} onChange={(e) => onChange({ ...draft, trigger: { ...t, repo: e.target.value || null } })}>

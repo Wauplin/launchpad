@@ -38,6 +38,9 @@ pub enum Trigger {
     Github { repo: Option<String>, events: Vec<GithubEvent> },
     /// A turn of another agent ended Done, in this folder (any folder of the workspace when None).
     SessionDone { folder: Option<String> },
+    /// Launchpad failures of these kinds (`failures::FailureKind`) in the workspace, plus failures shared by
+    /// every workspace (runners, Home, Burst jobs without a session). One run for all new failures.
+    Failure { events: Vec<crate::failures::FailureKind> },
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -144,6 +147,10 @@ pub struct CronAgent {
     /// GitHub trigger: the newest Inbox activity (`updated_at`) already handled.
     #[serde(default)]
     pub github_seen: Option<String>,
+    /// Failure trigger: the newest failure (`Failure::seen_at`, Unix ms) already handled.
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub failure_seen: Option<i64>,
 }
 
 impl CronAgent {
@@ -330,7 +337,7 @@ async fn modify<T: Send + 'static>(
     Ok(out)
 }
 
-fn validate_trigger(trigger: &Trigger, schedule: &str, zone: Option<&str>) -> Result<()> {
+pub(crate) fn validate_trigger(trigger: &Trigger, schedule: &str, zone: Option<&str>) -> Result<()> {
     match trigger {
         Trigger::Schedule => next_after(schedule, zone, now_ms()).map(|_| ()),
         Trigger::Github { repo, events } => {
@@ -341,6 +348,10 @@ fn validate_trigger(trigger: &Trigger, schedule: &str, zone: Option<&str>) -> Re
             Ok(())
         }
         Trigger::SessionDone { .. } => Ok(()),
+        Trigger::Failure { events } => {
+            ensure!(!events.is_empty(), "pick at least one kind of failure");
+            Ok(())
+        }
     }
 }
 
@@ -406,6 +417,7 @@ pub async fn create(
         runs: vec![],
         history: vec![],
         github_seen: None,
+        failure_seen: None,
     };
     record.next_run_at = next_due(&record, now)?;
     insert(app, &record).await?;
@@ -470,6 +482,7 @@ pub async fn create_for_bot(app: &App, bot_id: &str, r: BotRoutine) -> Result<Cr
         runs: vec![],
         history: vec![],
         github_seen: None,
+        failure_seen: None,
     };
     record.next_run_at = next_due(&record, now)?;
     insert(app, &record).await?;
@@ -498,6 +511,7 @@ pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> 
         if let Some(t) = patch.trigger {
             if t != r.trigger {
                 r.github_seen = None;
+                r.failure_seen = Some(now);
             }
             r.trigger = t;
         }
@@ -887,6 +901,47 @@ async fn inbox_synced_inner(app: &App) -> Result<()> {
     Ok(())
 }
 
+/// Every 30 s on Home: notices new failures (`failures::collect`), then starts the failure routines that take
+/// some of them, one run for all of it. A routine whose bot is working waits (its failures stay unclaimed) until
+/// they are more than one hour old.
+async fn failures_noticed(app: &App) -> Result<()> {
+    crate::failures::collect(app).await?;
+    let records: Vec<CronAgent> = list(app).await?.into_iter().filter(|r| r.active() && matches!(r.trigger, Trigger::Failure { .. })).collect();
+    let now = now_ms();
+    for r in records {
+        let Trigger::Failure { events } = &r.trigger else { continue };
+        let seen = r.failure_seen.unwrap_or(r.created_at);
+        let new: Vec<crate::failures::Failure> = crate::failures::recent(seen)
+            .into_iter()
+            .filter(|f| crate::failures::routine_takes(events, r.spec.workspace_id.as_deref(), &r.id, r.bot_id.as_deref(), &r.runs, f))
+            .collect();
+        let Some(newest) = new.iter().map(|f| f.seen_at).max() else { continue };
+        let fresh: Vec<&crate::failures::Failure> = new.iter().filter(|f| now - f.seen_at <= MISSED_GRACE_MS).collect();
+        if !fresh.is_empty() && why_blocked(app, &r).await?.is_some() {
+            continue;
+        }
+        let (record, ()) = modify(app, &r.id, move |r| {
+            ensure!(r.failure_seen.is_none_or(|s| s < newest), "already handled");
+            r.failure_seen = Some(newest);
+            r.last_check_at = Some(now);
+            Ok(())
+        })
+        .await?;
+        let cause = match fresh.as_slice() {
+            [f] => format!("Failure: {}", f.title.chars().take(100).collect::<String>()),
+            many => format!("Failures ({})", many.len().max(new.len())),
+        };
+        if fresh.is_empty() {
+            skip(app, &record.id, cause, "the failures are more than 1 hour old".into()).await?;
+            continue;
+        }
+        let lines = fresh.iter().map(|f| crate::failures::describe(f)).collect::<Vec<_>>().join("\n");
+        let context = format!("{lines}\n\nInvestigate with the Launchpad CLI (the command given in your first instructions): `health`, `sessions show <id>`, `logs --session <id>` (or `--runner <id>`), `burst runs`, `burst job <runner id>`, `runners list`, `home`, `failures`.");
+        on_event(app, &record, cause, context).await?;
+    }
+    Ok(())
+}
+
 /// At start: a run claimed but never started (Launchpad stopped in between) is uncertain, never retried.
 async fn recover(app: &App) -> Result<()> {
     for r in list(app).await? {
@@ -911,8 +966,18 @@ pub fn spawn(app: &App) {
             tracing::warn!("routines: {e:#}");
         }
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+        let mut ticks: u64 = 0;
         loop {
             interval.tick().await;
+            ticks += 1;
+            if ticks % 6 == 1 && app.paths.role != launchpad_core::role::Role::Runner {
+                let app = app.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = failures_noticed(&app).await {
+                        tracing::warn!("failure routines: {e:#}");
+                    }
+                });
+            }
             let records = match list(&app).await {
                 Ok(records) => records,
                 Err(e) => {

@@ -9,9 +9,21 @@ use serde_json::Value;
 
 use crate::error::ApiError;
 
-/// The access a Launchpad CLI request needs: Read for state, Propose for writing proposals.
+/// Diagnostic reads (`launchpad_api::diagnostics`): the recent log of Home and runners, runners, Burst runs and
+/// their HF Jobs, Home's starts, the failure feed, tools, channels and health. They hold no secret, and need admin
+/// access.
+pub fn diagnostic(path: &str) -> bool {
+    path == "/api/logs"
+        || ["runners", "burst", "home", "failures", "tools", "channels", "health"].iter().any(|p| {
+            path.strip_prefix("/api/context/").and_then(|r| r.strip_prefix(p)).is_some_and(|rest| rest.is_empty() || rest.strip_prefix('/').is_some_and(|r| !r.split('/').any(str::is_empty)))
+        })
+}
+
+/// The access a Launchpad CLI request needs: Read for state, Propose for writing proposals, Admin for diagnostics.
 fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
-    if method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity") {
+    if method == Method::GET && diagnostic(path) {
+        Some(LaunchpadAccess::Admin)
+    } else if method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity") {
         Some(LaunchpadAccess::Read)
     } else if method == Method::POST && path == "/api/proposals" {
         Some(LaunchpadAccess::Propose)
@@ -78,7 +90,7 @@ fn asks_paid_usage(v: &Value) -> bool {
 }
 
 fn read_allowed(path: &str) -> bool {
-    path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity" || path == "/api/predrafts"
+    path == "/api/status" || (path.starts_with("/api/context/") && !diagnostic(path)) || path == "/api/proposals" || path == "/api/today" || path == "/api/activity" || path == "/api/predrafts"
         || (path.starts_with("/api/predrafts/") && !path.ends_with("/resolve"))
         || (path.starts_with("/api/sessions/") && path.ends_with("/trace"))
 }
@@ -103,9 +115,13 @@ pub async fn authorize(app: &App, id: &str, req: Request) -> Result<Request, Api
     {
         let why = match access {
             None => "the Launchpad CLI tool is not granted to this session (Settings → Credentials and tools)",
+            Some(_) if need == LaunchpadAccess::Admin => "diagnostics (logs, runners, Burst, Home, health) need admin Launchpad CLI access (`launchpad = \"admin\"` in the bot's bot.toml)",
             Some(_) => "this session's Launchpad CLI access is read only (`launchpad` in its bot's bot.toml)",
         };
         return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, why));
+    }
+    if tool_need(req.method(), &path) == Some(LaunchpadAccess::Admin) {
+        return Ok(req);
     }
     if access == Some(LaunchpadAccess::Admin) && tool_need(req.method(), &path).is_none() && !read_allowed(&path) && !own_write(&path) && admin_allows(req.method(), &path) {
         if req.method() == Method::GET || req.method() == Method::DELETE {
@@ -166,6 +182,24 @@ mod tests {
         }
         assert!(read_allowed("/api/context/folders"));
         assert!(own_write("/api/worktrees/finish"));
+    }
+
+    #[test]
+    fn diagnostics_need_admin_and_stay_reads() {
+        for path in ["/api/logs", "/api/context/health", "/api/context/runners", "/api/context/burst", "/api/context/burst/r1/job", "/api/context/home", "/api/context/failures", "/api/context/tools", "/api/context/channels"] {
+            assert!(diagnostic(path), "{path}");
+            assert_eq!(tool_need(&Method::GET, path), Some(LaunchpadAccess::Admin), "{path}");
+            assert!(!read_allowed(path), "{path}");
+            assert_eq!(tool_need(&Method::POST, path), None, "{path}");
+        }
+        for path in ["/api/context/sessions", "/api/context/sessions/s1", "/api/context/burst/", "/api/context/burst//job", "/api/context/burstx", "/api/context/homes", "/api/logs/x"] {
+            assert!(!diagnostic(path), "{path}");
+        }
+        assert_eq!(tool_need(&Method::GET, "/api/context/sessions/s1"), Some(LaunchpadAccess::Read));
+        // The owner's routes with secrets or machine state stay closed, whatever the access.
+        for path in ["/api/burst", "/api/runners", "/api/vault/leases", "/api/channels", "/api/home/backup", "/api/config"] {
+            assert!(!admin_allows(&Method::GET, path), "{path}");
+        }
     }
 
     #[test]

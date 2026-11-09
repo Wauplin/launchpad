@@ -302,6 +302,8 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             ensure!(!instructions.trim().is_empty(), "write what the bot does at each run");
             if *trigger == crate::crons::Trigger::Schedule {
                 crate::crons::next_after(schedule, None, now_ms()).context("invalid cron schedule")?;
+            } else {
+                crate::crons::validate_trigger(trigger, schedule, None)?;
             }
             workspace_id = Some(bot.workspace_id);
         }

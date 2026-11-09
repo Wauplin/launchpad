@@ -2692,6 +2692,7 @@ dependencies = [
  "launchpad-core",
  "launchpad-github",
  "launchpad-harness",
+ "launchpad-http",
  "launchpad-server",
  "launchpad-setup",
  "libc",
@@ -2859,6 +2860,7 @@ dependencies = [
  "axum",
  "launchpad-core",
  "reqwest",
+ "serde",
  "serde_json",
  "tracing",
 ]

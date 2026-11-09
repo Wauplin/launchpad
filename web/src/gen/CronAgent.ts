@@ -40,4 +40,8 @@ history: Array<RoutineRun>,
 /**
  * GitHub trigger: the newest Inbox activity (`updated_at`) already handled.
  */
-github_seen: string | null, };
+github_seen: string | null, 
+/**
+ * Failure trigger: the newest failure (`Failure::seen_at`, Unix ms) already handled.
+ */
+failure_seen: number | null, };

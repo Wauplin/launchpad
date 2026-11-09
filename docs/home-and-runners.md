@@ -35,6 +35,10 @@ When a launch from Home finds no runner that takes it (your laptop is off or asl
 
 Burst needs Home to run in a Hugging Face Space, with its Hugging Face login, and an account that can run HF Jobs: a PRO account or credits (a Team or Enterprise plan, or credits, for an organization). Home checks it, and the setup page and Settings say when Burst is not available and why.
 
+## Logs and failures
+
+Home and every runner keep a log of their recent lines in `<data folder>/logs/launchpad.jsonl` (two files of up to 8 MB, kept across restarts). Secrets are redacted before a line is written. Home records each of its starts, and whether the run before stopped cleanly. Every 30 seconds Home notes new failures: failed or interrupted agents, failed Burst jobs, routine runs that could not start, failed scheduled launches, runners that went offline while agents ran on them, and Home restarts. Bots with admin access to the Launchpad CLI read all of this (`launchpad health`, `launchpad logs --session <id>`, `launchpad failures`; see [Bots](bots.md#diagnose-launchpad)), and a routine **When Launchpad fails** tells a bot about new failures. A runner's log is read through Home while it is connected; a Burst job that never connected has its HF Job log instead (`launchpad burst job <runner id>`).
+
 ## MCP servers
 
 Settings → Credentials and tools → **MCP servers**: add a remote MCP server (Streamable HTTP) with its address and token. Home reads its tools. Every tool starts off, also tools that a later **Refresh tools** (in the server's **⋯**) finds: turn on each tool agents may use (the server's read only and destructive labels help, but they are hints, not guarantees). Choose where the server is granted when you save: the current workspace by default, chosen workspaces or every workspace. Which sessions get it by default is set by the [default tools](#default-tools).

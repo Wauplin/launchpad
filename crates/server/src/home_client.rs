@@ -177,9 +177,39 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/activity" || path.starts_with("/api/activity/") || path == "/api/settings/shared"
 }
 
-/// Home: requests a runner may send through its tunnel (as Home's owner).
-pub(crate) fn home_accepts(path: &str) -> bool {
-    home_owned(path) || path.starts_with("/api/projects") || path.starts_with("/api/predrafts") || trace_id(path).is_some()
+/// Home: requests a runner may send through its tunnel (as Home's owner). Sessions: reads, and the admin actions
+/// of the action list (an agent's CLI acting on a session of another runner, as the owner's button would);
+/// never the owner-only ones (paid usage).
+pub(crate) fn home_accepts(method: &str, path: &str) -> bool {
+    home_owned(path) || path.starts_with("/api/projects") || path.starts_with("/api/predrafts") || trace_id(path).is_some() || (method == "GET" && path == "/api/logs")
+        || ((path == "/api/sessions" || path.starts_with("/api/sessions/"))
+            && (method == "GET" || launchpad_core::actions::find(method, path).is_some_and(|a| a.access == launchpad_core::actions::ActionAccess::Admin)))
+}
+
+/// Marks a request of a session's CLI token (`auth::guard`): its launches go to Home, like the owner's.
+#[derive(Clone)]
+pub(crate) struct AgentCall;
+
+/// `/api/sessions/{id}` and its sub-paths: the session's ID.
+fn session_id(path: &str) -> Option<&str> {
+    let rest = path.strip_prefix("/api/sessions/")?;
+    let id = rest.split('/').next()?;
+    (!id.is_empty() && id != "search").then_some(id)
+}
+
+/// Runner: whether a request goes to Home although Home does not own its record: a session this runner does
+/// not run (Home relays it to the session's runner, or answers for Burst and runners that are away), a launch
+/// by an agent (Home picks the runner, as for the owner's Launch), and log reads of other daemons.
+fn to_home_too(s: &crate::Server, req: &axum::extract::Request) -> bool {
+    let path = req.uri().path();
+    if path == "/api/logs" {
+        let local = req.uri().query().unwrap_or("").split('&').any(|kv| kv == "source=local");
+        return req.method() == axum::http::Method::GET && !local;
+    }
+    if path == "/api/sessions" {
+        return req.method() == axum::http::Method::POST && req.extensions().get::<AgentCall>().is_some();
+    }
+    session_id(path).is_some_and(|id| s.app.sessions.get(id).is_none()) && home_accepts(req.method().as_str(), path)
 }
 
 /// `/api/sessions/{id}/trace`: the session's ID.
@@ -194,7 +224,7 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
     let forwarded = home_owned(path) && (req.method() != axum::http::Method::GET || !(path == "/api/workspaces" || path.starts_with("/api/workspaces/")));
     // The trace of a session that ran on another runner (a bot's earlier session, a context trace): Home has it.
     let elsewhere = req.method() == axum::http::Method::GET && trace_id(path).is_some_and(|id| s.app.sessions.get(id).is_none());
-    let forwarded = forwarded || elsewhere;
+    let forwarded = forwarded || elsewhere || (s.app.paths.role == role::Role::Runner && to_home_too(&s, &req));
     if s.app.paths.role != role::Role::Runner || !forwarded {
         return next.run(req).await;
     }

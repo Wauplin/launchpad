@@ -686,6 +686,52 @@ async fn tick(app: &App, handed_off: &mut std::collections::HashMap<String, i64>
     Ok(())
 }
 
+/// Home, for diagnosis: a run's HF Job as the Hub sees it (status and the last lines of its log), without the
+/// job's environment or secrets. The log lines are raw: callers redact them.
+pub async fn job_info(app: &App, runner_id: &str) -> Result<Value> {
+    let r = get(app, runner_id).await?.context("no such Burst run")?;
+    let job = r.job_id.clone().context("this run has no HF Job (it failed before the Hub created one): read its error")?;
+    let j = hf(app, reqwest::Method::GET, &format!("/api/jobs/{}/{job}", r.namespace), None).await?;
+    let mut lines: Vec<String> = vec![];
+    let logs = async {
+        let res = CLIENT.get(format!("{}/api/jobs/{}/{job}/logs", endpoint(), r.namespace)).bearer_auth(token(app).await?).send().await?;
+        ensure!(res.status().is_success(), "HF Jobs logs: {}", res.status());
+        let mut res = res;
+        let mut buf = String::new();
+        // The log is a stream that stays open while the job runs: read what comes within a few seconds.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while let Ok(Some(chunk)) = res.chunk().await {
+                buf.push_str(&String::from_utf8_lossy(&chunk));
+                if buf.len() > 2 << 20 {
+                    break;
+                }
+            }
+        })
+        .await;
+        Ok::<_, anyhow::Error>(buf)
+    };
+    let log_error = match logs.await {
+        Ok(text) => {
+            for l in text.lines() {
+                let l = l.strip_prefix("data:").map(str::trim).unwrap_or(l);
+                let data = serde_json::from_str::<Value>(l).ok().and_then(|v| v["data"].as_str().map(str::to_string)).unwrap_or_else(|| l.to_string());
+                if !data.trim().is_empty() {
+                    lines.push(data);
+                }
+            }
+            let extra = lines.len().saturating_sub(300);
+            lines.drain(..extra);
+            None
+        }
+        Err(e) => Some(format!("{e:#}")),
+    };
+    Ok(json!({
+        "runner_id": r.runner_id, "job_id": job, "namespace": r.namespace, "flavor": j["flavor"], "created_at": j["createdAt"],
+        "stage": j["status"]["stage"], "message": j["status"]["message"], "image": j["dockerImage"].as_str().or(j["spaceId"].as_str()),
+        "log": lines, "log_error": log_error,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

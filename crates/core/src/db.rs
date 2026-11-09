@@ -212,7 +212,8 @@ CREATE TABLE IF NOT EXISTS telegram_reply (session_id TEXT PRIMARY KEY, after_se
 CREATE TABLE IF NOT EXISTS incoming_hook (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS queued_message (n INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL, at INTEGER NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS seeded (key TEXT PRIMARY KEY, at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS activity (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, created_at INTEGER NOT NULL, json TEXT NOT NULL);",
+CREATE TABLE IF NOT EXISTS activity (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, created_at INTEGER NOT NULL, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS daemon_start (at INTEGER PRIMARY KEY, commit_id TEXT NOT NULL, role TEXT NOT NULL, stopped_at INTEGER);",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
     // additive columns directly, like the unversioned tables above.

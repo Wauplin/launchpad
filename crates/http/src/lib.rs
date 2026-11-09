@@ -3,6 +3,7 @@
 
 pub mod agent_auth;
 pub mod error;
+pub mod logs;
 
 use std::sync::Arc;
 

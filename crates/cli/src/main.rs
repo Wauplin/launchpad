@@ -147,6 +147,66 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
+    /// Recent log lines of Home and runners, oldest first (sessions with admin access). Default: every source,
+    /// the last hour, info and above.
+    Logs {
+        /// Only this runner (id or name).
+        #[arg(long, conflicts_with_all = ["home", "local"])]
+        runner: Option<String>,
+        /// Only Home.
+        #[arg(long, conflicts_with = "local")]
+        home: bool,
+        /// Only the daemon this command talks to (the runner of this session).
+        #[arg(long)]
+        local: bool,
+        /// Lines about this session (its id, short id and Burst runners).
+        #[arg(long)]
+        session: Option<String>,
+        /// 30m, 2h, 1d or Unix milliseconds.
+        #[arg(long, default_value = "1h")]
+        since: String,
+        /// Lowest level: error, warn, info or debug.
+        #[arg(long)]
+        level: Option<String>,
+        /// Only lines that contain this text.
+        #[arg(long)]
+        grep: Option<String>,
+        #[arg(long, default_value_t = 300)]
+        limit: usize,
+        /// Print JSON instead of text lines.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Everything failing now, by area, with the ids to investigate (JSON; admin access).
+    Health,
+    /// Failures Home noticed: sessions, Burst jobs, routine runs, scheduled launches, runners, restarts (JSON; admin access).
+    Failures {
+        /// 30m, 2h, 1d or Unix milliseconds (default: the last 24 hours).
+        #[arg(long)]
+        since: Option<String>,
+    },
+    /// Runners with connection, build, guard and open sessions (JSON; admin access).
+    Runners {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
+    /// Burst: `runs` (settings, why it cannot start, runs with their errors) or `job <runner id>` (the HF Job's stage and log) (JSON; admin access).
+    Burst {
+        #[command(subcommand)]
+        command: Burst,
+    },
+    /// Home: uptime, recent starts (clean or not), backups and update state (JSON; admin access).
+    Home,
+    /// Tools, credential names and MCP servers with their last error, without secrets (JSON; admin access).
+    Tools {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
+    /// Channels and the Telegram link's state, without URLs or tokens (JSON; admin access).
+    Channels {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
     /// Store an inert proposal for the owner to start with a click; never starts anything.
     Propose {
         #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-instructions", "ready", "report"])]
@@ -238,6 +298,60 @@ enum ListOnly {
         #[arg(long)]
         workspace: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum Burst {
+    Runs {
+        /// Only the runs of this session.
+        #[arg(long)]
+        session: Option<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    Job { runner_id: String },
+}
+
+/// `2026-11-09T10:04:05Z` from Unix milliseconds.
+fn utc(ms: i64) -> String {
+    let secs = ms.div_euclid(1000);
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn logs_command(paths: &Paths, runner: Option<String>, home: bool, local: bool, session: Option<String>, since: String, level: Option<String>, grep: Option<String>, limit: usize, json: bool) -> Result<()> {
+    let source = if local { "local".to_string() } else if home { "home".into() } else { runner.unwrap_or_else(|| "all".into()) };
+    let limit = limit.to_string();
+    let mut pairs = vec![("source", source.as_str()), ("since", since.as_str()), ("limit", limit.as_str())];
+    if let Some(s) = &session { pairs.push(("session", s)); }
+    if let Some(l) = &level { pairs.push(("level", l)); }
+    if let Some(g) = &grep { pairs.push(("grep", g)); }
+    let body = Client::new(paths)?.json("GET", &query("/api/logs", &pairs), None).await?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&body)?);
+        return Ok(());
+    }
+    for l in body["lines"].as_array().into_iter().flatten() {
+        println!("{} {:5} {}: {}", utc(l["at"].as_i64().unwrap_or(0)), l["level"].as_str().unwrap_or(""), l["source"].as_str().unwrap_or(""), l["message"].as_str().unwrap_or(""));
+    }
+    for e in body["errors"].as_array().into_iter().flatten() {
+        eprintln!("{}: {}", e["source"].as_str().unwrap_or("?"), e["error"].as_str().unwrap_or("?"));
+    }
+    if body["lines"].as_array().is_none_or(|l| l.is_empty()) {
+        eprintln!("No line matches (try a longer --since, or --level debug).");
+    }
+    Ok(())
 }
 
 #[derive(Subcommand)]
@@ -557,6 +671,24 @@ async fn run() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&proposals)?);
             Ok(())
         }
+        Command::Logs { runner, home, local, session, since, level, grep, limit, json } => logs_command(&paths, runner, home, local, session, since, level, grep, limit, json).await,
+        Command::Health => list_command(&paths, "/api/context/health", None).await,
+        Command::Failures { since } => {
+            let path = match since { Some(s) => query("/api/context/failures", &[("since", &s)]), None => "/api/context/failures".into() };
+            list_command(&paths, &path, None).await
+        }
+        Command::Runners { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/runners", None).await,
+        Command::Burst { command: Burst::Runs { session, limit } } => {
+            let limit = limit.map(|l| l.to_string());
+            let mut pairs = vec![];
+            if let Some(s) = &session { pairs.push(("session", s.as_str())); }
+            if let Some(l) = &limit { pairs.push(("limit", l.as_str())); }
+            list_command(&paths, &query("/api/context/burst", &pairs), None).await
+        }
+        Command::Burst { command: Burst::Job { runner_id } } => list_command(&paths, &format!("/api/context/burst/{}/job", url_segment(&runner_id)), None).await,
+        Command::Home => list_command(&paths, "/api/context/home", None).await,
+        Command::Tools { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/tools", None).await,
+        Command::Channels { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/channels", None).await,
         Command::Today { workspace } => list_command(&paths, "/api/today", workspace).await,
         Command::Activity { command: ListOnly::List { workspace } } => list_command(&paths, "/api/activity", workspace).await,
         Command::Propose { kind, title, note, replaces, spec_file, session_id } => {
@@ -615,10 +747,16 @@ async fn run() -> Result<()> {
             let role = launchpad_core::role::Role::parse(&role)?;
             // A runner gets its own folders and port (`LAUNCHPAD_PORT` overrides the port).
             let paths = if role == paths.role { paths } else { Paths::for_role(paths.app_env, role) };
+            if let Err(e) = launchpad_http::logs::init(&paths.data_dir) {
+                tracing::warn!("recent log: {e}");
+            }
             tracing::info!("env {}, role {}, data in {}", paths.app_env.name(), role.name(), paths.data_dir.display());
             let app = launchpad_core::App::start(paths).await?;
             extensions::start(&app).await?;
-            launchpad_server::serve(app, launchpad_api::router()).await?;
+            launchpad_server::serve(app.clone(), launchpad_api::router()).await?;
+            if let Err(e) = launchpad_automation::failures::record_stop(&app).await {
+                tracing::warn!("daemon stop record: {e:#}");
+            }
             // A runner that just installed Home's build starts it in this process.
             launchpad_core::self_update::restart_if_updated();
             Ok(())
@@ -705,12 +843,43 @@ fn init_tracing() {
     use tracing_subscriber::EnvFilter;
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let journald = std::env::var_os("JOURNAL_STREAM").is_some();
-    let builder = tracing_subscriber::fmt().with_env_filter(filter).with_target(false);
-    if journald {
-        // journald adds its own timestamps.
-        builder.without_time().with_ansi(false).init();
-    } else {
-        builder.init();
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    // journald adds its own timestamps.
+    let plain = journald.then(|| tracing_subscriber::fmt::layer().with_target(false).without_time().with_ansi(false));
+    let timed = (!journald).then(|| tracing_subscriber::fmt::layer().with_target(false));
+    tracing_subscriber::registry().with(filter).with(plain).with(timed).with(RecentLog).init();
+}
+
+/// Copies every log line to the daemon's recent log (`launchpad_http::logs`, redacted), which `launchpad logs`
+/// reads.
+struct RecentLog;
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for RecentLog {
+    fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+        struct Text(String);
+        impl tracing::field::Visit for Text {
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                use std::fmt::Write;
+                if field.name() == "message" {
+                    let _ = write!(self.0, "{}{value:?}", if self.0.is_empty() { "" } else { " " });
+                } else {
+                    let _ = write!(self.0, "{}{}={value:?}", if self.0.is_empty() { "" } else { " " }, field.name());
+                }
+            }
+            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                if field.name() == "message" {
+                    if !self.0.is_empty() { self.0.push(' '); }
+                    self.0.push_str(value);
+                } else {
+                    self.record_debug(field, &value);
+                }
+            }
+        }
+        let mut text = Text(String::new());
+        event.record(&mut text);
+        let meta = event.metadata();
+        launchpad_http::logs::push(meta.level().as_str(), meta.target(), &text.0);
     }
 }
 
@@ -727,6 +896,12 @@ mod proposal_tests {
         let cli = Cli::try_parse_from(["launchpad", "propose", "preset", "--title", "Preset", "--spec-file", "spec.json"]).unwrap();
         assert!(matches!(cli.command, Command::Propose { kind, .. } if kind == "preset"));
         assert!(Cli::try_parse_from(["launchpad", "propose", "delete", "--title", "X", "--spec-file", "spec.json"]).is_err());
+        let cli = Cli::try_parse_from(["launchpad", "logs", "--session", "s1", "--since", "2h"]).unwrap();
+        assert!(matches!(cli.command, Command::Logs { session: Some(s), home: false, .. } if s == "s1"));
+        assert!(Cli::try_parse_from(["launchpad", "logs", "--home", "--runner", "r"]).is_err());
+        assert!(matches!(Cli::try_parse_from(["launchpad", "burst", "job", "r1"]).unwrap().command, Command::Burst { command: Burst::Job { .. } }));
+        assert_eq!(utc(0), "1970-01-01T00:00:00Z");
+        assert_eq!(utc(1_762_686_245_000), "2025-11-09T11:04:05Z");
         let cli = Cli::try_parse_from(["launchpad", "proposals", "list", "--workspace", "Work"]).unwrap();
         assert!(matches!(cli.command, Command::Proposals { command: ListOnly::List { workspace: Some(w) } } if w == "Work"));
     }

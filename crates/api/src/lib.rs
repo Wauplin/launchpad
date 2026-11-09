@@ -6,6 +6,7 @@ mod api;
 mod bots;
 mod channels;
 mod code;
+mod diagnostics;
 mod items;
 mod kb_http;
 mod mcp;
@@ -40,4 +41,5 @@ pub fn router() -> Router<Ctx> {
         .merge(kb_http::router())
         .merge(today::router())
         .merge(activity::router())
+        .merge(diagnostics::router())
 }
