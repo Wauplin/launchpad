@@ -76,7 +76,7 @@ struct Session {
 #[derive(Clone)]
 pub struct Access {
     session: Option<(Arc<AtomicBool>, i64)>,
-    /// The browser device; None for bearer clients (CLI, desktop shell bootstrap).
+    /// The browser device; None for bearer clients (CLI, Chrome extension native host).
     pub device: Option<String>,
     pub changes: watch::Receiver<u64>,
 }
@@ -594,7 +594,7 @@ async fn check_https(State(s): State<Server>, Json(request): Json<HttpsPort>) ->
 }
 
 async fn pair(State(s): State<Server>, headers: HeaderMap) -> ApiResult<Value> {
-    // Only desktop bootstrap requests a local link; device pairing uses the remote origin.
+    // Only the Chrome extension's native host requests a local link; device pairing uses the remote origin.
     let host = headers
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
@@ -602,7 +602,7 @@ async fn pair(State(s): State<Server>, headers: HeaderMap) -> ApiResult<Value> {
     let origin = if host == format!("127.0.0.1:{}", s.app.paths.port)
         || host == format!("localhost:{}", s.app.paths.port)
     {
-        // Desktop bootstrap must stay on loopback even when a remote origin is available.
+        // The native host's link must stay on loopback even when a remote origin is available.
         if headers.get("x-launchpad-local-pair").is_some() {
             format!("http://{host}")
         } else {
@@ -641,7 +641,7 @@ async fn exchange(
 
 fn device_response(auth: &Auth, headers: &HeaderMap, token: &str) -> Response {
     // Never trust forwarded protocol headers. Secure is decided by the configured external origin
-    // and its Host/Origin; the local desktop's HTTP cookie must keep working behind the same daemon.
+    // and its Host/Origin; a local HTTP cookie must keep working behind the same daemon.
     let secure = if auth.secure_cookie(headers) {
         "; Secure"
     } else {
@@ -861,7 +861,7 @@ async fn sign_in() -> impl IntoResponse {
             (header::REFERRER_POLICY, "no-referrer"),
             (
                 header::CONTENT_SECURITY_POLICY,
-                "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost; form-action 'self'; frame-ancestors 'none'",
+                "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'",
             ),
         ],
         Html(SIGN_IN),
@@ -873,7 +873,6 @@ const SIGN_IN: &str = r#"<!doctype html><html><head><meta charset="utf-8"><meta 
 <section id="reverse" hidden><p>Or show a code here and enter it in Settings → Devices on your signed-in laptop.</p>
 <form id="reverse-form"><p><label>Device name<br><input id="reverse-name" maxlength="80" required autocomplete="off" placeholder="My phone" style="font:inherit;padding:8px;max-width:90%"></label></p><button id="generate" style="font:inherit;padding:8px">Show pairing code</button></form>
 <p id="reverse-code" style="font: bold 32px monospace;letter-spacing:3px" aria-live="polite"></p><p id="reverse-status" role="status"></p></section>
-<button id="reconnect" hidden style="font:inherit;padding:8px">Reconnect to this machine</button>
 <form id="form"><p><label>Device name<br><input id="name" autocomplete="off" maxlength="80" required style="font:inherit;padding:8px;max-width:90%" placeholder="My phone"></label></p>
 <button style="font:inherit;padding:8px" id="button">Pair browser</button></form><p id="message" role="status"></p>
 <script>
@@ -881,14 +880,7 @@ const params=new URLSearchParams(location.hash.slice(1)); const code=params.get(
 history.replaceState(null,'', '/auth');
 const form=document.getElementById('form'), message=document.getElementById('message');
 function destination(){try{const url=new URL(next || '/',location.origin);return next && next.startsWith('/') && url.origin===location.origin ? url.href : '/';}catch{return '/';}}
-const reconnect=document.getElementById('reconnect');
-if(window.__launchpadDesktop && window.__launchpadReconnect){
- document.getElementById('heading').textContent='Connect Launchpad';
- document.getElementById('instructions').textContent='Reconnect the desktop app to Launchpad on this machine. Your agents and terminals keep running.';
- reconnect.hidden=false;
- reconnect.onclick=async()=>{reconnect.disabled=true;message.textContent='Connecting…';try{await window.__launchpadReconnect();}catch(e){message.textContent=String(e);reconnect.disabled=false;}};
-}
-if(!code){form.hidden=true;document.getElementById('reverse').hidden=!!window.__launchpadDesktop;}else{document.getElementById('name').focus();}
+if(!code){form.hidden=true;document.getElementById('reverse').hidden=false;}else{document.getElementById('name').focus();}
 form.onsubmit=async(e)=>{e.preventDefault(); const button=document.getElementById('button'); button.disabled=true;
 try{const r=await fetch('/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,name:document.getElementById('name').value})});
 const data=await r.json();if(!r.ok)throw new Error(data.error || 'Could not pair browser');
@@ -906,11 +898,6 @@ if(r.status===429){setTimeout(poll,3000);return;}if(!r.ok)throw new Error(data.e
 }catch(e){if(e instanceof TypeError){reverseStatus.textContent='Connection lost. Retrying…';setTimeout(poll,3000);return;}reverseStatus.textContent=e.message;generate.disabled=false;return;}
 setTimeout(poll,3000);};setTimeout(poll,3000);
 }catch(e){reverseStatus.textContent=e.message;generate.disabled=false;}};
-// The local shell has already requested a one-time link through its bearer credential.
-if(code && params.get('desktop')==='1'){
-fetch('/api/devices').then(r=>{if(r.ok){location.replace(destination());}
-else{document.getElementById('name').value='Desktop';form.requestSubmit();}}).catch(()=>{message.textContent='Could not reach daemon. Try again.';});
-}
 </script></body></html>"#;
 
 impl launchpad_http::FrontDoor for Auth {

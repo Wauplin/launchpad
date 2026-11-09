@@ -159,7 +159,7 @@ struct Inner {
     live: Mutex<LiveSessions>,
     next_instance: std::sync::atomic::AtomicU64,
     raw_counts: Mutex<HashMap<String, i64>>,
-    /// Sessions shown in a focused window, per window connection: no desktop notification for them.
+    /// Sessions shown in a focused window, per window connection: no notification for them.
     watched: Mutex<HashMap<u64, Presence>>,
 }
 
@@ -604,8 +604,8 @@ impl Sessions {
         Ok(())
     }
 
-    /// Home: a runner's session left Running, so routines settle and trigger. The runner keeps its own desktop
-    /// notification and forwards Telegram.
+    /// Home: a runner's session left Running, so routines settle and trigger. The runner sends its own
+    /// notification (forwarded to Home's Telegram chat).
     fn replica_turn_ended(&self, app: &App, s: &Session) {
         crate::ext::extensions().turn_ended(app, s);
     }

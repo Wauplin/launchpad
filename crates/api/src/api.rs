@@ -27,7 +27,6 @@ pub fn router() -> Router<Ctx> {
         .route("/api/projects/{id}/promote", post(promote))
         .route("/api/workspaces", get(list_workspaces).post(create_workspace))
         .route("/api/workspaces/{id}", get(get_workspace).patch(patch_workspace).delete(delete_workspace))
-        .route("/api/window", post(open_window))
         .route("/api/uploads", post(upload).layer(axum::extract::DefaultBodyLimit::max(6 * 1024 * 1024)))
         .route("/api/uploads/{hash}", get(uploaded_image))
         .route("/api/launch/preview", post(preview).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
@@ -82,7 +81,6 @@ pub fn router() -> Router<Ctx> {
         .route("/api/inbox/{id}/reply", post(inbox_reply))
         .route("/api/gh/resolve", post(gh_resolve))
         .route("/api/gh/{owner}/{repo}/suggest", get(gh_suggest))
-        .route("/api/open", post(open_url))
 }
 
 // ---------------------------------------------------------------- projects
@@ -230,12 +228,6 @@ async fn delete_workspace(State(s): State<Ctx>, Path(id): Path<String>) -> ApiRe
     Ok(Json(json!({"ok": true})))
 }
 
-#[derive(Deserialize)]
-struct OpenWindow {
-    workspace_id: Option<String>,
-}
-
-/// Opens another desktop window. The UI falls back to a browser tab when this fails.
 /// Stores one attachment (raw body, its MIME type in `Content-Type`) and returns its reference.
 async fn upload(headers: axum::http::HeaderMap, body: axum::body::Bytes) -> ApiResult<Value> {
     let mime = headers.get(axum::http::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("application/octet-stream");
@@ -254,11 +246,6 @@ async fn uploaded_image(Path(hash): Path<String>, Query(q): Query<UploadType>) -
     use axum::response::IntoResponse;
     let bytes = launchpad_core::attachments::read_image(&hash, &q.mime).map_err(|e| ApiError::not_found(format!("{e:#}")))?;
     Ok(([(axum::http::header::CONTENT_TYPE, q.mime), (axum::http::header::CACHE_CONTROL, "private, max-age=31536000, immutable".into()), (axum::http::header::HeaderName::from_static("x-content-type-options"), "nosniff".into())], bytes).into_response())
-}
-
-async fn open_window(State(s): State<Ctx>, Json(b): Json<OpenWindow>) -> ApiResult<Value> {
-    workspace::open_window(&s.app, b.workspace_id.as_deref()).map_err(bad)?;
-    Ok(Json(json!({"ok": true})))
 }
 
 async fn discover(State(s): State<Ctx>) -> ApiResult<Vec<Discovered>> {
@@ -624,24 +611,6 @@ async fn gh_suggest(
     Query(q): Query<Suggest>,
 ) -> ApiResult<Vec<launchpad_core::github::GhItem>> {
     Ok(Json(s.app.github.suggest(&format!("{owner}/{repo}"), q.q.as_deref().unwrap_or("")).await.map_err(bad)?))
-}
-
-// ---------------------------------------------------------------- settings and desktop helpers
-
-
-#[derive(Deserialize)]
-struct OpenUrl {
-    url: String,
-}
-
-/// Opens a link in the browser (`commands.browser`, `xdg-open` by default).
-async fn open_url(State(s): State<Ctx>, Json(b): Json<OpenUrl>) -> ApiResult<Value> {
-    if !(b.url.starts_with("https://") || b.url.starts_with("http://")) {
-        return Err(ApiError::bad_request("only http and https links"));
-    }
-    let browser = s.app.config.get().commands.browser;
-    launchpad_core::procs::command(&s.app.env, &browser, None).arg(&b.url).kill_on_drop(false).spawn().await.map_err(|e| bad(e.into()))?;
-    Ok(Json(json!({"ok": true})))
 }
 
 async fn inbox(State(s): State<Ctx>) -> ApiResult<launchpad_github::inbox::InboxSnapshot> {

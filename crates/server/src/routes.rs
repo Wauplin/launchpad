@@ -44,10 +44,8 @@ async fn get_config(State(s): State<Server>) -> Json<Value> {
 }
 
 async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiResult<Value> {
-    let remote = s.auth.remote();
     s.app.config.update(|saved| {
         anyhow::ensure!(config.server == saved.server, "Edit [server] in config.toml and restart the daemon");
-        anyhow::ensure!(!remote || config.commands == saved.commands, "Edit [commands] in config.toml on the host");
         *saved = config;
         Ok(())
     }).map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
@@ -61,35 +59,27 @@ struct GeneralPatch {
     projects_root: Option<String>,
     remove_published_worktree: Option<bool>,
     presets: Option<Vec<launchpad_core::config::Preset>>,
-    notify: Option<bool>,
     github_poll_interval_seconds: Option<u64>,
     worktrees_keep: Option<u32>,
-    browser: Option<String>,
 }
 async fn patch_general_config(State(s): State<Server>, Json(patch): Json<GeneralPatch>) -> ApiResult<Value> {
-    if patch.browser.is_some() && s.auth.remote() {
-        return Err(crate::error::ApiError::bad_request("Edit [commands] in config.toml on the host"));
-    }
     s.app.config.update(|config| {
         if let Some(value) = patch.projects_root { config.projects_root = value; }
         if let Some(value) = patch.remove_published_worktree { config.remove_published_worktree = value; }
         if let Some(value) = patch.presets { config.presets = value; }
-        if let Some(value) = patch.notify { config.agents.notify = value; }
         if let Some(value) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = value.max(15); }
         if let Some(value) = patch.worktrees_keep { config.worktrees.keep = value; }
-        if let Some(value) = patch.browser { config.commands.browser = value; }
         Ok(())
     }).map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     Ok(Json(config_response(&s, None)))
 }
 
 /// The shared settings: the closed list of config.toml values that sessions with admin Launchpad CLI access may
-/// change (`settings.set` in the action list), with Undo. Profiles, server, commands and the rest of
+/// change (`settings.set` in the action list), with Undo. Profiles, server and the rest of
 /// config.toml stay the owner's. The keys match the PATCH body, so the activity list can put old values back.
 fn shared(config: &Config) -> Value {
     json!({
         "presets": config.presets,
-        "notify": config.agents.notify,
         "github_poll_interval_seconds": config.github.poll_interval_seconds,
         "worktrees_keep": config.worktrees.keep,
     })
@@ -103,7 +93,6 @@ async fn get_shared(State(s): State<Server>) -> Json<Value> {
 #[serde(deny_unknown_fields)]
 struct SharedPatch {
     presets: Option<Vec<launchpad_core::config::Preset>>,
-    notify: Option<bool>,
     github_poll_interval_seconds: Option<u64>,
     worktrees_keep: Option<u32>,
 }
@@ -120,7 +109,6 @@ async fn patch_shared(State(s): State<Server>, Json(patch): Json<SharedPatch>) -
     }
     s.app.config.update(|config| {
         if let Some(presets) = patch.presets { config.presets = presets; }
-        if let Some(v) = patch.notify { config.agents.notify = v; }
         if let Some(v) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = v.max(15); }
         if let Some(v) = patch.worktrees_keep { config.worktrees.keep = v; }
         Ok(())

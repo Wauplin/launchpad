@@ -91,7 +91,7 @@ struct Notify {
     session_id: String,
     event: String,
 }
-/// A runner's notification for one of its sessions (the same events as desktop notifications).
+/// A runner's notification for one of its sessions (`notify::session`).
 async fn telegram_notify(State(s): State<Ctx>, Json(n): Json<Notify>) -> ApiResult<Value> {
     telegram::notification(&s.app, &n.session_id, &n.event).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))

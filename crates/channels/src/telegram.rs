@@ -3,7 +3,7 @@
 //! chat is ever answered; other chats are ignored. Home long-polls `getUpdates` (a private Space has no inbound
 //! endpoint for Telegram).
 //!
-//! Messages to the owner's own chat go out directly (owner decision): notifications (the desktop notification events, never
+//! Messages to the owner's own chat go out directly (owner decision): notifications (the session notification events, never
 //! code), the final message of turns started from Telegram, and `launchpad send telegram`. Incoming text goes to
 //! a bot's thread (`/<bot> text`, `/bot <name> text`), plain text to the first bot; launches from Telegram never allow paid
 //! usage. An update is marked handled before it is acted on, so a crash never runs a message twice.
@@ -58,7 +58,7 @@ pub struct TelegramStatus {
     pub link: Option<String>,
     #[ts(type = "number | null")]
     pub code_expires_at: Option<i64>,
-    /// Notifications to the chat (the same events as desktop notifications).
+    /// Notifications to the chat (completed turns, failures, interruptions and automatic stops).
     pub notify: bool,
     /// Include session titles in notifications.
     pub titles: bool,

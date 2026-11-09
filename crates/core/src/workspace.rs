@@ -139,35 +139,3 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
     app.bus.publish("workspaces", "changed", serde_json::Value::Null);
     Ok(())
 }
-
-/// Opens a new desktop window, on a workspace (None: the last one shown). Each window keeps its own workspace.
-pub fn open_window(app: &App, id: Option<&str>) -> Result<()> {
-    let exe = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|d| d.join(format!("launchpad-desktop{}", std::env::consts::EXE_SUFFIX))))
-        .filter(|p| p.exists())
-        .or_else(|| app.env.which("launchpad-desktop"))
-        .context("launchpad-desktop is not installed")?;
-    let mut cmd = tokio::process::Command::new(&exe);
-    cmd.env_clear().envs(app.env.vars().iter());
-    cmd.arg("--new-window").env("LAUNCHPAD_ENV", app.paths.app_env.name());
-    if let Some(id) = id {
-        cmd.args(["--workspace", id]);
-    }
-    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-    // The window must outlive the request and, for dev windows, the daemon.
-    cmd.kill_on_drop(false);
-    // SAFETY: setsid is async-signal-safe.
-    #[cfg(unix)]
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
-    let mut child = cmd.spawn().with_context(|| format!("start {}", exe.display()))?;
-    tokio::spawn(async move {
-        let _ = child.wait().await;
-    });
-    Ok(())
-}

@@ -14,6 +14,7 @@ use crate::model::HarnessKind;
 use crate::paths::Paths;
 use std::collections::BTreeMap;
 
+/// Unknown keys are ignored, so files with removed sections (`[commands]`, `[agents]`) keep loading.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
 pub struct Config {
@@ -22,9 +23,7 @@ pub struct Config {
     /// Remove a clean pre-draft worktree after successful publication.
     pub remove_published_worktree: bool,
     pub server: ServerConfig,
-    pub commands: Commands,
     pub github: GitHub,
-    pub agents: Agents,
     pub worktrees: Worktrees,
     pub presets: Vec<Preset>,
     /// Named harness settings, selectable in the composer beside the base harnesses.
@@ -162,21 +161,8 @@ pub enum Billing {
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
-pub struct Commands {
-    pub browser: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
-#[serde(default)]
 pub struct GitHub {
     pub poll_interval_seconds: u64,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
-#[serde(default)]
-pub struct Agents {
-    /// Notifications for completion, automatic stops and automatic quota resumption.
-    pub notify: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
@@ -215,9 +201,7 @@ impl Default for Config {
             projects_root: "~/projects".into(),
             remove_published_worktree: false,
             server: ServerConfig::default(),
-            commands: Commands::default(),
             github: GitHub::default(),
-            agents: Agents::default(),
             worktrees: Worktrees::default(),
             profiles: vec![],
             presets: vec![],
@@ -227,21 +211,9 @@ impl Default for Config {
     }
 }
 
-impl Default for Commands {
-    fn default() -> Self {
-        Commands { browser: if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer.exe" } else { "xdg-open" }.into() }
-    }
-}
-
 impl Default for GitHub {
     fn default() -> Self {
         GitHub { poll_interval_seconds: 60 }
-    }
-}
-
-impl Default for Agents {
-    fn default() -> Self {
-        Agents { notify: true }
     }
 }
 
@@ -252,18 +224,12 @@ remove_published_worktree = false   # keep local PR worktrees after publication
 presets = []                       # add your own prompt instructions in Settings
 
 [server]
-bind = "127.0.0.1"                 # local desktop and CLI listener
+bind = "127.0.0.1"                 # local CLI and browser listener
 auto_tailnet = true               # also listen on a discovered Tailscale IP
 # public_origin = "https://launchpad.example.com"  # restart daemon after changes
 
-[commands]
-browser = "xdg-open"
-
 [github]
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
-
-[agents]
-notify = true                       # completion, automatic stops and automatic quota resumption
 
 [worktrees]
 keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
@@ -341,7 +307,7 @@ impl ConfigHandle {
     pub fn load(paths: &Paths, bus: Bus) -> Result<ConfigHandle> {
         let path = paths.config_file();
         if !path.exists() {
-            std::fs::write(&path, DEFAULT_CONFIG.replace(r#"browser = "xdg-open""#, &format!("browser = {:?}", Commands::default().browser))).with_context(|| format!("write {}", path.display()))?;
+            std::fs::write(&path, DEFAULT_CONFIG).with_context(|| format!("write {}", path.display()))?;
         }
         let (config, error) = match read(&path) {
             Ok(c) => (c, None),
@@ -509,6 +475,12 @@ mod tests {
         handle.apply(Err(error));
         assert_eq!(handle.error().unwrap(), safe);
         assert!(!events.try_recv().unwrap().text.contains("private-value"));
+    }
+
+    #[test]
+    fn removed_sections_still_load() {
+        let config: Config = toml::from_str("[commands]\nbrowser = \"xdg-open\"\n\n[agents]\nnotify = false\n").unwrap();
+        assert_eq!(config, Config::default());
     }
 
     #[test]

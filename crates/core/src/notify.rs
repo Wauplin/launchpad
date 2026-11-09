@@ -1,17 +1,9 @@
-//! Notifications, sent by the daemon so they work when every window is closed: the owner's Telegram
-//! chat (`telegram.rs`) and a desktop notification on the host. A desktop notification names the session's
-//! workspace, and clicking it opens a window on the item in that workspace
-//! (`launchpad-desktop --open <route> --workspace <id>`).
-
-use std::sync::atomic::{AtomicUsize, Ordering};
+//! Session notifications, sent by the daemon so they work when every window is closed: the owner's Telegram
+//! chat (`telegram.rs` in the channels crate, through `ext::Extensions::notify_channels`). The daemon shows no
+//! desktop notifications: it may run anywhere, and the owner's devices use Telegram.
 
 use crate::App;
 use crate::model::{Session, SessionStatus};
-
-/// Threads waiting for a click. GNOME keeps unanswered notifications in its tray, so the waits are
-/// capped; beyond the cap, notifications are shown without the click action.
-static WAITING: AtomicUsize = AtomicUsize::new(0);
-const MAX_WAITING: usize = 32;
 
 #[derive(Clone, Copy)]
 pub(crate) enum SessionNotification {
@@ -24,18 +16,6 @@ pub(crate) enum SessionNotification {
 }
 
 impl SessionNotification {
-    pub(crate) fn summary(self, project: &str) -> String {
-        let status = match self {
-            Self::Done => "Done",
-            Self::Failed => "Failed",
-            Self::Interrupted => "Interrupted",
-            Self::QuotaPaused => "Quota paused",
-            Self::CostLimit => "Cost limit reached",
-            Self::QuotaResumed => "Quota available; agent resumed",
-        };
-        format!("{status} in {project}")
-    }
-
     /// The event's name for the Telegram notification (forwarded to Home by runners).
     pub(crate) fn key(self) -> &'static str {
         match self {
@@ -66,62 +46,6 @@ pub(crate) fn status_notification(before: SessionStatus, after: SessionStatus, q
 pub(crate) fn session(app: &App, s: &Session, event: SessionNotification) {
     // Home's Telegram chat has its own switch (Settings → Channels).
     crate::ext::extensions().notify_channels(app, s, event.key());
-    if !app.config.get().agents.notify {
-        return;
-    }
-    let project = std::path::Path::new(&s.cwd).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    let summary = event.summary(&project);
-    let body = s.title.clone();
-    let route = format!("/agents?session={}", s.id);
-    let (app, id) = (app.clone(), s.id.clone());
-    tokio::spawn(async move {
-        let workspace = match crate::kb::workspace_of_session(&app, &id).await {
-            Some(w) => crate::workspace::get(&app, &w).await.ok(),
-            None => None,
-        };
-        show(&app, summary, body, route, workspace);
-    });
-}
-
-fn show(app: &App, summary: String, body: String, route: String, workspace: Option<crate::workspace::Workspace>) {
-    let summary = match &workspace { Some(w) => format!("{summary} · {}", w.name), None => summary };
-    let workspace = workspace.map(|w| w.id);
-    let desktop = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(format!("launchpad-desktop{}", std::env::consts::EXE_SUFFIX)))).filter(|p| p.exists());
-    let env = app.env.clone();
-    let app_env = app.paths.app_env;
-    std::thread::spawn(move || {
-        let handle = notify_rust::Notification::new()
-            .appname("Launchpad")
-            .summary(&summary)
-            .body(&body)
-            .icon("launchpad")
-            .action("default", "Open")
-            .show();
-        match handle {
-            Ok(_) if WAITING.load(Ordering::Relaxed) >= MAX_WAITING => {}
-            Ok(h) => {
-                WAITING.fetch_add(1, Ordering::Relaxed);
-                h.wait_for_action(|action| {
-                if action == "default" {
-                    let exe = desktop.clone().map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| "launchpad-desktop".into());
-                    let mut cmd = std::process::Command::new(exe);
-                    cmd.args(["--open", &route]).env_clear().envs(env.vars().iter());
-                    if let Some(w) = &workspace {
-                        cmd.args(["--workspace", w]);
-                    }
-                    if app_env == crate::paths::AppEnv::Dev {
-                        cmd.env("LAUNCHPAD_ENV", "dev");
-                    }
-                    let _ = cmd.spawn();
-                }
-                });
-                WAITING.fetch_sub(1, Ordering::Relaxed);
-            }
-            // A headless host has no notification server: expected, not worth a warning.
-            Err(e) if cfg!(target_os = "linux") && std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() => tracing::debug!("desktop notification: {e}"),
-            Err(e) => tracing::warn!("desktop notification: {e}"),
-        }
-    });
 }
 
 #[cfg(test)]
