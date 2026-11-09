@@ -25,7 +25,7 @@ import { useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { runAction } from "@/lib/actions";
 import { projectName, useProjects } from "@/lib/queries";
-type Member = { id: string; title: string; folder: string; branch: string; published_url: string | null; merged: boolean };
+type Member = { id: string; title: string; folder: string; branch: string; head: string | null; published_url: string | null; merged: boolean };
 type Detail = Diff & { predraft: Predraft; status: string | null; commits: string[]; base_ahead: number; default_remote_branch: string; project_missing?: boolean; change_set?: Member[] };
 type View = "description" | "files" | "commits";
 const RUNNING = ["starting", "working", "background", "in_terminal"];
@@ -134,7 +134,14 @@ function Review({ id }: { id: string }) {
     {active && d.base_ahead > 0 && <div className="grid gap-1 border-b border-attn-line bg-attn-soft px-5 py-2 text-[12px] text-attn">
       <span className="flex items-center gap-1.5"><Icon name="alert" size={12} />Base moved: {p.base_branch} is {d.base_ahead} commits ahead of this branch. Review against the refreshed base before publishing.</span>
     </div>}
-    {!!d.change_set?.length && <ChangeSet members={d.change_set} active={active} busy={busy} onPublishAll={() => run(async () => { await save(); await api.post(`/api/predrafts/${id}/publish-set`, { draft }); await saved.clear(); }, "Change set published")} />}
+    {!!d.change_set?.length && <ChangeSet members={d.change_set} active={active} busy={busy} onPublishAll={() => run(async () => {
+      await save();
+      // Each Local PR at the commit this page showed: Home publishes nothing if a branch moved since.
+      const heads: Record<string, string> = { [id]: d.head };
+      for (const m of d.change_set ?? []) if (m.head && !m.published_url && !m.merged) heads[m.id] = m.head;
+      await runAction("local-pr.publish-set", { id }, { draft, heads });
+      await saved.clear();
+    }, "Change set published")} />}
     {p.remote_sync_note && <div className="border-b border-line px-3 py-2 text-[12px] text-ink-2">{p.remote_sync_note}</div>}
     {active && p.pushed_head && <div className="flex flex-wrap items-center gap-2 border-b border-attn-line bg-attn-soft px-5 py-2 text-[12px] text-attn">
       <Icon name="alert" size={12} /><span className="flex-1">Publication of <span className="font-mono">{p.pushed_head.slice(0, 8)}</span>{p.remote_branch ? <> to <span className="font-mono">{p.push_repo ?? "origin"}:{p.remote_branch}</span></> : null} did not finish. Retry Publish, or unlock it.</span>

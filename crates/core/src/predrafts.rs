@@ -396,14 +396,18 @@ pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     let remote = p.remote_branch.clone().unwrap_or_else(|| p.default_remote_branch.clone());
     Ok(json!({"predraft":p,"status":status,"head":head,"base":merge_base,"base_ahead":ahead,"commits":commits.lines().collect::<Vec<_>>(),"files":crate::diff::parse_diff(&patch),"project_id":project.id,"fallback":false,"default_remote_branch":remote,"change_set":set}))
 }
-/// The other Local PRs of the same change set, with their folders.
+/// The other Local PRs of the same change set, with their folders and the commit shown (`head`, the one Publish
+/// all publishes).
 async fn change_set(app: &App, p: &Predraft) -> Result<Vec<Value>> {
     let Some(set) = &p.change_set else { return Ok(vec![]) };
     let projects = crate::projects::list(app).await?;
-    Ok(list(app).await?.into_iter().filter(|o| o.change_set.as_ref() == Some(set) && o.id != p.id && !o.archived).map(|o| {
+    let mut out = vec![];
+    for o in list(app).await?.into_iter().filter(|o| o.change_set.as_ref() == Some(set) && o.id != p.id && !o.archived) {
         let folder = projects.iter().find(|f| f.id == o.project_id).map(|f| f.name.clone()).unwrap_or_default();
-        json!({"id": o.id, "title": o.title, "folder": folder, "branch": o.branch, "published_url": o.published_url, "merged": o.merged.is_some()})
-    }).collect())
+        let head = crate::home_git::tip(app, &o.project_id, &format!("refs/heads/{}", o.branch)).await.ok().flatten();
+        out.push(json!({"id": o.id, "title": o.title, "folder": folder, "branch": o.branch, "head": head, "published_url": o.published_url, "merged": o.merged.is_some()}));
+    }
+    Ok(out)
 }
 pub async fn feedback(app: &App, id: &str) -> Result<()> {
     ensure_home(app)?;
@@ -634,20 +638,29 @@ fn with_links(body: &str, links: &[String]) -> String {
     let body = body.split(LINKS).next().unwrap_or(body);
     if links.is_empty() { body.to_string() } else { format!("{body}{LINKS}{}", links.join(", ")) }
 }
-/// Publish all: publishes every open Local PR of a change set (each with its default remote branch), then
-/// links the pull requests to each other. A failure stops there; publishing again resumes.
-pub async fn publish_set(app: &App, id: &str, draft: bool) -> Result<Vec<Predraft>> {
+#[derive(Deserialize)]
+pub struct PublishSet {
+    pub draft: bool,
+    /// The reviewed commit of each open Local PR of the set, by Local PR ID.
+    pub heads: std::collections::HashMap<String, String>,
+}
+
+/// Publish all: publishes every open Local PR of a change set (each with its default remote branch, at the
+/// commit the owner reviewed), then links the pull requests to each other. Nothing is published when one
+/// branch changed since review; a later failure stops there, and publishing again resumes.
+pub async fn publish_set(app: &App, id: &str, q: PublishSet) -> Result<Vec<Predraft>> {
     ensure_home(app)?;
     let p = get(app, id).await?;
     let set = p.change_set.clone().context("this Local PR is not part of a change set")?;
-    let members: Vec<Predraft> = list(app).await?.into_iter().filter(|o| o.change_set.as_ref() == Some(&set) && !o.archived && o.merged.is_none()).collect();
+    let members: Vec<Predraft> = list(app).await?.into_iter().filter(|o| o.change_set.as_ref() == Some(&set) && !o.archived && o.merged.is_none() && o.published_url.is_none()).collect();
     for m in &members {
-        if m.published_url.is_some() {
-            continue;
-        }
+        let reviewed = q.heads.get(&m.id).with_context(|| format!("{} was not reviewed: reload and review it again", m.title))?;
         let head = crate::home_git::tip(app, &m.project_id, &format!("refs/heads/{}", m.branch)).await?.with_context(|| format!("{} is not on Home", m.branch))?;
+        ensure!(&head == reviewed, "{} changed since review: reload and review it again", m.title);
+    }
+    for m in &members {
         let remote_branch = m.remote_branch.clone().unwrap_or_else(|| m.default_remote_branch.clone());
-        publish(app, &m.id, Publish { remote_branch, draft, head, fork: false }).await.with_context(|| format!("publish {}", m.title))?;
+        publish(app, &m.id, Publish { remote_branch, draft: q.draft, head: q.heads[&m.id].clone(), fork: false }).await.with_context(|| format!("publish {}", m.title))?;
     }
     let published: Vec<Predraft> = list(app).await?.into_iter().filter(|o| o.change_set.as_ref() == Some(&set) && o.published_url.is_some()).collect();
     for m in &published {

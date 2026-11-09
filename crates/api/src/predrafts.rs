@@ -63,7 +63,7 @@ async fn action(State(s): State<Ctx>, Path((id, a)): Path<(String, String)>, Jso
         "discard" => json!(predrafts::discard(&s.app, &id).await?),
         "unlock" => json!(predrafts::unlock(&s.app, &id).await?),
         "publish" => json!(predrafts::publish(&s.app, &id, serde_json::from_value::<Publish>(q)?).await?),
-        "publish-set" => json!(predrafts::publish_set(&s.app, &id, q["draft"].as_bool().unwrap_or(false)).await?),
+        "publish-set" => json!(predrafts::publish_set(&s.app, &id, serde_json::from_value::<predrafts::PublishSet>(q)?).await?),
         "merge-local" => json!(predrafts::merge_local(&s.app, &id, serde_json::from_value::<MergeLocal>(q)?).await?),
         _ => return Err(anyhow::anyhow!("unknown Local PR action").into()),
     };
