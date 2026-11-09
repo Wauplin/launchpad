@@ -2,7 +2,8 @@
 //!
 //! Browsers upload each file once (`POST /api/uploads`) and keep a short reference instead of the
 //! bytes: `upload:<mime>;<sha256>`. Drafts, schedules, crons and launch specs store the reference;
-//! the bytes live once in `<data_dir>/uploads/<sha256>`. Data URLs remain accepted everywhere.
+//! the bytes live once in `<data_dir>/uploads/<sha256>` (in Home backups). Data URLs remain accepted
+//! everywhere. A session's attached files (`dir`) travel in its handoffs (`handoff`), so they follow a move.
 use crate::model::{FileAttachment, ImageAttachment};
 use anyhow::{Context, Result, ensure};
 use base64::Engine;
@@ -62,6 +63,8 @@ pub async fn store(bytes: &[u8], mime: &str) -> Result<String> {
             tokio::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600)).await?;
         }
         tokio::fs::rename(&tmp, &path).await?;
+        // Home backups carry uploads (`home_backup::data_files`).
+        crate::home_backup::changed();
     } else {
         // Touch: garbage collection keeps recently used uploads.
         let _ = std::fs::File::options().append(true).open(&path).and_then(|f| f.set_modified(std::time::SystemTime::now()));

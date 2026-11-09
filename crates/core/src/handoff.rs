@@ -1,13 +1,13 @@
 //! Moving a session to another runner between turns (Move to…, Continue on Burst).
 //!
 //! The record and its events are on Home, the branches are on Home Git and plain folders are synced. What a
-//! new runner still needs is a *handoff*: the harness's native conversation files and the session's worktree
-//! records. Runners upload one at the end of every turn (when the conversation changed), so a session can
+//! new runner still needs is a *handoff*: the harness's native conversation files, the session's attached
+//! files and its worktree records. Runners upload one at the end of every turn (when the conversation changed), so a session can
 //! continue elsewhere while its machine sleeps, and a final one before a planned move (branches pushed,
 //! uncommitted files saved to a scratch branch, worktrees removed). On Home, a move increases the session's
 //! generation and names the new runner, then that runner adopts the session: it fetches the handoff, records
-//! the worktrees (cloned again from their branches on the next message) and puts the conversation where its
-//! harness resumes it. Home refuses pushes, leases and records of the older generation.
+//! the worktrees (cloned again from their branches on the next message, with the uncommitted files of their
+//! last snapshot) and puts the conversation and attached files where its harness resumes them. Home refuses pushes, leases and records of the older generation.
 
 use anyhow::{Context, Result, bail, ensure};
 use base64::Engine;
@@ -38,6 +38,9 @@ pub struct Handoff {
     pub cwd: String,
     pub worktrees: Vec<TaskWorktree>,
     pub files: Vec<HandoffFile>,
+    /// The session's attached files (`attachments::dir`), which its conversation names.
+    #[serde(default)]
+    pub attachments: Vec<HandoffFile>,
     /// Made for a planned move: branches pushed, leftovers saved, folders removed, no process left.
     #[serde(rename = "final")]
     pub is_final: bool,
@@ -113,9 +116,41 @@ async fn snapshot(app: &App, id: &str) -> Result<Handoff> {
         cwd: s.cwd.clone(),
         worktrees: crate::worktrees::for_session(app, id).await?,
         files: files.into_iter().map(|f| HandoffFile { name: f.name, data: base64::engine::general_purpose::STANDARD.encode(f.data), sha256: None }).collect(),
+        attachments: read_attachments(app, id).await?,
         is_final: false,
         at: now_ms(),
     })
+}
+
+/// The files of the session's attachment folder (flat: `attachments::prepare` writes no subfolders).
+async fn read_attachments(app: &App, id: &str) -> Result<Vec<HandoffFile>> {
+    let mut out = vec![];
+    let Ok(mut rd) = tokio::fs::read_dir(crate::attachments::dir(app, id)).await else { return Ok(out) };
+    while let Some(e) = rd.next_entry().await? {
+        if !e.file_type().await?.is_file() {
+            continue;
+        }
+        let data = tokio::fs::read(e.path()).await?;
+        out.push(HandoffFile { name: e.file_name().to_string_lossy().into_owned(), data: base64::engine::general_purpose::STANDARD.encode(data), sha256: None });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+/// Puts a handoff's attachments in the session's attachment folder on this runner, where its conversation names
+/// them. Names are plain file names.
+async fn write_attachments(app: &App, id: &str, files: &[HandoffFile]) -> Result<()> {
+    if files.is_empty() {
+        return Ok(());
+    }
+    let dir = crate::attachments::dir(app, id);
+    crate::files::create_dir_all_mode(&dir, Some(0o700)).await?;
+    for f in files {
+        ensure!(!f.name.is_empty() && !f.name.contains(['/', '\\']) && f.name != "." && f.name != "..", "invalid attachment name {}", f.name);
+        let data = base64::engine::general_purpose::STANDARD.decode(&f.data)?;
+        crate::files::write_mode(&dir.join(&f.name), &data, Some(0o600)).await?;
+    }
+    Ok(())
 }
 
 fn client() -> Result<reqwest::Client> {
@@ -244,7 +279,7 @@ pub async fn after_turn(app: &App, id: &str) -> Result<()> {
     }
     let h = snapshot(app, id).await.context("could not read the agent's conversation")?;
     let mut hasher = Sha256::new();
-    for f in &h.files {
+    for f in h.files.iter().chain(&h.attachments) {
         hasher.update(f.name.as_bytes());
         hasher.update(f.data.as_bytes());
     }
@@ -312,11 +347,12 @@ pub async fn adopt(app: &App, id: &str) -> Result<()> {
     s.open_question = false;
     // It continues from what Home holds; work its previous runner did not save goes to `lp-scratch/…` (`release`).
     s.unsaved = None;
-    let (mut worktrees, files) = match a.handoff {
-        Some(h) => (h.worktrees, h.files),
-        None => (vec![], vec![]),
+    let (mut worktrees, files, attachments) = match a.handoff {
+        Some(h) => (h.worktrees, h.files, h.attachments),
+        None => (vec![], vec![], vec![]),
     };
     relocate(app, &mut s, &mut worktrees).await?;
+    write_attachments(app, id, &attachments).await.context("restore the session's attached files")?;
     for w in &mut worktrees {
         if !w.sessions.iter().any(|x| x == id) {
             w.sessions.push(id.to_string());
@@ -379,7 +415,7 @@ pub async fn release(app: &App, id: &str, generation: u32) -> Result<()> {
 pub async fn store(app: &App, runner_id: &str, mut h: Handoff) -> Result<()> {
     let s = app.sessions.get(&h.session_id).context("no such session")?;
     ensure!(s.runner_id.as_deref() == Some(runner_id) && s.generation == h.generation, "this session runs elsewhere now");
-    for f in &mut h.files {
+    for f in h.files.iter_mut().chain(h.attachments.iter_mut()) {
         let data = base64::engine::general_purpose::STANDARD.decode(&f.data)?;
         let sha = hex::encode(Sha256::digest(&data));
         crate::plain::write_blob(app, &sha, &data).await?;
@@ -410,7 +446,7 @@ pub async fn latest(app: &App, id: &str) -> Result<Option<Handoff>> {
         .call(move |c| Ok(rusqlite::OptionalExtension::optional(c.query_row("SELECT json FROM session_handoff WHERE session_id = ?1", [key], |r| r.get(0)))?))
         .await?;
     let Some(mut h) = json.and_then(|j| serde_json::from_str::<Handoff>(&j).ok()) else { return Ok(None) };
-    for f in &mut h.files {
+    for f in h.files.iter_mut().chain(h.attachments.iter_mut()) {
         if let Some(sha) = &f.sha256 {
             f.data = base64::engine::general_purpose::STANDARD.encode(crate::plain::read_blob(app, sha).await?);
         }

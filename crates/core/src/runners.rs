@@ -287,6 +287,7 @@ struct PendingArchive {
 
 static ARCHIVES: Mutex<()> = Mutex::new(());
 
+/// Named in Home backups too (`home_backup::data_files`).
 fn archives_file(app: &App) -> std::path::PathBuf {
     app.paths.data_dir.join("runner-archives.json")
 }
@@ -297,6 +298,8 @@ fn read_archives(app: &App) -> Vec<PendingArchive> {
 
 fn write_archives(app: &App, list: &[PendingArchive]) -> Result<()> {
     std::fs::write(archives_file(app), serde_json::to_string(list)?)?;
+    // Home backups carry the file (`home_backup::data_files`).
+    crate::home_backup::changed();
     Ok(())
 }
 

@@ -10,6 +10,9 @@
 //! secret), the vault's secrets are sealed with AES-256-GCM inside the backup copy of `state.db`, and opened again
 //! on restore. Everything else stays plain, so the bucket can be browsed and deduplicated.
 //!
+//! Other files a restore needs go in as objects too: uploads (`uploads/<sha256>`) and `runner-archives.json`
+//! (`data_files`). Plain folder blobs and handoff files are listed as `plain/<sha256>` and fetched on first use.
+//!
 //! Pruning keeps every backup of the last day (and always the newest), then removes objects no kept manifest
 //! needs. `cache.db` is not backed up: it is rebuilt from GitHub.
 //!
@@ -162,7 +165,7 @@ pub struct Backups {
 
 static GIT_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
-/// Home Git changed: the next backup runs even if the database did not.
+/// Home Git or a file of `data_files` changed: the next backup runs even if the database did not.
 pub fn changed() {
     GIT_CHANGED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
@@ -349,6 +352,15 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
         }
         objects.push(Object { name: format!("plain/{sha}"), sha256: sha, size: 0 });
     }
+    for (name, path) in data_files(&app.paths).await {
+        let Ok(data) = tokio::fs::read(&path).await else { continue };
+        let hash = hex::encode(Sha256::digest(&data));
+        let size = data.len() as u64;
+        if !existing.contains(&blob_key(&hash)) {
+            store.put(&app.env, &blob_key(&hash), data).await?;
+        }
+        objects.push(Object { name, sha256: hash, size });
+    }
     let now = now_ms();
     let manifest = Manifest { format: 1, created_at: now, commit: crate::commit().into(), objects };
     store.put(&app.env, &manifest_key(now), serde_json::to_vec_pretty(&manifest)?).await?;
@@ -366,6 +378,45 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
     }
     backups.info.lock().unwrap().traces_error = traces.err().map(|e| format!("{e:#}"));
     Ok(true)
+}
+
+/// Home's files outside `state.db` that a restore needs, by object name: uploads (`uploads/<sha256>`: the
+/// attachments of drafts, scheduled launches and routines) and what waits for runners that are away
+/// (`runner-archives.json`).
+async fn data_files(paths: &crate::paths::Paths) -> Vec<(String, PathBuf)> {
+    let mut out = vec![];
+    let archives = paths.data_dir.join(ARCHIVES);
+    if archives.is_file() {
+        out.push((ARCHIVES.to_string(), archives));
+    }
+    if let Ok(mut rd) = tokio::fs::read_dir(paths.data_dir.join("uploads")).await {
+        while let Ok(Some(e)) = rd.next_entry().await {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if is_hash(&name) {
+                out.push((format!("uploads/{name}"), e.path()));
+            }
+        }
+    }
+    out
+}
+
+/// `runner-archives.json` (`runners::archives_file`).
+const ARCHIVES: &str = "runner-archives.json";
+
+fn is_hash(name: &str) -> bool {
+    name.len() == 64 && name.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+}
+
+/// Where a restore writes a backup object; None for objects restored otherwise (Home Git bundles, plain blobs
+/// fetched on first use).
+fn restore_path(paths: &crate::paths::Paths, name: &str) -> Option<PathBuf> {
+    match name {
+        "state.db" => Some(paths.state_db()),
+        // Settings edited since (or set by the Space) win over the backup.
+        "config.toml" if !paths.config_file().exists() => Some(paths.config_file()),
+        ARCHIVES => Some(paths.data_dir.join(ARCHIVES)),
+        _ => name.strip_prefix("uploads/").filter(|h| is_hash(h)).map(|h| paths.data_dir.join("uploads").join(h)),
+    }
 }
 
 /// Top-level names the bucket already uses (Home backups, the retired Space connector, older trace exports).
@@ -544,13 +595,11 @@ pub async fn restore_if_empty(paths: &crate::paths::Paths, env: &UserEnv) -> Res
     let Some((key, m)) = all.first() else { return Ok(None) };
     let mut files: Vec<(PathBuf, Vec<u8>)> = vec![];
     for o in &m.objects {
+        let Some(path) = restore_path(paths, &o.name) else { continue };
         let data = get_blob(&store, env, &o.sha256).await.map_err(|e| e.context(format!("backup {key}: object {}", o.name)))?;
-        let path = match o.name.as_str() {
-            "state.db" => paths.state_db(),
-            // Settings edited since (or set by the Space) win over the backup.
-            "config.toml" if !paths.config_file().exists() && !data.is_empty() => paths.config_file(),
-            _ => continue,
-        };
+        if o.name == "config.toml" && data.is_empty() {
+            continue;
+        }
         files.push((path, data));
     }
     let git: std::collections::BTreeMap<String, String> = m.objects.iter().filter_map(|o| Some((o.name.strip_prefix("git/")?.strip_suffix(".bundle")?.to_string(), o.sha256.clone()))).collect();
@@ -558,6 +607,11 @@ pub async fn restore_if_empty(paths: &crate::paths::Paths, env: &UserEnv) -> Res
     paths.ensure_dirs()?;
     for (path, data) in files {
         write_atomic(&path, &data)?;
+        #[cfg(unix)]
+        if path.starts_with(paths.data_dir.join("uploads")) {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        }
         if path == paths.state_db() {
             let key = sealing_key().copied();
             map_secrets(&path, |s| open_secret(key.as_ref(), s)).inspect_err(|_| { let _ = std::fs::remove_file(&path); })?;
@@ -568,6 +622,9 @@ pub async fn restore_if_empty(paths: &crate::paths::Paths, env: &UserEnv) -> Res
 }
 
 fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let tmp = path.with_extension("restoring");
     std::fs::write(&tmp, data)?;
     std::fs::rename(&tmp, path)?;
