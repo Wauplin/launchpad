@@ -10,8 +10,9 @@
 //! - An asset folder belongs to a Git folder: `launchpad assets create <path>` creates a store and maps the
 //!   path in the committed `.launchpad/assets.toml`; worktrees of that branch sync it like a plain folder.
 //! - A temporary folder's store is `tmp-<folder id>`: synced like a plain folder (without `.gitignore`d files
-//!   and nested Git repositories), so a session continues with its files on another runner or after a
-//!   resume. It has no lock: only the sessions of that folder name it, and each runner request names a
+//!   and Git repositories), so a session continues with its files on another runner or after a resume.
+//!   Ignored files are rebuilt (dependencies, build output); a folder that holds Git data stays on its runner
+//!   instead of moving or leaving the disk at Archive (`git_inside`). It has no lock: only the sessions of that folder name it, and each runner request names a
 //!   session that runs there. Home drops it 30 days after the folder's last session was archived.
 
 use std::collections::BTreeMap;
@@ -663,6 +664,20 @@ fn walk_store(root: &Path, temp: bool) -> Vec<String> {
     }
     out.sort();
     out
+}
+
+/// The first Git repository in a folder (relative path of its `.git`; `.git` for the folder's own), ignored
+/// folders included. A temporary folder's store never carries Git data, so a folder that holds some never leaves
+/// its disk on its own (`projects::remove_temp_copy`). Blocking: walks the whole folder.
+pub fn git_inside(root: &Path) -> Option<String> {
+    let walker = ignore::WalkBuilder::new(root)
+        .standard_filters(false)
+        .hidden(false)
+        .follow_links(false)
+        // Never into a repository's own files.
+        .filter_entry(|e| e.path().parent().is_none_or(|p| p.file_name() != Some(std::ffi::OsStr::new(".git"))))
+        .build();
+    walker.flatten().find(|e| e.depth() > 0 && e.file_name() == ".git").and_then(|e| e.path().strip_prefix(root).ok().map(|r| r.to_string_lossy().into_owned()))
 }
 
 /// Takes the lock and brings the copy to Home's version: files Home changed are written, files Home no longer

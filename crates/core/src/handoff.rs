@@ -70,6 +70,15 @@ async fn prepare_move(app: &App, id: &str) -> Result<()> {
     {
         ensure!(!s.status.is_running() && !s.open_question && !app.sessions.setup_running(id), "Wait for the current turn to end before moving this session.");
         ensure!(app.terminals.tui_of(id).is_none(), "Close the session's terminal before moving it.");
+        // Refused before anything changes: Home's copy of a temporary folder never holds Git data.
+        if let Some(pid) = &s.project_id
+            && let Some(p) = crate::projects::get(app, pid).await?.filter(|p| p.is_temp)
+        {
+            let dir = std::path::PathBuf::from(&p.path);
+            if let Some(git) = tokio::task::spawn_blocking(move || crate::plain::git_inside(&dir)).await? {
+                bail!("Its temporary folder holds a Git repository ({git}), which Home does not store for a temporary folder, so it cannot move. Keep the folder as a folder first (a repository at its top becomes a Git folder), or push or delete the repository.");
+            }
+        }
         // A save of the last turn that runs now finishes first, and no retry starts during the move.
         let _saving = crate::turn_sync::hold(id).await;
         // Plain folders first: asset folders inside the worktrees go with them.
@@ -344,11 +353,10 @@ pub async fn release(app: &App, id: &str, generation: u32) -> Result<()> {
         app.sessions.detach(app, id).await?;
         crate::worktrees::release_moved(app, id, s.generation).await?;
     }
-    // Its temporary folder leaves this disk when Home has every file and no other agent here uses it; otherwise
-    // it stays, with the files Home lacks.
-    // A Git repository in it stays too: Home's copy of a temporary folder never holds Git data.
+    // Its temporary folder leaves this disk when Home has every file, it holds no Git repository and no other
+    // agent here uses it; otherwise it stays, with what Home lacks (`remove_temp_copy`).
     if let Some(pid) = &s.project_id
-        && crate::projects::get(app, pid).await?.is_some_and(|p| p.is_temp && !std::path::Path::new(&p.path).join(".git").exists())
+        && crate::projects::get(app, pid).await?.is_some_and(|p| p.is_temp)
         && !app.sessions.list().iter().any(|o| o.id != id && o.project_id.as_deref() == Some(pid.as_str()) && o.status != crate::model::SessionStatus::Closed)
         && let Err(e) = crate::projects::remove_temp_copy(app, pid, false).await
     {

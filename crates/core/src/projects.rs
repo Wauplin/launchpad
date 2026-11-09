@@ -611,10 +611,15 @@ pub async fn move_temp(app: &App, id: &str, runner: &str) -> Result<()> {
 }
 
 /// Removes a temporary folder from this disk once Home holds all its files. `forget`: unregister it on Home
-/// too (Archive); otherwise Home keeps the record for the session's next runner (a move).
+/// too (Archive); otherwise Home keeps the record for the session's next runner (a move). Refused while it holds
+/// a Git repository: Home's copy of a temporary folder never holds Git data, so the folder stays here.
 pub async fn remove_temp_copy(app: &App, id: &str, forget: bool) -> Result<()> {
     let p = get(app, id).await?.context("no such project")?;
     let path = check_temp(app, &p)?;
+    let dir = path.clone();
+    if let Some(git) = tokio::task::spawn_blocking(move || crate::plain::git_inside(&dir)).await? {
+        bail!("{} holds a Git repository ({git}), which Home does not store for a temporary folder, so it stays on this runner. Keep it as a folder (a repository at its top becomes a Git folder), or push or delete the repository", p.path);
+    }
     ensure!(crate::plain::in_sync(app, &crate::plain::temp_store(id), &path).await, "Home does not have every file of {} yet", p.path);
     app.terminals.close_in(&p.path).await?;
     if path.exists() {
@@ -675,6 +680,7 @@ pub async fn after_archive(app: &App, session_id: &str) {
     }
     if let Err(e) = remove_temp_copy(app, &p.id, true).await {
         tracing::warn!("remove the temporary folder {}: {e:#}", p.path);
+        crate::sessions::notice_anywhere(app, session_id, &format!("Its temporary folder stays on this runner: {e:#}")).await;
     }
 }
 
