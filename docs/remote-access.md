@@ -77,7 +77,7 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 - Short status messages (with **Undo** when there is one) show under the title bar, so they never cover the tab bar.
 - Bot pages show the chat; the header's **⋯** menu opens Memory, Proposals, Routines and Settings in place of the chat.
 - Session pages have Summary, Trace and Changes and a terminal key bar. **⋯ → Rename** renames the agent. A bottom bar holds **Reply** and the session's main action, or **Merge into** the base branch when merging is safe and no question is open; the next steps in Summary then do not repeat Merge. **Reply** opens the message box; it stays open while it holds a draft, and opens by itself when you answer a question. In Summary or Trace, tap the expand icon beside the view tabs to fill the screen with a compact header. Tap collapse to restore the layout and your draft.
-- **Settings** is a list in three groups: **This device** (theme, layout, notifications, devices), **On the phone** (Telegram and channels, the workspace, presets, GitHub, usage) and **On a computer** (profiles, Home and runners, credentials, Hugging Face, maintenance, the setup checklist). The last group shows only a status: open Launchpad on a computer to change these.
+- **Settings** is a list in three groups: **This device** (theme, layout, notifications, devices), **On the phone** (Channels, Workspace, presets, GitHub, usage) and **On a computer** (profiles, Home and runners, credentials, Hugging Face, Disk cleanup, the setup checklist). The last group shows only a status: open Launchpad on a computer to change these. On a Settings page, **‹** goes back to Settings.
 
 <table>
   <tr>

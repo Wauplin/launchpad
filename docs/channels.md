@@ -46,7 +46,7 @@ Home reads the chat by polling Telegram (a private Space has no address Telegram
 - **Notifications** (a switch, on by default): the same events as desktop notifications, that is completed turns, failures, unexpected interruptions, automatic quota and cost stops, and automatic resumption. They name the status, the folder, its workspace and the agent, with a link: the session's card in Today for a finished, failed or interrupted session (the session itself when the card no longer waits), the bot's chat or the session otherwise. Every link opens the workspace of the session. Session titles appear only when you turn on **Include session titles**. Notifications never contain code or messages, and have no buttons.
 - Agents can write to you directly with `launchpad send telegram --body-file <file> --session-id <id>`.
 
-Quota rules do not change: a message from Telegram starts nothing with paid usage, and a quota pause holds it like any other message. **Send test message** checks the setup. **Remove Telegram**, in **⋯**, deletes the token and the bound chat.
+Quota rules do not change: a message from Telegram starts nothing with paid usage, and a quota pause holds it like any other message. **Send test message** checks the setup. **Delete Telegram setup**, in **⋯**, deletes the token and the bound chat.
 
 ## Incoming hooks
 

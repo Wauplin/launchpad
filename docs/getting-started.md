@@ -93,7 +93,7 @@ Launchpad starts with no workspace: create one in the **Workspaces** step of the
 3. Choose the folder. The options line under the prompt says where the agent runs, for example "New worktree from main · keep branch": in Git folders, a new worktree (the default) gives the agent its own branch. Click the line to change **Run in**, **From** or **When done**.
 4. Click **Launch**.
 
-![The New agent composer with its options line](images/composer.webp)
+![The composer with its options line](images/composer.webp)
 
 The agent appears in **Agents → Running**. When it finishes, a card waits in **Today** until you have looked at it or merged its branch. See [Agents](agents.md) for everything that happens next.
 
@@ -102,7 +102,8 @@ The agent appears in **Agents → Running**. When it finishes, a card waits in *
 - **One action per row.** Lists and cards show one button per row or card: **Done** on Inbox rows, **Launch** on Folders rows, the main action on Today rows (**Merge**, **Review**, **Resume**, **Start**), **Start** on proposal cards. The other actions are in **⋯**: on Folders, **Files**, **Terminal**, **Folder settings**, **Move to …** and **Remove**; on Agents rows, **Stop** or **Archive**, **Mark unread** and **Pin**; on proposal cards, **Dismiss** and **Edit**. Settings lists (profiles, tools, MCP servers, hooks, runners, presets) work the same way. In lists, **⋯** shows when you hover the row or focus it with the keyboard; on touch screens it is always visible. On the phone, Today rows have no **⋯**: tap the row for the other actions.
 - **Colors and counts.** A status is blue while an agent runs, green when it is Done, red when it failed or was interrupted, and grey when it is idle, stopped or archived. Amber is only for what needs your answer or click, for example a question or Quota paused. A small amber dot after a status marks an agent you have not seen yet. Counts that need you are amber pills (Today, Inbox); other counts are plain grey numbers.
 - **Dates.** Past moments read “just now”, “5 min ago”, “3 h ago”, “yesterday” or “Oct 3”. Exact and future moments read “today 15:00”, “tomorrow 03:00” or “Fri 7 Nov, 03:00”, in your browser's time format, without seconds. Schedules read as sentences, for example “Weekdays at 09:00”; hover them to see the cron.
-- **Page explanations.** A page explains itself under its title on your first visit on this device. After that, click **ⓘ** next to the title to read it again.
+- **Page explanations.** A page explains itself under its title on your first visit on this device. After that, click **ⓘ** next to the title to read it again. The line under the title shows facts, such as counts.
+- **Breadcrumbs.** On a laptop, the top bar shows where a detail page belongs: **Folders / folder / Local PR**, **Folders / folder / Pull requests / #N**, or **Inbox / owner/repo#N** for a GitHub item without a folder, and **Bots / bot**. Click a part to open that page.
 - **Settings search.** On a laptop, Settings replaces the sidebar with its pages (**Back to Launchpad** returns to the page you were on); the field at the top finds pages by name and by keyword: "telegram" finds Channels and "runner" finds Home and runners.
 
 ### Connect GitHub

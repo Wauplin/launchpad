@@ -16,7 +16,7 @@ A new knowledge base starts with `INDEX.md` and `AGENTS.md`. `AGENTS.md` explain
 
 Open **Knowledge** in the sidebar. It shows the knowledge base of the window's workspace.
 
-- **Notes** lists every file. Find a note by its name or its text. A note shows its front matter as labels and renders `[[wikilinks]]` as links. Below the note, you see who wrote it and the notes that link to it. **Edit** changes a note, **History** lists its changes and **Remove** moves it to the trash. **New note** creates one.
+- **Notes** lists every file. Find a note by its name or its text. A note shows its front matter as labels and renders `[[wikilinks]]` as links. Below the note, you see who wrote it and the notes that link to it. **Edit** changes a note, **History** lists its changes and **Delete** moves it to the trash. **New note** creates one.
 - **Changes** lists every change of the last 30 days. Each change shows the agent (with its model and runner) or you, the lines added and removed, and the diff. Use **Open the session** to read the trace of the agent that made the change. **Restore previous** puts back the version from before a change. **Undo** removes a note that a change created, and **Restore** puts back a removed note. A restore is itself a change, so you can undo it too. Changes made since your last look have a dot. **Mark all seen** clears them, and the sidebar shows their count.
 
 Launchpad does not judge whether a note is true. Review the Changes list when you want to.
