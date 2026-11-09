@@ -1,5 +1,4 @@
-import { delegatedAccess, externalSetup } from "@/lib/deployment";
-import { SpaceSettingsButton } from "@/components/SpaceSettingsButton";
+import { delegatedAccess } from "@/lib/deployment";
 // Settings → Hugging Face: Home’s login, backup and trace copies, or the hf CLI of this computer.
 
 import { useQuery } from "@tanstack/react-query";
@@ -53,7 +52,6 @@ function CliView() {
   return (
     <SettingsPage tour="settings.trace-sync" title="Hugging Face" intro="The Hugging Face CLI of this computer. Home copies agent traces to its backup bucket.">
       <ConfigError />
-      {externalSetup() && <SpaceSettingsButton small={false} label="Connect Hugging Face in Space settings" />}
       <Card title="Hugging Face CLI" end={<button className="btn btn-sm" disabled={q.isFetching} onClick={() => void q.refetch()}><Icon name="refresh" size={12} />Check again</button>}>
         {q.isPending ? <Loading /> : q.isError ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : c && (
           <CliCheckRow check={c} icon="huggingface" command={c.cli_found ? c.command : null}>

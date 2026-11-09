@@ -26,8 +26,8 @@ const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then(
 
 /** Home is served directly in the Hugging Face Space page, whose mini header (Space name, menu) is a pill fixed 20 px
  * from the top and 24 px from the right, 40 px tall, hidden below 640 px. Its width follows the Space ID, whose
- * length matches the first label of the `*.hf.space` host. Keep the top bar's buttons out of it (see TopBar). A
- * parent Space shell (deploy/hf-space) sets these itself, so only a page embedded directly by the Hub does it. */
+ * length matches the first label of the `*.hf.space` host. Keep the top bar's buttons out of it (see TopBar). Only a
+ * page embedded directly by the Hub does it. */
 function useHubPillInset() {
   useLayoutEffect(() => {
     const host = location.hostname;

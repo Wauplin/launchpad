@@ -1,5 +1,3 @@
-import { externalSetup } from "@/lib/deployment";
-import { SpaceSettingsButton } from "@/components/SpaceSettingsButton";
 // The setup checklist (onboarding plan, section 8): detect first, never redo. Each item shows what was found and
 // where; a satisfied item shows "Already set up" and never offers a fix. Missing parts offer the daemon's fixed
 // command (Copy, Run in terminal), a small form or a link. Checks run when the list opens, on Check again and when
@@ -212,7 +210,6 @@ function SettingsLink({ to, children }: { to: string; children: ReactNode }) {
 /** One missing part: what is missing, and its fixed command with Copy and Run in terminal. */
 function PartRow({ item, part }: { item: string; part: MissingPart }) {
   const terminal = useOpenTerminal();
-  if (externalSetup()) return <div className="grid gap-1.5 rounded-card border border-line-2 bg-chrome p-2.5"><div className="text-[13px] font-semibold">{part.label}</div><span className="text-[12px] text-ink-3">On a Space, sign-ins happen in the Space settings panel (gear at the top right, above Launchpad).</span><SpaceSettingsButton primary label="Sign in from Space settings" /></div>;
   return (
     <div className="grid gap-1.5 rounded-card border border-line-2 bg-chrome p-2.5">
       <div className="text-[13px] font-semibold">{part.label}</div>
@@ -290,7 +287,7 @@ function ProfileStep({ item, onDone }: { item: SetupItem; onDone: () => void }) 
       return (
         <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-card border border-line-2 bg-chrome p-2.5 text-[13px]">
           <span className="min-w-0 flex-1"><b>{profile?.name ?? id}</b>{p.detail && <span className="text-[12px] text-ink-3"> · {p.detail}</span>}</span>
-          {externalSetup() ? <SpaceSettingsButton primary profile={id} label="Sign in from Space settings" /> : <ConfirmButton tone="publish" icon="term" consequence="Opens a visible terminal with the agent's sign-in command." confirmLabel="Sign in" onConfirm={() => terminal.profileSetup(id)}>Sign in</ConfirmButton>}
+          <ConfirmButton tone="publish" icon="term" consequence="Opens a visible terminal with the agent's sign-in command." confirmLabel="Sign in" onConfirm={() => terminal.profileSetup(id)}>Sign in</ConfirmButton>
         </div>
       );
     })}

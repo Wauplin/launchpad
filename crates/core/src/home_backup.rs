@@ -368,7 +368,7 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
     Ok(true)
 }
 
-/// Top-level names the bucket already uses (Home backups, the Space connector, older trace exports).
+/// Top-level names the bucket already uses (Home backups, the retired Space connector, older trace exports).
 const RESERVED: &[&str] = &[ROOT, "space", "projects", "traces", "backups", "credentials"];
 
 /// The bucket prefix of a workspace: its name, like its knowledge base folder on runners.

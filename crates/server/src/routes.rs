@@ -35,8 +35,6 @@ fn config_response(s: &Server, error: Option<String>) -> Value {
     json!({
         "config": s.app.config.get(), "error": error, "remote": s.auth.remote(),
         "delegated": std::env::var("LAUNCHPAD_DELEGATED_ACCESS").as_deref() == Ok("true"),
-        "external_setup": std::env::var("LAUNCHPAD_EXTERNAL_SETUP").ok()
-            .filter(|s| s.starts_with('/') && !s.starts_with("//") && !s.contains('\\'))
     })
 }
 async fn get_config(State(s): State<Server>) -> Json<Value> {

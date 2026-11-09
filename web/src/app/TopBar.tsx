@@ -53,7 +53,7 @@ function Crumbs({ list }: { list: Crumb[] }) {
   );
 }
 
-/** An embedding host (the Hugging Face Space shell) can cover the top-right corner of the page with its own UI. It sets
+/** An embedding host (the Hugging Face Hub page of a Space, see `useHubPillInset` in Shell.tsx) can cover the top-right corner of the page with its own UI. The shell sets
  * `--lp-host-inset-right` and `--lp-host-inset-top` (unzoomed pixels) on the root element; the bar keeps its buttons out of that area. */
 const HOST_INSET = {
   paddingRight: "max(10px, calc(var(--lp-host-inset-right, 0px) / var(--lp-zoom, 1)))",

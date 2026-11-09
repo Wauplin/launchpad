@@ -96,6 +96,12 @@ jobs:
           key: tests
       - name: Run Rust tests (default workspace members)
         run: cargo test --locked
+      - name: Run Home Space tests (deploy/hf-home)
+        working-directory: deploy/hf-home
+        run: |
+          python3 -m venv /tmp/hf-home-env
+          /tmp/hf-home-env/bin/pip install -r requirements.txt
+          /tmp/hf-home-env/bin/python -m unittest discover -s tests -v
 
   build:
     name: Release build
