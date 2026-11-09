@@ -1,24 +1,22 @@
-//! Setup checklist (`/setup`, onboarding plan section 8): what this computer already has, and
-//! only the missing parts. "Detect first, never redo": every check only reads (version and status commands,
-//! Git config reads, file existence, `ssh -T` in batch mode). Any working method counts and is shown with its
-//! source; fixes are fixed commands the owner starts in a visible terminal, offered only for missing parts.
-//! Notifications are a browser permission, checked by the UI.
-
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+//! Setup checklist of a runner (`/api/setup/checklist`, shown in the runner's own window): its link to Home, the
+//! jail, the network capture, the agent CLIs of the profiles, and the vault logins and Git identity agents use.
+//! "Detect first, never redo": every check only reads (version commands, a test jail, Home's vault). A missing part
+//! shows its fixed command for the owner to copy into a terminal on that machine; Launchpad never runs it. Home's
+//! own setup is computed by the UI (`HomeSetup`), or by the Space gateway.
 
 use serde::Serialize;
 use ts_rs::TS;
 
 use launchpad_core::App;
+use launchpad_core::home_link::TunnelState;
 use launchpad_core::shellenv::UserEnv;
-use launchpad_core::signin::{SignInCheck, status_output};
+use launchpad_core::signin::status_output;
 
 #[derive(Clone, Copy, Debug, Serialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemState {
     Ready,
-    /// Configured, but proving it works would need a side effect (a push). Counts as done.
+    /// Configured, but Home could not confirm it now (unreachable). Counts as done.
     Unverified,
     Missing,
 }
@@ -40,32 +38,21 @@ pub struct Found {
     pub source: Option<String>,
 }
 
-/// One missing part, with the fixed command that adds it (when there is one).
+/// One missing part, with the fixed command that adds it (when there is one), to copy into a terminal there.
 #[derive(Clone, Debug, Serialize, TS)]
 pub struct MissingPart {
-    /// `install`, `sign_in`, `scopes`, `user.name`, `user.email`, `access_gh`, `access_ssh`, `enable`, `register`, …
+    /// `connect`, `install`, `apparmor`, `check`, `login:<profile>`, `identity`, …
     pub id: String,
     pub label: String,
     pub detail: Option<String>,
     pub command: Option<String>,
-    /// `POST /api/setup/fix/{item}` can run `command` in a setup terminal.
-    pub runnable: bool,
-    /// The command asks for the owner's password (sudo): shown with Copy and Run in terminal.
+    /// The command asks for the owner's password (sudo).
     pub sudo: bool,
-}
-
-/// A signed-in harness login without a profile: "Create a profile from this login".
-#[derive(Clone, Debug, Serialize, TS)]
-pub struct LoginSuggestion {
-    pub harness: String,
-    pub name: String,
-    pub detail: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
 pub struct SetupItem {
-    /// `github`, `git`, `profile`, `jail`, `vault_login`, `vault_git`, `folder`, `presets`, `devices`, `huggingface`,
-    /// or `extension`.
+    /// `home`, `jail`, `netcap`, `harnesses`, `vault_login` or `vault_git`.
     pub id: String,
     pub title: String,
     pub importance: Importance,
@@ -73,8 +60,6 @@ pub struct SetupItem {
     pub why: String,
     pub found: Vec<Found>,
     pub missing: Vec<MissingPart>,
-    /// Profile item only.
-    pub logins: Vec<LoginSuggestion>,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -84,55 +69,20 @@ pub struct Checklist {
     pub required_left: u32,
 }
 
-#[derive(Clone, Debug, Serialize, TS)]
-pub struct ChecklistSummary {
-    pub required_left: u32,
-}
-
 fn item(id: &str, title: &str, importance: Importance, why: &str) -> SetupItem {
-    SetupItem { id: id.into(), title: title.into(), importance, state: ItemState::Missing, why: why.into(), found: vec![], missing: vec![], logins: vec![] }
+    SetupItem { id: id.into(), title: title.into(), importance, state: ItemState::Missing, why: why.into(), found: vec![], missing: vec![] }
 }
 
 fn found(label: &str, value: impl Into<String>, source: Option<String>) -> Found {
     Found { label: label.into(), value: value.into(), source }
 }
 
-fn part(id: &str, label: &str, detail: Option<String>, command: Option<String>, runnable: bool, sudo: bool) -> MissingPart {
-    MissingPart { id: id.into(), label: label.into(), detail, command, runnable, sudo }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Os {
-    Linux,
-    Mac,
-    Windows,
-}
-
-fn os() -> Os {
-    if cfg!(target_os = "macos") {
-        Os::Mac
-    } else if cfg!(windows) {
-        Os::Windows
-    } else {
-        Os::Linux
-    }
+fn part(id: &str, label: &str, detail: Option<String>, command: Option<String>, sudo: bool) -> MissingPart {
+    MissingPart { id: id.into(), label: label.into(), detail, command, sudo }
 }
 
 fn first_line(text: &str) -> String {
     text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string()
-}
-
-/// Replaces the home folder with `~` in displayed paths.
-fn tilde(path: &str, home: Option<&str>) -> String {
-    match home.map(|h| h.trim_end_matches(['/', '\\'])).filter(|h| !h.is_empty()) {
-        Some(h) if path == h => "~".into(),
-        Some(h) if path.starts_with(h) && path[h.len()..].starts_with(['/', '\\']) => format!("~{}", &path[h.len()..]),
-        _ => path.to_string(),
-    }
-}
-
-fn home_of() -> Option<String> {
-    dirs::home_dir().map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Runs a command; `None` when it is missing or timed out.
@@ -140,249 +90,32 @@ async fn run(env: &UserEnv, program: &str, args: &[&str]) -> Option<(bool, Strin
     status_output(env, program, args).await.ok()
 }
 
-// ---------------------------------------------------------------- GitHub CLI
+// ---------------------------------------------------------------- Home
 
-/// Scopes of `gh auth status` (`- Token scopes: 'gist', 'read:org', 'repo'`); `None` when not printed
-/// (fine-grained or environment tokens).
-pub fn parse_scopes(status: &str) -> Option<Vec<String>> {
-    let line = status.lines().find_map(|l| l.trim().trim_start_matches(['-', '✓', ' ']).strip_prefix("Token scopes:"))?;
-    Some(line.split(',').map(|s| s.trim().trim_matches(['\'', '"']).to_string()).filter(|s| !s.is_empty() && s != "none").collect())
-}
-
-/// Required scopes the token lacks. `repo` also grants notifications; `write:org`/`admin:org` include `read:org`.
-pub fn missing_scopes(scopes: &[String]) -> Vec<&'static str> {
-    let has = |s: &str| scopes.iter().any(|x| x == s);
-    let mut out = vec![];
-    if !has("repo") { out.push("repo"); }
-    if !(has("read:org") || has("write:org") || has("admin:org")) { out.push("read:org"); }
-    if !(has("notifications") || has("repo")) { out.push("notifications"); }
-    out
-}
-
-fn gh_install(os: Os) -> MissingPart {
-    match os {
-        Os::Mac => part("install", "Install the GitHub CLI", Some("With Homebrew.".into()), Some("brew install gh".into()), true, false),
-        Os::Windows => part("install", "Install the GitHub CLI", Some("With winget.".into()), Some("winget install --id GitHub.cli".into()), true, false),
-        Os::Linux => part(
-            "install",
-            "Install the GitHub CLI",
-            Some("Ubuntu and Debian: the official apt repository (asks for your password). Other systems: https://github.com/cli/cli#installation".into()),
-            Some(r#"(type -p wget >/dev/null || (sudo apt update && sudo apt install wget -y)) && sudo mkdir -p -m 755 /etc/apt/keyrings && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && sudo mkdir -p -m 755 /etc/apt/sources.list.d && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null && sudo apt update && sudo apt install gh -y"#.into()),
-            true,
-            true,
-        ),
-    }
-}
-
-/// GitHub CLI state, also used by the Git item (gh credential helper, `gh auth setup-git`).
-struct Gh {
-    installed: bool,
-    signed_in: bool,
-    account: Option<String>,
-}
-
-async fn github(env: &UserEnv) -> (SetupItem, Gh) {
-    let mut it = item("github", "GitHub CLI", Importance::Required, "The Inbox, issues, pull requests, Clone from GitHub and publication all use gh.");
-    let mut gh = Gh { installed: false, signed_in: false, account: None };
-    let Some((true, out, _)) = run(env, "gh", &["--version"]).await else {
-        it.missing.push(gh_install(os()));
-        return (it, gh);
-    };
-    gh.installed = true;
-    let version = first_line(&out);
-    it.found.push(found("Version", version.trim_start_matches("gh version ").to_string(), Some("gh --version".into())));
-    match run(env, "gh", &["auth", "status", "--hostname", "github.com"]).await {
-        Some((ok, out, err)) => {
-            // The token itself is masked by gh; only the account, its storage and scopes are read.
-            let text = format!("{out}\n{err}");
-            let account_line = text.lines().find_map(|l| l.split_once("Logged in to github.com account ").map(|(_, rest)| rest.trim().to_string()));
-            if ok {
-                gh.signed_in = true;
-                let (account, storage) = match account_line.as_deref().and_then(|a| a.split_once(' ')) {
-                    Some((a, storage)) => (a.to_string(), Some(storage.trim_matches(['(', ')']).to_string())),
-                    None => (account_line.clone().unwrap_or_else(|| "signed in".into()), None),
-                };
-                gh.account = Some(account.clone());
-                it.found.push(found("Account", account, Some(match storage { Some(s) => format!("gh auth status · token in {s}"), None => "gh auth status".into() })));
-                match parse_scopes(&text) {
-                    Some(scopes) => {
-                        let missing = missing_scopes(&scopes);
-                        it.found.push(found("Token scopes", if scopes.is_empty() { "none".into() } else { scopes.join(", ") }, None));
-                        if missing.is_empty() {
-                            it.state = ItemState::Ready;
-                        } else {
-                            let list = missing.join(",");
-                            it.missing.push(part("scopes", &format!("Add the {} scope{}", missing.join(", "), if missing.len() > 1 { "s" } else { "" }), Some("gh asks GitHub for the extra permission in your browser.".into()), Some(format!("gh auth refresh --hostname github.com --scopes {list}")), true, false));
-                        }
-                    }
-                    // Fine-grained or environment tokens print no scopes: nothing to prove without a request.
-                    None => it.state = ItemState::Unverified,
-                }
-            } else {
-                it.missing.push(part("sign_in", "Sign in to GitHub", Some("Opens github.com in your browser with a one-time code.".into()), Some("gh auth login --hostname github.com --web".into()), true, false));
-            }
-        }
-        None => it.missing.push(part("sign_in", "Sign in to GitHub", None, Some("gh auth login --hostname github.com --web".into()), true, false)),
-    }
-    (it, gh)
-}
-
-// ---------------------------------------------------------------- Git
-
-fn git_install(os: Os) -> MissingPart {
-    match os {
-        Os::Mac => part("install", "Install Git", Some("Installs the Xcode command line tools, which include Git.".into()), Some("xcode-select --install".into()), true, false),
-        Os::Windows => part("install", "Install Git", Some("With winget.".into()), Some("winget install --id Git.Git -e".into()), true, false),
-        Os::Linux => part("install", "Install Git", Some("Ubuntu and Debian (asks for your password).".into()), Some("sudo apt update && sudo apt install git -y".into()), true, true),
-    }
-}
-
-/// `git config --show-origin --get <key>`: (value, origin) with the `file:` prefix removed.
-async fn git_key(env: &UserEnv, key: &str) -> Option<(String, String)> {
-    let (ok, out, _) = run(env, "git", &["config", "--show-origin", "--get", key]).await?;
-    if !ok { return None; }
-    let line = out.lines().next()?;
-    let (origin, value) = line.split_once('\t')?;
-    Some((value.trim().to_string(), origin.trim_start_matches("file:").to_string()))
-}
-
-/// `ssh -v -T git@github.com` output: the accepted key and the GitHub account, when it authenticated.
-pub fn parse_ssh(output: &str) -> Option<(Option<String>, String)> {
-    let account = output.lines().find_map(|l| l.trim().strip_prefix("Hi ").and_then(|r| r.split_once('!')).map(|(a, _)| a.to_string()))?;
-    let key = output.lines().find_map(|l| l.split_once("Server accepts key: ").map(|(_, r)| r.split_whitespace().next().unwrap_or("").to_string())).filter(|k| !k.is_empty());
-    Some((key, account))
-}
-
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
-
-async fn git(app: &App, env: &UserEnv, gh: &Gh) -> SetupItem {
-    let mut it = item("git", "Git", Importance::Required, "Agents commit in worktrees; Publish pushes branches to GitHub.");
-    let Some((true, out, _)) = run(env, "git", &["--version"]).await else {
-        it.missing.push(git_install(os()));
+/// The runner's link to Home (`launchpad connect`), from the tunnel state.
+fn home(app: &App) -> SetupItem {
+    let mut it = item("home", "Home", Importance::Required, "Home keeps every record and credential and sends this runner its sessions.");
+    let status = app.status.get().home;
+    let Some(h) = status else {
+        it.missing.push(part("connect", "Pair with Home", Some("Approve the runner in Home's Settings → Home and runners when the code shows up there.".into()), Some("launchpad connect <Home address>".into()), false));
         return it;
     };
-    let home = home_of();
-    let home = home.as_deref();
-    it.found.push(found("Version", first_line(&out).trim_start_matches("git version ").to_string(), Some("git --version".into())));
-    let (name, email) = tokio::join!(git_key(env, "user.name"), git_key(env, "user.email"));
-    match &name {
-        Some((v, origin)) => it.found.push(found("Name", v.clone(), Some(format!("from {}", tilde(origin, home))))),
-        None => it.missing.push(part("user.name", "Your name for commits", Some("Saved with git config --global user.name.".into()), None, false, false)),
+    if let Some(url) = &h.url {
+        it.found.push(found("Address", url.clone(), Some("launchpad connect".into())));
     }
-    match &email {
-        Some((v, origin)) => it.found.push(found("Email", v.clone(), Some(format!("from {}", tilde(origin, home))))),
-        None => it.missing.push(part("user.email", "Your email for commits", Some("Saved with git config --global user.email.".into()), None, false, false)),
+    match h.state {
+        TunnelState::Connected => it.state = ItemState::Ready,
+        TunnelState::Connecting | TunnelState::Offline if h.url.is_some() => {
+            it.state = ItemState::Unverified;
+            it.found.push(found("Connection", h.message.clone().unwrap_or_else(|| "connecting".into()), None));
+        }
+        TunnelState::Refused => it.missing.push(part("refused", "Home refuses this runner", h.message.clone(), Some("launchpad connect <Home address>".into()), false)),
+        _ => it.missing.push(part("connect", "Pair with Home", Some("Approve the runner in Home's Settings → Home and runners when the code shows up there.".into()), Some("launchpad connect <Home address>".into()), false)),
     }
-
-    // GitHub access: the protocol of registered GitHub remotes decides which method is checked first.
-    let projects = launchpad_core::projects::list(app).await.unwrap_or_default();
-    let remotes: Vec<&str> = projects.iter().filter_map(|p| p.remote_url.as_deref()).filter(|u| u.contains("github.com")).collect();
-    let https = remotes.iter().filter(|u| u.starts_with("https://")).count();
-    let ssh_remotes = remotes.len() - https;
-    if !remotes.is_empty() {
-        it.found.push(found("Folder remotes", format!("{ssh_remotes} SSH, {https} HTTPS"), Some("registered folders".into())));
-    }
-    let ssh = async {
-        let out = run(env, "ssh", &["-v", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=yes", "git@github.com"]).await;
-        out.and_then(|(_, o, e)| parse_ssh(&format!("{o}\n{e}")))
-    };
-    let helpers = async {
-        let mut list = vec![];
-        for key in ["credential.helper", "credential.https://github.com.helper"] {
-            if let Some((true, out, _)) = run(env, "git", &["config", "--show-origin", "--get-all", key]).await {
-                list.extend(out.lines().filter_map(|l| l.split_once('\t')).filter(|(_, v)| !v.trim().is_empty()).map(|(o, v)| (v.trim().to_string(), o.trim_start_matches("file:").to_string())));
-            }
-        }
-        list
-    };
-    let (ssh, helpers) = tokio::join!(ssh, helpers);
-    let ssh_found = ssh.map(|(key, account)| found("GitHub access", format!("SSH key {} authenticates as {account}", key.map(|k| tilde(&k, home)).unwrap_or_else(|| "(from the SSH agent)".into())), Some("ssh -T git@github.com".into())));
-    let gh_helper = helpers.iter().find(|(v, _)| v.contains("gh auth git-credential")).cloned();
-    let helper_found = match (&gh_helper, helpers.first()) {
-        (Some((_, origin)), _) if gh.signed_in => Some((ItemState::Ready, found("GitHub access", format!("GitHub CLI credential helper{}", gh.account.as_ref().map(|a| format!(" · signed in as {a}")).unwrap_or_default()), Some(format!("from {}", tilde(origin, home)))))),
-        (_, Some((v, origin))) => Some((ItemState::Unverified, found("GitHub access", format!("Credential helper {v} · Configured, not verified"), Some(format!("from {}", tilde(origin, home)))))),
-        _ => None,
-    };
-    let access = if https > ssh_remotes {
-        helper_found.or(ssh_found.map(|f| (ItemState::Ready, f)))
-    } else {
-        ssh_found.map(|f| (ItemState::Ready, f)).or(helper_found)
-    };
-    let access_state = match access {
-        Some((state, f)) => {
-            it.found.push(f);
-            state
-        }
-        None => {
-            if gh.signed_in {
-                it.missing.push(part("access_gh", "Use GitHub CLI for Git", Some("Git then signs in to GitHub with your gh login (HTTPS).".into()), Some("gh auth setup-git".into()), true, false));
-            }
-            let os = os();
-            if os != Os::Windows {
-                let comment = email.as_ref().map(|(e, _)| format!(" -C {}", shell_quote(e))).unwrap_or_default();
-                // Never overwrite an existing key: the command stops when the file exists.
-                let add = if gh.signed_in { " && gh ssh-key add ~/.ssh/id_ed25519.pub --title Launchpad" } else { "" };
-                let command = format!("if [ -e ~/.ssh/id_ed25519 ]; then echo '~/.ssh/id_ed25519 already exists and was not changed.'{}; else ssh-keygen -t ed25519{comment} -f ~/.ssh/id_ed25519{add}; fi", if gh.signed_in { "; echo 'Add ~/.ssh/id_ed25519.pub to GitHub: gh ssh-key add ~/.ssh/id_ed25519.pub'" } else { "" });
-                it.missing.push(part("access_ssh", "Use an SSH key", Some(format!("Creates ~/.ssh/id_ed25519 (you choose a passphrase){}.", if gh.signed_in { " and adds it to your GitHub account" } else { "; add the .pub file in GitHub → Settings → SSH keys" })), Some(command), true, false));
-            }
-            if !gh.signed_in && os == Os::Windows {
-                it.missing.push(part("access_gh", "Sign in to the GitHub CLI first", Some("Then Git can use it: gh auth setup-git.".into()), None, false, false));
-            }
-            ItemState::Missing
-        }
-    };
-    it.state = if name.is_none() || email.is_none() { ItemState::Missing } else { access_state };
     it
 }
 
-// ---------------------------------------------------------------- Agent profile
-
-async fn profile(app: &App) -> SetupItem {
-    let mut it = item("profile", "Agent profile", Importance::Required, "A profile says which agent runs and how it is paid. No profile, no agent.");
-    let checks = launchpad_core::signin::check_all(app).await;
-    let profiles = app.config.get().profiles;
-    let default_check = |harness: &str| checks.iter().find(|c| c.profile.is_none() && c.id == harness);
-    let state_of = |p: &launchpad_core::config::Profile| -> Option<&SignInCheck> {
-        if p.env.is_empty() { default_check(p.harness.as_str()) } else { checks.iter().find(|c| c.profile.as_deref() == Some(&p.id)) }
-    };
-    let mut any_ready = false;
-    let mut any_unknown = false;
-    for p in &profiles {
-        let c = state_of(p);
-        let (value, ready) = match c {
-            Some(c) if !c.cli_found => (format!("{} is not installed", p.harness.display()), Some(false)),
-            Some(c) if c.signed_in == Some(true) => (format!("signed in{}", c.detail.as_deref().map(|d| format!(" · {d}")).unwrap_or_default()), Some(true)),
-            Some(c) if c.signed_in == Some(false) => ("not signed in".into(), Some(false)),
-            _ => ("sign-in unknown".into(), None),
-        };
-        match ready {
-            Some(true) => any_ready = true,
-            None => any_unknown = true,
-            Some(false) => it.missing.push(part(&format!("sign_in:{}", p.id), &format!("Sign in {}", p.name), Some(value.clone()), None, false, false)),
-        }
-        it.found.push(found(&p.name, value, Some(format!("profile {} · {}", p.id, p.harness.display()))));
-    }
-    // Signed-in default logins that no profile uses yet: one click creates a profile, without a new sign-in.
-    for c in checks.iter().filter(|c| c.profile.is_none() && c.id != "github" && c.signed_in == Some(true)) {
-        if profiles.iter().any(|p| p.harness.as_str() == c.id && p.env.is_empty()) { continue; }
-        it.logins.push(LoginSuggestion { harness: c.id.clone(), name: c.name.clone(), detail: c.detail.clone() });
-    }
-    it.state = if any_ready { ItemState::Ready } else if any_unknown { ItemState::Unverified } else { ItemState::Missing };
-    if profiles.is_empty() {
-        it.missing.push(part("create", "Create a profile", Some(if it.logins.is_empty() { "No signed-in agent login was found.".into() } else { "Use a login found on this machine, or start from How do you pay for agents?".into() }), None, false, false));
-    }
-    if it.state != ItemState::Missing { it.missing.clear(); }
-    it
-}
-
-// ---------------------------------------------------------------- Contained sessions (Linux)
-
-/// Whether agents of this machine run in a bubblewrap jail with logins from the vault (`contain::contained`).
-fn contained(app: &App) -> bool {
-    launchpad_core::contain::contained(app)
-}
+// ---------------------------------------------------------------- Jail and network capture
 
 /// Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor (read-only check).
 fn apparmor_restricts_userns() -> bool {
@@ -395,7 +128,7 @@ const APPARMOR_FIX: &str = r#"if [ -e /etc/apparmor.d/bwrap ]; then echo '/etc/a
 async fn jail(env: &UserEnv) -> SetupItem {
     let mut it = item("jail", "Agent jail", Importance::Required, "Every agent on Linux runs in a bubblewrap jail: it sees only its own folders, never your home folder or logins.");
     let Some((true, out, _)) = run(env, "bwrap", &["--version"]).await else {
-        it.missing.push(part("install", "Install bubblewrap", Some("Ubuntu and Debian (asks for your password).".into()), Some("sudo apt update && sudo apt install bubblewrap -y".into()), true, true));
+        it.missing.push(part("install", "Install bubblewrap", Some("Ubuntu and Debian (asks for your password).".into()), Some("sudo apt update && sudo apt install bubblewrap -y".into()), true));
         return it;
     };
     it.found.push(found("Version", first_line(&out).trim_start_matches("bubblewrap ").to_string(), Some("bwrap --version".into())));
@@ -406,19 +139,58 @@ async fn jail(env: &UserEnv) -> SetupItem {
         }
         Err(e) if apparmor_restricts_userns() => {
             it.found.push(found("Jail", format!("{e:#}"), Some("kernel.apparmor_restrict_unprivileged_userns = 1".into())));
-            it.missing.push(part("apparmor", "Allow user namespaces for bwrap", Some("Ubuntu 24.04 blocks them with AppArmor. This adds the profile /etc/apparmor.d/bwrap (asks for your password); an existing file is never changed.".into()), Some(APPARMOR_FIX.into()), true, true));
+            it.missing.push(part("apparmor", "Allow user namespaces for bwrap", Some("Ubuntu 24.04 blocks them with AppArmor. This adds the profile /etc/apparmor.d/bwrap (asks for your password); an existing file is never changed.".into()), Some(APPARMOR_FIX.into()), true));
         }
-        Err(e) => it.missing.push(part("check", "bubblewrap cannot create a jail", Some(format!("{e:#}")), None, false, false)),
+        Err(e) => it.missing.push(part("check", "bubblewrap cannot create a jail", Some(format!("{e:#}")), None, false)),
     }
     it
 }
 
-/// The vault as this machine sees it: its own (Home) or Home's (a runner). `None`: Home is unreachable.
-async fn vault_view(app: &App) -> Option<(Vec<launchpad_core::vault::VaultEntry>, String, String)> {
-    if launchpad_core::vault::here(app) {
-        let home = app.config.get().home;
-        return Some((launchpad_core::vault::entries(app).await.ok()?, home.git_name, home.git_email));
+/// Every agent runs under the network capture (`netcap::check`): a runner where it cannot start runs no agents.
+async fn netcap() -> SetupItem {
+    let mut it = item("netcap", "Network capture", Importance::Required, "Every agent runs under the network capture, which sends its connections through the runner proxy. A runner where it cannot start runs no agents.");
+    match launchpad_core::netcap::check().await {
+        Ok(()) => {
+            it.state = ItemState::Ready;
+            it.found.push(found("Capture", "works", Some("a test capture ran".into())));
+        }
+        Err(e) => it.missing.push(part("check", "The network capture cannot start", Some(format!("{e:#}")), Some("launchpad netcap --self-test".into()), false)),
     }
+    it
+}
+
+// ---------------------------------------------------------------- Agent CLIs
+
+/// The agent CLI of each profile's harness, installed on this machine (the jail runs this machine's CLI).
+fn harnesses(app: &App) -> SetupItem {
+    let mut it = item("harnesses", "Agent CLIs", Importance::Required, "Agents run the CLI installed on this machine, inside the jail, with a login from Home's vault.");
+    let profiles = app.config.get().profiles;
+    if profiles.is_empty() {
+        it.state = ItemState::Unverified;
+        it.found.push(found("Profiles", "none yet: Home sends them once you add one in Settings → Profiles there", None));
+        return it;
+    }
+    let status = app.status.get();
+    let mut kinds: Vec<launchpad_core::model::HarnessKind> = profiles.iter().map(|p| p.harness).collect();
+    kinds.sort_by_key(|k| k.as_str());
+    kinds.dedup();
+    for kind in kinds {
+        match status.harnesses.get(kind.as_str()).and_then(|h| h.version.clone()) {
+            Some(v) => it.found.push(found(kind.display(), v, None)),
+            None => {
+                let command = app.harnesses.get(kind).install_command().map(str::to_string);
+                it.missing.push(part(&format!("install:{}", kind.as_str()), &format!("Install {}", kind.display()), Some("A profile on Home uses it; this runner takes its sessions once it is installed.".into()), command, false));
+            }
+        }
+    }
+    it.state = if it.missing.is_empty() { ItemState::Ready } else { ItemState::Missing };
+    it
+}
+
+// ---------------------------------------------------------------- Vault
+
+/// Home's vault (entries without values) and agents' Git identity. `None`: Home is unreachable.
+async fn vault_view() -> Option<(Vec<launchpad_core::vault::VaultEntry>, String, String)> {
     let v = launchpad_core::home_link::home_request("GET", "/api/vault", None).await.ok()?;
     let entries = serde_json::from_value(v["entries"].clone()).ok()?;
     Some((entries, v["git_name"].as_str().unwrap_or_default().to_string(), v["git_email"].as_str().unwrap_or_default().to_string()))
@@ -428,7 +200,7 @@ const UNREACHABLE: &str = "Home is unreachable: checked again when it answers";
 
 /// Contained sessions take their harness login only from the vault, never from this machine.
 fn vault_logins(app: &App, vault: Option<&[launchpad_core::vault::VaultEntry]>) -> SetupItem {
-    let mut it = item("vault_login", "Agent logins in the vault", Importance::Required, "Agents in the jail never use this machine's sign-ins: each profile's agent needs a login in Settings → Credentials and tools.");
+    let mut it = item("vault_login", "Agent logins in the vault", Importance::Required, "Agents in the jail never use this machine's sign-ins: each profile's agent needs a login in Home's vault (Settings → Credentials and tools on Home).");
     let Some(entries) = vault else {
         it.state = ItemState::Unverified;
         it.found.push(found("Vault", UNREACHABLE, None));
@@ -436,7 +208,7 @@ fn vault_logins(app: &App, vault: Option<&[launchpad_core::vault::VaultEntry]>) 
     };
     let profiles = app.config.get().profiles;
     if profiles.is_empty() {
-        it.missing.push(part("profile", "Create a profile first", Some("Then add the login of its agent here.".into()), None, false, false));
+        it.missing.push(part("profile", "Create a profile first", Some("On Home: Settings → Profiles, then add the login of its agent to the vault.".into()), None, false));
         return it;
     }
     for p in &profiles {
@@ -449,7 +221,7 @@ fn vault_logins(app: &App, vault: Option<&[launchpad_core::vault::VaultEntry]>) 
             Some(e) => it.found.push(found(&p.name, format!("{} · {}", e.name, e.detail), Some(format!("vault entry {}", e.id)))),
             None => {
                 let what = match &p.login { Some(id) => format!("The login {id} that this profile names is not in the vault."), None => format!("The vault has no {} login.", p.harness.display()) };
-                it.missing.push(part(&format!("login:{}", p.id), &format!("Add a {} login for {}", p.harness.display(), p.name), Some(what), None, false, false));
+                it.missing.push(part(&format!("login:{}", p.id), &format!("Add a {} login for {}", p.harness.display(), p.name), Some(what), None, false));
             }
         }
     }
@@ -465,145 +237,14 @@ fn vault_git(vault: Option<&(Vec<launchpad_core::vault::VaultEntry>, String, Str
         it.found.push(found("Vault", UNREACHABLE, None));
         return it;
     };
-    let source = Some("Settings → Credentials and tools".to_string());
+    let source = Some("Home: Settings → Credentials and tools".to_string());
     if name.trim().is_empty() || email.trim().is_empty() {
-        it.missing.push(part("identity", "Set the Git identity of agents", Some("Name and email for agents' commits.".into()), None, false, false));
+        it.missing.push(part("identity", "Set the Git identity of agents", Some("Name and email for agents' commits, on Home: Settings → Credentials and tools.".into()), None, false));
     } else {
         it.state = ItemState::Ready;
     }
     if !name.trim().is_empty() { it.found.push(found("Name", name.clone(), source.clone())); }
     if !email.trim().is_empty() { it.found.push(found("Email", email.clone(), source)); }
-    it
-}
-
-/// The items of contained sessions, on a machine whose agents run in the jail.
-async fn contained_items(app: &App, env: &UserEnv) -> Vec<SetupItem> {
-    let vm = app.config.get().runner.boundary == launchpad_core::config::Boundary::Vm;
-    let (jail_item, vault) = tokio::join!(async { if vm { None } else { Some(jail(env).await) } }, vault_view(app));
-    let mut items: Vec<SetupItem> = jail_item.into_iter().collect();
-    items.push(vault_logins(app, vault.as_ref().map(|v| v.0.as_slice())));
-    items.push(vault_git(vault.as_ref()));
-    items
-}
-
-// ---------------------------------------------------------------- Workspaces
-
-/// At least one workspace, named by the owner: there is no default one, and every folder needs a workspace.
-async fn workspaces(app: &App) -> SetupItem {
-    let mut it = item("workspace", "Workspaces", Importance::Required, "A workspace groups related folders, for example Work and Side projects. Create at least one before you add or clone a folder; add more any time.");
-    let all = launchpad_core::workspace::list(app).await.unwrap_or_default();
-    if all.is_empty() {
-        it.missing.push(part("create", "Create a workspace", None, None, false, false));
-    } else {
-        it.state = ItemState::Ready;
-        it.found.push(found(if all.len() == 1 { "Workspace" } else { "Workspaces" }, all.iter().map(|w| w.name.as_str()).collect::<Vec<_>>().join(", "), None));
-    }
-    it
-}
-
-// ---------------------------------------------------------------- First folder
-
-async fn folder(app: &App) -> SetupItem {
-    let mut it = item("folder", "First folder", Importance::Required, "Agents run in folders of Home: clone a repository from GitHub or create a plain folder.");
-    let projects = launchpad_core::projects::list(app).await.unwrap_or_default();
-    let mine: Vec<_> = projects.iter().filter(|p| !p.is_temp).collect();
-    for p in mine.iter().take(5) {
-        let kind = if p.plain { "plain folder" } else { "Git folder" };
-        it.found.push(found(&p.name, p.gh_repo.clone().unwrap_or_else(|| kind.into()), None));
-    }
-    if mine.len() > 5 {
-        it.found.push(found("More", format!("{} other folders", mine.len() - 5), None));
-    }
-    if mine.is_empty() {
-        it.missing.push(part("add", "Add a folder", Some("Clone a repository from GitHub or create a new plain folder.".into()), None, false, false));
-    } else {
-        it.state = ItemState::Ready;
-    }
-    it
-}
-
-// ---------------------------------------------------------------- Optional items (this computer)
-
-fn presets(app: &App) -> SetupItem {
-    let mut it = item("presets", "Starter presets", Importance::Optional, "Reusable prompt instructions you add to any launch with one click.");
-    let presets = app.config.get().presets;
-    if presets.is_empty() {
-        it.missing.push(part("templates", "Pick starter presets", Some("Write tests, Small commits, Open a Local PR when done. Edit them later in Settings → Presets.".into()), None, false, false));
-    } else {
-        it.state = ItemState::Ready;
-        it.found.push(found("Presets", presets.iter().map(|p| p.label.as_str()).collect::<Vec<_>>().join(", "), Some("config.toml".into())));
-    }
-    it
-}
-
-/// Phone & other devices, built by the server from its front door (`remote`, `origin`) and Tailscale state.
-pub fn devices(remote: bool, origin: &str, tailscale: Option<bool>) -> SetupItem {
-    let mut it = item("devices", "Phone & other devices", Importance::Optional, "Answer agents and review work from your phone or another computer.");
-    if remote {
-        it.state = ItemState::Ready;
-        it.found.push(found("Address", origin, Some(if origin.starts_with("https://") { "HTTPS front door".into() } else { "trusted network listener".into() })));
-    } else {
-        it.missing.push(part("pair", "Set up remote access", Some(match tailscale {
-            Some(true) => "Tailscale is installed: Settings → Devices can create a private HTTPS route to Launchpad.".into(),
-            _ => "Install Tailscale, then use Settings → Devices to create a private HTTPS route.".into(),
-        }), None, false, false));
-    }
-    it
-}
-
-async fn huggingface(app: &App) -> SetupItem {
-    let mut it = item("huggingface", "Hugging Face CLI", Importance::Optional, "Sign in to Hugging Face on this computer.");
-    let (check, account) = launchpad_core::hf::check(&app.env).await;
-    if !check.cli_found {
-        let command = if cfg!(windows) { r#"powershell -ExecutionPolicy ByPass -c "irm https://hf.co/cli/install.ps1 | iex""# } else { "curl -LsSf https://hf.co/cli/install.sh | bash" };
-        it.missing.push(part("install", "Install the hf CLI", Some("Other ways: brew install hf, or pip install -U huggingface_hub.".into()), Some(command.into()), true, false));
-        return it;
-    }
-    match account {
-        Some(a) => {
-            it.state = ItemState::Ready;
-            it.found.push(found("Account", a, Some("hf auth whoami".into())));
-        }
-        None => it.missing.push(part("sign_in", "Sign in to Hugging Face", None, Some("hf auth login".into()), true, false)),
-    }
-    it
-}
-
-fn native_host_manifest() -> Option<std::path::PathBuf> {
-    let home = dirs::home_dir()?;
-    Some(if cfg!(target_os = "macos") {
-        home.join("Library/Application Support/Google/Chrome/NativeMessagingHosts/dev.launchpad.browser.json")
-    } else if cfg!(windows) {
-        std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Launchpad/NativeMessagingHosts/dev.launchpad.browser.json")
-    } else {
-        home.join(".config/google-chrome/NativeMessagingHosts/dev.launchpad.browser.json")
-    })
-}
-
-async fn extension(app: &App) -> SetupItem {
-    let mut it = item("extension", "Chrome extension", Importance::Optional, "Browser tasks: agents read and act in the tabs you share.");
-    let home = home_of();
-    match native_host_manifest() {
-        Some(m) if tokio::fs::metadata(&m).await.is_ok() => {
-            it.state = ItemState::Ready;
-            it.found.push(found("Native host", "registered", Some(tilde(&m.to_string_lossy(), home.as_deref()))));
-        }
-        _ => {
-            let source = std::path::Path::new(launchpad_core::source());
-            let script = source.join("extension/register-native-host.py");
-            let binary = std::env::current_exe().ok().map(|p| p.to_string_lossy().into_owned());
-            let (command, detail) = match (tokio::fs::metadata(&script).await.is_ok(), binary) {
-                (true, Some(binary)) => {
-                    let env = if app.paths.app_env.name() == "dev" { " --environment dev" } else { "" };
-                    let python = if cfg!(windows) { "python" } else { "python3" };
-                    (Some(format!("{python} {} --binary {}{env}", shell_quote(&script.to_string_lossy()), shell_quote(&binary))), "Build and load the extension first (extension/README.md), then register its native host.".to_string())
-                }
-                _ => (None, "Needs a Launchpad source checkout: see extension/README.md.".to_string()),
-            };
-            let runnable = command.is_some() && !cfg!(windows);
-            it.missing.push(part("register", "Register the native host", Some(detail), command, runnable, false));
-        }
-    }
     it
 }
 
@@ -613,163 +254,17 @@ fn required_left(items: &[SetupItem]) -> u32 {
     items.iter().filter(|i| i.importance == Importance::Required && i.state == ItemState::Missing).count() as u32
 }
 
-static SUMMARY: Mutex<Option<(Instant, u32)>> = Mutex::new(None);
-const SUMMARY_TTL: Duration = Duration::from_secs(300);
-
-/// The required items of a machine: GitHub CLI, Git, Agent profile, Workspaces (on this computer: they are shared),
-/// First folder, and on a machine whose agents run contained, the jail, the vault logins and the agents' Git identity.
-async fn required(app: &App) -> Vec<SetupItem> {
+/// Every item of this runner. A Local VM contains its agents itself: no jail item.
+pub async fn checklist(app: &App) -> Checklist {
     let env = app.env.clone();
-    let ((gh_item, gh), profile, folder) = tokio::join!(github(&env), profile(app), folder(app));
-    let git = git(app, &env, &gh).await;
-    let mut items = vec![gh_item, git, profile];
-    if contained(app) {
-        items.extend(contained_items(app, &env).await);
-    }
-    items.push(workspaces(app).await);
-    items.push(folder);
-    items
-}
-
-/// Every item of a machine. On this computer, `devices` (from the server's front door) is added too.
-pub async fn checklist(app: &App, devices: Option<SetupItem>) -> Checklist {
-    let (mut items, hf, ext) = tokio::join!(required(app), huggingface(app), extension(app));
-    items.push(presets(app));
-    items.extend(devices);
-    items.push(hf);
-    items.push(ext);
+    let vm = app.config.get().runner.boundary == launchpad_core::config::Boundary::Vm;
+    let (jail_item, capture, vault) = tokio::join!(async { if vm { None } else { Some(jail(&env).await) } }, netcap(), vault_view());
+    let mut items = vec![home(app)];
+    items.extend(jail_item);
+    items.push(capture);
+    items.push(harnesses(app));
+    items.push(vault_logins(app, vault.as_ref().map(|v| v.0.as_slice())));
+    items.push(vault_git(vault.as_ref()));
     let left = required_left(&items);
-    *SUMMARY.lock().unwrap() = Some((Instant::now(), left));
-    if !app.paths.role.runs_agents() {
-        items.iter_mut().for_each(no_terminal);
-    }
     Checklist { items, required_left: left }
-}
-
-/// Home runs no terminals (`terminals.rs`): its parts show their command to copy, never Run in terminal.
-fn no_terminal(it: &mut SetupItem) {
-    it.missing.iter_mut().for_each(|p| p.runnable = false);
-}
-
-/// One item, checked again (fixes refuse parts that are already set up).
-pub async fn item_state(app: &App, id: &str) -> Option<SetupItem> {
-    let mut it = item_checked(app, id).await?;
-    if !app.paths.role.runs_agents() {
-        no_terminal(&mut it);
-    }
-    Some(it)
-}
-
-async fn item_checked(app: &App, id: &str) -> Option<SetupItem> {
-    let env = app.env.clone();
-    Some(match id {
-        "github" => github(&env).await.0,
-        "git" => {
-            let (_, gh) = github(&env).await;
-            git(app, &env, &gh).await
-        }
-        "profile" => profile(app).await,
-        "workspace" => workspaces(app).await,
-        "folder" => folder(app).await,
-        "jail" if contained(app) => jail(&env).await,
-        "huggingface" => huggingface(app).await,
-        "extension" => extension(app).await,
-        _ => return None,
-    })
-}
-
-/// Required items left on this computer, cached for five minutes (the sidebar entry).
-pub async fn summary(app: &App) -> ChecklistSummary {
-    if let Some((at, left)) = *SUMMARY.lock().unwrap()
-        && at.elapsed() < SUMMARY_TTL
-    {
-        return ChecklistSummary { required_left: left };
-    }
-    let left = required_left(&required(app).await);
-    *SUMMARY.lock().unwrap() = Some((Instant::now(), left));
-    ChecklistSummary { required_left: left }
-}
-
-/// Forgets the cached summary after a change (identity saved, profile created).
-pub fn invalidate() {
-    *SUMMARY.lock().unwrap() = None;
-}
-
-/// The fixed command of a missing part, or an error when the part is set up (or has no command).
-pub async fn fix_command(app: &App, item: &str, part_id: &str) -> anyhow::Result<(String, String)> {
-    launchpad_core::role::ensure_runs_agents(app.paths.role)?;
-    let it = item_state(app, item).await.ok_or_else(|| anyhow::anyhow!("no fix for {item}"))?;
-    let p = it.missing.iter().find(|p| p.id == part_id).ok_or_else(|| anyhow::anyhow!("{} is already set up on this machine; nothing was changed", it.title))?;
-    let command = p.command.clone().filter(|_| p.runnable).ok_or_else(|| anyhow::anyhow!("{} has no command to run", p.label))?;
-    Ok((format!("{} · {}", it.title, p.label), command))
-}
-
-/// Sets only the missing identity keys with `git config --global`; refuses a key that is already set.
-pub async fn set_identity(app: &App, name: Option<&str>, email: Option<&str>) -> anyhow::Result<()> {
-    let env = &app.env;
-    let mut keys = vec![];
-    for (key, value) in [("user.name", name), ("user.email", email)] {
-        let Some(value) = value.map(str::trim).filter(|v| !v.is_empty()) else { continue };
-        anyhow::ensure!(!value.contains(['\n', '\r', '\0']) && value.chars().count() <= 200, "{key}: use one line of at most 200 characters");
-        if key == "user.email" { anyhow::ensure!(value.contains('@'), "enter an email address"); }
-        if let Some((existing, origin)) = git_key(env, key).await {
-            anyhow::bail!("{key} is already set to {existing} in {origin}; nothing was changed");
-        }
-        keys.push((key, value.to_string()));
-    }
-    anyhow::ensure!(!keys.is_empty(), "nothing to save");
-    for (key, value) in keys {
-        launchpad_core::procs::output(env, "git", &["config", "--global", key, &value], None).await?;
-    }
-    invalidate();
-    Ok(())
-}
-
-/// Creates a profile for a signed-in default login of `harness` (no new sign-in). Subscription billing
-/// when the harness has monitored quotas, pay-as-you-go otherwise.
-pub async fn profile_from_login(app: &App, harness: &str) -> anyhow::Result<launchpad_core::config::Profile> {
-    let kind = launchpad_core::model::HarnessKind::parse(harness).ok_or_else(|| anyhow::anyhow!("unknown harness {harness}"))?;
-    let item = profile(app).await;
-    let login = item.logins.iter().find(|l| l.harness == harness).ok_or_else(|| anyhow::anyhow!("no signed-in {} login without a profile was found", kind.display()))?;
-    let descriptor = launchpad_core::harness::registration(kind).descriptor;
-    let p = app.config.update(|config| {
-        let base = harness.to_string();
-        let id = (1..100).map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") }).find(|id| config.profile(id).is_none()).ok_or_else(|| anyhow::anyhow!("no free profile ID"))?;
-        let p = launchpad_core::config::Profile {
-            id,
-            name: login.name.clone(),
-            harness: kind,
-            env: Default::default(),
-            model: None,
-            effort: None,
-            billing: if descriptor.capabilities.quota { launchpad_core::config::Billing::Subscription } else { launchpad_core::config::Billing::PayAsYouGo },
-            budget_usd: None,
-            models_url: None,
-            spend_limits: vec![],
-            login: None,
-        };
-        config.profiles.push(p.clone());
-        Ok(p)
-    })?;
-    invalidate();
-    Ok(p)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scopes_and_ssh() {
-        let status = "github.com\n  ✓ Logged in to github.com account demo (keyring)\n  - Token: gho_****\n  - Token scopes: 'gist', 'read:org', 'repo'\n";
-        let scopes = parse_scopes(status).unwrap();
-        assert_eq!(scopes, ["gist", "read:org", "repo"]);
-        assert!(missing_scopes(&scopes).is_empty());
-        assert_eq!(missing_scopes(&["gist".into()]), ["repo", "read:org", "notifications"]);
-        assert_eq!(parse_scopes("  - Token scopes: none\n").unwrap(), Vec::<String>::new());
-        assert!(parse_scopes("Logged in").is_none());
-        let ssh = "debug1: Server accepts key: /home/u/.ssh/id_rsa RSA SHA256:x agent\nHi demo! You've successfully authenticated, but GitHub does not provide shell access.";
-        assert_eq!(parse_ssh(ssh), Some((Some("/home/u/.ssh/id_rsa".into()), "demo".into())));
-        assert_eq!(parse_ssh("Permission denied (publickey)."), None);
-    }
 }

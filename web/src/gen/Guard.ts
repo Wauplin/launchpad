@@ -5,10 +5,6 @@
  */
 export type Guard = { 
 /**
- * Launches from other devices (phone, schedules, bots). Off: only windows on that machine launch there.
- */
-accept_launches: boolean, 
-/**
- * Pause runner: no new session starts there.
+ * Takes new sessions off ("Paused"): Home starts no new session there; running sessions continue.
  */
 paused: boolean, };

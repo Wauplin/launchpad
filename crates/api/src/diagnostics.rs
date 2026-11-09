@@ -332,7 +332,7 @@ async fn health(State(s): State<Ctx>) -> ApiResult<Value> {
         add("proposals", format!("Card “{}” is {:?}", p.title, p.state).to_lowercase(), p.error.clone(), json!({"proposal": p.id, "session": p.session_id}));
     }
 
-    // Quota, harnesses, tools, channels, GitHub, setup.
+    // Quota, harnesses, tools, channels, GitHub.
     let status = app.status.get();
     for (login, q) in &status.quotas {
         if let Some(e) = &q.quota_error { add("quota", format!("Quota of {login} ({}) cannot be read", q.harness), Some(e.clone()), json!({"profiles": q.profiles})); }
@@ -351,8 +351,6 @@ async fn health(State(s): State<Ctx>) -> ApiResult<Value> {
             add("github", format!("GitHub rate limit reached ({host})"), Some(format!("resets at {}", l.reset_at)), json!({}));
         }
     }
-    let setup = launchpad_setup::setup_checklist::summary(app).await;
-    if setup.required_left > 0 { add("setup", format!("{} required setup item(s) left", setup.required_left), None, json!({})); }
 
     let started = launchpad_automation::failures::started_at();
     Ok(Json(json!({

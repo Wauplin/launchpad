@@ -489,6 +489,10 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
         if tickets.len() == 1 { s.auth.socket_tickets.write().unwrap().remove(&hash(tickets[0])).filter(|(access, expires)| *expires > now() && access.valid()).map(|(access, _)| access) } else { None }
     } else { None };
     if let Some(access) = s.auth.authenticate(req.headers()).or(ticket_access) {
+        // A runner's own window shows its status only: launches, sessions and settings live on Home.
+        if s.app.paths.role == launchpad_core::role::Role::Runner && access.device.is_some() && !runner_window_path(path) {
+            return (StatusCode::FORBIDDEN, Json(json!({"error": "This runner's window shows its status only: open Home for everything else"}))).into_response();
+        }
         req.extensions_mut().insert(access);
         return private_response(next.run(req).await, private);
     }
@@ -500,6 +504,14 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
             .into_response();
     }
     sign_in().await.into_response()
+}
+
+/// What a browser signed in to a runner may call: the page itself, its status and checklist, Takes new sessions,
+/// its own update, browser sign-out and the event socket. The tunnel (Home) and the CLI use the bearer token.
+fn runner_window_path(path: &str) -> bool {
+    !(path.starts_with("/api/") || path == "/ws")
+        || matches!(path, "/ws" | "/api/status" | "/api/harnesses" | "/api/setup/checklist" | "/api/runner/guard" | "/api/runner/update" | "/api/log")
+        || path.starts_with("/api/devices")
 }
 
 fn private_response(mut response: Response, private: bool) -> Response {

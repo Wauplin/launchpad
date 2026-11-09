@@ -36,7 +36,6 @@ pub fn router() -> Router<Server> {
         .route("/api/runner/update", post(update_self).delete(cancel_update))
         .route("/api/runners/{id}", axum::routing::delete(remove))
         .route("/api/runner/guard", get(guard).put(set_guard))
-        .route("/api/runner/launches", get(launches))
         .route("/api/home/backup", get(backup_info).post(backup_now))
 }
 
@@ -52,13 +51,6 @@ async fn backup_now(State(s): State<Server>) -> ApiResult<launchpad_core::home_b
     }
     launchpad_core::home_backup::run(&s.app, true).await.map_err(bad)?;
     Ok(backup_info(State(s)).await)
-}
-
-/// Launches that came from other devices through Home, newest first.
-async fn launches(State(s): State<Server>) -> Json<Vec<launchpad_core::home_link::RemoteLaunch>> {
-    let mut all = launchpad_core::home_link::launches(&s.app.paths);
-    all.reverse();
-    Json(all)
 }
 
 /// The runner guard of this machine (runner role): local settings, never synced to Home.

@@ -278,7 +278,6 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     tool_defaults::ToolDefaults::export_all(cfg)?;
     vault::LeaseInfo::export_all(cfg)?;
     proxy::Access::export_all(cfg)?;
-    home_link::RemoteLaunch::export_all(cfg)?;
     home_backup::BackupInfo::export_all(cfg)?;
     worktrees::WorktreeInfo::export_all(cfg)?;
     home_git::HomeBranch::export_all(cfg)?;

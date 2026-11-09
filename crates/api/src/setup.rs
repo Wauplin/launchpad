@@ -1,7 +1,8 @@
-//! Setup helpers used from a browser: sign-in checks (Settings → Profiles) and Clone from GitHub.
+//! Setup helpers used from a browser: Home's GitHub and Hugging Face sign-ins, Clone from GitHub, onboarding, a
+//! runner's setup checklist, and Home updates.
 use crate::{Ctx, error::{ApiError, ApiResult}};
-use axum::{Json, Router, extract::{Path, State}, routing::{get, post}};
-use launchpad_core::{model::Project, signin, terminals::TerminalInfo};
+use axum::{Json, Router, extract::State, routing::{get, post}};
+use launchpad_core::{model::Project, signin};
 use launchpad_setup::{home_update, onboarding, project_clone, setup_checklist};
 use serde::Deserialize;
 
@@ -13,10 +14,6 @@ pub fn router() -> Router<Ctx> {
         .route("/api/projects/clone/suggestions", post(refresh_clone_suggestions))
         .route("/api/onboarding", get(onboarding).patch(patch_onboarding))
         .route("/api/setup/checklist", get(checklist))
-        .route("/api/setup/checklist/summary", get(checklist_summary))
-        .route("/api/setup/fix/{item}", post(fix))
-        .route("/api/setup/git-identity", post(git_identity))
-        .route("/api/setup/profile-from-login", post(profile_from_login))
         .route("/api/home/update", get(home_update).post(start_home_update))
         .route("/api/home/update/check", post(check_home_update))
 }
@@ -65,48 +62,10 @@ async fn patch_onboarding(State(s): State<Ctx>, Json(p): Json<onboarding::Patch>
     Ok(Json(onboarding::patch(&s.app, p).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }
 
-/// Every setup item of this computer: state, detected values with their source, missing parts.
+/// A runner's setup items: state, detected values with their source, missing parts. Home's setup is the UI's.
 async fn checklist(State(s): State<Ctx>) -> ApiResult<setup_checklist::Checklist> {
-    let remote = s.auth.remote();
-    let tailscale = if remote { None } else { Some(s.app.env.which("tailscale").is_some()) };
-    let devices = Some(setup_checklist::devices(remote, &s.auth.origin(), tailscale));
-    Ok(Json(setup_checklist::checklist(&s.app, devices).await))
-}
-
-async fn checklist_summary(State(s): State<Ctx>) -> Json<setup_checklist::ChecklistSummary> {
-    Json(setup_checklist::summary(&s.app).await)
-}
-
-#[derive(Deserialize)]
-struct Fix {
-    part: String,
-}
-
-/// Opens a setup terminal with the fixed command of a missing part. Parts detected as set up are refused.
-async fn fix(State(s): State<Ctx>, Path(item): Path<String>, Json(b): Json<Fix>) -> ApiResult<TerminalInfo> {
-    let (title, command) = setup_checklist::fix_command(&s.app, &item, &b.part).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
-    setup_checklist::invalidate();
-    Ok(Json(s.app.terminals.open_setup_command(&s.app, &title, &command).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
-}
-
-#[derive(Deserialize)]
-struct Identity {
-    name: Option<String>,
-    email: Option<String>,
-}
-
-async fn git_identity(State(s): State<Ctx>, Json(b): Json<Identity>) -> ApiResult<serde_json::Value> {
-    setup_checklist::set_identity(&s.app, b.name.as_deref(), b.email.as_deref()).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
-    Ok(Json(serde_json::json!({"ok": true})))
-}
-
-#[derive(Deserialize)]
-struct FromLogin {
-    harness: String,
-}
-
-async fn profile_from_login(State(s): State<Ctx>, Json(b): Json<FromLogin>) -> ApiResult<launchpad_core::config::Profile> {
-    Ok(Json(setup_checklist::profile_from_login(&s.app, &b.harness).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
+    launchpad_core::role::ensure_runs_agents(s.app.paths.role).map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    Ok(Json(setup_checklist::checklist(&s.app).await))
 }
 
 /// Home on a Hugging Face Space: the last update check (`launchpad_setup::home_update`).

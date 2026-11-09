@@ -301,21 +301,19 @@ export type DemoTerminalOptions = {
   harness?: HarnessKind | string | null;
   /** TUIs: the message shown in the frame (defaults to the session's last message). */
   lastMessage?: string | null;
-  /** Setup terminals (sign-in, install): no project, shown in every workspace. */
-  setup?: boolean;
-  /** Commands and setup terminals: the command line shown before the demo notice. */
+  /** Commands: the command line shown before the demo notice. */
   command?: string;
 };
 
 /** Opens a demo terminal, publishes `terminals/opened` and returns it like `POST /api/terminals` does. */
 export function openDemoTerminal(o: DemoTerminalOptions): TerminalInfo {
   if (world.terminals.length >= MAX_OPEN) throw new DemoError(400, `At most ${MAX_OPEN} terminals can be open. Close one first.`);
-  const where = o.setup ? { project_id: null, folder: lastName(o.cwd), place: null, branch: null } : describe(o.cwd);
+  const where = describe(o.cwd);
   const session = o.session_id ? world.sessions.find((s) => s.id === o.session_id) : undefined;
   const title = o.title ?? (o.kind === "tui" ? session?.title || `${o.harness ?? session?.harness ?? "claude"} session` : where.branch ? `${where.folder} · ${where.branch}` : where.folder);
   const t: TerminalInfo = {
     id: `demo-term-${Math.random().toString(36).slice(2, 10)}`, kind: o.kind, title, cwd: o.cwd, project_id: where.project_id, session_id: o.session_id ?? null,
-    alive: true, exit_code: null, created_at: clock.now(), folder: where.folder, place: where.place, branch: where.branch, setup: !!o.setup, busy: o.kind === "shell" ? false : null, notice: null,
+    alive: true, exit_code: null, created_at: clock.now(), folder: where.folder, place: where.place, branch: where.branch, busy: o.kind === "shell" ? false : null, notice: null,
   };
   world.terminals = [...world.terminals, t];
   const command = o.command ? `${dim("$")} ${o.command}\r\n${yellow(`${NOT_RUN}.`)}\r\n${dim("Close this tab when you are done.")}\r\n` : undefined;
@@ -344,22 +342,6 @@ route("POST", "/api/terminals", ({ body }) => {
   const idle = world.terminals.find((t) => t.kind === "shell" && t.alive && t.cwd === cwd && !live.get(t.id)?.playing);
   if (idle) return { ...idle, notice: `Showing the open idle shell in ${idle.folder}.` };
   return openDemoTerminal({ kind: "shell", cwd });
-});
-
-route("POST", "/api/profiles/:id/setup", ({ params, body }) => {
-  const p = world.config.profiles.find((x) => x.id === params.id);
-  if (!p) throw new DemoError(400, `unknown profile ${params.id}`);
-  const b = (body ?? {}) as { install?: boolean };
-  const commands: Record<string, [string, string]> = {
-    claude: ["claude auth login", "curl -fsSL https://claude.ai/install.sh | bash"],
-    codex: ["codex login --device-auth", "npm install -g @openai/codex"],
-    opencode: ["opencode auth login", "curl -fsSL https://opencode.ai/install | bash"],
-  };
-  const [signIn, install] = commands[p.harness] ?? ["", ""];
-  const vars = world.harnesses.find((h) => h.id === p.harness)?.account_env ?? [];
-  const prefix = vars.flatMap((v) => (p.env[v] ? [`${v}=${p.env[v]}`] : [])).join(" ");
-  const command = b.install ? install : `${prefix ? `${prefix} ` : ""}${signIn}`;
-  return openDemoTerminal({ kind: "command", cwd: HOME, setup: true, title: `${b.install ? "Install" : "Sign in"} · ${p.name}`, command });
 });
 
 route("POST", "/api/terminals/close-all", () => {
@@ -393,7 +375,7 @@ route("POST", "/api/terminals/:id/restart", ({ params }) => {
   const t = info(params.id);
   if (!t) throw new DemoError(400, "no such terminal");
   remove(t.id);
-  return openDemoTerminal({ kind: t.kind, cwd: t.cwd, session_id: t.session_id, setup: t.setup, title: t.setup ? t.title : undefined });
+  return openDemoTerminal({ kind: t.kind, cwd: t.cwd, session_id: t.session_id });
 });
 
 route("DELETE", "/api/terminals/:id", ({ params }) => { removeDemoTerminal(params.id); return { ok: true }; });

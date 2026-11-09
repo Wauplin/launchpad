@@ -1,5 +1,4 @@
-// Bottom dock with one tab per integrated terminal of the current workspace (plus setup terminals, which have
-// no folder and show everywhere). Hide keeps the processes running. Phones show it as the /terminals page.
+// Bottom dock with one tab per integrated terminal of the current workspace. Hide keeps the processes running. Phones show it as the /terminals page.
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
@@ -41,13 +40,13 @@ function useCurrentFolder(fallback: TerminalInfo | undefined): string | null {
     const s = sessions?.find((s) => s.id === id);
     if (s) return s.cwd;
   }
-  return (fallback && !fallback.setup ? fallback.cwd : null) ?? scope.projects[0]?.path ?? null;
+  return (fallback?.cwd ?? null) ?? scope.projects[0]?.path ?? null;
 }
 
 const kindIcon = (t: TerminalInfo): IconName => (t.kind === "tui" ? "agents" : t.kind === "command" ? "play" : "term");
 const kindLabel = (t: TerminalInfo) => (t.kind === "tui" ? "TUI" : t.kind === "command" ? "Command" : "Shell");
-/** Tab label: the folder (or the agent / setup title), then a chip for the place. */
-const tabName = (t: TerminalInfo) => (t.kind === "tui" || t.setup ? t.title : t.folder || folderName(t.cwd));
+/** Tab label: the folder (or the agent title), then a chip for the place. */
+const tabName = (t: TerminalInfo) => (t.kind === "tui" ? t.title : t.folder || folderName(t.cwd));
 
 const Dot = ({ t }: { t: TerminalInfo }) => (
   <i aria-hidden className={`inline-block size-1.5 flex-none rounded-full ${!t.alive ? (t.exit_code === 0 ? "bg-ink-3" : "bg-gh-closed") : t.busy || t.kind !== "shell" ? "bg-attn" : "bg-gh-open"}`} />
@@ -55,7 +54,6 @@ const Dot = ({ t }: { t: TerminalInfo }) => (
 
 const Chip = ({ t }: { t: TerminalInfo }) => (
   <>
-    {t.setup && <span className="flex-none rounded border border-line px-1 text-[11px] leading-4 text-ink-3">Setup</span>}
     {t.place && <span className="max-w-[140px] flex-none truncate rounded border border-line px-1 font-mono text-[11px] leading-4 text-ink-2" title={t.branch ? `${t.place} · ${t.branch}` : t.place}>{t.place}</span>}
   </>
 );

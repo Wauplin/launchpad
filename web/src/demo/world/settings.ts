@@ -119,7 +119,7 @@ export function settingsWorld() {
   ];
   // One recorded shell exists from the start ("Terminals · 1" in the status bar); its replay starts when it is shown.
   const terminals: TerminalInfo[] = [
-    { id: "demo-term-billing", kind: "shell", title: "billing-api · main", cwd: `${ROOT}/billing-api`, project_id: P.billing, session_id: null, alive: true, exit_code: null, created_at: clock.ago(12), folder: "billing-api", place: "checkout", branch: "main", setup: false, busy: false, notice: null },
+    { id: "demo-term-billing", kind: "shell", title: "billing-api · main", cwd: `${ROOT}/billing-api`, project_id: P.billing, session_id: null, alive: true, exit_code: null, created_at: clock.ago(12), folder: "billing-api", place: "checkout", branch: "main", busy: false, notice: null },
   ];
   const gh: SignInCheck = { id: "github", profile: null, name: "GitHub CLI", cli_found: true, signed_in: true, detail: `Logged in to github.com account ${USER}`, command: "gh auth login" };
   const huggingface: DemoHuggingFace = {

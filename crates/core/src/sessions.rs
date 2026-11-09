@@ -938,13 +938,9 @@ impl Sessions {
         self.launch_inner(app, spec, id, false).await
     }
 
-    pub(crate) async fn launch_automatic(&self, app: &App, spec: LaunchSpec, id: String) -> Result<Session> {
-        self.launch_inner(app, spec, id, true).await
-    }
-
     async fn launch_inner(&self, app: &App, spec: LaunchSpec, id: String, automatic: bool) -> Result<Session> {
         crate::role::ensure_runs_agents(app.paths.role)?;
-        anyhow::ensure!(app.paths.role != crate::role::Role::Runner || !crate::home_link::guard(&app.paths).paused, "This runner is paused: resume it in Settings → This runner");
+        anyhow::ensure!(app.paths.role != crate::role::Role::Runner || !crate::home_link::guard(&app.paths).paused, "This runner takes no new sessions: switch Takes new sessions back on in its own window");
         let _action = self.inner.actions.lock().await;
         anyhow::ensure!(self.get(&id).is_none(), "a session with this id already exists");
         let _guard = self.allow_work().await;
@@ -986,19 +982,9 @@ impl Sessions {
         let mut local_pr: Option<(Option<crate::predrafts::Predraft>, String)> = None;
         // Read-only context folders of Home: their clones are refreshed before the agent starts.
         let mut views: Vec<Project> = vec![];
-        // Home records the session on this runner before it exists here (it already did for its own launches):
-        // Home gives leases only to sessions it placed (`vault::check_owner`). A failed launch below sends
-        // `Forget`, which removes Home's record.
-        if app.paths.role == crate::role::Role::Runner {
-            let mut placed = spec.clone();
-            placed.attachments.clear();
-            if let Err(e) = crate::home_link::home_call("place", serde_json::json!({"session_id": id, "spec": placed})).await {
-                // Home may have recorded it before the answer was lost (a timeout): `Forget` removes that record.
-                let forget = id.clone();
-                let _ = app.state_db.call(move |c| crate::replica::queue(c, &crate::replica::Item::Forget { id: forget })).await;
-                return Err(e.context("record the launch on Home"));
-            }
-        }
+        // A runner starts only launches Home placed on it (`runners::record_placement`, before Home relayed the
+        // launch): Home gives leases only to sessions it placed (`vault::check_owner`). A failed launch below
+        // sends `Forget`, which removes Home's record.
         let prepared = async {
             if let Target::Browser { grants, act, .. } = &spec.target { crate::browser::claim(app, &id, grants, *act).await?; }
             let (mut cwd, project_id) = match &spec.target {

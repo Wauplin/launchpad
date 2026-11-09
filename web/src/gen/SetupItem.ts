@@ -2,16 +2,10 @@
 import type { Found } from "./Found";
 import type { Importance } from "./Importance";
 import type { ItemState } from "./ItemState";
-import type { LoginSuggestion } from "./LoginSuggestion";
 import type { MissingPart } from "./MissingPart";
 
 export type SetupItem = { 
 /**
- * `github`, `git`, `profile`, `jail`, `vault_login`, `vault_git`, `folder`, `presets`, `devices`, `huggingface`,
- * or `extension`.
+ * `home`, `jail`, `netcap`, `harnesses`, `vault_login` or `vault_git`.
  */
-id: string, title: string, importance: Importance, state: ItemState, why: string, found: Array<Found>, missing: Array<MissingPart>, 
-/**
- * Profile item only.
- */
-logins: Array<LoginSuggestion>, };
+id: string, title: string, importance: Importance, state: ItemState, why: string, found: Array<Found>, missing: Array<MissingPart>, };

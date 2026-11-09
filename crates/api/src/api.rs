@@ -317,12 +317,12 @@ async fn get_session(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<
 
 async fn launch(State(s): State<Ctx>, headers: axum::http::HeaderMap, Json(spec): Json<LaunchSpec>) -> ApiResult<Session> {
     let id = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()).map(str::to_owned).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let from_home = headers.contains_key(launchpad_http::FROM_HOME);
-    let session = s.app.sessions.launch_with_id(&s.app, spec, id).await.map_err(bad)?;
-    if from_home {
-        launchpad_core::home_link::log_launch(&s.app.paths, &session);
+    // A runner starts only the sessions Home places on it (Home's own launches and Burst jobs arrive through the
+    // tunnel); its own windows and the owner's CLI there launch on Home, which picks the runner.
+    if s.app.paths.role == launchpad_core::role::Role::Runner && !headers.contains_key(launchpad_http::FROM_HOME) {
+        return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "Launch from Home: a runner starts only the sessions Home places on it"));
     }
-    Ok(Json(session))
+    Ok(Json(s.app.sessions.launch_with_id(&s.app, spec, id).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]

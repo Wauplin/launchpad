@@ -25,11 +25,11 @@ export const useTerminals = () => useQuery({ queryKey: ["terminals"], queryFn: l
 /** A fresh list, with the current `busy` state of each shell (the cached list only changes on bus events). */
 export const refreshTerminals = (qc: QueryClient) => qc.fetchQuery({ queryKey: ["terminals"], queryFn: listTerminals, staleTime: 0 });
 
-/** The terminals of the current workspace, through their project or folder. Setup terminals (no project) show everywhere. */
+/** The terminals of the current workspace, through their project or folder. */
 export function useScopedTerminals(): TerminalInfo[] {
   const scope = useScope();
   const all = useTerminals().data;
-  return useMemo(() => (all ?? []).filter((t) => t.setup || scope.hasProject(t.project_id, t.cwd)), [all, scope]);
+  return useMemo(() => (all ?? []).filter((t) => scope.hasProject(t.project_id, t.cwd)), [all, scope]);
 }
 
 /** The folder menu of a Terminal button (folder, checkout, other worktrees), fetched when needed. */
@@ -61,11 +61,7 @@ export function useOpenTerminal() {
         return api.post<TerminalInfo>("/api/terminals", { cwd: folders?.default ?? cwd }).then(reveal).catch(toastError);
       },
       tui: (sessionId: string) => api.post<TerminalInfo>(`/api/sessions/${sessionId}/terminal`).then(reveal).catch(toastError),
-      /** The sign-in (or install) command of a profile, with its environment, in the home folder of this computer. */
-      profileSetup: (profileId: string, install = false) => api.post<TerminalInfo>(`/api/profiles/${profileId}/setup`, { install }).then(reveal).catch(toastError),
-      /** A setup checklist fix: the daemon runs the fixed command of a missing part, or refuses a part already set up. */
-      setupFix: (item: string, part: string) => api.post<TerminalInfo>(`/api/setup/fix/${item}`, { part }).then(reveal).catch(toastError),
-      /** Restart here: the same shell, snippet or setup command (the daemon replaces the exited tab); a TUI goes through its agent. */
+      /** Restart here: the same shell or snippet (the daemon replaces the exited tab); a TUI goes through its agent. */
       restart: async (t: TerminalInfo) => {
         try {
           if (t.kind === "tui" && t.session_id) {

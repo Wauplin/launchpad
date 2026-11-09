@@ -173,7 +173,7 @@ mod tests {
     use super::*;
     #[test]
     fn machine_and_publication_routes_are_not_cli_routes() {
-        for path in ["/api/config", "/api/terminals", "/api/setup/fix", "/api/vault", "/api/code/file", "/api/devices/pair"] {
+        for path in ["/api/config", "/api/terminals", "/api/vault", "/api/code/file", "/api/devices/pair"] {
             assert!(!read_allowed(path));
             assert!(!own_write(path));
         }

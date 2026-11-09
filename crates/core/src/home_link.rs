@@ -98,34 +98,6 @@ pub fn set_guard(app: &App, guard: &Guard) -> Result<()> {
     Ok(())
 }
 
-/// A launch that came from another device through Home, in the runner's local log.
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-pub struct RemoteLaunch {
-    #[ts(type = "number")]
-    pub at: i64,
-    pub session_id: String,
-    pub title: String,
-}
-
-fn launches_file(paths: &Paths) -> std::path::PathBuf {
-    paths.data_dir.join("launches-from-home.jsonl")
-}
-
-/// Appends to the local log of launches started elsewhere (kept to the last 200).
-pub fn log_launch(paths: &Paths, s: &crate::model::Session) {
-    let mut all = launches(paths);
-    all.push(RemoteLaunch { at: s.started_at, session_id: s.id.clone(), title: s.title.clone() });
-    let keep = all.len().saturating_sub(200);
-    let text: String = all[keep..].iter().filter_map(|l| serde_json::to_string(l).ok()).map(|l| l + "\n").collect();
-    if let Err(e) = std::fs::write(launches_file(paths), text) {
-        tracing::warn!("launch log: {e}");
-    }
-}
-
-pub fn launches(paths: &Paths) -> Vec<RemoteLaunch> {
-    std::fs::read_to_string(launches_file(paths)).unwrap_or_default().lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum TunnelState {

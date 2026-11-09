@@ -86,8 +86,6 @@ pub struct TerminalInfo {
     /// Tab chip: `checkout`, the worktree folder name, or none (not a Git folder, home folder).
     pub place: Option<String>,
     pub branch: Option<String>,
-    /// No project: a sign-in or install command. Shown in every workspace with a Setup chip.
-    pub setup: bool,
     /// A foreground job runs in it (PTYs on this computer, Unix); none when unknown. Filled by `list`.
     pub busy: Option<bool>,
     /// Only in the open response: the folder that was used instead, or the idle shell that was reused.
@@ -98,9 +96,6 @@ pub struct TerminalInfo {
 #[derive(Clone, Debug)]
 enum Recipe {
     Shell { cwd: String, command: Option<String>, language: Option<String> },
-    Setup { profile: String, install: bool },
-    /// A setup checklist fix: a fixed command in the home folder.
-    Fix { title: String, command: String },
     Tui,
 }
 
@@ -381,15 +376,13 @@ impl Terminals {
         result
     }
 
-    /// Restart here: the same shell, snippet or setup command in the same folder, replacing the exited tab.
+    /// Restart here: the same shell or snippet in the same folder, replacing the exited tab.
     /// Harness TUIs restart through their session (Re-attach or Continue in TUI).
     pub async fn restart(&self, app: &App, id: &str) -> Result<TerminalInfo> {
         let t = self.get(id)?;
         anyhow::ensure!(!t.info.lock().unwrap().alive, "the terminal is still running");
         let next = match t.recipe.clone() {
             Recipe::Shell { cwd, command, language } => self.open_shell(app, &cwd, command.as_deref(), language.as_deref()).await?,
-            Recipe::Setup { profile, install } => self.open_profile_setup(app, &profile, install).await?,
-            Recipe::Fix { title, command } => self.open_setup_command(app, &title, &command).await?,
             Recipe::Tui => bail!("open the agent and use Continue in TUI"),
         };
         let _ = self.remove(app, id);
@@ -564,7 +557,6 @@ impl Terminals {
             folder,
             place,
             branch,
-            setup: false,
             busy: None,
             notice: None,
         };
@@ -576,70 +568,6 @@ impl Terminals {
         let mut info = self.spawn(app, info, argv, vec![], recipe).await?;
         info.notice = notice;
         Ok(info)
-    }
-
-    /// Runs the install or sign-in command of a profile's harness in a visible terminal in the home folder,
-    /// with the profile environment (its own login folder or key). The command
-    /// comes from the adapter; nothing typed in a browser is run. Account folders are created first.
-    pub async fn open_profile_setup(&self, app: &App, profile_id: &str, install: bool) -> Result<TerminalInfo> {
-        let p = app.config.get().profile(profile_id).cloned().with_context(|| format!("no profile {profile_id}"))?;
-        let adapter = app.harnesses.get(p.harness);
-        let home = dirs::home_dir().context("no home folder")?.to_string_lossy().into_owned();
-        let mut command = if install {
-            adapter.install_command().context("this harness has no install command")?.to_string()
-        } else {
-            adapter.sign_in_command().to_string()
-        };
-        let env = if install { vec![] } else { crate::profiles::profile_env(app, &p, Some(p.model.as_deref().unwrap_or("default")))? };
-        let folders: Vec<&str> = crate::harness::registration(p.harness).descriptor.account_env.iter().copied().filter(|n| env.iter().any(|(k, _)| k == n)).collect();
-        if !install && !folders.is_empty() && cfg!(unix) {
-            command = format!("{} && {command}", folders.iter().map(|n| format!("mkdir -p \"${n}\"")).collect::<Vec<_>>().join(" && "));
-        }
-        let info = TerminalInfo {
-            id: uuid::Uuid::new_v4().to_string(),
-            kind: TerminalKind::Command,
-            title: format!("{} · {}", if install { "Install" } else { "Sign in" }, p.name),
-            folder: "Home".into(),
-            cwd: home,
-            project_id: None,
-            session_id: None,
-            alive: true,
-            exit_code: None,
-            created_at: now_ms(),
-            place: None,
-            branch: None,
-            setup: true,
-            busy: None,
-            notice: None,
-        };
-        let argv = command_shell(app, &command, "shell")?;
-        let recipe = Recipe::Setup { profile: profile_id.to_string(), install };
-        self.spawn(app, info, argv, env, recipe).await
-    }
-
-    /// Opens a setup checklist fix (`setup_checklist::fix_command`) in the home folder.
-    pub async fn open_setup_command(&self, app: &App, title: &str, command: &str) -> Result<TerminalInfo> {
-        let home = dirs::home_dir().context("no home folder")?.to_string_lossy().into_owned();
-        let info = TerminalInfo {
-            id: uuid::Uuid::new_v4().to_string(),
-            kind: TerminalKind::Command,
-            title: title.to_string(),
-            folder: "Home".into(),
-            cwd: home,
-            project_id: None,
-            session_id: None,
-            alive: true,
-            exit_code: None,
-            created_at: now_ms(),
-            place: None,
-            branch: None,
-            setup: true,
-            busy: None,
-            notice: None,
-        };
-        let argv = command_shell(app, command, "shell")?;
-        let recipe = Recipe::Fix { title: title.to_string(), command: command.to_string() };
-        self.spawn(app, info, argv, vec![], recipe).await
     }
 
     /// Opens the harness TUI of a session. The caller detaches the headless harness first.
@@ -678,7 +606,6 @@ impl Terminals {
             folder,
             place,
             branch,
-            setup: false,
             busy: None,
             notice: None,
         };

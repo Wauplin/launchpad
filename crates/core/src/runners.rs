@@ -29,19 +29,11 @@ pub enum RunnerState {
 }
 
 /// The settings a runner keeps locally (never synced to Home) and reports when they change.
-#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
 pub struct Guard {
-    /// Launches from other devices (phone, schedules, bots). Off: only windows on that machine launch there.
-    pub accept_launches: bool,
-    /// Pause runner: no new session starts there.
+    /// Takes new sessions off ("Paused"): Home starts no new session there; running sessions continue.
     pub paused: bool,
-}
-
-impl Default for Guard {
-    fn default() -> Self {
-        Guard { accept_launches: true, paused: false }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -640,10 +632,10 @@ impl Hub {
         self.inner.links.lock().unwrap().contains_key(id)
     }
 
-    /// Connected runners that take new sessions from other devices: same build, accepting, not paused.
+    /// Connected runners that take new sessions: same build, not paused.
     pub fn available(&self) -> Vec<String> {
         let links = self.inner.links.lock().unwrap();
-        let mut ids: Vec<String> = links.iter().filter(|(_, l)| !l.dedicated && l.compat == Compat::Same && l.guard.accept_launches && !l.guard.paused).map(|(id, _)| id.clone()).collect();
+        let mut ids: Vec<String> = links.iter().filter(|(_, l)| !l.dedicated && l.compat == Compat::Same && !l.guard.paused).map(|(id, _)| id.clone()).collect();
         ids.sort();
         ids
     }
@@ -867,13 +859,11 @@ fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> 
     Ok(serde_json::from_str(body)?)
 }
 
-/// Starts a session where agents run: here, or on Home through a runner (sent once, never retried). Home
-/// places it like a message (`place`): the chosen runner (no fallback), else the runner it is pinned to (its
-/// sessions move first when that runner is away), else another runner, else Burst.
+/// Home: starts a session on a runner (sent once, never retried). Home places it like a message (`place`): the
+/// chosen runner (no fallback), else the runner it is pinned to (its sessions move first when that runner is away),
+/// else another runner, else Burst. Runners never pick their own launches: they start only what Home places.
 pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
-    if app.paths.role != crate::role::Role::Home {
-        return if automatic { app.sessions.launch_automatic(app, spec, id).await } else { app.sessions.launch_with_id(app, spec, id).await };
-    }
+    anyhow::ensure!(app.paths.role == crate::role::Role::Home, "only Home launches sessions: a runner starts the ones Home places on it");
     // Uploads are stored on Home: the runner or Burst job receives their bytes.
     crate::attachments::inline_files(&mut spec.attachments)?;
     if spec.runner_id.as_deref() == Some(crate::burst::CHOICE) {
@@ -958,8 +948,7 @@ fn is_placeholder(s: &crate::model::Session, runner: &str) -> bool {
 }
 
 /// Home: records a new session on `runner_id` before the runner starts it (`vault::check_owner` gives leases
-/// only for such sessions). Home's own launches call it before relaying; a runner calls it (`place`) for a
-/// launch it starts itself, and finds Home's record when Home placed it.
+/// only for such sessions). Every launch calls it before relaying: runners start only what Home placed.
 pub(crate) async fn record_placement(app: &App, spec: &crate::model::LaunchSpec, id: &str, runner_id: &str) -> Result<()> {
     anyhow::ensure!(app.paths.role == crate::role::Role::Home, "only Home places launches");
     match app.sessions.get(id) {

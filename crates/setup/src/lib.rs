@@ -1,4 +1,4 @@
-//! Getting started: the setup checklist, cloning a GitHub repository into a new folder, onboarding progress, and
+//! Getting started: a runner's setup checklist, cloning a GitHub repository into a new folder, onboarding progress, and
 //! Home updates on a Hugging Face Space.
 
 pub mod home_update;
@@ -14,7 +14,6 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     project_clone::CloneSuggestion::export_all(cfg)?;
     onboarding::OnboardingState::export_all(cfg)?;
     setup_checklist::Checklist::export_all(cfg)?;
-    setup_checklist::ChecklistSummary::export_all(cfg)?;
     home_update::HomeUpdate::export_all(cfg)?;
     Ok(())
 }

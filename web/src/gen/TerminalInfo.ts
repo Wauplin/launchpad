@@ -11,10 +11,6 @@ folder: string,
  */
 place: string | null, branch: string | null, 
 /**
- * No project: a sign-in or install command. Shown in every workspace with a Setup chip.
- */
-setup: boolean, 
-/**
  * A foreground job runs in it (PTYs on this computer, Unix); none when unknown. Filled by `list`.
  */
 busy: boolean | null, 

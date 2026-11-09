@@ -908,13 +908,6 @@ pub async fn runner_call(app: &App, runner_id: &str, op: &str, body: Value) -> R
         }
         "kb" => crate::kb::runner_apply(app, runner_id, body).await,
         "quota" => crate::quota::runner_reading(app, body),
-        "place" => {
-            // A launch the runner starts itself (a window or the CLI on that machine): Home records it first.
-            let id = body["session_id"].as_str().context("session_id")?;
-            let spec: crate::model::LaunchSpec = serde_json::from_value(body["spec"].clone()).context("spec")?;
-            crate::runners::record_placement(app, &spec, id, runner_id).await?;
-            Ok(Value::Null)
-        }
         _ => bail!("unknown runner call {op}"),
     }
 }
