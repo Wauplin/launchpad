@@ -27,7 +27,6 @@ export function coreWorld() {
     { id: WS.personal, name: "Personal", created_at: clock.ago(60 * 24 * 30) },
   ];
   const config: Config = {
-    projects_root: ROOT,
     remove_published_worktree: true,
     server: { bind: "127.0.0.1", public_origin: null, auto_tailnet: true },
     github: { poll_interval_seconds: 60 },

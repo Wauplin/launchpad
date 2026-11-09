@@ -14,8 +14,4 @@ id: string, title: string, importance: Importance, state: ItemState, why: string
 /**
  * Profile item only.
  */
-logins: Array<LoginSuggestion>, 
-/**
- * First folder item only: Git repositories of the folders root that are not registered yet.
- */
-suggestions: Array<string>, };
+logins: Array<LoginSuggestion>, };

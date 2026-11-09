@@ -79,7 +79,7 @@ export function WorktreesView() {
       <ConfigError />
       <Card title="Cleanup">
         <SettingRow label="Worktrees kept on disk" hint="Clean worktrees of idle agents. 0 keeps all." scope="all" state={keep.state} error={keep.error}
-          info={`New agents in a Git folder run in their own worktree under ${saved.projects_root}/.worktrees. Archiving an agent removes its clean worktree; older clean worktrees of idle agents are removed too. The branch keeps the commits and sending a message restores the folder. Worktrees with uncommitted work are never removed. List ignored files such as .env in a .worktreeinclude file to copy them into new worktrees; the setup command is set on the folder page.`}>
+          info={`New agents in a Git folder run in their own worktree on their runner. Archiving an agent removes its clean worktree; older clean worktrees of idle agents are removed too. The branch keeps the commits and sending a message restores the folder. Worktrees with uncommitted work are never removed. List ignored files such as .env in a .worktreeinclude file to copy them into new worktrees; the setup command is set on the folder page.`}>
           <input type="number" min={0} aria-label="Worktrees kept on disk" className="field-input w-24" value={keepText} onChange={(e) => setKeepText(e.target.value)} onBlur={commitKeep} onKeyDown={(e) => { if (e.key === "Enter") commitKeep(); }} />
         </SettingRow>
         <LocalPrCleanupRow config={saved} />

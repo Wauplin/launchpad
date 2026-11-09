@@ -255,7 +255,6 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     model::Project::export_all(cfg)?;
     model::HarnessDefaults::export_all(cfg)?;
     harness::HarnessDescriptor::export_all(cfg)?;
-    projects::Discovered::export_all(cfg)?;
     projects::ProjectPatch::export_all(cfg)?;
     sessions::Preview::export_all(cfg)?;
     github::GhItem::export_all(cfg)?;

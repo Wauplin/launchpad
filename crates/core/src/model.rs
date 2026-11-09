@@ -541,7 +541,7 @@ pub enum Target {
         #[serde(default)]
         act: bool,
     },
-    /// A new temporary folder in the projects root.
+    /// A new temporary folder in `<data_dir>/tmp`.
     Temp,
 }
 

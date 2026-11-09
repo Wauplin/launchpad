@@ -8,7 +8,7 @@ const findOpen = () => !!document.querySelector('input[placeholder="Find in file
 
 export const folders: Chapter = {
   ...meta("folders"),
-  learned: ["A folder page shows its agents, GitHub items and worktrees", "Files browses any checkout or worktree, with Find", "Each folder belongs to one workspace; a window shows one workspace", "Add folder registers, browses or clones folders", "Knowledge is the memory of a workspace: notes agents read and write, every change restorable"],
+  learned: ["A folder page shows its agents, GitHub items and worktrees", "Files browses any checkout or worktree, with Find", "Each folder belongs to one workspace; a window shows one workspace", "Add folder clones a GitHub repository or creates a plain folder", "Knowledge is the memory of a workspace: notes agents read and write, every change restorable"],
   steps: [
     {
       id: "folders.page", route: "/projects/demo-storefront", anchor: "folder.page",
@@ -29,7 +29,7 @@ export const folders: Chapter = {
     {
       id: "folders.add", route: "/projects", anchor: "folders.add",
       title: "Add folder",
-      body: "Folders in the sidebar lists the folders of the workspace. Add folder registers one you work in: Git repositories of your folders root are suggested, any folder can be browsed, and Clone from GitHub clones one.",
+      body: "Folders in the sidebar lists the folders of the workspace. Add folder registers one: Clone from GitHub, or a new plain folder for files without Git. Home stores every folder, so it runs on any runner. Keep as folder turns a temporary folder into one.",
     },
     {
       id: "folders.knowledge", route: "/knowledge", anchor: "knowledge.notes",

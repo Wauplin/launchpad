@@ -75,8 +75,6 @@ pub struct SetupItem {
     pub missing: Vec<MissingPart>,
     /// Profile item only.
     pub logins: Vec<LoginSuggestion>,
-    /// First folder item only: Git repositories of the folders root that are not registered yet.
-    pub suggestions: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -92,7 +90,7 @@ pub struct ChecklistSummary {
 }
 
 fn item(id: &str, title: &str, importance: Importance, why: &str) -> SetupItem {
-    SetupItem { id: id.into(), title: title.into(), importance, state: ItemState::Missing, why: why.into(), found: vec![], missing: vec![], logins: vec![], suggestions: vec![] }
+    SetupItem { id: id.into(), title: title.into(), importance, state: ItemState::Missing, why: why.into(), found: vec![], missing: vec![], logins: vec![] }
 }
 
 fn found(label: &str, value: impl Into<String>, source: Option<String>) -> Found {
@@ -506,34 +504,21 @@ async fn workspaces(app: &App) -> SetupItem {
 // ---------------------------------------------------------------- First folder
 
 async fn folder(app: &App) -> SetupItem {
-    let mut it = item("folder", "First folder", Importance::Required, "Agents run in folders: register one you work in.");
+    let mut it = item("folder", "First folder", Importance::Required, "Agents run in folders of Home: clone a repository from GitHub or create a plain folder.");
     let projects = launchpad_core::projects::list(app).await.unwrap_or_default();
     let mine: Vec<_> = projects.iter().filter(|p| !p.is_temp).collect();
-    let home = home_of();
     for p in mine.iter().take(5) {
-        it.found.push(found(&p.name, tilde(&p.path, home.as_deref()), p.gh_repo.clone()));
+        let kind = if p.plain { "plain folder" } else { "Git folder" };
+        it.found.push(found(&p.name, p.gh_repo.clone().unwrap_or_else(|| kind.into()), None));
     }
     if mine.len() > 5 {
         it.found.push(found("More", format!("{} other folders", mine.len() - 5), None));
     }
-    if !mine.is_empty() {
+    if mine.is_empty() {
+        it.missing.push(part("add", "Add a folder", Some("Clone a repository from GitHub or create a new plain folder.".into()), None, false, false));
+    } else {
         it.state = ItemState::Ready;
-        return it;
     }
-    let root = app.config.get().projects_root().to_string_lossy().into_owned();
-    if let Ok(entries) = launchpad_core::files::read_dir(&root).await
-    {
-        let mut names: Vec<String> = entries.into_iter().filter(|e| e.kind == "dir" && !e.name.starts_with('.')).map(|e| e.name).collect();
-        names.sort_by_key(|n| n.to_lowercase());
-        for name in names.into_iter().take(300) {
-            let path = format!("{}/{name}", root.trim_end_matches('/'));
-            if launchpad_core::files::exists(format!("{path}/.git")).await && !projects.iter().any(|p| p.path == path) {
-                it.suggestions.push(path);
-                if it.suggestions.len() >= 12 { break; }
-            }
-        }
-    }
-    it.missing.push(part("add", "Add a folder", Some(if it.suggestions.is_empty() { "Browse to a folder or clone a repository from GitHub.".into() } else { "Git repositories found in your folders root:".into() }), None, false, false));
     it
 }
 
@@ -655,11 +640,27 @@ pub async fn checklist(app: &App, devices: Option<SetupItem>) -> Checklist {
     items.push(ext);
     let left = required_left(&items);
     *SUMMARY.lock().unwrap() = Some((Instant::now(), left));
+    if !app.paths.role.runs_agents() {
+        items.iter_mut().for_each(no_terminal);
+    }
     Checklist { items, required_left: left }
+}
+
+/// Home runs no terminals (`terminals.rs`): its parts show their command to copy, never Run in terminal.
+fn no_terminal(it: &mut SetupItem) {
+    it.missing.iter_mut().for_each(|p| p.runnable = false);
 }
 
 /// One item, checked again (fixes refuse parts that are already set up).
 pub async fn item_state(app: &App, id: &str) -> Option<SetupItem> {
+    let mut it = item_checked(app, id).await?;
+    if !app.paths.role.runs_agents() {
+        no_terminal(&mut it);
+    }
+    Some(it)
+}
+
+async fn item_checked(app: &App, id: &str) -> Option<SetupItem> {
     let env = app.env.clone();
     Some(match id {
         "github" => github(&env).await.0,
@@ -696,6 +697,7 @@ pub fn invalidate() {
 
 /// The fixed command of a missing part, or an error when the part is set up (or has no command).
 pub async fn fix_command(app: &App, item: &str, part_id: &str) -> anyhow::Result<(String, String)> {
+    launchpad_core::role::ensure_runs_agents(app.paths.role)?;
     let it = item_state(app, item).await.ok_or_else(|| anyhow::anyhow!("no fix for {item}"))?;
     let p = it.missing.iter().find(|p| p.id == part_id).ok_or_else(|| anyhow::anyhow!("{} is already set up on this machine; nothing was changed", it.title))?;
     let command = p.command.clone().filter(|_| p.runnable).ok_or_else(|| anyhow::anyhow!("{} has no command to run", p.label))?;

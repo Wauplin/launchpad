@@ -8,13 +8,9 @@ import type { ServerConfig } from "./ServerConfig";
 import type { Worktrees } from "./Worktrees";
 
 /**
- * Unknown keys are ignored, so files with removed sections (`[commands]`, `[agents]`) keep loading.
+ * Unknown keys are ignored, so files with removed keys and sections (`projects_root`, `[commands]`, `[agents]`) keep loading.
  */
 export type Config = { 
-/**
- * Discovery, temporary folders and worktrees. `~` is expanded.
- */
-projects_root: string, 
 /**
  * Remove a clean pre-draft worktree after successful publication.
  */

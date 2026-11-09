@@ -812,7 +812,7 @@ pub async fn folders(app: &App, cwd: &str) -> Result<TerminalFolders> {
     let records = crate::worktrees::list(app).await.unwrap_or_default();
     let record = records.iter().find(|w| crate::worktrees::folder(w) == cwd).or_else(|| records.iter().find(|w| Path::new(cwd).starts_with(&w.root)));
     let session_project = app.sessions.list().into_iter().find(|s| s.cwd == cwd).and_then(|s| s.project_id);
-    // Managed worktrees live in `<projects root>/.worktrees/<project id>/<slug>`.
+    // Older worktrees used a `.worktrees/<project id>/<slug>` layout.
     let by_layout = {
         let parts: Vec<String> = Path::new(cwd).components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect();
         parts.iter().position(|c| c == ".worktrees").and_then(|i| parts.get(i + 1).cloned())

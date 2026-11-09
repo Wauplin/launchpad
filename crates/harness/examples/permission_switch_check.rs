@@ -31,7 +31,6 @@ async fn main() -> Result<()> {
     let bus = core::events::Bus::new();
     let config = core::config::ConfigHandle::load(&paths, bus.clone())?;
     let mut settings = config.get();
-    settings.projects_root = root.join("projects").to_string_lossy().into();
     // A profile has its own on-demand Codex event router, so the fixture needs no
     // global services (quota monitors, CLI updates or GitHub synchronization).
     settings.profiles.push(core::config::Profile {

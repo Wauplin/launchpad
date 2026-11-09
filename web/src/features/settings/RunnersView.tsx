@@ -1,6 +1,5 @@
 // Settings → Home and runners. On Home: the runners (machines that run agents), with Approve for a pairing request,
 // Remove, and the command that installs and pairs a new one. On a runner: its link to Home and the runner guard, local settings that never sync to Home.
-// Every role also shows This computer: the folders root and the command that opens links, from config.toml.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Guard } from "@/gen/Guard";
@@ -19,7 +18,7 @@ import type { BurstConfig } from "@/gen/BurstConfig";
 import type { BurstOverview } from "@/gen/BurstOverview";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Card, ConfigError, SavedInput, SettingsPage, usePatchConfig } from "./SettingsView";
+import { Card, SettingsPage } from "./SettingsView";
 import { homeStatus } from "@/features/setup/summary";
 import type { RunnerStatus } from "@/gen/RunnerStatus";
 import { canSelfUpdate, UpdateRunnerButton, UpdateThisRunnerButton } from "./RunnerUpdate";
@@ -171,25 +170,7 @@ function HomeRunners() {
           <BurstCard />
         </>
       )}
-      <ThisComputer />
     </SettingsPage>
-  );
-}
-
-/** Settings of the machine this daemon runs on: where folders go and how links open. */
-function ThisComputer() {
-  const status = useStatus().data;
-  const config = useConfig().data;
-  const patch = usePatchConfig();
-  return (
-    <Card title="This computer" tour="settings.this-computer" end={status?.host && <span className="text-[12px] text-ink-3">{status.host}</span>}>
-      <ConfigError />
-      {!config ? <Loading what="settings" /> : <>
-        <SettingRow label="Folders root" hint="Where folders are suggested, and where temporary folders go when you keep them." scope="all">
-          <SavedInput label="Folders root" className="font-mono text-[12px]" value={config.config.projects_root} onSave={(v) => patch({ projects_root: v })} />
-        </SettingRow>
-      </>}
-    </Card>
   );
 }
 
@@ -271,7 +252,6 @@ function ThisRunner() {
           </div>
         )}
       </Card>
-      <ThisComputer />
       <Card title="Boundary">
         <SettingRow label="Agents run in" hint={boundary === "vm" ? "This runner is a Local VM: the virtual machine contains its agents, which may use Docker." : "A bubblewrap jail: agents see only their session's folders, never your files, keys or logins. Set [runner] boundary = \"vm\" in config.toml only inside a dedicated virtual machine."}>
           <Badge tone="teal">{boundary === "vm" ? "Local VM" : "Jail"}</Badge>

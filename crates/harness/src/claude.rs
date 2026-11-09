@@ -803,13 +803,6 @@ pub async fn models(app: &App) -> Result<Vec<ModelInfo>> {
         .collect())
 }
 
-/// Model and effort Claude Code uses when none is given (`~/.claude/settings.json`).
-pub fn defaults() -> (Option<String>, Option<String>) {
-    let path = dirs::home_dir().unwrap_or_default().join(".claude/settings.json");
-    let v: Value = std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
-    (v["model"].as_str().map(str::to_string), v["effortLevel"].as_str().map(str::to_string))
-}
-
 pub const ID: HarnessKind = HarnessKind::new("claude");
 
 const fn var(name: &'static str, group: &'static str, description: &'static str, default: Option<&'static str>, example: Option<&'static str>, secret: bool) -> harness::EnvVarDoc {
@@ -973,9 +966,6 @@ impl harness::Harness for Adapter {
     async fn models(&self, app: &App) -> Result<Vec<ModelInfo>> {
         models(app).await
     }
-    fn defaults(&self) -> (Option<String>, Option<String>) {
-        defaults()
-    }
     fn efforts(&self) -> Vec<String> {
         ["low", "medium", "high", "xhigh", "max"]
             .iter()
@@ -1011,10 +1001,11 @@ impl harness::Harness for Adapter {
         }
         Ok(())
     }
-    fn project_moved(&self, old_s: &str, new_s: &str) {
+    async fn project_moved(&self, app: &App, session: &Session, old_s: &str, new_s: &str) {
+        let Ok(root) = harness::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await else { return };
         let (old_t, new_t) = (
-            claude_transcripts_dir(old_s),
-            claude_transcripts_dir(new_s),
+            claude_transcripts_dir(&root, old_s),
+            claude_transcripts_dir(&root, new_s),
         );
         if old_t.exists()
             && !new_t.exists()
@@ -1236,8 +1227,10 @@ async fn usage_with_token(client: &reqwest::Client, token: &str) -> Result<Quota
 /// Asks Claude Code for its structured `/usage` data (`get_usage` control request). No model request is made;
 /// Claude Code authenticates and refreshes its own OAuth token, which Launchpad never does.
 async fn claude_code_usage(app: &App, env: &[(String, String)]) -> Result<QuotaPair> {
-    let home = dirs::home_dir();
-    let mut child = launchpad_core::procs::child_command(&app.env.with(env), "claude", home.as_deref())
+    // Runs in Home's copy of the login (`vault::login_home`), never in the machine's home folder, whose
+    // `.claude/settings.json` Claude Code would read as project settings.
+    let cwd = env.iter().find(|(k, _)| k == "CLAUDE_CONFIG_DIR").map(|(_, v)| std::path::PathBuf::from(v));
+    let mut child = launchpad_core::procs::child_command(&app.env.with(env), "claude", cwd.as_deref())
         .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--strict-mcp-config"])
         .stdin(launchpad_core::exec::Io::Piped)
         .stdout(launchpad_core::exec::Io::Piped)
@@ -1295,16 +1288,13 @@ fn with_attribution(text: &str, line: &str) -> Result<String> {
     Ok(serde_json::to_string_pretty(&settings)?)
 }
 
-/// Claude stores transcripts in `~/.claude/projects/<path with every non-alphanumeric character as ->`.
-fn claude_transcripts_dir(cwd: &str) -> std::path::PathBuf {
+/// Claude stores transcripts in `<CLAUDE_CONFIG_DIR>/projects/<path with every non-alphanumeric character as ->`.
+fn claude_transcripts_dir(root: &std::path::Path, cwd: &str) -> std::path::PathBuf {
     let encoded: String = cwd
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    dirs::home_dir()
-        .unwrap_or_default()
-        .join(".claude/projects")
-        .join(encoded)
+    root.join("projects").join(encoded)
 }
 
 async fn trace_files(root: &std::path::Path, cwd: &str, id: &str) -> Result<Vec<harness::trace::TraceFile>> {

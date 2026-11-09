@@ -240,7 +240,9 @@ pub trait Harness: Send + Sync {
     fn terminal_env(&self, _is_temp: bool) -> &'static [(&'static str, &'static str)] {
         &[]
     }
-    fn project_moved(&self, _old: &str, _new: &str) {}
+    /// Keep as folder moved `session`'s folder from `old` to `new`: relocate its path-dependent native history
+    /// in the session's own harness home.
+    async fn project_moved(&self, _app: &App, _session: &Session, _old: &str, _new: &str) {}
     fn terminal_resume_markers(&self) -> &'static [&'static str] {
         &[]
     }

@@ -54,7 +54,6 @@ async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiR
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GeneralPatch {
-    projects_root: Option<String>,
     remove_published_worktree: Option<bool>,
     presets: Option<Vec<launchpad_core::config::Preset>>,
     github_poll_interval_seconds: Option<u64>,
@@ -62,7 +61,6 @@ struct GeneralPatch {
 }
 async fn patch_general_config(State(s): State<Server>, Json(patch): Json<GeneralPatch>) -> ApiResult<Value> {
     s.app.config.update(|config| {
-        if let Some(value) = patch.projects_root { config.projects_root = value; }
         if let Some(value) = patch.remove_published_worktree { config.remove_published_worktree = value; }
         if let Some(value) = patch.presets { config.presets = value; }
         if let Some(value) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = value.max(15); }

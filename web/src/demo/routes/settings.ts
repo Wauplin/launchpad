@@ -94,13 +94,12 @@ route("PUT", "/api/config", ({ body }) => {
 });
 
 type GeneralPatch = Partial<{
-  projects_root: string; remove_published_worktree: boolean; presets: Config["presets"]; github_poll_interval_seconds: number; worktrees_keep: number;
+  remove_published_worktree: boolean; presets: Config["presets"]; github_poll_interval_seconds: number; worktrees_keep: number;
 }>;
 
 route("PATCH", "/api/config", ({ body }) => {
   const p = (body ?? {}) as GeneralPatch;
   const c: Config = structuredClone(world.config);
-  if (p.projects_root !== undefined) c.projects_root = p.projects_root;
   if (p.remove_published_worktree !== undefined) c.remove_published_worktree = p.remove_published_worktree;
   if (p.presets !== undefined) c.presets = p.presets;
   if (p.github_poll_interval_seconds !== undefined) c.github.poll_interval_seconds = Math.max(15, p.github_poll_interval_seconds);

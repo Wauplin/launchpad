@@ -1,6 +1,5 @@
 // Status, configuration, workspaces, folders and harness metadata.
 
-import type { Discovered } from "@/gen/Discovered";
 import type { Project } from "@/gen/Project";
 import type { Workspace } from "@/gen/Workspace";
 import { clock, DemoError, githubDemo, notInDemo, publish, route } from "../daemon";
@@ -25,13 +24,7 @@ const projectOf = (id: string) => {
 const projectsChanged = () => publish("projects", "changed", null);
 const workspacesChanged = () => publish("workspaces", "changed", null);
 
-/** Folders that exist on the fake disk but are not registered yet (Add folder, Clone from GitHub). */
-const EXTRA: { name: string; git: boolean; repo: string | null }[] = [
-  { name: "analytics", git: true, repo: `${ORG}/analytics` },
-  { name: "design-system", git: true, repo: `${ORG}/design-system` },
-  { name: "notes", git: false, repo: null },
-];
-
+/** A folder of Home: a cloned repository (`repo`), or a plain folder (`repo` null). */
 function register(path: string, repo: string | null, workspaceId: string | null): Project {
   const clean = path.replace(/\/+$/, "");
   const workspace = world.workspaces.find((x) => x.id === workspaceId);
@@ -39,40 +32,14 @@ function register(path: string, repo: string | null, workspaceId: string | null)
   const existing = world.projects.find((p) => p.path === clean);
   if (existing) throw new DemoError(400, `${clean} is already registered`);
   const name = clean.split("/").pop() || "folder";
-  const known = EXTRA.find((e) => e.name === name);
   const p: Project = {
-    id: `demo-${name}-${clock.now().toString(36)}`, name, path: clean, remote_url: (repo ?? known?.repo) ? `git@github.com:${repo ?? known?.repo}.git` : null, gh_repo: repo ?? known?.repo ?? null, gh_upstream: null,
-    description: "", is_temp: false, pinned: false, created_at: clock.now(), worktree_setup: "", when_done: "keep", workspace_id: workspace.id, home_git: true, plain: false,
+    id: `demo-${name}-${clock.now().toString(36)}`, name, path: clean, remote_url: repo ? `https://github.com/${repo}.git` : null, gh_repo: repo, gh_upstream: null,
+    description: "", is_temp: false, pinned: false, created_at: clock.now(), worktree_setup: "", when_done: "keep", workspace_id: workspace.id, home_git: !!repo, plain: !repo,
   };
   world.projects = [...world.projects, p];
   projectsChanged();
   return p;
 }
-
-route("GET", "/api/projects/browse", ({ query }) => {
-  const home = "/home/demo";
-  const path = (query.get("path") || ROOT).replace(/^~/, home).replace(/\/+$/, "") || "/";
-  const registered = world.projects.filter((p) => !p.is_temp).map((p) => p.name);
-  const entries: Record<string, { name: string; git: boolean }[]> = {
-    [home]: [{ name: "Documents", git: false }, { name: "Downloads", git: false }, { name: "projects", git: false }],
-    [ROOT]: [...registered.map((name) => ({ name, git: name !== "tmp-1028-csv-cleanup" })), ...EXTRA.map((e) => ({ name: e.name, git: e.git }))].sort((a, b) => a.name.localeCompare(b.name)),
-    [`${home}/Documents`]: [{ name: "invoices-2026", git: false }],
-  };
-  if (!path.startsWith("/")) throw new DemoError(400, "use an absolute folder or ~/…");
-  const parent = path === "/" ? null : path.slice(0, path.lastIndexOf("/")) || "/";
-  const name = path.split("/").pop() ?? "";
-  const git = world.projects.some((p) => p.path === path && p.gh_repo) || EXTRA.some((e) => `${ROOT}/${e.name}` === path && e.git);
-  return { path, location: path, parent, home, git, entries: entries[path] ?? (path === "/home" ? [{ name: "demo", git: false }] : path === "/" ? [{ name: "home", git: false }] : name ? [] : []) };
-});
-
-route("POST", "/api/projects/discover", (): Discovered[] => [
-  ...world.projects.filter((p) => !p.is_temp && p.path.startsWith(`${ROOT}/`)).map((p) => ({ name: p.name, path: p.path, gh_repo: p.gh_repo, registered: true })),
-  ...EXTRA.filter((e) => e.git && !world.projects.some((p) => p.path === `${ROOT}/${e.name}`)).map((e) => ({ name: e.name, path: `${ROOT}/${e.name}`, gh_repo: e.repo, registered: false })),
-]);
-
-route("POST", "/api/projects", ({ body }) => {
-  return register(String(body?.path ?? "").replace(/^~/, "/home/demo"), null, body?.workspace_id ?? null);
-});
 
 const cloneSuggestions = () => [{ repo: `${ORG}/analytics`, notifications: 6 }, { repo: `${ORG}/design-system`, notifications: 2 }, { repo: `${ORG}/infra`, notifications: 0 }].filter((r) => !world.projects.some((p) => p.gh_repo === r.repo));
 route("GET", "/api/projects/clone", cloneSuggestions);
@@ -120,7 +87,11 @@ route("GET", "/api/plain/assets/:project", ({ params }) => params.project === P.
 ] : []);
 route("POST", "/api/plain/:id/untrash", () => notInDemo());
 route("GET", "/api/plain/:id/history", () => ({ changes: [], locked_by: null }));
-route("POST", "/api/projects/plain", () => notInDemo());
+route("POST", "/api/projects/plain", ({ body }) => {
+  const name = String(body?.name ?? "").trim();
+  if (!name || name.includes("/")) throw new DemoError(400, "invalid folder name");
+  return register(`${ROOT}/${name}`, null, body?.workspace_id ?? null);
+});
 route("GET", "/api/projects/:id/branches", ({ params }) => {
   const p = projectOf(params.id);
   if (!p.gh_repo && !world.codeTrees[p.id] || p.is_temp) throw new DemoError(400, "not a git repository");

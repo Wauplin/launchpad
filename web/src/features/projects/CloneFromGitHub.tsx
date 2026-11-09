@@ -1,4 +1,4 @@
-// Add folder → Clone from GitHub: the daemon clones a repository into the folders root and registers it.
+// Add folder → Clone from GitHub: Home mirrors a repository and registers it as a Git folder; runners clone it from Home.
 // Suggestions put repositories with recent GitHub notifications first, then recently pushed ones; any owner/name can be typed.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,7 +14,7 @@ const SHOWN = 30;
 
 /** `workspace`: the one workspace of the new folder, chosen in the Add folder dialog (null: not chosen yet).
  * `initialRepo`: a repository to fill in (Settings → GitHub → Add to). */
-export function CloneFromGitHub({ root, workspace, initialRepo, onDone }: { root: string | undefined; workspace: Workspace | null; initialRepo?: string; onDone?: () => void }) {
+export function CloneFromGitHub({ workspace, initialRepo, onDone }: { workspace: Workspace | null; initialRepo?: string; onDone?: () => void }) {
   const qc = useQueryClient();
   const [repo, setRepo] = useState(initialRepo ?? "");
   const [cloning, setCloning] = useState<string | null>(null);
@@ -27,12 +27,11 @@ export function CloneFromGitHub({ root, workspace, initialRepo, onDone }: { root
     setCloning(name);
     try {
       const p = await api.post<Project>("/api/projects/clone", { repo: name, workspace_id: workspace.id });
-      toast(`Cloned ${name} into ${p.path} and added it to ${workspace.name}`);
+      toast(`Added ${p.name} to ${workspace.name}`);
       onDone?.();
       setRepo("");
       await qc.invalidateQueries({ queryKey: ["projects"] });
       await qc.invalidateQueries({ queryKey: ["clone-suggestions"] });
-      await qc.invalidateQueries({ queryKey: ["discover"] });
     } catch (e) {
       toastError(e);
     } finally {
@@ -41,15 +40,14 @@ export function CloneFromGitHub({ root, workspace, initialRepo, onDone }: { root
   };
   return (
     <div className="grid gap-2">
-      <div className="text-[12px] text-ink-3">Clones into <span className="font-mono">{root ?? "the folders root"}</span>{workspace ? `, then adds it to ${workspace.name}` : ". Choose its workspace below"}. A repository already cloned for another workspace gets a second folder.</div>
+      <div className="text-[12px] text-ink-3">Home mirrors the repository{workspace ? ` and adds it to ${workspace.name}` : ". Choose its workspace below"}; runners clone it from Home on first use. A repository already cloned for another workspace gets a second folder.</div>
       <div className="flex gap-2">
         <input className="field-input flex-1 font-mono text-[12px]" aria-label="Repository" placeholder="owner/name, or filter the repositories below" value={repo} disabled={!!cloning} onChange={(e) => setRepo(e.target.value)} />
         <button className="btn btn-sm btn-primary" disabled={!typed.includes("/") || !!cloning || !workspace} onClick={() => void clone(typed)}>
           {cloning ? "Cloning…" : "Clone"}
         </button>
       </div>
-      {cloning && <div className="text-[12px] text-ink-2">Cloning {cloning} on the daemon machine. Large repositories can take a few minutes.</div>}
-      <p className="text-[12px] text-ink-3">Uses <code className="font-mono">gh repo clone</code> with the GitHub CLI sign-in and Git protocol of the daemon machine (<code className="font-mono">git clone</code> over HTTPS without the GitHub CLI).</p>
+      {cloning && <div className="text-[12px] text-ink-2">Cloning {cloning} on Home. Large repositories can take a few minutes.</div>}
       {q.isLoading && <div className="text-[12px] text-ink-3">Loading your repositories…</div>}
       {q.data && q.data.length === 0 && <div className="text-[12px] text-ink-3">No other repository found on GitHub yet. Type owner/name.</div>}
       {matches.length > 0 && (

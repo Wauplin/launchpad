@@ -1,4 +1,4 @@
-//! Clone a GitHub repository into the projects root and register it (Projects → Clone from GitHub).
+//! Clone from GitHub: Home mirrors a GitHub repository and registers it as a Git folder (Folders → Add folder).
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 

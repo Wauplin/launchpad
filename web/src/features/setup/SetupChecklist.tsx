@@ -10,7 +10,6 @@ import type { Checklist } from "@/gen/Checklist";
 import type { SetupItem } from "@/gen/SetupItem";
 import type { MissingPart } from "@/gen/MissingPart";
 import type { Profile } from "@/gen/Profile";
-import type { Project } from "@/gen/Project";
 import { Icon } from "@/components/Icon";
 import { Badge, ConfirmButton, ErrorState, Loading } from "@/components/ui";
 import { toast, toastError } from "@/components/Toast";
@@ -18,8 +17,8 @@ import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { useConfig, useProjects, useSharedSettings, useStatus } from "@/lib/queries";
 import { useComposer } from "@/stores/composer";
-import { useScope, useWorkspaces } from "@/lib/workspace";
-import { WorkspaceCreator, WorkspacePicker, defaultWorkspace } from "@/features/workspaces/WorkspacePicker";
+import { useWorkspaces } from "@/lib/workspace";
+import { WorkspaceCreator } from "@/features/workspaces/WorkspacePicker";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
 import { usePatchPresets } from "@/features/settings/SettingsView";
@@ -192,7 +191,7 @@ function ItemCard({ item, recheck, onHide }: { item: SetupItem; recheck: () => v
       {missing && <>
         {identity.length > 0 && <IdentityForm keys={identity.map((p) => p.id)} onSaved={recheck} />}
         {item.id === "profile" && <ProfileStep item={item} onDone={recheck} />}
-        {item.id === "folder" && <FolderStep item={item} onDone={recheck} />}
+        {item.id === "folder" && <FolderStep />}
         {item.id === "presets" && <PresetsStep onDone={recheck} />}
         {parts.map((p) => <PartRow key={p.id} item={item.id} part={p} />)}
         {item.id === "devices" && <SettingsLink to="/settings/devices">Open Settings → Devices</SettingsLink>}
@@ -308,40 +307,11 @@ function ProfileStep({ item, onDone }: { item: SetupItem; onDone: () => void }) 
   </>;
 }
 
-function FolderStep({ item, onDone }: { item: SetupItem; onDone: () => void }) {
-  const qc = useQueryClient();
+function FolderStep() {
   const showAdd = useAddFolder((s) => s.show);
-  const current = useScope().workspace;
   const workspaces = useWorkspaces().data ?? [];
-  const [chosen, setChosen] = useState<string | null>(null);
-  const workspace = workspaces.find((w) => w.id === (chosen ?? defaultWorkspace(current, workspaces)));
-  const [busy, setBusy] = useState<string | null>(null);
-  const add = async (path: string) => {
-    if (!workspace) return;
-    setBusy(path);
-    try {
-      const p = await api.post<Project>("/api/projects", { path, workspace_id: workspace.id });
-      toast(`Added ${p.name} to ${workspace.name}`);
-      await qc.invalidateQueries({ queryKey: ["projects"] });
-      void qc.invalidateQueries({ queryKey: ["workspaces"] });
-      onDone();
-    } catch (e) { toastError(e); } finally { setBusy(null); }
-  };
   if (workspaces.length === 0) return <p className="m-0 text-[12px] text-ink-3">Create a workspace first (the Workspaces step above): every folder belongs to one.</p>;
-  return (
-    <div className="grid gap-1.5">
-      {item.suggestions.length > 0 && <WorkspacePicker label="Add to" value={workspace?.id ?? null} onChange={setChosen} />}
-      {item.suggestions.length > 0 && <div className="text-[12px] text-ink-2">Git repositories found in your folders root:</div>}
-      {item.suggestions.map((path) => (
-        <div key={path} className="flex items-center gap-2 rounded-card border border-line-2 bg-chrome px-2.5 py-1.5 text-[13px]">
-          <Icon name="folder" size={12} />
-          <span className="min-w-0 flex-1 truncate" title={path}>{path}</span>
-          <button type="button" className="btn btn-sm" disabled={busy !== null || !workspace} onClick={() => void add(path)}><Icon name="plus" size={12} />Add</button>
-        </div>
-      ))}
-      <div><button type="button" className="btn btn-sm" onClick={() => showAdd()}><Icon name="plus" size={12} />Add folder…</button></div>
-    </div>
-  );
+  return <div><button type="button" className="btn btn-sm" onClick={() => showAdd()}><Icon name="plus" size={12} />Add folder…</button></div>;
 }
 
 function PresetsStep({ onDone }: { onDone: () => void }) {

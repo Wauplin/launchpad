@@ -14,12 +14,10 @@ use crate::model::HarnessKind;
 use crate::paths::Paths;
 use std::collections::BTreeMap;
 
-/// Unknown keys are ignored, so files with removed sections (`[commands]`, `[agents]`) keep loading.
+/// Unknown keys are ignored, so files with removed keys and sections (`projects_root`, `[commands]`, `[agents]`) keep loading.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
 pub struct Config {
-    /// Discovery, temporary folders and worktrees. `~` is expanded.
-    pub projects_root: String,
     /// Remove a clean pre-draft worktree after successful publication.
     pub remove_published_worktree: bool,
     pub server: ServerConfig,
@@ -198,7 +196,6 @@ fn preset_agent_default() -> bool {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            projects_root: "~/projects".into(),
             remove_published_worktree: false,
             server: ServerConfig::default(),
             github: GitHub::default(),
@@ -219,8 +216,7 @@ impl Default for GitHub {
 
 /// Written on first start. Missing keys in a user file fall back to these values.
 /// Presets are user-defined only; missing presets and `presets = []` both mean none.
-pub const DEFAULT_CONFIG: &str = r#"projects_root = "~/projects"        # discovery, temporary folders, worktrees
-remove_published_worktree = false   # keep local PR worktrees after publication
+pub const DEFAULT_CONFIG: &str = r#"remove_published_worktree = false   # keep local PR worktrees after publication
 presets = []                       # add your own prompt instructions in Settings
 
 [server]
@@ -237,10 +233,6 @@ keep = 15                           # clean task worktrees of idle agents kept o
 "#;
 
 impl Config {
-    pub fn projects_root(&self) -> PathBuf {
-        crate::paths::expand_home(&self.projects_root)
-    }
-
     pub fn validate(&self) -> Result<()> {
         self.server.bind.parse::<std::net::IpAddr>().context("server.bind must be an IP address")?;
         self.server.origin()?;
