@@ -91,8 +91,8 @@ function ItemCrumb({ repo, number }: { repo: string; number: number }) {
   const lower = repo.toLowerCase();
   const project = projects.find((p) => p.gh_repo?.toLowerCase() === lower) ?? projects.find((p) => p.gh_upstream?.toLowerCase() === lower);
   const kind = item ? (item.__typename === "PullRequest" ? "Pull requests" : "Issues") : "Items";
-  const list: Crumb[] = project ? [{ label: project.name, to: "/projects/$id", params: { id: project.id } }, { label: kind, to: "/projects/$id", params: { id: project.id } }] : [{ label: repo, to: "/inbox" }, { label: kind, to: "/inbox" }];
-  return <Crumbs list={[...list, { label: `#${number}` }]} />;
+  const list: Crumb[] = project ? [{ label: "Folders", to: "/projects" }, { label: project.name, to: "/projects/$id", params: { id: project.id } }, { label: kind, to: "/projects/$id", params: { id: project.id } }] : [{ label: "Inbox", to: "/inbox" }];
+  return <Crumbs list={[...list, { label: project ? `#${number}` : `${repo}#${number}` }]} />;
 }
 
 function PredraftCrumb({ id }: { id: string }) {

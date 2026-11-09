@@ -130,7 +130,7 @@ function UnassignedFolders({ folders, workspaces }: { folders: Project[]; worksp
               <span className="truncate font-mono text-[12px] text-ink-3" title={p.path}>{p.path}</span>
             </span>
             {workspaces.map((w) => <button key={w.id} className="btn btn-sm" onClick={() => void assign(p, w)}>{w.name}</button>)}
-            <ConfirmButton icon="trash" consequence={p.is_temp ? `Deletes ${p.path} from disk.` : "Unregisters it; files on disk are kept."} confirmLabel={p.is_temp ? "Delete files" : "Remove"} onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => { toast(`Removed ${p.name}`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError)}>Remove</ConfirmButton>
+            <ConfirmButton icon="trash" consequence={p.is_temp ? `Deletes ${p.path} from disk.` : "Unregisters it; files on disk are kept."} confirmLabel={p.is_temp ? "Delete files" : "Remove"} onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => { toast(p.is_temp ? `Deleted ${p.path}` : `Removed ${p.name}`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError)}>{p.is_temp ? "Delete files" : "Remove"}</ConfirmButton>
           </div>
         ))}
       </div>

@@ -418,7 +418,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Today for later" onClick={() => { close(); onClear(); void act(s.id, "session.unread"); }} />}
       {phone && <>
         <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename" onClick={() => { close(); setTitle(s.title); setRenaming(true); }} />
-        <MenuItem label="Session details" detail="Branch, usage and New agent here" onClick={() => { close(); setDetailsOpen(true); }} />
+        <MenuItem label="Session details" detail="Branch, usage and Launch here" onClick={() => { close(); setDetailsOpen(true); }} />
         {terminalsHere && !noShell && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail="Open a shell in this folder (the checkout when its worktree is gone)" onClick={() => { close(); void openTerminal.folder(s.cwd); }} />}
       </>}
       {s.status === "in_terminal" && tui && <MenuItem icon={<Icon name="term" size={14} />} label="Show TUI tab" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}

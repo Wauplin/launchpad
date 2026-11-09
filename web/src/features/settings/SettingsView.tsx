@@ -54,7 +54,7 @@ export function SettingsPage({ title, meta, intro, info, actions, children, tour
   const explanation = intro && explain.open && <p className="m-0 w-full text-[13px] text-ink-2">{intro}{info && <span className="mt-1 block text-[12px] text-ink-3">{info}</span>}</p>;
   return (
     <div className="h-full overflow-y-auto">
-      <PhoneBar title={title ?? "Settings"} onBack={() => void navigate({ to: "/settings" })} backLabel="All settings" end={about} />
+      <PhoneBar title={title ?? "Settings"} onBack={() => void navigate({ to: "/settings" })} backLabel="Back to Settings" end={about} />
       <div className="phone-page-content mx-auto grid max-w-[900px] grid-cols-[minmax(0,1fr)] gap-5 p-6">
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4" data-tour={tour}>
           {(meta || explanation || actions) && <div className="flex flex-wrap items-center gap-2">

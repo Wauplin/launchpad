@@ -18,6 +18,7 @@ import { itemKey } from "@/features/github/lib";
 import type { Item } from "@/features/github/types";
 import { runAction } from "@/lib/actions";
 import { askTarget, useBots } from "@/lib/bots";
+import { SETTINGS_NAV, WORKSPACE_NAV } from "@/features/settings/nav";
 import { useProjects, useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
 import { useAskPanel } from "@/stores/ask";
@@ -62,7 +63,10 @@ function pageContext(path: string, search: Record<string, unknown>, projects: Pr
   const local = path.match(/^\/predrafts\/([^/]+)/);
   if (local) return { label: predraft ? `Local PR ${predraft.title}` : "Local PR", line: `the Local PR ${predraft ? `“${predraft.title}” ` : ""}(id ${local[1]})`, launch: predraft ? { projectId: predraft.project_id } : undefined };
   const settings = path.match(/^\/settings\/?([^/]*)/);
-  if (settings) return { label: `Settings${settings[1] ? ` · ${settings[1]}` : ""}`, line: `the settings page ${settings[1] || "Appearance"}` };
+  if (settings) {
+    const page = [...WORKSPACE_NAV, ...SETTINGS_NAV.flatMap((g) => g.items)].find((e) => e.to === path.replace(/\/$/, ""))?.label ?? (settings[1] || "Appearance");
+    return { label: `Settings · ${page}`, line: `the settings page ${page} (${path})` };
+  }
   const bot = path.match(/^\/bots\/([^/]+)/);
   if (bot && bots.some((b) => b.id === bot[1])) return { label: null, line: null, botId: bot[1] };
   return { label: null, line: null };
