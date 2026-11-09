@@ -15,7 +15,8 @@ pub struct QuotaAccount {
     /// `profiles::account`: the key of its reading in `Status.quotas`.
     pub key: String,
     pub harness: HarnessKind,
-    /// Account variables (such as `CLAUDE_CONFIG_DIR`) expanded on this computer; empty for the default login.
+    /// The variables of Home's copy of the vault login (`vault::login_home`: `CLAUDE_CONFIG_DIR` and its token,
+    /// `CODEX_HOME`), never the machine's own login.
     pub env: Vec<(String, String)>,
 }
 
@@ -118,39 +119,6 @@ pub fn monitoring(app: &App, account: &str) -> bool {
     })
 }
 
-/// The logins to monitor: every subscription profile of a harness with quotas, and the login of each
-/// protected session that is running or paused (sessions launched without a profile use the default one).
-fn wanted(app: &App) -> BTreeMap<String, (QuotaAccount, Vec<String>)> {
-    let mut out: BTreeMap<String, (QuotaAccount, Vec<String>)> = BTreeMap::new();
-    let config = app.config.get();
-    let account_env = |harness: HarnessKind, env: &std::collections::BTreeMap<String, String>| -> Vec<(String, String)> {
-        crate::harness::registration(harness).descriptor.account_env.iter()
-            .filter_map(|name| env.get(*name).filter(|v| !v.trim().is_empty()).map(|v| (name.to_string(), crate::paths::expand_home(v).to_string_lossy().into_owned())))
-            .collect()
-    };
-    for p in config.profiles.iter().filter(|p| p.billing == crate::config::Billing::Subscription && crate::harness::registration(p.harness).descriptor.capabilities.quota) {
-        let key = crate::profiles::account_of(p);
-        out.entry(key.clone())
-            .or_insert_with(|| (QuotaAccount { key, harness: p.harness, env: account_env(p.harness, &p.env) }, vec![]))
-            .1
-            .push(p.id.clone());
-    }
-    for s in app.sessions.list() {
-        if !(s.status.is_running() || s.status == SessionStatus::QuotaPaused) || !protected(app, s.harness, &s.launch_spec) { continue; }
-        let key = crate::profiles::account(app, s.harness, &s.launch_spec);
-        if out.contains_key(&key) { continue; }
-        let env = s.launch_spec.profile.as_deref().and_then(|id| config.profile(id)).map(|p| account_env(p.harness, &p.env)).unwrap_or_default();
-        out.insert(key.clone(), (QuotaAccount { key, harness: s.harness, env }, vec![]));
-    }
-    out
-}
-
-/// Logins live in Home's vault (Linux runners and Home): Home monitors each login once for every runner, and
-/// runners receive its readings.
-pub fn vault_quotas() -> bool {
-    cfg!(target_os = "linux")
-}
-
 /// The reading key of a vault login: `vault:<id>`, or `vault:default:<harness>` for the harness's first login.
 pub fn vault_key(harness: HarnessKind, login: Option<&str>) -> String {
     match login {
@@ -199,7 +167,7 @@ fn resolve_vault_key(app: &App, key: &str) -> Option<String> {
 /// for every runner, so a runner also sends complete readings to Home: they keep the quota known while the
 /// usage endpoint refuses Home's polls (429).
 pub fn session_reading(app: &App, account: &str, five: Option<crate::status::QuotaWindow>, week: Option<crate::status::QuotaWindow>) {
-    if !vault_quotas() || !account.starts_with("vault:") {
+    if !account.starts_with("vault:") {
         app.status.update_quota(account, five, week);
         return;
     }
@@ -258,27 +226,23 @@ fn spawn_monitors(app: &App) {
         let mut tick = 0u32;
         loop {
             tick += 1;
-            let wanted = if vault_quotas() {
-                // Logins change rarely: read the vault every minute.
-                if tick % 12 != 1 && app.paths.role != crate::role::Role::Runner {
-                    let readings = vault_readings(&app);
-                    let text = serde_json::to_string(&readings).unwrap_or_default();
-                    if text != sent || tick.is_multiple_of(12) {
-                        sent = text;
-                        app.status.update(|s| s.quotas.extend(readings.iter().filter(|(k, _)| k.starts_with("vault:default:")).map(|(k, v)| (k.clone(), v.clone()))));
-                        app.runners.broadcast(crate::runners::proto::ToRunner::Quotas { quotas: readings });
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    continue;
+            // Logins change rarely: read the vault every minute.
+            if tick % 12 != 1 && app.paths.role != crate::role::Role::Runner {
+                let readings = vault_readings(&app);
+                let text = serde_json::to_string(&readings).unwrap_or_default();
+                if text != sent || tick.is_multiple_of(12) {
+                    sent = text;
+                    app.status.update(|s| s.quotas.extend(readings.iter().filter(|(k, _)| k.starts_with("vault:default:")).map(|(k, v)| (k.clone(), v.clone()))));
+                    app.runners.broadcast(crate::runners::proto::ToRunner::Quotas { quotas: readings });
                 }
-                if app.paths.role == crate::role::Role::Runner {
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    continue;
-                }
-                vault_wanted(&app).await
-            } else {
-                wanted(&app)
-            };
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
+            if app.paths.role == crate::role::Role::Runner {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
+            let wanted = vault_wanted(&app).await;
             tasks.retain(|key, task| {
                 let keep = wanted.contains_key(key);
                 if !keep { task.abort(); }

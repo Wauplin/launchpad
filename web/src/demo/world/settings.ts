@@ -159,7 +159,7 @@ function homeWorld() {
   const runners: RunnerStatus[] = [{
     runner: { id: "demo-runner-laptop", name: "laptop", os: "linux", code: "", state: "approved", created_at: clock.ago(60 * 24 * 9), approved_at: clock.ago(60 * 24 * 9), last_seen_at: clock.ago(1), commit: "demo", protocol: 1, capabilities: caps, burst: false },
     connected: true, compat: "same", guard: { accept_launches: true, paused: false },
-    network_check: demoNetworkCheck(clock.ago(60 * 3)),
+    network_check: demoNetworkCheck(clock.ago(60 * 3)), refused: null,
   }];
   const burstRuns: BurstRun[] = [
     { runner_id: "demo-burst-1", job_id: "demo-job-1", namespace: "demo-owner", flavor: "cpu-basic", url: null, state: "stopped", session_id: "demo-s-audit", created_at: clock.ago(60 * 9 + 2), connected_at: clock.ago(60 * 9 + 1), stopped_at: clock.ago(60 * 9 - 14), cost_per_minute: 0.01 / 60, error: null },

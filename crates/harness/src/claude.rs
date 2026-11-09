@@ -1149,22 +1149,20 @@ pub fn rate_limit_event(app: &App, account: &str, info: &Value) {
     launchpad_core::quota::session_reading(app, account, five, week);
 }
 
-/// Polls the usage of one login: `CLAUDE_CONFIG_DIR` selects its configuration folder (default `~/.claude`).
+/// Polls the usage of one login of Home's vault: Home's copy of it (`vault::login_home`) carries its token
+/// (`claude setup-token`) and its own `CLAUDE_CONFIG_DIR`, never the machine's `~/.claude`.
 fn spawn_quota(app: &App, account: launchpad_core::quota::QuotaAccount) -> tokio::task::JoinHandle<()> {
     let a = app.clone();
     tokio::spawn(async move {
         let client = launchpad_core::status::http_client();
-        let config_dir = account.env.iter().find(|(k, _)| k == "CLAUDE_CONFIG_DIR").map(|(_, v)| std::path::PathBuf::from(v))
-            .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join(".claude"));
         let mut rate_limit_delay = 0;
-        // A login of Home's vault carries its token (`claude setup-token`).
         let vault_token = account.env.iter().find(|(k, _)| k == "CLAUDE_CODE_OAUTH_TOKEN").map(|(_, v)| v.clone());
         loop {
             let mut result = match &vault_token {
                 Some(token) => usage_with_token(&client, token).await,
-                None => claude_usage(&client, &config_dir).await,
+                None => Err(anyhow::anyhow!("this login has no token in Home's vault")),
             };
-            // Expired, missing (macOS Keychain) or rejected tokens: Claude Code reads usage itself and refreshes its own token.
+            // Expired or rejected tokens: Claude Code reads usage itself and refreshes its own token.
             if let Err(e) = &result
                 && e.downcast_ref::<UsageRateLimited>().is_none()
             {
@@ -1213,23 +1211,6 @@ impl std::fmt::Display for UsageRateLimited {
 impl std::error::Error for UsageRateLimited {}
 
 type QuotaPair = (Option<launchpad_core::status::QuotaWindow>, Option<launchpad_core::status::QuotaWindow>);
-
-/// Reads `/api/oauth/usage`. Skips the call when the access token has expired: Claude Code refreshes it.
-async fn claude_usage(client: &reqwest::Client, config_dir: &std::path::Path) -> Result<QuotaPair> {
-    let path = config_dir.join(".credentials.json");
-    let creds: Value =
-        serde_json::from_str(&std::fs::read_to_string(&path).context("read Claude credentials")?)?;
-    let oauth = &creds["claudeAiOauth"];
-    let token = oauth["accessToken"]
-        .as_str()
-        .context("no Claude OAuth token")?;
-    if let Some(exp) = oauth["expiresAt"].as_i64()
-        && exp <= now_ms()
-    {
-        bail!("Claude OAuth token expired");
-    }
-    usage_with_token(client, token).await
-}
 
 async fn usage_with_token(client: &reqwest::Client, token: &str) -> Result<QuotaPair> {
     let res = client

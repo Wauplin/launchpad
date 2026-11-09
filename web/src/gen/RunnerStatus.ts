@@ -15,4 +15,8 @@ compat: Compat | null, guard: Guard | null,
 /**
  * The last network check the owner ran on it (`netcap::network_check`), until Home restarts.
  */
-network_check: NetworkCheck | null, };
+network_check: NetworkCheck | null, 
+/**
+ * Why Home refuses its connection (`role::os_refusal`): agents run only on Linux.
+ */
+refused: string | null, };

@@ -28,9 +28,9 @@ pub fn harness_home(app: &App, id: &str) -> PathBuf {
     session_dir(app, id).join("home")
 }
 
-/// Whether sessions of this daemon run contained: everywhere agents run, on Linux.
+/// Whether sessions of this daemon run contained: everywhere agents run (only on Linux, `role::ensure_agent_os`).
 pub fn contained(app: &App) -> bool {
-    app.paths.role.runs_agents() && cfg!(target_os = "linux")
+    app.paths.role.runs_agents()
 }
 
 /// Variables that place a session's harness state in its own home (also used to find native traces).

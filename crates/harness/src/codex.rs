@@ -1259,12 +1259,8 @@ impl harness::Harness for Adapter {
         spawn_updates(app);
     }
     fn spawn_quota(&self, app: &App, account: launchpad_core::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
-        // The default login uses the shared app-server; another account gets its own, kept for reuse.
-        let server = if account.env.is_empty() {
-            self.server.clone()
-        } else {
-            self.quota_servers.lock().unwrap().entry(account.key.clone()).or_insert_with(|| CodexServer::new(self.env.with(&account.env))).clone()
-        };
+        // Each login of Home's vault gets its own app-server on Home's copy of it (`CODEX_HOME`), kept for reuse.
+        let server = self.quota_servers.lock().unwrap().entry(account.key.clone()).or_insert_with(|| CodexServer::new(self.env.with(&account.env))).clone();
         Some(spawn_quota(app, server, account.key))
     }
     fn terminal_resume_markers(&self) -> &'static [&'static str] {

@@ -740,14 +740,9 @@ pub fn inside(cwd: &str, path: &str) -> bool {
     cwd.starts_with(path) || std::fs::canonicalize(path).is_ok_and(|p| cwd.starts_with(p))
 }
 
-/// The user's login shell (`pwsh.exe`, or `powershell.exe`, on Windows).
+/// The user's login shell (terminals run only on Linux).
 fn shell(app: &App) -> Vec<String> {
-    if cfg!(windows) {
-        let p = app.env.which("pwsh.exe").or_else(|| app.env.which("powershell.exe")).map(|p| p.to_string_lossy().to_string());
-        return vec![p.unwrap_or_else(|| "powershell.exe".into()), "-NoLogo".into()];
-    }
-    let fallback = if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/bash" };
-    vec![app.env.get("SHELL").filter(|s| !s.is_empty()).unwrap_or(fallback).to_string(), "-l".into()]
+    vec![app.env.get("SHELL").filter(|s| !s.is_empty()).unwrap_or("/bin/bash").to_string(), "-l".into()]
 }
 
 fn command_shell(app: &App, command: &str, language: &str) -> Result<Vec<String>> {
@@ -760,7 +755,7 @@ fn command_shell(app: &App, command: &str, language: &str) -> Result<Vec<String>
         }
         _ => bail!("unsupported shell language: {language}"),
     };
-    let powershell = matches!(language, "powershell" | "pwsh") || (language == "shell" && cfg!(windows));
+    let powershell = matches!(language, "powershell" | "pwsh");
     // Pass the whole snippet as one argument, never interpolate it into a wrapper command.
     argv.push(if powershell { "-Command" } else { "-c" }.into());
     argv.push(command.into());
@@ -910,24 +905,8 @@ pub fn tui_running(app: &App, s: &Session) -> bool {
         return false;
     };
     let markers = app.harnesses.get(s.harness).terminal_resume_markers();
-    #[cfg(not(target_os = "linux"))]
-    {
-        let output = if cfg!(windows) {
-            std::process::Command::new("powershell.exe").args(["-NoProfile", "-Command", "Get-CimInstance Win32_Process | Select-Object -ExpandProperty CommandLine"]).output()
-        } else {
-            std::process::Command::new("ps").args(["-axo", "command="]).output()
-        };
-        return output
-            .map(|out| {
-                String::from_utf8_lossy(&out.stdout).lines().any(|line| {
-                    line.contains(id) && markers.iter().any(|marker| line.contains(marker))
-                })
-            })
-            .unwrap_or(true);
-    }
-    #[cfg(target_os = "linux")]
+    // Terminals run only on Linux (`role::ensure_agent_os`).
     let Ok(dir) = std::fs::read_dir("/proc") else { return false };
-    #[cfg(target_os = "linux")]
     for entry in dir.flatten() {
         let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else { continue };
         let args: Vec<&[u8]> = cmdline.split(|b| *b == 0).collect();
@@ -939,8 +918,7 @@ pub fn tui_running(app: &App, s: &Session) -> bool {
             return true;
         }
     }
-    #[cfg(target_os = "linux")]
-    { false }
+    false
 }
 
 #[cfg(all(test, unix))]

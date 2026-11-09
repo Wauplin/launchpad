@@ -76,7 +76,7 @@ pub fn contained_env(app: &App, harness: HarnessKind, spec: &LaunchSpec, model: 
 /// adapter, such as `CLAUDE_CONFIG_DIR`) that its profile sets, unexpanded. Profiles with the same key
 /// share one quota monitor. Specs without a profile use the harness's default login.
 pub fn account(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> String {
-    if crate::quota::vault_quotas() && crate::vault::Kind::login_of(harness).is_some() {
+    if crate::vault::Kind::login_of(harness).is_some() {
         let login = spec.profile.as_deref().and_then(|id| app.config.get().profile(id).and_then(|p| p.login.clone()));
         return crate::quota::vault_key(harness, login.as_deref());
     }

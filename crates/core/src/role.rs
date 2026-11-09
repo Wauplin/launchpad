@@ -61,8 +61,20 @@ pub fn compat(home_protocol: u32, home_commit: &str, runner_protocol: u32, runne
     }
 }
 
-/// Refusal for work that needs a runner, on Home.
+/// Refusal for work that needs a runner, on Home, and for every agent or terminal off Linux.
 pub fn ensure_runs_agents(role: Role) -> anyhow::Result<()> {
     anyhow::ensure!(role.runs_agents(), "Home runs no agents or terminals: connect a runner");
+    ensure_agent_os()
+}
+
+/// Agents and terminals run only on Linux (a Linux machine, a Local VM or Burst), always contained. On macOS,
+/// `packaging/local-vm.sh` creates a Linux VM runner. Home itself runs no agents and may run elsewhere.
+pub fn ensure_agent_os() -> anyhow::Result<()> {
+    anyhow::ensure!(cfg!(target_os = "linux"), "{}", os_refusal(std::env::consts::OS).unwrap_or_default());
     Ok(())
+}
+
+/// Why Home refuses a runner that reports `os` (`std::env::consts::OS`): None for Linux.
+pub fn os_refusal(os: &str) -> Option<String> {
+    (os != "linux").then(|| format!("agents and terminals run only on Linux, not on {os}: on a Mac, create a Linux VM runner with packaging/local-vm.sh"))
 }

@@ -106,6 +106,8 @@ pub struct RunnerStatus {
     pub guard: Option<Guard>,
     /// The last network check the owner ran on it (`netcap::network_check`), until Home restarts.
     pub network_check: Option<crate::netcap::NetworkCheck>,
+    /// Why Home refuses its connection (`role::os_refusal`): agents run only on Linux.
+    pub refused: Option<String>,
 }
 
 fn hash(secret: &str) -> String {
@@ -152,6 +154,9 @@ fn ensure_home(app: &App) -> Result<()> {
 /// A new pairing request. Returns the runner record and the secret, which only the runner keeps.
 pub async fn request(app: &App, name: &str, os: &str) -> Result<(Runner, String)> {
     ensure_home(app)?;
+    if let Some(why) = crate::role::os_refusal(os) {
+        bail!("Home refuses this runner: {why}");
+    }
     let all = load(app).await?;
     let now = now_ms();
     // Expired requests go first, so they never block new ones.
@@ -195,6 +200,9 @@ pub async fn approve(app: &App, id: &str) -> Result<Runner> {
     let (mut r, _) = load(app).await?.into_iter().find(|(r, _)| r.id == id).context("no such runner")?;
     if r.state == RunnerState::Pending && now_ms() - r.created_at > REQUEST_TTL_MS {
         bail!("this request expired; run launchpad connect again");
+    }
+    if let Some(why) = crate::role::os_refusal(&r.os) {
+        bail!("{why}");
     }
     r.state = RunnerState::Approved;
     r.approved_at = Some(now_ms());
@@ -441,7 +449,7 @@ pub async fn runner_name(app: &App, id: &str) -> String {
 pub async fn list(app: &App) -> Result<Vec<RunnerStatus>> {
     let mut out: Vec<RunnerStatus> = load(app).await?.into_iter().filter(|(r, _)| !r.burst).map(|(runner, _)| {
         let live = app.runners.live(&runner.id);
-        RunnerStatus { connected: live.is_some(), compat: live.as_ref().map(|l| l.0), guard: live.map(|l| l.1), network_check: crate::netcap::last(&runner.id), runner }
+        RunnerStatus { connected: live.is_some(), compat: live.as_ref().map(|l| l.0), guard: live.map(|l| l.1), network_check: crate::netcap::last(&runner.id), refused: crate::role::os_refusal(&runner.os), runner }
     }).collect();
     out.sort_by_key(|r| (r.runner.state != RunnerState::Pending, r.runner.name.to_lowercase()));
     Ok(out)

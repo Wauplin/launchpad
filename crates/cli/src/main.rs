@@ -264,12 +264,12 @@ enum Command {
     NativeHost { origin: String, #[arg(trailing_var_arg = true, allow_hyphen_values = true)] extra: Vec<String> },
     /// Run the daemon (HTTP + WebSocket; loopback by default).
     Daemon {
-        /// home: records and services, no agents; runner: agents and terminals, in its own folders
+        /// home: records and services, no agents; runner (Linux only): agents and terminals, in its own folders
         /// (`~/.local/share/launchpad-runner`); all: both in one process.
         #[arg(long, default_value = "all")]
         role: String,
     },
-    /// Pair this machine as a runner of a Home: shows a code to approve in Home's Settings → Home and runners.
+    /// Pair this Linux machine as a runner of a Home: shows a code to approve in Home's Settings → Home and runners.
     Connect {
         /// Home's address, for example https://<you>-launchpad.hf.space
         url: String,
@@ -745,6 +745,9 @@ async fn run() -> Result<()> {
         Command::Daemon { role } => {
             init_tracing();
             let role = launchpad_core::role::Role::parse(&role)?;
+            if role == launchpad_core::role::Role::Runner {
+                launchpad_core::role::ensure_agent_os()?;
+            }
             // A runner gets its own folders and port (`LAUNCHPAD_PORT` overrides the port).
             let paths = if role == paths.role { paths } else { Paths::for_role(paths.app_env, role) };
             if let Err(e) = launchpad_http::logs::init(&paths.data_dir) {
@@ -762,6 +765,7 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Connect { url, name } => {
+            launchpad_core::role::ensure_agent_os()?;
             let runner = Paths::for_role(paths.app_env, launchpad_core::role::Role::Runner);
             launchpad_server::connect(&runner, &url, name).await
         }

@@ -283,8 +283,10 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
         Ok(Some(Ok(t))) => serde_json::from_str::<FromRunner>(&t).ok(),
         _ => None,
     };
-    let Some(FromRunner::Hello { protocol, commit, guard, capabilities, .. }) = hello else { return };
-    let refuse = if runner.state != RunnerState::Approved {
+    let Some(FromRunner::Hello { protocol, commit, guard, capabilities, os, .. }) = hello else { return };
+    let refuse = if let Some(why) = role::os_refusal(&os).or_else(|| role::os_refusal(&runner.os)) {
+        Some(why)
+    } else if runner.state != RunnerState::Approved {
         Some("waiting for approval on Home (Settings → Home and runners)".to_string())
     } else if role::compat(role::PROTOCOL, launchpad_core::commit(), protocol, &commit) == Compat::Incompatible {
         Some(format!("this runner speaks protocol {protocol}, Home speaks {}: update this runner", role::PROTOCOL))
