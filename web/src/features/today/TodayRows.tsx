@@ -2,12 +2,14 @@
 // decision needs reading (a question, a proposal, a message, a suggestion, an agent's last message) open their
 // full card below the line with the title or the arrow button. The bot chat keeps the cards (TodayCards.tsx).
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { memo, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import type { Proposal } from "@/gen/Proposal";
+import type { SessionEventPage } from "@/gen/SessionEventPage";
 import type { Suggestion } from "@/gen/Suggestion";
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
+import { Markdown } from "@/components/Markdown";
 import { Icon, type IconName } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { MenuItem } from "@/components/Popover";
@@ -18,6 +20,7 @@ import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
 import { ProposalCard, proposalIcon, runProposalAction, START } from "@/features/proposals/ProposalCard";
 import { SuggestionCard } from "@/features/suggestions/Suggestions";
 import { runAction } from "@/lib/actions";
+import { api } from "@/lib/api";
 import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useSession } from "@/lib/queries";
@@ -43,10 +46,11 @@ type RowProps = { item: TodayItem; expanded: boolean; toggle: (id: string) => vo
 type Menu = ((close: () => void) => ReactNode) | false | null | undefined;
 
 /** The line: icon, title (opens the details when there are some, else `to`), meta, then the action group: `main`
- * (one outline button in a fixed column) and ⋯ with the other actions (`menu`). On the phone the line keeps only
+ * (one outline button in a fixed column, followed by `second` on a laptop: Archive for agents) and ⋯ with the other
+ * actions (`menu`). On the phone the line keeps only
  * `main`, a one-word outline button of one minimum width without its icon (the column never moves), and the title
  * up to two lines: a tap on the title or meta opens the details with the other actions. */
-function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, main, menu, details, card = false }: RowProps & { icon?: IconName; meta?: ReactNode; age?: boolean; to?: ReactNode; main?: ReactNode; menu?: Menu; details?: ReactNode; card?: boolean }) {
+function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, main, second, menu, details, card = false }: RowProps & { icon?: IconName; meta?: ReactNode; age?: boolean; to?: ReactNode; main?: ReactNode; second?: ReactNode; menu?: Menu; details?: ReactNode; card?: boolean }) {
   // `card`: the details are a full card with its own buttons, so the line hides its buttons while it is open.
   const buttons = !(card && expanded && details);
   const phone = usePhone();
@@ -91,7 +95,7 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
           </div>
         </div>
         <span className="ml-auto max-w-full">
-          <RowActions label={`More actions for ${item.title}`} menuWidth={260} main={buttons && main} more={buttons && menu} />
+          <RowActions label={`More actions for ${item.title}`} menuWidth={260} main={buttons && (second ? <span className="flex items-center gap-1.5">{main}{second}</span> : main)} more={buttons && menu} />
         </span>
       </div>
       {expanded && opens && <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 pr-3 pb-3 pl-[46px]">{details}</div>}
@@ -124,14 +128,41 @@ function Go({ close, label, icon = "ext", detail, go }: { close: () => void; lab
 const OpenAgent = ({ id, close }: { id: string; close: () => void }) =>
   <Go close={close} icon="agents" label="Open agent" go={(n) => n({ to: "/agents", search: { session: id } })} />;
 
-/** Open agent (unless it is the row's main button), Archive and Mark seen: the ⋯ of a finished or failed agent. */
-const SessionMenu = ({ id, open = true }: { id: string; open?: boolean }) => (close: () => void) => <>
+/** Open agent (unless it is the row's main button), Archive (unless it is the row's second button) and Mark seen: the
+ * ⋯ of a finished or failed agent. */
+const SessionMenu = ({ id, open = true, archive = true }: { id: string; open?: boolean; archive?: boolean }) => (close: () => void) => <>
   {open && <OpenAgent id={id} close={close} />}
-  <ActionMenuItem name="session.archive" params={{ id }} close={close} detail="It stays resumable" />
+  {archive && <ActionMenuItem name="session.archive" params={{ id }} close={close} detail="It stays resumable" />}
   <ActionMenuItem name="session.seen" params={{ id }} close={close} detail="Keep the agent and remove it from Today" />
 </>;
 
-const Last = ({ text }: { text: string | null | undefined }) => text ? <p className="m-0 line-clamp-4 text-[13px] whitespace-pre-wrap text-ink-2">{text}</p> : null;
+/** Archive next to the main button of an agent's line, on a laptop (on the phone it stays in the details' menu). */
+const Archive = ({ id }: { id: string }) => <ActionButton name="session.archive" params={{ id }} title="Archive the agent: it stays resumable" />;
+
+/** The agent's last message: its preview (cut at 160 characters, ending with "…"), with an arrow after the "…" that
+ * shows the full message (the last assistant message of the stored log, as Markdown) and an arrow that folds it back. */
+function Last({ text, id, seq }: { text: string | null | undefined; id?: string; seq?: number }) {
+  const [full, setFull] = useState(false);
+  const phone = usePhone();
+  const cut = !!id && !!text?.endsWith("…");
+  const q = useQuery({
+    queryKey: ["last-message", id, seq],
+    // The newest event, with the facts of the ones before it: one of the two is the last assistant message.
+    queryFn: async () => {
+      const page = await api.get<SessionEventPage>(`/api/sessions/${id}/events/page?tail=1`);
+      const ev = page.events.findLast((e) => e.body.kind === "assistant_message") ?? page.facts?.last_assistant;
+      return ev?.body.kind === "assistant_message" ? ev.body.text : null;
+    },
+    enabled: cut && full,
+    staleTime: Infinity,
+  });
+  if (!text) return null;
+  const arrow = (open: boolean) => <button type="button" className={`ml-1 inline-flex ${phone ? "size-11" : "size-5"} items-center justify-center rounded-control align-middle text-ink-3 hover:bg-sunk hover:text-ink`} title={open ? "Show less" : "Show the full message"} aria-label={open ? "Show less" : "Show the full message"} aria-expanded={open} disabled={q.isFetching} onClick={() => setFull(!open)}>
+    <Icon name="chev" size={12} className={open ? "rotate-180" : ""} />
+  </button>;
+  if (full && q.data) return <div className="min-w-0 text-[13px] text-ink-2"><Markdown text={q.data} runShell />{arrow(true)}</div>;
+  return <p className="m-0 text-[13px] whitespace-pre-wrap text-ink-2">{text}{cut && arrow(false)}{full && q.isError && <span className="ml-1 text-[12px] text-gh-closed">Could not load the full message.</span>}</p>;
+}
 
 function QuestionRow(p: RowProps) {
   const { item } = p;
@@ -139,7 +170,7 @@ function QuestionRow(p: RowProps) {
   const ask = useOpenQuestion(item.record);
   return <Row {...p} age={!s} meta={<SessionMeta s={s} item={item} />}
     main={<Expand {...p}>Answer</Expand>} menu={(close) => <OpenAgent id={item.record} close={close} />}
-    details={ask && s?.live ? <AskCard row={ask} sessionId={item.record} live={s.live} hint="Or open the agent to type another answer." /> : <Last text={s?.last_message ?? (item.detail || "The agent asked a question.")} />} />;
+    details={ask && s?.live ? <AskCard row={ask} sessionId={item.record} live={s.live} hint="Or open the agent to type another answer." /> : <Last text={s?.last_message ?? (item.detail || "The agent asked a question.")} id={item.record} seq={s?.last_seq} />} />;
 }
 
 /** Review its Local PR when it wrote one, else Merge when safe, else Review changes when there is work, else
@@ -158,9 +189,10 @@ function FinishedRow(p: RowProps) {
       : safe ? <MergeButton sessionId={item.record} branch={branch} label="Merge" primary={false} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)} />
       : work ? <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record, view: "changes" }} title="Review the changes of the agent">Review</Link>
       : !loading && <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record }} title="Open the agent at its last message">{phone ? "Open" : "Open agent"}</Link>}
-    menu={SessionMenu({ id: item.record, open: !!pr || safe || work || loading })}
+    second={!phone && <Archive id={item.record} />}
+    menu={SessionMenu({ id: item.record, open: !!pr || safe || work || loading, archive: phone })}
     details={(s?.last_message || facts) && <>
-      <Last text={s?.last_message} />
+      <Last text={s?.last_message} id={item.record} seq={s?.last_seq} />
       {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={12} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
     </>} />;
 }
@@ -168,10 +200,12 @@ function FinishedRow(p: RowProps) {
 function FailedRow(p: RowProps) {
   const { item } = p;
   const s = useSession(item.record);
+  const phone = usePhone();
   return <Row {...p} age={!s} meta={<SessionMeta s={s} item={item} />}
     main={<ActionButton name="session.resume" params={{ id: item.record }} body={{ continue_turn: true }} />}
-    menu={SessionMenu({ id: item.record })}
-    details={s?.last_message && <Last text={s.last_message} />} />;
+    second={!phone && <Archive id={item.record} />}
+    menu={SessionMenu({ id: item.record, archive: phone })}
+    details={s?.last_message && <Last text={s.last_message} id={item.record} seq={s.last_seq} />} />;
 }
 
 function LocalPrRow(p: RowProps) {
