@@ -27,6 +27,15 @@ fn home(s: &Server) -> bool {
     s.app.paths.role == launchpad_core::role::Role::Home
 }
 
+/// Home never touches a worktree folder: the relay sends requests that name their session (`?session=`) to its
+/// runner, or answers them from Home Git when it is away (`runners::relay`). What reaches Home's handlers is refused.
+fn not_on_home(s: &Server) -> Result<(), ApiError> {
+    if home(s) {
+        return Err(ApiError::bad_request("Home has no worktrees: they live on the runner of their session. Reload the page and use the session's own view."));
+    }
+    Ok(())
+}
+
 async fn list(State(s): State<Server>) -> ApiResult<Value> {
     // Home has no worktree: they live on the runners.
     if home(&s) {
@@ -62,6 +71,7 @@ struct Finish {
     session_id: String,
 }
 async fn finish(State(s): State<Server>, Json(b): Json<Finish>) -> ApiResult<Value> {
+    not_on_home(&s)?;
     Ok(Json(json!({ "message": worktrees::finish(&s.app, &b.session_id).await.map_err(bad)? })))
 }
 
@@ -71,6 +81,7 @@ struct AddProject {
     project: String,
 }
 async fn add_project(State(s): State<Server>, Json(b): Json<AddProject>) -> ApiResult<Value> {
+    not_on_home(&s)?;
     Ok(Json(json!({ "message": worktrees::add_project(&s.app, &b.session_id, &b.project).await.map_err(bad)? })))
 }
 
@@ -80,6 +91,7 @@ struct ActionBody {
     head: Option<String>,
 }
 async fn action(State(s): State<Server>, Path((id, a)): Path<(String, String)>, body: Option<Json<ActionBody>>) -> ApiResult<Value> {
+    not_on_home(&s)?;
     let app = &s.app;
     let body = body.map(|b| b.0).unwrap_or_default();
     let w = match a.as_str() {

@@ -45,6 +45,10 @@ pub struct Handoff {
     #[serde(rename = "final")]
     pub is_final: bool,
     pub at: i64,
+    /// A Git repository in the session's temporary folder (`plain::git_inside`), which Home's copy never holds:
+    /// Home refuses Keep as folder while that runner is away (`projects::keep_away`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temp_git: Option<String>,
 }
 
 /// What a new runner fetches to adopt a session.
@@ -109,6 +113,13 @@ async fn snapshot(app: &App, id: &str) -> Result<Handoff> {
         Some(_) => app.harnesses.get(s.harness).native_trace(app, &s).await.context("read the agent's conversation")?,
         None => vec![],
     };
+    let temp_git = match &s.project_id {
+        Some(pid) => match crate::projects::get(app, pid).await?.filter(|p| p.is_temp) {
+            Some(p) => tokio::task::spawn_blocking(move || crate::plain::git_inside(std::path::Path::new(&p.path))).await?,
+            None => None,
+        },
+        None => None,
+    };
     Ok(Handoff {
         session_id: s.id.clone(),
         generation: s.generation,
@@ -119,6 +130,7 @@ async fn snapshot(app: &App, id: &str) -> Result<Handoff> {
         attachments: read_attachments(app, id).await?,
         is_final: false,
         at: now_ms(),
+        temp_git,
     })
 }
 

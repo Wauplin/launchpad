@@ -129,8 +129,10 @@ async fn write_hook(dir: &Path) -> Result<()> {
 /// default branch. Launchpad branches never change here.
 pub async fn refresh(app: &App, p: &Project) -> Result<()> {
     fetch_origin(app, p).await?;
-    // Followed branches that did not reach GitHub yet get another push.
-    retry_follows(app, &p.id).await;
+    // Followed branches that did not reach GitHub yet get another push, in the background: a refresh (a runner's
+    // clone, a Local PR's Refresh) never waits for GitHub.
+    let (app, id) = (app.clone(), p.id.clone());
+    tokio::spawn(async move { retry_follows(&app, &id).await });
     Ok(())
 }
 

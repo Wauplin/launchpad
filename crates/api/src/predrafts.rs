@@ -28,7 +28,18 @@ async fn list(State(s): State<Ctx>) -> ApiResult<Value> {
     if let Some(r) = home(&s, "GET", "/api/predrafts", None).await { return r; }
     Ok(Json(json!(predrafts::list(&s.app).await?)))
 }
+/// Home never reads a worktree folder: a Local PR of a worktree (`cwd`) is created on its session's runner
+/// (`runners::relay` routes requests that name the session).
+fn no_worktree_on_home(s: &Ctx) -> Result<(), crate::ApiError> {
+    if s.app.paths.role == launchpad_core::role::Role::Home {
+        return Err(crate::ApiError::bad_request("Home has no worktrees: create this Local PR from the agent's session (reload the page and try again)."));
+    }
+    Ok(())
+}
 async fn create(State(s): State<Ctx>, Json(q): Json<Create>) -> ApiResult<Value> {
+    if q.cwd.is_some() {
+        no_worktree_on_home(&s)?;
+    }
     if q.cwd.is_none() && let Some(r) = home(&s, "POST", "/api/predrafts", Some(serde_json::to_value(&q)?)).await { return r; }
     Ok(Json(json!(predrafts::create(&s.app, q).await?)))
 }
@@ -37,6 +48,7 @@ struct Cwd {
     cwd: String,
 }
 async fn resolve(State(s): State<Ctx>, Query(q): Query<Cwd>) -> ApiResult<Value> {
+    no_worktree_on_home(&s)?;
     Ok(Json(json!(predrafts::resolve(&s.app, &q.cwd).await?)))
 }
 async fn record(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {

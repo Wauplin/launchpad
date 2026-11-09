@@ -769,6 +769,12 @@ pub async fn keep_away(app: &App, id: &str, name: &str) -> Result<Project> {
     ensure!(!app.runners.connected(&runner), "its runner is connected: keep it there");
     let open: Vec<crate::model::Session> = app.sessions.list().into_iter().filter(|s| s.project_id.as_deref() == Some(id) && s.status != crate::model::SessionStatus::Closed).collect();
     ensure!(!open.iter().any(|s| s.status.is_running() || s.open_question), "an agent's turn is still open in {}; keep it when its turn ended", p.name);
+    // Home's copy never holds Git data: a folder whose last turns saw a repository stays with its runner.
+    for s in app.sessions.list().into_iter().filter(|s| s.project_id.as_deref() == Some(id)) {
+        if let Some(git) = crate::handoff::latest(app, &s.id).await?.and_then(|h| h.temp_git) {
+            bail!("{} holds a Git repository ({git}) on its runner, which is away, and Home has no copy of Git data: keep it as a folder once its runner is back", p.name);
+        }
+    }
     let kept = keep_temp(app, id, name).await?;
     for s in open.into_iter().filter(|s| s.runner_id.as_deref() == Some(runner.as_str())) {
         let s = app.sessions.reassign(app, &s.id, &runner).await?;
