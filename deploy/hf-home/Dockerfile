@@ -25,8 +25,11 @@ COPY deploy/hf-space/release.json /opt/space/release.json
 COPY deploy/hf-space/supervisor/install_tools.py /opt/space/install_tools.py
 RUN --mount=type=cache,target=/root/.npm python3 /opt/space/install_tools.py
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential'
+# Tools agents use on a Burst runner (compilers, Rust, pnpm, jq, Chromium…).
+COPY deploy/hf-home/agent-tools.sh /opt/space/agent-tools.sh
+RUN sh /opt/space/agent-tools.sh
 COPY deploy/hf-space/requirements.txt /opt/home/requirements.txt
-RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r /opt/home/requirements.txt && ln -s /opt/venv/bin/hf /usr/local/bin/hf && ln -s /opt/venv/bin/uv /usr/local/bin/uv
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r /opt/home/requirements.txt && ln -s /opt/venv/bin/hf /usr/local/bin/hf && ln -s /opt/venv/bin/uv /usr/local/bin/uv && ln -s /opt/venv/bin/uvx /usr/local/bin/uvx
 RUN userdel node && useradd --uid 1000 --create-home --shell /bin/bash user
 # A Burst runner adds its own CA to the system store, so its agents trust the runner proxy (launchpad_core::netcap).
 RUN chown user /etc/ssl/certs/ca-certificates.crt
@@ -35,6 +38,6 @@ COPY deploy/hf-home/main.py deploy/hf-home/onboarding.py deploy/hf-home/setup.ht
 ENV PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/home/user
 WORKDIR /opt/home
 USER user
-RUN claude --version && codex --version && opencode --version && gh --version && hf version
+RUN claude --version && codex --version && opencode --version && gh --version && hf version && uvx --version && cargo clippy --version && pnpm --version && jq --version && chromium --version
 EXPOSE 7860
 ENTRYPOINT ["/usr/bin/tini", "--", "python", "main.py"]

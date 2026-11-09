@@ -19,7 +19,10 @@ import subprocess
 import sys
 import tempfile
 
-import textstat
+try:
+    import textstat
+except ImportError:  # Started with a bare `python3`: run again through uv, which provides the pinned textstat.
+    os.execvp("uv", ["uv", "run", "-q", "--script", __file__, *sys.argv[1:]])
 
 MIN_EASE = 50  # whole text
 LINE_EASE = 30  # single lines worth rewriting
@@ -95,7 +98,7 @@ def main(args: list[str]) -> int:
     findings = 0
     try:
         env = {k: v for k, v in os.environ.items() if k != "RUST_LOG"}
-        res = subprocess.run(["uvx", "-q", "proselint", "check", tmp.name], capture_output=True, text=True, env=env)
+        res = subprocess.run(["uv", "tool", "run", "-q", "proselint", "check", tmp.name], capture_output=True, text=True, env=env)
         for line in res.stdout.splitlines():
             m = re.match(r".*?:(\d+):(\d+): (.*)", line)
             # "Resume" is a button label here, not a résumé.

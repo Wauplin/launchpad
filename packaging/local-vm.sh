@@ -33,11 +33,16 @@ if ! multipass info "$NAME" >/dev/null 2>&1; then
 fi
 run() { multipass exec "$NAME" -- bash -lc "$1"; }
 
-echo "Installing Docker, bubblewrap and Git in $NAME…"
+echo "Installing Docker, bubblewrap, Git and the tools agents use in $NAME…"
 run 'command -v docker >/dev/null || (curl -fsSL https://get.docker.com | sudo sh); sudo usermod -aG docker "$USER"; sudo apt-get install -y -qq git bubblewrap unzip >/dev/null'
+# Agents cannot use sudo in the VM: the same tools as Burst's image (deploy/hf-home/agent-tools.sh), in /usr/local.
+run 'sudo apt-get install -y -qq build-essential cmake pkg-config jq file xxd less patch zip xz-utils bzip2 sqlite3 shellcheck wget ripgrep procps lsof strace iproute2 dnsutils >/dev/null'
+run 'command -v cargo >/dev/null || (r=rust-1.93.1-$(uname -m)-unknown-linux-gnu; cd /tmp && curl -fsSLO https://static.rust-lang.org/dist/$r.tar.xz && tar xJf $r.tar.xz && sudo $r/install.sh --prefix=/usr/local --components=rustc,cargo,rust-std-$(uname -m)-unknown-linux-gnu,clippy-preview,rustfmt-preview >/dev/null; rm -rf $r $r.tar.xz)'
+run 'command -v uv >/dev/null || curl -fsSL https://astral.sh/uv/install.sh | sudo env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh -s -- -q'
 echo "Installing Claude Code and Codex in $NAME (their vendors' installers)…"
 run 'command -v claude >/dev/null || curl -fsSL https://claude.ai/install.sh | bash'
 run 'command -v codex >/dev/null || (command -v npm >/dev/null || sudo apt-get install -y -qq nodejs npm >/dev/null; sudo npm install -g @openai/codex >/dev/null)'
+run 'command -v pnpm >/dev/null || sudo npm install -g pnpm@10.33.0 >/dev/null'
 
 echo "Copying Launchpad into $NAME…"
 multipass transfer "$BIN" "$NAME:/tmp/launchpad"

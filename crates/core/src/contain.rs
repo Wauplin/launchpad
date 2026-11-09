@@ -232,6 +232,11 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     for entry in app.env.get("PATH").unwrap_or_default().split(':') {
         let d = PathBuf::from(entry);
         if d.is_absolute() && d.is_dir() && !d.starts_with(&app.paths.data_dir) && !d.starts_with("/usr") && !ro.contains(&d) {
+            // A Node install's `bin` (node, npm, corepack) links into `../lib/node_modules`: without it npm and
+            // pnpm fail inside.
+            if let Some(modules) = d.parent().map(|p| p.join("lib/node_modules")).filter(|m| d.ends_with("bin") && m.is_dir() && !ro.contains(m)) {
+                ro.push(modules);
+            }
             ro.push(d);
         }
     }

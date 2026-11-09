@@ -61,6 +61,23 @@ if [ -n "$found" ]; then
 else
   note "No agent CLI found (claude, codex or opencode). Install the one your profile uses before you launch an agent."
 fi
+# Agents see this machine's tools read-only and cannot use sudo: missing ones cost them a workaround each time.
+# The same list as Burst's image (agent-tools.sh). Only a recommendation.
+missing=""
+for pair in cc:build-essential make:build-essential strings:binutils pkg-config:pkg-config cmake:cmake jq:jq rg:ripgrep file:file xxd:xxd unzip:unzip zip:zip xz:xz-utils sqlite3:sqlite3 shellcheck:shellcheck; do
+  command -v "${pair%%:*}" >/dev/null || case " $missing " in *" ${pair#*:} "*) ;; *) missing="$missing ${pair#*:}" ;; esac
+done
+if [ -n "$missing" ]; then
+  note "Agents often use tools this machine lacks. Recommended:
+      sudo apt install$missing"
+else
+  ok "common tools (compilers, jq, ripgrep…)"
+fi
+for pair in cargo:"Rust (https://rustup.rs)" uv:"uv (https://docs.astral.sh/uv)" pnpm:"pnpm (corepack enable pnpm)" chromium:"Chromium or Google Chrome, for screenshots"; do
+  tool="${pair%%:*}"
+  [ "$tool" = chromium ] && { command -v google-chrome >/dev/null || command -v chromium-browser >/dev/null; } && continue
+  command -v "$tool" >/dev/null || note "Recommended for agents: ${pair#*:}"
+done
 # Like huggingface_hub: HF_TOKEN, else the token file of hf auth login.
 TOKEN="${HF_TOKEN:-}"
 TOKEN_FILE="${HF_HOME:-$HOME/.cache/huggingface}/token"
