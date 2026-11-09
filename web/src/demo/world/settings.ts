@@ -117,9 +117,10 @@ export function settingsWorld() {
     { id: "demo-device-desktop", name: "Laptop", created_at: seconds(clock.ago(60 * 24 * 40)), expires_at: seconds(clock.ago(-60 * 24 * 325)), last_seen_at: seconds(clock.now()), current: true },
     { id: "demo-device-phone", name: "Phone", created_at: seconds(clock.ago(60 * 24 * 12)), expires_at: seconds(clock.ago(-60 * 24 * 353)), last_seen_at: seconds(clock.ago(95)), current: false },
   ];
-  // One recorded shell exists from the start ("Terminals · 1" in the status bar); its replay starts when it is shown.
+  // One recorded shell exists from the start ("Terminals · 1" in the status bar), on the laptop runner like every
+  // demo terminal (Home relays it); its replay starts when it is shown.
   const terminals: TerminalInfo[] = [
-    { id: "demo-term-billing", kind: "shell", title: "billing-api · main", cwd: `${ROOT}/billing-api`, project_id: P.billing, session_id: null, alive: true, exit_code: null, created_at: clock.ago(12), folder: "billing-api", place: "checkout", branch: "main", busy: false, notice: null },
+    { id: "demo-term-billing", kind: "shell", title: "billing-api · main", cwd: `${ROOT}/billing-api`, project_id: P.billing, session_id: null, alive: true, exit_code: null, created_at: clock.ago(12), folder: "billing-api", place: "checkout", branch: "main", busy: false, notice: null, runner_id: "demo-runner-laptop" },
   ];
   const gh: SignInCheck = { id: "github", profile: null, name: "GitHub CLI", cli_found: true, signed_in: true, detail: `Logged in to github.com account ${USER}`, command: "gh auth login" };
   const huggingface: DemoHuggingFace = {
@@ -155,7 +156,7 @@ export function demoNetworkCheck(at: number): NetworkCheck {
 /** Home and runners: the owner's laptop runner (every demo agent runs there) and two Burst jobs that ran sessions
  * while the laptop slept. */
 function homeWorld() {
-  const caps = { vm: false, docker: false, burst: false, self_update: true };
+  const caps = { vm: false, docker: false, burst: false, self_update: true, terminals: true };
   const runners: RunnerStatus[] = [{
     runner: { id: "demo-runner-laptop", name: "laptop", os: "linux", code: "", state: "approved", created_at: clock.ago(60 * 24 * 9), approved_at: clock.ago(60 * 24 * 9), last_seen_at: clock.ago(1), commit: "demo", protocol: 1, capabilities: caps, burst: false },
     connected: true, compat: "same", guard: { paused: false },

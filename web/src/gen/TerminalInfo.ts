@@ -17,4 +17,8 @@ busy: boolean | null,
 /**
  * Only in the open response: the folder that was used instead, or the idle shell that was reused.
  */
-notice: string | null, };
+notice: string | null, 
+/**
+ * The runner it runs on, set by Home when it relays the runner's answer.
+ */
+runner_id: string | null, };

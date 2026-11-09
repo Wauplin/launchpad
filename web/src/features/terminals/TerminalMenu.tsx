@@ -1,6 +1,7 @@
 // The Terminal split button used at every Terminal entry point: the main part opens a shell in the default
 // folder (the checkout when the worktree was merged or removed), ▾ opens one shared folder menu:
-// This worktree · Checkout · other worktrees of that folder · Other folder….
+// This worktree · Checkout · other worktrees of that folder · Other folder…. Shells open on a runner (Home relays
+// them): the agent's runner, or the one Home picks for a folder; the button is disabled with the reason when none can.
 
 import { useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/Icon";
@@ -8,16 +9,16 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { Loading, ErrorState } from "@/components/ui";
 import { ProjectPicker } from "@/features/launch/ProjectPicker";
 import { useScope } from "@/lib/workspace";
-import { useOpenTerminal, useTerminalFolders, useTerminalsHere } from "./lib";
+import { useAnyRunnerBlock, useOpenTerminal, useTerminalBlock, useTerminalFolders, useTerminalsHere } from "./lib";
 
-/** The folder choices for `cwd`. `onPick` receives the folder to open a shell in. */
-export function FolderMenu({ cwd, onPick }: { cwd: string | null; onPick: (path: string) => void }) {
-  const folders = useTerminalFolders(cwd);
+/** The folder choices for `cwd` on `runner` (Home's choice when unset). `onPick` receives the folder to open a shell in and its runner. */
+export function FolderMenu({ cwd, runner, onPick }: { cwd: string | null; runner?: string | null; onPick: (path: string, runner: string | null) => void }) {
+  const folders = useTerminalFolders(cwd, runner);
   const scope = useScope();
   const [other, setOther] = useState(!cwd);
   if (other) {
     const projects = [...scope.projects].sort((a, b) => a.name.localeCompare(b.name));
-    return <ProjectPicker projects={projects} temporary={false} emptyMessage="No folders in this workspace. Add one in Folders." onPick={(p) => { if (p) onPick(p.path); }} />;
+    return <ProjectPicker projects={projects} temporary={false} emptyMessage="No folders in this workspace. Add one in Folders." onPick={(p) => { if (p) onPick(p.path, null); }} />;
   }
   const f = folders.data;
   return (
@@ -31,7 +32,7 @@ export function FolderMenu({ cwd, onPick }: { cwd: string | null; onPick: (path:
         detail={f.current.reason ?? f.current.branch ?? undefined}
         disabled={!f.current.available}
         active={f.default === f.current.path}
-        onClick={() => onPick(f.current!.path)}
+        onClick={() => onPick(f.current!.path, f.runner_id)}
       />}
       {f?.checkout && <MenuItem
         icon={<Icon name="folder" size={14} />}
@@ -39,10 +40,10 @@ export function FolderMenu({ cwd, onPick }: { cwd: string | null; onPick: (path:
         detail={f.checkout.reason ?? f.project_name ?? undefined}
         disabled={!f.checkout.available}
         active={f.default === f.checkout.path}
-        onClick={() => onPick(f.checkout!.path)}
+        onClick={() => onPick(f.checkout!.path, f.runner_id)}
       />}
       {(f?.worktrees.length ?? 0) > 0 && <div className="px-[9px] pt-1.5 pb-0.5 text-[11px] font-semibold text-ink-3">Other worktrees</div>}
-      {f?.worktrees.map((w) => <MenuItem key={w.path} icon={<Icon name="branch" size={14} />} label={w.label} detail={w.branch ?? undefined} onClick={() => onPick(w.path)} />)}
+      {f?.worktrees.map((w) => <MenuItem key={w.path} icon={<Icon name="branch" size={14} />} label={w.label} detail={w.branch ?? undefined} onClick={() => onPick(w.path, f.runner_id)} />)}
       <div className="my-0.5 border-t border-line-2" />
       <MenuItem icon={<Icon name="more" size={14} />} label="Other folder…" onClick={() => setOther(true)} />
     </>
@@ -51,10 +52,12 @@ export function FolderMenu({ cwd, onPick }: { cwd: string | null; onPick: (path:
 
 /**
  * Split button: Terminal opens a shell in the default folder of `cwd`, ▾ chooses another folder.
- * Without `cwd` the main part opens the folder menu's Other folder list.
+ * Without `cwd` the main part opens the folder menu's Other folder list. `runner`: the agent's runner whose path
+ * `cwd` is (disabled with the reason while it cannot open terminals); without it Home picks a connected runner.
  */
-export function TerminalMenu({ cwd, label = "Terminal", icon = "term", small, phone, viewport = phone, className = "", align = "right", up, title, disabled }: {
+export function TerminalMenu({ cwd, runner, label = "Terminal", icon = "term", small, phone, viewport = phone, className = "", align = "right", up, title, disabled }: {
   cwd: string | null;
+  runner?: string | null;
   label?: ReactNode;
   icon?: IconName;
   small?: boolean;
@@ -68,6 +71,10 @@ export function TerminalMenu({ cwd, label = "Terminal", icon = "term", small, ph
 }) {
   const open = useOpenTerminal();
   const here = useTerminalsHere();
+  const agentBlock = useTerminalBlock(runner);
+  const anyBlock = useAnyRunnerBlock();
+  const block = runner ? agentBlock : anyBlock;
+  const off = disabled || !!block;
   const size = small ? "btn-sm" : "";
   if (!here) return null;
   return (
@@ -80,17 +87,17 @@ export function TerminalMenu({ cwd, label = "Terminal", icon = "term", small, ph
       className={`inline-flex ${className}`}
       trigger={({ open: menuOpen, toggle }) => (
         <span className="inline-flex" data-tour="terminal.menu">
-          <button type="button" className={`btn ${size} rounded-r-none`} disabled={disabled} title={title ?? (cwd ? `Open a shell in ${cwd}` : "Open a shell")} onClick={() => (cwd ? void open.folder(cwd) : toggle())}>
+          <button type="button" className={`btn ${size} rounded-r-none`} disabled={off} title={block ?? title ?? (cwd ? `Open a shell in ${cwd}` : "Open a shell")} onClick={() => (cwd ? void open.folder(cwd, runner) : toggle())}>
             <Icon name={icon} size={small ? 12 : 14} />
             {label}
           </button>
-          <button type="button" className={`btn ${size} rounded-l-none border-l-0 px-1.5!`} disabled={disabled} aria-label="Choose the folder" title="Choose the folder" aria-haspopup="dialog" aria-expanded={menuOpen} onClick={toggle}>
+          <button type="button" className={`btn ${size} rounded-l-none border-l-0 px-1.5!`} disabled={off} aria-label="Choose the folder" title={block ?? "Choose the folder"} aria-haspopup="dialog" aria-expanded={menuOpen} onClick={toggle}>
             <Icon name="chev" size={12} />
           </button>
         </span>
       )}
     >
-      {(close) => <FolderMenu cwd={cwd} onPick={(path) => { close(); void open.shell(path); }} />}
+      {(close) => <FolderMenu cwd={cwd} runner={runner} onPick={(path, on) => { close(); void open.shell(path, undefined, undefined, on); }} />}
     </Popover>
   );
 }

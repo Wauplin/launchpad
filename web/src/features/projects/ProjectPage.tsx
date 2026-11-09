@@ -64,7 +64,7 @@ export function ProjectPage() {
       <Icon name="folder" size={14} />
       Files
     </Link>
-    <TerminalMenu cwd={p.path} phone={phone} />
+    {!p.plain && <TerminalMenu cwd={p.path} runner={p.is_temp ? p.runner_id : null} phone={phone} />}
   </>;
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="folder.page">

@@ -10,14 +10,40 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useScope } from "@/lib/workspace";
 import { useStatus } from "@/lib/queries";
+import { useRunners } from "@/lib/runners";
+import { useBurstRun } from "@/lib/burst";
 import { isDemo } from "@/demo/mode";
 import { useLayout } from "@/stores/layout";
 
-/** Terminals open where agents run: Home runs none, so every Terminal entry point hides there (no relay yet). */
+/** Terminals run on runners and open from Home's window, which relays them; a runner's own window shows its status only. */
 export function useTerminalsHere() {
   const role = useStatus().data?.role;
-  return isDemo || role !== "home";
+  return isDemo || role === "home";
 }
+
+/** Why no terminal can open on this runner now (an agent's runner: offline, a Burst job that is not running, an older build), or null. */
+export function useTerminalBlock(runnerId: string | null | undefined): string | null {
+  const runners = useRunners().data;
+  const run = useBurstRun(runnerId);
+  if (isDemo) return null;
+  if (!runnerId) return "This agent runs on no runner";
+  if (run) return run.state === "running" ? null : "Its Burst job is not running: send a message to continue the agent, then open the terminal";
+  const r = runners?.find((x) => x.runner.id === runnerId);
+  if (!r) return null;
+  if (!r.connected) return `${r.runner.name} is offline: terminals open on the agent's runner once it reconnects`;
+  if (!r.runner.capabilities.terminals) return `${r.runner.name} needs an update to open terminals from Home`;
+  return null;
+}
+
+/** Why no shell can open in a folder now (no runner connected), or null. */
+export function useAnyRunnerBlock(): string | null {
+  const runners = useRunners().data;
+  if (isDemo || !runners) return null;
+  return runners.some((r) => r.connected && r.runner.capabilities.terminals) ? null : "No runner is connected: terminals open on a runner";
+}
+
+/** `?runner=` for a call Home relays to that runner (it picks one itself without it). */
+const onRunner = (runner?: string | null) => (runner ? `runner=${encodeURIComponent(runner)}` : "");
 
 const listTerminals = () => api.get<TerminalInfo[]>("/api/terminals");
 export const useTerminals = () => useQuery({ queryKey: ["terminals"], queryFn: listTerminals, staleTime: Infinity });
@@ -33,8 +59,12 @@ export function useScopedTerminals(): TerminalInfo[] {
 }
 
 /** The folder menu of a Terminal button (folder, checkout, other worktrees), fetched when needed. */
-export const foldersQuery = (cwd: string) => ({ queryKey: ["terminal-folders", cwd], queryFn: () => api.get<TerminalFolders>(`/api/terminals/folders?cwd=${encodeURIComponent(cwd)}`), staleTime: 10_000 });
-export const useTerminalFolders = (cwd: string | null) => useQuery({ ...foldersQuery(cwd ?? ""), enabled: !!cwd });
+export const foldersQuery = (cwd: string, runner?: string | null) => ({
+  queryKey: ["terminal-folders", cwd, runner ?? null],
+  queryFn: () => api.get<TerminalFolders>(`/api/terminals/folders?cwd=${encodeURIComponent(cwd)}${runner ? `&${onRunner(runner)}` : ""}`),
+  staleTime: 10_000,
+});
+export const useTerminalFolders = (cwd: string | null, runner?: string | null) => useQuery({ ...foldersQuery(cwd ?? "", runner), enabled: !!cwd });
 
 /** Opens a shell or a session TUI, then shows it in the dock. */
 export function useOpenTerminal() {
@@ -53,12 +83,14 @@ export function useOpenTerminal() {
   );
   return useMemo(
     () => ({
-      shell: (cwd: string, command?: string, language?: string) => api.post<TerminalInfo>("/api/terminals", { cwd, command, language }).then(reveal).catch(toastError),
+      /** `runner`: the runner whose path `cwd` is (an agent's folder, a folder menu entry); Home finds it from the path otherwise. */
+      shell: (cwd: string, command?: string, language?: string, runner?: string | null) => api.post<TerminalInfo>(`/api/terminals${runner ? `?${onRunner(runner)}` : ""}`, { cwd, command, language }).then(reveal).catch(toastError),
       /** Terminal button: the default of the folder menu (the checkout when the worktree was merged or removed). */
-      folder: async (cwd: string) => {
-        const folders = await qc.fetchQuery(foldersQuery(cwd)).catch(() => null);
+      folder: async (cwd: string, runner?: string | null) => {
+        const folders = await qc.fetchQuery(foldersQuery(cwd, runner)).catch(() => null);
         if (folders?.notice) toast(folders.notice);
-        return api.post<TerminalInfo>("/api/terminals", { cwd: folders?.default ?? cwd }).then(reveal).catch(toastError);
+        const on = folders?.runner_id ?? runner;
+        return api.post<TerminalInfo>(`/api/terminals${on ? `?${onRunner(on)}` : ""}`, { cwd: folders?.default ?? cwd }).then(reveal).catch(toastError);
       },
       tui: (sessionId: string) => api.post<TerminalInfo>(`/api/sessions/${sessionId}/terminal`).then(reveal).catch(toastError),
       /** Restart here: the same shell or snippet (the daemon replaces the exited tab); a TUI goes through its agent. */

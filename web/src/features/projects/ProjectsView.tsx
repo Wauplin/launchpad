@@ -9,7 +9,7 @@ import { memo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { MenuItem } from "@/components/Popover";
 import { ConfirmButton, Empty, MenuSection, PageHeader, RowActions } from "@/components/ui";
-import { useOpenTerminal, useTerminalsHere } from "@/features/terminals/lib";
+import { useAnyRunnerBlock, useOpenTerminal, useTerminalBlock, useTerminalsHere } from "@/features/terminals/lib";
 import { useAddFolder } from "./addFolderStore";
 import type { Project } from "@/gen/Project";
 import { Icon } from "@/components/Icon";
@@ -95,12 +95,16 @@ function FolderMenu({ p, close }: { p: Project; close: () => void }) {
   const workspaces = useWorkspaces().data ?? [];
   const others = workspaces.filter((w) => w.id !== p.workspace_id);
   const terminals = useTerminalsHere();
+  // A Git folder's shell opens on a runner Home picks; a temporary folder's on its runner. Plain folders change only through their agents.
+  const anyBlock = useAnyRunnerBlock();
+  const tempBlock = useTerminalBlock(p.runner_id);
+  const block = p.is_temp ? tempBlock : anyBlock;
   const openTerminal = useOpenTerminal();
   const navigate = useNavigate();
   return (
     <>
       <MenuItem icon={<Icon name="folder" size={14} />} label="Files" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: p.id } }); }} />
-      {terminals && <MenuItem icon={<Icon name="term" size={14} />} label="Terminal" detail="A shell in this folder" onClick={() => { close(); void openTerminal.folder(p.path); }} />}
+      {terminals && !p.plain && <MenuItem icon={<Icon name="term" size={14} />} label="Terminal" detail={block ?? "A shell in this folder, on a runner"} disabled={!!block} onClick={() => { close(); void openTerminal.folder(p.path, p.is_temp ? p.runner_id : null); }} />}
       <MenuItem icon={<Icon name="sliders" size={14} />} label="Folder settings" onClick={() => { close(); void navigate({ to: "/projects/$id", params: { id: p.id }, search: { tab: "settings" } as never }); }} />
       {others.map((w) => (
         <MenuItem key={w.id} icon={<Icon name="folder" size={14} />} label={`Move to ${w.name}`} onClick={() => { close(); void moveFolder(p, w).then(() => { toast(`Moved ${p.name} to ${w.name}`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError); }} />

@@ -19,4 +19,8 @@ burst: boolean,
 /**
  * Updates itself to Home's build on Home's request (`self_update`).
  */
-self_update: boolean, };
+self_update: boolean, 
+/**
+ * Serves its terminals to Home's windows through the tunnel (`ToRunner::WsOpen`).
+ */
+terminals: boolean, };

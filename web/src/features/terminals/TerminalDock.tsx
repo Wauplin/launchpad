@@ -22,8 +22,9 @@ import { closeNeedsConfirm, folderName, refreshTerminals, terminalStatus, useOpe
 // one identity once resolved, so mounted views are never remounted by it.
 const TerminalView = lazy(() => import("./TerminalView").then((m) => ({ default: m.TerminalView })));
 
-/** The folder of what is on screen: Files root, project, Local PR or selected session. */
-function useCurrentFolder(fallback: TerminalInfo | undefined): string | null {
+/** The folder of what is on screen (Files root, project, Local PR or selected session), and the runner whose path it is
+ * when known (the agent's or the terminal's); Home finds or picks the runner otherwise. */
+function useCurrentFolder(fallback: TerminalInfo | undefined): { cwd: string | null; runner: string | null } {
   const location = useRouterState({ select: (s) => s.location });
   const projects = useProjects().data;
   const scope = useScope();
@@ -31,16 +32,22 @@ function useCurrentFolder(fallback: TerminalInfo | undefined): string | null {
   const selected = useLayout((s) => s.selectedSession);
   const path = location.pathname;
   const search = location.search as Record<string, unknown>;
+  const runnerOf = (id: unknown) => (typeof id === "string" ? sessions?.find((s) => s.id === id)?.runner_id ?? null : null);
   let m = path.match(/^\/projects\/([^/]+)\/code$/);
-  if (m && typeof search.root === "string") return search.root;
+  if (m && typeof search.root === "string") return { cwd: search.root, runner: runnerOf(search.session) };
   m = path.match(/^\/projects\/([^/]+)(\/code)?$/);
-  if (m) return projects?.find((p) => p.id === m![1])?.path ?? null;
+  if (m) {
+    const p = projects?.find((p) => p.id === m![1]);
+    return { cwd: p?.path ?? null, runner: p?.is_temp ? p.runner_id ?? null : null };
+  }
   if (path === "/agents") {
     const id = typeof search.session === "string" ? search.session : selected;
     const s = sessions?.find((s) => s.id === id);
-    if (s) return s.cwd;
+    if (s) return { cwd: s.cwd, runner: s.runner_id ?? null };
   }
-  return fallback?.cwd ?? scope.projects[0]?.path ?? null;
+  if (fallback) return { cwd: fallback.cwd, runner: fallback.runner_id };
+  const first = scope.projects.find((p) => !p.plain);
+  return { cwd: first?.path ?? null, runner: first?.is_temp ? first.runner_id ?? null : null };
 }
 
 const kindIcon = (t: TerminalInfo): IconName => (t.kind === "tui" ? "agents" : t.kind === "command" ? "play" : "term");
@@ -101,7 +108,7 @@ export function CloseAllTerminals({ onDone }: { onDone?: () => void } = {}) {
 
 /** `fill` (phone shell): the dock is a full page, shown while `fill` is true, without height or Hide controls. */
 export function TerminalDock({ fill }: { fill?: boolean } = {}) {
-  // Home runs no terminals: no dock, and Ctrl+T does nothing.
+  // Terminals run on runners and Home relays them; a runner's own window shows its status only (no dock, no Ctrl+T).
   return useTerminalsHere() ? <Dock fill={fill} /> : null;
 }
 
@@ -126,7 +133,7 @@ function Dock({ fill }: { fill?: boolean }) {
   const navigate = useNavigate();
   const back = useBack(() => void navigate({ to: "/" }));
   const active = terminals.find((t) => t.id === dock.active) ?? terminals[terminals.length - 1];
-  const folder = useCurrentFolder(active);
+  const { cwd: folder, runner } = useCurrentFolder(active);
   const projects = useProjects().data;
   const folderLabel = folder ? (projects?.find((p) => p.path === folder)?.name ?? folderName(folder)) : null;
   const [confirming, setConfirming] = useState<TerminalInfo | null>(null);
@@ -137,7 +144,7 @@ function Dock({ fill }: { fill?: boolean }) {
       event.preventDefault();
       event.stopPropagation();
       if (event.repeat) return;
-      if (folder) void open.folder(folder);
+      if (folder) void open.folder(folder, runner);
       else {
         setDock({ open: true });
         toast("Add a folder or open an agent before opening a shell");
@@ -146,7 +153,7 @@ function Dock({ fill }: { fill?: boolean }) {
     // Capture before the terminal or a text field translates Ctrl+T; this also works with a hidden dock.
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [folder, open, setDock]);
+  }, [folder, runner, open, setDock]);
   // Keep visited emulators alive through tab/workspace switches and Hide. Raw byte replay cannot
   // reconstruct historical resizes or terminal modes once the daemon's rolling buffer is truncated.
   const visited = useRef(new Set<string>());
@@ -198,7 +205,7 @@ function Dock({ fill }: { fill?: boolean }) {
           </div>
         ))}
         {terminals.length > 0 && <div className="my-0.5 border-t border-line-2" />}
-        {folder && <MenuItem icon={<Icon name="plus" size={14} />} label={`New shell in ${folderLabel}`} onClick={() => { closeMenu(); void open.folder(folder); }} />}
+        {folder && <MenuItem icon={<Icon name="plus" size={14} />} label={`New shell in ${folderLabel}`} onClick={() => { closeMenu(); void open.folder(folder, runner); }} />}
       </>}
     </Popover>
   );
@@ -216,7 +223,7 @@ function Dock({ fill }: { fill?: boolean }) {
       ) : (
         <div className="flex h-9 flex-none items-center gap-1.5 border-b border-line-2 bg-chrome px-2 text-[12px]">
           {tabs}
-          <TerminalMenu cwd={folder} label="New" icon="plus" small up title={folder ? `Open a shell in ${folder}` : "Choose a folder for a new shell"} />
+          <TerminalMenu cwd={folder} runner={runner} label="New" icon="plus" small up title={folder ? `Open a shell in ${folder}` : "Choose a folder for a new shell"} />
           {dockMenu}
           <button className="btn btn-sm" title="Hide the dock; terminals keep running" onClick={() => setDock({ open: false })}><Icon name="hide" size={14} />Hide</button>
         </div>
@@ -236,7 +243,7 @@ function Dock({ fill }: { fill?: boolean }) {
       ))}
       {!active && all.isPending && <Loading what="terminals" className="flex-1 justify-center" />}
       {!active && !all.isPending && (
-        <Empty fill icon="term" action={<TerminalMenu cwd={folder} label={folderLabel ? `New terminal in ${folderLabel}` : "New terminal"} up={!phone} phone={phone} align="left" />}>
+        <Empty fill icon="term" action={<TerminalMenu cwd={folder} runner={runner} label={folderLabel ? `New terminal in ${folderLabel}` : "New terminal"} up={!phone} phone={phone} align="left" />}>
           No terminal open in this workspace.
         </Empty>
       )}

@@ -1,7 +1,8 @@
 // Demo routes: integrated terminals. Nothing runs: a shell replays a recording (git status, then the folder's tests)
 // byte by byte, a harness TUI shows one recorded frame, and typed input only answers that commands do not run.
 // Sockets follow the real protocol (`crates/server/src/terminals.rs`): a `reset` control with the size and owner,
-// the retained output as binary frames, `ready`, then live output; `resize`, `claim` and `ack` come back.
+// the retained output as binary frames, `ready`, then live output; `resize`, `claim` and `ack` come back. Like real
+// terminals, every demo terminal runs on a runner (the laptop) and Home relays it: answers carry its `runner_id`.
 
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { TaskWorktree } from "@/gen/TaskWorktree";
@@ -14,6 +15,8 @@ import { ROOT } from "../world/ids";
 import { HOME } from "../world/settings";
 
 const MAX_OPEN = 12;
+/** The runner every demo terminal runs on (`world/settings.ts`). */
+const RUNNER = "demo-runner-laptop";
 const encoder = new TextEncoder();
 
 // ANSI helpers.
@@ -125,7 +128,7 @@ function tuiFrame(t: TerminalInfo, harness: string, lastMessage: string | null, 
   };
   const message = wrap(lastMessage ?? "Resumed the session. The last turn is finished; ask for a follow-up or exit to return to Launchpad.", w - 6);
   const screen = [
-    ...box([`${accent("✻")} ${bold(name)} ${dim("· resumed session")}`, dim(`cwd: ${tilde(t.cwd.replace(/^[^/]*:/, ""))}`)]),
+    ...box([`${accent("✻")} ${bold(name)} ${dim("· resumed session")}`, dim(`cwd: ${tilde(t.cwd.replace(/^[^/]*:/, ""))}`), dim("on the laptop runner, shown through Home")]),
     "",
     ` ${dim(">")} ${dim(t.title)}`,
     "",
@@ -313,7 +316,7 @@ export function openDemoTerminal(o: DemoTerminalOptions): TerminalInfo {
   const title = o.title ?? (o.kind === "tui" ? session?.title || `${o.harness ?? session?.harness ?? "claude"} session` : where.branch ? `${where.folder} · ${where.branch}` : where.folder);
   const t: TerminalInfo = {
     id: `demo-term-${Math.random().toString(36).slice(2, 10)}`, kind: o.kind, title, cwd: o.cwd, project_id: where.project_id, session_id: o.session_id ?? null,
-    alive: true, exit_code: null, created_at: clock.now(), folder: where.folder, place: where.place, branch: where.branch, busy: o.kind === "shell" ? false : null, notice: null,
+    alive: true, exit_code: null, created_at: clock.now(), folder: where.folder, place: where.place, branch: where.branch, busy: o.kind === "shell" ? false : null, notice: null, runner_id: RUNNER,
   };
   world.terminals = [...world.terminals, t];
   const command = o.command ? `${dim("$")} ${o.command}\r\n${yellow(`${NOT_RUN}.`)}\r\n${dim("Close this tab when you are done.")}\r\n` : undefined;
@@ -354,7 +357,7 @@ route("GET", "/api/terminals/folders", ({ query }): TerminalFolders => {
   const where = describe(cwd);
   const project = world.projects.find((p) => p.id === where.project_id);
   if (!project || project.is_temp) {
-    return { project_id: project?.id ?? null, project_name: project?.name ?? null, default: cwd, current: { path: cwd, label: lastName(cwd), branch: where.branch, available: true, reason: null }, checkout: null, worktrees: [], notice: null };
+    return { project_id: project?.id ?? null, project_name: project?.name ?? null, default: cwd, current: { path: cwd, label: lastName(cwd), branch: where.branch, available: true, reason: null }, checkout: null, worktrees: [], notice: null, runner_id: RUNNER };
   }
   const isCheckout = cwd === project.path;
   const records = worktrees().filter((w) => w.project_id === project.id);
@@ -368,6 +371,7 @@ route("GET", "/api/terminals/folders", ({ query }): TerminalFolders => {
     project_id: project.id, project_name: project.name, current, checkout: { path: project.path, label: "Checkout", branch: "main", available: true, reason: null }, worktrees: others,
     default: usable ? cwd : project.path,
     notice: isCheckout || usable ? null : `This worktree is ${gone ? "gone" : `merged into ${record?.merged?.into ?? "main"}`}: Terminal opens the checkout.`,
+    runner_id: RUNNER,
   };
 });
 

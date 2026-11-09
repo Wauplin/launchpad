@@ -16,4 +16,8 @@ default: string | null,
 /**
  * Why the default is the checkout.
  */
-notice: string | null, };
+notice: string | null, 
+/**
+ * The runner whose paths these are, set by Home when it relays the runner's answer.
+ */
+runner_id: string | null, };
