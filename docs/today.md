@@ -10,7 +10,7 @@ The icon at the start of a row says what it is; hover it for its name. GitHub it
 
 Each agent has one row. When an agent that needs you has a Local PR, the Local PR shows as a line under the agent's row ("Local PR · branch → base"), and the row counts once; click the line to open the Local PR. A Local PR whose agent does not need you (seen, running or gone) has its own row.
 
-On the phone, each row shows its title on up to two lines and only its main button, with a one-word label (**Merge**, **Review**, **Start**, **Add**, **Create**, **Send**), and no **⋯**. Tap the row to open it: it shows the card or the agent's last message, then the other actions as a list (**Open agent**, **Archive**, **Mark seen**, **Done**, **Dismiss**).
+On the phone, the page starts with the filter chips (**All** shows the count) and **Start all**. Each row shows its title on up to two lines and only its main button, with a one-word label (**Merge**, **Review**, **Start**, **Add**, **Create**, **Send**), and no **⋯**. Tap the row to open it: it shows the card or the agent's last message, then the other actions as a list (**Open agent**, **Archive**, **Mark seen**, **Done**, **Dismiss**).
 
 A link to one row is `/?card=<id>`: it highlights the row and opens its card. Telegram notifications use it (`/?card=session:<id>`). When the item no longer waits, the link opens the session.
 

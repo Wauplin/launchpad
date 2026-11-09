@@ -198,7 +198,7 @@ Folders without a workspace appear in the **Unassigned folders** card on the Fol
 ## Terminals and files
 
 - **Terminals**: the dock at the bottom runs shells and harness TUIs owned by the daemon. Open one from any **Terminal** button or with `Ctrl+T` (`Cmd+T`). Several devices can watch the same terminal. Shell snippets in agent messages have **Run in terminal**.
-- **Files**: a read-only file browser for folders, worktrees, branches and commits, with syntax colors, Markdown and HTML previews, search and **Download**. Select lines to add them as context for an agent.
+- **Files**: a read-only file browser for folders, worktrees, branches and commits, with syntax colors, Markdown and HTML previews, search and **Download**. Select lines to add them as context for an agent. On the phone, the tree and search open from the folder button in the title bar.
 
 ![Files](images/files.webp)
 

@@ -11,7 +11,7 @@ Sign in with `gh auth login` on the machine that runs the daemon. Launchpad read
 ![The Inbox with reason filters, Done on each row and a preview](images/inbox.webp)
 
 - The Inbox (`/inbox`) lists the notifications of the workspace's repositories. Notifications of a repository that has no folder appear in no Inbox: **Settings → GitHub → Repositories without a folder** lists those repositories with their notification count and last activity, with **Add to ▾** (clone it as a folder of a workspace) and **Open on GitHub** in **⋯**.
-- Filter by reason: **Review requested**, **Mentioned**, **Assigned**, **Subscribed** or **All**, plus **Unread only** and a repository filter.
+- Filter by reason: **Review requested**, **Mentioned**, **Assigned**, **Subscribed** or **All**, plus **Unread only** and a repository filter. On the phone, the bar's **⋯** holds the counts, the sync state, **Unread only** and the repository filter, so the list starts at the reason chips.
 - Each row shows **✓ Done** and **⋯**, which holds **Launch** (start an agent with this item as context) and, while a draft is open, **Add to the draft**. **⋯** shows when you hover the row or focus it with the keyboard. On the phone, a row has only **✓ Done**: open the preview for **Launch**.
 - The preview shows the latest comments and a reply box. **Read/Unread** and **Unsubscribe** are in the preview.
 - The sidebar count is unread review requests, mentions and assignments.
