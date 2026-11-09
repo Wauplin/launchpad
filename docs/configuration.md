@@ -66,7 +66,7 @@ boundary = "jail"                   # jail (bubblewrap) or vm: only inside a ded
 
 Credentials and tools live in Home's database, never in `config.toml`: edit them in Settings → Credentials and tools. A profile's `login` names a harness login of Home's vault (default: the harness's first login).
 
-Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `ask_launchpad` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later.
+Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `bots` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later. Presets are Home's: a runner reads them from Home when it starts an agent, so a launch that names presets fails visibly while Home cannot answer.
 
 A bot with admin access to the Launchpad CLI can change a few shared settings when you ask it in chat: presets, `notify`, the GitHub poll interval and the number of worktrees kept. Each change shows in the chat as a **Changed** line with the value before and after. Every other setting stays yours.
 

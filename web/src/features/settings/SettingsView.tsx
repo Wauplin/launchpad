@@ -14,7 +14,7 @@ import { ConfirmButton, IntroButton, Loading, MenuSection, MoreMenu, PageHeader,
 import { useIntro } from "@/lib/intros";
 import { api } from "@/lib/api";
 import { DEFAULT_ZOOM, ZOOM_LEVELS, useZoom } from "@/lib/zoom";
-import { useConfig, type ConfigResponse } from "@/lib/queries";
+import { useConfig, useSharedSettings, type ConfigResponse, type SharedSettings } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
 import { PhoneSettings } from "./PhoneSettings";
 import { PhoneBar } from "@/mobile/PhoneHeader";
@@ -75,6 +75,16 @@ export function usePatchConfig() {
   return async (patch: Record<string, unknown>) => {
     const res = await api.patch<ConfigResponse>("/api/config", patch);
     qc.setQueryData(["config"], res);
+    return res;
+  };
+}
+
+/** Saves the presets in Home's shared settings (`PATCH /api/settings/shared`), where every launch reads them. */
+export function usePatchPresets() {
+  const qc = useQueryClient();
+  return async (presets: Preset[]) => {
+    const res = await api.patch<SharedSettings>("/api/settings/shared", { presets });
+    qc.setQueryData(["shared-settings"], res);
     return res;
   };
 }
@@ -143,14 +153,14 @@ function Appearance() {
 
 /** Settings → Presets: each change saves at once. */
 export function PresetsView() {
-  const q = useConfig();
-  const patch = usePatchConfig();
+  const q = useSharedSettings();
+  const patch = usePatchPresets();
   const { state, error, run } = useSaveState();
   const [presets, setPresets] = useState<Preset[] | null>(null);
-  useEffect(() => { if (q.data) setPresets(q.data.config.presets); }, [q.data]);
+  useEffect(() => { if (q.data) setPresets(q.data.presets); }, [q.data]);
   if (!presets || !q.data) return <SettingsPage title="Presets"><Loading what="presets" /></SettingsPage>;
-  const saved = q.data.config.presets;
-  const save = (next: Preset[]) => { setPresets(next); if (JSON.stringify(next) !== JSON.stringify(saved)) void run(() => patch({ presets: next })); };
+  const saved = q.data.presets;
+  const save = (next: Preset[]) => { setPresets(next); if (JSON.stringify(next) !== JSON.stringify(saved)) void run(() => patch(next)); };
   const edit = (i: number, p: Partial<Preset>) => setPresets(presets.map((x, j) => (j === i ? { ...x, ...p } : x)));
   const move = (i: number, d: -1 | 1) => {
     const next = [...presets];
@@ -164,7 +174,7 @@ export function PresetsView() {
       tour="settings.presets"
       title="Presets"
       intro="Instructions added to prompts, in this order."
-      info="Choose where each preset is available: messages to bots, agent composer / steering (including Send later), or both. Saved to config.toml, which you can also edit by hand."
+      info="Choose where each preset is available: messages to bots, agent composer / steering (including Send later), or both. Saved to Home's config.toml, so agents on every runner get them."
       actions={<><SaveMark state={state} error={error} /><button className="btn btn-sm" onClick={() => save([...presets, { id: `preset-${Date.now().toString(36)}`, label: "new preset", text: "", bots: false, agent: true }])}><Icon name="plus" size={12} />New preset</button></>}
     >
       <ConfigError />

@@ -134,6 +134,7 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["onboarding"] });
     } else if (topic === "config") {
       void queryClient.invalidateQueries({ queryKey: ["config"] });
+      void queryClient.invalidateQueries({ queryKey: ["shared-settings"] });
     } else if (topic === "today") {
       void queryClient.invalidateQueries({ queryKey: ["today"] });
     } else if (topic === "activity") {

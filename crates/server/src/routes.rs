@@ -112,8 +112,9 @@ async fn patch_shared(State(s): State<Server>, Json(patch): Json<SharedPatch>) -
     if let Some(presets) = &patch.presets {
         let mut ids = std::collections::HashSet::new();
         for p in presets {
-            if p.id.trim().is_empty() || p.label.trim().is_empty() || p.text.trim().is_empty() || !ids.insert(p.id.as_str()) {
-                return Err(crate::error::ApiError::bad_request("each preset needs a unique id, a label and a text"));
+            // An empty text is a preset being written in Settings: launches skip it.
+            if p.id.trim().is_empty() || p.label.trim().is_empty() || !ids.insert(p.id.as_str()) {
+                return Err(crate::error::ApiError::bad_request("each preset needs a unique id and a label"));
             }
         }
     }

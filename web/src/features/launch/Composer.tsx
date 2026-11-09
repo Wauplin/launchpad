@@ -30,11 +30,10 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { Choice, Choices } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
-import { useConfig, useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
+import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { costUnavailableMessage, supportsModelCost, parseUsd, usd, usesModelReference, useProfileModels, useProfiles } from "@/lib/profiles";
 import { ModelSearch } from "@/components/ModelSearch";
 import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
-import { availablePresets } from "@/lib/presets";
 import { browserZone, describeCron } from "@/lib/routines";
 import { useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
@@ -43,7 +42,7 @@ import { useLayout } from "@/stores/layout";
 import { ProjectPicker } from "./ProjectPicker";
 import { SkillChips } from "./SkillChips";
 import { AddContextMenu } from "./AddContextMenu";
-import { PresetChips } from "@/features/agents/MessagePresets";
+import { PresetChips, usePresets } from "@/features/agents/MessagePresets";
 import { DelaySelector, conditionsError } from "./DelaySelector";
 import { CronSelector, DEFAULT_CRON, type CronDraft } from "./CronSelector";
 import { itemIcon, PromptField } from "./PromptField";
@@ -191,9 +190,9 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     // A queued launch may have started while the browser was disconnected.
     for (const session of sessions ?? []) rememberSuccessfulSession(session);
   }, [sessions]);
-  const config = useConfig().data?.config;
   const overlay = useOverlay(useZoomScale());
   const host = useStatus().data?.host;
+  const agentPresets = usePresets("agent");
   const defaults = useHarnessDefaults(spec.harness).data;
   const harness = useHarnessInfo(spec.harness);
   const profiles = useProfiles();
@@ -341,7 +340,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const budgetValid = !supportsCost || parseUsd(budgetInput) !== undefined;
   const missingProfile = !!spec.profile && !profile;
   // The daemon renders and checks the prompt at launch; Launch does not wait for a preview.
-  const agentPresets = availablePresets(config?.presets ?? [], "agent");
   const hasPrompt = !!spec.text.trim() || items > 0 || agentPresets.some((p) => spec.presets.includes(p.id) && p.text.trim());
   const blocker = editGone ? "This scheduled agent already started or was cancelled" : editing && timing === "later" && !scheduled ? "Add a start condition, or choose Start now" : selectedWorktree?.busy ? "Stop the active agent before using this worktree" : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : !scope.workspace.id ? "Waiting for the workspace to load" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));

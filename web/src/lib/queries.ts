@@ -3,6 +3,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { useRef } from "react";
 import type { Config } from "@/gen/Config";
+import type { Preset } from "@/gen/Preset";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { HarnessKind } from "@/gen/HarnessKind";
@@ -34,6 +35,12 @@ export type ConfigResponse = { config: Config; error: string | null; remote: boo
 
 export const useConfig = () =>
   useQuery({ queryKey: ["config"], queryFn: () => api.get<ConfigResponse>("/api/config"), staleTime: Infinity });
+
+/** Home's shared settings (`GET /api/settings/shared`; a runner forwards it). Presets live there: launches on every runner read Home's. */
+export type SharedSettings = { presets: Preset[]; notify: boolean; github_poll_interval_seconds: number; worktrees_keep: number };
+
+export const useSharedSettings = () =>
+  useQuery({ queryKey: ["shared-settings"], queryFn: () => api.get<SharedSettings>("/api/settings/shared"), staleTime: 60_000 });
 
 export const useHarnessDefaults = (h: HarnessKind | null) =>
   useQuery({

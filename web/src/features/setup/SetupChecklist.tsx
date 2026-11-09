@@ -18,14 +18,14 @@ import { Badge, ConfirmButton, ErrorState, Loading } from "@/components/ui";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
-import { useConfig, useProjects, useStatus } from "@/lib/queries";
+import { useConfig, useProjects, useSharedSettings, useStatus } from "@/lib/queries";
 import { isDesktopShell } from "@/lib/platform";
 import { useComposer } from "@/stores/composer";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { WorkspaceCreator, WorkspacePicker, defaultWorkspace } from "@/features/workspaces/WorkspacePicker";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { useOpenTerminal, useTerminals } from "@/features/terminals/lib";
-import { usePatchConfig } from "@/features/settings/SettingsView";
+import { usePatchPresets } from "@/features/settings/SettingsView";
 import { useVault } from "@/features/settings/CredentialsView";
 import { SlackSetup, slackReady } from "@/features/settings/SlackSetup";
 import type { ChannelsOverview } from "@/features/settings/ChannelsView";
@@ -349,17 +349,17 @@ function FolderStep({ item, onDone }: { item: SetupItem; onDone: () => void }) {
 }
 
 function PresetsStep({ onDone }: { onDone: () => void }) {
-  const config = useConfig().data?.config;
-  const patch = usePatchConfig();
+  const shared = useSharedSettings().data;
+  const patch = usePatchPresets();
   const [chosen, setChosen] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const save = async () => {
-    if (!config) return;
+    if (!shared) return;
     setBusy(true);
     try {
-      const existing = config.presets;
+      const existing = shared.presets;
       const add = STARTER_PRESETS.filter((p) => chosen.includes(p.id) && !existing.some((e) => e.id === p.id));
-      await patch({ presets: [...existing, ...add] });
+      await patch([...existing, ...add]);
       toast(`Added ${add.length} ${add.length === 1 ? "preset" : "presets"}`);
       onDone();
     } catch (e) { toastError(e); } finally { setBusy(false); }
@@ -372,7 +372,7 @@ function PresetsStep({ onDone }: { onDone: () => void }) {
           <span className="min-w-0"><b>{p.label}</b><span className="block text-[12px] text-ink-3">{p.text}</span></span>
         </label>
       ))}
-      <div><button type="button" className="btn btn-sm btn-primary" disabled={!chosen.length || busy || !config} onClick={() => void save()}>Add selected presets</button></div>
+      <div><button type="button" className="btn btn-sm btn-primary" disabled={!chosen.length || busy || !shared} onClick={() => void save()}>Add selected presets</button></div>
     </div>
   );
 }

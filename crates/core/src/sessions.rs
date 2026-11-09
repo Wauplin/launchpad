@@ -820,7 +820,7 @@ impl Sessions {
             } else { anyhow::bail!("Context folder no longer exists; remove it and select it again"); }
         }
         crate::prompt_context::validate_mentions(&spec.text, &spec.mentions)?;
-        let mut prompt = render_prompt(spec, &context, &config.presets);
+        let mut prompt = render_prompt(spec, &context, &launch_presets(app, spec, &config).await?);
         if !spec.skills.is_empty() {
             anyhow::ensure!(!spec.target.browser_only(), "This session cannot use filesystem skills");
             let harness = spec.harness.context("Pick a harness for selected skills")?;
@@ -2113,6 +2113,16 @@ impl Sessions {
             sink.emit(EventBody::Error { message: e }).await;
         }
     }
+}
+
+/// The presets a launch can name. Presets are shared settings of Home: a runner's own config.toml does not
+/// hold them, so a runner reads Home's, and a launch that names presets fails visibly when Home cannot answer.
+async fn launch_presets(app: &App, spec: &LaunchSpec, config: &crate::config::Config) -> Result<Vec<crate::config::Preset>> {
+    if spec.presets.is_empty() || app.paths.role != crate::role::Role::Runner {
+        return Ok(config.presets.clone());
+    }
+    let presets = crate::home_link::home_request("GET", "/api/context/presets", None).await.context("could not read the presets from Home")?;
+    Ok(serde_json::from_value(presets)?)
 }
 
 fn check_budget(harness: HarnessKind, budget_usd: Option<f64>) -> Result<()> {

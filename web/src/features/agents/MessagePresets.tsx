@@ -6,14 +6,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { Icon } from "@/components/Icon";
 import { Popover } from "@/components/Popover";
 import { usePhone } from "@/lib/phone";
-import { useConfig } from "@/lib/queries";
+import { useSharedSettings } from "@/lib/queries";
 import { availablePresets, type PresetSurface } from "@/lib/presets";
 import type { Preset } from "@/gen/Preset";
 
 const NONE: Preset[] = [];
 
 export function usePresets(surface?: PresetSurface): Preset[] {
-  const presets = useConfig().data?.config.presets ?? NONE;
+  const presets = useSharedSettings().data?.presets ?? NONE;
   return surface ? availablePresets(presets, surface) : presets;
 }
 

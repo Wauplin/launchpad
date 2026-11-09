@@ -8,7 +8,7 @@ import { SettingRow } from "@/components/ui";
 import { useSetupSummary } from "@/features/setup/summary";
 import { delegatedAccess } from "@/lib/deployment";
 import { layoutChoice, setLayoutChoice } from "@/lib/phone";
-import { useConfig } from "@/lib/queries";
+import { useConfig, useSharedSettings } from "@/lib/queries";
 import { useOfflineRunners, useOutdatedRunners, useRunners } from "@/lib/runners";
 import { useScope } from "@/lib/workspace";
 import { useTheme } from "@/stores/theme";
@@ -46,6 +46,7 @@ export function PhoneSettings() {
   const layout = layoutChoice();
   const workspace = useScope().workspace;
   const config = useConfig().data?.config;
+  const presets = useSharedSettings().data?.presets;
   const runners = (useRunners().data ?? []).filter((r) => r.runner.state === "approved");
   const offline = useOfflineRunners().length;
   const outdated = useOutdatedRunners().length;
@@ -71,7 +72,7 @@ export function PhoneSettings() {
       <Group title="On the phone">
         <Row to="/settings/channels" icon="send" label="Channels" />
         <Row to="/settings/workspace" icon="folder" label="Workspace" state={workspace.name} />
-        <Row to="/settings/presets" icon="preset" label="Presets" state={config ? count(config.presets.length, "preset") : undefined} />
+        <Row to="/settings/presets" icon="preset" label="Presets" state={presets ? count(presets.length, "preset") : undefined} />
         <Row to="/settings/github" icon="pr" label="GitHub" />
         <Row to="/settings/usage" icon="clock" label="Usage" />
       </Group>
