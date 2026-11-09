@@ -70,6 +70,8 @@ async fn prepare_move(app: &App, id: &str) -> Result<()> {
     {
         ensure!(!s.status.is_running() && !s.open_question && !app.sessions.setup_running(id), "Wait for the current turn to end before moving this session.");
         ensure!(app.terminals.tui_of(id).is_none(), "Close the session's terminal before moving it.");
+        // A save of the last turn that runs now finishes first, and no retry starts during the move.
+        let _saving = crate::turn_sync::hold(id).await;
         // Plain folders first: asset folders inside the worktrees go with them.
         crate::plain::after_turn(app, id).await.context("its files cannot move yet")?;
         for w in crate::worktrees::for_session(app, id).await?.into_iter().filter(|w| w.state == WorktreeState::Active) {
@@ -133,6 +135,10 @@ pub async fn upload(app: &App, id: &str, is_final: bool) -> Result<()> {
     let h = export(app, id, is_final).await?;
     answer(to_home(app, reqwest::Method::POST, &format!("/api/handoff/{id}"))?.json(&h)).await?;
     if is_final {
+        // The final handoff holds everything: the turn is saved (sent to Home with the backlog below).
+        if app.sessions.get(id).is_some_and(|s| s.unsaved.is_some()) {
+            app.sessions.update(app, id, |s| s.unsaved = None).await?;
+        }
         // Everything the runner still holds for Home goes before it lets the session go.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
         while crate::replica::backlog(app).await? > 0 {
@@ -295,6 +301,8 @@ pub async fn adopt(app: &App, id: &str) -> Result<()> {
     s.runner_id = None;
     s.live = false;
     s.open_question = false;
+    // It continues from what Home holds; work its previous runner did not save goes to `lp-scratch/…` (`release`).
+    s.unsaved = None;
     let (mut worktrees, files) = match a.handoff {
         Some(h) => (h.worktrees, h.files),
         None => (vec![], vec![]),

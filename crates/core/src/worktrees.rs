@@ -397,17 +397,29 @@ pub async fn pull_request_at(app: &App, root: &str) -> Option<PullRequestBranch>
 
 /// Pushes the branch to Home unless Home already has it. Never overwrites a tip Home got elsewhere (a
 /// Restore, another runner): the push expects the tip this clone last saw.
+/// The caller holds `worktree_lock` (the record is saved as it is); `after_turn` pushes without it.
 pub async fn push(app: &App, w: &mut TaskWorktree) -> Result<bool> {
+    let before = push_fields(w);
+    let result = push_branch(app, w).await;
+    if push_fields(w) != before {
+        save(app, w).await?;
+    }
+    result
+}
+
+/// What a push changes in a record: the tip seen, the tip on Home and the failure note.
+fn push_fields(w: &TaskWorktree) -> (Option<String>, Option<String>, Option<String>) {
+    (w.head.clone(), w.pushed.clone(), w.push_note.clone())
+}
+
+/// `push` without saving the record.
+async fn push_branch(app: &App, w: &mut TaskWorktree) -> Result<bool> {
     if w.state != WorktreeState::Active || !Path::new(&w.root).is_dir() {
         return Ok(false);
     }
     let head = git(app, &w.root, &["rev-parse", "--verify", &format!("refs/heads/{}^{{commit}}", w.branch)]).await?;
-    let moved = w.head.as_deref() != Some(head.as_str());
     w.head = Some(head.clone());
     if w.pushed.as_deref() == Some(head.as_str()) && w.push_note.is_none() {
-        if moved {
-            save(app, w).await?;
-        }
         return Ok(false);
     }
     let lease = format!("--force-with-lease=refs/heads/{}", w.branch);
@@ -416,17 +428,13 @@ pub async fn push(app: &App, w: &mut TaskWorktree) -> Result<bool> {
         Ok(_) => {
             w.pushed = Some(head);
             w.push_note = None;
-            save(app, w).await?;
             Ok(true)
         }
         Err(e) => {
             let note = format!("Push of {} to Home failed: {e:#}", w.branch);
             if w.push_note.as_deref() != Some(note.as_str()) {
                 w.push_note = Some(note.clone());
-                save(app, w).await?;
                 notice(app, w, &format!("{note}. Launchpad retries every few minutes and when this runner reconnects to Home.")).await;
-            } else if moved {
-                save(app, w).await?;
             }
             Err(e)
         }
@@ -456,7 +464,18 @@ pub async fn record_heads(app: &App, session_id: &str) {
 pub async fn after_turn(app: &App, session_id: &str) -> Result<()> {
     let mut failed = vec![];
     for mut w in for_session(app, session_id).await?.into_iter().filter(|w| w.state == WorktreeState::Active) {
-        if let Err(e) = push(app, &mut w).await {
+        // The push runs without the lock (it may take minutes); its result goes into the record as it is now,
+        // so a merge request or cleanup saved meanwhile stays.
+        let before = push_fields(&w);
+        let result = push_branch(app, &mut w).await;
+        if push_fields(&w) != before {
+            let _lock = app.worktree_lock.lock().await;
+            if let Ok(mut fresh) = get(app, &w.id).await {
+                (fresh.head, fresh.pushed, fresh.push_note) = push_fields(&w);
+                save(app, &fresh).await?;
+            }
+        }
+        if let Err(e) = result {
             failed.push(format!("{}: {e:#}", w.branch));
         }
     }

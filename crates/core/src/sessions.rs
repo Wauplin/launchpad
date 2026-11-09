@@ -525,8 +525,17 @@ impl Sessions {
                     self.inner.records.lock().unwrap().insert(s.id.clone(), s.clone());
                     app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
                     self.publish_counts(app);
-                    if current.is_some_and(|c| c.status.is_running() && !s.status.is_running()) {
+                    if current.as_ref().is_some_and(|c| c.status.is_running() && !s.status.is_running()) {
                         self.replica_turn_ended(app, &s);
+                    }
+                    // The runner saved the last turn's work on Home: routines that wait for it start now.
+                    if current.as_ref().is_some_and(|c| c.unsaved.is_some()) && s.unsaved.is_none() && !s.status.is_running() {
+                        crate::ext::extensions().turn_saved(app, &s);
+                    }
+                    if s.status == SessionStatus::Closed
+                        && let Err(e) = crate::away::forget_archived(app, &s.id).await
+                    {
+                        tracing::warn!("worktree records of archived session {}: {e:#}", s.id);
                     }
                 }
             }
@@ -1985,6 +1994,8 @@ impl Sessions {
             s.live = false;
             s.open_question = false;
             s.ended_at = Some(now_ms());
+            // Archive does its own last sync (`plain::after_archive`, worktree cleanup, `handoff::clean_archived`).
+            s.unsaved = None;
         })
         .await?;
         self.publish_counts(app);

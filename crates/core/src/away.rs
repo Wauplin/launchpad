@@ -35,16 +35,7 @@ pub async fn reason(app: &App, s: &Session) -> String {
 /// The session's worktree records, primary first: the ones its runners sent, then those of its last handoff
 /// that Home did not receive on their own.
 async fn records(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> {
-    let key = session_id.to_string();
-    let rows: Vec<String> = app
-        .state_db
-        .call(move |c| {
-            let mut st = c.prepare("SELECT json FROM runner_worktree WHERE instr(json, ?1) > 0")?;
-            let rows = st.query_map([key], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            Ok(rows)
-        })
-        .await?;
-    let mut list: Vec<TaskWorktree> = rows.iter().filter_map(|j| serde_json::from_str::<TaskWorktree>(j).ok()).filter(|w| w.sessions.iter().any(|s| s == session_id)).collect();
+    let mut list = records_sent(app, session_id).await?;
     for w in crate::handoff::latest(app, session_id).await?.map(|h| h.worktrees).unwrap_or_default() {
         if !list.iter().any(|x| x.id == w.id) {
             list.push(w);
@@ -54,15 +45,38 @@ async fn records(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> {
     Ok(list)
 }
 
-/// Home: stores a worktree record a runner sent, unless its session runs elsewhere now (it moved on).
+/// Whether every session of a worktree is archived on Home (a session Home does not know yet keeps it).
+fn archived(app: &App, w: &TaskWorktree) -> bool {
+    w.sessions.iter().all(|id| app.sessions.get(id).is_some_and(|s| s.status == crate::model::SessionStatus::Closed))
+}
+
+/// The session's worktree records its runners sent (`replica::Item::Worktree`).
+async fn records_sent(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> {
+    let key = session_id.to_string();
+    let rows: Vec<String> = app
+        .state_db
+        .call(move |c| {
+            let mut st = c.prepare("SELECT json FROM runner_worktree WHERE instr(json, ?1) > 0")?;
+            let rows = st.query_map([key], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await?;
+    Ok(rows.iter().filter_map(|j| serde_json::from_str::<TaskWorktree>(j).ok()).filter(|w| w.sessions.iter().any(|s| s == session_id)).collect())
+}
+
+/// Home: stores a worktree record a runner sent, unless its session runs elsewhere now (it moved on). The record
+/// of a worktree whose sessions are all archived goes: their away views use the last handoff.
 pub(crate) async fn apply_replica(app: &App, runner_id: &str, n: u64, w: TaskWorktree) -> Result<()> {
     let current = w.sessions.iter().rev().find_map(|id| app.sessions.get(id));
     let fresh = current.is_none_or(|s| s.runner_id.as_deref() == Some(runner_id));
+    let gone = fresh && archived(app, &w);
     let (runner, id, json) = (runner_id.to_string(), w.id.clone(), serde_json::to_string(&w)?);
     app.state_db
         .call(move |c| {
             let tx = c.transaction()?;
-            if fresh {
+            if gone {
+                tx.execute("DELETE FROM runner_worktree WHERE id = ?1", [&id])?;
+            } else if fresh {
                 tx.execute(
                     "INSERT INTO runner_worktree (id, runner_id, json) VALUES (?1, ?2, ?3) ON CONFLICT (id) DO UPDATE SET runner_id = ?2, json = ?3",
                     rusqlite::params![id, runner, json],
@@ -76,6 +90,23 @@ pub(crate) async fn apply_replica(app: &App, runner_id: &str, n: u64, w: TaskWor
     if fresh {
         app.bus.publish("worktrees", "updated", serde_json::json!(w));
     }
+    Ok(())
+}
+
+/// Home, when a session is archived: drops the records of its worktrees whose sessions are all archived.
+pub(crate) async fn forget_archived(app: &App, session_id: &str) -> Result<()> {
+    let ids: Vec<String> = records_sent(app, session_id).await?.into_iter().filter(|w| archived(app, w)).map(|w| w.id).collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    app.state_db
+        .call(move |c| {
+            for id in &ids {
+                c.execute("DELETE FROM runner_worktree WHERE id = ?1", [id])?;
+            }
+            Ok(())
+        })
+        .await?;
     Ok(())
 }
 

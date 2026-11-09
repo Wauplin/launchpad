@@ -794,6 +794,39 @@ async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
     if was_run || s.status != SessionStatus::Waiting || s.open_question {
         return Ok(());
     }
+    // Its runner still saves the turn's branches and files on Home: the routines start once they are there
+    // (`turn_saved`), so a routine that reviews the work sees all of it.
+    if s.unsaved.is_some() {
+        UNSAVED_DONE.lock().unwrap().insert(s.id.clone(), now_ms());
+        return Ok(());
+    }
+    UNSAVED_DONE.lock().unwrap().remove(&s.id);
+    session_done(app, s, &records).await
+}
+
+/// Sessions whose turn ended Done while its work was not on Home yet, with when, for `turn_saved`. In memory:
+/// after a restart they trigger nothing (routines never catch up).
+static UNSAVED_DONE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, i64>>> = std::sync::LazyLock::new(Default::default);
+
+/// Home: the work of a session's last turn reached Home. Starts the `session_done` routines its turn end held
+/// back, unless the session moved on (a new turn, a question, Archive) or it came over an hour late.
+pub fn turn_saved(app: &App, s: &Session) {
+    let Some(at) = UNSAVED_DONE.lock().unwrap().remove(&s.id) else { return };
+    if s.status != SessionStatus::Waiting || s.open_question || now_ms() - at > 3_600_000 {
+        return;
+    }
+    let (app, s) = (app.clone(), s.clone());
+    let task: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> = Box::pin(async move {
+        let result = async { session_done(&app, &s, &list(&app).await?).await }.await;
+        if let Err(e) = result {
+            tracing::warn!("routines after the saved turn of {}: {e:#}", s.id);
+        }
+    });
+    tokio::spawn(task);
+}
+
+/// Starts the routines triggered by another agent's turn ending Done.
+async fn session_done(app: &App, s: &Session, records: &[CronAgent]) -> Result<()> {
     let folder = s.project_id.clone();
     let workspace = match &folder {
         Some(f) => launchpad_core::projects::get(app, f).await?.and_then(|p| p.workspace_id),

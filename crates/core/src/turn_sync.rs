@@ -6,8 +6,8 @@
 //! The runner then saves the turn and clears the mark. A failure keeps the mark with its reason, and the runner
 //! retries every few minutes and when its tunnel to Home comes back (`kick`).
 
-use std::collections::HashSet;
-use std::sync::{LazyLock, Mutex};
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, ensure};
@@ -18,8 +18,8 @@ use crate::util::now_ms;
 
 const RETRY_EVERY: Duration = Duration::from_secs(3 * 60);
 
-/// Sessions whose save runs now: one at a time per session.
-static RUNNING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+/// One save per session at a time; a move holds it too (`hold`), so it never pushes beside a save.
+static LOCKS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = LazyLock::new(Default::default);
 static WAKE: LazyLock<tokio::sync::Notify> = LazyLock::new(tokio::sync::Notify::new);
 
 /// The mark a turn's end stores with the new status, when the session has something to save on Home:
@@ -33,11 +33,9 @@ pub(crate) async fn mark(app: &App, id: &str) -> Option<Unsaved> {
 /// Saves the session's last turn on Home, then clears its mark; a failure keeps the mark with the reason. A turn
 /// that ended while this ran is saved again at once.
 pub async fn save(app: &App, id: &str) {
-    if !RUNNING.lock().unwrap().insert(id.to_string()) {
-        return;
-    }
-    loop {
-        let Some(since) = app.sessions.get(id).and_then(|s| s.unsaved).map(|u| u.since) else { break };
+    // A save of this session runs already: it sees a newer mark and saves again.
+    let Ok(_saving) = lock_of(id).try_lock_owned() else { return };
+    while let Some(since) = app.sessions.get(id).and_then(|s| s.unsaved).map(|u| u.since) {
         let result = attempt(app, id).await;
         if let Err(e) = &result {
             tracing::debug!("save of {id} on Home: {e:#}");
@@ -60,12 +58,28 @@ pub async fn save(app: &App, id: &str) {
             })
             .await;
         // Stop unless a newer turn ended meanwhile (its mark has another time).
-        let newer = updated.ok().and_then(|s| s.unsaved).is_some_and(|u| u.since != since);
-        if result.is_err() || !newer {
+        let newer = updated.as_ref().ok().and_then(|s| s.unsaved.as_ref()).is_some_and(|u| u.since != since);
+        if !newer {
+            // Saved: on Home's own machine, routines that wait for the turn's work start now (`turn_saved`).
+            if let Ok(s) = updated
+                && s.unsaved.is_none()
+                && crate::home_git::here(app)
+            {
+                crate::ext::extensions().turn_saved(app, &s);
+            }
             break;
         }
     }
-    RUNNING.lock().unwrap().remove(id);
+}
+
+fn lock_of(id: &str) -> Arc<tokio::sync::Mutex<()>> {
+    LOCKS.lock().unwrap().entry(id.to_string()).or_default().clone()
+}
+
+/// Waits for a save of the session that runs now, and keeps the next one from starting while the guard lives
+/// (a move's final handoff pushes and syncs itself).
+pub(crate) async fn hold(id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+    lock_of(id).lock_owned().await
 }
 
 async fn attempt(app: &App, id: &str) -> Result<()> {

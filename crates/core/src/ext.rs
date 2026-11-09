@@ -17,6 +17,8 @@ pub trait Extensions: Send + Sync {
     fn notify_channels(&self, _app: &App, _session: &Session, _event: &'static str) {}
     /// A turn ended: routine run records and `session_done` triggers (`crons::turn_ended`).
     fn turn_ended(&self, _app: &App, _session: &Session) {}
+    /// Home: the work of a session's last turn reached Home (its `unsaved` mark cleared after the turn ended).
+    fn turn_saved(&self, _app: &App, _session: &Session) {}
     /// Instructions added to a session's initial prompt about agent-written GitHub text and channels.
     fn suggestion_instruction(&self, _app: &App, _session_id: &str) -> Option<String> {
         None

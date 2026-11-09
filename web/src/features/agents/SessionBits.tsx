@@ -2,7 +2,7 @@ import type { Session } from "@/gen/Session";
 import { age, ago } from "@/lib/format";
 import type { IconName } from "@/components/Icon";
 import { useRunnerTag } from "@/lib/burst";
-import { StatusBadge, type StatusTone } from "@/components/ui";
+import { Badge, StatusBadge, type StatusTone } from "@/components/ui";
 import { isDone, isRunning, isUnseen } from "@/lib/sessionStatus";
 
 /** "12:04" since `ms`. */
@@ -55,7 +55,7 @@ export function SessionStatus({ s }: { s: Session }) {
   return (
     <span className="inline-flex items-center gap-1">
       <StatusBadge tone={tone} label={label} icon={icon} unseen={unseen} />
-      {unsaved && <span className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] whitespace-nowrap ${unsaved.attempts ? "bg-attn-soft text-attn" : "bg-sunk text-ink-3"}`} title={unsaved.note ? `Not saved on Home: ${unsaved.note}. Its runner retries every few minutes and when it reconnects.` : "Its runner is saving this turn's work on Home."}>{unsaved.attempts ? "Not on Home" : "Saving"}</span>}
+      {unsaved && <Badge tone={unsaved.attempts ? "attn" : "neutral"} title={unsaved.note ? `Not saved on Home: ${unsaved.note}. Its runner retries every few minutes and when it reconnects.` : "Its runner is saving this turn's work on Home."}>{unsaved.attempts ? "Not on Home" : "Saving"}</Badge>}
       {where && <span className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] whitespace-nowrap ${where.tone === "work" ? "bg-work-soft text-work" : where.tone === "err" ? "bg-diff-del text-gh-closed" : "bg-sunk text-ink-3"}`} title={where.title}>{where.label}</span>}
     </span>
   );
