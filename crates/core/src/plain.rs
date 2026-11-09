@@ -918,11 +918,7 @@ pub async fn create_in_worktree(app: &App, session_id: &str, cwd: &str, path: &s
     check_path(&path)?;
     ensure!(!mapped_assets(Path::new(&w.root)).await.iter().any(|(p, _)| *p == path), "{path} is already an asset folder");
     let name = format!("{}/{path}", w.branch);
-    let asset: Asset = if crate::home_git::here(app) {
-        create_asset(app, &w.project_id, &name).await?
-    } else {
-        serde_json::from_value(crate::home_link::home_request("POST", &format!("/api/plain/assets/{}", w.project_id), Some(serde_json::json!({"name": name}))).await?)?
-    };
+    let asset: Asset = serde_json::from_value(crate::home_link::home_request("POST", &format!("/api/plain/assets/{}", w.project_id), Some(serde_json::json!({"name": name}))).await?)?;
     let manifest = Path::new(&w.root).join(".launchpad/assets.toml");
     tokio::fs::create_dir_all(manifest.parent().unwrap()).await?;
     let mut text = tokio::fs::read_to_string(&manifest).await.unwrap_or_else(|_| "# Asset folders: stored by Launchpad, synced into worktrees, not in Git.\n".into());

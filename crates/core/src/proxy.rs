@@ -274,7 +274,7 @@ async fn handle(inner: Arc<Inner>, req: Request<Incoming>) -> Result<Response<Bo
         // MCP servers of Home: /lp/<key>/mcp/<server>, through Home's gateway.
         if host == "mcp" {
             let server = tail.split('/').next().unwrap_or_default().to_string();
-            return Ok(mcp(&inner, &active, &server, req).await);
+            return Ok(mcp(&active, &server, req).await);
         }
         let query = req.uri().query().map(|q| format!("?{q}")).unwrap_or_default();
         let target = format!("/{tail}{query}");
@@ -666,7 +666,7 @@ async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target:
 }
 
 /// A request of a session to an MCP server of Home, through the tunnel.
-async fn mcp(inner: &Inner, active: &Active, server: &str, req: Request<Incoming>) -> Response<Body> {
+async fn mcp(active: &Active, server: &str, req: Request<Incoming>) -> Response<Body> {
     let lease_id = active.lease.read().unwrap().id.clone();
     let granted = active.lease.read().unwrap().mcp.iter().any(|m| m.id == server);
     if !granted {
