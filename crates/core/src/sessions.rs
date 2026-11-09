@@ -188,6 +188,10 @@ impl Default for Sessions {
     }
 }
 
+/// How far a session's event numbers jump when another runner (or a new generation) takes it over (`handoff::adopt`):
+/// late events of the previous generation keep their own numbers below.
+pub const MOVE_SEQ_GAP: i64 = 1_000_000;
+
 impl Sessions {
     pub fn new() -> Sessions {
         Sessions {
@@ -554,6 +558,9 @@ impl Sessions {
             Item::Event { generation, event } => {
                 let current = self.get(&event.session_id);
                 let fresh = current.as_ref().is_some_and(|c| c.runner_id.as_deref() == Some(runner_id) && c.generation <= generation);
+                // Late events of an older generation (its runner was offline when the session moved): kept below the
+                // new generation's numbers (`MOVE_SEQ_GAP`), never over an event Home has.
+                let late = !fresh && current.as_ref().is_some_and(|c| c.generation > generation);
                 let ev = event.clone();
                 // The summary lists the machines that ran the turns; runner records go away (Burst), so keep the name.
                 let machine = match &event.body {
@@ -563,16 +570,18 @@ impl Sessions {
                 let inserted = app.state_db.call(move |c| {
                     let tx = c.transaction()?;
                     let mut inserted = false;
-                    if fresh {
+                    if fresh || late {
                         inserted = tx.execute("INSERT INTO session_event (session_id, seq, ts, kind, json, machine) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT (session_id, seq) DO NOTHING",
                             params![ev.session_id, ev.seq, ev.ts, ev.body.kind(), serde_json::to_string(&ev.body)?, machine])? > 0;
+                    }
+                    if fresh {
                         tx.execute("UPDATE session SET last_seq = max(last_seq, ?1) WHERE id = ?2", params![ev.seq, ev.session_id])?;
                     }
                     set_acked(&tx, &runner, n)?;
                     tx.commit()?;
                     Ok(inserted)
                 }).await?;
-                if inserted {
+                if inserted && fresh {
                     if let Some(s) = self.inner.records.lock().unwrap().get_mut(&event.session_id) { s.last_seq = s.last_seq.max(event.seq); }
                     app.bus.send(crate::events::Event {
                         seq: event.seq as u64,

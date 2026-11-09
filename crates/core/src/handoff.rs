@@ -378,6 +378,9 @@ pub async fn adopt(app: &App, id: &str) -> Result<()> {
     s.open_question = false;
     // It continues from what Home holds; work its previous runner did not save goes to `lp-scratch/…` (`release`).
     s.unsaved = None;
+    // Its events continue after a gap, never over Home's numbers: events of the previous generation that Home
+    // did not receive yet (its runner was offline) still fit below (`Sessions::apply_replica`).
+    s.last_seq += crate::sessions::MOVE_SEQ_GAP;
     let (mut worktrees, files, attachments) = match a.handoff {
         Some(h) => (h.worktrees, h.files, h.attachments),
         None => (vec![], vec![], vec![]),
