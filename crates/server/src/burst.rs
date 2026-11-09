@@ -24,7 +24,8 @@ use crate::error::{ApiError, ApiResult};
 
 pub fn router() -> Router<Server> {
     Router::new()
-        .route("/api/handoff/{id}", get(adoption).post(store))
+        // A handoff carries the agent's whole conversation (base64): far above axum's 2 MB default for long sessions.
+        .route("/api/handoff/{id}", get(adoption).post(store).layer(axum::extract::DefaultBodyLimit::max(HANDOFF_MAX)))
         .route("/api/sessions/{id}/handoff", post(handoff))
         .route("/api/sessions/{id}/adopt", post(adopt))
         .route("/api/sessions/{id}/move", post(move_session))
@@ -32,6 +33,9 @@ pub fn router() -> Router<Server> {
         .route("/api/burst/config", put(set_config))
         .route("/api/burst/{runner}/stop", post(stop))
 }
+
+/// Largest handoff Home takes from a runner.
+const HANDOFF_MAX: usize = 512 << 20;
 
 /// Paths that authenticate with the runner credential (checked here).
 pub fn runner_path(path: &str) -> bool {
