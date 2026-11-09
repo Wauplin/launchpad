@@ -181,7 +181,7 @@ function LocalPrRow(p: RowProps) {
 }
 
 /** One-word Start labels for the phone's button column (the full label is the tooltip and the card's button). */
-const SHORT: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create", status: "", preset: "Save", tool: "Add", bot: "Create", routine: "Add", bot_instructions: "Apply", ready: "" };
+const SHORT: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create", status: "", preset: "Save", tool: "Add", bot: "Create", routine: "Add", bot_instructions: "Apply", ready: "", report: "" };
 
 /** Start in one click when it is a plain start; ready, status and uncertain cards open first. */
 function ProposalRow({ p: proposal, ...p }: RowProps & { p: Proposal | undefined }) {
@@ -190,7 +190,8 @@ function ProposalRow({ p: proposal, ...p }: RowProps & { p: Proposal | undefined
   const { item } = p;
   if (!proposal) return <Row {...p} />;
   const waiting = proposal.state === "proposed" || proposal.state === "failed";
-  const plain = waiting && proposal.body.kind !== "status" && proposal.body.kind !== "ready";
+  const report = proposal.body.kind === "report" ? proposal.body : null;
+  const plain = waiting && !report && proposal.body.kind !== "status" && proposal.body.kind !== "ready";
   const act = async (action: "accept" | "dismiss") => {
     const next = await runProposalAction<Proposal>(proposal.id, action);
     qc.setQueryData<Proposal[]>(["proposals"], (old) => old?.map((x) => (x.id === next.id ? next : x)));
@@ -199,10 +200,15 @@ function ProposalRow({ p: proposal, ...p }: RowProps & { p: Proposal | undefined
   };
   const run = (action: "accept" | "dismiss") => () => void act(action).catch(toastError);
   return <Row {...p} icon={proposalIcon(proposal)} meta={item.detail ? undefined : <span className="truncate">{proposal.note ? proposal.note : "Proposal"}</span>}
-    main={plain
+    main={report && waiting
+      ? report.outcome === "needs_you"
+        ? <Expand {...p}>Reply</Expand>
+        : <button type="button" className="btn btn-sm" title="Mark read: it moves to Done" onClick={run("dismiss")}><Icon name="check" size={12} />{phone ? "Read" : "Mark read"}</button>
+      : plain
       ? <button type="button" className="btn btn-sm" title={START[proposal.body.kind]} onClick={run("accept")}><Icon name="play" size={12} />{phone ? SHORT[proposal.body.kind] : START[proposal.body.kind]}</button>
       : <Expand {...p}>{proposal.body.kind === "status" ? "Show" : "Review"}</Expand>}
-    menu={(plain || proposal.body.kind === "status") && ((close) => <MenuItem icon={<Icon name="x" size={14} />} label="Dismiss" onClick={() => { close(); run("dismiss")(); }} />)}
+    menu={report && waiting ? report.outcome === "needs_you" && ((close) => <MenuItem icon={<Icon name="check" size={14} />} label="Mark read" onClick={() => { close(); run("dismiss")(); }} />)
+      : (plain || proposal.body.kind === "status") && ((close) => <MenuItem icon={<Icon name="x" size={14} />} label="Dismiss" onClick={() => { close(); run("dismiss")(); }} />)}
     details={<ProposalCard p={proposal} />} card />;
 }
 

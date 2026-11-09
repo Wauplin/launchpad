@@ -315,6 +315,13 @@ export function agentsWorld() {
       ...end(2), status("waiting"),
     ] });
   const proposals: Proposal[] = [
+    // The Maintainer's reports: one card per pull request it handled, a question waits for your reply.
+    { id: "demo-prop-report-118", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "#118 Save carts for later: keep the old cart table?", note: null,
+      body: { kind: "report", outcome: "needs_you", github: "acme-labs/storefront#118", body: "The PR drops the `saved_cart` table that the billing export still reads. I posted nothing.\n\nShould I ask the author to keep the table until billing moves, or is dropping it fine? The comment I would post:\n\n> Thanks! Could you keep `saved_cart` for now? The billing export still reads it." },
+      state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(20), updated_at: clock.ago(20) },
+    { id: "demo-prop-report-119", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "#119 Lazy-load product images: approved", note: null,
+      body: { kind: "report", outcome: "approved", github: "acme-labs/storefront#119", body: "Checks pass and the change only adds `loading=\"lazy\"` to product images. I approved it with one note about the hero image, which should stay eager." },
+      state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(21), updated_at: clock.ago(21) },
     // The Maintainer proposes a routine for itself (shown in its Routines tab and on the Proposals page).
     { id: "demo-prop-review-routine", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "Review requests on storefront",
       note: "So I review pull requests as soon as GitHub asks you for a review, and prepare my review as a suggestion.",

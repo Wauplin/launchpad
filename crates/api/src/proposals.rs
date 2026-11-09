@@ -20,6 +20,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/proposals/{id}/edit", post(edited))
         .route("/api/proposals/{id}/recheck", post(recheck))
         .route("/api/proposals/{id}/ran", post(ran))
+        .route("/api/proposals/{id}/reply", post(reply))
         .route("/api/context/folders", get(folders))
         .route("/api/context/bots", get(bots))
         .route("/api/context/sessions", get(sessions))
@@ -63,6 +64,14 @@ async fn edited(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Propo
 /// A ready card's action ran from the owner's click.
 async fn ran(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Proposal> {
     Ok(Json(proposals::ran(&s.app, &id).await.map_err(bad)?))
+}
+#[derive(Deserialize)]
+struct Reply {
+    text: String,
+}
+/// The owner's reply to a report, sent to its author's thread.
+async fn reply(State(s): State<Ctx>, Path(id): Path<String>, Json(r): Json<Reply>) -> ApiResult<Proposal> {
+    Ok(Json(proposals::reply(&s.app, &id, &r.text).await.map_err(bad)?))
 }
 async fn recheck(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Proposal> {
     Ok(Json(proposals::recheck(&s.app, &id).await.map_err(bad)?))

@@ -8,7 +8,8 @@ import { HarnessMark } from "@/components/HarnessMark";
 import { Icon, type IconName } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { MenuItem } from "@/components/Popover";
-import { ConfirmButton, ErrorState, MenuSection, MoreMenu, Token } from "@/components/ui";
+import { Badge, type BadgeTone, ConfirmButton, ErrorState, MenuSection, MoreMenu, Token } from "@/components/ui";
+import { Markdown } from "@/components/Markdown";
 import { api } from "@/lib/api";
 import { useProfiles } from "@/lib/profiles";
 import { useProjects, useSessions } from "@/lib/queries";
@@ -22,14 +23,57 @@ import { SessionStatus } from "@/features/agents/SessionBits";
 import { action as actionOf, runAction, type ActionName } from "@/lib/actions";
 import { ActionButton } from "@/components/ActionButton";
 import { ACTIONS } from "@/gen/actions";
-import { BranchActions } from "@/features/today/TodayCards";
+import { BranchActions, ghParams } from "@/features/today/TodayCards";
 
 export const useProposalList = (enabled = true) => useQuery({ enabled, queryKey: ["proposals"], queryFn: () => api.get<Proposal[]>("/api/proposals"), staleTime: 30_000 });
 
 /** The icon of a proposal's kind: the card's and Today's row. */
-export const proposalIcon = (p: Proposal): IconName => p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : p.body.kind === "bot_instructions" ? "file" : p.body.kind === "ready" ? "check" : "play";
+export const proposalIcon = (p: Proposal): IconName => p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : p.body.kind === "bot_instructions" ? "file" : p.body.kind === "ready" ? "check" : p.body.kind === "report" ? (p.body.outcome === "needs_you" ? "alert" : "comment") : "play";
 
-export const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine", bot_instructions: "Apply to BOT.md", ready: "" };
+export const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine", bot_instructions: "Apply to BOT.md", ready: "", report: "" };
+
+type Report = Extract<Proposal["body"], { kind: "report" }>;
+const OUTCOME: Record<Report["outcome"], [string, BadgeTone]> = { needs_you: ["Needs you", "attn"], merged: ["Merged", "ok"], approved: ["Approved", "ok"], commented: ["Commented", "neutral"], waiting: ["Waiting", "neutral"], closed: ["Closed", "danger"], info: ["Info", "neutral"] };
+
+/** A report: its outcome, GitHub item, author and Markdown. A question takes a reply that goes to the author's
+ * thread; any report can be marked read. */
+function ReportBody({ p, body, busy, dismiss }: { p: Proposal; body: Report; busy: boolean; dismiss: () => void }) {
+  const qc = useQueryClient();
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [label, tone] = OUTCOME[body.outcome];
+  const ref = body.github?.match(/^([^/]+\/[^#]+)#(\d+)$/);
+  const waiting = p.state === "proposed" || p.state === "failed";
+  const question = body.outcome === "needs_you";
+  const reply = async () => {
+    setSending(true);
+    try {
+      const next = await runAction<Proposal>("proposal.reply", { id: p.id }, { text });
+      qc.setQueryData<Proposal[]>(["proposals"], (old) => old?.map((x) => (x.id === next.id ? next : x)));
+      if (next.state === "failed") toastError(new Error(next.error ?? "The reply was not sent"));
+      else { setText(""); toast("Reply sent"); }
+    } catch (e) { toastError(e); } finally { setSending(false); }
+  };
+  return (
+    <>
+      <span className="flex flex-wrap items-center gap-1.5 text-[12px]">
+        <Badge tone={tone}>{label}</Badge>
+        {ref && <Link to="/github/$owner/$repo/$number" params={ghParams(ref[1], Number(ref[2]))} className="text-teal-ink no-underline hover:underline">{body.github}</Link>}
+        {p.session_id && <Link to="/agents" search={{ session: p.session_id }} className="text-teal-ink no-underline hover:underline">Open agent</Link>}
+      </span>
+      <div className="max-h-[360px] overflow-auto"><Markdown text={body.body} className="text-[13px]" /></div>
+      {p.state === "started" && <span className="text-[12px] text-gh-open"><Icon name="check" size={12} /> Answered</span>}
+      {p.state === "dismissed" && <span className="text-[12px] text-ink-3">Read</span>}
+      {waiting && question && <textarea aria-label="Reply" placeholder="Reply to the agent…" className="field-input min-h-16" disabled={sending} value={text} onChange={(e) => setText(e.target.value)} />}
+      {waiting && (question
+        ? <div className="flex flex-wrap items-center gap-1.5">
+            <button className="btn btn-sm btn-primary" disabled={sending || busy || !text.trim()} onClick={() => void reply()}><Icon name="send" size={12} />{sending ? "Sending…" : "Reply"}</button>
+            <MoreMenu label="More actions">{(close) => <MenuItem icon={<Icon name="check" size={14} />} label="Mark read" disabled={busy} onClick={() => { close(); dismiss(); }} />}</MoreMenu>
+          </div>
+        : <button className="btn btn-sm w-fit" disabled={busy} onClick={dismiss}><Icon name="check" size={12} />Mark read</button>)}
+    </>
+  );
+}
 
 /** A new BOT.md: the bot and the diff. Applying fails when BOT.md changed since. */
 function BotInstructionsBody({ body }: { body: Extract<Proposal["body"], { kind: "bot_instructions" }> }) {
@@ -260,14 +304,15 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       {p.body.kind === "routine" && <RoutineBody body={p.body} />}
       {p.body.kind === "bot_instructions" && <BotInstructionsBody body={p.body} />}
       {p.body.kind === "ready" && <ReadyBody p={p} body={p.body} dismiss={() => void act("dismiss")} />}
+      {p.body.kind === "report" && <ReportBody p={p} body={p.body} busy={busy} dismiss={() => void act("dismiss")} />}
       {statusSessions.length > 0 && <div className="grid">{statusSessions.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
       {session && <SessionRow s={session} />}
-      {started && !session && p.body.kind !== "status" && <span className="text-[12px] text-gh-open"><Icon name="check" size={12} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "settings" }}>Settings</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : p.body.kind === "ready" ? "Done" : "Started"}</span>}
+      {started && !session && p.body.kind !== "status" && p.body.kind !== "report" && <span className="text-[12px] text-gh-open"><Icon name="check" size={12} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "settings" }}>Settings</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : p.body.kind === "ready" ? "Done" : "Started"}</span>}
       {p.state === "replaced" && <span className="text-[12px] text-ink-3">{p.replaced_by ? "Replaced" : "Edited in the composer"}{p.replaced_by && <> · <Link to="/" search={{ card: `proposal:${p.replaced_by}` }} onClick={() => { if (p.workspace_id) useWorkspace.getState().switchTo(p.workspace_id); }} className="underline">View replacement</Link></>}</span>}
-      {p.state === "dismissed" && <span className="text-[12px] text-ink-3">Dismissed</span>}
+      {p.state === "dismissed" && p.body.kind !== "report" && <span className="text-[12px] text-ink-3">Dismissed</span>}
       {p.state === "failed" && p.error && <ErrorState error={p.error} />}
       {p.state === "uncertain" && <div className="grid gap-1.5 text-[12px] text-attn">Delivery not confirmed. Check Agents before starting a new attempt.<button className="btn btn-sm w-fit" disabled={busy} onClick={() => void act("recheck")}>I checked Agents — check again</button></div>}
-      {(p.state === "proposed" || p.state === "failed") && p.body.kind !== "status" && p.body.kind !== "ready" && (
+      {(p.state === "proposed" || p.state === "failed") && p.body.kind !== "status" && p.body.kind !== "ready" && p.body.kind !== "report" && (
         <div className="flex flex-wrap items-center gap-1.5">
           <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void act("accept")}><Icon name="play" size={12} />{busy ? "Starting…" : START[p.body.kind]}</button>
           <MoreMenu label="More actions">{(close) => <>

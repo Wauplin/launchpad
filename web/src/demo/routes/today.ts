@@ -69,12 +69,16 @@ function drafts(): Draft[] {
       : b.kind === "status" && b.session_ids.length ? { session: b.session_ids[0] }
       : b.kind === "tool" || b.kind === "preset" ? { everywhere: true }
       : p.session_id ? { session: p.session_id } : { workspace: null };
-    const card = (at: number, more: Partial<Draft>) => out.push(item("proposal", "approve", p.id, p.title, place, at, { session_id: p.session_id, ...more }));
-    if (p.state === "proposed") card(p.created_at, { detail: p.note ? line(p.note) : "", action: p.body.kind === "ready" ? p.body.action : p.body.kind === "status" ? "proposal.dismiss" : "proposal.start" });
-    else if (p.state === "failed") card(p.updated_at, { detail: `Failed: ${line(p.error ?? "")}`, action: "proposal.start" });
+    // A report waits under Answer when it asks something, else under Review.
+    const report = b.kind === "report" ? b : null;
+    const filter = report ? (report.outcome === "needs_you" ? "answer" : "review") : "approve";
+    const card = (at: number, more: Partial<Draft>) => out.push(item("proposal", filter, p.id, p.title, place, at, { session_id: p.session_id, github: report?.github ?? null, ...more }));
+    const main = b.kind === "ready" ? b.action : b.kind === "status" ? "proposal.dismiss" : report ? (report.outcome === "needs_you" ? "proposal.reply" : "proposal.dismiss") : "proposal.start";
+    if (p.state === "proposed") card(p.created_at, { detail: p.note ? line(p.note) : report ? line(report.body) : "", action: main });
+    else if (p.state === "failed") card(p.updated_at, { detail: `${report ? "Reply failed" : "Failed"}: ${line(p.error ?? "")}`, action: report ? "proposal.reply" : "proposal.start" });
     else if (p.state === "uncertain") card(p.updated_at, { detail: "Uncertain: check whether it started before you dismiss it", action: "proposal.dismiss" });
-    else if (p.state === "started") card(p.updated_at, { outcome: "Started" });
-    else if (p.state === "dismissed") card(p.updated_at, { outcome: "Dismissed" });
+    else if (p.state === "started") card(p.updated_at, { outcome: report ? "Answered" : "Started" });
+    else if (p.state === "dismissed") card(p.updated_at, { outcome: report ? "Read" : "Dismissed" });
   }
   for (const c of world.crons) {
     const last = c.history.at(-1);

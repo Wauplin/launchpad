@@ -2,6 +2,7 @@
 import type { CronCondition } from "./CronCondition";
 import type { LaunchDelay } from "./LaunchDelay";
 import type { LaunchSpec } from "./LaunchSpec";
+import type { ReportOutcome } from "./ReportOutcome";
 import type { Tool } from "./Tool";
 import type { Trigger } from "./Trigger";
 
@@ -29,7 +30,15 @@ patch: string, } | { "kind": "ready", action: string, args: Array<string>, input
 /**
  * The agent session the click is about; a merge names the session whose branch it merges.
  */
-session_id?: string, } | { "kind": "tool", tool: Tool, 
+session_id?: string, } | { "kind": "report", outcome: ReportOutcome, 
+/**
+ * `owner/repo#number`: the GitHub issue or pull request it is about.
+ */
+github?: string, 
+/**
+ * Markdown: what was done and why, or the question and the text the agent would post.
+ */
+body: string, } | { "kind": "tool", tool: Tool, 
 /**
  * Where the owner creates the token.
  */

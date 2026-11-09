@@ -149,7 +149,7 @@ enum Command {
     },
     /// Store an inert proposal for the owner to start with a click; never starts anything.
     Propose {
-        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-instructions", "ready"])]
+        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-instructions", "ready", "report"])]
         kind: String,
         #[arg(long)]
         title: String,

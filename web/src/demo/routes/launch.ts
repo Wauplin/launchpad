@@ -361,6 +361,15 @@ route("POST", "/api/proposals/:id/dismiss", (r) => {
   publishProposal(p);
   return p;
 });
+// A reply to a report: the demo records it as answered; nothing is sent.
+route("POST", "/api/proposals/:id/reply", (r) => {
+  const p = proposalOf(r.params.id);
+  p.state = "started";
+  p.result_id = p.session_id;
+  p.updated_at = clock.now();
+  publishProposal(p);
+  return p;
+});
 route("POST", "/api/proposals/:id/edit", (r) => {
   const p = proposalOf(r.params.id);
   p.state = "replaced";

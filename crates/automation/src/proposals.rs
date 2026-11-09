@@ -92,6 +92,19 @@ pub enum ProposalBody {
         #[serde(skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
     },
+    /// A report about what an agent did (often on a GitHub pull request or issue), or a question about it: nothing
+    /// to start. The owner marks it read, or replies to its author's thread from the card (`reply`). One waiting
+    /// report per GitHub item and author (the bot, else the session): a new report about the same item replaces it.
+    Report {
+        outcome: ReportOutcome,
+        /// `owner/repo#number`: the GitHub issue or pull request it is about.
+        #[serde(default)]
+        #[ts(optional)]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        github: Option<String>,
+        /// Markdown: what was done and why, or the question and the text the agent would post.
+        body: String,
+    },
     /// A new tool in Home's registry. Adding it asks for nothing secret; the owner pastes the token after.
     /// Its token is always a new vault entry named like the tool, never an existing one.
     Tool {
@@ -102,6 +115,33 @@ pub enum ProposalBody {
         #[serde(skip_serializing_if = "Option::is_none")]
         token_url: Option<String>,
     },
+}
+
+/// What a report says happened. `NeedsYou` waits for an answer; the others are for the owner to read.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportOutcome {
+    NeedsYou,
+    Merged,
+    Approved,
+    Commented,
+    Waiting,
+    Closed,
+    Info,
+}
+
+/// `owner/repo#number`, as Today and GitHub links read it.
+fn valid_github_ref(r: &str) -> bool {
+    let Some((repo, number)) = r.split_once('#') else { return false };
+    let Some((owner, name)) = repo.split_once('/') else { return false };
+    let part = |x: &str| !x.is_empty() && x.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+    part(owner) && part(name) && !number.is_empty() && number.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Who a report speaks for: its bot (every session of the thread), else its session.
+fn author_key(app: &App, session_id: Option<&str>) -> Option<String> {
+    let s = app.sessions.get(session_id?)?;
+    Some(match &s.launch_spec.bot { Some(b) => format!("bot:{}", b.id), None => format!("session:{}", s.id) })
 }
 
 fn default_true() -> bool {
@@ -228,6 +268,13 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             ensure!(!text.trim().is_empty(), "the message is empty");
         }
         ProposalBody::Status { session_ids } => ensure!(!session_ids.is_empty(), "list at least one session"),
+        ProposalBody::Report { github, body, .. } => {
+            ensure!(!body.trim().is_empty(), "write the report in body (Markdown)");
+            if let Some(g) = github {
+                *g = g.trim().to_string();
+                ensure!(valid_github_ref(g), "github is owner/repo#number, such as huggingface/huggingface.js#2716");
+            }
+        }
         ProposalBody::Tool { tool, token_url } => {
             tool.credential = tool.credential.take().map(|_| tool.id.clone());
             launchpad_core::vault::check_tool(tool)?;
@@ -305,8 +352,12 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     let p = Proposal { id: uuid::Uuid::new_v4().to_string(), workspace_id, session_id: c.session_id, title: c.title.trim().to_string(), note: c.note.filter(|n| !n.trim().is_empty()), body, state: ProposalState::Proposed, result_id, replaced_by: None, error: None, created_at: now, updated_at: now };
     // Share the claim lock with accept/dismiss: a replacement cannot race an owner click.
     let _lock = ACCEPT.lock().await;
+    let replaces = match (&c.replaces, &p.body) {
+        (None, ProposalBody::Report { github: Some(g), .. }) => waiting_report(app, &p, g).await?,
+        _ => c.replaces.clone(),
+    };
     let stored = p.clone();
-    app.state_db.call(move |db| store_created(db, &stored, c.replaces.as_deref())).await?;
+    app.state_db.call(move |db| store_created(db, &stored, replaces.as_deref())).await?;
     app.bus.publish("proposals", "changed", serde_json::to_value(&p)?);
     drop(_lock);
     // Only proposals authored by a bot in auto mode are eligible, and only one-time starts and messages. Anything
@@ -318,6 +369,17 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
         return accept_inner(app, &p.id, false, None).await;
     }
     Ok(p)
+}
+
+/// The waiting report of the same author and workspace about the same GitHub item, which a new report replaces.
+async fn waiting_report(app: &App, new: &Proposal, github: &str) -> Result<Option<String>> {
+    let Some(author) = author_key(app, new.session_id.as_deref()) else { return Ok(None) };
+    Ok(list(app).await?.into_iter().find(|p| {
+        matches!(p.state, ProposalState::Proposed | ProposalState::Failed)
+            && p.workspace_id == new.workspace_id
+            && matches!(&p.body, ProposalBody::Report { github: Some(g), .. } if g == github)
+            && author_key(app, p.session_id.as_deref()).as_deref() == Some(author.as_str())
+    }).map(|p| p.id))
 }
 
 /// The author is a session of a bot whose `bot.toml` says `proposals = "auto"`.
@@ -401,6 +463,7 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 Ok(bot_id)
             }
             ProposalBody::Status { .. } => bail!("a status card has nothing to start"),
+            ProposalBody::Report { .. } => bail!("a report has nothing to start: mark it read or reply"),
             ProposalBody::Ready { action, .. } => bail!("a ready card runs {action} from its own button"),
             ProposalBody::Tool { mut tool, .. } => {
                 let tools = launchpad_core::vault::tools(app).await?;
@@ -464,6 +527,51 @@ pub async fn dismiss(app: &App, id: &str) -> Result<Proposal> {
     let mut p = get(app, id).await?;
     ensure!(matches!(p.state, ProposalState::Proposed | ProposalState::Failed | ProposalState::Uncertain), "only waiting proposals can be dismissed");
     p.state = ProposalState::Dismissed;
+    p.updated_at = now_ms();
+    save(app, &p).await?;
+    Ok(p)
+}
+
+/// The owner's reply to a report: a message to its author's thread (the bot's current session, else the session
+/// that wrote it), naming the card. The report then counts as answered (Started, `result_id` the session). Claimed
+/// first like a start: a reply interrupted by a restart becomes Uncertain and is never sent again automatically.
+pub async fn reply(app: &App, id: &str, text: &str) -> Result<Proposal> {
+    ensure!(!text.trim().is_empty(), "write a reply");
+    let mut p = {
+        let _lock = ACCEPT.lock().await;
+        let mut p = get(app, id).await?;
+        ensure!(matches!(p.body, ProposalBody::Report { .. }), "only reports take a reply");
+        ensure!(matches!(p.state, ProposalState::Proposed | ProposalState::Failed), "this report is not waiting");
+        p.state = ProposalState::Starting;
+        p.error = None;
+        p.updated_at = now_ms();
+        save(app, &p).await?;
+        p
+    };
+    let ProposalBody::Report { github, .. } = &p.body else { unreachable!() };
+    let about = github.as_deref().map(|g| format!(" about {g}")).unwrap_or_default();
+    let message = format!("The owner replied to your report “{}”{about} (card {}):\n\n{}", p.title, p.id, text.trim());
+    let result: Result<String> = async {
+        let author = p.session_id.as_deref().and_then(|sid| app.sessions.get(sid)).context("the agent that wrote this report no longer exists")?;
+        match &author.launch_spec.bot {
+            Some(b) => Ok(launchpad_core::bots::message(app, &b.id, message, vec![], false).await?.id),
+            None => {
+                launchpad_core::runners::send_anywhere(app, &author.id, &message, vec![], Some(format!("proposal-reply-{}", p.id))).await?;
+                Ok(author.id.clone())
+            }
+        }
+    }
+    .await;
+    match result {
+        Ok(sid) => {
+            p.state = ProposalState::Started;
+            p.result_id = Some(sid);
+        }
+        Err(e) => {
+            p.state = ProposalState::Failed;
+            p.error = Some(format!("{e:#}"));
+        }
+    }
     p.updated_at = now_ms();
     save(app, &p).await?;
     Ok(p)
@@ -554,6 +662,14 @@ mod tests {
     fn read(db: &rusqlite::Connection, id: &str) -> Proposal {
         let json: String = db.query_row("SELECT json FROM launch_proposal WHERE id = ?1", [id], |r| r.get(0)).unwrap();
         serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn github_refs() {
+        assert!(valid_github_ref("huggingface/huggingface.js#2716"));
+        for bad in ["huggingface.js#2716", "a/b#", "a/b#12x", "a/b/c#1", "/b#1", "a/b 1"] {
+            assert!(!valid_github_ref(bad), "{bad}");
+        }
     }
 
     #[test]

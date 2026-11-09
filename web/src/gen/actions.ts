@@ -34,6 +34,7 @@ export type ActionName =
   | "launch.check"
   | "proposal.start"
   | "proposal.dismiss"
+  | "proposal.reply"
   | "proposal.recheck"
   | "runner.check-network"
   | "workspace.create"
@@ -87,7 +88,8 @@ export const ACTIONS: Record<ActionName, Action> = {
   "schedule.start": {"name":"schedule.start","method":"POST","route":"/api/launch/schedules/{id}/start","label":"Start now","icon":"play","help":"Start a scheduled launch now","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "launch.check": {"name":"launch.check","method":"POST","route":"/api/launch/preview","label":"Check","icon":null,"help":"Check a launch spec without starting it","input":[],"body_file":"a launch spec","fixed":null,"confirm":null,"effect":"checks","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "proposal.start": {"name":"proposal.start","method":"POST","route":"/api/proposals/{id}/accept","label":"Start","icon":"play","help":"Start a card (you may start a card only when you could run its action directly)","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
-  "proposal.dismiss": {"name":"proposal.dismiss","method":"POST","route":"/api/proposals/{id}/dismiss","label":"Dismiss","icon":"x","help":"Dismiss a card","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"admin","card":null,"undo":null,"before":null,"ready":false},
+  "proposal.dismiss": {"name":"proposal.dismiss","method":"POST","route":"/api/proposals/{id}/dismiss","label":"Dismiss","icon":"x","help":"Dismiss a card (a report: mark it read)","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"admin","card":null,"undo":null,"before":null,"ready":false},
+  "proposal.reply": {"name":"proposal.reply","method":"POST","route":"/api/proposals/{id}/reply","label":"Reply","icon":"send","help":"Answer a report: the text goes to the thread of the agent or bot that wrote it","input":[{"name":"text","kind":"text","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "proposal.recheck": {"name":"proposal.recheck","method":"POST","route":"/api/proposals/{id}/recheck","label":"Check again","icon":"refresh","help":"Validate a card again","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"checks","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "runner.check-network": {"name":"runner.check-network","method":"POST","route":"/api/runners/{id}/network-check","label":"Check network","icon":"refresh","help":"Check a runner's sandbox network: capture, DNS, UDP policy, IPv4 and IPv6, runner CA","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"checks","access":"owner","card":null,"undo":null,"before":null,"ready":false},
   "workspace.create": {"name":"workspace.create","method":"POST","route":"/api/workspaces","label":"New workspace","icon":"plus","help":"Create a workspace","input":[{"name":"name","kind":"text","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"admin","card":null,"undo":"workspace.delete","before":null,"ready":false},
