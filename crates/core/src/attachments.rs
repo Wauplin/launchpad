@@ -183,8 +183,8 @@ pub fn decode_image(data_url: &str) -> Result<(Vec<u8>, String)> {
 
 pub fn validate(files: &[FileAttachment]) -> Result<()> {
     ensure!(
-        files.len() <= 8 && files.iter().map(|f| encoded_len(&f.data_url)).sum::<usize>() <= 28_000_000,
-        "attach at most 8 files, totaling 20 MB"
+        files.iter().map(|f| encoded_len(&f.data_url)).sum::<usize>() <= 28_000_000,
+        "attachments must total 20 MB or less"
     );
     for file in files {
         decode(&file.data_url, false)?;
@@ -194,8 +194,8 @@ pub fn validate(files: &[FileAttachment]) -> Result<()> {
 
 pub fn validate_images(images: &[ImageAttachment]) -> Result<()> {
     ensure!(
-        images.len() <= 8 && images.iter().map(|f| encoded_len(&f.data_url)).sum::<usize>() <= 28_000_000,
-        "attach at most 8 images, totaling 20 MB"
+        images.iter().map(|f| encoded_len(&f.data_url)).sum::<usize>() <= 28_000_000,
+        "images must total 20 MB or less"
     );
     for image in images {
         decode(&image.data_url, true)?;

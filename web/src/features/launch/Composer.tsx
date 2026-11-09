@@ -15,7 +15,7 @@ import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { Profile } from "@/gen/Profile";
 import { isImageAttachment, pastedImages, readAttachments } from "@/lib/attachments";
-import { AttachmentList } from "@/features/agents/MessageAttachments";
+import { ATTACH_LIMITS, AttachmentList } from "@/features/agents/MessageAttachments";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
 import type { Project } from "@/gen/Project";
@@ -242,7 +242,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     try {
       const files = await input;
       if (!files.length) return;
-      const added = await readAttachments(files, draft.attachments ?? []);
+      const added = await readAttachments(files);
       if (added.some((f) => isImageAttachment(f.data_url)) && harness && !harness.capabilities.images) throw new Error("This harness does not support images.");
       // Do not add a completed read to a different workspace or a discarded draft.
       if (useComposer.getState().spec.attachments === draft.attachments) update((s) => ({ ...s, attachments: [...(s.attachments ?? []), ...added] }));
@@ -544,7 +544,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                 return { ...s, agent_traces: traces.some((t) => t.session_id === trace.session_id) ? traces.filter((t) => t.session_id !== trace.session_id) : [...traces, trace] };
               })}
             />
-            <button className={isPhone ? "btn btn-ghost text-[13px]" : "btn btn-sm btn-ghost"} disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. Up to 8 files, 5 MB each, 20 MB total.`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} />{isPhone ? "Attach files or images" : "Attach"}</button>
+            <button className={isPhone ? "btn btn-ghost text-[13px]" : "btn btn-sm btn-ghost"} disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. ${ATTACH_LIMITS}`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} />{isPhone ? "Attach files or images" : "Attach"}</button>
           </div>
         </div>
         {(readingAttachments || (spec.attachments ?? []).length > 0 || unsupportedImages) && <div>

@@ -85,8 +85,7 @@ export function attachmentSrc(dataUrl: string): string {
 
 export const isImageAttachment = (dataUrl: string) => dataUrl.startsWith("data:image/") || dataUrl.startsWith("upload:image/");
 
-export async function readAttachments(files: File[], current: FileAttachment[]): Promise<FileAttachment[]> {
-  if (current.length + files.length > 8) throw new Error("Attach at most 8 files.");
+export async function readAttachments(files: File[]): Promise<FileAttachment[]> {
   const prepared = await Promise.all(files.map(async (file) => {
     const looksImage = file.type.startsWith("image/") || (!file.type && /\.(heic|heif)$/i.test(file.name));
     const ready = looksImage ? await normalizeImage(file) : file;

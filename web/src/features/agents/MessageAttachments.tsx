@@ -7,15 +7,13 @@ import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { attachmentSrc, isImageAttachment, readAttachments } from "@/lib/attachments";
 
-export const ATTACH_LIMITS = "Up to 8 files, 5 MB each, 20 MB total.";
+export const ATTACH_LIMITS = "5 MB each, 20 MB total.";
 
 /** Pending attachments with one read at a time; `images` is false when the harness cannot take images. */
 export function useMessageAttachments(images: boolean) {
   const [files, setFiles] = useState<FileAttachment[]>([]);
   const [reading, setReading] = useState(false);
   const readingRef = useRef(false);
-  const current = useRef(files);
-  current.current = files;
   const add = async (input: File[] | Promise<File[]>) => {
     if (readingRef.current) return;
     readingRef.current = true;
@@ -23,7 +21,7 @@ export function useMessageAttachments(images: boolean) {
     try {
       const picked = await input;
       if (!picked.length) return;
-      const added = await readAttachments(picked, current.current);
+      const added = await readAttachments(picked);
       if (!images && added.some((f) => isImageAttachment(f.data_url))) throw new Error("This harness does not support images. Attach other files only.");
       setFiles((list) => [...list, ...added]);
     } catch (e) { toastError(e); }
