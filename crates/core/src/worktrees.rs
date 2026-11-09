@@ -104,6 +104,10 @@ pub struct MergeRequest {
     pub by_agent: bool,
     /// Conflict messages already sent to the agent for this request.
     pub agent_retries: u32,
+    /// A failed merge was already sent back to the agent once (automatic Fix merge): a second failure waits for
+    /// the owner.
+    #[serde(default)]
+    pub auto_fixed: bool,
     #[ts(type = "number")]
     pub requested_at: i64,
 }
@@ -832,8 +836,9 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool) -> Result<TaskWo
         ensure!(w.state == WorktreeState::Active, "only an active worktree can be merged");
         ensure!(w.pull_request.is_none(), "this branch continues a pull request: merge it on GitHub");
         let base = w.base_branch.clone().context("this worktree has no base branch to merge into")?;
-        let retries = w.merge.as_ref().filter(|m| m.by_agent && by_agent).map(|m| m.agent_retries).unwrap_or(0);
-        w.merge = Some(MergeRequest { phase: MergePhase::Waiting, reason: format!("Waiting to merge into {base}"), by_agent, agent_retries: retries, requested_at: now_ms() });
+        let before = w.merge.as_ref().filter(|m| m.by_agent && by_agent);
+        let (retries, auto_fixed) = before.map(|m| (m.agent_retries, m.auto_fixed)).unwrap_or_default();
+        w.merge = Some(MergeRequest { phase: MergePhase::Waiting, reason: format!("Waiting to merge into {base}"), by_agent, agent_retries: retries, auto_fixed, requested_at: now_ms() });
         save(app, &w).await?;
         w
     };
@@ -962,9 +967,13 @@ async fn attempt(app: &App, id: &str) {
                 send.then(|| (w.sessions.last().cloned(), reason))
             }
             Err(e) => {
-                w.merge = Some(MergeRequest { phase: MergePhase::Failed, reason: format!("{e:#}"), ..m });
-                notice(app, &w, &format!("Merge of {} failed: {e:#}", w.branch)).await;
-                None
+                // Usually a race on the base branch: the agent gets it once (automatic Fix merge), never twice.
+                let reason = format!("{e:#}");
+                let send = m.by_agent && !m.auto_fixed;
+                w.merge = Some(MergeRequest { phase: MergePhase::Failed, reason: reason.clone(), auto_fixed: m.auto_fixed || send, ..m });
+                let then = if send { " Sent back to the agent once." } else { "" };
+                notice(app, &w, &format!("Merge of {} failed: {reason}{then}", w.branch)).await;
+                send.then(|| (w.sessions.last().cloned(), reason))
             }
         };
         if let Err(e) = save(app, &w).await {

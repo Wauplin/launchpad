@@ -25,7 +25,7 @@ import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useSession } from "@/lib/queries";
 import type { TodayItem } from "./data";
-import { ghParams, githubRef, MergeButton, ReviewWithAgent, SessionMeta, useBranch, useOpenQuestion } from "./TodayCards";
+import { FixMergeButton, ghParams, githubRef, MergeButton, NotMerged, ReviewWithAgent, SessionMeta, useBranch, useOpenQuestion } from "./TodayCards";
 
 /** The icon, color and name of each kind: GitHub's icons for pull requests. */
 export const LOOK: Record<TodayItem["kind"], { icon: IconName; color: string; name: string }> = {
@@ -173,7 +173,8 @@ function QuestionRow(p: RowProps) {
     details={ask && s?.live ? <AskCard row={ask} sessionId={item.record} live={s.live} hint="Or open the agent to type another answer." /> : <Last text={s?.last_message ?? (item.detail || "The agent asked a question.")} id={item.record} seq={s?.last_seq} />} />;
 }
 
-/** Review its Local PR when it wrote one, else Merge when safe, else Review changes when there is work not handed
+/** Fix merge when its merge stopped (the line says "Not merged"), else review its Local PR when it wrote one, else
+ * Merge when safe, else Review changes when there is work not handed
  * off yet (merged, in a Local PR or a GitHub pull request), else
  * Open agent (it opens at the last message, to read it in full); the branch facts in the details. */
 function FinishedRow(p: RowProps) {
@@ -182,16 +183,18 @@ function FinishedRow(p: RowProps) {
   const s = useSession(item.record);
   const loading = useSessionWorktrees(item.record).isPending;
   const branch = useBranch(item.record, s);
-  const { t, safe, facts, work } = branch;
+  const { t, safe, facts, work, stopped } = branch;
   const phone = usePhone();
-  return <Row {...p} age={!s} meta={<SessionMeta s={s} item={item} />}
-    main={pr ? <ReviewLocalPr id={pr.record} />
+  return <Row {...p} age={!s} meta={<><SessionMeta s={s} item={item} />{stopped && <span className="flex-none font-semibold whitespace-nowrap text-attn">· Not merged</span>}</>}
+    main={stopped ? <FixMergeButton sessionId={item.record} branch={branch} label={phone ? "Fix" : undefined} primary={false} />
+      : pr ? <ReviewLocalPr id={pr.record} />
       : safe ? <MergeButton sessionId={item.record} branch={branch} label="Merge" primary={false} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)} />
       : work ? <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record, view: "changes" }} title="Review the changes of the agent">Review</Link>
       : !loading && <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record }} title="Open the agent at its last message">{phone ? "Open" : "Open agent"}</Link>}
     second={!phone && <Archive id={item.record} />}
-    menu={SessionMenu({ id: item.record, open: !!pr || safe || work || loading, archive: phone })}
-    details={(s?.last_message || facts) && <>
+    menu={SessionMenu({ id: item.record, open: !!stopped || !!pr || safe || work || loading, archive: phone })}
+    details={(s?.last_message || facts || stopped) && <>
+      <NotMerged branch={branch} />
       <Last text={s?.last_message} id={item.record} seq={s?.last_seq} />
       {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={12} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
     </>} />;

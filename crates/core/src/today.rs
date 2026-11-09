@@ -223,6 +223,17 @@ fn group_local_prs(sessions: &mut [Item], local_prs: Vec<Item>) -> Vec<Item> {
 /// The core's own items: agents that need you (with their Local PRs), Local PRs to publish, runners to update.
 async fn core_items(app: &App) -> Vec<Item> {
     let mut out: Vec<Item> = app.sessions.list().iter().filter_map(session_item).collect();
+    // A finished agent whose merge stopped (conflict or failure): its main action is Fix merge.
+    if out.iter().any(|i| i.kind == Kind::Finished) {
+        let stopped: Vec<_> = crate::worktrees::list(app).await.unwrap_or_default().into_iter()
+            .filter(|w| w.primary && w.merge.as_ref().is_some_and(|m| m.phase != crate::worktrees::MergePhase::Waiting))
+            .collect();
+        for i in out.iter_mut().filter(|i| i.kind == Kind::Finished) {
+            if stopped.iter().any(|w| w.sessions.last() == i.session_id.as_ref()) {
+                i.action = Some("worktree.fix-merge".into());
+            }
+        }
+    }
     match crate::predrafts::list(app).await {
         Ok(list) => {
             let prs = list.into_iter().filter(|p| !p.archived && p.published_url.is_none() && p.merged.is_none()).map(|p| {

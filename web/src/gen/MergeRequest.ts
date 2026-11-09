@@ -13,4 +13,9 @@ by_agent: boolean,
 /**
  * Conflict messages already sent to the agent for this request.
  */
-agent_retries: number, requested_at: number, };
+agent_retries: number,
+/**
+ * A failed merge was already sent back to the agent once (automatic Fix merge): a second failure waits for
+ * the owner.
+ */
+auto_fixed: boolean, requested_at: number, };

@@ -11,7 +11,7 @@ import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon, type IconName } from "@/components/Icon";
-import { toastError } from "@/components/Toast";
+import { toast, toastError } from "@/components/Toast";
 import { Loading, MoreMenu } from "@/components/ui";
 import { AskCard } from "@/features/agents/AskCard";
 import { buildRows } from "@/features/agents/rows";
@@ -111,7 +111,26 @@ export function useBranch(sessionId: string, s: Session | null) {
   // Its work then needs no review here: Archive comes first.
   const handedOff = !!w && !!t && w.dirty_files === 0 && (!!t.predraft_id || !!t.pull_request || (!!t.merged && w.ahead === 0));
   const work = !!w && (w.dirty_files > 0 || (w.ahead > 0 && !handedOff));
-  return { w, t, base, safe, facts, handedOff, work };
+  // A merge that stopped (conflict or failure, not one that waits): not merged, and Fix merge is the main action.
+  const stopped = t?.merge && t.merge.phase !== "waiting" ? t.merge : null;
+  return { w, t, base, safe, facts, handedOff, work, stopped };
+}
+
+/** Fix merge: the merge problem goes back to the agent, which rebases, resolves and asks to merge again. Call only
+ * when `useBranch(…).stopped`. */
+export function FixMergeButton({ sessionId, branch: { t }, label, primary = true, className }: { sessionId: string; branch: ReturnType<typeof useBranch>; label?: string; primary?: boolean; className?: string }) {
+  const qc = useQueryClient();
+  const sent = () => { toast("Sent to the agent"); void qc.invalidateQueries({ queryKey: ["worktrees"] }); };
+  return <ActionButton name="worktree.fix-merge" params={{ id: t!.id }} query={{ session: worktreeSession(t!) ?? sessionId }} primary={primary} className={className} onDone={sent}>{label}</ActionButton>;
+}
+
+/** "Not merged into <base>" and why, in the attention color. `clamp`: at most two lines (Today). */
+export function NotMerged({ branch: { stopped, base }, clamp }: { branch: ReturnType<typeof useBranch>; clamp?: boolean }) {
+  if (!stopped) return null;
+  return <div role="alert" className="grid min-w-0 gap-0.5 text-[12px] text-attn">
+    <b className="flex items-center gap-1.5"><Icon name="alert" size={12} className="flex-none" />Not merged into {base ?? "the base branch"}{stopped.phase === "conflict" ? ": the base branch moved" : ""}</b>
+    <span className={`break-words ${clamp ? "line-clamp-2" : ""}`} title={stopped.reason}>{stopped.reason}</span>
+  </div>;
 }
 
 /** The session page's main action is Merge (laptop header, phone bottom bar): safe, finished and no open question.
@@ -129,15 +148,19 @@ export function MergeButton({ sessionId, branch: { t, base }, onMerged, classNam
   return <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} query={{ session: worktreeSession(t!) ?? sessionId }} primary={primary} title={`Merge ${t!.branch} into ${base}`} className={className} onDone={merged}>{label ?? `Merge into ${base}`}</ActionButton>;
 }
 
-/** The branch line and Merge (only when safe) or Review changes (unless the branch was handed off). `onMerged` runs
+/** Not merged and Fix merge when a merge stopped, else the branch line and Merge (only when safe) or Review changes
+ * (unless the branch was handed off). `onMerged` runs
  * after a merge that went through. */
 export function BranchActions({ sessionId, s, onMerged, children }: { sessionId: string; s: Session | null; onMerged?: () => Promise<unknown>; children?: ReactNode }) {
   const branch = useBranch(sessionId, s);
-  const { t, safe, facts, work } = branch;
+  const { t, safe, facts, work, stopped } = branch;
   return <>
+    <NotMerged branch={branch} clamp />
     {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={12} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
     <div className="flex flex-wrap items-center gap-1.5">
-      {safe
+      {stopped
+        ? <FixMergeButton sessionId={sessionId} branch={branch} />
+        : safe
         ? <MergeButton sessionId={sessionId} branch={branch} onMerged={onMerged} />
         : work && <Link className="btn btn-sm btn-primary no-underline" to="/agents" search={{ session: sessionId, view: "changes" }}>Review changes</Link>}
       {children}
@@ -158,8 +181,9 @@ export function Later({ id }: { id: string }) {
 /** A finished agent: its last message, its branch with Merge when safe, Archive and Mark seen. */
 function FinishedCard({ item }: { item: TodayItem }) {
   const s = useSession(item.record);
-  // Merge or Review changes when there is work (BranchActions), else the card's Open link; Archive in ⋯.
-  return <Card item={item} age={!s} meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
+  // Fix merge, Merge or Review changes when there is work (BranchActions), else the card's Open link; Archive in ⋯.
+  const stopped = !!useBranch(item.record, s).stopped;
+  return <Card item={item} tone={stopped ? "border-attn-line" : undefined} age={!s} meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
     {s?.last_message && <p className="m-0 line-clamp-3 text-[13px] text-ink-2">{s.last_message}</p>}
     <BranchActions sessionId={item.record} s={s} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)}>
       <Later id={item.record} />

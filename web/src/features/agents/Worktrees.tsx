@@ -127,7 +127,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
       {w.cleanup_note && w.state === "active" && !i.ahead && <div className="text-[11px] text-ink-3">Cleanup: {w.cleanup_note}</div>}
       <div className="flex flex-wrap gap-1.5">
         {canMerge && <ActionButton name="worktree.merge" params={{ id: w.id }} vars={{ branch: w.branch, base: base! }} query={{ session: decodeURIComponent(owner) }} disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : undefined}>Merge into {base}</ActionButton>}
-        {w.merge && w.merge.phase !== "waiting" && session && <button className="btn btn-sm" disabled={busy} title="Send the problem to the agent: it rebases, resolves and asks to merge again" onClick={() => void act("fix", "Sent to the agent")}>Fix with agent</button>}
+        {w.merge && w.merge.phase !== "waiting" && session && <ActionButton name="worktree.fix-merge" params={{ id: w.id }} query={{ session: decodeURIComponent(owner) }} disabled={busy || running} onDone={() => toast("Sent to the agent")} />}
         <TerminalMenu cwd={i.path} small phone={isPhone} align="left" />
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}
         {onHome && w.primary && !w.merge && !w.pull_request && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}

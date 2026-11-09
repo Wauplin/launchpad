@@ -212,7 +212,7 @@ route("POST", "/api/worktrees/add-project", () => ({ message: "Demo: adding a fo
 
 function requestMerge(i: WorktreeInfo, byAgent: boolean) {
   const w = i.worktree;
-  w.merge = { phase: "waiting", reason: "Waiting for the agent to be idle", by_agent: byAgent, agent_retries: 0, requested_at: clock.now() };
+  w.merge = { phase: "waiting", reason: "Waiting for the agent to be idle", by_agent: byAgent, agent_retries: 0, auto_fixed: false, requested_at: clock.now() };
   publishWorktree(i);
   setTimeout(() => {
     if (!w.merge) return;

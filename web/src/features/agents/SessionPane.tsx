@@ -51,7 +51,7 @@ import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextC
 import { PromptField } from "@/features/launch/PromptField";
 import { withPresets } from "@/lib/presets";
 import { runAction } from "@/lib/actions";
-import { MergeButton, mergeIsMain, useBranch } from "@/features/today/TodayCards";
+import { FixMergeButton, MergeButton, mergeIsMain, NotMerged, useBranch } from "@/features/today/TodayCards";
 
 function act(id: string, action: "session.archive" | "session.stop" | "session.resume" | "session.unread") {
   return runAction(action, { id }).catch(toastError);
@@ -342,6 +342,8 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   // Archive becomes the main action.
   const handedOff = !uncommitted && (branch.handedOff || !!history.data?.merged_into || !!localPr);
   const toReview = changed && !handedOff;
+  // A merge that stopped (conflict or failure): Fix merge comes before Review changes and Archive.
+  const mergeStopped = s.status === "waiting" && !s.open_question && !!branch.stopped;
   // A Git query that failed (its runner is away, a network error) means unknown, never "no changes": Archive
   // becomes the primary action only once Git confirmed there is nothing to review. A 4xx answer for a folder
   // that is not a Home Git folder means it is not a Git folder.
@@ -381,6 +383,8 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       <button className="btn btn-sm btn-primary" title={ask?.permission ? "Review the requested operation" : "Show the question and focus the message box"} onClick={() => { setExpanded(false); setReplying(true); setView("trace"); setAnswering((n) => n + 1); }}>{ask?.permission ? "Review approval" : "Answer"}</button>
       {s.live && <button className="iconbtn text-danger" title="Stop the agent while it waits for your decision" aria-label="Stop agent" onClick={() => void act(s.id, "session.stop")}><Icon name="stop" size={14} /></button>}
     </>
+  ) : mergeStopped ? (
+    <FixMergeButton sessionId={s.id} branch={branch} />
   ) : s.status === "waiting" ? (
     // Work not handed off yet (uncommitted, or commits not merged and in no Local PR or pull request) comes before Archive.
     toReview
@@ -391,7 +395,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   ) : resumable ? (
     <button className="btn btn-sm btn-primary" title={s.status === "closed" ? "Re-attach this archived session; send its original task if it never started" : "Continue the unfinished task"} onClick={() => { void (s.status === "closed" ? act(s.id, "session.resume") : api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }).catch(toastError)); setView("trace"); }}>Resume</button>
   ) : null;
-  const archivePrimary = s.status === "waiting" && !s.open_question && !toReview && !gitUnknown && !gitLoading;
+  const archivePrimary = s.status === "waiting" && !s.open_question && !mergeStopped && !toReview && !gitUnknown && !gitLoading;
   const canReply = !childrenOpen;
 
   const noShell = s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id;
@@ -517,6 +521,10 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         </div>
       </Sheet>}
 
+      {branch.stopped && !running && <div className="grid gap-1 border-b border-attn-line bg-attn-soft px-4 py-2.5">
+        <NotMerged branch={branch} />
+        <span className="text-[12px] text-attn">{s.status === "waiting" ? "Fix merge sends the problem to the agent: it rebases, resolves and asks to merge again." : "Resume the agent, then use Fix merge."}</span>
+      </div>}
       {log?.error && <div role="alert" className="flex flex-wrap items-center gap-3 px-4 py-3 text-ink-3">
         <span className="min-w-0 flex-1 break-words">Could not load session events: {log.error}</span>
         <button className="btn btn-sm" disabled={log.loading} onClick={() => void load(sessionId)}>{log.loading ? "Loading…" : "Retry"}</button>
