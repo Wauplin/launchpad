@@ -738,8 +738,8 @@ pub async fn after_archive(app: &App, session_id: &str) {
         return;
     }
     // Home's record of a runner's folder (a runner away, a stopped Burst job): the runner removes its copy
-    // when the archive reaches it.
-    if p.runner_id.is_some() && app.paths.role == crate::role::Role::Home {
+    // when the archive reaches it. Home has no copy of its own.
+    if app.paths.role == crate::role::Role::Home {
         let id = p.id.clone();
         if let Err(e) = app.state_db.call(move |c| Ok(c.execute("DELETE FROM project WHERE id = ?1", [id])?)).await {
             tracing::warn!("forget the temporary folder {}: {e:#}", p.path);
