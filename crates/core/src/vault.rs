@@ -722,15 +722,15 @@ pub async fn leases(app: &App, session_id: Option<&str>) -> Result<Vec<LeaseInfo
     lease_rows(app, session_id.map(str::to_string)).await
 }
 
-/// Home refuses a session that runs on another runner or in a newer generation.
+/// Home gives a lease only for a session it placed on that runner (`runners::record_placement`, before the runner
+/// starts it), in its current generation. `runner_id` None: an agent of this `all` daemon.
 pub(crate) fn check_owner(app: &App, runner_id: Option<&str>, session_id: &str, generation: u32) -> Result<()> {
-    let Some(s) = app.sessions.get(session_id) else { return Ok(()) };
+    let s = app.sessions.get(session_id).context("Home did not place this session on this runner: it runs on another runner or was never launched")?;
     if s.generation > generation {
         bail!("this session moved to another runner");
     }
-    if let (Some(r), Some(owner)) = (runner_id, s.runner_id.as_deref())
-        && r != owner
-    {
+    anyhow::ensure!(runner_id.is_some() || app.paths.role.runs_agents(), "Home runs no agents");
+    if s.runner_id.as_deref() != runner_id {
         bail!("this session runs on another runner");
     }
     Ok(())
@@ -898,6 +898,14 @@ pub async fn runner_call(app: &App, runner_id: Option<&str>, op: &str, body: Val
         }
         "kb" => crate::kb::runner_apply(app, runner_id, body).await,
         "quota" => crate::quota::runner_reading(app, body),
+        "place" => {
+            // A launch the runner starts itself (a window or the CLI on that machine): Home records it first.
+            let runner = runner_id.context("only a runner places its own launches")?;
+            let id = body["session_id"].as_str().context("session_id")?;
+            let spec: crate::model::LaunchSpec = serde_json::from_value(body["spec"].clone()).context("spec")?;
+            crate::runners::record_placement(app, &spec, id, runner).await?;
+            Ok(Value::Null)
+        }
         _ => bail!("unknown runner call {op}"),
     }
 }

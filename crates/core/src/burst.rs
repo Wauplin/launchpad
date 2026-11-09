@@ -500,7 +500,7 @@ fn error_of(body: &str) -> String {
 /// Home: a launch that found no runner starts on Burst. The session shows at once (Starting, on its Burst
 /// runner); the runner creates it with the same ID once the job is up, and its record replaces this one.
 pub async fn launch(app: &App, spec: LaunchSpec, id: String, automatic: bool) -> Result<Session> {
-    let harness = spec.harness.context("pick a harness")?;
+    spec.harness.context("pick a harness")?;
     ensure!(app.sessions.get(&id).is_none(), "a session with this id already exists");
     if let crate::model::Target::Project { project_id } | crate::model::Target::Predraft { project_id } = &spec.target {
         let p = crate::projects::get(app, project_id).await?.context("no such folder")?;
@@ -508,41 +508,8 @@ pub async fn launch(app: &App, spec: LaunchSpec, id: String, automatic: bool) ->
     }
     let pending = Pending::Launch { spec: Box::new(spec.clone()), session_id: id.clone(), automatic };
     let run = start(app, Some(id.clone()), pending).await?;
-    let now = now_ms();
-    let title: String = spec.text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("New agent").chars().take(80).collect();
-    let s = Session {
-        id: id.clone(),
-        harness,
-        runner_id: Some(run.runner_id.clone()),
-        generation: 1,
-        harness_session_id: None,
-        project_id: match &spec.target {
-            crate::model::Target::Project { project_id } | crate::model::Target::Predraft { project_id } => Some(project_id.clone()),
-            _ => None,
-        },
-        cwd: String::new(),
-        title,
-        title_pending: true,
-        status: SessionStatus::Starting,
-        archived_done: false,
-        status_since: now,
-        live: false,
-        open_question: false,
-        model: spec.model.clone(),
-        effort: spec.effort.clone(),
-        prompt: spec.text.clone(),
-        usage: Default::default(),
-        started_at: now,
-        ended_at: None,
-        last_seq: 0,
-        launch_spec: spec,
-        quota_pause: None,
-        capacity_retry_count: 0,
-        capacity_retry_at: None,
-        seen_at: now,
-        last_message: None,
-        unsaved: None,
-    };
+    // The job's runner record exists now: the session is placed on it before the job asks for its lease.
+    let s = crate::runners::placed_record(&spec, &id, &run.runner_id)?;
     app.sessions.placeholder(app, s.clone()).await?;
     Ok(s)
 }

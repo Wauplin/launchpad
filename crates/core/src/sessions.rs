@@ -504,7 +504,9 @@ impl Sessions {
             Item::Session { session } => {
                 let mut s = *session;
                 let current = self.get(&s.id);
-                let stale = current.as_ref().is_some_and(|c| c.generation > s.generation || (c.runner_id.is_none() && c.generation >= s.generation));
+                // Only sessions Home placed on this runner are its records (`runners::record_placement`, a move):
+                // a record of an unknown session or of another runner's is ignored.
+                let stale = current.as_ref().is_none_or(|c| c.runner_id.as_deref() != Some(runner_id) || c.generation > s.generation);
                 if !stale {
                     s.runner_id = Some(runner.clone());
                     // Either side may have shown it to the owner.
@@ -541,7 +543,7 @@ impl Sessions {
             }
             Item::Event { generation, event } => {
                 let current = self.get(&event.session_id);
-                let fresh = current.as_ref().is_none_or(|c| c.runner_id.as_deref() == Some(runner_id) && c.generation <= generation);
+                let fresh = current.as_ref().is_some_and(|c| c.runner_id.as_deref() == Some(runner_id) && c.generation <= generation);
                 let ev = event.clone();
                 // The summary lists the machines that ran the turns; runner records go away (Burst), so keep the name.
                 let machine = match &event.body {
@@ -963,6 +965,14 @@ impl Sessions {
         let mut local_pr: Option<(Option<crate::predrafts::Predraft>, String)> = None;
         // Read-only context folders of Home: their clones are refreshed before the agent starts.
         let mut views: Vec<Project> = vec![];
+        // Home records the session on this runner before it exists here (it already did for its own launches):
+        // Home gives leases only to sessions it placed (`vault::check_owner`). A failed launch below sends
+        // `Forget`, which removes Home's record.
+        if app.paths.role == crate::role::Role::Runner {
+            let mut placed = spec.clone();
+            placed.attachments.clear();
+            crate::home_link::home_call("place", serde_json::json!({"session_id": id, "spec": placed})).await.context("record the launch on Home")?;
+        }
         let prepared = async {
             if let Target::Browser { grants, act, .. } = &spec.target { crate::browser::claim(app, &id, grants, *act).await?; }
             let (mut cwd, project_id) = match &spec.target {

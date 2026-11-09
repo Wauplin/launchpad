@@ -868,8 +868,92 @@ pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: 
         },
         Err(e) => return Err(e),
     };
-    let (status, body) = app.runners.request_with(&runner, "POST", "/api/sessions", Some(serde_json::to_string(&spec)?), vec![("idempotency-key".into(), id)]).await?;
-    answer(status, &body)
+    // Home records the session on this runner before the runner has it: leases go only to sessions Home placed.
+    record_placement(app, &spec, &id, &runner).await?;
+    match app.runners.request_with(&runner, "POST", "/api/sessions", Some(serde_json::to_string(&spec)?), vec![("idempotency-key".into(), id.clone())]).await {
+        Ok((status, body)) => {
+            if !(200..300).contains(&status) {
+                unplace(app, &id, &runner).await;
+            }
+            answer(status, &body)
+        }
+        // Sent once and never retried: whether the runner started it is unknown. Its own record replaces this one.
+        Err(e) => {
+            if app.sessions.get(&id).is_some_and(|s| is_placeholder(&s, &runner)) {
+                let name = runner_name(app, &runner).await;
+                let _ = app.sessions.fail_replica(app, &id, format!("Launchpad could not tell whether {name} started this agent: {e:#}")).await;
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Home: the record of a launch placed on `runner_id`, before that runner (or Burst job) has it. Its own
+/// record, same ID and generation, replaces it (`Sessions::apply_replica`).
+pub(crate) fn placed_record(spec: &crate::model::LaunchSpec, id: &str, runner_id: &str) -> Result<crate::model::Session> {
+    use crate::model::{Session, SessionStatus, Target};
+    let harness = spec.harness.context("pick a harness")?;
+    let now = now_ms();
+    let title: String = spec.text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("New agent").chars().take(80).collect();
+    Ok(Session {
+        id: id.to_string(),
+        harness,
+        runner_id: Some(runner_id.to_string()),
+        generation: 1,
+        harness_session_id: None,
+        project_id: match &spec.target {
+            Target::Project { project_id } | Target::Predraft { project_id } => Some(project_id.clone()),
+            _ => None,
+        },
+        cwd: String::new(),
+        title,
+        title_pending: true,
+        status: SessionStatus::Starting,
+        archived_done: false,
+        status_since: now,
+        live: false,
+        open_question: false,
+        model: spec.model.clone(),
+        effort: spec.effort.clone(),
+        prompt: spec.text.clone(),
+        usage: Default::default(),
+        started_at: now,
+        ended_at: None,
+        last_seq: 0,
+        launch_spec: spec.clone(),
+        quota_pause: None,
+        capacity_retry_count: 0,
+        capacity_retry_at: None,
+        seen_at: now,
+        last_message: None,
+        unsaved: None,
+    })
+}
+
+/// A record Home placed on `runner` that the runner has not replaced yet.
+fn is_placeholder(s: &crate::model::Session, runner: &str) -> bool {
+    s.runner_id.as_deref() == Some(runner) && s.generation == 1 && s.last_seq == 0 && s.status == crate::model::SessionStatus::Starting
+}
+
+/// Home: records a new session on `runner_id` before the runner starts it (`vault::check_owner` gives leases
+/// only for such sessions). Home's own launches call it before relaying; a runner calls it (`place`) for a
+/// launch it starts itself, and finds Home's record when Home placed it.
+pub(crate) async fn record_placement(app: &App, spec: &crate::model::LaunchSpec, id: &str, runner_id: &str) -> Result<()> {
+    anyhow::ensure!(app.paths.role == crate::role::Role::Home, "only Home places launches");
+    match app.sessions.get(id) {
+        Some(s) => anyhow::ensure!(is_placeholder(&s, runner_id), "a session with this id already exists"),
+        None => app.sessions.placeholder(app, placed_record(spec, id, runner_id)?).await?,
+    }
+    Ok(())
+}
+
+/// Home: a placed launch the runner refused: its record goes.
+async fn unplace(app: &App, id: &str, runner: &str) {
+    if app.sessions.get(id).is_some_and(|s| is_placeholder(&s, runner))
+        && let Err(e) = app.sessions.forget_local(app, id).await
+    {
+        tracing::warn!("refused launch {id}: {e:#}");
+    }
 }
 
 /// A session action (`close`, `stop`, …) wherever the session runs. Archive of a session whose runner is
