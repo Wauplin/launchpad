@@ -262,6 +262,11 @@ fn profiles(s: &Server) -> ToRunner {
     ToRunner::Profiles { profiles: s.app.config.get().profiles }
 }
 
+/// Home's settings that runners apply (Settings → Disk cleanup).
+fn settings(s: &Server) -> ToRunner {
+    ToRunner::Settings { worktrees_keep: s.app.config.get().worktrees.keep }
+}
+
 const PING: std::time::Duration = std::time::Duration::from_secs(25);
 
 async fn send(tx: &mut crate::wire::WireTx, msg: &ToRunner) -> bool {
@@ -316,7 +321,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
     if let Some(f) = folders(&s).await && !send(&mut tx, &f).await {
         return;
     }
-    if !send(&mut tx, &profiles(&s)).await { return; }
+    if !send(&mut tx, &profiles(&s)).await || !send(&mut tx, &settings(&s)).await { return; }
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<ToRunner>();
     let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, runner.burst, out_tx);
     tokio::spawn({
@@ -343,7 +348,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => (true, true, true),
                     Err(_) => (false, false, false),
                 };
-                if p && !send(&mut tx, &profiles(&s)).await { break }
+                if p && (!send(&mut tx, &profiles(&s)).await || !send(&mut tx, &settings(&s)).await) { break }
                 if w && !send(&mut tx, &workspaces(&s).await).await { break }
                 if f && let Some(f) = folders(&s).await && !send(&mut tx, &f).await { break }
             }
@@ -406,6 +411,9 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                         }
                         if end { bodies.remove(&id); }
                     }
+                    Ok(FromRunner::WsFrame { id, text, data }) => crate::terminals::from_runner(&runner.id, id, text, data),
+                    Ok(FromRunner::WsClose { id, .. }) => crate::terminals::closed_by_runner(&runner.id, id),
+                    Ok(FromRunner::Terminals) => s.app.bus.publish("terminals", "changed", Value::Null),
                     Ok(FromRunner::Ping) => { if !send(&mut tx, &ToRunner::Pong).await { break } }
                     Ok(FromRunner::Hello { .. }) => {}
                     Err(e) => tracing::warn!("runner {}: bad message: {e}", runner.id),
@@ -414,6 +422,9 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
         }
     }
     s.app.runners.disconnected(&s.app, &runner.id, conn);
+    // Its terminals leave Home's list, and their viewers reconnect once it is back.
+    crate::terminals::runner_gone(&runner.id);
+    s.app.bus.publish("terminals", "changed", Value::Null);
     tracing::info!("runner {} disconnected", runner.name);
 }
 
@@ -448,6 +459,10 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
                 _ => return next.run(req).await,
             }
         }
+        // Terminals run on runners: Home relays every call to the runner of the terminal, agent or folder; the
+        // viewer socket goes through `terminals::ws`.
+        ["api", "terminals", _, "ws"] => return next.run(req).await,
+        ["api", "terminals", ..] => return crate::terminals::home(&s, req).await,
         ["api", "projects", id, rest @ ..] if !get || rest == ["branches"] => match launchpad_core::projects::get(&s.app, id).await.ok().flatten().and_then(|p| p.runner_id) {
             Some(r) => Some(r),
             None => return next.run(req).await,
@@ -518,6 +533,10 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     let worktree_list = get && matches!(parts.as_slice(), ["api", "sessions", _, "worktrees"]);
     match s.app.runners.request_with(&runner, method.as_str(), &path_and_query, body, headers).await {
         Ok((status, body)) if binary => from_envelope(status, &body),
+        // Continue in TUI: the terminal is on this runner.
+        Ok((200, body)) if matches!(parts.as_slice(), ["api", "sessions", _, "terminal"]) => {
+            (StatusCode::OK, [(axum::http::header::CONTENT_TYPE, "application/json")], crate::terminals::tagged(&runner, &body)).into_response()
+        }
         // Home completes the runner's list: merges and Local PRs are Home's, and gone folders are read on Home.
         Ok((200, body)) if worktree_list => match serde_json::from_str::<Vec<Value>>(&body) {
             Ok(list) => Json(launchpad_core::away::complete(&s.app, list).await).into_response(),

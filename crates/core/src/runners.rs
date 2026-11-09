@@ -73,6 +73,8 @@ pub struct Capabilities {
     pub burst: bool,
     /// Updates itself to Home's build on Home's request (`self_update`).
     pub self_update: bool,
+    /// Serves its terminals to Home's windows through the tunnel (`ToRunner::WsOpen`).
+    pub terminals: bool,
 }
 
 /// This runner's capabilities.
@@ -85,7 +87,7 @@ pub async fn capabilities(app: &App) -> Capabilities {
             .ok()
             .and_then(|r| r.ok())
             .is_some_and(|s| s.success());
-    Capabilities { vm, docker, burst, self_update: crate::self_update::supported(app) }
+    Capabilities { vm, docker, burst, self_update: crate::self_update::supported(app), terminals: true }
 }
 
 /// A runner with its live state, for Settings.
@@ -442,6 +444,11 @@ async fn interrupt_away(app: &App, away: &mut HashMap<String, i64>) {
 }
 
 /// A runner's name for messages: Burst, its name, or "Its runner".
+/// A runner's record (Burst runners included).
+pub async fn get(app: &App, id: &str) -> Option<Runner> {
+    load(app).await.ok()?.into_iter().find(|(r, _)| r.id == id).map(|(r, _)| r)
+}
+
 pub async fn runner_name(app: &App, id: &str) -> String {
     if is_burst(app, id).await || crate::burst::get(app, id).await.ok().flatten().is_some() {
         return "Burst".into();
@@ -511,6 +518,12 @@ pub mod proto {
         HttpOpen { id: u64, target: HttpTarget, method: String, path: String, headers: Vec<(String, String)> },
         /// A part of a request body (base64); `end` closes it.
         HttpBody { id: u64, data: String, end: bool },
+        /// A frame of a WebSocket Home opened with `ToRunner::WsOpen`: `text`, or binary `data` in base64.
+        WsFrame { id: u64, #[serde(default)] text: Option<String>, #[serde(default)] data: Option<String> },
+        /// That WebSocket ended; `error` when it could not open (no such terminal).
+        WsClose { id: u64, #[serde(default)] error: Option<String> },
+        /// The runner's terminals changed (opened, exited, removed): Home tells its windows.
+        Terminals,
         Ping,
     }
 
@@ -534,12 +547,22 @@ pub mod proto {
         Folders { projects: Vec<crate::model::Project> },
         /// Profiles configured on Home, including their vault login IDs.
         Profiles { profiles: Vec<crate::config::Profile> },
+        /// Home's settings a runner applies to its own work: how many idle task worktrees it keeps (`[worktrees] keep`,
+        /// Settings → Disk cleanup), on connect and after each change.
+        Settings { worktrees_keep: u32 },
         /// Quota readings of Home's logins (`vault:<id>`), on connect and when they change.
         Quotas { quotas: std::collections::BTreeMap<String, crate::status::QuotaStatus> },
         /// The status and headers of an exchange opened with `FromRunner::HttpOpen`.
         HttpHead { id: u64, status: u16, headers: Vec<(String, String)> },
         /// A part of a response body (base64); `end` closes it, with `error` when it ended early.
         HttpBody { id: u64, data: String, end: bool, error: Option<String> },
+        /// Opens a viewer WebSocket on the runner for a window of Home. Only a terminal's
+        /// (`/api/terminals/{id}/ws[?offset=…]`): the PTY and its output stay on the runner, frames pass through.
+        WsOpen { id: u64, path: String },
+        /// A frame from the window: `text`, or binary `data` in base64.
+        WsFrame { id: u64, #[serde(default)] text: Option<String>, #[serde(default)] data: Option<String> },
+        /// The window's WebSocket closed.
+        WsClose { id: u64 },
         Pong,
     }
 }
@@ -630,6 +653,13 @@ impl Hub {
 
     pub fn connected(&self, id: &str) -> bool {
         self.inner.links.lock().unwrap().contains_key(id)
+    }
+
+    /// Every connected runner, Burst jobs included, by ID.
+    pub fn connected_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.inner.links.lock().unwrap().keys().cloned().collect();
+        ids.sort();
+        ids
     }
 
     /// Connected runners that take new sessions: same build, not paused.

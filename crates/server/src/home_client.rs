@@ -435,8 +435,9 @@ async fn session(app: &App, router: &Router, url: &str, mut tx: crate::wire::Wir
     // Turns not saved on Home yet go now (`turn_sync`).
     launchpad_core::turn_sync::kick();
     let result = serve(app, router, &mut tx, &mut rx, res_tx, &mut res_rx, cursor).await;
-    // Requests to Home fail now instead of timing out.
+    // Requests to Home fail now instead of timing out, and terminal viewers of Home's windows end.
     HOME.clear();
+    crate::terminals::home_gone();
     result
 }
 
@@ -445,8 +446,20 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
     let mut guard = home_link::guard(&app.paths);
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING, PING);
     let mut last_heard = tokio::time::Instant::now();
+    // Terminal list changes go to Home, which tells its windows.
+    let mut bus = app.bus.subscribe(None).rx;
     loop {
         tokio::select! {
+            delivered = bus.recv() => {
+                let changed = match delivered {
+                    Ok(d) => d.text.contains(r#""topic":"terminals""#),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => true,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
+                if changed {
+                    tx.send(text(&FromRunner::Terminals)).await?;
+                }
+            }
             res = res_rx.recv() => {
                 let Some(res) = res else { break };
                 tx.send(text(&res)).await?;
@@ -494,10 +507,21 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
                             })?;
                         }
                     }
+                    Ok(ToRunner::Settings { worktrees_keep }) => {
+                        if app.config.get().worktrees.keep != worktrees_keep {
+                            app.config.update(|config| {
+                                config.worktrees.keep = worktrees_keep;
+                                Ok(())
+                            })?;
+                        }
+                    }
                     Ok(ToRunner::Ack { n }) => replica::acked(app, n).await?,
                     Ok(ToRunner::Quotas { quotas }) => launchpad_core::quota::apply_home_readings(app, quotas),
                     Ok(ToRunner::Refuse { reason }) => return Ok(Some(reason)),
                     Ok(msg @ (ToRunner::HttpHead { .. } | ToRunner::HttpBody { .. })) => http_from_home(msg),
+                    Ok(ToRunner::WsOpen { id, path }) => crate::terminals::open_for_home(app, id, &path, res_tx.clone()),
+                    Ok(ToRunner::WsFrame { id, text, data }) => crate::terminals::frame_from_home(id, text, data),
+                    Ok(ToRunner::WsClose { id }) => crate::terminals::close_from_home(id),
                     Ok(_) => {}
                     Err(e) => tracing::warn!("Home sent a bad message: {e}"),
                 }

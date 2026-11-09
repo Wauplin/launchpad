@@ -86,6 +86,13 @@ impl Access {
             .as_ref()
             .is_none_or(|(valid, expiry)| valid.load(Ordering::Acquire) && *expiry > now())
     }
+
+    /// A runner: a window of Home through the tunnel (a relayed terminal viewer). Home checks the window's own
+    /// access and closes the relay when it ends.
+    pub(crate) fn through_home() -> Access {
+        static CHANGES: std::sync::LazyLock<watch::Sender<u64>> = std::sync::LazyLock::new(|| watch::channel(0).0);
+        Access { session: None, device: None, changes: CHANGES.subscribe() }
+    }
 }
 
 struct ReversePair {

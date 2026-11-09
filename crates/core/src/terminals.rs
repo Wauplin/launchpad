@@ -1,7 +1,9 @@
-//! Integrated terminals: shells and harness TUIs in a PTY owned by the daemon.
+//! Integrated terminals: shells and harness TUIs in a PTY owned by a runner's daemon.
 //!
-//! Output stays in memory (1 MB per terminal) and goes to each viewer over its own WebSocket, never
-//! through the global bus, which only carries list changes. Restarting the daemon ends every terminal.
+//! Output stays in the runner's memory (1 MB per terminal) and goes to each viewer over its own WebSocket, never
+//! through the global bus, which only carries list changes. Home runs none: it relays its windows' calls and
+//! viewer WebSockets to the runner through the tunnel (`server::terminals`). Restarting the runner ends every
+//! terminal.
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
@@ -90,6 +92,8 @@ pub struct TerminalInfo {
     pub busy: Option<bool>,
     /// Only in the open response: the folder that was used instead, or the idle shell that was reused.
     pub notice: Option<String>,
+    /// The runner it runs on, set by Home when it relays the runner's answer.
+    pub runner_id: Option<String>,
 }
 
 /// How to start a terminal again in the same place (Restart here).
@@ -124,6 +128,8 @@ pub struct TerminalFolders {
     pub default: Option<String>,
     /// Why the default is the checkout.
     pub notice: Option<String>,
+    /// The runner whose paths these are, set by Home when it relays the runner's answer.
+    pub runner_id: Option<String>,
 }
 
 /// What a viewer receives after its snapshot.
@@ -559,6 +565,7 @@ impl Terminals {
             branch,
             busy: None,
             notice: None,
+            runner_id: None,
         };
         let argv = match command {
             Some(command) => command_shell(app, command, language.unwrap_or("shell"))?,
@@ -608,6 +615,7 @@ impl Terminals {
             branch,
             busy: None,
             notice: None,
+            runner_id: None,
         };
         self.spawn_in(app, info, argv, env, Recipe::Tui, contained.and_then(|(_, jail)| jail)).await
     }
@@ -761,7 +769,7 @@ pub async fn folders(app: &App, cwd: &str) -> Result<TerminalFolders> {
     };
     let Some(p) = project else {
         let current = FolderChoice { path: cwd.to_string(), label: last_name(cwd), branch: if exists { branch_of(cwd.to_string()).await } else { None }, available: exists, reason: (!exists).then(|| "The folder no longer exists".to_string()) };
-        return Ok(TerminalFolders { project_id: None, project_name: None, default: exists.then(|| cwd.to_string()), current: Some(current), checkout: None, worktrees: vec![], notice: None });
+        return Ok(TerminalFolders { project_id: None, project_name: None, default: exists.then(|| cwd.to_string()), current: Some(current), checkout: None, worktrees: vec![], notice: None, runner_id: None });
     };
     let checkout_exists = crate::files::is_dir(&p.path).await;
     let checkout = FolderChoice { path: p.path.clone(), label: "Checkout".into(), branch: if checkout_exists { branch_of(p.path.clone()).await } else { None }, available: checkout_exists, reason: (!checkout_exists).then(|| "The folder no longer exists".to_string()) };
@@ -811,7 +819,7 @@ pub async fn folders(app: &App, cwd: &str) -> Result<TerminalFolders> {
             worktrees.push(FolderChoice { label: last_name(&path), path, branch, available: true, reason: None });
         }
     }
-    Ok(TerminalFolders { project_id: Some(p.id.clone()), project_name: Some(p.name.clone()), current, checkout: Some(checkout), worktrees, default, notice })
+    Ok(TerminalFolders { project_id: Some(p.id.clone()), project_name: Some(p.name.clone()), current, checkout: Some(checkout), worktrees, default, notice, runner_id: None })
 }
 
 /// The command that resumes the session in a TUI.
