@@ -256,6 +256,14 @@ CREATE TABLE IF NOT EXISTS activity (id TEXT PRIMARY KEY, session_id TEXT NOT NU
     if !has("capacity_retry_at") { conn.execute_batch("ALTER TABLE session ADD COLUMN capacity_retry_at INTEGER;")?; }
     if !has("quota_pause_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN quota_pause_json TEXT;")?; }
     if !has("runner_id") { conn.execute_batch("ALTER TABLE session ADD COLUMN runner_id TEXT;")?; }
+    // The machine that ran each turn: Home records the runner's name with every replicated turn end (NULL: this
+    // daemon). Earlier turns get the session's current runner, the best guess left.
+    let event_columns = conn.prepare("PRAGMA table_info(session_event)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !event_columns.iter().any(|c| c == "machine") {
+        conn.execute_batch("ALTER TABLE session_event ADD COLUMN machine TEXT;
+            UPDATE session_event SET machine = (SELECT json_extract(r.json, '$.name') FROM session s JOIN runner r ON r.id = s.runner_id
+                WHERE s.id = session_event.session_id) WHERE kind = 'turn_end';")?;
+    }
     if !has("generation") { conn.execute_batch("ALTER TABLE session ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;")?; }
     if !has("title_pending") { conn.execute_batch("ALTER TABLE session ADD COLUMN title_pending INTEGER;")?; }
     // Existing sessions start as seen, so old Done sessions do not all need you at once.
@@ -394,7 +402,7 @@ mod tests {
                 ("resumed", vec!["waiting", "closed", "working", "closed"]),
                 ("active", vec!["waiting", "working"])] {
                 for (seq, status) in states.iter().enumerate() {
-                    c.execute("INSERT INTO session_event VALUES (?1, ?2, 0, 'status', ?3)",
+                    c.execute("INSERT INTO session_event (session_id, seq, ts, kind, json) VALUES (?1, ?2, 0, 'status', ?3)",
                         rusqlite::params![id, seq as i64, serde_json::json!({"kind": "status", "status": status}).to_string()])?;
                 }
             }

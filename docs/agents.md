@@ -91,7 +91,7 @@ stateDiagram-v2
 
 Each session has three views:
 
-- **Summary**: what the agent did first: the exact final message and the next steps (review changes, post suggestions, publish a Local PR), then the first prompt and the run facts.
+- **Summary**: what the agent did first: the exact final message and the next steps (review changes, post suggestions, publish a Local PR), then the first prompt and the run facts. **Runs on** names the machine that runs the session now; when its turns ran on more than one machine, **Turns ran on** lists them in order with their turn numbers (for example `laptop · turns 1–3 → Burst · turn 4`).
 - **Trace**: the full conversation with tool calls, diffs, reasoning and nested subagents.
 - **Changes**: the Git diff of the session folder, with viewed markers and line notes that you send back to the agent as one message.
 

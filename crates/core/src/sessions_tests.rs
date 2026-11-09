@@ -18,7 +18,7 @@ async fn session_snapshots_queue_before_polling_and_preserve_event_metadata() {
     db.call(|c| {
         let status: String = c.query_row("SELECT status FROM session WHERE id = 'test'", [], |r| r.get(0))?;
         assert_eq!(status, "waiting");
-        c.execute("INSERT INTO session_event VALUES ('test', 1, 1, 'assistant_message', '{}')", [])?;
+        c.execute("INSERT INTO session_event (session_id, seq, ts, kind, json) VALUES ('test', 1, 1, 'assistant_message', '{}')", [])?;
         c.execute("UPDATE session SET last_seq = 1, last_message = 'final' WHERE id = 'test'", [])?;
         Ok(())
     }).await.unwrap();
@@ -34,7 +34,7 @@ async fn session_snapshots_queue_before_polling_and_preserve_event_metadata() {
     let reopened = crate::db::open_state(&path).unwrap();
     reopened.call(|c| {
         let seq: i64 = c.query_row("SELECT last_seq FROM session WHERE id = 'test'", [], |r| r.get(0))?;
-        c.execute("INSERT INTO session_event VALUES ('test', ?1, 2, 'status', '{}')", [seq + 1])?;
+        c.execute("INSERT INTO session_event (session_id, seq, ts, kind, json) VALUES ('test', ?1, 2, 'status', '{}')", [seq + 1])?;
         Ok(())
     }).await.unwrap();
     drop(reopened);

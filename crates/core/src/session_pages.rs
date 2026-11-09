@@ -38,6 +38,45 @@ pub struct EarlierFacts {
     pub subagents: Vec<SessionEvent>,
 }
 
+/// Consecutive turns of a session that ended on the same machine.
+#[derive(Clone, Debug, Serialize, TS)]
+pub struct MachineStint {
+    /// The runner's name when the turns ended, or `None` for the daemon that answers (it ran them itself).
+    pub runner: Option<String>,
+    pub turns: u32,
+    #[ts(type = "number")]
+    pub first_at: i64,
+    #[ts(type = "number")]
+    pub last_at: i64,
+}
+
+/// The machines that ran the session's turns, in order. Home records the runner of each turn end it receives.
+pub async fn machines(app: &App, id: &str) -> Result<Vec<MachineStint>> {
+    let id = id.to_string();
+    let turns = app
+        .state_db
+        .call(move |c| {
+            let mut st = c.prepare("SELECT machine, ts FROM session_event WHERE session_id = ?1 AND kind = 'turn_end' ORDER BY seq")?;
+            Ok(st.query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+        .await?;
+    Ok(stints(turns))
+}
+
+fn stints(turns: Vec<(Option<String>, i64)>) -> Vec<MachineStint> {
+    let mut out: Vec<MachineStint> = Vec::new();
+    for (runner, ts) in turns {
+        match out.last_mut() {
+            Some(last) if last.runner == runner => {
+                last.turns += 1;
+                last.last_at = ts;
+            }
+            _ => out.push(MachineStint { runner, turns: 1, first_at: ts, last_at: ts }),
+        }
+    }
+    out
+}
+
 const MAX_PAGE: i64 = 2000;
 
 fn row(id: &str, seq: i64, ts: i64, json: &str) -> Option<SessionEvent> {
@@ -142,4 +181,18 @@ pub async fn image(app: &App, id: &str, seq: i64, index: usize) -> Result<(Vec<u
     let Ok(EventBody::UserMessage { images, .. }) = serde_json::from_str::<EventBody>(&json) else { anyhow::bail!("not a user message") };
     let image = images.get(index).context("no such image")?;
     crate::attachments::decode_image(&image.data_url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stints;
+
+    #[test]
+    fn groups_consecutive_turns_by_machine() {
+        let m = |s: &str| Some(s.to_string());
+        let got = stints(vec![(None, 1), (None, 2), (m("laptop"), 3), (None, 4), (None, 5)]);
+        let view: Vec<_> = got.iter().map(|s| (s.runner.clone(), s.turns, s.first_at, s.last_at)).collect();
+        assert_eq!(view, [(None, 2, 1, 2), (m("laptop"), 1, 3, 3), (None, 2, 4, 5)]);
+        assert!(stints(Vec::new()).is_empty());
+    }
 }

@@ -532,12 +532,17 @@ impl Sessions {
                 let current = self.get(&event.session_id);
                 let fresh = current.as_ref().is_none_or(|c| c.runner_id.as_deref() == Some(runner_id) && c.generation <= generation);
                 let ev = event.clone();
+                // The summary lists the machines that ran the turns; runner records go away (Burst), so keep the name.
+                let machine = match &event.body {
+                    EventBody::TurnEnd { .. } if fresh => Some(crate::runners::load(app).await?.into_iter().find(|(r, _)| r.id == runner_id).map_or_else(|| runner_id.to_string(), |(r, _)| r.name)),
+                    _ => None,
+                };
                 let inserted = app.state_db.call(move |c| {
                     let tx = c.transaction()?;
                     let mut inserted = false;
                     if fresh {
-                        inserted = tx.execute("INSERT INTO session_event (session_id, seq, ts, kind, json) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (session_id, seq) DO NOTHING",
-                            params![ev.session_id, ev.seq, ev.ts, ev.body.kind(), serde_json::to_string(&ev.body)?])? > 0;
+                        inserted = tx.execute("INSERT INTO session_event (session_id, seq, ts, kind, json, machine) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT (session_id, seq) DO NOTHING",
+                            params![ev.session_id, ev.seq, ev.ts, ev.body.kind(), serde_json::to_string(&ev.body)?, machine])? > 0;
                         tx.execute("UPDATE session SET last_seq = max(last_seq, ?1) WHERE id = ?2", params![ev.seq, ev.session_id])?;
                     }
                     set_acked(&tx, &runner, n)?;

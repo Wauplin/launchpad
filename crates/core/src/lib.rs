@@ -250,6 +250,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     model::SessionProcess::export_all(cfg)?;
     model::SessionEvent::export_all(cfg)?;
     session_pages::SessionEventPage::export_all(cfg)?;
+    session_pages::MachineStint::export_all(cfg)?;
     model::Project::export_all(cfg)?;
     model::HarnessDefaults::export_all(cfg)?;
     harness::HarnessDescriptor::export_all(cfg)?;

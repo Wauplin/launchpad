@@ -57,7 +57,7 @@ Home sends the phone's notifications through Telegram for every session, whereve
 
 ## Move a session
 
-Between turns, a session can move to another runner: in its Summary, **Runs on** → **Move to…** lists the connected runners and Burst. The old runner pushes the branches, saves uncommitted files to a scratch branch and removes its folders; the new one clones the worktrees again from Home Git on the next message, and the harness resumes the same conversation (Claude Code and Codex). The move increases the session's generation, so the old runner can no longer push its branches or get a lease.
+Between turns, a session can move to another runner: in its Summary, **Runs on** → **Move to…** lists the connected runners and Burst. The old runner pushes the branches, saves uncommitted files to a scratch branch and removes its folders; the new one clones the worktrees again from Home Git on the next message, and the harness resumes the same conversation (Claude Code and Codex). The move increases the session's generation, so the old runner can no longer push its branches or get a lease. Home records the runner of each turn end it receives, so the Summary's **Turns ran on** shows which machine ran which turns.
 
 Every runner sends the conversation of a session to Home at the end of each turn, when it changed. So a session can also move while its runner is offline (a sleeping laptop): Move to Burst continues it from the last turn's branches and conversation; files that were not committed stay on that machine.
 

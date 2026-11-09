@@ -54,6 +54,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/sessions/search", get(search_sessions))
         .route("/api/sessions/{id}/events", get(events))
         .route("/api/sessions/{id}/events/page", get(events_page))
+        .route("/api/sessions/{id}/machines", get(session_machines))
         .route("/api/sessions/{id}/images/{seq}/{index}", get(session_image))
         .route("/api/sessions/{id}/trace", get(trace))
         .route("/api/sessions/{id}/input", post(input).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
@@ -422,6 +423,11 @@ struct PageQuery {
 async fn events_page(State(s): State<Ctx>, Path(id): Path<String>, Query(q): Query<PageQuery>) -> ApiResult<launchpad_core::session_pages::SessionEventPage> {
     let limit = q.limit.or(q.tail).unwrap_or(200);
     Ok(Json(launchpad_core::session_pages::page(&s.app, &id, q.before, limit).await?))
+}
+
+/// The machines that ran the session's turns (Home's record; runners forward it).
+async fn session_machines(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Vec<launchpad_core::session_pages::MachineStint>> {
+    Ok(Json(launchpad_core::session_pages::machines(&s.app, &id).await?))
 }
 
 /// An image pasted into a user message, so event responses carry URLs instead of data URLs.

@@ -3,6 +3,7 @@
 
 import type { MessageContext } from "@/gen/MessageContext";
 import type { EarlierFacts } from "@/gen/EarlierFacts";
+import type { MachineStint } from "@/gen/MachineStint";
 import type { PermissionMode } from "@/gen/PermissionMode";
 import type { Session } from "@/gen/Session";
 import type { SessionEvent } from "@/gen/SessionEvent";
@@ -104,6 +105,18 @@ route("GET", "/api/sessions/:id/events/page", (r): SessionEventPage => {
   const stop = before ? log.filter((e) => e.seq < Number(before)).length : log.length;
   const start = Math.max(0, stop - limit);
   return { events: log.slice(start, stop), facts: start > 0 ? facts(log.slice(0, start), log[start].seq) : null };
+});
+
+/** `session_pages::machines`: the machines that ran the turns. The checkout session started on another runner. */
+route("GET", "/api/sessions/:id/machines", (r): MachineStint[] => {
+  const ends = (world.events[r.params.id] ?? []).filter((e) => e.body.kind === "turn_end");
+  const out: MachineStint[] = [];
+  ends.forEach((e, i) => {
+    const runner = r.params.id === "demo-s-checkout" && (i === 0 || i < ends.length - 1) ? "workstation" : null;
+    const last = out.at(-1);
+    if (last && last.runner === runner) { last.turns += 1; last.last_at = e.ts; } else out.push({ runner, turns: 1, first_at: e.ts, last_at: e.ts });
+  });
+  return out;
 });
 
 function facts(earlier: SessionEvent[], before: number): EarlierFacts {

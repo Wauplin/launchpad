@@ -1,12 +1,15 @@
 // Home: where a session runs, and Move between turns: another connected runner, or Burst (an HF Job).
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { MachineStint } from "@/gen/MachineStint";
 import type { Session } from "@/gen/Session";
 import { ConfirmButton } from "@/components/ui";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useBurst, useBurstRun, useRunnerTag } from "@/lib/burst";
 import { useRunners } from "@/lib/runners";
+import { useStatus } from "@/lib/queries";
 
 const BURST = "burst";
 
@@ -38,4 +41,27 @@ export function RunsOn({ session: s }: { session: Session }) {
       )}
     </span>
   );
+}
+
+/** Where the session runs now: its runner on Home, this computer elsewhere. */
+export function CurrentMachine({ session: s }: { session: Session }) {
+  const host = useStatus().data?.host;
+  if (s.runner_id) return <RunsOn session={s} />;
+  return <span>This computer{host ? ` · ${host}` : ""}</span>;
+}
+
+/** The machines that ran the turns, in order, when more than one did or the earlier one is not the current one. */
+export function useTurnMachines(s: Session): string | null {
+  const host = useStatus().data?.host;
+  const runners = useRunners().data;
+  // Refetch when a turn ends or the session moves.
+  const stints = useQuery({ queryKey: ["session-machines", s.id, s.status_since, s.runner_id], queryFn: () => api.get<MachineStint[]>(`/api/sessions/${s.id}/machines`), retry: false }).data ?? [];
+  const current = s.runner_id ? runners?.find((r) => r.runner.id === s.runner_id)?.runner.name : null;
+  if (!stints.length || stints.length === 1 && (current === undefined || stints[0].runner === current)) return null;
+  let turn = 0;
+  return stints.map((m) => {
+    const range = m.turns === 1 ? `turn ${turn + 1}` : `turns ${turn + 1}–${turn + m.turns}`;
+    turn += m.turns;
+    return `${m.runner ?? (host ? `this computer (${host})` : "this computer")} · ${range}`;
+  }).join(" → ");
 }

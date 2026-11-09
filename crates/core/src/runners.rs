@@ -119,7 +119,7 @@ fn code() -> String {
     format!("{}-{}", &c[..3], &c[3..])
 }
 
-async fn load(app: &App) -> Result<Vec<(Runner, String)>> {
+pub(crate) async fn load(app: &App) -> Result<Vec<(Runner, String)>> {
     app.state_db
         .call(|c| {
             let mut st = c.prepare("SELECT json, secret_hash FROM runner")?;
