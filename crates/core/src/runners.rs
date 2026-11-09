@@ -261,7 +261,7 @@ pub async fn remove(app: &App, id: &str) -> Result<()> {
     let key = id.to_string();
     app.state_db.call(move |c| Ok(c.execute("DELETE FROM runner WHERE id = ?1", [key])?)).await?;
     app.runners.disconnect(id);
-    let orphans: Vec<String> = app.sessions.list().into_iter().filter(|s| s.runner_id.as_deref() == Some(id) && (s.status.is_running() || s.quota_pause.is_some())).map(|s| s.id).collect();
+    let orphans: Vec<String> = app.sessions.list().into_iter().filter(|s| s.runner_id.as_deref() == Some(id) && (s.status.is_running() || s.open_question || s.quota_pause.is_some())).map(|s| s.id).collect();
     for sid in orphans {
         if let Err(e) = app.sessions.end_replica(app, &sid, crate::model::SessionStatus::Interrupted, None).await {
             tracing::warn!("session {sid} of removed runner {id}: {e:#}");
@@ -395,8 +395,9 @@ pub async fn deliver_pending(app: &App, runner_id: &str) {
 /// How long Home waits for a runner that left while its sessions worked or asked a question.
 pub const AWAY_GRACE_MS: i64 = 10 * 60_000;
 
-/// Home: every 30 s, sessions that still work (or ask) on a runner gone for `AWAY_GRACE_MS` become
-/// Interrupted with a note, so they continue elsewhere from their last handoff. A runner that comes back
+/// Home: every 30 s, sessions that still work, ask or wait for quota on a runner gone for `AWAY_GRACE_MS`
+/// become Interrupted with a note, so they continue elsewhere from their last handoff (a quota pause's waiting
+/// messages stay on that runner). A runner that comes back
 /// with the same generation replaces the record with its own.
 pub fn spawn(app: &App) {
     if app.paths.role != crate::role::Role::Home {
@@ -415,9 +416,10 @@ pub fn spawn(app: &App) {
 async fn interrupt_away(app: &App, away: &mut HashMap<String, i64>) {
     let now = now_ms();
     away.retain(|r, _| !app.runners.connected(r));
-    let open: Vec<crate::model::Session> =
-        app.sessions.list().into_iter().filter(|s| (s.status.is_running() || s.open_question) && s.runner_id.as_deref().is_some_and(|r| !app.runners.connected(r))).collect();
-    for s in open {
+    let open = |s: &crate::model::Session| s.status.is_running() || s.open_question || s.quota_pause.is_some();
+    let sessions: Vec<crate::model::Session> =
+        app.sessions.list().into_iter().filter(|s| open(s) && s.runner_id.as_deref().is_some_and(|r| !app.runners.connected(r))).collect();
+    for s in sessions {
         let Some(r) = s.runner_id.clone() else { continue };
         let since = *away.entry(r.clone()).or_insert(now);
         if now - since < AWAY_GRACE_MS {
@@ -428,9 +430,10 @@ async fn interrupt_away(app: &App, away: &mut HashMap<String, i64>) {
             continue;
         }
         let name = runner_name(app, &r).await;
-        let note = format!("{name} went offline during this turn. Launchpad marked the session Interrupted after {} minutes: send a message to continue it on another runner from its last saved turn.", AWAY_GRACE_MS / 60_000);
+        let during = if s.quota_pause.is_some() { "while this session was paused for quota (messages waiting there stay there)" } else { "during this turn" };
+        let note = format!("{name} went offline {during}. Launchpad marked the session Interrupted after {} minutes: send a message to continue it on another runner from its last saved turn.", AWAY_GRACE_MS / 60_000);
         // The runner may have come back (and sent its record) while this check ran: then its record stands.
-        let unchanged = |c: &crate::model::Session| c.generation == s.generation && c.runner_id == s.runner_id && (c.status.is_running() || c.open_question);
+        let unchanged = |c: &crate::model::Session| c.generation == s.generation && c.runner_id == s.runner_id && open(c);
         if app.runners.connected(&r) || !app.sessions.get(&s.id).is_some_and(|c| unchanged(&c)) {
             continue;
         }

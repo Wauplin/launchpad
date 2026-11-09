@@ -929,7 +929,8 @@ async fn remove_clean(app: &App, w: &mut TaskWorktree) -> Result<()> {
     if let Some(reason) = idle_reason(app, w, true) {
         bail!("{reason}");
     }
-    ensure!(w.merge.is_none(), "a merge is pending");
+    // A merge that stopped (conflict or failure) stays in the record, which moves with the session.
+    ensure!(w.merge.as_ref().is_none_or(|m| m.phase != MergePhase::Waiting), "a merge is pending");
     if Path::new(&w.root).exists() {
         ensure!(!operation_in_progress(app, &w.root).await, "a Git operation is in progress");
         let branch = git(app, &w.root, &["branch", "--show-current"]).await?;

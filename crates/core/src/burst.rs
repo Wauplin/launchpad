@@ -27,6 +27,8 @@ pub const CHOICE: &str = "burst";
 const PORT: u16 = 7320;
 /// HF Jobs' own limit for one job; the runner stops sooner on its own when Home is gone (`BURST_IDLE`).
 const MAX_SECONDS: u64 = 24 * 3600;
+/// How long before HF Jobs' limit Home ends the open turn of the job's session, so it hands off in time.
+const END_TURN_BEFORE_MS: i64 = 3600 * 1000;
 /// How long Home waits for a new job's runner to connect.
 const CONNECT_TIMEOUT_MS: i64 = 5 * 60 * 1000;
 
@@ -89,6 +91,11 @@ pub struct BurstRun {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(skip)]
     pub queued: Vec<Queued>,
+    /// When its session was handed off (state Stopping): the job stops after a complete Home backup newer
+    /// than this. Stored, so a Home restart never counts an older backup.
+    #[serde(default)]
+    #[ts(skip)]
+    pub handed_off_at: Option<i64>,
 }
 
 impl BurstRun {
@@ -342,6 +349,7 @@ async fn start(app: &App, session_id: Option<String>, pending: Pending) -> Resul
         error: None,
         pending: Some(pending),
         queued: vec![],
+        handed_off_at: None,
     };
     let created = hf(app, reqwest::Method::POST, &format!("/api/jobs/{namespace}"), Some(spec)).await.map_err(|e| {
         let text = format!("{e:#}");
@@ -595,10 +603,16 @@ pub async fn move_session(app: &App, id: &str) -> Result<()> {
 }
 
 /// Whether a message to this session should start Burst: its runner is a Burst runner that is gone, or that
-/// is stopping (the session was handed off and Home cancels the job soon, even while it is still connected).
+/// is stopping (the session was handed off and Home cancels the job soon, even while it is still connected), or that
+/// is near HF Jobs' time limit.
 pub async fn needs_new_job(app: &App, s: &Session) -> bool {
     let Some(r) = &s.runner_id else { return false };
-    get(app, r).await.ok().flatten().is_some_and(|run| run.state == BurstState::Stopping || (!run.active() && !app.runners.connected(r)))
+    get(app, r).await.ok().flatten().is_some_and(|run| run.state == BurstState::Stopping || near_limit(&run) || (!run.active() && !app.runners.connected(r)))
+}
+
+/// The job is within `END_TURN_BEFORE_MS` of HF Jobs' time limit: its sessions move off it.
+fn near_limit(run: &BurstRun) -> bool {
+    run.active() && now_ms() - run.created_at > MAX_SECONDS as i64 * 1000 - END_TURN_BEFORE_MS
 }
 
 /// Every 15 s on Home: jobs that ended on their own, finished sessions handed off, and stopped after the
@@ -613,11 +627,10 @@ pub fn spawn(app: &App) {
         for r in runs(&app).await.unwrap_or_default().into_iter().filter(|r| r.active() && r.pending.is_some()) {
             let _ = stop(&app, &r.runner_id, Some("Home restarted while this Burst runner was starting".into())).await;
         }
-        let mut handed_off: std::collections::HashMap<String, i64> = Default::default();
         let mut stuck: std::collections::HashMap<String, Stuck> = Default::default();
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-            if let Err(e) = tick(&app, &mut handed_off, &mut stuck).await {
+            if let Err(e) = tick(&app, &mut stuck).await {
                 tracing::warn!("Burst: {e:#}");
             }
         }
@@ -629,13 +642,16 @@ const STUCK_LIMIT_MS: i64 = 2 * 3600 * 1000;
 /// How long a job waits on an open question before Home says that it keeps billing.
 const QUESTION_NOTICE_MS: i64 = 3600 * 1000;
 
+/// Sessions told that their job's time limit ended their turn (told once).
+static NEAR_LIMIT: std::sync::Mutex<std::collections::BTreeSet<String>> = std::sync::Mutex::new(std::collections::BTreeSet::new());
+
 /// A job that cannot stop yet: since when, and whether its session was told.
 struct Stuck {
     since: i64,
     told: bool,
 }
 
-async fn tick(app: &App, handed_off: &mut std::collections::HashMap<String, i64>, stuck: &mut std::collections::HashMap<String, Stuck>) -> Result<()> {
+async fn tick(app: &App, stuck: &mut std::collections::HashMap<String, Stuck>) -> Result<()> {
     let active: Vec<BurstRun> = runs(app).await?.into_iter().filter(BurstRun::active).collect();
     stuck.retain(|id, _| active.iter().any(|r| &r.runner_id == id));
     for r in active {
@@ -658,22 +674,41 @@ async fn tick(app: &App, handed_off: &mut std::collections::HashMap<String, i64>
         if r.state == BurstState::Stopping {
             // A message reached the job between its handoff and Stopping: it runs again, so it is not stopped.
             if sessions.iter().any(|s| s.status.is_running() || s.status == SessionStatus::Starting) {
-                handed_off.remove(&r.runner_id);
-                update(app, &r.runner_id, |r| r.state = BurstState::Running).await?;
+                update(app, &r.runner_id, |r| {
+                    r.state = BurstState::Running;
+                    r.handed_off_at = None;
+                })
+                .await?;
                 continue;
             }
-            // Stopped once Home's backup holds the handoff (or right away without a backup).
-            let since = handed_off.get(&r.runner_id).copied().unwrap_or(0);
+            // Stopped once Home's backup holds the handoff (or right away without a backup). A run without the
+            // time (stored before it was recorded) waits for a backup from now on.
+            let Some(since) = r.handed_off_at else {
+                update(app, &r.runner_id, |r| r.handed_off_at = Some(now_ms())).await?;
+                continue;
+            };
             let info = app.home_backups.info();
             let backed_up = app.config.get().home.backup.trim().is_empty() || info.last_complete_at.is_some_and(|t| t > since);
             if backed_up {
-                handed_off.remove(&r.runner_id);
                 stop(app, &r.runner_id, None).await?;
             }
             continue;
         }
         if r.state != BurstState::Running || r.pending.is_some() || !app.runners.connected(&r.runner_id) {
             continue;
+        }
+        // Near HF Jobs' time limit, an open turn or question is ended (its branches and files are saved at the
+        // turn end), so the session hands off on the next check instead of being cut off with the job.
+        if near_limit(&r) {
+            for s in sessions.iter().filter(|s| s.status.is_running() || s.open_question) {
+                tracing::info!("Burst {}: ending the turn of {} before the job's time limit", r.runner_id, s.id);
+                if NEAR_LIMIT.lock().unwrap().insert(s.id.clone()) {
+                    crate::sessions::notice_anywhere(app, &s.id, "This agent's Burst runner reaches its 24-hour limit within the hour: Launchpad stopped this turn so the session moves off it with its files. Send a message to continue it.").await;
+                }
+                if let Err(e) = app.runners.request(&r.runner_id, "POST", &format!("/api/sessions/{}/interrupt", s.id), None).await {
+                    tracing::warn!("Burst {}: stop {}: {e:#}", r.runner_id, s.id);
+                }
+            }
         }
         // An open question keeps the job (its answer goes to this process); say once that it keeps billing.
         if let Some(q) = sessions.iter().find(|s| s.open_question) {
@@ -703,8 +738,11 @@ async fn tick(app: &App, handed_off: &mut std::collections::HashMap<String, i64>
         match failure {
             None => {
                 stuck.remove(&r.runner_id);
-                handed_off.insert(r.runner_id.clone(), now_ms());
-                update(app, &r.runner_id, |r| r.state = BurstState::Stopping).await?;
+                update(app, &r.runner_id, |r| {
+                    r.state = BurstState::Stopping;
+                    r.handed_off_at = Some(now_ms());
+                })
+                .await?;
             }
             // The branches are on Home after every turn: a job that cannot hand off is told, then stopped.
             Some((session, why)) => {
@@ -786,7 +824,7 @@ mod tests {
     }
 
     fn run(created: i64, stopped: Option<i64>) -> BurstRun {
-        BurstRun { runner_id: "r".into(), job_id: None, namespace: "n".into(), flavor: "cpu-basic".into(), url: None, state: BurstState::Stopped, session_id: None, created_at: created, connected_at: None, stopped_at: stopped, cost_per_minute: 0.01, error: None, pending: None, queued: vec![] }
+        BurstRun { runner_id: "r".into(), job_id: None, namespace: "n".into(), flavor: "cpu-basic".into(), url: None, state: BurstState::Stopped, session_id: None, created_at: created, connected_at: None, stopped_at: stopped, cost_per_minute: 0.01, error: None, pending: None, queued: vec![], handed_off_at: None }
     }
 
     #[test]
