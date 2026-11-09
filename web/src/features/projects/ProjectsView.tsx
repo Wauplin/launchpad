@@ -8,7 +8,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { memo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { MenuItem } from "@/components/Popover";
-import { ConfirmButton, Empty, MenuSection, MoreMenu, PageHeader, RowActions } from "@/components/ui";
+import { ConfirmButton, Empty, MenuSection, PageHeader, RowActions } from "@/components/ui";
 import { useOpenTerminal, useTerminalsHere } from "@/features/terminals/lib";
 import { useAddFolder } from "./addFolderStore";
 import type { Project } from "@/gen/Project";
@@ -59,32 +59,31 @@ export function Description({ p }: { p: Project }) {
   );
 }
 
-export function TempProjectCard({ p }: { p: Project }) {
+/** What a temporary folder is: the Folders page intro and the folder page intro of a temporary folder. */
+export const TEMP_INTRO = "A temporary folder holds an agent launched without a folder. Home saves its files; it leaves Folders when its last agent is archived, and Home deletes it 30 days later, unless you keep it as a folder.";
+
+/** A temporary folder: a row of the Folders list (`row`) or a box on its own page. Launch and ⋯ (Delete files), then
+ * Keep as folder; what a temporary folder is stays in the page intro. */
+export function TempProjectCard({ p, row }: { p: Project; row?: boolean }) {
   const qc = useQueryClient();
   const sessions = useSessions().data ?? [];
   const mine = sessions.filter((s) => s.cwd === p.path || s.cwd.startsWith(p.path + "/"));
   const open = mine.filter((s) => s.status !== "closed");
   const running = mine.some(isRunning);
   return (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5 rounded-lg border border-line p-3.5">
-      <div className="flex items-center gap-2">
-        <span className="min-w-0 truncate font-mono text-[13px] font-semibold" title={p.path}>
-          {p.name.replace(/^tmp-\d{4}-/, "") || p.name}
-        </span>
-        <span className="ml-auto text-xs whitespace-nowrap text-ink-3">created {ago(p.created_at)}</span>
-      </div>
-      <div className="text-xs text-ink-3">
-        Temporary folder · {open.length ? `${open.length} open agent${open.length > 1 ? "s" : ""}` : "No open agent"} · Saved on Home; leaves this list when its last agent is archived, and Home deletes it 30 days later, unless you keep it as a folder
-      </div>
-      <KeepFolder p={p} disabled={running} title={running ? "Wait for its agent to finish" : undefined} />
-      <div className="flex items-center gap-1">
-        <LaunchButton small ctx={{ projectId: p.id }} label="Launch here" primary={false} />
-        <MoreMenu label={`More actions for ${p.name}`} width={280}>{(close) => <MenuSection><ConfirmButton icon="trash" consequence={`Deletes ${p.path} from disk${open.length ? " and stops its agents" : ""}. Home keeps a copy of its files 30 days, for a resume.`} confirmLabel="Delete files" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => {
+    <div className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 px-4 py-3 ${row ? "border-b border-line-2 last:border-0" : "rounded-lg border border-line"}`}>
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="grid min-w-0 flex-1 gap-0.5">
+          <span className="truncate font-mono text-[13px] font-semibold" title={p.path}>{p.name.replace(/^tmp-\d{4}-/, "") || p.name}</span>
+          <span className="truncate text-[12px] text-ink-3">{open.length ? `${open.length} open agent${open.length > 1 ? "s" : ""}` : "No open agent"} · created {ago(p.created_at)}</span>
+        </div>
+        <RowActions label={`More actions for ${p.name}`} menuWidth={280} main={<LaunchButton small ctx={{ projectId: p.id }} primary={false} title={`Launch an agent in ${p.name}`} />} more={(close) => <MenuSection><ConfirmButton icon="trash" consequence={`Deletes ${p.path} from disk${open.length ? " and stops its agents" : ""}. Home keeps a copy of its files 30 days, for a resume.`} confirmLabel="Delete files" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => {
           close();
           toast(`Deleted ${p.path}`);
           void qc.invalidateQueries({ queryKey: ["projects"] });
-        }, toastError)}>Delete files</ConfirmButton></MenuSection>}</MoreMenu>
+        }, toastError)}>Delete files</ConfirmButton></MenuSection>} />
       </div>
+      <KeepFolder p={p} disabled={running} title={running ? "Wait for its agent to finish" : undefined} />
     </div>
   );
 }
@@ -180,19 +179,20 @@ export function ProjectsView() {
   const regular = assigned.filter((p) => !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const mine = regular.filter((p) => scope.hasProject(p.id));
   const temp = assigned.filter((p) => p.is_temp && scope.hasProject(p.id));
-  const add = <button className="btn btn-primary" data-tour="folders.add" onClick={() => showAdd()}><Icon name="plus" size={14} />Add folder</button>;
+  const add = <button className={phone ? "btn btn-sm" : "btn btn-primary"} data-tour="folders.add" onClick={() => showAdd()}><Icon name="plus" size={phone ? 12 : 14} />Add folder</button>;
+  const meta = `${mine.length} folder${mine.length === 1 ? "" : "s"}${temp.length ? ` · ${temp.length} temporary` : ""}`;
   return (
     <div className="h-full overflow-y-auto">
-      {phone ? <PhoneHeader title="Folders" primary={add} /> : <PageHeader title={`Folders in ${w.name}`} meta={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} actions={add} />}
-      <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
+      {phone ? <PhoneHeader title="Folders" primary={add} details={temp.length > 0 && <p className="m-0 text-[13px] text-ink-2">{TEMP_INTRO}</p>} /> : <PageHeader title="Folders" meta={meta} intro={temp.length > 0 ? TEMP_INTRO : undefined} introId="Folders" actions={add} />}
+      <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 px-5 py-5">
         {unassigned.length > 0 && <UnassignedFolders folders={unassigned} workspaces={workspaces} />}
         {mine.length === 0 ? <Empty icon="folder" action={add}>{`No folder in ${w.name} yet.`}</Empty> : <FolderTable folders={mine} />}
         {temp.length > 0 && (
           <>
             <div className="seclabel">Temporary folders</div>
-            <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
+            <div className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-lg border border-line">
               {temp.map((p) => (
-                <TempProjectCard key={p.id} p={p} />
+                <TempProjectCard key={p.id} p={p} row />
               ))}
             </div>
           </>

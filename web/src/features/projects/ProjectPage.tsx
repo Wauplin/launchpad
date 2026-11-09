@@ -18,7 +18,7 @@ import type { Change } from "@/gen/Change";
 import { useComposer } from "@/stores/composer";
 import { RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
-import { Badge, ConfirmButton, Empty, Choice, Choices, SettingRow, Tabs, useSaveState } from "@/components/ui";
+import { Badge, ConfirmButton, Empty, Choice, Choices, PageHeader, SettingRow, Tabs, useSaveState } from "@/components/ui";
 import { ago } from "@/lib/format";
 import { moveFolder, useWorkspaces } from "@/lib/workspace";
 import { toast } from "@/components/Toast";
@@ -32,7 +32,7 @@ import { useConfig, useProject, useSessions } from "@/lib/queries";
 import { useLayout } from "@/stores/layout";
 import { useNavigate } from "@tanstack/react-router";
 import { TerminalMenu } from "@/features/terminals/TerminalMenu";
-import { Description, TempProjectCard } from "./ProjectsView";
+import { Description, TEMP_INTRO, TempProjectCard } from "./ProjectsView";
 import { Branches } from "./Branches";
 
 export function ProjectPage() {
@@ -48,57 +48,36 @@ export function ProjectPage() {
   const tab = asked === "settings" || asked === "branches" ? asked : "overview";
   const setTab = (t: "overview" | "branches" | "settings") => void navigate({ to: "/projects/$id", params: { id }, search: (t === "overview" ? {} : { tab: t }) as never, replace: true });
   if (!p) return <Empty fill icon="folder">This folder is not registered in Launchpad.</Empty>;
-  const tabs = <Tabs tour="folder.tabs" label="Folder views" value={tab} onChange={setTab} items={[{ id: "overview", label: "Overview" }, { id: "branches", label: "Branches", icon: "branch" }, { id: "settings", label: "Settings", icon: "sliders" }]} />;
+  const tabs = <Tabs tour="folder.tabs" label="Folder views" value={tab} onChange={setTab} items={[{ id: "overview", label: "Overview" }, { id: "branches", label: "Branches" }, { id: "settings", label: "Settings" }]} />;
+  const running = sessions.filter(isRunning).length;
+  const waiting = sessions.filter(needsYou).length;
+  const open = predrafts.filter((d) => !d.archived && !d.published_url && !d.merged).length;
+  const counts = `${running} running · ${waiting} waiting · ${open} Local PR${open === 1 ? "" : "s"}`;
+  const buttons = <>
+    {p.gh_repo && (
+      <button className="btn" title="Open on GitHub" onClick={() => openExternal(`https://github.com/${p.gh_repo}`)}>
+        <Icon name="ext" size={14} />
+        GitHub
+      </button>
+    )}
+    <Link to="/projects/$id/code" params={{ id: p.id }} className="btn no-underline" title="Browse the files of this folder">
+      <Icon name="folder" size={14} />
+      Files
+    </Link>
+    <TerminalMenu cwd={p.path} phone={phone} />
+  </>;
   return (
-    <div className="h-full overflow-y-auto">
-      <div data-tour="folder.page" className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
-        {phone ? <PhoneHeader title={p.name} onBack={() => void navigate({ to: "/projects" })} backLabel="Back to folders" primary={<LaunchButton ctx={{ projectId: p.id }} />} subtitle={`${sessions.filter(isRunning).length} running · ${sessions.filter(needsYou).length} waiting · ${predrafts.filter((d) => !d.archived && !d.published_url && !d.merged).length} Local PR`} actions={
-          <div className="ml-auto flex gap-1.5">
-            {p.gh_repo && (
-              <button className="btn" title="Open on GitHub" onClick={() => openExternal(`https://github.com/${p.gh_repo}`)}>
-                <Icon name="ext" size={14} />
-                GitHub
-              </button>
-            )}
-            <Link to="/projects/$id/code" params={{ id: p.id }} className="btn no-underline" title="Browse the files of this folder">
-              <Icon name="folder" size={14} />
-              Files
-            </Link>
-            <TerminalMenu cwd={p.path} phone={phone} />
-
-          </div>        } details={<div className="grid gap-2"><span className="break-all font-mono text-xs text-ink-3">{p.path}</span><Description p={p} /></div>} /> : <>
-        <div className="flex items-start gap-3">
-          <div className="grid min-w-0 gap-1">
-            <h2 className="m-0 text-lg font-semibold">{p.name}</h2>
-            <span className="font-mono text-xs text-ink-3">{p.path}</span>
-            {p.description && <span className="text-xs text-ink-2">{p.description}</span>}
-            <div className="mt-1 flex flex-wrap gap-1.5 text-xs">
-              {[
-                [sessions.filter(isRunning).length, "running"],
-                [sessions.filter(needsYou).length, "waiting"],
-                [predrafts.filter((d) => !d.archived && !d.published_url && !d.merged).length, "Local PR"],
-              ].map(([n, label]) => (
-                <span key={label} className={`rounded-full border px-2 py-0.5 ${n ? "border-line bg-paper font-semibold text-ink" : "border-line-2 text-ink-3"}`}>{n} {label}</span>
-              ))}
-            </div>
-          </div>
-          <div className="ml-auto flex gap-1.5">
-            {p.gh_repo && (
-              <button className="btn" title="Open on GitHub" onClick={() => openExternal(`https://github.com/${p.gh_repo}`)}>
-                <Icon name="ext" size={14} />
-                GitHub
-              </button>
-            )}
-            <Link to="/projects/$id/code" params={{ id: p.id }} className="btn no-underline" title="Browse the files of this folder">
-              <Icon name="folder" size={14} />
-              Files
-            </Link>
-            <TerminalMenu cwd={p.path} phone={phone} />
-            <LaunchButton ctx={{ projectId: p.id }} />
-          </div>
-        </div>
-        </>}
-        {tabs}
+    <div className="flex h-full min-h-0 flex-col" data-tour="folder.page">
+      {phone ? <PhoneHeader title={p.name} onBack={() => void navigate({ to: "/projects" })} backLabel="Back to folders" primary={<LaunchButton ctx={{ projectId: p.id }} />} subtitle={counts} actions={<div className="ml-auto flex gap-1.5">{buttons}</div>}
+        details={<div className="grid gap-2"><span className="break-all font-mono text-xs text-ink-3">{p.path}</span><Description p={p} />{p.is_temp && <p className="m-0 text-[13px] text-ink-2">{TEMP_INTRO}</p>}</div>} />
+        : <PageHeader title={p.name} introId="temp-folder" intro={p.is_temp ? TEMP_INTRO : undefined} tabs={tabs} actions={<>{buttons}<LaunchButton ctx={{ projectId: p.id }} /></>} meta={<>
+          <span className="truncate font-mono" title={p.path}>{p.path}</span>
+          <span>· {counts}</span>
+          {p.description && <span className="truncate">· {p.description}</span>}
+        </>} />}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 px-5 py-5">
+        {phone && tabs}
         {tab === "settings" ? <FolderSettings p={p} /> : tab === "branches" ? <Branches projectId={p.id} /> : <>
         {p.is_temp && <TempProjectCard p={p} />}
         <ProjectAgents title="Running agents" sessions={sessions.filter(isRunning)} empty="No running agents in this folder." />
@@ -113,7 +92,7 @@ export function ProjectPage() {
                 const canLaunch = draft && !draft.archived && !draft.published_url && !draft.merged && !draft.pushed_head;
                 const rowActions = <>
                   {session && <button className="btn btn-sm" title={session.title} onClick={() => { show(session.id); void navigate({ to: "/agents", search: phone ? { session: session.id } : {} }); }}>Agent</button>}
-                    {canLaunch && !session && <button className="btn btn-sm" title="Launch an agent in this worktree" onClick={() => { useComposer.getState().start({ projectId: p.id }); useComposer.getState().update((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: draft.id } })); }}><Icon name="play" size={12} />Launch here</button>}
+                    {canLaunch && !session && <button className="btn btn-sm" title="Launch an agent in this worktree" onClick={() => { useComposer.getState().start({ projectId: p.id }); useComposer.getState().update((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: draft.id } })); }}><Icon name="play" size={12} />Launch</button>}
                     <Link to="/projects/$id/code" params={{ id: p.id }} search={{ root: w.path }} className="btn btn-sm no-underline" title="Browse the files of this worktree">
                       <Icon name="folder" size={12} />
                       Files
@@ -143,6 +122,7 @@ export function ProjectPage() {
         {p.plain && <PlainHistory projectId={p.id} sessions={sessions} />}
         <ProjectAgents title="All agents" sessions={sessions} empty="No agents in this folder yet." />
         </>}
+      </div>
       </div>
     </div>
   );

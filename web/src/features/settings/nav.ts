@@ -9,7 +9,7 @@ import { delegatedAccess } from "@/lib/deployment";
 export type NavEntry = { to: string; label: string; icon: IconName; exact?: boolean; keywords?: string };
 
 /** Settings of the window's workspace. */
-export const WORKSPACE_NAV: NavEntry[] = [{ to: "/settings/workspace", label: "Bots, tools and MCP", icon: "folder", keywords: "workspace name mcp servers tools bots" }];
+export const WORKSPACE_NAV: NavEntry[] = [{ to: "/settings/workspace", label: "Workspace", icon: "folder", keywords: "workspace name rename delete window mcp servers tools bots" }];
 
 /** Launchpad's settings, shared by every workspace. */
 export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
@@ -29,9 +29,9 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
     { to: "/settings/devices", label: "Devices", icon: "window", keywords: "browser pair qr phone sign out tailscale remote access" },
     { to: "/settings/github", label: "GitHub", icon: "pr", keywords: "token account repositories poll rate limit inbox" },
     { to: "/settings/huggingface", label: "Hugging Face", icon: "huggingface", keywords: "traces bucket backup hf token" },
+    { to: "/settings/worktrees", label: "Disk cleanup", icon: "archive", keywords: "maintenance disk space worktrees local prs kept trash" },
   ] },
-  { group: "Maintenance", items: [{ to: "/settings/worktrees", label: "Maintenance", icon: "archive", keywords: "disk cleanup worktrees local prs kept trash" }] },
-  { group: "Help", items: [{ to: "/settings/onboarding", label: "Onboarding", icon: "spark", keywords: "tour demo setup checklist help" }] },
+  { group: "Help", items: [{ to: "/settings/onboarding", label: "Onboarding", icon: "info", keywords: "tour demo setup checklist help" }] },
 ];
 
 /** The Settings search: kept while moving between Settings pages. */

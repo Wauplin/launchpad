@@ -13,7 +13,7 @@ export const folders: Chapter = {
     {
       id: "folders.page", route: "/projects/demo-storefront", anchor: "folder.page",
       title: "A folder page",
-      body: "Chips count running agents, waiting ones and Local PRs. Overview lists running agents, GitHub items, worktrees and every agent; Settings holds the worktree setup command and the When done default.",
+      body: "The line under the title counts running agents, waiting ones and Local PRs. Overview lists running agents, GitHub items, worktrees and every agent; Settings holds the worktree setup command and the When done default.",
     },
     {
       id: "folders.files", route: "/projects/demo-storefront/code", anchor: "code.find",

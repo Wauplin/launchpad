@@ -26,10 +26,18 @@ export const useChannels = () => useQuery({ queryKey: ["channels"], queryFn: () 
 
 const copy = (text: string, what: string) => void copyText(text).then(() => toast(`${what} copied`), toastError);
 
+/** The page explanation (ⓘ): one paragraph per kind of channel. */
+const INTRO = <>
+  How agents reach you and other people, and how outside tools reach your agents. Home keeps these. URLs, tokens and secrets are never shown again.
+  <span className="mt-1 block"><b>Telegram.</b> Messages to your own chat go out directly: notifications, the answers to what you send from Telegram, and agents' <code>launchpad send telegram</code>. Plain text goes to your first bot (Ask Launchpad of your first workspace); <code>/&lt;bot&gt; text</code> gives another bot a task. Messages from Telegram never start paid usage.</span>
+  <span className="mt-1 block"><b>Outgoing.</b> Agents draft messages with <code>launchpad send &lt;name&gt; --body-file &lt;file&gt;</code>. Drafts wait in Today (Send): you edit them and click Send. Nothing is sent on its own or sent twice.</span>
+  <span className="mt-1 block"><b>Incoming hooks.</b> A hook turns a POST request into a message to a bot (Ask Launchpad or another): a short note naming the hook, then the request body (at most 16 KB) as data. One message every 10 seconds per hook; extra requests get 429. Home is a private Space, so callers also send <code>Authorization: Bearer &lt;HF token with read access to the Space&gt;</code>: curl and CI jobs can, GitHub's own webhooks cannot.</span>
+</>;
+
 export function ChannelsView() {
   const q = useChannels();
   return (
-    <SettingsPage tour="settings.channels" title="Channels" intro="How agents reach you and other people, and how outside tools reach your agents. Home keeps these. URLs, tokens and secrets are never shown again.">
+    <SettingsPage tour="settings.channels" title="Channels" intro={INTRO}>
       {q.isLoading ? <Loading what="channels" /> : q.error ? <ErrorState error={q.error} /> : q.data && <>
         <Telegram t={q.data.telegram} />
         <Outgoing channels={q.data.channels} />
@@ -50,7 +58,6 @@ function Telegram({ t }: { t: TelegramStatus }) {
   const act = (f: () => Promise<unknown>) => { setBusy(true); void f().catch(toastError).finally(() => setBusy(false)); };
   return (
     <Card title="Telegram: your own chat" end={t.bound ? <Badge tone="ok" icon="check">Bound to {t.chat_name ?? "your chat"}</Badge> : t.configured ? <Badge tone="attn">Not bound</Badge> : undefined}>
-      <p className="m-0 text-[12px] text-ink-2">Messages to your own chat go out directly: notifications, the answers to what you send from Telegram, and agents' <code>launchpad send telegram</code>. Plain text goes to your first bot (Ask Launchpad of your first workspace); <code>/&lt;bot&gt; text</code> gives another bot a task. Messages from Telegram never start paid usage.</p>
       {t.error && <ErrorState error={t.error} />}
       {!t.configured ? (
         <SettingRow label="Bot token" hint={<>In Telegram, open <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a>, send <code>/newbot</code> and paste the token it gives you. Home checks it with Telegram.</>}>
@@ -81,12 +88,12 @@ function Telegram({ t }: { t: TelegramStatus }) {
             </span>
           </SettingRow>
         </>}
-        {/* One visible button (Send test message); Bind another chat and Remove Telegram in ⋯. */}
+        {/* One visible button (Send test message); Bind another chat and Delete Telegram setup in ⋯. */}
         <div className="flex flex-wrap items-center gap-1">
           {t.bound && <button className="btn btn-sm" disabled={busy} onClick={() => act(() => api.post("/api/channels/telegram/test").then(() => toast("Test message sent")))}><Icon name="send" size={12} />Send test message</button>}
           <MoreMenu label="More Telegram actions" width={280}>{(close) => <>
             {t.bound && !t.code && <MenuItem icon={<Icon name="plus" size={14} />} label="Bind another chat" detail="Shows a new binding code" disabled={busy} onClick={() => { close(); act(() => api.post<TelegramStatus>("/api/channels/telegram/code").then(set)); }} />}
-            <MenuSection><ConfirmButton icon="trash" consequence="Removes the bot token and the bound chat from Home. Telegram is no longer read or answered." confirmLabel="Remove" onConfirm={() => api.delete("/api/channels/telegram").then(() => { close(); return refresh(); }, toastError)}>Remove Telegram</ConfirmButton></MenuSection>
+            <MenuSection><ConfirmButton icon="trash" consequence="Deletes the bot token and the bound chat from Home. Telegram is no longer read or answered." confirmLabel="Delete" onConfirm={() => api.delete("/api/channels/telegram").then(() => { close(); return refresh(); }, toastError)}>Delete Telegram setup</ConfirmButton></MenuSection>
           </>}</MoreMenu>
         </div>
       </>}
@@ -117,12 +124,11 @@ function Outgoing({ channels }: { channels: Channel[] }) {
   };
   return (
     <Card title="Outgoing: other people" end={<Link to="/" search={{ filter: "send" }} className="text-[12px] text-teal-ink no-underline hover:underline">Drafts to send in Today</Link>}>
-      <p className="m-0 text-[12px] text-ink-2">Agents draft messages with <code>launchpad send &lt;name&gt; --body-file &lt;file&gt;</code>. Drafts wait in Today (Send): you edit them and click Send. Nothing is sent on its own or sent twice.</p>
       {channels.length === 0 && <Empty icon="send">No outgoing channel yet.</Empty>}
       {channels.map((c) => (
         <div key={c.id} className="flex flex-wrap items-center gap-2 text-[13px]">
           <span className="min-w-0 flex-1"><b className="font-mono">{c.name}</b> <span className="text-[12px] text-ink-3">· {KINDS.find((x) => x.id === c.kind)?.label} · {c.host} · added {ago(c.created_at)}</span></span>
-          <ConfirmButton icon="trash" consequence={`Removes ${c.name} and its URL from Home. Its drafts stay in Today but cannot be sent.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/channels/${c.id}`).then(refresh, toastError)}>Remove</ConfirmButton>
+          <ConfirmButton icon="trash" consequence={`Deletes ${c.name} and its URL from Home. Its drafts stay in Today but cannot be sent.`} confirmLabel="Delete" onConfirm={() => api.delete(`/api/channels/${c.id}`).then(refresh, toastError)}>Delete</ConfirmButton>
         </div>
       ))}
       {!open ? <button className="btn btn-sm w-fit" onClick={() => setOpen(true)}><Icon name="plus" size={12} />Add a channel</button> : (
@@ -167,7 +173,6 @@ function Incoming({ hooks, origin }: { hooks: Hook[]; origin: string }) {
   };
   return (
     <Card title="Incoming: hooks">
-      <p className="m-0 text-[12px] text-ink-2">A hook turns a POST request into a message to a bot (Ask Launchpad or another): a short note naming the hook, then the request body (at most 16 KB) as data. One message every 10 seconds per hook; extra requests get 429. Home is a private Space, so callers also send <code>Authorization: Bearer &lt;HF token with read access to the Space&gt;</code>: curl and CI jobs can, GitHub's own webhooks cannot.</p>
       {created && (
         <div className="grid gap-2 rounded-[8px] border border-attn-line bg-attn-soft p-2.5 text-[13px]" role="status">
           <b>Copy the secret of {created.hook.name} now: it is shown only once.</b>

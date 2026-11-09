@@ -17,7 +17,7 @@ import { summary } from "@/features/proposals/ProposalList";
 import { useSuggestionList } from "@/features/suggestions/data";
 import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
-import { useScope, useWorkspaces } from "@/lib/workspace";
+import { useWorkspaces } from "@/lib/workspace";
 import { useWorkspace } from "@/stores/workspace";
 import { FILTERS, isView, useTodayHere, type TodayItem, type TodayView as View } from "./data";
 import { ItemRow, LOOK } from "./TodayRows";
@@ -68,7 +68,6 @@ const LABEL = Object.fromEntries(FILTERS.map(([f, label]) => [f, label])) as Rec
 
 export function TodayView() {
   const phone = usePhone();
-  const scope = useScope();
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as { filter?: string; card?: string };
   const { items, done, loading, error } = useTodayHere();
@@ -132,7 +131,7 @@ export function TodayView() {
     <FilterChip active={view === "done"} title="What you handled in the last 30 days, with where it went" onClick={() => setView("done")}>Done</FilterChip>
   </FilterChips>;
   const groupActions = (view === "approve" || view === "all") && <StartAll proposals={waitingProposals} />;
-  const meta = `${items.length ? `${items.length} decision${items.length === 1 ? "" : "s"}` : "Nothing waits"} in ${scope.workspace.name}`;
+  const meta = items.length ? `${items.length} decision${items.length === 1 ? "" : "s"}` : "Nothing waits";
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="today.page">

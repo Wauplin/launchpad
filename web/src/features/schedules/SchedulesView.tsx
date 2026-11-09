@@ -2,7 +2,7 @@
 // GitHub activity, when another agent is done); scheduled launches start once, when their conditions are met.
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { memo, type ReactNode } from "react";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
@@ -18,6 +18,7 @@ import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import { api } from "@/lib/api";
 import { askTarget, useBots } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
+import { when } from "@/lib/format";
 import { useCrons, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { browserZone, cronTitle, routineState, triggerSummary } from "@/lib/routines";
 import { useScope } from "@/lib/workspace";
@@ -58,24 +59,23 @@ export function SchedulesView() {
   const createBrief = useCreateBrief();
   const hasBrief = routines.some((r) => !!r.bot_id && r.title === BRIEF_TITLE);
   const briefBot = askTarget(bots, scope.workspace.id);
+  const next = routines.filter((r) => !r.paused && !r.bot_paused && r.next_run_at).reduce<number | null>((min, r) => min == null || r.next_run_at! < min ? r.next_run_at : min, null);
   const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => go({ tab: t })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }]} />;
   const header = phone
-    ? <PhoneHeader title="Schedules" />
-    : <PageHeader icon={<Icon name="clock" size={18} />} title="Schedules" meta={scope.workspace.name} intro="Routines start on their own, on a schedule or an event; scheduled launches start once." tabs={tabs} />;
+    ? <PhoneHeader title="Schedules" details={<p className="m-0 text-[13px] text-ink-2">{INTRO}</p>} />
+    : <PageHeader title="Schedules" meta={next ? `Next run ${when(next)}` : undefined} intro={INTRO} tabs={tabs} />;
   const panel = selected
     ? <Side title={selected.title} onClose={() => go({ tab })}><RoutineDetails cron={selected} bot={bots.find((b) => b.id === selected.bot_id)} onOpen={openSession} onDeleted={() => go({ tab })} /></Side>
     : launch ? <ScheduledPane launch={launch} onClose={() => go({ tab })} onStart={(s) => openSession(s.id)} /> : null;
   const loading = crons.isLoading || schedules.isLoading;
   const error = crons.error ?? schedules.error;
-  const list = <div className="mx-auto grid w-full max-w-[880px] grid-cols-[minmax(0,1fr)] gap-3 p-4" data-tour="schedules.page">
+  const list = <div className="mx-auto grid w-full max-w-[880px] grid-cols-[minmax(0,1fr)] gap-3 px-5 py-4" data-tour="schedules.page">
     {phone && tabs}
     {loading ? <Loading what="schedules" /> : error ? <ErrorState error={error} onRetry={() => { void crons.refetch(); void schedules.refetch(); }} /> : tab === "routines" ? <>
       {routines.length > 0 && <div className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-lg border border-line" data-tour="schedules.routines">
         {routines.map((r) => <RoutineRow key={r.id} r={r} bot={bots.find((b) => b.id === r.bot_id)} selected={r.id === selected?.id} onClick={() => go({ tab, routine: r.id })} />)}
       </div>}
       {!hasBrief && briefBot && <Idea icon="spark" title="Morning brief" body={`${briefBot.settings.name} summarizes what needs you, weekdays at 8:30. A quiet morning sends nothing.`} action={<button className="btn btn-sm btn-primary" data-tour="schedules.brief" onClick={async () => { const r = await createBrief(briefBot); if (r) go({ tab, routine: r.id }); }}><Icon name="plus" size={12} />Add the morning brief</button>} />}
-      <Idea icon="agents" title="A bot's routine" body="Give a bot a job that runs by itself: every morning, when a review is requested or CI fails on GitHub, or when another agent is done." action={bots.length ? <Link to="/bots/$id" params={{ id: bots[0].id }} search={{ panel: "routines" } as never} className="btn btn-sm">Open {bots[0].settings.name}'s routines</Link> : <Link to="/bots" search={{ new: true } as never} className="btn btn-sm">Create a bot</Link>} />
-      <Idea icon="refresh" title="A launch on a schedule" body="In the composer, the arrow next to Launch → Repeat on a schedule turns any prompt into a routine. Each run starts a new agent." action={<OpenComposer />} />
     </> : launches.length ? <div className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-lg border border-line">
       {launches.map((l) => <LaunchRow key={l.id} l={l} detail={conditionsSummary(l, sessions, launches)} selected={l.id === launch?.id} onClick={() => go({ tab, launch: l.id })} />)}
     </div> : <Empty icon="clock" action={<OpenComposer />}>Nothing scheduled. In the composer, the arrow next to Launch → Start later starts an agent after a delay, at a time, after other agents, or when quota is back.</Empty>}
@@ -95,6 +95,9 @@ export function SchedulesView() {
   );
 }
 
+/** The page explanation (ⓘ): what routines and scheduled launches are, and where to create them. */
+const INTRO = "Routines start on their own, on a schedule or an event; scheduled launches start once. Give a bot a routine from its Routines panel, or turn any prompt into a routine in the composer: the arrow next to Launch → Repeat on a schedule. Each run starts a new agent, or messages the bot's thread.";
+
 function OpenComposer() {
   const start = useComposer((s) => s.start);
   return <button className="btn btn-sm" onClick={() => start()}><Icon name="play" size={12} />Open the composer</button>;
@@ -108,7 +111,7 @@ function Side({ title, onClose, children }: { title: string; onClose: () => void
   </div>;
 }
 
-function Idea({ icon, title, body, action }: { icon: "spark" | "agents" | "refresh"; title: string; body: string; action: ReactNode }) {
+function Idea({ icon, title, body, action }: { icon: "spark"; title: string; body: string; action: ReactNode }) {
   return <section className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-line px-3 py-2.5">
     <Icon name={icon} size={16} className="text-teal-ink" />
     <span className="min-w-0 flex-1 basis-[260px]"><b className="block text-[13px]">{title}</b><span className="text-[12px] text-ink-3">{body}</span></span>

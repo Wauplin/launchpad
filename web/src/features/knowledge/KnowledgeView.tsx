@@ -96,15 +96,16 @@ export function KnowledgeView() {
     <button className="btn btn-sm btn-primary" onClick={() => { setTab("notes"); setPanel("new"); }}><Icon name="plus" size={12} />New note</button>
   </>;
   const tabs = <Tabs label="Knowledge views" value={tab} onChange={(t) => { setTab(t); if (t === "notes") setHistoryOf(null); }} items={[{ id: "notes", label: "Notes", count: notes.data?.files.length }, { id: "changes", label: "Changes", count: unseen || undefined }]} tour="knowledge.tabs" />;
-  const meta = <>
-    <span>{scope.workspace.name}</span>
+  const last = changes.data?.changes[0]?.at;
+  const meta = (last || role === "runner") && <>
+    {last && <span>Last change {ago(last)}</span>}
     {role === "runner" && <span>Stored by Home</span>}
   </>;
   const openNote = (path: string) => { setTab("notes"); setPanel("note"); setSelected(path); };
   const showHistory = (path: string) => { setHistoryOf(path); setTab("changes"); };
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="knowledge.page">
-      {phone ? <PhoneHeader title="Knowledge" onBack={selected && tab === "notes" ? () => setSelected(null) : undefined} actions={actions} /> : <PageHeader icon={<Icon name="book" size={18} />} title="Knowledge" meta={meta} intro="The only memory agents have. Every change is restorable for 30 days." actions={actions} tabs={tabs} />}
+      {phone ? <PhoneHeader title="Knowledge" onBack={selected && tab === "notes" ? () => setSelected(null) : undefined} actions={actions} /> : <PageHeader title="Knowledge" meta={meta} intro="The only memory agents have. Every change is restorable for 30 days." actions={actions} tabs={tabs} />}
       {phone && <div className="px-3">{tabs}</div>}
       {notes.isLoading ? <Loading what="the knowledge base" /> : notes.error ? <ErrorState error={notes.error} onRetry={() => void notes.refetch()} /> : notes.data && (
         tab === "notes"
@@ -211,7 +212,7 @@ function NotePane({ ws, notes, changes, path, select, showHistory, refresh }: { 
         <span className="min-w-0 flex-1 truncate font-mono text-[13px]" title={path}>{path}</span>
         {isText && <button className="btn btn-sm" onClick={() => setEditing(true)}><Icon name="pencil" size={12} />Edit</button>}
         <button className="btn btn-sm" onClick={() => showHistory(path)}><Icon name="clock" size={12} />History</button>
-        <ConfirmButton icon="trash" consequence={`Moves ${path} to the trash; Restore works for 30 days.`} confirmLabel="Remove" onConfirm={remove}>Remove</ConfirmButton>
+        <ConfirmButton icon="trash" consequence={`Moves ${path} to the trash; Restore works for 30 days.`} confirmLabel="Delete" onConfirm={remove}>Delete</ConfirmButton>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {concurrent.map((c) => <div key={c.path} className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-attn bg-attn-soft px-3 py-2 text-[12px]">

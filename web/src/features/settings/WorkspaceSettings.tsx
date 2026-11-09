@@ -1,4 +1,4 @@
-// Settings → This workspace: the window's workspace (name, its bots, the tools and MCP servers granted to it and
+// Settings → Workspace: the window's workspace (name, its bots, the tools and MCP servers granted to it and
 // which of them new sessions get by default, another window, Delete). Everything else in Settings is shared by every workspace.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,6 +16,7 @@ import { ToolDefaultsEditor, useSaveToolDefaults } from "./ToolDefaults";
 import { useToolDefaults } from "@/lib/toolDefaults";
 import { usePhone } from "@/lib/phone";
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const granted = (workspaces: string[], id: string) => workspaces.includes("*") || workspaces.includes(id);
 
 export function WorkspaceSettings() {
@@ -32,15 +33,16 @@ export function WorkspaceSettings() {
   const defaults = useToolDefaults();
   const saveDefaults = useSaveToolDefaults("workspace", w.id);
   const last = workspaces.length <= 1;
-  if (!w.id) return <SettingsPage title="This workspace"><Loading /></SettingsPage>;
+  const folders = scope.projects.filter((p) => !p.is_temp).length;
+  if (!w.id) return <SettingsPage title="Workspace"><Loading /></SettingsPage>;
   return (
-    <SettingsPage title={w.name} intro="Settings of the workspace shown in this window. The other Settings pages are shared by every workspace.">
-      <Card title="Workspace">
+    <SettingsPage title="Workspace" meta={`${w.name} · ${plural(folders, "folder")} · ${plural(bots.length, "bot")}`} intro="Settings of the workspace shown in this window. The other Settings pages are shared by every workspace.">
+      <Card title="Name and window">
         <SettingRow label="Name" hint="Names the window and the rail square.">
           <SavedInput label="Workspace name" value={w.name} onSave={async (name) => { await api.patch(`/api/workspaces/${w.id}`, { name }); await qc.invalidateQueries({ queryKey: ["workspaces"] }); }} />
         </SettingRow>
         <SettingRow label="Folders" hint="Every folder belongs to one workspace.">
-          <span className="flex flex-wrap items-center gap-2 text-[13px]">{scope.projects.filter((p) => !p.is_temp).length} folders<Link to="/projects" className="btn btn-sm no-underline">Open Folders</Link></span>
+          <span className="flex flex-wrap items-center gap-2 text-[13px]">{plural(folders, "folder")}<Link to="/projects" className="btn btn-sm no-underline">Open Folders</Link></span>
         </SettingRow>
         {/* A phone shows one page at a time: no second window. */}
         {!phone && <SettingRow label="Another window" hint="Two workspaces side by side means two windows.">

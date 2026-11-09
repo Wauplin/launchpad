@@ -69,8 +69,8 @@ export function PhoneSettings() {
         {!delegatedAccess() && <Row to="/settings/devices" icon="window" label="Devices" />}
       </Group>
       <Group title="On the phone">
-        <Row to="/settings/channels" icon="send" label="Telegram and channels" />
-        <Row to="/settings/workspace" icon="folder" label={`Workspace · ${workspace.name}`} />
+        <Row to="/settings/channels" icon="send" label="Channels" />
+        <Row to="/settings/workspace" icon="folder" label="Workspace" state={workspace.name} />
         <Row to="/settings/presets" icon="preset" label="Presets" state={config ? count(config.presets.length, "preset") : undefined} />
         <Row to="/settings/github" icon="pr" label="GitHub" />
         <Row to="/settings/usage" icon="clock" label="Usage" />
@@ -81,7 +81,7 @@ export function PhoneSettings() {
         {runners.length > 0 && <Status icon="window" label="Home and runners" state={outdated ? `${outdated} to update` : offline ? `${offline} offline` : count(runners.length, "runner")} attn={outdated + offline > 0} />}
         <Status icon="sliders" label="Credentials and tools" />
         <Status icon="huggingface" label="Hugging Face" />
-        <Status icon="archive" label="Maintenance" />
+        <Status icon="archive" label="Disk cleanup" />
         <Status icon="check" label="Setup checklist" state={setup ? setup.required_left ? `${count(setup.required_left, "step")} left` : "Done" : undefined} attn={!!setup?.required_left} />
       </Group>
     </div>

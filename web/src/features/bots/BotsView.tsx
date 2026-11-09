@@ -97,13 +97,13 @@ export function BotsView() {
   const creating = !!search.new || (bots.isSuccess && mine.length === 0);
   const close = () => void navigate({ to: "/bots", search: {} as never });
   const header = phone
-    ? <PhoneHeader title="Bots" primary={!creating ? <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary"><Icon name="plus" size={12} />New bot</Link> : undefined} />
-    : <PageHeader icon={<Icon name="spark" size={18} className="text-teal-ink" />} title="Bots" meta={scope.workspace.name} intro="Persistent agents with one thread, memory in the knowledge base and files on Home." actions={!creating && <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary" data-tour="bots.new"><Icon name="plus" size={12} />New bot</Link>} />;
+    ? <PhoneHeader title="Bots" primary={!creating ? <Link to="/bots" search={{ new: true } as never} className="btn btn-sm"><Icon name="plus" size={12} />New bot</Link> : undefined} />
+    : <PageHeader title="Bots" meta={mine.length ? `${mine.length} bot${mine.length === 1 ? "" : "s"}` : undefined} intro="Persistent agents with one thread, memory in the knowledge base and files on Home." actions={!creating && <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary" data-tour="bots.new"><Icon name="plus" size={12} />New bot</Link>} />;
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.page">
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto grid w-full max-w-[880px] grid-cols-[minmax(0,1fr)] gap-4 p-4">
+        <div className="mx-auto grid w-full max-w-[880px] grid-cols-[minmax(0,1fr)] gap-4 px-5 py-4">
           {bots.isLoading ? <Loading what="bots" /> : bots.error ? <ErrorState error={bots.error} onRetry={() => void bots.refetch()} /> : <>
             {creating && <NewBot first={mine.length === 0} onCancel={mine.length ? close : undefined} />}
             <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
@@ -264,11 +264,11 @@ export function BotPage() {
     <StateBadge state={botState(thread)} />
     {bot.paused && <Badge tone="attn" title="Its routines and incoming hooks start nothing until you resume it">Paused</Badge>}
     <span>{profile ? profile.name : "no profile"}{bot.settings.model ? ` · ${bot.settings.model}` : ""}</span>
-    {bot.settings.proposals === "auto" && <span title="One-time proposals apply at once">Auto proposals</span>}
-    {bot.settings.launchpad === "admin" && <span title="Changes Launchpad's settings with the Launchpad CLI">Admin</span>}
-    <span>works in {folder}</span>
-    <span>{PERMISSIONS.find((p) => p.id === bot.settings.permission_mode)?.label}</span>
-    {where && <span className={where.tone === "quiet" && where.label.startsWith("Burst") ? "text-ink-3" : "text-attn"} title={where.title}>{where.label}</span>}
+    {bot.settings.proposals === "auto" && <span title="One-time proposals apply at once">· Auto proposals</span>}
+    {bot.settings.launchpad === "admin" && <span title="Changes Launchpad's settings with the Launchpad CLI">· Admin</span>}
+    <span>· works in {folder}</span>
+    <span>· {PERMISSIONS.find((p) => p.id === bot.settings.permission_mode)?.label}</span>
+    {where && <span className={where.tone === "quiet" && where.label.startsWith("Burst") ? "text-ink-3" : "text-attn"} title={where.title}>· {where.label}</span>}
   </>;
   const pause = <button className="btn btn-sm" data-tour="bots.pause" title={bot.paused ? "Routines and incoming hooks start runs again" : "Routines and incoming hooks start nothing until you resume. Your own messages still go through; Stop ends a run that is working."} onClick={() => void api.post<Bot>(`/api/bots/${bot.id}/pause`, { paused: !bot.paused }).then(() => Promise.all([qc.invalidateQueries({ queryKey: ["bots"] }), qc.invalidateQueries({ queryKey: ["crons"] })])).then(() => toast(bot.paused ? `${bot.settings.name} resumed` : `${bot.settings.name} paused: no routine starts`), toastError)}><Icon name={bot.paused ? "play" : "stop"} size={12} />{bot.paused ? "Resume" : "Pause"}</button>;
   const openTrace = current && <Link to="/agents" search={{ session: current.id }} className="btn btn-sm no-underline" title="The current session's trace, terminal and files in Agents"><Icon name="agents" size={12} />Open in Agents</Link>;
@@ -291,13 +291,13 @@ export function BotPage() {
           {PANELS.map((p) => <button key={p.id} className="btn btn-sm" aria-pressed={panel === p.id} onClick={() => setPanel(p.id)}>{p.label}{count(p.id) ? ` · ${count(p.id)}` : ""}</button>)}
           {routines.length > 0 && pause}{openTrace}
         </span>}
-        details={<span className="flex flex-wrap items-center gap-x-2 text-[12px] text-ink-3">{meta}</span>} />
+        details={<><span className="flex flex-wrap items-center gap-x-2 text-[12px] text-ink-3">{meta}</span><p className="m-0 text-[13px] text-ink-2">{BOT_INTRO}</p></>} />
       {panel ? <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{side}</div> : chat}
     </div>;
   }
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
-      <PageHeader icon={<BotAvatar name={bot.settings.name} size={24} />} title={bot.settings.name} back={<Link to="/bots" className="iconbtn" title="All bots" aria-label="All bots"><Icon name="chev" size={14} className="rotate-90" /></Link>} meta={meta} actions={<>{routines.length > 0 && pause}{openTrace}</>} />
+      <PageHeader title={bot.settings.name} meta={meta} intro={BOT_INTRO} introId="bot" actions={<>{routines.length > 0 && pause}{openTrace}</>} />
       <SplitView storageKey="launchpad.bot-panel-width" sideLabel="the bot panel" main={chat} side={<>
         <div className="border-b border-line px-2 pt-1"><Tabs label="Bot panels" className="gap-0" value={panel ?? "memory"} onChange={setPanel} tour="bots.panels" items={PANELS.map((p) => ({ id: p.id, label: p.label, count: count(p.id) }))} /></div>
         <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{side}</div>
@@ -305,6 +305,9 @@ export function BotPage() {
     </div>
   );
 }
+
+/** The bot page explanation (ⓘ): how its thread, routines and notes work. */
+const BOT_INTRO = "Your messages go to the bot's current session. A new session starts when the profile or folder changes, or when you check New session next to the message box; it reads the previous trace only when it needs it. A routine sends the bot a task by itself: on a schedule, on GitHub activity, or when another agent is done; a run with no update never notifies you. Its notes are in the knowledge base, where every change can be restored for 30 days.";
 
 export function Section({ title, children, action }: { title: ReactNode; children: ReactNode; action?: ReactNode }) {
   return <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 border-b border-line-2 p-3">
@@ -328,7 +331,7 @@ function RoutinesPanel({ bot, routines }: { bot: Bot; routines: CronAgent[] }) {
   const proposed = (useProposalList().data ?? []).filter((p) => p.body.kind === "routine" && p.body.bot_id === bot.id && (p.state === "proposed" || p.state === "failed"));
   return <div data-tour="bots.routines">
     <Section title="Routines" action={!adding && <button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />New routine</button>}>
-      <p className="m-0 text-[12px] text-ink-2">A routine sends {bot.settings.name} a task by itself: on a schedule, on GitHub activity, or when another agent is done. Each run goes to its thread and ends with a short report, or with no update, which never notifies you.{bot.paused ? ` ${bot.settings.name} is paused: no routine starts until you resume it.` : ""}</p>
+      {bot.paused && <p className="m-0 text-[12px] text-attn">{bot.settings.name} is paused: no routine starts until you resume it.</p>}
       {adding && <NewRoutine bot={bot} repo={repo} harness={harness} onDone={() => setAdding(false)} />}
       {proposed.map((p) => <ProposalCard key={p.id} p={p} />)}
       {!adding && routines.length === 0 && <button className="btn btn-sm btn-primary w-fit" data-tour="bots.routine-new" onClick={() => setAdding(true)}><Icon name="plus" size={12} />Add a routine</button>}
@@ -363,7 +366,6 @@ function MemoryPanel({ bot, thread, current }: { bot: Bot; thread: Session[]; cu
     <Section title="Recent changes by this bot">
       {recent.length === 0 ? <p className="m-0 text-[12px] text-ink-3">None in the last 30 days.</p>
         : <ul className="m-0 grid gap-1 p-0">{recent.map((c) => <li key={c.id} className="flex list-none items-center gap-2 text-[12px]"><span className="min-w-0 flex-1 truncate" title={c.path}>{c.new_sha256 ? (c.sha256 ? "Edited" : "Created") : "Removed"} {c.path}</span><span className="text-ink-3 tabular-nums">{c.added != null && `+${c.added} −${c.removed ?? 0}`}</span><span className="text-ink-3">{age(c.at)}</span></li>)}</ul>}
-      <p className="m-0 text-[12px] text-ink-3">Correct a note in Knowledge; every change can be restored there for 30 days.</p>
     </Section>
     <ThreadSessions bot={bot} thread={thread} current={current} />
   </div>;
@@ -495,7 +497,6 @@ export function Version({ base, change }: { base: string; change: Change }) {
 function ThreadSessions({ bot, thread, current }: { bot: Bot; thread: Session[]; current: Session | null }) {
   return <div data-tour="bots.sessions">
     <Section title={`Sessions of its thread · ${thread.length}`}>
-      <p className="m-0 text-[12px] text-ink-3">Your messages go to the current session. A new session starts when the profile or folder changes, or when you check New session next to the message box; it reads the previous trace only when it needs it.</p>
       {thread.length === 0 ? <p className="m-0 text-[12px] text-ink-3">{bot.settings.name} has not run yet.</p>
         : [...thread].reverse().map((s, i) => {
           const context = s.usage.context_tokens != null && s.usage.context_window ? `${Math.round((100 * s.usage.context_tokens) / s.usage.context_window)}% context` : null;

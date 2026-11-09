@@ -12,25 +12,23 @@ export function IntroButton({ open, toggle }: { open: boolean; toggle: () => voi
 }
 
 /**
- * Page title (18/600), one meta line, right-aligned actions (one primary, up to two secondary, then ⋯) and optional
- * tabs. `intro` explains the page: on the first visit on this device, then behind ⓘ (`introId` defaults to the title).
+ * The header of every laptop page: title (18/600, never an icon next to it), one meta line of facts (counts, sync state,
+ * never the workspace name alone), right-aligned actions (one primary, up to two secondary, then ⋯) and optional tabs.
+ * `intro` explains the page: on the first visit on this device, then behind ⓘ (`introId` defaults to the title); `info`
+ * adds a longer note under it (or a plain ⓘ tooltip without an intro). Bodies use the same 20 px side padding (`px-5`).
  */
-export function PageHeader({ title, meta, intro, introId, actions, tabs, back, icon, className = "" }: { title: ReactNode; meta?: ReactNode; intro?: ReactNode; introId?: string; actions?: ReactNode; tabs?: ReactNode; back?: ReactNode; icon?: ReactNode; className?: string }) {
+export function PageHeader({ title, meta, intro, introId, info, actions, tabs, className = "" }: { title: ReactNode; meta?: ReactNode; intro?: ReactNode; introId?: string; info?: string; actions?: ReactNode; tabs?: ReactNode; className?: string }) {
   const explain = useIntro(intro ? introId ?? (typeof title === "string" ? title : null) : null);
   return (
     <header className={`page-header border-b border-line-2 bg-paper px-5 pt-3 ${tabs ? "" : "pb-3"} ${className}`}>
-      {back && <div className="mb-1 text-[12px]">{back}</div>}
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="flex min-w-0 flex-1 basis-[240px] items-center gap-2">
-          {icon}
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-1">
-              <h1 className="m-0 truncate text-[18px] leading-tight font-semibold">{title}</h1>
-              {intro && <IntroButton {...explain} />}
-            </div>
-            {meta && <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3">{meta}</div>}
-            {intro && explain.open && <p className="m-0 mt-1 max-w-[720px] text-[12px] text-ink-2">{intro}</p>}
+        <div className="min-w-0 flex-1 basis-[240px]">
+          <div className="flex min-w-0 items-center gap-1">
+            <h1 className="m-0 truncate text-[18px] leading-tight font-semibold">{title}</h1>
+            {intro ? <IntroButton {...explain} /> : info && <span className="text-ink-3" title={info} aria-label={info}><Icon name="info" size={14} /></span>}
           </div>
+          {meta && <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3">{meta}</div>}
+          {intro && explain.open && <div className="mt-1 grid max-w-[720px] gap-1 text-[12px] text-ink-2"><p className="m-0">{intro}</p>{info && <p className="m-0 text-ink-3">{info}</p>}</div>}
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>

@@ -8,20 +8,22 @@ import { itemKey } from "@/features/github/lib";
 import logo from "@/assets/launchpad.png";
 import { CommandField } from "./CommandField";
 import { useProjects } from "@/lib/queries";
+import { useBots } from "@/lib/bots";
+import type { Bot } from "@/gen/Bot";
 import { isDemo } from "@/demo/mode";
 import { DemoChip } from "@/onboarding/DemoChip";
-import { SETTINGS_NAV } from "@/features/settings/nav";
+import { SETTINGS_NAV, WORKSPACE_NAV } from "@/features/settings/nav";
 
 type Crumb = { label: string; to?: string; params?: Record<string, string> };
 
 // Settings page names by route segment, from the Settings nav (light: no Settings module).
 const SETTINGS: Record<string, string> = {
-  ...Object.fromEntries(SETTINGS_NAV.flatMap((g) => g.items).map((e) => [e.to.replace(/^\/settings\/?/, ""), e.label])),
-  workspace: "This workspace",
+  ...Object.fromEntries([...WORKSPACE_NAV, ...SETTINGS_NAV.flatMap((g) => g.items)].map((e) => [e.to.replace(/^\/settings\/?/, ""), e.label])),
 };
 
-/** The breadcrumb of a route: every segment but the last is a link. Today, Inbox and Agents name themselves. */
-function routeCrumbs(path: string, projects: Project[]): Crumb[] | "item" | "predraft" {
+/** The breadcrumb of a route: every segment but the last is a link. A top-level page (Today, Inbox, Agents, Folders,
+ * Setup) names itself in its page header, so it has no crumb; a detail page shows its parents. */
+function routeCrumbs(path: string, projects: Project[], bots: Bot[]): Crumb[] | "item" | "predraft" {
   if (/^\/github\/[^/]+\/[^/]+\/\d+/.test(path)) return "item";
   if (/^\/predrafts\/[^/]+/.test(path)) return "predraft";
   const settings = path.match(/^\/settings\/?([^/]*)/);
@@ -32,8 +34,8 @@ function routeCrumbs(path: string, projects: Project[]): Crumb[] | "item" | "pre
     const folder = { label: p?.name ?? "…", to: "/projects/$id", params: { id: project[1] } };
     return project[2] ? [{ label: "Folders", to: "/projects" }, folder, { label: "Files" }] : [{ label: "Folders", to: "/projects" }, { label: folder.label }];
   }
-  if (path.startsWith("/projects")) return [{ label: "Folders" }];
-  if (path.startsWith("/setup")) return [{ label: "Setup" }];
+  const bot = path.match(/^\/bots\/([^/]+)/);
+  if (bot) return [{ label: "Bots", to: "/bots" }, { label: bots.find((b) => b.id === bot[1])?.settings.name ?? "…" }];
   if (path.startsWith("/terminals")) return [{ label: "Terminals" }];
   return [];
 }
@@ -61,7 +63,8 @@ const HOST_INSET = {
 export function TopBar() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const projects = useProjects().data ?? [];
-  const crumbs = routeCrumbs(path, projects);
+  const bots = useBots().data ?? [];
+  const crumbs = routeCrumbs(path, projects, bots);
   const gh = path.match(/^\/github\/([^/]+)\/([^/]+)\/(\d+)/);
   const predraftId = path.match(/^\/predrafts\/([^/]+)/)?.[1];
   return (
@@ -96,5 +99,5 @@ function PredraftCrumb({ id }: { id: string }) {
   const projects = useProjects().data ?? [];
   const p = useQuery<{ predraft: Predraft }>({ queryKey: ["predrafts", id], enabled: false }).data?.predraft;
   const project = p && projects.find((x) => x.id === p.project_id);
-  return <Crumbs list={[...(project ? [{ label: project.name, to: "/projects/$id", params: { id: project.id } }] : []), { label: "Today", to: "/" }, { label: p?.title ?? "…" }]} />;
+  return <Crumbs list={[{ label: "Folders", to: "/projects" }, ...(project ? [{ label: project.name, to: "/projects/$id", params: { id: project.id } }] : []), { label: p?.title ?? "…" }]} />;
 }

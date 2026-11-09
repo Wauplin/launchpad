@@ -1,4 +1,4 @@
-// Settings → Maintenance: worktree retention, Local PR cleanup and every recorded task worktree with its state.
+// Settings → Disk cleanup: worktree retention, Local PR cleanup and every recorded task worktree with its state.
 
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -66,7 +66,7 @@ export function WorktreesView() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: () => ROW, overscan: 8, useFlushSync: false });
   useEffect(() => { if (q.data) setKeepText(String(q.data.config.worktrees.keep)); }, [q.data]);
-  if (!q.data || keepText === null) return <SettingsPage title="Maintenance"><Loading what="settings" /></SettingsPage>;
+  if (!q.data || keepText === null) return <SettingsPage title="Disk cleanup"><Loading what="settings" /></SettingsPage>;
   const saved = q.data.config;
   const total = sizes ? Object.values(sizes).reduce((a, b) => a + b, 0) : null;
   const commitKeep = () => {
@@ -75,7 +75,7 @@ export function WorktreesView() {
     if (n !== saved.worktrees.keep) void keep.run(() => patch({ worktrees_keep: n }));
   };
   return (
-    <SettingsPage title="Maintenance" intro="Disk cleanup for task worktrees and Local PRs.">
+    <SettingsPage title="Disk cleanup" intro="Frees disk space: task worktrees and Local PRs that are done.">
       <ConfigError />
       <Card title="Cleanup">
         <SettingRow label="Worktrees kept on disk" hint="Clean worktrees of idle agents. 0 keeps all." scope="all" state={keep.state} error={keep.error}

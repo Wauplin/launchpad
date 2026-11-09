@@ -1,6 +1,6 @@
 import { usePhone, layoutChoice, setLayoutChoice, type LayoutChoice } from "@/lib/phone";
-// Settings: two parts, This workspace (its bots, tools and MCP servers) and Launchpad (shared by every workspace:
-// this device, agents, machines and access, maintenance), and one title per page.
+// Settings: two parts, Workspace (the window's workspace: its bots, tools and MCP servers) and Launchpad (shared by every
+// workspace: this device, agents, machines and access, help), and one page header per page.
 // Fields save when they change and show "Saved" inline; only the profile editor keeps an explicit Save.
 // Daemon settings go to config.toml, which can also be edited by hand.
 
@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import type { Config } from "@/gen/Config";
 import type { Preset } from "@/gen/Preset";
 import { Icon } from "@/components/Icon";
-import { ConfirmButton, IntroButton, Loading, MenuSection, MoreMenu, SettingRow, useSaveState, type SaveState } from "@/components/ui";
+import { ConfirmButton, IntroButton, Loading, MenuSection, MoreMenu, PageHeader, SettingRow, useSaveState, type SaveState } from "@/components/ui";
 import { useIntro } from "@/lib/intros";
 import { api } from "@/lib/api";
 import { DEFAULT_ZOOM, ZOOM_LEVELS, useZoom } from "@/lib/zoom";
@@ -33,32 +33,35 @@ export function Card({ title, end, children, id, tour }: { title: string; end?: 
   );
 }
 
-/** The layout of every Settings page: one title, one short intro (first visit only, then behind ⓘ). On the laptop the
- * settings sidebar (app/SettingsSidebar.tsx) lists the pages; on phones the title, ⓘ and ‹ (back to the list on
- * /settings) go in the shell's bar. */
-export function SettingsPage({ title, intro, info, actions, children, tour }: { title?: string; intro?: React.ReactNode; info?: string; actions?: React.ReactNode; children: React.ReactNode; tour?: string }) {
+/** The layout of every Settings page: the shared page header (`PageHeader`: title, facts in `meta`, one short intro shown
+ * on the first visit, then behind ⓘ) over the page's cards. On the laptop the settings sidebar (app/SettingsSidebar.tsx)
+ * lists the pages; on phones the title, ⓘ and ‹ (back to the list on /settings) go in the shell's bar. */
+export function SettingsPage({ title, meta, intro, info, actions, children, tour }: { title?: string; meta?: React.ReactNode; intro?: React.ReactNode; info?: string; actions?: React.ReactNode; children: React.ReactNode; tour?: string }) {
   const phone = usePhone();
   const navigate = useNavigate();
-  // The intro shows on the first visit of the page on this device, then behind ⓘ.
-  const explain = useIntro(intro && title ? `settings:${title}` : null);
-  const about = intro ? <IntroButton {...explain} /> : info && <span className={phone ? "grid size-11 shrink-0 place-items-center text-ink-3" : "text-ink-3"} title={info} aria-label={info}><Icon name="info" size={14} /></span>;
+  const introId = title ? `settings:${title}` : undefined;
+  // The intro shows on the first visit of the page on this device, then behind ⓘ (phone: in the bar).
+  const explain = useIntro(phone && intro && introId ? introId : null);
+  if (!phone) return (
+    <div className="flex h-full min-h-0 flex-col">
+      {title && <PageHeader title={title} meta={meta} intro={intro} introId={introId} info={info} actions={actions} />}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto grid max-w-[900px] grid-cols-[minmax(0,1fr)] content-start gap-4 px-5 py-5" data-tour={tour}>{children}</div>
+      </div>
+    </div>
+  );
+  const about = intro ? <IntroButton {...explain} /> : info && <span className="grid size-11 shrink-0 place-items-center text-ink-3" title={info} aria-label={info}><Icon name="info" size={14} /></span>;
   const explanation = intro && explain.open && <p className="m-0 w-full text-[13px] text-ink-2">{intro}{info && <span className="mt-1 block text-[12px] text-ink-3">{info}</span>}</p>;
   return (
     <div className="h-full overflow-y-auto">
-      {phone && <PhoneBar title={title ?? "Settings"} onBack={() => void navigate({ to: "/settings" })} backLabel="All settings" end={about} />}
+      <PhoneBar title={title ?? "Settings"} onBack={() => void navigate({ to: "/settings" })} backLabel="All settings" end={about} />
       <div className="phone-page-content mx-auto grid max-w-[900px] grid-cols-[minmax(0,1fr)] gap-5 p-6">
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4" data-tour={tour}>
-          {phone ? (explanation || actions) && <div className="flex flex-wrap items-center gap-2">
+          {(meta || explanation || actions) && <div className="flex flex-wrap items-center gap-2">
+            {meta && <span className="text-[12px] text-ink-3">{meta}</span>}
             {explanation}
             {actions && <span className="ml-auto flex flex-wrap gap-2">{actions}</span>}
-          </div> : title && (
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="m-0 text-[18px] font-semibold">{title}</h1>
-              {about}
-              {actions && <span className="ml-auto flex flex-wrap gap-2">{actions}</span>}
-              {explanation}
-            </div>
-          )}
+          </div>}
           {children}
         </div>
       </div>
@@ -216,7 +219,7 @@ export function NotificationsView() {
   );
 }
 
-/** Settings → Maintenance → Local PR cleanup, shared by the Maintenance page. */
+/** Settings → Disk cleanup → Local PR cleanup. */
 export function LocalPrCleanupRow({ config }: { config: Config }) {
   const patch = usePatchConfig();
   const { state, error, run } = useSaveState();

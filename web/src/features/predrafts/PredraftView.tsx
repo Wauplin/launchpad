@@ -129,20 +129,20 @@ function Review({ id }: { id: string }) {
   return <div className="flex h-full min-h-0 flex-col">
     {phone ? <><PhoneHeader title={p.title} subtitle={`Local PR · ${state}`} onBack={() => void navigate({ to: "/", search: { filter: "review" } })} backLabel="Back to Today" actions={<>{headerActions}<button className="btn btn-sm" disabled={busy} onClick={refresh}>Refresh</button></>} details={<p className="break-all font-mono text-xs text-ink-3">{p.branch} → {p.base_branch}</p>} /><div className="px-3">{tabs}</div></>
       : <PageHeader title={p.title} meta={meta} actions={headerActions} tabs={tabs} />}
-    {p.published_url && <div className="border-b border-line-2 px-4 py-2 text-[12px]"><button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub as #{p.published_number}</button><span className="text-ink-3"> · New commits of agents on this branch reach the PR through Home.</span></div>}
-    {p.merged && <div className="border-b border-line-2 px-4 py-2 text-[12px] text-ink-2">Merged into <span className="font-mono">{p.base_branch}</span> on Home at <span className="font-mono">{p.merged.head.slice(0, 8)}</span>.</div>}
-    {active && d.base_ahead > 0 && <div className="grid gap-1 border-b border-attn-line bg-attn-soft px-4 py-2 text-[12px] text-attn">
+    {p.published_url && <div className="border-b border-line-2 px-5 py-2 text-[12px]"><button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub as #{p.published_number}</button><span className="text-ink-3"> · New commits of agents on this branch reach the PR through Home.</span></div>}
+    {p.merged && <div className="border-b border-line-2 px-5 py-2 text-[12px] text-ink-2">Merged into <span className="font-mono">{p.base_branch}</span> on Home at <span className="font-mono">{p.merged.head.slice(0, 8)}</span>.</div>}
+    {active && d.base_ahead > 0 && <div className="grid gap-1 border-b border-attn-line bg-attn-soft px-5 py-2 text-[12px] text-attn">
       <span className="flex items-center gap-1.5"><Icon name="alert" size={12} />Base moved: {p.base_branch} is {d.base_ahead} commits ahead of this branch. Review against the refreshed base before publishing.</span>
     </div>}
     {!!d.change_set?.length && <ChangeSet members={d.change_set} active={active} busy={busy} onPublishAll={() => run(async () => { await save(); await api.post(`/api/predrafts/${id}/publish-set`, { draft }); await saved.clear(); }, "Change set published")} />}
     {p.remote_sync_note && <div className="border-b border-line px-3 py-2 text-[12px] text-ink-2">{p.remote_sync_note}</div>}
-    {active && p.pushed_head && <div className="flex flex-wrap items-center gap-2 border-b border-attn-line bg-attn-soft px-4 py-2 text-[12px] text-attn">
+    {active && p.pushed_head && <div className="flex flex-wrap items-center gap-2 border-b border-attn-line bg-attn-soft px-5 py-2 text-[12px] text-attn">
       <Icon name="alert" size={12} /><span className="flex-1">Publication of <span className="font-mono">{p.pushed_head.slice(0, 8)}</span>{p.remote_branch ? <> to <span className="font-mono">{p.push_repo ?? "origin"}:{p.remote_branch}</span></> : null} did not finish. Retry Publish, or unlock it.</span>
       <ConfirmButton disabled={busy} consequence="Agents can change the branch again. A branch already pushed keeps its name, and the next Publish updates it. Nothing is deleted on GitHub." confirmLabel="Unlock" onConfirm={() => run(() => api.post(`/api/predrafts/${id}/unlock`), "Local PR unlocked")}>Unlock</ConfirmButton>
     </div>}
     {!!error && <ErrorState className="m-2" error={error} />}
     {notesBar}
-    {tab === "files" && !p.archived && d.head ? <FilesChanged repo="local" number={0} head={d.head} local={{ id }} notes={lineNotes} onAddNote={active ? (n) => setNotes((all) => [...all, { path: n.path, text: lineNoteText(n) }]) : undefined} /> : <div className="min-h-0 flex-1 overflow-auto p-4">
+    {tab === "files" && !p.archived && d.head ? <FilesChanged repo="local" number={0} head={d.head} local={{ id }} notes={lineNotes} onAddNote={active ? (n) => setNotes((all) => [...all, { path: n.path, text: lineNoteText(n) }]) : undefined} /> : <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
       {tab === "files" && <Empty icon="info">{p.archived ? "This Local PR was discarded." : "No commits to compare yet."}</Empty>}
       {tab === "description" && <div className="grid max-w-[800px] gap-4">
         {editing && active ? <div className="grid gap-3"><input aria-label="PR title" className="field-input" value={title} onChange={(e) => setTitle(e.target.value)} /><textarea aria-label="PR description" className="field-input min-h-48" value={body} onChange={(e) => setBody(e.target.value)} /><div className="flex gap-2"><button className="btn btn-primary w-fit" disabled={busy} onClick={() => void run(save, "Title and description saved")}>Save title and description</button><button className="btn" disabled={busy} onClick={() => { setTitle(p.title); setBody(p.body); setEditing(false); }}>Cancel</button></div></div>
