@@ -106,11 +106,9 @@ function drafts(): Draft[] {
     if (t.number === null || t.reason !== "review_requested" || t.kind !== "PullRequest" || t.state === "closed" || t.state === "merged" || reviewed.has(`${t.repo.toLowerCase()}#${t.number}`)) continue;
     out.push(item("review_request", "github", t.id, t.title, { repo: t.repo }, Date.parse(t.updated_at), { detail: `${t.repo}#${t.number} · review requested`, github: `${t.repo}#${t.number}` }));
   }
-  if (world.status.role !== "runner") {
-    for (const r of world.runners) {
-      if (r.compat !== "outdated" && r.compat !== "incompatible") continue;
-      out.push(item("runner", "fix", r.runner.id, `Update ${r.runner.name}`, { everywhere: true }, r.runner.last_seen_at ?? 0, { detail: r.compat === "outdated" ? "Runs another build: new sessions wait until you update it" : "Another protocol: it cannot connect until you update it" }));
-    }
+  for (const r of world.runners) {
+    if (r.compat !== "outdated" && r.compat !== "incompatible") continue;
+    out.push(item("runner", "fix", r.runner.id, `Update ${r.runner.name}`, { everywhere: true }, r.runner.last_seen_at ?? 0, { detail: r.compat === "outdated" ? "Runs another build: new sessions wait until you update it" : "Another protocol: it cannot connect until you update it" }));
   }
   return out;
 }

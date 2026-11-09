@@ -31,9 +31,10 @@ const queryClient = new QueryClient({
 });
 // Demo mode answers every request in the browser (src/demo/); its chunk loads only then.
 const demo = isDemo ? import("@/demo/boot").then((m) => m.bootDemo(queryClient)) : Promise.resolve();
-void demo.then(() => useComposer.getState().restore());
 let navigateTo: ((url: string) => void) | null = null;
 const deployment = demo.then(() => loadDeployment());
+// A runner's own window has no composer (its daemon answers only its status).
+void deployment.then(() => { if (!runnerWindow()) void useComposer.getState().restore(); });
 // Earlier versions registered a service worker (offline shell and Web Push); remove it and its caches.
 if (!isDemo && "serviceWorker" in navigator) {
   void navigator.serviceWorker.getRegistrations().then((all) => all.forEach((r) => void r.unregister())).catch(() => {});

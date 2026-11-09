@@ -6,13 +6,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { Checklist } from "@/gen/Checklist";
-import type { Guard } from "@/gen/Guard";
 import type { MissingPart } from "@/gen/MissingPart";
 import type { SetupItem } from "@/gen/SetupItem";
 import { Icon, IconSprite } from "@/components/Icon";
 import { toast, toastError, Toasts } from "@/components/Toast";
 import { Badge, Choice, Choices, ErrorState, Loading, PageHeader, SettingRow } from "@/components/ui";
 import { api } from "@/lib/api";
+import { runAction } from "@/lib/actions";
 import { copyText } from "@/lib/clipboard";
 import { externalLinkProps } from "@/lib/platform";
 import { useStatus } from "@/lib/queries";
@@ -59,7 +59,7 @@ function HomeCard() {
   const status = useStatus().data;
   const home = status?.home;
   const paused = !!home?.guard.paused;
-  const save = (g: Guard) => api.put<Guard>("/api/runner/guard", g).then(() => qc.invalidateQueries({ queryKey: ["status"] }), toastError);
+  const save = (paused: boolean) => runAction("runner.takes-sessions", {}, { paused }).then(() => qc.invalidateQueries({ queryKey: ["status"] }), toastError);
   return (
     <Card title="Home" end={home?.url && <a className="btn btn-sm no-underline" {...externalLinkProps(home.url)}><Icon name="ext" size={12} />Open Home</a>}>
       <SettingRow label="Home" hint={home?.message ?? (home?.state === "not_connected" ? "Run launchpad connect <Home address> in a terminal here, then approve the runner on Home." : undefined)}>
@@ -67,8 +67,8 @@ function HomeCard() {
       </SettingRow>
       <SettingRow label="Takes new sessions" hint="Paused: Home starts no new session here; running sessions continue.">
         <Choices label="Takes new sessions">
-          <Choice active={!paused} onClick={() => paused && void save({ paused: false })}>Yes</Choice>
-          <Choice active={paused} onClick={() => !paused && void save({ paused: true })}>Paused</Choice>
+          <Choice active={!paused} onClick={() => paused && void save(false)}>Yes</Choice>
+          <Choice active={paused} onClick={() => !paused && void save(true)}>Paused</Choice>
         </Choices>
       </SettingRow>
       {home?.compat === "outdated" && (

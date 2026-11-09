@@ -139,6 +139,7 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "proposal.reply", route: "/api/proposals/{id}/reply", label: "Reply", icon: Some("send"), help: "Answer a report: the text goes to the thread of the agent or bot that wrote it", input: &[f("text", Text)], effect: Starts, ..A },
     Action { name: "proposal.recheck", route: "/api/proposals/{id}/recheck", label: "Check again", icon: Some("refresh"), help: "Validate a card again", effect: Checks, ..A },
     // Runners.
+    Action { name: "runner.takes-sessions", method: "PUT", route: "/api/runner/guard", label: "Takes new sessions", help: "In a runner's own window: whether Home starts new sessions there (paused: none; running sessions continue)", input: &[f("paused", Bool)], access: Owner, ..A },
     Action { name: "runner.check-network", route: "/api/runners/{id}/network-check", label: "Check network", icon: Some("refresh"), help: "Check a runner's sandbox network: capture, DNS, UDP policy, IPv4 and IPv6, runner CA", effect: Checks, access: Owner, ..A },
     // Home updates (a Home on a Hugging Face Space: `launchpad_setup::home_update`).
     Action { name: "home.check-update", route: "/api/home/update/check", label: "Check for updates", icon: Some("refresh"), help: "Check whether a newer Launchpad exists for Home's Space (release or main, as deployed)", effect: Checks, access: Owner, ..A },

@@ -40,7 +40,7 @@ function useCurrentFolder(fallback: TerminalInfo | undefined): string | null {
     const s = sessions?.find((s) => s.id === id);
     if (s) return s.cwd;
   }
-  return (fallback?.cwd ?? null) ?? scope.projects[0]?.path ?? null;
+  return fallback?.cwd ?? scope.projects[0]?.path ?? null;
 }
 
 const kindIcon = (t: TerminalInfo): IconName => (t.kind === "tui" ? "agents" : t.kind === "command" ? "play" : "term");
