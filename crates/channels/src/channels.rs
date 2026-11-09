@@ -151,6 +151,13 @@ pub fn payload(kind: ChannelKind, title: Option<&str>, body: &str, session_id: O
     }
 }
 
+/// A message ending with the attribution line of the agent that drafted it, in the channel's link syntax.
+pub fn signed(kind: ChannelKind, body: &str, line: &str) -> String {
+    use launchpad_core::attribution as a;
+    let line = if kind == ChannelKind::Slack { a::slack(line) } else { line.to_string() };
+    a::sign(body, &line, a::Separator::Blank)
+}
+
 /// Home's address in links sent to chats: the configured public origin, the Space's host, or the local port.
 pub fn home_origin(app: &App) -> String {
     if let Ok(Some(o)) = app.config.get().server.origin() {
@@ -380,7 +387,11 @@ pub async fn send(app: &App, id: &str) -> Result<OutboxMessage> {
     let mut m = get(app, id).await?;
     ensure!(m.status == OutboxStatus::Draft, "a send was already attempted; check the destination before discarding");
     let (_, url) = launchpad_core::vault::secret(app, &secret_id(&m.channel_id)).await?.context("this channel was removed: discard the message")?;
-    let body = payload(m.kind, m.title.as_deref(), &m.body, m.session_id.as_deref());
+    let text = match launchpad_core::attribution::for_session(app, m.session_id.as_deref()) {
+        Some(line) => signed(m.kind, &m.body, &line),
+        None => m.body.clone(),
+    };
+    let body = payload(m.kind, m.title.as_deref(), &text, m.session_id.as_deref());
     m.status = OutboxStatus::Sending;
     m.error = None;
     save(app, &m).await?;
@@ -456,6 +467,15 @@ mod tests {
         assert_eq!(payload(ChannelKind::Slack, Some("Build"), "ok", None), json!({"text": "*Build*\nok"}));
         assert_eq!(payload(ChannelKind::Discord, None, "ok", None)["content"], "ok");
         assert_eq!(payload(ChannelKind::Generic, Some(" "), "ok", Some("s1")), json!({"text": "ok", "title": null, "session_id": "s1"}));
+    }
+
+    #[test]
+    fn messages_end_with_the_attribution_line_once() {
+        let line = launchpad_core::attribution::text(Some("HFJS Bot"), "Claude Code");
+        let slack = signed(ChannelKind::Slack, "Released.", &line);
+        assert_eq!(slack, "Released.\n\n_Done by HFJS Bot using <https://github.com/Wauplin/launchpad|Launchpad>_");
+        assert_eq!(signed(ChannelKind::Slack, &slack, &line), slack);
+        assert_eq!(signed(ChannelKind::Discord, "Released.", &line), format!("Released.\n\n{line}"));
     }
 
     #[test]

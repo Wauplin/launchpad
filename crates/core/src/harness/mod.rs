@@ -218,6 +218,11 @@ pub trait Harness: Send + Sync {
     fn contained_memory(&self, _home: &Path, _instructions: &str) -> Result<Vec<(String, String)>> {
         Ok(vec![])
     }
+    /// Sets the harness's own attribution of pull requests to Launchpad's line (`attribution`) in a contained
+    /// session's harness home, when it has one. Harnesses without such a setting follow the instructions.
+    fn contained_attribution(&self, _home: &Path, _line: &str) -> Result<()> {
+        Ok(())
+    }
     /// Folders of the harness's own memory files on this machine (`home`: the user's home), with a group name
     /// (for example the project), for a one-time import into the knowledge base.
     fn native_memories(&self, _home: &Path) -> Vec<(String, std::path::PathBuf)> {

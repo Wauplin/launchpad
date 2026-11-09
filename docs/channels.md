@@ -10,7 +10,7 @@ Channels connect your agents to chats and outside tools. They live on Home, in *
 
 The Outbox holds everything Launchpad would send to other people for you: messages agents drafted for your outgoing channels, and GitHub suggestions (comments and reviews written by agents). There is no Outbox page: drafts wait as cards in [Today](today.md) → **Send**, and suggestions in Today → **GitHub**.
 
-- Each draft shows who drafted it (with a link to the session), the channel and the text. Edit it, then **Send** (it asks you to confirm) or **Discard**.
+- Each draft shows who drafted it (with a link to the session), the channel and the text. Edit it, then **Send** (it asks you to confirm) or **Discard**. A sent message ends with the agent's [attribution line](agents.md#attribution).
 - Today → **Done** keeps the history of the last 30 days: sent and discarded messages, posted suggestions. Discarded GitHub suggestions are deleted, so they are not listed.
 
 Nothing is sent on its own, and nothing is sent twice. When a send does not complete (the network dropped, or Launchpad stopped during it), the message is marked **Uncertain**: check the destination, then click **It arrived** or **Discard** (its confirmation reminds you to check the destination first). Launchpad never retries it. A destination that refuses the message (a wrong URL, a message too long for Discord) leaves the draft editable, with the reason.

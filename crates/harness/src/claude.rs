@@ -1076,6 +1076,16 @@ impl harness::Harness for Adapter {
         std::fs::write(&path, serde_json::to_string_pretty(&settings)?)?;
         Ok(vec![("CLAUDE_CODE_DISABLE_AUTO_MEMORY".into(), "1".into())])
     }
+    /// `attribution.pr` in `$CLAUDE_CONFIG_DIR/settings.json` replaces Claude Code's "Generated with Claude Code"
+    /// line of pull request descriptions; commit trailers keep Claude Code's default.
+    fn contained_attribution(&self, home: &std::path::Path, line: &str) -> Result<()> {
+        let dir = home.join(".claude");
+        std::fs::create_dir_all(&dir)?;
+        let path = dir.join("settings.json");
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        std::fs::write(&path, with_attribution(&text, line)?)?;
+        Ok(())
+    }
     fn native_memories(&self, home: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
         // `~/.claude/projects/<folder path with / as ->/memory/`.
         let prefix = format!("{}-", home.to_string_lossy().replace(['/', '.'], "-"));
@@ -1294,6 +1304,16 @@ fn usage_windows(body: &Value) -> Result<QuotaPair> {
     Ok((Some(five), Some(week)))
 }
 
+/// `settings.json` with `attribution.pr` set to Launchpad's line (other settings and `attribution.commit` kept).
+fn with_attribution(text: &str, line: &str) -> Result<String> {
+    let mut settings: Value = serde_json::from_str(text).ok().filter(Value::is_object).unwrap_or_else(|| json!({}));
+    if !settings["attribution"].is_object() {
+        settings["attribution"] = json!({});
+    }
+    settings["attribution"]["pr"] = Value::String(line.into());
+    Ok(serde_json::to_string_pretty(&settings)?)
+}
+
 /// Claude stores transcripts in `~/.claude/projects/<path with every non-alphanumeric character as ->`.
 fn claude_transcripts_dir(cwd: &str) -> std::path::PathBuf {
     let encoded: String = cwd
@@ -1441,5 +1461,25 @@ mod trace_tests {
         assert_eq!(files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["session.jsonl", "session/subagents/agent-child.jsonl"]);
         assert!(files.iter().all(|f| f.data == native));
         assert!(trace_files(&tmp.0, "/my/project", "missing").await.is_err());
+    }
+}
+
+#[cfg(test)]
+mod attribution_tests {
+    use super::*;
+    use launchpad_core::harness::Harness;
+
+    #[test]
+    fn pull_request_attribution_is_launchpads_line() {
+        let tmp = crate::test_support::Temp::new();
+        tmp.write(".claude/settings.json", br#"{"autoMemoryEnabled":false,"attribution":{"commit":"x"}}"#);
+        let line = launchpad_core::attribution::text(Some("HFJS Bot"), "Claude Code");
+        Adapter.contained_attribution(&tmp.0, &line).unwrap();
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(tmp.0.join(".claude/settings.json")).unwrap()).unwrap();
+        assert_eq!(v["attribution"]["pr"], "_Done by HFJS Bot using [Launchpad](https://github.com/Wauplin/launchpad)_");
+        assert_eq!(v["attribution"]["commit"], "x");
+        assert_eq!(v["autoMemoryEnabled"], false);
+        let fresh: Value = serde_json::from_str(&with_attribution("", "L").unwrap()).unwrap();
+        assert_eq!(fresh, json!({"attribution": {"pr": "L"}}));
     }
 }

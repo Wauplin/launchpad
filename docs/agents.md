@@ -120,6 +120,22 @@ Change the mode, model or effort of a running session in **Summary → Run**.
 
 Sessions that fail because the model is at capacity or overloaded resume automatically after about five minutes, up to five times. Resume, a new message, Stop or Archive cancels the pending retry.
 
+## Attribution
+
+What an agent publishes through Launchpad ends with one line in italics, so readers (and bots reading a thread later) know who wrote it:
+
+- a one-time agent: `_Done with Claude Code using [Launchpad](https://github.com/Wauplin/launchpad)_` (the harness's name: Claude Code, Codex, OpenCode);
+- a bot's session: `_Done by HFJS Bot using [Launchpad](https://github.com/Wauplin/launchpad)_` (the bot's name).
+
+Launchpad adds it itself, so no bot or prompt has to:
+
+- **Suggestions** (comments and reviews) and **Outbox** messages get it when you click Post or Send; the draft you edit stays without it. Slack messages use Slack's link syntax.
+- **Local PRs** get it in the pull request's description when you publish them.
+- **Direct GitHub posts** of a contained agent (`gh` or the GitHub API with a token Home lends, as bots with GitHub access do) get it from the runner proxy: pull request and issue bodies, comments, and reviews with text. Inline review comments and approvals without text stay as written.
+- **Claude Code** writes it instead of its own "Generated with Claude Code" line in pull request descriptions (its `attribution.pr` setting). Commit trailers keep Claude Code's default.
+
+Comments and reviews get a `---` rule before the line; descriptions and chat messages only a blank line. A body that already ends with an attribution line (italic or not, or Claude Code's own line) gets it replaced, never doubled. Agents are told the line too, and end what they publish elsewhere with it. Agents outside a jail (macOS, Windows) post with the machine's own GitHub login, so only their suggestions, Local PRs and Outbox messages get the line.
+
 ## Worktrees and merging
 
 In a Git folder, each new agent gets its own worktree and branch, created by Launchpad before the agent starts. The launch returns as soon as the worktree exists locally; in the background, before the agent starts, Launchpad tries to fast-forward the base from its configured upstream (or the same branch on `origin`) and moves the new, untouched task branch to it. Dirty or busy base checkouts stay unchanged. Remote failures leave the local base usable and appear in the worktree card and session trace.

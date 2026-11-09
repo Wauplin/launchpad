@@ -44,3 +44,14 @@ pub(crate) mod test_support {
         }
     }
 }
+
+#[cfg(test)]
+mod attribution_tests {
+    /// Each harness's display name gives the one-time agent's attribution line.
+    #[test]
+    fn one_time_agents_are_named_by_harness() {
+        let names: Vec<String> = super::REGISTRATIONS.iter().map(|r| launchpad_core::attribution::text(None, r.descriptor.name)).collect();
+        let link = "using [Launchpad](https://github.com/Wauplin/launchpad)_";
+        assert_eq!(names, [format!("_Done with Claude Code {link}"), format!("_Done with Codex {link}"), format!("_Done with OpenCode {link}")]);
+    }
+}

@@ -298,12 +298,17 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
             } else {
                 "comment"
             };
+            // The agent's attribution line ends what reaches GitHub; the draft keeps the text as written.
+            let body = match launchpad_core::attribution::for_session(app, s.session_id.as_deref()) {
+                Some(line) => launchpad_core::attribution::sign(&s.body, &line, launchpad_core::attribution::Separator::Rule),
+                None => s.body.clone(),
+            };
             let result = items::mutate(
                 app,
                 repo,
                 *number,
                 action,
-                json!({"body":s.body,"event":s.event,"commit_id":s.head}),
+                json!({"body":body,"event":s.event,"commit_id":s.head}),
             )
             .await;
             match result {

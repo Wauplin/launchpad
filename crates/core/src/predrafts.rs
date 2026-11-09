@@ -531,7 +531,7 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
         .as_array()
         .and_then(|a| a.iter().find(|v| v["head"]["ref"] == q.remote_branch && v["head"]["sha"] == head && v["base"]["ref"] == p.base_branch))
         .cloned();
-    let body = with_links(&p.body, &published_siblings(app, &p).await?);
+    let body = published_body(app, &p, &published_siblings(app, &p).await?);
     let pr = if let Some(v) = found {
         v
     } else {
@@ -551,6 +551,15 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
 async fn published_siblings(app: &App, p: &Predraft) -> Result<Vec<String>> {
     let Some(set) = &p.change_set else { return Ok(vec![]) };
     Ok(list(app).await?.into_iter().filter(|o| o.change_set.as_ref() == Some(set) && o.id != p.id).filter_map(|o| o.published_url).collect())
+}
+/// The pull request's description: the Local PR's text, its change set's links, then the attribution line of
+/// the agent that wrote it.
+fn published_body(app: &App, p: &Predraft, links: &[String]) -> String {
+    let body = with_links(crate::attribution::unsigned(&p.body), links);
+    match crate::attribution::for_session(app, p.session_id.as_deref()) {
+        Some(line) => crate::attribution::sign(&body, &line, crate::attribution::Separator::Blank),
+        None => body,
+    }
 }
 const LINKS: &str = "\n\n---\nPart of a change set: ";
 fn with_links(body: &str, links: &[String]) -> String {
@@ -577,7 +586,7 @@ pub async fn publish_set(app: &App, id: &str, draft: bool) -> Result<Vec<Predraf
         let others: Vec<String> = published.iter().filter(|o| o.id != m.id).filter_map(|o| o.published_url.clone()).collect();
         let (Some(url), Some(number)) = (&m.published_url, m.published_number) else { continue };
         let Some(repo) = crate::git::github_repo(url.split("/pull/").next().unwrap_or_default()) else { continue };
-        if let Err(e) = app.github.request(Method::PATCH, &format!("/repos/{repo}/pulls/{number}"), Some(json!({"body": with_links(&m.body, &others)})), false).await {
+        if let Err(e) = app.github.request(Method::PATCH, &format!("/repos/{repo}/pulls/{number}"), Some(json!({"body": published_body(app, m, &others)})), false).await {
             tracing::warn!("link {url} to its change set: {e:#}");
         }
     }

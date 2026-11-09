@@ -614,11 +614,19 @@ async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target:
     }
     let path = url.path().to_string();
     let (read_req, read_res) = if credential.is_some() { wants_body(host, &method, &path) } else { (false, false) };
+    // GitHub bodies the agent writes end with the attribution line (`attribution`).
+    let sign = credential.is_some() && crate::attribution::signs_github(host, &method, &path);
     let mut request_bytes = None;
-    let body = if read_req {
+    let body = if read_req || sign {
         match http_body_util::Limited::new(req.into_body(), 2 << 20).collect().await {
             Ok(b) => {
-                let b = b.to_bytes();
+                let mut b = b.to_bytes();
+                if let (true, Some(app), Some(a)) = (sign, inner.app.get(), active.as_ref())
+                    && let Some(signed) = crate::attribution::sign_request(app, &a.session_id, host, &method, &path, &b)
+                {
+                    b = Bytes::from(signed);
+                    headers.insert(reqwest::header::CONTENT_LENGTH, b.len().into());
+                }
                 request_bytes = Some(b.clone());
                 reqwest::Body::from(b)
             }

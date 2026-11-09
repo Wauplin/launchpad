@@ -72,10 +72,16 @@ pub async fn upstream(app: &App, runner_id: &str, lease_id: &str, host: &str, me
     crate::proxy::add_auth(&mut out, &mut url, &auth, &secret);
     let path = url.path().to_string();
     let (read_req, read_res) = crate::proxy::wants_body(host, method, &path);
+    let sign = crate::attribution::signs_github(host, method, &path);
     let mut request_bytes = None;
-    let body = if read_req {
+    let body = if read_req || sign {
         let parts: Vec<bytes::Bytes> = body.try_collect().await?;
-        let all = bytes::Bytes::from(parts.concat());
+        let mut all = bytes::Bytes::from(parts.concat());
+        // GitHub bodies the agent writes end with the attribution line, as on other runners (`proxy::forward`).
+        if sign && let Some(signed) = crate::attribution::sign_request(app, &lease.session_id, host, method, &path, &all) {
+            all = bytes::Bytes::from(signed);
+            out.insert(reqwest::header::CONTENT_LENGTH, all.len().into());
+        }
         request_bytes = Some(all.clone());
         reqwest::Body::from(all)
     } else {
