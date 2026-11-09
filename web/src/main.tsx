@@ -45,6 +45,9 @@ window.addEventListener("error", (e) => logToDaemon(`uncaught: ${e.message} at $
 window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled rejection: ${String(e.reason)}`, "error"));
 
 // Each shell is its own chunk: a phone never downloads the desktop shell, and the reverse.
+// index.html guessed the layout before paint; the window may have been resized since (a desktop window restoring
+// its size), so `isPhone` decides: a stale `lp-phone` would apply the phone CSS to the laptop shell.
+document.documentElement.classList.toggle("lp-phone", isPhone);
 watchLayout();
 const entry: Promise<Entry> = isPhone ? import("@/mobile/entry").then((m) => m.entry) : import("@/app/desktop").then((m) => m.entry);
 // Browser tabs draw from the last saved lists while the daemon answers (lib/offlineCache.ts).
