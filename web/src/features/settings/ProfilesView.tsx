@@ -588,7 +588,7 @@ function EnvRow({ name, value, doc, onName, onValue, onRemove }: { name: string;
       <span className="grid grid-cols-[minmax(0,1fr)_26px] @min-[480px]:grid-cols-[minmax(0,240px)_minmax(0,1fr)_26px] gap-1.5">
         <input className={`field-input col-span-full @min-[480px]:col-span-1 min-w-0 font-mono text-[12px] ${name.trim() ? "" : "border-attn-line!"}`} aria-label="Variable name" placeholder="NAME" value={name} onChange={(e) => onName(e.target.value.toUpperCase())} />
         <span className="relative flex min-w-0">
-          <input type={masked ? "password" : "text"} autoComplete="off" spellCheck={false} className={`field-input min-w-0 flex-1 font-mono text-[12px] ${doc?.secret ? "pr-7" : ""} ${value.trim() ? "" : "border-attn-line!"}`} aria-label={`Value of ${name}`} placeholder={placeholder} value={value} onChange={(e) => onValue(e.target.value)} />
+          <input type={masked ? "password" : "text"} autoComplete="off" spellCheck={false} className={`field-input min-w-0 flex-1 font-mono text-[12px] ${doc?.secret ? "secret-value pr-7" : ""} ${value.trim() ? "" : "border-attn-line!"}`} aria-label={`Value of ${name}`} placeholder={placeholder} value={value} onChange={(e) => onValue(e.target.value)} />
           {doc?.secret && !!value && !value.startsWith("${") && <button className="absolute top-1/2 right-1 -translate-y-1/2 iconbtn size-5!" title={shown ? "Hide value" : "Show value"} aria-label={shown ? `Hide ${name}` : `Show ${name}`} aria-pressed={shown} onClick={() => setShown((x) => !x)}><Icon name="eye" size={12} /></button>}
         </span>
         <button className="iconbtn" title="Remove variable" onClick={onRemove}><Icon name="x" size={13} /></button>

@@ -30,7 +30,7 @@ export function Toasts() {
             t.tone === "error" ? "bg-danger text-white" : "bg-graphite text-white"
           }`}
         >
-          <span className="min-w-0 break-words">{t.text}</span>
+          <span className="min-w-0 flex-1 break-words">{t.text}</span>
           {t.action && (
             <button
               className="font-semibold text-[#8FD3C8] hover:underline"

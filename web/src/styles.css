@@ -482,6 +482,8 @@ button {
 .lp-phone input[type="checkbox"],
 .lp-phone input[type="radio"] { width: 20px; height: 20px; flex-shrink: 0; }
 .lp-phone label:has(> input[type="checkbox"], > input[type="radio"]) { min-height: 44px; }
+/* A secret value field leaves room for its 44 px Show button. */
+.lp-phone .secret-value { padding-right: 48px; }
 
 /* Phone toasts: full width under the top bar, so they never cover the tab bar, the session bar or the keyboard. */
 .lp-phone .lp-toasts { top: calc(env(safe-area-inset-top) + 56px); bottom: auto; left: 12px; right: 12px; translate: none; }
@@ -599,6 +601,7 @@ button {
 .lp-phone .phone-action-buttons .btn:hover { background: var(--color-select); }
 .lp-phone .phone-action-buttons .btn > svg { flex-shrink: 0; }
 .lp-phone .phone-action-details { border-top: 1px solid var(--color-line-2); }
+.lp-phone .phone-action-details:first-child { border-top: 0; }
 .lp-phone .phone-action-popover { overscroll-behavior: contain; }
 .lp-phone .phone-action-popover > button,
 .lp-phone .phone-action-popover .btn { min-height: 48px; }
