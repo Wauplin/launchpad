@@ -7,6 +7,7 @@ export type ActionName =
   | "session.answer"
   | "session.stop"
   | "session.archive"
+  | "session.unarchive"
   | "session.resume"
   | "session.resume-subscription"
   | "session.rename"
@@ -65,6 +66,7 @@ export const ACTIONS: Record<ActionName, Action> = {
   "session.answer": {"name":"session.answer","method":"POST","route":"/api/sessions/{id}/answer","label":"Answer","icon":null,"help":"Answer an agent's open question (request_id from `sessions show`)","input":[{"name":"request_id","kind":"text","optional":false},{"name":"answers","kind":"json","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "session.stop": {"name":"session.stop","method":"POST","route":"/api/sessions/{id}/interrupt","label":"Stop","icon":"stop","help":"Stop an agent's turn","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "session.archive": {"name":"session.archive","method":"POST","route":"/api/sessions/{id}/close","label":"Archive","icon":"archive","help":"Archive an agent session (stops it first)","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"admin","card":null,"undo":null,"before":null,"ready":false},
+  "session.unarchive": {"name":"session.unarchive","method":"POST","route":"/api/sessions/{id}/unarchive","label":"Unarchive","icon":"archive","help":"Bring back an archived agent (Done, or Stopped if it was not Done); its next message resumes it","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "session.resume": {"name":"session.resume","method":"POST","route":"/api/sessions/{id}/resume","label":"Resume","icon":"play","help":"Resume an interrupted or failed agent","input":[{"name":"continue_turn","kind":"bool","optional":true}],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "session.resume-subscription": {"name":"session.resume-subscription","method":"POST","route":"/api/sessions/{id}/resume-subscription","label":"Resume on subscription","icon":"play","help":"Resume a quota-paused agent on its subscription","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "session.rename": {"name":"session.rename","method":"POST","route":"/api/sessions/{id}/rename","label":"Rename","icon":"pencil","help":"Rename an agent session","input":[{"name":"title","kind":"text","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"admin","card":null,"undo":"session.rename","before":"/api/sessions/{id}","ready":false},

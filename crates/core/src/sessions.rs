@@ -1964,6 +1964,25 @@ impl Sessions {
         Ok(())
     }
 
+    /// The undo of Archive: the session comes back Done (Stopped when it was not Done when archived) and seen,
+    /// without a process. Its next message resumes it and brings back what Archive cleaned up (`reattach`).
+    pub async fn unarchive(&self, app: &App, id: &str) -> Result<Session> {
+        let _action = self.inner.actions.lock().await;
+        let s = self.get(id).context("no such session")?;
+        anyhow::ensure!(s.status == SessionStatus::Closed, "This agent is not archived");
+        let status = if s.archived_done { SessionStatus::Waiting } else { SessionStatus::Stopped };
+        let s = self.update(app, id, |s| {
+            let now = now_ms();
+            s.change_status(status);
+            s.status_since = now;
+            s.seen_at = now;
+            s.ended_at = None;
+        })
+        .await?;
+        self.publish_counts(app);
+        Ok(s)
+    }
+
     /// Re-attaches an idle session, optionally continuing its unfinished turn.
     /// A session without a native conversation receives its original task and launch images.
     /// With `close_terminal`, an integrated terminal still running the session's TUI is closed first.

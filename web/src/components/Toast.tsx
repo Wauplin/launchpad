@@ -11,7 +11,8 @@ export const useToasts = create<ToastStore>((set, get) => ({
   push: (t) => {
     const id = next++;
     set({ toasts: [...get().toasts, { ...t, id }] });
-    setTimeout(() => get().dismiss(id), t.tone === "error" ? 8000 : 5000);
+    // Errors and toasts with an action (Undo) stay longer.
+    setTimeout(() => get().dismiss(id), t.tone === "error" || t.action ? 8000 : 5000);
   },
   dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 }));

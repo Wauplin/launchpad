@@ -580,6 +580,8 @@ button {
   line-height: 20px;
 }
 .lp-phone .session-message-input > .iconbtn { flex-shrink: 0; }
+/* While the message box is open, Send is the filled button of the screen. */
+.lp-phone .session-send:not(:disabled) { border-color: var(--color-teal-ink) !important; background: var(--color-teal); color: white; }
 /* Session bottom bar: Reply and the main action share the width. */
 .lp-phone .session-bottom-primary > .btn { flex: 1; justify-content: center; }
 

@@ -104,6 +104,10 @@ On a laptop, the session header has two rows:
 
 **⋯** holds the other actions, among them **Launch here** (a new draft in the same folder with this session's trace as context), **Jump to the final message** (in the trace), **Mark as unread**, **Use trace as context** and **Archive**. On a phone, **⋯** also has **Rename** and **Jump to the final message**, and **Launch here** is in the session details.
 
+On a phone, a bar at the bottom holds **Reply** and the main action. **Reply** opens the message box in place of that bar, so only **Send** sits above the keyboard; **Hide** closes it and keeps your draft. A session with a draft opens with its message box.
+
+After **Archive**, a message offers **Undo** for 8 seconds. The agent comes back Done (or Stopped, when it was not Done), without starting its process; your next message resumes it as usual. Agents with admin access can do the same with `launchpad session unarchive <id>`.
+
 A state band above the trace shows only an open question or a turn you stopped.
 
 ### Questions and permissions

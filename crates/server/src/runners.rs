@@ -514,10 +514,19 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         return burst_stopped(&s, id, rest, body.as_deref(), headers).await;
     }
     // Archive while the runner is offline or removed: Home closes the record, the runner follows on reconnect.
+    // Its undo drops the pending Archive.
     if !s.app.runners.connected(&runner)
         && let ["api", "sessions", id, "close"] = parts.as_slice()
     {
         return match runners::archive_away(&s.app, id).await {
+            Ok(()) => Json(json!({"ok": true})).into_response(),
+            Err(e) => ApiError::bad_request(format!("{e:#}")).into_response(),
+        };
+    }
+    if !s.app.runners.connected(&runner)
+        && let ["api", "sessions", id, "unarchive"] = parts.as_slice()
+    {
+        return match runners::unarchive_away(&s.app, id).await {
             Ok(()) => Json(json!({"ok": true})).into_response(),
             Err(e) => ApiError::bad_request(format!("{e:#}")).into_response(),
         };

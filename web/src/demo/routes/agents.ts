@@ -275,6 +275,15 @@ route("POST", "/api/sessions/:id/close", (r) => {
   return { ok: true };
 });
 
+route("POST", "/api/sessions/:id/unarchive", (r) => {
+  const s = found(r.params.id);
+  if (s.status !== "closed") throw new DemoError(400, "This agent is not archived");
+  const now = clock.now();
+  updateSession(s.id, { status: s.archived_done ? "waiting" : "stopped", live: false, status_since: now, seen_at: now, ended_at: null, archived_done: false });
+  refreshCounts();
+  return { ok: true };
+});
+
 route("POST", "/api/sessions/:id/resume", (r) => {
   const s = found(r.params.id);
   if (s.status === "in_terminal") {

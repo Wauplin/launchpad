@@ -317,6 +317,16 @@ pub async fn archive_away(app: &App, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Home: the undo of `archive_away`. The pending Archive is dropped, so the runner never receives it.
+pub async fn unarchive_away(app: &App, id: &str) -> Result<()> {
+    let s = app.sessions.get(id).context("no such session")?;
+    let runner = s.runner_id.clone().context("this session runs on Home")?;
+    anyhow::ensure!(!app.runners.connected(&runner), "its runner is connected");
+    take_archives(app, |_, session| session == id)?;
+    app.sessions.unarchive(app, id).await?;
+    Ok(())
+}
+
 /// Home: a runner that reconnected receives the Archives clicked while it was away, once each.
 pub async fn deliver_archives(app: &App, runner_id: &str) {
     let Ok(list) = take_archives(app, |r, _| r == runner_id) else { return };
@@ -653,7 +663,10 @@ pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
     {
         // Its Burst job has stopped: nothing runs there, so Archive is Home's alone.
         ensure_burst_action(action)?;
-        app.sessions.set_replica_status(app, id, crate::model::SessionStatus::Closed).await?;
+        match action {
+            "close" => { app.sessions.set_replica_status(app, id, crate::model::SessionStatus::Closed).await?; }
+            _ => { app.sessions.unarchive(app, id).await?; }
+        }
         return Ok(());
     }
     match app.sessions.get(id).and_then(|s| s.runner_id).filter(|_| app.paths.role == crate::role::Role::Home) {
@@ -663,14 +676,15 @@ pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
         }
         None => match action {
             "close" => crate::sessions::archive(app, id).await,
+            "unarchive" => app.sessions.unarchive(app, id).await.map(|_| ()),
             _ => bail!("unknown session action {action}"),
         },
     }
 }
 
-/// What Home can do itself for a session whose Burst job has stopped.
+/// What Home can do itself for a session whose Burst job has stopped: Archive and its undo.
 pub fn ensure_burst_action(action: &str) -> Result<()> {
-    anyhow::ensure!(action == "close", "This session's Burst runner has stopped: send a message to continue it");
+    anyhow::ensure!(action == "close" || action == "unarchive", "This session's Burst runner has stopped: send a message to continue it");
     Ok(())
 }
 

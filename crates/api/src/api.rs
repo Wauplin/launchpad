@@ -64,6 +64,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/sessions/{id}/processes/stop", post(stop_session_process))
         .route("/api/sessions/{id}/answer", post(answer))
         .route("/api/sessions/{id}/close", post(close))
+        .route("/api/sessions/{id}/unarchive", post(unarchive))
         .route("/api/sessions/{id}/resume", post(resume))
         .route("/api/sessions/{id}/resume-paid", post(resume_paid))
         .route("/api/sessions/{id}/resume-subscription", post(resume_subscription))
@@ -533,6 +534,11 @@ async fn answer(State(s): State<Ctx>, Path(id): Path<String>, Json(b): Json<Answ
 
 async fn close(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
     launchpad_core::sessions::archive(&s.app, &id).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+async fn unarchive(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
+    s.app.sessions.unarchive(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 
