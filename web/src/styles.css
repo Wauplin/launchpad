@@ -431,6 +431,10 @@ button {
 .lp-gh-html { background: transparent; color: var(--color-ink); font-size: 13px; overflow-wrap: anywhere; }
 .lp-gh-html img { max-height: 600px; }
 .lp-gh-html pre { overflow: auto; }
+/* Tailwind's preflight removes list markers and GitHub's stylesheet relies on the browser default; nested lists keep its own types. */
+.markdown-body ul { list-style: disc; }
+.markdown-body ol { list-style: decimal; }
+.markdown-body ul ul { list-style: circle; }
 
 @media (hover: none) {
   .lp-copy { opacity: 1; }
