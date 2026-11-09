@@ -222,19 +222,32 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
     use axum::response::IntoResponse;
     let path = req.uri().path();
     let forwarded = home_owned(path) && (req.method() != axum::http::Method::GET || !(path == "/api/workspaces" || path.starts_with("/api/workspaces/")));
-    // The trace of a session that ran on another runner (a bot's earlier session, a context trace): Home has it.
-    let elsewhere = req.method() == axum::http::Method::GET && trace_id(path).is_some_and(|id| s.app.sessions.get(id).is_none());
-    let forwarded = forwarded || elsewhere || (s.app.paths.role == role::Role::Runner && to_home_too(&s, &req));
+    // Traces always come from Home: it holds every event of every generation, while a runner that adopted a
+    // session has only the turns since (a bot's earlier session, a context trace, a moved session).
+    let trace = if req.method() == axum::http::Method::GET { trace_id(path).map(str::to_string) } else { None };
+    let forwarded = forwarded || trace.is_some() || (s.app.paths.role == role::Role::Runner && to_home_too(&s, &req));
     if s.app.paths.role != role::Role::Runner || !forwarded {
         return next.run(req).await;
     }
+    // A session of this runner: its latest events reach Home first (a few seconds at most).
+    let local = trace.as_deref().is_some_and(|id| s.app.sessions.get(id).is_some());
+    if local {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while replica::backlog(&s.app).await.is_ok_and(|n| n > 0) && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
     let (method, path) = (req.method().to_string(), req.uri().path_and_query().map(|p| p.to_string()).unwrap_or_default());
-    let body = match axum::body::to_bytes(req.into_body(), 1 << 20).await {
-        Ok(b) => (!b.is_empty()).then(|| String::from_utf8_lossy(&b).into_owned()),
+    let (parts, body) = req.into_parts();
+    let bytes = match axum::body::to_bytes(body, 1 << 20).await {
+        Ok(b) => b,
         Err(e) => return crate::error::ApiError::bad_request(format!("{e}")).into_response(),
     };
+    let body = (!bytes.is_empty()).then(|| String::from_utf8_lossy(&bytes).into_owned());
     match to_home(&method, &path, body).await {
         Ok((status, body)) => (axum::http::StatusCode::from_u16(status).unwrap_or(axum::http::StatusCode::BAD_GATEWAY), [(header::CONTENT_TYPE, "application/json")], body).into_response(),
+        // Home is out of reach: this runner's own copy of its session (complete unless it was adopted).
+        Err(_) if local => next.run(axum::extract::Request::from_parts(parts, Body::from(bytes))).await,
         Err(e) => crate::error::ApiError::new(axum::http::StatusCode::SERVICE_UNAVAILABLE, format!("{e:#}")).into_response(),
     }
 }
