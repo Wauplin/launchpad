@@ -234,10 +234,11 @@ pub async fn after_push(app: &App, project_id: &str, before: &BTreeMap<String, S
         }
     }
     changed.extend(after.keys().filter(|r| !before.contains_key(*r)).map(|r| r.trim_start_matches("refs/heads/").to_string()));
+    // Also for a push of snapshots only (`refs/lp-snapshots/…`): backups bundle them.
+    crate::home_backup::changed();
     if changed.is_empty() {
         return Ok(());
     }
-    crate::home_backup::changed();
     browse_stale(project_id);
     // A deleted branch (Discard, cleanup) takes its merge record with it (`worktrees::merge_on_home`).
     let deleted: Vec<String> = changed.iter().filter(|b| !after.contains_key(&format!("refs/heads/{b}"))).cloned().collect();

@@ -536,11 +536,11 @@ pub async fn snapshots_of(app: &App, session_id: &str) -> Result<()> {
 /// other files. Returns that commit (the snapshot's parent); None for an older or an unchanged snapshot.
 /// `dir`: a repository that has both commits (Home's mirror, a runner's cache).
 pub(crate) async fn newer_snapshot(app: &App, dir: &Path, snapshot: &str, head: &str) -> Option<String> {
-    let g = |args: Vec<String>| async move { crate::home_git::git_in(app, dir, &args.iter().map(String::as_str).collect::<Vec<_>>(), 60).await };
-    let parent = g(vec!["rev-parse".into(), "--verify".into(), "--quiet".into(), format!("{snapshot}^1")]).await.ok()?;
-    g(vec!["merge-base".into(), "--is-ancestor".into(), head.into(), parent.clone()]).await.ok()?;
-    let a = g(vec!["rev-parse".into(), format!("{snapshot}^{{tree}}")]).await.ok()?;
-    let b = g(vec!["rev-parse".into(), format!("{head}^{{tree}}")]).await.ok()?;
+    use crate::home_git::git_in;
+    let parent = git_in(app, dir, &["rev-parse", "--verify", "--quiet", &format!("{snapshot}^1")], 60).await.ok()?;
+    git_in(app, dir, &["merge-base", "--is-ancestor", head, &parent], 60).await.ok()?;
+    let a = git_in(app, dir, &["rev-parse", &format!("{snapshot}^{{tree}}")], 60).await.ok()?;
+    let b = git_in(app, dir, &["rev-parse", &format!("{head}^{{tree}}")], 60).await.ok()?;
     (a != b).then_some(parent)
 }
 
@@ -999,17 +999,15 @@ async fn discard_locked(app: &App, w: &mut TaskWorktree) -> Result<()> {
     }
     let _ = git(app, &w.repo, &["branch", "-D", &w.branch]).await;
     // Also when nothing was pushed yet: a snapshot of a running turn may be on Home.
-    {
-        SNAPSHOTS.lock().unwrap().remove(&w.id);
-        let body = json!({"branch": w.branch, "worktree": w.id});
-        let deleted = if crate::home_git::here(app) {
-            crate::home_git::delete(app, &w.project_id, &w.branch, Some(&w.id)).await
-        } else {
-            crate::home_link::home_request("POST", &format!("/api/home-git/{}/delete", w.project_id), Some(body)).await.map(|_| ())
-        };
-        if let Err(e) = deleted {
-            tracing::warn!("discard {}: Home kept the branch: {e:#}", w.branch);
-        }
+    SNAPSHOTS.lock().unwrap().remove(&w.id);
+    let body = json!({"branch": w.branch, "worktree": w.id});
+    let deleted = if crate::home_git::here(app) {
+        crate::home_git::delete(app, &w.project_id, &w.branch, Some(&w.id)).await
+    } else {
+        crate::home_link::home_request("POST", &format!("/api/home-git/{}/delete", w.project_id), Some(body)).await.map(|_| ())
+    };
+    if let Err(e) = deleted {
+        tracing::warn!("discard {}: Home kept the branch: {e:#}", w.branch);
     }
     w.state = WorktreeState::Discarded;
     w.merge = None;
