@@ -139,13 +139,11 @@ export function BranchActions({ sessionId, s, onMerged, children }: { sessionId:
   </>;
 }
 
-/** Archive and Mark seen in ⋯, next to the card's one main action. `archiveMain`: nothing to merge or review, so
- * Archive is the main action and stays visible. */
-export function Later({ id, archiveMain = false }: { id: string; archiveMain?: boolean }) {
+/** Archive and Mark seen in ⋯, next to the card's one main action. */
+export function Later({ id }: { id: string }) {
   return <>
-    {archiveMain && <ActionButton name="session.archive" params={{ id }} primary />}
     <MoreMenu label="More actions">{(close) => <>
-      {!archiveMain && <ActionMenuItem name="session.archive" params={{ id }} close={close} detail="It stays resumable" />}
+      <ActionMenuItem name="session.archive" params={{ id }} close={close} detail="It stays resumable" />
       <ActionMenuItem name="session.seen" params={{ id }} close={close} detail="Keep the agent and remove the card" />
     </>}</MoreMenu>
   </>;
@@ -154,14 +152,11 @@ export function Later({ id, archiveMain = false }: { id: string; archiveMain?: b
 /** A finished agent: its last message, its branch with Merge when safe, Archive and Mark seen. */
 function FinishedCard({ item }: { item: TodayItem }) {
   const s = useSession(item.record);
-  // Merge or Review changes when there is work (BranchActions), else Archive.
-  const loading = useSessionWorktrees(item.record).isPending;
-  const { w, safe } = useBranch(item.record, s);
-  const archiveMain = !loading && !safe && !(w && (w.ahead > 0 || w.dirty_files > 0));
+  // Merge or Review changes when there is work (BranchActions), else the card's Open link; Archive in ⋯.
   return <Card item={item} age={!s} meta={<SessionMeta s={s} item={item} />} open={<OpenSession id={item.record} />}>
     {s?.last_message && <p className="m-0 line-clamp-3 text-[13px] text-ink-2">{s.last_message}</p>}
     <BranchActions sessionId={item.record} s={s} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)}>
-      <Later id={item.record} archiveMain={archiveMain} />
+      <Later id={item.record} />
     </BranchActions>
   </Card>;
 }

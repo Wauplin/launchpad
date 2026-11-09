@@ -123,10 +123,10 @@ function Go({ close, label, icon = "ext", detail, go }: { close: () => void; lab
 const OpenAgent = ({ id, close }: { id: string; close: () => void }) =>
   <Go close={close} icon="agents" label="Open agent" go={(n) => n({ to: "/agents", search: { session: id } })} />;
 
-/** Open agent, Archive and Mark seen: the ⋯ of a finished or failed agent. */
-const SessionMenu = ({ id, archive = true }: { id: string; archive?: boolean }) => (close: () => void) => <>
-  <OpenAgent id={id} close={close} />
-  {archive && <ActionMenuItem name="session.archive" params={{ id }} close={close} detail="It stays resumable" />}
+/** Open agent (unless it is the row's main button), Archive and Mark seen: the ⋯ of a finished or failed agent. */
+const SessionMenu = ({ id, open = true }: { id: string; open?: boolean }) => (close: () => void) => <>
+  {open && <OpenAgent id={id} close={close} />}
+  <ActionMenuItem name="session.archive" params={{ id }} close={close} detail="It stays resumable" />
   <ActionMenuItem name="session.seen" params={{ id }} close={close} detail="Keep the agent and remove it from Today" />
 </>;
 
@@ -142,7 +142,7 @@ function QuestionRow(p: RowProps) {
 }
 
 /** Review its Local PR when it wrote one, else Merge when safe, else Review changes when there is work, else
- * Archive; the branch facts in the details. */
+ * Open agent (it opens at the last message, to read it in full); the branch facts in the details. */
 function FinishedRow(p: RowProps) {
   const { item } = p;
   const pr = item.grouped.find((g) => g.kind === "local_pr");
@@ -151,13 +151,13 @@ function FinishedRow(p: RowProps) {
   const branch = useBranch(item.record, s);
   const { w, t, safe, facts } = branch;
   const work = !!w && (w.ahead > 0 || w.dirty_files > 0);
-  const archiveMain = !loading && !safe && !work;
+  const phone = usePhone();
   return <Row {...p} age={!s} meta={<SessionMeta s={s} item={item} />}
     main={pr ? <ReviewLocalPr id={pr.record} />
       : safe ? <MergeButton sessionId={item.record} branch={branch} label="Merge" primary={false} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)} />
       : work ? <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record, view: "changes" }} title="Review the changes of the agent">Review</Link>
-      : archiveMain && <ActionButton name="session.archive" params={{ id: item.record }} />}
-    menu={SessionMenu({ id: item.record, archive: !!pr || !archiveMain })}
+      : !loading && <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record }} title="Open the agent at its last message">{phone ? "Open" : "Open agent"}</Link>}
+    menu={SessionMenu({ id: item.record, open: !!pr || safe || work || loading })}
     details={(s?.last_message || facts) && <>
       <Last text={s?.last_message} />
       {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={12} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
