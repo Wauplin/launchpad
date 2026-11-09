@@ -4,7 +4,7 @@ This guide sets up a Home, adds a place where agents run, takes you through the 
 
 Launchpad has two parts:
 
-- **Home** keeps every record, credential and branch, and serves the app to your browsers and phone. It runs no agents and no terminals.
+- **Home** keeps every record, credential and branch, and serves the app to your browsers and phone. It runs no agents and no terminals: terminals you open in its window run on a runner.
 - **Runners** run the agents: your Linux machines, a Local VM, or **Burst** jobs that a Home in a Hugging Face Space starts on its own. See [Home and runners](home-and-runners.md).
 
 ## Set up Home

@@ -45,7 +45,7 @@ auto_tailnet = true                 # also listen on a discovered Tailscale IP
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [worktrees]
-keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
+keep = 15                           # clean task worktrees of idle agents kept on each runner (0: keep all); Home sends it to runners
 
 [home]
 backup = ""                         # Home only: hf://buckets/<you>/launchpad or a folder; empty: no backup
@@ -102,7 +102,7 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 
 | Command | Purpose |
 | --- | --- |
-| `launchpad daemon [--role runner]` | Run Home (the default: records, no agents or terminals), or a runner, which runs agents in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`). Runners run only on Linux. `--role home` is accepted; there is no role that does both |
+| `launchpad daemon [--role runner]` | Run Home (the default: records, no agents; it relays terminals to runners), or a runner, which runs agents in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`). Runners run only on Linux. `--role home` is accepted; there is no role that does both |
 | `launchpad connect <Home address> [--name <name>]` | Pair this machine as a runner of a Home (Linux only): prints a code to approve in Home's Settings → Home and runners |
 | `launchpad status` | Print the daemon status as JSON |
 | `launchpad url` | Print a link that signs a browser in |

@@ -166,7 +166,7 @@ flowchart LR
 - **Read only (questions, audits)** is for an agent that only reads the code: asking a question, an audit, a review. It is chosen per launch and never remembered for the folder. The agent still gets its own worktree (it may build and run the code) but is told not to change, commit or push files and to give its answer in its final message; `launchpad work finish` refuses. When you archive the agent, Launchpad deletes the worktree and its branch if nothing changed (no commit, no changed or new file); otherwise they are kept like any other worktree, so nothing is lost. It is an instruction, not a sandbox: the files stay writable.
 - **Merge** asks you to confirm (on the laptop and on the phone) and names the branch and the base. It waits while another action of the worktree card runs. Merges wait until the agents are idle and the worktree is clean, push the branch to Home, then Home checks that the branch is still at the commit you reviewed and pushes the branch's commit to the base branch on the folder's remote and fast-forwards the base branch on Home. If the base branch moved, the agent rebases first. Launchpad never stashes, resets or force-pushes. When the remote refuses the push, nothing is merged: the worktree card and the session trace show the reason. A merge the agent asked for (`launchpad work finish`) that fails goes back to the agent once on its own (an automatic **Fix merge**, usually enough for a race on the base branch); a second failure waits for you.
 - A per-folder **Worktree setup** command prepares new worktrees (dependencies). It runs in the session's jail, with its lease and network capture.
-- Worktrees of archived agents are removed after a retention limit (`[worktrees] keep`, in **Settings → Disk cleanup**), once Home has their branch; uncommitted files go to a `lp-scratch/…` branch first. **Resume** clones the folder again.
+- Worktrees of archived agents are removed after a retention limit (`[worktrees] keep`, in **Settings → Disk cleanup**; Home sends it to every runner, which applies it to its own worktrees), once Home has their branch; uncommitted files go to a `lp-scratch/…` branch first. **Resume** clones the folder again.
 - Home keeps every previous tip of a Launchpad branch for 30 days: the folder page lists them under **Launchpad branches**, with **Restore**.
 
 ## Scheduling
@@ -222,7 +222,10 @@ Folders without a workspace appear in the **Unassigned folders** card on the Fol
 ## Terminals and files
 
 - **Files**: a read-only file browser for folders, worktrees, branches and commits, with syntax colors, Markdown and HTML previews, search and **Download**. Select lines to add them as context for an agent. On the phone, the tree and search open from the folder button in the title bar. When a session's runner is away, Files shows its worktree from Home (see [Files on Home](home-and-runners.md#files-on-home)).
-- **Terminals**: terminals run on runners, next to the agents. Home runs none, so Home's windows show no **Terminal** buttons.
+- **Terminals**: open a shell or **Continue in &lt;harness&gt; TUI** from Home's window: the terminal runs on the session's runner, next to the agent, and Home relays it through the runner's link. Its output stays on the runner. The dock lists the terminals of every connected runner.
+  - A shell of an agent, its worktree or its temporary folder opens on that agent's runner. A Git folder without an agent opens on a runner picked like for a launch, in that runner's copy of the repository.
+  - A plain folder gets a shell only from one of its agents: its files change through agents and sync, so a shell in a runner's copy would lose edits.
+  - When the runner is away, or needs an update to open terminals from Home, the **Terminal** buttons, **Continue in TUI**, **Run in terminal** and `Ctrl+T` are disabled and say why. A terminal never moves a session to another runner and never starts Burst.
 
 ![Files](images/files.webp)
 

@@ -2,7 +2,7 @@
 
 Launchpad runs as one **Home** and one or more places where agents run:
 
-- **Home** (`launchpad daemon`) keeps every record, credential, folder and branch, and serves the app. It runs no agents and no terminals. Run it in a private Hugging Face Space ([deploy/hf-home](../deploy/hf-home/README.md)) or on your own Linux machine (`packaging/install.sh`).
+- **Home** (`launchpad daemon`) keeps every record, credential, folder and branch, and serves the app. It runs no agents and no terminals: terminals opened from its window run on runners, relayed through their link. Run it in a private Hugging Face Space ([deploy/hf-home](../deploy/hf-home/README.md)) or on your own Linux machine (`packaging/install.sh`).
 - **Runners** (`launchpad daemon --role runner`) run agents, on Linux only: your machines, a [Local VM](#local-vm), or [Burst](#burst) jobs. A runner keeps its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`) and port (7320), so it can sit next to a Home on the same machine. It holds no records of its own: it keeps copies and sends everything to Home.
 
 There is no single-process mode: a machine that runs agents always runs a runner, paired with a Home.
@@ -46,6 +46,10 @@ When a session continues (your message, **Resume**, an answer to a question, a b
 **Launch here** and **Run in** an existing worktree, and a new agent in an existing temporary folder, follow the same order: when the runner of that session is away, its sessions move first. Accepted proposals, routines, scheduled launches, bot messages and Ask Launchpad use the same order. Each is sent once and never retried after a failure.
 
 While a session runs, Stop, answers and the other session actions go to its runner. Home serves the record, the events and the trace itself. Worktree actions (Merge, Discard, Create Local PR, Restore folder, Fix merge) go to the runner of the worktree's session too.
+
+Terminals and **Continue in TUI** follow the session but never move it: they open on its runner, through Home, and only while that runner is connected. When it is away, or runs an older build, the buttons are disabled with the reason; Home starts no Burst job and moves nothing for a terminal. A Git folder without an agent opens its shell on a runner picked like for a launch. See [Terminals and files](agents.md#terminals-and-files).
+
+Home sends its profiles and the settings runners apply to their own work, such as the number of worktrees kept (**Settings → Disk cleanup**), to every runner when it connects and after each change.
 
 ## Saved on Home
 
