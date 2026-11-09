@@ -19,7 +19,7 @@ class Daemon:
 
     async def api(self, method, path, body=None, detail=False):
         self.calls.append((method, path, body))
-        if path.startswith('/api/sessions?'):
+        if path == '/api/sessions':
             return list(self.sessions.values())
         if path == '/api/terminals':
             return self.terminals
