@@ -429,14 +429,11 @@ async fn session_author(app: &App, session_id: &str) -> Result<(Author, String)>
 }
 
 /// Home: writes a runner sends for one of its sessions (`launchpad kb` through the tunnel).
-pub async fn runner_apply(app: &App, runner_id: Option<&str>, body: Value) -> Result<Value> {
+pub async fn runner_apply(app: &App, runner_id: &str, body: Value) -> Result<Value> {
     let ops: Vec<Op> = serde_json::from_value(body["ops"].clone())?;
     let (author, ws) = if body["owner"].as_bool() == Some(true) {
         // Your edits in a runner's mirror.
-        let runner = match runner_id {
-            Some(r) => crate::runners::list(app).await.ok().and_then(|l| l.into_iter().find(|x| x.runner.id == r)).map(|x| x.runner.name),
-            None => None,
-        };
+        let runner = crate::runners::list(app).await.ok().and_then(|l| l.into_iter().find(|x| x.runner.id == runner_id)).map(|x| x.runner.name);
         (Author { runner, ..Author::owner(None) }, body["workspace_id"].as_str().context("workspace_id")?.to_string())
     } else {
         let session_id = body["session_id"].as_str().context("session_id")?;
@@ -647,7 +644,7 @@ pub async fn mirror_dir(app: &App, workspace_id: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Sends the owner's edits in the mirror, then brings it to Home's version. Returns the mirror.
+/// Runner: sends the owner's edits in the mirror, then brings it to Home's version. Returns the mirror.
 pub async fn sync(app: &App, workspace_id: &str) -> Result<PathBuf> {
     static SYNCS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>> = std::sync::LazyLock::new(Default::default);
     let gate = SYNCS.lock().unwrap().entry(workspace_id.to_string()).or_default().clone();
@@ -683,17 +680,9 @@ pub async fn sync(app: &App, workspace_id: &str) -> Result<PathBuf> {
         ops.push(Op::Remove { path: rel.clone() });
     }
     if !ops.is_empty() {
-        let body = json!({"workspace_id": workspace_id, "owner": true, "ops": ops});
-        if crate::home_git::here(app) {
-            apply(app, workspace_id, Author::owner(None), ops).await?;
-        } else {
-            crate::home_link::home_call("kb", body).await?;
-        }
+        crate::home_link::home_call("kb", json!({"workspace_id": workspace_id, "owner": true, "ops": ops})).await?;
     }
     // Home's version.
-    if crate::home_git::here(app) {
-        ensure_seeded(app, workspace_id).await?;
-    }
     let tree = plain::home::tree(app, &id).await?;
     let wanted: BTreeMap<&str, &plain::Entry> = tree.files.iter().map(|e| (e.path.as_str(), e)).collect();
     for (rel, h) in &local {
@@ -731,7 +720,7 @@ async fn remove_empty_dirs(root: &Path) {
     }
 }
 
-/// Runners (and `all` daemons) keep every workspace's mirror current.
+/// Runners keep every workspace's mirror current.
 pub fn spawn(app: &App) {
     if !app.paths.role.runs_agents() || !cfg!(unix) {
         return;
@@ -742,7 +731,7 @@ pub fn spawn(app: &App) {
         let mut failing: HashMap<String, String> = HashMap::new();
         loop {
             tick.tick().await;
-            if !crate::home_git::here(&app) && crate::home_link::load(&app.paths).is_none() {
+            if crate::home_link::load(&app.paths).is_none() {
                 continue;
             }
             for w in crate::workspace::list(&app).await.unwrap_or_default() {
@@ -808,14 +797,8 @@ pub async fn session_write(app: &App, session_id: &str, ops: Vec<LocalOp>) -> Re
             LocalOp::Remove { path } => Op::Remove { path: clean_path(&path)? },
         });
     }
-    let lines: Vec<String> = if crate::home_git::here(app) {
-        let (author, ws2) = session_author(app, session_id).await?;
-        ensure!(ws2 == ws, "this session's workspace changed");
-        apply(app, &ws, author, sent).await?
-    } else {
-        let v = crate::home_link::home_call("kb", json!({"session_id": session_id, "ops": sent})).await?;
-        serde_json::from_value(v["lines"].clone()).unwrap_or_default()
-    };
+    let v = crate::home_link::home_call("kb", json!({"session_id": session_id, "ops": sent})).await?;
+    let lines: Vec<String> = serde_json::from_value(v["lines"].clone()).unwrap_or_default();
     if let Err(e) = sync(app, &ws).await {
         tracing::warn!("knowledge base mirror {}: {e:#}", dir.display());
     }

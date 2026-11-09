@@ -393,7 +393,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                         let (app, out) = (s.app.clone(), s.app.runners.clone());
                         let runner_id = runner.id.clone();
                         tokio::spawn(async move {
-                            let (status, body) = match launchpad_core::vault::runner_call(&app, Some(&runner_id), &op, body).await {
+                            let (status, body) = match launchpad_core::vault::runner_call(&app, &runner_id, &op, body).await {
                                 Ok(v) => (200, v.to_string()),
                                 Err(e) => (400, json!({"error": format!("{e:#}")}).to_string()),
                             };

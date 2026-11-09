@@ -1,4 +1,4 @@
-//! Contained sessions: every agent on a runner (or an `all` daemon) runs in a jail with a lease from Home.
+//! Contained sessions: every agent on a runner runs in a jail with a lease from Home.
 //!
 //! Before a harness starts, the runner asks Home for the session's lease, keeps its secrets in the proxy's
 //! memory, writes the session's harness home (`<data_dir>/sessions/<id>/home`: `CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
@@ -59,11 +59,8 @@ pub(crate) async fn request(app: &App, s: &Session) -> Result<LeaseRequest> {
     Ok(LeaseRequest { session_id: s.id.clone(), generation: s.generation, harness: s.harness, login, workspace_id, tools_off: s.launch_spec.tools_off.clone(), tools_on: s.launch_spec.tools_on.clone(), project_id: s.project_id.clone(), bot_id: s.launch_spec.bot.as_ref().map(|b| b.id.clone()) })
 }
 
-/// Sends a lease call to Home (or answers it here in an `all` daemon).
-async fn call(app: &App, op: &str, body: Value) -> Result<Value> {
-    if crate::vault::here(app) {
-        return crate::vault::runner_call(app, None, op, body).await;
-    }
+/// Sends a lease call to Home.
+async fn call(op: &str, body: Value) -> Result<Value> {
     crate::home_link::home_call(op, body).await
 }
 
@@ -80,7 +77,7 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     let active = match app.proxy.for_session(&s.id) {
         Some(active) => active,
         None => {
-            let lease: Lease = serde_json::from_value(call(app, "lease", serde_json::to_value(request(app, &s).await?)?).await.context("get the session's lease from Home")?)?;
+            let lease: Lease = serde_json::from_value(call("lease", serde_json::to_value(request(app, &s).await?)?).await.context("get the session's lease from Home")?)?;
             app.proxy.register(lease)
         }
     };
@@ -94,7 +91,7 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     let workspace = request(app, &s).await?.workspace_id.unwrap_or_else(|| "none".into());
     let cache = app.paths.data_dir.join("caches").join(&workspace);
     // An archived session's folder is removed once Home holds its conversation: get it back first.
-    if app.paths.role == crate::role::Role::Runner && s.harness_session_id.is_some() && !home.exists() {
+    if s.harness_session_id.is_some() && !home.exists() {
         crate::handoff::restore(app, &s).await.context("get the agent's conversation back from Home")?;
     }
     for d in [&home, &tmp, &cache, &home.join(".claude"), &home.join(".codex"), &home.join(".config")] {
@@ -304,9 +301,8 @@ fn write_git_config(home: &Path, lease: &Lease) -> Result<()> {
 pub async fn release(app: &App, session_id: &str) {
     let Some(active) = app.proxy.drop_session(session_id) else { return };
     let lease_id = active.lease.read().unwrap().id.clone();
-    let app = app.clone();
     tokio::spawn(async move {
-        if let Err(e) = call(&app, "release", json!({"lease_id": lease_id})).await {
+        if let Err(e) = call("release", json!({"lease_id": lease_id})).await {
             tracing::info!("release lease {lease_id}: {e:#}");
         }
     });
@@ -329,7 +325,7 @@ fn spawn_renewals(app: App) {
                 };
                 let lease_id = active.lease.read().unwrap().id.clone();
                 let result = match request(&app, &s).await {
-                    Ok(req) => call(&app, "renew", json!({"lease_id": lease_id, "request": req})).await,
+                    Ok(req) => call("renew", json!({"lease_id": lease_id, "request": req})).await,
                     Err(e) => Err(e),
                 };
                 match result.and_then(|v| Ok(serde_json::from_value::<Lease>(v)?)) {

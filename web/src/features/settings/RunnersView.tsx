@@ -29,13 +29,7 @@ import { HomeUpdateCard } from "./HomeUpdateCard";
 export function RunnersView() {
   const status = useStatus().data;
   if (!status) return <SettingsPage title="Home and runners"><Loading what="status" /></SettingsPage>;
-  if (status.role === "runner") return <ThisRunner />;
-  if (status.role === "home") return <HomeRunners />;
-  return (
-    <SettingsPage title="Home and runners" intro="This Launchpad runs everything in one process. Start it with launchpad daemon --role home on an always-on machine, then pair runners with launchpad connect.">
-      <ThisComputer />
-    </SettingsPage>
-  );
+  return status.role === "runner" ? <ThisRunner /> : <HomeRunners />;
 }
 
 /** The command that installs and pairs a runner. A Home in a Space serves an install script with its own build (so both

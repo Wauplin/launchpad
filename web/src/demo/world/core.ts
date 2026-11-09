@@ -50,14 +50,14 @@ export function coreWorld() {
   };
   const status: Status = {
     env: "demo",
-    role: "all",
+    role: "home",
     home: null,
     commit: "demo",
     host: "this-computer",
     harnesses: {
-      claude: { version: "2.1.0", version_error: null, updating_to: null },
-      codex: { version: "0.80.0", version_error: null, updating_to: null },
-      opencode: { version: "1.2.0", version_error: null, updating_to: null },
+      claude: { version: "2.1.0", version_error: null },
+      codex: { version: "0.80.0", version_error: null },
+      opencode: { version: "1.2.0", version_error: null },
     },
     // One reading per subscription login (key: `profiles::account`, the harness alone without account variables).
     // Claude is close to its 5-hour limit, so the meters and quota protection have something to show.

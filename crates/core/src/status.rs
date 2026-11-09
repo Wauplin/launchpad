@@ -15,7 +15,7 @@ use crate::events::Bus;
 #[derive(Clone, Debug, Default, Serialize, TS)]
 pub struct Status {
     pub env: String,
-    /// Home, runner or all (single process).
+    /// Home or runner.
     pub role: crate::role::Role,
     /// A runner's link to its Home.
     pub home: Option<crate::home_link::HomeStatus>,
@@ -42,8 +42,6 @@ pub struct Status {
 pub struct HarnessStatus {
     pub version: Option<String>,
     pub version_error: Option<String>,
-    /// Version being installed by an adapter background update.
-    pub updating_to: Option<String>,
 }
 
 /// The included quota of one subscription login (a harness, and the account variables of its profiles).

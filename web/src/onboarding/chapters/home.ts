@@ -1,18 +1,12 @@
-// Chapter 11: Home and runners. The demo switches to the Home role: Home keeps every record and credential and runs
-// no agent; runners (the laptop, Burst jobs) run them, with tokens added by Home.
+// Chapter 11: Home and runners. Home keeps every record and credential and runs no agent; runners (the laptop,
+// Burst jobs) run them, with tokens added by Home.
 
 import type { Chapter } from "../tour/types";
-import { publish } from "@/demo/daemon";
-import { world } from "@/demo/world";
 import { meta } from "./meta";
 
 export const home: Chapter = {
   ...meta("home"),
   learned: ["Home keeps every record and credential; runners run the agents", "Burst runs a session on an HF Job when no runner is online, with no token inside", "Logins and tokens are saved once on Home; agents use them without holding them"],
-  setup: () => {
-    world.status = { ...world.status, role: "home" };
-    publish("status", "changed", world.status);
-  },
   steps: [
     {
       id: "home.runners", route: "/settings/runners", anchor: "settings.runners",

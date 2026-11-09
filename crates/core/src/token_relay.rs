@@ -32,14 +32,14 @@ async fn lease(app: &App, runner_id: &str, lease_id: &str) -> Result<Lease> {
     let cached = LEASES.lock().unwrap().get(lease_id).cloned();
     if let Some((r, l)) = cached {
         anyhow::ensure!(r == runner_id, "this lease belongs to another runner");
-        crate::vault::check_owner(app, Some(runner_id), &l.session_id, l.generation)?;
+        crate::vault::check_owner(app, runner_id, &l.session_id, l.generation)?;
         return Ok(l);
     }
     let info = crate::vault::lease_rows(app, None).await?.into_iter().find(|l| l.id == lease_id).context("unknown lease")?;
     anyhow::ensure!(info.revoked_at.is_none(), "this lease was revoked");
     anyhow::ensure!(info.runner_id.as_deref() == Some(runner_id), "this lease belongs to another runner");
     let req = info.request.context("this lease cannot be renewed here")?;
-    crate::vault::check_owner(app, Some(runner_id), &req.session_id, req.generation)?;
+    crate::vault::check_owner(app, runner_id, &req.session_id, req.generation)?;
     let l = crate::vault::build(app, lease_id, &req).await?;
     hold(runner_id, &l);
     Ok(l)

@@ -152,8 +152,8 @@ export function demoNetworkCheck(at: number): NetworkCheck {
   };
 }
 
-/** Home and runners (the "Home & runners" chapter switches the demo to the Home role): the owner's laptop runner
- * and two Burst jobs that ran sessions while the laptop slept. In every other chapter the demo is one process. */
+/** Home and runners: the owner's laptop runner (every demo agent runs there) and two Burst jobs that ran sessions
+ * while the laptop slept. */
 function homeWorld() {
   const caps = { vm: false, docker: false, burst: false, self_update: true };
   const runners: RunnerStatus[] = [{

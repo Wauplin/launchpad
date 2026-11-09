@@ -665,7 +665,7 @@ async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target:
     out.body(body).unwrap_or_else(|e| full(StatusCode::BAD_GATEWAY, &format!("{e}")))
 }
 
-/// A request of a session to an MCP server of Home: through the tunnel, or in process in an `all` daemon.
+/// A request of a session to an MCP server of Home, through the tunnel.
 async fn mcp(inner: &Inner, active: &Active, server: &str, req: Request<Incoming>) -> Response<Body> {
     let lease_id = active.lease.read().unwrap().id.clone();
     let granted = active.lease.read().unwrap().mcp.iter().any(|m| m.id == server);
@@ -675,10 +675,7 @@ async fn mcp(inner: &Inner, active: &Active, server: &str, req: Request<Incoming
     let method = req.method().as_str().to_string();
     let headers: Vec<(String, String)> = req.headers().iter().filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string()))).collect();
     let body: crate::home_link::ByteStream = Box::pin(http_body_util::BodyDataStream::new(req.into_body()).map_err(std::io::Error::other));
-    let reply = match inner.app.get() {
-        Some(app) if crate::vault::here(app) => crate::mcp::gateway(app, None, &lease_id, server, &method, headers, body).await,
-        _ => crate::home_link::http(crate::runners::proto::HttpTarget::Mcp { lease_id, server: server.into() }, &method, "", headers, body).await,
-    };
+    let reply = crate::home_link::http(crate::runners::proto::HttpTarget::Mcp { lease_id, server: server.into() }, &method, "", headers, body).await;
     match reply {
         Ok(reply) => {
             let mut out = Response::builder().status(reply.status);

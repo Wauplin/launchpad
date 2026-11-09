@@ -1,5 +1,5 @@
 //! Daemon roles. Home holds every record and runs no agents; a runner runs agents and terminals and keeps only
-//! caches and events not yet saved by Home; `all` keeps the single-process mode (development, today's installs).
+//! caches and events not yet saved by Home.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -7,10 +7,9 @@ use ts_rs::TS;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Role {
+    #[default]
     Home,
     Runner,
-    #[default]
-    All,
 }
 
 impl Role {
@@ -18,8 +17,8 @@ impl Role {
         match s {
             "home" => Ok(Role::Home),
             "runner" => Ok(Role::Runner),
-            "all" => Ok(Role::All),
-            _ => anyhow::bail!("unknown role {s} (home, runner or all)"),
+            "all" => anyhow::bail!("the all role is gone: `launchpad daemon` starts Home (no agents); a machine that runs agents is a runner (`launchpad daemon --role runner`, paired with `launchpad connect <Home address>`)"),
+            _ => anyhow::bail!("unknown role {s} (home or runner)"),
         }
     }
 
@@ -27,13 +26,12 @@ impl Role {
         match self {
             Role::Home => "home",
             Role::Runner => "runner",
-            Role::All => "all",
         }
     }
 
     /// Agents and terminals run here.
     pub fn runs_agents(self) -> bool {
-        self != Role::Home
+        self == Role::Runner
     }
 }
 

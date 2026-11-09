@@ -9,7 +9,7 @@ import type { SessionCounts } from "./SessionCounts";
 
 export type Status = { env: string, 
 /**
- * Home, runner or all (single process).
+ * Home or runner.
  */
 role: Role, 
 /**

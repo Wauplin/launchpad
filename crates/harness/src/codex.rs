@@ -1256,7 +1256,6 @@ impl harness::Harness for Adapter {
     }
     fn spawn_services(&self, app: &App) {
         spawn_router(app, &self.server, &self.threads);
-        spawn_updates(app);
     }
     fn spawn_quota(&self, app: &App, account: launchpad_core::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
         // Each login of Home's vault gets its own app-server on Home's copy of it (`CODEX_HOME`), kept for reuse.
@@ -1379,35 +1378,6 @@ fn spawn_quota(app: &App, server: CodexServer, account: String) -> tokio::task::
         }
     })
 }
-fn spawn_updates(app: &App) {
-    // A parallel runner borrows the machine's CLI read-only; Home has no harness installation to update.
-    if app.paths.role != launchpad_core::role::Role::All { return; }
-    let app = app.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
-        loop {
-            app.status
-                .update_harness(ID, |s| s.updating_to = Some("latest".into()));
-            let result = launchpad_core::procs::command(&app.env, "codex", None)
-                .arg("update")
-                .stdin(launchpad_core::exec::Io::Null)
-                .output()
-                .await;
-            match result {
-                Ok(out) => tracing::info!(
-                    "codex update ({}): {}",
-                    out.status,
-                    String::from_utf8_lossy(&out.stderr).trim()
-                ),
-                Err(error) => tracing::warn!("codex update: {error}"),
-            }
-            app.status.update_harness(ID, |s| s.updating_to = None);
-            launchpad_core::status::refresh_versions(&app).await;
-            tokio::time::sleep(std::time::Duration::from_secs(6 * 3600)).await;
-        }
-    });
-}
-
 /// JSON quoting also escapes TOML basic-string keys, including Windows backslashes.
 fn project_trust_override(cwd: &str) -> String {
     format!(

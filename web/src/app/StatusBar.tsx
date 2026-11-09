@@ -94,7 +94,6 @@ function Warnings({ harness, s }: { harness: Harness; s: HarnessStatus }) {
   const name = info?.name ?? harness;
   return (
     <>
-      {s.updating_to && <span className="rounded bg-teal-soft px-1.5 font-semibold text-teal-ink" title={`Updating to ${s.updating_to} in the background`}>{name} updating</span>}
       {!s.version && <span className="rounded bg-attn-soft px-1.5 font-semibold text-gh-closed" title={s.version_error ?? undefined}>{name} not found</span>}
     </>
   );
@@ -107,7 +106,7 @@ function StaleQuota({ e }: { e: QuotaEntry }) {
   return <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={s.quota_error ?? undefined}>{name} quota read {ago(s.quota_at)}</span>;
 }
 
-const emptyStatus: HarnessStatus = { version: null, version_error: null, updating_to: null };
+const emptyStatus: HarnessStatus = { version: null, version_error: null };
 
 function QuotaLine({ e }: { e: QuotaEntry }) {
   const name = useQuotaName(e);
@@ -146,7 +145,7 @@ function Details({ entry, labeled, data, limits }: { entry: QuotaEntry | null; l
             {harnesses.map((h) => {
               const s = data.harnesses[h.id] ?? emptyStatus;
               return (
-                <span key={h.id} className="inline-flex flex-wrap items-center gap-1.5"><HarnessMark harness={h.id} size={14} />{h.name} <span className="text-ink-2">{s.version ?? "not found"}</span>{s.updating_to && <span className="text-teal-ink">↑ {s.updating_to}</span>}{s.version_error && <span className="text-gh-closed">{s.version_error}</span>}</span>
+                <span key={h.id} className="inline-flex flex-wrap items-center gap-1.5"><HarnessMark harness={h.id} size={14} />{h.name} <span className="text-ink-2">{s.version ?? "not found"}</span>{s.version_error && <span className="text-gh-closed">{s.version_error}</span>}</span>
               );
             })}
           </div>

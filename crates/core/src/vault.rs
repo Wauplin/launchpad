@@ -577,9 +577,9 @@ pub async fn export_tools(app: &App) -> Result<String> {
     Ok(toml::to_string_pretty(&File { tools: tools(app).await? })?)
 }
 
-/// The vault and the registry live on Home (and in an `all` daemon).
+/// The vault and the registry live on Home.
 pub fn here(app: &App) -> bool {
-    app.paths.role != crate::role::Role::Runner
+    app.paths.role == crate::role::Role::Home
 }
 
 fn ensure_home(app: &App) -> Result<()> {
@@ -723,14 +723,13 @@ pub async fn leases(app: &App, session_id: Option<&str>) -> Result<Vec<LeaseInfo
 }
 
 /// Home gives a lease only for a session it placed on that runner (`runners::record_placement`, before the runner
-/// starts it), in its current generation. `runner_id` None: an agent of this `all` daemon.
-pub(crate) fn check_owner(app: &App, runner_id: Option<&str>, session_id: &str, generation: u32) -> Result<()> {
+/// starts it), in its current generation.
+pub(crate) fn check_owner(app: &App, runner_id: &str, session_id: &str, generation: u32) -> Result<()> {
     let s = app.sessions.get(session_id).context("Home did not place this session on this runner: it runs on another runner or was never launched")?;
     if s.generation > generation {
         bail!("this session moved to another runner");
     }
-    anyhow::ensure!(runner_id.is_some() || app.paths.role.runs_agents(), "Home runs no agents");
-    if s.runner_id.as_deref() != runner_id {
+    if s.runner_id.as_deref() != Some(runner_id) {
         bail!("this session runs on another runner");
     }
     Ok(())
@@ -751,8 +750,8 @@ fn lease_tools(lease: &Lease) -> Vec<String> {
     lease.tools.iter().map(|t| t.id.clone()).chain(lease.mcp.iter().map(|m| crate::mcp::launch_off(&m.id))).collect()
 }
 
-/// Home: builds the lease of a session for `runner_id` (None: this `all` daemon).
-pub async fn grant(app: &App, runner_id: Option<&str>, req: &LeaseRequest) -> Result<Lease> {
+/// Home: builds the lease of a session for `runner_id`.
+pub async fn grant(app: &App, runner_id: &str, req: &LeaseRequest) -> Result<Lease> {
     ensure_home(app)?;
     check_owner(app, runner_id, &req.session_id, req.generation)?;
     let req = &own_request(app, req).await?;
@@ -762,7 +761,7 @@ pub async fn grant(app: &App, runner_id: Option<&str>, req: &LeaseRequest) -> Re
     save_lease(app, &LeaseInfo {
         id: lease.id.clone(),
         session_id: req.session_id.clone(),
-        runner_id: runner_id.map(str::to_string),
+        runner_id: Some(runner_id.to_string()),
         generation: req.generation,
         created_at: now,
         renewed_at: now,
@@ -777,12 +776,11 @@ pub async fn grant(app: &App, runner_id: Option<&str>, req: &LeaseRequest) -> Re
 }
 
 /// A Burst runner gets the lease without its secrets: Home keeps them and adds them to relayed requests.
-async fn relay_if_burst(app: &App, runner_id: Option<&str>, mut lease: Lease) -> Lease {
-    let Some(r) = runner_id else { return lease };
-    if !crate::runners::is_burst(app, r).await {
+async fn relay_if_burst(app: &App, runner_id: &str, mut lease: Lease) -> Lease {
+    if !crate::runners::is_burst(app, runner_id).await {
         return lease;
     }
-    crate::token_relay::hold(r, &lease);
+    crate::token_relay::hold(runner_id, &lease);
     lease.relayed = true;
     for c in &mut lease.credentials {
         c.secret.clear();
@@ -869,11 +867,11 @@ pub fn host_conflict<'a>(kept: &'a [Tool], t: &Tool) -> Option<&'a Tool> {
 }
 
 /// Home: a fresh copy of an active lease (tokens Home refreshed meanwhile), or an error once it is revoked.
-pub async fn renew(app: &App, runner_id: Option<&str>, lease_id: &str, req: &LeaseRequest) -> Result<Lease> {
+pub async fn renew(app: &App, runner_id: &str, lease_id: &str, req: &LeaseRequest) -> Result<Lease> {
     ensure_home(app)?;
     let mut info = lease_rows(app, Some(req.session_id.clone())).await?.into_iter().find(|l| l.id == lease_id).context("unknown lease")?;
     anyhow::ensure!(info.revoked_at.is_none(), "this lease was revoked");
-    anyhow::ensure!(info.runner_id.as_deref() == runner_id, "this lease belongs to another runner");
+    anyhow::ensure!(info.runner_id.as_deref() == Some(runner_id), "this lease belongs to another runner");
     check_owner(app, runner_id, &req.session_id, req.generation)?;
     let req = &own_request(app, req).await?;
     let lease = build(app, lease_id, req).await?;
@@ -886,7 +884,7 @@ pub async fn renew(app: &App, runner_id: Option<&str>, lease_id: &str, req: &Lea
 }
 
 /// Home: requests a runner sends about its own sessions (through its tunnel, never forwarded from a window).
-pub async fn runner_call(app: &App, runner_id: Option<&str>, op: &str, body: Value) -> Result<Value> {
+pub async fn runner_call(app: &App, runner_id: &str, op: &str, body: Value) -> Result<Value> {
     match op {
         "lease" => {
             let req: LeaseRequest = serde_json::from_value(body)?;
@@ -901,7 +899,7 @@ pub async fn runner_call(app: &App, runner_id: Option<&str>, op: &str, body: Val
             let lease_id = body["lease_id"].as_str().context("lease_id")?;
             let info = lease_rows(app, None).await?.into_iter().find(|l| l.id == lease_id);
             crate::token_relay::forget(lease_id);
-            if let Some(mut info) = info.filter(|l| l.revoked_at.is_none() && l.runner_id.as_deref() == runner_id) {
+            if let Some(mut info) = info.filter(|l| l.revoked_at.is_none() && l.runner_id.as_deref() == Some(runner_id)) {
                 info.revoked_at = Some(now_ms());
                 save_lease(app, &info).await?;
                 app.bus.publish("vault", "leases", json!({"session_id": info.session_id}));
@@ -912,10 +910,9 @@ pub async fn runner_call(app: &App, runner_id: Option<&str>, op: &str, body: Val
         "quota" => crate::quota::runner_reading(app, body),
         "place" => {
             // A launch the runner starts itself (a window or the CLI on that machine): Home records it first.
-            let runner = runner_id.context("only a runner places its own launches")?;
             let id = body["session_id"].as_str().context("session_id")?;
             let spec: crate::model::LaunchSpec = serde_json::from_value(body["spec"].clone()).context("spec")?;
-            crate::runners::record_placement(app, &spec, id, runner).await?;
+            crate::runners::record_placement(app, &spec, id, runner_id).await?;
             Ok(Value::Null)
         }
         _ => bail!("unknown runner call {op}"),

@@ -1,4 +1,4 @@
-//! Task worktrees owned by Launchpad, on the machine that runs the agent (a runner, or `all`).
+//! Task worktrees owned by Launchpad, on the runner that runs the agent.
 //!
 //! Each session gets fresh worktrees of its folders, cloned from Home Git (`repo_cache`). A worktree is
 //! disposable: the runner pushes its branch to Home at the end of every turn and records snapshots during
@@ -167,6 +167,9 @@ pub struct WorktreeInfo {
     pub head: Option<String>,
     /// Set when Home answers for an away runner (offline, or a stopped Burst job): why, for the window.
     pub away: Option<String>,
+    /// Home described it from its branch on Home (a folder gone from its runner, or the runner away): Merge and
+    /// Create Local PR run on Home.
+    pub on_home: bool,
 }
 
 const MAX_AGENT_RETRIES: u32 = 3;
@@ -735,7 +738,7 @@ pub async fn info(app: &App, w: TaskWorktree) -> WorktreeInfo {
     {
         ahead = count(app, &w.repo, &format!("refs/remotes/origin/{base}..{pushed}")).await;
     }
-    WorktreeInfo { worktree: w, project_name, path, exists, dirty_files, ahead, behind, unpushed, head: tip, away: None }
+    WorktreeInfo { worktree: w, project_name, path, exists, dirty_files, ahead, behind, unpushed, head: tip, away: None, on_home: false }
 }
 
 pub async fn session_info(app: &App, session_id: &str) -> Result<Vec<WorktreeInfo>> {

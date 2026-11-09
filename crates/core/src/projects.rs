@@ -272,7 +272,7 @@ async fn register_temp(app: &App, path: &Path, workspace_id: &str, id: String) -
     Ok(project)
 }
 
-/// Home (or `all`): registers a Git folder by its remote and creates its mirror. The same remote in the same
+/// Home: registers a Git folder by its remote and creates its mirror. The same remote in the same
 /// workspace returns the existing folder; in another workspace it becomes a second folder.
 pub async fn register_remote(app: &App, name: &str, url: &str, workspace_id: &str) -> Result<Project> {
     anyhow::ensure!(crate::home_git::here(app), "folders are registered on Home");
@@ -286,7 +286,7 @@ pub async fn register_remote(app: &App, name: &str, url: &str, workspace_id: &st
         return Ok(e);
     }
     let id = uuid::Uuid::new_v4().to_string();
-    let path = if app.paths.role == crate::role::Role::Home { crate::home_git::mirror(app, &id) } else { crate::repo_cache::dir(app, &id) };
+    let path = crate::home_git::mirror(app, &id);
     let gh_repo = crate::git::github_repo(url);
     let p = Project {
         id,
@@ -318,14 +318,6 @@ pub async fn register_remote(app: &App, name: &str, url: &str, workspace_id: &st
         })
         .await?;
     app.bus.publish("projects", "changed", serde_json::Value::Null);
-    if app.paths.role == crate::role::Role::All {
-        let (app, p) = (app.clone(), saved.clone());
-        tokio::spawn(async move {
-            if let Err(e) = crate::repo_cache::sync(&app, &p).await {
-                tracing::warn!("clone {} from Home Git: {e:#}", p.name);
-            }
-        });
-    }
     Ok(saved)
 }
 
@@ -408,7 +400,6 @@ pub async fn home_folders(app: &App) -> Result<Vec<Project>> {
     Ok(list(app).await?.into_iter().filter(|p| p.home_git || p.plain).collect())
 }
 
-/// Home (or `all`): a new, empty plain folder.
 /// Home: turns a plain folder into a Git folder without a remote. Its current files become the first commit
 /// of `main` in a new Home Git mirror; agents then work in worktrees. Refused while an agent holds the folder.
 pub async fn plain_to_git(app: &App, id: &str) -> Result<Project> {
@@ -453,7 +444,7 @@ pub async fn plain_to_git(app: &App, id: &str) -> Result<Project> {
     p.plain = false;
     p.home_git = true;
     p.remote_url = None;
-    p.path = if app.paths.role == crate::role::Role::Home { crate::home_git::mirror(app, &p.id) } else { crate::repo_cache::dir(app, &p.id) }.to_string_lossy().into_owned();
+    p.path = crate::home_git::mirror(app, &p.id).to_string_lossy().into_owned();
     let mirror = crate::home_git::ensure(app, &p).await?;
     git(vec!["push".into(), "--quiet".into(), mirror.to_string_lossy().into_owned(), "main:refs/heads/main".into()]).await?;
     let _ = tokio::fs::remove_dir_all(&tmp).await;
@@ -473,6 +464,7 @@ pub async fn plain_to_git(app: &App, id: &str) -> Result<Project> {
     get(app, id).await?.context("no such folder")
 }
 
+/// Home: a new, empty plain folder.
 pub async fn create_plain(app: &App, name: &str, workspace_id: &str) -> Result<Project> {
     anyhow::ensure!(crate::home_git::here(app), "folders are registered on Home");
     let workspace = crate::workspace::get(app, workspace_id).await.context("choose a workspace for the folder")?;
@@ -515,14 +507,11 @@ pub async fn create_plain(app: &App, name: &str, workspace_id: &str) -> Result<P
 /// Runner: a local folder without Git becomes a plain folder of Home; its files are uploaded once. The runner
 /// then works in its own copy, never in the original folder.
 pub async fn import_plain(app: &App, path: &Path, workspace_id: &str) -> Result<Project> {
+    ensure!(!crate::home_git::here(app), "Home stores no files of its own disk: create a new plain folder and add its files from a runner");
     let path = crate::files::canonicalize(path).await.with_context(|| format!("{} does not exist", path.display()))?;
     anyhow::ensure!(path.is_dir(), "{} is not a folder", path.display());
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    let p: Project = if crate::home_git::here(app) {
-        create_plain(app, &name, workspace_id).await?
-    } else {
-        serde_json::from_value(crate::home_link::home_request("POST", "/api/projects/plain", Some(serde_json::json!({"name": name, "workspace_id": workspace_id}))).await?)?
-    };
+    let p: Project = serde_json::from_value(crate::home_link::home_request("POST", "/api/projects/plain", Some(serde_json::json!({"name": name, "workspace_id": workspace_id}))).await?)?;
     let importer = format!("import-{}", uuid::Uuid::new_v4());
     crate::plain::sync_down(app, &p.id, &crate::plain::copy_dir(app, &p.id), &importer).await?;
     let copy = crate::plain::copy_dir(app, &p.id);
@@ -532,9 +521,7 @@ pub async fn import_plain(app: &App, path: &Path, workspace_id: &str) -> Result<
     anyhow::ensure!(out.status.success(), "copy {}: {}", path.display(), String::from_utf8_lossy(&out.stderr).trim());
     crate::plain::sync_up(app, &p.id, &copy, &importer).await?;
     crate::plain::release(app, &p.id, &importer).await?;
-    if !crate::home_git::here(app) {
-        store_home(app, vec![p.clone()], false).await?;
-    }
+    store_home(app, vec![p.clone()], false).await?;
     get(app, &p.id).await?.context("no such folder")
 }
 
@@ -554,25 +541,6 @@ pub async fn forget_disk_folders(app: &App) -> Result<()> {
     }
     if !gone.is_empty() {
         app.bus.publish("projects", "changed", serde_json::Value::Null);
-    }
-    Ok(())
-}
-
-/// Home and `all`: Git checkouts registered before Home Git become Home Git folders.
-pub async fn adopt_git_folders(app: &App) -> Result<()> {
-    if !crate::home_git::here(app) {
-        return Ok(());
-    }
-    let candidates = app.state_db.call(|c| {
-        let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM project WHERE home_git = 0 AND is_temp = 0 AND runner_id IS NULL"))?;
-        let rows = st.query_map([], from_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(rows)
-    }).await?;
-    for p in candidates {
-        if crate::git::git_dir(Path::new(&p.path)).await.is_some() {
-            let id = p.id.clone();
-            app.state_db.call(move |c| Ok(c.execute("UPDATE project SET home_git = 1 WHERE id = ?1", [id])?)).await?;
-        }
     }
     Ok(())
 }

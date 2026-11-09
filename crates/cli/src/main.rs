@@ -264,9 +264,9 @@ enum Command {
     NativeHost { origin: String, #[arg(trailing_var_arg = true, allow_hyphen_values = true)] extra: Vec<String> },
     /// Run the daemon (HTTP + WebSocket; loopback by default).
     Daemon {
-        /// home: records and services, no agents; runner (Linux only): agents and terminals, in its own folders
-        /// (`~/.local/share/launchpad-runner`); all: both in one process.
-        #[arg(long, default_value = "all")]
+        /// home (the default): records and services, no agents; runner (Linux only): agents and terminals, in its own
+        /// folders (`~/.local/share/launchpad-runner`), paired with `launchpad connect`.
+        #[arg(long, default_value = "home")]
         role: String,
     },
     /// Pair this Linux machine as a runner of a Home: shows a code to approve in Home's Settings → Home and runners.

@@ -162,7 +162,7 @@ struct MemoriesQuery {
     runner: Option<String>,
 }
 
-/// Home: asks a runner for its harness memories (or reads this machine's on an `all` daemon).
+/// Home asks a runner for its harness memories; a runner's window reads its own.
 async fn memories(State(s): State<Ctx>, Query(q): Query<MemoriesQuery>) -> ApiResult<Value> {
     match q.runner {
         Some(r) => {
@@ -173,7 +173,7 @@ async fn memories(State(s): State<Ctx>, Query(q): Query<MemoriesQuery>) -> ApiRe
             }
             Ok(Json(v))
         }
-        _ => Ok(Json(json!({"memories": kb::native_memories(&s.app).await}))),
+        None => local_memories(State(s)).await,
     }
 }
 

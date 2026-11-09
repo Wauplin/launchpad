@@ -415,7 +415,7 @@ async fn jail(env: &UserEnv) -> SetupItem {
     it
 }
 
-/// The vault as this machine sees it: its own (single process) or Home's (a runner). `None`: Home is unreachable.
+/// The vault as this machine sees it: its own (Home) or Home's (a runner). `None`: Home is unreachable.
 async fn vault_view(app: &App) -> Option<(Vec<launchpad_core::vault::VaultEntry>, String, String)> {
     if launchpad_core::vault::here(app) {
         let home = app.config.get().home;

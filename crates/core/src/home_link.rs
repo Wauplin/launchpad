@@ -250,7 +250,7 @@ pub async fn home_request(method: &str, path: &str, body: Option<serde_json::Val
     Ok(value)
 }
 
-/// Home refreshes a folder's mirror from its remote (created on first use). Local on Home and `all`.
+/// Home refreshes a folder's mirror from its remote (created on first use); a runner asks Home.
 pub async fn refresh_mirror(app: &App, project_id: &str) -> Result<()> {
     if crate::home_git::here(app) {
         let p = crate::projects::get(app, project_id).await?.context("no such folder")?;

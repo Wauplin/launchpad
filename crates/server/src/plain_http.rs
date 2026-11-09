@@ -51,7 +51,7 @@ async fn caller(s: &Server, headers: &HeaderMap) -> Result<Option<String>, ApiEr
     if let Some(credential) = headers.get(crate::runners::CREDENTIAL_HEADER).and_then(|v| v.to_str().ok()) {
         let runner = launchpad_core::runners::authenticate(&s.app, credential).await.filter(|r| r.state == launchpad_core::runners::RunnerState::Approved).ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "unknown runner"))?;
         if let Some(sid) = &session {
-            launchpad_core::home_git::check_session(&s.app, Some(&runner.id), sid).map_err(|e| ApiError::new(StatusCode::FORBIDDEN, format!("{e:#}")))?;
+            launchpad_core::home_git::check_session(&s.app, &runner.id, sid).map_err(|e| ApiError::new(StatusCode::FORBIDDEN, format!("{e:#}")))?;
         }
     }
     Ok(session)

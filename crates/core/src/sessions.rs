@@ -2382,7 +2382,7 @@ impl Sink {
         let turn_end = before.status.is_running() && !status.is_running();
         let unsaved = if turn_end {
             crate::worktrees::record_heads(&self.app, &self.id).await;
-            crate::turn_sync::mark(&self.app, &self.id).await
+            crate::turn_sync::mark(&self.app)
         } else { None };
         let _ = self
             .sessions
@@ -2555,7 +2555,6 @@ impl Sink {
     }
 }
 
-/// JSON helper used by adapters.
 /// The runner of a session that Home serves as a replica.
 fn runner_of(app: &App, id: &str) -> Option<String> {
     (app.paths.role == crate::role::Role::Home).then(|| app.sessions.get(id).and_then(|s| s.runner_id)).flatten()
@@ -2577,6 +2576,7 @@ pub async fn notice_anywhere(app: &App, id: &str, text: &str) {
     }
 }
 
+/// JSON helper used by adapters.
 pub fn text_of(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),

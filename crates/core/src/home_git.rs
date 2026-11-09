@@ -43,9 +43,9 @@ pub fn mirror(app: &App, project_id: &str) -> PathBuf {
     root(app).join(format!("{project_id}.git"))
 }
 
-/// Home Git lives in this daemon (Home, or a single-process `all` daemon).
+/// Home Git lives in this daemon (Home).
 pub fn here(app: &App) -> bool {
-    app.paths.role != crate::role::Role::Runner
+    app.paths.role == crate::role::Role::Home
 }
 
 fn lock(app: &App, project_id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
@@ -68,12 +68,9 @@ async fn git(app: &App, dir: &Path, args: &[&str]) -> Result<String> {
     git_in(app, dir, args, 60).await
 }
 
-/// Where the mirror fetches from: the folder's remote, or (single-process daemon) the folder itself.
-fn upstream(app: &App, p: &Project) -> Option<String> {
-    if let Some(url) = p.remote_url.clone().filter(|u| !u.trim().is_empty()) {
-        return Some(url);
-    }
-    (app.paths.role == crate::role::Role::All && Path::new(&p.path).join(".git").exists()).then(|| p.path.clone())
+/// Where the mirror fetches from: the folder's remote, if it has one.
+fn upstream(p: &Project) -> Option<String> {
+    p.remote_url.clone().filter(|u| !u.trim().is_empty())
 }
 
 /// Creates the mirror of a Git folder on first use and fetches it. Returns its path.
@@ -95,7 +92,7 @@ pub async fn ensure(app: &App, p: &Project) -> Result<PathBuf> {
     for (k, v) in [("gc.auto", "0"), ("receive.denyDeleteCurrent", "true"), ("uploadpack.allowAnySHA1InWant", "true"), ("core.logAllRefUpdates", "false")] {
         git(app, &partial, &["config", k, v]).await?;
     }
-    if let Some(url) = upstream(app, p) {
+    if let Some(url) = upstream(p) {
         git(app, &partial, &["remote", "add", "origin", &url]).await?;
         git(app, &partial, &["config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/heads/*"]).await?;
         for negative in ["^refs/heads/lp/*", "^refs/heads/lp-scratch/*"] {
@@ -108,7 +105,7 @@ pub async fn ensure(app: &App, p: &Project) -> Result<PathBuf> {
     let _ = tokio::fs::remove_dir_all(&dir).await;
     tokio::fs::rename(&partial, &dir).await?;
     drop(_lock);
-    if upstream(app, p).is_some() {
+    if upstream(p).is_some() {
         refresh(app, p).await.with_context(|| format!("first fetch of {}", p.name))?;
     }
     // A Home restored from a backup gets its Launchpad branches back.
@@ -560,9 +557,9 @@ pub const SESSION_HEADER: &str = "X-Launchpad-Session";
 pub const IMPORT_HEADER: &str = "X-Launchpad-Import";
 
 /// Home: refuses Git requests of a session that now runs elsewhere (another runner or generation).
-pub fn check_session(app: &App, runner_id: Option<&str>, session: &str) -> Result<()> {
+pub fn check_session(app: &App, runner_id: &str, session: &str) -> Result<()> {
     if let Some(s) = app.sessions.get(session)
-        && s.runner_id.as_deref() != runner_id
+        && s.runner_id.as_deref() != Some(runner_id)
     {
         bail!("this session now runs on another runner; this runner can no longer push its branches");
     }

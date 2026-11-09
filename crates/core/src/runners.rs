@@ -147,7 +147,7 @@ async fn save(app: &App, r: &Runner, secret_hash: Option<String>) -> Result<()> 
 }
 
 fn ensure_home(app: &App) -> Result<()> {
-    anyhow::ensure!(app.paths.role == crate::role::Role::Home, "runners connect to a Home (launchpad daemon --role home)");
+    anyhow::ensure!(app.paths.role == crate::role::Role::Home, "runners connect to a Home (launchpad daemon)");
     Ok(())
 }
 
@@ -673,7 +673,7 @@ impl Hub {
 /// Where a session's next request goes (`place`).
 #[derive(Debug, PartialEq)]
 pub enum Place {
-    /// This daemon holds the session (a runner, or a session without a runner).
+    /// This daemon holds the session (a runner).
     Here,
     /// A connected runner holds it now: its own, or the one it just moved to.
     Runner(String),
@@ -714,7 +714,7 @@ pub async fn place(app: &App, id: &str) -> Result<Place> {
     let lock = app.suggestion_locks.get(&format!("place:{id}"));
     let _lock = lock.lock().await;
     let s = app.sessions.get(id).context("no such session")?;
-    let Some(r) = s.runner_id.clone() else { return Ok(Place::Here) };
+    let r = s.runner_id.clone().context("this session runs on no runner")?;
     // A Burst job is starting for it: the job moves the session and sends the first request, so nothing else
     // may reach the old runner (if it comes back) or start a second job meanwhile. Later requests wait in the
     // job's record and follow the first one (`burst::continue_session`).
@@ -752,7 +752,7 @@ pub async fn place(app: &App, id: &str) -> Result<Place> {
 /// the runner's answer; a Burst start answers at once (the job sends the request once it is up).
 pub async fn continue_anywhere(app: &App, id: &str, action: &str, body: Option<String>, key: Option<String>) -> Result<(u16, String)> {
     match place(app, id).await? {
-        Place::Here => bail!("this session runs on no runner"),
+        Place::Here => bail!("only Home places sessions"),
         Place::Runner(r) => {
             let headers = key.map(|k| vec![("idempotency-key".to_string(), k)]).unwrap_or_default();
             app.runners.request_with(&r, "POST", &format!("/api/sessions/{id}/{action}"), body, headers).await
@@ -965,7 +965,8 @@ async fn unplace(app: &App, id: &str, runner: &str) {
 }
 
 /// A session action (`close`, `stop`, …) wherever the session runs. Archive of a session whose runner is
-/// away (offline, a stopped Burst job) is Home's alone (`archive_away`).
+/// away (offline, a stopped Burst job) is Home's alone (`archive_away`); a runner, and Home for a record
+/// without a runner, archive their own record.
 pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
     match app.sessions.get(id).and_then(|s| s.runner_id).filter(|_| app.paths.role == crate::role::Role::Home) {
         Some(r) if !app.runners.connected(&r) => match action {
@@ -988,7 +989,7 @@ pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
 /// A message to a session wherever it runs, placed like the owner's messages (`place`). `files` are
 /// attachments the session's machine stores.
 pub async fn send_anywhere(app: &App, id: &str, text: &str, mut files: Vec<crate::model::FileAttachment>, key: Option<String>) -> Result<()> {
-    if app.paths.role == crate::role::Role::Home && app.sessions.get(id).is_some_and(|s| s.runner_id.is_some()) {
+    if app.paths.role == crate::role::Role::Home {
         crate::attachments::inline_files(&mut files)?;
         let body = serde_json::json!({"text": text, "files": files}).to_string();
         let (status, body) = continue_anywhere(app, id, "input", Some(body), key).await?;

@@ -326,12 +326,12 @@ pub fn refused_calls(body: &Value, off: &[String]) -> Vec<(Value, String)> {
         .collect()
 }
 
-/// Home: one request of a session to an MCP server. `runner_id` is None in an `all` daemon.
-pub async fn gateway(app: &App, runner_id: Option<&str>, lease_id: &str, server: &str, method: &str, headers: Vec<(String, String)>, body: ByteStream) -> Result<HttpReply> {
+/// Home: one request of a session's runner to an MCP server.
+pub async fn gateway(app: &App, runner_id: &str, lease_id: &str, server: &str, method: &str, headers: Vec<(String, String)>, body: ByteStream) -> Result<HttpReply> {
     ensure!(crate::vault::here(app), "MCP servers are reached through Home");
     let info = crate::vault::lease_rows(app, None).await?.into_iter().find(|l| l.id == lease_id).context("unknown lease")?;
     ensure!(info.revoked_at.is_none(), "this session's access was revoked");
-    ensure!(info.runner_id.as_deref() == runner_id, "this lease belongs to another runner");
+    ensure!(info.runner_id.as_deref() == Some(runner_id), "this lease belongs to another runner");
     let req = info.request.context("this lease names no MCP server")?;
     crate::vault::check_owner(app, runner_id, &req.session_id, req.generation)?;
     let s = get(app, server).await?;

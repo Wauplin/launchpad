@@ -25,4 +25,9 @@ head?: string,
 /**
  * Set when Home answers for an away runner (offline, or a stopped Burst job): why, for the window.
  */
-away: string | null, };
+away: string | null, 
+/**
+ * Home described it from its branch on Home (a folder gone from its runner, or the runner away): Merge and
+ * Create Local PR run on Home.
+ */
+on_home: boolean, };

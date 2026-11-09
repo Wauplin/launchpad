@@ -24,7 +24,7 @@ pub(crate) async fn run(s: Server, runner_id: String, id: u64, target: HttpTarge
     let result = match target {
         HttpTarget::Home => home(&s, &runner_id, &method, &path, headers, body).await,
         HttpTarget::Lease { lease_id, host } => launchpad_core::token_relay::upstream(&s.app, &runner_id, &lease_id, &host, &method, &path, headers, body).await,
-        HttpTarget::Mcp { lease_id, server } => launchpad_core::mcp::gateway(&s.app, Some(&runner_id), &lease_id, &server, &method, headers, body).await,
+        HttpTarget::Mcp { lease_id, server } => launchpad_core::mcp::gateway(&s.app, &runner_id, &lease_id, &server, &method, headers, body).await,
         HttpTarget::Tcp { host, port } => launchpad_core::token_relay::tcp(&s.app, &runner_id, &host, port, body).await,
     };
     let out = s.app.runners.clone();

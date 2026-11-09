@@ -3,9 +3,9 @@
 //! - `/api/git/<folder>.git/…` (Home): Git's smart HTTP protocol for runners, through `git http-backend`.
 //!   Authenticated with the runner credential; a request naming a session is refused when that session now
 //!   runs elsewhere.
-//! - `/git/<folder>.git/…` (runner, `all`): the local endpoint that runner clones use as `origin`. It accepts
+//! - `/git/<folder>.git/…` (runner): the local endpoint that runner clones use as `origin`. It accepts
 //!   only this daemon's Git tokens (the daemon, or one session's worktrees) and forwards to Home with the
-//!   runner credential; `all` serves its own mirrors.
+//!   runner credential.
 //! - `/api/home-git/<folder>/…`: refresh, branches, Restore, merge and pull request branches, on Home (a
 //!   runner forwards them).
 
@@ -61,7 +61,7 @@ async fn home(State(s): State<Server>, Path(rest): Path<String>, method: Method,
     };
     let session = header_str(&headers, SESSION_HEADER).map(str::to_string);
     if let Some(sid) = &session
-        && let Err(e) = home_git::check_session(&s.app, Some(&runner.id), sid)
+        && let Err(e) = home_git::check_session(&s.app, &runner.id, sid)
     {
         return ApiError::new(StatusCode::FORBIDDEN, format!("{e:#}")).into_response();
     }
@@ -69,7 +69,7 @@ async fn home(State(s): State<Server>, Path(rest): Path<String>, method: Method,
     serve(&s, &rest, &method, uri.query().unwrap_or(""), &headers, body, import, session).await
 }
 
-/// Runner or `all`: a Git request of this machine's clones.
+/// Runner: a Git request of this machine's clones.
 async fn local(State(s): State<Server>, Path(rest): Path<String>, method: Method, uri: axum::http::Uri, headers: HeaderMap, body: Body) -> Response {
     if !s.app.paths.role.runs_agents() {
         return ApiError::new(StatusCode::NOT_FOUND, "no local Git endpoint on Home").into_response();
@@ -84,9 +84,6 @@ async fn local(State(s): State<Server>, Path(rest): Path<String>, method: Method
         return ApiError::new(StatusCode::FORBIDDEN, "this session no longer exists").into_response();
     }
     let import = header_str(&headers, IMPORT_HEADER) == Some("1") && session.is_none();
-    if s.app.paths.role == Role::All {
-        return serve(&s, &rest, &method, uri.query().unwrap_or(""), &headers, body, import, session).await;
-    }
     match forward(&s, &rest, &method, uri.query(), &headers, body, import, session).await {
         Ok(r) => r,
         Err(e) => ApiError::new(StatusCode::BAD_GATEWAY, format!("Home Git: {e:#}")).into_response(),
@@ -215,7 +212,7 @@ fn tokio_stream_from(mut rx: tokio::sync::mpsc::Receiver<Result<Vec<u8>, std::io
     futures_util::stream::poll_fn(move |cx| rx.poll_recv(cx))
 }
 
-/// Home or `all`: the folder of a Home Git request. A runner forwards these requests to Home.
+/// Home: the folder of a Home Git request. A runner forwards these requests to Home.
 async fn home_folder(s: &Server, id: &str) -> Result<launchpad_core::model::Project, ApiError> {
     if !home_git::here(&s.app) {
         return Err(ApiError::bad_request("Home Git runs on Home"));

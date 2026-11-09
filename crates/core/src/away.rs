@@ -222,7 +222,7 @@ async fn info(app: &App, mut w: TaskWorktree, away: Option<&str>) -> WorktreeInf
     let home = head(app, &w).await;
     let unpushed = is_unpushed(w.head.as_deref(), home.as_deref(), &w.base_commit);
     let path = crate::worktrees::folder(&w);
-    WorktreeInfo { worktree: w, project_name, path, exists: false, dirty_files: 0, ahead, behind, unpushed, head: home, away: away.map(str::to_string) }
+    WorktreeInfo { worktree: w, project_name, path, exists: false, dirty_files: 0, ahead, behind, unpushed, head: home, away: away.map(str::to_string), on_home: true }
 }
 
 /// Home: a connected runner's worktree list (`/api/sessions/{id}/worktrees`, `/api/worktrees`), completed from

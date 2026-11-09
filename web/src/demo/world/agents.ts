@@ -81,7 +81,7 @@ export function demoSession(b: Build, log: Record<string, SessionEvent[]>, event
   const lastTs = log[b.id].at(-1)?.ts ?? started;
   const typed = b.spec?.text ?? b.title;
   return {
-    id: b.id, generation: 1, harness: b.harness, harness_session_id: `native-${b.id}`, project_id: b.project, cwd: b.cwd ?? `${b.project === P.scratch ? TMP : ROOT}/${b.project ? FOLDER[b.project] : "scratch"}`, title: b.title, status,
+    id: b.id, runner_id: "demo-runner-laptop", generation: 1, harness: b.harness, harness_session_id: `native-${b.id}`, project_id: b.project, cwd: b.cwd ?? `${b.project === P.scratch ? TMP : ROOT}/${b.project ? FOLDER[b.project] : "scratch"}`, title: b.title, status,
     archived_done: false, status_since: lastTs, live: ["starting", "working", "background", "waiting", "quota_paused"].includes(status),
     open_question: false, model: MODELS[b.harness] ?? null, effort: b.harness === "codex" ? "medium" : null, prompt: `${typed}\n\n${SUMMARY_INSTRUCTION}`,
     usage: usage(Math.max(2, Math.round(events.length / 2))), started_at: started, ended_at: null, last_seq: events.length,

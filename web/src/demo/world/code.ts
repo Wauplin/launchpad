@@ -626,7 +626,7 @@ export function codeWorld() {
       branch: codeRoots[root].branch, base_branch: "main", base_commit: project === P.storefront ? DEMO_COMMITS.storefrontHead : project === P.billing ? DEMO_COMMITS.billingHead : DEMO_COMMITS.docsHead,
       primary: true, state: "active", merge: null, merged: null, predraft_id: null, cleanup_note: null, pushed: null, push_note: null, leftovers: null, created_at: created(30), ...extra,
     },
-    project_name: codeProjectName(project), path: root, exists: true, dirty_files: 0, ahead: 0, behind: 0, unpushed: false, head: `demo-head-${id}`, away: null, ...info,
+    project_name: codeProjectName(project), path: root, exists: true, dirty_files: 0, ahead: 0, behind: 0, unpushed: false, head: `demo-head-${id}`, away: null, on_home: false, ...info,
   });
   const taskWorktrees: WorktreeInfo[] = [
     task("demo-wt-checkout", WT.checkout, "demo-s-checkout", P.storefront, { created_at: created(26) }, { ahead: 2 }),

@@ -22,12 +22,10 @@ const RETRY_EVERY: Duration = Duration::from_secs(3 * 60);
 static LOCKS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = LazyLock::new(Default::default);
 static WAKE: LazyLock<tokio::sync::Notify> = LazyLock::new(tokio::sync::Notify::new);
 
-/// The mark a turn's end stores with the new status, when the session has something to save on Home:
-/// worktrees, plain folders, or (on a runner) its conversation.
-pub(crate) async fn mark(app: &App, id: &str) -> Option<Unsaved> {
-    let worktrees = crate::worktrees::for_session(app, id).await.is_ok_and(|l| l.iter().any(|w| w.state == crate::worktrees::WorktreeState::Active));
-    let save = worktrees || app.paths.role == crate::role::Role::Runner || !crate::plain::session_stores(app, id).await.is_empty();
-    save.then(|| Unsaved { since: now_ms(), attempts: 0, note: None })
+/// The mark a turn's end stores with the new status: on a runner, every session has its conversation (and its
+/// worktrees and plain folders) to save on Home. Home itself runs no turns.
+pub(crate) fn mark(app: &App) -> Option<Unsaved> {
+    (app.paths.role == crate::role::Role::Runner).then(|| Unsaved { since: now_ms(), attempts: 0, note: None })
 }
 
 /// Saves the session's last turn on Home, then clears its mark; a failure keeps the mark with the reason. A turn
@@ -57,16 +55,10 @@ pub async fn save(app: &App, id: &str) {
                 }
             })
             .await;
-        // Stop unless a newer turn ended meanwhile (its mark has another time).
         let newer = updated.as_ref().ok().and_then(|s| s.unsaved.as_ref()).is_some_and(|u| u.since != since);
+        // Stop unless a newer turn ended meanwhile; Home starts routines that wait for the work when it
+        // receives the cleared mark (`turn_saved`).
         if !newer {
-            // Saved: on Home's own machine, routines that wait for the turn's work start now (`turn_saved`).
-            if let Ok(s) = updated
-                && s.unsaved.is_none()
-                && crate::home_git::here(app)
-            {
-                crate::ext::extensions().turn_saved(app, &s);
-            }
             break;
         }
     }
@@ -105,7 +97,7 @@ pub fn kick() {
 /// Retries every few minutes, and after `kick`, the turns not saved on Home yet (sessions between turns only:
 /// a running one saves again at its turn end; an archived one is left to Archive).
 pub fn spawn(app: &App) {
-    if !app.paths.role.runs_agents() {
+    if app.paths.role != crate::role::Role::Runner {
         return;
     }
     let app = app.clone();

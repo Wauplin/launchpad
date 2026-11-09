@@ -39,11 +39,7 @@ pub struct Paths {
 }
 
 impl Paths {
-    pub fn for_app_env(app_env: AppEnv) -> Paths {
-        Paths::for_role(app_env, crate::role::Role::All)
-    }
-
-    /// A runner keeps its own folders (`launchpad-runner`): it never shares data with a single-process install.
+    /// A runner keeps its own folders (`launchpad-runner`) and port: it never shares data with a Home on the same machine.
     pub fn for_role(app_env: AppEnv, role: crate::role::Role) -> Paths {
         let home = dirs::home_dir().expect("no home directory");
         let suffix = match (app_env, role) {
@@ -57,7 +53,7 @@ impl Paths {
             config_dir: home.join(".config").join(suffix),
             data_dir: home.join(".local/share").join(suffix),
             // `LAUNCHPAD_PORT` lets isolated checks (with their own `HOME`) run next to the dev daemon.
-            // A runner has its own port too, so it runs next to a single-process install on the same laptop.
+            // A runner has its own port too, so it runs next to a Home on the same machine (the dev setup).
             port: std::env::var("LAUNCHPAD_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(match (app_env, role) {
                 (AppEnv::Prod, crate::role::Role::Runner) => 7320,
                 (AppEnv::Dev, crate::role::Role::Runner) => 7321,
@@ -68,10 +64,13 @@ impl Paths {
         }
     }
 
-    /// `LAUNCHPAD_PORT` overrides the environment's port (isolated test daemons). `LAUNCHPAD_ROLE` selects the
-    /// folders of a runner for CLI commands run next to it.
+    /// `LAUNCHPAD_PORT` overrides the environment's port (isolated test daemons). `LAUNCHPAD_ROLE=runner` selects the
+    /// folders of a runner for CLI commands run next to it; anything else means Home.
     pub fn from_env() -> Paths {
-        let role = std::env::var("LAUNCHPAD_ROLE").ok().and_then(|r| crate::role::Role::parse(&r).ok()).unwrap_or_default();
+        let role = match std::env::var("LAUNCHPAD_ROLE").as_deref() {
+            Ok("runner") => crate::role::Role::Runner,
+            _ => crate::role::Role::Home,
+        };
         let mut paths = Paths::for_role(AppEnv::from_env(), role);
         if let Some(port) = std::env::var("LAUNCHPAD_PORT").ok().and_then(|p| p.parse().ok()) {
             paths.port = port;
@@ -112,10 +111,7 @@ impl Paths {
         let cli = cli.to_string_lossy();
         let cli = cli.trim_end_matches(" (deleted)");
         // A runner (its own folders) and an isolated daemon (its own port) need the same settings in the CLI.
-        let mut vars = vec![("LAUNCHPAD_ENV", self.app_env.name().to_string())];
-        if self.role != crate::role::Role::All {
-            vars.push(("LAUNCHPAD_ROLE", self.role.name().to_string()));
-        }
+        let mut vars = vec![("LAUNCHPAD_ENV", self.app_env.name().to_string()), ("LAUNCHPAD_ROLE", self.role.name().to_string())];
         if std::env::var("LAUNCHPAD_PORT").is_ok() {
             vars.push(("LAUNCHPAD_PORT", self.port.to_string()));
         }

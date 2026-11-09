@@ -137,9 +137,8 @@ const inRange = (req: DemoRequest) => {
 };
 route("GET", "/api/analytics/runs", (req) => { const ok = inRange(req); return world.agentRuns.filter((r) => ok(r.started_at)); });
 
-// Home and runners: the demo runs in one process (role all), except in the "Home & runners" chapter, which
-// switches to the Home role and shows the laptop runner and recent Burst jobs.
-route("GET", "/api/runners", () => (world.status.role === "home" ? world.runners : []));
+// Home and runners: the demo is a Home with the owner's laptop runner and recent Burst jobs.
+route("GET", "/api/runners", () => world.runners);
 route("GET", "/api/runner/launches", () => []);
 route("GET", "/api/runners/:id/status", () => ({ ...world.status, role: "runner", runner_update: null }));
 route("POST", "/api/runners/:id/update", notInDemo);
@@ -215,9 +214,7 @@ route("PUT", "/api/tool-defaults/:scope/:id", ({ params, body }) => {
   if (Object.keys(tools).length) layer[params.id] = tools; else delete layer[params.id];
   return { tools };
 });
-route("GET", "/api/burst", () => world.status.role === "home"
-  ? { config: world.config.home.burst, unavailable: null, month_usd: 0.01, runs: world.burstRuns }
-  : { config: world.config.home.burst, unavailable: "Burst runners are started by Home", month_usd: 0, runs: [] });
+route("GET", "/api/burst", () => ({ config: world.config.home.burst, unavailable: null, month_usd: 0.01, runs: world.burstRuns }));
 route("GET", "/api/vault/tools.toml", () => ({ toml: "[[tools]]\nid = \"gh\"\n" }));
 route("PUT", "/api/vault/entries/:id", notInDemo);
 route("POST", "/api/vault/entries/:id/from-home", notInDemo);

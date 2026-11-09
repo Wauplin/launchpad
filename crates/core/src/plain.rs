@@ -564,7 +564,7 @@ struct Synced {
     files: BTreeMap<String, String>,
 }
 
-/// Calls Home: in process on Home and `all`, over HTTP with the runner credential on a runner.
+/// Runner: calls Home over HTTP with the runner credential.
 pub(crate) mod home {
     use super::*;
 
@@ -593,16 +593,10 @@ pub(crate) mod home {
     }
 
     pub async fn tree(app: &App, id: &str) -> Result<Tree> {
-        if crate::home_git::here(app) {
-            return super::tree(app, id).await;
-        }
         Ok(serde_json::from_value(json(request(app, reqwest::Method::GET, &format!("/api/plain/{id}/tree"), None)?).await?)?)
     }
 
     pub async fn blob(app: &App, id: &str, sha: &str) -> Result<Vec<u8>> {
-        if crate::home_git::here(app) {
-            return super::read_blob(app, sha).await;
-        }
         let res = request(app, reqwest::Method::GET, &format!("/api/plain/{id}/blob/{sha}"), None)?.send().await?;
         ensure!(res.status().is_success(), "Home could not send {sha}");
         let data = res.bytes().await?.to_vec();
@@ -611,32 +605,20 @@ pub(crate) mod home {
     }
 
     pub async fn upload(app: &App, id: &str, sha: &str, data: Vec<u8>) -> Result<()> {
-        if crate::home_git::here(app) {
-            return super::write_blob(app, sha, &data).await;
-        }
         json(request(app, reqwest::Method::PUT, &format!("/api/plain/{id}/blob/{sha}"), None)?.body(data)).await.map(|_| ())
     }
 
     pub async fn commit(app: &App, id: &str, session: &str, updates: Vec<Update>) -> Result<i64> {
-        if crate::home_git::here(app) {
-            return super::commit(app, id, Some(session), updates).await;
-        }
         let v = json(request(app, reqwest::Method::POST, &format!("/api/plain/{id}/commit"), Some(session))?.json(&updates)).await?;
         v["version"].as_i64().context("version missing")
     }
 
     /// Keep as folder: the temporary folder `id` becomes a plain folder of Home (`projects::keep_temp`).
     pub async fn keep(app: &App, id: &str, name: &str) -> Result<crate::model::Project> {
-        if crate::home_git::here(app) {
-            return crate::projects::keep_temp(app, id, name).await;
-        }
         Ok(serde_json::from_value(json(request(app, reqwest::Method::POST, &format!("/api/plain/{id}/keep"), None)?.json(&serde_json::json!({"name": name}))).await?)?)
     }
 
     pub async fn lock(app: &App, id: &str, session: &str, take: bool) -> Result<()> {
-        if crate::home_git::here(app) {
-            return if take { super::lock(app, id, session).await } else { super::unlock(app, id, session).await };
-        }
         json(request(app, reqwest::Method::POST, &format!("/api/plain/{id}/{}", if take { "lock" } else { "unlock" }), Some(session))?).await.map(|_| ())
     }
 }
