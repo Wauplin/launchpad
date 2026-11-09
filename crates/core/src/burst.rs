@@ -96,6 +96,11 @@ pub struct BurstRun {
     #[serde(default)]
     #[ts(skip)]
     pub handed_off_at: Option<i64>,
+    /// When Home ended the open turns of this job before HF Jobs' time limit (claimed before the stop requests,
+    /// so they are sent once, also across a Home restart).
+    #[serde(default)]
+    #[ts(skip)]
+    pub limit_stop_at: Option<i64>,
 }
 
 impl BurstRun {
@@ -350,6 +355,7 @@ async fn start(app: &App, session_id: Option<String>, pending: Pending) -> Resul
         pending: Some(pending),
         queued: vec![],
         handed_off_at: None,
+        limit_stop_at: None,
     };
     let created = hf(app, reqwest::Method::POST, &format!("/api/jobs/{namespace}"), Some(spec)).await.map_err(|e| {
         let text = format!("{e:#}");
@@ -642,9 +648,6 @@ const STUCK_LIMIT_MS: i64 = 2 * 3600 * 1000;
 /// How long a job waits on an open question before Home says that it keeps billing.
 const QUESTION_NOTICE_MS: i64 = 3600 * 1000;
 
-/// Sessions told that their job's time limit ended their turn (told once).
-static NEAR_LIMIT: std::sync::Mutex<std::collections::BTreeSet<String>> = std::sync::Mutex::new(std::collections::BTreeSet::new());
-
 /// A job that cannot stop yet: since when, and whether its session was told.
 struct Stuck {
     since: i64,
@@ -697,18 +700,22 @@ async fn tick(app: &App, stuck: &mut std::collections::HashMap<String, Stuck>) -
         if r.state != BurstState::Running || r.pending.is_some() || !app.runners.connected(&r.runner_id) {
             continue;
         }
-        // Near HF Jobs' time limit, an open turn or question is ended (its branches and files are saved at the
-        // turn end), so the session hands off on the next check instead of being cut off with the job.
-        if near_limit(&r) {
-            for s in sessions.iter().filter(|s| s.status.is_running() || s.open_question) {
+        // Near HF Jobs' time limit, open turns and questions are ended once (claimed in the record first; its
+        // branches and files are saved at the turn end), so the session hands off on a next check instead of
+        // being cut off with the job. Messages meanwhile go elsewhere (`needs_new_job`).
+        let open: Vec<&Session> = sessions.iter().filter(|s| s.status.is_running() || s.open_question).collect();
+        if near_limit(&r) && r.limit_stop_at.is_none() && !open.is_empty() {
+            update(app, &r.runner_id, |r| r.limit_stop_at = Some(now_ms())).await?;
+            for s in open {
                 tracing::info!("Burst {}: ending the turn of {} before the job's time limit", r.runner_id, s.id);
-                if NEAR_LIMIT.lock().unwrap().insert(s.id.clone()) {
-                    crate::sessions::notice_anywhere(app, &s.id, "This agent's Burst runner reaches its 24-hour limit within the hour: Launchpad stopped this turn so the session moves off it with its files. Send a message to continue it.").await;
-                }
-                if let Err(e) = app.runners.request(&r.runner_id, "POST", &format!("/api/sessions/{}/interrupt", s.id), None).await {
-                    tracing::warn!("Burst {}: stop {}: {e:#}", r.runner_id, s.id);
-                }
+                let text = match app.runners.request(&r.runner_id, "POST", &format!("/api/sessions/{}/interrupt", s.id), None).await {
+                    Ok((status, _)) if (200..300).contains(&status) => "This agent's Burst runner reaches HF Jobs' 24-hour limit within the hour: Launchpad stopped this turn so the session moves off it with its files. Send a message to continue it.".to_string(),
+                    Ok((_, body)) => format!("This agent's Burst runner reaches HF Jobs' 24-hour limit within the hour, and Launchpad could not stop this turn: {}. Stop it yourself so its files move off the runner in time.", error_of(&body)),
+                    Err(e) => format!("This agent's Burst runner reaches HF Jobs' 24-hour limit within the hour, and Launchpad could not stop this turn: {e:#}. Stop it yourself so its files move off the runner in time."),
+                };
+                crate::sessions::notice_anywhere(app, &s.id, &text).await;
             }
+            continue;
         }
         // An open question keeps the job (its answer goes to this process); say once that it keeps billing.
         if let Some(q) = sessions.iter().find(|s| s.open_question) {
@@ -824,7 +831,7 @@ mod tests {
     }
 
     fn run(created: i64, stopped: Option<i64>) -> BurstRun {
-        BurstRun { runner_id: "r".into(), job_id: None, namespace: "n".into(), flavor: "cpu-basic".into(), url: None, state: BurstState::Stopped, session_id: None, created_at: created, connected_at: None, stopped_at: stopped, cost_per_minute: 0.01, error: None, pending: None, queued: vec![], handed_off_at: None }
+        BurstRun { runner_id: "r".into(), job_id: None, namespace: "n".into(), flavor: "cpu-basic".into(), url: None, state: BurstState::Stopped, session_id: None, created_at: created, connected_at: None, stopped_at: stopped, cost_per_minute: 0.01, error: None, pending: None, queued: vec![], handed_off_at: None, limit_stop_at: None }
     }
 
     #[test]

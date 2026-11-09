@@ -396,8 +396,8 @@ pub async fn deliver_pending(app: &App, runner_id: &str) {
 pub const AWAY_GRACE_MS: i64 = 10 * 60_000;
 
 /// Home: every 30 s, sessions that still work, ask or wait for quota on a runner gone for `AWAY_GRACE_MS`
-/// become Interrupted with a note, so they continue elsewhere from their last handoff (a quota pause's waiting
-/// messages stay on that runner). A runner that comes back
+/// become Interrupted with a note, so they continue elsewhere from their last handoff (the note names the
+/// messages a quota pause held, which are not sent). A runner that comes back
 /// with the same generation replaces the record with its own.
 pub fn spawn(app: &App) {
     if app.paths.role != crate::role::Role::Home {
@@ -430,7 +430,12 @@ async fn interrupt_away(app: &App, away: &mut HashMap<String, i64>) {
             continue;
         }
         let name = runner_name(app, &r).await;
-        let during = if s.quota_pause.is_some() { "while this session was paused for quota (messages waiting there stay there)" } else { "during this turn" };
+        // Messages that waited for quota are in its trace; Home's record cannot deliver them.
+        let during = match s.quota_pause.as_ref().map(|p| p.messages.len()) {
+            Some(0) => "while this session was paused for quota".to_string(),
+            Some(n) => format!("while this session was paused for quota, with {n} message{} waiting that {} not sent (send {} again)", if n == 1 { "" } else { "s" }, if n == 1 { "was" } else { "were" }, if n == 1 { "it" } else { "them" }),
+            None => "during this turn".to_string(),
+        };
         let note = format!("{name} went offline {during}. Launchpad marked the session Interrupted after {} minutes: send a message to continue it on another runner from its last saved turn.", AWAY_GRACE_MS / 60_000);
         // The runner may have come back (and sent its record) while this check ran: then its record stands.
         let unchanged = |c: &crate::model::Session| c.generation == s.generation && c.runner_id == s.runner_id && open(c);
@@ -735,6 +740,9 @@ pub async fn place(app: &App, id: &str) -> Result<Place> {
         bail!("This session's Burst runner is reconnecting: try again in a minute.");
     }
     let name = runner_name(app, &r).await;
+    if (s.status.is_running() || s.open_question) && app.runners.connected(&r) {
+        bail!("{name} reaches HF Jobs' time limit soon and this session's turn is still open there: Launchpad ends it, then send this again (it continues elsewhere).");
+    }
     if s.status.is_running() || s.open_question {
         bail!(
             "{name} is offline and this session's turn is still open there. It continues elsewhere once {name} is back or after Launchpad marks it Interrupted ({} minutes after its runner left).",
