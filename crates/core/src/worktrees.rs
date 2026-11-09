@@ -616,24 +616,21 @@ pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, Stri
     text
 }
 
-/// Runs the owner-configured setup command of a project in a new worktree folder.
+/// Runs the owner-configured setup command of a project in a new worktree folder, in the session's jail and
+/// network capture with its lease (placeholders only), like the agent itself: never with the machine's
+/// variables, credentials or home folder.
 pub async fn run_setup(app: &App, project: &Project, folder: &str, sink: &crate::sessions::Sink, cancelled: &mut tokio::sync::watch::Receiver<bool>) -> Result<()> {
     anyhow::ensure!(!*cancelled.borrow(), "setup cancelled");
     let command = project.worktree_setup.trim();
     if command.is_empty() {
         return Ok(());
     }
+    let session = app.sessions.get(&sink.id).context("no such session")?;
+    let (env, jail) = crate::contain::auxiliary(app, &session, Path::new(folder)).await?.context("worktree setup commands run only in a session's jail")?;
     sink.emit(EventBody::Notice { text: format!("Running the worktree setup of {}: {command}", project.name) }).await;
     let started = std::time::Instant::now();
-    let mut cmd = if cfg!(windows) {
-        let mut c = crate::procs::child_command(&app.env, "powershell", Some(Path::new(folder)));
-        c.args(["-NoProfile", "-Command", command]);
-        c
-    } else {
-        let mut c = crate::procs::child_command(&app.env, "sh", Some(Path::new(folder)));
-        c.args(["-c", command]);
-        c
-    };
+    let mut cmd = crate::procs::child_command(&app.env, "sh", Some(Path::new(folder)));
+    cmd.args(["-c", command]).jail(jail).envs(env);
     cmd.process_tree().stdin(crate::exec::Io::Null).stdout(crate::exec::Io::Piped).stderr(crate::exec::Io::Piped).env("LAUNCHPAD_WORKTREE", folder).env("LAUNCHPAD_SOURCE_CHECKOUT", &project.path);
     let out = setup_output(&mut cmd, cancelled, Duration::from_secs(30 * 60), Some((app.sessions.clone(), sink.id.clone()))).await?;
     finish_setup(sink, command, started, out).await

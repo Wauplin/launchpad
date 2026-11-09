@@ -266,9 +266,6 @@ async fn discover(State(s): State<Ctx>) -> ApiResult<Vec<Discovered>> {
 }
 
 async fn patch_project(State(s): State<Ctx>, Path(id): Path<String>, Json(patch): Json<ProjectPatch>) -> ApiResult<Project> {
-    if s.auth.remote() && patch.worktree_setup.is_some() {
-        return Err(ApiError::bad_request("Edit worktree setup commands on the host while remote access is enabled"));
-    }
     let p = projects::get(&s.app, &id).await?.ok_or_else(|| ApiError::not_found("no such project"))?;
     if home_folder_change(&s, &p, "PATCH", Some(serde_json::to_value(&patch).map_err(|e| ApiError::bad_request(format!("{e}")))?)).await?.is_some() {
         return Ok(Json(projects::get(&s.app, &id).await?.ok_or_else(|| ApiError::not_found("no such project"))?));

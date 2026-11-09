@@ -28,7 +28,7 @@ import { SessionStatus } from "@/features/agents/SessionBits";
 import { useCodeSources } from "@/features/code/lib";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
-import { useConfig, useProject, useSessions } from "@/lib/queries";
+import { useProject, useSessions } from "@/lib/queries";
 import { useLayout } from "@/stores/layout";
 import { useNavigate } from "@tanstack/react-router";
 import { TerminalMenu } from "@/features/terminals/TerminalMenu";
@@ -132,7 +132,6 @@ export function ProjectPage() {
 function FolderSettings({ p }: { p: Project }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const remote = useConfig().data?.remote ?? true;
   const workspaces = useWorkspaces().data ?? [];
   const name = useSaveState();
   const description = useSaveState();
@@ -166,8 +165,8 @@ function FolderSettings({ p }: { p: Project }) {
         )}
       </SettingRow>
       {!p.is_temp && (
-        <SettingRow label="Worktree setup" hint={remote ? "Edit on the host while remote access is on." : `Runs in each new worktree before the agent starts (${navigator.platform.startsWith("Win") ? "PowerShell" : "sh -c"}, 30 min limit).`} info="$LAUNCHPAD_SOURCE_CHECKOUT points to this checkout. A failure is reported to the agent, which starts anyway. Without a command, new worktrees start with the committed files and the ignored files listed in .worktreeinclude." state={setup.state} error={setup.error}>
-          <input className="field-input min-w-0 flex-1 font-mono text-[12px]" aria-label="Worktree setup command" disabled={remote} placeholder="pnpm install --frozen-lockfile" {...field("setup", setup, (v) => ({ worktree_setup: v }), p.worktree_setup ?? "")} />
+        <SettingRow label="Worktree setup" hint="Runs in each new worktree before the agent starts, in the agent's jail with its tools (sh -c, 30 min limit)." info="$LAUNCHPAD_WORKTREE is the new worktree and $LAUNCHPAD_SOURCE_CHECKOUT the runner's copy of this folder. A failure is reported to the agent, which starts anyway." state={setup.state} error={setup.error}>
+          <input className="field-input min-w-0 flex-1 font-mono text-[12px]" aria-label="Worktree setup command" placeholder="pnpm install --frozen-lockfile" {...field("setup", setup, (v) => ({ worktree_setup: v }), p.worktree_setup ?? "")} />
         </SettingRow>
       )}
       {!p.is_temp && (
