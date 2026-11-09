@@ -4,19 +4,20 @@ Most settings are editable in **Settings** and saved as soon as they change. Set
 
 ## Files and folders
 
-| | Production | Development (`LAUNCHPAD_ENV=dev`) |
-| --- | --- | --- |
-| Port | `127.0.0.1:7317` | `127.0.0.1:7318` |
-| Configuration | `~/.config/launchpad/config.toml` | `~/.config/launchpad-dev/config.toml` |
-| Data | `~/.local/share/launchpad/` | `~/.local/share/launchpad-dev/` |
+| | Home | Runner | Development Home / runner (`LAUNCHPAD_ENV=dev`) |
+| --- | --- | --- | --- |
+| Port | `127.0.0.1:7317` | `127.0.0.1:7320` | `7318` / `7321` |
+| Configuration | `~/.config/launchpad/config.toml` | `~/.config/launchpad-runner/config.toml` | `~/.config/launchpad-dev/`, `~/.config/launchpad-runner-dev/` |
+| Data | `~/.local/share/launchpad/` | `~/.local/share/launchpad-runner/` | `~/.local/share/launchpad-dev/`, `~/.local/share/launchpad-runner-dev/` |
 
-The data folder contains:
+Home's data folder contains:
 
-- `state.db`: your data (sessions, events, drafts, Local PRs, suggestions, devices). Back it up.
+- `state.db`: your data (sessions, events, drafts, Local PRs, suggestions, devices, the vault). Home backs it up when `[home] backup` is set.
 - `cache.db`: the GitHub cache. Delete it at any time; it is rebuilt.
-- `uploads/`, `attachments/`: files attached to prompts.
+- `uploads/`: files attached to prompts, drafts, scheduled launches and routines.
+- `git/`: the Home Git mirrors. `blobs/`: plain-folder, knowledge base and handoff files, by hash.
 
-Task worktrees live in `<data folder>/worktrees/<folder id>/`, cloned from `<data folder>/repos/<folder id>/`. Home keeps its Git mirrors in `<data folder>/git/`.
+A runner's data folder holds copies and work in progress: task worktrees in `worktrees/<id>/`, cloned from `repos/<folder id>/`; plain and temporary folders; each session's harness home in `sessions/<id>/`; and `attachments/<session id>/`.
 
 ## Environment variables
 
@@ -25,7 +26,7 @@ Task worktrees live in `<data folder>/worktrees/<folder id>/`, cloned from `<dat
 | `LAUNCHPAD_ENV=dev` | Use the development port, configuration and data folders |
 | `LAUNCHPAD_PORT` | Use another port (for an isolated second daemon, together with another `HOME`) |
 | `LAUNCHPAD_TOKEN` | Credential for the CLI (defaults to the daemon's token file) |
-| `LAUNCHPAD_ROLE=runner` | Point CLI commands at a runner's folders |
+| `LAUNCHPAD_ROLE=runner` | Point CLI commands at the runner's folders and port |
 | `LAUNCHPAD_HOME_BACKUP` | Home: the backup to restore on a first boot, before `config.toml` exists |
 
 ## config.toml
@@ -33,23 +34,15 @@ Task worktrees live in `<data folder>/worktrees/<folder id>/`, cloned from `<dat
 The file is created on first start. Missing keys use these defaults:
 
 ```toml
-projects_root = "~/projects"        # the folders root: where Add folder looks for checkouts
-remove_published_worktree = false   # keep Local PR worktrees after publication
 presets = []                        # your own prompt instructions, managed in Settings → Presets
 
 [server]
-bind = "127.0.0.1"                  # local desktop and CLI listener
+bind = "127.0.0.1"                  # local listener (browsers, CLI)
 auto_tailnet = true                 # also listen on a discovered Tailscale IP
 # public_origin = "https://launchpad.example.com"  # see remote-access.md; restart after changes
 
-[commands]
-browser = "xdg-open"                # opens external links
-
 [github]
 poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
-
-[agents]
-notify = true                       # desktop notifications
 
 [worktrees]
 keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
@@ -61,14 +54,14 @@ git_email = ""
 time_zone = ""                      # IANA zone (Europe/Paris) of routines saved without a browser; empty: the server's
 
 [runner]
-boundary = "jail"                   # jail (bubblewrap) or vm: only inside a dedicated Local VM, where agents may use Docker
+boundary = "jail"                   # runner only: jail (bubblewrap), or vm inside a dedicated Local VM, where agents may use Docker
 ```
 
 Credentials and tools live in Home's database, never in `config.toml`: edit them in Settings → Credentials and tools. A profile's `login` names a harness login of Home's vault (default: the harness's first login).
 
 Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `bots` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later. Presets are Home's: a runner reads them from Home when it starts an agent, so a launch that names presets fails visibly while Home cannot answer.
 
-A bot with admin access to the Launchpad CLI can change a few shared settings when you ask it in chat: presets, `notify`, the GitHub poll interval and the number of worktrees kept. Each change shows in the chat as a **Changed** line with the value before and after. Every other setting stays yours.
+A bot with admin access to the Launchpad CLI can change a few shared settings when you ask it in chat: presets, the GitHub poll interval and the number of worktrees kept. Each change shows in the chat as a **Changed** line with the value before and after. Every other setting stays yours.
 
 The daemon watches the file and applies most changes live. Changes to `[server]` need a daemon restart.
 
@@ -89,7 +82,7 @@ id = "claude-work"
 name = "Claude · Work account"
 harness = "claude"
 billing = "subscription"
-env = { CLAUDE_CONFIG_DIR = "~/.claude-work" }   # a second subscription login
+login = "<vault login id>"          # a second subscription login in Home's vault
 
 [[profiles]]
 id = "claude-hf"
@@ -109,8 +102,8 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 
 | Command | Purpose |
 | --- | --- |
-| `launchpad daemon [--role home\|runner\|all]` | Run the daemon. `home` keeps records and runs no agents or terminals; `runner` runs agents in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`); `all` (default) does both in one process |
-| `launchpad connect <Home address> [--name <name>]` | Pair this machine as a runner of a Home: prints a code to approve in Home's Settings → Home and runners |
+| `launchpad daemon [--role runner]` | Run Home (the default: records, no agents or terminals), or a runner, which runs agents in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`). Runners run only on Linux. `--role home` is accepted; there is no role that does both |
+| `launchpad connect <Home address> [--name <name>]` | Pair this machine as a runner of a Home (Linux only): prints a code to approve in Home's Settings → Home and runners |
 | `launchpad status` | Print the daemon status as JSON |
 | `launchpad url` | Print a link that signs a browser in |
 | `launchpad pair` | Print a five-minute pairing link and QR code |

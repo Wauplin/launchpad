@@ -4,7 +4,7 @@ Launchpad integrates with Hugging Face in three ways:
 
 - **Open models**: run Claude Code on open models through Hugging Face Inference Providers.
 - **Traces**: Home copies the original conversation of every agent to its bucket, one file per trace.
-- **Spaces**: run a complete Launchpad in a private Hugging Face Space, usable from any browser.
+- **Spaces and Jobs**: run Home in a private Hugging Face Space, usable from any browser, and run agents on Burst (HF Jobs) when no runner is online.
 
 ## Open models through Inference Providers
 
@@ -28,47 +28,24 @@ Home copies the original conversation of every agent to its backup destination (
 - Home never reads the copies back: `state.db` in the backups stays the source. Settings → Hugging Face shows the layout and any copy error.
 - Traces can contain sensitive data: prompts, tool output and file paths. Keep the bucket private.
 
-## Run Launchpad in a Space
+## Run Home in a Space
 
-A private Docker Space runs a headless Launchpad with a small control plane in front of it: browser-only setup, `~/projects` kept live in a private bucket, encrypted credential backups and explicit updates.
+A private Docker Space runs Home: records, credentials, Home Git, the GitHub cache and the app. It runs no agents: they run on your runners, or on **Burst**, HF Jobs that Home starts from its own image when no runner is online. A private bucket mounted at `/backups` holds Home's backups and the trace copies.
 
 ```mermaid
 flowchart LR
     B[Your browser] -->|HF sign-in, private Space| S
     subgraph S[Private Docker Space]
-        C["Control plane<br/>setup, backups, updates"] --> L["launchpad daemon<br/>agents, terminals"]
+        G["Gateway<br/>setup page, sign-in"] --> L["launchpad daemon<br/>Home"]
     end
-    C -->|"projects/ (volume), space/ (latest state)"| K[("Private bucket<br/>&lt;account&gt;/launchpad")]
+    L -->|"backups, traces"| K[("Private bucket<br/>mounted at /backups")]
+    R[Runner: your Linux machine] -->|outbound WebSocket| S
+    L -->|starts when no runner is online| J[Burst: HF Job]
 ```
 
-### Setup
+- **Deploy**: one command with the hf CLI creates the private bucket and Space and deploys the latest release (see the [README](../README.md#try-it-yourself)). Run it again to update, or use **Update Home** in **Settings → Home and runners**.
+- **Setup**: the setup page leads from an empty Home to a first agent: Hugging Face sign-in, the credential key, GitHub, the Git identity of agents, an agent login and profile, workspaces, a first folder, then a runner and a first agent (both optional).
+- **Runners**: **Settings → Home and runners → Add a runner** shows a one-line install command for a Linux machine. See [Home and runners](home-and-runners.md#pair-a-runner).
+- **Backups**: Home backs up to the bucket every minute when something changed. Credentials are encrypted with your key; everything else stays readable.
 
-1. Create a private Docker Space from the template: duplicate the published template Space, or use `hf-space-template.zip` from the [`hf-space-channel`](https://github.com/Wauplin/launchpad/tree/hf-space-channel) branch. Keep it **Private**: everyone who can open the Space controls your agents.
-2. Choose paid CPU hardware and disable sleep if agents must run while the tab is closed. Free CPU Spaces sleep and lose running processes.
-3. Open the Space and sign in to Hugging Face: the page runs `hf auth login` and shows a link and a code. Launchpad saves the sign-in as a Space secret (refreshed automatically), creates the private `<your account>/launchpad` bucket (if missing), an encryption key and the `~/projects` volume, then restarts once (about a minute).
-4. **Connect your first agent**: your Hugging Face account (open models), Claude Code, Codex or OpenCode (their sign-in runs in a terminal on the page), or an API key. GitHub is offered next.
-5. **Clone your repositories** (optional): tick repositories to clone into `~/projects`. Each becomes a folder in Launchpad. When GitHub is connected, repositories with recent notifications come first, then your recently pushed ones. You can also type `owner/name`.
-
-A bar above the app shows the Space name and the backup state. **Space settings** opens accounts, folders (the same repository picker), backups, updates and Space actions.
-
-### Backups
-
-- `~/projects` is a Space volume on the bucket's `projects/` folder: files are written to the bucket as you work, with no snapshots. Everything in it is stored, including `node_modules`, `target` and `.env` files, in readable form.
-- Launchpad's state, settings and agent history (`~/.claude`, `~/.codex`, OpenCode, `~/.agents`) are saved every minute when they changed, as one latest copy; caches and logs are skipped. A final save runs when the Space stops.
-- Credentials are encrypted (AES-256-GCM) with a key that only the control plane can read.
-- Keep folders in `~/projects`: other folders and other files in the home folder are lost on restart.
-- If no backup succeeded for ten minutes, new launches and replies pause.
-- Spaces set up before the projects volume show **Move projects and restart** once. After the restart, the old backup is restored a last time and its projects are written into the volume. The old `backups/` and `credentials/` folders are no longer used; you can delete them once the new setup works.
-
-### Updates
-
-Every commit on `main` that passes the image build becomes a version. The Space checks for updates at startup and about every six hours; **Check now** in Space settings checks immediately. The Updates section shows the installed and available versions, with a link to the changes.
-
-**Update…** opens a confirmation that lists what will happen: the running agents are stopped (like the Stop button), open terminals close, a backup is saved and verified, the Space switches to the new version and restarts, and the stopped agents resume in their own sessions with “Continue the unfinished turn.”. Space settings shows each step while it runs, then the result: the new version, the resumed agents and any agent that could not resume (open it and click **Resume**).
-
-- If a step fails before the restart, the current version keeps running and the stopped agents resume on it.
-- If the new version does not start within five minutes, **Roll back** restores the previous image and its pre-update backup; agents that were not resumed yet resume on the previous version.
-- Agents resume only once, and not when the Space comes back more than one hour after the update.
-- Sessions paused for quota or open in a terminal block the update until you stop or close them.
-
-Developer details (layout, build, recovery without the app) are in [`deploy/hf-space/README.md`](../deploy/hf-space/README.md).
+See [deploy/hf-home/README.md](../deploy/hf-home/README.md) for the details: setup steps, keys, deploy options, updates and the runner script.

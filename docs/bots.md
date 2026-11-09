@@ -84,7 +84,7 @@ With a Git folder, each session works in a fresh worktree of Home Git. Without a
 The bot's page is a chat over the whole thread. It opens at the newest message; scroll up (or click **Load earlier messages**) to read older turns and older sessions. Each turn shows:
 
 - your message, and the bot's last answer;
-- one steps line ("12 steps · 3 min 10 s") that opens the list of steps, and **Open trace**, which opens the session in Agents with its full trace, terminal and files;
+- one steps line ("12 steps · 3 min 10 s") that opens the list of steps, and **Open trace**, which opens the session in Agents with its full trace and files;
 - its open questions and approval cards, answered in place;
 - the cards it wrote during the turn, at that turn: proposals, drafts and suggestions that wait for your click (**Send**, **Post**, **Review & publish**), **Changed** lines for its knowledge base notes and for what it changed directly (a note path opens the note in Knowledge, a bot, routine, launch, session or folder name opens its page), and a **Changes** card with the branch (**Merge** when it is safe, otherwise **Review changes**);
 - a line when the turn failed or was interrupted, with **Continue** on the last turn.

@@ -4,21 +4,24 @@
 
 - Rust 1.93 or newer (CI pins 1.93.1).
 - Node 24 (`web/.nvmrc`) and pnpm through Corepack (pinned in `web/package.json`).
-- The [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for the desktop shell. On Ubuntu: `libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev build-essential`.
+- Linux, with bubblewrap, for the dev runner (agents run only on Linux).
 
 ## Build and run
 
-Use the development environment: it has its own port (7318), configuration and data, so it never touches the production daemon (7317) and the agents it runs.
+Use the development environment: a dev Home and a dev runner with their own ports, configuration and data, so they never touch the production Home (7317), the production runner (7320) and the agents they run. There is no single-process mode: the dev Home runs no agents, and the dev runner runs them.
 
 ```sh
-(cd web && pnpm install && pnpm build)                # UI into web/dist
-LAUNCHPAD_ENV=dev cargo run -p launchpad -- daemon    # dev daemon on 127.0.0.1:7318
-LAUNCHPAD_ENV=dev cargo run -p launchpad -- url       # a link that signs a browser in
+(cd web && pnpm install && pnpm build)                                   # UI into web/dist
+LAUNCHPAD_ENV=dev cargo run -p launchpad -- daemon                       # dev Home on 127.0.0.1:7318
+LAUNCHPAD_ENV=dev cargo run -p launchpad -- daemon --role runner         # dev runner on 127.0.0.1:7321
+LAUNCHPAD_ENV=dev cargo run -p launchpad -- connect http://127.0.0.1:7318  # pair once
+LAUNCHPAD_ENV=dev cargo run -p launchpad -- url                          # a link that signs a browser in to the dev Home
 ```
 
+- Pair once: `connect` prints a code; approve it in the dev Home's **Settings → Home and runners**. The dev runner keeps the link after restarts. Its data is in `~/.local/share/launchpad-runner-dev`.
+- `url` with `LAUNCHPAD_ROLE=runner` signs a browser in to the dev runner's own window (its status page).
 - A debug daemon reads `web/dist` from disk: rebuild the UI without restarting the daemon. Release builds embed the UI.
-- Hot reload: `(cd web && pnpm dev)` serves the UI on http://localhost:5173 with the API proxied to the dev daemon. Sign in with the `url` link, using port 5173.
-- Desktop window: `cargo build -p launchpad-desktop && LAUNCHPAD_ENV=dev ./target/debug/launchpad-desktop`.
+- Hot reload: `(cd web && pnpm dev)` serves the UI on http://localhost:5173 with the API proxied to the dev Home. Sign in with the `url` link, using port 5173.
 - Isolated daemon: set `HOME` to a scratch folder and `LAUNCHPAD_PORT` to a free port.
 - Demo mode needs no daemon data: open `/?demo=1` on any running UI.
 
@@ -34,7 +37,7 @@ cargo run -p launchpad -- gen-types    # writes web/src/gen/
 
 ```sh
 node web/scripts/shots.mjs --demo --views 100,120,150,phone / /agents /bots     # demo data, no daemon
-node web/scripts/shots.mjs --views 120,phone / settings=/settings/workspace     # real data from the dev daemon (port 7318)
+node web/scripts/shots.mjs --views 120,phone / settings=/settings/workspace     # real data from the dev Home (port 7318)
 ```
 
 - Each file is `<out>/<prefix><view>-<name>.png` (default folder `/tmp/lp-shots`). A page is `/path` or `name=/path`.
@@ -55,6 +58,7 @@ cargo test
 (cd web && pnpm test:<name>)    # attachments, chat, code, composer, drafts, markdown,
                                 # operations, proposals, sessions, terminals, tour
 (cd web && pnpm ui-check)       # off-scale UI classes (not in CI)
+(cd deploy/hf-home && python -m unittest discover -s tests)   # in a venv with requirements.txt
 ```
 
 Install the pinned toolchain with `rustup toolchain install 1.93.1 --profile minimal --component clippy`.
@@ -76,17 +80,16 @@ Testing policy: keep tests few, fast and free of mocks. Add a test only for a sm
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
-- On pushes to `main`, pull requests and tags: Clippy, UI type checks and UI tests on Linux, and debug tests on Linux.
-- On tags only: release builds and tests on Ubuntu 22.04 (Linux x86_64 only; macOS and Windows jobs are paused), with downloadable packages kept 90 days. The build steps live in [`.github/workflows/build.yml`](../.github/workflows/build.yml), shared with releases.
+- On pushes to `main`, pull requests and tags: Clippy, UI type checks and UI tests, debug tests and the `deploy/hf-home` Python tests, on Linux only.
+- On tags and pushes to `main`: release builds on Ubuntu 22.04 (Linux x86_64). A push to `main` attaches its package to the `main-build` prerelease, named by commit (the 20 newest are kept); `deploy.sh --main` deploys it. The build steps live in [`.github/workflows/build.yml`](../.github/workflows/build.yml), shared with releases.
 
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) makes a release when started by hand (Actions → Release → Run workflow, on the branch to release). It tags the branch's latest commit `vYYYY.MM.DD.N` (UTC date; `N` counts that day's releases from 1, so several releases per day are possible), runs the release build and tests, and creates a GitHub release with generated notes and the `launchpad-linux-x86_64.tar.gz` package and its SHA-256 file. Runs wait for each other, so two runs never pick the same tag. The tag it pushes does not start `ci.yml` again.
-
-[`.github/workflows/hf-space.yml`](../.github/workflows/hf-space.yml) builds and publishes the Hugging Face Space image on every push to `main` (see [Hugging Face](hugging-face.md#updates)).
 
 ## Other components
 
 - **Chrome extension** (on hold, not built in CI or included in releases): `cd extension && pnpm install --frozen-lockfile && pnpm build` after installing the `web/` dependencies. See [extension/README.md](../extension/README.md).
-- **Hugging Face Space**: see [deploy/hf-space/README.md](../deploy/hf-space/README.md).
+- **Home in a Hugging Face Space**: see [deploy/hf-home/README.md](../deploy/hf-home/README.md). Test `deploy.sh` only with a throwaway `--space`, and delete that Space and its bucket afterwards.
+- **Local VM runner**: `packaging/local-vm.sh <Home address>` creates one with Multipass.
 - **Icons**: `packaging/icons/source.png` is the master. Regenerate exports with `python3 packaging/generate-icons.py`.
 - **New harness**: see [Harness adapters](harness-adapters.md).
 
@@ -96,6 +99,6 @@ For a plan with several steps, the skill [`.claude/skills/implement-review-docs`
 
 ## Conventions
 
-- [AGENTS.md](../AGENTS.md) has the rules for coding agents, including what automated checks must never do (publish to GitHub, restart the production daemon, change the machine's configuration).
+- [AGENTS.md](../AGENTS.md) has the rules for coding agents, including what automated checks must never do (publish to GitHub, restart the production Home or runner, change the machine's configuration).
 - UI words follow the [glossary](glossary.md).
 - Documentation is written in plain technical English, one line per paragraph.

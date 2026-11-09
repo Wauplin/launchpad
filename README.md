@@ -1,6 +1,6 @@
 # Launchpad
 
-Launchpad is a desktop app to launch, follow and review coding agents (Claude Code, Codex and OpenCode), with a fast local-first GitHub client built in. It runs on Linux, macOS and Windows, and works from a phone or any browser you pair with it.
+Launchpad is a web app to launch, follow and review coding agents (Claude Code, Codex and OpenCode), with a fast GitHub client built in. One **Home** keeps your records, credentials and branches. Agents run on **runners**: your Linux machines, a Local VM, or Burst jobs on Hugging Face. Use it from any browser or phone you pair with Home, and install it as an app (PWA).
 
 ![Today: questions, finished agents and other decisions, one row each](docs/images/today.webp)
 
@@ -21,9 +21,9 @@ The script checks your tools and sign-in, creates a private backup bucket and a 
 - **Every task in its own worktree.** Each agent works on its own Git branch, so its edits stay separate from your checkout. Merge the branch, review it as a local pull request or discard it.
 - **Your subscription, protected.** Launchpad reads the quota of your Claude and ChatGPT subscriptions, pauses agents before they use paid credits, and continues them when quota is available again.
 - **GitHub without waiting.** The inbox, issues, pull requests and reviews come from a local cache, so moving between them is instant.
-- **Nothing reaches GitHub without your click.** Comments and reviews written by agents, and pull requests prepared locally, stay on your machine until you publish them.
+- **Nothing reaches GitHub without your click.** Comments and reviews written by agents, and pull requests prepared locally, stay on Home until you publish them.
 - **One workspace at a time.** Group folders into workspaces such as "Work" and "Personal". A window shows one workspace; the others show only how many items wait in them.
-- **Use it from anywhere.** One daemon runs the agents. The desktop window, your phone and other browsers are clients of that daemon.
+- **Use it from anywhere.** Home keeps everything, so your laptop can sleep: Home moves a session to another runner, or to Burst, when you send it a message. Your browsers and phone are clients of Home.
 
 <table>
   <tr>
@@ -45,47 +45,47 @@ The script checks your tools and sign-in, creates a private backup bucket and a 
 | **Bots** | Agents that stay: a name, a job in `BOT.md`, one thread made of sessions that hand off by trace reference, shown as one chat with the bot's cards at their turn, notes in the knowledge base, and files with versions on Home. A folder is optional: a bot without one starts each session in a temporary folder and adds worktrees of the folders it needs. Ask Launchpad is a bot like the others: edit, replace or delete it, and it can propose new bots. [Read more](docs/bots.md) |
 | **Channels and Outbox** | Your own Telegram chat for notifications and messages to your bots, Slack, Discord and webhook channels whose agent drafts wait in Today for your click, and incoming hooks for scripts and CI. [Read more](docs/channels.md) |
 | **GitHub** | Inbox triage, issues, pull requests, diffs, reviews and merges, with local PRs and agent suggestions. Everything agents publish ends with an attribution line naming the harness or bot. [Read more](docs/github.md) |
-| **Terminals and files** | Integrated terminals for shells and harness TUIs, and a read-only file viewer with syntax colors. [Read more](docs/agents.md#terminals-and-files) |
+| **Files** | A read-only file viewer with syntax colors, for folders, worktrees and branches, also while the runner is away. [Read more](docs/agents.md#terminals-and-files) |
 | **Phone and remote access** | Pair a phone with a QR code, use it over Tailscale, expand Summary or Trace for more reading space; get notifications on the phone through Telegram. [Read more](docs/remote-access.md) |
-| **Home, runners and the jail** | [Private Space POC](deploy/hf-home/README.md): one Home keeps every record, credential and branch, with a guided setup that ends with a first agent, and bucket backup with encrypted credentials, plus harness and Hub CLIs for discovery and quota checks; runners run agents in a bubblewrap jail, with Home's logins and tokens added by a proxy (agents only see placeholders), or in a Local VM for Docker. A network capture below the HTTP libraries sends every connection of every tool through that proxy, so a tool works the same in the jail, a Local VM and Burst (**Check network** verifies a runner). When no runner is online, Home runs the session on **Burst**, an HF Job that holds no token and stops after each turn (monthly cap); sessions move between runners between turns. MCP servers are configured once on Home and reached from every runner through Home's gateway. Ready-made tools: GitHub CLI, Hugging Face CLI and Slack ([slackline](https://github.com/co42/slackline), read-only or write). [Read more](docs/home-and-runners.md) |
-| **Knowledge** | One knowledge base per workspace, the only memory agents have: notes and media that agents read as files and write through Launchpad, with the author of every change, diffs, Restore for 30 days, a gardener and a one-click import of Claude Code and Codex memories. [Read more](docs/knowledge.md) |
-| **Hugging Face** | Run Launchpad in a private Hugging Face Space. Home copies the original conversation of every agent to its bucket, one file per trace, readable in the bucket's trace viewer. [Read more](docs/hugging-face.md) |
+| **Home, runners and the jail** | One Home keeps every record, credential and branch (in a private Space, see [deploy/hf-home](deploy/hf-home/README.md), or self-hosted), with a guided setup and backups with encrypted credentials. Home runs no agents. Linux runners run agents in a bubblewrap jail, with Home's logins and tokens added by a proxy (agents only see placeholders), or in a Local VM for Docker. A network capture below the HTTP libraries sends every connection of every tool through that proxy, so a tool works the same in the jail, a Local VM and Burst (**Check network** verifies a runner). When no runner is online, Home runs the session on **Burst**, an HF Job that holds no token and stops after each turn (monthly cap). A session continues on its own runner, else on another runner, else on Burst; every turn is saved on Home. MCP servers are configured once on Home and reached from every runner through Home's gateway. Ready-made tools: GitHub CLI, Hugging Face CLI and Slack ([slackline](https://github.com/co42/slackline), read-only or write). [Read more](docs/home-and-runners.md) |
+| **Knowledge** | One knowledge base per workspace, the only memory agents have: notes and media that agents read as files and write through Launchpad, with the author of every change, diffs, Restore for 30 days, a gardener and a one-click import of Claude Code and Codex memories from a runner. [Read more](docs/knowledge.md) |
+| **Hugging Face** | Run Home in a private Hugging Face Space. Home copies the original conversation of every agent to its bucket, one file per trace, readable in the bucket's trace viewer. [Read more](docs/hugging-face.md) |
 | **Chrome extension** | Give an agent the browser tabs you choose. [Read more](extension/README.md) |
 
 ## Getting started
 
-Requirements: Git, the [GitHub CLI](https://cli.github.com/) and at least one coding agent CLI ([Claude Code](https://code.claude.com/), [Codex](https://developers.openai.com/codex) or [OpenCode](https://opencode.ai/)). Linux (Ubuntu 22.04 or newer) is the primary platform.
+The easiest Home is a private Hugging Face Space (see [Try it yourself](#try-it-yourself)). Its setup page leads you from an empty Home to a first agent.
 
-Build and install from source (Rust 1.93+, Node 24 and pnpm through Corepack, plus the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)):
+To host Home yourself on a Linux machine, build and install it from source (Rust 1.93+, Node 24 and pnpm through Corepack):
 
 ```sh
 git clone https://github.com/Wauplin/launchpad.git
 cd launchpad
-packaging/install.sh            # macOS: bash packaging/install.sh
-                                # Windows: powershell -ExecutionPolicy Bypass -File packaging/install.ps1
+packaging/install.sh
 ```
 
-Then open **Launchpad** from your applications. On the first start, a welcome dialog offers a short guided tour on demo data and a setup checklist that detects what is missing on your machine.
+This installs Home as a systemd user service (`launchpad daemon`). Home runs no agents: add a runner (a Linux machine), or turn on Burst on a Home in a Space. Open Home in a browser with `launchpad url`, then follow **Finish setup**.
 
-The [getting started guide](docs/getting-started.md) covers prebuilt packages, headless servers, the first run and your first agent.
+The [getting started guide](docs/getting-started.md) covers runners, prebuilt packages, headless servers, the first run and your first agent.
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md): install, onboarding tour, setup checklist and first agent.
+- [Getting started](docs/getting-started.md): install Home, add a runner, onboarding tour, setup and first agent.
 - [Today](docs/today.md): every decision that waits for you, one row each.
-- [Agents](docs/agents.md): profiles, launching, sessions, worktrees, scheduling, quotas, Ask Launchpad, terminals.
+- [Agents](docs/agents.md): profiles, launching, sessions, worktrees, scheduling, quotas, Ask Launchpad and files.
+- [Home and runners](docs/home-and-runners.md): where agents run, how sessions move and how work is saved on Home.
 - [GitHub](docs/github.md): inbox, pull requests, review, local PRs and agent suggestions.
-- [Remote access and phones](docs/remote-access.md): pairing, Tailscale, phone layout, notifications and headless servers.
-- [Hugging Face](docs/hugging-face.md): Launchpad in a Space, trace copies and Hugging Face models.
+- [Remote access and phones](docs/remote-access.md): pairing, Tailscale, phone layout, notifications and a self-hosted Home.
+- [Hugging Face](docs/hugging-face.md): Home in a Space, trace copies and Hugging Face models.
 - [Knowledge](docs/knowledge.md): the knowledge base of each workspace, the only memory agents have.
 - [Bots](docs/bots.md): persistent agents with one thread, instructions and notes.
 - [Channels and the Outbox](docs/channels.md): Telegram, Slack, Discord and webhook channels, the Outbox and incoming hooks.
 - [Configuration](docs/configuration.md): files, environment variables and the CLI.
-- [Architecture](docs/architecture.md): how the daemon, the UI and the agents fit together.
+- [Architecture](docs/architecture.md): how Home, runners, the UI and the agents fit together.
 - [Development](docs/development.md): build, run and check the code.
 
 ## Project status
 
-Launchpad is a personal tool, built for one user on their own machines. Every paired device has full access. Releases are dated snapshots (`vYYYY.MM.DD.N`), not stable versions, and there are no data migrations: expect breaking changes.
+Launchpad is a personal tool, built for one user. Home may run anywhere; agents run only on Linux. Every paired device has full access. Releases are dated snapshots (`vYYYY.MM.DD.N`), not stable versions, and there are no data migrations: expect breaking changes.
 
 Coding agents that work on this repository follow the rules in [AGENTS.md](AGENTS.md).

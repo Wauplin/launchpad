@@ -1,6 +1,6 @@
 # Agents
 
-An agent session is one conversation with a coding agent, in one folder. Launchpad starts it, streams its output, keeps its history in a local database and lets you answer, steer, resume or archive it.
+An agent session is one conversation with a coding agent, in one folder. Launchpad starts it on a runner, streams its output, keeps its history on Home and lets you answer, steer, resume or archive it.
 
 ![A Done session: the final message, next steps and Merge into main as the main action](images/session.webp)
 
@@ -14,7 +14,7 @@ A harness is the coding agent CLI that does the work. Launchpad drives each one 
 | Codex | `codex app-server` (JSON-RPC), one shared process | Subscription quota monitoring, background commands with a **Processes** tab, AI approval reviewer |
 | OpenCode | `opencode acp` (Agent Client Protocol) | Uses its own configuration and sign-in, USD cost reporting; no subscription quota monitoring |
 
-Native resume, model discovery and skills come from each harness. **Continue in TUI** opens the harness's own terminal UI on the same conversation, in an integrated terminal. To add a harness, see [Harness adapters](harness-adapters.md).
+Native resume, model discovery and skills come from each harness. To add a harness, see [Harness adapters](harness-adapters.md).
 
 ## Profiles
 
@@ -25,8 +25,8 @@ A profile is one way to run an agent: a harness, what pays for the work, an opti
 | Subscription | Claude Code with Claude Pro/Max, Codex with ChatGPT Plus/Pro | Quota monitor and quota protection |
 | Pay as you go | Claude Code with an API key or the Hugging Face router, Codex with an OpenAI API key, OpenCode | Optional cost limit per session and rolling spending limits per profile |
 
-- **Several accounts**: a profile that sets `CLAUDE_CONFIG_DIR` or `CODEX_HOME` uses another subscription login. Each login has its own quota meters.
-- **Works on**: each profile shows whether the harness is installed and signed in on this computer, with **Install** and **Sign in** buttons that run the official command in a visible terminal.
+- **Logins**: subscription logins live in Home's vault (**Settings → Credentials and tools**). A profile names its login, else it uses the harness's first one. Add several logins to use several accounts; each login has its own quota meters. Agents never use a machine's own sign-in.
+- **Login and runners**: each profile shows its login on Home (Home reads quotas with it and lends it to agents) and the runners that have the harness's CLI, with its version. A runner without the CLI takes none of the profile's sessions.
 - **Environment values** can use `~/`, `${NAME}` (a variable of your login shell) and `${LAUNCHPAD_MODEL}`. Sessions store only the profile ID, never the values.
 
 Profiles live in `config.toml` (see [Configuration](configuration.md#profiles)).
@@ -56,9 +56,9 @@ New launches ask the agent to end its first task with a short, self-contained su
 
 ## Temporary folders
 
-**Temporary folder** in the composer's folder menu starts the agent in a new, empty folder in Launchpad's data folder (`<data_dir>/tmp/`), outside your folders root. The agent is told that the folder is temporary, and how to list the workspace's folders and add a worktree of one with `launchpad work add-project`. The Folders page lists them under **Temporary folders**, one row each with its open agents, **Launch**, **⋯ → Delete files** and **Keep as folder**; **ⓘ** next to the title explains them.
+**Temporary folder** in the composer's folder menu starts the agent in a new, empty folder in the runner's data folder (`<data_dir>/tmp/`). The agent is told that the folder is temporary, and how to list the workspace's folders and add a worktree of one with `launchpad work add-project`. The Folders page lists them under **Temporary folders**, one row each with its open agents, **Launch**, **⋯ → Delete files** and **Keep as folder**; **ⓘ** next to the title explains them.
 
-Launchpad saves a temporary folder's files on Home at the end of every turn, except files listed in a `.gitignore` and nested Git repositories, so the session keeps its folder when it continues on another runner (for example a new Burst job). When you archive the last agent of a temporary folder, Launchpad removes it from the computer and from the folder lists; Home keeps its files 30 days, and **Resume** brings the folder back with them. After 30 days, Home deletes them and a resumed agent continues in an empty folder (the session says so). To keep the files for good, click **Keep as folder** in the session's Next steps (or on the Folders page) once the agent is done, and choose a name: the folder becomes a folder stored by Home under that name (a plain folder, or a Git folder when the agent created a Git repository in it), so agents run in it on any runner, and its sessions stay resumable. Files listed in a `.gitignore` are saved too from then on. To create a folder before launching, use **Add folder** instead.
+Launchpad saves a temporary folder's files on Home at the end of every turn, except files listed in a `.gitignore` and nested Git repositories, so the session keeps its folder when it continues on another runner (for example a new Burst job). When you archive the last agent of a temporary folder, Launchpad removes it from the runner and from the folder lists; Home keeps its files 30 days, and **Resume** brings the folder back with them. After 30 days, Home deletes them and a resumed agent continues in an empty folder (the session says so). To keep the files for good, click **Keep as folder** in the session's Next steps (or on the Folders page) once the agent is done, and choose a name: the folder becomes a folder stored by Home under that name (a plain folder, or a Git folder when the agent created a Git repository in it), so agents run in it on any runner, and its sessions stay resumable. Files listed in a `.gitignore` are saved too from then on. A temporary folder that holds a Git repository is not saved on Home: it stays on its runner (the session cannot move, and Archive keeps the folder). Keep it as a folder while its runner is connected. To create a folder before launching, use **Add folder** instead.
 
 ## Following agents
 
@@ -82,7 +82,7 @@ stateDiagram-v2
     Running --> QuotaPaused: quota exhausted
     QuotaPaused --> Running: quota is back
     Running --> Stopped: Stop
-    Running --> Interrupted: daemon restart
+    Running --> Interrupted: runner restart or gone
     Running --> Failed: error
     Done --> Running: message
     Stopped --> Running: Resume
@@ -99,8 +99,10 @@ Each session has three views:
 
 On a laptop, the session header has two rows:
 
-- **First row**: the title, the status and one main action that depends on the state: **Merge into &lt;base&gt;** when the merge is safe (the same check as in [Today](today.md)), otherwise **Stop**, **Answer**, **Fix merge**, **Review changes**, **Archive**, **Resume** or **Re-attach**. When a merge stopped (a conflict or a failure), an amber band under the header says **Not merged into &lt;base&gt;** with the reason, and **Fix merge** is the main action: it sends the problem to the agent, which rebases, resolves and asks to merge again. Once the branch is merged, in a Local PR or in a GitHub pull request, and nothing is uncommitted, **Archive** replaces **Review changes** (the changes stay in the Changes tab). Then **Terminal** and **⋯**. When the header shows **Merge into &lt;base&gt;**, the next steps in Summary do not repeat it.
+- **First row**: the title, the status and one main action that depends on the state: **Merge into &lt;base&gt;** when the merge is safe (the same check as in [Today](today.md)), otherwise **Stop**, **Answer**, **Fix merge**, **Review changes**, **Archive**, **Resume** or **Re-attach**. When a merge stopped (a conflict or a failure), an amber band under the header says **Not merged into &lt;base&gt;** with the reason, and **Fix merge** is the main action: it sends the problem to the agent, which rebases, resolves and asks to merge again. Once the branch is merged, in a Local PR or in a GitHub pull request, and nothing is uncommitted, **Archive** replaces **Review changes** (the changes stay in the Changes tab). Then **⋯**. When the header shows **Merge into &lt;base&gt;**, the next steps in Summary do not repeat it.
 - **Second row**: the view tabs, chips for run settings, paid usage and cost limit only when they differ from the defaults, and one muted line with the bot, the folder, the worktree, the Local PR, the profile and the context use. **ⓘ** shows the folder path, profile, model, usage and start time.
+
+Next to the status, **Saving** means the runner is saving the turn's work on Home; **Not on Home** (amber) means the save failed and the runner retries (see [Saved on Home](home-and-runners.md#saved-on-home)).
 
 **⋯** holds the other actions, among them **Launch here** (a new draft in the same folder with this session's trace as context), **Jump to the final message** (in the trace), **Mark as unread**, **Use trace as context** and **Archive**. On a phone, **⋯** also has **Rename** and **Jump to the final message**, and **Launch here** is in the session details.
 
@@ -138,11 +140,11 @@ Launchpad adds it itself, so no bot or prompt has to:
 - **Direct GitHub posts** of a contained agent (`gh` or the GitHub API with a token Home lends, as bots with GitHub access do) get it from the runner proxy: pull request and issue bodies, comments, and reviews with text. Inline review comments and approvals without text stay as written.
 - **Claude Code** writes it instead of its own "Generated with Claude Code" line in pull request descriptions (its `attribution.pr` setting). Commit trailers keep Claude Code's default.
 
-Comments and reviews get a `---` rule before the line; descriptions and chat messages only a blank line. A body that already ends with an attribution line (italic or not, or Claude Code's own line) gets it replaced, never doubled. Agents are told the line too, and end what they publish elsewhere with it. Agents outside a jail (macOS, Windows) post with the machine's own GitHub login, so only their suggestions, Local PRs and Outbox messages get the line.
+Comments and reviews get a `---` rule before the line; descriptions and chat messages only a blank line. A body that already ends with an attribution line (italic or not, or Claude Code's own line) gets it replaced, never doubled. Agents are told the line too, and end what they publish elsewhere with it.
 
 ## Worktrees and merging
 
-In a Git folder, each new agent gets its own worktree and branch, created by Launchpad before the agent starts. The launch returns as soon as the worktree exists locally; in the background, before the agent starts, Launchpad tries to fast-forward the base from its configured upstream (or the same branch on `origin`) and moves the new, untouched task branch to it. Dirty or busy base checkouts stay unchanged. Remote failures leave the local base usable and appear in the worktree card and session trace.
+In a Git folder, each new agent gets its own worktree and branch on its runner, created before the agent starts. The launch returns at once; in the background, before the agent starts, Home refreshes its mirror from the folder's remote and the runner clones the worktree from Home Git. Remote failures leave the base usable and appear in the worktree card and session trace.
 
 ```mermaid
 flowchart LR
@@ -159,11 +161,11 @@ flowchart LR
     H --> E
 ```
 
-- Every agent in a Git folder works in a fresh worktree cloned from Home Git before it starts; your own checkouts are never used. Its branch (`lp/…`) goes back to Home at the end of every turn, and running worktrees are snapshotted to Home every five minutes.
+- Every agent in a Git folder works in a fresh worktree cloned from Home Git before it starts; your own checkouts are never used. Its branch (`lp/…`) goes back to Home at the end of every turn, and every file of the worktree, committed or not, is snapshotted to Home at each turn end and every five minutes. So Changes, Files, Merge and Create Local PR work from Home while the runner sleeps.
 - **When done** is remembered per folder: **Keep branch for review** (default), **Open a Local PR** or **Merge into &lt;base&gt;**. With **Open a Local PR**, the agent runs `launchpad work finish` when it is done: Launchpad opens a Local PR of its branch on Home, and the agent sets its title and description. You review and publish it.
 - **Read only (questions, audits)** is for an agent that only reads the code: asking a question, an audit, a review. It is chosen per launch and never remembered for the folder. The agent still gets its own worktree (it may build and run the code) but is told not to change, commit or push files and to give its answer in its final message; `launchpad work finish` refuses. When you archive the agent, Launchpad deletes the worktree and its branch if nothing changed (no commit, no changed or new file); otherwise they are kept like any other worktree, so nothing is lost. It is an instruction, not a sandbox: the files stay writable.
-- **Merge** asks you to confirm (on the laptop and on the phone) and names the branch and the base. It waits while another action of the worktree card runs. Merges wait until the agents are idle and the worktree is clean, push the branch to Home, then Home pushes the branch's commit to the base branch on the folder's remote and fast-forwards the base branch on Home. If the base branch moved, the agent rebases first. Launchpad never stashes, resets or force-pushes. When the remote refuses the push, nothing is merged: the worktree card and the session trace show the reason. A merge the agent asked for (`launchpad work finish`) that fails goes back to the agent once on its own (an automatic **Fix merge**, usually enough for a race on the base branch); a second failure waits for you.
-- A per-folder **Worktree setup** command prepares new worktrees (dependencies).
+- **Merge** asks you to confirm (on the laptop and on the phone) and names the branch and the base. It waits while another action of the worktree card runs. Merges wait until the agents are idle and the worktree is clean, push the branch to Home, then Home checks that the branch is still at the commit you reviewed and pushes the branch's commit to the base branch on the folder's remote and fast-forwards the base branch on Home. If the base branch moved, the agent rebases first. Launchpad never stashes, resets or force-pushes. When the remote refuses the push, nothing is merged: the worktree card and the session trace show the reason. A merge the agent asked for (`launchpad work finish`) that fails goes back to the agent once on its own (an automatic **Fix merge**, usually enough for a race on the base branch); a second failure waits for you.
+- A per-folder **Worktree setup** command prepares new worktrees (dependencies). It runs in the session's jail, with its lease and network capture.
 - Worktrees of archived agents are removed after a retention limit (`[worktrees] keep`, in **Settings → Disk cleanup**), once Home has their branch; uncommitted files go to a `lp-scratch/…` branch first. **Resume** clones the folder again.
 - Home keeps every previous tip of a Launchpad branch for 30 days: the folder page lists them under **Launchpad branches**, with **Restore**.
 
@@ -206,12 +208,12 @@ In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or b
 
 ## Workspaces
 
-Workspaces are yours to define, for example "Work" and "Personal". There is no default workspace: the setup checklist asks you to create at least one before you add or clone a folder, and Home then always keeps at least one. Every folder belongs to exactly one workspace, chosen when you add, clone or create it, and its agents, schedules, crons and inbox threads follow it. A window shows one workspace at a time: every list, count, badge and suggestion follows it, including `#` and `@` in prompts and the folders of **Add context**.
+Workspaces are yours to define, for example "Work" and "Personal". There is no default workspace: **Finish setup** asks you to create at least one before you add or clone a folder, and Home then always keeps at least one. Every folder belongs to exactly one workspace, chosen when you add, clone or create it, and its agents, schedules, crons and inbox threads follow it. A window shows one workspace at a time: every list, count, badge and suggestion follows it, including `#` and `@` in prompts and the folders of **Add context**.
 
 - **Rail**: the column of squares at the left edge, one per workspace. Click a square to show that workspace in this window. Other workspaces show only the count of their Today list. **+** creates a workspace.
 - **Workspace menu**: the workspace name at the top of the sidebar. It offers **Rename**, **Open in a new window** (to see two workspaces side by side), **Workspace settings**, **New workspace** and **Delete**. Only an empty workspace can be deleted, and never the last one.
 - Move a folder with **Move to …** in its menu or in its settings.
-- Desktop and Telegram notifications name the workspace, and opening one shows that workspace.
+- Telegram notifications name the workspace, and opening one shows that workspace.
 
 To use the same repository in two workspaces, clone it again from the other workspace: it becomes a second folder (`<name>-<workspace>`) with its own agents, Local PRs and settings. A temporary folder joins the workspace of the window, so launch it from a workspace.
 
@@ -219,11 +221,11 @@ Folders without a workspace appear in the **Unassigned folders** card on the Fol
 
 ## Terminals and files
 
-- **Terminals**: the dock at the bottom runs shells and harness TUIs owned by the daemon. Open one from any **Terminal** button or with `Ctrl+T` (`Cmd+T`). Several devices can watch the same terminal. Shell snippets in agent messages have **Run in terminal**.
-- **Files**: a read-only file browser for folders, worktrees, branches and commits, with syntax colors, Markdown and HTML previews, search and **Download**. Select lines to add them as context for an agent. On the phone, the tree and search open from the folder button in the title bar.
+- **Files**: a read-only file browser for folders, worktrees, branches and commits, with syntax colors, Markdown and HTML previews, search and **Download**. Select lines to add them as context for an agent. On the phone, the tree and search open from the folder button in the title bar. When a session's runner is away, Files shows its worktree from Home (see [Files on Home](home-and-runners.md#files-on-home)).
+- **Terminals**: terminals run on runners, next to the agents. Home runs none, so Home's windows show no **Terminal** buttons.
 
 ![Files](images/files.webp)
 
 ## Notifications
 
-Desktop and Telegram notifications report finished turns, failures, unexpected interruptions and automatic quota stops and resumptions. Questions, manual stops and archives are silent. A window that you are actively using suppresses notifications for the session it shows.
+Notifications come only through Telegram (see [Channels](channels.md)). They tell you when a turn ends, fails or is cut off, and when quota stops or resumes an agent. Questions, manual stops and archives are silent. A window that you are actively using suppresses notifications for the session it shows.
