@@ -242,6 +242,23 @@ pub async fn after_push(app: &App, project_id: &str, before: &BTreeMap<String, S
     }
     crate::home_backup::changed();
     browse_stale(project_id);
+    // A deleted branch (Discard, cleanup) takes its merge record with it (`worktrees::merge_on_home`).
+    let deleted: Vec<String> = changed.iter().filter(|b| !after.contains_key(&format!("refs/heads/{b}"))).cloned().collect();
+    if !deleted.is_empty() {
+        let project = project_id.to_string();
+        let pruned = app
+            .state_db
+            .call(move |c| {
+                for branch in &deleted {
+                    c.execute("DELETE FROM branch_merge WHERE project_id = ?1 AND branch = ?2", [&project, branch])?;
+                }
+                Ok(())
+            })
+            .await;
+        if let Err(e) = pruned {
+            tracing::warn!("merge records of deleted branches: {e:#}");
+        }
+    }
     app.bus.publish("home_git", "pushed", serde_json::json!({"project_id": project_id, "branches": changed, "session_id": session}));
     for branch in &changed {
         if let Some(head) = after.get(&format!("refs/heads/{branch}"))

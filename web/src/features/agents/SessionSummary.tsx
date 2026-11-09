@@ -166,7 +166,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   if (lastCommand) metadata.push([lastCommand.result ? "Last command" : s.status === "stopped" ? "Cut off" : "Last command", `${lastCommand.summary}${lastCommand.result?.exit_code != null ? ` · exit ${lastCommand.result.exit_code}` : ""}`]);
   const run = async (action: () => Promise<unknown>) => { setBusy(true); try { await action(); } catch (e) { toastError(e); } finally { setBusy(false); } };
   const openPr = () => void run(async () => {
-    const p = localPr ?? await api.post<Predraft>("/api/predrafts", { cwd: s.cwd, title: s.title });
+    const p = localPr ?? await api.post<Predraft>(`/api/predrafts?session=${encodeURIComponent(s.id)}`, { cwd: s.cwd, title: s.title });
     localStorage.setItem(`launchpad.session-predraft.${s.id}`, p.id);
     await navigate({ to: "/predrafts/$id", params: { id: p.id } });
   });

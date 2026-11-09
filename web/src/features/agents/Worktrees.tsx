@@ -13,6 +13,7 @@ import { TerminalMenu } from "@/features/terminals/TerminalMenu";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { isPhone } from "@/lib/phone";
+import { useStatus } from "@/lib/queries";
 import { ActionButton } from "@/components/ActionButton";
 
 export function useSessionWorktrees(sessionId: string) {
@@ -86,6 +87,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const localPrs = useLocalPrs();
+  const home = useStatus().data?.role === "home";
   const base = w.base_branch;
   const running = !!session && ["starting", "working", "background"].includes(session.status);
   // On Home, `session` sends the request to the runner that holds the worktree.
@@ -120,9 +122,9 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
     text = parts.join(" · ");
   }
   // Its runner is away, or its folder is gone: Home shows the branch it holds, and Merge and Create Local PR run
-  // on Home.
+  // on Home (a runner's own window cannot: it has no folder and no Home Git).
   const away = i.away;
-  const onHome = w.state === "active" || w.state === "removed";
+  const onHome = w.state === "active" || (w.state === "removed" && (home || !!away));
   // Merged (by the worktree or its Local PR): no Local PR to create or open, nothing to discard.
   const merged = isMergedWorktree(i, localPrs);
   const canMerge = merge && onHome && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id && !!i.head;
