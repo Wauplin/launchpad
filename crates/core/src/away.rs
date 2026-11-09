@@ -131,11 +131,12 @@ async fn records_sent(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> 
     Ok(rows.iter().filter_map(|j| serde_json::from_str::<TaskWorktree>(j).ok()).filter(|w| w.sessions.iter().any(|s| s == session_id)).collect())
 }
 
-/// Home: stores a worktree record a runner sent, unless its session runs elsewhere now (it moved on). The record
-/// of a worktree whose sessions are all archived goes: their away views use the last handoff.
+/// Home: stores a worktree record a runner sent, only when its session is one Home placed there and runs there
+/// now (not moved on). The record of a worktree whose sessions are all archived goes: their away views use the
+/// last handoff.
 pub(crate) async fn apply_replica(app: &App, runner_id: &str, n: u64, w: TaskWorktree) -> Result<()> {
     let current = w.sessions.iter().rev().find_map(|id| app.sessions.get(id));
-    let fresh = current.is_none_or(|s| s.runner_id.as_deref() == Some(runner_id));
+    let fresh = current.is_some_and(|s| s.runner_id.as_deref() == Some(runner_id));
     let gone = fresh && archived(app, &w);
     let (runner, id, json) = (runner_id.to_string(), w.id.clone(), serde_json::to_string(&w)?);
     app.state_db
