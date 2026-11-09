@@ -2,7 +2,7 @@
 import type { MessageContext } from "@/gen/MessageContext";
 import { Icon, type IconName } from "@/components/Icon";
 import { SkillChips } from "@/features/launch/SkillChips";
-import { AddContextMenu } from "@/features/launch/AddContextMenu";
+import { AddContextMenu, type PresetPick } from "@/features/launch/AddContextMenu";
 import { useProjects, useSession, useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
 
@@ -13,8 +13,8 @@ export function hasMessageContext(context: MessageContext): boolean {
 
 type PickerProps = { sessionId: string; value: MessageContext; onChange: (value: MessageContext) => void; disabled: boolean };
 
-/** The "+" icon of the message box: opens the Add context menu (folders, GitHub links, agent traces, recent contexts). */
-export function MessageContextButton({ sessionId, value, onChange, disabled }: PickerProps) {
+/** The "+" icon of the message box: opens the Add context menu (folders, GitHub links, agent traces, presets, recent contexts). */
+export function MessageContextButton({ sessionId, value, onChange, disabled, presets }: PickerProps & { presets?: PresetPick }) {
   const sessions = useSessions().data ?? [];
   const session = useSession(sessionId);
   const scope = useScope();
@@ -38,7 +38,7 @@ export function MessageContextButton({ sessionId, value, onChange, disabled }: P
     }
     if (recent.length >= 6) break;
   }
-  return <AddContextMenu icon disabled={disabled} projects={available} recent={recent} sessions={sessions.filter((s) => s.id !== sessionId && scope.hasSession(s))} selectedTraces={value.agent_traces}
+  return <AddContextMenu icon disabled={disabled} projects={available} recent={recent} sessions={sessions.filter((s) => s.id !== sessionId && scope.hasSession(s))} selectedTraces={value.agent_traces} presets={presets}
     onProject={(p) => addProject(p.id)}
     onGitHub={(g) => { if (!value.github_refs.some((r) => r.url === g.url)) onChange({ ...value, github_refs: [...value.github_refs, g] }); }}
     onToggleTrace={(trace) => onChange({ ...value, agent_traces: value.agent_traces.some((t) => t.session_id === trace.session_id) ? value.agent_traces.filter((t) => t.session_id !== trace.session_id) : [...value.agent_traces, trace] })} />;

@@ -46,7 +46,7 @@ import { Sheet } from "@/mobile/Sheet";
 import { WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
 import { usePhone } from "@/lib/phone";
 import { PhoneBar } from "@/mobile/PhoneHeader";
-import { PresetButton, PresetChips, usePresets } from "./MessagePresets";
+import { PresetChips, usePresets } from "./MessagePresets";
 import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextChips } from "./MessageContext";
 import { PromptField } from "@/features/launch/PromptField";
 import { withPresets } from "@/lib/presets";
@@ -147,8 +147,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
           }}
           placeholder={placeholder}
         />
-        {!ask && <MessageContextButton sessionId={sessionId} value={context} onChange={setContext} disabled={disabled || busy || reading} />}
-        {!ask && <PresetButton surface={presetSurface} selected={presets} onChange={setPresets} disabled={disabled || busy || reading} />}
+        {!ask && <MessageContextButton sessionId={sessionId} value={context} onChange={setContext} presets={{ presets: allPresets, selected: presets, onChange: setPresets }} disabled={disabled || busy || reading} />}
         <button className="iconbtn" title={`Attach files or images (you can also drop files${acceptsImages ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
           <Icon name="clip" size={14} />
         </button>

@@ -66,7 +66,7 @@ export const launch: Chapter = {
     {
       id: "launch.options", anchor: "composer.options",
       title: "Profile and options",
-      body: "After where it runs, this line shows the profile (which agent, and how it is paid), then only what differs from the defaults: permission mode, presets, paid usage. Click it to change them. Paid usage after the included quota is off unless you turn it on.",
+      body: "After where it runs, this line shows the profile (which agent, and how it is paid), then only what differs from the defaults: permission mode, paid usage. Click it to change them. Paid usage after the included quota is off unless you turn it on.",
     },
     {
       id: "launch.go", anchor: "composer.launch",

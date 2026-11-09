@@ -43,6 +43,7 @@ import { useLayout } from "@/stores/layout";
 import { ProjectPicker } from "./ProjectPicker";
 import { SkillChips } from "./SkillChips";
 import { AddContextMenu } from "./AddContextMenu";
+import { PresetChips } from "@/features/agents/MessagePresets";
 import { DelaySelector, conditionsError } from "./DelaySelector";
 import { CronSelector, DEFAULT_CRON, type CronDraft } from "./CronSelector";
 import { itemIcon, PromptField } from "./PromptField";
@@ -480,7 +481,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const whenDoneText = spec.worktree?.when_done === "merge" ? `merge into ${baseLabel}` : spec.worktree?.when_done === "local_pr" ? "Local PR when done" : "keep branch";
   const whereLine = browserOnly ? null : worktreeMode ? (pushToPr ? `PR #${pushToPr.number} · pushes to the PR` : `New worktree from ${baseLabel} · ${whenDoneText}`) : spec.target.kind === "temp" ? "Temporary folder" : runIn ? runIn.charAt(0).toUpperCase() + runIn.slice(1) : null;
   const hasChips = (spec.agent_traces ?? []).length > 0 || spec.github_refs.length > 0 || (spec.skills ?? []).length > 0 || (spec.files ?? []).length > 0 || spec.context_projects.length > 0;
-  const presetLabels = agentPresets.filter((p) => spec.presets.includes(p.id)).map((p) => p.label);
 
   return (
     <aside data-tour="composer" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${!embedded && isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${embedded ? "absolute inset-0 z-40 w-full!" : overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
@@ -543,6 +543,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                 const traces = s.agent_traces ?? [];
                 return { ...s, agent_traces: traces.some((t) => t.session_id === trace.session_id) ? traces.filter((t) => t.session_id !== trace.session_id) : [...traces, trace] };
               })}
+              presets={{ presets: agentPresets, selected: spec.presets, onChange: (ids) => set((s) => ({ ...s, presets: ids })) }}
             />
             <button className={isPhone ? "btn btn-ghost text-[13px]" : "btn btn-sm btn-ghost"} disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. ${ATTACH_LIMITS}`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} />{isPhone ? "Attach files or images" : "Attach"}</button>
           </div>
@@ -628,6 +629,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           ))}
         </div>}
 
+        <PresetChips selected={spec.presets} onChange={(ids) => set((s) => ({ ...s, presets: ids }))} disabled={launching} />
+
         {missingProfile && <div className="rounded-card bg-attn-soft px-3 py-2 text-[12px] text-attn">The profile {spec.profile} no longer exists. Pick another profile in the options.</div>}
         {role === "home" && <OutdatedRunnerNotice spec={spec} />}
         {!profiles.length && <div className="rounded-card bg-attn-soft px-3 py-2 text-[12px] text-attn">No profile yet. A profile says which harness runs the agent and what pays for it. <Link to="/settings/profiles" className="font-semibold underline">Add one in Settings → Profiles</Link>.</div>}
@@ -646,7 +649,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {harness?.capabilities.permission_modes && spec.permission_mode && spec.permission_mode !== "yolo" && <Token>{spec.permission_mode === "auto" ? "Auto approval" : "Ask for approval"}</Token>}
           {spec.runner_id && <Token warn={launchRunners.some((r) => r.runner.id === spec.runner_id && r.compat === "outdated")} title="The runner this launch goes to">on {runnerName(launchRunners, spec.runner_id)}</Token>}
           {toolsOff.length > 0 && <Token title={`Off for this launch: ${toolsOff.map((t) => t.name).join(", ")}`}>{toolsOff.length} tool{toolsOff.length === 1 ? "" : "s"} off</Token>}
-          {presetLabels.map((l) => <Token key={l}>{l}</Token>)}
           {scheduled && <Token warn title="Starts when all start conditions are met">start: {conditions.length} condition{conditions.length === 1 ? "" : "s"}</Token>}
           {cron && <Token warn title={`Cron: ${cron.schedule}`}>routine · {describeCron(cron.schedule)}</Token>}
           {(payg || spec.allow_paid_usage || (harness && !harness.capabilities.quota)) && <Token warn={payg || spec.allow_paid_usage} title={billingText}>{payg ? "pay as you go" : spec.allow_paid_usage ? "paid usage on" : "provider billing"}</Token>}
@@ -782,17 +784,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               )}
             </Popover>
           </OptionRow>}
-          <OptionRow label="Presets" end={<button className="ml-1 font-normal text-teal-ink hover:underline" onClick={() => void navigate({ to: "/settings/presets" })}>Edit</button>}>
-            <div className="flex flex-wrap gap-1.5">
-              {agentPresets.length > 0 && <Choices label="Presets">
-                {agentPresets.map((p) => {
-                  const on = spec.presets.includes(p.id);
-                  return <Choice key={p.id} active={on} title={p.text} onClick={() => set((s) => ({ ...s, presets: on ? s.presets.filter((x) => x !== p.id) : [...s.presets, p.id] }))}>{p.label}</Choice>;
-                })}
-              </Choices>}
-              {agentPresets.length === 0 && <span className="pt-1.5 text-[12px] text-ink-3">No preset.</span>}
-            </div>
-          </OptionRow>
           {!supportsCost && harness?.capabilities.cost && <OptionRow label="Cost management"><span className="text-[12px] text-attn">{costUnavailableMessage}</span></OptionRow>}
           {supportsCost && <OptionRow label="Cost limit">
             <span className="grid gap-1">
