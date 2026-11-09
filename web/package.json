@@ -19,6 +19,7 @@
     "test:drafts": "node --experimental-strip-types --test tests/draftPersistence.test.mjs",
     "test:tour": "node --test tests/tour.test.mjs",
     "shots": "node scripts/shots.mjs",
+    "ui-check": "node scripts/ui-check.mjs",
     "lint:hooks": "oxlint -A all -D react-hooks/rules-of-hooks src"
   },
   "dependencies": {
