@@ -174,10 +174,40 @@ async fn answer(r: reqwest::RequestBuilder) -> Result<serde_json::Value> {
     Ok(v)
 }
 
+/// Attached files Home confirmed, by session: a later handoff names them by hash only (`send`).
+static ATTACHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>> = std::sync::LazyLock::new(Default::default);
+
+/// Sends a handoff to Home. Attached files Home already confirmed for the session go by hash only; if Home lost
+/// one, it refuses and the next send carries them all.
+async fn send(app: &App, id: &str, h: &Handoff) -> Result<()> {
+    let known = ATTACHED.lock().unwrap().get(id).cloned().unwrap_or_default();
+    let mut h = h.clone();
+    let mut sent = std::collections::HashSet::new();
+    for f in &mut h.attachments {
+        let sha = hex::encode(Sha256::digest(base64::engine::general_purpose::STANDARD.decode(&f.data)?));
+        if known.contains(&sha) {
+            f.data.clear();
+            f.sha256 = Some(sha.clone());
+        }
+        sent.insert(sha);
+    }
+    let result = answer(to_home(app, reqwest::Method::POST, &format!("/api/handoff/{id}"))?.json(&h)).await;
+    let mut attached = ATTACHED.lock().unwrap();
+    match result {
+        Ok(_) => {
+            attached.insert(id.to_string(), sent);
+        }
+        Err(_) => {
+            attached.remove(id);
+        }
+    }
+    result.map(|_| ())
+}
+
 /// Sends a handoff to Home.
 pub async fn upload(app: &App, id: &str, is_final: bool) -> Result<()> {
     let h = export(app, id, is_final).await?;
-    answer(to_home(app, reqwest::Method::POST, &format!("/api/handoff/{id}"))?.json(&h)).await?;
+    send(app, id, &h).await?;
     if is_final {
         // The final handoff holds everything: the turn is saved (sent to Home with the backlog below).
         if app.sessions.get(id).is_some_and(|s| s.unsaved.is_some()) {
@@ -218,7 +248,7 @@ pub async fn clean_archived(app: &App, id: &str) -> Result<bool> {
     }
     let h = snapshot(app, id).await?;
     ensure!(s.harness_session_id.is_none() || !h.files.is_empty(), "no native conversation found");
-    answer(to_home(app, reqwest::Method::POST, &format!("/api/handoff/{id}"))?.json(&h)).await?;
+    send(app, id, &h).await?;
     let _action = app.sessions.action_lock().await;
     // Nothing may have changed since Home confirmed its copy.
     let Some(s) = app.sessions.get(id).filter(|s| idle(s)) else { return Ok(false) };
@@ -231,6 +261,7 @@ pub async fn clean_archived(app: &App, id: &str) -> Result<bool> {
     }
     tokio::fs::remove_dir_all(&dir).await.with_context(|| format!("remove {}", dir.display()))?;
     SENT.lock().unwrap().remove(id);
+    ATTACHED.lock().unwrap().remove(id);
     Ok(true)
 }
 
@@ -290,7 +321,7 @@ pub async fn after_turn(app: &App, id: &str) -> Result<()> {
     if SENT.lock().unwrap().get(id) == Some(&digest) {
         return Ok(());
     }
-    answer(to_home(app, reqwest::Method::POST, &format!("/api/handoff/{id}"))?.json(&h)).await.context("could not send the conversation to Home")?;
+    send(app, id, &h).await.context("could not send the conversation to Home")?;
     SENT.lock().unwrap().insert(id.to_string(), digest);
     Ok(())
 }
@@ -415,7 +446,19 @@ pub async fn release(app: &App, id: &str, generation: u32) -> Result<()> {
 pub async fn store(app: &App, runner_id: &str, mut h: Handoff) -> Result<()> {
     let s = app.sessions.get(&h.session_id).context("no such session")?;
     ensure!(s.runner_id.as_deref() == Some(runner_id) && s.generation == h.generation, "this session runs elsewhere now");
+    // An attached file named by hash only: one Home confirmed for this session before (`send`).
+    let before: std::collections::HashSet<String> = latest_hashes(app, &h.session_id).await?;
+    for f in &h.attachments {
+        if f.data.is_empty()
+            && let Some(sha) = &f.sha256
+        {
+            ensure!(before.contains(sha) && crate::plain::read_blob(app, sha).await.is_ok(), "Home does not have the attached file {}", f.name);
+        }
+    }
     for f in h.files.iter_mut().chain(h.attachments.iter_mut()) {
+        if f.data.is_empty() && f.sha256.is_some() {
+            continue;
+        }
         let data = base64::engine::general_purpose::STANDARD.decode(&f.data)?;
         let sha = hex::encode(Sha256::digest(&data));
         crate::plain::write_blob(app, &sha, &data).await?;
@@ -436,6 +479,16 @@ pub async fn store(app: &App, runner_id: &str, mut h: Handoff) -> Result<()> {
         .await?;
     app.bus.publish("sessions", "handoff", serde_json::json!({"id": h.session_id}));
     Ok(())
+}
+
+/// Home: the hashes of the attached files of a session's latest handoff.
+async fn latest_hashes(app: &App, id: &str) -> Result<std::collections::HashSet<String>> {
+    let key = id.to_string();
+    let json: Option<String> = app
+        .state_db
+        .call(move |c| Ok(rusqlite::OptionalExtension::optional(c.query_row("SELECT json FROM session_handoff WHERE session_id = ?1", [key], |r| r.get(0)))?))
+        .await?;
+    Ok(json.and_then(|j| serde_json::from_str::<Handoff>(&j).ok()).map(|h| h.attachments.into_iter().filter_map(|f| f.sha256).collect()).unwrap_or_default())
 }
 
 /// Home: the latest handoff of a session.

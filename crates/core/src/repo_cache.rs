@@ -96,8 +96,9 @@ async fn create(app: &App, p: &Project, dir: &Path) -> Result<()> {
 }
 
 /// Commits every change of a worktree (tracked, untracked, not ignored) into a commit on top of `HEAD`,
-/// without touching its index or files. Returns the commit, or `None` when nothing changed.
-pub async fn capture(app: &App, worktree: &Path, message: &str) -> Result<Option<String>> {
+/// without touching its index or files. Returns the commit, or `None` when nothing changed (`always`: the commit
+/// even then, with `HEAD`'s files).
+pub async fn capture(app: &App, worktree: &Path, message: &str, always: bool) -> Result<Option<String>> {
     let index = git(app, worktree, &["rev-parse", "--path-format=absolute", "--git-path", "index"], false, 30).await?;
     let tmp = std::env::temp_dir().join(format!("lp-index-{}", uuid::Uuid::new_v4()));
     if Path::new(&index).exists() {
@@ -121,7 +122,7 @@ pub async fn capture(app: &App, worktree: &Path, message: &str) -> Result<Option
         run(vec!["add".into(), "--all".into()]).await?;
         let tree = run(vec!["write-tree".into()]).await?;
         let head_tree = run(vec!["rev-parse".into(), "HEAD^{tree}".into()]).await?;
-        if tree == head_tree {
+        if tree == head_tree && !always {
             return Ok(None);
         }
         let commit = run(vec!["commit-tree".into(), tree, "-p".into(), "HEAD".into(), "-m".into(), message.into()]).await?;

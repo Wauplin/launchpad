@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ts_rs::TS;
@@ -593,6 +593,12 @@ pub async fn restore_if_empty(paths: &crate::paths::Paths, env: &UserEnv) -> Res
     let Some(store) = destination.as_deref().and_then(Store::parse) else { return Ok(None) };
     let all = manifests(&store, env, ROOT).await?;
     let Some((key, m)) = all.first() else { return Ok(None) };
+    // Complete: every object is there. Only the files restored now are downloaded (and their hashes checked);
+    // Home Git bundles and plain blobs are fetched, and checked, when first needed (`restore_bundle`, `fetch_blob`).
+    let existing: std::collections::HashSet<String> = store.list(env, &format!("{ROOT}/blobs/sha256")).await?.into_iter().collect();
+    if let Some(o) = m.objects.iter().find(|o| !existing.contains(&blob_key(&o.sha256))) {
+        bail!("backup {key} is incomplete: object {} is missing", o.name);
+    }
     let mut files: Vec<(PathBuf, Vec<u8>)> = vec![];
     for o in &m.objects {
         let Some(path) = restore_path(paths, &o.name) else { continue };

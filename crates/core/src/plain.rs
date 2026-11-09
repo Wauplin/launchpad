@@ -965,6 +965,9 @@ mod tests {
         }
         assert_eq!(walk_store(&root, true), vec![".gitignore", "notes.md", "sub/keep.txt"]);
         assert_eq!(walk_store(&root, false), vec![".gitignore", "clone/src.rs", "data.bin", "notes.md", "out/x.txt", "sub/keep.txt"]);
+        // A nested repository keeps a temporary folder on its runner; a folder without one does not.
+        assert_eq!(git_inside(&root).as_deref(), Some("clone/.git"));
+        assert_eq!(git_inside(&root.join("sub")), None);
         std::fs::remove_dir_all(&root).unwrap();
     }
 

@@ -500,15 +500,17 @@ pub fn snapshot_ref(worktree_id: &str) -> String {
 /// What each worktree's snapshot last pushed (`<HEAD>:<tree>`), so an unchanged one is not pushed again.
 static SNAPSHOTS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, String>>> = std::sync::LazyLock::new(Default::default);
 
-/// Pushes the state of every file of the worktree to `refs/lp-snapshots/<worktree>` on Home: a commit on top of
-/// `HEAD` with the uncommitted files, or `HEAD` itself when there are none. Home shows it while the runner is away
-/// (`away`), and a folder cloned again from Home gets the uncommitted files back (`restore`).
+/// Pushes the state of every file of the worktree to `refs/lp-snapshots/<worktree>` on Home: always a commit on
+/// top of `HEAD` (its first parent is the `HEAD` it was taken on), with the uncommitted files if any. Home shows it
+/// while the runner is away (`away`), and a folder cloned again from Home gets the uncommitted files back
+/// (`restore`). Uses a temporary index (`repo_cache::capture`): the worktree's index, `HEAD` and files stay as
+/// they are.
 pub(crate) async fn snapshot(app: &App, w: &TaskWorktree) -> Result<()> {
     if w.state != WorktreeState::Active || !Path::new(&w.root).is_dir() {
         return Ok(());
     }
     let head = git(app, &w.root, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
-    let commit = crate::repo_cache::capture(app, Path::new(&w.root), "Launchpad snapshot").await?.unwrap_or_else(|| head.clone());
+    let commit = crate::repo_cache::capture(app, Path::new(&w.root), "Launchpad snapshot", true).await?.context("no snapshot commit")?;
     let tree = git(app, &w.root, &["rev-parse", &format!("{commit}^{{tree}}")]).await?;
     let key = format!("{head}:{tree}");
     if SNAPSHOTS.lock().unwrap().get(&w.id) == Some(&key) {
@@ -533,8 +535,8 @@ pub async fn snapshots_of(app: &App, session_id: &str) -> Result<()> {
 }
 
 /// A snapshot that holds work the branch at `head` lacks: taken on top of `head` or of a later commit, with
-/// other files. Returns that commit (the snapshot's parent); None for an older or an unchanged snapshot.
-/// `dir`: a repository that has both commits (Home's mirror, a runner's cache).
+/// other files. Returns that commit (the snapshot's parent, the `HEAD` it was taken on); None for an older, a
+/// diverged or an unchanged snapshot. `dir`: a repository that has both commits (Home's mirror, a runner's cache).
 pub(crate) async fn newer_snapshot(app: &App, dir: &Path, snapshot: &str, head: &str) -> Option<String> {
     use crate::home_git::git_in;
     let parent = git_in(app, dir, &["rev-parse", "--verify", "--quiet", &format!("{snapshot}^1")], 60).await.ok()?;
@@ -542,6 +544,14 @@ pub(crate) async fn newer_snapshot(app: &App, dir: &Path, snapshot: &str, head: 
     let a = git_in(app, dir, &["rev-parse", &format!("{snapshot}^{{tree}}")], 60).await.ok()?;
     let b = git_in(app, dir, &["rev-parse", &format!("{head}^{{tree}}")], 60).await.ok()?;
     (a != b).then_some(parent)
+}
+
+/// Whether a snapshot holds uncommitted files (its files differ from the `HEAD` it was taken on).
+async fn has_uncommitted(app: &App, dir: &Path, snapshot: &str) -> bool {
+    use crate::home_git::git_in;
+    let a = git_in(app, dir, &["rev-parse", &format!("{snapshot}^{{tree}}")], 60).await;
+    let b = git_in(app, dir, &["rev-parse", &format!("{snapshot}^1^{{tree}}")], 60).await;
+    matches!((a, b), (Ok(a), Ok(b)) if a != b)
 }
 
 /// Removes worktrees created for a launch that failed before its agent started.
@@ -839,13 +849,12 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
     let _ = git(app, &cache_s, &["worktree", "prune"]).await;
     git(app, &cache_s, &["worktree", "add", "--quiet", "--no-track", "-B", &w.branch, &w.root, &start]).await?;
     configure(app, &w, w.sessions.last().map(String::as_str).unwrap_or_default()).await?;
+    // What this runner pushed before says nothing about Home's snapshot now (another runner may have pushed since).
+    SNAPSHOTS.lock().unwrap().remove(&w.id);
     // Work newer than the branch on Home (uncommitted files, commits of a turn its runner never finished) comes
     // back from the last snapshot.
     let reapplied = match &branch {
-        Some(_) => reapply_snapshot(app, &cache, &w, &start).await.unwrap_or_else(|e| {
-            tracing::warn!("snapshot of {}: {e:#}", w.branch);
-            None
-        }),
+        Some(_) => reapply_snapshot(app, &cache, &mut w, &start).await,
         None => None,
     };
     w.state = WorktreeState::Active;
@@ -866,22 +875,51 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
 
 /// A folder cloned again at `start` (the branch on Home): when Home's snapshot of the worktree is newer, its
 /// commits and its uncommitted files come back (the files stay uncommitted). Returns the new `HEAD` and when the
-/// snapshot was taken.
-async fn reapply_snapshot(app: &App, cache: &Path, w: &TaskWorktree, start: &str) -> Result<Option<(String, i64)>> {
+/// snapshot was taken. A snapshot with uncommitted files that cannot come back (it diverged from the branch, or
+/// applying it failed) goes to a scratch branch first (`w.leftovers`): the next snapshot replaces the ref.
+async fn reapply_snapshot(app: &App, cache: &Path, w: &mut TaskWorktree, start: &str) -> Option<(String, i64)> {
     let r = snapshot_ref(&w.id);
     // No snapshot on Home: nothing to bring back.
-    if crate::repo_cache::git(app, cache, &["fetch", "--quiet", "--no-tags", "origin", &format!("+{r}:{r}")], true, 600).await.is_err() {
-        return Ok(None);
-    }
+    crate::repo_cache::git(app, cache, &["fetch", "--quiet", "--no-tags", "origin", &format!("+{r}:{r}")], true, 600).await.ok()?;
     let cache_s = cache.to_string_lossy().into_owned();
-    let snap = git(app, &cache_s, &["rev-parse", "--verify", &format!("{r}^{{commit}}")]).await?;
-    let Some(parent) = newer_snapshot(app, cache, &snap, start).await else { return Ok(None) };
-    if parent != start {
-        git(app, &w.root, &["reset", "--quiet", "--hard", &parent]).await?;
+    let snap = git(app, &cache_s, &["rev-parse", "--verify", &format!("{r}^{{commit}}")]).await.ok()?;
+    let applied = match newer_snapshot(app, cache, &snap, start).await {
+        Some(parent) => async {
+            if parent != start {
+                git(app, &w.root, &["reset", "--quiet", "--hard", &parent]).await?;
+            }
+            git(app, &w.root, &["restore", "--source", &snap, "--worktree", "--", ":/"]).await?;
+            Ok::<_, anyhow::Error>(parent)
+        }
+        .await
+        .map(Some),
+        None => Ok(None),
+    };
+    match applied {
+        Ok(Some(parent)) => {
+            let at = git(app, &cache_s, &["show", "-s", "--format=%ct", &snap]).await.ok().and_then(|t| t.parse::<i64>().ok()).unwrap_or(0) * 1000;
+            return Some((parent, at));
+        }
+        Ok(None) => {}
+        Err(e) => {
+            tracing::warn!("snapshot of {}: {e:#}", w.branch);
+            // Back to the branch on Home, as cloned.
+            let _ = git(app, &w.root, &["reset", "--quiet", "--hard", start]).await;
+            let _ = git(app, &w.root, &["clean", "-fdq"]).await;
+        }
     }
-    git(app, &w.root, &["restore", "--source", &snap, "--worktree", "--", ":/"]).await?;
-    let at = git(app, &cache_s, &["show", "-s", "--format=%ct", &snap]).await?.parse::<i64>().unwrap_or(0) * 1000;
-    Ok(Some((parent, at)))
+    // Older or diverged (or not applied): its uncommitted files stay reachable on a scratch branch.
+    if has_uncommitted(app, cache, &snap).await {
+        let scratch = format!("lp-scratch/{}-snapshot", w.branch.trim_start_matches("lp/"));
+        match crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{snap}:refs/heads/{scratch}")], 900).await {
+            Ok(_) => {
+                let files = git(app, &cache_s, &["diff", "--name-only", &format!("{snap}^1"), &snap]).await.map(|o| o.lines().count() as u32).unwrap_or(0);
+                w.leftovers = Some(Leftovers { branch: scratch, files });
+            }
+            Err(e) => tracing::warn!("keep the snapshot of {} on {scratch}: {e:#}", w.branch),
+        }
+    }
+    None
 }
 
 /// Removes a folder once Home has everything: the branch is pushed, and uncommitted files go to a scratch
@@ -900,7 +938,7 @@ async fn remove_clean(app: &App, w: &mut TaskWorktree) -> Result<()> {
         snapshot(app, w).await.context("Home did not confirm the uncommitted files")?;
         let dirty = dirty_files(app, &w.root).await?;
         if !dirty.is_empty() {
-            let commit = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch)).await?.context("leftover files could not be saved")?;
+            let commit = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch), false).await?.context("leftover files could not be saved")?;
             let scratch = format!("lp-scratch/{}", w.branch.trim_start_matches("lp/"));
             crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{commit}:refs/heads/{scratch}")], 900).await.context("Home did not confirm the leftover files")?;
             w.leftovers = Some(Leftovers { branch: scratch, files: dirty.len() as u32 });
@@ -931,7 +969,7 @@ pub(crate) async fn release_moved(app: &App, session_id: &str, generation: u32) 
             // A shell there would write after the capture, into a folder that is about to go.
             app.terminals.close_in(&w.root).await?;
             let head = git(app, &w.root, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
-            let tip = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch)).await?.unwrap_or(head);
+            let tip = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch), false).await?.unwrap_or(head);
             if w.pushed.as_deref() != Some(tip.as_str()) {
                 let scratch = format!("lp-scratch/{}-gen{generation}", w.branch.trim_start_matches("lp/"));
                 // As the daemon, not the session: Home refuses the Git requests of a session that now runs

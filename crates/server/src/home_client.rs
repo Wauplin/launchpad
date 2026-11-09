@@ -229,11 +229,16 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
     if s.app.paths.role != role::Role::Runner || !forwarded {
         return next.run(req).await;
     }
-    // A session of this runner: its latest events reach Home first (a few seconds at most).
+    // A session of this runner: the events queued before this request reach Home first (a few seconds at most;
+    // events of a running turn queued later do not hold it, nor a tunnel that is down).
     let local = trace.as_deref().is_some_and(|id| s.app.sessions.get(id).is_some());
-    if local {
+    if local && let Ok(newest) = replica::newest(&s.app).await {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while replica::backlog(&s.app).await.is_ok_and(|n| n > 0) && std::time::Instant::now() < deadline {
+        while std::time::Instant::now() < deadline {
+            let up = HOME.tx.lock().unwrap().is_some();
+            if !up || !replica::waiting_through(&s.app, newest).await.is_ok_and(|n| n > 0) {
+                break;
+            }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }

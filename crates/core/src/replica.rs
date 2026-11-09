@@ -91,6 +91,16 @@ pub async fn backlog(app: &App) -> Result<u64> {
     app.state_db.call(|c| Ok(c.query_row("SELECT count(*) FROM home_outbox", [], |r| r.get::<_, i64>(0))? as u64)).await
 }
 
+/// The newest item queued for Home (0 when none waits).
+pub async fn newest(app: &App) -> Result<u64> {
+    app.state_db.call(|c| Ok(c.query_row("SELECT coalesce(max(n), 0) FROM home_outbox", [], |r| r.get::<_, i64>(0))? as u64)).await
+}
+
+/// Items up to `n` (`newest`) still waiting for Home.
+pub async fn waiting_through(app: &App, n: u64) -> Result<u64> {
+    app.state_db.call(move |c| Ok(c.query_row("SELECT count(*) FROM home_outbox WHERE n <= ?1", [n as i64], |r| r.get::<_, i64>(0))? as u64)).await
+}
+
 /// The last outbox number Home saved for a runner.
 pub async fn acked_for(app: &App, runner_id: &str) -> Result<u64> {
     let id = runner_id.to_string();
