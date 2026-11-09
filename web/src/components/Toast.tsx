@@ -22,7 +22,7 @@ export const toastError = (e: unknown) => useToasts.getState().push({ text: e in
 export function Toasts() {
   const { toasts, dismiss } = useToasts();
   return (
-    <div className="pointer-events-none fixed bottom-10 left-1/2 z-50 grid -translate-x-1/2 gap-2">
+    <div className="lp-toasts pointer-events-none fixed bottom-10 left-1/2 z-50 grid -translate-x-1/2 gap-2">
       {toasts.map((t) => (
         <div
           key={t.id}

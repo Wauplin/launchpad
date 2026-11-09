@@ -105,7 +105,7 @@ export function KnowledgeView() {
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="knowledge.page">
       {phone ? <PhoneHeader title="Knowledge" onBack={selected && tab === "notes" ? () => setSelected(null) : undefined} actions={actions} /> : <PageHeader icon={<Icon name="book" size={18} />} title="Knowledge" meta={meta} intro="The only memory agents have. Every change is restorable for 30 days." actions={actions} tabs={tabs} />}
-      {phone && <div className="border-b border-line px-3 py-1.5">{tabs}</div>}
+      {phone && <div className="px-3">{tabs}</div>}
       {notes.isLoading ? <Loading what="the knowledge base" /> : notes.error ? <ErrorState error={notes.error} onRetry={() => void notes.refetch()} /> : notes.data && (
         tab === "notes"
           ? <NotesTab ws={ws} notes={notes.data} changes={changes.data?.changes ?? []} selected={selected} select={openNote} panel={panel} setPanel={setPanel} showHistory={showHistory} refresh={refresh} />

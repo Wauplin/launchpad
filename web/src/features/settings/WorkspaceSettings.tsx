@@ -14,6 +14,7 @@ import { newWindowWord, openWindow, useScope, useWorkspaces } from "@/lib/worksp
 import { Card, SavedInput, SettingsPage } from "./SettingsView";
 import { ToolDefaultsEditor, useSaveToolDefaults } from "./ToolDefaults";
 import { useToolDefaults } from "@/lib/toolDefaults";
+import { usePhone } from "@/lib/phone";
 
 const granted = (workspaces: string[], id: string) => workspaces.includes("*") || workspaces.includes(id);
 
@@ -27,6 +28,7 @@ export function WorkspaceSettings() {
   const mcp = useQuery({ queryKey: ["mcp"], queryFn: () => api.get<McpServer[]>("/api/mcp"), staleTime: 30_000 });
   const tools = (vault.data?.tools ?? []).filter((t) => granted(t.workspaces, w.id));
   const servers = (mcp.data ?? []).filter((s) => granted(s.workspaces, w.id));
+  const phone = usePhone();
   const defaults = useToolDefaults();
   const saveDefaults = useSaveToolDefaults("workspace", w.id);
   const last = workspaces.length <= 1;
@@ -40,13 +42,14 @@ export function WorkspaceSettings() {
         <SettingRow label="Folders" hint="Every folder belongs to one workspace.">
           <span className="flex flex-wrap items-center gap-2 text-[13px]">{scope.projects.filter((p) => !p.is_temp).length} folders<Link to="/projects" className="btn btn-sm no-underline">Open Folders</Link></span>
         </SettingRow>
-        <SettingRow label="Another window" hint="Two workspaces side by side means two windows.">
+        {/* A phone shows one page at a time: no second window. */}
+        {!phone && <SettingRow label="Another window" hint="Two workspaces side by side means two windows.">
           <button className="btn btn-sm w-fit" onClick={() => void openWindow(w.id)}><Icon name="window" size={12} />Open in a new {newWindowWord}</button>
-        </SettingRow>
+        </SettingRow>}
       </Card>
       <Card title="Bots" end={<Link to="/bots" search={{ new: true } as never} className="btn btn-sm no-underline"><Icon name="plus" size={12} />New bot</Link>}>
         {bots.length === 0 ? <Empty icon="spark">No bot in {w.name}.</Empty> : bots.map((b) => (
-          <Link key={b.id} to="/bots/$id" params={{ id: b.id }} className="flex min-h-[32px] items-center gap-2 text-[13px] text-ink no-underline hover:underline">
+          <Link key={b.id} to="/bots/$id" params={{ id: b.id }} className="phone-workspace-project flex min-h-[32px] items-center gap-2 text-[13px] text-ink no-underline hover:underline">
             <span className="grid size-[18px] flex-none place-items-center rounded-[4px] bg-teal-soft text-[11px] font-semibold text-teal-ink" aria-hidden>{botInitial(b.settings.name)}</span>
             {b.settings.name}
           </Link>

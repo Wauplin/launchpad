@@ -19,15 +19,16 @@ import { useTheme } from "@/stores/theme";
 import { PhoneSettings } from "./PhoneSettings";
 import { PhoneBar } from "@/mobile/PhoneHeader";
 
-/** A section of a Settings page. */
+/** A section of a Settings page: a bordered card on the laptop, a flat section under a heading line on the phone (one
+ * border level, so the boxes inside keep theirs; `settings-card` in styles.css). */
 export function Card({ title, end, children, id, tour }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string; tour?: string }) {
   return (
-    <section id={id} data-tour={tour} className="overflow-hidden rounded-[10px] border border-line">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-chrome px-3.5 py-2.5 text-[13px]">
+    <section id={id} data-tour={tour} className="settings-card overflow-hidden rounded-[10px] border border-line">
+      <div className="settings-card-head flex flex-wrap items-center gap-2 border-b border-line bg-chrome px-3.5 py-2.5 text-[13px]">
         <b className="font-semibold text-ink">{title}</b>
         {end && <span className="ml-auto flex max-w-full flex-wrap justify-end gap-1.5">{end}</span>}
       </div>
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5 p-3.5">{children}</div>
+      <div className="settings-card-body grid grid-cols-[minmax(0,1fr)] gap-2.5 p-3.5">{children}</div>
     </section>
   );
 }

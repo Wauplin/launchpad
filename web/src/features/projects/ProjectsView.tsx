@@ -183,7 +183,7 @@ export function ProjectsView() {
   const add = <button className="btn btn-primary" data-tour="folders.add" onClick={() => showAdd()}><Icon name="plus" size={14} />Add folder</button>;
   return (
     <div className="h-full overflow-y-auto">
-      {phone ? <PhoneHeader title="Folders" subtitle={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} primary={add} /> : <PageHeader title={`Folders in ${w.name}`} meta={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} actions={add} />}
+      {phone ? <PhoneHeader title="Folders" primary={add} /> : <PageHeader title={`Folders in ${w.name}`} meta={`${mine.length} folder${mine.length === 1 ? "" : "s"}`} actions={add} />}
       <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 p-6">
         {unassigned.length > 0 && <UnassignedFolders folders={unassigned} workspaces={workspaces} />}
         {mine.length === 0 ? <Empty icon="folder" action={add}>{`No folder in ${w.name} yet.`}</Empty> : <FolderTable folders={mine} />}

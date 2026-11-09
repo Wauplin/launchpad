@@ -455,17 +455,42 @@ button {
     @apply size-11;
   }
   .lp-phone .lp-seg-item {
-    @apply min-h-10 px-3 text-[14px];
+    @apply min-h-11 px-3 text-[14px];
   }
   .lp-phone .field-input,
   .lp-phone textarea,
   .lp-phone select {
-    @apply min-h-10 text-[16px];
+    @apply min-h-11;
   }
   .lp-phone .seclabel {
     @apply text-[12px];
   }
 }
+
+/* Phone fields at 16 px, so iOS never zooms in on focus. Outside the layers on purpose: a text-[12px] or text-[13px]
+   utility on a field (code values, editors) must not win on the phone; the laptop keeps its sizes. */
+.lp-phone input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]),
+.lp-phone textarea,
+.lp-phone select,
+.lp-phone [contenteditable="true"] {
+  font-size: 16px;
+}
+/* Phone touch targets: 44 px at least, also where a feature forces a smaller size (size-6!, h-[22px]!): min sizes win
+   over width and height. Checkboxes and radios get a 20 px box, and the label around one a 44 px row. */
+.lp-phone .iconbtn { min-width: 44px; min-height: 44px; }
+.lp-phone .lp-chip { min-height: 44px; }
+.lp-phone input[type="checkbox"],
+.lp-phone input[type="radio"] { width: 20px; height: 20px; flex-shrink: 0; }
+.lp-phone label:has(> input[type="checkbox"], > input[type="radio"]) { min-height: 44px; }
+
+/* Phone toasts: full width under the top bar, so they never cover the tab bar, the session bar or the keyboard. */
+.lp-phone .lp-toasts { top: calc(env(safe-area-inset-top) + 56px); bottom: auto; left: 12px; right: 12px; translate: none; }
+.lp-phone .lp-toasts button { min-width: 44px; min-height: 44px; }
+
+/* Phone Settings sections: flat, a heading line over the content, so a box inside is the only border level. */
+.lp-phone .settings-card { overflow: visible; border: 0; border-radius: 0; }
+.lp-phone .settings-card-head { min-height: 44px; padding: 4px 0; background: transparent; }
+.lp-phone .settings-card-body { padding: 12px 0 0; }
 
 /* Phone agent view: the title, ‹ and ⋯ live in the shell's bar (PhoneBar); here the status line, then the view strip. */
 .lp-phone .session-header {
@@ -631,9 +656,9 @@ button {
 .lp-phone .code-browser .h-\[34px\] { min-height: 44px; height: 44px; }
 .lp-phone .phone-review-card { min-width: 0; overflow-wrap: anywhere; }
 .lp-phone .code-tree-line { height: 44px; }
-.lp-phone .phone-file-toolbar { gap: 4px; padding: 4px 12px; }
-.lp-phone .phone-file-toolbar > span:first-child { flex-basis: 100%; }
-.lp-phone .phone-file-toolbar > span:last-child { width: 100%; justify-content: flex-end; }
+/* Phone Files: one row, the folder path then the icon-only Find, Preview and ⋯ (the bar names the file). */
+.lp-phone .phone-file-toolbar { flex-wrap: nowrap; gap: 4px; min-height: 44px; padding: 0 4px 0 12px; }
+.lp-phone .phone-file-toolbar > span:first-child { flex: 1; }
 .lp-phone .phone-action-content .font-mono { overflow-wrap: anywhere; }
 .lp-phone .phone-action-content .phone-action-buttons { min-width: 0; }
 .lp-phone .phone-publish-row { height: 88px; gap: 8px; padding-inline: 12px; }
@@ -652,7 +677,7 @@ button {
 .lp-phone .message-preset-chip { height: auto; min-height: 44px; padding-inline: 12px 10px; font-size: 13px; }
 /* Shared primitives on the phone: 44 px tabs and chips, one scrolling row. */
 .lp-phone .lp-tab { min-height: 44px; flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
-.lp-phone .lp-chip { min-height: 36px; flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
+.lp-phone .lp-chip { flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
 .lp-phone .page-header { padding: 8px 12px 0; }
 /* Agents rows: the 44 px ⋯ sits in the row's bottom-right corner. */
 .lp-phone .agent-row-action { bottom: 0; right: 0; }

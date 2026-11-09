@@ -726,7 +726,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             </div>
           </OptionRow>}
           <OptionRow label="Model" end={
-            <button className="inline-flex size-5 items-center justify-center rounded hover:bg-select hover:text-ink disabled:opacity-50" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} title={refreshingModels ? "Refreshing models…" : "Refresh models"} aria-label={refreshingModels ? "Refreshing models" : "Refresh models"} aria-busy={refreshingModels}>
+            <button className="iconbtn size-5! disabled:opacity-50" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} title={refreshingModels ? "Refreshing models…" : "Refresh models"} aria-label={refreshingModels ? "Refreshing models" : "Refresh models"} aria-busy={refreshingModels}>
               <Icon name="refresh" size={12} className={refreshingModels ? "animate-spin" : ""} />
             </button>
           }>

@@ -1,4 +1,4 @@
-import { PhoneHeader, PhoneActions } from "@/mobile/PhoneHeader";
+import { PhoneHeader, PhoneActions, PhoneBarEnd } from "@/mobile/PhoneHeader";
 import { openExternal } from "@/lib/platform";
 import { Link } from "@tanstack/react-router";
 import { AddContext, GitHubHTML, reference, itemKey, itemPath } from "@/features/github/lib";
@@ -288,13 +288,12 @@ export function InboxView() {
   const synced = <Synced label={data?.status.syncing ? "Syncing…" : data?.status.last_sync ? `Synced ${ago(data.status.last_sync)}` : "Waiting for GitHub"} busy={syncing} title="Refresh the inbox from GitHub" onRefresh={() => sync.mutate()} />;
   const counters = <><span title="Unread notifications in this list">{unread} unread</span><span>·</span><span title="Unread review requests, mentions and assignments: the sidebar count">{mine} for you</span><span>·</span>{synced}</>;
   return <div className="flex h-full flex-col">
-    {phone ? <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1">
-      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 text-xs text-ink-3">{counters}</span>
-      <PhoneActions label="Inbox filters" closeOnAction={false} details={<div className="grid gap-3">
-        <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
-        <RepoPicker threads={counted} selected={view.repo} />
-      </div>} />
-    </div> : <PageHeader title="Inbox" meta={counters} />}
+    {/* Phone: the counts, sync and the other filters sit behind ⋯ in the shell's bar, so the list starts at the chips. */}
+    {phone ? <PhoneBarEnd><PhoneActions label="Inbox filters" closeOnAction={false} details={<div className="grid gap-3">
+      <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-ink-3">{counters}</span>
+      <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
+      <RepoPicker threads={counted} selected={view.repo} />
+    </div>} /></PhoneBarEnd> : <PageHeader title="Inbox" meta={counters} />}
     {(error || data?.status.error) && <ErrorState className="m-2" error={error ?? data?.status.error} action={<span className="text-ink-2">Cached notifications remain available. Sign in with gh auth login if needed.</span>} />}
     <div className="inbox-filters flex flex-none flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
       <FilterChips tour="inbox.reasons" label="Why you were notified">

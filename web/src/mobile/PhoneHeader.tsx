@@ -7,8 +7,9 @@ import { Icon } from "@/components/Icon";
 import { Popover } from "@/components/Popover";
 import { useRouter, useRouterState } from "@tanstack/react-router";
 
-/** The shell's top bar: the element a detail page fills, and `claim` (returns its release) to hide the section bar. */
-export type PhoneBarSlot = { el: HTMLElement | null; claim: () => () => void };
+/** The shell's top bar: the element a detail page fills, `claim` (returns its release) to hide the section bar, and
+ * `end`, the section bar's right side, where a tab page puts its primary button and ⋯ (`PhoneBarEnd`). */
+export type PhoneBarSlot = { el: HTMLElement | null; claim: () => () => void; end: HTMLElement | null };
 export const PhoneBarContext = createContext<PhoneBarSlot | null>(null);
 
 /** Back for pages that have no single parent (PR page, Files, Terminals): the previous page of this window when
@@ -40,6 +41,12 @@ export function PhoneBar({ title, onBack, backLabel = "Back", end }: { title: Re
     <h1 className="phone-page-title m-0 flex min-h-11 min-w-0 flex-1 items-center text-[15px] leading-5 font-semibold"><span className="line-clamp-2 break-words">{title}</span></h1>
     {end}
   </>, slot.el);
+}
+
+/** A tab page's primary button and ⋯, placed in the section bar next to the status, so the page needs no row of its own. */
+export function PhoneBarEnd({ children }: { children: ReactNode }) {
+  const slot = useContext(PhoneBarContext);
+  return slot?.end ? createPortal(children, slot.end) : null;
 }
 
 /** Places of the More tab (the tab shows as current on them). */
@@ -79,8 +86,8 @@ export function PhoneActions({ label = "Actions & details", children, details, c
 }
 
 /** A page's header on the phone. With `onBack` (a detail page), the ‹, title and ⋯ go in the shell's bar and only
- * the subtitle and primary button stay in the page. On a tab page the bar keeps the section title: the page shows
- * one line with its own name (when it differs), subtitle, primary button and ⋯, and nothing when there is none. */
+ * the subtitle and primary button stay in the page. On a tab page the bar keeps the section title and takes the
+ * primary button and ⋯ (`PhoneBarEnd`); the page shows a line only for its own name (when it differs) or a subtitle. */
 export function PhoneHeader({ title, subtitle, onBack, backLabel = "Back", primary, actions, details }: { title: ReactNode; subtitle?: ReactNode; onBack?: () => void; backLabel?: string; primary?: ReactNode; actions?: ReactNode; details?: ReactNode }) {
   const shellTitle = useRouterState({ select: (s) => pageTitle(s.location.pathname) });
   const menu = (actions || details) && <PhoneActions children={actions} details={onBack ? <><p className="break-words font-semibold">{title}</p>{details}</> : details} />;
@@ -92,6 +99,6 @@ export function PhoneHeader({ title, subtitle, onBack, backLabel = "Back", prima
     {(subtitle || primary) && line(subtitle, null)}
   </>;
   const own = title !== shellTitle;
-  if (!own && !subtitle && !primary && !menu) return null;
+  if (!own && !subtitle) return (primary || menu) ? <PhoneBarEnd>{primary}{menu}</PhoneBarEnd> : null;
   return line(<>{own && <b className="text-[13px] text-ink">{title}</b>}{subtitle}</>, menu);
 }
