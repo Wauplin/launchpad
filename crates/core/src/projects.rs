@@ -638,7 +638,7 @@ fn check_temp(app: &App, p: &Project) -> Result<PathBuf> {
     }
     let path = PathBuf::from(&p.path);
     let parent = path.parent().and_then(|d| std::fs::canonicalize(d).ok());
-    if !std::fs::canonicalize(temp_root(app)).ok().is_some_and(|r| parent.as_deref() == Some(r.as_path())) {
+    if std::fs::canonicalize(temp_root(app)).ok().is_none_or(|r| parent.as_deref() != Some(r.as_path())) {
         bail!("{} is not a Launchpad temporary folder", p.path);
     }
     Ok(path)
@@ -712,9 +712,7 @@ pub async fn keep_as_folder(app: &App, id: &str, name: &str) -> Result<Project> 
     for s in &mine {
         app.harnesses.get(s.harness).project_moved(app, s, &old_s, &new_s).await;
     }
-    if !crate::home_git::here(app) {
-        store_home(app, vec![kept], false).await?;
-    }
+    store_home(app, vec![kept], false).await?;
     // Sessions keep working from the new folder.
     app.sessions.move_cwd(app, &old_s, &new_s).await?;
     app.bus.publish("projects", "changed", serde_json::Value::Null);

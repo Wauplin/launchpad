@@ -1001,17 +1001,16 @@ async fn codex_fresh(app: &App, id: &str, value: &str) -> Result<Value> {
 }
 
 /// Whether `file` (Home's copy of a Codex login, which the quota app-server may have refreshed) holds a newer
-/// login than `vault`: same account, another refresh token and a later `last_refresh`.
+/// login than `vault`: the same account (both name it), other tokens and a later `last_refresh`.
 fn codex_newer(file: &Value, vault: &Value) -> bool {
     let at = |a: &Value| a["last_refresh"].as_str().and_then(|s| time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).ok());
-    let tokens = |a: &Value, k: &str| a["tokens"][k].as_str().map(str::to_string);
-    let same_account = match (tokens(file, "account_id"), tokens(vault, "account_id")) {
-        (Some(a), Some(b)) => a == b,
-        _ => true,
-    };
+    let token = |a: &Value, k: &str| a["tokens"][k].as_str().map(str::to_string);
+    let same_account = token(file, "account_id").is_some_and(|a| Some(a) == token(vault, "account_id"));
+    let changed = ["access_token", "refresh_token"].iter().any(|k| token(file, k) != token(vault, k));
     same_account
-        && tokens(file, "access_token").is_some()
-        && tokens(file, "refresh_token").is_some_and(|r| Some(r) != tokens(vault, "refresh_token"))
+        && token(file, "access_token").is_some()
+        && token(file, "refresh_token").is_some()
+        && changed
         && matches!((at(file), at(vault)), (Some(f), Some(v)) if f > v)
 }
 
@@ -1199,14 +1198,17 @@ mod tests {
 
     #[test]
     fn codex_keeps_a_login_refreshed_on_disk() {
-        let auth = |refresh: &str, at: &str, account: &str| json!({"tokens": {"access_token": "a", "refresh_token": refresh, "account_id": account}, "last_refresh": at});
-        let vault = auth("r1", "2026-11-01T00:00:00Z", "acc");
-        assert!(codex_newer(&auth("r2", "2026-11-02T00:00:00Z", "acc"), &vault));
-        // Same login, an older copy, another account or no date: the vault wins.
-        assert!(!codex_newer(&auth("r1", "2026-11-02T00:00:00Z", "acc"), &vault));
-        assert!(!codex_newer(&auth("r0", "2026-10-30T00:00:00Z", "acc"), &vault));
-        assert!(!codex_newer(&auth("r2", "2026-11-02T00:00:00Z", "other"), &vault));
-        assert!(!codex_newer(&json!({"tokens": {"access_token": "a", "refresh_token": "r2"}}), &vault));
+        let auth = |access: &str, refresh: &str, at: &str, account: &str| json!({"tokens": {"access_token": access, "refresh_token": refresh, "account_id": account}, "last_refresh": at});
+        let vault = auth("a1", "r1", "2026-11-01T00:00:00Z", "acc");
+        assert!(codex_newer(&auth("a2", "r2", "2026-11-02T00:00:00Z", "acc"), &vault));
+        // A refresh that kept the refresh token still brings a newer access token.
+        assert!(codex_newer(&auth("a2", "r1", "2026-11-02T00:00:00Z", "acc"), &vault));
+        // Same tokens, an older copy, another account, no account or no date: the vault wins.
+        assert!(!codex_newer(&auth("a1", "r1", "2026-11-02T00:00:00Z", "acc"), &vault));
+        assert!(!codex_newer(&auth("a0", "r0", "2026-10-30T00:00:00Z", "acc"), &vault));
+        assert!(!codex_newer(&auth("a2", "r2", "2026-11-02T00:00:00Z", "other"), &vault));
+        assert!(!codex_newer(&json!({"tokens": {"access_token": "a2", "refresh_token": "r2"}, "last_refresh": "2026-11-02T00:00:00Z"}), &vault));
+        assert!(!codex_newer(&json!({"tokens": {"access_token": "a2", "refresh_token": "r2", "account_id": "acc"}}), &vault));
     }
 
     #[test]

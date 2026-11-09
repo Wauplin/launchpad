@@ -15,7 +15,7 @@ use crate::paths::Paths;
 use std::collections::BTreeMap;
 
 /// Unknown keys are ignored, so files with removed keys and sections (`projects_root`, `[commands]`, `[agents]`) keep loading.
-#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
 pub struct Config {
     /// Remove a clean pre-draft worktree after successful publication.
@@ -191,21 +191,6 @@ pub struct Preset {
 
 fn preset_agent_default() -> bool {
     true
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            remove_published_worktree: false,
-            server: ServerConfig::default(),
-            github: GitHub::default(),
-            worktrees: Worktrees::default(),
-            profiles: vec![],
-            presets: vec![],
-            home: HomeConfig::default(),
-            runner: RunnerConfig::default(),
-        }
-    }
 }
 
 impl Default for GitHub {
