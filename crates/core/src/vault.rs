@@ -1000,6 +1000,37 @@ async fn codex_fresh(app: &App, id: &str, value: &str) -> Result<Value> {
     Ok(auth)
 }
 
+/// Whether `file` (Home's copy of a Codex login, which the quota app-server may have refreshed) holds a newer
+/// login than `vault`: same account, another refresh token and a later `last_refresh`.
+fn codex_newer(file: &Value, vault: &Value) -> bool {
+    let at = |a: &Value| a["last_refresh"].as_str().and_then(|s| time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).ok());
+    let tokens = |a: &Value, k: &str| a["tokens"][k].as_str().map(str::to_string);
+    let same_account = match (tokens(file, "account_id"), tokens(vault, "account_id")) {
+        (Some(a), Some(b)) => a == b,
+        _ => true,
+    };
+    same_account
+        && tokens(file, "access_token").is_some()
+        && tokens(file, "refresh_token").is_some_and(|r| Some(r) != tokens(vault, "refresh_token"))
+        && matches!((at(file), at(vault)), (Some(f), Some(v)) if f > v)
+}
+
+/// Stores the newer Codex login found in Home's copy (`codex_newer`) in the vault, under the refresh lock.
+async fn codex_adopt(app: &App, id: &str, file: &Value) -> Result<String> {
+    let _guard = app.suggestion_locks.get(&format!("codex-refresh:{id}")).lock_owned().await;
+    let (_, value) = secret(app, id).await?.context("the login disappeared")?;
+    if !codex_newer(file, &serde_json::from_str::<Value>(&value)?) {
+        return Ok(value);
+    }
+    let text = serde_json::to_string_pretty(file)?;
+    let (key, detail, now, saved) = (id.to_string(), detail_of(Kind::CodexLogin, &text), now_ms(), text.clone());
+    app.state_db
+        .call(move |c| Ok(c.execute("UPDATE vault SET secret = ?2, detail = ?3, updated_at = ?4 WHERE id = ?1", rusqlite::params![key, saved, detail, now])?))
+        .await?;
+    tracing::info!("vault: kept the Codex login {id} that Codex refreshed on Home");
+    Ok(text)
+}
+
 /// Home's own copy of a login for its quota monitor: a configuration folder with the token, under
 /// `<data_dir>/vault/logins/<id>`. Never mounted in a jail.
 pub async fn login_home(app: &App, id: &str) -> Result<(std::path::PathBuf, Vec<(String, String)>)> {
@@ -1015,8 +1046,19 @@ pub async fn login_home(app: &App, id: &str) -> Result<(std::path::PathBuf, Vec<
     Ok(match kind {
         Kind::ClaudeLogin => (dir, vec![("CLAUDE_CONFIG_DIR".into(), d), ("CLAUDE_CODE_OAUTH_TOKEN".into(), value)]),
         Kind::CodexLogin => {
+            // The quota app-server runs on this copy and may refresh the login itself (after a 401), which
+            // rotates the refresh token: the vault keeps that newer login instead of overwriting it with a spent one.
+            let file = dir.join("auth.json");
+            let on_disk: Option<Value> = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok());
+            let value = match &on_disk {
+                Some(disk) if codex_newer(disk, &serde_json::from_str::<Value>(&value)?) => codex_adopt(app, id, disk).await?,
+                _ => value,
+            };
             let auth = codex_fresh(app, id, &value).await?;
-            crate::paths::write_private(&dir.join("auth.json"), &serde_json::to_string_pretty(&auth)?)?;
+            // Written only when it changed, so the app-server's own writes are not raced every minute.
+            if on_disk.as_ref() != Some(&auth) {
+                crate::paths::write_private(&file, &serde_json::to_string_pretty(&auth)?)?;
+            }
             (dir, vec![("CODEX_HOME".into(), d)])
         }
         _ => bail!("{id} is not a harness login"),
@@ -1153,6 +1195,18 @@ mod tests {
         assert!(codex_needs_refresh(&expiring, now));
         let old = json!({"tokens": {"access_token": token(now / 1000 + 9 * 86400)}, "last_refresh": iso(now - 8 * 86_400_000)});
         assert!(codex_needs_refresh(&old, now));
+    }
+
+    #[test]
+    fn codex_keeps_a_login_refreshed_on_disk() {
+        let auth = |refresh: &str, at: &str, account: &str| json!({"tokens": {"access_token": "a", "refresh_token": refresh, "account_id": account}, "last_refresh": at});
+        let vault = auth("r1", "2026-11-01T00:00:00Z", "acc");
+        assert!(codex_newer(&auth("r2", "2026-11-02T00:00:00Z", "acc"), &vault));
+        // Same login, an older copy, another account or no date: the vault wins.
+        assert!(!codex_newer(&auth("r1", "2026-11-02T00:00:00Z", "acc"), &vault));
+        assert!(!codex_newer(&auth("r0", "2026-10-30T00:00:00Z", "acc"), &vault));
+        assert!(!codex_newer(&auth("r2", "2026-11-02T00:00:00Z", "other"), &vault));
+        assert!(!codex_newer(&json!({"tokens": {"access_token": "a", "refresh_token": "r2"}}), &vault));
     }
 
     #[test]

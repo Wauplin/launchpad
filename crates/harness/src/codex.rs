@@ -1015,13 +1015,6 @@ async fn models(server: &CodexServer) -> Result<Vec<ModelInfo>> {
         .collect())
 }
 
-/// Model and effort Codex uses when none is given (`~/.codex/config.toml`).
-pub fn defaults() -> (Option<String>, Option<String>) {
-    let path = dirs::home_dir().unwrap_or_default().join(".codex/config.toml");
-    let v: toml::Value = std::fs::read_to_string(path).ok().and_then(|t| toml::from_str(&t).ok()).unwrap_or(toml::Value::Table(Default::default()));
-    (v.get("model").and_then(|m| m.as_str()).map(str::to_string), v.get("model_reasoning_effort").and_then(|m| m.as_str()).map(str::to_string))
-}
-
 pub const ID: HarnessKind = HarnessKind::new("codex");
 const fn var(name: &'static str, group: &'static str, description: &'static str, default: Option<&'static str>, example: Option<&'static str>, secret: bool) -> harness::EnvVarDoc {
     harness::EnvVarDoc { name, group, description, default, example, secret }
@@ -1234,9 +1227,6 @@ impl harness::Harness for Adapter {
     }
     async fn models(&self, _app: &App) -> Result<Vec<ModelInfo>> {
         models(&self.server).await
-    }
-    fn defaults(&self) -> (Option<String>, Option<String>) {
-        defaults()
     }
     fn efforts(&self) -> Vec<String> {
         ["low", "medium", "high", "xhigh", "max"]
