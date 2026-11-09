@@ -516,7 +516,9 @@ impl Sessions {
                     // Either side may have shown it to the owner.
                     if let Some(c) = &current {
                         s.seen_at = s.seen_at.max(c.seen_at);
-                        s.last_seq = s.last_seq.max(c.last_seq);
+                        // Home's number is its last stored event (raised by `Item::Event`), so a trace through it
+                        // always exists here, also right after a move (`MOVE_SEQ_GAP`) or before the events arrive.
+                        s.last_seq = c.last_seq;
                         // What the lease holds stays as Home placed it (`vault::grant` reads it from this record).
                         s.harness = c.harness;
                         s.launch_spec.profile = c.launch_spec.profile.clone();
