@@ -12,6 +12,7 @@ import type { Predraft } from "@/gen/Predraft";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { Icon } from "@/components/Icon";
+import { useComposer } from "@/stores/composer";
 import { Markdown } from "@/components/Markdown";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
@@ -83,10 +84,11 @@ function Fold({ children, lines, label }: { children: ReactNode; lines: number; 
   return <><div ref={ref} className="overflow-hidden text-[13px] leading-[1.6]" style={{ maxHeight: expanded ? undefined : `${lines * 1.6}em` }}>{children}</div>{long && <button className="btn btn-sm mt-2" onClick={() => setExpanded(!expanded)}>{expanded ? "Show less" : label}</button>}</>;
 }
 
-function NextStep({ source, text, button, onClick, disabled }: { source: string; text: string; button: string; onClick: () => void; disabled?: boolean }) {
+/** One row of Next steps: a plain button, or `action` (an `ActionButton`) instead. */
+function NextStep({ source, text, button, onClick, disabled, action }: { source: string; text: string; button?: string; onClick?: () => void; disabled?: boolean; action?: ReactNode }) {
   return <div className="flex flex-wrap items-center gap-2 border-t border-line-2 py-2 first:border-0">
     <span className="w-14 shrink-0 text-[11px] font-semibold text-ink-3 uppercase">{source}</span><span className="min-w-0 flex-1 basis-40 text-[12px]">{text}</span>
-    <button className="btn btn-sm" disabled={disabled} onClick={onClick}>{button}</button>
+    {action ?? <button className="btn btn-sm" disabled={disabled} onClick={onClick}>{button}</button>}
   </div>;
 }
 
@@ -174,6 +176,9 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   // A temporary folder: saved on Home at every turn end, kept there 30 days after its last agent is archived.
   const temporary = s.launch_spec.target.kind === "temp";
   const tempFolder = temporary ? projects.find((p) => p.id === s.project_id && p.is_temp) : undefined;
+  const prStep = !(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url && !localPr.merged || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && !!s.project_id;
+  // Review & publish shows the same committed diff on the Local PR page: Review diff stays only for uncommitted files.
+  const uncommitted = git.data?.files.length ?? 0;
   return <div className="min-h-0 flex-1 overflow-y-auto bg-paper">
     {working && <div role="status" className="flex items-center gap-2 border-b border-line bg-work-soft px-4 py-2 text-[12px] text-work"><span className="lp-spin" />Working… The run facts below update when the turn ends.<button className="btn btn-sm ml-auto" onClick={showTrace}>Show trace</button></div>}
     {!working && <StateBand session={s} />}<FollowUpBands sessionId={s.id} /><QuotaBand session={s} />
@@ -188,10 +193,13 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
         <span className="text-[12px]"><span className="mr-2 text-[11px] font-semibold text-ink-3 uppercase">Folder</span>{s.status === "closed" ? "This archived agent's temporary folder is still used by another agent." : "This agent works in a temporary folder. Home keeps its files 30 days after you archive it, for a resume; keep it as a folder to keep them for good."}</span>
         <KeepFolder p={tempFolder} disabled={working} title={working ? "Wait for the turn to end" : undefined} />
       </div>}
-      {!(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url && !localPr.merged || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && s.project_id && <NextStep source="Git" text={localPr ? `This agent prepared a Local PR${localPr.title ? `: ${localPr.title}` : ""}.` : (git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button={localPr ? "Review & publish" : "Open Local PR"} onClick={openPr} disabled={busy} />}
+      {prStep && <NextStep source="Git" text={localPr ? `This agent prepared a Local PR${localPr.title ? `: ${localPr.title}` : ""}.` : (git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button={localPr ? "Review & publish" : "Open Local PR"} onClick={openPr} disabled={busy} />}
       {drafts.map((d) => <NextStep key={d.id} source={d.target.kind === "predraft" ? "Local" : "GitHub"} text={`This agent drafted a ${d.kind} ${d.target.kind === "predraft" ? "on its Local PR" : `on ${d.target.repo} #${d.target.number}`}${d.status === "draft" ? "" : ": publication was attempted, check GitHub"}.`} button={`Post ${d.kind}…`} onClick={() => { const t = d.target; if (t.kind === "predraft") void navigate({ to: "/predrafts/$id", params: { id: t.id } }); else { const [owner, repo] = t.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(t.number) } }); } }} />)}
-      {((changes?.files ?? 0) > 0 || (git.data?.files.length ?? 0) > 0) && <NextStep source="Git" text={`${git.data?.files.length ?? 0} uncommitted files${changes ? `; ${changes.files} tracked files differ from main` : ""}.`} button="Review diff" onClick={() => reviewDiff((changes?.files ?? 0) > 0)} />}
+      {(uncommitted > 0 || (changes?.files ?? 0) > 0 && !(prStep && localPr)) && <NextStep source="Git" text={`${uncommitted} uncommitted files${changes ? `; ${changes.files} tracked files differ from main` : ""}.`} button="Review diff" onClick={() => reviewDiff((changes?.files ?? 0) > 0)} />}
       {(unfinished || s.status === "closed") && <NextStep source="Session" text={s.status === "closed" ? temporary ? "This archived session is resumable: Home keeps its temporary folder 30 days after Archive." : "This archived session is still resumable." : "The last turn did not finish successfully."} button="Resume" disabled={busy} onClick={() => void run(async () => { if (unfinished) await api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }); else await api.post(`/api/sessions/${s.id}/resume`); showTrace(); })} />}
+      {!working && s.status !== "in_terminal" && <NextStep source="Session" text="A separate agent in the same folder, with this trace as context." button="Launch here" onClick={() => useComposer.getState().followUpFrom(s)} />}
+      <NextStep source="Session" text="Reference this trace in a new agent's prompt, in any folder." button="Use trace as context" disabled={s.last_seq === 0} onClick={() => useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] })} />
+      {s.status !== "closed" && !working && <NextStep source="Session" text="Archive this agent. It stays resumable." action={<ActionButton name="session.archive" params={{ id: s.id }} icon={null} />} />}
       {refs.map((r, i) => <NextStep key={i} source="GitHub" text={r.title ?? `Linked ${r.kind}${r.number ? ` #${r.number}` : ""}.`} button={`Open ${r.number ? `#${r.number}` : r.kind}`} onClick={() => { if (r.number && r.repo.includes("/")) { const [owner, repo] = r.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(r.number) } }); } else openExternal(r.url); }} />)}
       {!scheduling && <p className="pt-2 text-[12px] text-ink-3">{followUp ? "A message is already scheduled for this session." : s.status === "quota_paused" ? null : <button className="text-teal-ink hover:underline" title="A message delivered later to this same session" onClick={() => setScheduling(true)}>Send later…</button>}</p>}
       {scheduling && <div className="grid gap-3 border-t border-line py-3"><b className="text-[12px]">Send later · same session, new message</b><textarea className="field-input min-h-20" aria-label="Message to send later" placeholder="Message to send later…" value={message} onChange={(e) => setMessage(e.target.value)} /><div className="grid gap-1.5"><div><PresetButton surface={presetSurface} labeled selected={followUpPresets} onChange={setFollowUpPresets} /></div><PresetChips surface={presetSurface} selected={followUpPresets} onChange={setFollowUpPresets} /></div><DelaySelector conditions={conditions} harness={s.harness} profile={s.launch_spec.profile} onChange={setConditions} onValidityChange={setValid} /><p className="text-[12px] text-ink-3">If this session is running, in a terminal or awaiting an answer at that time, the message stays queued until it is ready.</p><div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !followUpMessage || !conditions.length || !valid} onClick={() => void run(async () => { await api.post(`/api/sessions/${s.id}/follow-up`, { message: followUpMessage, conditions }); setScheduling(false); setMessage(""); setFollowUpPresets([]); })}>Schedule</button><button className="btn btn-sm" onClick={() => setScheduling(false)}>Cancel</button></div></div>}
