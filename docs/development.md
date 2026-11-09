@@ -41,6 +41,7 @@ node web/scripts/shots.mjs --views 120,phone / settings=/settings/workspace     
 - For each screenshot, the script prints a line with the problems it found: sideways scrolling, bar items that leave the screen or overlap, page errors, failed requests. It exits with code 1 when a screenshot has a problem.
 - Real data: the first run signs in to the daemon with its token (`~/.local/share/launchpad-dev/token`, or `--token-file`) as the device "Screenshots (headless)". The cookie is kept in `~/.cache/launchpad-shots/` for later runs. The script refuses the production daemon (port 7317). Use `--daemon http://127.0.0.1:<port>` for a scratch daemon.
 - Clicks before a screenshot: `--pages <file.json>` with entries like `{"name": "launch", "path": "/", "click": ["text=Launch"]}`. A click is a CSS selector or `text=<button label>`. Entries can also have `eval` (JavaScript) and `wait` (milliseconds).
+- In demo mode the first page of a run loses its query string on the laptop (for example `?session=`). Start the run with a plain first page, like `first=/`.
 - Page explanations and the welcome dialog stay closed (`--first-visit` shows them). `--wait 1500` gives syntax colors in Files time to load. `--base http://127.0.0.1:5173` uses a running `pnpm dev` server instead of `web/dist`.
 - Several runs can go at the same time: each one uses its own Chrome profile, server port and browser contexts. Run `node web/scripts/shots.mjs --help` for every option.
 
@@ -50,11 +51,15 @@ node web/scripts/shots.mjs --views 120,phone / settings=/settings/workspace     
 cargo +1.93.1 clippy --workspace --all-targets --locked -- -D warnings
 cargo test
 (cd web && pnpm typecheck)
+(cd web && pnpm lint:hooks)
 (cd web && pnpm test:<name>)    # attachments, chat, code, composer, drafts, markdown,
                                 # operations, proposals, sessions, terminals, tour
+(cd web && pnpm ui-check)       # off-scale UI classes (not in CI)
 ```
 
 Install the pinned toolchain with `rustup toolchain install 1.93.1 --profile minimal --component clippy`.
+
+`pnpm ui-check` runs `web/scripts/ui-check.mjs`. It reads `web/src` (except `gen/`) and lists each class or call that breaks the Sizes and Dates rules of the UI rules in `CLAUDE.md`: Tailwind text sizes and text sizes outside 11/12/13/15/18 px, corner radii other than `rounded-control` and `rounded-card`, arbitrary gaps, widths of 700 px or more (use `max-w-page` or `max-w-text`), hex and Tailwind palette colors, forced `size-…!` classes, icon sizes outside 12/14/16, and `toLocale…String` on dates. It prints `file:line rule match` and a count per rule, and exits with 1 when it finds something. The allowlist at the top of the script excuses a few files and matches, each with its reason (for example the date helpers, the terminal themes and the phone icon sizes). It does not read `styles.css`. It needs no dependencies and takes under a second.
 
 Testing policy: keep tests few, fast and free of mocks. Add a test only for a small pure function with tricky edge cases (parsers, prompt rendering); no test builds a full `App`, starts processes or takes more than a second. The whole Rust run takes about one second. Check everything else by running the app in the dev environment.
 
