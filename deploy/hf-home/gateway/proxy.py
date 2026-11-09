@@ -62,7 +62,7 @@ class Proxy:
 
     async def handle(self, request, *, body=None):
         path = self.guard(request)
-        if denied(path) or path.startswith("/_space"):
+        if denied(path):
             raise web.HTTPNotFound()
         headers = self.headers(request)
         url = self.base + request.raw_path
