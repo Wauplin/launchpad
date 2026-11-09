@@ -1,42 +1,19 @@
-// What this client can do. The desktop shell (Tauri) marks itself with `window.__launchpadDesktop`; everything
-// else is a browser tab, possibly on another device than the daemon.
+// What this client can do: Launchpad runs in a browser tab or as an installed web app, possibly on another
+// device than the daemon.
 
-import { api } from "./api";
-import { toastError } from "@/components/Toast";
-
-declare global {
-  interface Window { __launchpadDesktop?: boolean }
-}
-
-/** True inside the Launchpad desktop window, which runs on the daemon's machine. */
-export const isDesktopShell = typeof window !== "undefined" && window.__launchpadDesktop === true;
-
-/** Opens an external link on the device the user is looking at: the daemon's browser for the desktop shell, a new tab otherwise. */
+/** Opens an external link in a new tab on the device the user is looking at. */
 export function openExternal(url: string) {
-  if (isDesktopShell) {
-    void api.post("/api/open", { url }).catch(toastError);
-    return;
-  }
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-/** Props for an `<a>` to an external page; the click goes through `openExternal` in the desktop shell. */
+/** Props for an `<a>` to an external page. */
 export function externalLinkProps(url: string) {
-  return {
-    href: url,
-    target: "_blank",
-    rel: "noopener noreferrer",
-    onClick: (e: { preventDefault: () => void }) => {
-      if (!isDesktopShell) return;
-      e.preventDefault();
-      openExternal(url);
-    },
-  };
+  return { href: url, target: "_blank", rel: "noopener noreferrer" };
 }
 
 /** The installed app's icon badge follows the Today count of every workspace where the platform supports it. */
 export function setAppBadge(count: number) {
   const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
-  if (isDesktopShell || !nav.setAppBadge) return;
+  if (!nav.setAppBadge) return;
   void (count > 0 ? nav.setAppBadge(count) : nav.clearAppBadge?.())?.catch(() => {});
 }

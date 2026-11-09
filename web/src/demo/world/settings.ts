@@ -114,7 +114,7 @@ export function settingsWorld() {
   const harnessDefaults: Record<string, HarnessDefaults> = structuredClone(DEFAULTS);
   const routerModels: ModelInfo[] = structuredClone(ROUTER_MODELS);
   const devices: DemoDevice[] = [
-    { id: "demo-device-desktop", name: "This desktop", created_at: seconds(clock.ago(60 * 24 * 40)), expires_at: seconds(clock.ago(-60 * 24 * 325)), last_seen_at: seconds(clock.now()), current: true },
+    { id: "demo-device-desktop", name: "Laptop", created_at: seconds(clock.ago(60 * 24 * 40)), expires_at: seconds(clock.ago(-60 * 24 * 325)), last_seen_at: seconds(clock.now()), current: true },
     { id: "demo-device-phone", name: "Phone", created_at: seconds(clock.ago(60 * 24 * 12)), expires_at: seconds(clock.ago(-60 * 24 * 353)), last_seen_at: seconds(clock.ago(95)), current: false },
   ];
   // One recorded shell exists from the start ("Terminals · 1" in the status bar); its replay starts when it is shown.

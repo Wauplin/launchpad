@@ -7,7 +7,6 @@ import { createRoot } from "react-dom/client";
 import { HarnessProvider } from "@/components/HarnessMark";
 import { makeRouter, type Entry } from "@/app/router";
 import { isPhone, watchLayout } from "@/lib/phone";
-import { isDesktopShell } from "@/lib/platform";
 import { persistCache, restoreCache } from "@/lib/offlineCache";
 import { logToDaemon } from "@/lib/api";
 import { connectEvents } from "@/lib/ws";
@@ -44,14 +43,14 @@ if (!isDemo && "serviceWorker" in navigator) {
 window.addEventListener("error", (e) => logToDaemon(`uncaught: ${e.message} at ${e.filename}:${e.lineno}`, "error"));
 window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled rejection: ${String(e.reason)}`, "error"));
 
-// Each shell is its own chunk: a phone never downloads the desktop shell, and the reverse.
-// index.html guessed the layout before paint; the window may have been resized since (a desktop window restoring
+// Each shell is its own chunk: a phone never downloads the laptop shell, and the reverse.
+// index.html guessed the layout before paint; the window may have been resized since (a window restoring
 // its size), so `isPhone` decides: a stale `lp-phone` would apply the phone CSS to the laptop shell.
 document.documentElement.classList.toggle("lp-phone", isPhone);
 watchLayout();
 const entry: Promise<Entry> = isPhone ? import("@/mobile/entry").then((m) => m.entry) : import("@/app/desktop").then((m) => m.entry);
 // Browser tabs draw from the last saved lists while the daemon answers (lib/offlineCache.ts).
-const cache = isDemo ? demo : isDesktopShell ? Promise.resolve() : restoreCache(queryClient).then(() => persistCache(queryClient));
+const cache = isDemo ? demo : restoreCache(queryClient).then(() => persistCache(queryClient));
 // Restore cached lists before the first socket resync invalidates them.
 void cache.then(() => connectEvents(queryClient));
 void Promise.all([entry, cache, deployment]).then(([pages]) => {
@@ -72,17 +71,3 @@ void Promise.all([entry, cache, deployment]).then(([pages]) => {
     </StrictMode>,
   );
 });
-
-// The desktop shell passes its start time (`lp_t0`, epoch ms) to measure the time to the first frame.
-const params = new URLSearchParams(location.search);
-const t0 = Number(params.get("lp_t0"));
-if (t0) {
-  params.delete("lp_t0");
-  const rest = params.toString();
-  history.replaceState(null, "", location.pathname + (rest ? `?${rest}` : "") + location.hash);
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() =>
-      logToDaemon(`window ready: ${Date.now() - t0} ms after the shell started (page ${Math.round(performance.now())} ms)`),
-    ),
-  );
-}

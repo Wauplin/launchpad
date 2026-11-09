@@ -1,5 +1,5 @@
-// Which daemon this window talks to, and whether the live connection works. Shown in browser tabs
-// (the laptop status bar, the phone top bar); the desktop shell runs on the daemon's machine.
+// Which daemon this window talks to, and whether the live connection works (the laptop status bar, the phone
+// top bar).
 
 import { time, when } from "@/lib/format";
 import { useEffect, useState } from "react";

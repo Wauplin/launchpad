@@ -493,10 +493,8 @@ function FileView({ project, root, rev, path, line, letter, reveal }: { project:
   );
 }
 
-/** Saves the file: an attachment link in browsers; the desktop shell saves it to Downloads and reports the path. */
+/** Saves the file through an attachment link. */
 function saveFile(root: string, rev: string | null, path: string) {
-  const w = window as unknown as { __launchpadDesktop?: boolean; __launchpadDownloaded?: (path: string, ok: boolean) => void };
-  if (w.__launchpadDesktop) w.__launchpadDownloaded = (saved, ok) => (ok ? toast(saved ? `Saved to ${saved}` : "Download finished") : toast("The download failed"));
   const a = document.createElement("a");
   a.href = daemonAsset(downloadUrl(root, rev, path));
   a.download = basename(path);

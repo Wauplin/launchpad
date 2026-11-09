@@ -8,11 +8,9 @@ import type { ProfileSpend } from "@/gen/ProfileSpend";
 import { spendLabel, spendPercent, useQuotas, windowLabel, type QuotaEntry } from "@/lib/profiles";
 import { HarnessMark, useHarnessInfo, useHarnesses, type Harness } from "@/components/HarnessMark";
 import { ago, formatReset, resetLabel } from "@/lib/format";
-import { onConnectionChange } from "@/lib/ws";
 import { Popover } from "@/components/Popover";
 import { Icon } from "@/components/Icon";
 import { TerminalsChip } from "@/features/terminals/TerminalDock";
-import { isDesktopShell } from "@/lib/platform";
 import { HostChip } from "./Connection";
 import { Link } from "@tanstack/react-router";
 import { outdatedLabel, useOutdatedRunners } from "@/lib/runners";
@@ -165,8 +163,6 @@ export function StatusBar() {
   const { data } = useStatus();
   const limits = useInbox().data?.limits ?? {};
   const low = Object.entries(limits).filter(([, v]) => v.remaining < 500);
-  const [online, setOnline] = useState(true);
-  useEffect(() => onConnectionChange(setOnline), []);
   // Re-render every 30 s so ages and reset times stay current.
   const [, tick] = useState(0);
   useEffect(() => {
@@ -191,7 +187,7 @@ export function StatusBar() {
           {quota.map((e) => <StaleQuota key={e.key} e={e} />)}
           {low.map(([k, v]) => <span key={k} className="rounded bg-attn-soft px-1.5 font-semibold text-attn" title={`Resets ${formatReset(v.reset_at)}`}>GitHub {k} {v.remaining} calls left</span>)}
           <span className="ml-auto inline-flex items-center gap-2.5">
-            {isDesktopShell ? !online && <span className="font-semibold text-gh-closed">Daemon disconnected, reconnecting…</span> : <HostChip />}
+            <HostChip />
             {data.env === "dev" && <span className="font-mono text-ink-3" title={`Running commit: ${data.commit}`}>{data.commit.slice(0, 7)}</span>}
             <TerminalsChip />
             {data.env === "dev" && <span className="rounded bg-attn-soft px-1.5 font-semibold text-attn">dev</span>}

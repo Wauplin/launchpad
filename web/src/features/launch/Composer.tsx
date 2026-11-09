@@ -1,5 +1,4 @@
 import { OutdatedRunnerNotice, RunnerChoice, runnerName, ToolsChoice, useLaunchRunners, useLaunchTools } from "./LaunchExtras";
-import { isDesktopShell } from "@/lib/platform";
 import { isPhone } from "@/lib/phone";
 import { Sheet } from "@/mobile/Sheet";
 import { useStatus } from "@/lib/queries";
@@ -817,7 +816,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {editing ? "Discard changes" : "Discard"}
         </button>
         {unconfirmedLaunch && <div role="status" className="text-[12px] text-ink-3">Delivery not confirmed. Retry unchanged to check the result. Inspect Agents before starting another attempt.<button className="btn btn-sm mt-1" disabled={launching} onClick={() => void abandonOperation("/api/sessions", unconfirmedLaunch).then(() => setUnconfirmedLaunch(null)).catch(toastError)}>I checked Agents — start a new attempt</button></div>}
-        {!isDesktopShell && host && <span className="text-[12px] text-ink-3" title="Agents run on the daemon's machine">Runs on {host}</span>}
+        {host && <span className="text-[12px] text-ink-3" title="Agents run on the daemon's machine">Runs on {host}</span>}
         {(blocker || unsupportedImages) && !launching && <span role="status" className="basis-full text-right text-[12px] text-attn sm:basis-auto">{unsupportedImages ? "Remove the images or pick another harness" : blocker}</span>}
         {launchButton()}
       </div>

@@ -1,5 +1,5 @@
 // Demo routes: harnesses and models, configuration, profiles, sign-in checks, usage history,
-// devices and pairing, and the desktop-only actions (`/api/open`, `/api/window`).
+// devices and pairing.
 
 import { toast } from "@/components/Toast";
 import type { Config } from "@/gen/Config";
@@ -94,7 +94,7 @@ route("PUT", "/api/config", ({ body }) => {
 });
 
 type GeneralPatch = Partial<{
-  projects_root: string; remove_published_worktree: boolean; presets: Config["presets"]; notify: boolean; github_poll_interval_seconds: number; worktrees_keep: number; browser: string;
+  projects_root: string; remove_published_worktree: boolean; presets: Config["presets"]; github_poll_interval_seconds: number; worktrees_keep: number;
 }>;
 
 route("PATCH", "/api/config", ({ body }) => {
@@ -103,10 +103,8 @@ route("PATCH", "/api/config", ({ body }) => {
   if (p.projects_root !== undefined) c.projects_root = p.projects_root;
   if (p.remove_published_worktree !== undefined) c.remove_published_worktree = p.remove_published_worktree;
   if (p.presets !== undefined) c.presets = p.presets;
-  if (p.notify !== undefined) c.agents.notify = p.notify;
   if (p.github_poll_interval_seconds !== undefined) c.github.poll_interval_seconds = Math.max(15, p.github_poll_interval_seconds);
   if (p.worktrees_keep !== undefined) c.worktrees.keep = p.worktrees_keep;
-  if (p.browser !== undefined) c.commands.browser = p.browser;
   return saveConfig(c);
 });
 
@@ -272,8 +270,3 @@ function qrSvg(seed: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path fill="#000" d="${d}"/></svg>`;
 }
 
-// ---------------------------------------------------------------- Desktop actions
-
-const desktopOnly = () => { toast("Demo: opening links and windows is disabled."); return { ok: true }; };
-route("POST", "/api/open", desktopOnly);
-route("POST", "/api/window", desktopOnly);

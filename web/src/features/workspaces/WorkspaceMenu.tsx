@@ -11,7 +11,7 @@ import { toastError } from "@/components/Toast";
 import { ConfirmButton, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useStatus } from "@/lib/queries";
-import { newWindowWord, openWindow, useScope, useWorkspaces } from "@/lib/workspace";
+import { openInNewTab, useScope, useWorkspaces } from "@/lib/workspace";
 import { useWorkspace } from "@/stores/workspace";
 
 /** Creates a workspace and shows it in this window. */
@@ -69,7 +69,7 @@ export function WorkspaceMenu() {
         ) : (
           <>
             <MenuItem icon={<Icon name="pencil" size={12} />} label="Rename" onClick={() => { setName(workspace.name); setMode("rename"); }} />
-            <MenuItem icon={<Icon name="window" size={12} />} label={`Open in a new ${newWindowWord}`} detail="Two workspaces side by side" onClick={() => { close(); void openWindow(workspace.id); }} />
+            <MenuItem icon={<Icon name="window" size={12} />} label="Open in a new tab" detail="Two workspaces side by side" onClick={() => { close(); openInNewTab(workspace.id); }} />
             <Link to="/settings/workspace" className="flex h-8 items-center gap-2 rounded-control px-2 text-[13px] text-ink no-underline hover:bg-sunk" onClick={close}><Icon name="sliders" size={12} />Workspace settings</Link>
             <MenuItem icon={<Icon name="plus" size={12} />} label="New workspace" detail="Each folder belongs to one workspace" onClick={() => setMode("new")} />
             <div className="border-t border-line-2 px-2 pt-1.5 pb-1">

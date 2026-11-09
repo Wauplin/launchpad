@@ -45,7 +45,7 @@ export const ask: Chapter = {
     {
       id: "ask.changed", route: ASK_ROUTE, anchor: "chat.changed",
       title: "Changed",
-      body: "With admin access, Ask Launchpad changes Launchpad's own records directly: bots, routines, schedules, folder settings, presets and notifications. Each change is a Changed line with the value before and after; names of notes, bots and routines open their page.",
+      body: "With admin access, Ask Launchpad changes Launchpad's own records directly: bots, routines, schedules, folder settings and presets. Each change is a Changed line with the value before and after; names of notes, bots and routines open their page.",
     },
     {
       id: "ask.thread", route: ASK_ROUTE, anchor: "bots.thread",

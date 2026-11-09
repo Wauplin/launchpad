@@ -66,7 +66,6 @@ export function PhoneSettings() {
             </div>
           </SettingRow>
         </div>
-        <Row to="/settings/notifications" icon="bell" label="Notifications" />
         {!delegatedAccess() && <Row to="/settings/devices" icon="window" label="Devices" />}
       </Group>
       <Group title="On the phone">

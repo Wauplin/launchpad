@@ -8,7 +8,7 @@ export type Entry = { Root: () => ReactNode; TodayView: RouteComponent; AgentsVi
 /** Today's address: `filter` (a chip, such as `send`) and `card` (an item ID such as `proposal:<id>`). */
 export type TodaySearch = { filter?: string; card?: string };
 
-// Both shells (desktop `Shell`, phone `MobileShell`) share these routes. The desktop entry bundles Today
+// Both shells (laptop `Shell`, phone `MobileShell`) share these routes. The laptop entry bundles Today
 // and Agents with its shell; every other page is a separate chunk loaded on first visit (or on hover/focus
 // of a link, `defaultPreload: "intent"`), so the first paint downloads less.
 export function makeRouter({ Root, TodayView, AgentsView }: Entry, history?: RouterHistory) {
@@ -46,7 +46,6 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/setup", component: lazyRouteComponent(() => import("@/features/setup/SetupView"), "SetupView") }),
   createRoute({ getParentRoute: () => root, path: "/settings", component: lazyRouteComponent(() => import("@/features/settings/SettingsView"), "SettingsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/workspace", component: lazyRouteComponent(() => import("@/features/settings/WorkspaceSettings"), "WorkspaceSettings") }),
-  createRoute({ getParentRoute: () => root, path: "/settings/notifications", component: lazyRouteComponent(() => import("@/features/settings/SettingsView"), "NotificationsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/presets", component: lazyRouteComponent(() => import("@/features/settings/SettingsView"), "PresetsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/huggingface", component: lazyRouteComponent(() => import("@/features/settings/HuggingFaceView"), "HuggingFaceView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/github", component: lazyRouteComponent(() => import("@/features/settings/GitHubView"), "GitHubView") }),

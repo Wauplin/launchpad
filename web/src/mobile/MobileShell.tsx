@@ -2,7 +2,7 @@
 // a status that warns (a detail page replaces the bar with its ‹, title and ⋯: `PhoneBar`, and keeps the status only
 // while it warns), one page at a time, and bottom tabs (Today · Agents · Ask · Inbox · More). Ask opens the
 // chat of the workspace's default bot (`askTarget`); More holds the other places. Same daemon, rules and feature
-// components as the desktop shell; only the frame differs. Every action stays a visible button.
+// components as the laptop shell; only the frame differs. Every action stays a visible button.
 
 import { recordingZoom } from "@/lib/zoom";
 import { lazy, Suspense } from "react";

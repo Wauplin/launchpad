@@ -15,7 +15,6 @@ export const WORKSPACE_NAV: NavEntry[] = [{ to: "/settings/workspace", label: "W
 export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
   { group: "This device", items: [
     { to: "/settings", label: "Appearance", icon: "sun", exact: true, keywords: "theme dark light zoom layout phone desktop" },
-    { to: "/settings/notifications", label: "Notifications", icon: "bell", keywords: "desktop notify alerts" },
   ] },
   { group: "Agents", items: [
     { to: "/settings/profiles", label: "Profiles", icon: "agents", keywords: "harness claude codex opencode model effort billing subscription pay as you go api key quota" },
@@ -23,9 +22,9 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
     { to: "/settings/usage", label: "Usage", icon: "clock", keywords: "analytics activity cost tokens spend month" },
   ] },
   { group: "Machines & access", items: [
-    { to: "/settings/runners", label: "Home and runners", icon: "window", keywords: "runner home burst vm jail update connect approve jobs machines computer folders root browser links" },
+    { to: "/settings/runners", label: "Home and runners", icon: "window", keywords: "runner home burst vm jail update connect approve jobs machines computer folders root" },
     { to: "/settings/credentials", label: "Credentials and tools", icon: "sliders", keywords: "vault tokens secrets logins mcp tools proxy launchpad cli access admin" },
-    { to: "/settings/channels", label: "Channels", icon: "send", keywords: "telegram webhook outbox hooks messages" },
+    { to: "/settings/channels", label: "Channels", icon: "send", keywords: "telegram webhook outbox hooks messages notifications notify alerts" },
     { to: "/settings/devices", label: "Devices", icon: "window", keywords: "browser pair qr phone sign out tailscale remote access" },
     { to: "/settings/github", label: "GitHub", icon: "pr", keywords: "token account repositories poll rate limit inbox" },
     { to: "/settings/huggingface", label: "Hugging Face", icon: "huggingface", keywords: "traces bucket backup hf token" },

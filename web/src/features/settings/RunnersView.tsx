@@ -188,9 +188,6 @@ function ThisComputer() {
         <SettingRow label="Folders root" hint="Where folders are suggested, and where temporary folders go when you keep them." scope="all">
           <SavedInput label="Folders root" className="font-mono text-[12px]" value={config.config.projects_root} onSave={(v) => patch({ projects_root: v })} />
         </SettingRow>
-        <SettingRow label="Open links with" hint={config.remote ? "Edit [commands] in config.toml on this computer." : "Command that opens links; empty uses the system default."} scope="all">
-          <SavedInput label="Browser command" className="font-mono text-[12px]" placeholder="xdg-open" disabled={config.remote} value={config.config.commands.browser} onSave={(v) => patch({ browser: v })} />
-        </SettingRow>
       </>}
     </Card>
   );

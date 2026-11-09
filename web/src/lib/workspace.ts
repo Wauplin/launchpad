@@ -2,7 +2,7 @@
 // window always shows one workspace. Every list that a workspace narrows (sidebar, agents, projects, inbox,
 // composer) uses these predicates, so counts and markers agree. Other workspaces show counts only.
 
-import { isDesktopShell, setAppBadge } from "./platform";
+import { setAppBadge } from "./platform";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
@@ -87,22 +87,10 @@ export function useWorkspaceSync() {
   return { empty: workspaces?.length === 0 };
 }
 
-/** Opens another window on a workspace: a desktop window in the desktop shell, a browser tab otherwise. */
-export async function openWindow(workspaceId: string) {
-  const url = `/?ws=${encodeURIComponent(workspaceId)}`;
-  if (!isDesktopShell) {
-    window.open(url, "_blank");
-    return;
-  }
-  try {
-    await api.post("/api/window", { workspace_id: workspaceId });
-  } catch {
-    window.open(url, "_blank");
-  }
+/** Opens a workspace in a new browser tab. */
+export function openInNewTab(workspaceId: string) {
+  window.open(`/?ws=${encodeURIComponent(workspaceId)}`, "_blank");
 }
-
-/** "window" in the desktop shell, "tab" in a browser. */
-export const newWindowWord = isDesktopShell ? "window" : "tab";
 
 /** Moves a folder to another workspace (or assigns an Unassigned one); every window refreshes on the `projects` bus topic. */
 export async function moveFolder(project: Project, workspace: Workspace) {

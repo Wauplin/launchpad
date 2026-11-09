@@ -1,7 +1,6 @@
 import { storageAllowed } from "./clientStorage.ts";
 // Last known daemon data in IndexedDB, so a browser tab (a phone above all) draws at once from cache, with its age
-// visible, then refreshes: the first WebSocket connection always resyncs every query. The desktop shell is local
-// and does not use it. Only lists that the first screens need are kept.
+// visible, then refreshes: the first WebSocket connection always resyncs every query. Only lists that the first screens need are kept.
 
 import type { QueryClient } from "@tanstack/react-query";
 

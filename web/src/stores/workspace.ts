@@ -3,7 +3,7 @@
 //
 // sessionStorage is per window, so several windows show different workspaces and each keeps its own after
 // a reload. localStorage remembers the last choice for the next window. `?ws=<id or name>` (from
-// `launchpad-desktop --workspace`) wins and is removed from the address once read.
+// notification links and Open in a new tab) wins and is removed from the address once read.
 
 import { create } from "zustand";
 
@@ -39,12 +39,6 @@ export const useWorkspace = create<WorkspaceStore>((set) => ({
     set({ current: id, requested: null });
   },
 }));
-
-/** The desktop shell's `--workspace` on a running window navigates to `?ws=…` without reloading. */
-window.addEventListener("popstate", () => {
-  const ws = takeRequested();
-  if (ws !== null) useWorkspace.setState({ requested: ws });
-});
 
 /** Query string for the per-workspace composer draft. */
 export const draftQuery = () => {

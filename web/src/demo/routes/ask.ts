@@ -29,13 +29,12 @@ route("POST", "/api/proposals/:id/ran", (r) => {
   return p;
 });
 
-const shared = () => ({ presets: world.config.presets, notify: world.config.agents.notify, github_poll_interval_seconds: world.config.github.poll_interval_seconds, worktrees_keep: world.config.worktrees.keep });
+const shared = () => ({ presets: world.config.presets, github_poll_interval_seconds: world.config.github.poll_interval_seconds, worktrees_keep: world.config.worktrees.keep });
 route("GET", "/api/settings/shared", shared);
 route("PATCH", "/api/settings/shared", ({ body }) => {
   const p = (body ?? {}) as Partial<ReturnType<typeof shared>>;
   const c = structuredClone(world.config);
   if (p.presets !== undefined) c.presets = p.presets;
-  if (p.notify !== undefined) c.agents.notify = p.notify;
   if (p.github_poll_interval_seconds !== undefined) c.github.poll_interval_seconds = Math.max(15, p.github_poll_interval_seconds);
   if (p.worktrees_keep !== undefined) c.worktrees.keep = p.worktrees_keep;
   saveConfig(c);

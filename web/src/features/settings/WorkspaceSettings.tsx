@@ -10,7 +10,7 @@ import { toastError } from "@/components/Toast";
 import { ConfirmButton, Empty, Loading, SettingRow } from "@/components/ui";
 import { api } from "@/lib/api";
 import { botInitial, useBots } from "@/lib/bots";
-import { newWindowWord, openWindow, useScope, useWorkspaces } from "@/lib/workspace";
+import { openInNewTab, useScope, useWorkspaces } from "@/lib/workspace";
 import { Card, SavedInput, SettingsPage } from "./SettingsView";
 import { ToolDefaultsEditor, useSaveToolDefaults } from "./ToolDefaults";
 import { useToolDefaults } from "@/lib/toolDefaults";
@@ -44,9 +44,9 @@ export function WorkspaceSettings() {
         <SettingRow label="Folders" hint="Every folder belongs to one workspace.">
           <span className="flex flex-wrap items-center gap-2 text-[13px]">{plural(folders, "folder")}<Link to="/projects" className="btn btn-sm no-underline">Open Folders</Link></span>
         </SettingRow>
-        {/* A phone shows one page at a time: no second window. */}
-        {!phone && <SettingRow label="Another window" hint="Two workspaces side by side means two windows.">
-          <button className="btn btn-sm w-fit" onClick={() => void openWindow(w.id)}><Icon name="window" size={12} />Open in a new {newWindowWord}</button>
+        {/* A phone shows one page at a time: no second tab. */}
+        {!phone && <SettingRow label="Another tab" hint="Two workspaces side by side means two tabs.">
+          <button className="btn btn-sm w-fit" onClick={() => openInNewTab(w.id)}><Icon name="window" size={12} />Open in a new tab</button>
         </SettingRow>}
       </Card>
       <Card title="Bots" end={<Link to="/bots" search={{ new: true } as never} className="btn btn-sm no-underline"><Icon name="plus" size={12} />New bot</Link>}>

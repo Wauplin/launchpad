@@ -19,7 +19,7 @@ function decide(): boolean {
   if (isExtension) return true;
   const choice = layoutChoice();
   if (choice !== "auto") return choice === "phone";
-  return typeof window !== "undefined" && !window.__launchpadDesktop && window.matchMedia(query).matches;
+  return typeof window !== "undefined" && window.matchMedia(query).matches;
 }
 
 /** True when this page runs the phone shell. Fixed for the life of the page. */
@@ -38,7 +38,7 @@ export function setLayoutChoice(choice: LayoutChoice) {
 
 /** Reloads into the other shell when an automatic layout crosses the breakpoint (rotating a tablet, resizing a window). */
 export function watchLayout() {
-  if (layoutChoice() !== "auto" || window.__launchpadDesktop) return;
+  if (layoutChoice() !== "auto") return;
   const mq = window.matchMedia(query);
   let timer: ReturnType<typeof setTimeout> | undefined;
   mq.addEventListener("change", () => {

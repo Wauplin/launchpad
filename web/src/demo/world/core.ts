@@ -30,9 +30,7 @@ export function coreWorld() {
     projects_root: ROOT,
     remove_published_worktree: true,
     server: { bind: "127.0.0.1", public_origin: null, auto_tailnet: true },
-    commands: { browser: "" },
     github: { poll_interval_seconds: 60 },
-    agents: { notify: true },
     worktrees: { keep: 10 },
     presets: [
       { id: "implement-review", label: "Implement, then review", text: "Please implement the feature using Claude, then launch a review using Codex.", bots: true, agent: false },

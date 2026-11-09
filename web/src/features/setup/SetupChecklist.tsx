@@ -19,7 +19,6 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { useConfig, useProjects, useSharedSettings, useStatus } from "@/lib/queries";
-import { isDesktopShell } from "@/lib/platform";
 import { useComposer } from "@/stores/composer";
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { WorkspaceCreator, WorkspacePicker, defaultWorkspace } from "@/features/workspaces/WorkspacePicker";
@@ -401,24 +400,13 @@ export function SlackItem({ onHide }: { onHide?: () => void }) {
   );
 }
 
-/** Desktop notifications in the desktop app; the phone gets them through Telegram (Settings → Channels). */
+/** Notifications go to Telegram (Settings → Channels). */
 function NotificationsItem() {
-  const notify = useConfig().data?.config.agents.notify;
-  const telegram = useQuery({ queryKey: ["channels"], queryFn: () => api.get<ChannelsOverview>("/api/channels"), staleTime: 30_000, enabled: !isDesktopShell }).data?.telegram;
-  if (!isDesktopShell) {
-    const on = !!telegram?.bound && telegram.notify;
-    return (
-      <ItemShell title="Phone notifications" importance="optional" state={on ? "ready" : "missing"} why="Get finished agents and routine reports on your phone through Telegram.">
-        {on ? <p className="m-0 text-[13px]">Telegram notifications are on{telegram.chat_name ? ` for ${telegram.chat_name}` : ""}.</p> : <SettingsLink to="/settings/channels">Open Settings → Channels</SettingsLink>}
-      </ItemShell>
-    );
-  }
-  const ready = notify !== false;
+  const telegram = useQuery({ queryKey: ["channels"], queryFn: () => api.get<ChannelsOverview>("/api/channels"), staleTime: 30_000 }).data?.telegram;
+  const on = !!telegram?.bound && telegram.notify;
   return (
-    <ItemShell title="Notifications" importance="recommended" state={ready ? "ready" : "missing"} why="Know when an agent finishes or fails, on this device.">
-      {ready ? (
-        <p className="m-0 text-[13px]">The desktop app shows notifications through this computer's notification center.</p>
-      ) : <SettingsLink to="/settings/notifications">Agent notifications are off: open Settings → Notifications</SettingsLink>}
+    <ItemShell title="Phone notifications" importance="optional" state={on ? "ready" : "missing"} why="Get finished agents and routine reports on your phone through Telegram.">
+      {on ? <p className="m-0 text-[13px]">Telegram notifications are on{telegram.chat_name ? ` for ${telegram.chat_name}` : ""}.</p> : <SettingsLink to="/settings/channels">Open Settings → Channels</SettingsLink>}
     </ItemShell>
   );
 }

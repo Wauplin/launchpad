@@ -5,7 +5,7 @@ import { usePhone, layoutChoice, setLayoutChoice, type LayoutChoice } from "@/li
 // Daemon settings go to config.toml, which can also be edited by hand.
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { Config } from "@/gen/Config";
 import type { Preset } from "@/gen/Preset";
@@ -196,35 +196,6 @@ export function PresetsView() {
           </div>
         ))}
       </Card>
-    </SettingsPage>
-  );
-}
-
-/** Settings → Notifications: desktop notifications here, and Telegram for the phone. */
-export function NotificationsView() {
-  const q = useConfig();
-  const patch = usePatchConfig();
-  const { state, error, run } = useSaveState();
-  const notify = q.data?.config.agents.notify;
-  const phone = usePhone();
-  const desktop = (
-    <Card title="Desktop notifications">
-      <SettingRow label="Agent notifications" hint="Desktop notifications on the machine that runs the agent." scope="all" state={state} error={error}>
-        {notify === undefined ? <Loading /> : <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" className="accent-teal" checked={notify} onChange={(e) => void run(() => patch({ notify: e.target.checked }))} />Send notifications</label>}
-      </SettingRow>
-    </Card>
-  );
-  const telegram = (
-    <Card title={phone ? "On this phone" : "Your phone"}>
-      <p className="m-0 text-[13px] text-ink-2">Get finished agents and routine reports on your phone through Telegram.</p>
-      <div><Link to={"/settings/channels" as never} className="btn btn-sm no-underline">Open Settings → Channels</Link></div>
-    </Card>
-  );
-  return (
-    <SettingsPage title="Notifications" intro="When an agent finishes, fails or stops on its own.">
-      <ConfigError />
-      {/* A phone gets its notifications through Telegram: show that first there. */}
-      {phone ? <>{telegram}{desktop}</> : <>{desktop}{telegram}</>}
     </SettingsPage>
   );
 }
