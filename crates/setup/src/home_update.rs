@@ -366,20 +366,30 @@ async fn check_space(app: &App) -> (HomeUpdate, Option<Space>) {
     (u, space)
 }
 
-/// Update Home: the owner's click, with the version it showed.
-#[derive(Debug, Deserialize)]
+/// Update Home: the owner's click with the version it showed, an admin agent's request (`launchpad home update`)
+/// or a ready card. Without `version`, the newest of the channel; `channel` switches between releases and main.
+#[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Start {
-    pub version: String,
-    #[serde(default = "yes")]
+    pub version: Option<String>,
+    pub channel: Option<Channel>,
+    /// Only the owner's button sets it (it is not an input of the action, `launchpad_core::actions`).
+    #[serde(default)]
     pub update_runners: bool,
 }
 
-fn yes() -> bool {
-    true
+/// Whether to install `latest`: the version asked for (if any) is the newest, and it differs from what is deployed.
+fn target_ok(b: &Start, deployed: Channel, latest: &Version, available: bool) -> Result<()> {
+    if let Some(v) = &b.version {
+        anyhow::ensure!(*v == latest.version, "a newer version came out ({}): check it, then update", short(&latest.version));
+    }
+    let switch = b.channel.is_some_and(|c| c != deployed);
+    anyhow::ensure!(switch || available, "Home's Space already installs {}", short(&latest.version));
+    Ok(())
 }
 
-/// Commits the newer Dockerfile to Home's Space; the Space rebuilds and restarts with it.
+/// Commits the newer Dockerfile to Home's Space; the Space rebuilds and restarts with it. It returns once the
+/// Hub accepted the commit: the restart comes minutes later, after the build.
 pub async fn start(app: &App, b: Start) -> Result<HomeUpdate> {
     let _one = STARTING.try_lock().map_err(|_| anyhow::anyhow!("an update is already starting"))?;
     let (u, space) = check_space(app).await;
@@ -389,9 +399,17 @@ pub async fn start(app: &App, b: Start) -> Result<HomeUpdate> {
     if let Some(e) = &u.error {
         anyhow::bail!("{e}");
     }
-    let (space, channel, latest) = (space.context("no Space")?, u.channel.context("no channel")?, u.latest.clone().context("no newer version")?);
-    anyhow::ensure!(latest.version == b.version, "a newer version came out ({}): check it, then update", short(&latest.version));
-    anyhow::ensure!(u.available, "Home's Space already installs {}", short(&latest.version));
+    let (space, deployed) = (space.context("no Space")?, u.channel.context("no channel")?);
+    let channel = b.channel.unwrap_or(deployed);
+    let latest = match (channel == deployed, &u.latest) {
+        (true, Some(l)) => l.clone(),
+        (true, None) => anyhow::bail!("no newer version"),
+        (false, _) => match channel {
+            Channel::Release => latest_release(app).await?,
+            Channel::Main => latest_main(app, u.deployed.as_deref().unwrap_or_default()).await?,
+        },
+    };
+    target_ok(&b, deployed, &latest, u.available)?;
     anyhow::ensure!(!u.building, "the Space is building another revision: wait until it runs, then check again");
     // The template of the target version (deploy.sh does the same), else the current one.
     let raw = |r: &str| format!("https://raw.githubusercontent.com/{REPO}/{r}/deploy/hf-home/Dockerfile.release");
@@ -551,6 +569,24 @@ mod tests {
         assert_eq!(deployed("FROM rust\nARG LAUNCHPAD_REVISION\n"), Deployed::Source);
         assert_eq!(deployed("FROM debian\n"), Deployed::Unknown);
         assert_eq!(deployed("ARG LAUNCHPAD_RELEASE=v1;rm -rf\n"), Deployed::Unknown);
+    }
+
+    #[test]
+    fn installs_the_newest_or_switches_channel() {
+        let latest = Version { version: C.into(), commit: C.into(), at: 0, url: String::new(), behind: Some(3) };
+        let start = |version: Option<&str>, channel| Start { version: version.map(str::to_string), channel, update_runners: false };
+        // An agent's request: the newest of the deployed channel, when it is newer.
+        assert!(target_ok(&start(None, None), Channel::Main, &latest, true).is_ok());
+        assert!(target_ok(&start(None, Some(Channel::Main)), Channel::Main, &latest, false).is_err());
+        // The owner's click names what it showed; a newer one came out since.
+        assert!(target_ok(&start(Some(C), None), Channel::Main, &latest, true).is_ok());
+        assert!(target_ok(&start(Some("v1"), None), Channel::Main, &latest, true).is_err());
+        // Another channel always changes the Dockerfile.
+        assert!(target_ok(&start(None, Some(Channel::Main)), Channel::Release, &latest, false).is_ok());
+        // Agents and ready cards cannot ask to update the runners; the owner's button sets it.
+        let b: Start = serde_json::from_str(r#"{"channel": "main"}"#).unwrap();
+        assert!(!b.update_runners && b.channel == Some(Channel::Main) && b.version.is_none());
+        assert!(serde_json::from_str::<Start>(r#"{"source": "main"}"#).is_err());
     }
 
     #[test]

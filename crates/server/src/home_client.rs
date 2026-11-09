@@ -177,6 +177,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/today"
         || path == "/api/activity" || path.starts_with("/api/activity/") || path == "/api/settings/shared"
         || path == "/api/review-state"
+        || path == "/api/home/update" || path == "/api/home/update/check"
 }
 
 /// Home: requests a runner may send through its tunnel (as Home's owner). Sessions: reads, and the admin actions

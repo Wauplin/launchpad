@@ -222,6 +222,28 @@ mod tests {
         assert!(!asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": false}})));
     }
 
+    /// Admin checks for and installs a newer Launchpad on Home's Space (release or main); updating the runners
+    /// afterwards stays the owner's (the button's `update_runners` is not an input), and the owner's routes of
+    /// Home and runners stay closed.
+    #[test]
+    fn admin_updates_home_but_not_the_runners() {
+        assert!(admin_allows(&Method::POST, "/api/home/update/check"));
+        assert!(admin_allows(&Method::POST, "/api/home/update"));
+        assert!(!admin_allows(&Method::GET, "/api/home/update"));
+        for (m, path) in [(Method::POST, "/api/home/update/"), (Method::POST, "/api/home/backup"), (Method::POST, "/api/runner/update"), (Method::POST, "/api/runners/r/update")] {
+            assert!(!admin_allows(&m, path), "{m} {path}");
+        }
+        let update = actions::get("home.update").unwrap();
+        assert!(update.ready && update.confirm.is_some());
+        assert!(unknown_field(update, Some(&serde_json::json!({"channel": "main"}))).is_none());
+        assert!(unknown_field(update, Some(&serde_json::json!({"version": "v2026.11.09.1", "channel": "release"}))).is_none());
+        assert_eq!(unknown_field(update, Some(&serde_json::json!({"channel": "main", "update_runners": true}))).as_deref(), Some("update_runners"));
+        let reference = launchpad_core::launchpad_cli::cli_reference("launchpad", None, LaunchpadAccess::Admin);
+        assert!(reference.contains("`launchpad home update [--version <text>] [--channel <text>]`") && reference.contains("`launchpad home check-update`"));
+        let owner_only = reference.split("Only the owner's click runs these").nth(1).unwrap().split("Propose a ready card").next().unwrap();
+        assert!(!owner_only.contains("Home's Space"), "{owner_only}");
+    }
+
     /// Every action has a route that resolves to it, a CLI reference line exactly when admin may run it, and a
     /// confirmation (or an undo) when it reaches GitHub, other people, money or the machine, or deletes something.
     #[test]
@@ -252,7 +274,11 @@ mod tests {
                     None => assert_eq!(actions::params(u).len(), 1, "{}", a.name),
                 }
             }
-            assert!(!a.ready || a.access == ActionAccess::Owner, "{}", a.name);
+            // A ready card prepares an owner click; only a Home update is also an admin action.
+            assert!(!a.ready || a.access == ActionAccess::Owner || a.effect == actions::ActionEffect::Installs, "{}", a.name);
+            if a.effect == actions::ActionEffect::Installs {
+                assert!(a.confirm.is_some(), "{}", a.name);
+            }
         }
     }
 }

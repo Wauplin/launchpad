@@ -19,6 +19,9 @@ pub enum ActionEffect {
     Outside,
     /// Money, credentials or the machine: the owner's click only.
     Machine,
+    /// Installs a newer Launchpad on Home's Space (Home restarts; agents continue on their runners). Admin may run
+    /// it when the owner asks; it has a confirmation and no undo.
+    Installs,
 }
 
 /// Who may run an action directly. Sessions with admin Launchpad CLI access run `Admin` actions; `Owner`
@@ -92,7 +95,7 @@ const fn opt(name: &'static str, kind: FieldKind) -> Field {
 }
 
 use ActionAccess::{Admin, Owner};
-use ActionEffect::{Checks, Machine, Outside, Record, Starts};
+use ActionEffect::{Checks, Installs, Machine, Outside, Record, Starts};
 use FieldKind::{Bool, Json, Text};
 
 const A: Action = Action { name: "", method: "POST", route: "", label: "", icon: None, help: "", input: &[], body_file: None, fixed: None, confirm: None, effect: Record, access: Admin, card: None, undo: None, before: None, ready: false };
@@ -142,8 +145,11 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "runner.takes-sessions", method: "PUT", route: "/api/runner/guard", label: "Takes new sessions", help: "In a runner's own window: whether Home starts new sessions there (paused: none; running sessions continue)", input: &[f("paused", Bool)], access: Owner, ..A },
     Action { name: "runner.check-network", route: "/api/runners/{id}/network-check", label: "Check network", icon: Some("refresh"), help: "Check a runner's sandbox network: capture, DNS, UDP policy, IPv4 and IPv6, runner CA", effect: Checks, access: Owner, ..A },
     // Home updates (a Home on a Hugging Face Space: `launchpad_setup::home_update`).
-    Action { name: "home.check-update", route: "/api/home/update/check", label: "Check for updates", icon: Some("refresh"), help: "Check whether a newer Launchpad exists for Home's Space (release or main, as deployed)", effect: Checks, access: Owner, ..A },
-    Action { name: "home.update", route: "/api/home/update", label: "Update Home", icon: Some("download"), help: "Install a newer Launchpad on Home's Space (it rebuilds and restarts); optionally update the runners once Home runs it", input: &[f("version", Text), opt("update_runners", Bool)], confirm: Some("Home's Space installs {version}, rebuilds and restarts: Home is unavailable for a few minutes. Running agents continue on their runners."), effect: Machine, access: Owner, ..A },
+    // Home updates (a Home on a Hugging Face Space: `launchpad_setup::home_update`). Admin runs them when the owner
+    // asks. Updating the runners afterwards stays the owner's: the button's `update_runners` field is not an input
+    // here, so an agent's request or a ready card cannot set it (`agent_auth` refuses fields outside the input).
+    Action { name: "home.check-update", route: "/api/home/update/check", label: "Check for updates", icon: Some("refresh"), help: "Check whether a newer Launchpad exists for Home's Space (release or main, as deployed): deployed, latest and available", effect: Checks, ..A },
+    Action { name: "home.update", route: "/api/home/update", label: "Update Home", icon: Some("download"), help: "Install a newer Launchpad on Home's Space: the newest of the deployed channel, or of `channel` (release or main); `version`, when given, must be that newest one (from home check-update). The call returns once the Space starts its build; Home restarts a few minutes later, while agents continue on their runners: wait, then check again", input: &[opt("version", Text), opt("channel", Text)], confirm: Some("Home's Space installs {version}, rebuilds and restarts: Home is unavailable for a few minutes. Running agents continue on their runners."), effect: Installs, ready: true, ..A },
     // Workspaces and tools.
     Action { name: "workspace.create", route: "/api/workspaces", label: "New workspace", icon: Some("plus"), help: "Create a workspace", input: &[f("name", Text)], undo: Some("workspace.delete"), ..A },
     Action { name: "workspace.rename", method: "PATCH", route: "/api/workspaces/{id}", label: "Rename", icon: Some("pencil"), help: "Rename a workspace", input: &[f("name", Text)], undo: Some("workspace.rename"), before: Some("/api/workspaces/{id}"), ..A },

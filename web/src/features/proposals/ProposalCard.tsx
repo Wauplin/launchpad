@@ -155,6 +155,7 @@ function readyLink(body: Ready): { to: string; params?: Record<string, string>; 
     case "outbox.send": return { to: "/", search: { filter: "send" }, label: "Open in Today" };
     case "suggestion.post": return { to: "/", search: { filter: "github" }, label: "Open in Today" };
     case "inbox.done": return { to: "/inbox", label: "Open the Inbox" };
+    case "home.update": return { to: "/settings/runners", label: "Open Home and runners" };
     case "github.run-ci": return { to: "/github/$owner/$repo/$number", params: { owner: body.args[0] ?? "", repo: body.args[1] ?? "", number: body.args[2] ?? "" }, label: "Open the pull request" };
     default: return body.session_id ? { to: "/agents", search: { session: body.session_id, view: "changes" }, label: "Review changes" } : null;
   }
@@ -191,7 +192,7 @@ function ReadyBody({ p, body, dismiss }: { p: Proposal; body: Ready; dismiss: ()
       {waiting && (name === "worktree.merge" && body.session_id
         ? <BranchActions sessionId={body.session_id} s={session} head={typeof body.input.head === "string" ? body.input.head : undefined} onMerged={ran}>{more}</BranchActions>
         : <div className="flex flex-wrap items-center gap-1.5">
-            <ActionButton name={name} params={params} body={body.input} primary vars={{ base: "the base branch", branch: "the branch", channel: "its channel", ...params }} onDone={() => ran().catch(toastError)} />
+            <ActionButton name={name} params={params} body={body.input} primary vars={{ base: "the base branch", branch: "the branch", channel: "its channel", version: "the newest version", ...params }} onDone={() => ran().catch(toastError)} />
             {more}
           </div>)}
     </>

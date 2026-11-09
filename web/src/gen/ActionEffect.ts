@@ -3,4 +3,4 @@
 /**
  * What an action does, which decides who may run it.
  */
-export type ActionEffect = "checks" | "record" | "starts" | "outside" | "machine";
+export type ActionEffect = "checks" | "record" | "starts" | "outside" | "machine" | "installs";
