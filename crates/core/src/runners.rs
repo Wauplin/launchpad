@@ -422,8 +422,6 @@ pub mod proto {
         Folders { projects: Vec<crate::model::Project> },
         /// Profiles configured on Home, including their vault login IDs.
         Profiles { profiles: Vec<crate::config::Profile> },
-        /// Home revoked a lease: the runner drops its tokens at once.
-        Revoke { lease_id: String },
         /// Quota readings of Home's logins (`vault:<id>`), on connect and when they change.
         Quotas { quotas: std::collections::BTreeMap<String, crate::status::QuotaStatus> },
         /// The status and headers of an exchange opened with `FromRunner::HttpOpen`.

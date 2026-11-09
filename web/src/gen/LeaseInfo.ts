@@ -2,6 +2,6 @@
 
 export type LeaseInfo = { id: string, session_id: string, runner_id: string | null, generation: number, created_at: number, renewed_at: number, revoked_at: number | null, 
 /**
- * Credentials in the lease (entry IDs) and granted tools.
+ * Credentials in the lease (entry IDs), and its tools and MCP servers (`mcp:<id>`).
  */
 credentials: Array<string>, tools: Array<string>, };

@@ -684,7 +684,7 @@ pub struct LeaseInfo {
     pub renewed_at: i64,
     #[ts(type = "number | null")]
     pub revoked_at: Option<i64>,
-    /// Credentials in the lease (entry IDs) and granted tools.
+    /// Credentials in the lease (entry IDs), and its tools and MCP servers (`mcp:<id>`).
     pub credentials: Vec<String>,
     pub tools: Vec<String>,
     /// What the runner asked for, so Home can rebuild a relayed lease after a restart.
@@ -736,6 +736,11 @@ pub(crate) fn check_owner(app: &App, runner_id: Option<&str>, session_id: &str, 
     Ok(())
 }
 
+/// The tools and MCP servers of a lease (`mcp:<id>`, the keys of the default tools), for the session's Summary.
+fn lease_tools(lease: &Lease) -> Vec<String> {
+    lease.tools.iter().map(|t| t.id.clone()).chain(lease.mcp.iter().map(|m| crate::mcp::launch_off(&m.id))).collect()
+}
+
 /// Home: builds the lease of a session for `runner_id` (None: this `all` daemon).
 pub async fn grant(app: &App, runner_id: Option<&str>, req: &LeaseRequest) -> Result<Lease> {
     ensure_home(app)?;
@@ -752,7 +757,7 @@ pub async fn grant(app: &App, runner_id: Option<&str>, req: &LeaseRequest) -> Re
         renewed_at: now,
         revoked_at: None,
         credentials: lease.credentials.iter().map(|c| c.id.clone()).collect(),
-        tools: lease.tools.iter().map(|t| t.id.clone()).collect(),
+        tools: lease_tools(&lease),
         request: Some(req.clone()),
     })
     .await?;
@@ -862,26 +867,10 @@ pub async fn renew(app: &App, runner_id: Option<&str>, lease_id: &str, req: &Lea
     let lease = build(app, lease_id, req).await?;
     let lease = relay_if_burst(app, runner_id, lease).await;
     info.renewed_at = now_ms();
+    info.credentials = lease.credentials.iter().map(|c| c.id.clone()).collect();
+    info.tools = lease_tools(&lease);
     save_lease(app, &info).await?;
     Ok(lease)
-}
-
-/// Ends a lease: Revoke on Home (the runner drops it at once while connected), or Stop/Archive on the runner.
-pub async fn revoke(app: &App, lease_id: &str) -> Result<()> {
-    ensure_home(app)?;
-    let all = lease_rows(app, None).await?;
-    let mut info = all.into_iter().find(|l| l.id == lease_id).context("unknown lease")?;
-    if info.revoked_at.is_none() {
-        info.revoked_at = Some(now_ms());
-        save_lease(app, &info).await?;
-    }
-    crate::token_relay::forget(lease_id);
-    match &info.runner_id {
-        Some(r) => app.runners.send_to(r, crate::runners::proto::ToRunner::Revoke { lease_id: lease_id.into() }),
-        None => app.proxy.drop_lease(lease_id),
-    }
-    app.bus.publish("vault", "leases", json!({"session_id": info.session_id}));
-    Ok(())
 }
 
 /// Home: requests a runner sends about its own sessions (through its tunnel, never forwarded from a window).

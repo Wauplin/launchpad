@@ -22,7 +22,6 @@ pub fn router() -> Router<Ctx> {
         .route("/api/vault/tools.toml", get(export))
         .route("/api/vault/identity", put(identity))
         .route("/api/vault/leases", get(leases))
-        .route("/api/vault/leases/{id}/revoke", post(revoke))
         .route("/api/sessions/{id}/access", get(access))
         .route("/api/tool-defaults", get(tool_defaults))
         .route("/api/tool-defaults/{scope}/{id}", get(tool_choice).put(set_tool_choice))
@@ -112,11 +111,6 @@ struct LeaseQuery {
 
 async fn leases(State(s): State<Ctx>, Query(q): Query<LeaseQuery>) -> ApiResult<Vec<LeaseInfo>> {
     Ok(Json(vault::leases(&s.app, q.session_id.as_deref()).await?))
-}
-
-async fn revoke(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
-    vault::revoke(&s.app, &id).await.map_err(bad)?;
-    Ok(Json(json!({})))
 }
 
 async fn access(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Vec<launchpad_core::proxy::Access>> {

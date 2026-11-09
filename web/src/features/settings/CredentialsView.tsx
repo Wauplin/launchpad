@@ -415,25 +415,24 @@ function Identity({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
 }
 
 function Leases() {
-  const qc = useQueryClient();
   const leases = useQuery({ queryKey: ["vault-leases"], queryFn: () => api.get<LeaseInfo[]>("/api/vault/leases"), refetchInterval: 30_000 });
   const sessions = useSessions().data ?? [];
   const active = (leases.data ?? []).filter((l) => !l.revoked_at);
   return (
     <Card title={`Active leases · ${active.length}`}>
-      {active.length === 0 ? <Empty icon="clock">No session holds credentials now.</Empty> : active.map((l) => <LeaseRow key={l.id} lease={l} title={sessions.find((s) => s.id === l.session_id)?.title ?? l.session_id} onDone={() => qc.invalidateQueries({ queryKey: ["vault-leases"] })} />)}
+      {active.length === 0 ? <Empty icon="clock">No session holds credentials now.</Empty> : active.map((l) => <LeaseRow key={l.id} lease={l} title={sessions.find((s) => s.id === l.session_id)?.title ?? l.session_id} />)}
     </Card>
   );
 }
 
-export function LeaseRow({ lease, title, onDone }: { lease: LeaseInfo; title?: string; onDone: () => unknown }) {
+/** A session that holds a lease now and the tools it holds (to change them, stop the agent and launch a new one). */
+function LeaseRow({ lease, title }: { lease: LeaseInfo; title: string }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-[13px]">
       <span className="grid min-w-0 flex-1 gap-0.5">
-        {title && <span className="truncate font-semibold">{title}</span>}
-        <span className="flex flex-wrap items-center gap-1">{lease.credentials.map((c) => <Token key={c}>{c}</Token>)}{lease.tools.map((t) => <Token key={t} tone="teal">{t}</Token>)}<span className="text-[12px] text-ink-3">started {ago(lease.created_at)} · renewed {ago(lease.renewed_at)}</span></span>
+        <span className="truncate font-semibold">{title}</span>
+        <span className="flex flex-wrap items-center gap-1">{lease.tools.map((t) => <Token key={t} tone="teal">{t}</Token>)}<span className="text-[12px] text-ink-3">started {ago(lease.created_at)} · renewed {ago(lease.renewed_at)}</span></span>
       </span>
-      <ConfirmButton consequence="Stops adding these tokens to the session's requests at once (while its runner is connected). The agent keeps running without them." confirmLabel="Revoke" onConfirm={() => api.post(`/api/vault/leases/${lease.id}/revoke`, {}).then(() => { toast("Revoked"); return onDone(); }, toastError)}>Revoke</ConfirmButton>
     </div>
   );
 }

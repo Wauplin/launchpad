@@ -178,7 +178,7 @@ The replication, relay, move and Burst design is in `docs/architecture.md`; thes
 - Secrets live only in Home's vault (`vault.rs`) and the runner proxy's memory; no API returns them, and agents see `vault::placeholder` values only. The lease travels only over a runner's own tunnel or in process. Never write a real token into a session's files.
 - The proxy adds tokens only on the lease's hosts, never judges requests, and logs every request that received a token. Login setup belongs to `Harness::contained_login`, MCP config to `Harness::contained_mcp` (pointing at the runner proxy; the gateway checks the lease, hides tools that are off and logs each `tools/call`).
 - Default tools (`tool_defaults.rs`): a grant decides where a tool or MCP server may be used; the default tools (workspace, then folder, then bot `[tools]`, most specific wins, on when unset) and the launch's `tools_off`/`tools_on` decide whether a session gets it. Home resolves them only in `LeaseRequest::off`; never turn on an item that is not granted.
-- Leases end on Stop, Archive and Revoke, and after an hour without Home; Home refuses leases of a session that runs elsewhere. Only Home refreshes Codex logins.
+- Leases end on Stop and Archive (no per-session Revoke: the owner stops the agent and launches a new one), and after an hour without Home; Home refuses leases of a session that runs elsewhere. Only Home refreshes Codex logins.
 - Test contained sessions with scratch daemons and token copies read without refreshing; check a Codex login's `last_refresh` before copying it into a test vault.
 
 ### Hugging Face Space

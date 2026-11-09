@@ -441,7 +441,6 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
                         }
                     }
                     Ok(ToRunner::Ack { n }) => replica::acked(app, n).await?,
-                    Ok(ToRunner::Revoke { lease_id }) => launchpad_core::contain::revoked(app, &lease_id).await,
                     Ok(ToRunner::Quotas { quotas }) => launchpad_core::quota::apply_home_readings(app, quotas),
                     Ok(ToRunner::Refuse { reason }) => return Ok(Some(reason)),
                     Ok(msg @ (ToRunner::HttpHead { .. } | ToRunner::HttpBody { .. })) => http_from_home(msg),

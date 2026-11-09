@@ -300,15 +300,6 @@ pub async fn release(app: &App, session_id: &str) {
     });
 }
 
-/// Home revoked a lease: its tokens stop working at once.
-pub async fn revoked(app: &App, lease_id: &str) {
-    let session = app.proxy.all().into_iter().find(|a| a.lease.read().unwrap().id == lease_id).map(|a| a.session_id.clone());
-    app.proxy.drop_lease(lease_id);
-    if let Some(id) = session {
-        app.sessions.sink(app, &id).emit(crate::model::EventBody::Notice { text: "Credentials revoked on Home: requests of this session no longer receive tokens. Stop and resume the session to get a new lease.".into() }).await;
-    }
-}
-
 /// Renews every lease every ten minutes; a lease that Home refuses, or that could not be renewed for an hour,
 /// is dropped.
 fn spawn_renewals(app: App) {
