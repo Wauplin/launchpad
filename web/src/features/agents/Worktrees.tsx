@@ -116,7 +116,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
     if (base) parts.push(i.ahead ? `${i.ahead} commit${i.ahead === 1 ? "" : "s"} ahead of ${base}` : isMergedWorktree(i, localPrs) ? `merged into ${w.merged?.into ?? base}` : `no commit beyond ${base}`);
     if (base && i.behind) parts.push(`${i.behind} behind`);
     if (i.dirty_files) parts.push(`${i.dirty_files} uncommitted file${i.dirty_files === 1 ? "" : "s"}`);
-    parts.push(i.unpushed ? "new commits go to Home at the end of the turn" : "saved on Home");
+    parts.push(i.unpushed ? (i.away ? "its runner has newer commits that are not on Home" : "new commits are not on Home yet") : session?.unsaved ? "saving on Home" : "saved on Home");
     text = parts.join(" · ");
   }
   // Its runner is away: Home shows the branch it holds, and Merge and Create Local PR run on Home.
@@ -124,7 +124,9 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
   const onHome = w.state === "active" || (!!away && w.state === "removed");
   // Merged (by the worktree or its Local PR): no Local PR to create or open, nothing to discard.
   const merged = isMergedWorktree(i, localPrs);
-  const canMerge = merge && onHome && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id;
+  const canMerge = merge && onHome && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id && !!i.head;
+  // Away with commits Home lacks: Merge takes only the commit Home holds, and says so.
+  const partial = !!away && i.unpushed && !!i.head ? `Home pushes ${i.head.slice(0, 12)}, the commit saved on Home, to ${base} on the folder's remote, then fast-forwards ${base} on Home. Its runner has newer commits that are not on Home: they stay out of this merge.` : undefined;
   return (
     <div className="grid gap-1.5 text-[12px]">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -140,7 +142,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
       {w.pull_request && <div className="text-[12px] text-ink-2">Continues <a href={w.pull_request.url} target="_blank" rel="noreferrer">#{w.pull_request.number}</a>: Home pushes each new commit to {w.pull_request.head_branch}.</div>}
       {w.cleanup_note && w.state === "active" && !i.ahead && <div className="text-[11px] text-ink-3">Cleanup: {w.cleanup_note}</div>}
       <div className="flex flex-wrap gap-1.5">
-        {canMerge && <ActionButton name="worktree.merge" params={{ id: w.id }} vars={{ branch: w.branch, base: base! }} query={{ session: decodeURIComponent(owner) }} disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : undefined}>Merge into {base}</ActionButton>}
+        {canMerge && <ActionButton name="worktree.merge" params={{ id: w.id }} vars={{ branch: w.branch, base: base! }} body={{ head: i.head }} consequence={partial} query={{ session: decodeURIComponent(owner) }} disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : undefined}>Merge into {base}</ActionButton>}
         {w.merge && w.merge.phase !== "waiting" && session && <ActionButton name="worktree.fix-merge" params={{ id: w.id }} query={{ session: decodeURIComponent(owner) }} disabled={busy || running} onDone={() => toast("Sent to the agent")} />}
         <TerminalMenu cwd={i.path} small phone={isPhone} align="left" />
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}

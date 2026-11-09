@@ -93,19 +93,19 @@ function QuestionCard({ item }: { item: TodayItem }) {
   </Card>;
 }
 
-/** The primary branch of a session's worktree: its facts, and whether Merge is safe from a card (Done, its runner
- * here, branch on Home, nothing uncommitted, base unchanged). */
+/** The primary branch of a session's worktree: its facts, and whether Merge is safe from a card (Done and saved on
+ * Home, its runner here, branch on Home, nothing uncommitted, base unchanged). */
 export function useBranch(sessionId: string, s: Session | null) {
   const worktrees = useSessionWorktrees(sessionId).data;
   const w = worktrees?.find((i) => i.worktree.primary) ?? worktrees?.[0];
   const t = w?.worktree;
   const base = t?.base_branch;
-  const safe = !!s && isDone(s) && !!w && w.exists && !w.away && !!t && !!base && t.state === "active" && !t.merge && !t.pull_request && !t.predraft_id && w.ahead > 0 && w.dirty_files === 0 && w.behind === 0 && !w.unpushed && !t.push_note;
+  const safe = !!s && isDone(s) && !s.unsaved && !!w && !!w.head && w.exists && !w.away && !!t && !!base && t.state === "active" && !t.merge && !t.pull_request && !t.predraft_id && w.ahead > 0 && w.dirty_files === 0 && w.behind === 0 && !w.unpushed && !t.push_note;
   const facts = w && t ? [
     w.ahead ? `${w.ahead} commit${w.ahead === 1 ? "" : "s"} ahead of ${base ?? "base"}` : t.merged ? `merged into ${t.merged.into}` : "no new commit",
     w.dirty_files ? `${w.dirty_files} uncommitted` : "",
     w.behind ? `${base} moved` : "",
-    w.unpushed || t.push_note ? "not on Home yet" : "",
+    w.unpushed || t.push_note || s?.unsaved ? "not on Home yet" : "",
   ].filter(Boolean).join(" · ") : null;
   // Handed off: merged into its base, in a Local PR or pushed to a GitHub pull request, with nothing uncommitted.
   // Its work then needs no review here: Archive comes first.
@@ -137,21 +137,22 @@ export function NotMerged({ branch: { stopped, base }, clamp }: { branch: Return
  * Next steps then leave Merge out of that worktree's card. */
 export const mergeIsMain = (s: Session, branch: ReturnType<typeof useBranch>) => branch.safe && s.status === "waiting" && !s.open_question;
 
-/** Merge the branch into its base (call only when `useBranch(…).safe`). `onMerged` runs after a merge that went
+/** Merge the branch into its base (call only when `useBranch(…).safe`), at the head shown (`head`: a ready card's
+ * reviewed commit instead); Home refuses a branch that moved since. `onMerged` runs after a merge that went
  * through; a merge that waits or stopped keeps the card, with Review changes. */
-export function MergeButton({ sessionId, branch: { t, base }, onMerged, className, label, primary = true }: { sessionId: string; branch: ReturnType<typeof useBranch>; onMerged?: () => Promise<unknown>; className?: string; label?: string; primary?: boolean }) {
+export function MergeButton({ sessionId, branch: { w, t, base }, head, onMerged, className, label, primary = true }: { sessionId: string; branch: ReturnType<typeof useBranch>; head?: string; onMerged?: () => Promise<unknown>; className?: string; label?: string; primary?: boolean }) {
   const qc = useQueryClient();
   const merged = async (r: WorktreeInfo) => {
     void qc.invalidateQueries({ queryKey: ["worktrees"] });
     if (r.worktree.merged) await onMerged?.();
   };
-  return <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} query={{ session: worktreeSession(t!) ?? sessionId }} primary={primary} title={`Merge ${t!.branch} into ${base}`} className={className} onDone={merged}>{label ?? `Merge into ${base}`}</ActionButton>;
+  return <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} body={{ head: head ?? w!.head }} query={{ session: worktreeSession(t!) ?? sessionId }} primary={primary} title={`Merge ${t!.branch} into ${base}`} className={className} onDone={merged}>{label ?? `Merge into ${base}`}</ActionButton>;
 }
 
 /** Not merged and Fix merge when a merge stopped, else the branch line and Merge (only when safe) or Review changes
- * (unless the branch was handed off). `onMerged` runs
- * after a merge that went through. */
-export function BranchActions({ sessionId, s, onMerged, children }: { sessionId: string; s: Session | null; onMerged?: () => Promise<unknown>; children?: ReactNode }) {
+ * (unless the branch was handed off). `head`: the commit a ready card names. `onMerged` runs after a merge that
+ * went through. */
+export function BranchActions({ sessionId, s, head, onMerged, children }: { sessionId: string; s: Session | null; head?: string; onMerged?: () => Promise<unknown>; children?: ReactNode }) {
   const branch = useBranch(sessionId, s);
   const { t, safe, facts, work, stopped } = branch;
   return <>
@@ -161,7 +162,7 @@ export function BranchActions({ sessionId, s, onMerged, children }: { sessionId:
       {stopped
         ? <FixMergeButton sessionId={sessionId} branch={branch} />
         : safe
-        ? <MergeButton sessionId={sessionId} branch={branch} onMerged={onMerged} />
+        ? <MergeButton sessionId={sessionId} branch={branch} head={head} onMerged={onMerged} />
         : work && <Link className="btn btn-sm btn-primary no-underline" to="/agents" search={{ session: sessionId, view: "changes" }}>Review changes</Link>}
       {children}
     </div>

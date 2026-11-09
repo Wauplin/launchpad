@@ -190,6 +190,7 @@ CREATE TABLE IF NOT EXISTS vault_lease (id TEXT PRIMARY KEY, session_id TEXT NOT
 CREATE TABLE IF NOT EXISTS access_log (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, at INTEGER NOT NULL, json TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS access_log_session ON access_log (session_id, at);
 CREATE TABLE IF NOT EXISTS runner_ack (runner_id TEXT PRIMARY KEY, n INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS runner_worktree (id TEXT PRIMARY KEY, runner_id TEXT NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS session_handoff (session_id TEXT PRIMARY KEY, generation INTEGER NOT NULL, runner_id TEXT NOT NULL, at INTEGER NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS mcp_server (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS burst_run (runner_id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, json TEXT NOT NULL);
@@ -267,6 +268,7 @@ CREATE TABLE IF NOT EXISTS daemon_start (at INTEGER PRIMARY KEY, commit_id TEXT 
                 WHERE s.id = session_event.session_id) WHERE kind = 'turn_end';")?;
     }
     if !has("generation") { conn.execute_batch("ALTER TABLE session ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;")?; }
+    if !has("unsaved_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN unsaved_json TEXT;")?; }
     if !has("title_pending") { conn.execute_batch("ALTER TABLE session ADD COLUMN title_pending INTEGER;")?; }
     // Existing sessions start as seen, so old Done sessions do not all need you at once.
     if !has("seen_at") { conn.execute_batch("ALTER TABLE session ADD COLUMN seen_at INTEGER NOT NULL DEFAULT 0; UPDATE session SET seen_at = status_since;")?; }

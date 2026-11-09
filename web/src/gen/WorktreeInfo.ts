@@ -18,6 +18,11 @@ ahead: number, behind: number,
  */
 unpushed: boolean, 
 /**
+ * The branch tip this view describes (the folder's, or Home's when it answers for an away runner): Merge
+ * sends it back, and refuses a branch that moved since.
+ */
+head?: string, 
+/**
  * Set when Home answers for an away runner (offline, or a stopped Burst job): why, for the window.
  */
 away: string | null, };

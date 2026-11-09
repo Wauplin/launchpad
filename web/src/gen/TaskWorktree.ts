@@ -43,6 +43,11 @@ pushed: string | null,
  */
 push_note: string | null, 
 /**
+ * The branch tip in the folder at the last turn end or push. Home receives the record with it, so it can
+ * tell when its copy of the branch is older (`away::info`).
+ */
+head?: string, 
+/**
  * Uncommitted files saved to a scratch branch on Home when the folder was removed.
  */
 leftovers: Leftovers | null, created_at: number, };

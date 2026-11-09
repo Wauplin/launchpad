@@ -175,6 +175,23 @@ pub struct Session {
     pub seen_at: i64,
     /// Start of the last assistant message, as one line of plain text.
     pub last_message: Option<String>,
+    /// The work of the last turn (branches, plain folders, conversation) is not all on Home yet: shown as
+    /// saving, retried by its runner until it is (`turn_sync`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub unsaved: Option<Unsaved>,
+}
+
+/// A turn whose work has not reached Home yet.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct Unsaved {
+    /// When the turn ended (Unix ms).
+    #[ts(type = "number")]
+    pub since: i64,
+    /// Failed attempts so far; 0 while the first one runs.
+    pub attempts: u32,
+    /// Why the last attempt failed.
+    pub note: Option<String>,
 }
 
 impl Session {

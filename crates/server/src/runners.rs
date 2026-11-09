@@ -583,7 +583,8 @@ async fn away(s: &Server, get: bool, parts: &[&str], uri: &axum::http::Uri, body
         ["api", "sessions", id, "worktrees"] if get => async { Ok(json!(away::worktrees(app, &session(id)?).await?)) }.await,
         ["api", "worktrees", worktree, action] if !get => async {
             let id = session_param(uri).ok_or_else(|| anyhow::anyhow!("session required"))?;
-            Ok(json!(away::worktree_action(app, &session(&id)?, worktree, action).await?))
+            let b: Value = serde_json::from_str(body.filter(|b| !b.trim().is_empty()).unwrap_or("{}"))?;
+            Ok(json!(away::worktree_action(app, &session(&id)?, worktree, action, b["head"].as_str()).await?))
         }
         .await,
         ["api", "predrafts"] if !get => async {

@@ -72,10 +72,19 @@ async fn add_project(State(s): State<Server>, Json(b): Json<AddProject>) -> ApiR
     Ok(Json(json!({ "message": worktrees::add_project(&s.app, &b.session_id, &b.project).await.map_err(bad)? })))
 }
 
-async fn action(State(s): State<Server>, Path((id, a)): Path<(String, String)>) -> ApiResult<Value> {
+#[derive(Deserialize, Default)]
+struct ActionBody {
+    /// Merge: the branch tip the owner reviewed.
+    head: Option<String>,
+}
+async fn action(State(s): State<Server>, Path((id, a)): Path<(String, String)>, body: Option<Json<ActionBody>>) -> ApiResult<Value> {
     let app = &s.app;
+    let body = body.map(|b| b.0).unwrap_or_default();
     let w = match a.as_str() {
-        "merge" => worktrees::request_merge(app, &id, false).await,
+        "merge" => {
+            let head = body.head.filter(|h| !h.is_empty()).ok_or_else(|| ApiError::bad_request("Merge needs the reviewed commit (head); reload the page and review again"))?;
+            worktrees::request_merge(app, &id, false, Some(head)).await
+        }
         "cancel-merge" => worktrees::cancel_merge(app, &id).await,
         "fix" => worktrees::fix_with_agent(app, &id).await.and(worktrees::get(app, &id).await),
         "remove" => worktrees::remove(app, &id).await,

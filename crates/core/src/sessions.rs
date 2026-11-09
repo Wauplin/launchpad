@@ -228,7 +228,7 @@ impl Sessions {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
                             effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending,
-                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation
+                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json
                      FROM session",
                 )?;
                 let rows = st
@@ -270,6 +270,7 @@ impl Sessions {
                             quota_pause: r.get::<_, Option<String>>(18)?.and_then(|v| serde_json::from_str(&v).ok()),
                             seen_at: r.get(20)?,
                             last_message: r.get::<_, Option<String>>(21)?.and_then(|m| message_preview(&m)),
+                            unsaved: r.get::<_, Option<String>>(27)?.and_then(|v| serde_json::from_str(&v).ok()),
                         })
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -452,13 +453,13 @@ impl Sessions {
     pub(crate) fn store(c: &rusqlite::Connection, s: &Session) -> Result<()> {
         c.execute(
             "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
-                open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)
+                open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
              ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
                 status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
                 ended_at = ?17, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
                 seen_at = ?21, archived_done = ?23, capacity_retry_count = ?24, capacity_retry_at = ?25,
-                runner_id = ?26, generation = ?27",
+                runner_id = ?26, generation = ?27, unsaved_json = ?28",
             params![
                 s.id,
                 s.harness.as_str(),
@@ -487,6 +488,7 @@ impl Sessions {
                 s.capacity_retry_at,
                 s.runner_id,
                 s.generation,
+                s.unsaved.as_ref().map(serde_json::to_string).transpose()?,
             ],
         )?;
         crate::replica::queue(c, &crate::replica::Item::Session { session: Box::new(s.clone()) })?;
@@ -576,6 +578,7 @@ impl Sessions {
             }
             Item::Project { .. } | Item::ForgetProject { .. } => return crate::projects::apply_replica(app, runner_id, n, item).await,
             Item::Access { access } => return crate::replica::apply_access(app, runner_id, n, access).await,
+            Item::Worktree { worktree } => return crate::away::apply_replica(app, runner_id, n, *worktree).await,
         }
         Ok(())
     }
@@ -1081,6 +1084,7 @@ impl Sessions {
                 capacity_retry_at: None,
                 seen_at: 0,
                 last_message: None,
+                unsaved: None,
             };
             Self::persist(&app.state_db, &session).await?;
             let add_dirs = preview.add_dirs;
@@ -2337,12 +2341,20 @@ impl Sink {
                     .is_some_and(|body| matches!(body, EventBody::Error { message } | EventBody::TurnEnd { error: Some(message), .. } if is_capacity_error(&message))))
             }).await.unwrap_or(false)
         } else { false };
+        // A turn end stores the branch tips first, then the new status with an `unsaved` mark: Home receives
+        // both in that order and shows the turn as saving until `turn_sync` cleared the mark.
+        let turn_end = before.status.is_running() && !status.is_running();
+        let unsaved = if turn_end {
+            crate::worktrees::record_heads(&self.app, &self.id).await;
+            crate::turn_sync::mark(&self.app, &self.id).await
+        } else { None };
         let _ = self
             .sessions
             .update(&self.app, &self.id, |s| {
                 if s.quota_pause.as_ref().is_some_and(|p| p.phase != QuotaPausePhase::Resuming) && status != SessionStatus::QuotaPaused { return; }
                 // Owner Archive/Resume may have won while the failure detail was read.
                 if status == SessionStatus::Error && s.status != before.status { return; }
+                if unsaved.is_some() { s.unsaved = unsaved; }
                 s.capacity_retry_at = if capacity_failure && s.capacity_retry_count < MAX_CAPACITY_RETRIES {
                     Some(now_ms() + CAPACITY_RETRY_DELAY_MS)
                 } else { None };
@@ -2353,31 +2365,25 @@ impl Sink {
             .await;
         if self.sessions.get(&self.id).is_none_or(|s| s.status != status) { return; }
         self.emit(EventBody::Status { status }).await;
-        // Every turn end sends the session's branches to Home.
-        if before.status.is_running() && !status.is_running() {
+        // Every turn end saves the session's branches, plain folders and conversation on Home; the title
+        // refresh (an LLM call) runs beside it and never delays it.
+        if turn_end {
             let (app, id) = (self.app.clone(), self.id.clone());
             let completed = self.sessions.get(&self.id);
             tokio::spawn(async move {
-                tokio::join!(
-                    async {
-                        crate::worktrees::after_turn(&app, &id).await;
-                        crate::plain::after_turn(&app, &id).await;
-                    },
-                    async {
-                        if matches!(status, SessionStatus::Waiting | SessionStatus::Error | SessionStatus::Interrupted | SessionStatus::Stopped)
-                            && let Some(session) = completed
-                        {
-                            crate::titles::refresh(&app, &session).await;
-                        }
-                    },
-                );
-                crate::handoff::after_turn(&app, &id).await;
+                tokio::join!(crate::turn_sync::save(&app, &id), async {
+                    if matches!(status, SessionStatus::Waiting | SessionStatus::Error | SessionStatus::Interrupted | SessionStatus::Stopped)
+                        && let Some(session) = completed
+                    {
+                        crate::titles::refresh(&app, &session).await;
+                    }
+                });
             });
         }
         // A turn that ends with `no_update` (a routine with nothing to report) never notifies; Home's routine
         // records decide whether it leaves Needs you (`crons::turn_ended`).
         let silent = status == SessionStatus::Waiting && self.sessions.get(&self.id).is_some_and(|s| crate::routines::is_no_update(s.last_message.as_deref()));
-        if before.status.is_running() && !status.is_running() && crate::home_git::here(&self.app)
+        if turn_end && crate::home_git::here(&self.app)
             && let Some(s) = self.sessions.get(&self.id)
         {
             crate::ext::extensions().turn_ended(&self.app, &s);

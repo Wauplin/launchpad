@@ -52,6 +52,11 @@ pub struct TaskWorktree {
     /// Why the last push to Home failed; cleared by the next successful push.
     #[serde(default)]
     pub push_note: Option<String>,
+    /// The branch tip in the folder at the last turn end or push. Home receives the record with it, so it can
+    /// tell when its copy of the branch is older (`away::info`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub head: Option<String>,
     /// Uncommitted files saved to a scratch branch on Home when the folder was removed.
     #[serde(default)]
     pub leftovers: Option<Leftovers>,
@@ -102,6 +107,10 @@ pub struct MergeRequest {
     pub reason: String,
     /// Requested by the agent with `launchpad work finish`: conflicts go back to it.
     pub by_agent: bool,
+    /// The commit the owner reviewed: the merge stops if the branch moved past it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub head: Option<String>,
     /// Conflict messages already sent to the agent for this request.
     pub agent_retries: u32,
     /// A failed merge was already sent back to the agent once (automatic Fix merge): a second failure waits for
@@ -151,6 +160,11 @@ pub struct WorktreeInfo {
     pub behind: u32,
     /// Commits not on Home yet.
     pub unpushed: bool,
+    /// The branch tip this view describes (the folder's, or Home's when it answers for an away runner): Merge
+    /// sends it back, and refuses a branch that moved since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub head: Option<String>,
     /// Set when Home answers for an away runner (offline, or a stopped Burst job): why, for the window.
     pub away: Option<String>,
 }
@@ -195,11 +209,16 @@ pub async fn find_by_path(app: &App, path: &str) -> Result<Option<TaskWorktree>>
     Ok(list(app).await?.into_iter().find(|w| w.state == WorktreeState::Active && crate::terminals::inside(path, &w.root)))
 }
 
+/// Stores a record. On a runner it also goes to Home (`replica`), so Home knows the session's worktrees and
+/// their heads before any handoff and while the runner is away.
 pub async fn save(app: &App, w: &TaskWorktree) -> Result<()> {
-    let (id, text) = (w.id.clone(), serde_json::to_string(w)?);
+    let (id, text, item) = (w.id.clone(), serde_json::to_string(w)?, crate::replica::Item::Worktree { worktree: Box::new(w.clone()) });
     app.state_db
         .call(move |c| {
-            c.execute("INSERT INTO task_worktree (id, json) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET json = excluded.json", rusqlite::params![id, text])?;
+            let tx = c.transaction()?;
+            tx.execute("INSERT INTO task_worktree (id, json) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET json = excluded.json", rusqlite::params![id, text])?;
+            crate::replica::queue(&tx, &item)?;
+            tx.commit()?;
             Ok(())
         })
         .await?;
@@ -270,6 +289,7 @@ pub async fn plan(app: &App, session_id: &str, project: &Project, opts: &Worktre
         pull_request: pr.map(|pr| PullRequestBranch { repo: pr.repo.clone(), number: pr.number, url: String::new(), head_repo: String::new(), head_branch: String::new() }),
         pushed: None,
         push_note: None,
+        head: None,
         leftovers: None,
         from_branch: branch.is_some(),
         created_at: now_ms(),
@@ -322,6 +342,7 @@ pub async fn prepare(app: &App, id: &str) -> Result<TaskWorktree> {
         w.base_branch = Some(base);
     }
     w.pushed = existing;
+    w.head = Some(start);
     w.state = WorktreeState::Active;
     save(app, &w).await?;
     Ok(w)
@@ -381,7 +402,12 @@ pub async fn push(app: &App, w: &mut TaskWorktree) -> Result<bool> {
         return Ok(false);
     }
     let head = git(app, &w.root, &["rev-parse", "--verify", &format!("refs/heads/{}^{{commit}}", w.branch)]).await?;
+    let moved = w.head.as_deref() != Some(head.as_str());
+    w.head = Some(head.clone());
     if w.pushed.as_deref() == Some(head.as_str()) && w.push_note.is_none() {
+        if moved {
+            save(app, w).await?;
+        }
         return Ok(false);
     }
     let lease = format!("--force-with-lease=refs/heads/{}", w.branch);
@@ -398,19 +424,44 @@ pub async fn push(app: &App, w: &mut TaskWorktree) -> Result<bool> {
             if w.push_note.as_deref() != Some(note.as_str()) {
                 w.push_note = Some(note.clone());
                 save(app, w).await?;
-                notice(app, w, &format!("{note}. Launchpad retries at the end of the next turn.")).await;
+                notice(app, w, &format!("{note}. Launchpad retries every few minutes and when this runner reconnects to Home.")).await;
+            } else if moved {
+                save(app, w).await?;
             }
             Err(e)
         }
     }
 }
 
-/// At the end of every turn: the session's branches go to Home.
-pub async fn after_turn(app: &App, session_id: &str) {
+/// When a turn ends, before its Done is stored: each worktree's branch tip goes into its record (and so to
+/// Home, ahead of the session's new status). Local Git only, no network.
+pub async fn record_heads(app: &App, session_id: &str) {
     let Ok(records) = for_session(app, session_id).await else { return };
-    for mut w in records.into_iter().filter(|w| w.state == WorktreeState::Active) {
-        let _ = push(app, &mut w).await;
+    for w in records.into_iter().filter(|w| w.state == WorktreeState::Active && Path::new(&w.root).is_dir()) {
+        let Ok(head) = git(app, &w.root, &["rev-parse", "--verify", &format!("refs/heads/{}^{{commit}}", w.branch)]).await else { continue };
+        if w.head.as_deref() == Some(head.as_str()) {
+            continue;
+        }
+        // Read again: the record may have changed while Git ran.
+        if let Ok(mut fresh) = get(app, &w.id).await {
+            fresh.head = Some(head);
+            if let Err(e) = save(app, &fresh).await {
+                tracing::warn!("worktree head of {}: {e:#}", w.branch);
+            }
+        }
     }
+}
+
+/// After every turn (`turn_sync`): the session's branches go to Home. Errors name each branch that failed.
+pub async fn after_turn(app: &App, session_id: &str) -> Result<()> {
+    let mut failed = vec![];
+    for mut w in for_session(app, session_id).await?.into_iter().filter(|w| w.state == WorktreeState::Active) {
+        if let Err(e) = push(app, &mut w).await {
+            failed.push(format!("{}: {e:#}", w.branch));
+        }
+    }
+    ensure!(failed.is_empty(), "push to Home failed ({})", failed.join("; "));
+    Ok(())
 }
 
 /// During long turns: the state of every file (committed or not) goes to `refs/lp-snapshots/<worktree>` on
@@ -650,9 +701,11 @@ pub async fn info(app: &App, w: TaskWorktree) -> WorktreeInfo {
     let exists = w.state == WorktreeState::Active && Path::new(&w.root).is_dir();
     let dirty_files = if exists { dirty_files(app, &w.root).await.map(|f| f.len() as u32).unwrap_or(0) } else { 0 };
     let (mut ahead, mut behind, mut unpushed) = (0, 0, false);
+    let mut tip = w.pushed.clone();
     if exists {
         let head = git(app, &w.root, &["rev-parse", &format!("refs/heads/{}", w.branch)]).await.unwrap_or_default();
         unpushed = !head.is_empty() && w.pushed.as_deref() != Some(head.as_str());
+        tip = Some(head).filter(|h| !h.is_empty());
         if let Some(base) = &w.base_branch {
             ahead = count(app, &w.root, &format!("refs/remotes/origin/{base}..refs/heads/{}", w.branch)).await;
             behind = count(app, &w.root, &format!("refs/heads/{}..refs/remotes/origin/{base}", w.branch)).await;
@@ -662,7 +715,7 @@ pub async fn info(app: &App, w: TaskWorktree) -> WorktreeInfo {
     {
         ahead = count(app, &w.repo, &format!("refs/remotes/origin/{base}..{pushed}")).await;
     }
-    WorktreeInfo { worktree: w, project_name, path, exists, dirty_files, ahead, behind, unpushed, away: None }
+    WorktreeInfo { worktree: w, project_name, path, exists, dirty_files, ahead, behind, unpushed, head: tip, away: None }
 }
 
 pub async fn session_info(app: &App, session_id: &str) -> Result<Vec<WorktreeInfo>> {
@@ -877,18 +930,23 @@ async fn discard_locked(app: &App, w: &mut TaskWorktree) -> Result<()> {
     save(app, w).await
 }
 
-/// Merge into base: the owner's button, or `by_agent` from `launchpad work finish`. Returns at once; the
-/// merge runs on Home as soon as the agents are idle and the branch is pushed.
-pub async fn request_merge(app: &App, id: &str, by_agent: bool) -> Result<TaskWorktree> {
+/// Merge into base: the owner's button (with the `head` it showed), or `by_agent` from `launchpad work finish`.
+/// Returns at once; the merge runs on Home as soon as the agents are idle and the branch is pushed, and stops if
+/// the branch moved past `head`.
+pub async fn request_merge(app: &App, id: &str, by_agent: bool, head: Option<String>) -> Result<TaskWorktree> {
     let mut w = {
         let _lock = app.worktree_lock.lock().await;
         let mut w = get(app, id).await?;
         ensure!(w.state == WorktreeState::Active, "only an active worktree can be merged");
         ensure!(w.pull_request.is_none(), "this branch continues a pull request: merge it on GitHub");
         let base = w.base_branch.clone().context("this worktree has no base branch to merge into")?;
+        if let Some(head) = &head {
+            let tip = git(app, &w.root, &["rev-parse", "--verify", &format!("refs/heads/{}^{{commit}}", w.branch)]).await?;
+            ensure!(&tip == head, "{} changed since review; review again", w.branch);
+        }
         let before = w.merge.as_ref().filter(|m| m.by_agent && by_agent);
         let (retries, auto_fixed) = before.map(|m| (m.agent_retries, m.auto_fixed)).unwrap_or_default();
-        w.merge = Some(MergeRequest { phase: MergePhase::Waiting, reason: format!("Waiting to merge into {base}"), by_agent, agent_retries: retries, auto_fixed, requested_at: now_ms() });
+        w.merge = Some(MergeRequest { phase: MergePhase::Waiting, reason: format!("Waiting to merge into {base}"), by_agent, head, agent_retries: retries, auto_fixed, requested_at: now_ms() });
         save(app, &w).await?;
         w
     };
@@ -921,7 +979,7 @@ pub async fn finish(app: &App, session_id: &str) -> Result<String> {
     }
     let mut lines = vec![];
     for w in &records {
-        request_merge(app, &w.id, true).await?;
+        request_merge(app, &w.id, true, None).await?;
         lines.push(format!("- {} into {}", w.branch, w.base_branch.as_deref().unwrap_or_default()));
     }
     Ok(format!(
@@ -1063,6 +1121,9 @@ async fn try_merge(app: &App, w: &mut TaskWorktree) -> Result<Step> {
         return Ok(Step::Wait(format!("Waiting: the branch is not on Home yet ({e:#})")));
     }
     let head = w.pushed.clone().context("the branch is not on Home")?;
+    if let Some(reviewed) = w.merge.as_ref().and_then(|m| m.head.as_deref()) {
+        ensure!(head == reviewed, "{} changed since review ({} now); review again", w.branch, &head[..12.min(head.len())]);
+    }
     let outcome = if crate::home_git::here(app) {
         let project = crate::projects::get(app, &w.project_id).await?.context("the folder no longer exists")?;
         merge_on_home(app, &project, &w.branch, &head, &base).await?

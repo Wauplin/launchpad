@@ -900,21 +900,26 @@ async fn exclude_asset(app: &App, dir: &Path) {
     }
 }
 
-/// At the end of every turn: changes go up to Home.
-pub async fn after_turn(app: &App, session_id: &str) {
+/// At the end of every turn (`turn_sync`): changes go up to Home. Errors name each folder that failed.
+pub async fn after_turn(app: &App, session_id: &str) -> Result<()> {
+    let mut failed = vec![];
     for (id, dir) in session_stores(app, session_id).await {
         match sync_up(app, &id, &dir, session_id).await {
             Ok(0) => {}
             Ok(n) => tracing::debug!("{session_id}: {n} files of {} saved on Home", dir.display()),
-            Err(e) => app.sessions.sink(app, session_id).emit(crate::model::EventBody::Notice { text: format!("Could not save {} on Home: {e:#}. Launchpad retries at the end of the next turn.", dir.display()) }).await,
+            Err(e) => failed.push(format!("{}: {e:#}", dir.display())),
         }
     }
+    ensure!(failed.is_empty(), "could not save on Home ({})", failed.join("; "));
+    Ok(())
 }
 
 /// After Archive: a last sync, then the lock goes back to Home.
 pub async fn after_archive(app: &App, session_id: &str) {
     let stores = session_stores(app, session_id).await;
-    after_turn(app, session_id).await;
+    if let Err(e) = after_turn(app, session_id).await {
+        tracing::warn!("{session_id} at archive: {e:#}");
+    }
     for (id, _) in stores {
         if let Err(e) = release(app, &id, session_id).await {
             tracing::warn!("release {id}: {e:#}");

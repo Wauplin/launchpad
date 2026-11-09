@@ -189,7 +189,7 @@ function ReadyBody({ p, body, dismiss }: { p: Proposal; body: Ready; dismiss: ()
       <span className="flex flex-wrap gap-1"><Token icon="alert">Your click · {a.help}</Token></span>
       {Object.keys(body.input).length > 0 && <span className="text-[12px] text-ink-2 [overflow-wrap:anywhere]">{Object.entries(body.input).map(([k, v]) => `${k.replace(/_/g, " ")}: ${typeof v === "string" ? v : JSON.stringify(v)}`).join(" · ")}</span>}
       {waiting && (name === "worktree.merge" && body.session_id
-        ? <BranchActions sessionId={body.session_id} s={session} onMerged={ran}>{more}</BranchActions>
+        ? <BranchActions sessionId={body.session_id} s={session} head={typeof body.input.head === "string" ? body.input.head : undefined} onMerged={ran}>{more}</BranchActions>
         : <div className="flex flex-wrap items-center gap-1.5">
             <ActionButton name={name} params={params} body={body.input} primary vars={{ base: "the base branch", branch: "the branch", channel: "its channel", ...params }} onDone={() => ran().catch(toastError)} />
             {more}

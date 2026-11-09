@@ -35,6 +35,8 @@ pub enum Item {
     ForgetProject { id: String },
     /// A request of a contained session that received a token (`proxy.rs`), for Home's access log.
     Access { access: crate::proxy::Access },
+    /// A worktree record, with the branch tip in its folder (`worktrees::save`), for Home's away views.
+    Worktree { worktree: Box<crate::worktrees::TaskWorktree> },
 }
 
 /// Queues an item in the caller's transaction (runner only; replicas of other instances never go back).
@@ -130,6 +132,7 @@ pub async fn ingest(app: &App, runner_id: &str, n: u64, item: serde_json::Value)
     match serde_json::from_value::<Item>(item) {
         Ok(item @ (Item::Project { .. } | Item::ForgetProject { .. })) => crate::projects::apply_replica(app, runner_id, n, item).await,
         Ok(Item::Access { access }) => apply_access(app, runner_id, n, access).await,
+        Ok(Item::Worktree { worktree }) => crate::away::apply_replica(app, runner_id, n, *worktree).await,
         Ok(item) => app.sessions.apply_replica(app, runner_id, n, item).await,
         Err(e) => {
             // An item this Home cannot read (another build) is skipped, never retried forever.

@@ -11,6 +11,10 @@ reason: string,
  */
 by_agent: boolean,
 /**
+ * The commit the owner reviewed: the merge stops if the branch moved past it.
+ */
+head?: string,
+/**
  * Conflict messages already sent to the agent for this request.
  */
 agent_retries: number,

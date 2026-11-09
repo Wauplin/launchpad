@@ -70,10 +70,11 @@ async fn prepare_move(app: &App, id: &str) -> Result<()> {
     {
         ensure!(!s.status.is_running() && !s.open_question && !app.sessions.setup_running(id), "Wait for the current turn to end before moving this session.");
         ensure!(app.terminals.tui_of(id).is_none(), "Close the session's terminal before moving it.");
+        // Plain folders first: asset folders inside the worktrees go with them.
+        crate::plain::after_turn(app, id).await.context("its files cannot move yet")?;
         for w in crate::worktrees::for_session(app, id).await?.into_iter().filter(|w| w.state == WorktreeState::Active) {
             crate::worktrees::remove(app, &w.id).await.with_context(|| format!("{} cannot move yet", w.branch))?;
         }
-        crate::plain::after_turn(app, id).await;
         let _action = app.sessions.action_lock().await;
         app.sessions.release(app, id).await?;
     }
@@ -220,12 +221,13 @@ pub fn spawn(app: &App) {
 /// Hashes of the last conversation each session uploaded, so an unchanged one is not sent again.
 static SENT: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, String>>> = std::sync::LazyLock::new(Default::default);
 
-/// At the end of every turn on a runner: the conversation goes to Home when it changed.
-pub async fn after_turn(app: &App, id: &str) {
+/// At the end of every turn on a runner (`turn_sync`): the conversation goes to Home when it changed. The
+/// worktree records also reach Home on their own (`worktrees::save`), so a failure here never hides them.
+pub async fn after_turn(app: &App, id: &str) -> Result<()> {
     if app.paths.role != crate::role::Role::Runner {
-        return;
+        return Ok(());
     }
-    let Ok(h) = snapshot(app, id).await else { return };
+    let h = snapshot(app, id).await.context("could not read the agent's conversation")?;
     let mut hasher = Sha256::new();
     for f in &h.files {
         hasher.update(f.name.as_bytes());
@@ -236,15 +238,11 @@ pub async fn after_turn(app: &App, id: &str) {
     }
     let digest = hex::encode(hasher.finalize());
     if SENT.lock().unwrap().get(id) == Some(&digest) {
-        return;
+        return Ok(());
     }
-    let sent = async { answer(to_home(app, reqwest::Method::POST, &format!("/api/handoff/{id}"))?.json(&h)).await };
-    match sent.await {
-        Ok(_) => {
-            SENT.lock().unwrap().insert(id.to_string(), digest);
-        }
-        Err(e) => tracing::debug!("handoff of {id}: {e:#}"),
-    }
+    answer(to_home(app, reqwest::Method::POST, &format!("/api/handoff/{id}"))?.json(&h)).await.context("could not send the conversation to Home")?;
+    SENT.lock().unwrap().insert(id.to_string(), digest);
+    Ok(())
 }
 
 /// Where a moved session's folders are on this runner: its worktrees here, its plain folder or its temporary folder.

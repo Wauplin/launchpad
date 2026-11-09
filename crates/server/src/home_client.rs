@@ -410,6 +410,8 @@ async fn session(app: &App, router: &Router, url: &str, mut tx: crate::wire::Wir
     let cursor = acked;
     let (res_tx, mut res_rx) = tokio::sync::mpsc::unbounded_channel::<FromRunner>();
     *HOME.tx.lock().unwrap() = Some(res_tx.clone());
+    // Turns not saved on Home yet go now (`turn_sync`).
+    launchpad_core::turn_sync::kick();
     let result = serve(app, router, &mut tx, &mut rx, res_tx, &mut res_rx, cursor).await;
     // Requests to Home fail now instead of timing out.
     HOME.clear();

@@ -541,6 +541,7 @@ pub async fn launch(app: &App, spec: LaunchSpec, id: String, automatic: bool) ->
         capacity_retry_at: None,
         seen_at: now,
         last_message: None,
+        unsaved: None,
     };
     app.sessions.placeholder(app, s.clone()).await?;
     Ok(s)

@@ -55,6 +55,7 @@ pub mod prompt_context;
 pub mod session_git;
 pub mod workspace;
 pub mod worktrees;
+pub mod turn_sync;
 pub mod vault;
 pub mod proxy;
 pub mod contain;
@@ -220,6 +221,7 @@ impl App {
             tracing::warn!("folders of one disk: {e:#}");
         }
         worktrees::spawn(&app);
+        turn_sync::spawn(&app);
         today::spawn(&app);
         handoff::spawn(&app);
         runners::spawn(&app);
