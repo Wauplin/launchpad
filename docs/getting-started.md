@@ -90,7 +90,7 @@ Launchpad starts with no workspace: create one in the **Workspaces** step of the
 
 1. Click **Launch** next to the field in the top bar, with the field empty: the composer opens. (Typing the task in the field first and clicking **Launch** starts at once with the page as context and the folder's defaults.)
 2. Write the task. Type `@` to mention files, `/` for skills and `#` for folders, agent traces and GitHub items.
-3. Choose the folder. The options line under the prompt says where the agent runs, for example "New worktree from main · keep branch": in Git folders, a new worktree (the default) gives the agent its own branch. Click the line to change **Run in**, **From** or **When done**.
+3. Choose the folder. The options line under the prompt says where the agent runs, for example "New worktree from main · keep branch": in Git folders, a new worktree (the default) gives the agent its own branch. Click the line to change **Run in**, **From** or **When done**. To only ask a question or request an audit, choose **When done → Read only**: the agent changes nothing, and archiving it deletes its worktree.
 4. Click **Launch**.
 
 ![The composer with its options line](images/composer.webp)

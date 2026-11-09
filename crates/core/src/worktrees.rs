@@ -494,9 +494,12 @@ pub async fn join(app: &App, source_session: &str, session_id: &str) -> Result<V
 pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, String)], projects: &[Project], when_done: crate::model::WhenDone) -> String {
     let cli = app.paths.cli_command();
     let name = |id: &str| projects.iter().find(|p| p.id == id).map(|p| p.name.clone()).unwrap_or_else(|| "folder".into());
-    let mut text = String::from(
-        "Launchpad worktree: Launchpad created fresh Git worktrees for this task and manages them. This launch setting overrides repository or preset instructions to work on the main branch, in the main checkout, or to create, merge or delete worktrees yourself; follow all other repository rules (checks, documentation, commit conventions).",
-    );
+    let read_only = when_done == crate::model::WhenDone::ReadOnly && !worktrees.iter().any(|(w, _)| w.pull_request.is_some());
+    let mut text = String::from(if read_only {
+        "Launchpad worktree (read only): Launchpad created fresh Git worktrees for this task so you can read, build and run the code. This task must not change it.\n"
+    } else {
+        "Launchpad worktree: Launchpad created fresh Git worktrees for this task and manages them. This launch setting overrides repository or preset instructions to work on the main branch, in the main checkout, or to create, merge or delete worktrees yourself; follow all other repository rules (checks, documentation, commit conventions)."
+    });
     for (w, path) in worktrees {
         text.push_str(&format!(
             "\n- {}{}: work in `{path}` on branch `{}`, {}.",
@@ -510,6 +513,10 @@ pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, Stri
                 (None, None, false) => "created from the default branch".into(),
             },
         ));
+    }
+    if read_only {
+        text.push_str("\nRead only: do not edit, create or delete tracked files, do not commit, push, switch branches or run `launchpad work finish`. Build outputs, installed dependencies and other Git-ignored files are fine. If the task needs a change, describe it (or show a patch) in your answer instead of applying it. Give your findings in your final message. When the agent is archived, Launchpad deletes these worktrees and their branches if nothing changed.");
+        return text;
     }
     text.push_str("\n`origin` is Launchpad's Git server (Home Git), with `origin/<branch>` for every branch. Commit your work on these branches: Launchpad pushes them to `origin` at the end of every turn (you may also `git push` them yourself). Do not switch branches, push other branches, or remove these worktrees; never push to the base branch. Uncommitted files are saved when the folder is removed, but commit what matters.");
     if let Some(pr) = worktrees.iter().find_map(|(w, _)| w.pull_request.clone()) {
@@ -806,6 +813,12 @@ pub async fn discard(app: &App, id: &str) -> Result<TaskWorktree> {
             app.sessions.release(app, &sid).await?;
         }
     }
+    discard_locked(app, &mut w).await?;
+    Ok(w)
+}
+
+/// Deletes the folder and the branch, here and on Home. The caller holds the action and worktree locks.
+async fn discard_locked(app: &App, w: &mut TaskWorktree) -> Result<()> {
     if Path::new(&w.root).exists() {
         git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
     }
@@ -823,8 +836,7 @@ pub async fn discard(app: &App, id: &str) -> Result<TaskWorktree> {
     }
     w.state = WorktreeState::Discarded;
     w.merge = None;
-    save(app, &w).await?;
-    Ok(w)
+    save(app, w).await
 }
 
 /// Merge into base: the owner's button, or `by_agent` from `launchpad work finish`. Returns at once; the
@@ -859,6 +871,7 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool) -> Result<TaskWo
 /// primary worktree's branch when the launch chose it.
 pub async fn finish(app: &App, session_id: &str) -> Result<String> {
     let when_done = app.sessions.get(session_id).and_then(|s| s.launch_spec.worktree).map(|o| o.when_done).unwrap_or_default();
+    ensure!(when_done != crate::model::WhenDone::ReadOnly, "this session is read only: there is nothing to finish. Undo your changes and give your answer in your final message");
     if when_done == crate::model::WhenDone::LocalPr {
         return finish_local_pr(app, session_id).await;
     }
@@ -1051,10 +1064,42 @@ pub async fn after_archive(app: &App, session_id: &str) {
     let Ok(records) = for_session(app, session_id).await else { return };
     for w in records.into_iter().filter(|w| w.state == WorktreeState::Active) {
         let archived = w.sessions.iter().all(|id| app.sessions.get(id).is_none_or(|s| s.status == SessionStatus::Closed));
-        if archived {
+        if archived && read_only(app, &w) && unchanged(app, &w).await {
+            let _action = app.sessions.action_lock().await;
+            let _lock = app.worktree_lock.lock().await;
+            let Ok(mut w) = get(app, &w.id).await else { continue };
+            if w.state != WorktreeState::Active || w.merge.is_some() || idle_reason(app, &w, true).is_some() {
+                continue;
+            }
+            let result: Result<()> = async {
+                for id in w.sessions.clone() {
+                    app.sessions.release(app, &id).await?;
+                }
+                discard_locked(app, &mut w).await
+            }.await;
+            if let Err(e) = result {
+                tracing::warn!("read-only worktree {}: {e:#}", w.root);
+            }
+        } else if archived {
             cleanup(app, &w.id).await;
         }
     }
+}
+
+/// Every session of the worktree was launched read only.
+fn read_only(app: &App, w: &TaskWorktree) -> bool {
+    w.pull_request.is_none() && !w.from_branch && w.predraft_id.is_none() && w.merged.is_none()
+        && w.sessions.iter().all(|id| app.sessions.get(id).and_then(|s| s.launch_spec.worktree).is_some_and(|o| o.when_done == crate::model::WhenDone::ReadOnly))
+}
+
+/// No commit beyond the base branch and no changed or new file (Git-ignored files do not count).
+async fn unchanged(app: &App, w: &TaskWorktree) -> bool {
+    let Some(base) = &w.base_branch else { return false };
+    if !Path::new(&w.root).is_dir() {
+        return false;
+    }
+    dirty_files(app, &w.root).await.is_ok_and(|d| d.is_empty())
+        && git(app, &w.root, &["rev-list", "--count", &format!("refs/remotes/origin/{base}..refs/heads/{}", w.branch), "--"]).await.is_ok_and(|n| n == "0")
 }
 
 async fn cleanup(app: &App, id: &str) {

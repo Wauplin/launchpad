@@ -478,7 +478,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
   const billingText = !supportsCost && harness?.capabilities.cost ? costUnavailableMessage : payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
   // Where it runs and what happens when done, first on the options line ("New worktree from main · keep branch").
-  const whenDoneText = spec.worktree?.when_done === "merge" ? `merge into ${baseLabel}` : spec.worktree?.when_done === "local_pr" ? "Local PR when done" : "keep branch";
+  const whenDoneText = spec.worktree?.when_done === "merge" ? `merge into ${baseLabel}` : spec.worktree?.when_done === "local_pr" ? "Local PR when done" : spec.worktree?.when_done === "read_only" ? "read only" : "keep branch";
   const whereLine = browserOnly ? null : worktreeMode ? (pushToPr ? `PR #${pushToPr.number} · pushes to the PR` : `New worktree from ${baseLabel} · ${whenDoneText}`) : spec.target.kind === "temp" ? "Temporary folder" : runIn ? runIn.charAt(0).toUpperCase() + runIn.slice(1) : null;
   const hasChips = (spec.agent_traces ?? []).length > 0 || spec.github_refs.length > 0 || (spec.skills ?? []).length > 0 || (spec.files ?? []).length > 0 || spec.context_projects.length > 0;
 
@@ -690,15 +690,16 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           </OptionRow>}
           {worktreeMode && target && !pushToPr && <OptionRow label="From"><Branch field projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="default branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { when_done: "keep" }), base } }))} /></OptionRow>}
           {worktreeMode && target && !pushToPr && <OptionRow label="When done">
-            <span className="grid" title="Merge: the agent asks Launchpad to merge when it is done; Home fast-forwards the base branch, and a base that moved goes back to the agent for a rebase. Open a Local PR: the agent opens a Local PR of its branch on Home, with a title and description for you to review and publish.">
-              <select className="field-input w-auto" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project" onChange={(e) => {
+            <span className="grid" title="Merge: the agent asks Launchpad to merge when it is done; Home fast-forwards the base branch, and a base that moved goes back to the agent for a rebase. Open a Local PR: the agent opens a Local PR of its branch on Home, with a title and description for you to review and publish. Read only: for questions and audits; the agent changes nothing, and Archive deletes the unchanged worktree and branch.">
+              <select className="field-input w-auto" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project, except Read only" onChange={(e) => {
                 const whenDone = e.target.value as WhenDone;
                 set((s) => ({ ...s, worktree: { ...s.worktree!, when_done: whenDone } }));
-                completionDefault.mutate({ projectId: target.id, whenDone });
+                if (whenDone !== "read_only") completionDefault.mutate({ projectId: target.id, whenDone });
               }}>
                 <option value="keep">Keep branch for review</option>
                 <option value="local_pr">Open a Local PR</option>
                 <option value="merge">Merge into {baseLabel}</option>
+                <option value="read_only">Read only (questions, audits)</option>
               </select>
             </span>
           </OptionRow>}

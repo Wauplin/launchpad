@@ -216,6 +216,7 @@ function SpecTokens({ spec }: { spec: LaunchSpec }) {
       {spec.target.kind === "project" && !spec.worktree && <Token>checkout</Token>}
       {spec.worktree?.when_done === "merge" && <Token>merge when done</Token>}
       {spec.worktree?.when_done === "local_pr" && <Token>Local PR when done</Token>}
+      {spec.worktree?.when_done === "read_only" && <Token>read only</Token>}
       {spec.github_refs.length > 0 && <Token icon="pr">{spec.github_refs.length} GitHub item{spec.github_refs.length === 1 ? "" : "s"}</Token>}
       {(spec.agent_traces ?? []).length > 0 && <Token icon="agents">+ {spec.agent_traces.length} trace</Token>}
       {profile?.billing === "pay_as_you_go" && <Token tone="warn">pay as you go</Token>}

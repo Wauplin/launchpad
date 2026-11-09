@@ -582,6 +582,7 @@ pub async fn update(app: &App, id: &str, mut patch: ProjectPatch) -> Result<Proj
         Some(w) => Some(crate::workspace::get(app, &w).await?.id),
         None => None,
     };
+    anyhow::ensure!(patch.when_done != Some(crate::model::WhenDone::ReadOnly), "Read only is chosen per launch, not as a folder's default");
     let id2 = id.to_string();
     app.state_db
         .call(move |c| {

@@ -581,14 +581,17 @@ pub enum WhenDone {
     Merge,
     /// `work finish` turns the worktree into a Local PR.
     LocalPr,
+    /// Questions and audits: the agent changes nothing, and archiving it deletes an unchanged worktree and
+    /// its branch. Chosen per launch, never a folder default.
+    ReadOnly,
 }
 
 impl WhenDone {
     pub fn as_str(self) -> &'static str {
-        match self { Self::Keep => "keep", Self::Merge => "merge", Self::LocalPr => "local_pr" }
+        match self { Self::Keep => "keep", Self::Merge => "merge", Self::LocalPr => "local_pr", Self::ReadOnly => "read_only" }
     }
     pub fn parse(s: &str) -> Self {
-        match s { "merge" => Self::Merge, "local_pr" => Self::LocalPr, _ => Self::Keep }
+        match s { "merge" => Self::Merge, "local_pr" => Self::LocalPr, "read_only" => Self::ReadOnly, _ => Self::Keep }
     }
 }
 
