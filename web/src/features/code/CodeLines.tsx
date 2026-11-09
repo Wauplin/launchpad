@@ -14,7 +14,7 @@ export type CodeLinesHandle = { scrollToLine: (line: number, align?: "start" | "
 
 type Token = Tokens[number][number];
 
-const BAR: Record<string, string> = { add: "bg-gh-open", mod: "bg-[#d4a72c]", del: "bg-gh-closed" };
+const BAR: Record<string, string> = { add: "bg-gh-open", mod: "bg-attn-line", del: "bg-gh-closed" };
 
 function style(color: string | undefined, fs: number | undefined) {
   if (!color && !fs) return undefined;

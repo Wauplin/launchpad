@@ -52,9 +52,9 @@ export function Description({ p }: { p: Project }) {
     );
   }
   return (
-    <button className="flex w-fit max-w-full items-center gap-1 truncate text-left text-xs text-ink-3 hover:text-ink" title="Edit the description" onClick={() => setEdit(p.description)}>
+    <button className="flex w-fit max-w-full items-center gap-1 truncate text-left text-[12px] text-ink-3 hover:text-ink" title="Edit the description" onClick={() => setEdit(p.description)}>
       {p.description || <span className="italic">Add a description</span>}
-      <Icon name="pencil" size={11} className="flex-none" />
+      <Icon name="pencil" size={12} className="flex-none" />
     </button>
   );
 }
@@ -71,7 +71,7 @@ export function TempProjectCard({ p, row }: { p: Project; row?: boolean }) {
   const open = mine.filter((s) => s.status !== "closed");
   const running = mine.some(isRunning);
   return (
-    <div className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 px-4 py-3 ${row ? "border-b border-line-2 last:border-0" : "rounded-lg border border-line"}`}>
+    <div className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 px-4 py-3 ${row ? "border-b border-line-2 last:border-0" : "rounded-card border border-line"}`}>
       <div className="flex min-w-0 items-center gap-3">
         <div className="grid min-w-0 flex-1 gap-0.5">
           <span className="truncate font-mono text-[13px] font-semibold" title={p.path}>{p.name.replace(/^tmp-\d{4}-/, "") || p.name}</span>
@@ -117,12 +117,12 @@ function UnassignedFolders({ folders, workspaces }: { folders: Project[]; worksp
   const qc = useQueryClient();
   const assign = (p: Project, w: Workspace) => moveFolder(p, w).then(() => { toast(`Added ${p.name} to ${w.name}`); return qc.invalidateQueries({ queryKey: ["projects"] }); }, toastError);
   return (
-    <section className="grid gap-2 rounded-lg border border-attn/40 bg-attn-soft/40 p-3.5" aria-label="Unassigned folders">
+    <section className="grid gap-2 rounded-card border border-attn/40 bg-attn-soft/40 p-3.5" aria-label="Unassigned folders">
       <div className="grid gap-0.5">
         <b className="text-[13px]">Unassigned folders · {folders.length}</b>
         <span className="text-[12px] text-ink-3">Every folder belongs to one workspace. {workspaces.length ? "Choose one for each, or remove the folders you no longer use." : "Create a workspace from the workspace menu, then choose it here."}</span>
       </div>
-      <div className="grid max-h-[320px] overflow-y-auto rounded-md border border-line bg-paper">
+      <div className="grid max-h-[320px] overflow-y-auto rounded-control border border-line bg-paper">
         {folders.map((p) => (
           <div key={p.id} className="flex min-h-[44px] flex-wrap items-center gap-2 border-b border-line-2 px-3 py-1.5 text-[13px] last:border-0">
             <span className="grid min-w-0 flex-1 basis-[200px]">
@@ -159,7 +159,7 @@ function FolderTable({ folders }: { folders: Project[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({ count: folders.length, getScrollElement: () => ref.current, estimateSize: () => 56, overscan: 6, useFlushSync: false });
   return (
-    <div ref={ref} className="overflow-y-auto rounded-lg border border-line" style={{ maxHeight: 12 * 56 + 2 }}>
+    <div ref={ref} className="overflow-y-auto rounded-card border border-line" style={{ maxHeight: 12 * 56 + 2 }}>
       <div className="relative" style={{ height: v.getTotalSize() }}>
         {v.getVirtualItems().map((it) => <div key={folders[it.index].id} className="absolute inset-x-0" style={{ top: it.start }}><FolderRow p={folders[it.index]} /></div>)}
       </div>
@@ -184,13 +184,13 @@ export function ProjectsView() {
   return (
     <div className="h-full overflow-y-auto">
       {phone ? <PhoneHeader title="Folders" primary={add} details={temp.length > 0 && <p className="m-0 text-[13px] text-ink-2">{TEMP_INTRO}</p>} /> : <PageHeader title="Folders" meta={meta} intro={temp.length > 0 ? TEMP_INTRO : undefined} introId="Folders" actions={add} />}
-      <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 px-5 py-5">
+      <div className="phone-page-content grid max-w-page grid-cols-[minmax(0,1fr)] gap-4 px-5 py-5">
         {unassigned.length > 0 && <UnassignedFolders folders={unassigned} workspaces={workspaces} />}
         {mine.length === 0 ? <Empty icon="folder" action={add}>{`No folder in ${w.name} yet.`}</Empty> : <FolderTable folders={mine} />}
         {temp.length > 0 && (
           <>
             <div className="seclabel">Temporary folders</div>
-            <div className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-lg border border-line">
+            <div className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-card border border-line">
               {temp.map((p) => (
                 <TempProjectCard key={p.id} p={p} row />
               ))}

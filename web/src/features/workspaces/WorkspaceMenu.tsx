@@ -56,7 +56,7 @@ export function WorkspaceMenu() {
   return (
     <div className="flex-none border-b border-line-2 px-2 py-1.5">
       <Popover width={280} trigger={({ open, toggle }) => (
-        <button className="flex h-[31px] w-full min-w-0 items-center gap-1.5 rounded-[7px] px-[9px] text-left font-semibold text-ink hover:bg-sunk" data-tour="sidebar.workspace-menu" aria-label={`Workspace ${workspace.name}: actions`} title="Workspace of this window" aria-expanded={open} onClick={() => { setMode("menu"); toggle(); }}>
+        <button className="flex h-[31px] w-full min-w-0 items-center gap-1.5 rounded-control px-[9px] text-left font-semibold text-ink hover:bg-sunk" data-tour="sidebar.workspace-menu" aria-label={`Workspace ${workspace.name}: actions`} title="Workspace of this window" aria-expanded={open} onClick={() => { setMode("menu"); toggle(); }}>
           <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
           <Icon name="chev" size={12} className="flex-none text-ink-3" />
         </button>
@@ -68,10 +68,10 @@ export function WorkspaceMenu() {
           </form>
         ) : (
           <>
-            <MenuItem icon={<Icon name="pencil" size={13} />} label="Rename" onClick={() => { setName(workspace.name); setMode("rename"); }} />
-            <MenuItem icon={<Icon name="window" size={13} />} label={`Open in a new ${newWindowWord}`} detail="Two workspaces side by side" onClick={() => { close(); void openWindow(workspace.id); }} />
-            <Link to="/settings/workspace" className="flex h-8 items-center gap-2 rounded-md px-2 text-[13px] text-ink no-underline hover:bg-sunk" onClick={close}><Icon name="sliders" size={13} />Workspace settings</Link>
-            <MenuItem icon={<Icon name="plus" size={13} />} label="New workspace" detail="Each folder belongs to one workspace" onClick={() => setMode("new")} />
+            <MenuItem icon={<Icon name="pencil" size={12} />} label="Rename" onClick={() => { setName(workspace.name); setMode("rename"); }} />
+            <MenuItem icon={<Icon name="window" size={12} />} label={`Open in a new ${newWindowWord}`} detail="Two workspaces side by side" onClick={() => { close(); void openWindow(workspace.id); }} />
+            <Link to="/settings/workspace" className="flex h-8 items-center gap-2 rounded-control px-2 text-[13px] text-ink no-underline hover:bg-sunk" onClick={close}><Icon name="sliders" size={12} />Workspace settings</Link>
+            <MenuItem icon={<Icon name="plus" size={12} />} label="New workspace" detail="Each folder belongs to one workspace" onClick={() => setMode("new")} />
             <div className="border-t border-line-2 px-2 pt-1.5 pb-1">
               {last ? <span className="text-[12px] text-ink-3">The last workspace cannot be deleted.</span>
                 : <ConfirmButton icon="trash" consequence="Only an empty workspace can be deleted: move or remove its folders first." confirmLabel={`Delete ${workspace.name}`} onConfirm={async () => { try { await api.delete(`/api/workspaces/${workspace.id}`); await qc.invalidateQueries({ queryKey: ["workspaces"] }); close(); } catch (e) { toastError(e); } }}>Delete workspace</ConfirmButton>}
@@ -91,7 +91,7 @@ export function NoWorkspace() {
   return (
     <div className="grid h-full place-items-center p-6">
       {runner ? <Loading what="the workspaces from Home (create the first one in Home's Setup)" /> : (
-        <div className="grid w-[340px] max-w-full gap-2 rounded-lg border border-line p-3">
+        <div className="grid w-[340px] max-w-full gap-2 rounded-card border border-line p-3">
           <p className="m-0 text-[13px] text-ink-2">A window shows one workspace, and none exists yet. Name your first workspace to start, or open Setup to go through every step.</p>
           <NewWorkspaceForm onDone={() => undefined} onCancel={() => undefined} />
           <Link to="/setup" className="btn btn-sm justify-self-start no-underline">Open Setup</Link>

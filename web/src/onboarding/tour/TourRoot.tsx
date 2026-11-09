@@ -215,7 +215,7 @@ export function ChapterList({ track }: { track: "essentials" | "full" }) {
     <ol className="m-0 mt-2 grid list-none gap-0.5 p-0">
       {trackChapters(track).map((c, i) => (
         <li key={c.id}>
-          <button type="button" className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] hover:bg-sunk" aria-current={c.id === current ? "step" : undefined} onClick={() => playChapter(c.id, track)}>
+          <button type="button" className="flex w-full items-center gap-2 rounded-control px-1.5 py-1 text-left text-[13px] hover:bg-sunk" aria-current={c.id === current ? "step" : undefined} onClick={() => playChapter(c.id, track)}>
             <span className="w-4 text-center text-demo">{seen.includes(c.id) ? <Icon name="check" size={12} /> : i + 1}</span>
             <span className={`min-w-0 flex-1 truncate ${c.id === current ? "font-semibold" : ""}`}>{c.title}</span>
             <span className="text-[12px] text-ink-3">{c.time}</span>

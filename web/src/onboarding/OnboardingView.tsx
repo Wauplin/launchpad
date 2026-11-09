@@ -33,8 +33,8 @@ export function OnboardingView() {
             {CHAPTER_META.map((c, i) => {
               const done = seen.includes(c.id);
               return (
-                <li key={c.id} className="flex items-center gap-2.5 rounded-md px-1 py-1 text-[13px]">
-                  <span className={`grid size-5 place-items-center rounded-full text-[11px] ${done ? "bg-demo text-white" : "bg-sunk text-ink-3"}`} aria-label={done ? "Finished" : undefined}>{done ? <Icon name="check" size={11} /> : i + 1}</span>
+                <li key={c.id} className="flex items-center gap-2.5 rounded-control px-1 py-1 text-[13px]">
+                  <span className={`grid size-5 place-items-center rounded-full text-[11px] ${done ? "bg-demo text-white" : "bg-sunk text-ink-3"}`} aria-label={done ? "Finished" : undefined}>{done ? <Icon name="check" size={12} /> : i + 1}</span>
                   <span className="min-w-0 flex-1 truncate">{c.title}{c.essentials && <span className="ml-2 text-[11px] text-ink-3">Essentials</span>}</span>
                   <span className="text-[12px] text-ink-3 tabular-nums">{c.time}</span>
                   <button type="button" className="btn btn-sm" onClick={() => enterDemo(c.id)}>{done ? "Replay" : "Play"}</button>

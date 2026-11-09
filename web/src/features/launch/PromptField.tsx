@@ -22,7 +22,7 @@ import { mentionAt, type Mention } from "@/lib/promptTriggers";
 
 type Suggestion = { id: string; group: string; label: string; detail: string; token: string; icon: IconName; unavailable?: boolean; pick?: ContextPick };
 const SuggestionRow = memo(function SuggestionRow({ item, active, id, onPick }: { item: Suggestion; active: boolean; id: string; onPick: () => void }) {
-  return <button type="button" tabIndex={-1} id={id} role="option" aria-selected={active} disabled={item.unavailable} onMouseDown={(e) => e.preventDefault()} onClick={onPick} className={`grid h-12 w-full cursor-pointer text-left disabled:opacity-50 grid-cols-[20px_minmax(0,1fr)] content-center gap-x-2 rounded-md px-2 text-[13px] ${active ? "bg-select" : "hover:bg-sunk"}`}>
+  return <button type="button" tabIndex={-1} id={id} role="option" aria-selected={active} disabled={item.unavailable} onMouseDown={(e) => e.preventDefault()} onClick={onPick} className={`grid h-12 w-full cursor-pointer text-left disabled:opacity-50 grid-cols-[20px_minmax(0,1fr)] content-center gap-x-2 rounded-control px-2 text-[13px] ${active ? "bg-select" : "hover:bg-sunk"}`}>
     <Icon name={item.icon} size={14} className="row-span-2 self-center" /><span className="truncate font-semibold">{item.label}</span><span className="truncate text-[11px] text-ink-3">{item.group} · {item.detail}</span>
   </button>;
 });
@@ -136,7 +136,7 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   return <>
     <textarea ref={ref} disabled={disabled} value={doc.text} rows={compact ? 1 : 7} autoFocus={!compact} onPaste={onPaste} placeholder={placeholder ?? "What should the agent do?\n@ files and folders · / skills · # context"}
       aria-label={compact ? "Message agent" : "Agent prompt"} aria-autocomplete="list" aria-expanded={!!mention} aria-controls={mention ? id : undefined} aria-activedescendant={mention && rows.length ? `${id}-${active}` : undefined}
-      className={compact ? "max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none disabled:opacity-60" : "block min-h-[140px] w-full resize-none rounded-t-lg bg-transparent px-2.5 pt-2 pb-2 text-[13px] leading-normal outline-none"}
+      className={compact ? "max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none disabled:opacity-60" : "block min-h-[140px] w-full resize-none rounded-t-card bg-transparent px-2.5 pt-2 pb-2 text-[13px] leading-normal outline-none"}
       onChange={(e) => {
         const el = e.currentTarget, before = selection.current; selection.current = null;
         let next = editText(doc, el.value);
@@ -171,7 +171,7 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
         if (e.key === "Enter" && !e.shiftKey && onSend) { e.preventDefault(); onSend(); }
       }} />
     {/* Above the tour overlay (z-index 80), so a Try it step can show and pick suggestions. */}
-    {mention && createPortal(<div ref={panel} className="fixed z-[85] flex flex-col overflow-hidden rounded-lg border border-line bg-paper p-1 shadow-xl" style={position}>
+    {mention && createPortal(<div ref={panel} className="fixed z-[85] flex flex-col overflow-hidden rounded-card border border-line bg-paper p-1 shadow-xl" style={position}>
       <div id={id} role="listbox" aria-label="Prompt suggestions" ref={scroll} className="min-h-0 overflow-y-auto" style={{ height: Math.min(rows.length * 48, 240) }}>
         <div className="relative" style={{ height: virtual.getTotalSize() }}>{virtual.getVirtualItems().map((row) => <div key={rows[row.index].id} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${row.start}px)` }}><SuggestionRow id={`${id}-${row.index}`} item={rows[row.index]} active={row.index === active} onPick={() => pick(row.index)} /></div>)}</div>
       </div>

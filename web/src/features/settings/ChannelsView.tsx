@@ -69,7 +69,7 @@ function Telegram({ t }: { t: TelegramStatus }) {
       ) : <>
         <div className="flex flex-wrap items-center gap-2 text-[13px]"><span>Bot</span><b>@{t.bot_username}</b></div>
         {t.code && t.link && (
-          <div className="grid gap-2 rounded-[8px] border border-line-2 p-2.5 text-[13px]" data-tour="channels.telegram-bind">
+          <div className="grid gap-2 rounded-card border border-line-2 p-2.5 text-[13px]" data-tour="channels.telegram-bind">
             <span>{t.bound ? "To bind another chat" : "To bind your chat"}, open the link on your phone and press <b>Start</b>, or send <code>/start {t.code}</code> to @{t.bot_username}. The first chat that sends this code is bound; every other chat is ignored.</span>
             <span className="flex flex-wrap items-center gap-2">
               <Token>{t.code}</Token>
@@ -132,7 +132,7 @@ function Outgoing({ channels }: { channels: Channel[] }) {
         </div>
       ))}
       {!open ? <button className="btn btn-sm w-fit" onClick={() => setOpen(true)}><Icon name="plus" size={12} />Add a channel</button> : (
-        <div className="grid gap-2 rounded-[8px] border border-line-2 p-2.5 text-[13px]">
+        <div className="grid gap-2 rounded-card border border-line-2 p-2.5 text-[13px]">
           <Choices label="Channel kind">{KINDS.map((x) => <Choice key={x.id} active={kind === x.id} onClick={() => setKind(x.id)}>{x.label}</Choice>)}</Choices>
           <span className="text-[12px] text-ink-3">{k.hint} The URL is a credential: Home stores it in the vault and never shows it again.</span>
           <label className="grid gap-1"><span className="text-ink-2">Name (agents use it)</span><input className="field-input w-[220px] font-mono text-[12px]" value={name} onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} placeholder="team-chat" /></label>
@@ -174,10 +174,10 @@ function Incoming({ hooks, origin }: { hooks: Hook[]; origin: string }) {
   return (
     <Card title="Incoming: hooks">
       {created && (
-        <div className="grid gap-2 rounded-[8px] border border-attn-line bg-attn-soft p-2.5 text-[13px]" role="status">
+        <div className="grid gap-2 rounded-card border border-attn-line bg-attn-soft p-2.5 text-[13px]" role="status">
           <b>Copy the secret of {created.hook.name} now: it is shown only once.</b>
           <span className="flex flex-wrap items-center gap-2"><code className="break-all">{created.secret}</code><button className="btn btn-sm" onClick={() => copy(created.secret, "Secret")}><Icon name="copy" size={12} />Copy secret</button></span>
-          <pre className="m-0 overflow-x-auto rounded-[6px] bg-paper p-2 text-[12px]">{curl(origin, created.hook.id, created.secret)}</pre>
+          <pre className="m-0 overflow-x-auto rounded-control bg-paper p-2 text-[12px]">{curl(origin, created.hook.id, created.secret)}</pre>
           <span className="flex gap-2"><button className="btn btn-sm" onClick={() => copy(curl(origin, created.hook.id, created.secret), "Example")}><Icon name="copy" size={12} />Copy curl example</button><button className="btn btn-sm" onClick={() => setCreated(null)}>Done</button></span>
         </div>
       )}
@@ -197,7 +197,7 @@ function Incoming({ hooks, origin }: { hooks: Hook[]; origin: string }) {
         </div>
       ))}
       {!open ? <button className="btn btn-sm w-fit" data-tour="channels.add-hook" onClick={() => setOpen(true)}><Icon name="plus" size={12} />Create a hook</button> : (
-        <div className="grid gap-2 rounded-[8px] border border-line-2 p-2.5 text-[13px]">
+        <div className="grid gap-2 rounded-card border border-line-2 p-2.5 text-[13px]">
           <div className="flex flex-wrap gap-2">
             <label className="grid gap-1"><span className="text-ink-2">Name</span><input className="field-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nightly CI" /></label>
             <label className="grid gap-1"><span className="text-ink-2">Sends to</span>

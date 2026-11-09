@@ -69,14 +69,14 @@ export function ProjectPage() {
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="folder.page">
       {phone ? <PhoneHeader title={p.name} onBack={() => void navigate({ to: "/projects" })} backLabel="Back to folders" primary={<LaunchButton ctx={{ projectId: p.id }} />} subtitle={counts} actions={<div className="ml-auto flex gap-1.5">{buttons}</div>}
-        details={<div className="grid gap-2"><span className="break-all font-mono text-xs text-ink-3">{p.path}</span><Description p={p} />{p.is_temp && <p className="m-0 text-[13px] text-ink-2">{TEMP_INTRO}</p>}</div>} />
+        details={<div className="grid gap-2"><span className="break-all font-mono text-[12px] text-ink-3">{p.path}</span><Description p={p} />{p.is_temp && <p className="m-0 text-[13px] text-ink-2">{TEMP_INTRO}</p>}</div>} />
         : <PageHeader title={p.name} introId="temp-folder" intro={p.is_temp ? TEMP_INTRO : undefined} tabs={tabs} actions={<>{buttons}<LaunchButton ctx={{ projectId: p.id }} /></>} meta={<>
           <span className="truncate font-mono" title={p.path}>{p.path}</span>
           <span>· {counts}</span>
           {p.description && <span className="truncate">· {p.description}</span>}
         </>} />}
       <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="phone-page-content mx-auto grid max-w-[920px] grid-cols-[minmax(0,1fr)] gap-4 px-5 py-5">
+      <div className="phone-page-content grid max-w-page grid-cols-[minmax(0,1fr)] gap-4 px-5 py-5">
         {phone && tabs}
         {tab === "settings" ? <FolderSettings p={p} /> : tab === "branches" ? <Branches projectId={p.id} /> : <>
         {p.is_temp && <TempProjectCard p={p} />}
@@ -85,7 +85,7 @@ export function ProjectPage() {
         {worktrees.length > 0 && (
           <>
             <div className="seclabel">Worktrees · {worktrees.length}</div>
-            <div className="overflow-hidden rounded-lg border border-line">
+            <div className="overflow-hidden rounded-card border border-line">
               {worktrees.map((w) => {
                 const session = sessions.filter((s) => s.cwd === w.path).sort((a, b) => b.started_at - a.started_at)[0];
                 const draft = predrafts.find((d) => d.project_id === p.id && d.branch === w.branch);
@@ -104,13 +104,13 @@ export function ProjectPage() {
                     <Icon name="branch" size={14} className="text-ink-3" />
                     <span className="grid min-w-0 flex-1">
                       <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate font-mono text-xs font-semibold">{w.branch ?? "detached"}</span>
+                        <span className="truncate font-mono text-[12px] font-semibold">{w.branch ?? "detached"}</span>
                         {session && <SessionStatus s={session} />}
-                        {draft && <Link to="/predrafts/$id" params={{ id: draft.id }} className="truncate text-xs text-teal-ink">Local PR · {draft.archived ? "discarded" : draft.published_number ? `published #${draft.published_number}` : draft.title}</Link>}
+                        {draft && <Link to="/predrafts/$id" params={{ id: draft.id }} className="truncate text-[12px] text-teal-ink">Local PR · {draft.archived ? "discarded" : draft.published_number ? `published #${draft.published_number}` : draft.title}</Link>}
                       </span>
                       <span className="truncate font-mono text-[12px] text-ink-3" title={w.path}>{w.path}</span>
                     </span>
-                    {phone ? <PhoneActions label="Worktree actions" children={rowActions} details={<p className="break-all font-mono text-xs">{w.branch}<br />{w.path}</p>} /> : rowActions}
+                    {phone ? <PhoneActions label="Worktree actions" children={rowActions} details={<p className="break-all font-mono text-[12px]">{w.branch}<br />{w.path}</p>} /> : rowActions}
                   </div>
                 );
               })}
@@ -148,7 +148,7 @@ function FolderSettings({ p }: { p: Project }) {
     onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); },
   });
   return (
-    <section className="rounded-lg border border-line px-4">
+    <section className="rounded-card border border-line px-4">
       <SettingRow label="Name" hint="Shown in the sidebar, the composer and @ mentions." state={name.state} error={name.error}>
         <input className="field-input min-w-0 flex-1" aria-label="Folder name" maxLength={80} {...field("name", name, (v) => ({ name: v.trim() }), p.name)} />
       </SettingRow>
@@ -160,7 +160,7 @@ function FolderSettings({ p }: { p: Project }) {
           <Choices label="Workspace of this folder">
             {workspaces.map((w) => {
               const inside = p.workspace_id === w.id;
-              return <Choice key={w.id} active={inside} onClick={() => !inside && void member.run(() => moveFolder(p, w).then(() => qc.invalidateQueries({ queryKey: ["projects"] })))}>{inside && <Icon name="check" size={11} />}{w.name}</Choice>;
+              return <Choice key={w.id} active={inside} onClick={() => !inside && void member.run(() => moveFolder(p, w).then(() => qc.invalidateQueries({ queryKey: ["projects"] })))}>{inside && <Icon name="check" size={12} />}{w.name}</Choice>;
             })}
           </Choices>
         )}
@@ -213,7 +213,7 @@ function ProjectAgents({ title, sessions, empty }: { title: string; sessions: Se
   return (
     <section className="grid gap-3">
       <div className="seclabel">{title} · {sessions.length}</div>
-      <div ref={ref} className="overflow-auto rounded-lg border border-line" style={sessions.length ? { height: Math.min(sessions.length, 8) * rowHeight + 2 } : undefined}>
+      <div ref={ref} className="overflow-auto rounded-card border border-line" style={sessions.length ? { height: Math.min(sessions.length, 8) * rowHeight + 2 } : undefined}>
         {sessions.length === 0 ? (
           <div className="p-4 text-[13px] text-ink-2">{empty}</div>
         ) : (
@@ -245,7 +245,7 @@ const ProjectAgentRow = memo(function ProjectAgentRow({ s }: { s: Session }) {
       <HarnessMark harness={s.harness} size={16} />
       <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{s.title}</span>
       <SessionStatus s={s} />
-      {!phone && <span className="text-xs text-ink-3">{ago(s.started_at)}</span>}
+      {!phone && <span className="text-[12px] text-ink-3">{ago(s.started_at)}</span>}
     </button>
   );
 });
@@ -260,9 +260,9 @@ function AssetFolders({ projectId }: { projectId: string }) {
   const mb = (n: number) => n < 1 << 20 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / (1 << 20)).toFixed(1)} MB`;
   return <>
     <div className="seclabel">Asset folders · {rows.length}</div>
-    <span className="text-xs text-ink-3">Large or generated files stored by Home instead of Git. A folder that no branch, kept tip or note names, unchanged for 14 days, goes to the trash; Restore works for 30 days.</span>
-    <div className="max-h-[320px] overflow-y-auto rounded-lg border border-line">
-      {rows.map((a) => <div key={a.asset.id} className="flex min-h-[44px] items-center gap-2.5 border-b border-line-2 px-4 text-xs">
+    <span className="text-[12px] text-ink-3">Large or generated files stored by Home instead of Git. A folder that no branch, kept tip or note names, unchanged for 14 days, goes to the trash; Restore works for 30 days.</span>
+    <div className="max-h-[320px] overflow-y-auto rounded-card border border-line">
+      {rows.map((a) => <div key={a.asset.id} className="flex min-h-[44px] items-center gap-2.5 border-b border-line-2 px-4 text-[12px]">
         <Icon name="folder" size={14} className="text-ink-3" />
         <span className="grid min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2"><span className="truncate font-mono font-semibold">{a.asset.name}</span>{a.asset.trashed_at ? <Badge tone="attn">in the trash</Badge> : !a.in_use && <Badge title="No branch, kept tip or note names it">unused</Badge>}</span>
@@ -287,7 +287,7 @@ function HomeBranches({ projectId, predrafts }: { projectId: string; predrafts: 
   const selected = rows.find((b) => b.name === open);
   return <>
     <div className="seclabel">Launchpad branches · {rows.length}</div>
-    <div ref={scrollRef} className="max-h-[312px] overflow-y-auto rounded-lg border border-line">
+    <div ref={scrollRef} className="max-h-[312px] overflow-y-auto rounded-card border border-line">
       <div className="relative" style={{ height: v.getTotalSize() }}>
         {v.getVirtualItems().map((r) => <div key={rows[r.index].name} className="absolute inset-x-0" style={{ top: r.start, height: BRANCH_ROW }}>
           <BranchRow b={rows[r.index]} draft={predrafts.find((d) => d.branch === rows[r.index].name)} open={open === rows[r.index].name} onToggle={() => setOpen((o) => o === rows[r.index].name ? null : rows[r.index].name)} />
@@ -299,7 +299,7 @@ function HomeBranches({ projectId, predrafts }: { projectId: string; predrafts: 
 }
 
 const BranchRow = memo(function BranchRow({ b, draft, open, onToggle }: { b: HomeBranch; draft?: Predraft; open: boolean; onToggle: () => void }) {
-  return <div className="flex h-full items-center gap-2.5 border-b border-line-2 px-4 text-xs">
+  return <div className="flex h-full items-center gap-2.5 border-b border-line-2 px-4 text-[12px]">
     <Icon name="branch" size={14} className="text-ink-3" />
     <span className="grid min-w-0 flex-1">
       <span className="flex min-w-0 items-center gap-2"><span className="truncate font-mono font-semibold">{b.name}</span>{draft && <Link to="/predrafts/$id" params={{ id: draft.id }} className="truncate text-teal-ink">Local PR · {draft.title}</Link>}</span>
@@ -312,7 +312,7 @@ const BranchRow = memo(function BranchRow({ b, draft, open, onToggle }: { b: Hom
 function KeptTips({ projectId, b }: { projectId: string; b: HomeBranch }) {
   const qc = useQueryClient();
   const restore = (commit: string) => api.post(`/api/home-git/${projectId}/restore`, { branch: b.name, commit }).then(() => { toast(`${b.name} restored to ${commit.slice(0, 8)}`); return qc.invalidateQueries({ queryKey: ["home-git", projectId] }); }, toastError);
-  return <div className="grid gap-1 rounded-lg border border-line p-3 text-xs">
+  return <div className="grid gap-1 rounded-card border border-line p-3 text-[12px]">
     <b className="font-mono">{b.name}: previous tips</b>
     <span className="text-ink-3">Kept for 30 days after the branch moved away from them. Restore points the branch back; the current tip is kept in turn.</span>
     {b.kept.map((k) => <div key={`${k.commit}${k.replaced_at}`} className="flex min-h-[32px] items-center gap-2">
@@ -336,8 +336,8 @@ function PlainHistory({ projectId, sessions }: { projectId: string; sessions: Se
   const restore = (c: Change) => api.post(`/api/plain/${projectId}/restore`, { change: c.id }).then(() => { toast(`${c.path} restored`); return qc.invalidateQueries({ queryKey: ["plain", projectId] }); }, toastError);
   return <>
     <div className="seclabel">Versions and trash · {rows.length}</div>
-    {q.data.locked_by && <span className="text-xs text-ink-3">In use by {holder ? `the agent "${holder.title}"` : "an agent"}: Restore works once it is archived.</span>}
-    {rows.length === 0 ? <Empty icon="folder">No change yet. Agents' changes reach Home at the end of every turn.</Empty> : <div ref={scrollRef} className="max-h-[320px] overflow-y-auto rounded-lg border border-line">
+    {q.data.locked_by && <span className="text-[12px] text-ink-3">In use by {holder ? `the agent "${holder.title}"` : "an agent"}: Restore works once it is archived.</span>}
+    {rows.length === 0 ? <Empty icon="folder">No change yet. Agents' changes reach Home at the end of every turn.</Empty> : <div ref={scrollRef} className="max-h-[320px] overflow-y-auto rounded-card border border-line">
       <div className="relative" style={{ height: v.getTotalSize() }}>
         {v.getVirtualItems().map((r) => <div key={rows[r.index].id} className="absolute inset-x-0" style={{ top: r.start, height: CHANGE_ROW }}>
           <ChangeRow c={rows[r.index]} locked={!!q.data!.locked_by} onRestore={restore} />
@@ -349,7 +349,7 @@ function PlainHistory({ projectId, sessions }: { projectId: string; sessions: Se
 
 const ChangeRow = memo(function ChangeRow({ c, locked, onRestore }: { c: Change; locked: boolean; onRestore: (c: Change) => unknown }) {
   const what = !c.sha256 ? "created" : !c.new_sha256 ? "deleted" : "changed";
-  return <div className="flex h-full items-center gap-2 border-b border-line-2 px-4 text-xs">
+  return <div className="flex h-full items-center gap-2 border-b border-line-2 px-4 text-[12px]">
     <span className="min-w-0 flex-1 truncate"><span className="font-mono">{c.path}</span> <span className="text-ink-3">· {what} · {ago(c.at)}</span></span>
     {c.sha256 && <ConfirmButton disabled={locked} consequence={what === "deleted" ? `Puts ${c.path} back.` : `Puts back the version of ${c.path} from before this change. The current version stays restorable.`} confirmLabel="Restore" onConfirm={() => onRestore(c)}>{what === "deleted" ? "Restore" : "Restore previous"}</ConfirmButton>}
   </div>;

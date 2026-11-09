@@ -88,7 +88,7 @@ function CallLine({ c }: { c: Call }) {
     <div>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`flex w-full items-center gap-[7px] rounded-md border px-2 py-1 text-left text-xs ${
+        className={`flex w-full items-center gap-2 rounded-control border px-2 py-1 text-left text-[12px] ${
           running ? "border-work/30 bg-work-soft text-work" : c.result?.is_error ? "border-gh-closed/30 bg-diff-del text-ink-2" : "border-line-2 bg-chrome text-ink-2"
         }`}
       >
@@ -101,7 +101,7 @@ function CallLine({ c }: { c: Call }) {
       </button>
       {(open || (running && c.live)) && out && (
         <div className="relative mt-1">
-          <pre className="m-0 max-h-72 overflow-auto rounded-md bg-[#1E242C] px-2.5 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-[#D6DEE8]">{out}</pre>
+          <pre className="m-0 max-h-72 overflow-auto rounded-control border border-line-2 bg-code px-2.5 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-ink">{out}</pre>
           <button className="btn btn-sm absolute top-1 right-1" onClick={() => void copyText(out).then(() => toast("Output copied"))}>
             <Icon name="copy" size={12} />
           </button>
@@ -118,7 +118,7 @@ function ToolsRow({ calls }: { calls: Call[] }) {
   const total = calls.reduce((acc, c) => acc + (c.result?.duration_ms ?? 0), 0);
   return (
     <div className="grid gap-1">
-      <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-[7px] rounded-md border border-line-2 bg-chrome px-2 py-1 text-left text-xs text-ink-2">
+      <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 rounded-control border border-line-2 bg-chrome px-2 py-1 text-left text-[12px] text-ink-2">
         <Icon name="chev" size={12} className={`text-ink-3 transition-transform ${open ? "" : "-rotate-90"}`} />
         <span className="font-[650] text-ink">{groupSummary(calls)}</span>
         <span className="ml-auto text-ink-3 tabular-nums">{duration(total)}</span>
@@ -142,8 +142,8 @@ function EditRow({ path, change, diff }: { path: string; change: string; diff: s
   const del = lines.filter((l) => l.startsWith("-")).length;
   const shown = open ? lines : lines.slice(0, 12);
   return (
-    <div className="overflow-hidden rounded-md border border-line-2">
-      <div className="flex items-center gap-[7px] bg-chrome px-2 py-1 text-xs text-ink-2">
+    <div className="overflow-hidden rounded-control border border-line-2">
+      <div className="flex items-center gap-2 bg-chrome px-2 py-1 text-[12px] text-ink-2">
         <Icon name={change === "add" ? "file" : "pencil"} size={12} />
         <PathText path={path} className="min-w-0 truncate font-mono" />
         {change === "add" && <span className="text-ink-3">new file</span>}
@@ -171,14 +171,14 @@ function EditRow({ path, change, diff }: { path: string; change: string; diff: s
 
 function PlanRow({ items }: { items: Extract<Row, { t: "plan" }>["items"] }) {
   return (
-    <div className="grid gap-[3px] rounded-md border border-line-2 px-[9px] py-[7px] text-xs">
+    <div className="grid gap-1 rounded-control border border-line-2 px-[9px] py-[7px] text-[12px]">
       {items.map((it, i) => (
         <div
           key={i}
-          className={`flex items-center gap-[7px] ${it.status === "completed" ? "text-ink-3 line-through" : it.status === "in_progress" ? "font-semibold text-ink" : "text-ink-2"}`}
+          className={`flex items-center gap-2 ${it.status === "completed" ? "text-ink-3 line-through" : it.status === "in_progress" ? "font-semibold text-ink" : "text-ink-2"}`}
         >
           <span
-            className={`size-3 flex-none rounded-[3px] border-[1.5px] ${
+            className={`size-3 flex-none rounded-sm border-[1.5px] ${
               it.status === "completed" ? "border-ink-3 bg-ink-3" : it.status === "in_progress" ? "border-work bg-work-soft" : "border-ink-3"
             }`}
           />
@@ -199,14 +199,14 @@ function BackgroundRow({ row, sessionId }: { row: Extract<Row, { t: "bg" }>; ses
   });
   const tail = (out.data?.text ?? "").split("\n").slice(-8).join("\n").trimEnd();
   return (
-    <div className="overflow-hidden rounded-md border border-attn-line">
-      <div className="flex items-center gap-[7px] bg-attn-soft px-2 py-1 text-xs text-attn">
+    <div className="overflow-hidden rounded-control border border-attn-line">
+      <div className="flex items-center gap-2 bg-attn-soft px-2 py-1 text-[12px] text-attn">
         {running ? <span className="lp-spin border-attn-line! border-t-attn!" /> : <Icon name="check" size={12} />}
         <span className="font-[650]">Background</span>
         <span className="min-w-0 truncate font-mono text-ink-2">{row.description}</span>
         <span className="ml-auto whitespace-nowrap tabular-nums">{running ? <Ago ts={row.ts} /> : row.status}</span>
       </div>
-      {tail && <pre className="m-0 max-h-40 overflow-auto bg-[#1E242C] px-2.5 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-[#D6DEE8]">{tail}</pre>}
+      {tail && <pre className="m-0 max-h-40 overflow-auto bg-code px-2.5 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-ink">{tail}</pre>}
     </div>
   );
 }
@@ -216,7 +216,7 @@ export function Instructions({ blocks, className = "", label }: { blocks: string
   const [open, setOpen] = useState(false);
   return <div className={className}>
     <button className="text-[12px] text-ink-3 hover:text-ink" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? "−" : "+"} {label ?? `Launchpad instructions (${blocks.length})`}</button>
-    {open && <div className="mt-1 grid gap-2 border-l-2 border-line pl-2 text-xs text-ink-2">{blocks.map((b, i) => <div key={i}>{b}</div>)}</div>}
+    {open && <div className="mt-1 grid gap-2 border-l-2 border-line pl-2 text-[12px] text-ink-2">{blocks.map((b, i) => <div key={i}>{b}</div>)}</div>}
   </div>;
 }
 
@@ -233,7 +233,7 @@ function RoutineRow({ title, cause, body, queued }: { title: string; cause: stri
   const [open, setOpen] = useState(false);
   return <div className="grid gap-1">
     <Separator><button className="flex items-center gap-1.5 hover:text-ink" aria-expanded={open} title="A routine started this run" onClick={() => setOpen((o) => !o)}><Icon name="refresh" size={12} />Routine “{title}” · {cause}{queued ? " · queued" : ""} {open ? "▾" : "▸"}</button></Separator>
-    {open && <div className="mx-auto max-w-[88%] rounded-md bg-sunk px-2.5 py-1.5 text-[12px] whitespace-pre-wrap text-ink-2">{body}</div>}
+    {open && <div className="mx-auto max-w-[88%] rounded-control bg-sunk px-2.5 py-1.5 text-[12px] whitespace-pre-wrap text-ink-2">{body}</div>}
   </div>;
 }
 
@@ -250,11 +250,11 @@ export const EventRow = memo(
         const routine = routineMessage(row.text);
         if (routine) return <RoutineRow {...routine} queued={row.queued} />;
         return (
-          <div className="ml-auto max-w-[88%] rounded-[10px_10px_3px_10px] bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
+          <div className="ml-auto max-w-[88%] rounded-card rounded-br-sm bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
             {row.text}
             {row.instructions && <Instructions blocks={row.instructions} className={row.text ? "mt-1.5" : ""} />}
             {row.presets && <Instructions label={`Presets: ${row.presets.map((p) => p.label).join(" · ")}`} blocks={row.presets.map((p) => p.text.trim())} className={row.text ? "mt-1.5" : ""} />}
-            <div className="flex flex-wrap gap-2">{row.images.map((image, i) => <a key={i} href={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} download={image.name} title={`Save ${image.name}`}><img src={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-md border border-line" /></a>)}</div>
+            <div className="flex flex-wrap gap-2">{row.images.map((image, i) => <a key={i} href={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} download={image.name} title={`Save ${image.name}`}><img src={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>)}</div>
             {row.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
           </div>
         );
@@ -263,7 +263,7 @@ export const EventRow = memo(
         if (!row.streaming && isNoUpdate(row.text)) return <Separator><span title="The run had nothing to report: no notification">✓ No update</span></Separator>;
         return <AssistantRow text={row.text} streaming={row.streaming} />;
       case "reasoning":
-        return <div className="border-l-2 border-line pl-2 text-xs text-ink-3 italic">{row.text}</div>;
+        return <div className="border-l-2 border-line pl-2 text-[12px] text-ink-3 italic">{row.text}</div>;
       case "tools":
         return <ToolsRow calls={row.calls} />;
       case "edit":
@@ -285,7 +285,7 @@ export const EventRow = memo(
       case "notices":
         return <NoticesRow texts={row.texts} />;
       case "error":
-        return <div className="rounded-md border border-gh-closed/30 bg-diff-del px-2.5 py-1.5 font-mono text-xs whitespace-pre-wrap text-gh-closed">{row.text}</div>;
+        return <div className="rounded-control border border-gh-closed/30 bg-diff-del px-2.5 py-1.5 font-mono text-[12px] whitespace-pre-wrap text-gh-closed">{row.text}</div>;
     }
   },
   (a, b) => a.row.key === b.row.key && a.row.v === b.row.v && a.live === b.live && a.sessionId === b.sessionId,

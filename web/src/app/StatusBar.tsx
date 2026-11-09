@@ -38,8 +38,8 @@ function Meter({ value, harness }: { value: number; harness: Harness }) {
   const info = useHarnessInfo(harness);
   const color = value >= 90 ? "bg-gh-closed" : "";
   return (
-    <span className="inline-block h-1.5 w-[34px] overflow-hidden rounded-[3px] bg-meter">
-      <i className={`block h-full rounded-[3px] ${color}`} style={{ width: `${Math.min(100, Math.max(2, value))}%`, backgroundColor: value >= 90 ? undefined : info?.color }} />
+    <span className="inline-block h-1.5 w-[34px] overflow-hidden rounded-sm bg-meter">
+      <i className={`block h-full rounded-sm ${color}`} style={{ width: `${Math.min(100, Math.max(2, value))}%`, backgroundColor: value >= 90 ? undefined : info?.color }} />
     </span>
   );
 }

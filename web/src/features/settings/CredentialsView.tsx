@@ -136,7 +136,7 @@ export function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | 
   </div>;
   if (!open) return <div className="flex flex-wrap gap-2"><button className="btn btn-sm w-fit" onClick={() => setOpen(true)}>Add a {name} login</button></div>;
   return (
-    <div className="grid gap-2 rounded-[8px] border border-line-2 p-2.5 text-[13px]">
+    <div className="grid gap-2 rounded-card border border-line-2 p-2.5 text-[13px]">
       {!active ? <>
         <span className="text-[12px] text-ink-3">Home runs the {name} sign-in itself. Approve it in your browser with the subscription account; the login goes straight into Home's vault, with a profile that uses it.</span>
         <label className="grid gap-1"><span className="text-ink-2">Name <span className="text-ink-3">(optional)</span></span><input className="field-input w-[280px] max-w-full" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Work" /></label>
@@ -189,7 +189,7 @@ function AddSecret({ label, kind, hint, multiline, onDone }: { label: string; ki
     void api.put(`/api/vault/entries/${id || slug(name)}`, { kind, name, value }).then(() => { toast("Saved on Home"); setOpen(false); setName(""); setId(""); setValue(""); return onDone(); }, toastError).finally(() => setBusy(false));
   };
   return (
-    <div className="grid gap-2 rounded-[8px] border border-line-2 p-2.5 text-[13px]">
+    <div className="grid gap-2 rounded-card border border-line-2 p-2.5 text-[13px]">
       <span className="text-[12px] text-ink-3">{hint}</span>
       <div className="flex flex-wrap gap-2">
         <label className="grid gap-1"><span className="text-ink-2">Name</span><input className="field-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === "token" ? "GitHub" : "Personal"} /></label>
@@ -337,7 +337,7 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
   const toggleWs = (w: string) => set({ workspaces: t.workspaces.includes(w) ? t.workspaces.filter((x) => x !== w) : [...t.workspaces.filter((x) => x !== "*"), w] });
   const kinds: [ToolInstallKind | "none", string][] = [["none", "Nothing to install"], ["github_release", "GitHub release"], ["url", "Download URL"], ["cargo", "cargo install"], ["uv", "uv tool install"], ["npm", "npm package"]];
   return (
-    <div className="grid gap-2.5 rounded-[8px] border border-line-2 p-3 text-[13px]">
+    <div className="grid gap-2.5 rounded-card border border-line-2 p-3 text-[13px]">
       {custom ? (
         <label className="grid gap-1"><span className="text-ink-2">Name</span><input className="field-input w-[280px] max-w-full" value={t.name} onChange={(e) => set({ name: e.target.value })} placeholder="Slack" autoFocus /></label>
       ) : <div className="text-[13px] font-semibold">{t.name}</div>}
@@ -345,7 +345,7 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
         <span className="flex flex-wrap items-center gap-2"><span className="text-ink-2">API token</span>{help && <a className="text-[12px] text-teal-ink hover:underline" href={help.token_url} target="_blank" rel="noreferrer">{help.link_label}</a>}</span>
         {help && help.steps.length > 0 && <ol className="m-0 grid list-decimal gap-0.5 pl-4 text-[12px] text-ink-2">{help.steps.map((x) => <li key={x}>{x}</li>)}</ol>}
         {useHome && homeToken ? (
-          <div className="grid gap-1.5 rounded-[6px] bg-attn-soft px-2.5 py-2 text-[12px]">
+          <div className="grid gap-1.5 rounded-control bg-attn-soft px-2.5 py-2 text-[12px]">
             <span className="text-attn">Agents will act with Home's own {HOME_TOKEN_LABEL[homeToken]} login and its full access. A fine-grained token limited to what agents need is safer.</span>
             <button className="btn btn-sm w-fit" onClick={() => setUseHome(false)}>Paste a token instead</button>
           </div>
@@ -358,7 +358,7 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
         {stored && <span className="text-[12px] text-ink-3">Saved as {stored.name} ({stored.detail}), updated {ago(stored.updated_at)}.</span>}
         {custom && <span className="text-[12px] text-ink-3">Set the hosts that receive the token and the variables under Advanced.</span>}
       </div>
-      <details className="rounded-[6px] border border-line-2 px-3">
+      <details className="rounded-control border border-line-2 px-3">
         <summary className="cursor-pointer py-2 text-[12px] text-ink-2">Advanced: ID, install, variables, settings, hosts, workspaces</summary>
         <SettingRow label="Name"><input className="field-input" value={t.name} onChange={(e) => set({ name: e.target.value })} /><input className="field-input w-[160px] font-mono text-[12px]" value={id} onChange={(e) => set({ id: slug(e.target.value) })} disabled={!custom} aria-label="ID" /></SettingRow>
         <SettingRow label="Install" hint="Runs on each runner, in its own folder. {arch} becomes amd64 or arm64.">

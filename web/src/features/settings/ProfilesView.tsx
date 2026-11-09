@@ -62,7 +62,7 @@ function VaultLoginSelect({ kind, value, onChange }: { kind: string; value: stri
         {logins.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
         {value && !logins.some((l) => l.id === value) && <option value={value}>{value} (not in the vault)</option>}
       </select>
-      <span className="text-xs text-ink-3">Contained sessions use a login kept on Home, never the machine's. Add logins in Settings → Credentials and tools.</span>
+      <span className="text-[12px] text-ink-3">Contained sessions use a login kept on Home, never the machine's. Add logins in Settings → Credentials and tools.</span>
     </span>
   );
 }
@@ -228,7 +228,7 @@ export function ProfilesView() {
     >
       <ConfigError />
       {blocker.status === "blocked" && (
-        <div role="alertdialog" className="flex flex-wrap items-center gap-2 rounded-lg border border-attn-line bg-attn-soft px-3 py-2 text-[13px] text-attn">
+        <div role="alertdialog" className="flex flex-wrap items-center gap-2 rounded-card border border-attn-line bg-attn-soft px-3 py-2 text-[13px] text-attn">
           <Icon name="alert" size={14} />
           <b>A profile has unsaved changes.</b>
           <span className="ml-auto flex gap-1.5">
@@ -251,7 +251,7 @@ function NewProfile({ initialKind, onAdd, onCancel }: { initialKind: ProfileKind
   const [kind, setKind] = useState<ProfileKind | "custom" | null>(initialKind);
   const templates = harnesses.flatMap((h) => h.profile_templates.filter((t) => t.kind === kind).map((t) => ({ h, t })));
   return (
-    <div className="grid gap-2 rounded-lg border border-line bg-chrome p-3">
+    <div className="grid gap-2 rounded-card border border-line bg-chrome p-3">
       <div className="flex items-center gap-2">
         <b className="text-[13px]">{kind === null ? "New profile · how is the work paid?" : "New profile · choose a setup"}</b>
         <span className="ml-auto flex gap-1.5">
@@ -260,12 +260,12 @@ function NewProfile({ initialKind, onAdd, onCancel }: { initialKind: ProfileKind
         </span>
       </div>
       {kind === null ? (
-        <div className="grid gap-px rounded-lg border border-line bg-paper p-[5px]">
+        <div className="grid gap-px rounded-card border border-line bg-paper p-[5px]">
           {KINDS.map((k) => <MenuItem key={k.kind} label={k.label} detail={k.detail} onClick={() => setKind(k.kind)} />)}
           <MenuItem label="Custom" detail="Start from a blank profile and choose the environment variables yourself" onClick={() => setKind("custom")} />
         </div>
       ) : (
-        <div className="grid gap-px rounded-lg border border-line bg-paper p-[5px]">
+        <div className="grid gap-px rounded-card border border-line bg-paper p-[5px]">
           {kind === "custom"
             ? harnesses.map((h) => <MenuItem key={h.id} icon={<HarnessMark harness={h.id} size={14} />} label={`${h.name} · blank profile`} detail="No environment variables yet" onClick={() => onAdd(h, null)} />)
             : templates.map(({ h, t }) => <MenuItem key={`${h.id}/${t.name}`} icon={<HarnessMark harness={h.id} size={14} />} label={`${h.name} · ${t.name}`} detail={t.description} onClick={() => onAdd(h, t)} />)}
@@ -297,17 +297,17 @@ function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDel
     spend?.windows.length ? spend.windows.map((w) => `${usd(w.used_usd)}/${usd(w.limit_usd)} per ${windowLabel(w.hours)}`).join(" · ") : null,
   ].filter(Boolean).join(" · ");
   return (
-    <div ref={ref} className={`group @container grid scroll-mt-4 rounded-lg border ${problem && open ? "border-attn-line" : "border-line"}`}>
+    <div ref={ref} className={`group @container grid scroll-mt-4 rounded-card border ${problem && open ? "border-attn-line" : "border-line"}`}>
       <div className="flex min-h-[44px] flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5">
-        <button className="flex min-w-0 flex-1 basis-[260px] items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-sunk" aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${d.name || "new profile"}`} onClick={onToggle}>
+        <button className="flex min-w-0 flex-1 basis-[260px] items-center gap-2 rounded-control px-1 py-1 text-left hover:bg-sunk" aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${d.name || "new profile"}`} onClick={onToggle}>
           <Icon name="chev" size={12} className={`shrink-0 text-ink-3 ${open ? "" : "-rotate-90"}`} />
           {harness && <HarnessMark harness={d.harness} size={16} />}
           <span className="grid min-w-0">
             <b className="truncate text-[13px] font-[650]">{d.name.trim() || "New profile"}{!d.saved && <span className="ml-1.5 font-normal text-ink-3">· unsaved</span>}</b>
-            <span className="truncate text-xs text-ink-3" title={summary}>{summary}</span>
+            <span className="truncate text-[12px] text-ink-3" title={summary}>{summary}</span>
           </span>
         </button>
-        <span className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="flex flex-wrap items-center gap-2 text-[12px]">
           {d.saved && status?.role === "home" && <span className="text-ink-3">Home vault</span>}
           {d.saved && status?.role !== "home" && machines.map((m) => (
             <span key={m.label} className="inline-flex items-center gap-1" title={`${m.label}: ${m.detail}`}>
@@ -357,10 +357,10 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
   const credentials = d.billing === "subscription" ? [] : d.env.flatMap(([k], j) => (harness?.env_vars.find((x) => x.name === k.trim())?.secret ? [j] : []));
   return (
     <div className="grid gap-3 border-t border-line-2 p-3">
-      {!supportsCost && harness?.capabilities.cost && <div className="text-xs text-attn">{costUnavailableMessage}</div>}
-      {problem && <div className="text-xs text-attn">{problem}</div>}
+      {!supportsCost && harness?.capabilities.cost && <div className="text-[12px] text-attn">{costUnavailableMessage}</div>}
+      {problem && <div className="text-[12px] text-attn">{problem}</div>}
       {d.template && !d.saved && (d.template.setup || d.template.setup_command) && (
-        <div className="grid gap-1.5 rounded-md bg-chrome px-3 py-2 text-xs text-ink-2">
+        <div className="grid gap-1.5 rounded-control bg-chrome px-3 py-2 text-[12px] text-ink-2">
           {d.template.setup && <span>{d.template.setup}</span>}
           {d.template.setup_command && (
             <span className="flex flex-wrap items-center gap-2">
@@ -374,7 +374,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
         <b className="pt-1 font-[650]">Name</b>
         <span className="flex flex-wrap items-center gap-2">
           <input className={`field-input min-w-0 flex-1 basis-[180px] ${d.name.trim() ? "" : "border-attn-line!"}`} aria-label="Profile name" placeholder="Name shown in the composer, for example Claude · work" value={d.name} onChange={(e) => onChange((x) => ({ ...x, name: e.target.value }))} />
-          <span className="text-xs text-ink-3">{d.saved ? <>ID <code className="font-mono">{d.id}</code></> : "ID set on save"}</span>
+          <span className="text-[12px] text-ink-3">{d.saved ? <>ID <code className="font-mono">{d.id}</code></> : "ID set on save"}</span>
         </span>
       </div>
       <div className={row}>
@@ -395,7 +395,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
         <span className="grid gap-1">
           <span className="flex flex-wrap gap-2">
             {ownModels ? (
-              <Popover width={400} up={modelUp} trigger={({ toggle }) => <button className={`btn btn-sm max-w-full font-mono ${needsModel ? "border-attn-line!" : ""}`} onClick={(e) => (setModelUp(lowerHalf(e)), toggle())}><span className="truncate">{d.model ?? "Choose a model"}</span><Icon name="chev" size={11} /></button>}>
+              <Popover width={400} up={modelUp} trigger={({ toggle }) => <button className={`btn btn-sm max-w-full font-mono ${needsModel ? "border-attn-line!" : ""}`} onClick={(e) => (setModelUp(lowerHalf(e)), toggle())}><span className="truncate">{d.model ?? "Choose a model"}</span><Icon name="chev" size={12} /></button>}>
                 {(close) => (
                   <>
                     {d.model && !usesModelReference(d.env) && <MenuItem label="No default model" detail="The harness picks its own" onClick={() => (onChange((x) => ({ ...x, model: null })), close())} />}
@@ -415,7 +415,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
               {efforts.map((e) => <option key={e} value={e}>{e}</option>)}
             </select>}
           </span>
-          {needsModel && <span className="text-xs text-attn">Required: the environment uses <code className="font-mono">{"${LAUNCHPAD_MODEL}"}</code>. The composer can still pick another model per launch.</span>}
+          {needsModel && <span className="text-[12px] text-attn">Required: the environment uses <code className="font-mono">{"${LAUNCHPAD_MODEL}"}</code>. The composer can still pick another model per launch.</span>}
         </span>
       </div>
       {ownModels && !!findModel(providerModels.data, d.model)?.providers.length && <div className={row}>
@@ -426,7 +426,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
         <b className="pt-1 font-[650]">Default cost limit</b>
         <span className="flex flex-wrap items-center gap-2">
           <input className="field-input w-28" aria-label="Default cost limit in USD" placeholder="No limit" value={d.budget} onChange={(e) => onChange((x) => ({ ...x, budget: e.target.value }))} />
-          <span className={`text-xs ${budgetValid ? "text-ink-3" : "text-attn"}`}>{budgetValid ? `USD per session, prefilled in the composer and editable on each session.` : "Enter a positive amount, or leave empty."}</span>
+          <span className={`text-[12px] ${budgetValid ? "text-ink-3" : "text-attn"}`}>{budgetValid ? `USD per session, prefilled in the composer and editable on each session.` : "Enter a positive amount, or leave empty."}</span>
         </span>
       </div>}
       {supportsCost && d.billing === "pay_as_you_go" && <div className={row}>
@@ -443,7 +443,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
               onValue={(value) => onChange((x) => ({ ...x, env: x.env.map((p, n) => (n === j ? [p[0], value] : p)) }))}
               onRemove={() => onChange((x) => ({ ...x, env: x.env.filter((_, n) => n !== j) }))} />;
           })}
-          <span className="text-xs text-ink-3">A key or a <code className="font-mono">{"${NAME}"}</code> reference to a login-shell variable.</span>
+          <span className="text-[12px] text-ink-3">A key or a <code className="font-mono">{"${NAME}"}</code> reference to a login-shell variable.</span>
         </span>
       </div>}
       <div className={row}>
@@ -452,7 +452,7 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
       </div>
       <div className="grid gap-3">
         <button className="flex w-fit items-center gap-1.5 text-[13px] font-[650] text-ink-2 hover:text-ink" aria-expanded={advanced} onClick={() => setAdvanced((x) => !x)}>
-          <Icon name="chev" size={12} className={advanced ? "" : "-rotate-90"} />Advanced · environment{d.env.length - credentials.length ? ` (${d.env.length - credentials.length})` : ""}, model list, SSH hosts
+          <Icon name="chev" size={12} className={advanced ? "" : "-rotate-90"} />Advanced · environment{d.env.length - credentials.length ? ` (${d.env.length - credentials.length})` : ""}, model list
         </button>
         {advanced && <>
           <div className={row}>
@@ -465,14 +465,14 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
                   onRemove={() => onChange((x) => ({ ...x, env: x.env.filter((_, n) => n !== j) }))} />
               ))}
               <AddVariable harness={d.harness} docs={harness?.env_vars ?? []} used={d.env.map(([k]) => k.trim())} onAdd={(name) => onChange((x) => ({ ...x, env: [...x.env, [name, ""]] }))} />
-              <span className="text-xs text-ink-3">Added to the harness process, its terminal TUI and title requests. Other variables come from the login shell of the machine that runs it. In values, a leading <code className="font-mono">~/</code> is the home folder of that machine, <code className="font-mono">{"${NAME}"}</code> reads a variable of a login shell (<code className="font-mono">{"${HF_TOKEN}"}</code> also reads the hf CLI login), and <code className="font-mono">{"${LAUNCHPAD_MODEL}"}</code> is the model of the session.</span>
+              <span className="text-[12px] text-ink-3">Added to the harness process, its terminal TUI and title requests. Other variables come from the login shell of the machine that runs it. In values, a leading <code className="font-mono">~/</code> is the home folder of that machine, <code className="font-mono">{"${NAME}"}</code> reads a variable of a login shell (<code className="font-mono">{"${HF_TOKEN}"}</code> also reads the hf CLI login), and <code className="font-mono">{"${LAUNCHPAD_MODEL}"}</code> is the model of the session.</span>
             </span>
           </div>
           <div className={row}>
             <b className="pt-1 font-[650]">Model list</b>
             <span className="grid gap-1">
               <input className="field-input min-w-0 font-mono text-[12px]" aria-label="Model list URL" placeholder="Optional: https://…/v1/models" value={d.models_url ?? ""} onChange={(e) => onChange((x) => ({ ...x, models_url: e.target.value || null }))} />
-              <span className="text-xs text-ink-3">An OpenAI-compatible model list whose models replace the {harness?.name ?? "harness"} models in the composer, for a profile that uses another provider.{providerModels.data ? ` ${providerModels.data.length} models with tool use.` : ""}</span>
+              <span className="text-[12px] text-ink-3">An OpenAI-compatible model list whose models replace the {harness?.name ?? "harness"} models in the composer, for a profile that uses another provider.{providerModels.data ? ` ${providerModels.data.length} models with tool use.` : ""}</span>
             </span>
           </div>
           {harness?.vault_login && <div className={row}>
@@ -492,7 +492,7 @@ function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) 
   const [checking, setChecking] = useState(false);
   const role = useStatus().data?.role;
   if (role === "home") return <HomeProfileLogin draft={d} />;
-  if (!d.saved) return <span className="pt-1 text-xs text-ink-3">Save the profile to check where it is installed and signed in.</span>;
+  if (!d.saved) return <span className="pt-1 text-[12px] text-ink-3">Save the profile to check where it is installed and signed in.</span>;
   const recheck = async () => {
     setChecking(true);
     try {
@@ -505,9 +505,9 @@ function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) 
   };
   return (
     <span className="grid gap-1.5">
-      <span className="grid rounded-md border border-line">
+      <span className="grid rounded-control border border-line">
         {machines.map((m) => (
-          <span key={m.label} className="grid gap-1 border-b border-line-2 px-2.5 py-1.5 text-xs last:border-0">
+          <span key={m.label} className="grid gap-1 border-b border-line-2 px-2.5 py-1.5 text-[12px] last:border-0">
             <span className="flex min-w-0 flex-wrap items-center gap-2">
               <i className={`inline-block size-2 shrink-0 rounded-full ${machineTone(m)}`} aria-hidden />
               <b className="font-[650]">{m.label}</b>
@@ -526,7 +526,7 @@ function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) 
       </span>
       <span className="flex flex-wrap items-center gap-2">
         <button className="btn btn-sm w-fit" disabled={checking || signIn.isFetching} onClick={() => void recheck()}><Icon name="refresh" size={12} />{checking ? "Checking…" : "Check again"}</button>
-        <span className="text-xs text-ink-3">Launchpad only reads the status; it never signs in or refreshes a token.</span>
+        <span className="text-[12px] text-ink-3">Launchpad only reads the status; it never signs in or refreshes a token.</span>
       </span>
     </span>
   );
@@ -537,7 +537,7 @@ function HomeProfileLogin({ draft: d }: { draft: Draft }) {
   const vault = useVault();
   const login = vault.data?.logins.find((l) => l.harness === d.harness);
   const entry = vault.data?.entries.find((e) => e.kind === login?.kind && (!d.login || e.id === d.login));
-  return <span className="grid gap-1.5 text-xs text-ink-2">
+  return <span className="grid gap-1.5 text-[12px] text-ink-2">
     <span>{vault.isLoading ? "Checking Home’s logins…" : vault.error ? "Could not read Home’s logins." : entry ? `Home login: ${entry.name}` : login ? "Add this profile’s login to Home’s vault." : "Configure this profile’s provider credentials in Credentials and tools."}</span>
     <span className="text-ink-3">Home reads usage and quotas. Agent turns run on your paired runners.</span>
     <Link to="/settings/credentials" className="btn btn-sm w-fit">Credentials and tools</Link>
@@ -552,7 +552,7 @@ export function GitHubCard() {
   const home = useStatus().data?.role === "home" && delegatedAccess();
   return (
     <Card title="GitHub CLI">
-      <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">The Inbox, issues, PRs and publication use the GitHub CLI of this computer. <span className="text-ink-3" title="Git push also needs credentials there (SSH keys or gh auth setup-git); folders on SSH hosts push with the host's own credentials (Settings → Machines)."><Icon name="info" size={13} /></span></p>
+      <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">The Inbox, issues, PRs and publication use the GitHub CLI of this computer. <span className="text-ink-3" title="Git push also needs credentials there (SSH keys or gh auth setup-git)."><Icon name="info" size={12} /></span></p>
       {c && (home ? <CliCheckRow check={c} icon="pr" command={null}>
         {c.signed_in && <a href="/_home/setup" className="btn btn-sm w-fit">Home setup</a>}
       </CliCheckRow> : <CliCheckRow check={c} icon="pr" />)}
@@ -567,10 +567,10 @@ export function CliCheckRow({ check: c, icon, command = c.command, children }: {
     <div className="flex flex-wrap items-center gap-2 text-[13px]">
       <Icon name={icon} size={14} />
       <b className="font-[650]">{c.name}</b>
-      <span className={`text-xs font-semibold ${!c.cli_found ? "text-gh-closed" : c.signed_in ? "text-gh-open" : "text-attn"}`}>{!c.cli_found ? "Not installed" : c.signed_in ? "Signed in" : "Not signed in"}</span>
-      {c.detail && <span className="text-xs text-ink-3">{c.detail}</span>}
+      <span className={`text-[12px] font-semibold ${!c.cli_found ? "text-gh-closed" : c.signed_in ? "text-gh-open" : "text-attn"}`}>{!c.cli_found ? "Not installed" : c.signed_in ? "Signed in" : "Not signed in"}</span>
+      {c.detail && <span className="text-[12px] text-ink-3">{c.detail}</span>}
       {command && (!c.cli_found || !c.signed_in) && <>
-        <code className="rounded bg-chrome px-1.5 py-0.5 font-mono text-xs">{command}</code>
+        <code className="rounded bg-chrome px-1.5 py-0.5 font-mono text-[12px]">{command}</code>
         <button className="iconbtn" title="Copy the command" aria-label={`Copy ${command}`} onClick={() => void copyText(command).then(() => toast("Command copied"))}><Icon name="copy" size={12} /></button>
       </>}
       {children}
@@ -588,10 +588,10 @@ function EnvRow({ name, value, doc, onName, onValue, onRemove }: { name: string;
       <span className="grid grid-cols-[minmax(0,1fr)_26px] @min-[480px]:grid-cols-[minmax(0,240px)_minmax(0,1fr)_26px] gap-1.5">
         <input className={`field-input col-span-full @min-[480px]:col-span-1 min-w-0 font-mono text-[12px] ${name.trim() ? "" : "border-attn-line!"}`} aria-label="Variable name" placeholder="NAME" value={name} onChange={(e) => onName(e.target.value.toUpperCase())} />
         <span className="relative flex min-w-0">
-          <input type={masked ? "password" : "text"} autoComplete="off" spellCheck={false} className={`field-input min-w-0 flex-1 font-mono text-[12px] ${doc?.secret ? "secret-value pr-7" : ""} ${value.trim() ? "" : "border-attn-line!"}`} aria-label={`Value of ${name}`} placeholder={placeholder} value={value} onChange={(e) => onValue(e.target.value)} />
-          {doc?.secret && !!value && !value.startsWith("${") && <button className="absolute top-1/2 right-1 -translate-y-1/2 iconbtn size-5!" title={shown ? "Hide value" : "Show value"} aria-label={shown ? `Hide ${name}` : `Show ${name}`} aria-pressed={shown} onClick={() => setShown((x) => !x)}><Icon name="eye" size={12} /></button>}
+          <input type={masked ? "password" : "text"} autoComplete="off" spellCheck={false} className={`field-input min-w-0 flex-1 font-mono text-[12px] ${doc?.secret ? "secret-value pr-8" : ""} ${value.trim() ? "" : "border-attn-line!"}`} aria-label={`Value of ${name}`} placeholder={placeholder} value={value} onChange={(e) => onValue(e.target.value)} />
+          {doc?.secret && !!value && !value.startsWith("${") && <button className="absolute top-1/2 right-1 -translate-y-1/2 iconbtn" title={shown ? "Hide value" : "Show value"} aria-label={shown ? `Hide ${name}` : `Show ${name}`} aria-pressed={shown} onClick={() => setShown((x) => !x)}><Icon name="eye" size={12} /></button>}
         </span>
-        <button className="iconbtn" title="Remove variable" onClick={onRemove}><Icon name="x" size={13} /></button>
+        <button className="iconbtn" title="Remove variable" onClick={onRemove}><Icon name="x" size={14} /></button>
       </span>
       {doc && <span className="text-[12px] text-ink-3">{doc.description}</span>}
     </span>
@@ -606,7 +606,7 @@ function AddVariable({ harness, docs, used, onAdd }: { harness: HarnessKind; doc
   const groups = [...new Set(available.map((x) => x.group))];
   const custom = text.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
   return (
-    <Popover width={440} up={up} trigger={({ toggle }) => <button className="btn btn-sm w-fit" onClick={(e) => (setText(""), setUp(lowerHalf(e)), toggle())}><Icon name="plus" size={12} />Add variable<Icon name="chev" size={11} /></button>}>
+    <Popover width={440} up={up} trigger={({ toggle }) => <button className="btn btn-sm w-fit" onClick={(e) => (setText(""), setUp(lowerHalf(e)), toggle())}><Icon name="plus" size={12} />Add variable<Icon name="chev" size={12} /></button>}>
       {(close) => (
         <>
           <input autoFocus className="field-input mb-1" aria-label="Search variables" placeholder={docs.length ? "Search documented variables, or type a name" : "Variable name"} value={text} onChange={(e) => setText(e.target.value)} />
@@ -634,22 +634,22 @@ function SpendLimits({ draft: d, onChange }: { draft: Draft; onChange: (limits: 
         const now = parsed && spend?.windows.find((w) => w.hours === parsed.hours && w.limit_usd === parsed.usd);
         return (
           <span key={j} className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-ink-3">At most $</span>
+            <span className="text-[12px] text-ink-3">At most $</span>
             <input className={`field-input w-20 ${parseUsd(l.usd) ? "" : "border-attn-line!"}`} aria-label="Spending limit in USD" placeholder="50" value={l.usd} onChange={(e) => set(j, (x) => ({ ...x, usd: e.target.value }))} />
-            <span className="text-xs text-ink-3">per</span>
+            <span className="text-[12px] text-ink-3">per</span>
             <input className={`field-input w-14 ${parsed ? "" : "border-attn-line!"}`} aria-label="Window length" inputMode="numeric" value={l.count} onChange={(e) => set(j, (x) => ({ ...x, count: e.target.value }))} />
             <select className="field-input w-auto" aria-label="Window unit" value={l.unit} onChange={(e) => set(j, (x) => ({ ...x, unit: e.target.value as Unit }))}>
               <option value="hours">hours</option>
               <option value="days">days</option>
               <option value="weeks">weeks</option>
             </select>
-            <button className="iconbtn" title="Remove limit" aria-label="Remove spending limit" onClick={() => onChange(d.limits.filter((_, n) => n !== j))}><Icon name="x" size={13} /></button>
-            {now && <span className={`text-xs ${now.used_usd >= now.limit_usd ? "font-semibold text-gh-closed" : "text-ink-3"}`}>${now.used_usd.toFixed(2)} used now</span>}
+            <button className="iconbtn" title="Remove limit" aria-label="Remove spending limit" onClick={() => onChange(d.limits.filter((_, n) => n !== j))}><Icon name="x" size={14} /></button>
+            {now && <span className={`text-[12px] ${now.used_usd >= now.limit_usd ? "font-semibold text-gh-closed" : "text-ink-3"}`}>${now.used_usd.toFixed(2)} used now</span>}
           </span>
         );
       })}
       {d.limits.length < 4 && <button className="btn btn-sm w-fit" onClick={() => onChange([...d.limits, d.limits.length ? { usd: "200", count: "1", unit: "weeks" } : { usd: "50", count: "5", unit: "hours" }])}><Icon name="plus" size={12} />Add limit</button>}
-      <span className="text-xs text-ink-3">Rolling windows over the reported cost of all sessions of this profile, shown in the status bar. At a limit, new turns are refused and running turns stop (best effort) until older costs leave the window or you raise the limit. Costs are those reported by the harness, so the provider bill may differ.</span>
+      <span className="text-[12px] text-ink-3">Rolling windows over the reported cost of all sessions of this profile, shown in the status bar. At a limit, new turns are refused and running turns stop (best effort) until older costs leave the window or you raise the limit. Costs are those reported by the harness, so the provider bill may differ.</span>
     </span>
   );
 }

@@ -31,8 +31,8 @@ export function AskPanel() {
         {bots.length > 1 && bot
           ? <select className="min-w-0 flex-1 truncate bg-transparent text-[13px] font-semibold outline-none" aria-label="Bot" value={bot.id} onChange={(e) => show(e.target.value)}>{bots.map((b) => <option key={b.id} value={b.id}>{b.settings.name}</option>)}</select>
           : <b className="min-w-0 flex-1 truncate text-[13px]">{bot?.settings.name ?? "Ask"}</b>}
-        {bot && <Link to="/bots/$id" params={{ id: bot.id }} className="iconbtn" title={`Open ${bot.settings.name}'s page: memory, proposals, routines and settings`} aria-label="Open the bot's page"><Icon name="ext" size={13} /></Link>}
-        <button className="iconbtn" title="Close the panel" aria-label="Close the Ask panel" onClick={close}><Icon name="x" size={13} /></button>
+        {bot && <Link to="/bots/$id" params={{ id: bot.id }} className="iconbtn" title={`Open ${bot.settings.name}'s page: memory, proposals, routines and settings`} aria-label="Open the bot's page"><Icon name="ext" size={14} /></Link>}
+        <button className="iconbtn" title="Close the panel" aria-label="Close the Ask panel" onClick={close}><Icon name="x" size={14} /></button>
       </div>
       {bot
         ? <BotChat key={bot.id} view="ask" bot={bot} thread={thread} rotation={rotationReason(bot, current, profile?.id ?? null)} needsProfile={!profile}

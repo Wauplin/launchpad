@@ -44,7 +44,7 @@ function KeyBar() {
     void copyText(text).then(() => setFeedback("Copied terminal selection")).catch(() => setFeedback("Could not copy terminal selection")).finally(() => { if (active.alive) t?.focus(); });
   };
   return (
-    <div className="terminal-keybar relative flex flex-none flex-col gap-1 border-t border-line bg-chrome p-1.5 shadow-[0_-4px_16px_#00000012]" role="toolbar" aria-label="Terminal keys">
+    <div className="terminal-keybar relative flex flex-none flex-col gap-1 border-t border-line bg-chrome p-1.5 shadow-[0_-4px_16px_rgb(0_0_0/0.07)]" role="toolbar" aria-label="Terminal keys">
       {feedback && <div className="pointer-events-none absolute right-0 bottom-full left-0 border-t border-line bg-chrome px-2 py-1 text-[12px] text-ink-2" role="status">{feedback}</div>}
       <div className="flex gap-1 overflow-x-auto [scrollbar-width:none]">
         {button("Tab", "Tab — complete command", () => type("\t"))}

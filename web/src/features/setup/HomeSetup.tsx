@@ -75,7 +75,7 @@ export function HomeSetup() {
   const done = required.filter((r) => r.done).length;
   return (
     <div className="grid gap-3">
-      <div className="grid gap-2 rounded-lg border border-line bg-paper p-4">
+      <div className="grid gap-2 rounded-card border border-line bg-paper p-4">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="m-0 flex-1 text-[15px] font-semibold">{done === required.length ? "Home is ready" : `${done} of ${required.length} required steps done`}</h2>
           {s && <a href={SETUP} className="btn btn-sm">Open the setup page</a>}
@@ -83,7 +83,7 @@ export function HomeSetup() {
         <div className="h-1 overflow-hidden rounded-full bg-line-2"><div className="h-full bg-teal transition-[width]" style={{ width: `${Math.round((100 * done) / Math.max(required.length, 1))}%` }} /></div>
         <p className="m-0 text-[12px] text-ink-3">Home keeps your records and credentials. Agents run on your runners. Each step below says what it is for and where to change it. Optional steps never keep Home from being ready.</p>
       </div>
-      <ol className="m-0 grid list-none overflow-hidden rounded-lg border border-line bg-paper p-0">
+      <ol className="m-0 grid list-none overflow-hidden rounded-card border border-line bg-paper p-0">
         {rows.map((r, i) => (
           <li key={r.id} className="flex items-center gap-3 border-b border-line-2 px-4 py-3 last:border-b-0">
             <span className={`grid size-6 flex-none place-items-center rounded-full text-[12px] font-semibold ${r.done ? "bg-teal text-white" : "border border-line text-ink-3"}`}>{r.done ? <Icon name="check" size={12} /> : i + 1}</span>
@@ -98,7 +98,7 @@ export function HomeSetup() {
         ))}
       </ol>
       {vault && vault.templates.some((t) => t.id === "slack-read") && (
-        <section className="grid gap-2 rounded-lg border border-line bg-paper p-4" aria-label="Slack for agents">
+        <section className="grid gap-2 rounded-card border border-line bg-paper p-4" aria-label="Slack for agents">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="m-0 flex-1 text-[15px] font-semibold">Slack for agents</h2>
             <span className={`text-[12px] ${slackReady(vault) ? "text-gh-open" : "text-ink-3"}`}>{slackReady(vault) ? "Done" : "Recommended · optional"}</span>

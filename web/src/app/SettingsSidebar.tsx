@@ -22,7 +22,7 @@ export function useRememberPlace() {
 
 function SettingsLink({ e, detail }: { e: NavEntry; detail?: string }) {
   return (
-    <Link to={e.to} activeOptions={{ exact: !!e.exact, includeSearch: false }} className="flex min-h-[30px] flex-none items-center gap-[9px] rounded-[7px] px-[9px] text-[13px] text-ink-2 no-underline hover:bg-sunk hover:text-ink" activeProps={{ className: "!bg-paper !text-ink font-semibold shadow-[inset_0_0_0_1px_var(--color-line)]", "aria-current": "page" } as never}>
+    <Link to={e.to} activeOptions={{ exact: !!e.exact, includeSearch: false }} className="flex min-h-[30px] flex-none items-center gap-2 rounded-control px-[9px] text-[13px] text-ink-2 no-underline hover:bg-sunk hover:text-ink" activeProps={{ className: "!bg-paper !text-ink font-semibold shadow-[inset_0_0_0_1px_var(--color-line)]", "aria-current": "page" } as never}>
       <Icon name={e.icon} size={14} className="flex-none" />
       <span className="min-w-0 truncate">{e.label}</span>
       {detail && <span className="ml-auto min-w-0 truncate text-[12px] font-normal text-ink-3">{detail}</span>}
@@ -41,15 +41,15 @@ export function SettingsSidebar() {
   return (
     <aside className="flex w-[200px] flex-none flex-col border-r border-line bg-chrome" aria-label="Settings">
       <div className="flex-none border-b border-line-2 px-2 py-1.5">
-        <button type="button" className="flex h-[31px] w-full min-w-0 items-center gap-1.5 rounded-[7px] px-[9px] text-left text-ink-2 hover:bg-sunk hover:text-ink" title="Close Settings and go back to the page you were on" onClick={close}>
+        <button type="button" className="flex h-[31px] w-full min-w-0 items-center gap-1.5 rounded-control px-[9px] text-left text-ink-2 hover:bg-sunk hover:text-ink" title="Close Settings and go back to the page you were on" onClick={close}>
           <Icon name="chev" size={12} className="flex-none rotate-90" />
           <span className="min-w-0 flex-1 truncate">Back to Launchpad</span>
         </button>
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pt-2.5 pb-2">
         <div className="flex items-center px-[9px] text-[15px] font-semibold text-ink">Settings</div>
-        <label className="flex h-8 flex-none items-center gap-1.5 rounded-[7px] border border-line bg-paper px-2 text-ink-3 focus-within:border-teal">
-          <Icon name="search" size={13} />
+        <label className="flex h-8 flex-none items-center gap-1.5 rounded-control border border-line bg-paper px-2 text-ink-3 focus-within:border-teal">
+          <Icon name="search" size={12} />
           <input type="search" size={1} aria-label="Search settings" placeholder="Search settings" className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
         <nav className="flex flex-none flex-col gap-3" aria-label="Settings pages">
@@ -69,8 +69,8 @@ export function SettingsSidebar() {
         </nav>
       </div>
       <div className="flex flex-none items-center justify-end gap-1 border-t border-line-2 px-2 pt-1.5 pb-2.5">
-        <button type="button" className="flex size-[31px] flex-none items-center justify-center rounded-[7px] text-ink-2 hover:bg-sunk" aria-label="Dark theme" aria-pressed={theme === "dark"} title={`Switch to ${theme === "light" ? "dark" : "light"} theme on this device`} onClick={toggle}>
-          <Icon name={theme === "dark" ? "moon" : "sun"} size={15} />
+        <button type="button" className="flex size-[31px] flex-none items-center justify-center rounded-control text-ink-2 hover:bg-sunk" aria-label="Dark theme" aria-pressed={theme === "dark"} title={`Switch to ${theme === "light" ? "dark" : "light"} theme on this device`} onClick={toggle}>
+          <Icon name={theme === "dark" ? "moon" : "sun"} size={16} />
         </button>
       </div>
     </aside>

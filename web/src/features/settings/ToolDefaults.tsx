@@ -46,7 +46,7 @@ export function ToolDefaultsEditor({ workspaceId, above, value, onChange, disabl
         const inherited = above ? defaultOn(above, t.key) : true;
         return (
           <label key={t.key} className="flex min-h-[30px] items-center gap-2 text-[13px]">
-            <Icon name={t.mcp ? "spark" : "term"} size={13} className="flex-none text-ink-3" />
+            <Icon name={t.mcp ? "spark" : "term"} size={12} className="flex-none text-ink-3" />
             <span className="min-w-0 flex-1 truncate">{t.name}{t.mcp && <span className="text-ink-3"> · MCP server</span>}</span>
             <select className="field-input w-auto" aria-label={`Default of ${t.name}`} disabled={disabled}
               value={above ? (current === undefined ? "" : current ? "on" : "off") : current === false ? "off" : "on"}

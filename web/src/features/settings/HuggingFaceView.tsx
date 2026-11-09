@@ -40,8 +40,8 @@ function HomeHuggingFace() {
       <span className="text-[12px] text-ink-3">The bucket mount is managed by the Home deployment.</span>
     </Card>
     <Card title="Traces" end={bucket && <a className="btn btn-sm no-underline" {...externalLinkProps(`https://huggingface.co/buckets/${bucket}`)}><Icon name="ext" size={12} />Open bucket</a>}>
-      <p className="m-0 text-[13px] text-ink-2">After each backup, Home copies the original conversation files of every agent (Claude Code JSONL, Codex rollout, OpenCode export) to the bucket, one file per trace, with a <code className="text-xs">launchpad.json</code> next to them. The trace viewer of the bucket opens them.</p>
-      <code className="min-w-0 max-w-full whitespace-normal break-all font-mono text-xs">&lt;workspace&gt;/traces/&lt;folder&gt;/YYYYMMDD_HHMM_&lt;session ID&gt;/</code>
+      <p className="m-0 text-[13px] text-ink-2">After each backup, Home copies the original conversation files of every agent (Claude Code JSONL, Codex rollout, OpenCode export) to the bucket, one file per trace, with a <code className="text-[12px]">launchpad.json</code> next to them. The trace viewer of the bucket opens them.</p>
+      <code className="min-w-0 max-w-full whitespace-normal break-all font-mono text-[12px]">&lt;workspace&gt;/traces/&lt;folder&gt;/YYYYMMDD_HHMM_&lt;session ID&gt;/</code>
       {backup.data?.traces_error && <ErrorState error={backup.data.traces_error} />}
     </Card>
   </SettingsPage>;
@@ -57,12 +57,12 @@ function CliView() {
       <Card title="Hugging Face CLI" end={<button className="btn btn-sm" disabled={q.isFetching} onClick={() => void q.refetch()}><Icon name="refresh" size={12} />Check again</button>}>
         {q.isPending ? <Loading /> : q.isError ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : c && (
           <CliCheckRow check={c} icon="huggingface" command={c.cli_found ? c.command : null}>
-            {!c.cli_found && <a className="text-xs text-teal-ink underline" {...externalLinkProps(INSTALL_URL)}>Installation instructions</a>}
+            {!c.cli_found && <a className="text-[12px] text-teal-ink underline" {...externalLinkProps(INSTALL_URL)}>Installation instructions</a>}
           </CliCheckRow>
         )}
       </Card>
       <Card title="Traces">
-        <p className="m-0 text-[13px] text-ink-2">A runner sends the conversation of each agent to Home at the end of every turn. Home copies the original files to its backup bucket, one file per trace, under <code className="text-xs">&lt;workspace&gt;/traces/&lt;folder&gt;/</code>.</p>
+        <p className="m-0 text-[13px] text-ink-2">A runner sends the conversation of each agent to Home at the end of every turn. Home copies the original files to its backup bucket, one file per trace, under <code className="text-[12px]">&lt;workspace&gt;/traces/&lt;folder&gt;/</code>.</p>
       </Card>
     </SettingsPage>
   );

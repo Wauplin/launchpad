@@ -72,7 +72,7 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
       </div>
       {expanded && opens && <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 px-3 pb-3">
         {details}
-        {buttons && menu && <div className="grid gap-px rounded-lg border border-line bg-paper p-1">{menu(() => toggle(item.id))}</div>}
+        {buttons && menu && <div className="grid gap-px rounded-card border border-line bg-paper p-1">{menu(() => toggle(item.id))}</div>}
       </div>}
     </article>
   );
@@ -102,7 +102,7 @@ function Row({ item, expanded, toggle, highlight, icon, meta, age = true, to, ma
  * high on the phone, a touch target). */
 const LocalPrLine = ({ item, phone }: { item: TodayItem; phone: boolean }) => (
   <Link className={`flex min-w-0 items-center gap-1.5 text-[12px] text-teal no-underline hover:underline ${phone ? "min-h-11" : ""}`} to="/predrafts/$id" params={{ id: item.record }} title={`${item.title}: publish to GitHub or merge locally from its page`}>
-    <Icon name="pr-local" size={13} className="flex-none" /><span className="truncate">{item.detail}</span><span className="flex-none whitespace-nowrap text-ink-3">· {ago(item.at)}</span>
+    <Icon name="pr-local" size={12} className="flex-none" /><span className="truncate">{item.detail}</span><span className="flex-none whitespace-nowrap text-ink-3">· {ago(item.at)}</span>
   </Link>
 );
 
@@ -160,7 +160,7 @@ function FinishedRow(p: RowProps) {
     menu={SessionMenu({ id: item.record, archive: !!pr || !archiveMain })}
     details={(s?.last_message || facts) && <>
       <Last text={s?.last_message} />
-      {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={13} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
+      {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={12} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
     </>} />;
 }
 

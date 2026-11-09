@@ -69,9 +69,9 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
   const remove = () => api.delete(`/api/vault/entries/${mode.id}`).then(() => { setTest(null); toast(`Deleted ${template.name} from Home`); return qc.invalidateQueries({ queryKey: ["vault"] }); }, toastError);
   const odd = token.trim() && !token.trim().startsWith("xoxp-");
   return (
-    <div className="grid gap-2 rounded-lg border border-line-2 bg-chrome p-2.5 text-[13px]">
+    <div className="grid gap-2 rounded-card border border-line-2 bg-chrome p-2.5 text-[13px]">
       <div className="flex flex-wrap items-center gap-2">
-        <span className={`grid size-5 flex-none place-items-center rounded-full ${ready ? "bg-diff-add text-gh-open" : "border border-line bg-paper text-ink-3"}`} aria-hidden="true">{ready && <Icon name="check" size={11} />}</span>
+        <span className={`grid size-5 flex-none place-items-center rounded-full ${ready ? "bg-diff-add text-gh-open" : "border border-line bg-paper text-ink-3"}`} aria-hidden="true">{ready && <Icon name="check" size={12} />}</span>
         <b>Slack · {mode.title}</b>
         <span className="text-[11px] text-ink-3">{mode.tag}</span>
         <span className="ml-auto flex flex-wrap items-center gap-1.5">

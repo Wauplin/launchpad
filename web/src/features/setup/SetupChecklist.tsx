@@ -148,9 +148,9 @@ const STATE_BADGE = {
 function ItemShell({ title, importance, state, why, onHide, children }: { title: string; importance: SetupItem["importance"]; state: SetupItem["state"]; why: string; onHide?: () => void; children?: ReactNode }) {
   const done = state !== "missing";
   return (
-    <section className="overflow-hidden rounded-[10px] border border-line" aria-label={title}>
+    <section className="overflow-hidden rounded-card border border-line" aria-label={title}>
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-chrome px-3.5 py-2.5">
-        <span className={`grid size-5 flex-none place-items-center rounded-full ${done ? "bg-diff-add text-gh-open" : "border border-line bg-paper text-ink-3"}`} aria-hidden="true">{done && <Icon name="check" size={11} />}</span>
+        <span className={`grid size-5 flex-none place-items-center rounded-full ${done ? "bg-diff-add text-gh-open" : "border border-line bg-paper text-ink-3"}`} aria-hidden="true">{done && <Icon name="check" size={12} />}</span>
         <b className="text-[13px] font-semibold">{title}</b>
         {importance !== "required" && <span className="text-[11px] text-ink-3">{importance === "recommended" ? "Recommended" : "Optional"}</span>}
         <span className="ml-auto flex items-center gap-1.5">
@@ -213,13 +213,13 @@ function SettingsLink({ to, children }: { to: string; children: ReactNode }) {
 /** One missing part: what is missing, and its fixed command with Copy and Run in terminal. */
 function PartRow({ item, part }: { item: string; part: MissingPart }) {
   const terminal = useOpenTerminal();
-  if (externalSetup()) return <div className="grid gap-1.5 rounded-lg border border-line-2 bg-chrome p-2.5"><div className="text-[13px] font-semibold">{part.label}</div><span className="text-[12px] text-ink-3">On a Space, sign-ins happen in the Space settings panel (gear at the top right, above Launchpad).</span><SpaceSettingsButton primary label="Sign in from Space settings" /></div>;
+  if (externalSetup()) return <div className="grid gap-1.5 rounded-card border border-line-2 bg-chrome p-2.5"><div className="text-[13px] font-semibold">{part.label}</div><span className="text-[12px] text-ink-3">On a Space, sign-ins happen in the Space settings panel (gear at the top right, above Launchpad).</span><SpaceSettingsButton primary label="Sign in from Space settings" /></div>;
   return (
-    <div className="grid gap-1.5 rounded-lg border border-line-2 bg-chrome p-2.5">
+    <div className="grid gap-1.5 rounded-card border border-line-2 bg-chrome p-2.5">
       <div className="text-[13px] font-semibold">{part.label}</div>
       {part.detail && <div className="text-[12px] text-ink-2">{part.detail}</div>}
       {part.command && <>
-        <code className="block max-h-[120px] overflow-auto rounded-md bg-paper px-2 py-1.5 font-mono text-[12px] break-all whitespace-pre-wrap">{part.command}</code>
+        <code className="block max-h-[120px] overflow-auto rounded-control bg-paper px-2 py-1.5 font-mono text-[12px] break-all whitespace-pre-wrap">{part.command}</code>
         <div className="flex flex-wrap items-center gap-1.5">
           <button type="button" className="btn btn-sm" onClick={() => void copyText(part.command!).then(() => toast("Command copied"))}><Icon name="copy" size={12} />Copy</button>
           {part.runnable && (
@@ -247,7 +247,7 @@ function IdentityForm({ keys, onSaved }: { keys: string[]; onSaved: () => void }
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   return (
-    <form className="grid gap-2 rounded-lg border border-line-2 bg-chrome p-2.5" onSubmit={(e) => { e.preventDefault(); if (valid) void save(); }}>
+    <form className="grid gap-2 rounded-card border border-line-2 bg-chrome p-2.5" onSubmit={(e) => { e.preventDefault(); if (valid) void save(); }}>
       <div className="text-[13px] font-semibold">Your identity for commits</div>
       <div className="text-[12px] text-ink-2">Saved with git config --global. Only the missing {askName && askEmail ? "values are" : "value is"} asked; existing values are never changed.</div>
       {askName && <label className="grid gap-1 text-[12px] text-ink-2">Name<input className="field-input max-w-[360px]" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></label>}
@@ -278,7 +278,7 @@ function ProfileStep({ item, onDone }: { item: SetupItem; onDone: () => void }) 
       <div className="grid gap-1.5">
         <div className="text-[13px] font-semibold">Signed-in logins found</div>
         {item.logins.map((l) => (
-          <div key={l.harness} className="flex flex-wrap items-center gap-2 rounded-lg border border-line-2 bg-chrome p-2.5 text-[13px]">
+          <div key={l.harness} className="flex flex-wrap items-center gap-2 rounded-card border border-line-2 bg-chrome p-2.5 text-[13px]">
             <span className="min-w-0 flex-1"><b>{l.name}</b>{l.detail && <span className="text-[12px] text-ink-3"> · {l.detail}</span>}</span>
             <button type="button" className="btn btn-sm btn-primary" disabled={busy !== null} onClick={() => void create(l.harness)}>Create a profile from this login</button>
           </div>
@@ -289,7 +289,7 @@ function ProfileStep({ item, onDone }: { item: SetupItem; onDone: () => void }) 
       const id = p.id.slice("sign_in:".length);
       const profile = profiles.find((v) => v.id === id);
       return (
-        <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line-2 bg-chrome p-2.5 text-[13px]">
+        <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-card border border-line-2 bg-chrome p-2.5 text-[13px]">
           <span className="min-w-0 flex-1"><b>{profile?.name ?? id}</b>{p.detail && <span className="text-[12px] text-ink-3"> · {p.detail}</span>}</span>
           {externalSetup() ? <SpaceSettingsButton primary profile={id} label="Sign in from Space settings" /> : <ConfirmButton tone="publish" icon="term" consequence="Opens a visible terminal with the agent's sign-in command." confirmLabel="Sign in" onConfirm={() => terminal.profileSetup(id)}>Sign in</ConfirmButton>}
         </div>
@@ -298,9 +298,9 @@ function ProfileStep({ item, onDone }: { item: SetupItem; onDone: () => void }) 
     {item.missing.some((p) => p.id === "create") && (
       <div className="grid gap-1.5">
         <div className="text-[13px] font-semibold">{item.logins.length > 0 ? "Or: how do you pay for agents?" : "How do you pay for agents?"}</div>
-        <div className="grid gap-px rounded-lg border border-line bg-paper p-[5px]">
+        <div className="grid gap-px rounded-card border border-line bg-paper p-[5px]">
           {PAY_CHOICES.map((c) => (
-            <Link key={c.kind} to={`/settings/profiles?new=${c.kind}` as never} className="flex min-h-[40px] flex-col justify-center rounded-md px-2.5 py-1 no-underline hover:bg-sunk">
+            <Link key={c.kind} to={`/settings/profiles?new=${c.kind}` as never} className="flex min-h-[40px] flex-col justify-center rounded-control px-2.5 py-1 no-underline hover:bg-sunk">
               <span className="text-[13px] text-ink">{c.label}</span>
               <span className="text-[12px] text-ink-3">{c.detail}</span>
             </Link>
@@ -337,8 +337,8 @@ function FolderStep({ item, onDone }: { item: SetupItem; onDone: () => void }) {
       {item.suggestions.length > 0 && <WorkspacePicker label="Add to" value={workspace?.id ?? null} onChange={setChosen} />}
       {item.suggestions.length > 0 && <div className="text-[12px] text-ink-2">Git repositories found in your folders root:</div>}
       {item.suggestions.map((path) => (
-        <div key={path} className="flex items-center gap-2 rounded-lg border border-line-2 bg-chrome px-2.5 py-1.5 text-[13px]">
-          <Icon name="folder" size={13} />
+        <div key={path} className="flex items-center gap-2 rounded-card border border-line-2 bg-chrome px-2.5 py-1.5 text-[13px]">
+          <Icon name="folder" size={12} />
           <span className="min-w-0 flex-1 truncate" title={path}>{path}</span>
           <button type="button" className="btn btn-sm" disabled={busy !== null || !workspace} onClick={() => void add(path)}><Icon name="plus" size={12} />Add</button>
         </div>
@@ -367,7 +367,7 @@ function PresetsStep({ onDone }: { onDone: () => void }) {
   return (
     <div className="grid gap-1.5">
       {STARTER_PRESETS.map((p) => (
-        <label key={p.id} className="flex items-start gap-2 rounded-lg border border-line-2 bg-chrome p-2.5 text-[13px]">
+        <label key={p.id} className="flex items-start gap-2 rounded-card border border-line-2 bg-chrome p-2.5 text-[13px]">
           <input type="checkbox" className="mt-0.5 accent-teal" checked={chosen.includes(p.id)} onChange={(e) => setChosen((c) => e.target.checked ? [...c, p.id] : c.filter((x) => x !== p.id))} />
           <span className="min-w-0"><b>{p.label}</b><span className="block text-[12px] text-ink-3">{p.text}</span></span>
         </label>
@@ -379,7 +379,7 @@ function PresetsStep({ onDone }: { onDone: () => void }) {
 
 function GitHubExpectations() {
   return (
-    <div className="grid gap-1 rounded-lg border border-line-2 bg-chrome p-2.5 text-[12px] text-ink-2">
+    <div className="grid gap-1 rounded-card border border-line-2 bg-chrome p-2.5 text-[12px] text-ink-2">
       <b className="text-[13px] text-ink">What to expect from GitHub</b>
       <span>Launchpad polls GitHub every 60 seconds (Settings → GitHub) and keeps a local cache, so pages open instantly.</span>
       <span>The status bar warns when fewer than 500 API calls are left in the hour.</span>
@@ -439,7 +439,7 @@ function FinishCard({ ready }: { ready: boolean }) {
     void navigate({ to: "/agents" });
   };
   return (
-    <section className="grid gap-2 rounded-[10px] border border-line p-3.5" aria-label="Launch your first real agent">
+    <section className="grid gap-2 rounded-card border border-line p-3.5" aria-label="Launch your first real agent">
       <b className="text-[15px] font-semibold">Launch your first real agent</b>
       <p className="m-0 text-[13px] text-ink-2">A safe first task that reads but changes nothing: “{FIRST_PROMPT}”{folder ? <> It runs in <b>{folder.name}</b>.</> : null}</p>
       {!ready && <p className="m-0 text-[12px] text-ink-3">Finish the required items first{!folder ? ": add a folder" : profiles.length === 0 ? ": create a profile" : ""}.</p>}

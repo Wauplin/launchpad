@@ -84,7 +84,7 @@ const LINE_CLASS: Record<DiffLine["kind"], string> = { add: "bg-diff-add", del: 
 
 const DiffRow = memo(function DiffRow({ l }: { l: DiffLine }) {
   return (
-    <div className={`flex h-5 font-mono text-xs leading-5 whitespace-pre ${LINE_CLASS[l.kind]}`}>
+    <div className={`flex h-5 font-mono text-[12px] leading-5 whitespace-pre ${LINE_CLASS[l.kind]}`}>
       <span className="w-12 flex-none pr-2 text-right text-ink-3 select-none">{l.old ?? ""}</span>
       <span className="w-12 flex-none pr-2 text-right text-ink-3 select-none">{l.new ?? ""}</span>
       <span className="w-4 flex-none select-none">{l.kind === "add" ? "+" : l.kind === "del" ? "-" : " "}</span>
@@ -102,7 +102,7 @@ const DiffRow = memo(function DiffRow({ l }: { l: DiffLine }) {
 const EventRow = memo(function EventRow({ e }: { e: SessionEvent }) {
   switch (e.kind) {
     case "user":
-      return <div className="ml-auto max-w-[80%] rounded-[10px_10px_3px_10px] bg-sunk px-2.5 py-1.5 text-[13px]">{e.text}</div>;
+      return <div className="ml-auto max-w-[80%] rounded-card rounded-br-sm bg-sunk px-2.5 py-1.5 text-[13px]">{e.text}</div>;
     case "assistant":
       return (
         <div className="text-[13px] leading-normal">
@@ -111,12 +111,12 @@ const EventRow = memo(function EventRow({ e }: { e: SessionEvent }) {
               {p}
             </p>
           ))}
-          {e.code && <pre className="m-0 rounded-md border border-line-2 bg-code px-2 py-1.5 font-mono text-[12px] whitespace-pre-wrap">{e.code}</pre>}
+          {e.code && <pre className="m-0 rounded-control border border-line-2 bg-code px-2 py-1.5 font-mono text-[12px] whitespace-pre-wrap">{e.code}</pre>}
         </div>
       );
     case "tool":
       return (
-        <div className="flex items-center gap-2 rounded-md border border-line-2 bg-chrome px-2 py-1 text-xs text-ink-2">
+        <div className="flex items-center gap-2 rounded-control border border-line-2 bg-chrome px-2 py-1 text-[12px] text-ink-2">
           <b className="text-ink">{e.name}</b>
           <span className="truncate font-mono">{e.input}</span>
           <span className="ml-auto text-ink-3">{e.secs} s · exit 0</span>
@@ -124,8 +124,8 @@ const EventRow = memo(function EventRow({ e }: { e: SessionEvent }) {
       );
     case "edit":
       return (
-        <div className="overflow-hidden rounded-md border border-line-2">
-          <div className="bg-chrome px-2 py-1 text-xs text-ink-2">{e.path}</div>
+        <div className="overflow-hidden rounded-control border border-line-2">
+          <div className="bg-chrome px-2 py-1 text-[12px] text-ink-2">{e.path}</div>
           {e.lines.map((l, i) => (
             <DiffRow key={i} l={l} />
           ))}
@@ -302,7 +302,7 @@ export function PerfView() {
         <button className="btn btn-sm" onClick={() => void run("plain-diff")}>
           Plain diff (5,000 lines, no virtualization)
         </button>
-        <span className="font-mono text-xs text-ink-2">{navigator.userAgent.match(/AppleWebKit\/[\d.]+|Chrome\/[\d.]+/g)?.join(" ")}</span>
+        <span className="font-mono text-[12px] text-ink-2">{navigator.userAgent.match(/AppleWebKit\/[\d.]+|Chrome\/[\d.]+/g)?.join(" ")}</span>
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-[1fr_420px]">
         <div className="min-h-0 border-r border-line">
@@ -310,7 +310,7 @@ export function PerfView() {
           {mode === "session" && <VirtualSession events={session} onMount={onMount} />}
           {mode === "plain-diff" && <PlainDiff lines={diff} onMount={onMount} />}
         </div>
-        <div className="overflow-auto p-3 font-mono text-xs">
+        <div className="overflow-auto p-3 font-mono text-[12px]">
           {results.map((r, i) => (
             <pre key={i} className="m-0 mb-2 whitespace-pre-wrap">
               {JSON.stringify(r, null, 1)}

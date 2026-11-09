@@ -31,7 +31,7 @@ export function RunsOn({ session: s }: { session: Session }) {
       <span title={tag?.title}>{tag && run ? tag.label : name}{tag && !run ? ` · ${tag.label.replace(`${name} `, "")}` : ""}</span>
       {idle && (targets.length > 0 || canBurst) && (
         <>
-          <select className="field-input h-7 w-auto py-0 text-xs" aria-label="Move to" value={to} onChange={(e) => setTo(e.target.value)}>
+          <select className="field-input h-7 w-auto py-0 text-[12px]" aria-label="Move to" value={to} onChange={(e) => setTo(e.target.value)}>
             <option value="">Move to…</option>
             {targets.map((r) => <option key={r.runner.id} value={r.runner.id}>{r.runner.name}{r.runner.capabilities.vm ? " · Local VM" : ""}</option>)}
             {canBurst && <option value={BURST}>Burst · HF Job</option>}

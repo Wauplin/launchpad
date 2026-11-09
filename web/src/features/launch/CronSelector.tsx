@@ -46,13 +46,13 @@ export function CronFields({ draft, harness, onChange, onValidityChange, schedul
     {withSchedule && <>
     <div className="flex flex-wrap gap-1.5">{PRESETS.map(([label, schedule]) => <button key={schedule} className={`btn btn-sm ${draft.schedule.trim() === schedule ? "btn-primary" : ""}`} onClick={() => onChange({ ...draft, schedule })}>{label}</button>)}</div>
     <input aria-label="Cron schedule" className="field-input font-mono text-[12px]" placeholder="minute hour day month weekday" value={draft.schedule} onChange={(e) => onChange({ ...draft, schedule: e.target.value })} />
-    {next.error ? <p role="alert" className="text-xs text-gh-closed">{next.error.message}</p>
-      : next.data && <p className="text-xs text-ink-2">Next runs: {next.data.map((at) => when(at)).join(" · ")}</p>}
-    <p className="text-xs text-ink-3">5 fields: minute, hour, day of month, month, day of week. In your time zone · {zone}: the routine keeps it when you save.</p>
+    {next.error ? <p role="alert" className="text-[12px] text-gh-closed">{next.error.message}</p>
+      : next.data && <p className="text-[12px] text-ink-2">Next runs: {next.data.map((at) => when(at)).join(" · ")}</p>}
+    <p className="text-[12px] text-ink-3">5 fields: minute, hour, day of month, month, day of week. In your time zone · {zone}: the routine keeps it when you save.</p>
     </>}
     <b className="text-[12px] font-[650] text-ink-2">Run only if</b>
-    {previousRun && <label className="flex items-center gap-2 text-xs"><input type="checkbox" className="accent-teal" checked={previous} onChange={(e) => onChange({ ...draft, conditions: [...(e.target.checked ? [{ kind: "previous_run_finished" as const }] : []), ...quotas] })} />The previous run is no longer Running</label>}
-    {quotas.map((q, i) => <div key={i} className="flex flex-wrap items-center gap-2 text-xs">
+    {previousRun && <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" className="accent-teal" checked={previous} onChange={(e) => onChange({ ...draft, conditions: [...(e.target.checked ? [{ kind: "previous_run_finished" as const }] : []), ...quotas] })} />The previous run is no longer Running</label>}
+    {quotas.map((q, i) => <div key={i} className="flex flex-wrap items-center gap-2 text-[12px]">
       <span>{harness ? name(harness) : "The agent"} has at least</span>
       <input aria-label="Minimum quota left in percent" className="field-input w-16" type="number" min={1} max={100} step={1} value={q.min_left_percent || ""} onChange={(e) => setQuota(i, { ...q, min_left_percent: Number(e.target.value) })} />
       <span>% left of its</span>
@@ -60,9 +60,9 @@ export function CronFields({ draft, harness, onChange, onValidityChange, schedul
       <button className="btn btn-sm" onClick={() => setQuota(i, null)}>Remove</button>
     </div>)}
     {supportsQuota && quotas.length < 2 && <span><button className="btn btn-sm" onClick={() => setQuota(quotas.length, { kind: "quota_left", window: quotas.some((q) => q.window === "five_hour") ? "weekly" : "five_hour", min_left_percent: 20 })}>Add quota condition</button></span>}
-    {!supportsQuota && !!quotas.length && <p role="alert" className="text-xs text-gh-closed">This harness has no monitored quota. Remove the quota conditions to enable this routine.</p>}
-    {badPercent && <p role="alert" className="text-xs text-gh-closed">Enter a quota share from 1% to 100%.</p>}
-    <p className="text-xs text-ink-3">{withSchedule ? "A run whose conditions fail is skipped until the next scheduled time. Runs missed by more than 1 hour while Launchpad was stopped are skipped." : "An event whose conditions fail is skipped; it is never run later."} A quota condition needs a quota reading from the last 15 minutes.</p>
+    {!supportsQuota && !!quotas.length && <p role="alert" className="text-[12px] text-gh-closed">This harness has no monitored quota. Remove the quota conditions to enable this routine.</p>}
+    {badPercent && <p role="alert" className="text-[12px] text-gh-closed">Enter a quota share from 1% to 100%.</p>}
+    <p className="text-[12px] text-ink-3">{withSchedule ? "A run whose conditions fail is skipped until the next scheduled time. Runs missed by more than 1 hour while Launchpad was stopped are skipped." : "An event whose conditions fail is skipped; it is never run later."} A quota condition needs a quota reading from the last 15 minutes.</p>
   </div>;
 }
 
@@ -74,9 +74,9 @@ export function CronSelector({ cron, harness, onChange, onValidityChange }: { cr
     <select id="launch-repeat" className="field-input" value={cron ? "cron" : "once"} onChange={(e) => onChange(e.target.value === "cron" ? { ...DEFAULT_CRON, conditions: DEFAULT_CRON.conditions.filter((c) => supportsQuota || c.kind !== "quota_left") } : null)}>
       <option value="once">Run once</option><option value="cron">As a routine, on a schedule…</option>
     </select>
-    {cron && <div className="grid gap-2 rounded-lg border border-line bg-chrome p-2.5">
+    {cron && <div className="grid gap-2 rounded-card border border-line bg-chrome p-2.5">
       <CronFields draft={cron} harness={harness} onChange={onChange} onValidityChange={onValidityChange} />
-      <p className="text-xs text-ink-3">Each run starts a new agent with this prompt and ends with a short report, or stays silent when there is nothing to report. Runs appear in Agents like other agents; the routine is listed in Schedules.</p>
+      <p className="text-[12px] text-ink-3">Each run starts a new agent with this prompt and ends with a short report, or stays silent when there is nothing to report. Runs appear in Agents like other agents; the routine is listed in Schedules.</p>
     </div>}
   </div>;
 }

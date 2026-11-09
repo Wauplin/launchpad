@@ -79,17 +79,17 @@ export function AddContextMenu({ projects, recent, sessions, selectedTraces, onP
       )}
     >
       {(close) => {
-        const back = <MenuItem icon={<Icon name="chev" size={13} className="rotate-90" />} label="Back" onClick={() => setMode("menu")} />;
+        const back = <MenuItem icon={<Icon name="chev" size={12} className="rotate-90" />} label="Back" onClick={() => setMode("menu")} />;
         if (mode === "project") return <>{back}<ProjectPicker projects={projects} temporary={false} emptyMessage="No other folder." onPick={(p) => { if (p) { onProject(p); close(); } }} /></>;
         if (mode === "github") return <>{back}<GitHubLinkForm onAdd={onGitHub} onDone={close} /></>;
-        if (mode === "trace") return <>{back}<AgentTracePicker sessions={sessions} selected={selectedTraces} onToggle={onToggleTrace} /><div className="flex items-center justify-between px-2 pt-1 text-xs text-ink-3"><span>{selectedTraces.length} selected</span><button className="btn btn-sm btn-primary" onClick={close}>Done</button></div></>;
+        if (mode === "trace") return <>{back}<AgentTracePicker sessions={sessions} selected={selectedTraces} onToggle={onToggleTrace} /><div className="flex items-center justify-between px-2 pt-1 text-[12px] text-ink-3"><span>{selectedTraces.length} selected</span><button className="btn btn-sm btn-primary" onClick={close}>Done</button></div></>;
         return (
           <>
-            <MenuItem icon={<Icon name="folder" size={13} />} label="Folder…" detail="Another folder as read-only context" onClick={() => setMode("project")} />
-            <MenuItem icon={<Icon name="issue" size={13} />} label="GitHub link…" detail="An issue, PR or comment URL" onClick={() => setMode("github")} />
-            <MenuItem icon={<Icon name="agents" size={13} />} label="Agent trace…" detail="The stored trace of another agent" onClick={() => setMode("trace")} />
+            <MenuItem icon={<Icon name="folder" size={12} />} label="Folder…" detail="Another folder as read-only context" onClick={() => setMode("project")} />
+            <MenuItem icon={<Icon name="issue" size={12} />} label="GitHub link…" detail="An issue, PR or comment URL" onClick={() => setMode("github")} />
+            <MenuItem icon={<Icon name="agents" size={12} />} label="Agent trace…" detail="The stored trace of another agent" onClick={() => setMode("trace")} />
             {!!recent.length && <div className="px-[9px] pt-2 pb-1 seclabel">Recent contexts</div>}
-            {recent.slice(0, 6).map((c) => <MenuItem key={c.key} icon={<Icon name="plus" size={13} />} label={<span className="block truncate" title={c.label}>{c.label}</span>} onClick={() => (c.add(), close())} />)}
+            {recent.slice(0, 6).map((c) => <MenuItem key={c.key} icon={<Icon name="plus" size={12} />} label={<span className="block truncate" title={c.label}>{c.label}</span>} onClick={() => (c.add(), close())} />)}
           </>
         );
       }}

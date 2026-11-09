@@ -2,7 +2,7 @@
 // agent's turn ending Done. A bot's routine sends its instructions to the bot's thread; other routines launch a
 // new session. A run ends with a report, or with `no_update`, which stays silent.
 
-import { when } from "@/lib/format";
+import { when } from "./format.ts";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { GithubEvent } from "@/gen/GithubEvent";
 import type { RoutineRun } from "@/gen/RoutineRun";

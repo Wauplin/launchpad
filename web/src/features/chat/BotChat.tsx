@@ -206,7 +206,7 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
           if (atBottom.current) anchor.current = null;
           if (el.scrollTop < 150) loadMore();
         }}>
-        <div className="mx-auto w-full max-w-[760px]">
+        <div className="mx-auto w-full max-w-text">
           {thread.length === 0 ? <div className="py-8">{intro}</div> : <>
             {more && <div className="flex justify-center pt-2"><button className="btn btn-sm" disabled={loadingMore} onClick={loadMore}>{loadingMore ? "Loading…" : "Load earlier messages"}</button></div>}
             {sessions.length === 0 && <div className="p-6 text-center text-[13px] text-ink-3">Loading…</div>}
@@ -242,9 +242,9 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
         <Link to="/agents" search={{ session: item.sessionId }} className="chat-tap text-teal-ink no-underline hover:underline" title="The whole trace of this session in Agents">Open in Agents</Link>
       </Separator></div>;
     case "user":
-      return <div className="flex py-1.5"><div className="ml-auto max-w-[85%] rounded-[10px_10px_3px_10px] bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
+      return <div className="flex py-1.5"><div className="ml-auto max-w-[85%] rounded-card rounded-br-sm bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
         {item.text}
-        {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url; return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-md border border-line" /></a>; })}</div>}
+        {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url; return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
       </div></div>;
     case "routine":
@@ -326,7 +326,7 @@ function AskLive({ item }: { item: Extract<ChatItem, { t: "ask" }> }) {
 function EndedRow({ item, canContinue }: { item: Extract<ChatItem, { t: "ended" }>; canContinue: boolean }) {
   const [busy, setBusy] = useState(false);
   return <div className="flex flex-wrap items-center gap-2 py-1.5 text-[12px] text-gh-closed">
-    <Icon name="xcircle" size={13} />
+    <Icon name="xcircle" size={12} />
     <span className="min-w-0 flex-1 break-words">{item.error ? `The turn failed: ${item.error}` : "The turn was interrupted."}</span>
     {canContinue && <button className="btn btn-sm" disabled={busy} title="Continue the unfinished task" onClick={() => { setBusy(true); void runAction("session.resume", { id: item.sessionId }, { continue_turn: true }).catch(toastError).finally(() => setBusy(false)); }}>Continue</button>}
   </div>;
@@ -337,7 +337,7 @@ function ChangesRow({ sessionId }: { sessionId: string }) {
   const s = useSession(sessionId);
   const { w } = useBranch(sessionId, s);
   if (!w || (w.ahead === 0 && w.dirty_files === 0)) return null;
-  return <div className="py-1.5"><div className="grid gap-2 rounded-xl border border-line bg-paper p-3">
+  return <div className="py-1.5"><div className="grid gap-2 rounded-card border border-line bg-paper p-3">
     <div className="text-[13px] font-semibold">Changes</div>
     <BranchActions sessionId={sessionId} s={s} />
   </div></div>;
@@ -409,15 +409,15 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   if (needsProfile)
-    return <div className="border-t border-line-2 p-2.5"><div className="flex items-center gap-2 rounded-md bg-attn-soft px-3 py-2 text-[13px] text-attn">This bot has no profile.<button className="btn btn-sm ml-auto" onClick={openSettings}>Choose a profile</button></div></div>;
+    return <div className="border-t border-line-2 p-2.5"><div className="flex items-center gap-2 rounded-control bg-attn-soft px-3 py-2 text-[13px] text-attn">This bot has no profile.<button className="btn btn-sm ml-auto" onClick={openSettings}>Choose a profile</button></div></div>;
   return (
     <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5" data-tour="bots.reply">
-      <div className="mx-auto w-full max-w-[760px]">
+      <div className="mx-auto w-full max-w-text">
         {rotation && current && <div className="mb-1.5 text-[12px] text-ink-3">{rotation}: your next message starts a new session of {bot.settings.name}'s thread, with a reference to the previous one.</div>}
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void attachments.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
         <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
         {phone && !text && !files.length && !answering && !blocked && !busy && <QuickChips onSend={(t) => void send(t)} onFill={(t) => { setText(t); requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } }); }} />}
-        <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
+        <div className="session-message-input flex items-end gap-2 rounded-card border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
           <textarea ref={ref} rows={1} value={text} disabled={busy || blocked} aria-label={`Message ${bot.settings.name}`}
             placeholder={busyTurn ? `${bot.settings.name} is working: Stop it or wait for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? `Answer or message ${bot.settings.name}…` : `Message ${bot.settings.name}…`}
             onChange={(e) => setText(e.target.value)}

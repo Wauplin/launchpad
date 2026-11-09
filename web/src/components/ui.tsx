@@ -28,7 +28,7 @@ export function PageHeader({ title, meta, intro, introId, info, actions, tabs, c
             {intro ? <IntroButton {...explain} /> : info && <span className="text-ink-3" title={info} aria-label={info}><Icon name="info" size={14} /></span>}
           </div>
           {meta && <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3">{meta}</div>}
-          {intro && explain.open && <div className="mt-1 grid max-w-[720px] gap-1 text-[12px] text-ink-2"><p className="m-0">{intro}</p>{info && <p className="m-0 text-ink-3">{info}</p>}</div>}
+          {intro && explain.open && <div className="mt-1 grid max-w-text gap-1 text-[12px] text-ink-2"><p className="m-0">{intro}</p>{info && <p className="m-0 text-ink-3">{info}</p>}</div>}
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
@@ -146,7 +146,7 @@ export function Empty({ icon, children, action, fill, className = "" }: { icon?:
     <div className={`${fill ? "grid h-full place-items-center" : ""} p-4 ${className}`}>
       <div className={`flex flex-col gap-2 text-[12px] text-ink-3 ${fill ? "items-center text-center" : "items-start"}`}>
         <div className="flex items-center gap-2">
-          {icon && <Icon name={icon} size={fill ? 18 : 13} />}
+          {icon && <Icon name={icon} size={fill ? 16 : 12} />}
           <span>{children}</span>
         </div>
         {action}
@@ -158,8 +158,8 @@ export function Empty({ icon, children, action, fill, className = "" }: { icon?:
 /** Danger-soft banner with human text and an optional Retry. */
 export function ErrorState({ error, onRetry, action, className = "" }: { error: unknown; onRetry?: () => void; action?: ReactNode; className?: string }) {
   return (
-    <div role="alert" className={`flex flex-wrap items-center gap-2 rounded-lg border border-danger/40 bg-diff-del px-3 py-2 text-[12px] text-danger-ink ${className}`}>
-      <Icon name="alert" size={13} />
+    <div role="alert" className={`flex flex-wrap items-center gap-2 rounded-card border border-danger/40 bg-diff-del px-3 py-2 text-[12px] text-danger-ink ${className}`}>
+      <Icon name="alert" size={12} />
       <span className="min-w-0 flex-1 break-words">{humanError(error)}</span>
       {action}
       {onRetry && <button type="button" className="btn btn-sm" onClick={onRetry}><Icon name="refresh" size={12} />Retry</button>}
@@ -210,8 +210,8 @@ export const STATUS_COLORS: Record<StatusTone, string> = {
 export function StatusBadge({ tone, label, icon, unseen = false, title, className = "" }: { tone: StatusTone; label: ReactNode; icon?: IconName | null; unseen?: boolean; title?: string; className?: string }) {
   return (
     <span title={title} className={`inline-flex items-center gap-1 ${className}`}>
-      <span className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[11px] font-semibold whitespace-nowrap ${STATUS_COLORS[tone]}`}>
-        {icon ? <Icon name={icon} size={11} /> : tone === "running" ? <span className="lp-spin" aria-hidden="true" /> : <span className="size-1.5 rounded-full bg-current" />}
+      <span className={`inline-flex h-5 items-center gap-1.5 rounded-full px-2 text-[11px] font-semibold whitespace-nowrap ${STATUS_COLORS[tone]}`}>
+        {icon ? <Icon name={icon} size={12} /> : tone === "running" ? <span className="lp-spin" aria-hidden="true" /> : <span className="size-1.5 rounded-full bg-current" />}
         {label}
       </span>
       {unseen && <span className="size-1.5 flex-none rounded-full bg-attn" title="Not seen yet" aria-label="not seen yet" />}
@@ -278,8 +278,8 @@ const BADGE: Record<BadgeTone, string> = {
 /** The one pill shape for states (Running, Done, Question, Failed, Quota paused, counts). */
 export function Badge({ tone = "neutral", icon, dot, children, title, className = "" }: { tone?: BadgeTone; icon?: IconName; dot?: boolean; children: ReactNode; title?: string; className?: string }) {
   return (
-    <span title={title} className={`inline-flex h-5 items-center gap-[5px] rounded-full px-2 text-[11px] font-semibold whitespace-nowrap ${BADGE[tone]} ${className}`}>
-      {icon ? <Icon name={icon} size={11} /> : dot ? <span className="size-1.5 rounded-full bg-current" /> : null}
+    <span title={title} className={`inline-flex h-5 items-center gap-1.5 rounded-full px-2 text-[11px] font-semibold whitespace-nowrap ${BADGE[tone]} ${className}`}>
+      {icon ? <Icon name={icon} size={12} /> : dot ? <span className="size-1.5 rounded-full bg-current" /> : null}
       {children}
     </span>
   );
@@ -289,8 +289,8 @@ export function Badge({ tone = "neutral", icon, dot, children, title, className 
 export function Token({ tone = "neutral", icon, children, title, className = "" }: { tone?: "neutral" | "warn" | "teal"; icon?: IconName; children: ReactNode; title?: string; className?: string }) {
   const color = tone === "warn" ? "border-attn-line bg-attn-soft text-attn" : tone === "teal" ? "border-teal/40 bg-teal-soft text-teal-ink" : "border-line-2 bg-chrome text-ink-2";
   return (
-    <span title={title} className={`inline-flex h-5 max-w-full items-center gap-1 rounded-[5px] border px-1.5 text-[11px] whitespace-nowrap ${color} ${className}`}>
-      {icon && <Icon name={icon} size={11} />}
+    <span title={title} className={`inline-flex h-5 max-w-full items-center gap-1 rounded-control border px-1.5 text-[11px] whitespace-nowrap ${color} ${className}`}>
+      {icon && <Icon name={icon} size={12} />}
       <span className="truncate">{children}</span>
     </span>
   );
@@ -312,7 +312,7 @@ export function SavedMark({ state, error }: { state: SaveState; error?: string }
   if (state === "idle") return null;
   if (state === "saving") return <span className="text-[11px] text-ink-3" aria-live="polite">Saving…</span>;
   if (state === "error") return <span className="text-[11px] text-danger-ink" role="alert">{error ?? "Not saved"}</span>;
-  return <span className="inline-flex items-center gap-1 text-[11px] text-gh-open" aria-live="polite"><Icon name="check" size={11} />Saved</span>;
+  return <span className="inline-flex items-center gap-1 text-[11px] text-gh-open" aria-live="polite"><Icon name="check" size={12} />Saved</span>;
 }
 
 /** Runs `save` and exposes the inline state; "Saved ✓" fades after two seconds. */

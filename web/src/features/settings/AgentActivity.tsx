@@ -4,6 +4,7 @@ import type { AgentRun } from "@/gen/AgentRun";
 import { useHarnesses } from "@/components/HarnessMark";
 import { api } from "@/lib/api";
 import { useConfig } from "@/lib/queries";
+import { day as dayLabel, month as monthLabel } from "@/lib/format";
 import { Card } from "./SettingsView";
 
 const compact = (value: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
@@ -67,13 +68,13 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
   const peak = Math.max(1, ...days.map((day) => day.total));
   const selectedDay = days.find((day) => dayKey(day.date) === selected);
   const shownPage = Math.min(page, Math.max(0, Math.ceil(groups.length / 6) - 1));
-  const dateLabel = (date: Date) => date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const dateLabel = (date: Date) => dayLabel(date.getTime());
 
   return <Card title="Agent activity">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="font-semibold">Your daily rhythm</h2>
-        <p className="text-sm text-ink-3">Session starts and token usage, split by harness and profile.</p>
+        <p className="text-[13px] text-ink-3">Session starts and token usage, split by harness and profile.</p>
       </div>
       <div className="flex items-center gap-1">
         <button className="btn" aria-label="Agent activity: previous month" onClick={() => onMove(-1)}>←</button>
@@ -81,20 +82,20 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
         <button className="btn" aria-label="Agent activity: next month" onClick={() => onMove(1)}>→</button>
       </div>
     </div>
-    <p className="text-sm font-semibold text-teal-ink" aria-live="polite">{month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</p>
-    <div className="flex w-fit gap-1 rounded-lg border border-line bg-chrome p-1" role="group" aria-label="Activity metric">
+    <p className="text-[13px] font-semibold text-teal-ink" aria-live="polite">{monthLabel(month.getTime())}</p>
+    <div className="flex w-fit gap-1 rounded-card border border-line bg-chrome p-1" role="group" aria-label="Activity metric">
       {(["agents", "tokens"] as const).map((value) => <button key={value} className="lp-chip" aria-pressed={metric === value} onClick={() => { setMetric(value); setPage(0); }}>{value === "agents" ? "Agents" : "Tokens"}</button>)}
     </div>
-    {query.isError && <p role="alert" className="text-sm text-danger">Could not load agent activity. <button className="btn" onClick={() => void query.refetch()}>Retry</button></p>}
-    {query.isPending ? <div className="rounded-lg bg-chrome p-8 text-center text-sm text-ink-3">Loading agent activity…</div> : !query.isError && <>
-      <div className={`grid gap-2 rounded-lg border border-line bg-chrome p-3 sm:p-4 ${metric === "tokens" ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
+    {query.isError && <p role="alert" className="text-[13px] text-danger">Could not load agent activity. <button className="btn" onClick={() => void query.refetch()}>Retry</button></p>}
+    {query.isPending ? <div className="rounded-card bg-chrome p-8 text-center text-[13px] text-ink-3">Loading agent activity…</div> : !query.isError && <>
+      <div className={`grid gap-2 rounded-card border border-line bg-chrome p-3 sm:p-4 ${metric === "tokens" ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
         {stats.map(([value, label]) => <div key={label} className={`min-w-0 border-line px-1 sm:px-3 ${metric === "tokens" ? "even:border-l sm:not-first:border-l" : "not-first:border-l"}`}>
-          <div className="text-2xl font-semibold tabular-nums tracking-tight sm:text-3xl" title={value.toLocaleString()}>{format(value)}</div>
-          <div className="text-[11px] text-ink-3 sm:text-xs">{label}</div>
+          <div className="text-[18px] font-semibold tabular-nums tracking-tight" title={value.toLocaleString()}>{format(value)}</div>
+          <div className="text-[11px] text-ink-3 sm:text-[12px]">{label}</div>
         </div>)}
       </div>
-      <div className="rounded-lg border border-line px-2 pb-2 pt-4 sm:px-4">
-        <div className="mb-2 flex justify-between text-[10px] text-ink-3"><span>{metric === "tokens" ? "TOKENS BY SESSION START DATE" : "DAILY STARTS"}</span><span>Peak · {format(total ? peak : 0)}</span></div>
+      <div className="rounded-card border border-line px-2 pb-2 pt-4 sm:px-4">
+        <div className="mb-2 flex justify-between text-[11px] text-ink-3"><span>{metric === "tokens" ? "TOKENS BY SESSION START DATE" : "DAILY STARTS"}</span><span>Peak · {format(total ? peak : 0)}</span></div>
         <div className="relative">
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex flex-col justify-between pb-6">
             {[0, 1, 2].map((line) => <div key={line} className="border-t border-dashed border-line" />)}
@@ -114,32 +115,32 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
                   </span>
                   {!day.total && <span className="h-px bg-line" />}
                 </span>
-                <span className={`flex h-6 flex-none items-center justify-center text-[9px] tabular-nums ${selected === key ? "font-bold text-teal-ink" : "text-ink-3"}`}>{index === 0 || (index + 1) % 5 === 0 ? index + 1 : ""}</span>
+                <span className={`flex h-6 flex-none items-center justify-center text-[11px] tabular-nums ${selected === key ? "font-bold text-teal-ink" : "text-ink-3"}`}>{index === 0 || (index + 1) % 5 === 0 ? index + 1 : ""}</span>
               </button>;
             })}
           </div>
         </div>
         <div className="mt-3 border-t border-line pt-3">
-          <p className="mb-2 text-xs text-ink-3" aria-live="polite">{selectedDay ? `${dateLabel(selectedDay.date)} · ${format(selectedDay.total)} ${metric}` : "Select a bar to see that day’s counts."}</p>
+          <p className="mb-2 text-[12px] text-ink-3" aria-live="polite">{selectedDay ? `${dateLabel(selectedDay.date)} · ${format(selectedDay.total)} ${metric}` : "Select a bar to see that day’s counts."}</p>
           <div className="flex flex-wrap gap-x-5 gap-y-2" aria-label="Chart legend">
             {groups.slice(shownPage * 6, shownPage * 6 + 6).map((group) => {
               const count = selectedDay?.counts.get(group.key) ?? 0;
-              return <span key={group.key} className="inline-flex min-w-0 items-center gap-2 text-xs" title={`${group.label}: ${count.toLocaleString()} ${metric} on ${selectedDay ? dateLabel(selectedDay.date) : "the selected day"}; ${group.total.toLocaleString()} this month`}>
+              return <span key={group.key} className="inline-flex min-w-0 items-center gap-2 text-[12px]" title={`${group.label}: ${count.toLocaleString()} ${metric} on ${selectedDay ? dateLabel(selectedDay.date) : "the selected day"}; ${group.total.toLocaleString()} this month`}>
                 <span aria-hidden="true" className="h-2.5 w-2.5 flex-none rounded-sm" style={{ background: group.color }} />
                 <span className="min-w-0 break-words">{group.label}</span>
                 <b className="tabular-nums">{format(count)}</b>
               </span>;
             })}
           </div>
-          {groups.length > 6 && <div className="mt-3 flex items-center justify-between gap-2 text-xs text-ink-3">
+          {groups.length > 6 && <div className="mt-3 flex items-center justify-between gap-2 text-[12px] text-ink-3">
             <span>{shownPage * 6 + 1}–{Math.min(groups.length, shownPage * 6 + 6)} of {groups.length} profiles</span>
             <div className="flex gap-1"><button className="btn" disabled={shownPage === 0} onClick={() => setPage(shownPage - 1)}>Previous</button><button className="btn" disabled={(shownPage + 1) * 6 >= groups.length} onClick={() => setPage(shownPage + 1)}>Next</button></div>
           </div>}
         </div>
       </div>
-      {!total && <p className="py-3 text-center text-sm text-ink-3">{metric === "tokens" ? "No reported tokens for sessions started this month." : "No agents started this month. Activity will appear here after a launch."}</p>}
+      {!total && <p className="py-3 text-center text-[13px] text-ink-3">{metric === "tokens" ? "No reported tokens for sessions started this month." : "No agents started this month. Activity will appear here after a launch."}</p>}
     </>}
-    {metric === "tokens" && <p className="rounded-lg border border-line bg-chrome p-3 text-xs leading-relaxed text-ink-2">Session token totals (input + cached input + output) are grouped by start date, including later follow-ups. Daily consumption history is unavailable; missing usage counts as zero.</p>}
-    <p className="text-xs leading-relaxed text-ink-3">{metric === "agents" && "One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. "}Every workspace · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical profiles use their saved ID if no longer configured.</p>
+    {metric === "tokens" && <p className="rounded-card border border-line bg-chrome p-3 text-[12px] leading-relaxed text-ink-2">Session token totals (input + cached input + output) are grouped by start date, including later follow-ups. Daily consumption history is unavailable; missing usage counts as zero.</p>}
+    <p className="text-[12px] leading-relaxed text-ink-3">{metric === "agents" && "One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. "}Every workspace · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical profiles use their saved ID if no longer configured.</p>
   </Card>;
 }

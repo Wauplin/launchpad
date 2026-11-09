@@ -87,7 +87,7 @@ export function CodeView() {
     {search.rev && <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper px-3 py-2">
       {search.session && !phone && <BackToSession id={search.session} />}
       {search.pr && !phone && <BackToPr pr={search.pr} />}
-      <span className="min-w-0 truncate font-mono text-xs text-ink-3" title={search.rev}>{diff ? "Commit" : "Revision"} {search.rev.slice(0, 12)}</span>
+      <span className="min-w-0 truncate font-mono text-[12px] text-ink-3" title={search.rev}>{diff ? "Commit" : "Revision"} {search.rev.slice(0, 12)}</span>
       <Tabs className="ml-auto border-b-0" label="Commit view" value={diff ? "diff" : "files"} onChange={(v) => (v === "diff" ? go({ view: "diff", path: search.path }) : showCode())} items={[{ id: "diff", label: "Diff" }, { id: "files", label: "Files" }]} />
     </div>}
     {diff ? <CommitDiff key={sourceKey(search.root, search.rev)} root={search.root} rev={search.rev!} path={search.path} select={(path) => go({ view: "diff", path })} openFile={(rev, path) => go({ rev, path })} /> :
@@ -152,7 +152,7 @@ function Viewer({ project, root, rev, path, line, session, pr, bar }: { project:
   return (
     <div className={`code-layout h-full ${phone ? "flex flex-col" : "grid grid-cols-[284px_minmax(0,1fr)]"}`}>
       {/* Phone: the tree toggle sits in the bar; the open file is the page (no tab strip, each file is a history entry). */}
-      {bar(phone && <button className="iconbtn shrink-0" aria-expanded={browserOpen} aria-label={browserOpen ? "Close the tree" : "Tree and search"} title={browserOpen ? "Close the tree" : "Tree and search"} onClick={() => setBrowserOpen((v) => !v)}><Icon name={browserOpen ? "x" : "folder"} size={18} /></button>)}
+      {bar(phone && <button className="iconbtn shrink-0" aria-expanded={browserOpen} aria-label={browserOpen ? "Close the tree" : "Tree and search"} title={browserOpen ? "Close the tree" : "Tree and search"} onClick={() => setBrowserOpen((v) => !v)}><Icon name={browserOpen ? "x" : "folder"} size={14} /></button>)}
       <aside className={`code-browser min-h-0 min-w-0 flex-col border-r border-line bg-paper ${phone ? browserOpen ? "flex flex-1" : "hidden" : "flex"}`}>
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2 px-2.5 pt-2.5 pb-1">
           {session && !rev && !phone && <BackToSession id={session} />}
@@ -161,12 +161,12 @@ function Viewer({ project, root, rev, path, line, session, pr, bar }: { project:
             <div className="min-w-0 flex-1"><SourcePicker project={project} root={root} rev={rev} path={path} session={session} /></div>
             <TerminalMenu cwd={root} phone={phone} className="flex-none" />
           </div>
-          <span className="inline-flex gap-0.5 rounded-lg bg-sunk p-0.5">
+          <span className="inline-flex gap-0.5 rounded-card bg-sunk p-0.5">
             {(["files", "search"] as const).map((p) => (
               <button
                 key={p}
                 onClick={() => setPanel(p)}
-                className={`h-[26px] flex-1 rounded-md text-[13px] ${panel === p ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"}`}
+                className={`h-[26px] flex-1 rounded-control text-[13px] ${panel === p ? "bg-paper font-semibold text-ink shadow-[0_1px_2px_rgba(23,32,43,.12),inset_0_0_0_1px_var(--color-line)]" : "text-ink-2"}`}
               >
                 {p === "files" ? "Files" : "Search"}
               </button>
@@ -193,14 +193,14 @@ function Viewer({ project, root, rev, path, line, session, pr, bar }: { project:
                 {tabHint(t, tabs) && <span className="text-[11px] font-normal text-ink-3">{tabHint(t, tabs)}</span>}
               </button>
               <button
-                className={`iconbtn ${phone ? "" : "size-5!"} ${t === path ? "" : "opacity-0 group-hover:opacity-100"}`}
+                className={`iconbtn ${t === path ? "" : "opacity-0 group-hover:opacity-100"}`}
                 title="Close tab"
                 onClick={() => {
                   const next = closeTab(skey, t);
                   if (t === path) go({ path: next ?? undefined });
                 }}
               >
-                <Icon name="x" size={11} />
+                <Icon name="x" size={12} />
               </button>
             </div>
           ))}
@@ -234,7 +234,7 @@ function BackToSession({ id }: { id: string }) {
   const navigate = useNavigate();
   const title = useSessions().data?.find((s) => s.id === id)?.title;
   if (!title) return null;
-  return <button aria-label="Back to agent" className="truncate text-left text-xs text-teal-ink hover:underline" title={`Back to the agent "${title}"`} onClick={() => void navigate({ to: "/agents", search: { session: id } })}>← Back to agent · {title}</button>;
+  return <button aria-label="Back to agent" className="truncate text-left text-[12px] text-teal-ink hover:underline" title={`Back to the agent "${title}"`} onClick={() => void navigate({ to: "/agents", search: { session: id } })}>← Back to agent · {title}</button>;
 }
 
 /** Shown when Files was opened from a pull request's Changes: `pr` is `owner/repo#number`. */
@@ -243,7 +243,7 @@ function BackToPr({ pr }: { pr: string }) {
   const m = pr.match(/^([^/]+)\/([^#]+)#(\d+)$/);
   if (!m) return null;
   const [, owner, repo, number] = m;
-  return <button aria-label={`Back to PR #${number}`} className="truncate text-left text-xs text-teal-ink hover:underline" title={`Back to ${owner}/${repo}#${number}`} onClick={() => void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number } })}>← Back to PR #{number}</button>;
+  return <button aria-label={`Back to PR #${number}`} className="truncate text-left text-[12px] text-teal-ink hover:underline" title={`Back to ${owner}/${repo}#${number}`} onClick={() => void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number } })}>← Back to PR #{number}</button>;
 }
 
 /** The branch of the task worktree that lived at `root`, if Launchpad knows it. */
@@ -291,12 +291,12 @@ function SourcePicker({ project, root, rev, path, session }: { project: Project;
     <Popover
       width={phone ? 280 : 340}
       trigger={({ toggle }) => (
-        <button onClick={toggle} className="flex h-[34px] w-full min-w-0 items-center gap-2 rounded-[7px] border border-line bg-paper px-2.5 text-left text-[13px] hover:border-line" title={rev ? `${rev} in ${root}` : root}>
+        <button onClick={toggle} className="flex h-[34px] w-full min-w-0 items-center gap-2 rounded-control border border-line bg-paper px-2.5 text-left text-[13px] hover:border-line" title={rev ? `${rev} in ${root}` : root}>
           <Icon name={rev ? "branch" : "folder"} size={14} className="text-ink-3" />
           <span className="min-w-0 flex-1 truncate">
-            <b className={rev || !worktree?.main ? "font-mono text-xs" : "font-semibold"}>{label}</b>
-            {!rev && worktree?.main && worktree.branch && <span className="font-mono text-xs text-ink-3"> · {worktree.branch}</span>}
-            {rev && <span className="text-xs text-ink-3"> · read from git</span>}
+            <b className={rev || !worktree?.main ? "font-mono text-[12px]" : "font-semibold"}>{label}</b>
+            {!rev && worktree?.main && worktree.branch && <span className="font-mono text-[12px] text-ink-3"> · {worktree.branch}</span>}
+            {rev && <span className="text-[12px] text-ink-3"> · read from git</span>}
           </span>
           <Icon name="chev" size={14} className="flex-none text-ink-3" />
         </button>
@@ -304,7 +304,7 @@ function SourcePicker({ project, root, rev, path, session }: { project: Project;
     >
       {(close) => (
         <>
-          <input className="field-input mb-1 h-7! text-xs" placeholder="Branch, tag or commit" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          <input className="field-input mb-1 h-7! text-[12px]" placeholder="Branch, tag or commit" value={filter} onChange={(e) => setFilter(e.target.value)} />
           {!f && <div className="seclabel px-2 pt-1 pb-0.5">Working trees</div>}
           {!f &&
             (sources?.worktrees ?? [{ path: project.path, branch: null, main: true }]).map((w) => {
@@ -312,15 +312,15 @@ function SourcePicker({ project, root, rev, path, session }: { project: Project;
               return (
                 <MenuItem
                   key={w.path}
-                  icon={s ? <HarnessMark harness={s.harness} size={14} /> : <Icon name="folder" size={13} />}
+                  icon={s ? <HarnessMark harness={s.harness} size={14} /> : <Icon name="folder" size={12} />}
                   label={
                     w.main ? (
                       <>
                         <b className="font-semibold">Checkout</b>
-                        {w.branch && <span className="font-mono text-xs"> · {w.branch}</span>}
+                        {w.branch && <span className="font-mono text-[12px]"> · {w.branch}</span>}
                       </>
                     ) : (
-                      <b className="font-mono text-xs font-semibold">{w.branch ?? basename(w.path)}</b>
+                      <b className="font-mono text-[12px] font-semibold">{w.branch ?? basename(w.path)}</b>
                     )
                   }
                   detail={detail(w.path)}
@@ -333,17 +333,17 @@ function SourcePicker({ project, root, rev, path, session }: { project: Project;
           {refs.map((r) => (
             <MenuItem
               key={r.name}
-              icon={<Icon name={r.kind === "pr" ? "pr" : r.kind === "tag" ? "commit" : "branch"} size={13} />}
-              label={<span className="font-mono text-xs">{r.label}</span>}
+              icon={<Icon name={r.kind === "pr" ? "pr" : r.kind === "tag" ? "commit" : "branch"} size={12} />}
+              label={<span className="font-mono text-[12px]">{r.label}</span>}
               detail={`${r.kind === "branch" ? "Local branch" : r.kind === "remote" ? "Remote branch" : r.kind === "tag" ? "Tag" : "PR head, fetched for its diff"}${r.date ? ` · ${ago(r.date)}` : ""}`}
               active={rev === r.name}
               onClick={() => (pick(project.path, r.name), close())}
             />
           ))}
           {f && !refs.some((r) => r.label.toLowerCase() === f) && (
-            <MenuItem icon={<Icon name="commit" size={13} />} label={<span className="font-mono text-xs">{filter.trim()}</span>} detail="Open this revision (a commit, or any git revision)" onClick={() => (pick(project.path, filter.trim()), close())} />
+            <MenuItem icon={<Icon name="commit" size={12} />} label={<span className="font-mono text-[12px]">{filter.trim()}</span>} detail="Open this revision (a commit, or any git revision)" onClick={() => (pick(project.path, filter.trim()), close())} />
           )}
-          {f && refs.length === 0 && <div className="px-2 py-1 text-xs text-ink-3">No branch or tag matches.</div>}
+          {f && refs.length === 0 && <div className="px-2 py-1 text-[12px] text-ink-3">No branch or tag matches.</div>}
         </>
       )}
     </Popover>
@@ -435,12 +435,12 @@ function FileView({ project, root, rev, path, line, letter, reveal }: { project:
         {f && !phone && <FileMeta f={f} letter={letter} />}
         <span className="ml-auto flex items-center gap-1">
           {/* Phone: one row of icon-only buttons, each with its name in title and aria-label. */}
-          {phone && isText && <button className={`iconbtn ${findOpen ? "bg-teal-soft! text-teal-ink" : ""}`} aria-label="Find in this file" title="Find in this file" aria-pressed={findOpen} data-tour="code.find" onClick={openFind}><Icon name="search" size={18} /></button>}
-          {phone && (markdown || html) && isText && <button className="iconbtn disabled:opacity-40" disabled={!limits.colors} aria-label={preview ? "Show the source" : "Preview"} title={!limits.colors ? "Preview disabled for large or long-line files" : preview ? "Show the source" : `Show the rendered ${html ? "HTML" : "Markdown"}`} aria-pressed={preview} onClick={() => setPreview((p) => !p)}><Icon name={preview ? "file" : "eye"} size={18} /></button>}
+          {phone && isText && <button className={`iconbtn ${findOpen ? "bg-teal-soft! text-teal-ink" : ""}`} aria-label="Find in this file" title="Find in this file" aria-pressed={findOpen} data-tour="code.find" onClick={openFind}><Icon name="search" size={14} /></button>}
+          {phone && (markdown || html) && isText && <button className="iconbtn disabled:opacity-40" disabled={!limits.colors} aria-label={preview ? "Show the source" : "Preview"} title={!limits.colors ? "Preview disabled for large or long-line files" : preview ? "Show the source" : `Show the rendered ${html ? "HTML" : "Markdown"}`} aria-pressed={preview} onClick={() => setPreview((p) => !p)}><Icon name={preview ? "file" : "eye"} size={14} /></button>}
           {!phone && isText && (
             <button className={`btn btn-sm ${findOpen ? "border-teal! bg-teal-soft!" : ""}`} title="Find in this file (Ctrl+F)" data-tour="code.find" onClick={openFind}>
               <Icon name="search" size={12} />
-              Find <span className="rounded border border-line px-1 font-mono text-[10px] text-ink-3">Ctrl+F</span>
+              Find <span className="rounded border border-line px-1 font-mono text-[11px] text-ink-3">Ctrl+F</span>
             </button>
           )}
           {!phone && (markdown || html) && isText && (
@@ -531,8 +531,8 @@ function CannotShow({ reason, size, path, text, download, github }: { reason: st
     );
   return (
     <div className="grid flex-1 place-items-center p-6">
-      <div className="grid max-w-md justify-items-center gap-3 rounded-xl border border-line-2 bg-chrome px-6 py-5 text-center">
-        <Icon name="file" size={22} className="text-ink-3" />
+      <div className="grid max-w-md justify-items-center gap-3 rounded-card border border-line-2 bg-chrome px-6 py-5 text-center">
+        <Icon name="file" size={16} className="text-ink-3" />
         <div className="text-[13px] font-semibold text-ink">{reason}</div>
         <div className="text-[12px] text-ink-3">{basename(path)} · {sizeText(size)}</div>
         <div className="flex flex-wrap justify-center gap-2">
@@ -565,7 +565,7 @@ function FileMeta({ f, letter }: { f: CodeFile; letter: string | undefined }) {
     );
   if (f.kind === "text" && !textLimits(f.text ?? "").colors) parts.push("plain text (file safety limit)");
   return (
-    <span className="text-xs whitespace-nowrap text-ink-3">
+    <span className="text-[12px] whitespace-nowrap text-ink-3">
       {parts.map((p, i) => (
         <span key={i}>
           {i > 0 && " · "}
@@ -590,7 +590,7 @@ function HtmlPreview({ text, path }: { text: string; path: string }) {
   }, [text]);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-line-2 px-3.5 py-2 text-xs text-ink-3">Static HTML preview · Inline styles and embedded images only. Scripts, links and external files are disabled.</div>
+      <div className="border-b border-line-2 px-3.5 py-2 text-[12px] text-ink-3">Static HTML preview · Inline styles and embedded images only. Scripts, links and external files are disabled.</div>
       <iframe title={`HTML preview: ${path}`} sandbox="" referrerPolicy="no-referrer" srcDoc={document} className="min-h-0 w-full flex-1 border-0 bg-white" />
     </div>
   );
@@ -629,7 +629,7 @@ function MarkdownPreview({ text, root, rev, path, projectId }: { text: string; r
   );
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-[860px] px-8 py-6">
+      <div className="mx-auto max-w-text px-8 py-6">
         <Markdown text={text} className="lp-md-doc" links={links} />
       </div>
     </div>
@@ -742,8 +742,8 @@ function TextView({
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {findOpen && (
-        <div className="absolute top-2 right-5 z-20 flex items-center gap-1 rounded-lg border border-line bg-paper py-1 pr-1 pl-2 shadow-[0_8px_22px_-10px_rgba(23,32,43,.4)]">
-          <Icon name="search" size={13} className="text-ink-3" />
+        <div className="absolute top-2 right-5 z-20 flex items-center gap-1 rounded-card border border-line bg-paper py-1 pr-1 pl-2 shadow-[0_8px_22px_-10px_rgba(23,32,43,.4)]">
+          <Icon name="search" size={12} className="text-ink-3" />
           <input
             ref={findRef}
             className="h-6 w-56 bg-transparent text-[13px] outline-none"
@@ -767,13 +767,13 @@ function TextView({
           <FindToggles opts={opts} set={setOpts} />
           <span className="mx-0.5 h-4 w-px bg-line" />
           <button className="iconbtn" title="Previous match (Shift+Enter)" disabled={!matches.length} onClick={() => step(-1)}>
-            <Icon name="up" size={13} />
+            <Icon name="up" size={12} />
           </button>
           <button className="iconbtn" title="Next match (Enter)" disabled={!matches.length} onClick={() => step(1)}>
-            <Icon name="up" size={13} className="rotate-180" />
+            <Icon name="up" size={12} className="rotate-180" />
           </button>
           <button className="iconbtn" title="Close (Escape)" onClick={() => setFindOpen(false)}>
-            <Icon name="x" size={13} />
+            <Icon name="x" size={12} />
           </button>
         </div>
       )}
@@ -831,8 +831,8 @@ function SelectionBar({
   const gh = githubUrl(commit, path, selection);
   const ghTitle = !gh ? "This commit is not on GitHub" : dirty ? "This file has uncommitted changes, so GitHub shows other lines" : "Copy a GitHub permalink to these lines";
   return (
-    <div className="absolute right-5 bottom-4 z-20 flex max-w-[calc(100%-96px)] flex-wrap justify-end items-center gap-1.5 rounded-[10px] border border-line bg-paper px-2 py-1.5 whitespace-nowrap shadow-[0_10px_26px_-10px_rgba(23,32,43,.45)]">
-      <span className="px-1 text-xs font-semibold">{end > start ? `Lines ${start}–${end}` : `Line ${start}`}</span>
+    <div className="absolute right-5 bottom-4 z-20 flex max-w-[calc(100%-96px)] flex-wrap justify-end items-center gap-1.5 rounded-card border border-line bg-paper px-2 py-1.5 whitespace-nowrap shadow-[0_10px_26px_-10px_rgba(23,32,43,.45)]">
+      <span className="px-1 text-[12px] font-semibold">{end > start ? `Lines ${start}–${end}` : `Line ${start}`}</span>
       <button className="btn btn-sm" title="Copy the code" onClick={() => void copyText(lines.slice(start - 1, end).join("\n")).then(() => toast("Code copied"))}>
         <Icon name="copy" size={12} />
         Copy
@@ -846,7 +846,7 @@ function SelectionBar({
       </button>
       <AddToAgent project={project} root={root} rev={rev} path={path} selection={selection} />
       <button className="iconbtn" title="Clear the selection" onClick={onClear}>
-        <Icon name="x" size={13} />
+        <Icon name="x" size={12} />
       </button>
     </div>
   );
@@ -884,7 +884,7 @@ function AddToAgent({ project, root, rev, path, selection }: { project: Project;
     >
       {(close) => (
         <>
-          <MenuItem icon={<Icon name="plus" size={13} />} label={<b className="font-semibold">Launch</b>} detail="Opens the composer with these lines as context" onClick={() => (toComposer(), close())} />
+          <MenuItem icon={<Icon name="plus" size={12} />} label={<b className="font-semibold">Launch</b>} detail="Opens the composer with these lines as context" onClick={() => (toComposer(), close())} />
           {sessions.map((s) => (
             <MenuItem
               key={s.id}

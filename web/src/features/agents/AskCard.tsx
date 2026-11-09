@@ -31,7 +31,7 @@ export function AskCard({ row, sessionId, live, hint = "Or type another answer b
     }
   };
   return (
-    <div data-tour={answered ? undefined : row.questions.some((q) => q.permission) ? "session.approval" : "session.question"} className={`grid gap-2 rounded-lg border px-2.5 py-[9px] ${answered ? "border-line-2 bg-chrome" : "border-attn-line bg-attn-soft"}`}>
+    <div data-tour={answered ? undefined : row.questions.some((q) => q.permission) ? "session.approval" : "session.question"} className={`grid gap-2 rounded-card border px-2.5 py-[9px] ${answered ? "border-line-2 bg-chrome" : "border-attn-line bg-attn-soft"}`}>
       {row.questions.map((q, qi) => (
         <div key={qi} className="grid gap-1.5">
           {q.permission && <div className="text-[13px] font-semibold">Approval required</div>}
@@ -48,7 +48,7 @@ export function AskCard({ row, sessionId, live, hint = "Or type another answer b
                   key={oi}
                   disabled={busy || !live}
                   onClick={() => choose(qi, o.label)}
-                  className={`flex min-h-[44px] items-center gap-2 rounded-md border px-2 py-1.5 text-left text-[13px] hover:border-teal disabled:opacity-60 ${on ? "border-teal bg-teal-soft" : "border-line bg-paper"}`}
+                  className={`flex min-h-[44px] items-center gap-2 rounded-control border px-2 py-1.5 text-left text-[13px] hover:border-teal disabled:opacity-60 ${on ? "border-teal bg-teal-soft" : "border-line bg-paper"}`}
                 >
                   <span className="font-mono text-[11px] text-ink-3">{oi + 1}</span>
                   <span>

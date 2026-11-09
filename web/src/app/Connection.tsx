@@ -1,13 +1,12 @@
 // Which daemon this window talks to, and whether the live connection works. Shown in browser tabs
 // (the laptop status bar, the phone top bar); the desktop shell runs on the daemon's machine.
 
-import { when } from "@/lib/format";
+import { time, when } from "@/lib/format";
 import { useEffect, useState } from "react";
 import { useStatus } from "@/lib/queries";
 import { lastMessageAt, onConnectionChange } from "@/lib/ws";
 import { useServerTimeZone } from "@/lib/serverTime";
 
-const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { timeStyle: "short" });
 
 /** `online`, and the time of the last message received while offline (null while online). */
 export function useConnection() {
@@ -22,7 +21,7 @@ export function HostChip({ compact = false, iconOnly = false }: { compact?: bool
   const tz = useServerTimeZone();
   const { online, since } = useConnection();
   const host = status?.host || "daemon";
-  const zone = tz?.differs ? (status?.time_zone ? `${clock(Date.now())} ${tz.label}` : tz.label) : null;
+  const zone = tz?.differs ? (status?.time_zone ? `${time(Date.now())} ${tz.label}` : tz.label) : null;
   return (
     <span className={`inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap ${online ? "text-ink-2" : "font-semibold text-gh-closed"}`} role="status" title={online ? `Connected to ${host}${zone ? ` · host time ${zone}` : ""}` : `Not connected to ${host}; showing what was last received`}>
       <span className={`size-[7px] flex-none rounded-full ${online ? "bg-gh-open" : "bg-gh-closed"}`} />

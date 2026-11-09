@@ -23,7 +23,7 @@ import { PhoneBar } from "@/mobile/PhoneHeader";
  * border level, so the boxes inside keep theirs; `settings-card` in styles.css). */
 export function Card({ title, end, children, id, tour }: { title: string; end?: React.ReactNode; children: React.ReactNode; id?: string; tour?: string }) {
   return (
-    <section id={id} data-tour={tour} className="settings-card overflow-hidden rounded-[10px] border border-line">
+    <section id={id} data-tour={tour} className="settings-card overflow-hidden rounded-card border border-line">
       <div className="settings-card-head flex flex-wrap items-center gap-2 border-b border-line bg-chrome px-3.5 py-2.5 text-[13px]">
         <b className="font-semibold text-ink">{title}</b>
         {end && <span className="ml-auto flex max-w-full flex-wrap justify-end gap-1.5">{end}</span>}
@@ -46,7 +46,7 @@ export function SettingsPage({ title, meta, intro, info, actions, children, tour
     <div className="flex h-full min-h-0 flex-col">
       {title && <PageHeader title={title} meta={meta} intro={intro} introId={introId} info={info} actions={actions} />}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto grid max-w-[900px] grid-cols-[minmax(0,1fr)] content-start gap-4 px-5 py-5" data-tour={tour}>{children}</div>
+        <div className="grid max-w-page grid-cols-[minmax(0,1fr)] content-start gap-4 px-5 py-5" data-tour={tour}>{children}</div>
       </div>
     </div>
   );
@@ -55,7 +55,7 @@ export function SettingsPage({ title, meta, intro, info, actions, children, tour
   return (
     <div className="h-full overflow-y-auto">
       <PhoneBar title={title ?? "Settings"} onBack={() => void navigate({ to: "/settings" })} backLabel="Back to Settings" end={about} />
-      <div className="phone-page-content mx-auto grid max-w-[900px] grid-cols-[minmax(0,1fr)] gap-5 p-6">
+      <div className="phone-page-content grid max-w-page grid-cols-[minmax(0,1fr)] gap-5 p-6">
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4" data-tour={tour}>
           {(meta || explanation || actions) && <div className="flex flex-wrap items-center gap-2">
             {meta && <span className="text-[12px] text-ink-3">{meta}</span>}
@@ -95,13 +95,13 @@ export function SavedInput({ value, onSave, className = "", label, placeholder, 
 
 function SaveMark({ state, error }: { state: SaveState; error?: string }) {
   if (state === "idle") return null;
-  return state === "saving" ? <span className="text-[11px] text-ink-3">Saving…</span> : state === "error" ? <span className="text-[11px] text-danger-ink" role="alert">{error}</span> : <span className="inline-flex items-center gap-1 text-[11px] text-gh-open"><Icon name="check" size={11} />Saved</span>;
+  return state === "saving" ? <span className="text-[11px] text-ink-3">Saving…</span> : state === "error" ? <span className="text-[11px] text-danger-ink" role="alert">{error}</span> : <span className="inline-flex items-center gap-1 text-[11px] text-gh-open"><Icon name="check" size={12} />Saved</span>;
 }
 
 export function ConfigError() {
   const q = useConfig();
   if (!q.data?.error) return null;
-  return <div role="alert" className="rounded-lg bg-attn-soft px-3 py-2 text-[12px] text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>;
+  return <div role="alert" className="rounded-card bg-attn-soft px-3 py-2 text-[12px] text-attn">config.toml has an error, the previous settings are in use: {q.data.error}</div>;
 }
 
 export const LAYOUTS: { id: LayoutChoice; label: string }[] = [{ id: "auto", label: "Automatic" }, { id: "phone", label: "Phone" }, { id: "desktop", label: "Desktop" }];
@@ -171,10 +171,10 @@ export function PresetsView() {
       <Card title={`${presets.length} preset${presets.length === 1 ? "" : "s"}`}>
         {presets.length === 0 && <div className="text-[12px] text-ink-3">No preset yet.</div>}
         {presets.map((p, i) => (
-          <div key={p.id} className="phone-preset grid grid-cols-[26px_150px_1fr_auto] items-start gap-2.5 rounded-lg border border-line p-2.5">
+          <div key={p.id} className="phone-preset grid grid-cols-[26px_150px_1fr_auto] items-start gap-2.5 rounded-card border border-line p-2.5">
             <span className="grid">
-              <button className="iconbtn size-[22px]! disabled:opacity-30" disabled={i === 0} title="Move up" aria-label="Move up" onClick={() => move(i, -1)}><Icon name="up" size={12} /></button>
-              <button className="iconbtn size-[22px]! disabled:opacity-30" disabled={i === presets.length - 1} title="Move down" aria-label="Move down" onClick={() => move(i, 1)}><Icon name="down" size={12} /></button>
+              <button className="iconbtn disabled:opacity-30" disabled={i === 0} title="Move up" aria-label="Move up" onClick={() => move(i, -1)}><Icon name="up" size={12} /></button>
+              <button className="iconbtn disabled:opacity-30" disabled={i === presets.length - 1} title="Move down" aria-label="Move down" onClick={() => move(i, 1)}><Icon name="down" size={12} /></button>
             </span>
             <input className="field-input font-semibold" aria-label="Preset name" value={p.label} onChange={(e) => edit(i, { label: e.target.value })} onBlur={() => save(presets)} />
             <textarea rows={2} className="field-input h-auto min-h-[30px] resize-y py-1.5 text-[13px]" aria-label="Preset text" value={p.text} placeholder="The sentence added to the prompt" onChange={(e) => edit(i, { text: e.target.value })} onBlur={() => save(presets)} />

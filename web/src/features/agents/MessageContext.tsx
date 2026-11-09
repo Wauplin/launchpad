@@ -49,7 +49,7 @@ export function MessageContextChips({ value, onChange, disabled }: Omit<PickerPr
   const projects = useProjects().data ?? [];
   const sessions = useSessions().data ?? [];
   if (!hasMessageContext(value)) return null;
-  const chip = (key: string, icon: IconName, label: string, detail: string, remove: () => void) => <span key={key} title={detail} className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-line bg-chrome pl-2 text-xs text-ink-2">
+  const chip = (key: string, icon: IconName, label: string, detail: string, remove: () => void) => <span key={key} title={detail} className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-control border border-line bg-chrome pl-2 text-[12px] text-ink-2">
     <Icon name={icon} size={12} className="shrink-0" />
     <span className="truncate">{label}</span>
     <button className="iconbtn shrink-0" aria-label={`Remove ${label}`} disabled={disabled} onClick={remove}><Icon name="x" size={12} /></button>

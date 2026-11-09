@@ -33,7 +33,7 @@ const WorktreeRow = memo(function WorktreeRow({ info: i, bytes }: { info: Worktr
     try { await api.post(`/api/worktrees/${w.id}/${action}?session=${encodeURIComponent(worktreeSession(w) ?? "")}`); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   return (
-    <div className="group flex h-[56px] items-center gap-3 border-b border-line-2 px-3 text-xs">
+    <div className="group flex h-[56px] items-center gap-3 border-b border-line-2 px-3 text-[12px]">
       <div className="grid min-w-0 flex-1 gap-0.5">
         <span className="flex min-w-0 items-center gap-1.5"><b className="truncate font-mono text-[12px]">{w.branch}</b><span className="shrink-0 text-ink-3">{i.project_name}</span></span>
         <span className="truncate text-ink-3" title={w.push_note ?? w.cleanup_note ?? i.path}>{worktreeState(i)}{w.push_note ? ` · ${w.push_note}` : ""}{w.cleanup_note && w.state === "active" ? ` · ${w.cleanup_note}` : ""}{size(bytes) ? ` · ${size(bytes)}` : ""}</span>
@@ -94,7 +94,7 @@ export function WorktreesView() {
         {offline && <div className="text-[12px] text-ink-3">{offline}</div>}
         {total !== null && <div className="text-[12px] text-ink-3">{size(total)} on disk</div>}
         {list.isLoading ? <Loading what="worktrees" /> : rows.length === 0 ? <Empty icon="branch">No task worktree yet.</Empty> : (
-          <div ref={scrollRef} className="max-h-[480px] overflow-y-auto rounded-lg border border-line">
+          <div ref={scrollRef} className="max-h-[480px] overflow-y-auto rounded-card border border-line">
             <div style={{ height: v.getTotalSize(), position: "relative" }}>
               {v.getVirtualItems().map((it) => (
                 <div key={rows[it.index].worktree.id} style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${it.start}px)` }}>

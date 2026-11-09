@@ -72,7 +72,7 @@ const STATE: Record<BotState, { label: string; tone: StatusTone }> = {
 };
 
 export function BotAvatar({ name, size = 28 }: { name: string; size?: number }) {
-  return <span className="grid flex-none place-items-center rounded-[8px] bg-teal-soft font-semibold text-teal-ink" style={{ width: size, height: size, fontSize: Math.round(size * 0.46) }} aria-hidden>{botInitial(name)}</span>;
+  return <span className="grid flex-none place-items-center rounded-card bg-teal-soft font-semibold text-teal-ink" style={{ width: size, height: size, fontSize: Math.round(size * 0.46) }} aria-hidden>{botInitial(name)}</span>;
 }
 
 function StateBadge({ state }: { state: BotState }) {
@@ -103,7 +103,7 @@ export function BotsView() {
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.page">
       {header}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto grid w-full max-w-[880px] grid-cols-[minmax(0,1fr)] gap-4 px-5 py-4">
+        <div className="grid w-full max-w-page grid-cols-[minmax(0,1fr)] gap-4 px-5 py-4">
           {bots.isLoading ? <Loading what="bots" /> : bots.error ? <ErrorState error={bots.error} onRetry={() => void bots.refetch()} /> : <>
             {creating && <NewBot first={mine.length === 0} onCancel={mine.length ? close : undefined} />}
             <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
@@ -118,7 +118,7 @@ export function BotsView() {
 
 const BotRow = memo(function BotRow({ bot, thread, folder }: { bot: Bot; thread: Session[]; folder: string }) {
   const last = thread.at(-1);
-  return <Link to="/bots/$id" params={{ id: bot.id }} className="flex min-h-[56px] items-center gap-3 rounded-lg border border-line bg-paper px-3 py-2 no-underline hover:bg-sunk">
+  return <Link to="/bots/$id" params={{ id: bot.id }} className="flex min-h-[56px] items-center gap-3 rounded-card border border-line bg-paper px-3 py-2 no-underline hover:bg-sunk">
     <BotAvatar name={bot.settings.name} size={32} />
     <span className="min-w-0 flex-1">
       <span className="flex items-center gap-2 text-[13px] font-semibold text-ink"><span className="truncate">{bot.settings.name}</span><StateBadge state={botState(thread)} /></span>
@@ -180,7 +180,7 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   return (
-    <section className="grid gap-3 rounded-lg border border-line bg-paper p-4" data-tour="bots.form">
+    <section className="grid gap-3 rounded-card border border-line bg-paper p-4" data-tour="bots.form">
       <div>
         <h2 className="m-0 text-[15px] font-semibold">{first ? "Create your first bot" : "New bot"}</h2>
         <p className="m-0 mt-1 text-[13px] text-ink-2">A bot is an agent that stays: one thread you come back to, its own instructions, and notes it keeps in the knowledge base between sessions. Describe its job; you can change everything later.</p>
@@ -210,7 +210,7 @@ function NewBot({ first, onCancel }: { first: boolean; onCancel?: () => void }) 
           </select>
         </label>
       </div>
-      <div className="rounded-md bg-sunk px-3 py-2">
+      <div className="rounded-control bg-sunk px-3 py-2">
         <div className="seclabel pb-1">What it can reach</div>
         <Access folder={folders.find((p) => p.id === folder) ?? null} workspace={scope.workspace.name} workspaceId={ws} mode="yolo" />
       </div>
@@ -373,7 +373,7 @@ function MemoryPanel({ bot, thread, current }: { bot: Bot; thread: Session[]; cu
 
 function NoteText({ ws, path, sha }: { ws: string; path: string; sha: string }) {
   const q = useQuery({ queryKey: ["knowledge", ws, "file", path, sha], queryFn: async () => { const r = await fetch(daemonUrl(`/api/knowledge/${ws}/file?path=${encodeURIComponent(path)}`), { credentials: "include" }); if (!r.ok) throw new Error(await r.text()); return r.text(); }, staleTime: Infinity });
-  return q.isLoading ? <Loading what="the note" /> : q.error ? <ErrorState error={q.error} /> : <div className="mb-2 rounded-md bg-sunk px-3 py-2"><Markdown text={q.data ?? ""} className="text-[13px]" /></div>;
+  return q.isLoading ? <Loading what="the note" /> : q.error ? <ErrorState error={q.error} /> : <div className="mb-2 rounded-control bg-sunk px-3 py-2"><Markdown text={q.data ?? ""} className="text-[13px]" /></div>;
 }
 
 // ---------------------------------------------------------------- files
@@ -416,7 +416,7 @@ function InstructionsEditor({ bot, onSave }: { bot: Bot; onSave: (text: string) 
   useLayoutEffect(() => { const el = preview.current; if (el) setCut(el.scrollHeight > el.clientHeight + 1); }, [text]);
   const editor = <textarea className="field-input h-auto min-h-0 flex-1 resize-none py-2 text-[13px] leading-5" value={text} onChange={(e) => setText(e.target.value)} aria-label="BOT.md" autoFocus />;
   return <Section title="BOT.md · what it does" action={<button className="btn btn-sm" title="Read and edit BOT.md in a large editor" onClick={() => setOpen(true)}><Icon name="expand" size={12} />Expand</button>}>
-    <div ref={preview} className="relative max-h-[168px] cursor-pointer overflow-hidden rounded-md bg-sunk px-3 py-2" title="Expand BOT.md" onClick={() => setOpen(true)}>
+    <div ref={preview} className="relative max-h-[168px] cursor-pointer overflow-hidden rounded-control bg-sunk px-3 py-2" title="Expand BOT.md" onClick={() => setOpen(true)}>
       {text.trim() ? <Markdown text={text} className="text-[12px]" /> : <span className="text-[12px] text-ink-3">No instructions yet. Expand to write what {bot.settings.name} does.</span>}
       {cut && <span className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-sunk to-transparent" />}
     </div>
@@ -433,7 +433,7 @@ function InstructionsEditor({ bot, onSave }: { bot: Bot; onSave: (text: string) 
         </div>
       </Sheet>
       : <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-6" onClick={close} onKeyDown={(e) => { if (e.key === "Escape") close(); }}>
-        <div role="dialog" aria-modal="true" aria-label={`BOT.md of ${bot.settings.name}`} className="flex h-[calc(86vh/var(--lp-zoom,1))] w-[min(1200px,calc(92vw/var(--lp-zoom,1)))] flex-col overflow-hidden rounded-xl border border-line bg-paper shadow-[0_20px_60px_-20px_rgba(23,32,43,.6)]" onClick={(e) => e.stopPropagation()}>
+        <div role="dialog" aria-modal="true" aria-label={`BOT.md of ${bot.settings.name}`} className="flex h-[calc(86vh/var(--lp-zoom,1))] w-[min(1200px,calc(92vw/var(--lp-zoom,1)))] flex-col overflow-hidden rounded-card border border-line bg-paper shadow-[0_20px_60px_-20px_rgba(23,32,43,.6)]" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-2 border-b border-line-2 px-4 py-2.5">
             <b className="min-w-0 flex-1 truncate text-[15px]">BOT.md · {bot.settings.name}</b>
             <span className="text-[12px] text-ink-3">The next session reads it</span>
@@ -455,7 +455,7 @@ function FileSections({ bot }: { bot: Bot }) {
   const history = useQuery({ queryKey: ["bot-history", bot.id, bot.version], queryFn: () => api.get<Change[]>(`/api/bots/${bot.id}/history`) });
   return <>
     <Section title="bot.toml · the same settings as a file">
-      {bot.settings_error && <p className="m-0 rounded-md bg-attn-soft px-2 py-1 text-[12px] text-attn">{bot.settings_error}</p>}
+      {bot.settings_error && <p className="m-0 rounded-control bg-attn-soft px-2 py-1 text-[12px] text-attn">{bot.settings_error}</p>}
       <FileEditor key={`s-${bot.version}`} value={bot.settings_text} mono onSave={(t) => save({ settings_text: t })} rows={8} />
     </Section>
     <Section title="Versions · last 30 days">
@@ -500,7 +500,7 @@ function ThreadSessions({ bot, thread, current }: { bot: Bot; thread: Session[];
       {thread.length === 0 ? <p className="m-0 text-[12px] text-ink-3">{bot.settings.name} has not run yet.</p>
         : [...thread].reverse().map((s, i) => {
           const context = s.usage.context_tokens != null && s.usage.context_window ? `${Math.round((100 * s.usage.context_tokens) / s.usage.context_window)}% context` : null;
-          return <Link key={s.id} to="/agents" search={{ session: s.id } as never} className="grid gap-0.5 rounded-md px-2 py-1.5 no-underline hover:bg-sunk">
+          return <Link key={s.id} to="/agents" search={{ session: s.id } as never} className="grid gap-0.5 rounded-control px-2 py-1.5 no-underline hover:bg-sunk">
             <span className="flex items-center gap-2 text-[13px] text-ink"><span className="min-w-0 flex-1 truncate">Session {thread.length - i}{s.id === current?.id ? " · current" : ""}</span><HarnessMark harness={s.harness} size={12} /></span>
             <span className="truncate text-[12px] text-ink-3">{s.title} · {s.status === "closed" ? "archived" : s.status} · {ago(s.started_at)}{context ? ` · ${context}` : ""}</span>
           </Link>;

@@ -16,7 +16,7 @@ type Device = { id: string; name: string; created_at: number; expires_at: number
 type Pair = { url: string; svg: string; expires_at: number; warning: string | null };
 
 export function DevicesView() {
-  if (delegatedAccess()) return <SettingsPage title="Access"><Card title="Managed by your host"><p className="text-sm text-ink-2">Access to this workspace is provided by its hosting gateway. Every admitted visitor has full Launchpad access. Manage who can connect in your host’s settings.</p></Card></SettingsPage>;
+  if (delegatedAccess()) return <SettingsPage title="Access"><Card title="Managed by your host"><p className="text-[13px] text-ink-2">Access to this workspace is provided by its hosting gateway. Every admitted visitor has full Launchpad access. Manage who can connect in your host’s settings.</p></Card></SettingsPage>;
   return <PairedDevicesView />;
 }
 
@@ -48,24 +48,24 @@ function PairedDevicesView() {
   const remaining = pair ? Math.max(0, Math.ceil((pair.expires_at * 1000 - now) / 1000)) : 0;
   return <SettingsPage title="Devices" intro="Browsers paired with this daemon. Each one has full access.">
     <Card title="Pair a device" end={<button className="btn btn-sm btn-primary" disabled={busy !== null} data-tour="devices.pair" onClick={() => void createPair()}>Create pairing link</button>}>
-      <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Scan the QR code, or open the link in another browser. <span className="text-ink-3" title="Give that browser a name to finish pairing. Each link works once and expires after five minutes."><Icon name="info" size={13} /></span></p>
+      <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Scan the QR code, or open the link in another browser. <span className="text-ink-3" title="Give that browser a name to finish pairing. Each link works once and expires after five minutes."><Icon name="info" size={12} /></span></p>
       <ReversePairing disabled={busy !== null} />
       <HttpsSetup disabled={busy !== null} onBusy={(active) => setBusy(active ? "https" : null)} onPair={setPair} />
-      {pair?.warning && <p className="text-sm text-attn" role="status">{pair.warning}</p>}
+      {pair?.warning && <p className="text-[13px] text-attn" role="status">{pair.warning}</p>}
       {pair && (remaining > 0 ? <div className="grid justify-items-start gap-2">
         <img alt="Scan to pair Launchpad" className="h-64 w-64 max-w-full" src={`data:image/svg+xml;base64,${btoa(pair.svg)}`} />
         <div className="grid w-full min-w-0 gap-1">
-          <span className="text-xs text-ink-3">Pairing URL</span>
+          <span className="text-[12px] text-ink-3">Pairing URL</span>
           <div className="flex min-w-0 flex-wrap items-start gap-2">
-            <a className="min-w-0 max-w-full flex-1 basis-[240px] break-all font-mono text-xs text-teal-ink underline" href={pair.url} target="_blank" rel="noopener noreferrer">{pair.url}</a>
+            <a className="min-w-0 max-w-full flex-1 basis-[240px] break-all font-mono text-[12px] text-teal-ink underline" href={pair.url} target="_blank" rel="noopener noreferrer">{pair.url}</a>
             <button className="btn btn-sm shrink-0" onClick={() => void copyText(pair.url).then(() => toast("Pairing URL copied")).catch(toastError)}>Copy URL</button>
           </div>
         </div>
-        <span className="text-xs text-ink-3" role="status">Expires in {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} · single use</span>
-      </div> : <p className="text-sm text-ink-3" role="status">Pairing link expired. Create a new link.</p>)}
+        <span className="text-[12px] text-ink-3" role="status">Expires in {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} · single use</span>
+      </div> : <p className="text-[13px] text-ink-3" role="status">Pairing link expired. Create a new link.</p>)}
     </Card>
     <Card title="Paired browsers">
-      <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Revoke signs a browser out. <span className="text-ink-3" title="Revoking disconnects its event and terminal viewers. Agents and terminals keep running on the host."><Icon name="info" size={13} /></span></p>
+      <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Revoke signs a browser out. <span className="text-ink-3" title="Revoking disconnects its event and terminal viewers. Agents and terminals keep running on the host."><Icon name="info" size={12} /></span></p>
       {devices.error && <ErrorState error={devices.error} onRetry={() => void devices.refetch()} />}
       {!devices.data ? <Loading what="browsers" /> : !rows.length ? <Empty icon="window">No paired browser.</Empty> :
         <div ref={scroll} className="overflow-y-auto" style={{ height: Math.min(rows.length * 72, 360) }}>
@@ -107,15 +107,15 @@ function ReversePairing({ disabled }: { disabled: boolean }) {
     finally { setBusy(false); }
   };
   return <div className="grid gap-2 rounded border border-line p-3">
-    <p className="text-sm font-medium">Pair with a code from another browser</p>
-    <p className="text-xs text-ink-2">On the unpaired browser, choose Show pairing code. Enter its eight-character code here.</p>
+    <p className="text-[13px] font-medium">Pair with a code from another browser</p>
+    <p className="text-[12px] text-ink-2">On the unpaired browser, choose Show pairing code. Enter its eight-character code here.</p>
     <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); void check(); }}>
-      <label className="grid gap-1 text-xs">Pairing code<input className="field-input w-40 font-mono text-[12px] uppercase" value={code} maxLength={12} autoComplete="off" autoCapitalize="characters" spellCheck={false} placeholder="ABCD 2345" required disabled={disabled || busy} onChange={(event) => { setCode(event.target.value); setRequest(null); }} /></label>
+      <label className="grid gap-1 text-[12px]">Pairing code<input className="field-input w-40 font-mono text-[12px] uppercase" value={code} maxLength={12} autoComplete="off" autoCapitalize="characters" spellCheck={false} placeholder="ABCD 2345" required disabled={disabled || busy} onChange={(event) => { setCode(event.target.value); setRequest(null); }} /></label>
       <button className="btn btn-sm" disabled={disabled || busy}>Check code</button>
     </form>
     {request && <div className="grid gap-2" role="status">
-      <p className="text-sm">Allow <strong>{request.name}</strong> with code <span className="font-mono">{request.code}</span> full access to Launchpad?</p>
-      <p className="text-xs text-ink-2">Only approve a code you can see on your own device. The browser supplies its name; it is not proof of identity.</p>
+      <p className="text-[13px]">Allow <strong>{request.name}</strong> with code <span className="font-mono">{request.code}</span> full access to Launchpad?</p>
+      <p className="text-[12px] text-ink-2">Only approve a code you can see on your own device. The browser supplies its name; it is not proof of identity.</p>
       <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={disabled || busy} onClick={() => void approve()}>Approve browser</button><button className="btn btn-sm" disabled={busy} onClick={() => setRequest(null)}>Cancel</button></div>
     </div>}
   </div>;
@@ -147,38 +147,38 @@ function HttpsSetup({ disabled, onBusy, onPair }: { disabled: boolean; onBusy: (
     } catch (error) { setResult({ pair: null, output: error instanceof Error ? error.message : String(error), approval_url: null }); }
     finally { setWorking(null); onBusy(false); }
   };
-  const controls = <div className="grid min-w-0 gap-2 text-sm">
+  const controls = <div className="grid min-w-0 gap-2 text-[13px]">
     <p>Use Tailscale Serve to pair over HTTPS. Tailscale manages the certificate and keeps the connection running in the background. Both devices must be signed in to your tailnet.</p>
     {!data.connected && <p className="text-attn">Sign in using the Tailscale app on this machine, then refresh.</p>}
     <label className="flex flex-wrap items-center gap-2">HTTPS port <input className="field-input w-24 font-mono text-[12px]" type="number" inputMode="numeric" min={1} max={65535} placeholder="443" value={value} disabled={disabled} onChange={(e) => { setPort(e.target.value); setResult(null); }} /></label>
-    <p className="text-xs text-ink-3">{data.https_port ? `Suggested port: ${data.https_port}. Existing routes are kept. This forwards to Launchpad on port ${data.daemon_port}.` : "Choose an unused HTTPS port from 1 to 65535."}</p>
-    {command && <code className="min-w-0 break-all rounded bg-chrome p-2 text-xs">{command}</code>}
+    <p className="text-[12px] text-ink-3">{data.https_port ? `Suggested port: ${data.https_port}. Existing routes are kept. This forwards to Launchpad on port ${data.daemon_port}.` : "Choose an unused HTTPS port from 1 to 65535."}</p>
+    {command && <code className="min-w-0 break-all rounded bg-chrome p-2 text-[12px]">{command}</code>}
     <div className="flex flex-wrap gap-2">
       <button className="btn btn-sm btn-primary" disabled={disabled || !valid || !data.connected} onClick={() => void run("run")}>{working === "run" ? "Running…" : "Run command"}</button>
       <button className="btn btn-sm" disabled={disabled || !command} onClick={() => command && void copyText(command).then(() => toast("HTTPS setup command copied")).catch(toastError)}>Copy command</button>
       <button className="btn btn-sm" disabled={disabled || !valid} onClick={() => void run("check")}>{working === "check" ? "Checking…" : "Update HTTPS URL"}</button>
       {!data.connected && <button className="btn btn-sm" disabled={disabled} onClick={() => void info.refetch()}>Refresh</button>}
     </div>
-    <p className="text-xs text-ink-3">Run command creates a private HTTPS route for this Launchpad. Once ready, the QR code and URL update automatically.</p>
+    <p className="text-[12px] text-ink-3">Run command creates a private HTTPS route for this Launchpad. Once ready, the QR code and URL update automatically.</p>
     {result && <div className="grid min-w-0 gap-2" role="status">
-      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-chrome p-2 text-xs">{result.output}</pre>
+      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-chrome p-2 text-[12px]">{result.output}</pre>
       {result.approval_url && <a className="justify-self-start text-teal-ink underline" {...externalLinkProps(result.approval_url)}>Approve HTTPS in Tailscale</a>}
-      {!result.pair && result.approval_url && <p className="text-xs text-ink-3">After approving HTTPS, choose Update HTTPS URL. If setup still needs to run, click Run command again.</p>}
+      {!result.pair && result.approval_url && <p className="text-[12px] text-ink-3">After approving HTTPS, choose Update HTTPS URL. If setup still needs to run, click Run command again.</p>}
     </div>}
-    <a className="justify-self-start text-xs text-teal-ink underline" {...externalLinkProps("https://tailscale.com/docs/reference/tailscale-cli/serve")}>Tailscale Serve help</a>
+    <a className="justify-self-start text-[12px] text-teal-ink underline" {...externalLinkProps("https://tailscale.com/docs/reference/tailscale-cli/serve")}>Tailscale Serve help</a>
   </div>;
-  return <div className="min-w-0 rounded-lg border border-line-2 p-3">
-    {data.origin.startsWith("https://") ? <><p className="text-sm">Pairing uses HTTPS: <span className="break-all font-mono text-xs">{data.origin}</span></p><details className="mt-2" open={!!result || port !== null}><summary className="cursor-pointer text-xs text-teal-ink">Tailscale HTTPS settings</summary><div className="mt-2">{controls}</div></details></> : controls}
+  return <div className="min-w-0 rounded-card border border-line-2 p-3">
+    {data.origin.startsWith("https://") ? <><p className="text-[13px]">Pairing uses HTTPS: <span className="break-all font-mono text-[12px]">{data.origin}</span></p><details className="mt-2" open={!!result || port !== null}><summary className="cursor-pointer text-[12px] text-teal-ink">Tailscale HTTPS settings</summary><div className="mt-2">{controls}</div></details></> : controls}
   </div>;
 }
 
 const DeviceRow = memo(function DeviceRow({ device, height, top, busy, onRevoke }: { device: Device; height: number; top: number; busy: boolean; onRevoke: (device: Device) => Promise<void> }) {
   return <div className="absolute left-0 top-0 flex w-full items-center gap-3 border-b border-line-2" style={{ height, transform: `translateY(${top}px)` }}>
-    <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{device.name}{device.current && <span className="ml-2 text-xs font-normal text-ink-3">{isDesktopShell ? "This desktop app" : "This browser"}</span>}</div>
-      <div className="truncate text-xs text-ink-3">
+    <div className="min-w-0 flex-1"><div className="truncate text-[13px] font-semibold">{device.name}{device.current && <span className="ml-2 text-[12px] font-normal text-ink-3">{isDesktopShell ? "This desktop app" : "This browser"}</span>}</div>
+      <div className="truncate text-[12px] text-ink-3">
         {device.last_seen_at ? `Last active ${lastActive(device.last_seen_at)}` : "Not active since pairing"} · paired {ago(device.created_at * 1000)} · expires {when(device.expires_at * 1000)}
       </div></div>
-    {isDesktopShell && device.current ? <span className="text-xs text-ink-3">Local desktop app</span> : <button className="btn btn-sm" disabled={busy} onClick={() => void onRevoke(device)}>{device.current ? "Sign out" : "Revoke"}</button>}
+    {isDesktopShell && device.current ? <span className="text-[12px] text-ink-3">Local desktop app</span> : <button className="btn btn-sm" disabled={busy} onClick={() => void onRevoke(device)}>{device.current ? "Sign out" : "Revoke"}</button>}
   </div>;
 });
 

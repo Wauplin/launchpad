@@ -48,8 +48,8 @@ export function WorktreeChip({ session }: { session: Session }) {
   if (!primary) return null;
   return (
     <Popover viewport width={380} trigger={({ toggle }) => (
-      <button className={`inline-flex max-w-[260px] items-center gap-1 truncate rounded-[5px] border px-1.5 font-mono text-[11px] ${warn(primary) ? "border-attn-line bg-attn-soft text-attn" : "border-line bg-paper text-ink-2 hover:text-ink"}`} title={`Worktree ${primary.path}`} onClick={toggle}>
-        <Icon name="branch" size={11} />
+      <button className={`inline-flex max-w-[260px] items-center gap-1 truncate rounded-control border px-1.5 font-mono text-[11px] ${warn(primary) ? "border-attn-line bg-attn-soft text-attn" : "border-line bg-paper text-ink-2 hover:text-ink"}`} title={`Worktree ${primary.path}`} onClick={toggle}>
+        <Icon name="branch" size={12} />
         <span className="truncate">{primary.worktree.branch}</span>
         <span className="font-sans text-ink-3">· {worktreeState(primary)}{list.length > 1 ? ` · +${list.length - 1}` : ""}</span>
       </button>
@@ -112,9 +112,9 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
   const onHome = w.state === "active" || (!!away && w.state === "removed");
   const canMerge = merge && onHome && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id;
   return (
-    <div className="grid gap-1.5 text-xs">
+    <div className="grid gap-1.5 text-[12px]">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <Icon name="branch" size={13} className="text-ink-3" />
+        <Icon name="branch" size={12} className="text-ink-3" />
         <b className="font-mono text-[12px]">{w.branch}</b>
         <span className="text-ink-3">{i.project_name}{w.primary ? "" : " · editable context"}</span>
       </div>

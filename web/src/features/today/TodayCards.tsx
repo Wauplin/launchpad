@@ -38,9 +38,9 @@ export const ghParams = (repo: string, number: number) => ({ owner: repo.split("
 /** The card frame: icon, title, one meta line, then the kind's own content and buttons. `age: false` when the meta already says since when (a session's status badge). */
 function Card({ item, meta, open, children, tone = "border-line", age = true }: { item: TodayItem; meta?: ReactNode; open?: ReactNode; children?: ReactNode; tone?: string; age?: boolean }) {
   return (
-    <article data-tour="today.card" data-tour-id={item.id} className={`group grid min-w-0 grid-cols-1 gap-2.5 rounded-xl border bg-paper p-3 ${tone}`}>
+    <article data-tour="today.card" data-tour-id={item.id} className={`group grid min-w-0 grid-cols-1 gap-2.5 rounded-card border bg-paper p-3 ${tone}`}>
       <div className="flex min-w-0 items-start gap-2.5">
-        <span className="grid size-7 flex-none place-items-center rounded-lg bg-sunk text-ink-2"><Icon name={ICON[item.kind]} size={14} /></span>
+        <span className="grid size-7 flex-none place-items-center rounded-card bg-sunk text-ink-2"><Icon name={ICON[item.kind]} size={14} /></span>
         <div className="min-w-0 flex-1">
           <div className="line-clamp-2 text-[13px] font-semibold" title={item.title}>{item.title}</div>
           <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] text-ink-3">{meta ?? <span className="truncate">{item.detail}</span>}{age && <span className="flex-none">· {ago(item.at)}</span>}</div>
@@ -129,7 +129,7 @@ export function BranchActions({ sessionId, s, onMerged, children }: { sessionId:
   const branch = useBranch(sessionId, s);
   const { w, t, safe, facts } = branch;
   return <>
-    {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={13} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
+    {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={12} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
     <div className="flex flex-wrap items-center gap-1.5">
       {safe
         ? <MergeButton sessionId={sessionId} branch={branch} onMerged={onMerged} />

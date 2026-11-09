@@ -31,7 +31,7 @@ export function AddFolderDialog() {
   if (phone) return <Sheet title="Add folders" full onClose={close}><Body onClose={close} /></Sheet>;
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-6" onClick={close}>
-      <div role="dialog" aria-label="Add folders" className="flex max-h-[calc(86vh/var(--lp-zoom,1))] w-[640px] max-w-full flex-col overflow-hidden rounded-xl border border-line bg-paper shadow-[0_20px_60px_-20px_rgba(23,32,43,.6)]" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-label="Add folders" className="flex max-h-[calc(86vh/var(--lp-zoom,1))] w-[640px] max-w-full flex-col overflow-hidden rounded-card border border-line bg-paper shadow-[0_20px_60px_-20px_rgba(23,32,43,.6)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-line-2 px-4 py-2.5">
           <b className="flex-1 text-[15px]">Add folders</b>
           <button className="iconbtn" aria-label="Close" title="Close" onClick={close}><Icon name="x" size={14} /></button>
@@ -92,7 +92,7 @@ function Body({ onClose }: { onClose: () => void }) {
       <div key={native} className="flex h-10 items-center gap-2 border-b border-line-2 px-3 text-[13px] last:border-0">
         <input type="checkbox" className="accent-teal" aria-label={`Add ${label}`} disabled={known} checked={known || picked.has(native)} onChange={() => toggle(native)} />
         <button className="flex min-w-0 flex-1 items-center gap-2 text-left hover:underline disabled:no-underline" disabled={!enter} onClick={enter} title={enter ? `Open ${native}` : native}>
-          <Icon name="folder" size={13} className="flex-none text-ink-3" />
+          <Icon name="folder" size={12} className="flex-none text-ink-3" />
           <span className="truncate">{label}</span>
         </button>
         {git && <Token icon="branch">Git</Token>}
@@ -108,11 +108,11 @@ function Body({ onClose }: { onClose: () => void }) {
           <CloneFromGitHub root={config?.projects_root} workspace={chosen} initialRepo={preset.repo} onDone={onClose} />
         ) : (
           <>
-            {role === "runner" && <p className="rounded-[6px] bg-attn-soft px-2.5 py-2 text-[12px] text-attn">Folders added here are tracked by Home and backed up to Home's cloud bucket: Git folders send their branches, folders without Git have their files copied.</p>}
+            {role === "runner" && <p className="rounded-control bg-attn-soft px-2.5 py-2 text-[12px] text-attn">Folders added here are tracked by Home and backed up to Home's cloud bucket: Git folders send their branches, folders without Git have their files copied.</p>}
             {suggestions.length > 0 && (
               <section className="grid gap-1">
                 <div className="seclabel">Git repositories in the folders root</div>
-                <div className="grid max-h-[200px] overflow-y-auto rounded-lg border border-line">{suggestions.map((s) => row(s.path, s.gh_repo ? `${s.name} · ${s.gh_repo}` : s.name, true))}</div>
+                <div className="grid max-h-[200px] overflow-y-auto rounded-card border border-line">{suggestions.map((s) => row(s.path, s.gh_repo ? `${s.name} · ${s.gh_repo}` : s.name, true))}</div>
               </section>
             )}
             <section className="grid gap-1.5">
@@ -124,7 +124,7 @@ function Body({ onClose }: { onClose: () => void }) {
                 <button className="btn btn-sm" onClick={() => setAt("~")}>Home</button>
               </div>
               {browse.isLoading ? <Loading what="folders" /> : browse.error ? <ErrorState error={browse.error} /> : d && (
-                <div className="grid max-h-[300px] overflow-y-auto rounded-lg border border-line">
+                <div className="grid max-h-[300px] overflow-y-auto rounded-card border border-line">
                   {row(d.path, `This folder · ${d.path.split("/").pop() || d.path}`, d.git)}
                   {d.entries.length === 0 ? <Empty icon="folder">No subfolder.</Empty> : d.entries.map((e) => row(join(d.path, e.name), e.name, !!e.git, () => setAt(join(d.path, e.name))))}
                 </div>

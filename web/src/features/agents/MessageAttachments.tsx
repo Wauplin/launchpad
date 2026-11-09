@@ -37,7 +37,7 @@ export function AttachmentList({ files, disabled, onRemove }: { files: FileAttac
   if (!files.length) return null;
   return (
     <div className="mb-2 flex flex-wrap items-start gap-2">{files.map((file, i) => (
-      <div key={i} className="relative max-w-full rounded-md border border-line bg-chrome p-1.5 pr-6">
+      <div key={i} className="relative max-w-full rounded-control border border-line bg-chrome p-1.5 pr-6">
         {isImageAttachment(file.data_url)
           ? <img src={attachmentSrc(file.data_url)} alt={file.name} className="mb-1 h-16 max-w-28 object-contain" />
           : <Icon name="file" size={14} className="mb-1 text-ink-3" />}

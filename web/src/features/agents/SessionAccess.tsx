@@ -27,7 +27,7 @@ export function SessionAccess({ session, wrap }: { session: Session; wrap: (body
     else grouped.set(key, { a, n: 1 });
   }
   return wrap(
-    <div className="grid gap-2 text-xs">
+    <div className="grid gap-2 text-[12px]">
       {active.map((l) => <LeaseRow key={l.id} lease={l} onDone={() => qc.invalidateQueries({ queryKey: ["vault-leases", session.id] })} />)}
       {log.length > 0 && (
         <details>

@@ -120,7 +120,7 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
           <Choice active={main && !committed} disabled={!status.data?.main_changes} onClick={() => live(false, true)}>Compared with main</Choice>
           {!!history.data?.commits.length && <Choice active={committed} onClick={() => setMode("committed")}>Committed</Choice>}
         </Choices>
-        <button className="iconbtn" aria-label="Refresh changes" title="Refresh changes" onClick={() => { void status.refetch(); void history.refetch(); if (commit) void commitHistory.refetch(); if (selected) void diff.refetch(); }}><Icon name="refresh" size={13} /></button>
+        <button className="iconbtn" aria-label="Refresh changes" title="Refresh changes" onClick={() => { void status.refetch(); void history.refetch(); if (commit) void commitHistory.refetch(); if (selected) void diff.refetch(); }}><Icon name="refresh" size={14} /></button>
       </>}
       banner={(status.data || history.data) && !files.length ? <Empty icon="check">{committed ? "No net file changes in these commits." : main ? "No tracked changes compared with main." : "Working tree clean."}</Empty> : undefined}
     />}

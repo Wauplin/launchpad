@@ -24,7 +24,7 @@ function NavItem({ to, icon, children, end, tour }: { to: string; icon: IconName
     <Link
       to={to}
       data-tour={tour}
-      className="flex min-h-[31px] flex-none items-center gap-[9px] rounded-[7px] px-[9px] py-1 text-ink-2 no-underline hover:bg-sunk"
+      className="flex min-h-[31px] flex-none items-center gap-2 rounded-control px-[9px] py-1 text-ink-2 no-underline hover:bg-sunk"
       activeProps={{ className: "!bg-paper !text-ink font-semibold shadow-[inset_0_0_0_1px_var(--color-line)]" }}
       activeOptions={{ exact: to === "/", includeSearch: false }}
     >
@@ -44,8 +44,8 @@ function Group({ id, to, label, end, actions, tour, children }: { id: SidebarGro
   const toggle = useSidebar((s) => s.toggle);
   return (
     <div className="flex flex-none flex-col gap-px" data-tour={tour}>
-      <div className="flex min-h-[31px] flex-none items-center rounded-[7px] hover:bg-sunk">
-        <button type="button" className="grid h-[31px] w-[34px] flex-none place-items-center rounded-[7px] text-ink-3 hover:text-ink" aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${label}`} title={`${open ? "Collapse" : "Expand"} ${label} on this device`} onClick={() => toggle(id)}>
+      <div className="flex min-h-[31px] flex-none items-center rounded-control hover:bg-sunk">
+        <button type="button" className="grid h-[31px] w-[34px] flex-none place-items-center rounded-control text-ink-3 hover:text-ink" aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${label}`} title={`${open ? "Collapse" : "Expand"} ${label} on this device`} onClick={() => toggle(id)}>
           <Icon name="chev" size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
         </button>
         <Link to={to} className="flex h-[31px] min-w-0 flex-1 items-center gap-1.5 pr-1 text-ink-2 no-underline" activeProps={{ className: "!text-ink font-semibold" }} activeOptions={{ exact: true }}>
@@ -81,7 +81,7 @@ function FinishSetup() {
       <div className="min-w-0 flex-1">
         <NavItem to="/setup" icon="check" end={<span className="rounded-full bg-attn-soft px-1.5 text-[11px] font-semibold whitespace-nowrap text-attn tabular-nums">{left} left</span>}><span className="whitespace-nowrap">Finish setup</span></NavItem>
       </div>
-      <button type="button" className="iconbtn size-[22px]!" title="Hide Finish setup (the checklist stays in Settings → Onboarding)" aria-label="Hide Finish setup" onClick={() => void patch({ dismiss: ["setup"] }).catch(toastError)}><Icon name="x" size={12} /></button>
+      <button type="button" className="iconbtn" title="Hide Finish setup (the checklist stays in Settings → Onboarding)" aria-label="Hide Finish setup" onClick={() => void patch({ dismiss: ["setup"] }).catch(toastError)}><Icon name="x" size={12} /></button>
     </div>
   );
 }
@@ -90,8 +90,8 @@ function FinishSetup() {
 const BotLink = memo(function BotLink({ bot, thread }: { bot: Bot; thread: Session[] }) {
   const state = botState(thread);
   return (
-    <Link to="/bots/$id" params={{ id: bot.id }} className="flex h-[28px] items-center gap-2 rounded-md px-[9px] text-[13px] text-ink no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)] font-semibold" }}>
-      <span className="grid size-[16px] flex-none place-items-center rounded-[4px] bg-teal-soft text-[10px] font-semibold text-teal-ink" aria-hidden>{botInitial(bot.settings.name)}</span>
+    <Link to="/bots/$id" params={{ id: bot.id }} className="flex h-[28px] items-center gap-2 rounded-control px-[9px] text-[13px] text-ink no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)] font-semibold" }}>
+      <span className="grid size-[16px] flex-none place-items-center rounded-sm bg-teal-soft text-[11px] font-semibold text-teal-ink" aria-hidden>{botInitial(bot.settings.name)}</span>
       <span className="min-w-0 flex-1 truncate">{bot.settings.name}</span>
       {state === "needs" && <span className="size-[7px] rounded-full bg-attn" title="Needs you" />}
       {state === "paused" && <span className="size-[7px] rounded-full border border-attn" title="Quota paused" />}
@@ -111,7 +111,7 @@ function BotList({ sessions }: { sessions: Session[] }) {
     {states.includes("running") && <span className="lp-spin" title="A bot works" />}
   </span>;
   return (
-    <Group id="bots" to="/bots" label="Bots" tour="sidebar.bots" end={summary} actions={<Link to="/bots" search={{ new: true } as never} className="iconbtn size-[22px]!" title="New bot" aria-label="New bot"><Icon name="plus" size={13} /></Link>}>
+    <Group id="bots" to="/bots" label="Bots" tour="sidebar.bots" end={summary} actions={<Link to="/bots" search={{ new: true } as never} className="iconbtn" title="New bot" aria-label="New bot"><Icon name="plus" size={14} /></Link>}>
       {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} />)}
       {bots.length === 0 && <Link to="/bots" search={{ new: true } as never} className="mx-[9px] my-1 text-[12px] text-teal-ink no-underline hover:underline">+ New bot</Link>}
     </Group>
@@ -172,8 +172,8 @@ export function Sidebar() {
             Settings
           </NavItem>
         </div>
-        <button type="button" className="flex size-[31px] flex-none items-center justify-center rounded-[7px] text-ink-2 hover:bg-sunk" aria-label="Dark theme" aria-pressed={theme === "dark"} title={`Switch to ${theme === "light" ? "dark" : "light"} theme on this device`} onClick={toggle}>
-          <Icon name={theme === "dark" ? "moon" : "sun"} size={15} />
+        <button type="button" className="flex size-[31px] flex-none items-center justify-center rounded-control text-ink-2 hover:bg-sunk" aria-label="Dark theme" aria-pressed={theme === "dark"} title={`Switch to ${theme === "light" ? "dark" : "light"} theme on this device`} onClick={toggle}>
+          <Icon name={theme === "dark" ? "moon" : "sun"} size={16} />
         </button>
       </div>
       </div>

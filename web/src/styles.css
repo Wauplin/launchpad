@@ -17,7 +17,6 @@
   --color-teal-soft: #e2f1ee;
   --color-clay: #bd5a39;
   --color-clay-soft: #f7e8e1;
-  --color-graphite: #2a3038;
   --color-gh-open: #1a7f37;
   --color-gh-merged: #8250df;
   --color-gh-closed: #cf222e;
@@ -37,6 +36,15 @@
   --color-diff-del: #ffeef0;
   --color-demo: #6f42c1;
   --color-demo-soft: #f1eafc;
+
+  /* Sizes (CLAUDE.md, UI rules): text only 11/12/13/15/18 px as text-[Npx] (Tailwind's text-xs… are removed here, so
+     they do nothing; `pnpm ui-check` lists them), corners rounded-control (6 px: buttons, fields, menu items) and
+     rounded-card (10 px: cards, panels, dialogs), page bodies max-w-page and reading columns max-w-text. */
+  --text-*: initial;
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --container-page: 920px;
+  --container-text: 760px;
 
   --font-ui: "Ubuntu Sans", "Ubuntu", system-ui, "Segoe UI", sans-serif;
   --font-mono: "Ubuntu Sans Mono", "Ubuntu Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -106,7 +114,7 @@ button {
 /* Shared small components. */
 @layer components {
   .btn {
-    @apply inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-line bg-paper px-[11px] text-[13px] font-[550] whitespace-nowrap text-ink select-none;
+    @apply inline-flex h-[30px] items-center gap-1.5 rounded-control border border-line bg-paper px-[11px] text-[13px] font-[550] whitespace-nowrap text-ink select-none;
   }
   .btn:hover:not(:disabled) {
     @apply border-line bg-chrome;
@@ -115,7 +123,7 @@ button {
     @apply opacity-50;
   }
   .btn-sm {
-    @apply h-6 gap-[5px] rounded-md px-2 text-xs;
+    @apply h-6 gap-1 rounded-control px-2 text-[12px];
   }
   .btn-primary {
     @apply border-teal-ink bg-teal text-white;
@@ -138,13 +146,13 @@ button {
   }
   /* Icon-only buttons: one size, 28 px here and 44 px on the phone, with a 14 px icon (IconButton). */
   .iconbtn {
-    @apply inline-grid size-7 flex-none place-items-center rounded-md border border-transparent text-ink-2;
+    @apply inline-grid size-7 flex-none place-items-center rounded-control border border-transparent text-ink-2;
   }
   .iconbtn:hover:not(:disabled) {
     @apply bg-sunk text-ink;
   }
   .field-input {
-    @apply h-8 w-full rounded-[7px] border border-line bg-paper px-2.5 text-[13px] text-ink outline-none;
+    @apply h-8 w-full rounded-control border border-line bg-paper px-2.5 text-[13px] text-ink outline-none;
   }
   /* Native selects draw the same chevron as SelectButton menus. */
   select.field-input {
@@ -196,10 +204,10 @@ button {
   }
   /* Choices: pick one or several options of a setting (profile, tools, presets, On/Off). */
   .lp-seg {
-    @apply inline-flex max-w-full min-w-0 flex-wrap gap-0.5 rounded-lg bg-sunk p-0.5;
+    @apply inline-flex max-w-full min-w-0 flex-wrap gap-0.5 rounded-card bg-sunk p-0.5;
   }
   .lp-seg-item {
-    @apply inline-flex h-[26px] min-w-0 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] whitespace-nowrap text-ink-2 select-none;
+    @apply inline-flex h-[26px] min-w-0 shrink-0 items-center gap-1.5 rounded-control px-2.5 text-[13px] whitespace-nowrap text-ink-2 select-none;
   }
   .lp-seg-item:hover:not(:disabled) {
     @apply text-ink;
@@ -218,7 +226,7 @@ button {
 /* The composer's prompt: one frame for the text and the attach row under it, so no line passes under a button. */
 .composer-prompt {
   border: 1.5px solid var(--color-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--color-paper);
 }
 .composer-prompt:focus-within {
@@ -228,7 +236,7 @@ button {
 
 /* Markdown from agents. */
 .lp-md {
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
@@ -264,10 +272,10 @@ button {
   line-height: 1.3;
 }
 .lp-md h1 {
-  font-size: 16px;
+  font-size: 15px;
 }
 .lp-md h2 {
-  font-size: 14.5px;
+  font-size: 13px;
 }
 .lp-md h3,
 .lp-md h4 {
@@ -288,10 +296,10 @@ button {
 .lp-md pre {
   margin: 0;
   padding: 7px 9px;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--color-code);
   border: 1px solid var(--color-line-2);
-  font: 11.5px/1.5 var(--font-mono);
+  font: 12px/1.5 var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -338,7 +346,7 @@ button {
 .lp-copy {
   height: 22px;
   padding: 0 7px;
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--color-line);
   background: var(--color-paper);
   font-size: 11px;
@@ -391,22 +399,22 @@ button {
   text-underline-offset: 2px;
 }
 .lp-md-doc {
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.6;
 }
 .lp-md-doc h1 {
-  font-size: 22px;
+  font-size: 18px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--color-line-2);
 }
 .lp-md-doc h2 {
-  font-size: 18px;
+  font-size: 15px;
   margin-top: 22px;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--color-line-2);
 }
 .lp-md-doc h3 {
-  font-size: 15px;
+  font-size: 13px;
   margin-top: 18px;
 }
 .lp-md-doc p,
@@ -592,7 +600,7 @@ button {
   margin: 0;
   padding: 10px 12px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: transparent;
   box-shadow: none;
   text-align: left;
@@ -606,7 +614,7 @@ button {
 .lp-phone .phone-action-popover > button,
 .lp-phone .phone-action-popover .btn { min-height: 48px; }
 .lp-phone .phone-action-popover:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 2px; }
-.lp-phone .phone-item-controls { width: 100%; border: 0; border-radius: 12px; }
+.lp-phone .phone-item-controls { width: 100%; border: 0; border-radius: var(--radius-card); }
 .lp-phone .phone-tabs {
   min-width: 0;
   flex-wrap: nowrap;
@@ -682,6 +690,8 @@ button {
 .lp-phone .lp-tab { min-height: 44px; flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
 .lp-phone .lp-chip { flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
 .lp-phone .page-header { padding: 8px 12px 0; }
+/* Laptop page bodies use the header's 20 px side padding; the phone uses 12 px. */
+.lp-phone .page-body { padding-inline: 12px; }
 /* Agents rows: the 44 px ⋯ sits in the row's bottom-right corner. */
 .lp-phone .agent-row-action { bottom: 0; right: 0; }
 .lp-phone .agent-row-line { padding-right: 44px; }
@@ -700,11 +710,11 @@ button {
 .lp-tour-block { position: fixed; pointer-events: auto; }
 .lp-tour-dim { position: fixed; inset: 0; background: rgb(10 15 25 / 0.5); }
 .lp-tour-spot {
-  position: fixed; border-radius: 8px; box-shadow: 0 0 0 2px var(--color-demo), 0 0 0 9999px rgb(10 15 25 / 0.5);
+  position: fixed; border-radius: var(--radius-card); box-shadow: 0 0 0 2px var(--color-demo), 0 0 0 9999px rgb(10 15 25 / 0.5);
   transition: top 0.15s, left 0.15s, width 0.15s, height 0.15s;
 }
 .lp-tour-card {
-  position: fixed; pointer-events: auto; border: 1px solid var(--color-line); border-top: 3px solid var(--color-demo); border-radius: 10px;
+  position: fixed; pointer-events: auto; border: 1px solid var(--color-line); border-top: 3px solid var(--color-demo); border-radius: var(--radius-card);
   background: var(--color-paper); color: var(--color-ink); padding: 12px 14px; box-shadow: 0 16px 40px -12px rgb(10 15 25 / 0.55);
 }
 .lp-tour-link { color: var(--color-ink-2); }

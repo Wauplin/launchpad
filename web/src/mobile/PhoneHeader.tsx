@@ -80,7 +80,7 @@ export function PhoneActions({ label = "Actions & details", children, details, c
         // Pickers and multi-step controls retain their state and manage their own dismissal.
         if (closeOnAction && button && !button.hasAttribute("aria-expanded") && !button.hasAttribute("disabled")) queueMicrotask(close);
       }}>{typeof children === "function" ? children(close) : children}</div>}
-      {details && <div className="phone-action-details grid min-w-0 gap-3 px-3 py-2 text-sm">{details}</div>}
+      {details && <div className="phone-action-details grid min-w-0 gap-3 px-3 py-2">{details}</div>}
     </div>}
   </Popover>;
 }
@@ -92,7 +92,7 @@ export function PhoneHeader({ title, subtitle, onBack, backLabel = "Back", prima
   const shellTitle = useRouterState({ select: (s) => pageTitle(s.location.pathname) });
   const menu = (actions || details) && <PhoneActions children={actions} details={onBack ? <><p className="break-words font-semibold">{title}</p>{details}</> : details} />;
   const line = (lead: ReactNode, end: ReactNode) => <header className="phone-page-header flex min-w-0 shrink-0 items-center gap-2 border-b border-line px-3 py-1.5">
-    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 break-words text-xs leading-4 text-ink-3">{lead}</div>{primary}{end}
+    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 break-words text-[12px] leading-4 text-ink-3">{lead}</div>{primary}{end}
   </header>;
   if (onBack) return <>
     <PhoneBar title={title} onBack={onBack} backLabel={backLabel} end={menu} />

@@ -1,5 +1,6 @@
 // The only date helpers of the UI: `ago` for past moments, `age` for the compact form of dense lists and `when` for
-// exact or future moments. Every helper takes Unix milliseconds. Never show seconds or the current year.
+// exact or future moments; `time`, `day` and `month` for labels that need only one part (a clock, a chart axis).
+// Every helper takes Unix milliseconds. Never show seconds or the current year.
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -39,6 +40,21 @@ export function when(ms: number): string {
   if (offset === 1) return `tomorrow ${clock(d)}`;
   if (offset === -1) return `yesterday ${clock(d)}`;
   return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}${d.getFullYear() === new Date().getFullYear() ? "" : ` ${d.getFullYear()}`}, ${clock(d)}`;
+}
+
+/** Hour and minute only, for a moment of today: "14:02" ("Offline since 14:02"). */
+export const time = (ms: number): string => clock(new Date(ms));
+
+/** A calendar day without the time: "Oct 3" ("Oct 3, 2025" in another year). */
+export function day(ms: number): string {
+  const d = new Date(ms);
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}${year(d)}`;
+}
+
+/** A month: "November" ("November 2025" in another year). */
+export function month(ms: number): string {
+  const d = new Date(ms);
+  return `${d.toLocaleDateString([], { month: "long" })}${d.getFullYear() === new Date().getFullYear() ? "" : ` ${d.getFullYear()}`}`;
 }
 
 /** Quota reset (Unix seconds, rounded to the minute: the usage endpoint returns times like 13:29:59.7). */

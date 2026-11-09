@@ -35,7 +35,7 @@ const AgentRow = memo(function AgentRow({ agent, depth, selected, collapsed, has
   return <div className={`flex h-12 items-center border-b border-line-2 ${selected ? "bg-select" : "hover:bg-sunk"}`} style={{ paddingLeft: 4 + Math.min(depth, 6) * 12 }}>
     <button className="iconbtn shrink-0" disabled={!hasChildren} aria-label={`${collapsed ? "Expand" : "Collapse"} ${agent.name}`} aria-expanded={hasChildren ? !collapsed : undefined} onClick={toggle}>{hasChildren ? <span>{collapsed ? "▸" : "▾"}</span> : <span className="w-3" />}</button>
     <button className="min-w-0 flex-1 px-1 py-1 text-left" aria-pressed={selected} title={`${agent.name} · ${agent.id}`} onClick={select}>
-      <span className="block truncate text-xs font-medium">{displayName(agent.name)}</span>
+      <span className="block truncate text-[12px] font-medium">{displayName(agent.name)}</span>
       <span className="flex items-center gap-1 text-[11px] text-ink-3">{agent.status === "running" && <span className="lp-spin" />}<span className={agent.status === "failed" ? "text-gh-closed" : ""}>{agent.status === "unknown" ? "Status unavailable" : agent.status}</span></span>
     </button>
   </div>;
@@ -93,7 +93,7 @@ export function SubagentsPanel({ log, agents, sessionId, live, back }: { log: Se
   useLayoutEffect(() => { if (bottom.current && rows.length) trace.scrollToIndex(rows.length - 1, { align: "end" }); }, [rows.length, total, active?.id, trace]);
   const parent = agents.find((a) => a.id === active?.parent);
   return <div className="@container flex min-h-0 flex-1 flex-col">
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line-2 px-3 py-2 text-xs text-ink-3">
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line-2 px-3 py-2 text-[12px] text-ink-3">
       <button className="btn btn-sm" onClick={back}>← Parent trace</button>
       <span className="whitespace-nowrap">{agents.filter((a) => a.status === "running").length} running · {agents.length} total</span>
       <span className="ml-auto whitespace-nowrap">Read-only</span>
@@ -107,15 +107,15 @@ export function SubagentsPanel({ log, agents, sessionId, live, back }: { log: Se
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {active && <div className="shrink-0 border-b border-line-2 px-3 py-2">
           {parent && <button className="mb-1 block max-w-full truncate text-[11px] text-teal-ink" onClick={() => select(parent.id)}>← {displayName(parent.name)}</button>}
-          <div className="truncate text-xs font-semibold" title={active.name}>{displayName(active.name)}</div>
+          <div className="truncate text-[12px] font-semibold" title={active.name}>{displayName(active.name)}</div>
           <div className="flex flex-wrap gap-x-2 text-[11px] text-ink-3"><span>{active.status === "unknown" ? "Status unavailable" : active.status}</span>{active.model && <span>{active.model}</span>}<span title={active.id}>{active.id.slice(-8)}</span></div>
         </div>}
         <div key={active?.id} ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3" onScroll={(e) => { const el = e.currentTarget; bottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60; }}>
-          {!rows.length && <div className="p-6 text-center text-xs text-ink-3">{active?.status === "running" ? "Waiting for trace events…" : "The harness supplied no trace events for this agent."}</div>}
+          {!rows.length && <div className="p-6 text-center text-[12px] text-ink-3">{active?.status === "running" ? "Waiting for trace events…" : "The harness supplied no trace events for this agent."}</div>}
           <div style={{ height: total, position: "relative" }}>
             {trace.getVirtualItems().map((it) => <div key={`${active?.id}-${rows[it.index].key}`} data-index={it.index} ref={trace.measureElement} className="flex flex-col py-[5px]" style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${it.start}px)` }}><EventRow row={rows[it.index]} sessionId={sessionId} live={false} /></div>)}
           </div>
-          {active?.status === "running" && live && <div className="flex items-center gap-2 py-2 text-xs text-work"><span className="lp-spin" />Working…</div>}
+          {active?.status === "running" && live && <div className="flex items-center gap-2 py-2 text-[12px] text-work"><span className="lp-spin" />Working…</div>}
         </div>
       </div>
     </div>

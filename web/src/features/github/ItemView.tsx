@@ -75,7 +75,7 @@ const EventCard = memo(function EventCard({ event, item }: { event: Timeline; it
       {time && <span className="flex-none">· {ago(Date.parse(time))}</span>}
     </div>;
   }
-  return <article className="rounded-lg border border-line bg-paper p-4">
+  return <article className="rounded-card border border-line bg-paper p-4">
     <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
       {author?.avatarUrl && <img src={author.avatarUrl} width={24} height={24} className="rounded-full" alt="" />}
       <b className="text-ink">{who}</b>
@@ -110,9 +110,9 @@ function Conversation({ item, focus }: { item: Item; focus: { id: string | null;
     const i = Math.max(0, suggestions.data.findIndex((s) => s.id === focus.id));
     requestAnimationFrame(() => v.scrollToIndex(i, { align: "start" }));
   }, [focus.n, loaded]);
-  return <div ref={ref} className="min-h-0 flex-1 overflow-auto p-4">
+  return <div ref={ref} className="page-body min-h-0 flex-1 overflow-auto px-5 py-4">
     {suggestions.error && <ErrorState className="mb-3" error={suggestions.error} />}
-    <div className="relative" style={{ height: v.getTotalSize() }}>
+    <div className="relative max-w-page" style={{ height: v.getTotalSize() }}>
       {v.getVirtualItems().map((r) => <div key={r.key} data-index={r.index} ref={v.measureElement} className="absolute top-0 left-0 w-full pb-3" style={{ transform: `translateY(${r.start}px)` }}>
         {r.index < suggestions.data.length ? <SuggestionCard suggestion={suggestions.data[r.index]} head={item.headRefOid} onPosted={() => { void api.post<Item>(itemPath(item.repo, item.number), { force: true }).then((fresh) => qc.setQueryData(itemKey(item.repo, item.number), fresh)).catch(() => {}); }} /> : <EventCard event={events[r.index - suggestions.data.length]} item={item} />}
       </div>)}
@@ -124,8 +124,8 @@ function ReviewThreads({ item }: { item: Item }) {
   const ref = useRef<HTMLDivElement>(null);
   const rows = useMemo(() => (item.reviewThreads?.nodes ?? []).flatMap((t) => [{ thread: t, comment: null as Comment | null }, ...t.comments.nodes.map((c) => ({ thread: t, comment: c }))]), [item.reviewThreads]);
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => ref.current, estimateSize: (i) => (rows[i].comment ? 160 : 40), overscan: 3, useFlushSync: false });
-  return <div ref={ref} className="min-h-0 flex-1 overflow-auto p-4">
-    <div className="relative" style={{ height: v.getTotalSize() }}>
+  return <div ref={ref} className="page-body min-h-0 flex-1 overflow-auto px-5 py-4">
+    <div className="relative max-w-page" style={{ height: v.getTotalSize() }}>
       {v.getVirtualItems().map((r) => {
         const { thread: t, comment: c } = rows[r.index];
         return <div key={c?.id ?? t.id} data-index={r.index} ref={v.measureElement} className="absolute top-0 left-0 w-full pb-3" style={{ transform: `translateY(${r.start}px)` }}>
@@ -164,7 +164,7 @@ function Checks({ item }: { item: Item }) {
   return <Section title="Checks" aside={list.length > 0 && <button className="text-[12px] text-teal-ink hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide" : "Show all"}</button>}>
     {waiting && <ActionButton name="github.run-ci" params={{ owner, repo, number: String(item.number) }} body={{ head: item.headRefOid }} className="w-full justify-center"
       onDone={() => { toast("Workflows approved"); void api.post<Item>(itemPath(item.repo, item.number), { force: true }).then((fresh) => qc.setQueryData(itemKey(item.repo, item.number), fresh)).catch(() => {}); }} />}
-    {list.length ? <span className={`flex items-center gap-1.5 ${n.fail ? "text-danger-ink" : n.pending ? "text-attn" : "text-gh-open"}`}><Icon name={n.fail ? "xcircle" : n.pending ? "clock" : "okcircle"} size={13} />{summary}</span> : <span className="text-ink-3">No checks</span>}
+    {list.length ? <span className={`flex items-center gap-1.5 ${n.fail ? "text-danger-ink" : n.pending ? "text-attn" : "text-gh-open"}`}><Icon name={n.fail ? "xcircle" : n.pending ? "clock" : "okcircle"} size={12} />{summary}</span> : <span className="text-ink-3">No checks</span>}
     {open && <div ref={ref} className="overflow-auto" style={{ height: Math.min(224, sorted.length * 28) }}>
       <div className="relative" style={{ height: v.getTotalSize() }}>
         {v.getVirtualItems().map((r) => {
@@ -222,8 +222,8 @@ function Controls({ item, act, busy, shown = true, onClose }: { item: Item; act:
     <div className="grid gap-3">
       <Section title="Status">
         <div className="flex flex-wrap items-center gap-2"><Badge tone={state.tone} icon={state.icon}>{state.label}</Badge>{!open && !item.merged && <button className="btn btn-sm" disabled={busy} onClick={() => void act("state", { kind: isPr ? "pr" : "issue", state: "open", state_reason: "reopened" })}>Reopen</button>}</div>
-        {isPr && open && <div data-tour="item.merge" className="grid gap-2 rounded-lg border border-line bg-paper p-3">
-          <span className={`flex items-start gap-1.5 ${ready ? "text-gh-open" : "text-attn"}`}><Icon name={ready ? "okcircle" : "alert"} size={13} className="mt-px flex-none" />{ready ? "Ready to merge" : blocker(item)}</span>
+        {isPr && open && <div data-tour="item.merge" className="grid gap-2 rounded-card border border-line bg-paper p-3">
+          <span className={`flex items-start gap-1.5 ${ready ? "text-gh-open" : "text-attn"}`}><Icon name={ready ? "okcircle" : "alert"} size={12} className="mt-px flex-none" />{ready ? "Ready to merge" : blocker(item)}</span>
           {allowed.length > 1 && <Choices label="Merge method">{allowed.map(([m, , label]) => <Choice key={m} active={actual === m} onClick={() => setMethod(m)}>{label}</Choice>)}</Choices>}
           <ConfirmButton tone="publish" small={false} className={`w-full justify-center ${ready && !suggested ? "btn-primary" : ""}`} disabled={busy || item.isDraft || item.mergeable !== "MERGEABLE" || !allowed.length}
             consequence={`${methods.find(([m]) => m === actual)?.[2] ?? actual} into ${item.baseRefName} on GitHub.`} confirmLabel={`Confirm ${actual} merge`}
@@ -327,9 +327,9 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const launch = <LaunchButton small primary={!!item && !isPr} ctx={{ projectId: project?.id ?? null, githubRefs: item ? [reference(repo, item, isPr ? "pr" : "issue")] : [] }} />;
   const agentReview = isPr && item && <button className="btn btn-sm" title="Opens a launch draft that asks an agent for a local suggested review" onClick={() => reviewWithAgent({ projects, repo, number, title: item.title, url: item.url, head })}>Review with agent</button>;
   const openOnGitHub = () => openGitHub(item?.url ?? `https://github.com/${repo}/issues/${number}`);
-  const synced = item && <span className="inline-flex items-center gap-1 whitespace-nowrap">Synced {ago(item.fetched_at)}<button className="iconbtn" aria-label="Refresh from GitHub" title="Refresh from GitHub" disabled={refreshing} onClick={() => void refresh()}><Icon name="refresh" size={13} className={refreshing ? "animate-spin" : ""} /></button></span>;
+  const synced = item && <span className="inline-flex items-center gap-1 whitespace-nowrap">Synced {ago(item.fetched_at)}<button className="iconbtn" aria-label="Refresh from GitHub" title="Refresh from GitHub" disabled={refreshing} onClick={() => void refresh()}><Icon name="refresh" size={14} className={refreshing ? "animate-spin" : ""} /></button></span>;
   const more = <Popover align="right" width={220} label="More actions" trigger={({ open, toggle }) => <button className="iconbtn" aria-label="More actions" aria-expanded={open} title="More actions" onClick={toggle}><Icon name="more" size={16} /></button>}>
-    {(close) => <div className="grid gap-0.5"><MenuItem icon={<Icon name="ext" size={13} />} label="Open on GitHub" onClick={() => { openOnGitHub(); close(); }} /></div>}
+    {(close) => <div className="grid gap-0.5"><MenuItem icon={<Icon name="ext" size={12} />} label="Open on GitHub" onClick={() => { openOnGitHub(); close(); }} /></div>}
   </Popover>;
   const actions = <>{isPr ? <>{agentReview}{launch}</> : launch}{item && <AddContext refItem={reference(repo, item, isPr ? "pr" : "issue")} />}{more}</>;
   const meta = <>
@@ -349,7 +349,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
     {item && !(phone && tab === "conversation") && <SuggestionBanner item={item} onReview={reviewDraft} />}
     {item ? <div className="@container relative flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-        {!phone && <div className="flex flex-none justify-end border-b border-line-2 px-3 py-1 @min-[760px]:hidden"><button type="button" className="btn btn-sm" aria-expanded={panel} onClick={() => setPanel(!panel)}><Icon name="sliders" size={12} />Status, checks and labels</button></div>}
+        {!phone && <div className="flex flex-none justify-end border-b border-line-2 px-5 py-1 @min-[760px]:hidden"><button type="button" className="btn btn-sm" aria-expanded={panel} onClick={() => setPanel(!panel)}><Icon name="sliders" size={12} />Status, checks and labels</button></div>}
         {tab === "files" && isPr ? <FilesChanged repo={repo} number={number} head={item.headRefOid!} base={item.baseRefOid} />
           : tab === "threads" && isPr ? <ReviewThreads item={item} />
             : <Conversation item={item} focus={focus} />}
@@ -377,7 +377,7 @@ function SuggestionBanner({ item, onReview }: { item: Item; onReview: (id: strin
   if (!waiting.length) return null;
   const describe = (s: (typeof waiting)[number]) => s.kind === "review" ? `${s.event === "REQUEST_CHANGES" ? "Request changes" : s.event === "APPROVE" ? "Approve" : "Comment"} review` : "Comment";
   const first = waiting[0];
-  return <div className="flex flex-none flex-wrap items-center gap-2 border-b border-teal/40 bg-teal-soft px-4 py-1.5 text-[13px]">
+  return <div className="flex flex-none flex-wrap items-center gap-2 page-body border-b border-teal/40 bg-teal-soft px-5 py-1.5 text-[13px]">
     <b className="text-teal-ink">{waiting.length === 1 ? "Suggestion" : `${waiting.length} suggestions`}:</b>
     <span>{waiting.length === 1 ? describe(first) : waiting.map(describe).join(" · ")}</span>
     <span className="text-ink-3">· by {first.author}</span>

@@ -118,7 +118,7 @@ function Review({ id }: { id: string }) {
     <Badge tone={tone} icon="pr-local">Local PR · {state}</Badge>
     <Link to="/projects/$id" params={{ id: p.project_id }}>{projectName(projects, p.project_id) || "Folder"}</Link>
     <span className="font-mono">{p.branch} → {p.base_branch}</span>
-    <button className="iconbtn" aria-label="Refresh" title="Read the branch, commits and changes again" disabled={busy} onClick={refresh}><Icon name="refresh" size={13} /></button>
+    <button className="iconbtn" aria-label="Refresh" title="Read the branch, commits and changes again" disabled={busy} onClick={refresh}><Icon name="refresh" size={14} /></button>
   </>;
   const tabs = <Tabs<View> label="Local PR views" value={tab} onChange={setTab} items={[{ id: "description", label: "Description" }, { id: "files", label: "Changes", count: d.files.length }, { id: "commits", label: "Commits", count: d.commits.length }]} />;
   const notesBar = all.length > 0 && tab !== "description" && <div className="flex flex-wrap items-center gap-2 border-b border-attn-line bg-attn-soft px-3 py-1.5 text-[12px]">
@@ -127,7 +127,7 @@ function Review({ id }: { id: string }) {
     <button className="btn btn-sm btn-primary ml-auto" disabled={!canSend} title={p.session_id ? undefined : "No agent works on this Local PR"} onClick={() => void sendNotes()}>Send to agent</button>
   </div>;
   return <div className="flex h-full min-h-0 flex-col">
-    {phone ? <><PhoneHeader title={p.title} subtitle={`Local PR · ${state}`} onBack={() => void navigate({ to: "/", search: { filter: "review" } })} backLabel="Back to Today" actions={<>{headerActions}<button className="btn btn-sm" disabled={busy} onClick={refresh}>Refresh</button></>} details={<p className="break-all font-mono text-xs text-ink-3">{p.branch} → {p.base_branch}</p>} /><div className="px-3">{tabs}</div></>
+    {phone ? <><PhoneHeader title={p.title} subtitle={`Local PR · ${state}`} onBack={() => void navigate({ to: "/", search: { filter: "review" } })} backLabel="Back to Today" actions={<>{headerActions}<button className="btn btn-sm" disabled={busy} onClick={refresh}>Refresh</button></>} details={<p className="break-all font-mono text-[12px] text-ink-3">{p.branch} → {p.base_branch}</p>} /><div className="px-3">{tabs}</div></>
       : <PageHeader title={p.title} meta={meta} actions={headerActions} tabs={tabs} />}
     {p.published_url && <div className="border-b border-line-2 px-5 py-2 text-[12px]"><button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub as #{p.published_number}</button><span className="text-ink-3"> · New commits of agents on this branch reach the PR through Home.</span></div>}
     {p.merged && <div className="border-b border-line-2 px-5 py-2 text-[12px] text-ink-2">Merged into <span className="font-mono">{p.base_branch}</span> on Home at <span className="font-mono">{p.merged.head.slice(0, 8)}</span>.</div>}
@@ -144,13 +144,13 @@ function Review({ id }: { id: string }) {
     {notesBar}
     {tab === "files" && !p.archived && d.head ? <FilesChanged repo="local" number={0} head={d.head} local={{ id }} notes={lineNotes} onAddNote={active ? (n) => setNotes((all) => [...all, { path: n.path, text: lineNoteText(n) }]) : undefined} /> : <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
       {tab === "files" && <Empty icon="info">{p.archived ? "This Local PR was discarded." : "No commits to compare yet."}</Empty>}
-      {tab === "description" && <div className="grid max-w-[800px] gap-4">
+      {tab === "description" && <div className="grid max-w-text gap-4">
         {editing && active ? <div className="grid gap-3"><input aria-label="PR title" className="field-input" value={title} onChange={(e) => setTitle(e.target.value)} /><textarea aria-label="PR description" className="field-input min-h-48" value={body} onChange={(e) => setBody(e.target.value)} /><div className="flex gap-2"><button className="btn btn-primary w-fit" disabled={busy} onClick={() => void run(save, "Title and description saved")}>Save title and description</button><button className="btn" disabled={busy} onClick={() => { setTitle(p.title); setBody(p.body); setEditing(false); }}>Cancel</button></div></div>
           : <div><Markdown text={p.body || "No description yet. The agent can set it with launchpad pr update."} />{active && <button className="btn btn-sm mt-3" onClick={() => { setTitle(p.title); setBody(p.body); setEditing(true); }}><Icon name="pencil" size={12} />Edit title and description</button>}</div>}
-        {active && <section className="grid gap-2 rounded-lg border border-line p-3">
+        {active && <section className="grid gap-2 rounded-card border border-line p-3">
           <h3 className="seclabel m-0">Notes for the agent</h3>
           {notes.length === 0 && <p className="text-[12px] text-ink-3">Click a line in Changes to add a line note, or write a general note below.</p>}
-          {notes.map((n, i) => <div key={i} className="grid gap-1"><span className="font-mono text-[12px] text-ink-3">{n.path ?? "General"}</span><div className="flex items-start gap-2"><textarea aria-label={`Note ${i + 1}`} className="field-input min-h-14 flex-1" disabled={busy} value={n.text} onChange={(e) => setNotes((a) => a.map((v, j) => j === i ? { ...v, text: e.target.value } : v))} /><button className="iconbtn" aria-label="Remove note" title="Remove note" disabled={busy} onClick={() => setNotes((a) => a.filter((_, j) => i !== j))}><Icon name="trash" size={13} /></button></div></div>)}
+          {notes.map((n, i) => <div key={i} className="grid gap-1"><span className="font-mono text-[12px] text-ink-3">{n.path ?? "General"}</span><div className="flex items-start gap-2"><textarea aria-label={`Note ${i + 1}`} className="field-input min-h-14 flex-1" disabled={busy} value={n.text} onChange={(e) => setNotes((a) => a.map((v, j) => j === i ? { ...v, text: e.target.value } : v))} /><button className="iconbtn" aria-label="Remove note" title="Remove note" disabled={busy} onClick={() => setNotes((a) => a.filter((_, j) => i !== j))}><Icon name="trash" size={14} /></button></div></div>)}
           <textarea aria-label="General note" placeholder="General note for the agent…" className="field-input min-h-16" value={note} onChange={(e) => setNote(e.target.value)} />
           <div className="flex flex-wrap items-center gap-2"><button className={`btn btn-sm ${all.length ? "btn-primary" : ""}`} disabled={!canSend} title={p.session_id ? undefined : "No agent works on this Local PR"} onClick={() => void sendNotes()}>Send {all.length || ""} note{all.length === 1 ? "" : "s"} to agent</button><button className="btn btn-sm" disabled={busy} onClick={() => void run(save, "Notes saved")}>Save notes</button><span className="text-[12px] text-ink-3">Notes stay on Home.</span></div>
         </section>}
@@ -175,7 +175,7 @@ function Orphan({ p, running, onDiscarded }: { p: Predraft; running: boolean; on
   const [error, setError] = useState<unknown>(null);
   const active = !p.archived && !p.published_url && !p.merged;
   return <div className="h-full overflow-auto p-6">
-    <div className="max-w-[760px] rounded-lg border border-line bg-paper p-4">
+    <div className="max-w-text rounded-card border border-line bg-paper p-4">
       <Badge tone="attn" icon="alert">Local PR · folder removed</Badge>
       <h2 className="my-2 text-[18px] font-semibold">{p.title}</h2>
       <p className="font-mono text-[12px] text-ink-3">{p.branch} → {p.base_branch}</p>

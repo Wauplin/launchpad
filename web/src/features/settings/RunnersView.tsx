@@ -51,7 +51,7 @@ function useInstallCommand(): string | null {
 function CommandLine({ command }: { command: string }) {
   return (
     <div className="flex items-center gap-2">
-      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md border border-line-2 bg-code px-2.5 py-1.5 font-mono text-[12px]" title={command}>{command}</code>
+      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-control border border-line-2 bg-code px-2.5 py-1.5 font-mono text-[12px]" title={command}>{command}</code>
       <button className="btn btn-sm shrink-0" onClick={() => void copyText(command).then(() => toast("Copied"))}><Icon name="copy" size={12} />Copy</button>
     </div>
   );
@@ -106,7 +106,7 @@ function UpdateRunner({ r }: { r: RunnerStatus }) {
     <span>{oneClick ? "Or, on" : "On"} {name}, install Launchpad at Home's commit <span className="font-mono">{home.slice(0, 12)}</span> (the same way you installed it), then restart its runner daemon (<span className="font-mono">launchpad daemon --role runner</span>). It stays paired.</span>
   );
   return (
-    <div className="grid gap-1.5 rounded-lg bg-attn-soft px-3 py-2 text-[12px] text-ink-2">
+    <div className="grid gap-1.5 rounded-card bg-attn-soft px-3 py-2 text-[12px] text-ink-2">
       <span><b className="text-attn">Update {name}.</b> Its build{commit ? ` (${commit.slice(0, 8)})` : ""} differs from Home's ({home.slice(0, 8)}): its running sessions continue, but it takes no new session until it runs Home's build.</span>
       {oneClick ? (
         <>
@@ -139,7 +139,7 @@ function HomeRunners() {
         <>
           <Card title={approved.length ? `Runners · ${approved.length}` : "Runners"} tour="settings.runners" end={approved.length > 0 && !adding && <button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />Add a runner</button>}>
             {pending.map((r) => (
-              <div key={r.runner.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-attn-soft px-3 py-2 text-[13px]">
+              <div key={r.runner.id} className="flex flex-wrap items-center gap-2 rounded-card bg-attn-soft px-3 py-2 text-[13px]">
                 <span className="grid min-w-0 flex-1 basis-[240px]">
                   <span className="flex flex-wrap items-center gap-x-2"><b>{r.runner.name}</b><Badge tone="attn">waiting for approval</Badge></span>
                   <span className="text-[12px] text-ink-3">{r.runner.os} · asked {ago(r.runner.created_at)} · approve only if its terminal shows this code</span>
@@ -190,10 +190,10 @@ function ThisComputer() {
       <ConfigError />
       {!config ? <Loading what="settings" /> : <>
         <SettingRow label="Folders root" hint="Where folders are suggested, and where temporary folders go when you keep them." scope="all">
-          <SavedInput label="Folders root" className="font-mono text-xs" value={config.config.projects_root} onSave={(v) => patch({ projects_root: v })} />
+          <SavedInput label="Folders root" className="font-mono text-[12px]" value={config.config.projects_root} onSave={(v) => patch({ projects_root: v })} />
         </SettingRow>
         <SettingRow label="Open links with" hint={config.remote ? "Edit [commands] in config.toml on this computer." : "Command that opens links; empty uses the system default."} scope="all">
-          <SavedInput label="Browser command" className="font-mono text-xs" placeholder="xdg-open" disabled={config.remote} value={config.config.commands.browser} onSave={(v) => patch({ browser: v })} />
+          <SavedInput label="Browser command" className="font-mono text-[12px]" placeholder="xdg-open" disabled={config.remote} value={config.config.commands.browser} onSave={(v) => patch({ browser: v })} />
         </SettingRow>
       </>}
     </Card>
@@ -271,7 +271,7 @@ function ThisRunner() {
           <span className="flex items-center gap-2 text-[13px]">{home?.url && <span className="font-mono text-[12px]">{home.url}</span>}<Badge tone={home?.state === "connected" ? "ok" : "attn"}>{state[home?.state ?? "not_connected"]}</Badge>{home?.compat === "outdated" && <Badge tone="attn">Update this runner</Badge>}</span>
         </SettingRow>
         {home?.compat === "outdated" && (
-          <div className="grid gap-1 rounded-lg bg-attn-soft px-3 py-2 text-[12px] text-ink-2">
+          <div className="grid gap-1 rounded-card bg-attn-soft px-3 py-2 text-[12px] text-ink-2">
             <span><b className="text-attn">Update this runner.</b> Its build ({status?.commit.slice(0, 8)}) differs from Home's: its running sessions continue, but Home sends it no new session.</span>
             <UpdateThisRunnerButton />
             <span className="text-ink-3">It downloads Home's build and restarts as soon as none of its agents is in a turn. By hand: with a Home in a Space, run the install command from Home's Settings → Home and runners again here; otherwise install Launchpad at Home's commit, then restart this runner daemon.</span>

@@ -28,7 +28,7 @@ export function CommitDiff({ root, rev, path, select, openFile }: { root: string
   return <section className="flex min-h-0 flex-1 flex-col">
     <div className="flex flex-wrap items-center gap-2 border-b border-line p-3">
       <b className="min-w-0 break-words">{q.data?.subject || "Commit changes"}</b>
-      {q.data && <span className="text-xs text-ink-3">{files.length} files changed · {q.data.parent ? `Compared with first parent ${q.data.parent.slice(0, 7)}` : "Root commit · all additions"}</span>}
+      {q.data && <span className="text-[12px] text-ink-3">{files.length} files changed · {q.data.parent ? `Compared with first parent ${q.data.parent.slice(0, 7)}` : "Root commit · all additions"}</span>}
     </div>
     {q.data && !files.length ? <Empty icon="commit">This commit has no file changes.</Empty> : <DiffReview
       files={files.map((f) => ({ path: f.filename, previous: f.previous_filename, status: f.status, additions: f.additions, deletions: f.deletions }))}

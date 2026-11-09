@@ -54,7 +54,7 @@ const PHONE_ROW = 64;
 const OrphanRow = memo(function OrphanRow({ r, phone }: { r: Orphan; phone: boolean }) {
   const workspaces = useWorkspaces().data ?? [];
   // One visible action (Add to ▾); Open on GitHub in ⋯.
-  const add = <Popover viewport align="right" width={240} trigger={({ open, toggle }) => <button className="btn btn-sm" aria-expanded={open} onClick={toggle}>Add to<Icon name="chev" size={11} /></button>}>
+  const add = <Popover viewport align="right" width={240} trigger={({ open, toggle }) => <button className="btn btn-sm" aria-expanded={open} onClick={toggle}>Add to<Icon name="chev" size={12} /></button>}>
     {(close) => <>
       <div className="seclabel px-2 pt-1 pb-0.5">Add {r.repo} to</div>
       {workspaces.map((w) => <MenuItem key={w.id} label={w.name} onClick={() => { close(); useAddFolder.getState().show({ repo: r.repo, workspaceId: w.id }); }} />)}
@@ -96,7 +96,7 @@ function ReposWithoutFolder() {
     <Card title="Repositories without a folder" tour="settings.github-repos">
       <span className="text-[12px] text-ink-3">They have GitHub notifications for you but no folder in any workspace, so no Inbox shows them. Add one to a workspace to see its items there, or check them on GitHub.</span>
       {inbox.isLoading ? <Loading what="notifications" /> : orphans.length === 0 ? <Empty icon="pr">Every repository with notifications has a folder.</Empty> : (
-        <div ref={ref} className="overflow-y-auto rounded-md border border-line" style={{ maxHeight: (phone ? 4 : 8) * row + 2 }}>
+        <div ref={ref} className="overflow-y-auto rounded-control border border-line" style={{ maxHeight: (phone ? 4 : 8) * row + 2 }}>
           <div className="relative" style={{ height: v.getTotalSize() }}>
             {v.getVirtualItems().map((it) => <div key={orphans[it.index].repo} className="absolute inset-x-0" style={{ top: it.start }}><OrphanRow r={orphans[it.index]} phone={phone} /></div>)}
           </div>

@@ -130,7 +130,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
       {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, payload).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
       {reading && <div className="mb-1 text-[12px] text-ink-3">Reading attachments…</div>}
       {!ask && <PresetChips surface={presetSurface} selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
-      <div className="session-message-input flex items-end gap-2 rounded-lg border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
+      <div className="session-message-input flex items-end gap-2 rounded-card border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
         <PromptField
           compact inputRef={ref}
           document={{ ...EMPTY_CONTEXT, ...context, text }}
@@ -453,7 +453,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         <div className="session-toolbar order-4 col-span-2 flex flex-wrap items-center gap-1 pt-1">
           {viewTabs}
           <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
-            {canExpand && <button className="iconbtn session-expand" aria-label={readingExpanded ? "Collapse session view" : "Expand session view"} title={readingExpanded ? "Collapse session view" : "Expand session view"} aria-pressed={readingExpanded} onClick={() => setExpanded((value) => !value)}><Icon name={readingExpanded ? "collapse" : "expand"} size={18} /></button>}
+            {canExpand && <button className="iconbtn session-expand" aria-label={readingExpanded ? "Collapse session view" : "Expand session view"} title={readingExpanded ? "Collapse session view" : "Expand session view"} aria-pressed={readingExpanded} onClick={() => setExpanded((value) => !value)}><Icon name={readingExpanded ? "collapse" : "expand"} size={14} /></button>}
           </div>
         </div>
       </div></> : <div className="session-header @container grid gap-0.5 border-b border-line-2 pt-1.5 pr-2.5 pl-3">
@@ -484,7 +484,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
             {(profileLabel || contextShare) && <span className="min-w-0 truncate">{[profileLabel, contextShare].filter(Boolean).join(" · ")}</span>}
             </span>
           {/* Outside the clipped meta line (and portaled), so ⓘ and its panel stay visible when the line is cut. */}
-          <Popover viewport align="right" width={280} className="shrink-0" trigger={({ toggle }) => <button className="iconbtn size-6! shrink-0 text-ink-3" title="Session details" aria-label="Session details" onClick={toggle}><Icon name="info" size={13} /></button>}>
+          <Popover viewport align="right" width={280} className="shrink-0" trigger={({ toggle }) => <button className="iconbtn shrink-0 text-ink-3" title="Session details" aria-label="Session details" onClick={toggle}><Icon name="info" size={14} /></button>}>
             {() => <dl className="grid gap-2 p-2 text-[12px] text-ink-2">
               <div><dt className="text-[11px] text-ink-3">Folder</dt><dd className="break-all">{s.cwd}</dd></div>
               {s.launch_spec.profile && <div><dt className="text-[11px] text-ink-3">Profile</dt><dd>{name} · {profileName ?? `${s.launch_spec.profile} (deleted profile)`}</dd></div>}
@@ -497,11 +497,11 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         </div>
       </div>}
       {phone && detailsOpen && <Sheet title="Session details" onClose={() => setDetailsOpen(false)}>
-        <div className="session-detail-sheet grid gap-4 p-4 text-sm">
+        <div className="session-detail-sheet grid gap-4 p-4">
           <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{sessionPlace(s, projectName(projects, s.project_id, s.cwd))} · {s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : name}</p></div></div>
           <dl className="grid gap-2 text-ink-2">
-            {usageLine(s) && <div><dt className="text-xs text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
-            <div><dt className="text-xs text-ink-3">Started</dt><dd>{when(s.started_at)}</dd></div>
+            {usageLine(s) && <div><dt className="text-[12px] text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
+            <div><dt className="text-[12px] text-ink-3">Started</dt><dd>{when(s.started_at)}</dd></div>
           </dl>
           {localPr && <button className="btn" onClick={() => { setDetailsOpen(false); void navigate({ to: "/predrafts/$id", params: { id: localPr.id } }); }}>Local PR</button>}
           <SessionWorktreeDetails session={s} />
@@ -513,12 +513,12 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
         <span className="min-w-0 flex-1 break-words">Could not load session events: {log.error}</span>
         <button className="btn btn-sm" disabled={log.loading} onClick={() => void load(sessionId)}>{log.loading ? "Loading…" : "Retry"}</button>
       </div>}
-      {s.capacity_retry_at != null && <div role="status" className="flex flex-wrap items-center gap-2 border-b border-line bg-teal-soft px-3 py-2 text-xs text-teal-ink">
+      {s.capacity_retry_at != null && <div role="status" className="flex flex-wrap items-center gap-2 border-b border-line bg-teal-soft px-3 py-2 text-[12px] text-teal-ink">
         <Icon name="clock" size={16} />Model at capacity · automatic retry {s.capacity_retry_count + 1} scheduled for {when(s.capacity_retry_at)}. Resume now or archive to cancel.
       </div>}
-      {s.launch_spec.target.kind === "browser" && <div className="border-b border-line bg-teal-soft px-3 py-1 text-xs text-teal-ink">Browser task · tabs shared from the Chrome extension · {s.launch_spec.target.act ? "Act" : "Read"}</div>}
-      {s.live && processes.isError && <div role="alert" className="px-3 py-2 text-xs text-danger">{String(processes.error)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}
-      {hasProcesses && !processesOpen && !running && <div className="flex items-center gap-2 px-3 py-2 text-xs text-ink-3">Background commands are still running.<button className="btn btn-sm" onClick={() => setView("processes")}>View processes</button></div>}
+      {s.launch_spec.target.kind === "browser" && <div className="border-b border-line bg-teal-soft px-3 py-1 text-[12px] text-teal-ink">Browser task · tabs shared from the Chrome extension · {s.launch_spec.target.act ? "Act" : "Read"}</div>}
+      {s.live && processes.isError && <div role="alert" className="px-3 py-2 text-[12px] text-danger">{String(processes.error)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}
+      {hasProcesses && !processesOpen && !running && <div className="flex items-center gap-2 px-3 py-2 text-[12px] text-ink-3">Background commands are still running.<button className="btn btn-sm" onClick={() => setView("processes")}>View processes</button></div>}
       {processesOpen && <ProcessesPanel sessionId={s.id} processes={runningProcesses} refresh={() => processes.refetch()} />}
       {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} canMessage={s.status !== "in_terminal" && !quotaMessageBlocked && !(running && !harness?.capabilities.messages_while_running)} />}
       <CodeLinksContext.Provider value={codeLinks}>
@@ -576,7 +576,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
           </div>
         )}
         {running && (
-          <div className="flex items-center gap-2 pb-2 text-xs text-work">
+          <div className="flex items-center gap-2 pb-2 text-[12px] text-work">
             <span className="lp-spin" />
             {s.status === "starting" ? "Starting…" : s.status === "background" ? "Background work is still running…" : "Working…"}
           </div>

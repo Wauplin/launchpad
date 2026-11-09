@@ -26,14 +26,14 @@ export function Toasts() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`pointer-events-auto flex max-w-[560px] items-center gap-3 rounded-lg px-3.5 py-2 text-[13px] shadow-[0_10px_30px_-10px_rgba(23,32,43,.5)] ${
-            t.tone === "error" ? "bg-danger text-white" : "bg-graphite text-white"
+          className={`pointer-events-auto flex max-w-[560px] items-center gap-3 rounded-card px-3.5 py-2 text-[13px] shadow-[0_10px_30px_-10px_rgba(23,32,43,.5)] ${
+            t.tone === "error" ? "bg-danger text-white" : "bg-ink text-paper"
           }`}
         >
           <span className="min-w-0 flex-1 break-words">{t.text}</span>
           {t.action && (
             <button
-              className="font-semibold text-[#8FD3C8] hover:underline"
+              className="font-semibold underline underline-offset-2"
               onClick={() => {
                 t.action!.run();
                 dismiss(t.id);
@@ -42,7 +42,7 @@ export function Toasts() {
               {t.action.label}
             </button>
           )}
-          <button className="text-white/60 hover:text-white" title="Dismiss" onClick={() => dismiss(t.id)}>
+          <button className="opacity-60 hover:opacity-100" title="Dismiss" onClick={() => dismiss(t.id)}>
             ✕
           </button>
         </div>

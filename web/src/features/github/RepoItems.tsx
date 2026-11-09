@@ -55,7 +55,7 @@ const Row = memo(function Row({
       >
         <span className="block truncate font-semibold hover:underline">{i.title}</span>
         <span
-          className="flex items-center gap-1.5 overflow-hidden text-xs whitespace-nowrap text-ink-3"
+          className="flex items-center gap-1.5 overflow-hidden text-[12px] whitespace-nowrap text-ink-3"
           title={i.labels?.nodes.map((l) => l.name).join(", ")}
         >
           #{i.number} · {i.isDraft ? "GitHub draft" : i.state.toLowerCase()} · {i.author.login}
@@ -155,15 +155,15 @@ export function RepoItems({
       .map((i) => reference(repo, i, "issue")),
   ];
   return (
-    <section className="rounded-lg border border-line overflow-clip">
+    <section className="rounded-card border border-line overflow-clip">
       <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line bg-chrome px-3">
         <Tabs<"prs" | "issues"> label="Folder GitHub items" value={tab} onChange={setTab} className="min-w-0 flex-1" items={[{ id: "prs", label: "Pull requests", count: (q.data?.prs?.length ?? 0) + predrafts.length }, { id: "issues", label: "Issues", count: q.data?.issues?.length ?? 0 }]} />
         {q.data && !phone && <span className="text-[12px] text-ink-3">Synced {ago(q.data.fetched_at)}</span>}
         <button className="iconbtn" aria-label="Refresh from GitHub" title="Refresh from GitHub" disabled={busy || !repo} onClick={() => void refresh()}><Icon name="refresh" size={phone ? 16 : 13} className={busy ? "animate-spin" : ""} /></button>
-        {phone ? <PhoneActions label="Item options" closeOnAction={false} details={<div className="grid gap-3"><button className="btn" disabled={!repo} onClick={() => openGitHub(`https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`)}>Open on GitHub</button><label className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Discarded Local PRs</label></div>} />
-          : <Popover align="right" width={240} label="More options" trigger={({ open, toggle }) => <button className="iconbtn" aria-label="More options" aria-expanded={open} title="More options" onClick={toggle}><Icon name="more" size={15} /></button>}>
+        {phone ? <PhoneActions label="Item options" closeOnAction={false} details={<div className="grid gap-3"><button className="btn" disabled={!repo} onClick={() => openGitHub(`https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`)}>Open on GitHub</button><label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Discarded Local PRs</label></div>} />
+          : <Popover align="right" width={240} label="More options" trigger={({ open, toggle }) => <button className="iconbtn" aria-label="More options" aria-expanded={open} title="More options" onClick={toggle}><Icon name="more" size={14} /></button>}>
             {(close) => <div className="grid gap-1">
-              <MenuItem icon={<Icon name="ext" size={13} />} label="Open on GitHub" disabled={!repo} onClick={() => { openGitHub(`https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`); close(); }} />
+              <MenuItem icon={<Icon name="ext" size={12} />} label="Open on GitHub" disabled={!repo} onClick={() => { openGitHub(`https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`); close(); }} />
               <label className="flex items-center gap-2 px-[9px] py-[7px] text-[12px]"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Show discarded Local PRs</label>
             </div>}
           </Popover>}
@@ -241,10 +241,10 @@ const LocalRow = memo(function LocalRow({ p }: { p: Predraft }) {
       params={{ id: p.id }}
       className="flex h-[52px] items-center gap-3 border-b border-line-2 bg-teal-soft px-3 no-underline text-teal-ink"
     >
-      <Icon name="pr-local" size={15} />
+      <Icon name="pr-local" size={16} />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-semibold">{p.title}</span>
-        <span className="text-xs">
+        <span className="text-[12px]">
           {p.archived
             ? "Discarded"
             : p.published_number

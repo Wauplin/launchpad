@@ -91,7 +91,7 @@ export function EmptyView({ title, children }: { title: string; children: React.
   return (
     <div className="grid h-full place-items-center p-8">
       <div className="max-w-md text-center">
-        <h2 className="m-0 text-lg font-semibold">{title}</h2>
+        <h2 className="m-0 text-[15px] font-semibold">{title}</h2>
         <p className="mt-2 text-ink-2">{children}</p>
       </div>
     </div>

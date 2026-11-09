@@ -24,7 +24,7 @@ export function FolderMenu({ cwd, onPick }: { cwd: string | null; onPick: (path:
     <>
       {folders.isPending && <Loading what="folders" />}
       {folders.error && <ErrorState error={folders.error} />}
-      {f?.notice && <div className="flex items-start gap-1.5 px-[9px] py-1.5 text-[12px] text-ink-2" role="note"><Icon name="info" size={13} className="mt-px flex-none text-ink-3" /><span>{f.notice}</span></div>}
+      {f?.notice && <div className="flex items-start gap-1.5 px-[9px] py-1.5 text-[12px] text-ink-2" role="note"><Icon name="info" size={12} className="mt-px flex-none text-ink-3" /><span>{f.notice}</span></div>}
       {f?.current && <MenuItem
         icon={<Icon name="branch" size={14} />}
         label={f.checkout ? `This worktree · ${f.current.label}` : `This folder · ${f.current.label}`}

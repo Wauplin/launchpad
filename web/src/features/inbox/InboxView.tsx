@@ -68,7 +68,7 @@ function ReadyChip({ t, s }: { t: Thread; s: Suggestion }) {
 
 const ThreadRow = memo(function ThreadRow({ t, selected, projects, ready, select, act, busy }: { t: Thread; selected: boolean; projects: Project[]; ready: Suggestion | undefined; select: (t: Thread) => void; act: (t: Thread, action: string) => void; busy: boolean }) {
   const phone = usePhone();
-  return <div data-tour="inbox.row" data-tour-id={t.id} className={`group flex ${phone ? "h-[72px]" : "h-14"} items-center gap-2 border-b border-line-2 px-3 ${selected ? "bg-select" : "hover:bg-chrome"}`}>
+  return <div data-tour="inbox.row" data-tour-id={t.id} className={`group flex ${phone ? "h-[72px]" : "h-14"} items-center gap-2 border-b border-line-2 ${phone ? "px-3" : "px-5"} ${selected ? "bg-select" : "hover:bg-chrome"}`}>
     <button className="flex min-w-0 flex-1 items-start gap-2 text-left" onClick={() => select(t)} title={t.title} aria-current={selected || undefined}>
       <span className={`mt-1.5 size-2 flex-none rounded-full ${t.unread ? "bg-work" : "bg-transparent"}`} aria-label={t.unread ? "Unread" : undefined} />
       <span className="min-w-0 flex-1">
@@ -117,7 +117,7 @@ function RepoPicker({ threads, selected }: { threads: Thread[]; selected: string
 function RepoList({ repos, total, selected, query, setQuery, pick }: { repos: [string, number][]; total: number; selected: string | null; query: string; setQuery: (q: string) => void; pick: (repo: string | null) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({ count: repos.length, getScrollElement: () => ref.current, estimateSize: () => isPhone ? 44 : 28, overscan: 6, useFlushSync: false });
-  const row = `flex ${isPhone ? "h-11" : "h-7"} w-full items-center gap-2 rounded-md px-2 text-left text-[12px] hover:bg-select`;
+  const row = `flex ${isPhone ? "h-11" : "h-7"} w-full items-center gap-2 rounded-control px-2 text-left text-[12px] hover:bg-select`;
   return <div className="grid gap-1">
     <input autoFocus aria-label="Search repositories" className="field-input" placeholder="Search repositories…" value={query} onChange={(e) => setQuery(e.target.value)} />
     <button className={`${row} ${selected === null ? "bg-select font-semibold" : ""}`} onClick={() => pick(null)}><span className="flex-1">All repositories</span><span className="text-ink-3">{total}</span></button>
@@ -133,7 +133,7 @@ function RepoList({ repos, total, selected, query, setQuery, pick }: { repos: [s
 function Synced({ label, busy, onRefresh, title }: { label: string; busy: boolean; onRefresh: () => void; title: string }) {
   return <span className="inline-flex items-center gap-1 whitespace-nowrap">
     {label}
-    <button className="iconbtn" aria-label={title} title={title} disabled={busy} onClick={onRefresh}><Icon name="refresh" size={13} className={busy ? "animate-spin" : ""} /></button>
+    <button className="iconbtn" aria-label={title} title={title} disabled={busy} onClick={onRefresh}><Icon name="refresh" size={14} className={busy ? "animate-spin" : ""} /></button>
   </span>;
 }
 
@@ -165,10 +165,10 @@ function PreviewPane({ t, projects, ready, act, busy }: { t: Thread; projects: P
   const unsubscribe = <ConfirmButton consequence="Mutes this thread on GitHub and marks it done." confirmLabel="Unsubscribe" disabled={busy} onConfirm={() => act(t, "unsubscribe")} icon="bell-off">Unsubscribe</ConfirmButton>;
   const more = <Popover align="right" width={240} label="More actions" trigger={({ open, toggle }) => <button className="iconbtn" aria-label="More actions" aria-expanded={open} title="More actions" onClick={toggle}><Icon name="more" size={16} /></button>}>
     {(close) => <div className="grid gap-0.5">
-      <MenuItem icon={<Icon name="mail" size={13} />} label={readLabel} detail={readTitle} disabled={busy} onClick={() => { act(t, t.unread ? "read" : "unread"); close(); }} />
-      {request && <MenuItem icon={<Icon name="play" size={13} />} label="Launch an agent" onClick={() => { useComposer.getState().start(launchContext(t, projects)); close(); }} />}
-      {supported && composerOpen && <MenuItem icon={<Icon name="plus" size={13} />} label="Add to draft" detail="As context of the open launch draft" onClick={() => { useComposer.getState().start({ githubRefs: [reference(t.repo, { number: t.number!, title: t.title, url: t.url }, t.kind === "PullRequest" ? "pr" : "issue")] }); close(); }} />}
-      {conversation && <MenuItem icon={<Icon name="ext" size={13} />} label="Open on GitHub" onClick={() => { openExternal(t.url); close(); }} />}
+      <MenuItem icon={<Icon name="mail" size={12} />} label={readLabel} detail={readTitle} disabled={busy} onClick={() => { act(t, t.unread ? "read" : "unread"); close(); }} />
+      {request && <MenuItem icon={<Icon name="play" size={12} />} label="Launch an agent" onClick={() => { useComposer.getState().start(launchContext(t, projects)); close(); }} />}
+      {supported && composerOpen && <MenuItem icon={<Icon name="plus" size={12} />} label="Add to draft" detail="As context of the open launch draft" onClick={() => { useComposer.getState().start({ githubRefs: [reference(t.repo, { number: t.number!, title: t.title, url: t.url }, t.kind === "PullRequest" ? "pr" : "issue")] }); close(); }} />}
+      {conversation && <MenuItem icon={<Icon name="ext" size={12} />} label="Open on GitHub" onClick={() => { openExternal(t.url); close(); }} />}
       <div className="border-t border-line-2 px-2 pt-2 pb-1">{unsubscribe}</div>
     </div>}
   </Popover>;
@@ -181,7 +181,7 @@ function PreviewPane({ t, projects, ready, act, busy }: { t: Thread; projects: P
       {request && <LaunchButton small primary={false} ctx={launchContext(t, projects)} />}
       {supported && <AddContext refItem={reference(t.repo, { number: t.number!, title: t.title, url: t.url }, t.kind === "PullRequest" ? "pr" : "issue")} />}
       {conversation && <button className="btn btn-sm" onClick={() => openExternal(t.url)}>Open on GitHub</button>}
-    </>} details={<>{facts && <p className="text-xs text-ink-2">{facts}</p>}{unsubscribe}</>} /> : <>
+    </>} details={<>{facts && <p className="text-[12px] text-ink-2">{facts}</p>}{unsubscribe}</>} /> : <>
     <div className="flex-none border-b border-line p-4">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
@@ -290,12 +290,12 @@ export function InboxView() {
   return <div className="flex h-full flex-col">
     {/* Phone: the counts, sync and the other filters sit behind ⋯ in the shell's bar, so the list starts at the chips. */}
     {phone ? <PhoneBarEnd><PhoneActions label="Inbox filters" closeOnAction={false} details={<div className="grid gap-3">
-      <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-ink-3">{counters}</span>
+      <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] text-ink-3">{counters}</span>
       <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={view.unread} onChange={(e) => useView.setState({ unread: e.target.checked, scroll: 0 })} />Unread only</label>
       <RepoPicker threads={counted} selected={view.repo} />
     </div>} /></PhoneBarEnd> : <PageHeader title="Inbox" meta={counters} />}
     {(error || data?.status.error) && <ErrorState className="m-2" error={error ?? data?.status.error} action={<span className="text-ink-2">Cached notifications remain available. Sign in with gh auth login if needed.</span>} />}
-    <div className="inbox-filters flex flex-none flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
+    <div className={`inbox-filters flex flex-none flex-wrap items-center gap-1.5 border-b border-line py-2 ${phone ? "px-3" : "px-5"}`}>
       <FilterChips tour="inbox.reasons" label="Why you were notified">
         {whys.map(([k, label, title]) => <FilterChip key={k} active={view.why === k} title={title} count={counts[k]} countNeeds={k === "you" && counts[k] > 0} onClick={() => useView.setState({ why: k, scroll: 0 })}>{label}</FilterChip>)}
       </FilterChips>

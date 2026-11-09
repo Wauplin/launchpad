@@ -74,9 +74,9 @@ function StatusDetails() {
     return () => clearInterval(timer);
   }, []);
   const warnings = useStatusWarnings();
-  return <div className="grid gap-4 p-4 text-[14px]">
+  return <div className="grid gap-4 p-4">
     <HostChip />
-    {warnings.length > 0 && <section aria-label="Warnings" className="grid gap-1 rounded-lg border border-attn-line bg-attn-soft p-3">
+    {warnings.length > 0 && <section aria-label="Warnings" className="grid gap-1 rounded-card border border-attn-line bg-attn-soft p-3">
       {warnings.map((w) => <div key={w.key} className="flex min-h-11 items-center gap-2 text-[13px]">
         <Icon name="alert" size={14} className="shrink-0 text-attn" />
         <span className="min-w-0 flex-1 break-words">{w.text}</span>
@@ -92,7 +92,7 @@ function StatusDetails() {
         const name = e.names.length ? e.names.join(" · ") : (h?.name ?? e.harness);
         const color = h?.color ?? "var(--color-teal)";
         const stale = s.quota_at != null && Date.now() - s.quota_at > 15 * 60_000;
-        return <section key={e.key} aria-label={`${name} quota`} className="grid gap-3 rounded-lg border border-line p-3">
+        return <section key={e.key} aria-label={`${name} quota`} className="grid gap-3 rounded-card border border-line p-3">
           <h3 className="flex items-center gap-2 font-semibold"><HarnessMark harness={e.harness} size={18} />{name}</h3>
           <WindowUsage label="5 hours" quota={s.five_hour} color={color} />
           <WindowUsage label="Weekly" quota={s.weekly} color={color} />
@@ -103,7 +103,7 @@ function StatusDetails() {
       {data.spend.length > 0 && <h2 className="font-semibold">Pay-as-you-go spending limits</h2>}
       {data.spend.map((v) => {
         const color = allHarnesses.find((h) => h.id === v.harness)?.color ?? "var(--color-teal)";
-        return <section key={v.profile} aria-label={`${v.name} spending`} className="grid gap-3 rounded-lg border border-line p-3">
+        return <section key={v.profile} aria-label={`${v.name} spending`} className="grid gap-3 rounded-card border border-line p-3">
           <h3 className="flex items-center gap-2 font-semibold"><HarnessMark harness={v.harness} size={18} />{v.name}</h3>
           {v.windows.map((w, i) => <div key={i} className="grid gap-1.5">
             <div className="flex flex-wrap justify-between gap-x-3 gap-y-1"><span>{windowLabel(w.hours)}</span><span className="font-semibold tabular-nums">{Math.round(spendPercent(w))}% used</span></div>

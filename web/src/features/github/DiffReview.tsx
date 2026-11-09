@@ -40,7 +40,7 @@ const Cell = memo(function Cell({ line, tokens, wrap, noted, picked, onPick, gut
   const pickable = !!onPick && (line.kind === "add" || line.kind === "del" || line.kind === "context");
   return <div className={`flex min-h-5 min-w-0 font-mono text-[12px] leading-5 ${tone(line.kind)} ${picked ? "outline-2 -outline-offset-2 outline-teal" : ""} ${pickable ? "cursor-pointer" : ""}`} onClick={pickable ? onPick : undefined}>
     <span className={`sticky left-0 flex shrink-0 justify-end gap-2 border-r border-line-2 bg-inherit px-2 text-ink-3 select-none ${gutter === "both" ? "w-[82px]" : "w-[48px]"} ${noted ? "bg-attn-soft! font-semibold text-attn" : ""}`}>
-      {noted && <Icon name="pencil" size={10} className="mt-[5px]" />}
+      {noted && <Icon name="pencil" size={12} className="mt-[5px]" />}
       {gutter === "both" && <span>{line.old}</span>}
       <span>{gutter === "both" ? line.next : line.next ?? line.old}</span>
     </span>
@@ -115,7 +115,7 @@ const FileRow = memo(function FileRow({ f, active, viewed, notes, onClick, phone
   return <button className={`flex w-full items-center gap-2 px-2 text-left text-[12px] ${phone ? "h-11 border-b border-line-2 text-[13px]" : "h-7"} ${active && !phone ? "bg-select" : "hover:bg-sunk"}`} title={`${f.previous ? `${f.previous} → ` : ""}${f.path}`} onClick={onClick}>
     <span className={`w-3 flex-none text-center font-mono text-[11px] ${f.status.startsWith("A") || f.status === "added" ? "text-gh-open" : f.status.startsWith("D") || f.status === "removed" ? "text-gh-closed" : "text-teal-ink"}`}>{f.status.trim().slice(0, 1).toUpperCase()}</span>
     <span className={`min-w-0 flex-1 truncate font-mono ${viewed ? "text-ink-3" : ""}`}>{f.path}</span>
-    {notes > 0 && <span className="flex flex-none items-center gap-0.5 text-attn" title={`${notes} note${notes === 1 ? "" : "s"}`}><Icon name="pencil" size={10} />{notes}</span>}
+    {notes > 0 && <span className="flex flex-none items-center gap-0.5 text-attn" title={`${notes} note${notes === 1 ? "" : "s"}`}><Icon name="pencil" size={12} />{notes}</span>}
     {f.additions != null && !phone && <span className="flex-none tabular-nums text-[11px]"><span className="text-gh-open">+{f.additions}</span> <span className="text-gh-closed">−{f.deletions ?? 0}</span></span>}
     {viewed && <Icon name="check" size={12} className="flex-none text-gh-open" />}
   </button>;

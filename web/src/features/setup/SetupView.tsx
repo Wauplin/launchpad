@@ -21,7 +21,7 @@ export function SetupView() {
     <div className="flex h-full min-h-0 flex-col">
       {phone ? <PhoneHeader title="Setup" subtitle={meta} onBack={() => void navigate({ to: "/settings/onboarding" as never })} details={<p className="m-0 text-[13px] text-ink-2">{intro}</p>} /> : <PageHeader title="Setup" meta={meta} intro={intro} />}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="phone-page-content mx-auto grid max-w-[820px] grid-cols-[minmax(0,1fr)] gap-4 px-5 py-5">
+        <div className="phone-page-content grid max-w-page grid-cols-[minmax(0,1fr)] gap-4 px-5 py-5">
           <SetupChecklist />
         </div>
       </div>

@@ -78,7 +78,7 @@ function localDate(at: number) {
 }
 
 const AgentChoice = memo(function AgentChoice({ session, checked, toggle }: { session: DependencyAgent; checked: boolean; toggle: () => void }) {
-  return <label className="flex h-12 cursor-pointer items-center gap-2 border-b border-line px-2 text-xs hover:bg-chrome">
+  return <label className="flex h-12 cursor-pointer items-center gap-2 border-b border-line px-2 text-[12px] hover:bg-chrome">
     <input type="checkbox" className="accent-teal" checked={checked} onChange={toggle} />
     {session.harness && <HarnessMark harness={session.harness} size={14} />}
     <span className="min-w-0 flex-1 truncate" title={session.title}>{session.title}</span>
@@ -102,15 +102,15 @@ function AgentPicker({ ids, exclude, onChange }: { ids: string[]; exclude?: stri
   const virtual = useVirtualizer({ count: sessions.length, getScrollElement: () => ref.current, estimateSize: () => 48, overscan: 3, useFlushSync: false });
   return <div className="grid gap-1.5">
     <input className="field-input" aria-label="Find agents to wait for" placeholder="Find an agent…" value={filter} onChange={(e) => setFilter(e.target.value)} />
-    <div ref={ref} className="max-h-48 overflow-y-auto rounded-md border border-line">
+    <div ref={ref} className="max-h-48 overflow-y-auto rounded-control border border-line">
       <div style={{ height: virtual.getTotalSize(), position: "relative" }}>
         {virtual.getVirtualItems().map((row) => { const s = sessions[row.index]; return <div key={s.id} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: row.size, transform: `translateY(${row.start}px)` }}>
           <AgentChoice session={s} checked={ids.includes(s.id)} toggle={() => onChange(ids.includes(s.id) ? ids.filter((id) => id !== s.id) : [...ids, s.id])} />
         </div>; })}
       </div>
-      {!sessions.length && <div className="p-2 text-xs text-ink-3">{all.isLoading || scheduled.isLoading ? "Loading agents…" : "No matching agents."}</div>}
+      {!sessions.length && <div className="p-2 text-[12px] text-ink-3">{all.isLoading || scheduled.isLoading ? "Loading agents…" : "No matching agents."}</div>}
     </div>
-    <p className="text-xs text-ink-3">{ids.length} selected · Starts when all selected agents are Done (waiting for input). Scheduled agents must launch and reach Done first. Cancelled, archived or interrupted agents do not count as Done.</p>
+    <p className="text-[12px] text-ink-3">{ids.length} selected · Starts when all selected agents are Done (waiting for input). Scheduled agents must launch and reach Done first. Cancelled, archived or interrupted agents do not count as Done.</p>
   </div>;
 }
 
@@ -132,25 +132,25 @@ function ConditionEditor({ delay, run, exclude, onChange, onRemove }: { delay: L
   const error = conditionError(delay) ?? quota.error;
   const reset = quota.reset;
   const tz = useServerTimeZone();
-  return <div className="grid gap-2 rounded-lg border border-line bg-chrome p-2.5">
+  return <div className="grid gap-2 rounded-card border border-line bg-chrome p-2.5">
     <div className="flex items-center gap-2">
-      <b className="flex-1 text-xs text-ink-2">{KINDS.find((k) => k.kind === delay.kind)?.label}</b>
+      <b className="flex-1 text-[12px] text-ink-2">{KINDS.find((k) => k.kind === delay.kind)?.label}</b>
       <button className="btn btn-sm btn-ghost" onClick={onRemove}>Remove</button>
     </div>
     {delay.kind === "in" && <>
       <div className="flex gap-1.5">{[15, 30, 60].map((minutes) => <button key={minutes} className={`btn btn-sm ${delay.minutes === minutes ? "btn-primary" : ""}`} onClick={() => onChange({ kind: "in", minutes })}>{minutes === 60 ? "1 hour" : `${minutes} min`}</button>)}</div>
-      <label className="flex items-center gap-2 text-xs"><input aria-label="Delay in minutes" className="field-input w-24" type="number" min={1} max={525600} step={1} value={delay.minutes || ""} onChange={(e) => onChange({ kind: "in", minutes: Number(e.target.value) })} />minutes after you click Schedule or Save</label>
+      <label className="flex items-center gap-2 text-[12px]"><input aria-label="Delay in minutes" className="field-input w-24" type="number" min={1} max={525600} step={1} value={delay.minutes || ""} onChange={(e) => onChange({ kind: "in", minutes: Number(e.target.value) })} />minutes after you click Schedule or Save</label>
     </>}
-    {delay.kind === "at" && <><input aria-label="Start date and time" type="datetime-local" className="field-input" value={localDate(delay.at)} onChange={(e) => onChange({ kind: "at", at: e.target.value ? new Date(e.target.value).getTime() : 0 })} /><p className="text-xs text-ink-3">Your local time · {Intl.DateTimeFormat().resolvedOptions().timeZone}{tz?.differs && delay.at > 0 && <> · server: {serverTimeOf(tz, delay.at) ?? "a different time zone"} ({tz.label})</>}</p></>}
+    {delay.kind === "at" && <><input aria-label="Start date and time" type="datetime-local" className="field-input" value={localDate(delay.at)} onChange={(e) => onChange({ kind: "at", at: e.target.value ? new Date(e.target.value).getTime() : 0 })} /><p className="text-[12px] text-ink-3">Your local time · {Intl.DateTimeFormat().resolvedOptions().timeZone}{tz?.differs && delay.at > 0 && <> · server: {serverTimeOf(tz, delay.at) ?? "a different time zone"} ({tz.label})</>}</p></>}
     {delay.kind === "agents" && <AgentPicker ids={delay.session_ids} exclude={exclude} onChange={(session_ids) => onChange({ kind: "agents", session_ids })} />}
     {delay.kind === "quota" && <>
       <div className="grid grid-cols-2 gap-2">
         <select aria-label="Quota provider" className="field-input" value={delay.harness} onChange={(e) => onChange({ ...delay, harness: e.target.value as HarnessKind })}>{quotaHarnesses.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}</select>
         <select aria-label="Quota window" className="field-input" value={delay.window} onChange={(e) => onChange({ ...delay, window: e.target.value as "five_hour" | "weekly" })}><option value="five_hour">5-hour quota</option><option value="weekly">Weekly quota</option></select>
       </div>
-      {reset && !error && <p className="text-xs text-ink-2">Resets {when(reset)}. This reset time is saved when you schedule.</p>}
+      {reset && !error && <p className="text-[12px] text-ink-2">Resets {when(reset)}. This reset time is saved when you schedule.</p>}
     </>}
-    {error && <p role="alert" className="text-xs text-gh-closed">{error}</p>}
+    {error && <p role="alert" className="text-[12px] text-gh-closed">{error}</p>}
   </div>;
 }
 
@@ -166,12 +166,12 @@ export function DelaySelector({ conditions, harness, profile, exclude, onChange,
   const hasAgents = conditions.some((c) => c.kind === "agents");
   return <div className="grid gap-1.5">
     <label className="text-[12px] font-[650] text-ink-2" htmlFor="launch-start">Start</label>
-    <p className="text-xs text-ink-3">{!conditions.length ? "Now, when you click Launch. Add conditions to schedule it." : conditions.length === 1 ? "When this condition is met." : "When all of these conditions are met."}</p>
+    <p className="text-[12px] text-ink-3">{!conditions.length ? "Now, when you click Launch. Add conditions to schedule it." : conditions.length === 1 ? "When this condition is met." : "When all of these conditions are met."}</p>
     {conditions.map((c, i) => <ConditionEditor key={i} delay={c} run={run} exclude={exclude} onChange={(next) => onChange(conditions.map((x, j) => j === i ? next : x))} onRemove={() => onChange(conditions.filter((_, j) => j !== i))} />)}
     <select id="launch-start" className="field-input" value="" onChange={(e) => { const c = newCondition(e.target.value, e.target.value === "quota" ? quotaHarness : harness); if (c) onChange([...conditions, c]); }}>
       <option value="">{conditions.length ? "Add another condition…" : "Add a start condition…"}</option>
       {KINDS.map((k) => <option key={k.kind} value={k.kind} disabled={k.kind === "agents" && hasAgents}>{k.label}…</option>)}
     </select>
-    {!!conditions.length && <p className="text-xs text-ink-3">Queued locally. Launchpad starts it automatically while the daemon is running, including after a restart.</p>}
+    {!!conditions.length && <p className="text-[12px] text-ink-3">Queued locally. Launchpad starts it automatically while the daemon is running, including after a restart.</p>}
   </div>;
 }

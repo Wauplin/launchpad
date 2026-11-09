@@ -24,8 +24,8 @@ import { ItemRow, LOOK } from "./TodayRows";
 
 /** Handled in the last 30 days: what it was, what happened and when. */
 const DoneRow = memo(function DoneRow({ item }: { item: TodayItem }) {
-  return <div className="grid h-[52px] grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-3 border-b border-line-2 px-4">
-    <span className="grid size-7 place-items-center text-ink-3" title={LOOK[item.kind].name}><Icon name={LOOK[item.kind].icon} size={15} /></span>
+  return <div className="grid h-[52px] grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-3 border-b border-line-2 px-3">
+    <span className="grid size-7 place-items-center text-ink-3" title={LOOK[item.kind].name}><Icon name={LOOK[item.kind].icon} size={16} /></span>
     <div className="min-w-0">
       <div className="truncate text-[13px] font-medium" title={item.title}>{item.title}</div>
       <div className="truncate text-[12px] text-ink-3">{item.outcome} · {ago(item.at)}{item.detail ? ` · ${item.detail}` : ""}</div>
@@ -140,12 +140,12 @@ export function TodayView() {
         ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line-2 px-3 py-1"><div className="min-w-[40%] flex-1 basis-0">{chips}</div>{groupActions}</div>
         : <PageHeader title="Today" meta={<span>{meta}</span>} intro="Everything that waits for your decision, one row each, grouped by what to do. Hover an icon to see what it is; click a title to read more. Nothing reaches GitHub or other people without your click." actions={groupActions || undefined} tabs={<div className="pb-3">{chips}</div>} />}
       <div ref={ref} className="min-h-0 flex-1 overflow-y-auto [overflow-wrap:anywhere]">
-        {error ? <ErrorState className="m-4" error={error} /> : loading ? <Loading what="Today" /> : shown.length === 0 && <Empty fill={phone} icon="check" className={phone ? "" : "mx-auto max-w-[760px] pt-6"}>{EMPTY[view]}</Empty>}
-        <div className={`relative mx-auto w-full ${view === "done" ? "max-w-[860px]" : "max-w-[1040px]"}`} style={{ height: list.getTotalSize() }}>
+        {error ? <ErrorState className="m-4" error={error} /> : loading ? <Loading what="Today" /> : shown.length === 0 && <Empty fill={phone} icon="check" className={phone ? "" : "max-w-text px-5 pt-6"}>{EMPTY[view]}</Empty>}
+        <div className="relative w-full max-w-page" style={{ height: list.getTotalSize() }}>
           {list.getVirtualItems().map((row) => {
             const { item, heading } = rows[row.index];
             return (
-              <div key={row.key} data-index={row.index} ref={list.measureElement} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${row.start}px)` }}>
+              <div key={row.key} data-index={row.index} ref={list.measureElement} className={`absolute top-0 ${phone ? "left-0 w-full" : "inset-x-2"}`} style={{ transform: `translateY(${row.start}px)` }}>
                 {heading ? <h2 className="m-0 flex items-baseline gap-2 border-b border-line-2 px-3 pt-4 pb-1.5 text-[11px] font-semibold tracking-wide text-ink-3 uppercase">{LABEL[heading]}<span className="font-normal normal-case">{counts[heading]}</span></h2>
                   : view === "done" ? <DoneRow item={item!} />
                   : <ItemRow item={item!} expanded={expanded.has(item!.id)} toggle={toggle} highlight={item!.id === search.card} proposal={byProposal.get(item!.record)} suggestion={bySuggestion.get(item!.record)} />}

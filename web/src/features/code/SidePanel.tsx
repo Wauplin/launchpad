@@ -19,7 +19,7 @@ export function Toggle({ on, onClick, title, children }: { on: boolean; onClick:
     <button
       title={title}
       onClick={onClick}
-      className={`inline-grid h-6 min-w-6 place-items-center rounded-[5px] border px-1 font-mono text-[11px] font-semibold ${on ? "border-teal bg-teal-soft text-teal-ink" : "border-transparent text-ink-2 hover:bg-sunk"}`}
+      className={`inline-grid h-6 min-w-6 place-items-center rounded-control border px-1 font-mono text-[11px] font-semibold ${on ? "border-teal bg-teal-soft text-teal-ink" : "border-transparent text-ink-2 hover:bg-sunk"}`}
     >
       {children}
     </button>
@@ -52,7 +52,7 @@ const TreeLine = memo(function TreeLine({ row, letter, changedDir, active, onCli
       style={{ paddingLeft: pad }}
     >
       {row.kind === "dir" && <Icon name="chev" size={12} className={`text-ink-3 ${row.open ? "" : "-rotate-90"}`} />}
-      <Icon name={row.kind === "dir" ? "folder" : "file"} size={13} className="text-ink-3" />
+      <Icon name={row.kind === "dir" ? "folder" : "file"} size={12} className="text-ink-3" />
       <span className={`min-w-0 truncate ${row.kind === "dir" ? "font-[550]" : ""}`}>{row.name}</span>
       {changedDir && <span className="size-1.5 flex-none rounded-full bg-attn" title="Changed files inside" />}
       {letter && <span className="ml-auto font-mono text-[11px] font-bold">{letter}</span>}
@@ -67,7 +67,7 @@ const GoLine = memo(function GoLine({ path, letter, active, onClick }: { path: s
       title={path}
       className={`code-tree-line flex h-6 w-full items-center gap-1.5 px-2.5 text-left text-[13px] whitespace-nowrap ${active ? "bg-select" : "hover:bg-sunk"} ${letter ? "text-attn" : ""}`}
     >
-      <Icon name="file" size={13} className="text-ink-3" />
+      <Icon name="file" size={12} className="text-ink-3" />
       <span className="flex-none font-[550]">{basename(path)}</span>
       <span className="min-w-0 truncate text-[12px] text-ink-3">{dirname(path)}</span>
       {letter && <span className="ml-auto font-mono text-[11px] font-bold">{letter}</span>}
@@ -116,8 +116,8 @@ export function FilesPanel({ list, skey, active, onOpen }: { list: FileList | un
   return (
     <>
       <div className="grid grid-cols-[minmax(0,1fr)] gap-2 border-b border-line-2 px-2.5 pt-1 pb-2">
-        <div className="flex h-[30px] items-center gap-[7px] rounded-[7px] border border-line px-2 text-ink-3 focus-within:border-teal">
-          <Icon name="search" size={13} />
+        <div className="flex h-[30px] items-center gap-2 rounded-control border border-line px-2 text-ink-3 focus-within:border-teal">
+          <Icon name="search" size={12} />
           <input className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none" placeholder="Go to file" value={query} onChange={(e) => setQuery(e.target.value)} />
           {going && (
             <button className="text-ink-3 hover:text-ink" title="Clear" onClick={() => setQuery("")}>
@@ -125,7 +125,7 @@ export function FilesPanel({ list, skey, active, onOpen }: { list: FileList | un
             </button>
           )}
         </div>
-        <label className={`flex items-center gap-2 text-xs whitespace-nowrap text-ink-2 ${list?.git === false ? "opacity-50" : ""}`}>
+        <label className={`flex items-center gap-2 text-[12px] whitespace-nowrap text-ink-2 ${list?.git === false ? "opacity-50" : ""}`}>
           <input type="checkbox" className="accent-teal" checked={changedOnly} disabled={!list?.git} onChange={(e) => setChangedOnly(e.target.checked)} />
           Changed only
           <span className="ml-auto text-[12px] text-ink-3" title={list?.base ? `Since the branch left ${list.base}, committed or not` : undefined}>
@@ -134,9 +134,9 @@ export function FilesPanel({ list, skey, active, onOpen }: { list: FileList | un
         </label>
       </div>
       <div ref={ref} className="min-h-0 flex-1 overflow-y-auto py-1">
-        {!list && <div className="px-3 py-2 text-xs text-ink-3">Loading files…</div>}
-        {going && found.length === 0 && <div className="px-3 py-2 text-xs text-ink-3">No file matches.</div>}
-        {changedOnly && !going && rows.length === 0 && list && <div className="px-3 py-2 text-xs text-ink-3">No changed file.</div>}
+        {!list && <div className="px-3 py-2 text-[12px] text-ink-3">Loading files…</div>}
+        {going && found.length === 0 && <div className="px-3 py-2 text-[12px] text-ink-3">No file matches.</div>}
+        {changedOnly && !going && rows.length === 0 && list && <div className="px-3 py-2 text-[12px] text-ink-3">No changed file.</div>}
         <div className="relative" style={{ height: v.getTotalSize() }}>
           {v.getVirtualItems().map((it) => (
             <div key={it.key} className="absolute top-0 left-0 w-full" style={{ height: TREE_ROW, transform: `translateY(${it.start}px)` }}>
@@ -204,8 +204,8 @@ export function SearchPanel({ root, rev, onOpen, state, setState }: { root: stri
   return (
     <>
       <div className="grid grid-cols-[minmax(0,1fr)] gap-2 border-b border-line-2 px-2.5 pt-1 pb-2">
-        <div className="flex h-[30px] items-center gap-1 rounded-[7px] border border-line pr-1 pl-2 text-ink-3 focus-within:border-teal">
-          <Icon name="search" size={13} />
+        <div className="flex h-[30px] items-center gap-1 rounded-control border border-line pr-1 pl-2 text-ink-3 focus-within:border-teal">
+          <Icon name="search" size={12} />
           <input className="ml-1 min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none" placeholder="Search in folder" value={state.q} onChange={(e) => setState({ ...state, q: e.target.value })} />
           <FindToggles opts={opts} set={(o) => setState({ ...state, opts: o })} />
         </div>
@@ -228,15 +228,15 @@ export function SearchPanel({ root, rev, onOpen, state, setState }: { root: stri
             return (
               <div key={it.key} className="absolute top-0 left-0 w-full" style={{ height: TREE_ROW, transform: `translateY(${it.start}px)` }}>
                 {r.t === "file" ? (
-                  <button className="flex h-full w-full items-center gap-1.5 px-2.5 text-left text-xs font-[650] hover:bg-sunk" title={r.path} onClick={() => onOpen(r.path, 1)}>
-                    <Icon name="file" size={13} className="text-ink-3" />
+                  <button className="flex h-full w-full items-center gap-1.5 px-2.5 text-left text-[12px] font-[650] hover:bg-sunk" title={r.path} onClick={() => onOpen(r.path, 1)}>
+                    <Icon name="file" size={12} className="text-ink-3" />
                     <span className="min-w-0 truncate">{r.path}</span>
                     <span className="ml-auto font-normal text-ink-3 tabular-nums">{r.count}</span>
                   </button>
                 ) : r.t === "hit" ? (
                   <HitLine path={r.path} line={r.line} text={r.text} re={re} onOpen={onOpen} />
                 ) : (
-                  <button className="h-full w-full pl-8 text-left text-xs font-semibold text-teal-ink hover:underline" onClick={() => setShown((s) => new Set(s).add(r.path))}>
+                  <button className="h-full w-full pl-8 text-left text-[12px] font-semibold text-teal-ink hover:underline" onClick={() => setShown((s) => new Set(s).add(r.path))}>
                     Show {r.hidden} more
                   </button>
                 )}

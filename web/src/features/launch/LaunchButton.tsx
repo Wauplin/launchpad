@@ -95,9 +95,9 @@ export function LaunchSplitButton({ ctx, text, onLaunch, onUsed, primary = false
   const first = spec.text.trim().split("\n")[0];
   const age = since !== null ? ago(since) : null;
   return (
-    <span className={`inline-flex rounded-[8px] transition-shadow ${flash ? "ring-[3px] ring-teal" : ""}`} data-tour="topbar.launch">
+    <span className={`inline-flex rounded-card transition-shadow ${flash ? "ring-[3px] ring-teal" : ""}`} data-tour="topbar.launch">
       <button className={`btn ${cls} rounded-r-none`} title={draft ? `Open the draft${first ? `: ${first}` : ""}${age ? ` (started ${age})` : ""}${text.trim() ? "; your text is added to it" : ""}` : title} onClick={onLaunch}>
-        <Icon name="play" size={13} />
+        <Icon name="play" size={12} />
         Launch
         {draft && <span className={`rounded-full px-1.5 text-[11px] leading-4 font-semibold ${stale ? "bg-attn-soft text-attn" : "bg-sunk text-ink-2"}`}>draft{items ? ` · ${items}` : ""}</span>}
       </button>
@@ -107,10 +107,10 @@ export function LaunchSplitButton({ ctx, text, onLaunch, onUsed, primary = false
         {(close) => (
           <>
             {draft
-              ? <MenuItem icon={<Icon name="sliders" size={13} />} label="Open the draft" detail={[first || "No prompt yet", age && `started ${age}`].filter(Boolean).join(" · ")} onClick={() => { close(); options(); }} />
-              : <MenuItem icon={<Icon name="sliders" size={13} />} label="Launch with options…" detail="Open the composer with this text, for a launch that needs more choices" onClick={() => { close(); options(); }} />}
-            {draft && <MenuItem icon={<Icon name="plus" size={13} />} label="New draft instead" detail="Discards the draft" onClick={() => { close(); discard(); options(); }} />}
-            {draft && <MenuItem icon={<Icon name="trash" size={13} />} label={stale ? "Discard this old draft" : "Discard draft"} detail={stale ? `Started ${age}` : undefined} onClick={() => { close(); discard(); }} />}
+              ? <MenuItem icon={<Icon name="sliders" size={12} />} label="Open the draft" detail={[first || "No prompt yet", age && `started ${age}`].filter(Boolean).join(" · ")} onClick={() => { close(); options(); }} />
+              : <MenuItem icon={<Icon name="sliders" size={12} />} label="Launch with options…" detail="Open the composer with this text, for a launch that needs more choices" onClick={() => { close(); options(); }} />}
+            {draft && <MenuItem icon={<Icon name="plus" size={12} />} label="New draft instead" detail="Discards the draft" onClick={() => { close(); discard(); options(); }} />}
+            {draft && <MenuItem icon={<Icon name="trash" size={12} />} label={stale ? "Discard this old draft" : "Discard draft"} detail={stale ? `Started ${age}` : undefined} onClick={() => { close(); discard(); }} />}
           </>
         )}
       </Popover>

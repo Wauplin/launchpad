@@ -62,14 +62,14 @@ const Chip = ({ t }: { t: TerminalInfo }) => (
 
 const Tab = memo(function Tab({ t, active, onSelect, onClose }: { t: TerminalInfo; active: boolean; onSelect: (id: string) => void; onClose: (t: TerminalInfo) => void }) {
   return (
-    <span role="tab" aria-selected={active} className={`inline-flex h-7 max-w-[320px] flex-none items-center gap-1 rounded-md border pl-2 ${active ? "border-teal bg-paper" : "border-line bg-chrome"}`}>
+    <span role="tab" aria-selected={active} className={`inline-flex h-7 max-w-[320px] flex-none items-center gap-1 rounded-control border pl-2 ${active ? "border-teal bg-paper" : "border-line bg-chrome"}`}>
       <button className="flex min-w-0 items-center gap-1.5" title={`${kindLabel(t)} · ${t.title} · ${t.cwd} · ${terminalStatus(t)}`} onClick={() => onSelect(t.id)}>
         <Icon name={kindIcon(t)} size={12} className="flex-none text-ink-3" />
         <span className="min-w-0 truncate">{tabName(t)}</span>
         <Chip t={t} />
         <Dot t={t} />
       </button>
-      <button className="iconbtn size-6!" title={t.alive ? (closeNeedsConfirm(t) ? "Stop the process (asks first)" : "Close this idle shell") : "Remove this exited terminal"} aria-label={`Close ${tabName(t)}`} onClick={() => onClose(t)}>
+      <button className="iconbtn" title={t.alive ? (closeNeedsConfirm(t) ? "Stop the process (asks first)" : "Close this idle shell") : "Remove this exited terminal"} aria-label={`Close ${tabName(t)}`} onClick={() => onClose(t)}>
         <Icon name="x" size={12} />
       </button>
     </span>
@@ -82,7 +82,7 @@ function ExitedBanner({ t, onRemove }: { t: TerminalInfo; onRemove: () => void }
   const [busy, setBusy] = useState(false);
   return (
     <div className="flex flex-none flex-wrap items-center gap-2 border-b border-line-2 bg-chrome px-2 py-1 text-[12px] text-ink-2" role="status">
-      <Icon name={t.exit_code === 0 ? "okcircle" : "alert"} size={13} className={t.exit_code === 0 ? "text-ink-3" : "text-danger-ink"} />
+      <Icon name={t.exit_code === 0 ? "okcircle" : "alert"} size={12} className={t.exit_code === 0 ? "text-ink-3" : "text-danger-ink"} />
       <span>Process exited{t.exit_code === null ? "" : ` (code ${t.exit_code})`}</span>
       <button className="btn btn-sm" disabled={busy} title={t.kind === "tui" ? "Open the agent's TUI again in this folder" : t.kind === "command" ? "Run the same command again in this folder" : "Open a new shell in this folder"} onClick={() => { setBusy(true); void open.restart(t).finally(() => setBusy(false)); }}><Icon name="refresh" size={12} />Restart here</button>
       <button className="btn btn-sm" onClick={onRemove}><Icon name="x" size={12} />Remove</button>
@@ -190,13 +190,13 @@ function Dock({ fill }: { fill?: boolean }) {
       {(closeMenu) => <>
         {terminals.map((t) => (
           <div key={t.id} className="flex min-h-12 items-center gap-1">
-            <button className={`flex min-h-12 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-[13px] ${t.id === active?.id ? "bg-teal-soft text-teal-ink" : ""}`} onClick={() => { select(t.id); closeMenu(); }}>
+            <button className={`flex min-h-12 min-w-0 flex-1 items-center gap-2 rounded-control px-2 text-left text-[13px] ${t.id === active?.id ? "bg-teal-soft text-teal-ink" : ""}`} onClick={() => { select(t.id); closeMenu(); }}>
               <Icon name={kindIcon(t)} size={14} className="flex-none text-ink-3" />
               <span className="min-w-0 flex-1 truncate">{tabName(t)}</span>
               <Chip t={t} />
               <Dot t={t} />
             </button>
-            <button className="iconbtn size-11!" aria-label={`Close ${tabName(t)}`} onClick={() => { closeMenu(); select(t.id); void close(t); }}><Icon name="x" size={14} /></button>
+            <button className="iconbtn" aria-label={`Close ${tabName(t)}`} onClick={() => { closeMenu(); select(t.id); void close(t); }}><Icon name="x" size={14} /></button>
           </div>
         ))}
         {terminals.length > 0 && <div className="my-0.5 border-t border-line-2" />}

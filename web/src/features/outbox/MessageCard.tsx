@@ -46,7 +46,7 @@ export const MessageCard = memo(function MessageCard({ m }: { m: OutboxMessage }
   const failed = (e: unknown) => { setError(e); void refresh(); };
   const uncertain = m.status === "uncertain" || m.status === "sending";
   return (
-    <article className="rounded-lg border border-line bg-paper p-4" data-tour="outbox.card">
+    <article className="rounded-card border border-line bg-paper p-4" data-tour="outbox.card">
       <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
         <Token icon="send">{m.channel}</Token>
         <span>{KIND_LABEL[m.kind]} · drafted by <SessionLink id={m.session_id}>{m.author}</SessionLink> {ago(m.created_at)}</span>

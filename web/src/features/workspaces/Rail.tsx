@@ -15,7 +15,7 @@ const Square = memo(function Square({ w, active, count }: { w: Workspace; active
   const others = !active && !!count?.total;
   return (
     <button
-      className={`relative grid size-[32px] flex-none place-items-center rounded-[8px] text-[13px] font-semibold ${active ? "bg-teal text-white shadow-[0_0_0_2px_var(--color-paper),0_0_0_4px_var(--color-teal)]" : "bg-sunk text-ink-2 hover:bg-select hover:text-ink"}`}
+      className={`relative grid size-[32px] flex-none place-items-center rounded-card text-[13px] font-semibold ${active ? "bg-teal text-white shadow-[0_0_0_2px_var(--color-paper),0_0_0_4px_var(--color-teal)]" : "bg-sunk text-ink-2 hover:bg-select hover:text-ink"}`}
       aria-pressed={active}
       aria-label={w.name}
       title={active ? `${w.name} · shown in this window` : `${w.name} · ${describeCount(count)}. Click to show it here.`}
@@ -35,7 +35,7 @@ export function WorkspaceRail() {
     <nav aria-label="Workspaces" data-tour="rail.workspaces" className="flex w-[46px] flex-none flex-col items-center gap-2.5 overflow-y-auto border-r border-line bg-chrome py-2.5">
       {workspaces.map((w) => <Square key={w.id} w={w} active={w.id === current} count={counts[w.id]} />)}
       <Popover width={260} trigger={({ open, toggle }) => (
-        <button className="grid size-[32px] flex-none place-items-center rounded-[8px] border border-dashed border-line text-ink-3 hover:bg-sunk hover:text-ink" aria-expanded={open} aria-label="New workspace" title="New workspace" onClick={toggle}><Icon name="plus" size={14} /></button>
+        <button className="grid size-[32px] flex-none place-items-center rounded-card border border-dashed border-line text-ink-3 hover:bg-sunk hover:text-ink" aria-expanded={open} aria-label="New workspace" title="New workspace" onClick={toggle}><Icon name="plus" size={14} /></button>
       )}>
         {(close) => <NewWorkspaceForm onDone={close} onCancel={close} />}
       </Popover>

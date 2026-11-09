@@ -48,7 +48,7 @@ export function OutdatedRunnerNotice({ spec }: { spec: LaunchSpec }) {
       ? "It takes no new session: this launch goes to another runner."
       : burst && !burst.unavailable ? "No up-to-date runner takes launches: this one starts on Burst unless you update it first." : "No up-to-date runner takes launches: update it before launching.";
   return (
-    <div className="grid gap-1.5 rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">
+    <div className="grid gap-1.5 rounded-card bg-attn-soft px-3 py-2 text-[12px] text-attn">
       <span>{outdatedLabel(names)}: its build differs from Home's. {effect} <Link to="/settings/runners" className="font-semibold underline">{oneClick.length === relevant.length ? "Details" : "How to update"}</Link></span>
       {oneClick.map((r) => <UpdateRunnerButton key={r.runner.id} runner={r} />)}
     </div>

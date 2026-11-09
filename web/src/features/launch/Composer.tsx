@@ -80,9 +80,9 @@ function Branch({ projectId, branch, onChange, currentLabel = "checkout", field 
     <Popover
       width={260}
       trigger={({ toggle }) => field ? (
-        <SelectButton onClick={toggle}><Icon name="branch" size={13} className="flex-none text-ink-3" /><span className="truncate">{branch ?? `${currentLabel}${q.data?.current ? ` (${q.data.current})` : ""}`}</span></SelectButton>
+        <SelectButton onClick={toggle}><Icon name="branch" size={12} className="flex-none text-ink-3" /><span className="truncate">{branch ?? `${currentLabel}${q.data?.current ? ` (${q.data.current})` : ""}`}</span></SelectButton>
       ) : (
-        <button onClick={toggle} className="inline-flex h-5 items-center gap-1 rounded-[5px] border border-line bg-paper px-1.5 font-mono text-[12px] whitespace-nowrap">
+        <button onClick={toggle} className="inline-flex h-5 items-center gap-1 rounded-control border border-line bg-paper px-1.5 font-mono text-[12px] whitespace-nowrap">
           <Icon name="branch" size={12} />
           {branch ?? `${currentLabel}${q.data?.current ? ` (${q.data.current})` : ""}`}
           <Icon name="chev" size={12} className="text-ink-3" />
@@ -93,9 +93,9 @@ function Branch({ projectId, branch, onChange, currentLabel = "checkout", field 
         <>
           <MenuItem label={currentLabel === "checkout" ? "Current checkout" : "Current branch"} detail={q.data?.current ?? undefined} active={branch === null} onClick={() => (onChange(null), close())} />
           {(q.data?.branches ?? []).map((b) => (
-            <MenuItem key={b} icon={<Icon name="branch" size={13} />} label={<span className="font-mono text-xs">{b}</span>} active={b === branch} onClick={() => (onChange(b), close())} />
+            <MenuItem key={b} icon={<Icon name="branch" size={12} />} label={<span className="font-mono text-[12px]">{b}</span>} active={b === branch} onClick={() => (onChange(b), close())} />
           ))}
-          {q.isLoading && <div className="px-2 py-1 text-xs text-ink-3">Loading branches…</div>}
+          {q.isLoading && <div className="px-2 py-1 text-[12px] text-ink-3">Loading branches…</div>}
         </>
       )}
     </Popover>
@@ -111,7 +111,7 @@ function PromptPreview({ spec, title }: { spec: LaunchSpec; title: string }) {
         {title}
         <span className="ml-auto font-normal text-ink-3">{preview.isFetching ? "Updating…" : `${preview.data?.prompt.length ?? 0} characters`}</span>
       </div>
-      <pre className="m-0 max-h-[50vh] overflow-y-auto rounded-md bg-chrome px-2.5 py-2 font-mono text-[12px] leading-normal whitespace-pre-wrap text-ink-2">
+      <pre className="m-0 max-h-[50vh] overflow-y-auto rounded-control bg-chrome px-2.5 py-2 font-mono text-[12px] leading-normal whitespace-pre-wrap text-ink-2">
         {preview.isError ? <span className="text-danger-ink">{preview.error.message}</span> : preview.data?.prompt || <span className="text-ink-3">{preview.isLoading ? "Rendering…" : "The prompt is empty."}</span>}
       </pre>
     </div>
@@ -148,13 +148,13 @@ function withFolder(s: LaunchSpec, p: Project): LaunchSpec {
 }
 
 function Token({ warn, title, children }: { warn?: boolean; title?: string; children: React.ReactNode }) {
-  return <span title={title} className={`inline-flex h-[22px] max-w-full items-center gap-1 truncate rounded-md px-1.5 text-[12px] ${warn ? "bg-attn-soft font-semibold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]" : "bg-sunk text-ink-2"}`}>{children}</span>;
+  return <span title={title} className={`inline-flex h-[22px] max-w-full items-center gap-1 truncate rounded-control px-1.5 text-[12px] ${warn ? "bg-attn-soft font-semibold text-attn shadow-[inset_0_0_0_1px_var(--color-attn-line)]" : "bg-sunk text-ink-2"}`}>{children}</span>;
 }
 
 /** The options panel: inline on desktop, a bottom sheet on the phone. */
 function OptionsFrame({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   if (isPhone) return <Sheet title="Launch options" onClose={onClose}><div className="grid gap-3 p-3">{children}</div></Sheet>;
-  return <div className="grid gap-3 rounded-lg border border-line bg-chrome p-2.5">{children}</div>;
+  return <div className="grid gap-3 rounded-card border border-line bg-chrome p-2.5">{children}</div>;
 }
 
 function OptionRow({ label, end, children }: { label: string; end?: React.ReactNode; children: React.ReactNode }) {
@@ -453,9 +453,9 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       {!browserOnly && <Popover up align="right" width={280} trigger={({ open: menu, toggle }) => <button className="btn btn-primary rounded-l-none border-l-white/30 px-1.5!" aria-label="When to start" aria-expanded={menu} disabled={launching} onClick={toggle}><Icon name="chev" size={12} /></button>}>
         {(closeMenu) => (
           <>
-            <MenuItem icon={<Icon name="play" size={13} />} label={editing ? "Start now" : "Launch now"} active={timing === "now"} onClick={() => { setTiming("now"); closeMenu(); }} />
-            <MenuItem icon={<Icon name="clock" size={13} />} label="Start later…" detail="After a delay, at a time, after agents are Done, when quota resets" active={timing === "later"} onClick={() => { setTiming("later"); closeMenu(); }} />
-            <MenuItem icon={<Icon name="refresh" size={13} />} label="Repeat on a schedule…" detail={editing ? "Creates a routine and cancels this scheduled launch" : "Creates a routine"} active={timing === "repeat"} onClick={() => { setTiming("repeat"); closeMenu(); }} />
+            <MenuItem icon={<Icon name="play" size={12} />} label={editing ? "Start now" : "Launch now"} active={timing === "now"} onClick={() => { setTiming("now"); closeMenu(); }} />
+            <MenuItem icon={<Icon name="clock" size={12} />} label="Start later…" detail="After a delay, at a time, after agents are Done, when quota resets" active={timing === "later"} onClick={() => { setTiming("later"); closeMenu(); }} />
+            <MenuItem icon={<Icon name="refresh" size={12} />} label="Repeat on a schedule…" detail={editing ? "Creates a routine and cancels this scheduled launch" : "Creates a routine"} active={timing === "repeat"} onClick={() => { setTiming("repeat"); closeMenu(); }} />
           </>
         )}
       </Popover>}
@@ -485,7 +485,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   return (
     <aside data-tour="composer" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${!embedded && isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${embedded ? "absolute inset-0 z-40 w-full!" : overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
       <div className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
-        <span className="flex-1 truncate whitespace-nowrap text-sm font-bold" title={edited?.title}>{editing ? "Edit scheduled launch" : "Launch an agent"}</span>
+        <span className="flex-1 truncate whitespace-nowrap text-[13px] font-bold" title={edited?.title}>{editing ? "Edit scheduled launch" : "Launch an agent"}</span>
         {!embedded && !isPhone && <button className="btn btn-sm btn-ghost" title="Keep the draft as a badge on Launch; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>}
         <button className="iconbtn" title="Close (the draft is kept)" onClick={close}>
           <Icon name="x" size={14} />
@@ -553,7 +553,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {unsupportedImages && <div className="mt-1 text-[12px] text-danger-ink">This harness does not support attached images. Remove them or choose another harness.</div>}
         </div>}
 
-        {browserOnly ? <div className="rounded-lg border border-line bg-chrome px-3 py-2 text-xs">Browser · explicit page grants · own folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className="grid gap-2.5">
+        {browserOnly ? <div className="rounded-card border border-line bg-chrome px-3 py-2 text-[12px]">Browser · explicit page grants · own folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className="grid gap-2.5">
           <Field label="Folder" tour="composer.folder">
             <Popover
               width={300}
@@ -584,8 +584,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
 
         {hasChips && <div className="flex flex-wrap items-center gap-1.5">
           {(spec.agent_traces ?? []).map((trace) => (
-            <span key={`${trace.session_id}:${trace.through_seq}`} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs">
-              <Icon name="agents" size={13} />
+            <span key={`${trace.session_id}:${trace.through_seq}`} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-control border border-line bg-chrome px-2 text-[12px]">
+              <Icon name="agents" size={12} />
               <span className="min-w-0 truncate" title={`Stored trace through event #${trace.through_seq} · ${trace.session_id}`}>Trace · {sessions?.find((s) => s.id === trace.session_id)?.title ?? "Missing agent"}</span>
               <button title="Remove agent trace" className="text-ink-3 hover:text-ink" onClick={() => set((s) => ({ ...s, agent_traces: s.agent_traces.filter((t) => t.session_id !== trace.session_id || t.through_seq !== trace.through_seq) }))}><Icon name="x" size={12} /></button>
             </span>
@@ -593,8 +593,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {spec.github_refs.map((g) => {
             const ic = itemIcon(g.kind === "pr" ? "pr" : "issue", "open");
             return (
-              <span key={g.url} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs" title={g.title ?? g.url}>
-                <Icon name={g.kind === "comment" || g.kind === "review_comment" ? "comment" : ic.name} size={13} className={ic.color} />
+              <span key={g.url} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-control border border-line bg-chrome px-2 text-[12px]" title={g.title ?? g.url}>
+                <Icon name={g.kind === "comment" || g.kind === "review_comment" ? "comment" : ic.name} size={12} className={ic.color} />
                 <span className="font-mono">{g.number === null ? g.kind : `#${g.number}`}</span>
                 <span className="min-w-0 truncate text-ink-2">{g.title ?? g.url}</span>
                 <button className="text-ink-3 hover:text-ink" title="Remove" onClick={() => set((s) => ({ ...s, github_refs: s.github_refs.filter((x) => x.url !== g.url) }))}><Icon name="x" size={12} /></button>
@@ -603,8 +603,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           })}
           <SkillChips skills={spec.skills} disabled={launching} onRemove={(path) => set((s) => ({ ...s, skills: (s.skills ?? []).filter((v) => v.path !== path) }))} />
           {(spec.files ?? []).map((f, i) => (
-            <span key={`${f.root}\n${f.rev}\n${f.path}\n${f.start_line}-${f.end_line}`} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs" title={`${f.root}/${f.path}${f.rev ? ` at ${f.rev}` : ""}`}>
-              <Icon name="file" size={13} />
+            <span key={`${f.root}\n${f.rev}\n${f.path}\n${f.start_line}-${f.end_line}`} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-control border border-line bg-chrome px-2 text-[12px]" title={`${f.root}/${f.path}${f.rev ? ` at ${f.rev}` : ""}`}>
+              <Icon name="file" size={12} />
               <span className="min-w-0 truncate font-mono">
                 {f.path}
                 {f.start_line !== null && `:${f.start_line}${f.end_line !== null && f.end_line > f.start_line ? `-${f.end_line}` : ""}`}
@@ -613,12 +613,12 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             </span>
           ))}
           {spec.context_projects.map((c) => (
-            <span key={c.project_id} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-[7px] border border-line bg-chrome px-2 text-xs">
-              <Icon name="folder" size={13} />
+            <span key={c.project_id} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-control border border-line bg-chrome px-2 text-[12px]">
+              <Icon name="folder" size={12} />
               <span className="font-mono">{projects.find((x) => x.id === c.project_id)?.name ?? "?"}</span>
               <Branch projectId={c.project_id} branch={c.branch} onChange={(branch) => set((s) => ({ ...s, context_projects: s.context_projects.map((x) => (x.project_id === c.project_id ? { ...x, branch } : x)) }))} />
               <button
-                className={`inline-flex h-5 items-center rounded-[5px] border px-1.5 text-[11px] ${c.editable ? "border-teal bg-teal-soft font-semibold text-teal-ink" : "border-line bg-paper text-ink-2"}`}
+                className={`inline-flex h-5 items-center rounded-control border px-1.5 text-[11px] ${c.editable ? "border-teal bg-teal-soft font-semibold text-teal-ink" : "border-line bg-paper text-ink-2"}`}
                 title={c.editable ? (spec.target.kind === "project" && !worktreeMode ? "Editable: the agent may modify this folder. Click to make it read-only." : "Editable: the agent gets its own worktree of this project. Click to make it read-only.") : "Read-only reference. Click to let the agent modify it."}
                 aria-pressed={c.editable}
                 onClick={() => set((s) => ({ ...s, context_projects: s.context_projects.map((x) => (x.project_id === c.project_id ? { ...x, editable: !x.editable } : x)) }))}
@@ -628,13 +628,13 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           ))}
         </div>}
 
-        {missingProfile && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">The profile {spec.profile} no longer exists. Pick another profile in the options.</div>}
+        {missingProfile && <div className="rounded-card bg-attn-soft px-3 py-2 text-[12px] text-attn">The profile {spec.profile} no longer exists. Pick another profile in the options.</div>}
         {role === "home" && <OutdatedRunnerNotice spec={spec} />}
-        {!profiles.length && <div className="rounded-lg bg-attn-soft px-3 py-2 text-xs text-attn">No profile yet. A profile says which harness runs the agent and what pays for it. <Link to="/settings/profiles" className="font-semibold underline">Add one in Settings → Profiles</Link>.</div>}
+        {!profiles.length && <div className="rounded-card bg-attn-soft px-3 py-2 text-[12px] text-attn">No profile yet. A profile says which harness runs the agent and what pays for it. <Link to="/settings/profiles" className="font-semibold underline">Add one in Settings → Profiles</Link>.</div>}
 
         <button
           data-tour="composer.options"
-          className={`flex w-full flex-wrap items-center gap-1 rounded-lg border px-2 py-1.5 text-left ${showOptions ? "border-line bg-chrome" : "border-line bg-paper hover:border-line"}`}
+          className={`flex w-full flex-wrap items-center gap-1 rounded-card border px-2 py-1.5 text-left ${showOptions ? "border-line bg-chrome" : "border-line bg-paper hover:border-line"}`}
           aria-expanded={showOptions}
           title={showOptions ? "Hide the options" : "Show the options"}
           onClick={() => setShowOptions((v) => !v)}
@@ -674,13 +674,13 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                 {existing && !existingPrChoices.some((p) => p.id === existing.id) && <option value={`predraft:${existing.id}`} disabled>Local PR: {existing.title} · Unavailable</option>}
                 {!!existingPrChoices.length && <optgroup label="Existing Local PRs">{existingPrChoices.map((p) => <option key={p.id} value={`predraft:${p.id}`}>{p.title}{p.published_number ? ` · PR #${p.published_number}` : ""}</option>)}</optgroup>}
               </select> : <div className="field-input">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "Deleted at Archive" : "—"}</div>}
-              {taskWorktrees.isFetching && !taskWorktrees.data && target && <div className="mt-1 text-xs text-ink-3">Loading existing worktrees…</div>}
-              {taskWorktrees.isError && target && <div className="mt-1 text-xs text-danger-ink">Could not load existing worktrees. <button className="underline" onClick={() => void taskWorktrees.refetch()}>Retry</button></div>}
-              {existing && <div className="mt-1 break-all text-xs text-ink-3">Branch {existing.branch} on Home</div>}
-              {spec.target.kind === "session_folder" && <div className="mt-1 break-all text-xs text-ink-3">{source?.cwd ?? "Source session unavailable"}</div>}
-              {target && spec.target.kind === "project" && !worktreeMode && <div className="mt-1 text-xs text-ink-3">{gitTarget ? <TargetCheckout projectId={target.id} /> : "Runs in the folder"}</div>}
-              {worktreeMode && <div className="mt-1 text-xs text-ink-3" title="Before the agent starts, the runner clones the folder from Home Git into a fresh worktree on a new branch. The branch goes back to Home at the end of every turn.">{pushToPr ? `A fresh clone of PR #${pushToPr.number} from Home Git` : "A fresh clone from Home Git"}</div>}
-              {worktreeMode && detectedPr && <label className="inline-flex items-center gap-1.5 text-xs text-ink-2" title="The worktree starts from the pull request's head and Home pushes the agent's commits to the PR branch after each turn (never force). Uncheck to keep the work on Home.">
+              {taskWorktrees.isFetching && !taskWorktrees.data && target && <div className="mt-1 text-[12px] text-ink-3">Loading existing worktrees…</div>}
+              {taskWorktrees.isError && target && <div className="mt-1 text-[12px] text-danger-ink">Could not load existing worktrees. <button className="underline" onClick={() => void taskWorktrees.refetch()}>Retry</button></div>}
+              {existing && <div className="mt-1 break-all text-[12px] text-ink-3">Branch {existing.branch} on Home</div>}
+              {spec.target.kind === "session_folder" && <div className="mt-1 break-all text-[12px] text-ink-3">{source?.cwd ?? "Source session unavailable"}</div>}
+              {target && spec.target.kind === "project" && !worktreeMode && <div className="mt-1 text-[12px] text-ink-3">{gitTarget ? <TargetCheckout projectId={target.id} /> : "Runs in the folder"}</div>}
+              {worktreeMode && <div className="mt-1 text-[12px] text-ink-3" title="Before the agent starts, the runner clones the folder from Home Git into a fresh worktree on a new branch. The branch goes back to Home at the end of every turn.">{pushToPr ? `A fresh clone of PR #${pushToPr.number} from Home Git` : "A fresh clone from Home Git"}</div>}
+              {worktreeMode && detectedPr && <label className="inline-flex items-center gap-1.5 text-[12px] text-ink-2" title="The worktree starts from the pull request's head and Home pushes the agent's commits to the PR branch after each turn (never force). Uncheck to keep the work on Home.">
                 <input type="checkbox" className="accent-teal" checked={!!pushToPr} onChange={(e) => setPrOptOut(e.target.checked ? null : `${detectedPr.repo}#${detectedPr.number}`)} />
                 Push to PR #{detectedPr.number}
               </label>}
@@ -726,7 +726,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             </div>
           </OptionRow>}
           <OptionRow label="Model" end={
-            <button className="iconbtn size-5! disabled:opacity-50" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} title={refreshingModels ? "Refreshing models…" : "Refresh models"} aria-label={refreshingModels ? "Refreshing models" : "Refresh models"} aria-busy={refreshingModels}>
+            <button className="iconbtn disabled:opacity-50" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} title={refreshingModels ? "Refreshing models…" : "Refresh models"} aria-label={refreshingModels ? "Refreshing models" : "Refresh models"} aria-busy={refreshingModels}>
               <Icon name="refresh" size={12} className={refreshingModels ? "animate-spin" : ""} />
             </button>
           }>
@@ -744,10 +744,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             >
               {(closeMenu) => (
                 <>
-                  <MenuItem icon={<Icon name="refresh" size={13} className={refreshingModels ? "animate-spin" : ""} />} label={refreshingModels ? "Refreshing models…" : "Refresh models"} detail="Query the selected harness again" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} />
+                  <MenuItem icon={<Icon name="refresh" size={12} className={refreshingModels ? "animate-spin" : ""} />} label={refreshingModels ? "Refreshing models…" : "Refresh models"} detail="Query the selected harness again" disabled={!spec.harness || refreshingModels} onClick={refreshModelList} />
                   {(!ownModels || fallbackModel) && <MenuItem label={`Default (${fallbackModelLabel})`} detail={profile?.model ? `Default of ${profile.name}` : "What the agent picks on its own"} active={!spec.model} onClick={() => (set((s) => ({ ...s, model: null })), closeMenu())} />}
                   {ownModels ? <ModelSearch models={providerModels.data ?? []} loading={providerModels.isLoading} error={providerModels.error ? String(providerModels.error.message ?? providerModels.error) : null} active={spec.model} onPick={(id) => (set((s) => ({ ...s, model: pickModel(providerModels.data, s.model ?? fallbackModel, id) })), closeMenu())} /> : <>
-                  {!defaults?.models.length && <div className="px-2 py-1 text-xs text-ink-3">No models loaded. Click Refresh models to retry.</div>}
+                  {!defaults?.models.length && <div className="px-2 py-1 text-[12px] text-ink-3">No models loaded. Click Refresh models to retry.</div>}
                   {(defaults?.models ?? []).map((m) => (
                     <MenuItem key={m.id} label={m.display_name || m.id} detail={`${m.id} · ${m.description}`} active={spec.model === m.id} onClick={() => (set((s) => ({ ...s, model: m.id })), closeMenu())} />
                   ))}
@@ -790,10 +790,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                   return <Choice key={p.id} active={on} title={p.text} onClick={() => set((s) => ({ ...s, presets: on ? s.presets.filter((x) => x !== p.id) : [...s.presets, p.id] }))}>{p.label}</Choice>;
                 })}
               </Choices>}
-              {agentPresets.length === 0 && <span className="pt-1.5 text-xs text-ink-3">No preset.</span>}
+              {agentPresets.length === 0 && <span className="pt-1.5 text-[12px] text-ink-3">No preset.</span>}
             </div>
           </OptionRow>
-          {!supportsCost && harness?.capabilities.cost && <OptionRow label="Cost management"><span className="text-xs text-attn">{costUnavailableMessage}</span></OptionRow>}
+          {!supportsCost && harness?.capabilities.cost && <OptionRow label="Cost management"><span className="text-[12px] text-attn">{costUnavailableMessage}</span></OptionRow>}
           {supportsCost && <OptionRow label="Cost limit">
             <span className="grid gap-1">
               <input className="field-input w-28" aria-label="Cost limit in USD" placeholder="No limit" value={budgetInput} onChange={(e) => { setBudgetText(e.target.value); const v = parseUsd(e.target.value); if (v !== undefined) set((s) => ({ ...s, budget_usd: v })); }} />
@@ -801,15 +801,15 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             </span>
           </OptionRow>}
           {harness?.capabilities.quota && !payg && <OptionRow label="Paid usage">
-            <label className="inline-flex items-center gap-[7px] pt-1.5 text-xs text-ink-2" title={billingText}>
+            <label className="inline-flex items-center gap-2 pt-1.5 text-[12px] text-ink-2" title={billingText}>
               <input type="checkbox" className="accent-teal" checked={spec.allow_paid_usage} onChange={(e) => set((s) => ({ ...s, allow_paid_usage: e.target.checked }))} />
               Allow paid usage after included quota runs out
             </label>
           </OptionRow>}
         </OptionsFrame>}
 
-        {timing !== "now" && !browserOnly && <div className="grid gap-2 rounded-lg border border-attn-line bg-attn-soft/40 p-2.5">
-          <div className="flex items-center gap-2 text-[12px] font-semibold text-attn"><Icon name={timing === "repeat" ? "refresh" : "clock"} size={13} />{timing === "repeat" ? "Repeat on a schedule: creates a routine" : "Start later"}<button className="btn btn-sm btn-ghost ml-auto" onClick={() => setTiming("now")}>{editing ? "Start now instead" : "Launch now instead"}</button></div>
+        {timing !== "now" && !browserOnly && <div className="grid gap-2 rounded-card border border-attn-line bg-attn-soft/40 p-2.5">
+          <div className="flex items-center gap-2 text-[12px] font-semibold text-attn"><Icon name={timing === "repeat" ? "refresh" : "clock"} size={12} />{timing === "repeat" ? "Repeat on a schedule: creates a routine" : "Start later"}<button className="btn btn-sm btn-ghost ml-auto" onClick={() => setTiming("now")}>{editing ? "Start now instead" : "Launch now instead"}</button></div>
           {timing === "repeat" ? <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); else setTiming("now"); }} onValidityChange={setCronValid} /> : <DelaySelector conditions={conditions} harness={spec.harness} profile={spec.profile} exclude={editing} onChange={setConditions} onValidityChange={setDelayValid} />}
         </div>}
 
@@ -819,7 +819,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-line bg-chrome px-3.5 py-2.5">
-        <label className="mr-auto inline-flex items-center gap-[7px] text-xs text-ink-2" style={scheduled || cron || isPhone ? { visibility: "hidden" } : undefined}>
+        <label className="mr-auto inline-flex items-center gap-2 text-[12px] text-ink-2" style={scheduled || cron || isPhone ? { visibility: "hidden" } : undefined}>
           <input type="checkbox" className="accent-teal" disabled={scheduled || !!cron} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch
         </label>
@@ -843,7 +843,7 @@ function TargetCheckout({ projectId }: { projectId: string }) {
   });
   return (
     <>
-      Checkout{q.data?.current && <span className="font-mono text-xs">· {q.data.current}</span>}
+      Checkout{q.data?.current && <span className="font-mono text-[12px]">· {q.data.current}</span>}
     </>
   );
 }

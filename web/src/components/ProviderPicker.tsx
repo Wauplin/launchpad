@@ -80,7 +80,7 @@ export function ProviderPriceChip({ model, provider }: { model: ModelInfo; provi
   const full = [input && `Input ${input}`, cached && `Cached input ${cached}`, output && `Output ${output}`].filter(Boolean).join(" · ") || "Price not reported";
   return (
     <span title={chipNote(full, note)} aria-label={`Price per 1M tokens: ${full}`}
-      className="inline-flex h-6 max-w-full items-center gap-[5px] truncate rounded-md border border-line bg-paper px-2 text-xs text-ink-3">
+      className="inline-flex h-6 max-w-full items-center gap-1.5 truncate rounded-control border border-line bg-paper px-2 text-[12px] text-ink-3">
       {shown.length ? shown.map(([label, value], i) => (
         <span key={label} className="inline-flex items-baseline gap-1">
           {i > 0 && <span>·</span>}
@@ -105,7 +105,7 @@ export function ProviderCost({ model, provider }: { model: ModelInfo; provider: 
     <span className="grid gap-1">
       <span className="flex flex-wrap gap-1.5" aria-label="Price per million tokens">
         {cells.map(([label, value]) => (
-          <span key={label} className="inline-flex items-baseline gap-1.5 rounded-md border border-line bg-paper px-2 py-0.5 text-[12px]">
+          <span key={label} className="inline-flex items-baseline gap-1.5 rounded-control border border-line bg-paper px-2 py-0.5 text-[12px]">
             <span className="text-ink-3">{label}</span>
             <b className={`font-mono font-semibold tabular-nums ${value ? "text-ink" : "font-normal text-ink-3"}`}>{value ?? "not reported"}</b>
           </span>

@@ -22,7 +22,7 @@ const BranchRow = memo(function BranchRow({ i, session }: { i: WorktreeInfo; ses
   const w = i.worktree;
   const state = w.merge ? "merge requested" : w.push_note ? "not on Home" : null;
   return <div className={`grid items-center gap-x-3 border-b border-line-2 px-4 ${phone ? "h-[112px] grid-cols-[32px_minmax(0,1fr)] content-center gap-y-2" : "h-14 grid-cols-[32px_minmax(0,1fr)_auto]"}`}>
-    <span className="grid size-8 place-items-center rounded-lg bg-sunk text-ink-2"><Icon name="branch" size={15} /></span>
+    <span className="grid size-8 place-items-center rounded-card bg-sunk text-ink-2"><Icon name="branch" size={16} /></span>
     <div className="min-w-0">
       <div className="flex min-w-0 items-center gap-2"><span className="truncate text-[13px] font-semibold">{session?.title ?? w.branch}</span>{session && <SessionStatus s={session} />}</div>
       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 truncate text-[12px] text-ink-3">
@@ -56,7 +56,7 @@ export function Branches({ projectId }: { projectId: string }) {
   return <div className="grid gap-2" data-tour="folder.branches">
     {offline && <div className="text-[12px] text-ink-3">{offline}</div>}
     {rows.length === 0 ? <Empty icon="branch">No agent branch with work to review or merge in this folder.</Empty> : (
-      <div ref={ref} className="overflow-y-auto rounded-lg border border-line" style={{ height: Math.min(rows.length * height, 560) + 2 }}>
+      <div ref={ref} className="overflow-y-auto rounded-card border border-line" style={{ height: Math.min(rows.length * height, 560) + 2 }}>
         <div className="relative" style={{ height: v.getTotalSize() }}>
           {v.getVirtualItems().map((item) => {
             const i = rows[item.index];

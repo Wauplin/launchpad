@@ -97,7 +97,7 @@ export function Popover({
       role={label ? "dialog" : undefined}
       aria-label={label}
       tabIndex={viewport ? -1 : undefined}
-      className={`${viewport ? "phone-action-popover fixed z-50" : `absolute z-30 ${up ? "bottom-full mb-1" : "top-full mt-1"} ${align === "right" ? "right-0" : "left-0"}`} grid max-h-80 gap-px overflow-y-auto rounded-[9px] border border-line bg-paper p-[5px] shadow-[0_12px_28px_-10px_rgba(23,32,43,.35)]`}
+      className={`${viewport ? "phone-action-popover fixed z-50" : `absolute z-30 ${up ? "bottom-full mb-1" : "top-full mt-1"} ${align === "right" ? "right-0" : "left-0"}`} grid max-h-80 gap-px overflow-y-auto rounded-card border border-line bg-paper p-[5px] shadow-[0_12px_28px_-10px_rgba(23,32,43,.35)]`}
       style={{ width: width ?? undefined, minWidth: width ? undefined : 230, ...(viewport ? position : {}), ...(!open ? { display: "none" } : {}) }}
     >
       {children(() => setOpen(false))}
@@ -130,7 +130,7 @@ export function MenuItem({
     <button
       disabled={disabled}
       onClick={onClick}
-      className={`grid grid-cols-[16px_minmax(0,1fr)] content-center items-center gap-x-[9px] gap-y-px rounded-md px-[9px] py-[7px] text-left text-[13px] hover:bg-select disabled:opacity-50 ${
+      className={`grid grid-cols-[16px_minmax(0,1fr)] content-center items-center gap-x-2 gap-y-px rounded-control px-[9px] py-[7px] text-left text-[13px] hover:bg-select disabled:opacity-50 ${
         active ? "bg-select" : ""
       }`}
     >

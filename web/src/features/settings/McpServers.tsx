@@ -95,7 +95,7 @@ function ServerForm({ server, onClose, onDone }: { server: McpServer; onClose: (
       .finally(() => setBusy(false));
   };
   return (
-    <div className="grid gap-2 rounded-md border border-line-2 p-3">
+    <div className="grid gap-2 rounded-control border border-line-2 p-3">
       <b className="text-[13px]">{isNew ? "Add an MCP server" : `Edit ${server.name}`}</b>
       <label className="grid gap-1 text-[12px]">Name<input className="field-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Gmail" /></label>
       <label className="grid gap-1 text-[12px]">Address<input className="field-input font-mono text-[12px]" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://mcp.example.com/mcp" spellCheck={false} /></label>

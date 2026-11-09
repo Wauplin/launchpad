@@ -33,8 +33,8 @@ const TONE = { ok: "done", quiet: "idle", bad: "failed", work: "running" } as co
 export const RunStrip = memo(function RunStrip({ history, count = 14 }: { history: RoutineRun[]; count?: number }) {
   const runs = history.slice(-count);
   if (!runs.length) return <span className="text-[11px] text-ink-3">No run yet</span>;
-  return <span className="flex items-center gap-[3px]" aria-label="Recent runs">
-    {runs.map((r) => <span key={`${r.at}-${r.cause}`} className={`size-[9px] rounded-[2px] ${OUTCOME_CLASS[r.outcome]}`} title={`${when(r.at)} · ${OUTCOME[r.outcome].label}${r.detail ? `: ${r.detail}` : ""} · ${r.cause}`} />)}
+  return <span className="flex items-center gap-1" aria-label="Recent runs">
+    {runs.map((r) => <span key={`${r.at}-${r.cause}`} className={`size-[9px] rounded-xs ${OUTCOME_CLASS[r.outcome]}`} title={`${when(r.at)} · ${OUTCOME[r.outcome].label}${r.detail ? `: ${r.detail}` : ""} · ${r.cause}`} />)}
   </span>;
 });
 
@@ -77,9 +77,9 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, onChange,
       </label>
       <div className="grid gap-1"><span className="text-[12px] font-semibold text-ink-2">New in your Inbox</span>
         <Choices label="New in your Inbox">{GITHUB_EVENTS.map((e) => <Choice key={e.id} active={t.events.includes(e.id)} onClick={() => toggle(e.id)}>{e.label}</Choice>)}</Choices>
-        {!t.events.length && <p role="alert" className="m-0 text-xs text-gh-closed">Pick at least one kind of activity.</p>}
+        {!t.events.length && <p role="alert" className="m-0 text-[12px] text-gh-closed">Pick at least one kind of activity.</p>}
       </div>
-      <p className="m-0 text-xs text-ink-3">Launchpad reads your GitHub notifications (the Inbox) about every minute. New activity found in one check starts one run with all of it.</p>
+      <p className="m-0 text-[12px] text-ink-3">Launchpad reads your GitHub notifications (the Inbox) about every minute. New activity found in one check starts one run with all of it.</p>
     </div>}
     {t.kind === "session_done" && <div className="grid gap-2">
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Folder
@@ -88,7 +88,7 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, onChange,
           {folders.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </label>
-      <p className="m-0 text-xs text-ink-3">Each time another agent finishes a turn (Done) there, a run starts with a reference to that agent's trace. Runs of routines never start other routines.</p>
+      <p className="m-0 text-[12px] text-ink-3">Each time another agent finishes a turn (Done) there, a run starts with a reference to that agent's trace. Runs of routines never start other routines.</p>
     </div>}
     <CronFields draft={{ schedule: draft.schedule, conditions }} harness={harness} schedule={t.kind === "schedule"} previousRun={!inThread} onChange={(c) => onChange({ ...draft, schedule: c.schedule, conditions: c.conditions })} onValidityChange={setFieldsValid} />
   </div>;
@@ -119,7 +119,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
   });
   const where = cron.bot_id ? <>Posts to {bot ? <Link to="/bots/$id" params={{ id: bot.id }}>{bot.settings.name}</Link> : "its bot"}'s thread</> : <>Starts a new agent · {cron.spec.harness ? harnessName(cron.spec.harness) : "Agent"} · {folder ?? "a temporary folder"}</>;
   return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 text-[13px]">
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-lg border border-line bg-chrome p-3">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-card border border-line bg-chrome p-3">
       {edit ? <>
         <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input font-normal" value={edit.title} maxLength={80} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></label>
         {cron.bot_id && <label className="grid gap-1 text-[12px] font-semibold text-ink-2">What it does at each run<textarea className="field-input min-h-[90px] py-1.5 font-normal leading-5" value={edit.instructions} onChange={(e) => setEdit({ ...edit, instructions: e.target.value })} /></label>}
@@ -135,8 +135,8 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
         </div>
         <p className="m-0 text-ink-2" title={cronTitle(cron)}>{triggerSummary(cron, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder")}</p>
         <p className="m-0 text-[12px] text-ink-3">{where}</p>
-        {cron.conditions.length > 0 && <ul className="m-0 list-disc pl-5 text-xs text-ink-2">{cron.conditions.map((c, i) => <li key={i}>{conditionSummary(c, cron.spec.harness, harnessName)}</li>)}</ul>}
-        <p className="m-0 text-xs text-ink-3">{success ? `Last successful run ${ago(success.at)} (${success.outcome === "report" ? "report" : "nothing to report"}).` : "No successful run yet."}{cron.last_outcome && !cron.last_outcome.startsWith("Report") && !cron.last_outcome.startsWith("No update") ? ` Last: ${cron.last_outcome}.` : ""}</p>
+        {cron.conditions.length > 0 && <ul className="m-0 list-disc pl-5 text-[12px] text-ink-2">{cron.conditions.map((c, i) => <li key={i}>{conditionSummary(c, cron.spec.harness, harnessName)}</li>)}</ul>}
+        <p className="m-0 text-[12px] text-ink-3">{success ? `Last successful run ${ago(success.at)} (${success.outcome === "report" ? "report" : "nothing to report"}).` : "No successful run yet."}{cron.last_outcome && !cron.last_outcome.startsWith("Report") && !cron.last_outcome.startsWith("No update") ? ` Last: ${cron.last_outcome}.` : ""}</p>
         <div className="flex flex-wrap items-center gap-2">
           <button className="btn btn-sm btn-primary" disabled={busy} title="Starts a run now, whatever the trigger and the conditions" onClick={() => void act(async () => { onOpen((await api.post<Session>(`/api/launch/crons/${cron.id}/run`)).id); })}><Icon name="play" size={12} />Run now</button>
           <button className="btn btn-sm" disabled={busy} onClick={() => setEdit({ trigger: cron.trigger, schedule: cron.schedule, conditions: cron.conditions, title: cron.title, instructions: cron.spec.text })}><Icon name="pencil" size={12} />Edit</button>
@@ -147,15 +147,15 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
         </div>
       </>}
     </div>
-    {cron.bot_id && !edit && <div className="grid gap-1"><b className="text-xs text-ink-2">What it does at each run</b><p className="m-0 rounded-md bg-sunk px-3 py-2 text-[12px] break-words whitespace-pre-wrap text-ink-2">{cron.spec.text}</p></div>}
+    {cron.bot_id && !edit && <div className="grid gap-1"><b className="text-[12px] text-ink-2">What it does at each run</b><p className="m-0 rounded-control bg-sunk px-3 py-2 text-[12px] break-words whitespace-pre-wrap text-ink-2">{cron.spec.text}</p></div>}
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1">
-      <b className="text-xs text-ink-2">Runs ({cron.history.length})</b>
-      {cron.history.length ? [...cron.history].reverse().map((r) => <button key={`${r.at}-${r.cause}`} disabled={!r.session_id} onClick={() => r.session_id && onOpen(r.session_id)} className="grid min-w-0 gap-0.5 rounded-md border border-line px-2 py-1.5 text-left text-xs hover:bg-chrome disabled:cursor-default disabled:hover:bg-transparent">
+      <b className="text-[12px] text-ink-2">Runs ({cron.history.length})</b>
+      {cron.history.length ? [...cron.history].reverse().map((r) => <button key={`${r.at}-${r.cause}`} disabled={!r.session_id} onClick={() => r.session_id && onOpen(r.session_id)} className="grid min-w-0 gap-0.5 rounded-control border border-line px-2 py-1.5 text-left text-[12px] hover:bg-chrome disabled:cursor-default disabled:hover:bg-transparent">
         <span className="flex min-w-0 items-center gap-2"><span className="min-w-0 flex-1 truncate" title={r.cause}>{when(r.at)} · {r.cause}</span><OutcomeBadge run={r} /></span>
         {r.detail && <span className="text-ink-3">{r.detail}</span>}
-      </button>) : <p className="m-0 text-xs text-ink-3">No run yet. Quiet runs show here as No update; they never notify you.</p>}
+      </button>) : <p className="m-0 text-[12px] text-ink-3">No run yet. Quiet runs show here as No update; they never notify you.</p>}
     </div>
-    {!inThread && <div><b className="text-xs text-ink-2">Prompt of each run</b><pre className="mt-2 rounded-lg border border-line p-3 text-xs whitespace-pre-wrap">{preview.data?.prompt ?? (preview.isError ? "Folder context is unavailable. Delete this routine and create it again with another folder." : "Loading…")}</pre></div>}
+    {!inThread && <div><b className="text-[12px] text-ink-2">Prompt of each run</b><pre className="mt-2 rounded-card border border-line p-3 text-[12px] whitespace-pre-wrap">{preview.data?.prompt ?? (preview.isError ? "Folder context is unavailable. Delete this routine and create it again with another folder." : "Loading…")}</pre></div>}
   </div>;
 }
 
@@ -196,7 +196,7 @@ export function NewRoutine({ bot, repo, harness, onDone }: { bot: Bot; repo: str
       onDone();
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
-  return <div className="grid gap-2 rounded-lg border border-line bg-paper p-3" data-tour="bots.routine-form">
+  return <div className="grid gap-2 rounded-card border border-line bg-paper p-3" data-tour="bots.routine-form">
     {!title && !instructions && <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-ink-3">Start from
       {routineTemplates(repo).map((t) => <button key={t.label} className="btn btn-sm" onClick={() => { setTitle(t.title); setInstructions(t.instructions); setDraft(t.draft); }}>{t.label}</button>)}
     </div>}

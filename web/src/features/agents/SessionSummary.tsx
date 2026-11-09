@@ -42,7 +42,7 @@ export function StateBand({ session: s }: { session: Session }) {
   if (s.status !== "waiting" && s.status !== "stopped" || s.status === "waiting" && !s.open_question) return null;
   const { tone } = statusInfo(s);
   const at = s.status_since;
-  return <div className={`flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-xs ${STATUS_COLORS[tone]} ${s.status === "stopped" ? "border-dashed" : ""}`}>
+  return <div className={`flex flex-wrap items-center gap-2 border-b border-line px-4 py-2 text-[12px] ${STATUS_COLORS[tone]} ${s.status === "stopped" ? "border-dashed" : ""}`}>
     <Icon name={s.status === "stopped" ? "stop" : "alert"} size={16} /><b>{s.status === "stopped" ? "Stopped" : "Question"}</b>
     <span>{s.status === "stopped" ? "By you, during a turn" : "The agent needs an answer"}</span>
     <span className="ml-auto" title={ago(at)}>Since {when(at)}</span>
@@ -85,7 +85,7 @@ function Fold({ children, lines, label }: { children: ReactNode; lines: number; 
 
 function NextStep({ source, text, button, onClick, disabled }: { source: string; text: string; button: string; onClick: () => void; disabled?: boolean }) {
   return <div className="flex flex-wrap items-center gap-2 border-t border-line-2 py-2 first:border-0">
-    <span className="w-14 shrink-0 text-[10px] font-semibold text-ink-3 uppercase">{source}</span><span className="min-w-0 flex-1 basis-40 text-xs">{text}</span>
+    <span className="w-14 shrink-0 text-[11px] font-semibold text-ink-3 uppercase">{source}</span><span className="min-w-0 flex-1 basis-40 text-[12px]">{text}</span>
     <button className="btn btn-sm" disabled={disabled} onClick={onClick}>{button}</button>
   </div>;
 }
@@ -94,7 +94,7 @@ export function FollowUpBands({ sessionId }: { sessionId: string }) {
   const schedules = useSchedules().data ?? [];
   const sessions = useSessions().data ?? [];
   const [busy, setBusy] = useState(false);
-  return <>{schedules.filter((q) => q.resume_session_id === sessionId).map((q) => <div key={q.id} className="flex flex-wrap items-center gap-2 border-b border-teal bg-teal-soft px-4 py-2 text-xs text-teal-ink">
+  return <>{schedules.filter((q) => q.resume_session_id === sessionId).map((q) => <div key={q.id} className="flex flex-wrap items-center gap-2 border-b border-teal bg-teal-soft px-4 py-2 text-[12px] text-teal-ink">
     <Icon name="clock" size={16} /><b>{q.status === "failed" ? "Follow-up needs attention" : "Follow-up scheduled"}</b><span className="min-w-0 flex-1">{conditionsSummary(q, sessions, schedules)}{q.error && ` · ${q.error}`}</span>
     <button className="btn btn-sm" disabled={busy || q.status === "starting"} onClick={async () => { setBusy(true); try { await api.delete(`/api/launch/schedules/${q.id}`); } catch (e) { toastError(e); } finally { setBusy(false); } }}>Cancel</button>
   </div>)}</>;
@@ -183,7 +183,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
       <>
       <WorktreeSteps session={s} mainMerge={mainMerge} />
       {tempFolder && <div className="grid gap-2 border-t border-line-2 py-2 first:border-0">
-        <span className="text-xs"><span className="mr-2 text-[10px] font-semibold text-ink-3 uppercase">Folder</span>{s.status === "closed" ? "This archived agent's temporary folder is still used by another agent." : "This agent works in a temporary folder. Home keeps its files 30 days after you archive it, for a resume; keep it as a folder to keep them for good."}</span>
+        <span className="text-[12px]"><span className="mr-2 text-[11px] font-semibold text-ink-3 uppercase">Folder</span>{s.status === "closed" ? "This archived agent's temporary folder is still used by another agent." : "This agent works in a temporary folder. Home keeps its files 30 days after you archive it, for a resume; keep it as a folder to keep them for good."}</span>
         <KeepFolder p={tempFolder} disabled={working} title={working ? "Wait for the turn to end" : undefined} />
       </div>}
       {!(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url && !localPr.merged || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && s.project_id && <NextStep source="Git" text={localPr ? `This agent prepared a Local PR${localPr.title ? `: ${localPr.title}` : ""}.` : (git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button={localPr ? "Review & publish" : "Open Local PR"} onClick={openPr} disabled={busy} />}
@@ -191,12 +191,12 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
       {((changes?.files ?? 0) > 0 || (git.data?.files.length ?? 0) > 0) && <NextStep source="Git" text={`${git.data?.files.length ?? 0} uncommitted files${changes ? `; ${changes.files} tracked files differ from main` : ""}.`} button="Review diff" onClick={() => reviewDiff((changes?.files ?? 0) > 0)} />}
       {(unfinished || s.status === "closed") && <NextStep source="Session" text={s.status === "closed" ? temporary ? "This archived session is resumable: Home keeps its temporary folder 30 days after Archive." : "This archived session is still resumable." : "The last turn did not finish successfully."} button="Resume" disabled={busy} onClick={() => void run(async () => { if (unfinished) await api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }); else await api.post(`/api/sessions/${s.id}/resume`); showTrace(); })} />}
       {refs.map((r, i) => <NextStep key={i} source="GitHub" text={r.title ?? `Linked ${r.kind}${r.number ? ` #${r.number}` : ""}.`} button={`Open ${r.number ? `#${r.number}` : r.kind}`} onClick={() => { if (r.number && r.repo.includes("/")) { const [owner, repo] = r.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(r.number) } }); } else openExternal(r.url); }} />)}
-      {!scheduling && <p className="pt-2 text-xs text-ink-3">{followUp ? "A message is already scheduled for this session." : s.status === "quota_paused" ? null : <button className="text-teal-ink hover:underline" title="A message delivered later to this same session" onClick={() => setScheduling(true)}>Send later…</button>}</p>}
-      {scheduling && <div className="grid gap-3 border-t border-line py-3"><b className="text-xs">Send later · same session, new message</b><textarea className="field-input min-h-20" aria-label="Message to send later" placeholder="Message to send later…" value={message} onChange={(e) => setMessage(e.target.value)} /><div className="grid gap-1.5"><div><PresetButton surface={presetSurface} labeled selected={followUpPresets} onChange={setFollowUpPresets} /></div><PresetChips surface={presetSurface} selected={followUpPresets} onChange={setFollowUpPresets} /></div><DelaySelector conditions={conditions} harness={s.harness} profile={s.launch_spec.profile} onChange={setConditions} onValidityChange={setValid} /><p className="text-xs text-ink-3">If this session is running, in a terminal or awaiting an answer at that time, the message stays queued until it is ready.</p><div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !followUpMessage || !conditions.length || !valid} onClick={() => void run(async () => { await api.post(`/api/sessions/${s.id}/follow-up`, { message: followUpMessage, conditions }); setScheduling(false); setMessage(""); setFollowUpPresets([]); })}>Schedule</button><button className="btn btn-sm" onClick={() => setScheduling(false)}>Cancel</button></div></div>}
+      {!scheduling && <p className="pt-2 text-[12px] text-ink-3">{followUp ? "A message is already scheduled for this session." : s.status === "quota_paused" ? null : <button className="text-teal-ink hover:underline" title="A message delivered later to this same session" onClick={() => setScheduling(true)}>Send later…</button>}</p>}
+      {scheduling && <div className="grid gap-3 border-t border-line py-3"><b className="text-[12px]">Send later · same session, new message</b><textarea className="field-input min-h-20" aria-label="Message to send later" placeholder="Message to send later…" value={message} onChange={(e) => setMessage(e.target.value)} /><div className="grid gap-1.5"><div><PresetButton surface={presetSurface} labeled selected={followUpPresets} onChange={setFollowUpPresets} /></div><PresetChips surface={presetSurface} selected={followUpPresets} onChange={setFollowUpPresets} /></div><DelaySelector conditions={conditions} harness={s.harness} profile={s.launch_spec.profile} onChange={setConditions} onValidityChange={setValid} /><p className="text-[12px] text-ink-3">If this session is running, in a terminal or awaiting an answer at that time, the message stays queued until it is ready.</p><div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={busy || !followUpMessage || !conditions.length || !valid} onClick={() => void run(async () => { await api.post(`/api/sessions/${s.id}/follow-up`, { message: followUpMessage, conditions }); setScheduling(false); setMessage(""); setFollowUpPresets([]); })}>Schedule</button><button className="btn btn-sm" onClick={() => setScheduling(false)}>Cancel</button></div></div>}
       </>
     </Section>
     <Section title="Task · first prompt"><Fold lines={4} label="Show full task"><div className="whitespace-pre-wrap">{split ? split.typed : prompt}</div>{split && <Instructions blocks={split.instructions} className="mt-1" />}</Fold></Section>
-    <Section title="Run"><dl className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">{metadata.map(([key, value]) => <Fragment key={key}><dt className="text-ink-3">{key}</dt><dd className="break-words whitespace-pre-wrap">{value}</dd></Fragment>)}</dl></Section>
+    <Section title="Run"><dl className="grid grid-cols-[90px_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-[12px]">{metadata.map(([key, value]) => <Fragment key={key}><dt className="text-ink-3">{key}</dt><dd className="break-words whitespace-pre-wrap">{value}</dd></Fragment>)}</dl></Section>
     <SessionAccess session={s} wrap={(body) => <Section title="Credentials">{body}</Section>} />
   </div>;
 }
@@ -252,7 +252,7 @@ export function CostLimit({ session: s, badge = false }: { session: Session; bad
       onClick={() => { setText(limit == null ? "" : String(limit)); toggle(); }}
     >{badge ? `Cost ${label}` : label}<Icon name="chev" size={12} /></button>}
   >
-    {(close) => <div className="grid gap-2 p-2 text-xs">
+    {(close) => <div className="grid gap-2 p-2 text-[12px]">
       <b>Cost limit (USD)</b>
       <input className="field-input font-mono text-[12px]" aria-label="Cost limit in USD" placeholder="No limit" value={text} onChange={(e) => setText(e.target.value)} />
       <span className={parsed === undefined ? "text-attn" : "text-ink-3"}>{parsed === undefined ? "Enter a positive amount, or leave empty for no limit." : `${usd(spent)} reported so far. At the limit, the running turn stops and no new turn starts. Costs are reported by the harness, at the end of each turn for Claude Code.`}</span>
@@ -278,7 +278,7 @@ export function PermissionSwitch({ session: s }: { session: Session }) {
   if (!supported) return null;
   const current = PERMISSIONS.find((p) => p.id === s.launch_spec.permission_mode) ?? PERMISSIONS[0];
   return <Popover width={300} trigger={({ open, toggle }) => (
-    <button className="btn btn-sm" aria-label="Session permissions" aria-expanded={open} disabled={busy || s.status === "in_terminal" || s.status === "starting"} title="Changing permissions pauses the current turn and continues the same conversation. Pending approvals are cancelled and reconsidered by the agent." onClick={toggle}>{busy ? "Switching…" : current.label}<Icon name="chev" size={11} /></button>
+    <button className="btn btn-sm" aria-label="Session permissions" aria-expanded={open} disabled={busy || s.status === "in_terminal" || s.status === "starting"} title="Changing permissions pauses the current turn and continues the same conversation. Pending approvals are cancelled and reconsidered by the agent." onClick={toggle}>{busy ? "Switching…" : current.label}<Icon name="chev" size={12} /></button>
   )}>
     {(close) => <>{PERMISSIONS.map((p) => <MenuItem key={p.id} label={p.label} detail={p.detail} active={p.id === current.id} onClick={async () => {
       close();
@@ -294,7 +294,7 @@ export function RunSettingsChip({ session: s, open }: { session: Session; open: 
   const supported = useHarnessInfo(s.harness)?.capabilities.permission_modes;
   const mode = s.launch_spec.permission_mode;
   if (!supported || !mode || mode === "yolo") return null;
-  return <button className="inline-flex h-5 items-center gap-1 rounded-[5px] border border-line-2 bg-chrome px-1.5 text-[11px] text-ink-2 hover:bg-sunk" title="Run settings: edit them in Summary → Run" onClick={open}><Icon name="sliders" size={11} />{PERMISSIONS.find((p) => p.id === mode)?.label}</button>;
+  return <button className="inline-flex h-5 items-center gap-1 rounded-control border border-line-2 bg-chrome px-1.5 text-[11px] text-ink-2 hover:bg-sunk" title="Run settings: edit them in Summary → Run" onClick={open}><Icon name="sliders" size={12} />{PERMISSIONS.find((p) => p.id === mode)?.label}</button>;
 }
 
 /** Model and supported effort choices come from the registered adapter. */
@@ -338,7 +338,7 @@ export function QuotaBand({ session: s }: { session: Session }) {
     setBusy(true);
     try { await runAction(action, { id: s.id }); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
-  return <div className="grid gap-2 border-b border-attn-line bg-attn-soft px-4 py-3 text-xs text-attn">
+  return <div className="grid gap-2 border-b border-attn-line bg-attn-soft px-4 py-3 text-[12px] text-attn">
     <b>{p.phase === "needs_attention" ? "Quota pause needs attention" : p.phase === "provider_limited" ? "Provider quota limit reached · retry manually when available" : p.blockers.length ? "Included quota exhausted · automatic continuation pending" : "Waiting for confirmed quota · automatic continuation pending"}</b>
     <span>{p.blockers.map((b) => `${b.window} reset: ${b.resets_at === null ? "unknown" : formatReset(b.resets_at)}`).join(" · ")}</span>
     <span>{p.error ?? (p.phase === "pausing" ? "Interrupt requested; waiting for the turn and commands to finish." : p.phase === "resuming" ? "Continuing…" : "Waiting for a fresh quota reading confirming both windows are available. Reset times are estimates; failed readings keep this paused.")}</span>

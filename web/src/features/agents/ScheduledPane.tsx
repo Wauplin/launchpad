@@ -4,7 +4,7 @@ import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
 import type { Preview } from "@/gen/Preview";
 import { useHarnessName } from "@/components/HarnessMark";
-import { ConfirmButton } from "@/components/ui";
+import { ConfirmButton, IconButton } from "@/components/ui";
 import { useComposer } from "@/stores/composer";
 import { toastError } from "@/components/Toast";
 import { Icon } from "@/components/Icon";
@@ -40,15 +40,15 @@ export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledL
   };
   return <div className="flex h-full flex-col bg-paper">
     {phone ? <PhoneBar title={launch.title} onBack={onClose} backLabel="Back to schedules" /> : <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-      <b className="min-w-0 flex-1 truncate text-sm">{launch.title}</b>
-      <button className="btn btn-sm" onClick={onClose}>Close panel</button>
+      <b className="min-w-0 flex-1 truncate text-[15px] font-semibold">{launch.title}</b>
+      <IconButton icon="x" label="Close panel" onClick={onClose} />
     </div>}
-    <div className="grid gap-4 overflow-y-auto p-4 text-sm">
-      <div className="grid gap-2 rounded-lg border border-line bg-chrome p-3">
+    <div className="grid gap-4 overflow-y-auto p-4 text-[13px]">
+      <div className="grid gap-2 rounded-card border border-line bg-chrome p-3">
         <b>{launch.resume_session_id ? "Follow-up · " : ""}{launch.status === "starting" ? "Starting…" : launch.status === "failed" ? "Launch needs attention" : "Scheduled"}</b>
         <p>{conditionsSummary(launch, sessions, schedules)}</p>
-        {launch.conditions.flatMap((c) => c.kind === "agents" ? c.session_ids : []).length > 0 && <div className="grid gap-1">{launch.conditions.flatMap((c) => c.kind === "agents" ? c.session_ids : []).map((id) => { const s = dependencyAgent(id, sessions, schedules); return <div key={id} className="text-xs text-ink-2">{s?.title ?? "Missing or cancelled agent"} · {s?.status ?? "Unavailable"}</div>; })}</div>}
-        <p className="text-xs text-ink-3">The daemon starts this work automatically when all conditions are met. It does not need an open window.</p>
+        {launch.conditions.flatMap((c) => c.kind === "agents" ? c.session_ids : []).length > 0 && <div className="grid gap-1">{launch.conditions.flatMap((c) => c.kind === "agents" ? c.session_ids : []).map((id) => { const s = dependencyAgent(id, sessions, schedules); return <div key={id} className="text-[12px] text-ink-2">{s?.title ?? "Missing or cancelled agent"} · {s?.status ?? "Unavailable"}</div>; })}</div>}
+        <p className="text-[12px] text-ink-3">The daemon starts this work automatically when all conditions are met. It does not need an open window.</p>
         {launch.error && <p role="alert" className="text-gh-closed">{launch.error}</p>}
         <div className="flex gap-2">
           <button className="btn btn-primary" disabled={busy || launch.status === "starting"} onClick={() => void act(true)}>Start now</button>
@@ -59,7 +59,7 @@ export function ScheduledPane({ launch, onStart, onClose }: { launch: ScheduledL
         </div>
       </div>
       <p className="text-ink-2">{launch.spec.harness ? harnessName(launch.spec.harness) : "Agent"} · {name} · {launch.spec.model ?? "Default model"} · {launch.spec.effort ?? "Default effort"}</p>
-      <div><b className="text-xs text-ink-2">{launch.resume_session_id ? "Message sent later (same session)" : "Prompt preview"}</b><pre className="mt-2 rounded-lg border border-line p-3 text-xs whitespace-pre-wrap">{launch.resume_session_id ? launch.spec.text : preview.data?.prompt ?? (preview.isError ? "Project context is unavailable. Cancel and schedule again with another project." : "Loading…")}</pre></div>
+      <div><b className="text-[12px] text-ink-2">{launch.resume_session_id ? "Message sent later (same session)" : "Prompt preview"}</b><pre className="mt-2 rounded-card border border-line p-3 text-[12px] whitespace-pre-wrap">{launch.resume_session_id ? launch.spec.text : preview.data?.prompt ?? (preview.isError ? "Project context is unavailable. Cancel and schedule again with another project." : "Loading…")}</pre></div>
     </div>
   </div>;
 }

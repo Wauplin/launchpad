@@ -215,13 +215,13 @@ function NotePane({ ws, notes, changes, path, select, showHistory, refresh }: { 
         <ConfirmButton icon="trash" consequence={`Moves ${path} to the trash; Restore works for 30 days.`} confirmLabel="Delete" onConfirm={remove}>Delete</ConfirmButton>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        {concurrent.map((c) => <div key={c.path} className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-attn bg-attn-soft px-3 py-2 text-[12px]">
+        {concurrent.map((c) => <div key={c.path} className="mb-3 flex flex-wrap items-center gap-2 rounded-card border border-attn bg-attn-soft px-3 py-2 text-[12px]">
           <span className="min-w-0 flex-1">A second version of this note was written while it changed: <button className="underline" onClick={() => select(c.path)}>{c.path}</button>. Keep one, or ask the gardener to merge them.</span>
           <ConfirmButton tone="publish" consequence="Removes the second version; this note stays as it is." confirmLabel="Keep this note" onConfirm={() => resolve(c.path, false)}>Keep this note</ConfirmButton>
           <ConfirmButton tone="publish" consequence="Replaces this note with the second version. The current one stays restorable." confirmLabel="Use the other version" onConfirm={() => resolve(c.path, true)}>Use the other version</ConfirmButton>
         </div>)}
-        {ofConcurrent && <div className="mb-3 rounded-lg border border-attn bg-attn-soft px-3 py-2 text-[12px]">This is a second version of <button className="underline" onClick={() => select(ofConcurrent.note)}>{ofConcurrent.note}</button>, written while that note changed. Open the note to keep one of them.</div>}
-        {MEDIA.test(path) ? <img src={src} alt={path} className="max-h-[70vh] max-w-full rounded-md border border-line-2" />
+        {ofConcurrent && <div className="mb-3 rounded-card border border-attn bg-attn-soft px-3 py-2 text-[12px]">This is a second version of <button className="underline" onClick={() => select(ofConcurrent.note)}>{ofConcurrent.note}</button>, written while that note changed. Open the note to keep one of them.</div>}
+        {MEDIA.test(path) ? <img src={src} alt={path} className="max-h-[70vh] max-w-full rounded-control border border-line-2" />
           : VIDEO.test(path) ? <video src={src} controls className="max-h-[70vh] max-w-full" />
           : AUDIO.test(path) ? <audio src={src} controls />
           : !isText ? <Empty icon="file">This file is not shown here ({Math.round(entry.size / 1024)} KB). <a className="text-teal-ink hover:underline" href={src} target="_blank" rel="noreferrer">Open it</a></Empty>
@@ -309,7 +309,7 @@ function ImportPanel({ ws, existing, done }: { ws: string; existing: string[]; d
         {role === "home" && (runners.length === 0 ? <Empty icon="term">Connect a runner first: memories are read on the machine where your agents ran.</Empty>
           : <Choices label="Runner" className="mb-3">{runners.map((r) => <Choice key={r.runner.id} active={r.runner.id === chosen} disabled={!r.connected} title={r.connected ? undefined : "Offline"} onClick={() => setRunner(r.runner.id)}>{r.runner.name}</Choice>)}</Choices>)}
         {q.isLoading ? <Loading what="memory files" /> : q.error ? <ErrorState error={q.error} /> : q.data && (files.length === 0 ? <Empty icon="book">No harness memory found on {from}.</Empty> : <div className="grid gap-1">
-          {files.map((f) => <label key={f.path} className="flex min-w-0 items-start gap-2 rounded-md px-2 py-1 hover:bg-sunk">
+          {files.map((f) => <label key={f.path} className="flex min-w-0 items-start gap-2 rounded-control px-2 py-1 hover:bg-sunk">
             <input type="checkbox" className="mt-1" checked={!off.has(f.path)} onChange={(e) => setOff((s) => { const n = new Set(s); if (e.target.checked) n.delete(f.path); else n.add(f.path); return n; })} />
             <span className="grid min-w-0">
               <span className="truncate font-mono text-[12px]">{f.path}{existing.includes(f.path) && <span className="ml-2 font-sans text-attn">replaces the earlier import</span>}</span>
@@ -342,7 +342,7 @@ function ChangesTab({ ws, notes, changes, loading, error, historyOf, clearHistor
     <div className="flex min-h-0 flex-1">
       {(!phone || !current) && <aside className={`flex min-h-0 flex-col border-r border-line ${phone ? "flex-1" : "w-[380px] flex-none"}`} data-tour="knowledge.changes">
         <div className="flex flex-wrap items-center gap-2 border-b border-line-2 px-3 py-2 text-[12px] text-ink-3">
-          {historyOf ? <FilterChip active onClick={clearHistory}>{historyOf} <Icon name="x" size={11} /></FilterChip> : <span className="min-w-0 flex-1">{unseen ? `${unseen} new since your last look` : "Nothing new since your last look"}</span>}
+          {historyOf ? <FilterChip active onClick={clearHistory}>{historyOf} <Icon name="x" size={12} /></FilterChip> : <span className="min-w-0 flex-1">{unseen ? `${unseen} new since your last look` : "Nothing new since your last look"}</span>}
           {historyOf && <span className="flex-1" />}
           {unseen > 0 && !historyOf && <button className="btn btn-sm" onClick={() => void markSeen()}><Icon name="check" size={12} />Mark all seen</button>}
         </div>

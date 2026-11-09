@@ -9,7 +9,7 @@ export function Sheet({ title, onClose, children, full }: { title: string; onClo
       <div
         role="dialog"
         aria-label={title}
-        className={`flex flex-col rounded-t-2xl border-t border-line bg-paper pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_30px_rgba(0,0,0,.25)] ${full ? "h-[92dvh]" : "max-h-[85dvh]"}`}
+        className={`flex flex-col rounded-t-card border-t border-line bg-paper pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_30px_rgba(0,0,0,.25)] ${full ? "h-[92dvh]" : "max-h-[85dvh]"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-none items-center gap-2 border-b border-line-2 py-1 pr-1 pl-4">

@@ -48,12 +48,12 @@ export function CloneFromGitHub({ root, workspace, initialRepo, onDone }: { root
           {cloning ? "Cloning…" : "Clone"}
         </button>
       </div>
-      {cloning && <div className="text-xs text-ink-2">Cloning {cloning} on the daemon machine. Large repositories can take a few minutes.</div>}
-      <p className="text-xs text-ink-3">Uses <code className="font-mono">gh repo clone</code> with the GitHub CLI sign-in and Git protocol of the daemon machine (<code className="font-mono">git clone</code> over HTTPS without the GitHub CLI).</p>
-      {q.isLoading && <div className="text-xs text-ink-3">Loading your repositories…</div>}
-      {q.data && q.data.length === 0 && <div className="text-xs text-ink-3">No other repository found on GitHub yet. Type owner/name.</div>}
+      {cloning && <div className="text-[12px] text-ink-2">Cloning {cloning} on the daemon machine. Large repositories can take a few minutes.</div>}
+      <p className="text-[12px] text-ink-3">Uses <code className="font-mono">gh repo clone</code> with the GitHub CLI sign-in and Git protocol of the daemon machine (<code className="font-mono">git clone</code> over HTTPS without the GitHub CLI).</p>
+      {q.isLoading && <div className="text-[12px] text-ink-3">Loading your repositories…</div>}
+      {q.data && q.data.length === 0 && <div className="text-[12px] text-ink-3">No other repository found on GitHub yet. Type owner/name.</div>}
       {matches.length > 0 && (
-        <div className="grid rounded-md border border-line bg-paper">
+        <div className="grid rounded-control border border-line bg-paper">
           {matches.slice(0, SHOWN).map((r) => (
             <div key={r.repo} className="flex h-9 items-center gap-2 border-b border-line-2 px-3 text-[13px] last:border-0">
               <span className="truncate font-mono text-[12px]">{r.repo}</span>
@@ -64,7 +64,7 @@ export function CloneFromGitHub({ root, workspace, initialRepo, onDone }: { root
               </button>
             </div>
           ))}
-          {matches.length > SHOWN && <div className="px-3 py-1.5 text-xs text-ink-3">{matches.length - SHOWN} more; type to filter.</div>}
+          {matches.length > SHOWN && <div className="px-3 py-1.5 text-[12px] text-ink-3">{matches.length - SHOWN} more; type to filter.</div>}
         </div>
       )}
     </div>

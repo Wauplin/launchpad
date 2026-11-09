@@ -34,7 +34,7 @@ export function PresetButton({ selected, onChange, disabled, labeled = false, su
       className="flex shrink-0"
       trigger={({ open, toggle: toggleOpen }) => labeled ? (
         <button className="btn btn-sm" aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onClick={toggleOpen}>
-          <Icon name="preset" size={13} />
+          <Icon name="preset" size={12} />
           {count ? `Presets · ${count}` : "Add presets"}
         </button>
       ) : (
@@ -48,7 +48,7 @@ export function PresetButton({ selected, onChange, disabled, labeled = false, su
           onClick={toggleOpen}
         >
           <Icon name="preset" size={14} />
-          {count > 0 && <span className="absolute -top-0.5 -right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-teal px-[3px] text-[9.5px] leading-none font-semibold text-paper">{count}</span>}
+          {count > 0 && <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-teal px-1 text-[11px] leading-none font-semibold text-paper">{count}</span>}
         </button>
       )}
     >
@@ -63,7 +63,7 @@ export function PresetButton({ selected, onChange, disabled, labeled = false, su
                 role="menuitemcheckbox"
                 aria-checked={on}
                 onClick={() => toggle(p.id)}
-                className={`message-preset-row grid grid-cols-[18px_minmax(0,1fr)] items-start gap-x-[9px] rounded-md px-[9px] py-[7px] text-left text-[13px] hover:bg-select ${on ? "bg-select" : ""}`}
+                className={`message-preset-row grid grid-cols-[18px_minmax(0,1fr)] items-start gap-x-2 rounded-control px-[9px] py-[7px] text-left text-[13px] hover:bg-select ${on ? "bg-select" : ""}`}
               >
                 <span className={`mt-px grid h-[18px] w-[18px] place-items-center rounded border ${on ? "border-ink bg-ink text-paper" : "border-line bg-paper"}`}>{on && <Icon name="check" size={12} />}</span>
                 <span className="min-w-0">
@@ -73,7 +73,7 @@ export function PresetButton({ selected, onChange, disabled, labeled = false, su
               </button>
             );
           })}
-          {presets.length === 0 && <div className="px-[9px] py-2 text-xs text-ink-3">No preset yet. Presets are reusable instructions defined in Settings.</div>}
+          {presets.length === 0 && <div className="px-[9px] py-2 text-[12px] text-ink-3">No preset yet. Presets are reusable instructions defined in Settings.</div>}
           <div className="mt-1 flex items-center gap-2 border-t border-line-2 px-[5px] pt-1.5">
             <button className="btn btn-sm" onClick={() => { close(); void navigate({ to: "/settings/presets" }); }}>{presets.length ? "Edit presets" : "Create a preset"}</button>
             {count > 0 && <button className="btn btn-sm" onClick={() => onChange([])}>Clear</button>}
@@ -102,7 +102,7 @@ export function PresetChips({ selected, onChange, disabled, className = "", surf
           onClick={() => onChange(selected.filter((x) => x !== p.id))}
         >
           <span className="truncate">{p.label}</span>
-          <Icon name="x" size={11} />
+          <Icon name="x" size={12} />
         </button>
       ))}
     </div>
