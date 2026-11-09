@@ -6,12 +6,12 @@ import { meta } from "./meta";
 
 export const home: Chapter = {
   ...meta("home"),
-  learned: ["Home keeps every record and credential; runners run the agents", "Burst runs a session on an HF Job when no runner is online, with no token inside", "Logins and tokens are saved once on Home; agents use them without holding them"],
+  learned: ["Home keeps every record and credential; runners run the agents and show only their status", "Burst runs a session on an HF Job when no runner is online, with no token inside", "Logins and tokens are saved once on Home; agents use them without holding them"],
   steps: [
     {
       id: "home.runners", route: "/settings/runners", anchor: "settings.runners",
       title: "Home and runners",
-      body: "Home, a private Space, keeps every record and runs no agent. Runners do: your laptop, paired once with the command on this page, takes launches from the phone, schedules and bots while it is online.",
+      body: "Home, a private Space, keeps every record and runs no agent. Runners do: your laptop, paired once with the command on this page, takes new sessions while it is online. Its own window shows only its status, with a Takes new sessions switch; everything else happens here.",
     },
     {
       id: "home.burst", route: "/settings/runners", anchor: "settings.burst",

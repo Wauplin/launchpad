@@ -27,7 +27,6 @@ export function coreWorld() {
     { id: WS.personal, name: "Personal", created_at: clock.ago(60 * 24 * 30) },
   ];
   const config: Config = {
-    remove_published_worktree: true,
     server: { bind: "127.0.0.1", public_origin: null, auto_tailnet: true },
     github: { poll_interval_seconds: 60 },
     worktrees: { keep: 10 },
@@ -50,7 +49,7 @@ export function coreWorld() {
     role: "home",
     home: null,
     commit: "demo",
-    host: "this-computer",
+    host: "launchpad-home",
     harnesses: {
       claude: { version: "2.1.0", version_error: null },
       codex: { version: "0.80.0", version_error: null },

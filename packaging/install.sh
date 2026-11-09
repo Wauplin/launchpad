@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Builds Launchpad in release mode and installs it for the current user (Linux only): ~/.local/bin/launchpad
-# and the systemd user unit, which runs a Home. Then restarts the daemon. Restarting stops running agents, so
-# the script asks first when some are running. Open the daemon's address in a browser and install it as an app.
+# Installs a self-hosted Home (Linux only): builds Launchpad in release mode and installs ~/.local/bin/launchpad and
+# the systemd user unit, which runs `launchpad daemon` (Home: records, credentials, no agents). Then restarts the
+# daemon; the script asks first when agents are in a turn. Open the daemon's address in a browser and install it as
+# an app. Machines that run agents install a runner instead: `launchpad daemon --role runner` paired with
+# `launchpad connect <Home address>` (a Home in a Hugging Face Space serves its own install-runner.sh), from
+# Settings → Home and runners → Add a runner.
 #
 # --headless installs a server: it also enables lingering, so the systemd user unit starts at boot and keeps
 # running after logout. See docs/remote-access.md.
@@ -108,11 +111,13 @@ for _ in $(seq 1 100); do
 done
 if curl -sf http://127.0.0.1:7317/api/health >/dev/null 2>&1; then
   if [ "$HEADLESS" -eq 1 ]; then
-    echo "Launchpad installed (headless). The daemon runs on http://127.0.0.1:7317 and starts at boot (logs: journalctl --user -u launchpad -f)."
+    echo "Launchpad Home installed (headless). The daemon runs on http://127.0.0.1:7317 and starts at boot (logs: journalctl --user -u launchpad -f)."
     echo "Expose it through Tailscale Serve or an identity-aware proxy; see docs/remote-access.md."
+    echo "Agents run on runners: add one in Settings → Home and runners."
   else
-    echo "Launchpad installed. The daemon runs on http://127.0.0.1:7317 (logs: journalctl --user -u launchpad -f)."
+    echo "Launchpad Home installed. The daemon runs on http://127.0.0.1:7317 (logs: journalctl --user -u launchpad -f)."
     echo "Sign a browser in with: $BIN/launchpad url (then install it as an app from the browser menu)."
+    echo "Agents run on runners: add one in Settings → Home and runners."
   fi
 else
   echo "The daemon did not start. See: journalctl --user -u launchpad -n 50"

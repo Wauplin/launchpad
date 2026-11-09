@@ -51,7 +51,7 @@ const live = new Map<string, Live>();
 // ---------------------------------------------------------------- recordings
 
 const tilde = (path: string) => (path.startsWith(HOME) ? `~${path.slice(HOME.length)}` : path);
-const shellPrompt = (t: TerminalInfo) => `${bold(green("demo@this-computer"))}:${bold(c("34", tilde(t.cwd.replace(/^[^/]*:/, ""))))}${t.branch ? c("36", ` (${t.branch})`) : ""}$ `;
+const shellPrompt = (t: TerminalInfo) => `${bold(green("demo@laptop"))}:${bold(c("34", tilde(t.cwd.replace(/^[^/]*:/, ""))))}${t.branch ? c("36", ` (${t.branch})`) : ""}$ `;
 const lines = (text: string) => text.split("\n").join("\r\n") + "\r\n";
 
 const gitStatusDirty = (branch: string) => lines(`On branch ${branch}

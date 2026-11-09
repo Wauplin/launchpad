@@ -189,7 +189,9 @@ export function agentsWorld() {
     spec: { text: "Split src/invoices/service.rs into modules (totals, numbering, pdf) without changing behavior." }, scenario: { id: "quota", options: { permission: "yolo", merge: false } } });
 
   // Done and seen.
+  // Its last turn's work did not reach Home (the laptop went offline): the "Not on Home" pill and no Merge yet.
   add({ id: "demo-s-gitalias", title: "Add a git alias for the log graph", project: P.dotfiles, harness: "claude", minutesAgo: 60 * 26,
+    patch: { unsaved: { since: clock.ago(60 * 26 - 3), attempts: 3, note: "laptop went offline before its branch reached Home" } },
     events: [
       user("Add a git alias `lg` that shows the log as a graph with relative dates."),
       ...tool("Read", "~/dotfiles/git/config", "[alias]\n  st = status -sb\n  co = checkout"),

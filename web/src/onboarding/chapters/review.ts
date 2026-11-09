@@ -14,7 +14,7 @@ const NOTES = "Review notes:\n\n- `tests/checkout.spec.ts` line 18: also wait fo
 
 export const review: Chapter = {
   ...meta("review"),
-  learned: ["Changes shows the agent's diff, with viewed markers", "Line notes go back to the agent as one message", "Local PRs stay on this machine until Publish or Merge locally", "Today's Review, Send and GitHub filters collect everything that waits for your click"],
+  learned: ["Changes shows the agent's diff, with viewed markers", "Line notes go back to the agent as one message", "Local PRs stay on Home until Publish or Merge", "Today's Review, Send and GitHub filters collect everything that waits for your click"],
   setup: () => { messages = userMessages(); },
   steps: [
     {
@@ -35,7 +35,7 @@ export const review: Chapter = {
     {
       id: "review.localpr", route: `/predrafts/${LOCAL_PR}`, anchor: "predraft.actions",
       title: "Local PRs",
-      body: "Agents can open a Local PR: a pull request that stays on this machine. Merge locally fast-forwards your branch without GitHub; Publish pushes the branch and creates the PR on GitHub.",
+      body: "Agents can open a Local PR: a pull request that stays on Home. Merge fast-forwards your branch without a GitHub pull request; Publish pushes the branch and creates the PR on GitHub.",
       tryIt: {
         text: "press Publish, then confirm. The demo shows what would happen; nothing is sent.",
         done: () => !!world.predrafts.find((p) => p.id === LOCAL_PR)?.published_url,

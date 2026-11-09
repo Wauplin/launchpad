@@ -61,7 +61,6 @@ export function WorkspaceCreator() {
       await api.post<Workspace>("/api/workspaces", { name: n });
       setName("");
       await qc.invalidateQueries({ queryKey: ["workspaces"] });
-      void qc.invalidateQueries({ queryKey: ["setup-checklist"] });
       void qc.invalidateQueries({ queryKey: ["setup-summary"] });
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };

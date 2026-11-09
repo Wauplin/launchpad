@@ -78,7 +78,7 @@ export function skipChapter() {
 }
 
 /** Leaves the demo for the setup checklist. */
-export const setUpThisMachine = () => exitDemo("/setup");
+export const setUpHome = () => exitDemo("/setup");
 export const exitTour = () => exitDemo();
 
 export { CHAPTERS };

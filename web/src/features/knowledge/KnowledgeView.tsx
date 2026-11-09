@@ -20,7 +20,7 @@ import { api, ApiError } from "@/lib/api";
 import { daemonUrl } from "@/lib/connection";
 import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
-import { useSessions, useStatus } from "@/lib/queries";
+import { useSessions } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
 import { useScope } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
@@ -65,7 +65,6 @@ export function KnowledgeView() {
   const phone = usePhone();
   const qc = useQueryClient();
   const scope = useScope();
-  const role = useStatus().data?.role;
   const ws = scope.workspace.id || null;
   const [tab, setTab] = useState<"notes" | "changes">("notes");
   const [selected, setSelected] = useState<string | null>(null);
@@ -97,10 +96,7 @@ export function KnowledgeView() {
   </>;
   const tabs = <Tabs label="Knowledge views" value={tab} onChange={(t) => { setTab(t); if (t === "notes") setHistoryOf(null); }} items={[{ id: "notes", label: "Notes", count: notes.data?.files.length }, { id: "changes", label: "Changes", count: unseen || undefined }]} tour="knowledge.tabs" />;
   const last = changes.data?.changes[0]?.at;
-  const meta = (last || role === "runner") && <>
-    {last && <span>Last change {ago(last)}</span>}
-    {role === "runner" && <span>Stored by Home</span>}
-  </>;
+  const meta = last && <span>Last change {ago(last)}</span>;
   const openNote = (path: string) => { setTab("notes"); setPanel("note"); setSelected(path); };
   const showHistory = (path: string) => { setHistoryOf(path); setTab("changes"); };
   return (
@@ -274,15 +270,14 @@ function NoteEditor({ ws, path: initialPath, base, initial, isNew, paths, done }
 // ---------------------------------------------------------------- Import
 
 function ImportPanel({ ws, existing, done }: { ws: string; existing: string[]; done: () => void }) {
-  const role = useStatus().data?.role;
-  const runners = (useRunners().data ?? []).filter((r) => r.runner.state === "approved");
+  const runners = (useRunners().data ?? []).filter((r) => r.runner.state === "approved" && !r.runner.burst);
   const [runner, setRunner] = useState<string | null>(null);
-  const chosen = role === "home" ? (runner ?? runners.find((r) => r.connected)?.runner.id ?? null) : null;
-  const from = role === "home" ? runners.find((r) => r.runner.id === chosen)?.runner.name ?? "a runner" : "this machine";
+  const chosen = runner ?? runners.find((r) => r.connected)?.runner.id ?? null;
+  const from = runners.find((r) => r.runner.id === chosen)?.runner.name ?? "a runner";
   const q = useQuery({
     queryKey: ["knowledge-memories", chosen],
-    queryFn: () => api.get<{ memories: NativeMemory[] }>(`/api/knowledge/memories${chosen ? `?runner=${chosen}` : ""}`),
-    enabled: role !== "home" || !!chosen,
+    queryFn: () => api.get<{ memories: NativeMemory[] }>(`/api/knowledge/memories?runner=${chosen}`),
+    enabled: !!chosen,
     retry: false,
   });
   const [off, setOff] = useState<Set<string>>(new Set());
@@ -306,8 +301,8 @@ function ImportPanel({ ws, existing, done }: { ws: string; existing: string[]; d
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 text-[13px]">
         <p className="m-0 mb-3 text-[12px] text-ink-3">Claude Code and Codex keep their own memory files on each machine. Launchpad turns that memory off in its sessions; import the files once into <span className="font-mono">imported/</span>, then run the gardener to fold them into your notes. Nothing is removed from the machine.</p>
-        {role === "home" && (runners.length === 0 ? <Empty icon="term">Connect a runner first: memories are read on the machine where your agents ran.</Empty>
-          : <Choices label="Runner" className="mb-3">{runners.map((r) => <Choice key={r.runner.id} active={r.runner.id === chosen} disabled={!r.connected} title={r.connected ? undefined : "Offline"} onClick={() => setRunner(r.runner.id)}>{r.runner.name}</Choice>)}</Choices>)}
+        {runners.length === 0 ? <Empty icon="term">Connect a runner first: memories are read on the machine where your agents ran.</Empty>
+          : <Choices label="Runner" className="mb-3">{runners.map((r) => <Choice key={r.runner.id} active={r.runner.id === chosen} disabled={!r.connected} title={r.connected ? undefined : "Offline"} onClick={() => setRunner(r.runner.id)}>{r.runner.name}</Choice>)}</Choices>}
         {q.isLoading ? <Loading what="memory files" /> : q.error ? <ErrorState error={q.error} /> : q.data && (files.length === 0 ? <Empty icon="book">No harness memory found on {from}.</Empty> : <div className="grid gap-1">
           {files.map((f) => <label key={f.path} className="flex min-w-0 items-start gap-2 rounded-control px-2 py-1 hover:bg-sunk">
             <input type="checkbox" className="mt-1" checked={!off.has(f.path)} onChange={(e) => setOff((s) => { const n = new Set(s); if (e.target.checked) n.delete(f.path); else n.add(f.path); return n; })} />

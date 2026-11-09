@@ -2,9 +2,9 @@ import { HomeSignIn, useVault } from "./CredentialsView";
 import { delegatedAccess } from "@/lib/deployment";
 // Settings → Profiles: how Launchpad runs each coding agent (a harness, the login or key that pays for it, and its
 // defaults), saved in config.toml. Variable descriptions, defaults and templates come from the adapters
-// (`GET /api/harnesses`); sign-in status comes from this computer (`/api/setup/sign-in`) and each host's checks.
+// (`GET /api/harnesses`); logins are Home's vault entries, and each connected runner reports its CLI version.
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { EnvVarDoc } from "@/gen/EnvVarDoc";
 import type { HarnessDescriptor } from "@/gen/HarnessDescriptor";
@@ -13,6 +13,7 @@ import type { Profile } from "@/gen/Profile";
 import type { ProfileKind } from "@/gen/ProfileKind";
 import type { ProfileTemplate } from "@/gen/ProfileTemplate";
 import type { SignInCheck } from "@/gen/SignInCheck";
+import type { Status } from "@/gen/Status";
 import type { SpendLimit } from "@/gen/SpendLimit";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import { Icon, type IconName } from "@/components/Icon";
@@ -23,8 +24,8 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { useConfig, useHarnessDefaults, useStatus, type ConfigResponse } from "@/lib/queries";
+import { useRunners } from "@/lib/runners";
 import { costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, usesModelReference, useProfileModels, windowLabel } from "@/lib/profiles";
-import { useOpenTerminal } from "@/features/terminals/lib";
 import { Card, ConfigError, SettingsPage } from "./SettingsView";
 import { ConfirmButton, Loading, MenuSection, MoreMenu } from "@/components/ui";
 import { Link, useBlocker } from "@tanstack/react-router";
@@ -105,7 +106,7 @@ const KINDS: { kind: ProfileKind; label: string; detail: string }[] = [
 /** What pays for the work of a profile, in a few words. */
 function source(d: Draft, harness: HarnessDescriptor | undefined): string {
   const keys = d.env.map(([k]) => k.trim());
-  if (d.billing === "subscription") return harness?.account_env.some((n) => keys.includes(n)) ? "Subscription · own login folder" : "Subscription · default login";
+  if (d.billing === "subscription") return "Subscription · Home login";
   if (d.models_url?.trim()) return "Pay as you go · provider";
   if (harness?.env_vars.some((v) => v.secret && keys.includes(v.name)) || harness?.account_env.some((n) => keys.includes(n))) return "Pay as you go · API key";
   return "Pay as you go · native configuration";
@@ -113,23 +114,22 @@ function source(d: Draft, harness: HarnessDescriptor | undefined): string {
 
 const useSignIn = () => useQuery({ queryKey: ["sign-in"], queryFn: () => api.get<SignInCheck[]>("/api/setup/sign-in"), staleTime: 60_000 });
 
-/** Whether a profile can run on one machine: installed and signed in, from the last check. */
-type Machine = { label: string; installed: boolean | null; signedIn: boolean | null; detail: string; command: string | null; reachable: boolean };
+/** A runner and the version of one agent CLI there: null when it is not installed, undefined while unknown (offline). */
+type RunnerCli = { id: string; name: string; version: string | null | undefined };
 
-function useMachines(d: Draft): Machine[] {
-  const local = useSignIn().data;
-  const own = d.env.length > 0;
-  const mine = local?.find((c) => (own ? c.profile === d.id : c.profile === null && c.id === d.harness));
-  const rows: Machine[] = [{
-    label: "This computer", reachable: true,
-    installed: mine ? mine.cli_found : null, signedIn: mine?.cli_found ? mine.signed_in : null,
-    detail: !mine ? "Checking…" : !mine.cli_found ? "Not installed" : mine.signed_in === true ? `Signed in${mine.detail ? ` · ${mine.detail}` : ""}` : mine.signed_in === false ? `Not signed in${mine.detail ? ` · ${mine.detail}` : ""}` : `Sign-in unknown${mine.detail ? ` · ${mine.detail}` : ""}`,
-    command: mine && mine.signed_in !== true ? mine.command : null,
-  }];
-  return rows;
+/** The paired runners (not Burst jobs) with the version of a harness's CLI, from each connected runner's status. */
+function useRunnerClis(harness: string): RunnerCli[] {
+  const runners = (useRunners().data ?? []).filter((r) => r.runner.state === "approved" && !r.runner.burst);
+  const statuses = useQueries({
+    queries: runners.map((r) => ({ queryKey: ["runner-status", r.runner.id], queryFn: () => api.get<Status>(`/api/runners/${r.runner.id}/status`), enabled: r.connected, staleTime: 60_000, retry: false })),
+  });
+  return runners.map((r, i) => {
+    const st = statuses[i]?.data;
+    return { id: r.runner.id, name: r.runner.name, version: st ? st.harnesses[harness]?.version ?? null : undefined };
+  });
 }
 
-const machineTone = (m: Machine) => (!m.reachable || m.installed === null ? "bg-ink-3" : m.installed && m.signedIn ? "bg-gh-open" : m.installed && m.signedIn === null ? "bg-attn" : "bg-gh-closed");
+const cliTone = (r: RunnerCli) => (r.version === undefined ? "bg-ink-3" : r.version ? "bg-gh-open" : "bg-gh-closed");
 
 export function ProfilesView() {
   const q = useConfig();
@@ -277,7 +277,7 @@ function NewProfile({ initialKind, onAdd, onCancel }: { initialKind: ProfileKind
 function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDelete, onSave, onRevert }: { draft: Draft; open: boolean; problem: string | null; dirty: boolean; onToggle: () => void; onChange: (f: (d: Draft) => Draft) => void; onDelete: () => unknown; onSave: () => void; onRevert: () => void }) {
   const harnesses = useHarnesses();
   const harness = harnesses.find((h) => h.id === d.harness);
-  const machines = useMachines(d);
+  const clis = useRunnerClis(d.harness);
   const status = useStatus().data;
   const quota = d.saved && d.billing === "subscription" ? quotaFor(status, d.harness, d.id) : null;
   const spend = d.saved ? status?.spend.find((v) => v.profile === d.id) : undefined;
@@ -289,7 +289,7 @@ function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDel
   }, []);
   const pct = (q: { used_percent: number } | null) => (q ? `${Math.round(q.used_percent)}%` : "?");
   const summary = [
-    status?.role === "home" && d.billing === "subscription" ? "Subscription · Home login" : source(d, harness),
+    source(d, harness),
     harness?.capabilities.cost && (!supportsModelCost(harness, d.model) || status?.cost_unavailable_profiles.includes(d.id)) ? "Cost management unavailable" : null,
     d.model ? d.model : null,
     quota ? `5 h ${pct(quota.five_hour)} · week ${pct(quota.weekly)}` : null,
@@ -307,11 +307,10 @@ function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDel
           </span>
         </button>
         <span className="flex flex-wrap items-center gap-2 text-[12px]">
-          {d.saved && status?.role === "home" && <span className="text-ink-3">Home vault</span>}
-          {d.saved && status?.role !== "home" && machines.map((m) => (
-            <span key={m.label} className="inline-flex items-center gap-1" title={`${m.label}: ${m.detail}`}>
-              <i className={`inline-block size-1.5 rounded-full ${machineTone(m)}`} aria-hidden />
-              <span className="text-ink-2">{m.label}</span>
+          {d.saved && clis.map((r) => (
+            <span key={r.id} className="inline-flex items-center gap-1" title={`${r.name}: ${r.version ?? (r.version === null ? `${harness?.name ?? "the CLI"} not installed` : "offline")}`}>
+              <i className={`inline-block size-1.5 rounded-full ${cliTone(r)}`} aria-hidden />
+              <span className="text-ink-2">{r.name}</span>
             </span>
           ))}
           <span className="lp-row-more flex"><MoreMenu label={`More actions for ${d.name || "the new profile"}`}>{(close) => d.saved
@@ -319,7 +318,7 @@ function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDel
             : <MenuItem icon={<Icon name="trash" size={14} />} label="Discard" detail="This new profile is not saved yet" onClick={() => { close(); void onDelete(); }} />}</MoreMenu></span>
         </span>
       </div>
-      {open && <ProfileEditor draft={d} problem={problem} onChange={onChange} machines={machines} />}
+      {open && <ProfileEditor draft={d} problem={problem} onChange={onChange} clis={clis} />}
       {open && dirty && (
         <div className="flex flex-wrap items-center gap-2 border-t border-attn-line bg-attn-soft px-3 py-2 text-[13px]">
           <b className="text-attn">{d.saved ? "Unsaved changes" : "New profile, not saved yet"}</b>
@@ -334,7 +333,7 @@ function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDel
   );
 }
 
-function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft; problem: string | null; onChange: (f: (d: Draft) => Draft) => void; machines: Machine[] }) {
+function ProfileEditor({ draft: d, problem, onChange, clis }: { draft: Draft; problem: string | null; onChange: (f: (d: Draft) => Draft) => void; clis: RunnerCli[] }) {
   const harnesses = useHarnesses();
   const harness = harnesses.find((h) => h.id === d.harness);
   const defaults = useHarnessDefaults(d.harness).data;
@@ -446,8 +445,11 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
         </span>
       </div>}
       <div className={row}>
-        <b className="pt-1 font-[650]">{status?.role === "home" ? "Home login" : "Works on"}</b>
-        <WorksOn draft={d} machines={machines} />
+        <b className="pt-1 font-[650]">Login and runners</b>
+        <span className="grid gap-2">
+          <HomeProfileLogin draft={d} />
+          <RunnerClis harness={harness?.name ?? d.harness} clis={clis} />
+        </span>
       </div>
       <div className="grid gap-3">
         <button className="flex w-fit items-center gap-1.5 text-[13px] font-[650] text-ink-2 hover:text-ink" aria-expanded={advanced} onClick={() => setAdvanced((x) => !x)}>
@@ -484,61 +486,30 @@ function ProfileEditor({ draft: d, problem, onChange, machines }: { draft: Draft
   );
 }
 
-/** Whether this profile runs on this computer, with sign-in and install actions. */
-function WorksOn({ draft: d, machines }: { draft: Draft; machines: Machine[] }) {
-  const terminal = useOpenTerminal();
-  const signIn = useSignIn();
-  const [checking, setChecking] = useState(false);
-  const role = useStatus().data?.role;
-  if (role === "home") return <HomeProfileLogin draft={d} />;
-  if (!d.saved) return <span className="pt-1 text-[12px] text-ink-3">Save the profile to check where it is installed and signed in.</span>;
-  const recheck = async () => {
-    setChecking(true);
-    try {
-      await signIn.refetch();
-    } catch (e) {
-      toastError(e);
-    } finally {
-      setChecking(false);
-    }
-  };
+/** Which runners have the profile's agent CLI: a runner without it takes none of its sessions. */
+function RunnerClis({ harness, clis }: { harness: string; clis: RunnerCli[] }) {
+  if (clis.length === 0) return <span className="text-[12px] text-ink-3">No runner yet: its sessions run on Burst.</span>;
   return (
-    <span className="grid gap-1.5">
-      <span className="grid rounded-control border border-line">
-        {machines.map((m) => (
-          <span key={m.label} className="grid gap-1 border-b border-line-2 px-2.5 py-1.5 text-[12px] last:border-0">
-            <span className="flex min-w-0 flex-wrap items-center gap-2">
-              <i className={`inline-block size-2 shrink-0 rounded-full ${machineTone(m)}`} aria-hidden />
-              <b className="font-[650]">{m.label}</b>
-              <span className="min-w-0 flex-1 truncate text-ink-3" title={m.detail}>{m.detail}</span>
-              {m.reachable && m.installed === false && <button className="btn btn-sm" title="Runs the official install command in a visible terminal" onClick={() => void terminal.profileSetup(d.id, true)}><Icon name="term" size={12} />Install</button>}
-              {m.reachable && m.installed !== false && m.signedIn !== true && <button className="btn btn-sm" title="Runs the sign-in command with this profile's environment in a visible terminal" onClick={() => void terminal.profileSetup(d.id)}><Icon name="term" size={12} />Sign in</button>}
-            </span>
-            {m.command && m.installed !== false && m.signedIn !== true && (
-              <span className="flex flex-wrap items-center gap-2 pl-4">
-                <code className="rounded bg-chrome px-1.5 py-0.5 font-mono">{m.command}</code>
-                <button className="iconbtn" title="Copy the command" aria-label={`Copy ${m.command}`} onClick={() => void copyText(m.command!).then(() => toast("Command copied"))}><Icon name="copy" size={12} /></button>
-              </span>
-            )}
-          </span>
-        ))}
-      </span>
-      <span className="flex flex-wrap items-center gap-2">
-        <button className="btn btn-sm w-fit" disabled={checking || signIn.isFetching} onClick={() => void recheck()}><Icon name="refresh" size={12} />{checking ? "Checking…" : "Check again"}</button>
-        <span className="text-[12px] text-ink-3">Launchpad only reads the status; it never signs in or refreshes a token.</span>
-      </span>
+    <span className="grid rounded-control border border-line">
+      {clis.map((r) => (
+        <span key={r.id} className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line-2 px-2.5 py-1.5 text-[12px] last:border-0">
+          <i className={`inline-block size-2 shrink-0 rounded-full ${cliTone(r)}`} aria-hidden />
+          <b className="font-[650]">{r.name}</b>
+          <span className="min-w-0 flex-1 truncate text-ink-3">{r.version === undefined ? "offline" : r.version ? `${harness} ${r.version}` : `${harness} is not installed: install it there (its own window shows the command)`}</span>
+        </span>
+      ))}
     </span>
   );
 }
 
-/** Home uses vault logins for quota checks; native sign-in terminals belong to runners. */
+/** Home's vault login of the profile: Home reads quotas with it and leases it to the agents on the runners. */
 function HomeProfileLogin({ draft: d }: { draft: Draft }) {
   const vault = useVault();
   const login = vault.data?.logins.find((l) => l.harness === d.harness);
   const entry = vault.data?.entries.find((e) => e.kind === login?.kind && (!d.login || e.id === d.login));
   return <span className="grid gap-1.5 text-[12px] text-ink-2">
     <span>{vault.isLoading ? "Checking Home’s logins…" : vault.error ? "Could not read Home’s logins." : entry ? `Home login: ${entry.name}` : login ? "Add this profile’s login to Home’s vault." : "Configure this profile’s provider credentials in Credentials and tools."}</span>
-    <span className="text-ink-3">Home reads usage and quotas. Agent turns run on your paired runners.</span>
+    <span className="text-ink-3">Home reads usage and quotas. Agent turns run on your runners or on Burst.</span>
     <Link to="/settings/credentials" className="btn btn-sm w-fit">Credentials and tools</Link>
   </span>;
 }
@@ -547,11 +518,12 @@ export function GitHubCard() {
   const qc = useQueryClient();
   const q = useSignIn();
   const c = q.data?.find((x) => x.id === "github");
-  // Home's own GitHub login is made by the Space gateway (this sign-in or its setup page, sealed in the private bucket), never through a terminal.
-  const home = useStatus().data?.role === "home" && delegatedAccess();
+  // On a Space, Home's GitHub login is made by the gateway (this sign-in or its setup page, sealed in the private bucket),
+  // never through a terminal; a self-hosted Home uses the gh login of its machine.
+  const home = delegatedAccess();
   return (
-    <Card title="GitHub CLI">
-      <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">The Inbox, issues, PRs and publication use the GitHub CLI of this computer. <span className="text-ink-3" title="Git push also needs credentials there (SSH keys or gh auth setup-git)."><Icon name="info" size={12} /></span></p>
+    <Card title="Home's GitHub login">
+      <p className="m-0 text-[13px] text-ink-2">The Inbox, issues, pull requests, Clone from GitHub and publication use Home's GitHub login.</p>
       {c && (home ? <CliCheckRow check={c} icon="pr" command={null}>
         {c.signed_in && <a href="/_home/setup" className="btn btn-sm w-fit">Home setup</a>}
       </CliCheckRow> : <CliCheckRow check={c} icon="pr" />)}
@@ -560,8 +532,8 @@ export function GitHubCard() {
   );
 }
 
-/** One CLI of this computer: installed and signed-in state, and the command to run when something is missing. */
-export function CliCheckRow({ check: c, icon, command = c.command, children }: { check: SignInCheck; icon: IconName; command?: string | null; children?: React.ReactNode }) {
+/** One CLI login of Home: installed and signed-in state, and the command to run on Home when something is missing. */
+function CliCheckRow({ check: c, icon, command = c.command, children }: { check: SignInCheck; icon: IconName; command?: string | null; children?: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-[13px]">
       <Icon name={icon} size={14} />

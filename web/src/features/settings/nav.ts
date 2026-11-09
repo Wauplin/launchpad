@@ -28,7 +28,7 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
     { to: "/settings/devices", label: "Devices", icon: "window", keywords: "browser pair qr phone sign out tailscale remote access" },
     { to: "/settings/github", label: "GitHub", icon: "pr", keywords: "token account repositories poll rate limit inbox" },
     { to: "/settings/huggingface", label: "Hugging Face", icon: "huggingface", keywords: "traces bucket backup hf token" },
-    { to: "/settings/worktrees", label: "Disk cleanup", icon: "archive", keywords: "maintenance disk space worktrees local prs kept trash" },
+    { to: "/settings/worktrees", label: "Disk cleanup", icon: "archive", keywords: "maintenance disk space worktrees kept trash" },
   ] },
   { group: "Help", items: [{ to: "/settings/onboarding", label: "Onboarding", icon: "info", keywords: "tour demo setup checklist help" }] },
 ];

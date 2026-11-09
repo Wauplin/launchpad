@@ -11,10 +11,16 @@ export function useRunners() {
   return useQuery({ queryKey: ["runners"], queryFn: () => api.get<RunnerStatus[]>("/api/runners"), enabled: home, staleTime: Infinity });
 }
 
-/** Home: names of paired runners that are offline. Their task worktrees are not listed until they reconnect. */
+/** Home: names of paired runners that are offline (not refused). Their task worktrees are not listed until they reconnect. */
 export function useOfflineRunners(): string[] {
   const list = useRunners().data;
-  return useMemo(() => (list ?? []).filter((r) => r.runner.state === "approved" && !r.connected).map((r) => r.runner.name), [list]);
+  return useMemo(() => (list ?? []).filter((r) => r.runner.state === "approved" && !r.connected && !r.refused).map((r) => r.runner.name), [list]);
+}
+
+/** Home: paired runners whose connection Home refuses (`RunnerStatus.refused`, for example not Linux). */
+export function useRefusedRunners(): RunnerStatus[] {
+  const list = useRunners().data;
+  return useMemo(() => (list ?? []).filter((r) => r.runner.state === "approved" && !!r.refused), [list]);
 }
 
 /** A short note for lists of task worktrees on Home, or null. */

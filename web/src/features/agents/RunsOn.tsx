@@ -9,7 +9,6 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useBurst, useBurstRun, useRunnerTag } from "@/lib/burst";
 import { useRunners } from "@/lib/runners";
-import { useStatus } from "@/lib/queries";
 
 const BURST = "burst";
 
@@ -43,16 +42,14 @@ export function RunsOn({ session: s }: { session: Session }) {
   );
 }
 
-/** Where the session runs now: its runner on Home, this computer elsewhere. */
+/** Where the session runs now: its runner (or Burst job). A record without one cannot continue. */
 export function CurrentMachine({ session: s }: { session: Session }) {
-  const host = useStatus().data?.host;
   if (s.runner_id) return <RunsOn session={s} />;
-  return <span>This computer{host ? ` · ${host}` : ""}</span>;
+  return <span>No runner</span>;
 }
 
 /** The machines that ran the turns, in order, when more than one did or the earlier one is not the current one. */
 export function useTurnMachines(s: Session): string | null {
-  const host = useStatus().data?.host;
   const runners = useRunners().data;
   // Refetch when a turn ends or the session moves.
   const stints = useQuery({ queryKey: ["session-machines", s.id, s.status_since, s.runner_id], queryFn: () => api.get<MachineStint[]>(`/api/sessions/${s.id}/machines`), retry: false }).data ?? [];
@@ -62,6 +59,6 @@ export function useTurnMachines(s: Session): string | null {
   return stints.map((m) => {
     const range = m.turns === 1 ? `turn ${turn + 1}` : `turns ${turn + 1}–${turn + m.turns}`;
     turn += m.turns;
-    return `${m.runner ?? (host ? `this computer (${host})` : "this computer")} · ${range}`;
+    return `${m.runner ?? "an earlier machine"} · ${range}`;
   }).join(" → ");
 }

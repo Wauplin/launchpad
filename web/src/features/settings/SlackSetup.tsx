@@ -1,6 +1,6 @@
 // Slack for agents (slackline): two tools, each with its own Slack app and token. Read-only is the default of every
 // launch; write is picked per launch in the composer's Tools. Used in Settings → Credentials and tools and in the setup
-// checklists (machine and Home).
+// setup (Home).
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";

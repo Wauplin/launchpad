@@ -1,5 +1,5 @@
 import { delegatedAccess } from "@/lib/deployment";
-// Settings → Hugging Face: Home’s login, backup and trace copies, or the hf CLI of this computer.
+// Settings → Hugging Face: Home’s login, backup and trace copies.
 
 import { useQuery } from "@tanstack/react-query";
 import { Icon } from "@/components/Icon";
@@ -7,23 +7,13 @@ import { ErrorState, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/format";
 import { externalLinkProps } from "@/lib/platform";
-import { useStatus } from "@/lib/queries";
 import type { SignInCheck } from "@/gen/SignInCheck";
-import { CliCheckRow } from "./ProfilesView";
-import { Card, ConfigError, SettingsPage } from "./SettingsView";
+import { Card, SettingsPage } from "./SettingsView";
 
 type LoginInfo = { check: SignInCheck; account: string | null };
 type HomeBackup = { destination: string | null; last_complete_at: number | null; error: string | null; credentials_encrypted: boolean; traces_error: string | null };
 
-const INSTALL_URL = "https://huggingface.co/docs/huggingface_hub/en/guides/cli";
-
 export function HuggingFaceView() {
-  const role = useStatus().data?.role;
-  if (!role) return <Loading what="Home settings" />;
-  return role === "home" ? <HomeHuggingFace /> : <CliView />;
-}
-
-function HomeHuggingFace() {
   const login = useQuery({ queryKey: ["home-hf-login"], queryFn: () => api.get<LoginInfo>("/api/setup/huggingface"), refetchInterval: 60_000 });
   const backup = useQuery({ queryKey: ["home-backup"], queryFn: () => api.get<HomeBackup>("/api/home/backup"), refetchInterval: 30_000 });
   const bucket = backup.data?.destination?.startsWith("hf://buckets/") ? backup.data.destination.slice("hf://buckets/".length) : null;
@@ -44,24 +34,4 @@ function HomeHuggingFace() {
       {backup.data?.traces_error && <ErrorState error={backup.data.traces_error} />}
     </Card>
   </SettingsPage>;
-}
-
-function CliView() {
-  const q = useQuery({ queryKey: ["hf-login"], queryFn: () => api.get<LoginInfo>("/api/setup/huggingface"), refetchInterval: 60_000 });
-  const c = q.data?.check;
-  return (
-    <SettingsPage tour="settings.trace-sync" title="Hugging Face" intro="The Hugging Face CLI of this computer. Home copies agent traces to its backup bucket.">
-      <ConfigError />
-      <Card title="Hugging Face CLI" end={<button className="btn btn-sm" disabled={q.isFetching} onClick={() => void q.refetch()}><Icon name="refresh" size={12} />Check again</button>}>
-        {q.isPending ? <Loading /> : q.isError ? <ErrorState error={q.error} onRetry={() => void q.refetch()} /> : c && (
-          <CliCheckRow check={c} icon="huggingface" command={c.cli_found ? c.command : null}>
-            {!c.cli_found && <a className="text-[12px] text-teal-ink underline" {...externalLinkProps(INSTALL_URL)}>Installation instructions</a>}
-          </CliCheckRow>
-        )}
-      </Card>
-      <Card title="Traces">
-        <p className="m-0 text-[13px] text-ink-2">A runner sends the conversation of each agent to Home at the end of every turn. Home copies the original files to its backup bucket, one file per trace, under <code className="text-[12px]">&lt;workspace&gt;/traces/&lt;folder&gt;/</code>.</p>
-      </Card>
-    </SettingsPage>
-  );
 }

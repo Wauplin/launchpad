@@ -31,7 +31,7 @@ export const terminals: Chapter = {
     {
       id: "terminals.limits", anchor: "terminal.dock",
       title: "Good to know",
-      body: "Terminals belong to the daemon: closing the window keeps them, restarting the daemon ends them. TUIs run outside quota protection.",
+      body: "Terminals run on the runner of their folder: closing the window keeps them, restarting that runner ends them. TUIs run outside quota protection.",
     },
   ],
 };

@@ -1,5 +1,5 @@
 // The phone's status button: the connection dot, and an amber warning with its count when something needs a look
-// (connection, Home, runners, harnesses, quota, spending limits, GitHub rate limit). The sheet says why
+// (connection, runners: offline, refused or outdated, quota, spending limits, GitHub rate limit). The sheet says why
 // and links to the place that fixes it, then shows the quota meters.
 
 import { Icon } from "@/components/Icon";
@@ -11,8 +11,8 @@ import type { QuotaWindow } from "@/gen/QuotaWindow";
 import { useInbox } from "@/features/inbox/data";
 import { ago, formatReset, resetLabel, when } from "@/lib/format";
 import { useStatus } from "@/lib/queries";
-import { spendLabel, spendPercent, useProfiles, useQuotas, windowLabel } from "@/lib/profiles";
-import { outdatedLabel, useOfflineRunners, useOutdatedRunners } from "@/lib/runners";
+import { spendLabel, spendPercent, useQuotas, windowLabel } from "@/lib/profiles";
+import { outdatedLabel, useOfflineRunners, useOutdatedRunners, useRefusedRunners } from "@/lib/runners";
 import { Sheet } from "./Sheet";
 
 type Warning = { key: string; text: string; to?: string };
@@ -23,19 +23,16 @@ function useStatusWarnings(): Warning[] {
   const { online, since } = useConnection();
   const harnesses = useHarnesses();
   const quotas = useQuotas();
-  const profiles = useProfiles();
   const outdated = useOutdatedRunners().map((r) => r.runner.name);
   const offline = useOfflineRunners();
+  const refused = useRefusedRunners();
   const limits = useInbox().data?.limits ?? {};
   const out: Warning[] = [];
   if (!online) out.push({ key: "offline", text: `Not connected to ${data?.host || "the daemon"}${since ? ` since ${when(since)}` : ""}. Showing what was last received.` });
   if (!data) return out;
-  if (data.role === "runner" && data.home && data.home.state !== "connected") out.push({ key: "home", text: `Home is not reachable (${data.home.state.replace("_", " ")})${data.home.message ? `: ${data.home.message}` : ""}.`, to: "/settings/runners" });
-  if (data.role === "runner" && data.home?.compat === "outdated") out.push({ key: "self-outdated", text: "This runner needs an update: Home sends it no new sessions.", to: "/settings/runners" });
+  for (const r of refused) out.push({ key: `refused-${r.runner.id}`, text: `Home refuses ${r.runner.name}: ${r.refused}`, to: "/settings/runners" });
   if (outdated.length) out.push({ key: "outdated", text: `${outdatedLabel(outdated)}: no new sessions until then.`, to: "/settings/runners" });
   if (offline.length) out.push({ key: "runners-offline", text: `${offline.join(", ")} ${offline.length === 1 ? "is" : "are"} offline.`, to: "/settings/runners" });
-  // Home runs no agents: its runners report their own harnesses. Only harnesses a profile uses count as missing.
-  if (data.role !== "home") for (const h of harnesses) if (profiles.some((p) => p.harness === h.id) && !data.harnesses[h.id]?.version) out.push({ key: `harness-${h.id}`, text: `${h.name} is not found on this machine.`, to: "/setup" });
   for (const e of quotas) {
     const name = e.names.length ? e.names.join(" · ") : (harnesses.find((h) => h.id === e.harness)?.name ?? e.harness);
     const full = [["5 hours", e.q.five_hour], ["weekly", e.q.weekly]].filter(([, w]) => w && (w as QuotaWindow).used_percent >= 90).map(([l]) => l);

@@ -1,31 +1,18 @@
-// First launch (desktop layout, real mode only): the welcome dialog on a fresh install, otherwise a one-time
-// banner announcing the tour. The answer lives in the onboarding record, so a second browser does not ask again.
+// First launch (desktop layout, real mode only): the welcome dialog on a fresh install. The answer lives in the
+// onboarding record, so a second browser does not ask again.
 
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon, type IconName } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { enterDemo } from "@/demo/mode";
 import { useOnboarding, usePatchOnboarding } from "./data";
-import { useStatus } from "@/lib/queries";
 
 export function WelcomeGate() {
-  const q = useOnboarding();
-  const patch = usePatchOnboarding();
-  const o = q.data;
-  const home = useStatus().data?.role === "home";
+  const o = useOnboarding().data;
   if (!o || o.welcome || window.__lpScreenshots) return null;
-  if (o.fresh_install) return <WelcomeDialog />;
-  // On Home the setup page is the first step; the tour does not cover Home and runners yet.
-  if (o.dismissed.includes("banner") || home) return null;
-  return (
-    <div role="region" aria-label="Tour announcement" className="flex flex-none flex-wrap items-center gap-2 border-b border-line-2 bg-demo-soft px-3.5 py-1.5 text-[13px] text-demo">
-      <Icon name="spark" size={14} />
-      <span className="min-w-0 flex-1">New: an interactive tour of Launchpad on demo data.</span>
-      <Link to="/settings/onboarding" className="btn btn-sm btn-demo no-underline" onClick={() => void patch({ dismiss: ["banner"] }).catch(toastError)}>Settings → Onboarding</Link>
-      <button type="button" className="btn btn-sm btn-ghost" onClick={() => void patch({ dismiss: ["banner"] }).catch(toastError)}>Dismiss</button>
-    </div>
-  );
+  // Afterwards, Home's setup page is the first step; the tour stays in Settings → Onboarding.
+  return o.fresh_install ? <WelcomeDialog /> : null;
 }
 
 function Choice({ icon, title, text, action, onClick, primary }: { icon: IconName; title: string; text: string; action: string; onClick: () => void; primary?: boolean }) {
@@ -54,7 +41,7 @@ function WelcomeDialog() {
         <div className="grid gap-2">
           <Choice icon="play" primary title="Essentials tour · about 3 min" text="Launch an agent, answer it, review its work. Demo data only." action="Start" onClick={() => answer("tour", () => enterDemo("essentials:layout"))} />
           <Choice icon="agents" title="Full tour · about 10 min" text="Adds GitHub, Ask, terminals, workspaces, automation and settings." action="Start" onClick={() => answer("tour", () => enterDemo("full:layout"))} />
-          <Choice icon="sliders" title="Skip the tour" text="Go to the setup checklist. The tour stays in Settings → Onboarding." action="Set up" onClick={() => answer("skip", () => void navigate({ to: "/setup" as never }))} />
+          <Choice icon="sliders" title="Skip the tour" text="Go to Home's setup. The tour stays in Settings → Onboarding." action="Set up" onClick={() => answer("skip", () => void navigate({ to: "/setup" as never }))} />
         </div>
         <div className="mt-3 flex items-center gap-2 text-[12px] text-ink-3">
           <span className="flex-1">Nothing in the tour runs for real or is saved.</span>

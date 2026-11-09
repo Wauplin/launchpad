@@ -14,12 +14,11 @@ use crate::model::HarnessKind;
 use crate::paths::Paths;
 use std::collections::BTreeMap;
 
-/// Unknown keys are ignored, so files with removed keys and sections (`projects_root`, `[commands]`, `[agents]`) keep loading.
+/// Unknown keys are ignored, so files with removed keys and sections (`projects_root`, `remove_published_worktree`,
+/// `[commands]`, `[agents]`) keep loading.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
 pub struct Config {
-    /// Remove a clean pre-draft worktree after successful publication.
-    pub remove_published_worktree: bool,
     pub server: ServerConfig,
     pub github: GitHub,
     pub worktrees: Worktrees,
@@ -201,8 +200,7 @@ impl Default for GitHub {
 
 /// Written on first start. Missing keys in a user file fall back to these values.
 /// Presets are user-defined only; missing presets and `presets = []` both mean none.
-pub const DEFAULT_CONFIG: &str = r#"remove_published_worktree = false   # keep local PR worktrees after publication
-presets = []                       # add your own prompt instructions in Settings
+pub const DEFAULT_CONFIG: &str = r#"presets = []                       # add your own prompt instructions in Settings
 
 [server]
 bind = "127.0.0.1"                 # local CLI and browser listener

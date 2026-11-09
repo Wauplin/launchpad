@@ -16,7 +16,7 @@ export function OnboardingView() {
   const patch = usePatchOnboarding();
   const play = (entry: string) => { void patch({ welcome: "tour" }).catch(() => {}); enterDemo(entry); };
   return (
-    <SettingsPage title="Onboarding" intro={phone ? "Get this machine ready for real work." : "Learn Launchpad on demo data. Nothing runs for real and nothing is saved, except which chapters you finished."}>
+    <SettingsPage title="Onboarding" intro={phone ? "Get Home ready for real work." : "Learn Launchpad on demo data. Nothing runs for real and nothing is saved, except which chapters you finished."}>
       {!phone && (
         <Card title="Tours">
           <div className="flex flex-wrap gap-2">
@@ -51,7 +51,7 @@ export function OnboardingView() {
         </Card>
       ) : (
         <Card title="Setup" end={<Link to={"/setup" as never} className="btn btn-sm no-underline">Open</Link>}>
-          <p className="m-0 text-[13px] text-ink-2">The setup checklist checks GitHub CLI, Git, agent profiles and a first folder on this machine, and shows only what is still missing.</p>
+          <p className="m-0 text-[13px] text-ink-2">Home's setup: a workspace, Home's GitHub login, an agent login in the vault, where agents run (Burst or a runner) and a first folder.</p>
         </Card>
       )}
     </SettingsPage>

@@ -94,13 +94,12 @@ route("PUT", "/api/config", ({ body }) => {
 });
 
 type GeneralPatch = Partial<{
-  remove_published_worktree: boolean; presets: Config["presets"]; github_poll_interval_seconds: number; worktrees_keep: number;
+  presets: Config["presets"]; github_poll_interval_seconds: number; worktrees_keep: number;
 }>;
 
 route("PATCH", "/api/config", ({ body }) => {
   const p = (body ?? {}) as GeneralPatch;
   const c: Config = structuredClone(world.config);
-  if (p.remove_published_worktree !== undefined) c.remove_published_worktree = p.remove_published_worktree;
   if (p.presets !== undefined) c.presets = p.presets;
   if (p.github_poll_interval_seconds !== undefined) c.github.poll_interval_seconds = Math.max(15, p.github_poll_interval_seconds);
   if (p.worktrees_keep !== undefined) c.worktrees.keep = p.worktrees_keep;
@@ -136,7 +135,6 @@ route("GET", "/api/analytics/runs", (req) => { const ok = inRange(req); return w
 
 // Home and runners: the demo is a Home with the owner's laptop runner and recent Burst jobs.
 route("GET", "/api/runners", () => world.runners);
-route("GET", "/api/runner/launches", () => []);
 route("GET", "/api/runners/:id/status", () => ({ ...world.status, role: "runner", runner_update: null }));
 route("POST", "/api/runners/:id/update", notInDemo);
 // Home updates: the demo's Home is not on a Space.

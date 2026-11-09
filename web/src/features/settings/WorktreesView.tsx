@@ -1,4 +1,4 @@
-// Settings → Disk cleanup: worktree retention, Local PR cleanup and every recorded task worktree with its state.
+// Settings → Disk cleanup: worktree retention and every recorded task worktree with its state.
 
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -14,7 +14,7 @@ import { offlineWorktreesNote, useOfflineRunners } from "@/lib/runners";
 import { useLayout } from "@/stores/layout";
 import { useNavigate } from "@tanstack/react-router";
 import { worktreeSession, worktreeState } from "@/features/agents/Worktrees";
-import { Card, ConfigError, LocalPrCleanupRow, SettingsPage, usePatchConfig } from "./SettingsView";
+import { Card, ConfigError, SettingsPage, usePatchConfig } from "./SettingsView";
 
 const ROW = 56;
 
@@ -75,14 +75,13 @@ export function WorktreesView() {
     if (n !== saved.worktrees.keep) void keep.run(() => patch({ worktrees_keep: n }));
   };
   return (
-    <SettingsPage title="Disk cleanup" intro="Frees disk space: task worktrees and Local PRs that are done.">
+    <SettingsPage title="Disk cleanup" intro="Frees disk space on the runners: task worktrees of agents that are done.">
       <ConfigError />
       <Card title="Cleanup">
         <SettingRow label="Worktrees kept on disk" hint="Clean worktrees of idle agents. 0 keeps all." scope="all" state={keep.state} error={keep.error}
-          info={`New agents in a Git folder run in their own worktree on their runner. Archiving an agent removes its clean worktree; older clean worktrees of idle agents are removed too. The branch keeps the commits and sending a message restores the folder. Worktrees with uncommitted work are never removed. List ignored files such as .env in a .worktreeinclude file to copy them into new worktrees; the setup command is set on the folder page.`}>
+          info={`New agents in a Git folder run in their own worktree on their runner. Archiving an agent removes its clean worktree; older clean worktrees of idle agents are removed too. The branch keeps the commits and sending a message restores the folder. Worktrees with uncommitted work are never removed. The setup command of new worktrees is set on the folder page.`}>
           <input type="number" min={0} aria-label="Worktrees kept on disk" className="field-input w-24" value={keepText} onChange={(e) => setKeepText(e.target.value)} onBlur={commitKeep} onKeyDown={(e) => { if (e.key === "Enter") commitKeep(); }} />
         </SettingRow>
-        <LocalPrCleanupRow config={saved} />
       </Card>
       <Card title="Task worktrees" end={<>
         <FilterChips label="Worktrees shown">

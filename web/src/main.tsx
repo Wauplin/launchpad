@@ -1,4 +1,4 @@
-import { loadDeployment } from "@/lib/deployment";
+import { loadDeployment, runnerWindow } from "@/lib/deployment";
 import { SaveStatus } from "@/components/SaveStatus";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
@@ -48,7 +48,9 @@ window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled reje
 // its size), so `isPhone` decides: a stale `lp-phone` would apply the phone CSS to the laptop shell.
 document.documentElement.classList.toggle("lp-phone", isPhone);
 watchLayout();
-const entry: Promise<Entry> = isPhone ? import("@/mobile/entry").then((m) => m.entry) : import("@/app/desktop").then((m) => m.entry);
+const shell: Promise<Entry> = isPhone ? import("@/mobile/entry").then((m) => m.entry) : import("@/app/desktop").then((m) => m.entry);
+// A runner's own window shows only its status page (features/runner); everything else lives on Home.
+const entry: Promise<Entry> = deployment.then(() => (runnerWindow() ? import("@/features/runner/entry").then((m) => m.entry) : shell));
 // Browser tabs draw from the last saved lists while the daemon answers (lib/offlineCache.ts).
 const cache = isDemo ? demo : restoreCache(queryClient).then(() => persistCache(queryClient));
 // Restore cached lists before the first socket resync invalidates them.

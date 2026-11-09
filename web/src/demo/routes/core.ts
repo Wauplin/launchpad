@@ -142,4 +142,3 @@ route("DELETE", "/api/workspaces/:id", ({ params }) => {
 
 // The setup checklist checks the real machine: it is not part of the demo (the sidebar entry hides there).
 route("GET", "/api/setup/checklist", notInDemo);
-route("GET", "/api/setup/checklist/summary", notInDemo);

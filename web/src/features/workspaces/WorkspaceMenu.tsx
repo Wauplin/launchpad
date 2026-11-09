@@ -8,9 +8,8 @@ import type { Workspace } from "@/gen/Workspace";
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toastError } from "@/components/Toast";
-import { ConfirmButton, Loading } from "@/components/ui";
+import { ConfirmButton } from "@/components/ui";
 import { api } from "@/lib/api";
-import { useStatus } from "@/lib/queries";
 import { openInNewTab, useScope, useWorkspaces } from "@/lib/workspace";
 import { useWorkspace } from "@/stores/workspace";
 
@@ -83,20 +82,16 @@ export function WorkspaceMenu() {
   );
 }
 
-/** Shown instead of the page while there is no workspace: Home creates one at first start, so only a runner that
- * has not heard from Home yet (or a window whose last workspace was removed elsewhere) gets here. */
+/** Shown instead of the page while there is no workspace: there is no default one, so a new Home (or a window whose
+ * last workspace was removed elsewhere) gets here. */
 export function NoWorkspace() {
-  // There is no default workspace. A runner gets its workspaces from Home and waits for Home's first one.
-  const runner = useStatus().data?.role === "runner";
   return (
     <div className="grid h-full place-items-center p-6">
-      {runner ? <Loading what="the workspaces from Home (create the first one in Home's Setup)" /> : (
-        <div className="grid w-[340px] max-w-full gap-2 rounded-card border border-line p-3">
-          <p className="m-0 text-[13px] text-ink-2">A window shows one workspace, and none exists yet. Name your first workspace to start, or open Setup to go through every step.</p>
-          <NewWorkspaceForm onDone={() => undefined} onCancel={() => undefined} />
-          <Link to="/setup" className="btn btn-sm justify-self-start no-underline">Open Setup</Link>
-        </div>
-      )}
+      <div className="grid w-[340px] max-w-full gap-2 rounded-card border border-line p-3">
+        <p className="m-0 text-[13px] text-ink-2">A window shows one workspace, and none exists yet. Name your first workspace to start, or open Setup to go through every step.</p>
+        <NewWorkspaceForm onDone={() => undefined} onCancel={() => undefined} />
+        <Link to="/setup" className="btn btn-sm justify-self-start no-underline">Open Setup</Link>
+      </div>
     </div>
   );
 }

@@ -7,7 +7,6 @@ import { usePhone, layoutChoice, setLayoutChoice, type LayoutChoice } from "@/li
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import type { Config } from "@/gen/Config";
 import type { Preset } from "@/gen/Preset";
 import { Icon } from "@/components/Icon";
 import { ConfirmButton, IntroButton, Loading, MenuSection, MoreMenu, PageHeader, SettingRow, useSaveState, type SaveState } from "@/components/ui";
@@ -197,16 +196,5 @@ export function PresetsView() {
         ))}
       </Card>
     </SettingsPage>
-  );
-}
-
-/** Settings → Disk cleanup → Local PR cleanup. */
-export function LocalPrCleanupRow({ config }: { config: Config }) {
-  const patch = usePatchConfig();
-  const { state, error, run } = useSaveState();
-  return (
-    <SettingRow label="Published Local PRs" hint="Remove the clean worktree after a successful publication or local merge." scope="all" state={state} error={error}>
-      <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" className="accent-teal" checked={config.remove_published_worktree} onChange={(e) => void run(() => patch({ remove_published_worktree: e.target.checked }))} />Remove after publishing or merging locally</label>
-    </SettingRow>
   );
 }

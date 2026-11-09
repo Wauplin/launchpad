@@ -54,14 +54,12 @@ async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiR
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GeneralPatch {
-    remove_published_worktree: Option<bool>,
     presets: Option<Vec<launchpad_core::config::Preset>>,
     github_poll_interval_seconds: Option<u64>,
     worktrees_keep: Option<u32>,
 }
 async fn patch_general_config(State(s): State<Server>, Json(patch): Json<GeneralPatch>) -> ApiResult<Value> {
     s.app.config.update(|config| {
-        if let Some(value) = patch.remove_published_worktree { config.remove_published_worktree = value; }
         if let Some(value) = patch.presets { config.presets = value; }
         if let Some(value) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = value.max(15); }
         if let Some(value) = patch.worktrees_keep { config.worktrees.keep = value; }

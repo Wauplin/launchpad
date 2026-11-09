@@ -29,8 +29,8 @@ export function runnerName(runners: ReturnType<typeof useLaunchRunners>, id: str
 
 type LaunchRunner = ReturnType<typeof useLaunchRunners>[number];
 
-/** Connected, same build as Home, accepting launches from other devices and not paused. */
-const takesLaunches = (r: LaunchRunner) => r.connected && r.compat === "same" && r.guard?.accept_launches !== false && !r.guard?.paused;
+/** Connected, same build as Home, and taking new sessions (not paused). */
+const takesLaunches = (r: LaunchRunner) => r.connected && r.compat === "same" && !r.guard?.paused;
 
 /** A warning before launching when a runner needs an update: the chosen one, or (Automatic) any connected one. */
 export function OutdatedRunnerNotice({ spec }: { spec: LaunchSpec }) {

@@ -9,7 +9,7 @@ import { useSetupSummary } from "@/features/setup/summary";
 import { delegatedAccess } from "@/lib/deployment";
 import { layoutChoice, setLayoutChoice } from "@/lib/phone";
 import { useConfig, useSharedSettings } from "@/lib/queries";
-import { useOfflineRunners, useOutdatedRunners, useRunners } from "@/lib/runners";
+import { useOfflineRunners, useOutdatedRunners, useRefusedRunners, useRunners } from "@/lib/runners";
 import { useScope } from "@/lib/workspace";
 import { useTheme } from "@/stores/theme";
 import { LAYOUTS } from "./SettingsView";
@@ -50,6 +50,7 @@ export function PhoneSettings() {
   const runners = (useRunners().data ?? []).filter((r) => r.runner.state === "approved");
   const offline = useOfflineRunners().length;
   const outdated = useOutdatedRunners().length;
+  const refused = useRefusedRunners().length;
   const setup = useSetupSummary().data;
   return (
     <div className="h-full overflow-y-auto pb-4" data-tour="settings.phone">
@@ -78,7 +79,7 @@ export function PhoneSettings() {
       <Group title="On a computer">
         <p className="m-0 border-b border-line-2 px-4 py-2 text-[13px] text-ink-3">Open Launchpad on a computer to change these.</p>
         <Status icon="agents" label="Profiles" state={config ? count(config.profiles.length, "profile") : undefined} attn={config?.profiles.length === 0} />
-        {runners.length > 0 && <Status icon="window" label="Home and runners" state={outdated ? `${outdated} to update` : offline ? `${offline} offline` : count(runners.length, "runner")} attn={outdated + offline > 0} />}
+        {runners.length > 0 && <Status icon="window" label="Home and runners" state={refused ? `${refused} refused` : outdated ? `${outdated} to update` : offline ? `${offline} offline` : count(runners.length, "runner")} attn={refused + outdated + offline > 0} />}
         <Status icon="sliders" label="Credentials and tools" />
         <Status icon="huggingface" label="Hugging Face" />
         <Status icon="archive" label="Disk cleanup" />

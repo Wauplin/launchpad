@@ -61,7 +61,7 @@ export default scenario({
     at(0.8, tool("bash", "pnpm docs:check", { seconds: 2.2, output: "Checked 214 pages, 1,032 links, 388 anchors.\nNo broken links." })),
     at(0.5, commit("Document the webhook retry policy")),
     at(0.5, plan([["Read the retry policy", "completed"], ["Write the Retries section", "completed"], ["Check links", "completed"], ["Open a Local PR", "in_progress"]])),
-    at(0.8, tool("bash", "launchpad pr create --title \"Document the webhook retry policy\" --body-file /tmp/pr-body.md", { seconds: 0.8, output: "Local PR created: Document the webhook retry policy\nIt stays on this computer until you press Publish." })),
+    at(0.8, tool("bash", "launchpad pr create --title \"Document the webhook retry policy\" --body-file /tmp/pr-body.md", { seconds: 0.8, output: "Local PR created: Document the webhook retry policy\nIt stays on Home until you press Publish." })),
     at(0, localPr({ title: "Document the webhook retry policy", body: localPrBody, issue: 42 })),
     at(0.5, plan([["Read the retry policy", "completed"], ["Write the Retries section", "completed"], ["Check links", "completed"], ["Open a Local PR", "completed"]])),
     final(`**A Local PR is ready for issue #42.** It adds a Retries section to the webhooks guide: the 10-second timeout, the backoff schedule (1 min to 12 h, six attempts), what happens after the last attempt and how to ignore duplicates.

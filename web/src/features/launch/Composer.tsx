@@ -1,7 +1,6 @@
 import { OutdatedRunnerNotice, RunnerChoice, runnerName, ToolsChoice, useLaunchRunners, useLaunchTools } from "./LaunchExtras";
 import { isPhone } from "@/lib/phone";
 import { Sheet } from "@/mobile/Sheet";
-import { useStatus } from "@/lib/queries";
 // Composer drawer (sketch S2): stays on the right while you navigate, so context can be added from
 // anywhere. It minimizes to a draft pill, and covers the content on narrow windows. Prompt first, then
 // project, context chips and one summary line of options; "Preview prompt" shows the exact prompt.
@@ -190,7 +189,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     for (const session of sessions ?? []) rememberSuccessfulSession(session);
   }, [sessions]);
   const overlay = useOverlay(useZoomScale());
-  const host = useStatus().data?.host;
   const agentPresets = usePresets("agent");
   const defaults = useHarnessDefaults(spec.harness).data;
   const harness = useHarnessInfo(spec.harness);
@@ -297,7 +295,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, spec.profile, profiles]);
   const launchRunners = useLaunchRunners();
-  const role = useStatus().data?.role;
   // The lease takes the workspace of the session's folder, else the launch's.
   const toolsWorkspace = projects.find((p) => p.id === targetId)?.workspace_id ?? spec.workspace_id;
   const launchTools = useLaunchTools(spec, toolsWorkspace, targetId);
@@ -629,7 +626,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         <PresetChips selected={spec.presets} onChange={(ids) => set((s) => ({ ...s, presets: ids }))} disabled={launching} />
 
         {missingProfile && <div className="rounded-card bg-attn-soft px-3 py-2 text-[12px] text-attn">The profile {spec.profile} no longer exists. Pick another profile in the options.</div>}
-        {role === "home" && <OutdatedRunnerNotice spec={spec} />}
+        <OutdatedRunnerNotice spec={spec} />
         {!profiles.length && <div className="rounded-card bg-attn-soft px-3 py-2 text-[12px] text-attn">No profile yet. A profile says which harness runs the agent and what pays for it. <Link to="/settings/profiles" className="font-semibold underline">Add one in Settings → Profiles</Link>.</div>}
 
         <button
@@ -713,7 +710,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               <Link to="/settings/profiles" className="w-fit text-[12px] text-teal-ink hover:underline">Manage profiles</Link>
             </span>
           </OptionRow>
-          {role === "home" && <OptionRow label="Runner"><RunnerChoice spec={spec} set={set} /></OptionRow>}
+          <OptionRow label="Runner"><RunnerChoice spec={spec} set={set} /></OptionRow>
           {launchTools.items.length > 0 && <OptionRow label="Tools"><ToolsChoice spec={spec} set={set} workspaceId={toolsWorkspace} folderId={targetId} /></OptionRow>}
           {harness?.capabilities.permission_modes && <OptionRow label="Permissions">
             <div className="grid gap-1.5">
@@ -816,7 +813,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {editing ? "Discard changes" : "Discard"}
         </button>
         {unconfirmedLaunch && <div role="status" className="text-[12px] text-ink-3">Delivery not confirmed. Retry unchanged to check the result. Inspect Agents before starting another attempt.<button className="btn btn-sm mt-1" disabled={launching} onClick={() => void abandonOperation("/api/sessions", unconfirmedLaunch).then(() => setUnconfirmedLaunch(null)).catch(toastError)}>I checked Agents — start a new attempt</button></div>}
-        {host && <span className="text-[12px] text-ink-3" title="Agents run on the daemon's machine">Runs on {host}</span>}
+        <span className="text-[12px] text-ink-3" title="Where this launch goes: the chosen runner, or Automatic">Runs on {spec.runner_id ? runnerName(launchRunners, spec.runner_id) : "a runner, else Burst"}</span>
         {(blocker || unsupportedImages) && !launching && <span role="status" className="basis-full text-right text-[12px] text-attn sm:basis-auto">{unsupportedImages ? "Remove the images or pick another harness" : blocker}</span>}
         {launchButton()}
       </div>

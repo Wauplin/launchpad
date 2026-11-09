@@ -863,7 +863,7 @@ const PROFILE_TEMPLATES: &[harness::ProfileTemplate] = &[
         kind: harness::ProfileKind::Subscription,
         name: "Another account",
         description: "A second subscription or organization, with its own sign-in in a separate configuration folder and its own quota meters.",
-        setup: Some("Save the profile, then sign in once from Works on."),
+        setup: Some("Save the profile, then add this account's login to Home's vault (Credentials and tools) and pick it under Advanced → Login."),
         setup_command: None,
         env: &[("CLAUDE_CONFIG_DIR", "~/.claude-work")],
         billing: launchpad_core::config::Billing::Subscription,

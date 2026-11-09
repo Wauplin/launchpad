@@ -8,13 +8,10 @@ import type { ServerConfig } from "./ServerConfig";
 import type { Worktrees } from "./Worktrees";
 
 /**
- * Unknown keys are ignored, so files with removed keys and sections (`projects_root`, `[commands]`, `[agents]`) keep loading.
+ * Unknown keys are ignored, so files with removed keys and sections (`projects_root`, `remove_published_worktree`,
+ * `[commands]`, `[agents]`) keep loading.
  */
-export type Config = { 
-/**
- * Remove a clean pre-draft worktree after successful publication.
- */
-remove_published_worktree: boolean, server: ServerConfig, github: GitHub, worktrees: Worktrees, presets: Array<Preset>, 
+export type Config = { server: ServerConfig, github: GitHub, worktrees: Worktrees, presets: Array<Preset>, 
 /**
  * Named harness settings, selectable in the composer beside the base harnesses.
  */

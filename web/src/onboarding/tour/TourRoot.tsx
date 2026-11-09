@@ -10,7 +10,7 @@ import { demoChapter } from "@/demo/mode";
 import { useOnboarding } from "../data";
 import { CHAPTERS, chapter, trackChapters, trackTime } from "../chapters";
 import { activate, setTourRouter } from "../chapters/helpers";
-import { exitTour, nextChapter, parseEntry, playChapter, setUpThisMachine, skipChapter, useTour } from "./store";
+import { exitTour, nextChapter, parseEntry, playChapter, setUpHome, skipChapter, useTour } from "./store";
 import type { Step } from "./types";
 import { getSpeed, isPlaying, setSpeed, skipToEnd } from "@/demo/player";
 
@@ -242,8 +242,8 @@ function Recap() {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {following
             ? <button type="button" data-primary className="btn btn-sm btn-demo" onClick={() => playChapter(following.id, track)}>Next: {following.title} ({following.time.replace(/^0:/, "0:")})</button>
-            : <button type="button" data-primary className="btn btn-sm btn-demo" onClick={setUpThisMachine}>Set up this machine →</button>}
-          {following && <button type="button" className="btn btn-sm" onClick={setUpThisMachine}>Set up this machine →</button>}
+            : <button type="button" data-primary className="btn btn-sm btn-demo" onClick={setUpHome}>Set up Home →</button>}
+          {following && <button type="button" className="btn btn-sm" onClick={setUpHome}>Set up Home →</button>}
           <button type="button" className="btn btn-sm" onClick={() => playChapter(c.id, track)}>Replay</button>
         </div>
         {!following && track === "essentials" && <p className="mt-2 mb-0 text-[12px] text-ink-3">The full tour ({trackTime("full")}) adds GitHub, Ask, terminals, workspaces, automation and settings.</p>}

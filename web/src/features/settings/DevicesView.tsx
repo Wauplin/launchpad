@@ -148,7 +148,7 @@ function HttpsSetup({ disabled, onBusy, onPair }: { disabled: boolean; onBusy: (
   };
   const controls = <div className="grid min-w-0 gap-2 text-[13px]">
     <p>Use Tailscale Serve to pair over HTTPS. Tailscale manages the certificate and keeps the connection running in the background. Both devices must be signed in to your tailnet.</p>
-    {!data.connected && <p className="text-attn">Sign in using the Tailscale app on this machine, then refresh.</p>}
+    {!data.connected && <p className="text-attn">Sign in to Tailscale on the machine that runs Home, then refresh.</p>}
     <label className="flex flex-wrap items-center gap-2">HTTPS port <input className="field-input w-24 font-mono text-[12px]" type="number" inputMode="numeric" min={1} max={65535} placeholder="443" value={value} disabled={disabled} onChange={(e) => { setPort(e.target.value); setResult(null); }} /></label>
     <p className="text-[12px] text-ink-3">{data.https_port ? `Suggested port: ${data.https_port}. Existing routes are kept. This forwards to Launchpad on port ${data.daemon_port}.` : "Choose an unused HTTPS port from 1 to 65535."}</p>
     {command && <code className="min-w-0 break-all rounded bg-chrome p-2 text-[12px]">{command}</code>}

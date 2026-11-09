@@ -1051,7 +1051,7 @@ const PROFILE_TEMPLATES: &[harness::ProfileTemplate] = &[
         kind: harness::ProfileKind::Subscription,
         name: "Another ChatGPT account",
         description: "A second ChatGPT account, with its own sign-in in a separate CODEX_HOME and its own quota meters.",
-        setup: Some("Save the profile, then sign in once from Works on."),
+        setup: Some("Save the profile, then add this account's login to Home's vault (Credentials and tools) and pick it under Advanced → Login."),
         setup_command: None,
         env: &[("CODEX_HOME", "~/.codex-work")],
         billing: launchpad_core::config::Billing::Subscription,

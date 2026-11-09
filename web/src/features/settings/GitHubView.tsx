@@ -1,4 +1,4 @@
-// Settings → GitHub: the GitHub CLI of this computer, how often the inbox is polled, and the repositories with
+// Settings → GitHub: Home's GitHub login, how often the inbox is polled, and the repositories with
 // notifications but no folder. Those belong to no workspace: no Inbox, count or badge shows them. Add to clones one
 // into a workspace; the owner checks the others on GitHub.
 
