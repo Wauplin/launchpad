@@ -60,7 +60,7 @@ async fn records(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> {
     list.sort_by_key(|w| (!w.primary, w.created_at));
     let predrafts = crate::predrafts::list(app).await.ok();
     for w in &mut list {
-        from_home(app, w, predrafts.as_deref()).await;
+        from_home(app, w, predrafts.as_deref(), None).await;
     }
     Ok(list)
 }
@@ -68,12 +68,22 @@ async fn records(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> {
 /// Home's records win for what Home did: the branch's last merge (`worktrees::merged_on_home`) and its Local PR
 /// (the newest one not discarded), looked up by folder and branch. A runner's record does not know about a merge
 /// or a Local PR made while it was away. `predrafts`: None when the list could not be read (the record's stays).
-async fn from_home(app: &App, w: &mut TaskWorktree, predrafts: Option<&[Predraft]>) {
+/// A merged Local PR stops counting once the branch has commits past what it merged (on Home, or `runner_tip`),
+/// so Merge (or a new Local PR) is offered for them.
+async fn from_home(app: &App, w: &mut TaskWorktree, predrafts: Option<&[Predraft]>, runner_tip: Option<&str>) {
     if let Some(m) = crate::worktrees::merged_on_home(app, &w.project_id, &w.branch).await {
         w.merged = Some(m);
     }
     if let Some(list) = predrafts {
-        w.predraft_id = list.iter().find(|p| p.project_id == w.project_id && p.branch == w.branch && !p.archived).map(|p| p.id.clone());
+        let found = list.iter().find(|p| p.project_id == w.project_id && p.branch == w.branch && !p.archived);
+        w.predraft_id = match found.and_then(|p| p.merged.as_ref().map(|m| (p, m))) {
+            Some((p, m)) => {
+                let home = crate::home_git::tip(app, &w.project_id, &format!("refs/heads/{}", w.branch)).await.ok().flatten();
+                let past = |t: Option<&str>| t.is_some_and(|t| t != m.head);
+                (!past(home.as_deref()) && !past(runner_tip)).then(|| p.id.clone())
+            }
+            None => found.map(|p| p.id.clone()),
+        };
     }
 }
 
@@ -237,7 +247,7 @@ pub async fn complete(app: &App, list: Vec<Value>) -> Vec<Value> {
             out.push(item);
             continue;
         };
-        from_home(app, &mut w, predrafts.as_deref()).await;
+        from_home(app, &mut w, predrafts.as_deref(), item["head"].as_str()).await;
         if gone(&w) {
             out.push(serde_json::to_value(info(app, w, None).await).unwrap_or(item));
             continue;
@@ -394,7 +404,7 @@ pub async fn worktree_action(app: &App, s: &Session, worktree_id: &str, action: 
                 bail!("{reason}. {away}: send the agent a message to rebase it, then merge again.");
             }
             let mut w = w;
-            from_home(app, &mut w, None).await;
+            from_home(app, &mut w, None, None).await;
             Ok(info(app, w, away_reason(app, s).await.as_deref()).await)
         }
         "restore" => bail!("{away}: its folder comes back from the branch on Home when the session continues (send a message, or move it in Summary → Runs on)."),
