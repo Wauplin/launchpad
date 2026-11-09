@@ -139,6 +139,9 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "proposal.recheck", route: "/api/proposals/{id}/recheck", label: "Check again", icon: Some("refresh"), help: "Validate a card again", effect: Checks, ..A },
     // Runners.
     Action { name: "runner.check-network", route: "/api/runners/{id}/network-check", label: "Check network", icon: Some("refresh"), help: "Check a runner's sandbox network: capture, DNS, UDP policy, IPv4 and IPv6, runner CA", effect: Checks, access: Owner, ..A },
+    // Home updates (a Home on a Hugging Face Space: `launchpad_setup::home_update`).
+    Action { name: "home.check-update", route: "/api/home/update/check", label: "Check for updates", icon: Some("refresh"), help: "Check whether a newer Launchpad exists for Home's Space (release or main, as deployed)", effect: Checks, access: Owner, ..A },
+    Action { name: "home.update", route: "/api/home/update", label: "Update Home", icon: Some("download"), help: "Install a newer Launchpad on Home's Space (it rebuilds and restarts); optionally update the runners once Home runs it", input: &[f("version", Text), opt("update_runners", Bool)], confirm: Some("Home's Space installs {version}, rebuilds and restarts: Home is unavailable for a few minutes. Running agents continue on their runners."), effect: Machine, access: Owner, ..A },
     // Workspaces and tools.
     Action { name: "workspace.create", route: "/api/workspaces", label: "New workspace", icon: Some("plus"), help: "Create a workspace", input: &[f("name", Text)], undo: Some("workspace.delete"), ..A },
     Action { name: "workspace.rename", method: "PATCH", route: "/api/workspaces/{id}", label: "Rename", icon: Some("pencil"), help: "Rename a workspace", input: &[f("name", Text)], undo: Some("workspace.rename"), before: Some("/api/workspaces/{id}"), ..A },

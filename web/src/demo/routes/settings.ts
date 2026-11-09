@@ -143,6 +143,11 @@ route("GET", "/api/runners", () => (world.status.role === "home" ? world.runners
 route("GET", "/api/runner/launches", () => []);
 route("GET", "/api/runners/:id/status", () => ({ ...world.status, role: "runner", runner_update: null }));
 route("POST", "/api/runners/:id/update", notInDemo);
+// Home updates: the demo's Home is not on a Space.
+const homeUpdate = () => ({ unsupported: "Only a Home on a Hugging Face Space updates itself. Update this one the way you installed it.", space: null, channel: null, deployed: null, running: world.status.commit, latest: null, available: false, building: false, stage: null, checked_at: null, error: null, pending: null });
+route("GET", "/api/home/update", homeUpdate);
+route("POST", "/api/home/update/check", homeUpdate);
+route("POST", "/api/home/update", notInDemo);
 route("POST", "/api/runners/:id/network-check", () => {
   const check = demoNetworkCheck(clock.now());
   for (const r of world.runners) r.network_check = check;

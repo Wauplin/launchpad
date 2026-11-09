@@ -13,7 +13,7 @@ import { world } from "../world";
 type Place = { everywhere: true } | { workspace: string | null } | { project: string } | { session: string } | { repo: string };
 type Draft = Omit<TodayItem, "workspaces"> & { place: Place };
 
-const PREFIX: Record<TodayKind, string> = { question: "session", finished: "session", failed: "session", local_pr: "local-pr", proposal: "proposal", outbox: "outbox", suggestion: "suggestion", review_request: "review-request", routine: "routine", runner: "runner" };
+const PREFIX: Record<TodayKind, string> = { question: "session", finished: "session", failed: "session", local_pr: "local-pr", proposal: "proposal", outbox: "outbox", suggestion: "suggestion", review_request: "review-request", routine: "routine", runner: "runner", home_update: "home-update" };
 const ORDER: TodayFilter[] = ["answer", "review", "approve", "send", "github", "fix"];
 
 function item(kind: TodayKind, filter: TodayFilter, record: string, title: string, place: Place, at: number, more: Partial<Draft> = {}): Draft {

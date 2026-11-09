@@ -37,6 +37,10 @@ It checks `curl`, `python3` and the hf CLI (recent enough for buckets and Space 
 
 Run it again to update. The manual steps below do the same.
 
+### Updates from Home
+
+Home updates its own Space. Every hour it reads the Space's Dockerfile to know what it installs (a release, or a `main` commit with `--main`) and checks GitHub for a newer one on the same channel. A newer one shows in Today (Fix) and in **Settings → Home and runners → Home updates**, which also has **Check for updates**. **Update Home** commits the newer Dockerfile and Space card to the Space with Home's own Hugging Face login (it needs write access to the Space; else update with `deploy.sh`). The Space rebuilds and restarts; Home is unavailable for a few minutes, and agents keep running on their runners. With **Then update the runners** (on by default), the new Home asks each connected runner with another build to update itself once none of its agents is in a turn, and does the same for runners that connect in the next 24 hours. A runner of an older protocol cannot connect to the new Home: run the install command again on it. Home never replaces a Dockerfile that `deploy.sh` did not write or a Space built from source.
+
 To deploy by hand, create the bucket and the Space:
 
 ```sh
@@ -46,7 +50,7 @@ hf repos create Wauplin/launchpad-home --type space --sdk docker --private --fla
 
 ### From a release (recommended)
 
-Upload `deploy/hf-home/Dockerfile.release` as the Space's `Dockerfile`, with the Space card below as `README.md`. The image downloads the release archive of the tag in `ARG LAUNCHPAD_RELEASE`, checks it against the release's `.sha256` file, and takes the deploy files (gateway, setup page, runner installer, tool versions) from the source of the commit named in the archive. For a main commit, set `LAUNCHPAD_RELEASE=main-build` and `LAUNCHPAD_PACKAGE=launchpad-linux-x86_64-<commit>`. Nothing is compiled on the Space builder. To update Home, edit the `LAUNCHPAD_RELEASE` line in the Space's Dockerfile on the Hub to a newer tag: the Space rebuilds and restarts. Runners update with the install command afterwards.
+Upload `deploy/hf-home/Dockerfile.release` as the Space's `Dockerfile`, with the Space card below as `README.md`. The image downloads the release archive of the tag in `ARG LAUNCHPAD_RELEASE`, checks it against the release's `.sha256` file, and takes the deploy files (gateway, setup page, runner installer, tool versions) from the source of the commit named in the archive. For a main commit, set `LAUNCHPAD_RELEASE=main-build` and `LAUNCHPAD_PACKAGE=launchpad-linux-x86_64-<commit>`. Nothing is compiled on the Space builder. To update Home, edit the `LAUNCHPAD_RELEASE` line in the Space's Dockerfile on the Hub to a newer tag: the Space rebuilds and restarts. Runners update with one click in Settings → Home and runners, or with the install command.
 
 ### From source
 

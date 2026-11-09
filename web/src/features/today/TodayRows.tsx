@@ -36,6 +36,7 @@ export const LOOK: Record<TodayItem["kind"], { icon: IconName; color: string; na
   review_request: { icon: "pr", color: "text-gh-open", name: "Pull request that requests your review" },
   routine: { icon: "refresh", color: "text-gh-closed", name: "Routine whose last run failed" },
   runner: { icon: "window", color: "text-attn", name: "Runner to update" },
+  home_update: { icon: "download", color: "text-attn", name: "Update for Home" },
 };
 
 type RowProps = { item: TodayItem; expanded: boolean; toggle: (id: string) => void; highlight: boolean };
@@ -264,5 +265,6 @@ export const ItemRow = memo(function ItemRow({ proposal, suggestion, ...p }: Row
     case "review_request": return <ReviewRequestRow {...p} />;
     case "routine": return <RoutineRow {...p} />;
     case "runner": return <RunnerRow {...p} />;
+    case "home_update": return <RunnerRow {...p} />; // Opens Settings → Home and runners, where Update Home is.
   }
 });

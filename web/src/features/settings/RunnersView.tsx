@@ -24,6 +24,7 @@ import { homeStatus } from "@/features/setup/summary";
 import type { RunnerStatus } from "@/gen/RunnerStatus";
 import { canSelfUpdate, UpdateRunnerButton, UpdateThisRunnerButton } from "./RunnerUpdate";
 import { networkDiffers, RunnerNetwork } from "./RunnerNetwork";
+import { HomeUpdateCard } from "./HomeUpdateCard";
 
 export function RunnersView() {
   const status = useStatus().data;
@@ -135,6 +136,7 @@ function HomeRunners() {
   const showAdd = adding || approved.length === 0;
   return (
     <SettingsPage title="Home and runners" intro="This is Home: it keeps every record and runs no agents. Runners run them: your own Linux machines, and Burst jobs that Home starts when none of them takes a launch.">
+      <HomeUpdateCard />
       {runners.isLoading ? <Loading what="runners" /> : runners.error ? <ErrorState error={runners.error} /> : (
         <>
           <Card title={approved.length ? `Runners · ${approved.length}` : "Runners"} tour="settings.runners" end={approved.length > 0 && !adding && <button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />Add a runner</button>}>

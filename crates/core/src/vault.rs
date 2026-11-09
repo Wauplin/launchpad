@@ -306,7 +306,7 @@ pub fn template_help() -> Vec<TemplateHelp> {
 
 /// Home's own token for `source`: GitHub from `GH_TOKEN`/`GITHUB_TOKEN` or `gh auth token`, Hugging Face from
 /// `HF_TOKEN` or the `hf` token file. Only on Home; the daemon inherits `GH_CONFIG_DIR` and `HF_HOME`.
-pub(crate) async fn home_token(app: &App, source: HomeToken) -> Option<String> {
+pub async fn home_token(app: &App, source: HomeToken) -> Option<String> {
     if app.paths.role != crate::role::Role::Home {
         return None;
     }

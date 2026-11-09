@@ -2,7 +2,7 @@
 use crate::{Ctx, error::{ApiError, ApiResult}};
 use axum::{Json, Router, extract::{Path, State}, routing::{get, post}};
 use launchpad_core::{model::Project, signin, terminals::TerminalInfo};
-use launchpad_setup::{onboarding, project_clone, setup_checklist};
+use launchpad_setup::{home_update, onboarding, project_clone, setup_checklist};
 use serde::Deserialize;
 
 pub fn router() -> Router<Ctx> {
@@ -17,6 +17,8 @@ pub fn router() -> Router<Ctx> {
         .route("/api/setup/fix/{item}", post(fix))
         .route("/api/setup/git-identity", post(git_identity))
         .route("/api/setup/profile-from-login", post(profile_from_login))
+        .route("/api/home/update", get(home_update).post(start_home_update))
+        .route("/api/home/update/check", post(check_home_update))
 }
 
 async fn sign_in(State(s): State<Ctx>) -> Json<Vec<signin::SignInCheck>> {
@@ -105,4 +107,17 @@ struct FromLogin {
 
 async fn profile_from_login(State(s): State<Ctx>, Json(b): Json<FromLogin>) -> ApiResult<launchpad_core::config::Profile> {
     Ok(Json(setup_checklist::profile_from_login(&s.app, &b.harness).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
+}
+
+/// Home on a Hugging Face Space: the last update check (`launchpad_setup::home_update`).
+async fn home_update(State(s): State<Ctx>) -> Json<home_update::HomeUpdate> {
+    Json(home_update::current(&s.app))
+}
+
+async fn check_home_update(State(s): State<Ctx>) -> Json<home_update::HomeUpdate> {
+    Json(home_update::check(&s.app).await)
+}
+
+async fn start_home_update(State(s): State<Ctx>, Json(b): Json<home_update::Start>) -> ApiResult<home_update::HomeUpdate> {
+    Ok(Json(home_update::start(&s.app, b).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }

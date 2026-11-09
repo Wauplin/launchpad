@@ -21,6 +21,7 @@ import { reviewWithAgent } from "@/features/github/reviewAgent";
 import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
 import { ProposalCard } from "@/features/proposals/ProposalCard";
 import { SuggestionCard } from "@/features/suggestions/Suggestions";
+import { UpdateHomeButton, useHomeUpdate } from "@/features/settings/HomeUpdate";
 import { runAction } from "@/lib/actions";
 import { ago } from "@/lib/format";
 import { isPhone } from "@/lib/phone";
@@ -30,7 +31,7 @@ import { isDone } from "@/lib/sessionStatus";
 import type { TodayItem } from "./data";
 
 export const ICON: Record<TodayItem["kind"], IconName> = {
-  question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", review_request: "pr", routine: "refresh", runner: "window",
+  question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", review_request: "pr", routine: "refresh", runner: "window", home_update: "download",
 };
 
 export const ghParams = (repo: string, number: number) => ({ owner: repo.split("/")[0], repo: repo.split("/")[1], number: String(number) });
@@ -234,6 +235,14 @@ function RunnerCard({ item }: { item: TodayItem }) {
   return <Card item={item}><div><Link className="btn btn-sm btn-primary no-underline" to="/settings/runners">Open runners</Link></div></Card>;
 }
 
+/** A newer Launchpad for Home's Space (its main action: Update Home), or an update whose build failed. */
+function HomeUpdateItemCard({ item }: { item: TodayItem }) {
+  const u = useHomeUpdate().data;
+  const details = <Link className="btn btn-sm no-underline" to="/settings/runners">Details</Link>;
+  if (item.action !== "home.update" || !u?.available) return <Card item={item}><div><Link className="btn btn-sm btn-primary no-underline" to="/settings/runners">Open Home and runners</Link></div></Card>;
+  return <Card item={item} open={details}><UpdateHomeButton u={u} /></Card>;
+}
+
 export const ItemCard = memo(function ItemCard({ item, proposal, suggestion }: { item: TodayItem; proposal: Proposal | undefined; suggestion: Suggestion | undefined }) {
   switch (item.kind) {
     case "question": return <QuestionCard item={item} />;
@@ -246,5 +255,6 @@ export const ItemCard = memo(function ItemCard({ item, proposal, suggestion }: {
     case "review_request": return <ReviewRequestCard item={item} />;
     case "routine": return <RoutineCard item={item} />;
     case "runner": return <RunnerCard item={item} />;
+    case "home_update": return <HomeUpdateItemCard item={item} />;
   }
 });

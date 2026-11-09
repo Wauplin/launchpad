@@ -36,6 +36,7 @@ impl launchpad_core::ext::Extensions for Extensions {
         let mut out = launchpad_automation::today::items(app).await;
         out.extend(launchpad_channels::today::items(app).await);
         out.extend(launchpad_github::today::items(app).await);
+        out.extend(launchpad_setup::home_update::today_items(app));
         out
     }
 }
@@ -45,6 +46,7 @@ pub async fn start(app: &App) -> Result<()> {
     launchpad_automation::start(app).await?;
     launchpad_github::spawn(app);
     launchpad_channels::spawn(app);
+    launchpad_setup::home_update::spawn(app);
     Ok(())
 }
 
