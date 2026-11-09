@@ -128,6 +128,13 @@ async fn write_hook(dir: &Path) -> Result<()> {
 /// Fetches the folder's remote into the mirror (every branch but Launchpad branches) and follows its
 /// default branch. Launchpad branches never change here.
 pub async fn refresh(app: &App, p: &Project) -> Result<()> {
+    fetch_origin(app, p).await?;
+    // Followed branches that did not reach GitHub yet get another push.
+    retry_follows(app, &p.id).await;
+    Ok(())
+}
+
+async fn fetch_origin(app: &App, p: &Project) -> Result<()> {
     let dir = mirror(app, &p.id);
     ensure!(dir.join("HEAD").exists(), "{} has no mirror on Home yet", p.name);
     let lock = lock(app, &p.id);
@@ -259,11 +266,9 @@ pub async fn after_push(app: &App, project_id: &str, before: &BTreeMap<String, S
     }
     app.bus.publish("home_git", "pushed", serde_json::json!({"project_id": project_id, "branches": changed, "session_id": session}));
     for branch in &changed {
-        if let Some(head) = after.get(&format!("refs/heads/{branch}"))
-            && let Some(follow) = follow(app, project_id, branch).await?
-        {
-            let (app, project_id, branch, head) = (app.clone(), project_id.to_string(), branch.clone(), head.clone());
-            tokio::spawn(async move { forward(&app, &project_id, &branch, &head, &follow).await });
+        if after.contains_key(&format!("refs/heads/{branch}")) && follow(app, project_id, branch).await?.is_some() {
+            let (app, project_id, branch) = (app.clone(), project_id.to_string(), branch.clone());
+            tokio::spawn(async move { forward(&app, &project_id, &branch).await });
         }
     }
     Ok(())
@@ -281,6 +286,24 @@ pub struct Follow {
     /// The session told about each push, when there is one.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// The last commit GitHub accepted from Home (or had when the follow started).
+    #[serde(default)]
+    pub forwarded: Option<String>,
+    /// Why the last push to GitHub failed; None after a successful one.
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// Whether GitHub has a followed branch's commit on Home, for the Local PR and pull request views.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FollowStatus {
+    pub url: String,
+    /// The branch's commit on Home.
+    pub head: Option<String>,
+    pub forwarded: Option<String>,
+    /// Home has commits that are not on GitHub yet.
+    pub behind: bool,
+    pub error: Option<String>,
 }
 
 pub async fn set_follow(app: &App, project_id: &str, branch: &str, follow: &Follow) -> Result<()> {
@@ -300,17 +323,63 @@ pub async fn follow(app: &App, project_id: &str, branch: &str) -> Result<Option<
     Ok(json.and_then(|j| serde_json::from_str(&j).ok()))
 }
 
-/// Pushes a followed branch to GitHub, without force. The result shows in the session.
-async fn forward(app: &App, project_id: &str, branch: &str, head: &str, follow: &Follow) {
+pub async fn follow_status(app: &App, project_id: &str, branch: &str) -> Result<Option<FollowStatus>> {
+    let Some(f) = follow(app, project_id, branch).await? else { return Ok(None) };
+    let head = tip(app, project_id, &format!("refs/heads/{branch}")).await?;
+    let behind = head.is_some() && head != f.forwarded;
+    Ok(Some(FollowStatus { url: f.url, head, forwarded: f.forwarded, behind, error: f.error }))
+}
+
+/// Pushes the current commit of a followed branch to GitHub, without force; one push at a time per branch,
+/// so pushes never arrive out of order. The record keeps the last commit GitHub accepted and the last error,
+/// so a refresh retries (`retry_follows`). The session hears of each push, and of each new failure once.
+async fn forward(app: &App, project_id: &str, branch: &str) {
     let dir = mirror(app, project_id);
     let lock = app.suggestion_locks.get(&format!("home-git-forward:{project_id}:{branch}"));
     let _lock = lock.lock().await;
+    let (Ok(Some(mut follow)), Ok(Some(head))) = (follow(app, project_id, branch).await, tip(app, project_id, &format!("refs/heads/{branch}")).await) else { return };
+    if follow.forwarded.as_deref() == Some(head.as_str()) {
+        return;
+    }
     let text = match git_in(app, &dir, &["push", "--quiet", &follow.remote, &format!("{head}:refs/heads/{}", follow.branch)], 300).await {
-        Ok(_) => format!("Home pushed {} to {} ({}).", &head[..12.min(head.len())], follow.url, follow.branch),
-        Err(e) => format!("Home could not push {branch} to {}: {e:#}. Rebase onto the pull request branch (`git pull --rebase` from it) and push to Home again; Home never force-pushes.", follow.url),
+        Ok(_) => {
+            follow.forwarded = Some(head.clone());
+            follow.error = None;
+            Some(format!("Home pushed {} to {} ({}).", &head[..12.min(head.len())], follow.url, follow.branch))
+        }
+        Err(e) => {
+            let error = format!("{e:#}");
+            let new = follow.error.as_deref() != Some(error.as_str());
+            follow.error = Some(error.clone());
+            new.then(|| format!("Home could not push {branch} to {}: {error}. Rebase onto the pull request branch (`git pull --rebase` from it) and push to Home again; Home never force-pushes.", follow.url))
+        }
     };
-    if let Some(session) = &follow.session_id {
+    if let Err(e) = set_follow(app, project_id, branch, &follow).await {
+        tracing::warn!("follow record of {branch}: {e:#}");
+    }
+    if let (Some(session), Some(text)) = (&follow.session_id, text) {
         crate::sessions::notice_anywhere(app, session, &text).await;
+    }
+}
+
+/// Pushes again every followed branch of a folder whose commit GitHub does not have yet (pushes are never
+/// forced, so retrying is safe). Called after each refresh of the mirror.
+pub async fn retry_follows(app: &App, project_id: &str) {
+    let p = project_id.to_string();
+    let rows: Result<Vec<(String, String)>> = app
+        .state_db
+        .call(move |c| {
+            let mut st = c.prepare("SELECT branch, json FROM git_follow WHERE project_id = ?1")?;
+            let rows = st.query_map([p], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await;
+    for (branch, json) in rows.unwrap_or_default() {
+        let Ok(f) = serde_json::from_str::<Follow>(&json) else { continue };
+        let head = tip(app, project_id, &format!("refs/heads/{branch}")).await.ok().flatten();
+        if head.is_some() && head != f.forwarded {
+            forward(app, project_id, &branch).await;
+        }
     }
 }
 

@@ -77,6 +77,8 @@ route("GET", "/api/home-git/:id/branches", ({ params }) => {
     kept: i === 0 ? [{ commit: fakeSha(`${name}:before`), subject: "First draft", replaced_at: clock.ago(45) }] : [],
   }));
 });
+/** GitHub has every commit of the pull requests the demo's branches continue. */
+route("GET", "/api/home-git/:id/follow", () => null);
 route("POST", "/api/home-git/:id/restore", ({ body }) => {
   toast(`Demo: ${String(body?.branch ?? "the branch")} would point back to ${String(body?.commit ?? "").slice(0, 8)} on Home. Nothing changed.`);
   return { ok: true };

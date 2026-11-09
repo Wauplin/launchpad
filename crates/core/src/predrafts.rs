@@ -394,7 +394,9 @@ pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     let commits = git(app, &dir, &["log", "--format=%h %s", &format!("{base}..{head}"), "--"]).await?;
     let ahead = git(app, &dir, &["rev-list", "--count", &format!("{head}..{base}")]).await?.parse::<u64>()?;
     let remote = p.remote_branch.clone().unwrap_or_else(|| p.default_remote_branch.clone());
-    Ok(json!({"predraft":p,"status":status,"head":head,"base":merge_base,"base_ahead":ahead,"commits":commits.lines().collect::<Vec<_>>(),"files":crate::diff::parse_diff(&patch),"project_id":project.id,"fallback":false,"default_remote_branch":remote,"change_set":set}))
+    // A published Local PR: whether GitHub has the branch's commit on Home yet.
+    let github = if p.published_url.is_some() { crate::home_git::follow_status(app, &p.project_id, &p.branch).await? } else { None };
+    Ok(json!({"predraft":p,"status":status,"github":github,"head":head,"base":merge_base,"base_ahead":ahead,"commits":commits.lines().collect::<Vec<_>>(),"files":crate::diff::parse_diff(&patch),"project_id":project.id,"fallback":false,"default_remote_branch":remote,"change_set":set}))
 }
 /// The other Local PRs of the same change set, with their folders and the commit shown (`head`, the one Publish
 /// all publishes).
@@ -615,7 +617,7 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     p.published_number = pr["number"].as_u64();
     save(app, &p).await?;
     // Later commits of the branch reach the pull request through Home.
-    let follow = crate::home_git::Follow { remote: target.remote.clone(), branch: q.remote_branch.clone(), url: p.published_url.clone().unwrap_or_default(), session_id: p.session_id.clone() };
+    let follow = crate::home_git::Follow { remote: target.remote.clone(), branch: q.remote_branch.clone(), url: p.published_url.clone().unwrap_or_default(), session_id: p.session_id.clone(), forwarded: Some(head.clone()), error: None };
     crate::home_git::set_follow(app, &p.project_id, &p.branch, &follow).await?;
     Ok(p)
 }

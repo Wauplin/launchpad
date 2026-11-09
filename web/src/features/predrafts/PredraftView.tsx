@@ -24,9 +24,10 @@ import { LocalSuggestions } from "@/features/suggestions/Suggestions";
 import { useComposer } from "@/stores/composer";
 import { useLayout } from "@/stores/layout";
 import { runAction } from "@/lib/actions";
+import { GitHubSyncNote, type FollowStatus } from "@/features/agents/Worktrees";
 import { projectName, useProjects } from "@/lib/queries";
 type Member = { id: string; title: string; folder: string; branch: string; head: string | null; published_url: string | null; merged: boolean };
-type Detail = Diff & { predraft: Predraft; status: string | null; commits: string[]; base_ahead: number; default_remote_branch: string; project_missing?: boolean; change_set?: Member[] };
+type Detail = Diff & { predraft: Predraft; status: string | null; github?: FollowStatus | null; commits: string[]; base_ahead: number; default_remote_branch: string; project_missing?: boolean; change_set?: Member[] };
 type View = "description" | "files" | "commits";
 const RUNNING = ["starting", "working", "background", "in_terminal"];
 
@@ -129,7 +130,7 @@ function Review({ id }: { id: string }) {
   return <div className="flex h-full min-h-0 flex-col">
     {phone ? <><PhoneHeader title={p.title} subtitle={`Local PR · ${state}`} onBack={() => void navigate({ to: "/", search: { filter: "review" } })} backLabel="Back to Today" actions={<>{headerActions}<button className="btn btn-sm" disabled={busy} onClick={refresh}>Refresh</button></>} details={<p className="break-all font-mono text-[12px] text-ink-3">{p.branch} → {p.base_branch}</p>} /><div className="px-3">{tabs}</div></>
       : <PageHeader title={p.title} meta={meta} actions={headerActions} tabs={tabs} />}
-    {p.published_url && <div className="border-b border-line-2 px-5 py-2 text-[12px]"><button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub as #{p.published_number}</button><span className="text-ink-3"> · New commits of agents on this branch reach the PR through Home.</span></div>}
+    {p.published_url && <div className="border-b border-line-2 px-5 py-2 text-[12px]"><button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub as #{p.published_number}</button><span className="text-ink-3"> · New commits of agents on this branch reach the PR through Home.</span><GitHubSyncNote status={d.github} className="mt-1" /></div>}
     {p.merged && <div className="border-b border-line-2 px-5 py-2 text-[12px] text-ink-2">Merged into <span className="font-mono">{p.base_branch}</span> on Home at <span className="font-mono">{p.merged.head.slice(0, 8)}</span>.</div>}
     {active && d.base_ahead > 0 && <div className="grid gap-1 border-b border-attn-line bg-attn-soft px-5 py-2 text-[12px] text-attn">
       <span className="flex items-center gap-1.5"><Icon name="alert" size={12} />Base moved: {p.base_branch} is {d.base_ahead} commits ahead of this branch. Review against the refreshed base before publishing.</span>

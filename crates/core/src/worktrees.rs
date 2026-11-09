@@ -386,8 +386,8 @@ pub async fn continue_pull_request(app: &App, project: &Project, pr: &PullReques
         let repo = project.gh_repo.clone().unwrap_or_default();
         crate::predrafts::fork_url(&origin, &repo, &head_repo).with_context(|| format!("cannot derive the URL of {head_repo}"))?
     };
-    let follow = crate::home_git::Follow { remote, branch: head_branch.clone(), url: url.clone(), session_id };
-    crate::home_git::pull_request(app, project, pr.number, branch).await?;
+    let head = crate::home_git::pull_request(app, project, pr.number, branch).await?;
+    let follow = crate::home_git::Follow { remote, branch: head_branch.clone(), url: url.clone(), session_id, forwarded: Some(head), error: None };
     crate::home_git::set_follow(app, &project.id, branch, &follow).await?;
     Ok(PullRequestBranch { repo: pr.repo.clone(), number: pr.number, url, head_repo, head_branch })
 }

@@ -35,6 +35,7 @@ pub fn router() -> Router<Server> {
         .route("/api/home-git/{id}/delete", post(delete))
         .route("/api/home-git/{id}/merge", post(merge))
         .route("/api/home-git/{id}/pull-request", post(pull_request))
+        .route("/api/home-git/{id}/follow", get(follow_status))
 }
 
 /// Paths that skip the browser sign-in: their handlers check a runner credential or a Git token.
@@ -228,6 +229,17 @@ async fn refresh(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<V
     launchpad_core::home_link::refresh_mirror(&s.app, &id).await.map_err(bad)?;
     let branch = home_git::default_branch(&s.app, &id).await.ok();
     Ok(Json(json!({"ok": true, "default_branch": branch})))
+}
+
+#[derive(Deserialize)]
+struct BranchQuery {
+    branch: String,
+}
+
+/// Whether GitHub has the commit of a followed branch (a pull request a session continues).
+async fn follow_status(State(s): State<Server>, Path(id): Path<String>, axum::extract::Query(q): axum::extract::Query<BranchQuery>) -> ApiResult<Option<home_git::FollowStatus>> {
+    home_folder(&s, &id).await?;
+    Ok(Json(home_git::follow_status(&s.app, &id, &q.branch).await.map_err(bad)?))
 }
 
 async fn branches(State(s): State<Server>, Path(id): Path<String>) -> ApiResult<Vec<home_git::HomeBranch>> {

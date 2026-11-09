@@ -19,6 +19,20 @@ export function useSessionWorktrees(sessionId: string) {
   return useQuery({ queryKey: ["worktrees", "session", sessionId], queryFn: () => api.get<WorktreeInfo[]>(`/api/sessions/${sessionId}/worktrees`), refetchInterval: 10_000 });
 }
 
+/** Whether GitHub has the commit on Home of a followed branch (a continued pull request or a published Local PR). */
+export type FollowStatus = { url: string; head: string | null; forwarded: string | null; behind: boolean; error: string | null };
+
+/** "Not on GitHub yet" under a branch that Home pushes to a pull request, with the last push error. */
+export function GitHubSyncNote({ status, className = "" }: { status: FollowStatus | null | undefined; className?: string }) {
+  if (!status?.behind) return null;
+  return <div className={`text-[12px] text-attn ${className}`}>Not on GitHub yet: {status.head?.slice(0, 8)} is on Home only.{status.error ? ` Home's last push failed: ${status.error}` : " Home is pushing it."} Refresh retries the push.</div>;
+}
+
+function GitHubSync({ projectId, branch }: { projectId: string; branch: string }) {
+  const q = useQuery({ queryKey: ["home-git", "follow", projectId, branch], queryFn: () => api.get<FollowStatus | null>(`/api/home-git/${projectId}/follow?branch=${encodeURIComponent(branch)}`), refetchInterval: 30_000 });
+  return <GitHubSyncNote status={q.data} />;
+}
+
 /** The latest session of a worktree: Home relays worktree actions to its runner. */
 export const worktreeSession = (w: WorktreeInfo["worktree"]): string | undefined => w.sessions[w.sessions.length - 1];
 
@@ -141,6 +155,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
       {w.push_note && <div className="text-[12px] text-attn">{w.push_note}</div>}
       {w.merged?.note && <div className="text-[12px] text-ink-2">{w.merged.note}</div>}
       {w.pull_request && <div className="text-[12px] text-ink-2">Continues <a href={w.pull_request.url} target="_blank" rel="noreferrer">#{w.pull_request.number}</a>: Home pushes each new commit to {w.pull_request.head_branch}.</div>}
+      {w.pull_request && <GitHubSync projectId={w.project_id} branch={w.branch} />}
       {w.cleanup_note && w.state === "active" && !i.ahead && <div className="text-[11px] text-ink-3">Cleanup: {w.cleanup_note}</div>}
       <div className="flex flex-wrap gap-1.5">
         {canMerge && <ActionButton name="worktree.merge" params={{ id: w.id }} vars={{ branch: w.branch, base: base! }} body={{ head: i.head }} consequence={partial} query={{ session: decodeURIComponent(owner) }} disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : undefined}>Merge into {base}</ActionButton>}
