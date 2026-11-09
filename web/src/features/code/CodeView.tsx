@@ -99,6 +99,8 @@ function Viewer({ project, root, rev, path, line, session, pr, bar }: { project:
   const navigate = useNavigate();
   const qc = useQueryClient();
   const phone = usePhone();
+  // A shell in an agent's folder opens on the agent's runner.
+  const runner = useSessions().data?.find((s) => s.id === session)?.runner_id ?? null;
   const [browserOpen, setBrowserOpen] = useState(!path);
   const skey = sourceKey(root, rev);
   const list = useCodeFiles(root, rev, { always: true });
@@ -159,7 +161,7 @@ function Viewer({ project, root, rev, path, line, session, pr, bar }: { project:
           {pr && !rev && !phone && <BackToPr pr={pr} />}
           <div className="flex min-w-0 gap-1.5">
             <div className="min-w-0 flex-1"><SourcePicker project={project} root={root} rev={rev} path={path} session={session} /></div>
-            <TerminalMenu cwd={root} phone={phone} className="flex-none" />
+            <TerminalMenu cwd={root} runner={runner} phone={phone} className="flex-none" />
           </div>
           <span className="inline-flex gap-0.5 rounded-card bg-sunk p-0.5">
             {(["files", "search"] as const).map((p) => (

@@ -97,7 +97,7 @@ export function ProjectPage() {
                       <Icon name="folder" size={12} />
                       Files
                     </Link>
-                    <TerminalMenu cwd={w.path} small phone={phone} />
+                    <TerminalMenu cwd={w.path} runner={session?.runner_id} small phone={phone} />
                 </>;
                 return (
                   <div key={w.path} className="phone-worktree-row flex h-[52px] items-center gap-2.5 border-b border-line-2 px-4 last:border-0">

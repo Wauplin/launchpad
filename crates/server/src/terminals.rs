@@ -354,12 +354,15 @@ pub(crate) fn tagged(runner: &str, body: &str) -> String {
 }
 
 /// Home: a runner that can open terminals for a window now, or why not.
-async fn usable(s: &Server, runner: &str) -> Result<(), ApiError> {
+pub(crate) async fn usable(s: &Server, runner: &str) -> Result<(), ApiError> {
+    let Some(record) = launchpad_core::runners::get(&s.app, runner).await else {
+        return Err(ApiError::bad_request("No such runner: it was removed from Home"));
+    };
     let name = launchpad_core::runners::runner_name(&s.app, runner).await;
     if !s.app.runners.connected(runner) {
         return Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} is offline: its terminals open when it reconnects")));
     }
-    if !launchpad_core::runners::get(&s.app, runner).await.is_some_and(|r| r.capabilities.terminals) {
+    if !record.capabilities.terminals {
         return Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE, format!("{name} needs an update to open terminals from Home")));
     }
     Ok(())
@@ -436,11 +439,18 @@ async fn ask(s: &Server, runner: &str, method: &str, path: &str, body: Option<St
 /// Home: the terminals of every connected runner, tagged with their runner, oldest first.
 async fn list_all(s: &Server) -> Vec<Value> {
     let ids = s.app.runners.connected_ids();
-    let asks = ids.iter().map(|r| async move { (r.clone(), ask(s, r, "GET", "/api/terminals", None).await) });
+    // A runner that does not answer soon leaves its terminals out of this list, never holding the others.
+    let asks = ids.iter().map(|r| async move {
+        let answer = tokio::time::timeout(std::time::Duration::from_secs(10), ask(s, r, "GET", "/api/terminals", None)).await;
+        (r.clone(), answer)
+    });
     let mut all: Vec<Value> = vec![];
     for (r, answer) in futures_util::future::join_all(asks).await {
-        if let Ok(Value::Array(list)) = answer {
-            all.extend(list.into_iter().map(|t| tag(&r, t)));
+        if let Ok(Ok(Value::Array(list))) = answer {
+            let tagged: Vec<Value> = list.into_iter().map(|t| tag(&r, t)).collect();
+            // Terminals this runner no longer has leave the routes.
+            ROUTES.lock().unwrap().terminals.retain(|id, on| *on != r || tagged.iter().any(|t| t["id"].as_str() == Some(id.as_str())));
+            all.extend(tagged);
         }
     }
     all.sort_by_key(|t| t["created_at"].as_i64().unwrap_or_default());
@@ -524,7 +534,10 @@ pub(crate) async fn home(s: &Server, req: axum::extract::Request) -> Response {
 }
 
 /// Home: viewer relays in progress, by relay ID: their runner and the sender of the frames it returns.
-static RELAYS: LazyLock<Mutex<HashMap<u64, (String, mpsc::UnboundedSender<Message>)>>> = LazyLock::new(Default::default);
+/// The window's side of a relay or of a relayed viewer: where frames for it go.
+type Frames = mpsc::UnboundedSender<Message>;
+
+static RELAYS: LazyLock<Mutex<HashMap<u64, (String, Frames)>>> = LazyLock::new(Default::default);
 static NEXT_RELAY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Ends a relay however the window's socket ends: the runner drops its viewer.
@@ -562,6 +575,10 @@ async fn relay_viewer(s: Server, runner: String, path: String, socket: WebSocket
     RELAYS.lock().unwrap().insert(id, (runner.clone(), in_tx));
     let _relay = Relay { id, runner: runner.clone(), hub: s.app.runners.clone() };
     s.app.runners.send_to(&runner, ToRunner::WsOpen { id, path });
+    // Gone before the relay was registered: `runner_gone` did not see it.
+    if !s.app.runners.connected(&runner) {
+        return;
+    }
     let (mut tx, mut rx) = socket.split();
     let mut expiry = tokio::time::interval(std::time::Duration::from_secs(30));
     loop {
@@ -613,8 +630,10 @@ pub(crate) fn runner_gone(runner: &str) {
 
 // ---------------------------------------------------------------- Runner: viewers for Home's windows
 
-/// A runner: viewers Home opened through the tunnel, by relay ID: the sender of the window's frames.
-static VIEWERS: LazyLock<Mutex<HashMap<u64, mpsc::UnboundedSender<Message>>>> = LazyLock::new(Default::default);
+/// A runner: viewers Home opened through the tunnel, by relay ID: the viewer's own number and the sender of the
+/// window's frames.
+static VIEWERS: LazyLock<Mutex<HashMap<u64, (u64, Frames)>>> = LazyLock::new(Default::default);
+static NEXT_VIEWER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// A runner: `ToRunner::WsOpen`. Serves a terminal viewer whose frames go to Home (`out`) as `WsFrame`s.
 pub(crate) fn open_for_home(app: &App, id: u64, path: &str, out: mpsc::UnboundedSender<FromRunner>) {
@@ -626,7 +645,9 @@ pub(crate) fn open_for_home(app: &App, id: u64, path: &str, out: mpsc::Unbounded
     };
     let from = query.split('&').find_map(|kv| kv.strip_prefix("offset=")).and_then(|v| v.parse::<u64>().ok());
     let (in_tx, in_rx) = mpsc::unbounded_channel::<Message>();
-    VIEWERS.lock().unwrap().insert(id, in_tx);
+    // Holding no sender here: removing the entry ends the viewer's input, so the viewer ends.
+    let mine = NEXT_VIEWER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    VIEWERS.lock().unwrap().insert(id, (mine, in_tx));
     let rx = Box::pin(futures_util::stream::unfold(in_rx, |mut rx| async move { rx.recv().await.map(|m| (Ok::<_, anyhow::Error>(m), rx)) }));
     let sink_out = out.clone();
     let tx = Box::pin(futures_util::sink::unfold(sink_out, move |out, m: Message| async move {
@@ -643,14 +664,19 @@ pub(crate) fn open_for_home(app: &App, id: u64, path: &str, out: mpsc::Unbounded
     let terminals = app.terminals.clone();
     tokio::spawn(async move {
         serve(terminals, terminal, tx, rx, Access::through_home(), from).await;
-        VIEWERS.lock().unwrap().remove(&id);
+        // Only this viewer: a Home that restarted numbers its relays again from 1.
+        let mut viewers = VIEWERS.lock().unwrap();
+        if viewers.get(&id).is_some_and(|(n, _)| *n == mine) {
+            viewers.remove(&id);
+        }
+        drop(viewers);
         let _ = out.send(FromRunner::WsClose { id, error: None });
     });
 }
 
 /// A runner: a frame of a window, from Home.
 pub(crate) fn frame_from_home(id: u64, text: Option<String>, data: Option<String>) {
-    if let Some(tx) = VIEWERS.lock().unwrap().get(&id)
+    if let Some((_, tx)) = VIEWERS.lock().unwrap().get(&id)
         && let Some(m) = message(text, data)
     {
         let _ = tx.send(m);

@@ -530,6 +530,12 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
             return offline(&s, &runner, &parts, body.as_deref()).await;
         }
     }
+    // Continue in TUI opens a terminal there: only on a runner that serves terminals to Home's windows.
+    if matches!(parts.as_slice(), ["api", "sessions", _, "terminal"])
+        && let Err(e) = crate::terminals::usable(&s, &runner).await
+    {
+        return e.into_response();
+    }
     let worktree_list = get && matches!(parts.as_slice(), ["api", "sessions", _, "worktrees"]);
     match s.app.runners.request_with(&runner, method.as_str(), &path_and_query, body, headers).await {
         Ok((status, body)) if binary => from_envelope(status, &body),

@@ -443,12 +443,12 @@ async fn interrupt_away(app: &App, away: &mut HashMap<String, i64>) {
     }
 }
 
-/// A runner's name for messages: Burst, its name, or "Its runner".
 /// A runner's record (Burst runners included).
 pub async fn get(app: &App, id: &str) -> Option<Runner> {
     load(app).await.ok()?.into_iter().find(|(r, _)| r.id == id).map(|(r, _)| r)
 }
 
+/// A runner's name for messages: Burst, its name, or "Its runner".
 pub async fn runner_name(app: &App, id: &str) -> String {
     if is_burst(app, id).await || crate::burst::get(app, id).await.ok().flatten().is_some() {
         return "Burst".into();
