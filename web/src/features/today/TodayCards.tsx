@@ -107,7 +107,11 @@ export function useBranch(sessionId: string, s: Session | null) {
     w.behind ? `${base} moved` : "",
     w.unpushed || t.push_note ? "not on Home yet" : "",
   ].filter(Boolean).join(" · ") : null;
-  return { w, t, base, safe, facts };
+  // Handed off: merged into its base, in a Local PR or pushed to a GitHub pull request, with nothing uncommitted.
+  // Its work then needs no review here: Archive comes first.
+  const handedOff = !!w && !!t && w.dirty_files === 0 && (!!t.predraft_id || !!t.pull_request || (!!t.merged && w.ahead === 0));
+  const work = !!w && (w.dirty_files > 0 || (w.ahead > 0 && !handedOff));
+  return { w, t, base, safe, facts, handedOff, work };
 }
 
 /** The session page's main action is Merge (laptop header, phone bottom bar): safe, finished and no open question.
@@ -125,16 +129,17 @@ export function MergeButton({ sessionId, branch: { t, base }, onMerged, classNam
   return <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} query={{ session: worktreeSession(t!) ?? sessionId }} primary={primary} title={`Merge ${t!.branch} into ${base}`} className={className} onDone={merged}>{label ?? `Merge into ${base}`}</ActionButton>;
 }
 
-/** The branch line and Merge (only when safe) or Review changes. `onMerged` runs after a merge that went through. */
+/** The branch line and Merge (only when safe) or Review changes (unless the branch was handed off). `onMerged` runs
+ * after a merge that went through. */
 export function BranchActions({ sessionId, s, onMerged, children }: { sessionId: string; s: Session | null; onMerged?: () => Promise<unknown>; children?: ReactNode }) {
   const branch = useBranch(sessionId, s);
-  const { w, t, safe, facts } = branch;
+  const { t, safe, facts, work } = branch;
   return <>
     {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={12} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
     <div className="flex flex-wrap items-center gap-1.5">
       {safe
         ? <MergeButton sessionId={sessionId} branch={branch} onMerged={onMerged} />
-        : w && (w.ahead > 0 || w.dirty_files > 0) && <Link className="btn btn-sm btn-primary no-underline" to="/agents" search={{ session: sessionId, view: "changes" }}>Review changes</Link>}
+        : work && <Link className="btn btn-sm btn-primary no-underline" to="/agents" search={{ session: sessionId, view: "changes" }}>Review changes</Link>}
       {children}
     </div>
   </>;

@@ -99,7 +99,7 @@ Each session has three views:
 
 On a laptop, the session header has two rows:
 
-- **First row**: the title, the status and one main action that depends on the state: **Merge into &lt;base&gt;** when the merge is safe (the same check as in [Today](today.md)), otherwise **Stop**, **Answer**, **Review changes**, **Archive**, **Resume** or **Re-attach**. Then **Terminal** and **⋯**. When the header shows **Merge into &lt;base&gt;**, the next steps in Summary do not repeat it.
+- **First row**: the title, the status and one main action that depends on the state: **Merge into &lt;base&gt;** when the merge is safe (the same check as in [Today](today.md)), otherwise **Stop**, **Answer**, **Review changes**, **Archive**, **Resume** or **Re-attach**. Once the branch is merged, in a Local PR or in a GitHub pull request, and nothing is uncommitted, **Archive** replaces **Review changes** (the changes stay in the Changes tab). Then **Terminal** and **⋯**. When the header shows **Merge into &lt;base&gt;**, the next steps in Summary do not repeat it.
 - **Second row**: the view tabs, chips for run settings, paid usage and cost limit only when they differ from the defaults, and one muted line with the bot, the folder, the worktree, the Local PR, the profile and the context use. **ⓘ** shows the folder path, profile, model, usage and start time.
 
 **⋯** holds the other actions, among them **Launch here** (a new draft in the same folder with this session's trace as context), **Jump to the final message** (in the trace), **Mark as unread**, **Use trace as context** and **Archive**. On a phone, **⋯** also has **Rename** and **Jump to the final message**, and **Launch here** is in the session details.

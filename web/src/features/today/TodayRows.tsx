@@ -173,7 +173,8 @@ function QuestionRow(p: RowProps) {
     details={ask && s?.live ? <AskCard row={ask} sessionId={item.record} live={s.live} hint="Or open the agent to type another answer." /> : <Last text={s?.last_message ?? (item.detail || "The agent asked a question.")} id={item.record} seq={s?.last_seq} />} />;
 }
 
-/** Review its Local PR when it wrote one, else Merge when safe, else Review changes when there is work, else
+/** Review its Local PR when it wrote one, else Merge when safe, else Review changes when there is work not handed
+ * off yet (merged, in a Local PR or a GitHub pull request), else
  * Open agent (it opens at the last message, to read it in full); the branch facts in the details. */
 function FinishedRow(p: RowProps) {
   const { item } = p;
@@ -181,8 +182,7 @@ function FinishedRow(p: RowProps) {
   const s = useSession(item.record);
   const loading = useSessionWorktrees(item.record).isPending;
   const branch = useBranch(item.record, s);
-  const { w, t, safe, facts } = branch;
-  const work = !!w && (w.ahead > 0 || w.dirty_files > 0);
+  const { t, safe, facts, work } = branch;
   const phone = usePhone();
   return <Row {...p} age={!s} meta={<SessionMeta s={s} item={item} />}
     main={pr ? <ReviewLocalPr id={pr.record} />

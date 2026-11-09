@@ -254,6 +254,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const processesOpen = current === "processes";
   const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => (p.session_id === sessionId && !p.archived) || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
   const projects = useProjects().data;
+  const branch = useBranch(sessionId, s ?? null);
   const profileName = useProfile(s?.launch_spec.profile)?.name;
   const navigate = useNavigate();
   const codeLinks = useCodeLinks(s);
@@ -337,13 +338,17 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const uncommitted = (git.data?.files.length ?? 0) > 0;
   const committedFiles = history.data?.files.length ?? 0;
   const changed = uncommitted || mainChanges > 0 || committedFiles > 0;
+  // Committed work already merged, in a Local PR or in a GitHub pull request stays reviewable in Changes, but
+  // Archive becomes the main action.
+  const handedOff = !uncommitted && (branch.handedOff || !!history.data?.merged_into || !!localPr);
+  const toReview = changed && !handedOff;
   // A Git query that failed (its runner is away, a network error) means unknown, never "no changes": Archive
   // becomes the primary action only once Git confirmed there is nothing to review. A 4xx answer for a folder
   // that is not a Home Git folder means it is not a Git folder.
   const gitFolder = !!projects?.find((p) => p.id === s.project_id)?.home_git;
   const failed = (e: unknown) => !(e instanceof ApiError) || e.status >= 500 || gitFolder;
   const gitLoading = gitState.pending || historyState.pending;
-  const gitUnknown = !changed && !gitLoading && (historyState.error != null || (gitState.error != null && failed(gitState.error)));
+  const gitUnknown = !changed && !handedOff && !gitLoading && (historyState.error != null || (gitState.error != null && failed(gitState.error)));
   const showChanges = (main: boolean) => { setGitMain(main); setView("changes"); };
   const onlyMain = (git.data?.files.length ?? 0) === 0 && mainChanges > 0;
   const archive = () => void act(s.id, "session.archive");
@@ -377,8 +382,8 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       {s.live && <button className="iconbtn text-danger" title="Stop the agent while it waits for your decision" aria-label="Stop agent" onClick={() => void act(s.id, "session.stop")}><Icon name="stop" size={14} /></button>}
     </>
   ) : s.status === "waiting" ? (
-    // Work not merged yet (uncommitted, or commits that differ from main) comes before Archive.
-    changed
+    // Work not handed off yet (uncommitted, or commits not merged and in no Local PR or pull request) comes before Archive.
+    toReview
       ? <button className="btn btn-sm btn-primary" title={uncommitted ? "Open the uncommitted files in the Changes view" : "Open the agent's changes: merge, open a Local PR or keep the branch from there"} onClick={() => showChanges(!uncommitted && mainChanges > 0)}>Review changes</button>
       : gitUnknown
         ? <button className="btn btn-sm btn-primary" title="Git state unknown: check the worktree and its branch before archiving" onClick={() => setView("summary")}>Review work</button>
@@ -386,7 +391,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   ) : resumable ? (
     <button className="btn btn-sm btn-primary" title={s.status === "closed" ? "Re-attach this archived session; send its original task if it never started" : "Continue the unfinished task"} onClick={() => { void (s.status === "closed" ? act(s.id, "session.resume") : api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }).catch(toastError)); setView("trace"); }}>Resume</button>
   ) : null;
-  const archivePrimary = s.status === "waiting" && !s.open_question && !changed && !gitUnknown && !gitLoading;
+  const archivePrimary = s.status === "waiting" && !s.open_question && !toReview && !gitUnknown && !gitLoading;
   const canReply = !childrenOpen;
 
   const noShell = s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id;

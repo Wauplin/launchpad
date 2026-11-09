@@ -335,8 +335,8 @@ function EndedRow({ item, canContinue }: { item: Extract<ChatItem, { t: "ended" 
 /** What the session changed in its worktree: the branch, and Merge when it is safe, else Review changes. */
 function ChangesRow({ sessionId }: { sessionId: string }) {
   const s = useSession(sessionId);
-  const { w } = useBranch(sessionId, s);
-  if (!w || (w.ahead === 0 && w.dirty_files === 0)) return null;
+  const { safe, work } = useBranch(sessionId, s);
+  if (!safe && !work) return null;
   return <div className="py-1.5"><div className="grid gap-2 rounded-card border border-line bg-paper p-3">
     <div className="text-[13px] font-semibold">Changes</div>
     <BranchActions sessionId={sessionId} s={s} />
