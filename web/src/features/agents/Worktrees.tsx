@@ -23,7 +23,7 @@ export function useSessionWorktrees(sessionId: string) {
 export const worktreeSession = (w: WorktreeInfo["worktree"]): string | undefined => w.sessions[w.sessions.length - 1];
 
 /** One line describing the branch, for chips and settings rows. */
-export function worktreeState(i: WorktreeInfo): string {
+export function worktreeState(i: WorktreeInfo, localPrs?: Predraft[]): string {
   const w = i.worktree;
   const base = w.base_branch ?? "base";
   if (w.state === "discarded") return "discarded";
@@ -32,10 +32,20 @@ export function worktreeState(i: WorktreeInfo): string {
   if (w.state === "removed") return "folder removed";
   if (i.dirty_files) return `${i.dirty_files} uncommitted`;
   if (w.push_note) return "not on Home";
+  if (isMergedWorktree(i, localPrs)) return `merged into ${w.merged?.into ?? base}`;
   if (w.predraft_id) return "Local PR";
   if (i.ahead) return `${i.ahead} ahead of ${base}`;
-  if (w.merged) return `merged into ${w.merged.into}`;
   return `same as ${base}`;
+}
+
+/** The Local PRs (shared query, refreshed by the `predrafts` bus event). */
+const useLocalPrs = () => useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<Predraft[]>("/api/predrafts") }).data;
+
+/** The branch is in its base already: merged from the worktree or from its Local PR, with nothing new since. */
+export function isMergedWorktree(i: WorktreeInfo, localPrs?: Predraft[]): boolean {
+  const w = i.worktree;
+  const prMerged = !!w.predraft_id && !!localPrs?.find((p) => p.id === w.predraft_id)?.merged;
+  return (!!w.merged || prMerged) && i.ahead === 0 && i.dirty_files === 0;
 }
 
 const warn = (i: WorktreeInfo) => !!i.worktree.merge && i.worktree.merge.phase !== "waiting";
@@ -44,6 +54,7 @@ const warn = (i: WorktreeInfo) => !!i.worktree.merge && i.worktree.merge.phase !
 export function WorktreeChip({ session }: { session: Session }) {
   const q = useSessionWorktrees(session.id);
   const list = q.data ?? [];
+  const localPrs = useLocalPrs();
   const primary = list.find((i) => i.worktree.primary) ?? list[0];
   if (!primary) return null;
   return (
@@ -51,7 +62,7 @@ export function WorktreeChip({ session }: { session: Session }) {
       <button className={`inline-flex max-w-[260px] items-center gap-1 truncate rounded-control border px-1.5 font-mono text-[11px] ${warn(primary) ? "border-attn-line bg-attn-soft text-attn" : "border-line bg-paper text-ink-2 hover:text-ink"}`} title={`Worktree ${primary.path}`} onClick={toggle}>
         <Icon name="branch" size={12} />
         <span className="truncate">{primary.worktree.branch}</span>
-        <span className="font-sans text-ink-3">· {worktreeState(primary)}{list.length > 1 ? ` · +${list.length - 1}` : ""}</span>
+        <span className="font-sans text-ink-3">· {worktreeState(primary, localPrs)}{list.length > 1 ? ` · +${list.length - 1}` : ""}</span>
       </button>
     )}>
       {() => <div className="grid gap-2 p-1">{list.map((i) => <WorktreeCard key={i.worktree.id} info={i} session={session} />)}</div>}
@@ -74,6 +85,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const localPrs = useLocalPrs();
   const base = w.base_branch;
   const running = !!session && ["starting", "working", "background"].includes(session.status);
   // On Home, `session` sends the request to the runner that holds the worktree.
@@ -101,7 +113,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
   else if (w.merge) text = w.merge.reason;
   else {
     const parts = [];
-    if (base) parts.push(i.ahead ? `${i.ahead} commit${i.ahead === 1 ? "" : "s"} ahead of ${base}` : w.merged ? `merged into ${w.merged.into}` : `no commit beyond ${base}`);
+    if (base) parts.push(i.ahead ? `${i.ahead} commit${i.ahead === 1 ? "" : "s"} ahead of ${base}` : isMergedWorktree(i, localPrs) ? `merged into ${w.merged?.into ?? base}` : `no commit beyond ${base}`);
     if (base && i.behind) parts.push(`${i.behind} behind`);
     if (i.dirty_files) parts.push(`${i.dirty_files} uncommitted file${i.dirty_files === 1 ? "" : "s"}`);
     parts.push(i.unpushed ? "new commits go to Home at the end of the turn" : "saved on Home");
@@ -110,7 +122,8 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
   // Its runner is away: Home shows the branch it holds, and Merge and Create Local PR run on Home.
   const away = i.away;
   const onHome = w.state === "active" || (!!away && w.state === "removed");
-  const merged = !!w.merged && i.ahead === 0 && i.dirty_files === 0;
+  // Merged (by the worktree or its Local PR): no Local PR to create or open, nothing to discard.
+  const merged = isMergedWorktree(i, localPrs);
   const canMerge = merge && onHome && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id;
   return (
     <div className="grid gap-1.5 text-[12px]">

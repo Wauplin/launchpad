@@ -1014,7 +1014,7 @@ async fn try_merge(app: &App, w: &mut TaskWorktree) -> Result<Step> {
     let head = w.pushed.clone().context("the branch is not on Home")?;
     let outcome = if crate::home_git::here(app) {
         let project = crate::projects::get(app, &w.project_id).await?.context("the folder no longer exists")?;
-        crate::home_git::merge(app, &project, &w.branch, &head, &base).await?
+        merge_on_home(app, &project, &w.branch, &head, &base).await?
     } else {
         let v = crate::home_link::home_request("POST", &format!("/api/home-git/{}/merge", w.project_id), Some(json!({"branch": w.branch, "head": head, "base": base}))).await?;
         serde_json::from_value(v)?
@@ -1023,6 +1023,18 @@ async fn try_merge(app: &App, w: &mut TaskWorktree) -> Result<Step> {
         crate::home_git::MergeOutcome::Merged { head, note } => Step::Merged(head, note),
         crate::home_git::MergeOutcome::NeedsRebase { reason, .. } => Step::Conflict(reason),
     })
+}
+
+/// Home: a worktree merge (`home_git::merge`) that also closes the open Local PRs of the branch, so they
+/// leave the review lists as merged. Every worktree merge goes through here (Home, a runner's request, away).
+pub async fn merge_on_home(app: &App, project: &Project, branch: &str, head: &str, base: &str) -> Result<crate::home_git::MergeOutcome> {
+    let outcome = crate::home_git::merge(app, project, branch, head, base).await?;
+    if let crate::home_git::MergeOutcome::Merged { head, .. } = &outcome
+        && let Err(e) = crate::predrafts::close_merged(app, &project.id, branch, head).await
+    {
+        tracing::warn!("worktree merge of {branch}: Local PR not marked merged: {e:#}");
+    }
+    Ok(outcome)
 }
 
 /// Links the worktree to the Local PR of its branch.

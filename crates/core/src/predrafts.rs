@@ -272,6 +272,11 @@ async fn create_record(app: &App, q: Create) -> Result<Predraft> {
         return Ok(p);
     }
     let dir = crate::home_git::ensure(app, &project).await?;
+    // A merged branch with no new commit stays merged: a new Local PR of it would be empty.
+    if let Some(m) = list(app).await?.into_iter().find(|p| p.project_id == project_id && p.branch == branch && !p.archived && p.merged.is_some()) {
+        let ahead = git(app, &dir, &["rev-list", "--count", &format!("refs/heads/{}..refs/heads/{branch}", m.base_branch), "--"]).await.ok().and_then(|n| n.parse::<u64>().ok());
+        ensure!(ahead != Some(0), "{branch} is already merged into {} (Local PR {})", m.base_branch, m.id);
+    }
     let base_branch = match q.base_branch.clone().filter(|b| !b.is_empty()) {
         Some(b) => b,
         None => crate::home_git::default_branch(app, &project_id).await?,
@@ -359,7 +364,16 @@ pub async fn update_anywhere(app: &App, id: &str, q: Patch) -> Result<Predraft> 
 }
 pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     ensure_home(app)?;
-    let p = get(app, id).await?;
+    let mut p = get(app, id).await?;
+    if let Some(project) = crate::projects::get(app, &p.project_id).await? {
+        if fetch {
+            crate::home_git::ensure(app, &project).await?;
+            crate::home_git::refresh(app, &project).await?;
+        }
+        if let Some(merged) = close_if_contained(app, id).await? {
+            p = merged;
+        }
+    }
     let status = p.session_id.as_ref().and_then(|id| app.sessions.get(id)).map(|s| s.status.as_str().to_string());
     // A removed folder leaves the record readable so it can be discarded.
     let Some(project) = crate::projects::get(app, &p.project_id).await? else {
@@ -367,9 +381,6 @@ pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     };
     let set = change_set(app, &p).await?;
     let dir = crate::home_git::ensure(app, &project).await?;
-    if fetch {
-        crate::home_git::refresh(app, &project).await?;
-    }
     let head = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await?;
     let base = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.base_branch)).await?;
     let (Some(head), Some(base)) = (head, base) else {
@@ -454,6 +465,63 @@ pub async fn merge_local(app: &App, id: &str, q: MergeLocal) -> Result<Predraft>
             anyhow::bail!("{reason}; nothing was merged. Ask the agent to rebase onto {} (review note and Send to agent), then merge again", p.base_branch)
         }
     }
+}
+/// Marks the open Local PRs of `branch` as merged at `head`; returns the changed records.
+fn mark_merged(list: Vec<Predraft>, project_id: &str, branch: &str, head: &str, at: i64) -> Vec<Predraft> {
+    list.into_iter()
+        .filter(|p| p.project_id == project_id && p.branch == branch && p.is_open())
+        .map(|mut p| {
+            p.merged = Some(LocalMerge { head: head.to_string(), at });
+            p
+        })
+        .collect()
+}
+/// An open Local PR whose branch moved past where it started and has no commit beyond its base: its work is
+/// in the base branch already (a worktree merge, or a merge outside Launchpad).
+fn is_contained(p: &Predraft, head: &str, ahead: u64) -> bool {
+    p.is_open() && ahead == 0 && !p.initial_base.is_empty() && head != p.initial_base
+}
+/// Home, after a worktree merge of `branch` (`worktrees::merge_on_home`): its open Local PRs leave the
+/// review lists as merged at `head`.
+pub async fn close_merged(app: &App, project_id: &str, branch: &str, head: &str) -> Result<()> {
+    ensure_home(app)?;
+    let _lock = app.predraft_lock.lock().await;
+    for p in mark_merged(list(app).await?, project_id, branch, head, crate::util::now_ms()) {
+        tracing::info!("Local PR {} merged with its worktree ({branch})", p.id);
+        save(app, &p).await?;
+    }
+    Ok(())
+}
+/// Home: whether an open Local PR's branch is fully part of its base. Returns the branch tip when it is.
+async fn contained_head(app: &App, p: &Predraft) -> Option<String> {
+    if !p.is_open() {
+        return None;
+    }
+    let head = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await.ok().flatten()?;
+    let base = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.base_branch)).await.ok().flatten()?;
+    let dir = crate::home_git::mirror(app, &p.project_id);
+    let ahead = git(app, &dir, &["rev-list", "--count", &format!("{base}..{head}"), "--"]).await.ok()?.parse::<u64>().ok()?;
+    is_contained(p, &head, ahead).then_some(head)
+}
+/// Home: marks one Local PR merged when its branch is fully part of its base.
+async fn close_if_contained(app: &App, id: &str) -> Result<Option<Predraft>> {
+    let _lock = app.predraft_lock.lock().await;
+    let mut p = get(app, id).await?;
+    let Some(head) = contained_head(app, &p).await else { return Ok(None) };
+    tracing::info!("Local PR {} is part of {} already: marked merged", p.id, p.base_branch);
+    p.merged = Some(LocalMerge { head, at: crate::util::now_ms() });
+    save(app, &p).await?;
+    Ok(Some(p))
+}
+/// Home, at start and every few hours: open Local PRs whose branches are part of their base become merged.
+pub async fn close_contained(app: &App) -> Result<()> {
+    ensure_home(app)?;
+    for p in list(app).await?.into_iter().filter(Predraft::is_open) {
+        if crate::projects::get(app, &p.project_id).await?.is_some() {
+            close_if_contained(app, &p.id).await?;
+        }
+    }
+    Ok(())
 }
 pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     ensure_home(app)?;

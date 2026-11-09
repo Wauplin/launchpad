@@ -470,6 +470,9 @@ pub fn spawn(app: &App) {
         let mut tick = tokio::time::interval(Duration::from_secs(6 * 3600));
         loop {
             tick.tick().await;
+            if let Err(e) = crate::predrafts::close_contained(&app).await {
+                tracing::warn!("Local PRs merged outside Launchpad: {e:#}");
+            }
             if let Err(e) = prune(&app).await {
                 tracing::warn!("Home Git prune: {e:#}");
             }

@@ -173,7 +173,7 @@ pub async fn worktree_action(app: &App, s: &Session, worktree_id: &str, action: 
             let base = w.base_branch.clone().context("this worktree has no base branch to merge into")?;
             let p = crate::projects::get(app, &w.project_id).await?.context("the folder no longer exists")?;
             let head = head(app, &w).await.with_context(|| format!("{} is not on Home", w.branch))?;
-            if let crate::home_git::MergeOutcome::NeedsRebase { reason, .. } = crate::home_git::merge(app, &p, &w.branch, &head, &base).await? {
+            if let crate::home_git::MergeOutcome::NeedsRebase { reason, .. } = crate::worktrees::merge_on_home(app, &p, &w.branch, &head, &base).await? {
                 bail!("{reason}. {away}: send the agent a message to rebase it, then merge again.");
             }
             Ok(info(app, w, &away).await)

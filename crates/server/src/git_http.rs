@@ -266,7 +266,7 @@ struct Merge {
 
 async fn merge(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<Merge>) -> ApiResult<home_git::MergeOutcome> {
     let p = home_folder(&s, &id).await?;
-    Ok(Json(home_git::merge(&s.app, &p, &b.branch, &b.head, &b.base).await.map_err(bad)?))
+    Ok(Json(launchpad_core::worktrees::merge_on_home(&s.app, &p, &b.branch, &b.head, &b.base).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]

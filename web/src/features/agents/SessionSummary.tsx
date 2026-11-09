@@ -1,6 +1,6 @@
 import { SessionAccess } from "./SessionAccess";
 import { openExternal } from "@/lib/platform";
-import { WorktreeSteps, useSessionWorktrees } from "./Worktrees";
+import { WorktreeSteps, isMergedWorktree, useSessionWorktrees } from "./Worktrees";
 import { mergeIsMain, useBranch } from "@/features/today/TodayCards";
 import { useHarnessInfo, useHarnessName } from "@/components/HarnessMark";
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -176,7 +176,9 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   // A temporary folder: saved on Home at every turn end, kept there 30 days after its last agent is archived.
   const temporary = s.launch_spec.target.kind === "temp";
   const tempFolder = temporary ? projects.find((p) => p.id === s.project_id && p.is_temp) : undefined;
-  const prStep = !(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url && !localPr.merged || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && !!s.project_id;
+  // Merged already (its Local PR, or its primary worktree with nothing new): nothing left to open or publish.
+  const mergedWork = !!localPr?.merged || worktrees.some((i) => i.worktree.primary && isMergedWorktree(i));
+  const prStep = !mergedWork && !(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url && !localPr.merged || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && !!s.project_id;
   // Review & publish shows the same committed diff on the Local PR page: Review diff stays only for uncommitted files.
   const uncommitted = git.data?.files.length ?? 0;
   return <div className="min-h-0 flex-1 overflow-y-auto bg-paper">
