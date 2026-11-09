@@ -29,10 +29,6 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
-      - name: Install desktop system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -50,9 +46,9 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
       - name: Check installer syntax
-        run: bash -n packaging/install.sh packaging/update.sh
+        run: bash -n packaging/install.sh
       - name: Build release binaries
-        run: cargo build --release --locked -p launchpad -p launchpad-desktop
+        run: cargo build --release --locked -p launchpad
       - name: Run release tests
         # Main builds skip them: ci.yml runs the tests of the same commit.
         if: ${{ !inputs.main-build }}
@@ -61,10 +57,9 @@ jobs:
         run: target/release/launchpad --help
       - name: Package release
         run: |
-          mkdir -p artifacts/target/release artifacts/web artifacts/desktop/src-tauri
-          cp target/release/launchpad target/release/launchpad-desktop artifacts/target/release/
+          mkdir -p artifacts/target/release artifacts/web
+          cp target/release/launchpad artifacts/target/release/
           cp -r packaging skills artifacts/
-          cp -r desktop/src-tauri/icons artifacts/desktop/src-tauri/
           cp -r web/dist artifacts/web/
           printf '%s\n' "$GITHUB_SHA" > artifacts/COMMIT
           tar -czf launchpad-linux-x86_64.tar.gz -C artifacts .

@@ -1,21 +1,16 @@
 #!/usr/bin/env bash
-# Builds Launchpad in release mode and installs it for the current user:
-#   ~/.local/bin/{launchpad,launchpad-desktop}, the systemd user unit, the .desktop entry, the icons, and an
-#   autostart entry that keeps the window loaded in the background (so the dock opens it instantly).
-# Then restarts the daemon and the background window. Restarting stops running agents, so the script asks
-# first when some are running.
+# Builds Launchpad in release mode and installs it for the current user (Linux only): ~/.local/bin/launchpad
+# and the systemd user unit, which runs a Home. Then restarts the daemon. Restarting stops running agents, so
+# the script asks first when some are running. Open the daemon's address in a browser and install it as an app.
 #
-# --headless (Linux only) installs a server: the daemon and CLI only, without the desktop shell, the .desktop
-# and autostart entries or the icons. It enables lingering so the systemd user unit starts at boot and keeps
+# --headless installs a server: it also enables lingering, so the systemd user unit starts at boot and keeps
 # running after logout. See docs/remote-access.md.
 #
 # Usage: packaging/install.sh [--force] [--prebuilt] [--headless]
 set -euo pipefail
-if [ "$(uname -s)" = Darwin ]; then
-  for arg in "$@"; do
-    if [ "$arg" = --headless ]; then echo "--headless is supported on Linux only." >&2; exit 2; fi
-  done
-  exec bash "$(dirname "$0")/install-macos.sh" "$@"
+if [ "$(uname -s)" != Linux ]; then
+  echo "packaging/install.sh supports Linux only." >&2
+  exit 2
 fi
 
 cd "$(dirname "$0")/.."
@@ -31,10 +26,7 @@ for arg in "$@"; do
   esac
 done
 BIN="$HOME/.local/bin"
-APPS="$HOME/.local/share/applications"
-ICONS="$HOME/.local/share/icons/hicolor"
 UNITS="$HOME/.config/systemd/user"
-AUTOSTART="$HOME/.config/autostart"
 
 # Source builds select Node; downloaded prebuilt packages need no Node or checkout.
 if [ "$PREBUILT" -eq 0 ] && [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
@@ -70,11 +62,7 @@ fi
 # From web/: Corepack picks the pnpm version of the nearest package.json, not the one of `-C web`.
 if [ "$PREBUILT" -eq 0 ]; then
   (cd web && pnpm install --frozen-lockfile --config.confirmModulesPurge=false && pnpm build)
-  if [ "$HEADLESS" -eq 1 ]; then
-    cargo build --release -p launchpad
-  else
-    cargo build --release -p launchpad -p launchpad-desktop
-  fi
+  cargo build --release -p launchpad
 fi
 
 # Sessions may have started while the build ran. Never stop them without an explicit --force.
@@ -85,33 +73,15 @@ if [ "$running" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
 fi
 
 # 3. Install. Copy then rename, so running binaries are replaced safely.
-BINARIES="launchpad launchpad-desktop"
-[ "$HEADLESS" -eq 0 ] || BINARIES="launchpad"
 mkdir -p "$BIN" "$UNITS"
 cp -r skills "$BIN/"
-# The running shell (if any) keeps the old binary: stop it, it is started again below.
-if [ "$HEADLESS" -eq 0 ] && pgrep -x launchpad-deskt >/dev/null 2>&1; then
-  "$BIN/launchpad-desktop" --quit >/dev/null 2>&1 || true
-  sleep 0.5
-fi
-for b in $BINARIES; do
-  cp "target/release/$b" "$BIN/.$b.new"
-  chmod 755 "$BIN/.$b.new"
-  mv -f "$BIN/.$b.new" "$BIN/$b"
-done
+cp target/release/launchpad "$BIN/.launchpad.new"
+chmod 755 "$BIN/.launchpad.new"
+mv -f "$BIN/.launchpad.new" "$BIN/launchpad"
 install -Dm644 packaging/launchpad.service "$UNITS/launchpad.service"
-if [ "$HEADLESS" -eq 0 ]; then
-  mkdir -p "$APPS" "$AUTOSTART"
-  sed "s|@BIN@|$BIN|g" packaging/launchpad.desktop > "$APPS/launchpad.desktop"
-  sed "s|@BIN@|$BIN|g" packaging/launchpad-autostart.desktop > "$AUTOSTART/launchpad.desktop"
-  install -Dm644 packaging/launchpad.svg "$ICONS/scalable/apps/launchpad.svg"
-  install -Dm644 desktop/src-tauri/icons/32x32.png "$ICONS/32x32/apps/launchpad.png"
-  install -Dm644 desktop/src-tauri/icons/128x128.png "$ICONS/128x128/apps/launchpad.png"
-  install -Dm644 desktop/src-tauri/icons/128x128@2x.png "$ICONS/256x256/apps/launchpad.png"
-  install -Dm644 desktop/src-tauri/icons/icon.png "$ICONS/512x512/apps/launchpad.png"
-  command -v update-desktop-database >/dev/null && update-desktop-database "$APPS" || true
-  command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t -f "$ICONS" || true
-fi
+# The desktop shell is gone: remove what earlier installs added for it (the PWA replaces it).
+if pgrep -x launchpad-deskt >/dev/null 2>&1; then pkill -x launchpad-deskt || true; fi
+rm -f "$BIN/launchpad-desktop" "$HOME/.local/share/applications/launchpad.desktop" "$HOME/.config/autostart/launchpad.desktop"
 
 # A server has no graphical login: lingering starts the user manager (and the unit) at boot and keeps it
 # running after the last SSH session ends.
@@ -138,11 +108,8 @@ if curl -sf http://127.0.0.1:7317/api/health >/dev/null 2>&1; then
     echo "Launchpad installed (headless). The daemon runs on http://127.0.0.1:7317 and starts at boot (logs: journalctl --user -u launchpad -f)."
     echo "Expose it through Tailscale Serve or an identity-aware proxy; see docs/remote-access.md."
   else
-    if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
-      setsid "$BIN/launchpad-desktop" --hidden >/dev/null 2>&1 < /dev/null &
-    fi
     echo "Launchpad installed. The daemon runs on http://127.0.0.1:7317 (logs: journalctl --user -u launchpad -f)."
-    echo "Open it from the applications grid and pin it to the dock (right click > Add to Favorites)."
+    echo "Sign a browser in with: $BIN/launchpad url (then install it as an app from the browser menu)."
   fi
 else
   echo "The daemon did not start. See: journalctl --user -u launchpad -n 50"
