@@ -109,7 +109,7 @@ export function LaunchSplitButton({ ctx, text, onLaunch, onUsed, primary = false
             {draft
               ? <MenuItem icon={<Icon name="sliders" size={13} />} label="Open the draft" detail={[first || "No prompt yet", age && `started ${age}`].filter(Boolean).join(" · ")} onClick={() => { close(); options(); }} />
               : <MenuItem icon={<Icon name="sliders" size={13} />} label="Launch with options…" detail="Open the composer with this text, for a launch that needs more choices" onClick={() => { close(); options(); }} />}
-            {draft && <MenuItem icon={<Icon name="plus" size={13} />} label="New agent instead" detail="Discards the draft" onClick={() => { close(); discard(); options(); }} />}
+            {draft && <MenuItem icon={<Icon name="plus" size={13} />} label="New draft instead" detail="Discards the draft" onClick={() => { close(); discard(); options(); }} />}
             {draft && <MenuItem icon={<Icon name="trash" size={13} />} label={stale ? "Discard this old draft" : "Discard draft"} detail={stale ? `Started ${age}` : undefined} onClick={() => { close(); discard(); }} />}
           </>
         )}

@@ -206,7 +206,7 @@ export function SearchPanel({ root, rev, onOpen, state, setState }: { root: stri
       <div className="grid grid-cols-[minmax(0,1fr)] gap-2 border-b border-line-2 px-2.5 pt-1 pb-2">
         <div className="flex h-[30px] items-center gap-1 rounded-[7px] border border-line pr-1 pl-2 text-ink-3 focus-within:border-teal">
           <Icon name="search" size={13} />
-          <input className="ml-1 min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none" placeholder="Search in project" value={state.q} onChange={(e) => setState({ ...state, q: e.target.value })} />
+          <input className="ml-1 min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none" placeholder="Search in folder" value={state.q} onChange={(e) => setState({ ...state, q: e.target.value })} />
           <FindToggles opts={opts} set={(o) => setState({ ...state, opts: o })} />
         </div>
         <div className="text-[12px] text-ink-3">

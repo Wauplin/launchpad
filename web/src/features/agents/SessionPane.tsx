@@ -413,7 +413,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const hasFinal = rows.some((r) => r.t === "assistant");
   const actionsMenu = <Popover className="flex" viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "iconbtn border border-line"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}><Icon name="more" size={phone ? 20 : 14} /></button>}>
     {(close) => <>
-      {!phone && !running && s.status !== "in_terminal" && <MenuItem icon={<Icon name="agents" size={14} />} label="New agent here" detail="A separate agent in the same folder, with this trace as context" onClick={() => { close(); useComposer.getState().followUpFrom(s); }} />}
+      {!phone && !running && s.status !== "in_terminal" && <MenuItem icon={<Icon name="agents" size={14} />} label="Launch here" detail="A separate agent in the same folder, with this trace as context" onClick={() => { close(); useComposer.getState().followUpFrom(s); }} />}
       {hasFinal && <MenuItem icon={<Icon name="comment" size={14} />} label="Jump to the final message" detail="In the trace" onClick={() => { close(); setView("trace"); setJumpFinal((n) => n + 1); }} />}
       {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Today for later" onClick={() => { close(); onClear(); void act(s.id, "session.unread"); }} />}
       {phone && <>

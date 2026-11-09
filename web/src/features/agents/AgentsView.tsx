@@ -206,7 +206,7 @@ export function AgentsView() {
       <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "w-[280px] flex-none border-r border-line"}`}>
         <div className="grid gap-2 border-b border-line p-2">
           <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
-          <div className="flex flex-wrap items-center gap-2"><button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button>{phone && <span className="ml-auto"><LaunchButton small label="New agent" title="Open the composer (the draft if one exists)" /></span>}</div>
+          <div className="flex flex-wrap items-center gap-2"><button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button>{phone && <span className="ml-auto"><LaunchButton small title="Open the composer (the draft if one exists)" /></span>}</div>
           {matches.isFetching && <span className="text-xs text-ink-3">Searching messages…</span>}
           {matches.error && <span className="text-xs text-danger-ink">{matches.error.message}</span>}
         </div>

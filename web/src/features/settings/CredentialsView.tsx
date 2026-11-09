@@ -172,7 +172,7 @@ function EntryRow({ id, name, detail, note, updatedAt, onDone }: { id: string; n
     <div className="flex flex-wrap items-center gap-2 text-[13px]">
       <span className="min-w-0 flex-1"><b>{name}</b> <span className="font-mono text-[12px] text-ink-3">{id}</span> <span className="text-[12px] text-ink-3">· {detail} · updated {ago(updatedAt)}</span></span>
       {note && <Badge tone="teal">{note}</Badge>}
-      <ConfirmButton icon="trash" consequence={`Removes ${name} from Home. Sessions that use it fail to start or lose it at their next lease renewal.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/vault/entries/${id}`).then(onDone, toastError)}>Remove</ConfirmButton>
+      <ConfirmButton icon="trash" consequence={`Deletes ${name} from Home. Sessions that use it fail to start or lose it at their next lease renewal.`} confirmLabel="Delete" onConfirm={() => api.delete(`/api/vault/entries/${id}`).then(onDone, toastError)}>Delete</ConfirmButton>
     </div>
   );
 }
@@ -252,7 +252,7 @@ export function hostConflict(kept: Tool[], t: Tool): Tool | undefined {
 }
 
 /** A tool row: Edit visible; Test (Home calls the tool's check URL with the token; only the answer comes back) and
- * Remove in ⋯. The test result shows in the row. */
+ * Delete in ⋯. The test result shows in the row. */
 function ToolRow({ t, missing, conflict, wsName, onEdit, onDone }: { t: Tool; missing: boolean; conflict: Tool | undefined; wsName: (id: string) => string; onEdit: () => void; onDone: () => unknown }) {
   const [result, setResult] = useState<ToolTest | null>(null);
   const [busy, setBusy] = useState(false);
@@ -267,7 +267,7 @@ function ToolRow({ t, missing, conflict, wsName, onEdit, onDone }: { t: Tool; mi
       {busy ? <span className="text-[12px] text-ink-3">Testing…</span> : result && <Badge tone={result.ok ? "ok" : "attn"} title={result.message}>{result.ok ? "token works" : result.status ? `refused · ${result.status}` : "unreachable"}</Badge>}
       <RowActions label={`More actions for ${t.name}`} width={64} main={<button className="btn btn-sm" onClick={onEdit}>Edit</button>} more={(close) => <>
         {t.check_url && <MenuItem icon={<Icon name="check" size={14} />} label="Test" detail="Home calls its check URL with the token" disabled={busy} onClick={() => { close(); test(); }} />}
-        <MenuSection><ConfirmButton icon="trash" consequence={`Removes ${t.name}. New sessions no longer get it.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/vault/tools/${t.id}`).then(() => { close(); return onDone(); }, toastError)}>Remove</ConfirmButton></MenuSection>
+        <MenuSection><ConfirmButton icon="trash" consequence={`Deletes ${t.name} and its token. New sessions no longer get it.`} confirmLabel="Delete" onConfirm={() => api.delete(`/api/vault/tools/${t.id}`).then(() => { close(); return onDone(); }, toastError)}>Delete</ConfirmButton></MenuSection>
       </>} />
     </div>
   );

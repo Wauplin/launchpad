@@ -8,5 +8,5 @@ export function FollowUpAgent({ session, onPrepared }: { session: Session; onPre
   return <button className="btn btn-sm" title="Start a separate agent in the same worktree or folder with saved trace context" onClick={() => {
     useComposer.getState().followUpFrom(session);
     onPrepared?.();
-  }}>New agent here</button>;
+  }}>Launch here</button>;
 }

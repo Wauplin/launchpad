@@ -884,7 +884,7 @@ function AddToAgent({ project, root, rev, path, selection }: { project: Project;
     >
       {(close) => (
         <>
-          <MenuItem icon={<Icon name="plus" size={13} />} label={<b className="font-semibold">New agent</b>} detail="Opens the composer with these lines as context" onClick={() => (toComposer(), close())} />
+          <MenuItem icon={<Icon name="plus" size={13} />} label={<b className="font-semibold">Launch</b>} detail="Opens the composer with these lines as context" onClick={() => (toComposer(), close())} />
           {sessions.map((s) => (
             <MenuItem
               key={s.id}

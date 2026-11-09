@@ -485,7 +485,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   return (
     <aside data-tour="composer" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${!embedded && isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${embedded ? "absolute inset-0 z-40 w-full!" : overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
       <div className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
-        <span className="flex-1 truncate whitespace-nowrap text-sm font-bold" title={edited?.title}>{editing ? "Edit scheduled agent" : "New agent"}</span>
+        <span className="flex-1 truncate whitespace-nowrap text-sm font-bold" title={edited?.title}>{editing ? "Edit scheduled launch" : "Launch an agent"}</span>
         {!embedded && !isPhone && <button className="btn btn-sm btn-ghost" title="Keep the draft as a badge on Launch; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>}
         <button className="iconbtn" title="Close (the draft is kept)" onClick={close}>
           <Icon name="x" size={14} />

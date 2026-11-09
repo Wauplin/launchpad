@@ -51,7 +51,7 @@ function ServerRow({ s, wsName, onEdit, onDone }: { s: McpServer; wsName: (id: s
         {busy && <span className="text-[12px] text-ink-3">Reading…</span>}
         <RowActions label={`More actions for ${s.name}`} width={64} main={<button className="btn btn-sm" onClick={onEdit}>Edit</button>} more={(close) => <>
           <MenuItem icon={<Icon name="refresh" size={14} />} label="Refresh tools" detail="Read the server's tool list again" disabled={busy} onClick={() => { close(); reload(); }} />
-          <MenuSection><ConfirmButton icon="trash" consequence={`Removes ${s.name} and its token. New sessions no longer reach it.`} confirmLabel="Remove" onConfirm={() => api.delete(`/api/mcp/${s.id}`).then(() => { close(); return onDone(); }, toastError)}>Remove</ConfirmButton></MenuSection>
+          <MenuSection><ConfirmButton icon="trash" consequence={`Deletes ${s.name} and its token. New sessions no longer reach it.`} confirmLabel="Delete" onConfirm={() => api.delete(`/api/mcp/${s.id}`).then(() => { close(); return onDone(); }, toastError)}>Delete</ConfirmButton></MenuSection>
         </>} />
       </div>
       {s.error && <span className="text-[12px] text-attn">{s.error}</span>}
