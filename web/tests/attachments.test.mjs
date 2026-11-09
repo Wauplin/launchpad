@@ -10,8 +10,7 @@ function paste({ files = [], items = [], types = [], text = "" } = {}) {
   };
 }
 
-test("DOM image files and items attach once without reading the native clipboard", () => {
-  globalThis.window = { __launchpadReadClipboardImage: () => { throw Error("Unexpected native read"); } };
+test("DOM image files and items attach once", () => {
   const image = new File(["image bytes"], "shot.png", { type: "image/png" });
   const item = { kind: "file", type: "image/png", getAsFile: () => image };
   for (const data of [{ files: [image], items: [item] }, { items: [item] }]) {
@@ -21,34 +20,10 @@ test("DOM image files and items attach once without reading the native clipboard
   }
 });
 
-test("empty WebKit screenshot events use the native PNG without suppressing native paste", async () => {
-  globalThis.window = { __launchpadReadClipboardImage: async () => "data:image/png;base64,AQID" };
-  for (const types of [[], ["Files"], ["image/png"]]) {
-    const event = paste({ types });
-    const files = await pastedImages(event);
-    assert.equal(files.length, 1);
-    assert.equal(files[0].type, "image/png");
-    assert.deepEqual([...new Uint8Array(await files[0].arrayBuffer())], [1, 2, 3]);
-    assert.equal(event.prevented, false);
-  }
-});
-
-test("text remains native even when WebKit omits clipboard types", () => {
-  globalThis.window = { __launchpadReadClipboardImage: () => { throw Error("Unexpected native read"); } };
-  for (const data of [{ text: "clipboard text" }, ...["text/plain", "text/html", "text/uri-list"].map((type) => ({ types: [type] }))]) {
+test("text and empty clipboards keep the native paste", () => {
+  for (const data of [{}, { text: "clipboard text" }, ...["text/plain", "text/html", "text/uri-list"].map((type) => ({ types: [type] }))]) {
     const event = paste(data);
     assert.equal(pastedImages(event), null);
     assert.equal(event.prevented, false);
   }
-});
-
-test("empty clipboards, native errors and browsers without the bridge", async () => {
-  globalThis.window = { __launchpadReadClipboardImage: async () => null };
-  assert.deepEqual(await pastedImages(paste()), []);
-  window.__launchpadReadClipboardImage = async () => { throw Error("Clipboard unavailable"); };
-  await assert.rejects(pastedImages(paste()), /Clipboard unavailable/);
-  globalThis.window = {};
-  const event = paste();
-  assert.equal(pastedImages(event), null);
-  assert.equal(event.prevented, false);
 });

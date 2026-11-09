@@ -81,7 +81,10 @@ mv -f "$BIN/.launchpad.new" "$BIN/launchpad"
 install -Dm644 packaging/launchpad.service "$UNITS/launchpad.service"
 # The desktop shell is gone: remove what earlier installs added for it (the PWA replaces it).
 if pgrep -x launchpad-deskt >/dev/null 2>&1; then pkill -x launchpad-deskt || true; fi
-rm -f "$BIN/launchpad-desktop" "$HOME/.local/share/applications/launchpad.desktop" "$HOME/.config/autostart/launchpad.desktop"
+rm -f "$BIN/launchpad-desktop"
+for entry in "$HOME/.local/share/applications/launchpad.desktop" "$HOME/.config/autostart/launchpad.desktop"; do
+  if grep -q '/launchpad-desktop' "$entry" 2>/dev/null; then rm -f "$entry"; fi
+done
 
 # A server has no graphical login: lingering starts the user manager (and the unit) at boot and keeps it
 # running after the last SSH session ends.
