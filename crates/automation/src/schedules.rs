@@ -412,8 +412,7 @@ async fn finish(app: &App, mut record: ScheduledLaunch, error: Option<String>) -
 async fn run(app: &App, record: ScheduledLaunch, automatic: bool) -> Result<Session> {
     // A stable session id makes crash recovery unambiguous, even before the harness attaches.
     let result = if let Some(id) = &record.resume_session_id {
-        app.sessions
-            .send_follow_up(app, id, &record.spec.text, automatic)
+        send_follow_up(app, id, &record, automatic)
             .await
             .and_then(|()| {
                 app.sessions
@@ -448,6 +447,25 @@ async fn run(app: &App, record: ScheduledLaunch, automatic: bool) -> Result<Sess
         finish(app, record, result.as_ref().err().map(|e| format!("{e:#}"))).await?;
     }
     result
+}
+
+/// Sends a follow-up. Home places it like every message (`runners::continue_anywhere`: the session's runner,
+/// else another one, else Burst); a busy session answers 409, which keeps the follow-up queued. No idempotency
+/// key: a run is claimed once (never retried), and a queued one is sent again later.
+async fn send_follow_up(app: &App, id: &str, record: &ScheduledLaunch, automatic: bool) -> Result<()> {
+    if app.paths.role != launchpad_core::role::Role::Home {
+        return app.sessions.send_follow_up(app, id, &record.spec.text, automatic).await;
+    }
+    let body = serde_json::json!({"text": record.spec.text, "follow_up": if automatic { "automatic" } else { "manual" }}).to_string();
+    let (status, answer) = launchpad_core::runners::continue_anywhere(app, id, "input", Some(body), None).await?;
+    if status == 409 {
+        return Err(launchpad_core::sessions::FollowUpBusy.into());
+    }
+    if !(200..300).contains(&status) {
+        let error = serde_json::from_str::<serde_json::Value>(&answer).ok().and_then(|v| v["error"].as_str().map(str::to_string));
+        bail!("{}", error.unwrap_or(answer));
+    }
+    Ok(())
 }
 
 pub async fn start_now(app: &App, id: &str) -> Result<Session> {

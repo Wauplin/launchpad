@@ -449,7 +449,8 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
             return next.run(req).await;
         }
         ["api", "sessions", id, rest @ ..] if *id != "search" => {
-            let served = (get && matches!(rest, [] | ["events"] | ["events", "page"] | ["trace"] | ["images", ..] | ["access"])) || rest == ["move"];
+            // Scheduled follow-ups are Home's records: Home sends them through placement when they are due.
+            let served = (get && matches!(rest, [] | ["events"] | ["events", "page"] | ["trace"] | ["images", ..] | ["access"])) || rest == ["move"] || rest == ["follow-up"];
             match s.app.sessions.get(id).and_then(|x| x.runner_id) {
                 Some(r) if !served => Some(r),
                 _ => return next.run(req).await,

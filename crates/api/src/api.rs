@@ -395,6 +395,10 @@ struct Input {
     files: Vec<launchpad_core::model::FileAttachment>,
     #[serde(default)]
     context: launchpad_core::model::MessageContext,
+    /// A scheduled follow-up that Home placed here (`schedules::run`): "manual" or "automatic". A busy session
+    /// answers 409, so Home keeps it queued.
+    #[serde(default)]
+    follow_up: Option<String>,
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -411,6 +415,13 @@ async fn input(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::http
     let (text, images) = launchpad_core::attachments::for_message(&s.app, &id, &b.text, &b.files).await.map_err(bad)?;
     b.text = text;
     b.images.extend(images);
+    if let Some(mode) = &b.follow_up {
+        return match s.app.sessions.send_follow_up(&s.app, &id, &b.text, mode == "automatic").await {
+            Ok(()) => Ok(Json(json!({"ok": true}))),
+            Err(e) if e.is::<launchpad_core::sessions::FollowUpBusy>() => Err(ApiError::conflict(format!("{e:#}"))),
+            Err(e) => Err(bad(e)),
+        };
+    }
     let client_id = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()).map(str::to_owned);
     s.app.sessions.send_with_context(&s.app, &id, &b.text, b.images, b.context, client_id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
