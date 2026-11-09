@@ -226,7 +226,9 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
     // Traces always come from Home: it holds every event of every generation, while a runner that adopted a
     // session has only the turns since (a bot's earlier session, a context trace, a moved session).
     let trace = if req.method() == axum::http::Method::GET { trace_id(path).map(str::to_string) } else { None };
-    let forwarded = forwarded || trace.is_some() || (s.app.paths.role == role::Role::Runner && to_home_too(&s, &req));
+    // Scheduled follow-ups are Home's records, sent through placement when due.
+    let follow_up = req.method() == axum::http::Method::POST && session_id(path).is_some_and(|id| path == format!("/api/sessions/{id}/follow-up"));
+    let forwarded = forwarded || trace.is_some() || follow_up || (s.app.paths.role == role::Role::Runner && to_home_too(&s, &req));
     if s.app.paths.role != role::Role::Runner || !forwarded {
         return next.run(req).await;
     }
