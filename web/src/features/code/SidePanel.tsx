@@ -228,7 +228,7 @@ export function SearchPanel({ root, rev, onOpen, state, setState }: { root: stri
             return (
               <div key={it.key} className="absolute top-0 left-0 w-full" style={{ height: TREE_ROW, transform: `translateY(${it.start}px)` }}>
                 {r.t === "file" ? (
-                  <button className="flex h-6 w-full items-center gap-1.5 px-2.5 text-left text-xs font-[650] hover:bg-sunk" title={r.path} onClick={() => onOpen(r.path, 1)}>
+                  <button className="flex h-full w-full items-center gap-1.5 px-2.5 text-left text-xs font-[650] hover:bg-sunk" title={r.path} onClick={() => onOpen(r.path, 1)}>
                     <Icon name="file" size={13} className="text-ink-3" />
                     <span className="min-w-0 truncate">{r.path}</span>
                     <span className="ml-auto font-normal text-ink-3 tabular-nums">{r.count}</span>
@@ -236,7 +236,7 @@ export function SearchPanel({ root, rev, onOpen, state, setState }: { root: stri
                 ) : r.t === "hit" ? (
                   <HitLine path={r.path} line={r.line} text={r.text} re={re} onOpen={onOpen} />
                 ) : (
-                  <button className="h-6 w-full pl-8 text-left text-xs font-semibold text-teal-ink hover:underline" onClick={() => setShown((s) => new Set(s).add(r.path))}>
+                  <button className="h-full w-full pl-8 text-left text-xs font-semibold text-teal-ink hover:underline" onClick={() => setShown((s) => new Set(s).add(r.path))}>
                     Show {r.hidden} more
                   </button>
                 )}
@@ -263,7 +263,7 @@ const HitLine = memo(function HitLine({ path, line, text, re, onOpen }: { path: 
   }
   parts.push(text.slice(at));
   return (
-    <button className="flex h-6 w-full items-center gap-2 pr-2.5 pl-8 text-left hover:bg-sunk" title={`${path}:${line}`} onClick={() => onOpen(path, line)}>
+    <button className="flex h-full w-full items-center gap-2 pr-2.5 pl-8 text-left hover:bg-sunk" title={`${path}:${line}`} onClick={() => onOpen(path, line)}>
       <span className="w-8 flex-none text-right font-mono text-[11px] text-ink-3 tabular-nums">{line}</span>
       <span className="min-w-0 truncate font-mono text-[12px] whitespace-pre">{parts}</span>
     </button>

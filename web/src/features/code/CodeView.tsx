@@ -11,7 +11,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CodeFile } from "@/gen/CodeFile";
 import type { CommitInfo } from "@/gen/CommitInfo";
 import type { FileRef } from "@/gen/FileRef";
@@ -70,7 +70,9 @@ export function CodeView() {
   const backTo = useLeave(() => void (search.session ? navigate({ to: "/agents", search: { session: search.session } })
     : prParts ? navigate({ to: "/github/$owner/$repo/$number", params: { owner: prParts[1], repo: prParts[2], number: prParts[3] } })
     : navigate({ to: "/projects/$id", params: { id } })));
-  const bar = phone && <PhoneBar title={search.path ? basename(search.path) : project?.name ?? "Files"} onBack={backTo} backLabel={search.session ? "Back to the agent" : prParts ? "Back to the pull request" : "Back"} />;
+  // The phone's only title bar: ‹, the file name and, from the viewer, the tree toggle.
+  const phoneBar = (end?: ReactNode) => phone && <PhoneBar title={search.path ? basename(search.path) : project?.name ?? "Files"} onBack={backTo} backLabel={search.session ? "Back to the agent" : prParts ? "Back to the pull request" : "Back"} end={end} />;
+  const bar = phoneBar();
   if (!project) return <>{bar}<Empty fill icon="folder">This folder is not registered in Launchpad.</Empty></>;
   if (!search.root) return bar || null;
   const diff = !!search.rev && search.view === "diff";
@@ -81,7 +83,7 @@ export function CodeView() {
     go({ path: selected && selected.status !== "removed" ? selected.filename : diff ? undefined : search.path });
   };
   return <div className="flex h-full min-h-0 flex-col">
-    {bar}
+    {diff && bar}
     {search.rev && <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper px-3 py-2">
       {search.session && !phone && <BackToSession id={search.session} />}
       {search.pr && !phone && <BackToPr pr={search.pr} />}
@@ -89,11 +91,11 @@ export function CodeView() {
       <Tabs className="ml-auto border-b-0" label="Commit view" value={diff ? "diff" : "files"} onChange={(v) => (v === "diff" ? go({ view: "diff", path: search.path }) : showCode())} items={[{ id: "diff", label: "Diff" }, { id: "files", label: "Files" }]} />
     </div>}
     {diff ? <CommitDiff key={sourceKey(search.root, search.rev)} root={search.root} rev={search.rev!} path={search.path} select={(path) => go({ view: "diff", path })} openFile={(rev, path) => go({ rev, path })} /> :
-      <div className="min-h-0 flex-1"><Viewer key={sourceKey(search.root, search.rev)} project={project} root={search.root} rev={search.rev ?? null} path={search.path ?? null} line={search.line ?? null} session={search.session ?? null} pr={search.pr ?? null} /></div>}
+      <div className="min-h-0 flex-1"><Viewer key={sourceKey(search.root, search.rev)} project={project} root={search.root} rev={search.rev ?? null} path={search.path ?? null} line={search.line ?? null} session={search.session ?? null} pr={search.pr ?? null} bar={phoneBar} /></div>}
   </div>;
 }
 
-function Viewer({ project, root, rev, path, line, session, pr }: { project: Project; root: string; rev: string | null; path: string | null; line: number | null; session: string | null; pr: string | null }) {
+function Viewer({ project, root, rev, path, line, session, pr, bar }: { project: Project; root: string; rev: string | null; path: string | null; line: number | null; session: string | null; pr: string | null; bar: (end?: ReactNode) => ReactNode }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const phone = usePhone();
@@ -149,12 +151,8 @@ function Viewer({ project, root, rev, path, line, session, pr }: { project: Proj
 
   return (
     <div className={`code-layout h-full ${phone ? "flex flex-col" : "grid grid-cols-[284px_minmax(0,1fr)]"}`}>
-      {phone && <>
-        <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1">
-          <button className="btn btn-sm" aria-expanded={browserOpen} onClick={() => setBrowserOpen((v) => !v)}><Icon name={browserOpen ? "x" : "folder"} size={16} />{browserOpen ? "Close tree" : "Tree & search"}</button>
-          <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{path ? `${project.name} · ${path}` : project.name}</span>
-        </div>
-      </>}
+      {/* Phone: the tree toggle sits in the bar; the open file is the page (no tab strip, each file is a history entry). */}
+      {bar(phone && <button className="iconbtn shrink-0" aria-expanded={browserOpen} aria-label={browserOpen ? "Close the tree" : "Tree and search"} title={browserOpen ? "Close the tree" : "Tree and search"} onClick={() => setBrowserOpen((v) => !v)}><Icon name={browserOpen ? "x" : "folder"} size={18} /></button>)}
       <aside className={`code-browser min-h-0 min-w-0 flex-col border-r border-line bg-paper ${phone ? browserOpen ? "flex flex-1" : "hidden" : "flex"}`}>
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2 px-2.5 pt-2.5 pb-1">
           {session && !rev && !phone && <BackToSession id={session} />}
@@ -183,7 +181,7 @@ function Viewer({ project, root, rev, path, line, session, pr }: { project: Proj
         )}
       </aside>
       <div className={`min-h-0 min-w-0 flex-col ${phone ? browserOpen ? "hidden" : "flex flex-1" : "flex"}`}>
-        <div className="code-file-tabs flex h-[34px] flex-none items-stretch overflow-x-auto border-b border-line bg-chrome">
+        {!phone && <div className="code-file-tabs flex h-[34px] flex-none items-stretch overflow-x-auto border-b border-line bg-chrome">
           {tabs.map((t) => (
             <div
               key={t}
@@ -206,7 +204,7 @@ function Viewer({ project, root, rev, path, line, session, pr }: { project: Proj
               </button>
             </div>
           ))}
-        </div>
+        </div>}
         {path ? (
           <FileView key={`${skey}\n${path}`} project={project} root={root} rev={rev} path={path} line={line} letter={list.data?.changes[path]} reveal={reveal} />
         ) : list.isError && /does not exist|No such file/i.test(String((list.error as Error)?.message)) ? (
@@ -431,17 +429,21 @@ function FileView({ project, root, rev, path, line, letter, reveal }: { project:
             const dir = all.slice(0, i + 1).join("/");
             return <span key={dir}><button className="hover:text-teal-ink hover:underline" title={`Show ${dir} in the file tree`} onClick={() => reveal(dir)}>{seg}</button> / </span>;
           })}
-          <b className="font-semibold text-ink">{basename(path)}</b>
+          {/* The phone's bar already names the file. */}
+          {phone ? !dirname(path) && <span className="text-ink-3">{project.name}</span> : <b className="font-semibold text-ink">{basename(path)}</b>}
         </span>
         {f && !phone && <FileMeta f={f} letter={letter} />}
         <span className="ml-auto flex items-center gap-1">
-          {isText && (
+          {/* Phone: one row of icon-only buttons, each with its name in title and aria-label. */}
+          {phone && isText && <button className={`iconbtn ${findOpen ? "bg-teal-soft! text-teal-ink" : ""}`} aria-label="Find in this file" title="Find in this file" aria-pressed={findOpen} data-tour="code.find" onClick={openFind}><Icon name="search" size={18} /></button>}
+          {phone && (markdown || html) && isText && <button className="iconbtn disabled:opacity-40" disabled={!limits.colors} aria-label={preview ? "Show the source" : "Preview"} title={!limits.colors ? "Preview disabled for large or long-line files" : preview ? "Show the source" : `Show the rendered ${html ? "HTML" : "Markdown"}`} aria-pressed={preview} onClick={() => setPreview((p) => !p)}><Icon name={preview ? "file" : "eye"} size={18} /></button>}
+          {!phone && isText && (
             <button className={`btn btn-sm ${findOpen ? "border-teal! bg-teal-soft!" : ""}`} title="Find in this file (Ctrl+F)" data-tour="code.find" onClick={openFind}>
               <Icon name="search" size={12} />
-              Find {!phone && <span className="rounded border border-line px-1 font-mono text-[10px] text-ink-3">Ctrl+F</span>}
+              Find <span className="rounded border border-line px-1 font-mono text-[10px] text-ink-3">Ctrl+F</span>
             </button>
           )}
-          {(markdown || html) && isText && (
+          {!phone && (markdown || html) && isText && (
             <button className="btn btn-sm disabled:opacity-40" disabled={!limits.colors} title={!limits.colors ? "Preview disabled for large or long-line files" : preview ? "Show the source" : `Show the rendered ${html ? "HTML" : "Markdown"}`} onClick={() => setPreview((p) => !p)}>
               <Icon name={preview ? "file" : "eye"} size={12} />
               {preview ? "Source" : "Preview"}
