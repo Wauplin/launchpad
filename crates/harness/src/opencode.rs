@@ -90,6 +90,9 @@ impl harness::Harness for Adapter {
         }
     }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
+        if let Some(id) = spec.harness_session_id.as_deref().filter(|_| spec.resume) {
+            import_pending(app, &spec, id).await?;
+        }
         let mut command = launchpad_core::procs::child_command(&spec.process_env(&app.env), "opencode", Some(&spec.cwd));
         command
             .arg("acp")
@@ -130,22 +133,25 @@ impl harness::Harness for Adapter {
     }
     async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<harness::trace::TraceFile>> {
         let id = harness::trace::conversation(session)?;
+        // Moved here but not started since: OpenCode does not have it yet, the waiting export is the trace.
+        let pending = pending_import(app, &session.id, id);
+        if pending.exists() {
+            return Ok(vec![harness::trace::TraceFile { name: format!("{id}.json"), data: std::fs::read(&pending)? }]);
+        }
         let env = harness::trace::environment(app, session)?;
         export_trace(&env, id).await
     }
-    /// OpenCode keeps conversations in its own database: its own `opencode import` reads the unchanged
-    /// `opencode export` file back, in the session's folder so the conversation belongs to its project here.
+    /// OpenCode keeps conversations in its own database: the unchanged `opencode export` file waits in the
+    /// session's harness home, and the next start imports it with OpenCode's own `opencode import`, in the
+    /// session's jail and folder (OpenCode files the conversation under the folder it runs in).
     async fn restore_native(&self, app: &App, session: &Session, files: Vec<harness::trace::TraceFile>) -> Result<()> {
         let id = harness::trace::conversation(session)?;
         let file = files.into_iter().find(|f| f.name == format!("{id}.json")).ok_or_else(|| anyhow::anyhow!("no OpenCode export of this conversation"))?;
-        let env = harness::trace::environment(app, session)?;
-        let path = launchpad_core::contain::harness_home(app, &session.id).join(format!(".launchpad-import-{id}.json"));
+        let _: serde_json::Value = serde_json::from_slice(&file.data).map_err(|e| anyhow::anyhow!("the OpenCode export of this conversation is not JSON: {e}"))?;
+        let path = pending_import(app, &session.id, id);
+        std::fs::create_dir_all(path.parent().expect("import file has a folder"))?;
         std::fs::write(&path, &file.data)?;
-        let cwd = std::path::Path::new(&session.cwd);
-        let file_arg = path.to_string_lossy().into_owned();
-        let result = launchpad_core::procs::output(&env, "opencode", &["import", file_arg.as_str()], cwd.is_dir().then_some(cwd)).await;
-        let _ = std::fs::remove_file(&path);
-        result.map(|_| ())
+        Ok(())
     }
     async fn models(&self, app: &App) -> Result<Vec<ModelInfo>> {
         let output = launchpad_core::procs::output(&app.env, "opencode", &["models"], None).await?;
@@ -180,8 +186,31 @@ impl harness::Harness for Adapter {
     }
 }
 
+/// Where a moved conversation's export waits for the next start (`restore_native`).
+fn pending_import(app: &App, session_id: &str, conversation: &str) -> std::path::PathBuf {
+    launchpad_core::contain::harness_home(app, session_id).join(".launchpad").join(format!("opencode-import-{conversation}.json"))
+}
+
+/// Imports a waiting export before OpenCode resumes it, in the session's jail and folder. OpenCode's import
+/// says "Imported session" on success and exits 0 even when it read nothing, so anything else fails the start
+/// (the file stays: importing again is harmless).
+async fn import_pending(app: &App, spec: &StartSpec, id: &str) -> Result<()> {
+    let path = pending_import(app, &spec.session_id, id);
+    if !path.exists() {
+        return Ok(());
+    }
+    let file = path.to_string_lossy().into_owned();
+    let out = launchpad_core::procs::output(&spec.process_env(&app.env), "opencode", &["import", "--pure", file.as_str()], Some(&spec.cwd))
+        .await
+        .map_err(|e| anyhow::anyhow!("OpenCode could not import this moved conversation: {e:#}"))?;
+    anyhow::ensure!(out.contains("Imported session"), "OpenCode could not import this moved conversation: {}", out.chars().take(500).collect::<String>());
+    std::fs::remove_file(&path)?;
+    Ok(())
+}
+
 async fn export_trace(env: &launchpad_core::shellenv::UserEnv, id: &str) -> Result<Vec<harness::trace::TraceFile>> {
-    let raw = launchpad_core::procs::output(env, "opencode", &["export", id], None).await?;
+    // Outside the jail, with the session's own OpenCode home: never with the plugins its configuration names.
+    let raw = launchpad_core::procs::output(env, "opencode", &["export", "--pure", id], None).await?;
     anyhow::ensure!(raw.len() <= 256 * 1024 * 1024, "native OpenCode export exceeds 256 MiB");
     // Validate, but retain the native export exactly rather than wrapping its messages.
     let _: serde_json::Value = serde_json::from_str(&raw)?;
