@@ -50,7 +50,7 @@ Folder pages, inbox rows and every **▶** button open the composer too. The com
 
 The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the **Launch** button while you collect more context; its **▾** menu starts a new agent instead or discards the draft.
 
-Session titles appear immediately from the prompt. Claude Code and Codex also generate a short AI title, then refresh it after each turn using the prompt and recent conversation. Naming uses Haiku for Claude Code and prefers Luna or Mini for Codex, with the lowest supported effort. Quota or spending limits can skip naming; a failed request keeps the existing title. OpenCode keeps the prompt-based title.
+Session titles appear immediately from the prompt. Claude Code and Codex also generate a short AI title, then refresh it each time a turn ends (done, failed, interrupted or stopped) from what the agent actually did: the prompt, the agent's final message and the recent conversation, without Launchpad's own instructions. So an agent started from a bare link (a Slack thread, an issue) gets a title that names the real subject once it has worked on it. Naming uses Haiku for Claude Code and prefers Luna or Mini for Codex, with the lowest supported effort. Quota or spending limits can skip naming; a failed request keeps the existing title. OpenCode keeps the prompt-based title.
 
 New launches ask the agent to end its first task with a short, self-contained summary. In an agent's message box, the **+** icon next to presets and attachments adds the same context to the next message. Follow-up messages are sent unchanged, except the first message after a Local PR is published, which tells the agent to push to the published branch from now on.
 
