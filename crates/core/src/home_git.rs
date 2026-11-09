@@ -154,14 +154,22 @@ pub fn browse_dir(app: &App, project_id: &str) -> PathBuf {
     app.paths.data_dir.join("browse").join(project_id)
 }
 
-/// Home: creates or updates the browse copy of a Git folder (at most every 30 seconds). Returns its path.
+/// When each browse copy was last updated.
+static BROWSE_FRESH: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>> = std::sync::LazyLock::new(Default::default);
+
+/// A push or merge changed the folder's branches: the next read updates its browse copy at once.
+fn browse_stale(project_id: &str) {
+    BROWSE_FRESH.lock().unwrap().remove(project_id);
+}
+
+/// Home: creates or updates the browse copy of a Git folder (at most every 30 seconds, and at once after a push
+/// or merge). Returns its path.
 pub async fn browse_copy(app: &App, p: &Project) -> Result<PathBuf> {
-    static FRESH: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>> = std::sync::LazyLock::new(Default::default);
     let mirror = ensure(app, p).await?;
     let dir = browse_dir(app, &p.id);
     let lock = app.suggestion_locks.get(&format!("home-browse:{}", p.id));
     let _lock = lock.lock().await;
-    if dir.join(".git").exists() && FRESH.lock().unwrap().get(&p.id).is_some_and(|t| t.elapsed() < Duration::from_secs(30)) {
+    if dir.join(".git").exists() && BROWSE_FRESH.lock().unwrap().get(&p.id).is_some_and(|t| t.elapsed() < Duration::from_secs(30)) {
         return Ok(dir);
     }
     let branch = default_branch(app, &p.id).await.unwrap_or_else(|_| "main".into());
@@ -177,7 +185,7 @@ pub async fn browse_copy(app: &App, p: &Project) -> Result<PathBuf> {
     if git(app, &dir, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{branch}")]).await.is_ok() {
         git(app, &dir, &["checkout", "--quiet", "--force", "--detach", &format!("origin/{branch}")]).await?;
     }
-    FRESH.lock().unwrap().insert(p.id.clone(), std::time::Instant::now());
+    BROWSE_FRESH.lock().unwrap().insert(p.id.clone(), std::time::Instant::now());
     Ok(dir)
 }
 
@@ -233,6 +241,7 @@ pub async fn after_push(app: &App, project_id: &str, before: &BTreeMap<String, S
         return Ok(());
     }
     crate::home_backup::changed();
+    browse_stale(project_id);
     app.bus.publish("home_git", "pushed", serde_json::json!({"project_id": project_id, "branches": changed, "session_id": session}));
     for branch in &changed {
         if let Some(head) = after.get(&format!("refs/heads/{branch}"))
@@ -406,6 +415,7 @@ pub async fn merge(app: &App, p: &Project, branch: &str, head: &str, base: &str)
     git(app, &dir, &["update-ref", &format!("refs/heads/{base}"), head, &base_tip]).await?;
     crate::home_backup::changed();
     let note = if remote { format!("Merged into {base} and pushed to the remote.") } else { format!("Merged into {base} on Home (this folder has no remote).") };
+    browse_stale(&p.id);
     app.bus.publish("home_git", "merged", serde_json::json!({"project_id": p.id, "branch": branch, "base": base}));
     Ok(MergeOutcome::Merged { head: head.into(), note })
 }

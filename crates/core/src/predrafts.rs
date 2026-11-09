@@ -244,7 +244,7 @@ pub async fn create(app: &App, q: Create) -> Result<Predraft> {
         // An agent's worktree: Home gets the branch first, then opens its Local PR.
         let mut w = crate::worktrees::find_by_path(app, &cwd).await?.context("run this in a Launchpad worktree")?;
         ensure!(w.pull_request.is_none(), "this worktree continues a pull request; push your commits to it instead of creating a Local PR");
-        crate::worktrees::push(app, &mut w).await.context("push the branch to Home")?;
+        crate::worktrees::push_unlocked(app, &mut w).await.context("push the branch to Home")?;
         let session = q.session_id.clone().or_else(|| w.sessions.last().cloned());
         let p = open_for_branch(app, &w.project_id, &w.branch, w.base_branch.as_deref(), session.as_deref(), q.title.clone()).await?;
         crate::worktrees::mark_predraft(app, &w.id, &p.id).await?;

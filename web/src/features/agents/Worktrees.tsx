@@ -107,7 +107,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   let text: string;
-  if (w.state === "removed") text = `Folder removed after Home saved the branch. Sending a message clones it again.${w.leftovers ? ` ${w.leftovers.files} uncommitted file${w.leftovers.files === 1 ? " is" : "s are"} on ${w.leftovers.branch}.` : ""}`;
+  if (w.state === "removed") text = `${base && i.ahead ? `${i.ahead} commit${i.ahead === 1 ? "" : "s"} ahead of ${base} · ` : ""}Folder removed after Home saved the branch. Sending a message clones it again.${w.leftovers ? ` ${w.leftovers.files} uncommitted file${w.leftovers.files === 1 ? " is" : "s are"} on ${w.leftovers.branch}.` : ""}`;
   else if (w.state === "preparing") text = "Cloning from Home Git before the agent starts.";
   else if (w.state === "discarded") text = "Discarded: folder and branch deleted. The branch tip stays restorable on Home for 30 days.";
   else if (w.merge) text = w.merge.reason;
@@ -119,9 +119,10 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
     parts.push(i.unpushed ? (i.away ? "its runner has newer commits that are not on Home" : "new commits are not on Home yet") : session?.unsaved ? "saving on Home" : "saved on Home");
     text = parts.join(" · ");
   }
-  // Its runner is away: Home shows the branch it holds, and Merge and Create Local PR run on Home.
+  // Its runner is away, or its folder is gone: Home shows the branch it holds, and Merge and Create Local PR run
+  // on Home.
   const away = i.away;
-  const onHome = w.state === "active" || (!!away && w.state === "removed");
+  const onHome = w.state === "active" || w.state === "removed";
   // Merged (by the worktree or its Local PR): no Local PR to create or open, nothing to discard.
   const merged = isMergedWorktree(i, localPrs);
   const canMerge = merge && onHome && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id && !!i.head;

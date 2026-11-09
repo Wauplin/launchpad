@@ -31,7 +31,9 @@ async fn list(State(s): State<Server>) -> ApiResult<Value> {
     // Home has no worktree: they live on the runners.
     if home(&s) {
         let all = crate::runners::ask_connected(&s, "GET", "/api/worktrees").await;
-        let mut out: Vec<Value> = all.into_iter().filter_map(|v| v.as_array().cloned()).flatten().collect();
+        let out: Vec<Value> = all.into_iter().filter_map(|v| v.as_array().cloned()).flatten().collect();
+        // Merges and Local PRs are Home's; worktrees whose folder is gone are read from their branch on Home.
+        let mut out = launchpad_core::away::complete(&s.app, out).await;
         // Sessions of offline runners and stopped Burst jobs: from their branches on Home.
         out.extend(launchpad_core::away::all_worktrees(&s.app).await.into_iter().map(|i| json!(i)));
         return Ok(Json(json!(out)));

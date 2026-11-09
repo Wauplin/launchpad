@@ -509,15 +509,25 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
             Err(e) => ApiError::bad_request(format!("{e:#}")).into_response(),
         };
     }
-    if !s.app.runners.connected(&runner) {
-        // Its runner is away (offline, or a stopped Burst job): Home answers reviews from Home Git.
+    let connected = s.app.runners.connected(&runner);
+    // Its runner is away (offline, or a stopped Burst job), or the worktree's folder is gone from it: Home answers
+    // reviews from Home Git.
+    if !connected || folder_gone(&s, get, &parts, &uri, body.as_deref()).await {
         if let Some(r) = away(&s, get, &parts, &uri, body.as_deref()).await {
             return r;
         }
-        return offline(&s, &runner, &parts, body.as_deref()).await;
+        if !connected {
+            return offline(&s, &runner, &parts, body.as_deref()).await;
+        }
     }
+    let worktree_list = get && matches!(parts.as_slice(), ["api", "sessions", _, "worktrees"]);
     match s.app.runners.request_with(&runner, method.as_str(), &path_and_query, body, headers).await {
         Ok((status, body)) if binary => from_envelope(status, &body),
+        // Home completes the runner's list: merges and Local PRs are Home's, and gone folders are read on Home.
+        Ok((200, body)) if worktree_list => match serde_json::from_str::<Vec<Value>>(&body) {
+            Ok(list) => Json(launchpad_core::away::complete(&s.app, list).await).into_response(),
+            Err(_) => (StatusCode::OK, [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response(),
+        },
         Ok((status, body)) => (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY), [(axum::http::header::CONTENT_TYPE, "application/json")], body).into_response(),
         Err(e) => ApiError::new(StatusCode::BAD_GATEWAY, format!("{e:#}")).into_response(),
     }
@@ -600,6 +610,29 @@ async fn away(s: &Server, get: bool, parts: &[&str], uri: &axum::http::Uri, body
         Ok(v) => Json(v).into_response(),
         Err(e) => ApiError::bad_request(format!("{e:#}")).into_response(),
     })
+}
+
+/// Home: a review request about a worktree whose folder is gone from its connected runner (retention removed it,
+/// or the session moved and its new runner clones it at the next message): Changes of the primary worktree,
+/// Merge, or Create Local PR. Home answers them like for an away runner (`away`).
+async fn folder_gone(s: &Server, get: bool, parts: &[&str], uri: &axum::http::Uri, body: Option<&str>) -> bool {
+    use launchpad_core::away;
+    let app = &s.app;
+    match parts {
+        ["api", "sessions", id, "git" | "git-commits" | "git-diff"] if get => away::primary_gone(app, id).await,
+        ["api", "worktrees", worktree, "merge"] if !get => match session_param(uri) {
+            Some(id) => away::worktree_gone(app, &id, worktree).await,
+            None => false,
+        },
+        ["api", "predrafts"] if !get => {
+            let cwd = body.and_then(|b| serde_json::from_str::<Value>(b).ok()).and_then(|b| b["cwd"].as_str().map(str::to_string));
+            match (session_param(uri), cwd) {
+                (Some(id), Some(cwd)) => away::folder_gone(app, &id, &cwd).await,
+                _ => false,
+            }
+        }
+        _ => false,
+    }
 }
 
 /// The `session` query parameter of a request.

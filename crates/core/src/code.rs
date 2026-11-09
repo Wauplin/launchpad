@@ -172,14 +172,25 @@ fn inside_of<'a>(root: &'a str, dir: &str) -> Option<&'a str> {
     (rest.is_empty() || rest.starts_with('/')).then(|| rest.trim_start_matches('/'))
 }
 
-/// Home: the sessions on runners whose folder may be `root`: its working directory contains it, or `root` is in
-/// one of its task worktrees (`<data_dir>/worktrees/<session id>/…`).
-fn sessions_at(app: &App, root: &str) -> Vec<crate::model::Session> {
-    app.sessions.list().into_iter().filter(|s| s.runner_id.is_some() && (inside_of(root, &s.cwd).is_some() || root.contains(&format!("/worktrees/{}/", s.id)))).collect()
+/// Home: the sessions on runners whose folder may be `root`, each with the worktree record that holds `root`
+/// (any worktree of the session, found through the records its runners sent: `<data_dir>/worktrees/<folder
+/// id>/<slug>`), or none when only its working directory contains `root` (a plain or temporary folder).
+async fn sessions_at(app: &App, root: &str) -> Vec<(crate::model::Session, Option<crate::worktrees::TaskWorktree>)> {
+    let records = crate::away::records_at(app, root).await;
+    app.sessions
+        .list()
+        .into_iter()
+        .filter(|s| s.runner_id.is_some())
+        .filter_map(|s| {
+            let w = records.iter().find(|w| w.sessions.contains(&s.id)).cloned();
+            (w.is_some() || inside_of(root, &s.cwd).is_some()).then_some((s, w))
+        })
+        .collect()
 }
 
 /// Home: the connected runner that holds `root` (a folder of one of its sessions, or a temporary folder), or the
-/// runner of folder `project` (`/api/code/sources`). Files of that folder are read there, as they are now.
+/// runner of folder `project` (`/api/code/sources`). Files of that folder are read there, as they are now. A
+/// worktree whose folder is gone from its runner is read on Home (`away_copy`), whatever the runner's state.
 pub async fn runner_for(app: &App, root: Option<&str>, project: Option<&str>) -> Option<String> {
     if app.paths.role != crate::role::Role::Home {
         return None;
@@ -194,15 +205,20 @@ pub async fn runner_for(app: &App, root: Option<&str>, project: Option<&str>) ->
     if let Some(p) = all.iter().find(|p| p.path == root || on_home(app, (*p).clone()).path == root) {
         return connected(&p.runner_id);
     }
-    sessions_at(app, root).into_iter().find_map(|s| connected(&s.runner_id))
+    sessions_at(app, root).await.into_iter().filter(|(_, w)| !w.as_ref().is_some_and(crate::away::gone)).find_map(|(s, _)| connected(&s.runner_id))
 }
 
-/// Home: what to read for a folder of a session whose runner is away (offline, or a stopped Burst job): a plain
-/// or temporary folder from Home's store, a task worktree from its branch on Home. Returns the folder and the
-/// revision to read.
+/// Home: what to read for a folder of a session whose runner is away (offline, or a stopped Burst job) or whose
+/// worktree folder is gone from it: a plain or temporary folder from Home's store, a task worktree from its
+/// branch on Home. Returns the folder and the revision to read.
 async fn away_copy(app: &App, all: &[Project], root: &str) -> Result<Option<(PathBuf, Option<String>)>> {
-    for s in sessions_at(app, root) {
-        if let Some(w) = crate::away::worktree_at(app, &s.id, root).await
+    for (s, w) in sessions_at(app, root).await {
+        // A record its runners sent, else one of its last handoff.
+        let w = match w {
+            Some(w) => Some(w),
+            None => crate::away::worktree_at(app, &s.id, root).await,
+        };
+        if let Some(w) = w
             && let Some(p) = all.iter().find(|p| p.id == w.project_id && p.home_git)
         {
             let dir = crate::home_git::browse_copy(app, p).await?;

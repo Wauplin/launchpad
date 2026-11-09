@@ -159,6 +159,10 @@ export function connectEvents(queryClient: QueryClient) {
     } else if (topic === "worktrees") {
       void queryClient.invalidateQueries({ queryKey: ["worktrees"] });
       void queryClient.invalidateQueries({ queryKey: ["code-sources"] });
+    } else if (topic === "home_git") {
+      // A push or merge on Home: Files on Home and the worktree cards read the new branch tips.
+      void queryClient.invalidateQueries({ queryKey: ["worktrees"] });
+      for (const key of ["code-files", "code-file", "code-commit"]) void queryClient.invalidateQueries({ queryKey: [key] });
     } else if (topic === "suggestions") {
       void queryClient.invalidateQueries({ queryKey: ["suggestions"] });
     } else if (topic === "outbox") {

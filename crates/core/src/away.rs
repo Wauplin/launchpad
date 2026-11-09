@@ -1,17 +1,23 @@
-//! Home's answers for a session whose runner is away (an offline laptop, a stopped Burst job).
+//! Home's answers for a session whose runner is away (an offline laptop, a stopped Burst job), or whose worktree
+//! folder is gone from its runner (retention removed it, or the session moved and its new runner clones it again
+//! at the next message).
 //!
-//! The session's worktrees are gone with its runner, but Home still has their branches (Home Git) and their
-//! records: runners send each record whenever it changes (`replica::Item::Worktree`, with the branch tip in the
-//! folder), and every handoff holds them too. Changes, the worktree list, Merge and Create Local PR use those, so
-//! finished work stays reviewable. Uncommitted files and commits the runner did not push stay on that machine;
-//! a record whose tip differs from Home's branch shows them as not on Home.
+//! Home still has the branches (Home Git) and the records: runners send each record whenever it changes
+//! (`replica::Item::Worktree`, with the branch tip in the folder), and every handoff holds them too. Changes, the
+//! worktree list, Merge and Create Local PR use those, so finished work stays reviewable. Uncommitted files and
+//! commits the runner did not push stay on that machine; a record whose tip differs from Home's branch shows them
+//! as not on Home. Home is also the source of truth for what it did itself: a branch's merge (`branch_merge`)
+//! and its Local PR, looked up by folder and branch (`from_home`), so they survive a runner's reconnection.
 
 use std::path::{Path, PathBuf};
+
+use serde_json::Value;
 
 use anyhow::{Context, Result, bail, ensure};
 
 use crate::App;
 use crate::model::Session;
+use crate::predrafts::Predraft;
 use crate::session_git::{GitChanges, GitDiff, GitFile, GitHistory, GitStatus};
 use crate::worktrees::{Merged, TaskWorktree, WorktreeInfo, WorktreeState};
 
@@ -20,8 +26,12 @@ pub fn is_away(app: &App, s: &Session) -> bool {
     app.paths.role == crate::role::Role::Home && s.runner_id.as_ref().is_some_and(|r| !app.runners.connected(r))
 }
 
-/// Why Home answers: "Its Burst runner has stopped" or "Its runner (name) is offline".
+/// Why Home answers: "Its Burst runner has stopped", "Its runner (name) is offline", or (runner connected) "Its
+/// folder is no longer on its runner".
 pub async fn reason(app: &App, s: &Session) -> String {
+    if !is_away(app, s) {
+        return "Its folder is no longer on its runner".into();
+    }
     if crate::burst::needs_new_job(app, s).await {
         return "Its Burst runner has stopped".into();
     }
@@ -32,8 +42,13 @@ pub async fn reason(app: &App, s: &Session) -> String {
     }
 }
 
+/// The reason shown on worktree cards: only for an away runner (a connected runner still restores and discards).
+async fn away_reason(app: &App, s: &Session) -> Option<String> {
+    if is_away(app, s) { Some(reason(app, s).await) } else { None }
+}
+
 /// The session's worktree records, primary first: the ones its runners sent, then those of its last handoff
-/// that Home did not receive on their own.
+/// that Home did not receive on their own, with Home's merge and Local PR.
 async fn records(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> {
     let mut list = records_sent(app, session_id).await?;
     for w in crate::handoff::latest(app, session_id).await?.map(|h| h.worktrees).unwrap_or_default() {
@@ -42,7 +57,59 @@ async fn records(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> {
         }
     }
     list.sort_by_key(|w| (!w.primary, w.created_at));
+    let predrafts = crate::predrafts::list(app).await.ok();
+    for w in &mut list {
+        from_home(app, w, predrafts.as_deref()).await;
+    }
     Ok(list)
+}
+
+/// Home's records win for what Home did: the branch's last merge (`worktrees::merged_on_home`) and its Local PR
+/// (the newest one not discarded), looked up by folder and branch. A runner's record does not know about a merge
+/// or a Local PR made while it was away. `predrafts`: None when the list could not be read (the record's stays).
+async fn from_home(app: &App, w: &mut TaskWorktree, predrafts: Option<&[Predraft]>) {
+    if let Some(m) = crate::worktrees::merged_on_home(app, &w.project_id, &w.branch).await {
+        w.merged = Some(m);
+    }
+    if let Some(list) = predrafts {
+        w.predraft_id = list.iter().find(|p| p.project_id == w.project_id && p.branch == w.branch && !p.archived).map(|p| p.id.clone());
+    }
+}
+
+/// The worktree's folder is gone from its runner: retention removed it after Home confirmed the branch, or the
+/// session moved and its new runner clones it again at the next message. Home answers for it from Home Git,
+/// whatever the runner's state.
+pub fn gone(w: &TaskWorktree) -> bool {
+    w.state == WorktreeState::Removed
+}
+
+/// Home: the folder of the session's primary worktree is gone (Changes are then read on Home).
+pub async fn primary_gone(app: &App, session_id: &str) -> bool {
+    records_sent(app, session_id).await.is_ok_and(|l| l.iter().any(|w| w.primary && gone(w)))
+}
+
+/// Home: the folder of this worktree of the session is gone (Merge then runs on Home).
+pub async fn worktree_gone(app: &App, session_id: &str, worktree_id: &str) -> bool {
+    records_sent(app, session_id).await.is_ok_and(|l| l.iter().any(|w| w.id == worktree_id && gone(w)))
+}
+
+/// Home: the folder of the session's worktree that holds `cwd` is gone (Create Local PR then runs on Home).
+pub async fn folder_gone(app: &App, session_id: &str, cwd: &str) -> bool {
+    records_sent(app, session_id).await.is_ok_and(|l| l.iter().any(|w| crate::terminals::inside(cwd, &w.root) && gone(w)))
+}
+
+/// Home: the worktree records runners sent whose folder is `root` or contains it (Files, `code::open`).
+pub async fn records_at(app: &App, root: &str) -> Vec<TaskWorktree> {
+    let rows: Vec<String> = app
+        .state_db
+        .call(|c| {
+            let mut st = c.prepare("SELECT json FROM runner_worktree")?;
+            let rows = st.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await
+        .unwrap_or_default();
+    rows.iter().filter_map(|j| serde_json::from_str::<TaskWorktree>(j).ok()).filter(|w| root == w.root || root.starts_with(&format!("{}/", w.root))).collect()
 }
 
 /// Whether every session of a worktree is archived on Home (a session Home does not know yet keeps it).
@@ -139,25 +206,53 @@ async fn count(app: &App, dir: &Path, range: &str) -> u32 {
     git(app, dir, &["rev-list", "--count", range, "--"]).await.ok().and_then(|n| n.parse().ok()).unwrap_or(0)
 }
 
-/// A record as the worktree card shows it, from the branch on Home.
-async fn info(app: &App, mut w: TaskWorktree, away: &str) -> WorktreeInfo {
+/// A record as the worktree card shows it, from the branch on Home. `away`: why, when the runner is away.
+async fn info(app: &App, mut w: TaskWorktree, away: Option<&str>) -> WorktreeInfo {
     let project_name = crate::projects::get(app, &w.project_id).await.ok().flatten().map(|p| p.name).unwrap_or_else(|| "Removed folder".into());
     let (mut ahead, mut behind) = (0, 0);
     if let (Some(base), Some(head), Ok(dir)) = (w.base_branch.clone(), head(app, &w).await, mirror(app, &w)) {
         ahead = count(app, &dir, &format!("refs/heads/{base}..{head}")).await;
         behind = count(app, &dir, &format!("{head}..refs/heads/{base}")).await;
-        // Merged on Home while the runner was away: the record does not know yet.
+        // Merged outside Launchpad's merge records (an older merge, a merge on the remote).
         if ahead == 0 && w.merged.is_none() && !w.base_commit.is_empty() && count(app, &dir, &format!("{}..{head}", w.base_commit)).await > 0 {
             w.merged = Some(Merged { base: Some(w.base_commit.clone()), into: base, head, note: String::new(), at: crate::util::now_ms() });
         }
     }
-    if w.predraft_id.is_none() {
-        w.predraft_id = crate::predrafts::list(app).await.ok().and_then(|l| l.into_iter().find(|p| p.project_id == w.project_id && p.branch == w.branch && p.is_open())).map(|p| p.id);
-    }
     let home = head(app, &w).await;
     let unpushed = is_unpushed(w.head.as_deref(), home.as_deref(), &w.base_commit);
     let path = crate::worktrees::folder(&w);
-    WorktreeInfo { worktree: w, project_name, path, exists: false, dirty_files: 0, ahead, behind, unpushed, head: home, away: Some(away.to_string()) }
+    WorktreeInfo { worktree: w, project_name, path, exists: false, dirty_files: 0, ahead, behind, unpushed, head: home, away: away.map(str::to_string) }
+}
+
+/// Home: a connected runner's worktree list (`/api/sessions/{id}/worktrees`, `/api/worktrees`), completed from
+/// Home: the merge and Local PR of each branch from Home's records, and a worktree whose folder is gone described
+/// from its branch on Home (its Merge and Create Local PR run on Home).
+pub async fn complete(app: &App, list: Vec<Value>) -> Vec<Value> {
+    let predrafts = crate::predrafts::list(app).await.ok();
+    let mut out = Vec::with_capacity(list.len());
+    for mut item in list {
+        let Ok(mut w) = serde_json::from_value::<TaskWorktree>(item["worktree"].clone()) else {
+            out.push(item);
+            continue;
+        };
+        from_home(app, &mut w, predrafts.as_deref()).await;
+        if gone(&w) {
+            out.push(serde_json::to_value(info(app, w, None).await).unwrap_or(item));
+            continue;
+        }
+        // Merged on Home (by the worktree or its Local PR) at the tip the runner shows: nothing ahead, whatever the
+        // runner's copy of the base branch says.
+        let local_pr = predrafts.iter().flatten().find(|p| w.predraft_id.as_deref() == Some(p.id.as_str())).and_then(|p| p.merged.as_ref());
+        let tip = item["head"].as_str();
+        if tip.is_some() && (w.merged.as_ref().map(|m| m.head.as_str()) == tip || local_pr.map(|m| m.head.as_str()) == tip) {
+            item["ahead"] = Value::from(0);
+        }
+        if let Ok(v) = serde_json::to_value(&w) {
+            item["worktree"] = v;
+        }
+        out.push(item);
+    }
+    out
 }
 
 /// The runner's last known tip (`local`) is not on Home: Home's branch differs, or Home has none while the tip
@@ -172,10 +267,10 @@ fn is_unpushed(local: Option<&str>, home: Option<&str>, base_commit: &str) -> bo
 
 /// The session's worktrees, for the session view.
 pub async fn worktrees(app: &App, s: &Session) -> Result<Vec<WorktreeInfo>> {
-    let away = reason(app, s).await;
+    let away = away_reason(app, s).await;
     let mut out = vec![];
     for w in records(app, &s.id).await? {
-        out.push(info(app, w, &away).await);
+        out.push(info(app, w, away.as_deref()).await);
     }
     Ok(out)
 }
@@ -190,7 +285,7 @@ pub async fn all_worktrees(app: &App) -> Vec<WorktreeInfo> {
         }
         let away = reason(app, &s).await;
         for w in list.into_iter().filter(|w| w.state != WorktreeState::Discarded && w.sessions.last() == Some(&s.id)) {
-            out.push(info(app, w, &away).await);
+            out.push(info(app, w, Some(&away)).await);
         }
     }
     out
@@ -247,8 +342,8 @@ pub async fn diff(app: &App, s: &Session, path: &str, main: bool, committed: boo
     Ok(GitDiff { staged: String::new(), truncated: patch.len() > 200_000, unstaged: crate::sessions::truncate_output(&patch, 200_000) })
 }
 
-/// A worktree action while the runner is away: Merge runs on Home (only for the `head` the owner reviewed,
-/// which must be Home's tip); the others need the folder.
+/// A worktree action while the runner is away or the folder is gone: Merge runs on Home (only for the `head` the
+/// owner reviewed, which must be Home's tip); the others need the folder.
 pub async fn worktree_action(app: &App, s: &Session, worktree_id: &str, action: &str, reviewed: Option<&str>) -> Result<WorktreeInfo> {
     let away = reason(app, s).await;
     let w = records(app, &s.id).await?.into_iter().find(|w| w.id == worktree_id).with_context(|| format!("{away}, and Home has no record of this worktree"))?;
@@ -264,14 +359,16 @@ pub async fn worktree_action(app: &App, s: &Session, worktree_id: &str, action: 
             if let crate::home_git::MergeOutcome::NeedsRebase { reason, .. } = crate::worktrees::merge_on_home(app, &p, &w.branch, &head, &base).await? {
                 bail!("{reason}. {away}: send the agent a message to rebase it, then merge again.");
             }
-            Ok(info(app, w, &away).await)
+            let mut w = w;
+            from_home(app, &mut w, None).await;
+            Ok(info(app, w, away_reason(app, s).await.as_deref()).await)
         }
         "restore" => bail!("{away}: its folder comes back from the branch on Home when the session continues (send a message, or move it in Summary → Runs on)."),
         _ => bail!("{away}, so this action cannot run now. Merge and Create Local PR work from its branch on Home."),
     }
 }
 
-/// Create Local PR while the runner is away: a Local PR of the branch Home holds.
+/// Create Local PR while the runner is away or the folder is gone: a Local PR of the branch Home holds.
 pub async fn local_pr(app: &App, s: &Session, cwd: &str, title: Option<String>) -> Result<crate::predrafts::Predraft> {
     let away = reason(app, s).await;
     let w = records(app, &s.id).await?.into_iter().find(|w| crate::terminals::inside(cwd, &w.root)).with_context(|| format!("{away}, and Home has no record of this worktree"))?;

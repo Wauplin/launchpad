@@ -115,7 +115,7 @@ pub async fn committed_diff_in(app: &App, w: &crate::worktrees::TaskWorktree, cw
 pub async fn status(app: &App, id: &str) -> Result<GitStatus> {
     let s = app.sessions.get(id).context("no such session")?;
     let cwd = std::path::Path::new(&s.cwd);
-    let base = main_branch(app, cwd).await;
+    let base = compare_base(app, cwd).await;
     let out = procs::command(&app.env, "git", Some(cwd))
         .env("GIT_OPTIONAL_LOCKS", "0")
         .args(["status", "--porcelain=v1", "-z", "--untracked-files=all"])
@@ -251,7 +251,7 @@ pub async fn diff(app: &App, id: &str, path: &str, main: bool) -> Result<GitDiff
         .find(|f| f.path == path)
         .context("file is no longer changed; refresh status")?;
     let cwd = std::path::Path::new(&s.cwd);
-    let base = main_branch(app, cwd).await;
+    let base = compare_base(app, cwd).await;
     let mut paths = vec![path];
     if let Some(previous) = &file.previous {
         paths.push(previous);
@@ -324,7 +324,21 @@ pub async fn diff(app: &App, id: &str, path: &str, main: bool) -> Result<GitDiff
     })
 }
 
-/// The branch "compared with main" uses: the local default branch (`main`, `master` or origin's HEAD),
+/// What "compared with main" compares with. In a task worktree: where the branch left its base branch (the
+/// merge-base of `HEAD` and `origin/<base branch>`), as Home does from its branch when the folder is not on a
+/// connected runner (`away::status`), so both show the same changes. Elsewhere: the local default branch.
+async fn compare_base(app: &App, cwd: &std::path::Path) -> String {
+    if let Ok(Some(w)) = crate::worktrees::find_by_path(app, &cwd.to_string_lossy()).await
+        && let Some(base) = &w.base_branch
+        && let Ok(fork) = procs::output(&app.env, "git", &["merge-base", &format!("refs/remotes/origin/{base}"), "HEAD"], Some(cwd)).await
+        && !fork.is_empty()
+    {
+        return fork;
+    }
+    main_branch(app, cwd).await
+}
+
+/// The branch "compared with main" uses outside task worktrees: the local default branch (`main`, `master` or origin's HEAD),
 /// where task worktrees merge.
 async fn main_branch(app: &App, cwd: &std::path::Path) -> String {
     let default = crate::code::default_branch(&app.env, cwd).await.unwrap_or_else(|| "main".into());

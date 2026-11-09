@@ -397,7 +397,7 @@ pub async fn pull_request_at(app: &App, root: &str) -> Option<PullRequestBranch>
 
 /// Pushes the branch to Home unless Home already has it. Never overwrites a tip Home got elsewhere (a
 /// Restore, another runner): the push expects the tip this clone last saw.
-/// The caller holds `worktree_lock` (the record is saved as it is); `after_turn` pushes without it.
+/// The caller holds `worktree_lock` (the record is saved as it is); other callers use `push_unlocked`.
 pub async fn push(app: &App, w: &mut TaskWorktree) -> Result<bool> {
     let before = push_fields(w);
     let result = push_branch(app, w).await;
@@ -460,22 +460,26 @@ pub async fn record_heads(app: &App, session_id: &str) {
     }
 }
 
+/// `push` for callers without `worktree_lock`: the push runs without the lock (it may take minutes), and its
+/// result goes into the record as it is now, under the lock, so a merge request or cleanup saved meanwhile stays.
+pub async fn push_unlocked(app: &App, w: &mut TaskWorktree) -> Result<bool> {
+    let before = push_fields(w);
+    let result = push_branch(app, w).await;
+    if push_fields(w) != before {
+        let _lock = app.worktree_lock.lock().await;
+        if let Ok(mut fresh) = get(app, &w.id).await {
+            (fresh.head, fresh.pushed, fresh.push_note) = push_fields(w);
+            save(app, &fresh).await?;
+        }
+    }
+    result
+}
+
 /// After every turn (`turn_sync`): the session's branches go to Home. Errors name each branch that failed.
 pub async fn after_turn(app: &App, session_id: &str) -> Result<()> {
     let mut failed = vec![];
     for mut w in for_session(app, session_id).await?.into_iter().filter(|w| w.state == WorktreeState::Active) {
-        // The push runs without the lock (it may take minutes); its result goes into the record as it is now,
-        // so a merge request or cleanup saved meanwhile stays.
-        let before = push_fields(&w);
-        let result = push_branch(app, &mut w).await;
-        if push_fields(&w) != before {
-            let _lock = app.worktree_lock.lock().await;
-            if let Ok(mut fresh) = get(app, &w.id).await {
-                (fresh.head, fresh.pushed, fresh.push_note) = push_fields(&w);
-                save(app, &fresh).await?;
-            }
-        }
-        if let Err(e) = result {
+        if let Err(e) = push_unlocked(app, &mut w).await {
             failed.push(format!("{}: {e:#}", w.branch));
         }
     }
@@ -1023,7 +1027,7 @@ async fn finish_local_pr(app: &App, session_id: &str) -> Result<String> {
     let mut w = all.iter().find(|w| w.primary && w.state == WorktreeState::Active).cloned().context("this session has no Launchpad worktree to turn into a Local PR")?;
     ensure!(w.pull_request.is_none(), "this branch continues a pull request: push your commits instead of opening a Local PR");
     ready_to_finish(app, &w).await?;
-    push(app, &mut w).await.context("push the branch to Home")?;
+    push_unlocked(app, &mut w).await.context("push the branch to Home")?;
     let title = app.sessions.get(session_id).map(|s| s.title).filter(|t| !t.trim().is_empty());
     let p = crate::predrafts::open_for_branch(app, &w.project_id, &w.branch, w.base_branch.as_deref(), Some(session_id), title).await?;
     mark_predraft(app, &w.id, &p.id).await?;
@@ -1158,14 +1162,49 @@ async fn try_merge(app: &App, w: &mut TaskWorktree) -> Result<Step> {
 
 /// Home: a worktree merge (`home_git::merge`) that also closes the open Local PRs of the branch, so they
 /// leave the review lists as merged. Every worktree merge goes through here (Home, a runner's request, away).
+/// Home records the merge (`branch_merge`): it is the source of truth for `merged`, whichever runner holds the
+/// worktree record (`merged_on_home`).
 pub async fn merge_on_home(app: &App, project: &Project, branch: &str, head: &str, base: &str) -> Result<crate::home_git::MergeOutcome> {
+    // Where the branch left its base, before the merge moves the base: the review baseline.
+    let fork = crate::home_git::git_in(app, &crate::home_git::mirror(app, &project.id), &["merge-base", &format!("refs/heads/{base}"), head], 60).await.ok();
     let outcome = crate::home_git::merge(app, project, branch, head, base).await?;
-    if let crate::home_git::MergeOutcome::Merged { head, .. } = &outcome
-        && let Err(e) = crate::predrafts::close_merged(app, &project.id, branch, head).await
-    {
-        tracing::warn!("worktree merge of {branch}: Local PR not marked merged: {e:#}");
+    if let crate::home_git::MergeOutcome::Merged { head: merged, note } = &outcome {
+        if let Err(e) = crate::predrafts::close_merged(app, &project.id, branch, merged).await {
+            tracing::warn!("worktree merge of {branch}: Local PR not marked merged: {e:#}");
+        }
+        let m = Merged { base: fork, into: base.to_string(), head: head.to_string(), note: note.clone(), at: now_ms() };
+        let (project_id, branch_name, json) = (project.id.clone(), branch.to_string(), serde_json::to_string(&m)?);
+        let saved = app
+            .state_db
+            .call(move |c| {
+                c.execute(
+                    "INSERT INTO branch_merge (project_id, branch, json) VALUES (?1, ?2, ?3) ON CONFLICT (project_id, branch) DO UPDATE SET json = excluded.json",
+                    rusqlite::params![project_id, branch_name, json],
+                )?;
+                Ok(())
+            })
+            .await;
+        if let Err(e) = saved {
+            tracing::warn!("worktree merge of {branch}: merge not recorded: {e:#}");
+        }
+        app.bus.publish("worktrees", "merged", json!({"project_id": project.id, "branch": branch}));
     }
     Ok(outcome)
+}
+
+/// Home: the last merge of a Launchpad branch (`merge_on_home`), whichever runner asked or was away.
+pub async fn merged_on_home(app: &App, project_id: &str, branch: &str) -> Option<Merged> {
+    let (project_id, branch) = (project_id.to_string(), branch.to_string());
+    let json: Option<String> = app
+        .state_db
+        .call(move |c| {
+            use rusqlite::OptionalExtension;
+            Ok(c.query_row("SELECT json FROM branch_merge WHERE project_id = ?1 AND branch = ?2", [project_id, branch], |r| r.get(0)).optional()?)
+        })
+        .await
+        .ok()
+        .flatten();
+    serde_json::from_str(&json?).ok()
 }
 
 /// Links the worktree to the Local PR of its branch.

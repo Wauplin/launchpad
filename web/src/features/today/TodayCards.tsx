@@ -94,13 +94,14 @@ function QuestionCard({ item }: { item: TodayItem }) {
 }
 
 /** The primary branch of a session's worktree: its facts, and whether Merge is safe from a card (Done and saved on
- * Home, its runner here, branch on Home, nothing uncommitted, base unchanged). */
+ * Home, its runner here, branch on Home, nothing uncommitted, base unchanged). A folder removed from its runner
+ * merges from its branch on Home. */
 export function useBranch(sessionId: string, s: Session | null) {
   const worktrees = useSessionWorktrees(sessionId).data;
   const w = worktrees?.find((i) => i.worktree.primary) ?? worktrees?.[0];
   const t = w?.worktree;
   const base = t?.base_branch;
-  const safe = !!s && isDone(s) && !s.unsaved && !!w && !!w.head && w.exists && !w.away && !!t && !!base && t.state === "active" && !t.merge && !t.pull_request && !t.predraft_id && w.ahead > 0 && w.dirty_files === 0 && w.behind === 0 && !w.unpushed && !t.push_note;
+  const safe = !!s && isDone(s) && !s.unsaved && !!w && !!w.head && !w.away && !!t && !!base && (t.state === "active" ? w.exists : t.state === "removed") && !t.merge && !t.pull_request && !t.predraft_id && w.ahead > 0 && w.dirty_files === 0 && w.behind === 0 && !w.unpushed && !t.push_note;
   const facts = w && t ? [
     w.ahead ? `${w.ahead} commit${w.ahead === 1 ? "" : "s"} ahead of ${base ?? "base"}` : t.merged ? `merged into ${t.merged.into}` : "no new commit",
     w.dirty_files ? `${w.dirty_files} uncommitted` : "",
