@@ -53,6 +53,16 @@ pub trait LiveSession: Send + Sync {
     async fn stop(&self) -> Result<()>;
     /// Uses this model and effort from the next turn. Returns false when the process must restart to apply them.
     fn set_model(&self, _model: Option<&str>, _effort: Option<&str>) -> bool { false }
+    /// After this long between turns with nothing running or asked, the core releases the process
+    /// (`Sessions::release`, like before a move); the next message resumes the conversation. `None`: kept.
+    fn idle_release(&self) -> Option<std::time::Duration> { None }
+}
+
+/// A session idle long enough for its process to be released (`LiveSession::idle_release`).
+fn idle_release_due(s: &Session, now: i64, after: std::time::Duration) -> bool {
+    matches!(s.status, SessionStatus::Waiting | SessionStatus::Stopped | SessionStatus::Interrupted | SessionStatus::Error)
+        && !s.open_question && s.quota_pause.is_none() && s.capacity_retry_at.is_none()
+        && now - s.status_since >= after.as_millis() as i64
 }
 
 /// Input delivery errors do not prove that the live turn itself failed.
@@ -1507,6 +1517,15 @@ impl Sessions {
             if self.setup_running(&s.id) { continue; }
             if s.live && s.quota_pause.is_none() && (s.status.is_running() || s.status.is_done()) {
                 crate::titles::generate(app, &s);
+            }
+            if let Some(live) = self.live(&s.id)
+                && let Some(after) = live.idle_release()
+                && idle_release_due(&s, now_ms(), after)
+                && self.ensure_shutdown_finished(&s.id).is_ok()
+                && live.ready_for_turn() && !live.turn_active() && !live.has_background_work() && !live.has_open_questions() {
+                drop(live);
+                if let Err(e) = self.release(app, &s.id).await { tracing::info!("release idle process {}: {e:#}", s.id); }
+                continue;
             }
             if (s.budget_reached() || !crate::spend::reached(app, &s.launch_spec).is_empty()) && s.status.is_running() && !s.open_question
                 && let Some(live) = self.live(&s.id).filter(|l| l.turn_active())

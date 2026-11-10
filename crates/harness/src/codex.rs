@@ -1,7 +1,9 @@
-//! Codex adapter: threads on the shared `codex app-server`.
+//! Codex adapter: threads on a `codex app-server`.
 //!
-//! The router (one task) reads every app-server message and hands those with a `threadId` to the
-//! session of that thread.
+//! Each contained session has its own app-server (its environment and jail are the session's), shut
+//! down when the session's process is released (Stop's idle release, Archive, a move); the next
+//! message starts it again. The router (one task per server) reads every app-server message and hands
+//! those with a `threadId` to the session of that thread.
 
 mod rpc;
 
@@ -21,6 +23,8 @@ use launchpad_core::util::now_ms;
 
 pub struct CodexSession {
     server: CodexServer,
+    /// The session's own app-server, shut down when the session is dropped.
+    server_use: Option<ServerUse>,
     threads: Threads,
     thread_id: String,
     /// Model and effort for the next turns: (model, effort).
@@ -127,6 +131,7 @@ async fn start(
     threads: &Threads,
     spec: StartSpec,
     sink: Sink,
+    server_use: Option<ServerUse>,
 ) -> Result<Arc<dyn LiveSession>> {
     let cwd = spec.cwd.to_string_lossy().to_string();
     let (approval, reviewer, sandbox) = if spec.browser { ("never", "user", "read-only") } else { permission_settings(spec.permission_mode) };
@@ -232,6 +237,7 @@ async fn start(
     }
     Ok(Arc::new(CodexSession {
         server: server.clone(),
+        server_use,
         threads: threads.clone(),
         thread_id,
         model: Mutex::new((spec.model, spec.effort)),
@@ -329,6 +335,11 @@ impl LiveSession for CodexSession {
     }
 
     fn turn_active(&self) -> bool { !self.active_turns().is_empty() }
+
+    /// An idle session's own app-server is released; the next message resumes the thread on a new one.
+    fn idle_release(&self) -> Option<std::time::Duration> {
+        self.server_use.as_ref().map(|_| IDLE_RELEASE)
+    }
 
     fn set_model(&self, model: Option<&str>, effort: Option<&str>) -> bool {
         *self.model.lock().unwrap() = (model.map(str::to_string), effort.map(str::to_string));
@@ -459,7 +470,8 @@ impl LiveSession for CodexSession {
             let Some((sink, state)) = root else { return Ok(()); };
             cancel_requests(&sink, &state).await;
             // Archive/handoff must stop commands left behind by an ended or failed turn.
-            // Interrupt alone does not terminate these; never restart the shared server.
+            // Interrupt alone does not terminate these; the server itself shuts down only once the
+            // session is dropped (`ServerUse`).
             for (thread, (_, state)) in self.owned_threads() {
                 if !state.lock().unwrap().commands.is_empty() {
                     self.server.request("thread/backgroundTerminals/clean", json!({"threadId": thread})).await?;
@@ -486,9 +498,10 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
     let router_threads = threads.clone();
     tokio::spawn(async move {
         let mut rx = server.subscribe();
-        loop {
-            match rx.recv().await {
-                Ok(Incoming::Notification { method, params }) => {
+        // Ends when the server shuts down (its subscriptions close).
+        while let Some(msg) = rx.recv().await {
+            match msg {
+                Incoming::Notification { method, params } => {
                     // Native thread ancestry catches nested agents, including calls inside code mode.
                     if method == "thread/started" {
                         let thread = &params["thread"];
@@ -524,7 +537,7 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
                     notification(&entry.0, &entry.1, &method, &params, &router_threads).await;
                     settle_parent(&router_threads, &entry.0).await;
                 }
-                Ok(Incoming::Request { id, method, mut params }) => {
+                Incoming::Request { id, method, mut params } => {
                     let entry = params["threadId"]
                         .as_str()
                         .and_then(|t| router_threads.lock().unwrap().get(t).cloned());
@@ -543,7 +556,7 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
                     } else { entry };
                     request(&server, entry, id, &method, &params).await;
                 }
-                Ok(Incoming::Exited) => {
+                Incoming::Exited => {
                     // Every live thread is lost. Done sessions resume when you send a message.
                     let all: Vec<(String, ThreadSession)> =
                         router_threads.lock().unwrap().drain().collect();
@@ -553,8 +566,6 @@ fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
                         sink.exited(Some("codex app-server exited".into())).await;
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => tracing::warn!("codex router lagged by {n} messages"),
-                Err(_) => break,
             }
         }
     });
@@ -1095,7 +1106,7 @@ pub const REGISTRATION: harness::Registration = harness::Registration {
         Arc::new(Adapter {
             env: env.clone(),
             server: CodexServer::new(env.clone()),
-            profile_servers: Mutex::default(),
+            profile_servers: Arc::default(),
             quota_servers: Mutex::default(),
             threads: Arc::default(),
         })
@@ -1108,13 +1119,41 @@ pub const REGISTRATION: harness::Registration = harness::Registration {
 };
 /// A profile environment.
 type ProfileEnv = Vec<(String, String)>;
+/// App-servers by environment, with their thread routes and the number of live sessions on each.
+type Pool = Arc<Mutex<HashMap<ProfileEnv, (CodexServer, Threads, usize)>>>;
+
+/// How long a session's own app-server stays after its last turn, with nothing running or asked.
+const IDLE_RELEASE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// One live session on a pooled app-server: the last one to go shuts the server down.
+struct ServerUse {
+    pool: Pool,
+    key: ProfileEnv,
+}
+
+impl Drop for ServerUse {
+    fn drop(&mut self) {
+        let server = {
+            let mut pool = self.pool.lock().unwrap();
+            let Some(entry) = pool.get_mut(&self.key) else { return };
+            entry.2 = entry.2.saturating_sub(1);
+            if entry.2 > 0 { return; }
+            pool.remove(&self.key).map(|(server, _, _)| server)
+        };
+        if let Some(server) = server
+            && let Ok(rt) = tokio::runtime::Handle::try_current() {
+            rt.spawn(async move { server.shutdown().await });
+        }
+    }
+}
 pub struct Adapter {
     env: launchpad_core::shellenv::UserEnv,
     /// The shared app-server, also used for quotas and models.
     server: CodexServer,
-    /// One app-server per host and distinct profile environment (`CODEX_HOME`, API keys), started on first
-    /// use, with its own thread routes: an app-server exit only ends its own threads.
-    profile_servers: Mutex<HashMap<ProfileEnv, (CodexServer, Threads)>>,
+    /// One app-server per distinct session environment (contained sessions: one per session, as the
+    /// environment holds the session's home and token), started on first use, with its own thread
+    /// routes: an app-server exit only ends its own threads. Shut down when its last session is dropped.
+    profile_servers: Pool,
     /// App-servers that only read the quota of another account (`CODEX_HOME`), by account key.
     quota_servers: Mutex<HashMap<String, CodexServer>>,
     threads: Threads,
@@ -1150,18 +1189,22 @@ impl harness::Harness for Adapter {
     }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
         if spec.env.is_empty() && spec.jail.is_none() {
-            return start(app, &self.server, &self.threads, spec, sink).await;
+            return start(app, &self.server, &self.threads, spec, sink, None).await;
         }
         let (server, threads) = {
             let mut servers = self.profile_servers.lock().unwrap();
-            servers.entry(spec.env.clone()).or_insert_with(|| {
+            let entry = servers.entry(spec.env.clone()).or_insert_with(|| {
                 let server = CodexServer::new(spec.process_env(&self.env));
                 let threads = Threads::default();
                 spawn_router(app, &server, &threads);
-                (server, threads)
-            }).clone()
+                (server, threads, 0)
+            });
+            entry.2 += 1;
+            (entry.0.clone(), entry.1.clone())
         };
-        start(app, &server, &threads, spec, sink).await
+        // Counted before the start: a failed start drops it, which shuts an unused server down.
+        let server_use = ServerUse { pool: self.profile_servers.clone(), key: spec.env.clone() };
+        start(app, &server, &threads, spec, sink, Some(server_use)).await
     }
     /// Placeholders in `auth.json` (with a fresh `last_refresh`, so Codex never refreshes) and the ChatGPT
     /// endpoints pointed at the proxy, which adds the access token Home keeps fresh.
@@ -1373,11 +1416,11 @@ fn spawn_quota(app: &App, server: CodexServer, account: String) -> tokio::task::
                 tokio::select! {
                     _ = &mut wait => break,
                     msg = rx.recv() => match msg {
-                        Ok(Incoming::Notification { method, params }) if method == "account/rateLimits/updated" => {
+                        Some(Incoming::Notification { method, params }) if method == "account/rateLimits/updated" => {
                             rate_limits(&a.status, &account, &params["rateLimits"]);
                         }
-                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                        Err(_) => { (&mut wait).await; break; }
+                        Some(_) => {}
+                        None => { (&mut wait).await; break; }
                     },
                 }
             }

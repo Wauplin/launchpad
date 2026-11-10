@@ -1,7 +1,7 @@
 //! Client for `codex app-server`: JSON-RPC over stdio, one JSON object per line, no `"jsonrpc"` field.
 //!
-//! One process is shared by every Codex session and by the quota monitor. It is started on first use
-//! and started again after it exits.
+//! A server is started on first use and started again after it exits, until [`CodexServer::shutdown`].
+//! Contained sessions each have their own; the quota monitor has one per login.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -11,7 +11,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{mpsc, oneshot};
 
 use launchpad_core::shellenv::UserEnv;
 
@@ -45,6 +45,8 @@ struct Proc {
     stdin: tokio::sync::Mutex<launchpad_core::exec::Stdin>,
     pending: Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>,
     alive: std::sync::atomic::AtomicBool,
+    /// Asks the reader to kill the process (it owns the child, so a reaped PID is never signalled).
+    kill: tokio::sync::Notify,
 }
 
 /// Starts `codex app-server` on demand and routes its messages.
@@ -53,17 +55,21 @@ pub struct CodexServer {
     env: UserEnv,
     proc: Arc<tokio::sync::Mutex<Option<Arc<Proc>>>>,
     next_id: Arc<AtomicI64>,
-    incoming: broadcast::Sender<Incoming>,
+    /// Every message reaches every subscriber, in order and without loss: the queues are unbounded, so
+    /// a slow consumer (the router waiting on the database) delays messages but never drops a turn end.
+    subscribers: Arc<Mutex<Vec<mpsc::UnboundedSender<Incoming>>>>,
+    /// Set by [`CodexServer::shutdown`]: no new process starts.
+    closed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl CodexServer {
     pub fn new(env: UserEnv) -> CodexServer {
-        let (incoming, _) = broadcast::channel(8192);
         CodexServer {
             env,
             proc: Arc::new(tokio::sync::Mutex::new(None)),
             next_id: Arc::new(AtomicI64::new(0)),
-            incoming,
+            subscribers: Arc::default(),
+            closed: Arc::default(),
         }
     }
 
@@ -77,13 +83,37 @@ impl CodexServer {
         }
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<Incoming> {
-        self.incoming.subscribe()
+    /// Ends the process for good and closes every subscription (their receivers then end).
+    /// The process exits at the end of its input; it is killed when it has not after 5 seconds.
+    pub async fn shutdown(&self) {
+        self.closed.store(true, Ordering::Relaxed);
+        self.subscribers.lock().unwrap().clear();
+        let old = self.proc.lock().await.take();
+        if let Some(p) = old {
+            p.alive.store(false, Ordering::Relaxed);
+            let _ = p.stdin.lock().await.shutdown().await;
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                // Harmless when the process already exited.
+                p.kill.notify_one();
+            });
+        }
+    }
+
+    pub fn subscribe(&self) -> mpsc::UnboundedReceiver<Incoming> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        self.subscribers.lock().unwrap().push(tx);
+        rx
+    }
+
+    fn publish(subscribers: &Mutex<Vec<mpsc::UnboundedSender<Incoming>>>, msg: Incoming) {
+        subscribers.lock().unwrap().retain(|tx| tx.send(msg.clone()).is_ok());
     }
 
     /// Returns the running process, starting it (and sending `initialize`) when needed.
     async fn get(&self) -> Result<Arc<Proc>> {
         let mut guard = self.proc.lock().await;
+        anyhow::ensure!(!self.closed.load(Ordering::Relaxed), "codex app-server was shut down");
         if let Some(p) = guard.as_ref()
             && p.alive.load(Ordering::Relaxed)
         {
@@ -128,6 +158,7 @@ impl CodexServer {
             stdin: tokio::sync::Mutex::new(stdin),
             pending: Mutex::new(HashMap::new()),
             alive: std::sync::atomic::AtomicBool::new(true),
+            kill: tokio::sync::Notify::new(),
         });
 
         tokio::spawn(async move {
@@ -138,10 +169,18 @@ impl CodexServer {
         });
 
         let reader_proc = p.clone();
-        let incoming = self.incoming.clone();
+        let incoming = self.subscribers.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
+            loop {
+                let line = tokio::select! {
+                    line = lines.next_line() => line,
+                    _ = reader_proc.kill.notified() => {
+                        let _ = child.start_kill();
+                        continue;
+                    }
+                };
+                let Ok(Some(line)) = line else { break };
                 let Ok(msg) = serde_json::from_str::<Value>(&line) else {
                     tracing::warn!("codex app-server: invalid line: {line}");
                     continue;
@@ -154,11 +193,11 @@ impl CodexServer {
                 match (method, id) {
                     (Some(method), Some(id)) => {
                         let params = msg.get("params").cloned().unwrap_or(Value::Null);
-                        let _ = incoming.send(Incoming::Request { id, method, params });
+                        Self::publish(&incoming, Incoming::Request { id, method, params });
                     }
                     (Some(method), None) => {
                         let params = msg.get("params").cloned().unwrap_or(Value::Null);
-                        let _ = incoming.send(Incoming::Notification { method, params });
+                        Self::publish(&incoming, Incoming::Notification { method, params });
                     }
                     (None, Some(id)) => {
                         let Some(id) = id.as_i64() else { continue };
@@ -180,7 +219,7 @@ impl CodexServer {
             }
             let status = child.wait().await;
             tracing::warn!("codex app-server exited: {status:?}");
-            let _ = incoming.send(Incoming::Exited);
+            Self::publish(&incoming, Incoming::Exited);
         });
         Ok(p)
     }

@@ -154,3 +154,22 @@ async fn context_trace_errors_name_the_agent_and_what_home_has() {
     assert_eq!(format!("{short:#}"), "The context trace of agent a goes through event 9, but Home has its events through 5 only");
     assert!(super::resolve_traces(&[trace_ref("../x", 1)], |_| None, |id| async move { Ok(trace_source(&id, 5)) }).await.is_err());
 }
+
+#[test]
+fn only_sessions_idle_between_turns_release_their_process() {
+    let session = |status: &str, open_question: bool| -> crate::model::Session { serde_json::from_value(serde_json::json!({
+        "id": "a", "harness": "codex", "cwd": "/tmp", "title": "task",
+        "status": status, "status_since": 1_000, "live": true, "open_question": open_question,
+        "prompt": "task", "usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}, "started_at": 0, "last_seq": 0,
+        "launch_spec": {}, "seen_at": 0,
+    })).unwrap() };
+    let after = std::time::Duration::from_secs(600);
+    let due = 1_000 + 600_000;
+    assert!(super::idle_release_due(&session("waiting", false), due, after));
+    assert!(super::idle_release_due(&session("stopped", false), due, after));
+    assert!(!super::idle_release_due(&session("waiting", false), due - 1, after));
+    assert!(!super::idle_release_due(&session("waiting", true), due, after), "an open question keeps the process");
+    for running in ["working", "background", "starting", "in_terminal", "quota_paused"] {
+        assert!(!super::idle_release_due(&session(running, false), due, after), "{running}");
+    }
+}
