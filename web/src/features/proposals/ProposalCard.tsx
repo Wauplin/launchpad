@@ -414,7 +414,7 @@ export const ProposalLine = memo(function ProposalLine({ p, onReply }: { p: Prop
     folder: (id) => projects?.find((x) => x.id === id)?.name,
     bot: (id) => bots?.find((b) => b.id === id)?.settings.name,
     session: (id) => sessions?.find((s) => s.id === id)?.title,
-    action: (name) => (ACTIONS as Record<string, { help: string }>)[name]?.help.toLowerCase(),
+    action: (name) => { const h = (ACTIONS as Record<string, { help: string }>)[name]?.help; return h && h.charAt(0).toLowerCase() + h.slice(1); },
   });
   const b = p.body;
   const ready = b.kind === "ready" ? readyCall(b) : null;

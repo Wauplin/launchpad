@@ -297,7 +297,7 @@ export function agentsWorld() {
       ...tool("Bash", "launchpad inbox list --workspace Acme", "[{\"repo\":\"acme-labs/billing-api\",\"number\":77,\"reason\":\"mention\",\"title\":\"Invoices API returns 500 on empty cart\"}, …]"),
       ...tool("Bash", "launchpad propose launch --title \"Fix the empty-cart 500 in the invoices API\" --spec-file /tmp/fix.json", "Proposal created (waiting for the owner)"),
       ...tool("Bash", "launchpad propose cron --title \"Weekly docs link check\" --spec-file /tmp/links.json", "Proposal created (waiting for the owner)"),
-      say("I proposed two things; nothing starts until you press its button:\n\n1. **Fix the empty-cart 500 in the invoices API**: issue #77 mentions you, and the fix looks small.\n2. **Weekly docs link check**: a repeating agent every Monday at 09:00 that reports broken links in docs.\n\nBoth cards are in **Proposals**."),
+      say("I proposed two things; nothing starts until you press its button:\n\n1. **Fix the empty-cart 500 in the invoices API**: issue #77 mentions you, and the fix looks small.\n2. **Weekly docs link check**: a repeating agent every Monday at 09:00 that reports broken links in docs.\n\nBoth cards are below."),
       ...end(1), status("waiting"),
     ] });
   // Bots: the Maintainer of storefront, one session in its thread (its definition is in world/bots.ts).
