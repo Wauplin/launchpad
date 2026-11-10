@@ -322,8 +322,10 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
         return;
     }
     if !send(&mut tx, &profiles(&s)).await || !send(&mut tx, &settings(&s)).await { return; }
-    let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<ToRunner>();
-    let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, runner.burst, out_tx);
+    // From here on one writer sends: the control lane first, exchange body parts when it is empty.
+    let (out_tx, bulk_tx, mut writer) = crate::wire::lanes::<ToRunner>(tx);
+    let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, runner.burst, (out_tx.clone(), bulk_tx));
+    let send = |msg: ToRunner| out_tx.send(msg).is_ok();
     tokio::spawn({
         let (app, id) = (s.app.clone(), runner.id.clone());
         async move { runners::deliver_pending(&app, &id).await }
@@ -333,16 +335,14 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
     }
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING, PING);
     let mut last_heard = tokio::time::Instant::now();
-    // Request bodies of HTTP exchanges in progress.
-    let mut bodies: std::collections::HashMap<u64, tokio::sync::mpsc::UnboundedSender<bytes::Bytes>> = Default::default();
+    // HTTP exchanges in progress: where their request body goes, their response window and their task.
+    let mut bodies: std::collections::HashMap<u64, crate::wire::InboundTx> = Default::default();
+    let mut exchanges: std::collections::HashMap<u64, (std::sync::Arc<tokio::sync::Semaphore>, tokio::task::AbortHandle)> = Default::default();
     // The replica item that keeps failing to store, and since when (`replica::give_up`).
     let mut failing: Option<(u64, i64)> = None;
     loop {
         tokio::select! {
-            msg = out_rx.recv() => {
-                let Some(msg) = msg else { break };
-                if !send(&mut tx, &msg).await { break }
-            }
+            _ = &mut writer => break,
             delivered = bus.recv() => {
                 // Workspaces and Git folders are Home's: every runner gets each new snapshot.
                 let (w, f, p) = match delivered {
@@ -350,9 +350,9 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => (true, true, true),
                     Err(_) => (false, false, false),
                 };
-                if p && (!send(&mut tx, &profiles(&s)).await || !send(&mut tx, &settings(&s)).await) { break }
-                if w && !send(&mut tx, &workspaces(&s).await).await { break }
-                if f && let Some(f) = folders(&s).await && !send(&mut tx, &f).await { break }
+                if p && (!send(profiles(&s)) || !send(settings(&s))) { break }
+                if w && !send(workspaces(&s).await) { break }
+                if f && let Some(f) = folders(&s).await && !send(f) { break }
             }
             _ = ping.tick() => {
                 // A silent runner (sleeping laptop, dead network) is dropped after three missed pings.
@@ -383,7 +383,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                             }
                             last = n;
                         }
-                        if !send(&mut tx, &ToRunner::Ack { n: last }).await { break }
+                        if !send(ToRunner::Ack { n: last }) { break }
                     }
                     Ok(FromRunner::Req { id, method, path, body, session }) => {
                         let (app, out) = (s.app.clone(), s.app.runners.clone());
@@ -411,29 +411,56 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                         });
                     }
                     Ok(FromRunner::HttpOpen { id, target, method, path, headers }) => {
-                        let (body_tx, body_rx) = tokio::sync::mpsc::unbounded_channel();
+                        exchanges.retain(|_, (_, task)| !task.is_finished());
+                        bodies.retain(|_, b| !b.is_closed());
+                        // Each part the exchange reads lets the runner send one more; dropping the body unread
+                        // stops the runner's upload.
+                        let (ack, stop) = (s.app.runners.clone(), s.app.runners.clone());
+                        let (r1, r2) = (runner.id.clone(), runner.id.clone());
+                        let (body_tx, body) = crate::wire::Inbound::new(move |n| ack.send_to(&r1, ToRunner::HttpAck { id, n }), move || stop.send_to(&r2, ToRunner::HttpCancel { id }));
                         bodies.insert(id, body_tx);
-                        tokio::spawn(crate::exchange::run(s.clone(), runner.id.clone(), id, target, method, path, headers, body_rx));
+                        let window = crate::wire::window();
+                        let task = tokio::spawn(crate::exchange::run(s.clone(), runner.id.clone(), id, target, method, path, headers, body, window.clone()));
+                        exchanges.insert(id, (window, task.abort_handle()));
                     }
                     Ok(FromRunner::HttpBody { id, data, end }) => {
                         if let Some(b) = bodies.get(&id) && !data.is_empty() {
-                            match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data) {
-                                Ok(bytes) => { let _ = b.send(bytes.into()); }
-                                Err(_) => { bodies.remove(&id); }
+                            let part = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data).map(bytes::Bytes::from);
+                            // A bad part, a reader that is gone or a runner past its window ends the body.
+                            if !part.is_ok_and(|p| b.push(Ok(p))) {
+                                bodies.remove(&id);
+                                send(ToRunner::HttpCancel { id });
                             }
                         }
                         if end { bodies.remove(&id); }
                     }
+                    Ok(FromRunner::HttpAck { id, n }) => {
+                        if let Some((window, _)) = exchanges.get(&id) { crate::wire::acked(window, n); }
+                    }
+                    Ok(FromRunner::HttpCancel { id }) => {
+                        // The runner's client went away: the exchange and its upstream stop now.
+                        bodies.remove(&id);
+                        if let Some((window, task)) = exchanges.remove(&id) {
+                            window.close();
+                            task.abort();
+                        }
+                    }
                     Ok(FromRunner::WsFrame { id, text, data }) => crate::terminals::from_runner(&runner.id, id, text, data),
                     Ok(FromRunner::WsClose { id, .. }) => crate::terminals::closed_by_runner(&runner.id, id),
                     Ok(FromRunner::Terminals) => s.app.bus.publish("terminals", "changed", Value::Null),
-                    Ok(FromRunner::Ping) => { if !send(&mut tx, &ToRunner::Pong).await { break } }
+                    Ok(FromRunner::Ping) => { if !send(ToRunner::Pong) { break } }
                     Ok(FromRunner::Hello { .. }) => {}
                     Err(e) => tracing::warn!("runner {}: bad message: {e}", runner.id),
                 }
             }
         }
     }
+    // Exchanges of this connection end with it (their upstreams close).
+    for (window, task) in exchanges.into_values() {
+        window.close();
+        task.abort();
+    }
+    writer.abort();
     s.app.runners.disconnected(&s.app, &runner.id, conn);
     // Its terminals leave Home's list, and their viewers reconnect once it is back.
     crate::terminals::runner_gone(&runner.id);

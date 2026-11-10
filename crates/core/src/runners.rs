@@ -587,8 +587,13 @@ pub mod proto {
         Call { id: u64, op: String, body: serde_json::Value },
         /// Starts an HTTP exchange through Home; Home answers with `ToRunner::HttpHead` and `HttpBody` frames.
         HttpOpen { id: u64, target: HttpTarget, method: String, path: String, headers: Vec<(String, String)> },
-        /// A part of a request body (base64); `end` closes it.
+        /// A part of a request body (base64); `end` closes it. Parts travel in the bulk lane, at most
+        /// `server::wire::WINDOW` bytes ahead of Home's `ToRunner::HttpAck`.
         HttpBody { id: u64, data: String, end: bool },
+        /// The runner consumed `n` bytes of the response body of exchange `id`: Home may send `n` more.
+        HttpAck { id: u64, n: u32 },
+        /// The runner dropped exchange `id` (its client went away): Home stops it and drops its upstream.
+        HttpCancel { id: u64 },
         /// A frame of a WebSocket Home opened with `ToRunner::WsOpen`: `text`, or binary `data` in base64.
         WsFrame { id: u64, #[serde(default)] text: Option<String>, #[serde(default)] data: Option<String> },
         /// That WebSocket ended; `error` when it could not open (no such terminal).
@@ -627,8 +632,14 @@ pub mod proto {
         RenewLeases { login: String },
         /// The status and headers of an exchange opened with `FromRunner::HttpOpen`.
         HttpHead { id: u64, status: u16, headers: Vec<(String, String)> },
-        /// A part of a response body (base64); `end` closes it, with `error` when it ended early.
+        /// A part of a response body (base64); `end` closes it, with `error` when it ended early. Parts travel in
+        /// the bulk lane, at most `server::wire::WINDOW` bytes ahead of the runner's `FromRunner::HttpAck`.
         HttpBody { id: u64, data: String, end: bool, error: Option<String> },
+        /// Home consumed `n` bytes of the request body of exchange `id`: the runner may send `n` more.
+        HttpAck { id: u64, n: u32 },
+        /// Home stopped reading the request body of exchange `id`: the runner stops sending it (the response,
+        /// if any, still comes).
+        HttpCancel { id: u64 },
         /// Opens a viewer WebSocket on the runner for a window of Home. Only a terminal's
         /// (`/api/terminals/{id}/ws[?offset=…]`): the PTY and its output stay on the runner, frames pass through.
         WsOpen { id: u64, path: String },
@@ -641,7 +652,10 @@ pub mod proto {
 }
 
 struct Link {
+    /// The control lane: requests, answers, acknowledgements, snapshots (small, sent first).
     tx: mpsc::UnboundedSender<proto::ToRunner>,
+    /// The bulk lane: parts of exchange bodies, bounded (`send_bulk` waits for room).
+    bulk: mpsc::Sender<proto::ToRunner>,
     compat: Compat,
     guard: Guard,
     /// A Burst runner: it runs only the session it was started for.
@@ -669,9 +683,11 @@ struct HubInner {
 
 impl Hub {
     /// Registers a tunnel; a previous one of the same runner is replaced (and closes when its sender drops).
-    pub fn connect(&self, app: &App, id: &str, compat: Compat, guard: Guard, dedicated: bool, tx: mpsc::UnboundedSender<proto::ToRunner>) -> u64 {
+    /// `lanes`: the connection's control lane and bulk lane.
+    pub fn connect(&self, app: &App, id: &str, compat: Compat, guard: Guard, dedicated: bool, lanes: (mpsc::UnboundedSender<proto::ToRunner>, mpsc::Sender<proto::ToRunner>)) -> u64 {
+        let (tx, bulk) = lanes;
         let conn = self.inner.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        self.inner.links.lock().unwrap().insert(id.into(), Link { tx, compat, guard, dedicated, conn });
+        self.inner.links.lock().unwrap().insert(id.into(), Link { tx, bulk, compat, guard, dedicated, conn });
         app.bus.publish("runners", "changed", serde_json::Value::Null);
         conn
     }
@@ -714,6 +730,16 @@ impl Hub {
     pub fn send_to(&self, id: &str, msg: proto::ToRunner) {
         if let Some(l) = self.inner.links.lock().unwrap().get(id) {
             let _ = l.tx.send(msg);
+        }
+    }
+
+    /// Sends a part of an exchange body to a connected runner in the bulk lane, waiting while the lane is full.
+    /// False: the runner is not connected (or its connection changed).
+    pub async fn send_bulk(&self, id: &str, msg: proto::ToRunner) -> bool {
+        let bulk = self.inner.links.lock().unwrap().get(id).map(|l| l.bulk.clone());
+        match bulk {
+            Some(b) => b.send(msg).await.is_ok(),
+            None => false,
         }
     }
 

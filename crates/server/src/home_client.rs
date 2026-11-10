@@ -27,76 +27,96 @@ const REPLICA_RETRY: Duration = Duration::from_secs(3);
 pub use launchpad_http::FROM_HOME;
 
 type Head = (u16, Vec<(String, String)>);
-type BodyTx = tokio::sync::mpsc::UnboundedSender<Result<bytes::Bytes, std::io::Error>>;
 
 /// The open tunnel, for requests from this runner to Home.
 #[derive(Default)]
 struct HomeHandle {
+    /// The control lane (`wire::lanes`).
     tx: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<FromRunner>>>,
+    /// The bulk lane: parts of request bodies.
+    bulk: std::sync::Mutex<Option<tokio::sync::mpsc::Sender<FromRunner>>>,
     pending: std::sync::Mutex<std::collections::HashMap<u64, tokio::sync::oneshot::Sender<(u16, String)>>>,
     next: std::sync::atomic::AtomicU64,
     /// HTTP exchanges through Home: waiting for their head, then receiving their body.
     heads: std::sync::Mutex<std::collections::HashMap<u64, tokio::sync::oneshot::Sender<Head>>>,
-    bodies: std::sync::Mutex<std::collections::HashMap<u64, BodyTx>>,
+    bodies: std::sync::Mutex<std::collections::HashMap<u64, crate::wire::InboundTx>>,
+    /// Request bodies on their way to Home: the window Home's `HttpAck`s open.
+    uploads: std::sync::Mutex<std::collections::HashMap<u64, std::sync::Arc<tokio::sync::Semaphore>>>,
 }
 
 impl HomeHandle {
     /// The tunnel closed: waiting requests and exchanges fail now instead of timing out.
     fn clear(&self) {
         *self.tx.lock().unwrap() = None;
+        *self.bulk.lock().unwrap() = None;
         self.pending.lock().unwrap().clear();
         self.heads.lock().unwrap().clear();
         for (_, b) in self.bodies.lock().unwrap().drain() {
-            let _ = b.send(Err(std::io::Error::other("Home disconnected")));
+            b.push(Err(std::io::Error::other("Home disconnected")));
+        }
+        for (_, w) in self.uploads.lock().unwrap().drain() {
+            w.close();
         }
     }
 }
 
-/// Largest body part per frame, before base64.
-const CHUNK: usize = 256 * 1024;
+/// Sends a message in the control lane. False: Home is not connected.
+fn control(msg: FromRunner) -> bool {
+    HOME.tx.lock().unwrap().as_ref().is_some_and(|t| t.send(msg).is_ok())
+}
+
+/// This runner dropped exchange `id` (its client went away, or Home did not answer): Home stops it.
+fn cancel_exchange(id: u64) {
+    HOME.heads.lock().unwrap().remove(&id);
+    HOME.bodies.lock().unwrap().remove(&id);
+    if let Some(w) = HOME.uploads.lock().unwrap().remove(&id) {
+        w.close();
+    }
+    control(FromRunner::HttpCancel { id });
+}
 
 fn b64(data: &[u8]) -> String {
     base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data)
 }
 
-/// Opens an HTTP exchange through Home and streams the request body there.
+/// Opens an HTTP exchange through Home and streams the request body there, at most `wire::WINDOW` bytes ahead
+/// of Home's acknowledgements. The answer's body acknowledges each part read; dropping it early cancels the
+/// exchange on Home.
 async fn stream_to_home(target: launchpad_core::runners::proto::HttpTarget, method: String, path: String, headers: Vec<(String, String)>, mut body: home_link::ByteStream) -> anyhow::Result<home_link::HttpReply> {
     let id = HOME.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
     let (head_tx, head_rx) = tokio::sync::oneshot::channel();
-    let (body_tx, body_rx) = tokio::sync::mpsc::unbounded_channel();
+    // Created first: every early return below drops it, which cancels the exchange.
+    let (body_tx, reply_body) = crate::wire::Inbound::new(move |n| { control(FromRunner::HttpAck { id, n }); }, move || cancel_exchange(id));
+    let window = crate::wire::window();
     HOME.heads.lock().unwrap().insert(id, head_tx);
     HOME.bodies.lock().unwrap().insert(id, body_tx);
-    let tx = HOME.tx.lock().unwrap().clone();
-    let Some(tx) = tx.filter(|t| t.send(FromRunner::HttpOpen { id, target, method, path, headers }).is_ok()) else {
-        HOME.heads.lock().unwrap().remove(&id);
-        HOME.bodies.lock().unwrap().remove(&id);
+    HOME.uploads.lock().unwrap().insert(id, window.clone());
+    let bulk = HOME.bulk.lock().unwrap().clone();
+    let Some(bulk) = bulk.filter(|_| control(FromRunner::HttpOpen { id, target, method, path, headers })) else {
         anyhow::bail!("Home is unreachable");
     };
     tokio::spawn(async move {
         while let Some(part) = body.next().await {
             let Ok(part) = part else { break };
-            for c in part.chunks(CHUNK) {
-                if tx.send(FromRunner::HttpBody { id, data: b64(c), end: false }).is_err() {
+            for c in part.chunks(crate::wire::CHUNK) {
+                if !crate::wire::take_part(&window, c.len()).await || bulk.send(FromRunner::HttpBody { id, data: b64(c), end: false }).await.is_err() {
                     return;
                 }
             }
         }
-        let _ = tx.send(FromRunner::HttpBody { id, data: String::new(), end: true });
+        let _ = bulk.send(FromRunner::HttpBody { id, data: String::new(), end: true }).await;
+        HOME.uploads.lock().unwrap().remove(&id);
     });
     let (status, headers) = match tokio::time::timeout(Duration::from_secs(120), head_rx).await {
         Ok(Ok(h)) => h,
         Ok(Err(_)) => anyhow::bail!("Home disconnected before answering"),
-        Err(_) => {
-            HOME.heads.lock().unwrap().remove(&id);
-            HOME.bodies.lock().unwrap().remove(&id);
-            anyhow::bail!("Home did not answer within two minutes")
-        }
+        Err(_) => anyhow::bail!("Home did not answer within two minutes"),
     };
-    let body = futures_util::stream::unfold(body_rx, |mut rx| async move { rx.recv().await.map(|item| (item, rx)) });
-    Ok(home_link::HttpReply { status, headers, body: Box::pin(body) })
+    Ok(home_link::HttpReply { status, headers, body: Box::pin(reply_body) })
 }
 
-/// Home answered an exchange: its head, or a part of its body.
+/// Home answered an exchange: its head, a part of its body, room for more of the request body, or the end of
+/// Home's interest in the request body.
 fn http_from_home(msg: ToRunner) {
     match msg {
         ToRunner::HttpHead { id, status, headers } => {
@@ -105,18 +125,36 @@ fn http_from_home(msg: ToRunner) {
             }
         }
         ToRunner::HttpBody { id, data, end, error } => {
-            let mut bodies = HOME.bodies.lock().unwrap();
-            if let Some(tx) = bodies.get(&id) {
+            let tx = HOME.bodies.lock().unwrap().get(&id).cloned();
+            let mut ok = true;
+            if let Some(tx) = &tx {
                 if !data.is_empty() {
                     let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data).map_err(std::io::Error::other);
-                    let _ = tx.send(bytes.map(bytes::Bytes::from));
+                    // A reader that is gone, or Home past its window, ends the exchange.
+                    ok = tx.push(bytes.map(bytes::Bytes::from));
                 }
                 if let Some(e) = error {
-                    let _ = tx.send(Err(std::io::Error::other(e)));
+                    tx.push(Err(std::io::Error::other(e)));
                 }
             }
-            if end {
-                bodies.remove(&id);
+            if !ok {
+                cancel_exchange(id);
+            } else if end {
+                // The exchange is over: what is left of the request body is not needed.
+                HOME.bodies.lock().unwrap().remove(&id);
+                if let Some(w) = HOME.uploads.lock().unwrap().remove(&id) {
+                    w.close();
+                }
+            }
+        }
+        ToRunner::HttpAck { id, n } => {
+            if let Some(w) = HOME.uploads.lock().unwrap().get(&id) {
+                crate::wire::acked(w, n);
+            }
+        }
+        ToRunner::HttpCancel { id } => {
+            if let Some(w) = HOME.uploads.lock().unwrap().remove(&id) {
+                w.close();
             }
         }
         _ => {}
@@ -440,19 +478,22 @@ async fn session(app: &App, router: &Router, url: &str, mut tx: crate::wire::Wir
     tracing::info!("connected to Home {url} ({compat:?})");
     // Everything Home saved can go; the rest is sent again, in order.
     replica::acked(app, acked).await?;
-    let (res_tx, mut res_rx) = tokio::sync::mpsc::unbounded_channel::<FromRunner>();
-    *HOME.tx.lock().unwrap() = Some(res_tx.clone());
+    // From here on one writer sends: the control lane first, request body parts when it is empty.
+    let (out, bulk, mut writer) = crate::wire::lanes::<FromRunner>(tx);
+    *HOME.tx.lock().unwrap() = Some(out.clone());
+    *HOME.bulk.lock().unwrap() = Some(bulk);
     // Turns not saved on Home yet go now (`turn_sync`).
     launchpad_core::turn_sync::kick();
-    let result = serve(app, router, &mut tx, &mut rx, res_tx, &mut res_rx, acked).await;
+    let result = serve(app, router, &out, &mut rx, &mut writer, acked).await;
+    writer.abort();
     // Requests to Home fail now instead of timing out, and terminal viewers of Home's windows end.
     HOME.clear();
     crate::terminals::home_gone();
     result
 }
 
-async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mut crate::wire::WireRx, res_tx: tokio::sync::mpsc::UnboundedSender<FromRunner>, res_rx: &mut tokio::sync::mpsc::UnboundedReceiver<FromRunner>, mut acked: u64) -> anyhow::Result<Option<String>> {
-    let text = |m: &FromRunner| serde_json::to_string(m).unwrap_or_default();
+async fn serve(app: &App, router: &Router, out: &tokio::sync::mpsc::UnboundedSender<FromRunner>, rx: &mut crate::wire::WireRx, writer: &mut tokio::task::JoinHandle<()>, mut acked: u64) -> anyhow::Result<Option<String>> {
+    let send = |m: FromRunner| out.send(m).map_err(|_| anyhow::anyhow!("the connection to Home closed"));
     let mut guard = home_link::guard(&app.paths);
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING, PING);
     let mut last_heard = tokio::time::Instant::now();
@@ -465,6 +506,7 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
     let mut bus = app.bus.subscribe(None).rx;
     loop {
         tokio::select! {
+            _ = &mut *writer => anyhow::bail!("the connection to Home closed"),
             delivered = bus.recv() => {
                 let changed = match delivered {
                     Ok(d) => d.text.contains(r#""topic":"terminals""#),
@@ -472,12 +514,8 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 };
                 if changed {
-                    tx.send(text(&FromRunner::Terminals)).await?;
+                    send(FromRunner::Terminals)?;
                 }
-            }
-            res = res_rx.recv() => {
-                let Some(res) = res else { break };
-                tx.send(text(&res)).await?;
             }
             _ = replica::wait() => {
                 let now = tokio::time::Instant::now();
@@ -489,7 +527,7 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
                     let items = replica::batch(app, acked).await?;
                     if let Some((n, _)) = items.last() {
                         in_flight = Some((*n, now));
-                        tx.send(text(&FromRunner::Items { items })).await?;
+                        send(FromRunner::Items { items })?;
                     }
                 }
             }
@@ -497,12 +535,12 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
                 let now = home_link::guard(&app.paths);
                 if now != guard {
                     guard = now;
-                    tx.send(text(&FromRunner::Guard { guard: guard.clone() })).await?;
+                    send(FromRunner::Guard { guard: guard.clone() })?;
                 }
             }
             _ = ping.tick() => {
                 anyhow::ensure!(last_heard.elapsed() < PING * 3, "Home stopped answering");
-                tx.send(text(&FromRunner::Ping)).await?;
+                send(FromRunner::Ping)?;
             }
             frame = rx.next() => {
                 let Some(frame) = frame else { return Ok(None) };
@@ -510,10 +548,10 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
                 last_heard = tokio::time::Instant::now();
                 match serde_json::from_str::<ToRunner>(&t) {
                     Ok(ToRunner::Req { id, method, path, body, headers }) => {
-                        let (app, router, res_tx) = (app.clone(), router.clone(), res_tx.clone());
+                        let (app, router, out) = (app.clone(), router.clone(), out.clone());
                         tokio::spawn(async move {
                             let (status, body) = local(&app, &router, &method, &path, body, &headers).await.unwrap_or_else(|e| (500, serde_json::json!({"error": format!("{e:#}")}).to_string()));
-                            let _ = res_tx.send(FromRunner::Res { id, status, body });
+                            let _ = out.send(FromRunner::Res { id, status, body });
                         });
                     }
                     Ok(ToRunner::Res { id, status, body }) => {
@@ -550,8 +588,8 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
                     Ok(ToRunner::Quotas { quotas }) => launchpad_core::quota::apply_home_readings(app, quotas),
                     Ok(ToRunner::RenewLeases { login }) => launchpad_core::contain::renew_soon(app, &login),
                     Ok(ToRunner::Refuse { reason }) => return Ok(Some(reason)),
-                    Ok(msg @ (ToRunner::HttpHead { .. } | ToRunner::HttpBody { .. })) => http_from_home(msg),
-                    Ok(ToRunner::WsOpen { id, path }) => crate::terminals::open_for_home(app, id, &path, res_tx.clone()),
+                    Ok(msg @ (ToRunner::HttpHead { .. } | ToRunner::HttpBody { .. } | ToRunner::HttpAck { .. } | ToRunner::HttpCancel { .. })) => http_from_home(msg),
+                    Ok(ToRunner::WsOpen { id, path }) => crate::terminals::open_for_home(app, id, &path, out.clone()),
                     Ok(ToRunner::WsFrame { id, text, data }) => crate::terminals::frame_from_home(id, text, data),
                     Ok(ToRunner::WsClose { id }) => crate::terminals::close_from_home(id),
                     Ok(_) => {}

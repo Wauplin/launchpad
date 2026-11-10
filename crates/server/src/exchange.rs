@@ -15,12 +15,12 @@ use tower::ServiceExt;
 
 use crate::Server;
 
-/// Largest body part per frame, before base64.
-const CHUNK: usize = 256 * 1024;
-
+/// Runs one exchange: the request body arrives as `body` (an `Inbound` the tunnel loop fills), the response body
+/// goes back in the bulk lane, at most `wire::WINDOW` bytes ahead of the runner's acknowledgements (`window`).
+/// The tunnel loop aborts it when the runner cancels the exchange or the connection ends, which drops the upstream.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn run(s: Server, runner_id: String, id: u64, target: HttpTarget, method: String, path: String, headers: Vec<(String, String)>, body: tokio::sync::mpsc::UnboundedReceiver<bytes::Bytes>) {
-    let body: ByteStream = Box::pin(futures_util::stream::unfold(body, |mut rx| async move { rx.recv().await.map(|b| (Ok(b), rx)) }));
+pub(crate) async fn run(s: Server, runner_id: String, id: u64, target: HttpTarget, method: String, path: String, headers: Vec<(String, String)>, body: crate::wire::Inbound, window: std::sync::Arc<tokio::sync::Semaphore>) {
+    let body: ByteStream = Box::pin(body);
     let result = match target {
         HttpTarget::Home => home(&s, &runner_id, &method, &path, headers, body).await,
         HttpTarget::Lease { lease_id, host } => launchpad_core::token_relay::upstream(&s.app, &runner_id, &lease_id, &host, &method, &path, headers, body).await,
@@ -38,20 +38,19 @@ pub(crate) async fn run(s: Server, runner_id: String, id: u64, target: HttpTarge
     while let Some(part) = stream.next().await {
         match part {
             Ok(bytes) => {
-                for c in bytes.chunks(CHUNK) {
-                    out.send_to(&runner_id, ToRunner::HttpBody { id, data: b64(c), end: false, error: None });
+                for c in bytes.chunks(crate::wire::CHUNK) {
+                    if !crate::wire::take_part(&window, c.len()).await || !out.send_bulk(&runner_id, ToRunner::HttpBody { id, data: b64(c), end: false, error: None }).await {
+                        return;
+                    }
                 }
             }
             Err(e) => {
-                out.send_to(&runner_id, ToRunner::HttpBody { id, data: String::new(), end: true, error: Some(e.to_string()) });
+                out.send_bulk(&runner_id, ToRunner::HttpBody { id, data: String::new(), end: true, error: Some(e.to_string()) }).await;
                 return;
             }
         }
-        if !out.connected(&runner_id) {
-            return;
-        }
     }
-    out.send_to(&runner_id, ToRunner::HttpBody { id, data: String::new(), end: true, error: None });
+    out.send_bulk(&runner_id, ToRunner::HttpBody { id, data: String::new(), end: true, error: None }).await;
 }
 
 /// Home Git and plain folders, through Home's router, as the runner (never as the owner).
