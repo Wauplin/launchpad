@@ -111,7 +111,9 @@ Home is the place that keeps conversations. Agents save their conversation files
 
 ## Sessions on Home
 
-Every session a runner runs is saved on Home: its record and every event, in order. The runner writes them to a local outbox in the same transaction as its own copy and drops them only after Home has saved them. While Home is unreachable, sessions keep running on the runner; the outbox is sent when the link is back. Home never marks a runner's session Interrupted when Home itself restarts.
+Every session a runner runs is saved on Home: its record and every event, in order. The runner writes them to a local outbox in the same transaction as its own copy and drops them only after Home has saved them. The runner sends the outbox in batches of up to 4 MiB, one at a time, and sends the next batch from the last item Home saved. An item that fails on Home is sent again. Home skips it only after it kept failing for 10 minutes, and logs an error. While Home is unreachable, sessions keep running on the runner; the outbox is sent when the link is back.
+
+Attached images and files are stored on Home. Records and messages only name them (`upload:` references), so a large screenshot never slows down replication. A runner fetches the files from Home when a session it runs needs them, and the agent gets the images when the message is delivered. Chat images stay viewable as long as a message names them. Home never marks a runner's session Interrupted when Home itself restarts.
 
 While a runner is disconnected (a sleeping laptop), Home shows "<runner> offline" next to its sessions' status: the status is the last one Home received. Seen and unread are kept on Home, so a finished session leaves Today even while its runner sleeps. **Archive** works too: Home closes the session at once, and the runner archives it (and stops it, if it still runs) when it reconnects.
 
