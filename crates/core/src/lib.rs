@@ -7,6 +7,7 @@ pub mod self_update;
 pub mod attachments;
 pub mod away;
 pub mod bots;
+pub mod bot_memory;
 pub mod browser;
 pub mod code;
 pub mod compose;
@@ -200,6 +201,7 @@ impl App {
         if let Err(e) = ask_bot::seed(&app).await {
             tracing::warn!("default bot and tools: {e:#}");
         }
+        bot_memory::move_from_kb(&app).await;
         {
             let app = app.clone();
             tokio::spawn(async move { if let Err(e) = attachments::collect_garbage(&app).await { tracing::warn!("upload cleanup: {e:#}"); } });

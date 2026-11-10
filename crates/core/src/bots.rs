@@ -1,6 +1,7 @@
 //! Bots: named, persistent agents of a workspace. A bot is a set of files Home stores with versions, like a
-//! plain folder (store `bot-<id>`): `BOT.md` (the owner's instructions) and `bot.toml` (its profile, folder,
-//! permission mode and proposal mode). Its notes go in the workspace's knowledge base under `bots/<slug>/`.
+//! plain folder (store `bot-<id>`): `BOT.md` (the owner's instructions), `bot.toml` (its profile, folder,
+//! permission mode and proposal mode) and `memory/` (its own notes, `bot_memory`). Runners mirror the store
+//! read-only into its sessions (`$LAUNCHPAD_BOT`).
 //! Ask Launchpad is a bot like the others, created once per workspace (`ask_bot`).
 //!
 //! A bot has one thread: a chain of sessions with `LaunchSpec.bot` set. A message goes to the newest open
@@ -106,6 +107,8 @@ pub struct Bot {
     pub paused: bool,
     #[ts(type = "number")]
     pub version: i64,
+    /// Its notes: the files under `memory/`, with their store paths.
+    pub memory: Vec<plain::Entry>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -237,7 +240,8 @@ async fn load(app: &App, (id, workspace_id, slug, created_at, own, paused): Row)
         Err(e) => (BotSettings { name: slug.clone(), ..Default::default() }, Some(format!("{e:#}"))),
     };
     let own_folder = own.is_some() && own == settings.folder;
-    Ok(Bot { id, workspace_id, slug, created_at, settings, instructions, settings_text, settings_error, own_folder, paused, version: tree.version })
+    let memory = tree.files.iter().filter(|f| f.path.starts_with(crate::bot_memory::DIR)).cloned().collect();
+    Ok(Bot { id, workspace_id, slug, created_at, settings, instructions, settings_text, settings_error, own_folder, paused, version: tree.version, memory })
 }
 
 pub async fn list(app: &App) -> Result<Vec<Bot>> {
@@ -352,9 +356,8 @@ pub async fn update(app: &App, id: &str, p: Patch) -> Result<Bot> {
     get(app, id).await
 }
 
-/// A new name gives the bot a new slug (unique in its workspace): its Telegram command follows, and its notes
-/// move from `bots/<old>/` to `bots/<new>/` of the knowledge base. A session that already runs keeps the old
-/// folder in its instructions until the next session.
+/// A new name gives the bot a new slug (unique in its workspace): its Telegram command follows. Its files, memory
+/// included, stay in its store.
 async fn rename(app: &App, bot: &Bot, name: &str) -> Result<()> {
     let taken: Vec<String> = rows(app).await?.into_iter().filter(|r| r.1 == bot.workspace_id && r.0 != bot.id).map(|r| r.2).collect();
     let slug = slug_for(name.trim(), &taken);
@@ -363,9 +366,6 @@ async fn rename(app: &App, bot: &Bot, name: &str) -> Result<()> {
     }
     let (id, s) = (bot.id.clone(), slug.clone());
     app.state_db.call(move |c| Ok(c.execute("UPDATE bot SET slug = ?2 WHERE id = ?1", params![id, s])?)).await?;
-    if let Err(e) = crate::kb::move_folder(app, &bot.workspace_id, &format!("bots/{}", bot.slug), &format!("bots/{slug}")).await {
-        tracing::warn!("moving {}'s notes to bots/{slug}/: {e:#}", bot.settings.name);
-    }
     app.bus.publish("bots", "changed", serde_json::json!({"id": bot.id}));
     Ok(())
 }
@@ -380,7 +380,7 @@ pub async fn set_paused(app: &App, id: &str, paused: bool) -> Result<Bot> {
     get(app, id).await
 }
 
-/// Deletes the bot, its files and its routines. Its notes in the knowledge base, its folder and its sessions stay.
+/// Deletes the bot, its files (memory included) and its routines. Its folder and its sessions stay.
 pub async fn delete(app: &App, id: &str) -> Result<()> {
     ensure_home(app)?;
     ensure!(thread(app, id).iter().all(|s| !s.status.is_running()), "the bot is working: stop it first");
@@ -418,9 +418,22 @@ pub async fn diff(app: &App, id: &str, change: i64) -> Result<String> {
     Ok(crate::kb::unified(&blob_string(app, c.sha256.as_deref()).await, &blob_string(app, c.new_sha256.as_deref()).await))
 }
 
-/// Restore previous: puts back a file's content from before a change, as a new change by you.
+/// Restore previous: puts back a file's content from before a change, as a new change by you. A memory note
+/// comes back even when it was removed since; one that the change created is removed.
 pub async fn restore(app: &App, id: &str, change: i64) -> Result<Bot> {
     let c = history(app, id).await?.into_iter().find(|c| c.id == change).context("this change is no longer kept")?;
+    if c.path.starts_with(crate::bot_memory::DIR) {
+        let current = plain::tree(app, &store(id)).await?.files.into_iter().find(|e| e.path == c.path).map(|e| e.sha256);
+        let op = match c.sha256 {
+            Some(h) => {
+                let size = tokio::fs::metadata(plain::blob_path(app, &h)?).await.map(|m| m.len()).unwrap_or(0);
+                crate::kb::Op::Write { path: c.path, sha256: h, size, base: current }
+            }
+            None => crate::kb::Op::Remove { path: c.path },
+        };
+        crate::bot_memory::apply(app, id, crate::kb::Author::owner(None), vec![op]).await?;
+        return get(app, id).await;
+    }
     ensure!(c.sha256.is_some(), "this change created the file: there is no earlier version");
     let text = blob_string(app, c.sha256.as_deref()).await;
     match c.path.as_str() {
@@ -428,6 +441,13 @@ pub async fn restore(app: &App, id: &str, change: i64) -> Result<Bot> {
         INSTRUCTIONS => update(app, id, Patch { instructions: Some(text), ..Default::default() }).await,
         _ => bail!("unknown bot file {}", c.path),
     }
+}
+
+/// The content of one of the bot's files (`memory/…`, BOT.md, bot.toml).
+pub async fn read_file(app: &App, id: &str, path: &str) -> Result<Vec<u8>> {
+    get(app, id).await?;
+    let e = plain::tree(app, &store(id)).await?.files.into_iter().find(|e| e.path == path).with_context(|| format!("there is no {path}"))?;
+    plain::read_blob(app, &e.sha256).await
 }
 
 /// The bot's sessions, oldest first.
@@ -506,7 +526,7 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
         // Git folders: a fresh worktree per session, never the owner's checkout.
         worktree: folder.as_ref().filter(|f| !f.plain).map(|f| WorktreeOptions { when_done: f.when_done, ..Default::default() }),
         workspace_id: Some(bot.workspace_id.clone()),
-        bot: Some(BotLaunch { id: bot.id.clone(), name: s.name.clone(), slug: bot.slug.clone(), instructions: bot.instructions.clone(), previous, inbox_done: s.inbox_done && s.launchpad != crate::vault::LaunchpadAccess::Read }),
+        bot: Some(BotLaunch { id: bot.id.clone(), name: s.name.clone(), slug: bot.slug.clone(), instructions: bot.instructions.clone(), previous, inbox_done: s.inbox_done && s.launchpad != crate::vault::LaunchpadAccess::Read, read_only: s.launchpad == crate::vault::LaunchpadAccess::Read }),
         mentions: context.mentions,
         skills: context.skills,
         context_projects: context.context_projects.into_iter().map(|c| ContextProject { editable: false, ..c }).collect(),
@@ -521,13 +541,13 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
 pub fn instruction(bot: &BotLaunch, cli: &str) -> String {
     let mut out = format!(
         "You are {name}, a Launchpad bot: a persistent agent with one thread that continues across sessions. The owner's instructions for you (BOT.md):\n\n<bot-instructions>\n{instructions}\n</bot-instructions>\n\n\
-Memory: the workspace knowledge base ($LAUNCHPAD_KB) is your only memory. Keep your own notes in `bots/{slug}/` (for example `{cli} kb write bots/{slug}/notes.md`), short and current: the owner's preferences and the few facts a later session needs, and what the owner asks you to remember. They are not a journal: never record your runs, what you did, or what went well or failed (the thread and its traces keep that); most turns write nothing. Shared facts go in the usual folders of the knowledge base.\n\
+Your folder: `$LAUNCHPAD_BOT` is a read-only copy of your files: BOT.md, bot.toml and `memory/`, your own notes. Read `$LAUNCHPAD_BOT/memory/` before you answer anything it may cover. {memory_write} Keep them short and current: the owner's preferences and the few facts a later session needs, and what the owner asks you to remember. They are not a journal: never record your runs, what you did, or what went well or failed (the thread and its traces keep that); most turns write nothing. Facts other agents need (shared facts about people, projects, how-tos) go in the workspace knowledge base ($LAUNCHPAD_KB) instead.\n\
 Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. Unless your Launchpad CLI access is admin, you cannot edit BOT.md or bot.toml. When your instructions should change (the owner asked, or you learned how they like the work done), propose the whole new BOT.md and tell the owner it waits for their click: `{cli} propose bot-instructions --title \"<what changes>\" --spec-file bot.json`, where the file holds {{\"bot_id\": \"{id}\", \"instructions\": \"<the whole new BOT.md>\"}}. Changes to bot.toml (profile, folder, permissions, Launchpad CLI access) are the owner's, in the bot's Settings tab (or yours at admin access, when the owner asks).\n\
 Folders: find the workspace's folders and what they hold with `{cli} folders list` and your notes; when a task needs one, add a worktree of it to this session with `{cli} work add-project --session-id $LAUNCHPAD_SESSION_ID --project <name>`, which prints the folder to edit.\n\
 Routines: when the owner wants you to do something on your own later or again (every morning, when CI fails, when another agent is done), propose a routine for yourself and tell the owner it waits for their click: `{cli} propose routine --title \"Daily check\" --spec-file routine.json`, where the file holds {{\"bot_id\": \"{id}\", \"title\": \"Daily check\", \"instructions\": \"<what you do at each run>\", \"trigger\": {triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}}. A run arrives in this thread as a message starting with “Routine”; end it with a short report, or with exactly `no_update` when there is nothing to report.",
         name = bot.name,
         instructions = bot.instructions.trim(),
-        slug = bot.slug,
+        memory_write = if bot.read_only { "Your Launchpad CLI access is read, so you cannot change them: tell the owner what to remember.".to_string() } else { format!("Write them with `{cli} bot memory write <file>` (content on stdin, or `--file <file>`; paths are relative to `memory/`, for example `notes.md`), `{cli} bot memory append <file> <text>` and `{cli} bot memory rm <file>`; `{cli} bot memory list` and `{cli} bot memory read <file>` read them.") },
         id = bot.id,
         triggers = crate::routines::TRIGGER_FORMS,
     );

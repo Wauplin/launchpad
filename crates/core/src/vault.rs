@@ -907,6 +907,7 @@ pub async fn runner_call(app: &App, runner_id: &str, op: &str, body: Value) -> R
             Ok(Value::Null)
         }
         "kb" => crate::kb::runner_apply(app, runner_id, body).await,
+        "bot-memory" => crate::bot_memory::runner_apply(app, runner_id, body).await,
         "quota" => crate::quota::runner_reading(app, body),
         _ => bail!("unknown runner call {op}"),
     }

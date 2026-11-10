@@ -54,7 +54,7 @@ Most sessions write nothing. Before you add a note, update or remove an existing
 - `people/`, `projects/`, `topics/`, `decisions/`, `howto/`: one Markdown note per subject, with a short kebab-case file name.
 - `sources/`: captures of pages or documents, with their URL and date.
 - `media/`: images, video and audio, added with `launchpad kb add-media`.
-- `bots/<bot>/`: a bot's own notes, short and current (preferences and facts it needs next time, never a journal of its runs).
+- Bots keep their own notes in their own folder (`$LAUNCHPAD_BOT/memory/`, written with `launchpad bot memory`), not here. Facts other agents need go here.
 
 ## Notes
 
@@ -113,7 +113,7 @@ impl Author {
     pub fn owner(detail: Option<String>) -> Author {
         Author { kind: AuthorKind::Owner, name: detail.unwrap_or_else(|| "You".into()), session_id: None, model: None, runner: None }
     }
-    fn launchpad() -> Author {
+    pub(crate) fn launchpad() -> Author {
         Author { kind: AuthorKind::Launchpad, name: "Launchpad".into(), session_id: None, model: None, runner: None }
     }
 }
@@ -191,7 +191,7 @@ fn concurrent_path(path: &str, id: &str) -> String {
     }
 }
 
-fn sha(data: &[u8]) -> String {
+pub(crate) fn sha(data: &[u8]) -> String {
     hex::encode(Sha256::digest(data))
 }
 
@@ -307,12 +307,12 @@ fn ensure_home(app: &App) -> Result<()> {
     Ok(())
 }
 
-async fn blob_text(app: &App, sha: &str) -> Option<String> {
+pub(crate) async fn blob_text(app: &App, sha: &str) -> Option<String> {
     let data = plain::read_blob(app, sha).await.ok()?;
     text(&data).map(str::to_string)
 }
 
-async fn put(app: &App, data: &[u8]) -> Result<(String, u64)> {
+pub(crate) async fn put(app: &App, data: &[u8]) -> Result<(String, u64)> {
     let h = sha(data);
     plain::write_blob(app, &h, data).await?;
     Ok((h, data.len() as u64))
@@ -334,14 +334,34 @@ async fn seed(app: &App, workspace_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Where writes go: a workspace's knowledge base, or a bot's memory (`bot_memory`).
+pub(crate) struct Place<'a> {
+    pub store: String,
+    /// "the knowledge base", "Scout's memory".
+    pub name: &'a str,
+    /// The command that removes a file, for the agent's concurrent-write line.
+    pub rm: &'a str,
+}
+
 /// Home: applies writes in order, one writer at a time. Returns a line per write.
 pub async fn apply(app: &App, workspace_id: &str, author: Author, ops: Vec<Op>) -> Result<Vec<String>> {
     ensure_home(app)?;
     crate::workspace::get(app, workspace_id).await?;
     let _one = WRITES.lock().await;
     seed(app, workspace_id).await?;
-    let id = store(workspace_id);
-    let mut files: HashMap<String, plain::Entry> = plain::tree(app, &id).await?.files.into_iter().map(|e| (e.path.clone(), e)).collect();
+    apply_locked(app, &Place { store: store(workspace_id), name: "the knowledge base", rm: "launchpad kb rm" }, author, ops).await
+}
+
+/// Home: applies writes to another store kept like the knowledge base (a bot's memory), one writer at a time.
+pub(crate) async fn apply_to(app: &App, place: &Place<'_>, author: Author, ops: Vec<Op>) -> Result<Vec<String>> {
+    ensure_home(app)?;
+    let _one = WRITES.lock().await;
+    apply_locked(app, place, author, ops).await
+}
+
+async fn apply_locked(app: &App, place: &Place<'_>, author: Author, ops: Vec<Op>) -> Result<Vec<String>> {
+    let id = &place.store;
+    let mut files: HashMap<String, plain::Entry> = plain::tree(app, id).await?.files.into_iter().map(|e| (e.path.clone(), e)).collect();
     let mut updates = vec![];
     let mut out = vec![];
     let suffix = &sha(format!("{:?}{}", author.session_id, crate::util::now_ms()).as_bytes())[..8];
@@ -358,7 +378,7 @@ pub async fn apply(app: &App, workspace_id: &str, author: Author, ops: Vec<Op>) 
                 if current.is_some() && current != base {
                     let other = concurrent_path(&path, suffix);
                     out.push(match author.kind {
-                        AuthorKind::Agent => format!("{path} changed since you read it: both versions are kept, yours as {other}. Merge them into {path} and remove {other} (launchpad kb rm), or leave it for the owner."),
+                        AuthorKind::Agent => format!("{path} changed since you read it: both versions are kept, yours as {other}. Merge them into {path} and remove {other} ({}), or leave it for the owner.", place.rm),
                         _ => format!("{path} changed meanwhile: both versions are kept, yours as {other}. Open {path} to keep one."),
                     });
                     (other, Some(sha256), size)
@@ -385,7 +405,7 @@ pub async fn apply(app: &App, workspace_id: &str, author: Author, ops: Vec<Op>) 
                 (path, Some(h), size)
             }
             Op::Remove { path } => {
-                ensure!(files.contains_key(&path), "there is no {path} in the knowledge base");
+                ensure!(files.contains_key(&path), "there is no {path} in {}", place.name);
                 out.push(format!("Removed {path} (restorable for 30 days)"));
                 (path, None, 0)
             }
@@ -412,44 +432,24 @@ pub async fn apply(app: &App, workspace_id: &str, author: Author, ops: Vec<Op>) 
         updates.push((Update { path, sha256: new, size, executable: false }, Some(Meta { author: author.clone(), added, removed })));
     }
     if !updates.is_empty() {
-        plain::record(app, &id, author.session_id.as_deref(), updates).await?;
+        plain::record(app, id, author.session_id.as_deref(), updates).await?;
     }
     Ok(out)
 }
 
-/// Home: moves every note under `from/` to `to/` (a renamed bot's notes) and points INDEX.md's links at the new
-/// folder, as one change by Launchpad. Nothing to move: nothing changes.
-pub async fn move_folder(app: &App, workspace_id: &str, from: &str, to: &str) -> Result<()> {
-    let (from, to) = (format!("{}/", from.trim_end_matches('/')), format!("{}/", to.trim_end_matches('/')));
-    let tree = plain::tree(app, &store(workspace_id)).await?;
-    let mut ops = vec![];
-    for e in tree.files.iter().filter(|e| e.path.starts_with(&from)) {
-        ops.push(Op::Write { path: format!("{to}{}", &e.path[from.len()..]), sha256: e.sha256.clone(), size: e.size, base: None });
-        ops.push(Op::Remove { path: e.path.clone() });
-    }
-    if ops.is_empty() {
-        return Ok(());
-    }
-    if let Some(index) = tree.files.iter().find(|e| e.path == "INDEX.md")
-        && let Some(text) = blob_text(app, &index.sha256).await
-        && text.contains(&from)
-    {
-        let (h, size) = put(app, text.replace(&from, &to).as_bytes()).await?;
-        ops.push(Op::Write { path: "INDEX.md".into(), sha256: h, size, base: Some(index.sha256.clone()) });
-    }
-    apply(app, workspace_id, Author::launchpad(), ops).await?;
-    Ok(())
-}
-
 /// Home: the author of a session's writes, from Home's own records.
-async fn session_author(app: &App, session_id: &str) -> Result<(Author, String)> {
+pub(crate) async fn agent_author(app: &App, session_id: &str) -> Result<Author> {
     let s = app.sessions.get(session_id).context("no such session")?;
     let runner = match &s.runner_id {
         Some(r) => crate::runners::list(app).await.ok().and_then(|l| l.into_iter().find(|x| &x.runner.id == r)).map(|x| x.runner.name),
         None => None,
     };
+    Ok(Author { kind: AuthorKind::Agent, name: s.title.clone(), session_id: Some(s.id.clone()), model: s.model.clone(), runner })
+}
+
+async fn session_author(app: &App, session_id: &str) -> Result<(Author, String)> {
     let ws = workspace_of_session(app, session_id).await.context("this session has no workspace, so no knowledge base")?;
-    Ok((Author { kind: AuthorKind::Agent, name: s.title.clone(), session_id: Some(s.id.clone()), model: s.model.clone(), runner }, ws))
+    Ok((agent_author(app, session_id).await?, ws))
 }
 
 /// Home: writes a runner sends for one of its sessions (`launchpad kb` through the tunnel).
@@ -736,7 +736,7 @@ pub async fn sync(app: &App, workspace_id: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
-async fn remove_empty_dirs(root: &Path) {
+pub(crate) async fn remove_empty_dirs(root: &Path) {
     let mut dirs: Vec<PathBuf> = ignore::WalkBuilder::new(root).hidden(false).git_ignore(false).build().flatten().filter(|e| e.file_type().is_some_and(|t| t.is_dir())).map(|e| e.into_path()).filter(|p| p != root).collect();
     dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
     for d in dirs {
@@ -772,6 +772,7 @@ pub fn spawn(app: &App) {
                     }
                 }
             }
+            crate::bot_memory::sync_open(&app).await;
         }
     });
 }
@@ -794,7 +795,7 @@ pub async fn instructions(app: &App, workspace_id: &str, dir: &Path) -> String {
     let more = if lines.len() > INDEX_LINES { format!("\n\n(INDEX.md continues: {} more lines in the file.)", lines.len() - INDEX_LINES) } else { String::new() };
     let cli = app.paths.cli_command();
     format!(
-        "# Knowledge base\n\nYour memory is the Launchpad knowledge base of the workspace \"{name}\", in `{dir}` (also `$LAUNCHPAD_KB`). Your harness's own memory is off: do not write memory files anywhere else.\n\n- Read it as files: start from INDEX.md below, look up with `rg` in that folder or `{cli} kb search <words>`.\n- The files are read-only. Write with `{cli} kb write <path>` (content on stdin, or `--file <file>`), `{cli} kb append <path>`, `{cli} kb add-media <file>` and `{cli} kb rm <path>`. Read AGENTS.md there before your first write.\n- Write rarely: only a few durable, high-level findings (the owner's preferences and decisions with their reasons, non-obvious facts that took effort to discover, how-tos), and what the owner asks you to remember. Never keep a log of sessions or runs, task status, what you did, or what went well or failed: traces and Git history keep that. Most sessions write nothing. Every session reads this, so keep notes short, update or remove an existing note instead of adding one, and keep INDEX.md current. Repository instructions (CLAUDE.md, AGENTS.md in a repository) are not memory and stay where they are.\n\n## INDEX.md\n\n{shown}{more}\n",
+        "# Knowledge base\n\nYour memory is the Launchpad knowledge base of the workspace \"{name}\", in `{dir}` (also `$LAUNCHPAD_KB`). Your harness's own memory is off: do not write memory files anywhere else.\n\n- Read it as files: start from INDEX.md below, look up with `rg` in that folder or `{cli} kb search <words>`.\n- The files are read-only. Write with `{cli} kb write <path>` (content on stdin, or `--file <file>`), `{cli} kb append <path>`, `{cli} kb add-media <file>` and `{cli} kb rm <path>`. Read AGENTS.md there before your first write.\n- Write rarely: only a few durable, high-level findings (the owner's preferences and decisions with their reasons, non-obvious facts that took effort to discover, how-tos), and what the owner asks you to remember. Never keep a log of sessions or runs, task status, what you did, or what went well or failed: traces and Git history keep that. Most sessions write nothing. Every session reads this, so keep notes short, update or remove an existing note instead of adding one, and keep INDEX.md current. Repository instructions (CLAUDE.md, AGENTS.md in a repository) are not memory and stay where they are. A bot keeps its own notes in its folder (`$LAUNCHPAD_BOT/memory/`, `{cli} bot memory`), not here; what other agents need goes here.\n\n## INDEX.md\n\n{shown}{more}\n",
         dir = dir.display()
     )
 }
@@ -871,6 +872,11 @@ pub async fn native_memories(app: &App) -> Vec<NativeMemory> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seeded_agents_md_sends_bot_notes_to_the_bot_folder() {
+        assert!(SEED_AGENTS.contains(crate::bot_memory::AGENTS_LINE));
+    }
 
     #[test]
     fn concurrent_names() {

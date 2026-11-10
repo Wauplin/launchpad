@@ -503,7 +503,7 @@ pub struct RoutineLaunch {
 pub struct BotLaunch {
     pub id: String,
     pub name: String,
-    /// The bot's notes are in `bots/<slug>/` of the knowledge base.
+    /// Its slug (its Telegram command).
     pub slug: String,
     /// BOT.md, the owner's instructions. Cleared in session lists.
     pub instructions: String,
@@ -513,6 +513,10 @@ pub struct BotLaunch {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub inbox_done: bool,
+    /// Its Launchpad CLI access is read: it reads its memory but cannot write it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub read_only: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]

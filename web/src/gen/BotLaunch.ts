@@ -6,7 +6,7 @@ import type { BotHandoff } from "./BotHandoff";
  */
 export type BotLaunch = { id: string, name: string, 
 /**
- * The bot's notes are in `bots/<slug>/` of the knowledge base.
+ * Its slug (its Telegram command).
  */
 slug: string, 
 /**
@@ -20,4 +20,8 @@ previous: BotHandoff | null,
 /**
  * `inbox_done = true` in bot.toml (and more than read access): it may run `launchpad inbox done`.
  */
-inbox_done?: boolean, };
+inbox_done?: boolean, 
+/**
+ * Its Launchpad CLI access is read: it reads its memory but cannot write it.
+ */
+read_only?: boolean, };

@@ -25,7 +25,7 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
         Some(LaunchpadAccess::Admin)
     } else if method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity") {
         Some(LaunchpadAccess::Read)
-    } else if method == Method::POST && (path == "/api/proposals" || path == "/api/inbox/agent-done") {
+    } else if method == Method::POST && (path == "/api/proposals" || path == "/api/inbox/agent-done" || path == "/api/bot-memory") {
         Some(LaunchpadAccess::Propose)
     } else {
         None
@@ -95,11 +95,11 @@ fn read_allowed(path: &str) -> bool {
         || (path.starts_with("/api/sessions/") && path.ends_with("/trace"))
 }
 
-/// `launchpad kb` sends contents (media included) in its request.
+/// `launchpad kb` and `launchpad bot memory` send contents (media included) in their request.
 pub const KB_BODY_MAX: usize = 128 << 20;
 
 fn own_write(path: &str) -> bool {
-    matches!(path, "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals" | "/api/kb" | "/api/channels/send" | "/api/inbox/agent-done")
+    matches!(path, "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/channels/send" | "/api/inbox/agent-done")
 }
 
 async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
@@ -159,7 +159,7 @@ pub async fn authorize(app: &App, id: &str, req: Request) -> Result<Request, Api
     if patch { return Ok(req); }
     if req.method() != Method::POST || !(own_write(&path) || path == "/api/predrafts") { return Err(denied()); }
     let (parts, body) = req.into_parts();
-    let bytes = to_bytes(body, if path == "/api/kb" { KB_BODY_MAX } else { 1 << 20 }).await.map_err(|_| denied())?;
+    let bytes = to_bytes(body, if path == "/api/kb" || path == "/api/bot-memory" { KB_BODY_MAX } else { 1 << 20 }).await.map_err(|_| denied())?;
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| denied())?;
     if path == "/api/predrafts" {
         if !owns_cwd(app, id, value["cwd"].as_str().unwrap_or_default()).await
@@ -186,6 +186,9 @@ mod tests {
         assert!(own_write("/api/inbox/agent-done"));
         assert_eq!(tool_need(&Method::POST, "/api/inbox/agent-done"), Some(LaunchpadAccess::Propose));
         assert!(!own_write("/api/inbox/t/action"));
+        // A bot writes its own memory at propose access and above (Home checks the bot); read access only reads it.
+        assert!(own_write("/api/bot-memory"));
+        assert_eq!(tool_need(&Method::POST, "/api/bot-memory"), Some(LaunchpadAccess::Propose));
     }
 
     #[test]

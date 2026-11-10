@@ -1,7 +1,8 @@
 //! Knowledge base over HTTP.
 //!
 //! `/api/knowledge/…` are the owner's requests, answered by Home (a runner forwards them, see
-//! `home_client::home_owned`). `/api/kb` is the runner-local endpoint of `launchpad kb` (session CLI token), and
+//! `home_client::home_owned`). `/api/kb` is the runner-local endpoint of `launchpad kb` (session CLI token),
+//! `/api/bot-memory` the one of `launchpad bot memory` (a bot session writing its own memory), and
 //! `/api/kb/memories` lists this machine's harness memories for an import (Home asks the runner).
 
 use axum::extract::{Path, Query, State};
@@ -31,6 +32,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/knowledge/{ws}/import", post(import))
         .route("/api/kb", post(session_write).layer(axum::extract::DefaultBodyLimit::max(crate::agent_auth::KB_BODY_MAX)))
         .route("/api/kb/memories", get(local_memories))
+        .route("/api/bot-memory", post(bot_memory_write).layer(axum::extract::DefaultBodyLimit::max(crate::agent_auth::KB_BODY_MAX)))
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -195,4 +197,11 @@ async fn session_write(State(s): State<Ctx>, Json(b): Json<SessionWrite>) -> Api
         return Err(ApiError::bad_request("launchpad kb runs in a session on a runner"));
     }
     Ok(lines(kb::session_write(&s.app, &b.session_id, b.ops).await.map_err(bad)?))
+}
+
+async fn bot_memory_write(State(s): State<Ctx>, Json(b): Json<SessionWrite>) -> ApiResult<Value> {
+    if !s.app.paths.role.runs_agents() {
+        return Err(ApiError::bad_request("launchpad bot memory runs in a bot session on a runner"));
+    }
+    Ok(lines(launchpad_core::bot_memory::session_write(&s.app, &b.session_id, b.ops).await.map_err(bad)?))
 }

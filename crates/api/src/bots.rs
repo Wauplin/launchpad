@@ -18,6 +18,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/bots/{id}", get(one).patch(update).delete(remove))
         .route("/api/bots/{id}/message", post(message))
         .route("/api/bots/{id}/history", get(history))
+        .route("/api/bots/{id}/file", get(file))
         .route("/api/bots/{id}/history/{change}", get(diff))
         .route("/api/bots/{id}/restore/{change}", post(restore))
         .route("/api/bots/{id}/routines", post(create_routine))
@@ -63,6 +64,19 @@ struct Message {
 async fn message(State(s): State<Ctx>, Path(id): Path<String>, Json(m): Json<Message>) -> ApiResult<Session> {
     Ok(Json(bots::message(&s.app, &id, m.text, m.attachments, m.context, m.new_session).await.map_err(bad)?))
 }
+#[derive(Deserialize)]
+struct FileQuery {
+    path: String,
+}
+
+/// One of the bot's files as text (its memory notes, BOT.md, bot.toml), never rendered as a document.
+async fn file(State(s): State<Ctx>, Path(id): Path<String>, axum::extract::Query(q): axum::extract::Query<FileQuery>) -> Result<axum::response::Response, ApiError> {
+    use axum::http::header;
+    use axum::response::IntoResponse;
+    let data = bots::read_file(&s.app, &id, &q.path).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    Ok(([(header::CONTENT_TYPE, "text/plain; charset=utf-8"), (header::CONTENT_SECURITY_POLICY, "sandbox; default-src 'none'"), (header::X_CONTENT_TYPE_OPTIONS, "nosniff")], data).into_response())
+}
+
 async fn history(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Vec<launchpad_core::plain::Change>> {
     Ok(Json(bots::history(&s.app, &id).await.map_err(bad)?))
 }

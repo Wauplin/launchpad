@@ -102,6 +102,12 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
+    /// A bot session's own memory (`bot memory`: read its notes in $LAUNCHPAD_BOT/memory, write here), and the
+    /// short verbs of bot actions (`bot pause <id> --paused true`, admin access).
+    Bot {
+        #[command(subcommand)]
+        command: BotCommand,
+    },
     /// Bots of a workspace with their job, profile, folder and current session (JSON).
     Bots {
         #[command(subcommand)]
@@ -509,6 +515,100 @@ enum Kb {
     },
 }
 
+#[derive(Subcommand)]
+enum BotCommand {
+    /// The bot's own notes, in memory/ of its folder ($LAUNCHPAD_BOT/memory, read-only): paths are relative to memory/.
+    Memory {
+        #[command(subcommand)]
+        command: BotMemory,
+    },
+    #[command(external_subcommand)]
+    Verb(Vec<String>),
+}
+
+#[derive(Subcommand)]
+enum BotMemory {
+    /// List the notes.
+    List,
+    /// Print a note.
+    Read { path: String },
+    /// Write a note from stdin (or --file); replaces it.
+    Write {
+        path: String,
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
+    },
+    /// Add stdin (or --file, or the text arguments) to the end of a note.
+    Append {
+        path: String,
+        text: Vec<String>,
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
+    },
+    /// Remove a note (restorable for 30 days).
+    Rm {
+        path: String,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
+    },
+}
+
+/// `$LAUNCHPAD_BOT/memory`.
+fn bot_memory_dir() -> Result<std::path::PathBuf> {
+    std::env::var_os("LAUNCHPAD_BOT").map(|d| std::path::PathBuf::from(d).join("memory")).context("no bot memory here: launchpad bot memory works in a bot's session ($LAUNCHPAD_BOT is not set)")
+}
+
+/// A note path: relative to memory/, or a path inside it.
+fn bot_memory_path(path: &str) -> Result<String> {
+    let p = std::path::Path::new(path);
+    if p.is_absolute() {
+        let dir = bot_memory_dir()?;
+        let rel = p.strip_prefix(&dir).with_context(|| format!("{path} is not in the bot's memory ({})", dir.display()))?;
+        return Ok(rel.to_string_lossy().into_owned());
+    }
+    Ok(path.to_string())
+}
+
+async fn bot_memory_command(paths: &Paths, command: BotMemory) -> Result<()> {
+    use base64::Engine;
+    let b64 = |d: &[u8]| base64::engine::general_purpose::STANDARD.encode(d);
+    let (session_id, op) = match command {
+        BotMemory::List => {
+            let dir = bot_memory_dir()?;
+            let files = launchpad_core::plain::walk(&dir);
+            if files.is_empty() {
+                println!("No note yet.");
+            }
+            for rel in files {
+                let lines = std::fs::read_to_string(dir.join(&rel)).map(|t| t.lines().count()).unwrap_or(0);
+                println!("{rel} ({lines} lines)");
+            }
+            return Ok(());
+        }
+        BotMemory::Read { path } => {
+            let rel = launchpad_core::bot_memory::store_path(&bot_memory_path(&path)?)?;
+            let file = bot_memory_dir()?.join(rel.trim_start_matches(launchpad_core::bot_memory::DIR));
+            print!("{}", std::fs::read_to_string(&file).with_context(|| format!("there is no {rel}"))?);
+            return Ok(());
+        }
+        BotMemory::Write { path, file, session_id } => (session_id, serde_json::json!({"op": "write", "path": bot_memory_path(&path)?, "content_b64": b64(&read_input(file.as_deref())?)})),
+        BotMemory::Append { path, text, file, session_id } => {
+            let text = if !text.is_empty() && file.is_none() { text.join(" ") } else { String::from_utf8(read_input(file.as_deref())?).context("append takes text")? };
+            (session_id, serde_json::json!({"op": "append", "path": bot_memory_path(&path)?, "text": text}))
+        }
+        BotMemory::Rm { path, session_id } => (session_id, serde_json::json!({"op": "remove", "path": bot_memory_path(&path)?})),
+    };
+    let body = Client::new(paths)?.json("POST", "/api/bot-memory", Some(serde_json::json!({"session_id": session_id, "ops": [op]}))).await?;
+    for line in body["lines"].as_array().into_iter().flatten() {
+        println!("{}", line.as_str().unwrap_or_default());
+    }
+    Ok(())
+}
+
 fn kb_dir() -> Result<std::path::PathBuf> {
     std::env::var_os("LAUNCHPAD_KB").map(std::path::PathBuf::from).context("no knowledge base here: launchpad kb works in an agent session of a workspace ($LAUNCHPAD_KB is not set)")
 }
@@ -684,6 +784,11 @@ async fn run() -> Result<()> {
         Command::Work { command } => work_command(&paths, command).await,
         Command::Assets { command } => assets_command(&paths, command).await,
         Command::Kb { command } => kb_command(&paths, command).await,
+        Command::Bot { command: BotCommand::Memory { command } } => bot_memory_command(&paths, command).await,
+        Command::Bot { command: BotCommand::Verb(words) } => {
+            let [verb, args @ ..] = words.as_slice() else { anyhow::bail!("name a bot action: see `launchpad --help`") };
+            do_action(&paths, &format!("bot.{verb}"), args).await
+        }
         Command::Folders { command: ListOnly::List { workspace } } => context_command(&paths, "folders", workspace).await,
         Command::Bots { command: ListOnly::List { workspace } } => context_command(&paths, "bots", workspace).await,
         Command::Profiles { command: ListOnly::List { .. } } => context_command(&paths, "profiles", None).await,
@@ -945,6 +1050,9 @@ mod proposal_tests {
         assert!(matches!(Cli::try_parse_from(["launchpad", "burst", "job", "r1"]).unwrap().command, Command::Burst { command: Burst::Job { .. } }));
         assert_eq!(utc(0), "1970-01-01T00:00:00Z");
         assert_eq!(utc(1_762_686_245_000), "2025-11-09T11:04:05Z");
+        // `bot memory` is a command; other `bot` words stay the short verbs of bot actions.
+        assert!(matches!(Cli::try_parse_from(["launchpad", "bot", "memory", "write", "notes.md", "--session-id", "s1"]).unwrap().command, Command::Bot { command: BotCommand::Memory { command: BotMemory::Write { .. } } }));
+        assert!(matches!(Cli::try_parse_from(["launchpad", "bot", "pause", "b1", "--paused", "true"]).unwrap().command, Command::Bot { command: BotCommand::Verb(w) } if w == ["pause", "b1", "--paused", "true"]));
         let cli = Cli::try_parse_from(["launchpad", "proposals", "list", "--workspace", "Work"]).unwrap();
         assert!(matches!(cli.command, Command::Proposals { command: ListOnly::List { workspace: Some(w) } } if w == "Work"));
     }

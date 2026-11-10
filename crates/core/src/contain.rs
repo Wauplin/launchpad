@@ -191,6 +191,20 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         }
         None => "Your harness's own memory is off in Launchpad, and this session has no workspace, so no knowledge base: do not write memory files.\n".into(),
     };
+    // A bot's own files (BOT.md, bot.toml, memory/): a read-only copy.
+    if let Some(bot) = &s.launch_spec.bot {
+        let dir = match crate::bot_memory::sync(app, &bot.id).await {
+            Ok(dir) => Some(dir),
+            Err(e) => {
+                app.sessions.sink(app, &s.id).emit(crate::model::EventBody::Notice { text: format!("The bot's files could not be refreshed from Home: {e:#}. The agent reads the last copy on this runner.") }).await;
+                Some(crate::bot_memory::mirror_dir(app, &bot.id)).filter(|d| d.is_dir())
+            }
+        };
+        if let Some(dir) = dir {
+            env.push(("LAUNCHPAD_BOT".into(), p(&dir)));
+            ro.push(dir);
+        }
+    }
     // The Launchpad CLI tool: what the session may do with `launchpad`, at its access level.
     if let Some(access) = lease.launchpad {
         instructions.push('\n');

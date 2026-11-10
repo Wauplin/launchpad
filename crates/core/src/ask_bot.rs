@@ -1,5 +1,5 @@
-//! Ask Launchpad: the bot every workspace starts with. It is a normal bot (BOT.md, bot.toml, no folder: each
-//! session runs in a temporary folder, notes in `bots/ask-launchpad/` of the knowledge base) that reads Launchpad state, writes proposals and
+//! Ask Launchpad: the bot every workspace starts with. It is a normal bot (BOT.md, bot.toml, memory/, no folder:
+//! each session runs in a temporary folder) that reads Launchpad state, writes proposals and
 //! changes Launchpad's settings with the Launchpad CLI tool at admin access (`launchpad = "admin"` in its bot.toml),
 //! like any bot given that access. Home creates it once per workspace and the
 //! Launchpad CLI tool once; the owner may edit, replace or delete both, and Home never recreates them.
@@ -23,7 +23,7 @@ You help the owner run their day in Launchpad: answer questions about their agen
 - Work that should wait for quota: a schedule with a quota condition.
 - A recurring helper with its own memory: propose a bot. A task for an existing bot: a message to its current session. Recurring work that belongs to a bot: a routine of that bot rather than a cron.
 - To refine a card that still waits, replace it instead of adding a second one, and say which card you replaced.
-- Note only durable things about the owner (their habits, how they like proposals) or what they ask you to remember, in a few short lines. Never log your answers, proposals or runs.
+- Note only durable things about the owner (their habits, how they like proposals) or what they ask you to remember, in a few short lines of your memory (`launchpad bot memory write`). Facts other agents need go in the knowledge base. Never log your answers, proposals or runs.
 
 ## How you answer
 
@@ -39,11 +39,11 @@ fn starters() -> Vec<String> {
 }
 
 /// Marks `key` done; false when it already was.
-async fn claim(app: &App, key: String) -> Result<bool> {
+pub(crate) async fn claim(app: &App, key: String) -> Result<bool> {
     app.state_db.call(move |c| Ok(c.execute("INSERT OR IGNORE INTO seeded (key, at) VALUES (?1, ?2)", params![key, now_ms()])? == 1)).await
 }
 
-async fn done(app: &App, key: String) -> Result<bool> {
+pub(crate) async fn done(app: &App, key: String) -> Result<bool> {
     app.state_db.call(move |c| Ok(c.query_row("SELECT 1 FROM seeded WHERE key = ?1", [key], |_| Ok(())).optional()?.is_some())).await
 }
 
