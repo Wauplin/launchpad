@@ -161,10 +161,9 @@ struct Inner {
     setups: Mutex<HashMap<String, SetupTask>>,
     /// Detached shutdowns still own their folders until exit is confirmed.
     shutdowns: Mutex<HashMap<String, usize>>,
-    /// Serializes user actions and quota decisions; adapter events never take this lock.
-    actions: tokio::sync::Mutex<()>,
-    /// Serializes new work with pre-draft publication and cleanup.
-    work: tokio::sync::Mutex<()>,
+    /// One action lock per session (`action_lock`): its user actions, quota decisions and worktree operations
+    /// serialize, other sessions never wait for it. Adapter events never take it.
+    actions: crate::locks::Locks,
     /// Attached processes, with an instance number: the exit of an old process never detaches a newer one.
     live: Mutex<LiveSessions>,
     next_instance: std::sync::atomic::AtomicU64,
@@ -217,8 +216,7 @@ impl Sessions {
                 process_restarts: Mutex::new(HashSet::new()),
                 setups: Mutex::new(HashMap::new()),
                 shutdowns: Mutex::new(HashMap::new()),
-                actions: tokio::sync::Mutex::new(()),
-                work: tokio::sync::Mutex::new(()),
+                actions: crate::locks::Locks::default(),
                 live: Mutex::new(HashMap::new()),
                 next_instance: std::sync::atomic::AtomicU64::new(1),
                 raw_counts: Mutex::new(HashMap::new()),
@@ -354,13 +352,30 @@ impl Sessions {
         Ok(())
     }
 
-    pub(crate) async fn allow_work(&self) -> tokio::sync::MutexGuard<'_, ()> {
-        self.inner.work.lock().await
+    /// The action lock of one session: its launch, messages, Resume, Stop, Archive, answers, quota decisions and
+    /// the worktree operations that detach its process or move its folders. Other sessions never wait for it.
+    /// Never hold it across a call to Home, a download, an install or a push that can wait on the network,
+    /// except the session's own start (see `launch_inner`) and resume (`reattach`), which only that session waits for.
+    /// Code that holds one session's lock never takes another one: several are taken at once with `action_locks`.
+    pub(crate) async fn action_lock(&self, id: &str) -> tokio::sync::OwnedMutexGuard<()> {
+        self.inner.actions.get(id).lock_owned().await
     }
 
-    /// The user action lock, for worktree operations that detach processes or move folders.
-    pub(crate) async fn action_lock(&self) -> tokio::sync::MutexGuard<'_, ()> {
-        self.inner.actions.lock().await
+    /// The action locks of several sessions, always taken in ID order, so two callers never wait for each other.
+    pub(crate) async fn action_locks<S: AsRef<str>>(&self, ids: &[S]) -> Vec<tokio::sync::OwnedMutexGuard<()>> {
+        let mut ids: Vec<&str> = ids.iter().map(AsRef::as_ref).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let mut guards = Vec::with_capacity(ids.len());
+        for id in ids {
+            guards.push(self.action_lock(id).await);
+        }
+        guards
+    }
+
+    /// The action lock of a session when nobody holds it: the 1-second guards skip a busy session until the next check.
+    fn try_action_lock(&self, id: &str) -> Option<tokio::sync::OwnedMutexGuard<()>> {
+        self.inner.actions.get(id).try_lock_owned().ok()
     }
 
     /// Launch preparation (remote sync, worktree setup) runs before the agent of this new session starts.
@@ -369,7 +384,7 @@ impl Sessions {
     }
 
     /// Stops an idle process before its folder moves or disappears; sending a message resumes it.
-    /// The caller holds the action lock.
+    /// The caller holds the session's action lock.
     pub(crate) async fn release(&self, app: &App, id: &str) -> Result<()> {
         self.ensure_shutdown_finished(id)?;
         if self.live(id).is_none() { return Ok(()); }
@@ -708,7 +723,7 @@ impl Sessions {
     /// Home: a replicated session shows Failed with `reason` as its last message, when Home could not continue
     /// it and no runner holds it. Only the record changes, like `end_replica`.
     pub(crate) async fn fail_replica(&self, app: &App, id: &str, reason: String) -> Result<Session> {
-        let _action = self.action_lock().await;
+        let _action = self.action_lock(id).await;
         let s = self.update(app, id, |s| {
             s.change_status(SessionStatus::Error);
             s.status_since = now_ms();
@@ -724,7 +739,7 @@ impl Sessions {
     /// the record changes: Home adds no event, so the runner's sequence stays its own; `note` becomes its last
     /// message.
     pub(crate) async fn end_replica(&self, app: &App, id: &str, status: SessionStatus, note: Option<String>) -> Result<Session> {
-        let _action = self.action_lock().await;
+        let _action = self.action_lock(id).await;
         let s = self.update(app, id, |s| {
             if let Some(n) = note {
                 s.last_message = Some(n);
@@ -766,7 +781,7 @@ impl Sessions {
     /// Home: the session moves to another runner, in a new generation. Records and events of the older one are
     /// ignored from now on.
     pub(crate) async fn reassign(&self, app: &App, id: &str, runner_id: &str) -> Result<Session> {
-        let _action = self.action_lock().await;
+        let _action = self.action_lock(id).await;
         self.update(app, id, |s| {
             s.generation += 1;
             s.runner_id = Some(runner_id.to_string());
@@ -776,7 +791,7 @@ impl Sessions {
 
     /// A focused window showed the session: it no longer needs you until its status changes again.
     pub async fn mark_seen(&self, app: &App, id: &str) -> Result<Session> {
-        let _action = self.action_lock().await;
+        let _action = self.action_lock(id).await;
         let s = self.get(id).context("no such session")?;
         if s.seen_at >= s.status_since { return Ok(s); }
         let s = self.update(app, id, |s| s.seen_at = now_ms().max(s.status_since)).await?;
@@ -786,7 +801,7 @@ impl Sessions {
 
     /// Returns a completed session to Needs you without changing its run state.
     pub async fn mark_unread(&self, app: &App, id: &str) -> Result<Session> {
-        let _action = self.action_lock().await;
+        let _action = self.action_lock(id).await;
         let s = self.update(app, id, |s| {
             if matches!(s.status, SessionStatus::Waiting | SessionStatus::Error | SessionStatus::Interrupted) {
                 s.seen_at = s.status_since.saturating_sub(1);
@@ -998,9 +1013,15 @@ impl Sessions {
         // Home sends references: their bytes come from Home before the checks read them.
         crate::attachments::fetch_missing(app, &id, &spec.attachments).await?;
         anyhow::ensure!(app.paths.role != crate::role::Role::Runner || !crate::home_link::guard(&app.paths).paused, "This runner takes no new sessions: switch Takes new sessions back on in its own window");
-        let _action = self.inner.actions.lock().await;
+        // This session's lock (a second launch with the same ID waits, then finds the record), and the lock of the
+        // session whose folder or browser it continues in, so that one cannot start a turn meanwhile.
+        let mut locked = vec![id.clone()];
+        match &spec.target {
+            Target::SessionFolder { session_id } | Target::Browser { source_session_id: Some(session_id), .. } => locked.push(session_id.clone()),
+            _ => {}
+        }
+        let _action = self.action_locks(&locked).await;
         anyhow::ensure!(self.get(&id).is_none(), "a session with this id already exists");
-        let _guard = self.allow_work().await;
         let mut spec = spec;
         if let Target::SessionFolder { session_id } = &spec.target {
             let source = self.get(session_id).context("source session no longer exists")?;
@@ -1277,36 +1298,50 @@ impl Sessions {
                     prompt.push_str(&format!("\n\nNote: the worktree setup command of {} (`{}`) failed in `{folder}`:\n{e:#}\nFix the environment yourself if the task needs it.", project.name, project.worktree_setup.trim()));
                 }
             }
+            // The contained start (lease from Home, tool installs, knowledge base sync) can take minutes: it runs
+            // before the session's action lock, while Stop can still cancel the launch.
+            let contained = if !*cancelled.borrow() && this.get(&id2).is_some_and(|s| s.status == SessionStatus::Starting) {
+                Some(crate::contain::apply(&app2, start).await)
+            } else {
+                None
+            };
             if *cancelled.borrow() && this.get(&id2).is_some_and(|s| s.status == SessionStatus::Starting) {
                 sink.set_status(SessionStatus::Stopped).await;
             }
             // Acknowledge before taking actions: Stop/Archive may still be waiting there.
             let _ = stopped.send(());
-            let _action = this.inner.actions.lock().await;
-            let _guard = this.allow_work().await;
+            let _action = this.action_lock(&id2).await;
             this.inner.setups.lock().unwrap().remove(&id2);
-            if !*cancelled.borrow() && this.get(&id2).is_some_and(|s| s.status == SessionStatus::Starting) {
-                if let Err(e) = this.ensure_shutdown_finished(&id2) {
-                    sink.emit(EventBody::Notice { text: e.to_string() }).await;
-                    sink.set_status(SessionStatus::Stopped).await;
-                    return;
-                }
-                this.start_new(&app2, &id2, start, (prompt, images), automatic).await;
+            let start = match contained {
+                Some(start) if !*cancelled.borrow() && this.get(&id2).is_some_and(|s| s.status == SessionStatus::Starting) => start,
+                // Cancelled meanwhile: the lease this start took goes (no process holds it).
+                Some(Ok(_)) if this.live(&id2).is_none() => return crate::contain::release(&app2, &id2).await,
+                _ => return,
+            };
+            if let Err(e) = this.ensure_shutdown_finished(&id2) {
+                if start.is_ok() && this.live(&id2).is_none() { crate::contain::release(&app2, &id2).await; }
+                sink.emit(EventBody::Notice { text: e.to_string() }).await;
+                sink.set_status(SessionStatus::Stopped).await;
+                return;
             }
+            this.start_new(&app2, &id2, start, (prompt, images), automatic).await;
         });
         self.inner.setups.lock().unwrap().insert(id.clone(), SetupTask { cancel, stopped: stop_wait });
         let _ = ready.send(());
         Ok(self.get(&id).unwrap())
     }
 
-    /// Starts the harness of a new session and sends its first prompt, or holds it at exhausted quota.
-    async fn start_new(&self, app: &App, id: &str, start: StartSpec, input: (String, Vec<ImageAttachment>), automatic: bool) {
+    /// Starts the harness of a new session and sends its first prompt, or holds it at exhausted quota. `start`: the
+    /// contained start `contain::apply` prepared before the caller took the session's action lock.
+    async fn start_new(&self, app: &App, id: &str, start: Result<StartSpec>, input: (String, Vec<ImageAttachment>), automatic: bool) {
         let (prompt, images) = input;
         let Some(session) = self.get(id) else { return };
         let harness = session.harness;
         let sink = self.sink(app, id);
         let protected = crate::quota::protected(app, harness, &session.launch_spec);
         if protected && (!crate::quota::blockers(app, harness, &session.launch_spec).is_empty() || (automatic && !crate::quota::available(&crate::quota::reading_for(app, harness, &session.launch_spec), now_ms()))) {
+            // No process holds the lease until the quota allows the start (`continue_quota` takes it again).
+            if start.is_ok() && self.live(id).is_none() { crate::contain::release(app, id).await; }
             if let Err(e) = self.hold_input(app, id, &prompt, images, session.launch_spec.from.clone()).await {
                 sink.fail(&format!("{e:#}")).await;
             }
@@ -1315,7 +1350,11 @@ impl Sessions {
         if protected && !crate::quota::available(&crate::quota::reading_for(app, harness, &session.launch_spec), now_ms()) {
             sink.emit(EventBody::Notice { text: "Quota reading unavailable or stale. Starting with best-effort protection; additional spending cannot be ruled out until quota is known.".into() }).await;
         }
-        match self.attach(app, harness, start, sink.clone()).await {
+        let attached = match start {
+            Ok(start) => self.attach_contained(app, harness, start, sink.clone()).await,
+            Err(e) => Err(e),
+        };
+        match attached {
             Ok(live) => {
                 let client_id = uuid::Uuid::new_v4().to_string();
                 sink.emit(EventBody::UserMessage { text: prompt.clone(), client_id: client_id.clone(), queued: false, images: images.clone(), from: session.launch_spec.from.clone() }).await;
@@ -1335,11 +1374,16 @@ impl Sessions {
         if let Some(session) = self.get(id).filter(|s| s.status != SessionStatus::Error) { crate::titles::generate(app, &session); }
     }
 
-    async fn attach(&self, app: &App, harness: HarnessKind, start: StartSpec, mut sink: Sink) -> Result<Arc<dyn LiveSession>> {
+    async fn attach(&self, app: &App, harness: HarnessKind, start: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
+        let start = crate::contain::apply(app, start).await?;
+        self.attach_contained(app, harness, start, sink).await
+    }
+
+    /// Starts the harness with a start `contain::apply` prepared. The caller holds the session's action lock.
+    async fn attach_contained(&self, app: &App, harness: HarnessKind, start: StartSpec, mut sink: Sink) -> Result<Arc<dyn LiveSession>> {
         let id = start.session_id.clone();
         let instance = self.inner.next_instance.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         sink.instance = instance;
-        let start = crate::contain::apply(app, start).await?;
         // A runner replacing an agent CLI holds it for writing: no process starts from a half-installed CLI.
         let cli = crate::harness::CLI_INSTALL.read().await;
         let started = app.harnesses.get(harness).start(app, start, sink.clone()).await;
@@ -1473,11 +1517,12 @@ impl Sessions {
     }
 
     /// Durable claim before sending, serialized with owner actions. An uncertain send is never replayed.
+    /// A session whose action lock is taken waits for the next check; the resume (which may download, install and
+    /// start a process) runs in its own task with that session's lock, so the guard never waits for it.
     pub(crate) async fn check_capacity_retries(&self, app: &App) -> Result<()> {
         // A runner's session (on Home) is retried by its runner.
         for pending in self.list().into_iter().filter(|s| s.runner_id.is_none() && s.capacity_retry_at.is_some_and(|at| at <= now_ms())) {
-            let _action = self.inner.actions.lock().await;
-            let _guard = self.allow_work().await;
+            let Some(action) = self.try_action_lock(&pending.id) else { continue };
             let Some(s) = self.get(&pending.id) else { continue };
             if s.capacity_retry_at.is_none_or(|at| at > now_ms()) { continue; }
             if self.is_busy(&s) { continue; }
@@ -1487,34 +1532,51 @@ impl Sessions {
                 if eligible { s.capacity_retry_count += 1; }
             }).await?;
             if !eligible { continue; }
-            let sink = self.sink(app, &s.id);
-            sink.emit(EventBody::Notice { text: format!("Retrying automatically after model capacity failure (attempt {}/{}).", s.capacity_retry_count + 1, MAX_CAPACITY_RETRIES) }).await;
-            if let Err(e) = self.resume_locked(app, &s.id, false, true).await {
-                let message = format!("{e:#}");
-                // Reattachment may fail before a turn starts and before the adapter can
-                // report a new status. Only an explicit capacity error earns another retry.
-                if is_capacity_error(&message) {
-                    self.update(app, &s.id, |s| {
-                        if s.status == SessionStatus::Error && s.capacity_retry_at.is_none() && s.capacity_retry_count < MAX_CAPACITY_RETRIES {
-                            s.capacity_retry_at = Some(now_ms() + CAPACITY_RETRY_DELAY_MS);
-                        }
-                    }).await?;
+            let (this, app) = (self.clone(), app.clone());
+            tokio::spawn(async move {
+                let _action = action;
+                if let Err(e) = this.capacity_retry(&app, &s).await {
+                    tracing::warn!("capacity retry {}: {e:#}", s.id);
                 }
-                sink.emit(EventBody::Notice { text: format!("Automatic capacity retry could not continue: {message}. If no retry is pending, inspect the trace and resume manually.") }).await;
-            }
+            });
         }
         Ok(())
     }
 
-    /// Runs under the action lock, preventing user Stop and an automatic continuation from racing.
+    /// One claimed capacity retry. The caller holds the session's action lock.
+    async fn capacity_retry(&self, app: &App, s: &Session) -> Result<()> {
+        let sink = self.sink(app, &s.id);
+        sink.emit(EventBody::Notice { text: format!("Retrying automatically after model capacity failure (attempt {}/{}).", s.capacity_retry_count + 1, MAX_CAPACITY_RETRIES) }).await;
+        if let Err(e) = self.resume_locked(app, &s.id, false, true).await {
+            let message = format!("{e:#}");
+            // Reattachment may fail before a turn starts and before the adapter can
+            // report a new status. Only an explicit capacity error earns another retry.
+            if is_capacity_error(&message) {
+                self.update(app, &s.id, |s| {
+                    if s.status == SessionStatus::Error && s.capacity_retry_at.is_none() && s.capacity_retry_count < MAX_CAPACITY_RETRIES {
+                        s.capacity_retry_at = Some(now_ms() + CAPACITY_RETRY_DELAY_MS);
+                    }
+                }).await?;
+            }
+            sink.emit(EventBody::Notice { text: format!("Automatic capacity retry could not continue: {message}. If no retry is pending, inspect the trace and resume manually.") }).await;
+        }
+        Ok(())
+    }
+
+    /// Each session is checked under its action lock, so a user Stop and an automatic continuation never race. A
+    /// session whose lock is taken (an action of its own runs) waits for the next check; an automatic continuation
+    /// (which may download, install and start a process) runs in its own task with that lock, so one session never
+    /// delays the checks of the others.
     pub(crate) async fn check_quotas(&self, app: &App) -> Result<()> {
-        let _action = self.inner.actions.lock().await;
         crate::spend::publish(app);
         for s in self.list() {
             // Home: a runner's session is protected by its runner, which receives Home's readings.
             if s.runner_id.is_some() { continue; }
             // Setup has not sent a task yet; start_new checks quota after it finishes.
             if self.setup_running(&s.id) { continue; }
+            let Some(action) = self.try_action_lock(&s.id) else { continue };
+            // The record as it is now that no action of this session runs.
+            let Some(s) = self.get(&s.id) else { continue };
             if s.live && s.quota_pause.is_none() && (s.status.is_running() || s.status.is_done()) {
                 crate::titles::generate(app, &s);
             }
@@ -1578,22 +1640,25 @@ impl Sessions {
                 else if crate::quota::reset_fallback(&reading, &p, now_ms()) { Some(QuotaResume::ResetFallback) }
                 else { None };
             if !current.budget_reached() && crate::spend::reached(app, &current.launch_spec).is_empty() && let Some(mode) = mode {
-                match self.continue_quota(app, &s.id, mode).await {
-                    Ok(()) => {}
-                    Err(e) => tracing::warn!("quota continuation {}: {e:#}", s.id),
-                }
+                let (this, app, id) = (self.clone(), app.clone(), s.id.clone());
+                tokio::spawn(async move {
+                    let _action = action;
+                    if let Err(e) = this.continue_quota(&app, &id, mode).await {
+                        tracing::warn!("quota continuation {id}: {e:#}");
+                    }
+                });
             }
         }
         Ok(())
     }
 
     pub async fn resume_paid(&self, app: &App, id: &str) -> Result<()> {
-        let _action = self.inner.actions.lock().await;
+        let _action = self.action_lock(id).await;
         self.continue_quota(app, id, QuotaResume::Paid).await
     }
 
     pub async fn resume_subscription(&self, app: &App, id: &str) -> Result<()> {
-        let _action = self.inner.actions.lock().await;
+        let _action = self.action_lock(id).await;
         self.continue_quota(app, id, QuotaResume::Manual).await
     }
 
@@ -1610,7 +1675,7 @@ impl Sessions {
     /// Toggles paid usage for one session. Turning it off puts the session back under quota protection at the next guard check.
     pub async fn set_paid_usage(&self, app: &App, id: &str, allow: bool) -> Result<Session> {
         self.ensure_local(id)?;
-        let _action = self.inner.actions.lock().await;
+        let _action = self.action_lock(id).await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.quota,
             "This integration does not monitor subscription quotas; native provider billing settings apply.");
@@ -1626,7 +1691,7 @@ impl Sessions {
     /// Sets or removes the cost limit of one session. A running turn above the new limit is interrupted by the guard.
     pub async fn set_budget(&self, app: &App, id: &str, budget_usd: Option<f64>) -> Result<Session> {
         self.ensure_local(id)?;
-        let _action = self.inner.actions.lock().await;
+        let _action = self.action_lock(id).await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(budget_usd.is_none() || (!s.usage.cost_unavailable && crate::profiles::supports_cost(app, s.harness, &s.launch_spec, s.model.as_deref())), "{}", crate::harness::COST_UNAVAILABLE);
         check_budget(s.harness, budget_usd)?;
@@ -1643,8 +1708,7 @@ impl Sessions {
     /// Reconfigure the same native conversation at an idle boundary, then continue an interrupted task.
     pub async fn set_permissions(&self, app: &App, id: &str, mode: PermissionMode) -> Result<Session> {
         self.ensure_local(id)?;
-        let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await;
+        let _action = self.action_lock(id).await;
         self.ensure_shutdown_finished(id)?;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.permission_modes,
@@ -1665,15 +1729,13 @@ impl Sessions {
                     self.inner.stop_requests.lock().unwrap().remove(id);
                     return Err(e);
                 }
-                drop(_guard);
                 drop(_action);
                 tokio::time::timeout(std::time::Duration::from_secs(20), async {
                     while !live.ready_for_turn() || self.get(id).is_some_and(|s| s.status.is_running()) {
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                     }
                 }).await.context("The turn has not stopped or background commands are still running. Permissions are unchanged; wait for them to finish and try again.")?;
-                let _action = self.inner.actions.lock().await;
-                let _guard = self.allow_work().await;
+                let _action = self.action_lock(id).await;
                 let current = self.get(id).context("no such session")?;
                 anyhow::ensure!(self.live(id).is_some_and(|now| Arc::ptr_eq(&now, &live))
                     && current.status == SessionStatus::Stopped && current.quota_pause.is_none()
@@ -1685,7 +1747,7 @@ impl Sessions {
         self.apply_permissions(app, id, mode, false).await
     }
 
-    /// Caller holds action and work locks and has validated the native attachment.
+    /// Caller holds the session's action lock and has validated the native attachment.
     async fn apply_permissions(&self, app: &App, id: &str, mode: PermissionMode, continued: bool) -> Result<Session> {
         let sink = self.sink(app, id);
         self.update(app, id, |s| s.launch_spec.permission_mode = mode).await?;
@@ -1703,7 +1765,7 @@ impl Sessions {
     /// Changes model and effort through the live adapter, or resumes a replacement process once idle.
     pub async fn set_model(&self, app: &App, id: &str, model: Option<String>, effort: Option<String>) -> Result<Session> {
         self.ensure_local(id)?;
-        let _action = self.inner.actions.lock().await;
+        let _action = self.action_lock(id).await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.status != SessionStatus::InTerminal, "The session is open in a terminal: re-attach it first.");
         let defaults = app.models.defaults(app, s.harness);
@@ -1726,7 +1788,6 @@ impl Sessions {
             sink.emit(EventBody::Notice { text: format!("Model set to {label}; the agent restarts with it after the current turn.") }).await;
             return Ok(s);
         }
-        let _guard = self.allow_work().await;
         self.reattach(app, id).await?;
         sink.emit(EventBody::Notice { text: format!("Restarted with {label}.") }).await;
         self.get(id).context("no such session")
@@ -1736,7 +1797,6 @@ impl Sessions {
         let paid = mode == QuotaResume::Paid;
         let manual = mode == QuotaResume::Manual;
         let fallback = mode == QuotaResume::ResetFallback;
-        let _guard = self.allow_work().await;
         let s = self.get(id).context("no such session")?;
         let p = s.quota_pause.clone().context("The session is not quota paused")?;
         ensure_budget(app, &s)?;
@@ -1813,8 +1873,7 @@ impl Sessions {
     /// or worktree creation: additional folders remain read-only references.
     pub async fn send_with_context(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, context: MessageContext, client_id: Option<String>) -> Result<()> {
         self.ensure_local(id)?;
-        let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await;
+        let _action = self.action_lock(id).await;
         if context.is_empty() {
             return self.send_locked(app, id, text, images, InputMode::Manual, client_id, context.from).await;
         }
@@ -1866,12 +1925,11 @@ impl Sessions {
 
     #[allow(clippy::too_many_arguments)]
     async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>, from: Option<crate::model::MessageFrom>) -> Result<()> {
-        let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await;
+        let _action = self.action_lock(id).await;
         self.send_locked(app, id, text, images, mode, client_id, from).await
     }
 
-    /// Caller holds the action and work locks, including during permission changes.
+    /// Caller holds the session's action lock, including during permission changes.
     /// `from`: the sender Home stamped when it is not the owner (`senders`), recorded on the `user_message` event.
     #[allow(clippy::too_many_arguments)]
     async fn send_locked(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>, from: Option<crate::model::MessageFrom>) -> Result<()> {
@@ -1973,10 +2031,10 @@ impl Sessions {
     pub async fn terminate_process(&self, app: &App, id: &str, thread: &str, process: &str) -> Result<()> {
         self.ensure_local(id)?;
         let live = {
-            let _action = self.inner.actions.lock().await;
+            let _action = self.action_lock(id).await;
             self.live(id).context("the session has no running process")?
         };
-        // A host/RPC wait must not hold the global action lock. The attachment keeps
+        // A host/RPC wait must not hold the session's action lock. The attachment keeps
         // ownership until command completion even if this request times out.
         tokio::time::timeout(std::time::Duration::from_secs(5), live.terminate_process(thread, process)).await
             .context("Stop is not confirmed yet. Check Processes and Trace before trying again")??;
@@ -1987,7 +2045,7 @@ impl Sessions {
     pub async fn interrupt(&self, app: &App, id: &str) -> Result<()> {
         self.ensure_local(id)?;
         crate::browser::revoke_session(app, id).await?;
-        let _action = self.inner.actions.lock().await;
+        let _action = self.action_lock(id).await;
         self.update(app, id, |s| s.capacity_retry_at = None).await?;
         // An owner Stop takes precedence over a pending cost-limit interruption.
         self.inner.budget_interrupts.lock().unwrap().remove(id);
@@ -2023,8 +2081,7 @@ impl Sessions {
 
     pub async fn answer(&self, app: &App, id: &str, request_id: &str, answers: Vec<String>) -> Result<()> {
         self.ensure_local(id)?;
-        let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await;
+        let _action = self.action_lock(id).await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.quota_pause.is_none(), "The session is quota paused.");
         anyhow::ensure!(!crate::quota::protected(app, s.harness, &s.launch_spec) || self.quota_blockers(app, &s).is_empty(), "Included quota exhausted; wait for the quota pause.");
@@ -2075,7 +2132,7 @@ impl Sessions {
 
     /// Stops the process. The conversation stays resumable.
     pub async fn close(&self, app: &App, id: &str) -> Result<()> {
-        let _action = self.inner.actions.lock().await;
+        let _action = self.action_lock(id).await;
         self.close_locked(app, id).await
     }
 
@@ -2109,7 +2166,7 @@ impl Sessions {
     /// The undo of Archive: the session comes back Done (Stopped when it was not Done when archived) and seen,
     /// without a process. Its next message resumes it and brings back what Archive cleaned up (`reattach`).
     pub async fn unarchive(&self, app: &App, id: &str) -> Result<Session> {
-        let _action = self.inner.actions.lock().await;
+        let _action = self.action_lock(id).await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(s.status == SessionStatus::Closed, "This agent is not archived");
         let status = if s.archived_done { SessionStatus::Waiting } else { SessionStatus::Stopped };
@@ -2131,13 +2188,12 @@ impl Sessions {
     pub async fn resume(&self, app: &App, id: &str, close_terminal: bool, continue_turn: bool) -> Result<()> {
         crate::role::ensure_runs_agents(app.paths.role)?;
         self.ensure_local(id)?;
-        let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await;
+        let _action = self.action_lock(id).await;
         self.update(app, id, |s| s.capacity_retry_at = None).await?;
         self.resume_locked(app, id, close_terminal, continue_turn).await
     }
 
-    /// Caller holds the action and work locks, just like manual Resume.
+    /// Caller holds the session's action lock, just like manual Resume.
     async fn resume_locked(&self, app: &App, id: &str, close_terminal: bool, continue_turn: bool) -> Result<()> {
         self.ensure_local(id)?;
         let s = self.get(id).context("no such session")?;
@@ -2182,8 +2238,7 @@ impl Sessions {
     /// Hands the session to its harness TUI in an integrated terminal.
     pub async fn open_terminal(&self, app: &App, id: &str) -> Result<crate::terminals::TerminalInfo> {
         self.ensure_local(id)?;
-        let _action = self.inner.actions.lock().await;
-        let _guard = self.allow_work().await;
+        let _action = self.action_lock(id).await;
         let s = self.get(id).context("no such session")?;
         anyhow::ensure!(crate::harness::registration(s.harness).descriptor.capabilities.terminal, "This harness does not support a terminal TUI.");
         anyhow::ensure!(!self.setup_running(id), "Wait for the agent to start.");
@@ -2212,15 +2267,10 @@ impl Sessions {
 
     /// Stops and forgets the sessions and terminals running in a folder (temporary project clean-up).
     pub async fn close_in(&self, app: &App, path: &str) -> Result<()> {
-        let _action = self.action_lock().await;
-        self.close_in_locked(app, path).await
-    }
-
-    /// Caller holds the session action lock, including when holding the work gate for cleanup.
-    pub(crate) async fn close_in_locked(&self, app: &App, path: &str) -> Result<()> {
-        app.terminals.close_in(path).await?;
         let ids: Vec<String> =
             self.list().into_iter().filter(|s| std::path::Path::new(&s.cwd).starts_with(path)).map(|s| s.id).collect();
+        let _action = self.action_locks(&ids).await;
+        app.terminals.close_in(path).await?;
         for id in ids {
             if self.get(&id).is_some_and(|s| s.live || s.status.is_running() || s.status.is_done() || s.quota_pause.is_some()) {
                 self.close_locked(app, &id).await?;

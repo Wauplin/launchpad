@@ -534,9 +534,9 @@ impl Terminals {
                 None => bail!("The folder {cwd} no longer exists."),
             }
         }
-        // Serialize terminal startup with task Git operations and their idle checks.
-        let _action = app.sessions.action_lock().await;
-        let _guard = app.sessions.allow_work().await;
+        // Serialize terminal startup with worktree removals and merges, which check under this lock that no
+        // terminal is open in the folder (only local work runs under it).
+        let _lock = app.worktree_lock.lock().await;
         let (root, project) = check_cwd(app, &cwd).await?;
         let cwd_s = root.to_string_lossy().to_string();
         if command.is_none()

@@ -93,7 +93,7 @@ async fn prepare_move(app: &App, id: &str) -> Result<()> {
         for w in crate::worktrees::for_session(app, id).await?.into_iter().filter(|w| w.state == WorktreeState::Active) {
             crate::worktrees::remove(app, &w.id).await.with_context(|| format!("{} cannot move yet", w.branch))?;
         }
-        let _action = app.sessions.action_lock().await;
+        let _action = app.sessions.action_lock(id).await;
         app.sessions.release(app, id).await?;
     }
     // Its temporary folder leaves this disk with it (Home holds the files) unless another agent here uses it.
@@ -342,7 +342,7 @@ pub async fn clean_archived(app: &App, id: &str) -> Result<bool> {
     let h = snapshot(app, id).await?;
     ensure!(s.harness_session_id.is_none() || !h.files.is_empty(), "no native conversation found");
     send(app, id, &h).await?;
-    let _action = app.sessions.action_lock().await;
+    let _action = app.sessions.action_lock(id).await;
     // Nothing may have changed since Home confirmed its copy.
     let Some(s) = app.sessions.get(id).filter(|s| idle(s)) else { return Ok(false) };
     if s.generation != h.generation || s.harness_session_id != h.harness_session_id {
@@ -526,7 +526,7 @@ pub async fn release(app: &App, id: &str, generation: u32) -> Result<()> {
         app.terminals.close_and_wait(&[t]).await?;
     }
     {
-        let _action = app.sessions.action_lock().await;
+        let _action = app.sessions.action_lock(id).await;
         app.sessions.detach(app, id).await?;
         crate::worktrees::release_moved(app, id, s.generation).await?;
     }

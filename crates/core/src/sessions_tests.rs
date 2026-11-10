@@ -70,17 +70,31 @@ fn session_lists_strip_held_images_without_changing_the_saved_input() {
 }
 
 #[tokio::test]
+async fn one_session_action_never_waits_for_another_session() {
+    let sessions = super::Sessions::new();
+    let a = sessions.action_lock("a").await;
+    assert!(sessions.try_action_lock("a").is_none());
+    assert!(sessions.try_action_lock("b").is_some());
+    // Several at once, in any order and with repeats: each taken once.
+    let both = sessions.action_locks(&["c", "b", "c"]).await;
+    assert_eq!(both.len(), 2);
+    assert!(sessions.try_action_lock("b").is_none());
+    drop((a, both));
+    assert!(sessions.try_action_lock("a").is_some() && sessions.try_action_lock("b").is_some());
+}
+
+#[tokio::test]
 async fn timed_out_shutdowns_retain_ownership_until_all_waits_finish() {
     let sessions = super::Sessions::new();
     let mut finishes = Vec::new();
     for _ in 0..2 {
         let (finish, wait) = tokio::sync::oneshot::channel::<()>();
         finishes.push(finish);
-        let action = sessions.action_lock().await;
+        let action = sessions.action_lock("task").await;
         let result = sessions.wait_for_shutdown_timeout("task", async move { wait.await?; Ok(()) }, std::time::Duration::from_millis(1)).await;
         assert!(result.is_err());
         drop(action);
-        assert!(sessions.inner.actions.try_lock().is_ok());
+        assert!(sessions.try_action_lock("task").is_some());
         assert!(sessions.ensure_shutdown_finished("task").is_err());
     }
     finishes.pop().unwrap().send(()).unwrap();

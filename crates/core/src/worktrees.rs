@@ -397,24 +397,12 @@ pub async fn pull_request_at(app: &App, root: &str) -> Option<PullRequestBranch>
     list(app).await.ok()?.into_iter().find(|w| w.state == WorktreeState::Active && std::path::Path::new(root).starts_with(&w.root))?.pull_request
 }
 
-/// Pushes the branch to Home unless Home already has it. Never overwrites a tip Home got elsewhere (a
-/// Restore, another runner): the push expects the tip this clone last saw.
-/// The caller holds `worktree_lock` (the record is saved as it is); other callers use `push_unlocked`.
-pub async fn push(app: &App, w: &mut TaskWorktree) -> Result<bool> {
-    let before = push_fields(w);
-    let result = push_branch(app, w).await;
-    if push_fields(w) != before {
-        save(app, w).await?;
-    }
-    result
-}
-
 /// What a push changes in a record: the tip seen, the tip on Home and the failure note.
 fn push_fields(w: &TaskWorktree) -> (Option<String>, Option<String>, Option<String>) {
     (w.head.clone(), w.pushed.clone(), w.push_note.clone())
 }
 
-/// `push` without saving the record.
+/// `push_unlocked` without saving the record.
 async fn push_branch(app: &App, w: &mut TaskWorktree) -> Result<bool> {
     if w.state != WorktreeState::Active || !Path::new(&w.root).is_dir() {
         return Ok(false);
@@ -462,8 +450,10 @@ pub async fn record_heads(app: &App, session_id: &str) {
     }
 }
 
-/// `push` for callers without `worktree_lock`: the push runs without the lock (it may take minutes), and its
-/// result goes into the record as it is now, under the lock, so a merge request or cleanup saved meanwhile stays.
+/// Pushes the branch to Home unless Home already has it. Never overwrites a tip Home got elsewhere (a
+/// Restore, another runner): the push expects the tip this clone last saw. The caller holds no lock: the push
+/// runs without one (it may take minutes), and its result goes into the record as it is now, under
+/// `worktree_lock`, so a merge request or cleanup saved meanwhile stays.
 pub async fn push_unlocked(app: &App, w: &mut TaskWorktree) -> Result<bool> {
     let before = push_fields(w);
     let result = push_branch(app, w).await;
@@ -505,20 +495,27 @@ static SNAPSHOTS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, String>>>
 /// while the runner is away (`away`), and a folder cloned again from Home gets the uncommitted files back
 /// (`restore`). Uses a temporary index (`repo_cache::capture`): the worktree's index, `HEAD` and files stay as
 /// they are.
-pub(crate) async fn snapshot(app: &App, w: &TaskWorktree) -> Result<()> {
+/// Returns the state it holds (`<HEAD>:<tree>`, see `files_state`).
+pub(crate) async fn snapshot(app: &App, w: &TaskWorktree) -> Result<String> {
     if w.state != WorktreeState::Active || !Path::new(&w.root).is_dir() {
-        return Ok(());
+        return Ok(String::new());
     }
+    let (commit, key) = files_state(app, w).await?;
+    if SNAPSHOTS.lock().unwrap().get(&w.id) == Some(&key) {
+        return Ok(key);
+    }
+    crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{commit}:{}", snapshot_ref(&w.id))], 900).await?;
+    SNAPSHOTS.lock().unwrap().insert(w.id.clone(), key.clone());
+    Ok(key)
+}
+
+/// The state of every file of the worktree: a commit of them on top of `HEAD` (temporary index) and its key
+/// `<HEAD>:<tree>`, the same key for the same files. Local only.
+async fn files_state(app: &App, w: &TaskWorktree) -> Result<(String, String)> {
     let head = git(app, &w.root, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
     let commit = crate::repo_cache::capture(app, Path::new(&w.root), "Launchpad snapshot", true).await?.context("no snapshot commit")?;
     let tree = git(app, &w.root, &["rev-parse", &format!("{commit}^{{tree}}")]).await?;
-    let key = format!("{head}:{tree}");
-    if SNAPSHOTS.lock().unwrap().get(&w.id) == Some(&key) {
-        return Ok(());
-    }
-    crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{commit}:{}", snapshot_ref(&w.id))], 900).await?;
-    SNAPSHOTS.lock().unwrap().insert(w.id.clone(), key);
-    Ok(())
+    Ok((commit, format!("{head}:{tree}")))
 }
 
 /// While a turn runs (`turn_sync::periodic`): snapshots of the session's worktrees, so nothing is lost if the
@@ -837,7 +834,9 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
     let project = crate::projects::get(app, &w.project_id).await?.context("the folder no longer exists")?;
     let cache = crate::repo_cache::sync(app, &project).await?;
     let cache_s = cache.to_string_lossy().into_owned();
-    let _lock = app.worktree_lock.lock().await;
+    // Home's snapshot, fetched before `worktree_lock` (network).
+    let snap = fetch_snapshot(app, &cache, &w.id).await;
+    let lock = app.worktree_lock.lock().await;
     let mut w = get(app, id).await?;
     ensure!(!Path::new(&w.root).exists(), "{} already exists", w.root);
     let branch = git(app, &cache_s, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{}^{{commit}}", w.branch)]).await.ok().filter(|c| !c.is_empty());
@@ -855,9 +854,12 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
     SNAPSHOTS.lock().unwrap().remove(&w.id);
     // Work newer than the branch on Home (uncommitted files, commits of a turn its runner never finished) comes
     // back from the last snapshot.
-    let reapplied = match &branch {
-        Some(_) => reapply_snapshot(app, &cache, &mut w, &start).await,
-        None => None,
+    let (reapplied, scratch) = match (&branch, &snap) {
+        (Some(_), Some(snap)) => match reapply_snapshot(app, &cache, &w, &start, snap).await {
+            Ok(applied) => (Some(applied), None),
+            Err(keep) => (None, keep.then(|| snap.clone())),
+        },
+        _ => (None, None),
     };
     w.state = WorktreeState::Active;
     w.cleanup_note = None;
@@ -865,6 +867,22 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
     w.pushed = Some(start);
     w.push_note = None;
     save(app, &w).await?;
+    drop(lock);
+    // Older or diverged (or not applied): its uncommitted files stay reachable on a scratch branch.
+    if let Some(snap) = scratch {
+        let scratch = format!("lp-scratch/{}-snapshot", w.branch.trim_start_matches("lp/"));
+        match crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{snap}:refs/heads/{scratch}")], 900).await {
+            Ok(_) => {
+                let files = git(app, &cache_s, &["diff", "--name-only", &format!("{snap}^1"), &snap]).await.map(|o| o.lines().count() as u32).unwrap_or(0);
+                let leftovers = Leftovers { branch: scratch, files };
+                let _lock = app.worktree_lock.lock().await;
+                w = get(app, id).await?;
+                w.leftovers = Some(leftovers);
+                save(app, &w).await?;
+            }
+            Err(e) => tracing::warn!("keep the snapshot of {} on {scratch}: {e:#}", w.branch),
+        }
+    }
     let mut text = format!("Worktree cloned again from branch {} on Home. Ignored files such as installed dependencies were not restored; run the setup again if needed.", w.branch);
     if let Some((_, at)) = reapplied {
         text.push_str(&format!(" Its uncommitted files came back from Home's last snapshot ({}).", crate::util::local_time(at / 1000)));
@@ -875,22 +893,26 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
     Ok(w)
 }
 
-/// A folder cloned again at `start` (the branch on Home): when Home's snapshot of the worktree is newer, its
-/// commits and its uncommitted files come back (the files stay uncommitted). Returns the new `HEAD` and when the
-/// snapshot was taken. A snapshot with uncommitted files that cannot come back (it diverged from the branch, or
-/// applying it failed) goes to a scratch branch first (`w.leftovers`): the next snapshot replaces the ref.
-async fn reapply_snapshot(app: &App, cache: &Path, w: &mut TaskWorktree, start: &str) -> Option<(String, i64)> {
-    let r = snapshot_ref(&w.id);
-    // No snapshot on Home: nothing to bring back.
+/// Home's snapshot of the worktree (`snapshot`), fetched into the runner's clone; None without one.
+async fn fetch_snapshot(app: &App, cache: &Path, worktree_id: &str) -> Option<String> {
+    let r = snapshot_ref(worktree_id);
     crate::repo_cache::git(app, cache, &["fetch", "--quiet", "--no-tags", "origin", &format!("+{r}:{r}")], true, 600).await.ok()?;
+    git(app, &cache.to_string_lossy(), &["rev-parse", "--verify", &format!("{r}^{{commit}}")]).await.ok()
+}
+
+/// A folder cloned again at `start` (the branch on Home): when Home's snapshot `snap` of the worktree is newer, its
+/// commits and its uncommitted files come back (the files stay uncommitted). Returns the new `HEAD` and when the
+/// snapshot was taken. Otherwise `Err(true)` when the snapshot holds uncommitted files that cannot come back (it
+/// diverged from the branch, or applying it failed): the caller keeps them on a scratch branch (`w.leftovers`).
+/// Local only: the caller holds `worktree_lock`.
+async fn reapply_snapshot(app: &App, cache: &Path, w: &TaskWorktree, start: &str, snap: &str) -> Result<(String, i64), bool> {
     let cache_s = cache.to_string_lossy().into_owned();
-    let snap = git(app, &cache_s, &["rev-parse", "--verify", &format!("{r}^{{commit}}")]).await.ok()?;
-    let applied = match newer_snapshot(app, cache, &snap, start).await {
+    let applied = match newer_snapshot(app, cache, snap, start).await {
         Some(parent) => async {
             if parent != start {
                 git(app, &w.root, &["reset", "--quiet", "--hard", &parent]).await?;
             }
-            git(app, &w.root, &["restore", "--source", &snap, "--worktree", "--", ":/"]).await?;
+            git(app, &w.root, &["restore", "--source", snap, "--worktree", "--", ":/"]).await?;
             Ok::<_, anyhow::Error>(parent)
         }
         .await
@@ -899,8 +921,8 @@ async fn reapply_snapshot(app: &App, cache: &Path, w: &mut TaskWorktree, start: 
     };
     match applied {
         Ok(Some(parent)) => {
-            let at = git(app, &cache_s, &["show", "-s", "--format=%ct", &snap]).await.ok().and_then(|t| t.parse::<i64>().ok()).unwrap_or(0) * 1000;
-            return Some((parent, at));
+            let at = git(app, &cache_s, &["show", "-s", "--format=%ct", snap]).await.ok().and_then(|t| t.parse::<i64>().ok()).unwrap_or(0) * 1000;
+            return Ok((parent, at));
         }
         Ok(None) => {}
         Err(e) => {
@@ -910,41 +932,45 @@ async fn reapply_snapshot(app: &App, cache: &Path, w: &mut TaskWorktree, start: 
             let _ = git(app, &w.root, &["clean", "-fdq"]).await;
         }
     }
-    // Older or diverged (or not applied): its uncommitted files stay reachable on a scratch branch.
-    if has_uncommitted(app, cache, &snap).await {
-        let scratch = format!("lp-scratch/{}-snapshot", w.branch.trim_start_matches("lp/"));
-        match crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{snap}:refs/heads/{scratch}")], 900).await {
-            Ok(_) => {
-                let files = git(app, &cache_s, &["diff", "--name-only", &format!("{snap}^1"), &snap]).await.map(|o| o.lines().count() as u32).unwrap_or(0);
-                w.leftovers = Some(Leftovers { branch: scratch, files });
-            }
-            Err(e) => tracing::warn!("keep the snapshot of {} on {scratch}: {e:#}", w.branch),
-        }
-    }
-    None
+    Err(has_uncommitted(app, cache, snap).await)
 }
 
 /// Removes a folder once Home has everything: the branch is pushed, and uncommitted files go to a scratch
-/// branch first. Fails with the reason when an agent or a terminal still uses it.
-async fn remove_clean(app: &App, w: &mut TaskWorktree) -> Result<()> {
-    ensure!(w.state == WorktreeState::Active, "this worktree is not active");
-    if let Some(reason) = idle_reason(app, w, true) {
-        bail!("{reason}");
-    }
-    // A merge that stopped (conflict or failure) stays in the record, which moves with the session.
-    ensure!(w.merge.as_ref().is_none_or(|m| m.phase != MergePhase::Waiting), "a merge is pending");
+/// branch first. Fails with the reason when an agent or a terminal still uses it. The pushes run without locks
+/// (they may take minutes); then, under the action locks of the worktree's sessions and `worktree_lock`, the
+/// folder goes only when nothing changed since: same sessions, still idle, same files.
+async fn remove_clean(app: &App, id: &str) -> Result<TaskWorktree> {
+    let mut w = get(app, id).await?;
+    removable(app, &w)?;
+    let mut saved = None;
     if Path::new(&w.root).exists() {
         ensure!(!operation_in_progress(app, &w.root).await, "a Git operation is in progress");
         let branch = git(app, &w.root, &["branch", "--show-current"]).await?;
         ensure!(branch == w.branch, "the worktree is on another branch ({branch})");
-        push(app, w).await.context("Home did not confirm the branch")?;
-        snapshot(app, w).await.context("Home did not confirm the uncommitted files")?;
+        push_unlocked(app, &mut w).await.context("Home did not confirm the branch")?;
+        let state = snapshot(app, &w).await.context("Home did not confirm the uncommitted files")?;
         let dirty = dirty_files(app, &w.root).await?;
+        let mut leftovers = None;
         if !dirty.is_empty() {
             let commit = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch), false).await?.context("leftover files could not be saved")?;
             let scratch = format!("lp-scratch/{}", w.branch.trim_start_matches("lp/"));
             crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{commit}:refs/heads/{scratch}")], 900).await.context("Home did not confirm the leftover files")?;
-            w.leftovers = Some(Leftovers { branch: scratch, files: dirty.len() as u32 });
+            leftovers = Some(Leftovers { branch: scratch, files: dirty.len() as u32 });
+        }
+        saved = Some((state, leftovers));
+    }
+    let sessions = w.sessions.clone();
+    let _action = app.sessions.action_locks(&sessions).await;
+    let _lock = app.worktree_lock.lock().await;
+    let mut w = get(app, id).await?;
+    ensure!(w.sessions == sessions, "another agent joined this worktree");
+    removable(app, &w)?;
+    if Path::new(&w.root).exists() {
+        let (state, leftovers) = saved.context("the folder came back")?;
+        ensure!(git(app, &w.root, &["branch", "--show-current"]).await? == w.branch, "the worktree changed branch");
+        ensure!(files_state(app, &w).await?.1 == state, "its files changed while Home saved them");
+        if leftovers.is_some() {
+            w.leftovers = leftovers;
         }
         for id in w.sessions.clone() {
             app.sessions.release(app, &id).await?;
@@ -953,22 +979,29 @@ async fn remove_clean(app: &App, w: &mut TaskWorktree) -> Result<()> {
     }
     w.state = WorktreeState::Removed;
     w.cleanup_note = None;
-    save(app, w).await
+    save(app, &w).await?;
+    Ok(w)
+}
+
+/// Whether a folder may go now: active, no agent or terminal uses it, no merge waits.
+fn removable(app: &App, w: &TaskWorktree) -> Result<()> {
+    ensure!(w.state == WorktreeState::Active, "this worktree is not active");
+    if let Some(reason) = idle_reason(app, w, true) {
+        bail!("{reason}");
+    }
+    // A merge that stopped (conflict or failure) stays in the record, which moves with the session.
+    ensure!(w.merge.as_ref().is_none_or(|m| m.phase != MergePhase::Waiting), "a merge is pending");
+    Ok(())
 }
 
 /// Runner: a session Home moved on while this runner was away (`handoff::release`). Its worktrees' commits and
 /// uncommitted files go to `lp-scratch/<branch>-gen<generation>` on Home (the branch itself belongs to the newer
 /// generation now), then the folders and records go. A worktree another open session here still uses only
-/// loses this session. The caller holds the session action lock.
+/// loses this session. The caller holds the session's action lock; `worktree_lock` is never held during a push.
 pub(crate) async fn release_moved(app: &App, session_id: &str, generation: u32) -> Result<()> {
-    let _lock = app.worktree_lock.lock().await;
-    for mut w in for_session(app, session_id).await? {
-        if w.sessions.iter().any(|id| id != session_id && app.sessions.get(id).is_some_and(|s| s.status != SessionStatus::Closed)) {
-            w.sessions.retain(|id| id != session_id);
-            save(app, &w).await?;
-            continue;
-        }
-        if w.state == WorktreeState::Active && Path::new(&w.root).is_dir() {
+    let shared = |w: &TaskWorktree| w.sessions.iter().any(|id| id != session_id && app.sessions.get(id).is_some_and(|s| s.status != SessionStatus::Closed));
+    for w in for_session(app, session_id).await? {
+        if !shared(&w) && w.state == WorktreeState::Active && Path::new(&w.root).is_dir() {
             // A shell there would write after the capture, into a folder that is about to go.
             app.terminals.close_in(&w.root).await?;
             let head = git(app, &w.root, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
@@ -985,6 +1018,15 @@ pub(crate) async fn release_moved(app: &App, session_id: &str, generation: u32) 
                     .with_context(|| format!("Home did not confirm the leftovers of {}", w.branch))?;
                 tracing::info!("released worktree {}: leftovers on {scratch}", w.root);
             }
+        }
+        let _lock = app.worktree_lock.lock().await;
+        let Ok(mut w) = get(app, &w.id).await else { continue };
+        if shared(&w) {
+            w.sessions.retain(|id| id != session_id);
+            save(app, &w).await?;
+            continue;
+        }
+        if w.state == WorktreeState::Active && Path::new(&w.root).is_dir() {
             git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
         }
         let id = w.id.clone();
@@ -996,19 +1038,17 @@ pub(crate) async fn release_moved(app: &App, session_id: &str, generation: u32) 
 
 /// Settings → Worktrees "Remove folder": removal after Home confirmed the branch.
 pub async fn remove(app: &App, id: &str) -> Result<TaskWorktree> {
-    let _action = app.sessions.action_lock().await;
-    let _lock = app.worktree_lock.lock().await;
-    let mut w = get(app, id).await?;
-    remove_clean(app, &mut w).await?;
-    Ok(w)
+    remove_clean(app, id).await
 }
 
 /// Deletes the folder and the branch (here and on Home, where its tip stays restorable for 30 days) and
 /// archives the sessions. Owner confirmation only.
 pub async fn discard(app: &App, id: &str) -> Result<TaskWorktree> {
-    let _action = app.sessions.action_lock().await;
-    let _lock = app.worktree_lock.lock().await;
+    let sessions = get(app, id).await?.sessions;
+    let action = app.sessions.action_locks(&sessions).await;
+    let lock = app.worktree_lock.lock().await;
     let mut w = get(app, id).await?;
+    ensure!(w.sessions == sessions, "another agent joined this worktree: try again");
     ensure!(matches!(w.state, WorktreeState::Active | WorktreeState::Removed | WorktreeState::Preparing), "this worktree was already discarded");
     for sid in &w.sessions {
         if let Some(s) = app.sessions.get(sid)
@@ -1030,10 +1070,13 @@ pub async fn discard(app: &App, id: &str) -> Result<TaskWorktree> {
         }
     }
     discard_locked(app, &mut w).await?;
+    drop((lock, action));
+    delete_on_home(app, &w).await;
     Ok(w)
 }
 
-/// Deletes the folder and the branch, here and on Home. The caller holds the action and worktree locks.
+/// Deletes the folder and the local branch. The caller holds the action and worktree locks, and then calls
+/// `delete_on_home` once it released them.
 async fn discard_locked(app: &App, w: &mut TaskWorktree) -> Result<()> {
     if Path::new(&w.root).exists() {
         git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
@@ -1041,6 +1084,13 @@ async fn discard_locked(app: &App, w: &mut TaskWorktree) -> Result<()> {
     let _ = git(app, &w.repo, &["branch", "-D", &w.branch]).await;
     // Also when nothing was pushed yet: a snapshot of a running turn may be on Home.
     SNAPSHOTS.lock().unwrap().remove(&w.id);
+    w.state = WorktreeState::Discarded;
+    w.merge = None;
+    save(app, w).await
+}
+
+/// The branch of a discarded worktree leaves Home (its tip stays restorable there for 30 days).
+async fn delete_on_home(app: &App, w: &TaskWorktree) {
     let body = json!({"branch": w.branch, "worktree": w.id});
     let deleted = if crate::home_git::here(app) {
         crate::home_git::delete(app, &w.project_id, &w.branch, Some(&w.id)).await
@@ -1050,9 +1100,6 @@ async fn discard_locked(app: &App, w: &mut TaskWorktree) -> Result<()> {
     if let Err(e) = deleted {
         tracing::warn!("discard {}: Home kept the branch: {e:#}", w.branch);
     }
-    w.state = WorktreeState::Discarded;
-    w.merge = None;
-    save(app, w).await
 }
 
 /// Merge into base: the owner's button (with the `head` it showed), or `by_agent` from `launchpad work finish`.
@@ -1176,17 +1223,44 @@ pub async fn fix_with_agent(app: &App, id: &str) -> Result<()> {
     app.sessions.send(app, &session, &conflict_message(app, &w, &m.reason, &session), vec![]).await
 }
 
-/// One merge attempt: push the branch, then Home fast-forwards the base branch.
+/// One merge attempt at a time per worktree (the 15-second loop, the owner's Merge, an agent's `work finish`).
+static MERGES: std::sync::LazyLock<crate::locks::Locks> = std::sync::LazyLock::new(Default::default);
+
+/// One merge attempt: push the branch, then Home fast-forwards the base branch. The checks run under the action
+/// locks of the worktree's sessions and `worktree_lock`; the push and Home's merge (minutes on a large
+/// repository) run without them, so the agents' actions and other worktrees never wait; the outcome is stored on
+/// the record as it is then, unless the owner cancelled or requested the merge again meanwhile.
 async fn attempt(app: &App, id: &str) {
+    let merging = MERGES.get(id);
+    let _merging = merging.lock().await;
+    let Ok(w) = get(app, id).await else { return };
+    let (mut w, m, checked) = {
+        let _action = app.sessions.action_locks(&w.sessions).await;
+        let _lock = app.worktree_lock.lock().await;
+        let Ok(w) = get(app, id).await else { return };
+        let Some(m) = w.merge.clone().filter(|m| m.phase == MergePhase::Waiting) else { return };
+        // `Ok(Err(tip))`: go on with that commit; `Ok(Ok(step))`: the merge waits or stops there.
+        let checked = match merge_checks(app, &w).await {
+            Ok(None) => branch_tip(app, &w).await.map(Err),
+            Ok(Some(step)) => Ok(Ok(step)),
+            Err(e) => Err(e),
+        };
+        (w, m, checked)
+    };
+    let result = match checked {
+        Ok(Err(tip)) => merge_remote(app, &mut w, &tip).await,
+        Ok(Ok(step)) => Ok(step),
+        Err(e) => Err(e),
+    };
     let outcome = {
-        let _action = app.sessions.action_lock().await;
         let _lock = app.worktree_lock.lock().await;
         let Ok(mut w) = get(app, id).await else { return };
-        let Some(m) = w.merge.clone() else { return };
-        if m.phase != MergePhase::Waiting {
+        let same = w.merge.as_ref().is_some_and(|c| c.phase == MergePhase::Waiting && c.requested_at == m.requested_at);
+        // A merge that happened is recorded whatever the request became meanwhile; other outcomes only for it.
+        if !same && !matches!(result, Ok(Step::Merged(..))) {
             return;
         }
-        let result = match try_merge(app, &mut w).await {
+        let result = match result {
             Ok(Step::Merged(head, note)) => {
                 let into = w.base_branch.clone().unwrap_or_default();
                 w.merge = None;
@@ -1233,23 +1307,39 @@ enum Step {
     Conflict(String),
 }
 
-async fn try_merge(app: &App, w: &mut TaskWorktree) -> Result<Step> {
-    let base = w.base_branch.clone().context("no base branch")?;
+/// The local checks before a merge: the agents are idle and the folder is clean on its branch. `Some`: the merge
+/// waits or stops there. The caller holds the action locks of the worktree's sessions and `worktree_lock`.
+async fn merge_checks(app: &App, w: &TaskWorktree) -> Result<Option<Step>> {
+    w.base_branch.as_ref().context("no base branch")?;
     if let Some(reason) = idle_agent_reason(app, w, false) {
-        return Ok(Step::Wait(format!("Waiting: {reason}")));
+        return Ok(Some(Step::Wait(format!("Waiting: {reason}"))));
     }
     ensure!(Path::new(&w.root).is_dir(), "the worktree folder is missing");
     let dirty = dirty_files(app, &w.root).await?;
     if !dirty.is_empty() {
-        return Ok(Step::Conflict(format!("the worktree has {} uncommitted files ({}); commit them first", dirty.len(), dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", "))));
+        return Ok(Some(Step::Conflict(format!("the worktree has {} uncommitted files ({}); commit them first", dirty.len(), dirty.iter().take(5).cloned().collect::<Vec<_>>().join(", ")))));
     }
     ensure!(!operation_in_progress(app, &w.root).await, "a Git operation is in progress in the worktree");
     let branch = git(app, &w.root, &["branch", "--show-current"]).await?;
     ensure!(branch == w.branch, "the worktree is on {branch:?} instead of {}", w.branch);
-    if let Err(e) = push(app, w).await {
+    Ok(None)
+}
+
+/// The commit the checks saw: the merge takes it, not a commit an agent made after the locks were released.
+async fn branch_tip(app: &App, w: &TaskWorktree) -> Result<String> {
+    git(app, &w.root, &["rev-parse", "--verify", &format!("refs/heads/{}^{{commit}}", w.branch)]).await
+}
+
+/// The push to Home and Home's merge, without locks (`push_unlocked` stores the push on the record).
+async fn merge_remote(app: &App, w: &mut TaskWorktree, tip: &str) -> Result<Step> {
+    let base = w.base_branch.clone().context("no base branch")?;
+    if let Err(e) = push_unlocked(app, w).await {
         return Ok(Step::Wait(format!("Waiting: the branch is not on Home yet ({e:#})")));
     }
     let head = w.pushed.clone().context("the branch is not on Home")?;
+    if head != tip {
+        return Ok(Step::Wait(format!("Waiting: {} moved during the merge", w.branch)));
+    }
     if let Some(reviewed) = w.merge.as_ref().and_then(|m| m.head.as_deref()) {
         ensure!(head == reviewed, "{} changed since review ({} now); review again", w.branch, &head[..12.min(head.len())]);
     }
@@ -1350,21 +1440,28 @@ pub async fn after_archive(app: &App, session_id: &str) {
     for w in records.into_iter().filter(|w| w.state == WorktreeState::Active) {
         let archived = w.sessions.iter().all(|id| app.sessions.get(id).is_none_or(|s| s.status == SessionStatus::Closed));
         if archived && read_only(app, &w) && unchanged(app, &w).await {
-            let _action = app.sessions.action_lock().await;
-            let _lock = app.worktree_lock.lock().await;
-            let Ok(mut w) = get(app, &w.id).await else { continue };
-            if w.state != WorktreeState::Active || w.merge.is_some() || idle_reason(app, &w, true).is_some() {
-                continue;
-            }
-            let result: Result<()> = async {
-                for id in w.sessions.clone() {
-                    app.sessions.release(app, &id).await?;
+            let discarded = {
+                let _action = app.sessions.action_locks(&w.sessions).await;
+                let _lock = app.worktree_lock.lock().await;
+                let Ok(mut fresh) = get(app, &w.id).await else { continue };
+                if fresh.sessions != w.sessions || fresh.state != WorktreeState::Active || fresh.merge.is_some() || idle_reason(app, &fresh, true).is_some() {
+                    continue;
                 }
-                discard_locked(app, &mut w).await
-            }.await;
-            if let Err(e) = result {
-                tracing::warn!("read-only worktree {}: {e:#}", w.root);
-            }
+                let result: Result<()> = async {
+                    for id in fresh.sessions.clone() {
+                        app.sessions.release(app, &id).await?;
+                    }
+                    discard_locked(app, &mut fresh).await
+                }.await;
+                match result {
+                    Ok(()) => fresh,
+                    Err(e) => {
+                        tracing::warn!("read-only worktree {}: {e:#}", fresh.root);
+                        continue;
+                    }
+                }
+            };
+            delete_on_home(app, &discarded).await;
         } else if archived {
             cleanup(app, &w.id).await;
         }
@@ -1388,12 +1485,11 @@ async fn unchanged(app: &App, w: &TaskWorktree) -> bool {
 }
 
 async fn cleanup(app: &App, id: &str) {
-    let _action = app.sessions.action_lock().await;
-    let _lock = app.worktree_lock.lock().await;
-    let Ok(mut w) = get(app, id).await else { return };
-    if let Err(e) = remove_clean(app, &mut w).await {
+    if let Err(e) = remove_clean(app, id).await {
+        let _lock = app.worktree_lock.lock().await;
+        let Ok(mut w) = get(app, id).await else { return };
         let note = format!("Kept: {e:#}");
-        if w.cleanup_note.as_deref() != Some(note.as_str()) {
+        if w.state == WorktreeState::Active && w.cleanup_note.as_deref() != Some(note.as_str()) {
             w.cleanup_note = Some(note);
             let _ = save(app, &w).await;
         }

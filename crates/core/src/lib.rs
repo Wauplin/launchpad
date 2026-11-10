@@ -117,7 +117,8 @@ pub struct App {
     pub models: harness::ModelCache,
     pub suggestion_locks: locks::Locks,
     pub predraft_lock: Arc<tokio::sync::Mutex<()>>,
-    /// Serializes task worktree creation, merges and cleanup. Take the session action lock first.
+    /// Serializes changes of task worktree records and folders (creation, merges, cleanup, terminal starts there).
+    /// Take the sessions' action locks first; never hold it across a push or a call to Home (`push_unlocked`).
     pub worktree_lock: Arc<tokio::sync::Mutex<()>>,
     pub terminals: terminals::Terminals,
     pub browser: browser::Broker,
