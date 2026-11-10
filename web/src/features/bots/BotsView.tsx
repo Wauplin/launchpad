@@ -404,7 +404,8 @@ function InstructionsSection({ bot }: { bot: Bot }) {
   const proposed = (useProposalList().data ?? []).filter((p) => p.body.kind === "bot_instructions" && p.body.bot_id === bot.id && (p.state === "proposed" || p.state === "failed"));
   return <div data-tour="bots.files">
     {proposed.length > 0 && <Section title="Proposed by the bot">{proposed.map((p) => <ProposalCard key={p.id} p={p} />)}</Section>}
-    <InstructionsEditor key={`i-${bot.version}`} bot={bot} onSave={(t) => save({ instructions: t })} />
+    {/* Keyed on the file, not the store version: the bot writing its memory must not reset a draft. */}
+    <InstructionsEditor key={`i-${bot.instructions}`} bot={bot} onSave={(t) => save({ instructions: t })} />
   </div>;
 }
 
@@ -469,7 +470,7 @@ function FileSections({ bot }: { bot: Bot }) {
   return <>
     <Section title="bot.toml · the same settings as a file">
       {bot.settings_error && <p className="m-0 rounded-control bg-attn-soft px-2 py-1 text-[12px] text-attn">{bot.settings_error}</p>}
-      <FileEditor key={`s-${bot.version}`} value={bot.settings_text} mono onSave={(t) => save({ settings_text: t })} rows={8} />
+      <FileEditor key={`s-${bot.settings_text}`} value={bot.settings_text} mono onSave={(t) => save({ settings_text: t })} rows={8} />
     </Section>
     <Section title="Versions · last 30 days">
       {history.isLoading ? <Loading what="versions" /> : (history.data ?? []).length === 0 ? <p className="m-0 text-[12px] text-ink-3">No change yet.</p>

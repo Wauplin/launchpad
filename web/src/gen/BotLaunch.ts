@@ -20,8 +20,4 @@ previous: BotHandoff | null,
 /**
  * `inbox_done = true` in bot.toml (and more than read access): it may run `launchpad inbox done`.
  */
-inbox_done?: boolean, 
-/**
- * Its Launchpad CLI access is read: it reads its memory but cannot write it.
- */
-read_only?: boolean, };
+inbox_done?: boolean, };

@@ -25,7 +25,7 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
         Some(LaunchpadAccess::Admin)
     } else if method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity") {
         Some(LaunchpadAccess::Read)
-    } else if method == Method::POST && (path == "/api/proposals" || path == "/api/inbox/agent-done" || path == "/api/bot-memory") {
+    } else if method == Method::POST && (path == "/api/proposals" || path == "/api/inbox/agent-done") {
         Some(LaunchpadAccess::Propose)
     } else {
         None
@@ -186,9 +186,9 @@ mod tests {
         assert!(own_write("/api/inbox/agent-done"));
         assert_eq!(tool_need(&Method::POST, "/api/inbox/agent-done"), Some(LaunchpadAccess::Propose));
         assert!(!own_write("/api/inbox/t/action"));
-        // A bot writes its own memory at propose access and above (Home checks the bot); read access only reads it.
+        // A bot writes its own memory like the knowledge base, at every access level (Home checks the bot).
         assert!(own_write("/api/bot-memory"));
-        assert_eq!(tool_need(&Method::POST, "/api/bot-memory"), Some(LaunchpadAccess::Propose));
+        assert_eq!(tool_need(&Method::POST, "/api/bot-memory"), None);
     }
 
     #[test]

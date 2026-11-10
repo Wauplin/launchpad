@@ -513,10 +513,6 @@ pub struct BotLaunch {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub inbox_done: bool,
-    /// Its Launchpad CLI access is read: it reads its memory but cannot write it.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    #[ts(optional, as = "Option<bool>")]
-    pub read_only: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]

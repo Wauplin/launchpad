@@ -591,7 +591,7 @@ async fn bot_memory_command(paths: &Paths, command: BotMemory) -> Result<()> {
         }
         BotMemory::Read { path } => {
             let rel = launchpad_core::bot_memory::store_path(&bot_memory_path(&path)?)?;
-            let file = bot_memory_dir()?.join(rel.trim_start_matches(launchpad_core::bot_memory::DIR));
+            let file = bot_memory_dir()?.join(rel.strip_prefix(launchpad_core::bot_memory::DIR).unwrap_or(&rel));
             print!("{}", std::fs::read_to_string(&file).with_context(|| format!("there is no {rel}"))?);
             return Ok(());
         }

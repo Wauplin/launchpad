@@ -55,8 +55,6 @@ pub async fn runner_apply(app: &App, runner_id: &str, body: Value) -> Result<Val
     crate::home_git::check_session(app, runner_id, session_id)?;
     let s = app.sessions.get(session_id).context("no such session")?;
     let bot = s.launch_spec.bot.as_ref().context("this session is not a bot's: it has no bot memory")?;
-    let b = crate::bots::get(app, &bot.id).await.context("this session's bot no longer exists")?;
-    ensure!(b.settings.launchpad != crate::vault::LaunchpadAccess::Read, "{}'s Launchpad CLI access is read: it reads its memory but cannot write it", b.settings.name);
     let author = kb::agent_author(app, session_id).await?;
     Ok(json!({"lines": apply(app, &bot.id, author, ops).await?}))
 }
@@ -113,7 +111,7 @@ fn section_had(text: &str, heading: &str, slug: &str) -> bool {
 const OLD_AGENTS_LINE: &str = "- `bots/<bot>/`: a bot's own notes, short and current (preferences and facts it needs next time, never a journal of its runs).";
 pub(crate) const AGENTS_LINE: &str = "- Bots keep their own notes in their own folder (`$LAUNCHPAD_BOT/memory/`, written with `launchpad bot memory`), not here. Facts other agents need go here.";
 
-/// Home, at start, once per bot: moves its notes from the knowledge base's `bots/<slug>/` into `memory/` of its
+/// Home, at start, once per bot made before bots had their own memory: moves its notes from the knowledge base's `bots/<slug>/` into `memory/` of its
 /// store, removes them from the knowledge base and their lines from INDEX.md (all as Launchpad). Folders of
 /// `bots/` that are no bot's stay. Also updates the seeded AGENTS.md line about bots once per workspace. A failure
 /// is logged and tried again at the next start.
@@ -122,7 +120,7 @@ pub async fn move_from_kb(app: &App) {
         return;
     }
     for b in crate::bots::list(app).await.unwrap_or_default() {
-        let key = format!("bot-memory-from-kb:{}", b.id);
+        let key = moved_key(&b.id);
         match crate::ask_bot::done(app, key.clone()).await {
             Ok(false) => {}
             _ => continue,
@@ -149,6 +147,11 @@ pub async fn move_from_kb(app: &App) {
             Err(e) => tracing::warn!("AGENTS.md of the knowledge base of {}: {e:#}", w.name),
         }
     }
+}
+
+/// The `seeded` key that records a bot's notes as moved (claimed at creation for new bots).
+pub(crate) fn moved_key(bot_id: &str) -> String {
+    format!("bot-memory-from-kb:{bot_id}")
 }
 
 async fn move_bot(app: &App, b: &crate::bots::Bot) -> Result<usize> {
@@ -210,10 +213,15 @@ fn state_file(app: &App, bot_id: &str) -> PathBuf {
     app.paths.data_dir.join("bot-files-state").join(format!("{bot_id}.json"))
 }
 
+/// One sync or removal of a bot's copy at a time.
+fn gate(bot_id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    static GATES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>> = std::sync::LazyLock::new(Default::default);
+    GATES.lock().unwrap().entry(bot_id.to_string()).or_default().clone()
+}
+
 /// Runner: brings the copy of a bot's store to Home's version (Home wins: the copy is read-only). Returns it.
 pub async fn sync(app: &App, bot_id: &str) -> Result<PathBuf> {
-    static SYNCS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>> = std::sync::LazyLock::new(Default::default);
-    let gate = SYNCS.lock().unwrap().entry(bot_id.to_string()).or_default().clone();
+    let gate = gate(bot_id);
     let _one = gate.lock().await;
     let id = crate::bots::store(bot_id);
     let dir = mirror_dir(app, bot_id);
@@ -242,22 +250,49 @@ pub async fn sync(app: &App, bot_id: &str) -> Result<PathBuf> {
         tokio::fs::rename(&tmp, &path).await?;
     }
     kb::remove_empty_dirs(&dir).await;
-    let synced = Synced { files: tree.files.iter().map(|e| (e.path.clone(), e.sha256.clone())).collect() };
-    tokio::fs::create_dir_all(state.parent().unwrap()).await?;
-    tokio::fs::write(&state, serde_json::to_vec(&synced)?).await?;
+    let now = Synced { files: tree.files.iter().map(|e| (e.path.clone(), e.sha256.clone())).collect() };
+    if now.files != synced.files || !state.is_file() {
+        tokio::fs::create_dir_all(state.parent().unwrap()).await?;
+        tokio::fs::write(&state, serde_json::to_vec(&now)?).await?;
+    }
     Ok(dir)
 }
 
+/// The bots with an open (not archived) session on this machine.
+fn open_bots(app: &App) -> std::collections::BTreeSet<String> {
+    app.sessions.list().into_iter().filter(|s| s.status != crate::model::SessionStatus::Closed).filter_map(|s| s.launch_spec.bot.map(|b| b.id)).collect()
+}
+
+/// How long a bot's copy stays after its last open session here (archived, moved away or its bot deleted).
+const KEEP_UNUSED: std::time::Duration = std::time::Duration::from_secs(3600);
+
 /// Runner: keeps the copies of the bots whose sessions are open on this machine current (every minute, with the
-/// knowledge bases).
+/// knowledge bases), and removes a copy an hour after its bot's last open session here.
 pub async fn sync_open(app: &App) {
-    let mut ids: Vec<String> = app.sessions.list().into_iter().filter(|s| s.status != crate::model::SessionStatus::Closed).filter_map(|s| s.launch_spec.bot.map(|b| b.id)).collect();
-    ids.sort();
-    ids.dedup();
-    for id in ids {
-        if let Err(e) = sync(app, &id).await {
+    static LAST_OPEN: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>> = std::sync::LazyLock::new(Default::default);
+    let open = open_bots(app);
+    for id in &open {
+        LAST_OPEN.lock().unwrap().insert(id.clone(), std::time::Instant::now());
+        if let Err(e) = sync(app, id).await {
             tracing::debug!("bot files {id}: {e:#}");
         }
+    }
+    let Ok(mut dirs) = tokio::fs::read_dir(app.paths.data_dir.join("bot-files")).await else { return };
+    while let Ok(Some(e)) = dirs.next_entry().await {
+        let id = e.file_name().to_string_lossy().into_owned();
+        let since = *LAST_OPEN.lock().unwrap().entry(id.clone()).or_insert_with(std::time::Instant::now);
+        if open.contains(&id) || since.elapsed() < KEEP_UNUSED {
+            continue;
+        }
+        let gate = gate(&id);
+        let _one = gate.lock().await;
+        // A session that started meanwhile mounts this copy.
+        if open_bots(app).contains(&id) {
+            continue;
+        }
+        let _ = tokio::fs::remove_dir_all(e.path()).await;
+        let _ = tokio::fs::remove_file(state_file(app, &id)).await;
+        LAST_OPEN.lock().unwrap().remove(&id);
     }
 }
 
