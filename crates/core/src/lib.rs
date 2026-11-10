@@ -73,6 +73,7 @@ pub mod ext;
 pub mod locks;
 pub mod diff;
 pub mod routines;
+pub mod scope;
 pub mod senders;
 pub mod today;
 pub mod launchpad_cli;

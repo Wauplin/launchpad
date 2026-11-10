@@ -404,7 +404,10 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                                 },
                                 // The runner's own work: a closed list, scoped to its sessions and folders.
                                 (Some(router), None) => match crate::runner_trust::check(&app, &runner_id, &method, &bare, body).await {
-                                    Ok(body) => crate::home_client::local(&app, router, &method, &path, body, &[]).await.inspect(|(status, answer)| crate::runner_trust::after(&app, &runner_id, &method, &bare, *status, answer)),
+                                    Ok((query, body)) => {
+                                        let path = match query { Some(q) => format!("{bare}?{q}"), None => path };
+                                        crate::home_client::local(&app, router, &method, &path, body, &[]).await.inspect(|(status, answer)| crate::runner_trust::after(&app, &runner_id, &method, &bare, *status, answer))
+                                    }
                                     Err(e) => Ok((403, json!({"error": format!("{e:#}")}).to_string())),
                                 },
                             };

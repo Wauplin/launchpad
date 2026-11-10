@@ -255,16 +255,15 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     ensure!(!c.title.trim().is_empty(), "give the proposal a title");
     let mut body = c.body;
     let author = c.session_id.as_deref().and_then(|sid| app.sessions.get(sid));
-    let mut workspace_id = match (&c.workspace_id, &author) {
-        (Some(w), _) => Some(w.clone()),
-        (None, Some(s)) => launchpad_core::kb::workspace_of_session(app, &s.id).await,
-        _ => None,
-    };
-    // An agent proposes changes to bots of its own workspace only.
+    // An agent proposes only for its own workspace (`launchpad_core::scope`); the owner names any workspace.
     let author_ws = match &author {
-        Some(s) => launchpad_core::kb::workspace_of_session(app, &s.id).await,
+        Some(s) => Some(launchpad_core::scope::of_session(app, &s.id).await.context("this session has no workspace, so it proposes nothing")?),
         None => None,
     };
+    if let (Some(own), Some(w)) = (&author_ws, &c.workspace_id) {
+        launchpad_core::scope::ensure_inside(own, Some(w), &format!("workspace {w}"))?;
+    }
+    let mut workspace_id = author_ws.clone().or(c.workspace_id.clone());
     let same_workspace = |bot: &launchpad_core::bots::Bot| author.is_none() || author_ws.as_deref() == Some(bot.workspace_id.as_str());
     let mut result_id = None;
     // The shorthands become one bot-files card, so every change to a bot's files reads as a diff.
@@ -280,6 +279,9 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             body = ProposalBody::BotFiles { bot_id: bot_id.clone(), files: [(launchpad_core::bots::INSTRUCTIONS.to_string(), Some(instructions.clone()))].into(), before: Default::default(), patches: Default::default() };
         }
         _ => {}
+    }
+    if let Some(own) = &author_ws {
+        check_scope(app, own, &mut body).await?;
     }
     match &mut body {
         ProposalBody::Launch { spec } | ProposalBody::Schedule { spec, .. } | ProposalBody::Cron { spec, .. } => {
@@ -431,12 +433,68 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     // Only proposals authored by a bot in auto mode are eligible, and only one-time starts and messages. Anything
     // that repeats or lasts (crons, routines, bots, BOT.md, presets, tools) and ready cards always wait for a click
     // (presets are shared settings: a session with admin access changes them directly, with Undo).
+    // A message to a session with admin access always waits for the owner: an auto-mode bot never steers an
+    // admin session without a click.
+    let to_admin = match &p.body {
+        ProposalBody::Message { session_id, .. } => launchpad_core::vault::session_access(app, session_id).await.ok().flatten() == Some(launchpad_core::vault::LaunchpadAccess::Admin),
+        _ => false,
+    };
     if matches!(p.body, ProposalBody::Launch { .. } | ProposalBody::Message { .. } | ProposalBody::Schedule { .. })
+        && !to_admin
         && auto_mode(app, author.as_ref()).await
     {
         return accept_inner(app, &p.id, false, None, None).await;
     }
     Ok(p)
+}
+
+/// Every record an agent's card names is in its workspace `ws`: the folders, sessions, Local PRs and bots of
+/// launch specs, the session a message or a status card names, the sessions a schedule waits for, the item a
+/// ready card or a report is about (a repository of another workspace's folders; repositories without a folder
+/// belong to no workspace). Bot cards are checked where they are read (their bot's workspace).
+async fn check_scope(app: &App, ws: &str, body: &mut ProposalBody) -> Result<()> {
+    use launchpad_core::scope;
+    let session = |id: String| async move { scope::ensure_inside(ws, scope::of_session(app, &id).await.as_deref(), &format!("session {id}")) };
+    match body {
+        ProposalBody::Launch { spec } | ProposalBody::Cron { spec, .. } => scope::check_spec(app, ws, spec).await?,
+        ProposalBody::Schedule { spec, conditions } => {
+            scope::check_spec(app, ws, spec).await?;
+            for c in conditions.iter() {
+                if let crate::schedules::LaunchDelay::Agents { session_ids } = c {
+                    for id in session_ids {
+                        session(id.clone()).await?;
+                    }
+                }
+            }
+        }
+        ProposalBody::Message { session_id, .. } => session(session_id.clone()).await?,
+        ProposalBody::Status { session_ids } => {
+            for id in session_ids.iter() {
+                session(id.clone()).await?;
+            }
+        }
+        ProposalBody::Report { github: Some(g), .. } => {
+            let repo = g.trim().split('#').next().unwrap_or_default();
+            ensure!(!scope::repo_outside(app, ws, repo).await, "{repo} belongs to another workspace's folder: agents report only in their own workspace");
+        }
+        ProposalBody::Ready { action, args, session_id, .. } => {
+            if let Some(id) = session_id {
+                session(id.clone()).await?;
+            }
+            let first = args.first().cloned().unwrap_or_default();
+            match action.as_str() {
+                a if a.starts_with("local-pr.") => scope::ensure_inside(ws, scope::of_predraft(app, &first).await.as_deref(), &format!("Local PR {first}"))?,
+                "worktree.merge" => scope::ensure_inside(ws, scope::of_worktree(app, &first).await.as_deref(), &format!("worktree {first}"))?,
+                "github.run-ci" => {
+                    let repo = args.iter().take(2).cloned().collect::<Vec<_>>().join("/");
+                    ensure!(!scope::repo_outside(app, ws, &repo).await, "{repo} belongs to another workspace's folder: agents prepare clicks only in their own workspace");
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// The waiting report of the same author and workspace about the same GitHub item, which a new report replaces.
@@ -539,6 +597,12 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
         p
     };
     let result: Result<String> = async {
+        // An admin session starts only cards whose records are in its own workspace.
+        if let Some(a) = agent.as_deref() {
+            let own = launchpad_core::scope::of_session(app, a).await.context("this session has no workspace")?;
+            launchpad_core::scope::ensure_inside(&own, p.workspace_id.as_deref(), "this card")?;
+            check_scope(app, &own, &mut p.body.clone()).await?;
+        }
         match p.body.clone() {
             ProposalBody::Launch { mut spec } => {
                 let id = p.result_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());

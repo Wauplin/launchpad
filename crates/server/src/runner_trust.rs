@@ -59,9 +59,10 @@ fn str_of<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
 }
 
 /// Home: checks a runner's own request (`may`) against Home's records, scoped to the sessions and folders Home
-/// placed on that runner. Returns the body to run, which Home may correct (a merge without the owner's grant is
-/// the agent's; a kept folder's workspace is its own).
-pub(crate) async fn check(app: &App, runner: &str, method: &str, path: &str, body: Option<String>) -> Result<Option<String>> {
+/// placed on that runner, and to their workspaces (`scope::of_runner`) for Local PRs. Returns the query to add
+/// (the Local PR list narrowed to those workspaces) and the body to run, which Home may correct (a merge without
+/// the owner's grant is the agent's; a kept folder's workspace is its own).
+pub(crate) async fn check(app: &App, runner: &str, method: &str, path: &str, body: Option<String>) -> Result<(Option<String>, Option<String>)> {
     ensure!(may(method, path), "runners may only send requests about their own sessions and folders");
     let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     let mut v: Value = body.as_deref().map(serde_json::from_str).transpose().context("the body is not JSON")?.unwrap_or(Value::Null);
@@ -84,6 +85,17 @@ pub(crate) async fn check(app: &App, runner: &str, method: &str, path: &str, bod
             ensure!(v["cwd"].is_null(), "Home has no worktrees");
             let (project, branch) = (str_of(&v, "project_id")?, str_of(&v, "branch")?);
             ensure!(owns_branch(app, &sid, project, branch).await, "{branch} is not a branch of this session");
+        }
+        ("GET", ["api", "predrafts"]) => {
+            let mut mine: Vec<String> = launchpad_core::scope::of_runner(app, runner).await.into_iter().collect();
+            mine.sort();
+            // "-" names no workspace: a runner without sessions reads no Local PR.
+            let list = if mine.is_empty() { "-".to_string() } else { mine.join(",") };
+            return Ok((Some(format!("workspace={}", list)), None));
+        }
+        ("GET", ["api", "predrafts", id, "record"]) => {
+            let ws = launchpad_core::scope::of_predraft(app, id).await;
+            ensure!(launchpad_core::scope::runner_reads(app, runner, ws).await, "this Local PR belongs to a workspace with no session on this runner");
         }
         ("PATCH", ["api", "predrafts", id]) => {
             let pr = launchpad_core::predrafts::get(app, id).await?;
@@ -125,9 +137,9 @@ pub(crate) async fn check(app: &App, runner: &str, method: &str, path: &str, bod
         _ => {}
     }
     if body.is_none() {
-        return Ok(None);
+        return Ok((None, None));
     }
-    Ok(Some(v.to_string()))
+    Ok((None, Some(v.to_string())))
 }
 
 /// After a runner's request succeeded: the Git folder Home created for its kept temporary folder may receive the

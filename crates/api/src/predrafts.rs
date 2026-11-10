@@ -24,9 +24,20 @@ async fn home(s: &Ctx, method: &str, path: &str, body: Option<Value>) -> Option<
     }
     Some(launchpad_core::home_link::home_request(method, path, body).await.map(Json).map_err(|e| crate::ApiError::bad_request(format!("{e:#}"))))
 }
-async fn list(State(s): State<Ctx>) -> ApiResult<Value> {
+#[derive(Deserialize)]
+struct ListQuery {
+    /// Workspace IDs, comma-separated: only their Local PRs (agents and runners read their own workspaces').
+    workspace: Option<String>,
+}
+async fn list(State(s): State<Ctx>, Query(q): Query<ListQuery>) -> ApiResult<Value> {
     if let Some(r) = home(&s, "GET", "/api/predrafts", None).await { return r; }
-    Ok(Json(json!(predrafts::list(&s.app).await?)))
+    let mut all = predrafts::list(&s.app).await?;
+    if let Some(w) = q.workspace {
+        let keep: Vec<&str> = w.split(',').collect();
+        let folders: std::collections::HashMap<String, Option<String>> = launchpad_core::projects::list(&s.app).await?.into_iter().map(|p| (p.id, p.workspace_id)).collect();
+        all.retain(|p| folders.get(&p.project_id).cloned().flatten().is_some_and(|ws| keep.contains(&ws.as_str())));
+    }
+    Ok(Json(json!(all)))
 }
 /// Home never reads a worktree folder: a Local PR of a worktree (`cwd`) is created on its session's runner
 /// (`runners::relay` routes requests that name the session).

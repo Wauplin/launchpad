@@ -263,14 +263,19 @@ fn to_home_too(s: &crate::Server, req: &axum::extract::Request) -> bool {
 /// Runner: an agent's call whose handler here would only pass it on to Home (Local PR records, folder settings):
 /// it goes to Home as the agent's, so Home checks it with the agent's access (`runner_trust`). A Local PR of a
 /// worktree (`cwd`) and `resolve` stay here: they read this runner's worktrees.
+/// Every admin action and every read of an agent also go to Home, which checks them against the session's
+/// workspace (`agent_auth::within_workspace`), except the reads of this runner's own state (`/api/status`) and of
+/// its worktrees (`resolve`).
 fn agent_to_home(req: &axum::extract::Request) -> bool {
     if req.extensions().get::<AgentCall>().is_none() {
         return false;
     }
     let (method, path) = (req.method(), req.uri().path());
-    (path.starts_with("/api/projects/") && method != axum::http::Method::GET)
+    let admin = launchpad_core::actions::find(method.as_str(), path).is_some_and(|a| a.access == launchpad_core::actions::ActionAccess::Admin);
+    let read = method == axum::http::Method::GET && !matches!(path, "/api/status" | "/api/predrafts/resolve");
+    admin || read
+        || (path.starts_with("/api/projects/") && method != axum::http::Method::GET)
         || (path.starts_with("/api/predrafts/") && path != "/api/predrafts/resolve")
-        || (path == "/api/predrafts" && method == axum::http::Method::GET)
 }
 
 /// `/api/sessions/{id}/trace`: the session's ID.
@@ -302,7 +307,12 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
     let trace = if req.method() == axum::http::Method::GET { trace_id(req.uri().path()).map(str::to_string) } else { None };
     // A session of this runner: the events queued before this request reach Home first (a few seconds at most;
     // events of a running turn queued later do not hold it, nor a tunnel that is down).
-    let local = trace.as_deref().is_some_and(|id| s.app.sessions.get(id).is_some());
+    let mut local = trace.as_deref().is_some_and(|id| s.app.sessions.get(id).is_some());
+    // An agent's fallback read stays in its own workspace (Home checks it otherwise).
+    if local && let (Some(a), Some(id)) = (req.extensions().get::<AgentCall>(), trace.as_deref()) {
+        let own = launchpad_core::scope::of_session(&s.app, &a.0).await;
+        local = own.is_some() && own == launchpad_core::scope::of_session(&s.app, id).await;
+    }
     if local && let Ok(newest) = replica::newest(&s.app).await {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while std::time::Instant::now() < deadline {

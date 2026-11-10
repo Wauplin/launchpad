@@ -1184,8 +1184,10 @@ async fn session_done(app: &App, s: &Session, records: &[CronAgent]) -> Result<(
         if s.launch_spec.bot.is_some() && !include_bots {
             continue;
         }
+        // Only agents of the routine's own workspace, even when it names a folder (workspaces are a boundary for
+        // bots and agents); an older routine without a workspace keeps its folder.
         let matches = match want {
-            Some(f) => folder.as_deref() == Some(f.as_str()),
+            Some(f) => folder.as_deref() == Some(f.as_str()) && (r.spec.workspace_id.is_none() || workspace == r.spec.workspace_id),
             None => workspace.is_some() && workspace == r.spec.workspace_id,
         };
         let own = r.runs.contains(&s.id) || (r.bot_id.is_some() && s.launch_spec.bot.as_ref().map(|b| &b.id) == r.bot_id.as_ref());

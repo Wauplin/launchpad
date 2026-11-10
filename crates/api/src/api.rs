@@ -643,10 +643,21 @@ async fn inbox_agent_done(State(s): State<Ctx>, Json(b): Json<AgentDone>) -> Api
     }
     let action = if b.unsubscribe { "unsubscribe" } else { "done" };
     let inbox = launchpad_github::inbox::of(&s.app);
-    let active: std::collections::HashSet<String> = inbox.snapshot(&s.app).await?.active_ids.into_iter().collect();
+    let snap = inbox.snapshot(&s.app).await?;
+    let active: std::collections::HashSet<String> = snap.active_ids.into_iter().collect();
+    // Only threads of the repositories of the bot's workspace (`launchpad inbox list` shows them).
+    let ws = launchpad_core::scope::of_session(&s.app, &b.session_id).await.ok_or_else(|| forbidden("this session has no workspace"))?;
+    let repos = launchpad_core::scope::repos(&s.app, &ws).await;
+    let ours: std::collections::HashSet<String> = snap.threads.into_iter().filter(|t| repos.contains(&t.repo.to_lowercase())).map(|t| t.id).collect();
     let mut results = Vec::new();
     for id in b.ids {
-        let r = if !active.contains(&id) { Err("not in the Inbox (unknown id, or already done)".to_string()) } else { inbox.action(&s.app, &id, action).await.map_err(|e| format!("{e:#}")) };
+        let r = if !active.contains(&id) {
+            Err("not in the Inbox (unknown id, or already done)".to_string())
+        } else if !ours.contains(&id) {
+            Err("a thread of a repository outside this workspace's folders".to_string())
+        } else {
+            inbox.action(&s.app, &id, action).await.map_err(|e| format!("{e:#}"))
+        };
         match &r {
             Ok(()) => tracing::info!(session = %b.session_id, bot = %bot_id, thread = %id, action, "inbox thread marked done by a bot"),
             Err(e) => tracing::warn!(session = %b.session_id, bot = %bot_id, thread = %id, action, "inbox {action} by a bot failed: {e}"),

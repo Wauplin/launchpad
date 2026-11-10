@@ -109,7 +109,17 @@ async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
     launchpad_core::worktrees::find_by_path(app, cwd).await.ok().flatten().is_some_and(|w| w.sessions.iter().any(|s| s == id))
 }
 
+/// Checks a session CLI request: its Launchpad CLI access, then (on Home, where runners forward every agent read
+/// and admin action) the workspace boundary (`within_workspace`).
 pub async fn authorize(app: &App, id: &str, req: Request) -> Result<Request, ApiError> {
+    let req = check_access(app, id, req).await?;
+    if app.paths.role != launchpad_core::role::Role::Home {
+        return Ok(req);
+    }
+    within_workspace(app, id, req).await
+}
+
+async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiError> {
     let denied = || ApiError::new(axum::http::StatusCode::FORBIDDEN, "this session CLI token can only read context and prepare local work; use an owner window for this action");
     let path = req.uri().path().to_string();
     let access = access_of(app, id).await;
@@ -172,6 +182,229 @@ pub async fn authorize(app: &App, id: &str, req: Request) -> Result<Request, Api
     Ok(Request::from_parts(parts, Body::from(bytes)))
 }
 
+/// What a session CLI request names, for the workspace boundary (`launchpad_core::scope`).
+#[derive(Debug, PartialEq)]
+enum Names<'a> {
+    /// No record of one workspace: Launchpad-wide settings, diagnostics, the session's own writes (checked by
+    /// their handlers) and new proposals (`proposals::create` checks them).
+    Shared,
+    /// A list with `?workspace=`: forced to the session's workspace.
+    Listed,
+    /// A create whose body names its workspace, folders, sessions and bots.
+    Body,
+    /// A read or action that spans every workspace: refused.
+    Unscoped,
+    Session(&'a str),
+    Bot(&'a str),
+    Cron(&'a str),
+    Schedule(&'a str),
+    Proposal(&'a str),
+    Folder(&'a str),
+    LocalPr(&'a str),
+    Workspace(&'a str),
+    Worktree(&'a str),
+    Tools(&'a str, &'a str),
+    Repo(&'a str, &'a str),
+}
+
+/// Pure: what a request names (routes matched exactly, like the router).
+fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
+    use Names::*;
+    let p: Vec<&'a str> = path.trim_start_matches('/').split('/').collect();
+    if p.len() < 2 || p[0] != "api" || p.iter().any(|s| s.is_empty()) {
+        return Unscoped;
+    }
+    if *method == Method::GET && diagnostic(path) {
+        return Shared;
+    }
+    let get = *method == Method::GET;
+    match (get, &p[1..]) {
+        (true, ["status"] | ["context", "profiles" | "presets"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
+        (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"]) => Shared,
+        (false, ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["channels", "send"] | ["inbox", "agent-done"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
+        (true, ["predrafts", "resolve"]) => Shared,
+        (true, ["context", "folders" | "bots" | "sessions" | "inbox" | "schedules"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"]) => Listed,
+        (true, ["context", "sessions", id]) => Session(id),
+        (false, ["sessions"] | ["bots"] | ["launch", "crons" | "schedules" | "preview" | "start-preview"]) => Body,
+        (_, ["sessions", "search", ..]) => Unscoped,
+        (_, ["sessions", id, ..]) => Session(id),
+        (_, ["bots", id, ..]) => Bot(id),
+        (_, ["launch", "crons", id, ..]) => Cron(id),
+        (_, ["launch", "schedules", id, ..]) => Schedule(id),
+        (_, ["proposals", id, ..]) => Proposal(id),
+        (_, ["projects", id] | ["projects", id, "branches"]) => Folder(id),
+        (_, ["predrafts", id] | ["predrafts", id, "record"]) => LocalPr(id),
+        (_, ["workspaces", id]) => Workspace(id),
+        (false, ["worktrees", id, "discard" | "fix"]) => Worktree(id),
+        (_, ["tool-defaults", scope, id]) => Tools(scope, id),
+        (true, ["items" | "repo-meta" | "gh", owner, repo, ..]) => Repo(owner, repo),
+        _ => Unscoped,
+    }
+}
+
+/// Pure: the query of a list read, narrowed to workspace `own` (by ID; the session may name it by ID or name).
+/// Err: the other workspace it asked for.
+fn narrowed(query: Option<&str>, own: &str, own_name: &str) -> Result<Vec<(String, String)>, String> {
+    let mut pairs: Vec<(String, String)> = reqwest::Url::parse(&format!("http://local/?{}", query.unwrap_or(""))).map(|u| u.query_pairs().into_owned().collect()).unwrap_or_default();
+    if let Some((_, w)) = pairs.iter().find(|(k, _)| k == "workspace")
+        && w != own
+        && (own_name.is_empty() || !w.eq_ignore_ascii_case(own_name))
+    {
+        return Err(w.clone());
+    }
+    pairs.retain(|(k, _)| k != "workspace");
+    pairs.push(("workspace".into(), own.to_string()));
+    Ok(pairs)
+}
+
+/// Pure: `path` with these query pairs, encoded.
+fn with_query(path: &str, pairs: Vec<(String, String)>) -> String {
+    if pairs.is_empty() {
+        return path.to_string();
+    }
+    let mut url = reqwest::Url::parse("http://local/").expect("static");
+    url.query_pairs_mut().extend_pairs(pairs);
+    format!("{path}?{}", url.query().unwrap_or(""))
+}
+
+fn outside(what: &str) -> ApiError {
+    ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("{what} belongs to another workspace: agents read and change only the records of their own workspace"))
+}
+
+/// The JSON body of a request (the request comes back unchanged).
+async fn body_of(req: Request) -> Result<(axum::http::request::Parts, Value), ApiError> {
+    let (parts, body) = req.into_parts();
+    let bytes = to_bytes(body, 32 << 20).await.map_err(|_| ApiError::bad_request("the request body is too large"))?;
+    let value = if bytes.is_empty() { Value::Null } else { serde_json::from_slice(&bytes).map_err(|_| ApiError::bad_request("the request body is not JSON"))? };
+    Ok((parts, value))
+}
+
+/// A launch spec of an agent's body: every record it names is in `ws`, and it runs there.
+async fn check_spec_value(app: &App, ws: &str, spec: &mut Value) -> Result<(), ApiError> {
+    let mut parsed: launchpad_core::model::LaunchSpec = serde_json::from_value(spec.clone()).map_err(|e| ApiError::bad_request(format!("invalid launch spec: {e}")))?;
+    launchpad_core::scope::check_spec(app, ws, &mut parsed).await.map_err(|e| ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("{e:#}")))?;
+    if spec.is_object() {
+        spec["workspace_id"] = Value::from(ws);
+    }
+    Ok(())
+}
+
+/// Home: workspaces are a boundary for agents. A session reads and changes only records of its own workspace
+/// (`launchpad_core::scope`): its lists are narrowed to it, a record of another workspace is refused, and reads
+/// that span every workspace are refused. A Local PR's text changes only by its own session. Requests to
+/// worktrees name the worktree's session, so Home relays them to its runner.
+pub async fn within_workspace(app: &App, id: &str, req: Request) -> Result<Request, ApiError> {
+    use launchpad_core::scope;
+    let path = req.uri().path().to_string();
+    let target = names(req.method(), &path);
+    if target == Names::Shared {
+        return Ok(req);
+    }
+    let own = scope::of_session(app, id).await.ok_or_else(|| ApiError::new(axum::http::StatusCode::FORBIDDEN, "this session has no workspace, so it reads and changes no workspace's records"))?;
+    let check = |record: Option<String>, what: String| if scope::inside(&own, record.as_deref()) { Ok(()) } else { Err(outside(&what)) };
+    let mut query: Option<Vec<(String, String)>> = None;
+    match &target {
+        Names::Shared => {}
+        Names::Unscoped => return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "this request spans every workspace: agents read and change only their own workspace's records (the list commands show them)")),
+        Names::Listed => {
+            let name = launchpad_core::workspace::get(app, &own).await.map(|w| w.name).unwrap_or_default();
+            query = Some(narrowed(req.uri().query(), &own, &name).map_err(|w| outside(&format!("workspace {w:?}")))?);
+        }
+        Names::Session(s) => check(scope::of_session(app, s).await, format!("session {s}"))?,
+        Names::Bot(b) => check(scope::of_bot(app, b).await, format!("bot {b}"))?,
+        Names::Cron(c) => check(scope::of_launch_record(app, "cron_agent", c).await, format!("routine {c}"))?,
+        Names::Schedule(c) => check(scope::of_launch_record(app, "scheduled_launch", c).await, format!("scheduled launch {c}"))?,
+        Names::Proposal(p) => check(scope::of_proposal(app, p).await, format!("proposal {p}"))?,
+        Names::Folder(f) => check(scope::of_project(app, f).await, format!("folder {f}"))?,
+        Names::LocalPr(p) => {
+            check(scope::of_predraft(app, p).await, format!("Local PR {p}"))?;
+            if req.method() == Method::PATCH {
+                let pr = launchpad_core::predrafts::get(app, p).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+                if pr.session_id.as_deref() != Some(id) {
+                    return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "agents change only the Local PRs of their own session"));
+                }
+            }
+        }
+        Names::Workspace(w) => check(Some(w.to_string()), format!("workspace {w}"))?,
+        Names::Worktree(w) => {
+            check(scope::of_worktree(app, w).await, format!("worktree {w}"))?;
+            // Home relays worktree actions to the runner of the session the request names: the worktree's own.
+            let url = reqwest::Url::parse(&format!("http://local{}", req.uri())).map_err(|_| ApiError::bad_request("invalid query"))?;
+            let mut pairs: Vec<(String, String)> = url.query_pairs().into_owned().filter(|(k, _)| k != "session").collect();
+            if let Some(s) = scope::worktree_session(app, w).await {
+                pairs.push(("session".into(), s));
+            }
+            query = Some(pairs);
+        }
+        Names::Tools(kind, x) => match *kind {
+            "workspace" => check(Some(x.to_string()), format!("workspace {x}"))?,
+            "folder" => check(scope::of_project(app, x).await, format!("folder {x}"))?,
+            _ => return Err(ApiError::bad_request("tool defaults are of a workspace or a folder")),
+        },
+        Names::Repo(o, r) => {
+            if scope::repo_outside(app, &own, &format!("{o}/{r}")).await {
+                return Err(outside(&format!("{o}/{r}")));
+            }
+        }
+        Names::Body => {}
+    }
+    let mut req = req;
+    if let Some(pairs) = query {
+        *req.uri_mut() = with_query(&path, pairs).parse().map_err(|_| ApiError::bad_request("invalid query"))?;
+    }
+    // Bodies that name records: launches, new bots and routines, folder and bot settings, message context.
+    let parts: Vec<String> = path.trim_start_matches('/').split('/').map(str::to_string).collect();
+    let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
+    let method = req.method().clone();
+    let reads_body = matches!(
+        (&method, parts.as_slice()),
+        (&Method::POST, ["api", "sessions"] | ["api", "bots"] | ["api", "launch", _] | ["api", "bots", _, "message"])
+            | (&Method::PATCH, ["api", "bots", _] | ["api", "projects", _] | ["api", "launch", "schedules", _])
+    );
+    if !reads_body {
+        return Ok(req);
+    }
+    let (mut parts_, mut v) = body_of(req).await?;
+    // The body may change size (a launch gets its workspace).
+    parts_.headers.remove(axum::http::header::CONTENT_LENGTH);
+    match (&method, parts.as_slice()) {
+        (&Method::POST, ["api", "sessions"] | ["api", "launch", "preview" | "start-preview"]) => check_spec_value(app, &own, &mut v).await?,
+        (&Method::POST, ["api", "launch", "crons" | "schedules"]) | (&Method::PATCH, ["api", "launch", "schedules", _]) => {
+            if !v["spec"].is_null() {
+                check_spec_value(app, &own, &mut v["spec"]).await?;
+            }
+            let waits: Vec<String> = v["conditions"].as_array().into_iter().flatten().filter_map(|c| c["session_ids"].as_array()).flatten().filter_map(|s| s.as_str().map(str::to_string)).collect();
+            for s in waits {
+                check(scope::of_session(app, &s).await, format!("session {s}"))?;
+            }
+        }
+        (&Method::POST, ["api", "bots"]) => match v["workspace_id"].as_str() {
+            Some(w) => check(Some(w.to_string()), format!("workspace {w}"))?,
+            None if v.is_object() => v["workspace_id"] = Value::from(own.as_str()),
+            None => {}
+        },
+        (&Method::POST, ["api", "bots", _, "message"]) => {
+            let folders: Vec<String> = v["context"]["context_projects"].as_array().into_iter().flatten().filter_map(|c| c["project_id"].as_str().map(str::to_string)).collect();
+            let traces: Vec<String> = v["context"]["agent_traces"].as_array().into_iter().flatten().filter_map(|c| c["session_id"].as_str().map(str::to_string)).collect();
+            scope::check_context(app, &own, &folders, &traces).await.map_err(|e| ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("{e:#}")))?;
+        }
+        (&Method::PATCH, ["api", "bots", _]) => {
+            let folders: Vec<String> = [&v["set"]["folder"], &v["settings"]["folder"]].into_iter().filter_map(|f| f.as_str().map(str::to_string)).collect();
+            for f in folders {
+                check(scope::of_project(app, &f).await, format!("folder {f}"))?;
+            }
+        }
+        (&Method::PATCH, ["api", "projects", _]) => {
+            if let Some(w) = v["workspace_id"].as_str().map(str::to_string) {
+                check(Some(w.clone()), format!("workspace {w}"))?;
+            }
+        }
+        _ => {}
+    }
+    let bytes = if v.is_null() { Vec::new() } else { serde_json::to_vec(&v).map_err(|e| ApiError::bad_request(format!("{e}")))? };
+    Ok(Request::from_parts(parts_, Body::from(bytes)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,6 +426,46 @@ mod tests {
         // A bot writes its own memory like the knowledge base, at every access level (Home checks the bot).
         assert!(own_write("/api/bot-memory"));
         assert_eq!(tool_need(&Method::POST, "/api/bot-memory"), None);
+    }
+
+    /// Workspaces are a boundary for agents: every admin action and agent read names a record Home can place in
+    /// a workspace (or nothing of one), and reads that span every workspace are refused.
+    #[test]
+    fn every_agent_route_names_its_workspace_records() {
+        for a in actions::ACTIONS.iter().filter(|a| a.access == ActionAccess::Admin) {
+            let args: Vec<String> = actions::params(a).iter().map(|p| format!("x-{p}")).collect();
+            let path = actions::path(a, &args.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+            let method = Method::from_bytes(a.method.as_bytes()).unwrap();
+            assert_ne!(names(&method, &path), Names::Unscoped, "{}", a.name);
+        }
+        use Names::*;
+        assert_eq!(names(&Method::GET, "/api/sessions/s1/trace"), Session("s1"));
+        assert_eq!(names(&Method::GET, "/api/context/sessions/s1"), Session("s1"));
+        assert_eq!(names(&Method::PATCH, "/api/predrafts/p1"), LocalPr("p1"));
+        assert_eq!(names(&Method::GET, "/api/predrafts/p1"), LocalPr("p1"));
+        assert_eq!(names(&Method::POST, "/api/worktrees/w1/discard"), Worktree("w1"));
+        assert_eq!(names(&Method::PUT, "/api/tool-defaults/folder/f1"), Tools("folder", "f1"));
+        assert_eq!(names(&Method::GET, "/api/items/o/r/12"), Repo("o", "r"));
+        for path in ["/api/context/sessions", "/api/context/folders", "/api/proposals", "/api/today", "/api/activity", "/api/predrafts"] {
+            assert_eq!(names(&Method::GET, path), Listed, "{path}");
+        }
+        for path in ["/api/context/presets", "/api/status", "/api/settings/shared", "/api/context/health", "/api/logs", "/api/predrafts/resolve"] {
+            assert_eq!(names(&Method::GET, path), Shared, "{path}");
+        }
+        // Lists of every workspace's records and other machines' state.
+        for path in ["/api/sessions", "/api/sessions/search", "/api/bots", "/api/projects", "/api/workspaces", "/api/launch/crons", "/api/launch/schedules", "/api/inbox", "/api/worktrees", "/api/tool-defaults", "/api/suggestions", "/api/uploads/h", "/api/sessions//trace", "/api/x"] {
+            assert_eq!(names(&Method::GET, path), Unscoped, "{path}");
+        }
+        assert_eq!(names(&Method::POST, "/api/proposals"), Shared);
+        assert_eq!(names(&Method::POST, "/api/sessions"), Body);
+        // Lists are narrowed to the session's workspace, named by ID or name; another workspace is refused.
+        let q = |query: Option<&str>| narrowed(query, "w1", "Work").map(|p| with_query("/api/context/sessions", p));
+        assert_eq!(q(None).unwrap(), "/api/context/sessions?workspace=w1");
+        assert_eq!(q(Some("workspace=work&x=a%20b")).unwrap(), "/api/context/sessions?x=a+b&workspace=w1");
+        assert_eq!(q(Some("workspace=w2")).unwrap_err(), "w2");
+        assert_eq!(q(Some("workspace=all")).unwrap_err(), "all");
+        assert_eq!(narrowed(Some("workspace="), "w1", "").unwrap_err(), "");
+        assert_eq!(with_query("/api/worktrees/w/discard", vec![]), "/api/worktrees/w/discard");
     }
 
     #[test]

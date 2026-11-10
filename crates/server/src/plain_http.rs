@@ -44,10 +44,12 @@ fn bad(e: anyhow::Error) -> ApiError {
     ApiError::bad_request(format!("{e:#}"))
 }
 
-/// Home: checks a runner credential when there is one (the owner passed the sign-in otherwise), and that the
-/// named session still runs on that runner. Returns the session. A credential header that is present always
-/// authenticates, even when it is unreadable: `runner_request` skipped the sign-in because of it.
-async fn caller(s: &Server, headers: &HeaderMap) -> Result<Option<String>, ApiError> {
+/// Home: checks a runner credential when there is one (the owner passed the sign-in otherwise), that the
+/// named session still runs on that runner, and that `store` belongs to a workspace of the sessions Home placed
+/// on it (`scope::of_runner`: their knowledge base, bots, plain, asset and temporary folders). Returns the
+/// session. A credential header that is present always authenticates, even when it is unreadable:
+/// `runner_request` skipped the sign-in because of it.
+async fn caller(s: &Server, headers: &HeaderMap, store: Option<&str>) -> Result<Option<String>, ApiError> {
     if !launchpad_core::home_git::here(&s.app) {
         return Err(ApiError::bad_request("plain folders are stored by Home"));
     }
@@ -61,12 +63,18 @@ async fn caller(s: &Server, headers: &HeaderMap) -> Result<Option<String>, ApiEr
         if let Some(sid) = &session {
             launchpad_core::home_git::check_session(&s.app, &runner.id, sid).map_err(|e| ApiError::new(StatusCode::FORBIDDEN, format!("{e:#}")))?;
         }
+        if let Some(store) = store {
+            let ws = launchpad_core::scope::of_store(&s.app, store).await;
+            if !launchpad_core::scope::runner_reads(&s.app, &runner.id, ws).await {
+                return Err(ApiError::new(StatusCode::FORBIDDEN, "this folder belongs to a workspace with no session on this runner"));
+            }
+        }
     }
     Ok(session)
 }
 
 async fn tree(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap) -> ApiResult<plain::Tree> {
-    caller(&s, &headers).await?;
+    caller(&s, &headers, Some(&id)).await?;
     if let Some(ws) = launchpad_core::kb::workspace_of(&id) {
         launchpad_core::kb::ensure_seeded(&s.app, ws).await.map_err(bad)?;
     }
@@ -74,7 +82,7 @@ async fn tree(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMa
 }
 
 async fn blob(State(s): State<Server>, Path((id, sha)): Path<(String, String)>, headers: HeaderMap) -> Result<Response, ApiError> {
-    caller(&s, &headers).await?;
+    caller(&s, &headers, Some(&id)).await?;
     plain::tree(&s.app, &id).await.map_err(bad)?;
     if !plain::holds(&s.app, &id, &sha).await.map_err(bad)? {
         return Err(ApiError::not_found("this folder holds no such content"));
@@ -84,25 +92,25 @@ async fn blob(State(s): State<Server>, Path((id, sha)): Path<(String, String)>, 
 }
 
 async fn upload(State(s): State<Server>, Path((id, sha)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> ApiResult<Value> {
-    caller(&s, &headers).await?;
+    caller(&s, &headers, Some(&id)).await?;
     plain::tree(&s.app, &id).await.map_err(bad)?;
     plain::write_blob(&s.app, &sha, &body).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 
 async fn commit(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap, Json(updates): Json<Vec<Update>>) -> ApiResult<Value> {
-    let session = caller(&s, &headers).await?.ok_or_else(|| ApiError::bad_request("a change needs the session that holds the folder"))?;
+    let session = caller(&s, &headers, Some(&id)).await?.ok_or_else(|| ApiError::bad_request("a change needs the session that holds the folder"))?;
     Ok(Json(json!({"version": plain::commit(&s.app, &id, Some(&session), updates).await.map_err(bad)?})))
 }
 
 async fn lock(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap) -> ApiResult<Value> {
-    let session = caller(&s, &headers).await?.ok_or_else(|| ApiError::bad_request("the lock belongs to a session"))?;
+    let session = caller(&s, &headers, Some(&id)).await?.ok_or_else(|| ApiError::bad_request("the lock belongs to a session"))?;
     plain::lock(&s.app, &id, &session).await.map_err(|e| ApiError::conflict(format!("{e:#}")))?;
     Ok(Json(json!({"ok": true})))
 }
 
 async fn unlock(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap) -> ApiResult<Value> {
-    let session = caller(&s, &headers).await?.ok_or_else(|| ApiError::bad_request("the lock belongs to a session"))?;
+    let session = caller(&s, &headers, Some(&id)).await?.ok_or_else(|| ApiError::bad_request("the lock belongs to a session"))?;
     plain::unlock(&s.app, &id, &session).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
@@ -117,7 +125,7 @@ fn owner_only(headers: &HeaderMap) -> Result<(), ApiError> {
 
 async fn history(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap) -> ApiResult<Value> {
     owner_only(&headers)?;
-    caller(&s, &headers).await?;
+    caller(&s, &headers, None).await?;
     let holder = plain::lock_holder(&s.app, &id).await?;
     Ok(Json(json!({"changes": plain::history(&s.app, &id).await.map_err(bad)?, "locked_by": holder})))
 }
@@ -129,7 +137,7 @@ struct Restore {
 
 async fn restore(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap, Json(b): Json<Restore>) -> ApiResult<Value> {
     owner_only(&headers)?;
-    caller(&s, &headers).await?;
+    caller(&s, &headers, None).await?;
     Ok(Json(json!({"version": plain::restore(&s.app, &id, b.change).await.map_err(bad)?})))
 }
 
@@ -140,7 +148,7 @@ struct Keep {
 
 /// Keep as folder, from the runner that has the temporary folder `id` (it moves its copy afterwards).
 async fn keep(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap, Json(b): Json<Keep>) -> ApiResult<launchpad_core::model::Project> {
-    caller(&s, &headers).await?;
+    caller(&s, &headers, None).await?;
     let credential = headers.get(crate::runners::CREDENTIAL_HEADER).and_then(|v| v.to_str().ok()).ok_or_else(|| ApiError::bad_request("Keep as folder runs on the runner that has the temporary folder"))?;
     let runner = launchpad_core::runners::authenticate(&s.app, credential).await.ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "unknown runner"))?;
     // Only the runner that holds the folder, after the owner's Keep as folder that Home relayed to it.
@@ -158,19 +166,19 @@ struct NewAsset {
 
 async fn create_asset(State(s): State<Server>, Path(project): Path<String>, headers: HeaderMap, Json(b): Json<NewAsset>) -> ApiResult<plain::Asset> {
     owner_only(&headers)?;
-    caller(&s, &headers).await?;
+    caller(&s, &headers, None).await?;
     Ok(Json(plain::create_asset(&s.app, &project, &b.name).await.map_err(bad)?))
 }
 
 async fn list_assets(State(s): State<Server>, Path(project): Path<String>, headers: HeaderMap) -> ApiResult<Vec<plain::AssetInfo>> {
     owner_only(&headers)?;
-    caller(&s, &headers).await?;
+    caller(&s, &headers, None).await?;
     Ok(Json(plain::asset_infos(&s.app, &project).await.map_err(bad)?))
 }
 
 async fn untrash(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap) -> ApiResult<Value> {
     owner_only(&headers)?;
-    caller(&s, &headers).await?;
+    caller(&s, &headers, None).await?;
     Ok(Json(json!({"version": plain::untrash_asset(&s.app, &id).await.map_err(bad)?})))
 }
 
