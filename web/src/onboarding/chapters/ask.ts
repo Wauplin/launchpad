@@ -33,7 +33,7 @@ export const ask: Chapter = {
     {
       id: "ask.panel", route: "/", anchor: "ask.panel",
       title: "The chat beside the page",
-      body: "Ask opens the bot's chat as a panel: the same chat as its page. Its answers end in cards: proposals you start, ready clicks for what stays yours, and changes it made directly.",
+      body: "Ask opens the bot's chat as a panel: the same chat as its page. Its answers end in one-line cards: proposals you start and ready clicks for what stays yours, each with Details; changes it made directly are receipts on the steps line.",
       enter: () => useAskPanel.getState().show(ASK_BOT),
     },
     {
@@ -88,7 +88,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-answer", route: BOT_ROUTE, anchor: "chat.answering",
       title: "One message box",
-      body: "When the bot asks you something, its options are chips on the question, and the message box answers it: “Answering: …” over the box says so. Cancel sends a normal message instead. A report that waits for your answer works the same way with its Reply. Approval requests keep their Allow and Deny buttons, and typed text never approves anything.",
+      body: "When the bot asks you something, its options are chips on the question, and the message box answers it: “Answering: …” over the box says so. Cancel sends a normal message instead and closes the question as skipped. A report that waits for your answer works the same way with its Reply. Approval requests keep their Allow and Deny buttons, and typed text never approves anything.",
     },
     {
       id: "ask.bot-from", route: BOT_ROUTE, anchor: "chat.from",

@@ -7,7 +7,7 @@
 // its open question or a question report ("Answering: …", with Cancel to send a normal message instead).
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -36,7 +36,11 @@ import { foldTrace } from "@/features/agents/traceRows";
 import { ProposalLine, useProposalList } from "@/features/proposals/ProposalCard";
 import { useSuggestionList } from "@/features/suggestions/data";
 import { useToday, type TodayItem } from "@/features/today/data";
-import { BranchActions, ItemCard, useBranch } from "@/features/today/TodayCards";
+import { BranchActions, ghParams, githubRef, ItemCard, useBranch } from "@/features/today/TodayCards";
+import { LOOK } from "@/features/today/TodayRows";
+import { MenuItem } from "@/components/Popover";
+import { RowActions } from "@/components/ui";
+import { usePhone } from "@/lib/phone";
 import { runAction } from "@/lib/actions";
 import { ACTIONS } from "@/gen/actions";
 import type { Activity } from "@/gen/Activity";
@@ -186,7 +190,18 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
   ], [sessions, cards, first, queued]);
   const step = useMemo(() => { const w = items.findLast((i) => i.t === "working"); return w?.t === "working" ? w.step : null; }, [items]);
   // The records behind each steps line's receipts, one stable array per line (rows are memoized on it).
-  const stepRecords = useMemo(() => new Map(items.flatMap((i) => i.t === "steps" && i.changes.length ? [[i.key, i.changes.map((c) => records.get(c.id))] as const] : [])), [items, records]);
+  // A line keeps its array while its records are the same, so a streaming answer elsewhere never redraws it.
+  const lastStepRecords = useRef(new Map<string, readonly (ChangeRecord | undefined)[]>());
+  const stepRecords = useMemo(() => {
+    const next = new Map(items.flatMap((i) => {
+      if (i.t !== "steps" || !i.changes.length) return [];
+      const fresh = i.changes.map((c) => records.get(c.id));
+      const old = lastStepRecords.current.get(i.key);
+      return [[i.key, old && old.length === fresh.length && old.every((r, n) => r === fresh[n]) ? old : fresh] as const];
+    }));
+    lastStepRecords.current = next;
+    return next;
+  }, [items, records]);
   useEffect(() => { onStep?.(step); }, [step, onStep]);
   const more = from > 0 || !!(ready[0] && logs[ready[0].id]?.earlier);
   const failedLog = visible.map((s) => logs[s.id]).find((l) => l?.error);
@@ -284,8 +299,8 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
           <div className="h-3" />
         </div>
       </div>
-      <BotComposer bot={bot} current={current} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} reply={reply}
-        onCancelReply={() => { if (reply?.kind === "report") setReport(null); else if (reply) setSkipped(reply.request_id); }}
+      <BotComposer bot={bot} current={current} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} reply={reply} skipped={!reportWaits && ask && ask.request_id === skipped ? ask : null}
+        onCancelReply={() => { if (reply?.kind === "report") setReport(null); else if (reply) setSkipped(reply.request_id); }} onUnskip={() => setSkipped(null)}
         newSession={newSession} onNewSession={onNewSession} onSent={() => { atBottom.current = true; setReport(null); }} />
     </div>
     </ReplyContext.Provider>
@@ -340,7 +355,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, q
       // A change of a turn without a steps line (it still works, or a quiet run): its full line.
       if (item.kind === "changed") return <div className="flex min-h-7 items-center gap-2 py-1 text-[12px] text-ink-2" data-tour="chat.changed"><ChangeLine record={data as ChangeRecord | undefined} text={item.text ?? ""} /></div>;
       if (!data) return null;
-      return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] py-1.5">{item.kind === "proposal" ? <ProposalRow p={data as Proposal} /> : <ItemCard item={data as TodayItem} proposal={undefined} suggestion={extra} />}</div>;
+      return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] py-1.5">{item.kind === "proposal" ? <ProposalRow p={data as Proposal} /> : <ReadyLine item={data as TodayItem} suggestion={extra} />}</div>;
     case "changes":
       return <ChangesRow sessionId={item.sessionId} />;
     case "working":
@@ -354,6 +369,41 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, q
 function ProposalRow({ p }: { p: Proposal }) {
   const onReply = useContext(ReplyContext);
   return <ProposalLine p={p} onReply={onReply} />;
+}
+
+/** A ready click the turn prepared (an Outbox message, a Suggestion, a Local PR) as one line, like a proposal: its
+ * title and what it is, Review and ⋯. Review shows the full card in place (a Local PR opens its page), where Send or
+ * Post runs with its confirmation. */
+function ReadyLine({ item, suggestion }: { item: TodayItem; suggestion: Suggestion | undefined }) {
+  const [open, setOpen] = useState(false);
+  const phone = usePhone();
+  const navigate = useNavigate();
+  const look = LOOK[item.kind];
+  const ref = githubRef(item);
+  if (open) return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1">
+    <ItemCard item={item} proposal={undefined} suggestion={suggestion} />
+    <button className="chat-tap justify-self-start text-[12px] text-teal-ink hover:underline" onClick={() => setOpen(false)}>Hide details</button>
+  </div>;
+  const pr = item.kind === "local_pr";
+  const main = pr
+    ? <Link className="btn btn-sm no-underline" to="/predrafts/$id" params={{ id: item.record }} title="Publish to GitHub or merge locally from its page">Review</Link>
+    : <button className="btn btn-sm" title="Read it, then send or post it" onClick={() => setOpen(true)}>Review</button>;
+  const more = (pr || ref) && ((close: () => void) => <>
+    {pr && <MenuItem icon={<Icon name="expand" size={14} />} label="Details" detail="The full card" onClick={() => { close(); setOpen(true); }} />}
+    {ref && <MenuItem icon={<Icon name="pr" size={14} />} label="Open pull request" onClick={() => { close(); void navigate({ to: "/github/$owner/$repo/$number", params: ghParams(ref.repo, ref.number), search: suggestion ? { draft: suggestion.id } as never : undefined }); }} />}
+  </>);
+  return (
+    <article data-tour="chat.ready" data-tour-id={item.id} className="group grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 rounded-card border border-line bg-paper py-1.5 pr-1.5 pl-2.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <Icon name={look.icon} size={14} className="flex-none text-ink-3" />
+        <span className="min-w-0 flex-1">
+          <b className={`block text-[13px] ${phone ? "line-clamp-2" : "truncate"}`} title={item.title}>{item.title}</b>
+          <span className={`block text-[12px] text-ink-3 ${phone ? "line-clamp-2" : "truncate"}`} title={look.name}>{item.detail || look.name}</span>
+        </span>
+        <RowActions width={phone ? 0 : undefined} label="More actions" main={main} more={more} />
+      </div>
+    </article>
+  );
 }
 
 /** The full line of a change: "Changed", then what changed with the values before, the record's name linking to it. */
@@ -494,11 +544,14 @@ function WorkingRow({ item, quiet }: { item: Extract<ChatItem, { t: "working" }>
 
 const firstLine = (t: string) => t.trim().split("\n")[0] ?? "";
 
-function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply, onCancelReply, newSession, onNewSession, onSent }: {
+function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply, skipped, onCancelReply, onUnskip, newSession, onNewSession, onSent }: {
   bot: Bot; current: Session | null; rotation: string | null; needsProfile: boolean;
   openSettings: () => void;
   /** What the box answers (the open question, or a question report), else null: a normal message. */
   reply: Reply | null;
+  /** The open question the owner cancelled answering: a normal message closes it as skipped first. */
+  skipped: Extract<Reply, { kind: "ask" }> | null;
+  onUnskip: () => void;
   onCancelReply: () => void;
   newSession: NewSessionRequest | null;
   onNewSession?: (r: NewSessionRequest | null) => void;
@@ -525,6 +578,9 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
   const ask = reply?.kind === "ask" && !fresh && !!current?.open_question && !!current.live ? reply : null;
   const report = reply?.kind === "report" && !fresh ? reply : null;
   const answering = !!ask || !!report;
+  const skip = !fresh && !answering && skipped && !skipped.permission && !!current?.open_question && !!current.live ? skipped : null;
+  // Cancel needs a harness that takes the message while the skipped question's turn goes on.
+  const canSkip = !!harness?.capabilities.messages_while_running;
   // Typed text never grants a permission; a harness that cannot take messages while it works waits for the turn end
   // (also when the owner cancelled answering an open question to send a message instead).
   const busyTurn = !fresh && !ask && !!current && isRunning(current) && !!harness && !harness.capabilities.messages_while_running;
@@ -546,6 +602,9 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
         if (next.state === "failed") throw new Error(next.error ?? "The reply was not sent");
         if (files.length) await runAction("bot.message", { id: bot.id }, { text: "", attachments: files });
       } else {
+        // A cancelled question still waits in the harness, which would hold the message behind it: close it as
+        // skipped (never a permission: those keep Allow and Deny), then send the message.
+        if (skip && current) await runAction("session.answer", { id: current.id }, { request_id: skip.request_id, answers: Array(skip.count).fill("No answer: the owner skipped this question and sent a message instead.") });
         await runAction("bot.message", { id: bot.id }, { text: t, attachments: files, ...(fresh ? { new_session: true, reason: newSession!.reason } : {}), ...(withContext ? { context } : {}) });
         onNewSession?.(null);
         setContext(EMPTY_CONTEXT);
@@ -567,9 +626,14 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
         {answering && !(ask && ask.permission) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="chat.answering">
           <Icon name="comment" size={12} className="flex-none" />
           <span className="min-w-0 flex-1 truncate">{ask ? "Answering" : "Replying to"}: <b className="font-semibold text-ink-2">{firstLine(ask ? ask.question : report!.title)}</b></span>
-          <button className="chat-tap flex-none text-teal-ink hover:underline" title="Send a normal message instead" onClick={onCancelReply}>Cancel</button>
+          {(report || canSkip) && <button className="chat-tap flex-none text-teal-ink hover:underline" title={ask ? "Send a normal message instead: the question is closed as skipped" : "Send a normal message instead"} onClick={onCancelReply}>Cancel</button>}
         </div>}
-        {!rotation && !fresh && !answering && instructionsUpdated(bot, current) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="bots.instructions-updated" title={`BOT.md changed since ${bot.settings.name}'s current session read it: the new BOT.md goes with your next message, in the same session`}><Icon name="file" size={12} />Instructions updated · applies to your next message</div>}
+        {skip && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3">
+          <Icon name="comment" size={12} className="flex-none" />
+          <span className="min-w-0 flex-1 truncate">Your message skips: <b className="font-semibold text-ink-2">{firstLine(skip.question)}</b></span>
+          <button className="chat-tap flex-none text-teal-ink hover:underline" title="Answer the question with the message box" onClick={onUnskip}>Answer it</button>
+        </div>}
+        {!rotation && !fresh && !answering && !skip && instructionsUpdated(bot, current) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="bots.instructions-updated" title={`BOT.md changed since ${bot.settings.name}'s current session read it: the new BOT.md goes with your next message, in the same session`}><Icon name="file" size={12} />Instructions updated · applies to your next message</div>}
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void attachments.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
         <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
         {!answering && <PresetChips surface="bots" selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}

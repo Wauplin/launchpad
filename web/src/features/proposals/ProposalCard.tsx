@@ -438,7 +438,7 @@ export const ProposalLine = memo(function ProposalLine({ p, onReply }: { p: Prop
           <b className={`block text-[13px] ${phone ? "line-clamp-2" : "truncate"}`} title={p.title}>{p.title}</b>
           <span className={`block text-[12px] ${phone ? "line-clamp-2" : "truncate"} ${p.state === "failed" ? "text-gh-closed" : "text-ink-3"}`} title={p.note ?? purpose}>{p.state === "failed" && p.error ? `Failed: ${p.error}` : purpose}</span>
         </span>
-        <RowActions width={0} label="More actions" main={main} more={(close) => <>
+        <RowActions width={phone ? 0 : undefined} label="More actions" main={main} more={(close) => <>
           <MenuItem icon={<Icon name="expand" size={14} />} label="Details" detail="The full card" onClick={() => { close(); setOpen(true); }} />
           {link && <MenuItem icon={<Icon name="ext" size={14} />} label={link.label} onClick={() => { close(); void navigate({ to: link.to as never, params: link.params as never, search: link.search as never }); }} />}
           {question && <MenuItem icon={<Icon name="check" size={14} />} label="Mark read" disabled={busy} onClick={() => { close(); void act("dismiss"); }} />}
