@@ -145,6 +145,8 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["runners"] });
     } else if (topic === "home_update") {
       void queryClient.invalidateQueries({ queryKey: ["home-update"] });
+    } else if (topic === "cli_updates") {
+      void queryClient.invalidateQueries({ queryKey: ["cli-updates"] });
     } else if (topic === "burst") {
       void queryClient.invalidateQueries({ queryKey: ["burst"] });
     } else if (topic === "kb") {

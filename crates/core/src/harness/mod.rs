@@ -161,6 +161,26 @@ pub fn registration(id: HarnessKind) -> &'static Registration {
         .expect("registered harness ID")
 }
 
+/// Where a harness's CLI comes from, for automatic CLI updates (`launchpad_setup::cli_update`): the npm package
+/// (the version source, and the installer of npm installs), the CLI's own installer when it has one, and its
+/// release notes.
+#[derive(Clone, Copy, Debug)]
+pub struct CliPackage {
+    /// npm package name, such as `@openai/codex`.
+    pub npm: &'static str,
+    /// The program on `PATH`.
+    pub program: &'static str,
+    /// A CLI installed by its own installer: a part of the resolved executable's path that marks it, and the
+    /// arguments of its update command (`{version}` replaced), run with that executable.
+    pub native: Option<(&'static str, &'static [&'static str])>,
+    /// Release notes; `{version}` replaced.
+    pub changelog: &'static str,
+}
+
+/// Held for writing while a runner replaces an agent CLI (`launchpad_setup::cli_update`), and for reading while a
+/// harness process starts, so no session starts from a half-installed CLI.
+pub static CLI_INSTALL: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
+
 #[async_trait]
 pub trait Harness: Send + Sync {
     /// Ordered roots, highest priority first. Resolve profile configuration on the execution host.
@@ -201,6 +221,10 @@ pub trait Harness: Send + Sync {
     fn sign_in_command(&self) -> &'static str;
     /// The vendor's official install command, shown by host preflight (never run without a click).
     fn install_command(&self) -> Option<&'static str> {
+        None
+    }
+    /// The CLI's package, for automatic updates on runners; None: never updated by Launchpad.
+    fn cli_package(&self) -> Option<CliPackage> {
         None
     }
     /// Read-only sign-in check with this environment: never signs in, refreshes a token or returns secrets.

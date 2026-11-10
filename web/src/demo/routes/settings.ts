@@ -138,6 +138,26 @@ route("GET", "/api/analytics/runs", (req) => { const ok = inRange(req); return w
 route("GET", "/api/runners", () => world.runners);
 route("GET", "/api/runners/:id/status", () => ({ ...world.status, role: "runner", runner_update: null }));
 route("POST", "/api/runners/:id/update", notInDemo);
+// Agent CLI updates: the demo world's records; approving or installing needs a real runner.
+const cliUpdates = () => ({
+  harnesses: [["claude", "Claude Code", "@anthropic-ai/claude-code", "2.1.315"], ["codex", "Codex", "@openai/codex", "0.167.0"], ["opencode", "OpenCode", "opencode-ai", "1.18.35"]]
+    .map(([harness, name, npm, latest]) => ({ harness, name, npm, latest, auto: world.config.home.cli_updates[harness] !== false, error: null })),
+  checked_at: clock.ago(60 * 5),
+  updates: world.cliUpdates,
+});
+route("GET", "/api/cli-updates", cliUpdates);
+route("POST", "/api/cli-updates/check", cliUpdates);
+route("PUT", "/api/cli-updates/auto", notInDemo);
+route("POST", "/api/cli-updates/:id/approve", notInDemo);
+route("POST", "/api/cli-updates/:id/retry", notInDemo);
+route("POST", "/api/cli-updates/:id/dismiss", ({ params }: DemoRequest) => {
+  const u = world.cliUpdates.find((x) => x.id === params.id);
+  if (!u) throw new DemoError(404, "no such CLI update");
+  u.dismissed_at = clock.now();
+  publish("cli_updates", "changed", null);
+  publish("today", "changed", null);
+  return u;
+});
 // Home updates: the demo's Home is not on a Space.
 const homeUpdate = () => ({ unsupported: "Only a Home on a Hugging Face Space updates itself. Update this one the way you installed it.", space: null, channel: null, deployed: null, running: world.status.commit, latest: null, available: false, building: false, stage: null, checked_at: null, error: null, pending: null });
 route("GET", "/api/home/update", homeUpdate);

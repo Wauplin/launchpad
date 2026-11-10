@@ -51,7 +51,8 @@ fn set(app: &App, state: Option<RunnerUpdate>) {
     app.status.update(|s| s.runner_update = state);
 }
 
-fn running(app: &App) -> u32 {
+/// Agents of this runner in a turn.
+pub fn running(app: &App) -> u32 {
     app.sessions.list().iter().filter(|s| s.status.is_running()).count() as u32
 }
 

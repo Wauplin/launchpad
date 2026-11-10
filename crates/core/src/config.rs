@@ -57,6 +57,9 @@ pub struct HomeConfig {
     pub git_name: String,
     pub git_email: String,
     pub burst: BurstConfig,
+    /// Automatic agent CLI updates on runners, by harness ID (`launchpad_setup::cli_update`): false turns them off
+    /// for that harness. Unset: on.
+    pub cli_updates: std::collections::BTreeMap<String, bool>,
     /// IANA time zone (for example `Europe/Paris`) of schedules created without a browser's zone. Empty: the
     /// host's time zone.
     pub time_zone: String,

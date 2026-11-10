@@ -944,6 +944,11 @@ impl harness::Harness for Adapter {
     fn install_command(&self) -> Option<&'static str> {
         Some("curl -fsSL https://claude.ai/install.sh | bash")
     }
+    /// The native installer keeps its builds in `~/.local/share/claude/versions/` and installs one with
+    /// `claude install <version>`.
+    fn cli_package(&self) -> Option<launchpad_core::harness::CliPackage> {
+        Some(launchpad_core::harness::CliPackage { npm: "@anthropic-ai/claude-code", program: "claude", native: Some(("/.local/share/claude/", &["install", "{version}"])), changelog: "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md" })
+    }
     /// `claude auth status` prints JSON; only the method, plan and account e-mail are kept.
     async fn sign_in(&self, env: &launchpad_core::shellenv::UserEnv) -> launchpad_core::signin::SignIn {
         let mut r = launchpad_core::signin::SignIn { signed_in: None, detail: None };

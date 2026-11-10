@@ -1314,7 +1314,11 @@ impl Sessions {
         let instance = self.inner.next_instance.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         sink.instance = instance;
         let start = crate::contain::apply(app, start).await?;
-        let live = match app.harnesses.get(harness).start(app, start, sink.clone()).await {
+        // A runner replacing an agent CLI holds it for writing: no process starts from a half-installed CLI.
+        let cli = crate::harness::CLI_INSTALL.read().await;
+        let started = app.harnesses.get(harness).start(app, start, sink.clone()).await;
+        drop(cli);
+        let live = match started {
             Ok(live) => live,
             Err(e) => {
                 // A harness that did not start holds no lease.

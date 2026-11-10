@@ -22,7 +22,8 @@ import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
 import { ProposalCard } from "@/features/proposals/ProposalCard";
 import { SuggestionCard } from "@/features/suggestions/Suggestions";
 import { UpdateHomeButton, useHomeUpdate } from "@/features/settings/HomeUpdate";
-import { runAction } from "@/lib/actions";
+import { CliUpdateDetails } from "@/features/settings/CliUpdates";
+import { runAction, type ActionName } from "@/lib/actions";
 import { ago } from "@/lib/format";
 import { isPhone } from "@/lib/phone";
 import { projectName, useProjects, useSession } from "@/lib/queries";
@@ -31,7 +32,7 @@ import { isDone } from "@/lib/sessionStatus";
 import type { TodayItem } from "./data";
 
 export const ICON: Record<TodayItem["kind"], IconName> = {
-  question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", review_request: "pr", routine: "refresh", runner: "window", home_update: "download",
+  question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", review_request: "pr", routine: "refresh", runner: "window", home_update: "download", cli_update: "download",
 };
 
 export const ghParams = (repo: string, number: number) => ({ owner: repo.split("/")[0], repo: repo.split("/")[1], number: String(number) });
@@ -274,6 +275,15 @@ function HomeUpdateItemCard({ item }: { item: TodayItem }) {
   return <Card item={item} open={details}><UpdateHomeButton u={u} /></Card>;
 }
 
+/** An agent CLI update, in the bot chat: its main action and the runners. */
+function CliUpdateCard({ item }: { item: TodayItem }) {
+  const action = item.action as ActionName | null;
+  return <Card item={item}>
+    <CliUpdateDetails id={item.record} />
+    {action && <div><ActionButton name={action} params={{ id: item.record }} vars={{ version: item.record.split("@").pop() ?? "" }} primary /></div>}
+  </Card>;
+}
+
 export const ItemCard = memo(function ItemCard({ item, proposal, suggestion }: { item: TodayItem; proposal: Proposal | undefined; suggestion: Suggestion | undefined }) {
   switch (item.kind) {
     case "question": return <QuestionCard item={item} />;
@@ -287,5 +297,6 @@ export const ItemCard = memo(function ItemCard({ item, proposal, suggestion }: {
     case "routine": return <RoutineCard item={item} />;
     case "runner": return <RunnerCard item={item} />;
     case "home_update": return <HomeUpdateItemCard item={item} />;
+    case "cli_update": return <CliUpdateCard item={item} />;
   }
 });

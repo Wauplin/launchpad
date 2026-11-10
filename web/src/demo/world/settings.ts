@@ -3,6 +3,7 @@
 
 import type { AgentRun } from "@/gen/AgentRun";
 import type { BurstRun } from "@/gen/BurstRun";
+import type { CliUpdate } from "@/gen/CliUpdate";
 import type { NetworkCheck } from "@/gen/NetworkCheck";
 import type { RunnerStatus } from "@/gen/RunnerStatus";
 import type { HarnessDefaults } from "@/gen/HarnessDefaults";
@@ -156,7 +157,7 @@ export function demoNetworkCheck(at: number): NetworkCheck {
 /** Home and runners: the owner's laptop runner (every demo agent runs there) and two Burst jobs that ran sessions
  * while the laptop slept. */
 function homeWorld() {
-  const caps = { vm: false, docker: false, burst: false, self_update: true, terminals: true };
+  const caps = { vm: false, docker: false, burst: false, self_update: true, terminals: true, cli_update: true };
   const runners: RunnerStatus[] = [{
     runner: { id: "demo-runner-laptop", name: "laptop", os: "linux", code: "", state: "approved", created_at: clock.ago(60 * 24 * 9), approved_at: clock.ago(60 * 24 * 9), last_seen_at: clock.ago(1), commit: "demo", protocol: 1, capabilities: caps, burst: false },
     connected: true, compat: "same", guard: { paused: false },
@@ -166,5 +167,12 @@ function homeWorld() {
     { runner_id: "demo-burst-1", job_id: "demo-job-1", namespace: "demo-owner", flavor: "cpu-basic", url: null, state: "stopped", session_id: "demo-s-audit", created_at: clock.ago(60 * 9 + 2), connected_at: clock.ago(60 * 9 + 1), stopped_at: clock.ago(60 * 9 - 14), cost_per_minute: 0.01 / 60, error: null },
     { runner_id: "demo-burst-2", job_id: "demo-job-2", namespace: "demo-owner", flavor: "cpu-basic", url: null, state: "stopped", session_id: "demo-s-bot-maintainer", created_at: clock.ago(52), connected_at: clock.ago(51), stopped_at: clock.ago(38), cost_per_minute: 0.01 / 60, error: null },
   ];
-  return { runners, burstRuns };
+  // Agent CLI updates (launchpad_setup::cli_update): Claude Code updated itself on the laptop this morning; a new
+  // Codex minor version (0.x: a major one under semver) waits for approval.
+  const laptop = { runner_id: "demo-runner-laptop", runner: "laptop", running: 0, command: null };
+  const cliUpdates: CliUpdate[] = [
+    { id: "claude@2.1.315", harness: "claude", version: "2.1.315", changelog: "https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md", created_at: clock.ago(60 * 5), approved_at: null, dismissed_at: null, runners: [{ ...laptop, from: "2.1.311", state: "done", error: null, at: clock.ago(60 * 4 + 40) }] },
+    { id: "codex@0.167.0", harness: "codex", version: "0.167.0", changelog: "https://github.com/openai/codex/releases/tag/rust-v0.167.0", created_at: clock.ago(60 * 5), approved_at: null, dismissed_at: null, runners: [{ ...laptop, from: "0.166.0", state: "approval", error: null, at: clock.ago(60 * 5) }] },
+  ];
+  return { runners, burstRuns, cliUpdates };
 }

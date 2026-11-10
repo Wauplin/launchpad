@@ -198,6 +198,20 @@ Home and its runners compare their protocol and build. A runner with another pro
 
 **Update** (in Settings, in the composer warning, or in the runner's own window) updates it from Home: the runner downloads Home's own executable through its tunnel, checks its SHA-256, OS and architecture, waits until none of its agents is in a turn, replaces its executable and restarts itself in place (same process, so its systemd service keeps running). Its sessions continue after the restart. **Cancel** stops an update that still waits for agents. Only runners built with this feature (from November 5, 2026) offer Update; update older ones by hand once. By hand, with a Home in a Space, run the install command again on that machine: it installs Home's build and restarts the runner, which stays paired. Otherwise, install Launchpad at Home's commit and restart the runner daemon. The restart interrupts the runner's running turns: update it when its agents are done.
 
+## Agent CLI updates
+
+Runners keep their agent CLIs (Claude Code, Codex, OpenCode) up to date on their own:
+
+- **Check.** Every six hours (and on **Check now** in Settings → Home and runners → **Agent CLI updates**), Home reads the newest release of each CLI's npm package (`@anthropic-ai/claude-code`, `@openai/codex`, `opencode-ai`) and asks each connected runner which version it has.
+- **Same major version: automatic.** A newer release of the same major version installs without asking. Under semver, a 0.x version that changes its minor number is a new major version (0.166 → 0.167), so Codex asks for most of its updates: its app-server protocol, which Launchpad speaks, changes between 0.x minor versions. A runner behind a new major version still gets the newest release of its own major version.
+- **New major version: your approval.** It waits in Today → Approve as **Update <CLI> to <version>: new major version**, with each runner's current version and the release notes. **Approve** installs it on those runners; **⋯ → Skip this version** removes the card (a newer major version asks again).
+- **Who installs.** The runner daemon, never an agent. It finds how the CLI was installed: with npm (it runs `npm install --global --prefix <the same prefix> <package>@<version>`), or with the CLI's own installer (`claude install <version>`, `opencode upgrade <version>`). It waits until none of its agents is in a turn, starts no new agent until the install is done, then reads the version again. Running agents are never interrupted; an agent process that stays open between turns keeps its old version until it restarts.
+- **When it cannot.** A CLI in a folder the runner's user cannot write (for example `/usr/lib/node_modules`), or installed another way (a system package, Homebrew), is left alone. Today → Fix says so, with the command to run on that machine (for example `sudo npm install --global --prefix /usr @openai/codex@0.167.0`). The next check sees the new version and marks it done.
+- **Results.** Today → Review shows the newest completed update of each CLI: which runners, the old and the new version, and the release notes; **Mark read** moves it to Done. An update that failed waits in Today → Fix with **Retry**. Each update is asked once per runner: a failure, or a runner that restarted during the install, is never retried on its own.
+- **Off.** Each CLI has **Automatic** or **Off** in the same card (`[home.cli_updates]` in `config.toml`, for example `codex = false`). Off: Home neither checks nor installs that CLI; runners keep what they have.
+
+Burst jobs and Home's Space do not update their CLIs: they use the versions pinned in Home's image (`deploy/hf-home/release.json`), so a Burst job starts in seconds with tested versions. `deploy/hf-home/bump_tools.py` bumps those pins with the same rule (`--major` for a new major version); the next release or main package ships them.
+
 ## Session credentials
 
 Contained sessions receive a session CLI credential bound to their ID and generation, not the runner daemon token. It allows context reads and inert local preparation; host settings, terminals, file APIs and publication still require an owner window.

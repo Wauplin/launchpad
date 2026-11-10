@@ -15,6 +15,11 @@ backup: string,
  */
 git_name: string, git_email: string, burst: BurstConfig, 
 /**
+ * Automatic agent CLI updates on runners, by harness ID (`launchpad_setup::cli_update`): false turns them off
+ * for that harness. Unset: on.
+ */
+cli_updates: { [key in string]: boolean }, 
+/**
  * IANA time zone (for example `Europe/Paris`) of schedules created without a browser's zone. Empty: the
  * host's time zone.
  */

@@ -1134,6 +1134,9 @@ impl harness::Harness for Adapter {
     fn install_command(&self) -> Option<&'static str> {
         Some("npm install -g @openai/codex")
     }
+    fn cli_package(&self) -> Option<launchpad_core::harness::CliPackage> {
+        Some(launchpad_core::harness::CliPackage { npm: "@openai/codex", program: "codex", native: None, changelog: "https://github.com/openai/codex/releases/tag/rust-v{version}" })
+    }
     /// `codex login status` exits 0 when signed in. A masked API key suffix after " - " is dropped.
     async fn sign_in(&self, env: &launchpad_core::shellenv::UserEnv) -> launchpad_core::signin::SignIn {
         match launchpad_core::signin::status_output(env, "codex", &["login", "status"]).await {

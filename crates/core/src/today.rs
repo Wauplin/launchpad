@@ -33,7 +33,7 @@ pub enum Filter {
     Send,
     /// Suggestions to post and review requests.
     Github,
-    /// Failed routines, outdated runners and Home updates.
+    /// Failed routines, outdated runners, Home updates and agent CLI updates that did not install.
     Fix,
 }
 
@@ -53,6 +53,9 @@ pub enum Kind {
     Runner,
     /// A newer Launchpad for Home's Space (`launchpad_setup::home_update`).
     HomeUpdate,
+    /// An agent CLI update on the runners (`launchpad_setup::cli_update`): a major version to approve, an update
+    /// that completed, or one that did not install.
+    CliUpdate,
 }
 
 /// Where an item belongs, resolved by `compute` into `Item::workspaces`. A window shows only its workspace: an
@@ -130,6 +133,7 @@ impl Item {
             Kind::Routine => "routine",
             Kind::Runner => "runner",
             Kind::HomeUpdate => "home-update",
+            Kind::CliUpdate => "cli-update",
         };
         Item { id: format!("{prefix}:{record}"), kind, filter, title: title.into(), detail: String::new(), workspaces: vec![], record: record.into(), session_id: None, action: None, github: None, at, outcome: None, grouped: vec![], place }
     }
@@ -317,7 +321,7 @@ pub async fn compute(app: &App) -> Result<Today> {
 }
 
 /// Bus topics whose changes can change the list.
-const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons", "home_update"];
+const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons", "home_update", "cli_updates"];
 
 /// What windows show of a waiting item: when it changes, they refetch.
 type ItemKey = (String, Vec<String>, Option<String>, String, Vec<String>);

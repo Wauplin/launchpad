@@ -13,7 +13,7 @@ import { world } from "../world";
 type Place = { everywhere: true } | { workspace: string | null } | { project: string } | { session: string } | { repo: string };
 type Draft = Omit<TodayItem, "workspaces"> & { place: Place };
 
-const PREFIX: Record<TodayKind, string> = { question: "session", finished: "session", failed: "session", local_pr: "local-pr", proposal: "proposal", outbox: "outbox", suggestion: "suggestion", review_request: "review-request", routine: "routine", runner: "runner", home_update: "home-update" };
+const PREFIX: Record<TodayKind, string> = { question: "session", finished: "session", failed: "session", local_pr: "local-pr", proposal: "proposal", outbox: "outbox", suggestion: "suggestion", review_request: "review-request", routine: "routine", runner: "runner", home_update: "home-update", cli_update: "cli-update" };
 const ORDER: TodayFilter[] = ["answer", "review", "approve", "send", "github", "fix"];
 
 function item(kind: TodayKind, filter: TodayFilter, record: string, title: string, place: Place, at: number, more: Partial<Draft> = {}): Draft {
@@ -105,6 +105,14 @@ function drafts(): Draft[] {
   for (const t of world.inboxThreads) {
     if (t.number === null || t.reason !== "review_requested" || t.kind !== "PullRequest" || t.state === "closed" || t.state === "merged" || reviewed.has(`${t.repo.toLowerCase()}#${t.number}`)) continue;
     out.push(item("review_request", "github", t.id, t.title, { repo: t.repo }, Date.parse(t.updated_at), { detail: `${t.repo}#${t.number} · review requested`, github: `${t.repo}#${t.number}` }));
+  }
+  // Agent CLI updates, with the rules of launchpad_setup::cli_update::items (the demo has one runner).
+  for (const u of world.cliUpdates) {
+    const e = u.runners[0];
+    const name = world.harnesses.find((h) => h.id === u.harness)?.name ?? u.harness;
+    const at = u.dismissed_at ?? e.at;
+    if (e.state === "approval") out.push(item("cli_update", "approve", u.id, u.dismissed_at ? `${name} ${u.version}: skipped` : `Update ${name} to ${u.version}: new major version`, { everywhere: true }, u.dismissed_at ? at : u.created_at, u.dismissed_at ? { outcome: "Skipped" } : { detail: `${e.runner} ${e.from} · read the release notes, then approve`, action: "cli-update.approve" }));
+    else if (e.state === "done") out.push(item("cli_update", "review", u.id, `${name} updated to ${u.version}`, { everywhere: true }, at, { detail: `${e.runner} ${e.from} → ${u.version}`, ...(u.dismissed_at ? { outcome: `Updated on ${e.runner}` } : { action: "cli-update.dismiss" }) }));
   }
   for (const r of world.runners) {
     if (r.compat !== "outdated" && r.compat !== "incompatible") continue;

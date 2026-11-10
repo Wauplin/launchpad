@@ -23,4 +23,8 @@ self_update: boolean,
 /**
  * Serves its terminals to Home's windows through the tunnel (`ToRunner::WsOpen`).
  */
-terminals: boolean, };
+terminals: boolean, 
+/**
+ * Updates its agent CLIs on Home's request (`launchpad_setup::cli_update`).
+ */
+cli_update: boolean, };

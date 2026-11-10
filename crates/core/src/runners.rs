@@ -75,6 +75,8 @@ pub struct Capabilities {
     pub self_update: bool,
     /// Serves its terminals to Home's windows through the tunnel (`ToRunner::WsOpen`).
     pub terminals: bool,
+    /// Updates its agent CLIs on Home's request (`launchpad_setup::cli_update`).
+    pub cli_update: bool,
 }
 
 /// This runner's capabilities.
@@ -87,7 +89,7 @@ pub async fn capabilities(app: &App) -> Capabilities {
             .ok()
             .and_then(|r| r.ok())
             .is_some_and(|s| s.success());
-    Capabilities { vm, docker, burst, self_update: crate::self_update::supported(app), terminals: true }
+    Capabilities { vm, docker, burst, self_update: crate::self_update::supported(app), terminals: true, cli_update: crate::self_update::supported(app) }
 }
 
 /// A runner with its live state, for Settings.

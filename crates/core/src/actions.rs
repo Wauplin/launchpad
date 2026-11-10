@@ -146,7 +146,13 @@ pub const ACTIONS: &[Action] = &[
     // Runners.
     Action { name: "runner.takes-sessions", method: "PUT", route: "/api/runner/guard", label: "Takes new sessions", help: "In a runner's own window: whether Home starts new sessions there (paused: none; running sessions continue)", input: &[f("paused", Bool)], access: Owner, ..A },
     Action { name: "runner.check-network", route: "/api/runners/{id}/network-check", label: "Check network", icon: Some("refresh"), help: "Check a runner's sandbox network: capture, DNS, UDP policy, IPv4 and IPv6, runner CA", effect: Checks, access: Owner, ..A },
-    // Home updates (a Home on a Hugging Face Space: `launchpad_setup::home_update`).
+    // Agent CLI updates on the runners (`launchpad_setup::cli_update`). Installing on a machine is the owner's
+    // click; agents may check and mark results read.
+    Action { name: "cli-update.check", route: "/api/cli-updates/check", label: "Check now", icon: Some("refresh"), help: "Read the newest agent CLI versions on npm now and update the runners (same major version) or ask for approval (new major version)", effect: Checks, ..A },
+    Action { name: "cli-update.approve", route: "/api/cli-updates/{id}/approve", label: "Approve", icon: Some("download"), help: "Install a new major version of an agent CLI on the runners that wait for it (each one once no agent of it is in a turn)", confirm: Some("Installs {version} on the runners that wait for it, once no agent there is in a turn."), effect: Machine, access: Owner, ..A },
+    Action { name: "cli-update.retry", route: "/api/cli-updates/{id}/retry", label: "Retry", icon: Some("refresh"), help: "Install an agent CLI update again on the runners where it did not install", confirm: Some("Installs {version} again on the runners where it did not install, once no agent there is in a turn."), effect: Machine, access: Owner, ..A },
+    Action { name: "cli-update.dismiss", route: "/api/cli-updates/{id}/dismiss", label: "Mark read", icon: Some("check"), help: "Remove an agent CLI update from Today (a major version: skip it)", ..A },
+    Action { name: "cli-update.auto", method: "PUT", route: "/api/cli-updates/auto", label: "Update automatically", help: "Turn automatic updates of one agent CLI on or off on every runner", input: &[f("harness", Text), f("on", Bool)], confirm: Some("Changes whether the runners update this CLI on their own."), effect: Machine, access: Owner, ..A },
     // Home updates (a Home on a Hugging Face Space: `launchpad_setup::home_update`). Admin runs them when the owner
     // asks. Updating the runners afterwards stays the owner's: the button's `update_runners` field is not an input
     // here, so an agent's request or a ready card cannot set it (`agent_auth` refuses fields outside the input).

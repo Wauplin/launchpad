@@ -26,7 +26,7 @@ A profile is one way to run an agent: a harness, what pays for the work, an opti
 | Pay as you go | Claude Code with an API key or the Hugging Face router, Codex with an OpenAI API key, OpenCode | Optional cost limit per session and rolling spending limits per profile |
 
 - **Logins**: subscription logins live in Home's vault (**Settings → Credentials and tools**). A profile names its login, else it uses the harness's first one. Add several logins to use several accounts; each login has its own quota meters. Agents never use a machine's own sign-in.
-- **Login and runners**: each profile shows its login on Home (Home reads quotas with it and lends it to agents) and the runners that have the harness's CLI, with its version. A runner without the CLI takes none of the profile's sessions.
+- **Login and runners**: each profile shows its login on Home (Home reads quotas with it and lends it to agents) and the runners that have the harness's CLI, with its version. A runner without the CLI takes none of the profile's sessions. Runners update their CLIs on their own within a major version; a new major version waits for your approval in Today (see [Agent CLI updates](home-and-runners.md#agent-cli-updates)).
 - **Environment values** can use `~/`, `${NAME}` (a variable of your login shell) and `${LAUNCHPAD_MODEL}`. Sessions store only the profile ID, never the values.
 
 Profiles live in `config.toml` (see [Configuration](configuration.md#profiles)).

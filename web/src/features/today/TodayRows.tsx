@@ -20,12 +20,13 @@ import { useSessionWorktrees } from "@/features/agents/Worktrees";
 import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
 import { ProposalCard, proposalIcon, runProposalAction, START } from "@/features/proposals/ProposalCard";
 import { SuggestionCard } from "@/features/suggestions/Suggestions";
-import { runAction } from "@/lib/actions";
+import { runAction, type ActionName } from "@/lib/actions";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useSession } from "@/lib/queries";
 import type { TodayItem } from "./data";
+import { CliUpdateDetails } from "@/features/settings/CliUpdates";
 import { FixMergeButton, ghParams, githubRef, MergeButton, NotMerged, ReviewWithAgent, SessionMeta, useBranch, useOpenQuestion } from "./TodayCards";
 
 /** The icon, color and name of each kind: GitHub's icons for pull requests. */
@@ -41,6 +42,7 @@ export const LOOK: Record<TodayItem["kind"], { icon: IconName; color: string; na
   routine: { icon: "refresh", color: "text-gh-closed", name: "Routine whose last run failed" },
   runner: { icon: "window", color: "text-attn", name: "Runner to update" },
   home_update: { icon: "download", color: "text-attn", name: "Update for Home" },
+  cli_update: { icon: "download", color: "text-teal", name: "Agent CLI update" },
 };
 
 type RowProps = { item: TodayItem; expanded: boolean; toggle: (id: string) => void; highlight: boolean };
@@ -307,6 +309,21 @@ function RunnerRow(p: RowProps) {
   return <Row {...p} main={<Link className="btn btn-sm no-underline" to="/settings/runners" title="Open Home and runners">Open</Link>} />;
 }
 
+/** An agent CLI update: Approve (a new major version), Retry (did not install) or Mark read (completed); the
+ * details list the runners, the command to run where Launchpad cannot update, and the release notes. */
+function CliUpdateRow(p: RowProps) {
+  const { item } = p;
+  const version = item.record.split("@").pop() ?? "";
+  const action = item.action as ActionName | null;
+  return <Row {...p}
+    main={action && <ActionButton name={action} params={{ id: item.record }} vars={{ version }} />}
+    menu={(close) => <>
+      {action !== "cli-update.dismiss" && <ActionMenuItem name="cli-update.dismiss" params={{ id: item.record }} close={close} label={action === "cli-update.approve" ? "Skip this version" : undefined} />}
+      <Go close={close} icon="sliders" label="Open agent CLI updates" go={(n) => n({ to: "/settings/runners" })} />
+    </>}
+    details={<CliUpdateDetails id={item.record} />} />;
+}
+
 export const ItemRow = memo(function ItemRow({ proposal, suggestion, ...p }: RowProps & { proposal: Proposal | undefined; suggestion: Suggestion | undefined }) {
   switch (p.item.kind) {
     case "question": return <QuestionRow {...p} />;
@@ -320,5 +337,6 @@ export const ItemRow = memo(function ItemRow({ proposal, suggestion, ...p }: Row
     case "routine": return <RoutineRow {...p} />;
     case "runner": return <RunnerRow {...p} />;
     case "home_update": return <RunnerRow {...p} />; // Opens Settings → Home and runners, where Update Home is.
+    case "cli_update": return <CliUpdateRow {...p} />;
   }
 });

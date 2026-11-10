@@ -1,9 +1,9 @@
 //! Setup helpers used from a browser: Home's GitHub and Hugging Face sign-ins, Clone from GitHub, onboarding, a
-//! runner's setup checklist, and Home updates.
+//! runner's setup checklist, Home updates and agent CLI updates.
 use crate::{Ctx, error::{ApiError, ApiResult}};
-use axum::{Json, Router, extract::State, routing::{get, post}};
+use axum::{Json, Router, extract::{Path, State}, routing::{get, post, put}};
 use launchpad_core::{model::Project, signin};
-use launchpad_setup::{home_update, onboarding, project_clone, setup_checklist};
+use launchpad_setup::{cli_update, home_update, onboarding, project_clone, setup_checklist};
 use serde::Deserialize;
 
 pub fn router() -> Router<Ctx> {
@@ -16,6 +16,52 @@ pub fn router() -> Router<Ctx> {
         .route("/api/setup/checklist", get(checklist))
         .route("/api/home/update", get(home_update).post(start_home_update))
         .route("/api/home/update/check", post(check_home_update))
+        .route("/api/cli-updates", get(cli_updates))
+        .route("/api/cli-updates/check", post(check_cli_updates))
+        .route("/api/cli-updates/auto", put(set_cli_auto))
+        .route("/api/cli-updates/{id}/approve", post(approve_cli_update))
+        .route("/api/cli-updates/{id}/retry", post(retry_cli_update))
+        .route("/api/cli-updates/{id}/dismiss", post(dismiss_cli_update))
+        .route("/api/runner/clis", get(runner_clis))
+        .route("/api/runner/clis/update", post(update_runner_cli))
+}
+
+fn bad(e: anyhow::Error) -> ApiError {
+    ApiError::bad_request(format!("{e:#}"))
+}
+
+/// Home: agent CLI updates on the runners (`launchpad_setup::cli_update`).
+async fn cli_updates(State(s): State<Ctx>) -> ApiResult<cli_update::CliUpdates> {
+    Ok(Json(cli_update::overview(&s.app).await.map_err(bad)?))
+}
+
+async fn check_cli_updates(State(s): State<Ctx>) -> ApiResult<cli_update::CliUpdates> {
+    Ok(Json(cli_update::check(&s.app).await.map_err(bad)?))
+}
+
+async fn set_cli_auto(State(s): State<Ctx>, Json(b): Json<cli_update::Auto>) -> ApiResult<cli_update::CliUpdates> {
+    Ok(Json(cli_update::set_auto(&s.app, b).await.map_err(bad)?))
+}
+
+async fn approve_cli_update(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<cli_update::CliUpdate> {
+    Ok(Json(cli_update::approve(&s.app, &id).await.map_err(bad)?))
+}
+
+async fn retry_cli_update(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<cli_update::CliUpdate> {
+    Ok(Json(cli_update::retry(&s.app, &id).await.map_err(bad)?))
+}
+
+async fn dismiss_cli_update(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<cli_update::CliUpdate> {
+    Ok(Json(cli_update::dismiss(&s.app, &id).await.map_err(bad)?))
+}
+
+/// Runner: its CLI versions and updates, and Home's request to install one (through the tunnel only).
+async fn runner_clis(State(s): State<Ctx>) -> ApiResult<cli_update::RunnerClis> {
+    Ok(Json(cli_update::runner_state(&s.app).await.map_err(bad)?))
+}
+
+async fn update_runner_cli(State(s): State<Ctx>, Json(b): Json<cli_update::Request>) -> ApiResult<cli_update::Job> {
+    Ok(Json(cli_update::start_job(&s.app, b).await.map_err(bad)?))
 }
 
 async fn sign_in(State(s): State<Ctx>) -> Json<Vec<signin::SignInCheck>> {

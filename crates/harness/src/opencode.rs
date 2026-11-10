@@ -65,6 +65,10 @@ impl harness::Harness for Adapter {
     fn install_command(&self) -> Option<&'static str> {
         Some("curl -fsSL https://opencode.ai/install | bash")
     }
+    /// The install script puts it in `~/.opencode/bin/`; `opencode upgrade <version>` replaces it.
+    fn cli_package(&self) -> Option<launchpad_core::harness::CliPackage> {
+        Some(launchpad_core::harness::CliPackage { npm: "opencode-ai", program: "opencode", native: Some(("/.opencode/bin/", &["upgrade", "{version}"])), changelog: "https://github.com/sst/opencode/releases/tag/v{version}" })
+    }
     /// `opencode auth list` ends its sections with "N credentials" and "N environment variables";
     /// only those counts are kept (provider names are not secrets, values are never shown by OpenCode).
     async fn sign_in(&self, env: &launchpad_core::shellenv::UserEnv) -> launchpad_core::signin::SignIn {
