@@ -10,6 +10,15 @@ Every workspace starts with one bot, **Ask Launchpad**. Home creates it once, wi
 
 Ask Launchpad has no special treatment: its `BOT.md` and `bot.toml` are edited, versioned and restored like any bot's, and you can rename it, delete it or replace it with your own. Home never recreates a deleted Ask Launchpad; **New bot → Start from: Ask Launchpad** creates a new one with the default instructions. Any bot can do the same work, as long as the Launchpad CLI tool is granted to its workspace and its access level allows it.
 
+## The Librarian
+
+Every workspace also starts with the **Librarian**, a bot that tends the workspace's [knowledge base](knowledge.md#the-librarian). It merges duplicates, cuts logs, adds links, marks outdated notes and keeps `INDEX.md` current. Home creates it once, in existing workspaces and in each new one, without a folder and with `propose` access to the Launchpad CLI. Its starters are **Tidy the knowledge base now**, **What did you change last time?** and **From now on, …**.
+
+- Steer it in its chat. It keeps your preferences about the notes as one line each in its memory, never a log of its runs.
+- Its routine **Weekly tidy** (`routines/weekly-tidy.toml`, Sundays at 03:00 in Home's time zone) is created paused. Resume it in About → Triggers to tidy every week.
+
+Like Ask Launchpad, it is a normal bot: edit, rename or delete it, and Home never recreates it. **New bot → Start from: Librarian** creates a new one with its default instructions and starters, without the routine. The Knowledge page finds it by its slug `librarian`. An existing bot of yours with that slug counts as the Librarian, and Home leaves it unchanged. After you rename it to another name, the page shows **Run the gardener** instead of **Ask the Librarian**.
+
 ## The Launchpad CLI tool
 
 **Launchpad CLI** is a tool of Home's registry (Settings → Credentials and tools), added once and granted to every workspace. It needs no token: the CLI uses the session's own credential. What a session may do depends on its access level, set with `launchpad` in a bot's `bot.toml` (About → Access → **Edit** → **Launchpad CLI**):
@@ -62,7 +71,7 @@ Open **Bots** in the sidebar and click **+** (or **New bot** on the Bots page). 
 
 The form shows what the bot can reach: its folder, the knowledge base of its workspace, and the tools granted to the workspace. Bots run in YOLO mode by default; change it in the bot's About → Access. **Create bot** saves the bot and starts nothing. The bot's page then asks for its first task.
 
-With a Git folder, **Start from: Repo maintainer** fills in a job for that folder; **Ask Launchpad** fills in its default instructions.
+With a Git folder, **Start from: Repo maintainer** fills in a job for that folder; **Ask Launchpad** and **Librarian** fill in their default instructions.
 
 You can also ask Ask Launchpad: "Create a bot that watches the Xet changelog." It writes a **New bot** card with the name, profile, folder and instructions; **Create bot** creates it.
 
@@ -143,7 +152,7 @@ The **⋯** menu (in the laptop header, and in the bar of the phone's About page
 - **Start a new session…**: asks for an optional reason (one line). Your next message then starts a new session of the thread, and the chat's divider shows your reason. It is off while the bot works, while it has no session yet, or when the next message starts a new session anyway.
 - **Open current session in Agents**: its full trace, terminal and files.
 - **Edit as file**: `bot.toml` (the same settings as a file) or one of its routine files, A file with an error is refused, with the error.
-- **Delete bot**, after a confirmation (off while its session works). Deleting a bot deletes its files, its memory and its routines. Its sessions and its folder stay.
+- **Delete bot**, after a confirmation (off while its session works). Deleting a bot deletes its files, its memory and its routines. Its sessions and its folder stay. Deleting a workspace deletes its bots the same way, and is refused while one of them works.
 
 Renaming a bot also gives it a new slug from the new name, and its Telegram command follows. Its memory stays where it is. A bot cannot edit `BOT.md`, `bot.toml` or its routine files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md` in a [bot file card](#bot-file-cards). The bot's cards show in its chat and in Today; the page has no list of proposals of its own.
 

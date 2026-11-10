@@ -10,10 +10,10 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Local PR | pre-draft PR, pre-draft, Local pre-draft | A PR prepared in Launchpad on a branch of Home Git, published or merged with a click. |
 | Plain folder | non-Git folder | A folder without Git whose files Home stores, with versions and trash. |
 | Asset folder | assets | Large or generated files of a Git folder, stored by Home instead of Git. |
-| Bot | assistant, teammate, persona | A named agent that stays: one thread of sessions, `BOT.md` instructions, routine files in `routines/`, notes in its own memory. Ask Launchpad is the bot every workspace starts with. Its page is a chat, with **About** (BOT.md · Triggers · Memory · Access · Versions) and **⋯** (Pause all triggers, Start a new session, Open current session in Agents, Edit as file, Delete). |
+| Bot | assistant, teammate, persona | A named agent that stays: one thread of sessions, `BOT.md` instructions, routine files in `routines/`, notes in its own memory. Every workspace starts with two: Ask Launchpad and the Librarian. Its page is a chat, with **About** (BOT.md · Triggers · Memory · Access · Versions) and **⋯** (Pause all triggers, Start a new session, Open current session in Agents, Edit as file, Delete). |
 | Routine | cron, cron agent, repeating agent | Work that starts on its own again and again: on a schedule, on GitHub activity or when another agent is done. A bot's routine is a file of the bot (`routines/<name>.toml`). "Cron" stays in the code (`crons.rs`, `/api/launch/crons`) and names only the schedule format. |
 | Schedules | Cron group, Scheduled group | The one page with Routines · Scheduled launches. |
-| Knowledge | memory, notes, wiki | The knowledge base of a workspace: notes and media that are the memory agents share (bots also keep their own). |
+| Knowledge | memory, notes, wiki | The knowledge base of a workspace: notes and media that are the memory agents share (bots also keep their own). The Librarian bot tends it. |
 | Home Git | Git server, mirror | Home's copy of every Git folder, with the Launchpad branches. Runners clone from it and push to it. |
 | Suggestion | agent draft, Agent draft banner, suggested comment | A comment or review written by an agent, posted with a click. |
 | Draft | (5 meanings) | Only an unsent composer launch. GitHub draft PRs say "GitHub draft"; unsent replies are "unsent reply". |

@@ -24,19 +24,25 @@ Launchpad does not judge whether a note is true. Review the Changes list when yo
 
 ## Concurrent edits
 
-A write records the version of the note that the agent started from. If the note changed in the meantime, Home keeps both versions: the new one is saved as `<note>.concurrent-<id>.md`. The Notes list and the note show it. Click **Keep this note** or **Use the other version**, or let the gardener merge them.
+A write records the version of the note that the agent started from. If the note changed in the meantime, Home keeps both versions: the new one is saved as `<note>.concurrent-<id>.md`. The Notes list and the note show it. Click **Keep this note** or **Use the other version**, or ask the Librarian to merge them.
 
 ## Your edits on a runner
 
 On a runner, the copy is in `<runner data folder>/knowledge/<workspace name>/`, for example `~/.local/share/launchpad-runner/knowledge/Work/`. You can open that folder as a vault in Obsidian. Your edits there are sent to Home within a minute and are recorded as yours.
 
-## The gardener
+## The Librarian
 
-**Run the gardener** opens the composer with a prompt for the workspace: merge duplicate notes, cut notes down to their durable findings (removing logs of runs and results), add missing links, mark outdated notes as superseded, merge concurrent edits and keep `INDEX.md` current. Pick a profile with a cheap model. To run it every week, choose **Repeat on a schedule**. Its changes are listed and restorable like any other.
+Every workspace starts with a bot named **Librarian** that tends its knowledge base. It merges duplicate notes and cuts notes down to their durable findings (removing logs of runs and results). It adds missing links, marks outdated notes as superseded, merges concurrent edits and folds imported memories into the notes. It also keeps `INDEX.md` current. It writes with `launchpad kb` like any agent, so its changes are listed and restorable like any other.
+
+**Ask the Librarian** on the Knowledge page opens its chat. Its starters are **Tidy the knowledge base now**, **What did you change last time?** and **From now on, …**. Tell it how you want the notes kept, for example "stop merging my how-tos". It writes each preference as one line in its own memory and reads them before each tidy.
+
+To tidy every week, turn on its **Weekly tidy** routine: open it in the bot's About → Triggers (or on the Schedules page) and click **Resume** in its **⋯**. It is created paused. It runs on Sundays at 03:00 in Home's time zone, and its file is `routines/weekly-tidy.toml`. A run with nothing to change ends with `no_update`, so it does not notify you.
+
+The Librarian is a normal bot (see [Bots](bots.md#the-librarian)): edit, rename or delete it. Home never recreates it. When the workspace has no bot with the slug `librarian` (you deleted it, or renamed it to another name), the page shows **Run the gardener** instead. It opens the composer with the same tidy prompt as a one-time launch. Pick a profile with a cheap model, or choose **Repeat on a schedule**.
 
 ## Import memories
 
-**Import memories** reads the memory files of Claude Code (`~/.claude/projects/*/memory/`) and Codex (`~/.codex/memories/`) on a runner you choose, then lists them. The import copies the selected files into `imported/<harness>/<project>/` as your notes. Nothing is removed from the machine. Then run the gardener to fold the files into your notes.
+**Import memories** reads the memory files of Claude Code (`~/.claude/projects/*/memory/`) and Codex (`~/.codex/memories/`) on a runner you choose, then lists them. The import copies the selected files into `imported/<harness>/<project>/` as your notes. Nothing is removed from the machine. Then ask the Librarian to fold the files into your notes.
 
 ## Storage
 

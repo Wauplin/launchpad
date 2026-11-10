@@ -136,6 +136,7 @@ A launch only does local work in the request: it records the session (Starting) 
 | Knowledge base (`kb.rs`) | One per workspace, stored by Home like a plain folder (store `kb-<workspace>`, history with author and line counts in `plain_history.meta`); a read-only mirror on each runner | Home; changes restorable 30 days |
 | Bots (`bots.rs`, `bot_memory.rs`) | `bot` rows on Home; `BOT.md`, `bot.toml` and `memory/` stored like a plain folder (store `bot-<id>`), with history; a read-only mirror on runners for open bot sessions; readable copies in the bucket | Home; changes restorable 30 days |
 | Ask Launchpad (`ask_bot.rs`) | a normal bot, created once per workspace; the Launchpad CLI tool, added once to the tool registry (`seeded` rows record both) | Home |
+| Librarian (`librarian.rs`) | a normal bot, created once per workspace (existing and new) with its paused `routines/weekly-tidy.toml`; a `seeded` row records it | Home |
 | Vault (`vault.rs`) | Credentials (write-only), tools, leases, access log, in `state.db` | Home only |
 
 Rust types shared with the UI derive `ts_rs::TS`, so the API is typed end to end without an OpenAPI spec.
