@@ -1,6 +1,6 @@
 # Configuration
 
-Most settings are editable in **Settings** and saved as soon as they change. Settings has two parts: **Workspace** (the workspace of the window: its name, folders, bots, granted tools and MCP servers with their defaults, Delete) and **Launchpad** (shared by every workspace). On a laptop, opening Settings replaces the sidebar with the list of Settings pages; **Back to Launchpad** at its top returns to the page you were on. The search field at the top of that list finds a page by its name or a keyword. Settings that apply to the whole daemon are written to `config.toml`. Settings that apply to one device (zoom, theme, layout) stay in that browser.
+Most settings are editable in **Settings** and saved as soon as they change. Settings has two parts: **Workspace** (the workspace of the window: its name, folders, bots, Telegram, granted tools and MCP servers with their defaults, Delete) and **Launchpad** (shared by every workspace). On a laptop, opening Settings replaces the sidebar with the list of Settings pages; **Back to Launchpad** at its top returns to the page you were on. The search field at the top of that list finds a page by its name or a keyword. Settings that apply to the whole daemon are written to `config.toml`. Settings that apply to one device (zoom, theme, layout) stay in that browser.
 
 ## Files and folders
 
@@ -109,7 +109,7 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad pair` | Print a five-minute pairing link and QR code |
 | `launchpad pr create\|update\|show\|list` | Manage Local PRs (used by agents) |
 | `launchpad suggest comment\|review` | Save an agent-written comment or review as a suggestion; never posts |
-| `launchpad send <channel>\|telegram --body-file <file> --session-id <id>` | Draft a message for an outgoing channel (it waits in the Outbox), or send one to the owner's Telegram chat ([Channels](channels.md)) |
+| `launchpad send <channel>\|telegram --body-file <file> --session-id <id>` | Draft a message for an outgoing channel (it waits in the Outbox), or send one to the Telegram chat of the session's workspace ([Channels](channels.md#telegram)) |
 | `launchpad work finish\|add-project` | Request a worktree merge or open a Local PR, or add another folder to a task (used by agents) |
 | `launchpad trace <session> [--through <seq>]` | Print the stored trace of a session |
 | `launchpad folders\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list` | Read Launchpad state as JSON |

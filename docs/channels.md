@@ -1,8 +1,8 @@
 # Channels and the Outbox
 
-Channels connect your agents to chats and outside tools. They live on Home, in **Settings → Channels**; a runner's window shows Home's. There are three kinds:
+Channels connect your agents to chats and outside tools. They live on Home. Outgoing channels and incoming hooks are in **Settings → Channels**. Telegram is set up per workspace, in **Settings → Workspace**; the Channels page links there. There are three kinds:
 
-- **Telegram**: your own chat. Messages to it go out directly.
+- **Telegram**: your own chat, one per workspace. Messages to it go out directly.
 - **Outgoing** (Slack, Discord, any webhook): other people. Agents only draft messages; each one waits in the **Outbox** (shown in [Today](today.md) → Send) until you click **Send**.
 - **Incoming hooks**: a URL that turns a request from a script or a CI job into a message to a bot.
 
@@ -35,18 +35,22 @@ The command saves the draft in the Outbox and tells the agent that nothing was s
 
 ## Telegram
 
-1. In Telegram, open [@BotFather](https://t.me/BotFather), send `/newbot` and copy the token.
-2. In **Settings → Channels → Telegram**, paste the token and click **Save on Home**. Home checks it with Telegram and keeps it in the vault.
-3. Bind your chat: open the `t.me/<your bot>?start=<code>` link on your phone and press **Start** (or send `/start <code>` to the bot). The code is single-use and valid for 30 minutes. The first chat that sends it is bound; every other chat is ignored and never answered. **Bind another chat** (in the Telegram card's **⋯**) shows a new code.
+Each workspace has its own Telegram bot and its own chat. A workspace without a Telegram bot gets no Telegram: no notifications and no messages to its bots.
 
-Home reads the chat by polling Telegram (a private Space has no address Telegram could call). What happens in the bound chat:
+1. In Telegram, open [@BotFather](https://t.me/BotFather), send `/newbot` and copy the token. Create one bot for each workspace.
+2. In **Settings → Workspace → Telegram**, paste the token and click **Save on Home**. Home checks it with Telegram and keeps it in the vault as `channel-telegram-<workspace id>`. A bot that another workspace already uses is refused: Telegram lets only one reader get a bot's messages.
+3. Bind your chat: open the `t.me/<your bot>?start=<code>` link on your phone and press **Start** (or send `/start <code>` to the bot). The code is single-use and valid for 30 minutes. The first private chat that sends it is bound; every other chat is ignored and never answered. **Bind another chat** (in the Telegram card's **⋯**) shows a new code.
 
-- **Plain text** goes to your first bot (Ask Launchpad of your first workspace, unless you deleted it). `/<bot> text` or `/bot <name> text` goes to that bot's thread (`/repo_scout` finds the bot `repo-scout`). `/help` lists the bots. The command follows the bot's name: after a rename, use the new one.
-- Telegram answers at once with a short acknowledgement and a link to the session on Home. When the turn ends, Home sends the agent's final message back as plain text (cut at about 3,500 characters). When the bot is busy (a turn runs, a question is open or quota paused it), the answer is **Queued for <name>**: the message is sent once its current turn ends, never into the running turn. The bot's chat shows it as waiting, with **Cancel**.
-- **Notifications** (a switch, on by default; Launchpad has no other notifications): completed turns, failures, unexpected interruptions, automatic quota and cost stops, and automatic resumption. They name the status, the folder, its workspace and the agent, with a link: the session's card in Today for a finished, failed or interrupted session (the session itself when the card no longer waits), the bot's chat or the session otherwise. Every link opens the workspace of the session. Session titles appear only when you turn on **Include session titles**. Notifications never contain code or messages, and have no buttons.
-- Agents can write to you directly with `launchpad send telegram --body-file <file> --session-id <id>`.
+Home reads each chat by polling Telegram (a private Space has no address Telegram could call). What happens in a workspace's bound chat:
 
-Quota rules do not change: a message from Telegram starts nothing with paid usage, and a quota pause holds it like any other message. **Send test message** checks the setup. **Delete Telegram setup**, in **⋯**, deletes the token and the bound chat.
+- **Plain text** goes to the workspace's Ask bot: its oldest bot with admin access (Ask Launchpad, unless you deleted it), else its oldest bot. `/<bot> text` or `/bot <name> text` goes to that bot's thread (`/repo_scout` finds the bot `repo-scout`). `/help` lists the bots. Both see only the bots of this workspace. The command follows the bot's name: after a rename, use the new one.
+- Telegram answers at once with a short acknowledgement and a link to the session on Home. When the turn ends, Home sends the agent's final message back to the same chat as plain text (cut at about 3,500 characters). When the bot is busy (a turn runs, a question is open or quota paused it), the answer is **Queued for <name>**: the message is sent once its current turn ends, never into the running turn. The bot's chat shows it as waiting, with **Cancel**.
+- **Notifications** (**Send notifications to this chat**, on by default; Launchpad has no other notifications) cover only the sessions of this workspace: completed turns, failures, unexpected interruptions, automatic quota and cost stops, and automatic resumption. They name the status, the folder, its workspace and the agent, with a link: the session's card in Today for a finished, failed or interrupted session (the session itself when the card no longer waits), the bot's chat or the session otherwise. Every link opens the workspace of the session. Session titles appear only when you turn on **Include session titles**. Notifications never contain code or messages, and have no buttons.
+- Agents can write to you directly with `launchpad send telegram --body-file <file> --session-id <id>`. The message goes to the chat of the session's workspace; an agent always sends as its own session, whatever ID it passes. When that workspace has no bound chat, the command fails with a clear error.
+
+Quota rules do not change: a message from Telegram starts nothing with paid usage, and a quota pause holds it like any other message. **Send test message** checks the setup. **Delete Telegram setup**, in **⋯**, deletes the workspace's token and bound chat. Deleting a workspace deletes its Telegram setup too.
+
+Earlier versions had one Telegram bot for all workspaces. The first start after the upgrade deletes that token and its bound chat once, and assigns them to no workspace. Set up Telegram again in each workspace that needs it.
 
 ## Incoming hooks
 

@@ -214,9 +214,9 @@ In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or b
 Workspaces are yours to define, for example "Work" and "Personal". There is no default workspace: **Finish setup** asks you to create at least one before you add or clone a folder, and Home then always keeps at least one. Every folder belongs to exactly one workspace, chosen when you add, clone or create it, and its agents, schedules, crons and inbox threads follow it. A window shows one workspace at a time: every list, count, badge and suggestion follows it, including `#` and `@` in prompts and the folders of **Add context**.
 
 - **Rail**: the column of squares at the left edge, one per workspace. Click a square to show that workspace in this window. Other workspaces show only the count of their Today list. **+** creates a workspace.
-- **Workspace menu**: the workspace name at the top of the sidebar. It offers **Rename**, **Open in a new window** (to see two workspaces side by side), **Workspace settings**, **New workspace** and **Delete**. Only an empty workspace can be deleted, and never the last one. Its bots (Ask Launchpad, the Librarian and your own) are deleted with it, with their routines; their sessions stay. Delete is refused while one of its bots works.
+- **Workspace menu**: the workspace name at the top of the sidebar. It offers **Rename**, **Open in a new window** (to see two workspaces side by side), **Workspace settings**, **New workspace** and **Delete**. Only an empty workspace can be deleted, and never the last one. Its bots (Ask Launchpad, the Librarian and your own) are deleted with it, with their routines, and so is its Telegram setup; their sessions stay. Delete is refused while one of its bots works.
 - Move a folder with **Move to …** in its menu or in its settings.
-- Telegram notifications name the workspace, and opening one shows that workspace.
+- Each workspace has its own Telegram bot and chat (Settings → Workspace → Telegram). Its notifications name the workspace, and opening one shows that workspace.
 
 To use the same repository in two workspaces, clone it again from the other workspace: it becomes a second folder (`<name>-<workspace>`) with its own agents, Local PRs and settings. A temporary folder joins the workspace of the window, so launch it from a workspace.
 
@@ -234,4 +234,4 @@ Folders without a workspace appear in the **Unassigned folders** card on the Fol
 
 ## Notifications
 
-Notifications come only through Telegram (see [Channels](channels.md)). They tell you when a turn ends, fails or is cut off, and when quota stops or resumes an agent. Questions, manual stops and archives are silent. A window that you are actively using suppresses notifications for the session it shows.
+Notifications come only through Telegram, to the chat of the session's workspace (see [Channels](channels.md#telegram)). A workspace without a Telegram bot gets none. They tell you when a turn ends, fails or is cut off, and when quota stops or resumes an agent. Questions, manual stops and archives are silent. A window that you are actively using suppresses notifications for the session it shows.

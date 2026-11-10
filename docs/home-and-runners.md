@@ -97,7 +97,7 @@ The composer's **Tools** option starts from these defaults for the chosen folder
 
 ## Notifications and routines
 
-Home sends notifications through your Telegram chat for every session, wherever it runs: a runner forwards the notification of a session that finishes, fails or is interrupted to Home. There are no desktop notifications. Routines, scheduled launches and the morning brief run on Home's schedule, on a runner when one takes the run, otherwise on Burst ([Routines](bots.md#routines)).
+Home sends notifications through the Telegram chat of each session's workspace, wherever the session runs: a runner forwards the notification of a session that finishes, fails or is interrupted to Home. There are no desktop notifications. Routines, scheduled launches and the morning brief run on Home's schedule, on a runner when one takes the run, otherwise on Burst ([Routines](bots.md#routines)).
 
 ## Move a session
 

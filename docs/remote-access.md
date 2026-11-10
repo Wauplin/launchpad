@@ -89,7 +89,7 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 
 Open the paired HTTPS origin in the phone's browser and use **Install** or **Add to Home Screen**.
 
-Notifications come only through Telegram: bind your chat in **Settings → Channels** ([Channels](channels.md)) to get finished, failed and interrupted agents and routine reports on your phone. Launchpad shows no desktop or Web Push notifications.
+Notifications come only through Telegram: bind a chat in **Settings → Workspace → Telegram** of each workspace ([Channels](channels.md#telegram)) to get its finished, failed and interrupted agents and routine reports on your phone. Launchpad shows no desktop or Web Push notifications.
 
 ## Run Home on your own server
 
