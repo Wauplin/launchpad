@@ -5,7 +5,6 @@ import { usePhone, layoutChoice, setLayoutChoice, type LayoutChoice } from "@/li
 // Daemon settings go to config.toml, which can also be edited by hand.
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { Preset } from "@/gen/Preset";
 import { Icon } from "@/components/Icon";
@@ -17,6 +16,7 @@ import { useConfig, useSharedSettings, type ConfigResponse, type SharedSettings 
 import { useTheme } from "@/stores/theme";
 import { PhoneSettings } from "./PhoneSettings";
 import { PhoneBar } from "@/mobile/PhoneHeader";
+import { phoneBack } from "@/mobile/back";
 
 /** A section of a Settings page: a bordered card on the laptop, a flat section under a heading line on the phone (one
  * border level, so the boxes inside keep theirs; `settings-card` in styles.css). */
@@ -37,7 +37,6 @@ export function Card({ title, end, children, id, tour }: { title: string; end?: 
  * lists the pages; on phones the title, ⓘ and ‹ (back to the list on /settings) go in the shell's bar. */
 export function SettingsPage({ title, meta, intro, info, actions, children, tour }: { title?: string; meta?: React.ReactNode; intro?: React.ReactNode; info?: string; actions?: React.ReactNode; children: React.ReactNode; tour?: string }) {
   const phone = usePhone();
-  const navigate = useNavigate();
   const introId = title ? `settings:${title}` : undefined;
   // The intro shows on the first visit of the page on this device, then behind ⓘ (phone: in the bar).
   const explain = useIntro(phone && intro && introId ? introId : null);
@@ -53,7 +52,7 @@ export function SettingsPage({ title, meta, intro, info, actions, children, tour
   const explanation = intro && explain.open && <p className="m-0 w-full text-[13px] text-ink-2">{intro}{info && <span className="mt-1 block text-[12px] text-ink-3">{info}</span>}</p>;
   return (
     <div className="h-full overflow-y-auto">
-      <PhoneBar title={title ?? "Settings"} onBack={() => void navigate({ to: "/settings" })} backLabel="Back to Settings" end={about} />
+      <PhoneBar title={title ?? "Settings"} onBack={() => phoneBack("/settings")} backLabel="Back" end={about} />
       <div className="phone-page-content grid max-w-page grid-cols-[minmax(0,1fr)] gap-5 p-6">
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4" data-tour={tour}>
           {(meta || explanation || actions) && <div className="flex flex-wrap items-center gap-2">

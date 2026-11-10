@@ -37,6 +37,7 @@ import { buildRows } from "./rows";
 import { EventRow } from "./EventRow";
 import { foldTrace } from "./traceRows";
 import { MenuItem, Popover } from "@/components/Popover";
+import { ActionMenuItem } from "@/components/ActionButton";
 import type { SessionGitHistory } from "@/gen/SessionGitHistory";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { SessionStatus, usageLine } from "./SessionBits";
@@ -45,6 +46,7 @@ import { TerminalMenu } from "@/features/terminals/TerminalMenu";
 import { Sheet } from "@/mobile/Sheet";
 import { WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
 import { usePhone } from "@/lib/phone";
+import { useBackClose } from "@/mobile/back";
 import { PhoneBar } from "@/mobile/PhoneHeader";
 import { PresetChips, usePresets } from "./MessagePresets";
 import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextChips } from "./MessageContext";
@@ -208,9 +210,10 @@ function StatePrimary({ s, primary }: { s: Session; primary: React.ReactNode }) 
   return <>{primary}</>;
 }
 
-type View = "summary" | "trace" | "changes" | "subagents" | "processes";
+export type View = "summary" | "trace" | "changes" | "subagents" | "processes";
 
-export function SessionPane({ sessionId, onClear, initialView }: { sessionId: string; onClear: () => void; initialView?: "changes" | "trace" }) {
+/** `initialView`: the view to show (the phone keeps it in the address, `onView` writes it there with a replace). */
+export function SessionPane({ sessionId, onClear, initialView, onView }: { sessionId: string; onClear: () => void; initialView?: View; onView?: (view: View) => void }) {
   const phone = usePhone();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -236,13 +239,16 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const runningProcesses = s?.live ? processes.data ?? [] : [];
   const hasProcesses = runningProcesses.length > 0;
   const [gitMain, setGitMain] = useState(false);
-  const [view, setView] = useState<View | null>(initialView ?? null);
+  const [view, setViewState] = useState<View | null>(initialView ?? null);
+  const setView = (v: View) => { setViewState(v); onView?.(v); };
+  // The address changed the view (a link, or back to an entry that showed another view).
+  useEffect(() => { if (initialView) setViewState(initialView); }, [initialView]);
   // Running opens Trace when the panel loads or a turn starts; Summary stays selectable while it runs.
   const sessionRunning = !!s && isRunning(s);
   const wasRunning = useRef(sessionRunning);
   useEffect(() => {
-    if (s && view === null) setView(sessionRunning ? "trace" : "summary");
-    else if (sessionRunning && !wasRunning.current && view === "summary") setView("trace");
+    if (s && view === null) setViewState(sessionRunning ? "trace" : "summary");
+    else if (sessionRunning && !wasRunning.current && view === "summary") setViewState("trace");
     wasRunning.current = sessionRunning;
   }, [s, view, sessionRunning]);
   const git = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${sessionId}/git`), refetchInterval: 5000 });
@@ -256,6 +262,9 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   const summary = !s || current === "summary";
   const canExpand = phone && (current === "summary" || current === "trace");
   const readingExpanded = canExpand && expanded;
+  // Phone: the full-screen reading mode and the Reply box are overlays; Android back closes them (the draft stays).
+  useBackClose(readingExpanded, () => setExpanded(false));
+  useBackClose(phone && replying, () => setReplying(false));
   const changesOpen = current === "changes";
   const processesOpen = current === "processes";
   const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => (p.session_id === sessionId && !p.archived) || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
@@ -387,7 +396,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
   ) : s.status === "waiting" && s.open_question ? (
     <>
       <button className="btn btn-sm btn-primary" title={ask?.permission ? "Review the requested operation" : "Show the question and focus the message box"} onClick={() => { setExpanded(false); setReplying(true); setView("trace"); setAnswering((n) => n + 1); }}>{ask?.permission ? "Review approval" : "Answer"}</button>
-      {s.live && <button className="iconbtn text-danger" title="Stop the agent while it waits for your decision" aria-label="Stop agent" onClick={() => void act(s.id, "session.stop")}><Icon name="stop" size={14} /></button>}
+      {s.live && !phone && <button className="iconbtn text-danger" title="Stop the agent while it waits for your decision" aria-label="Stop agent" onClick={() => void act(s.id, "session.stop")}><Icon name="stop" size={14} /></button>}
     </>
   ) : mergeStopped ? (
     <FixMergeButton sessionId={s.id} branch={branch} />
@@ -435,6 +444,7 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       {hasFinal && <MenuItem icon={<Icon name="comment" size={14} />} label="Jump to the final message" detail="In the trace" onClick={() => { close(); setView("trace"); setJumpFinal((n) => n + 1); }} />}
       {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Today for later" onClick={() => { close(); onClear(); void act(s.id, "session.unread"); }} />}
       {phone && <>
+        {s.live && s.status === "waiting" && s.open_question && <ActionMenuItem name="session.stop" params={{ id: s.id }} close={close} detail="Interrupt the agent while it waits for your decision" />}
         <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename" onClick={() => { close(); setTitle(s.title); setRenaming(true); }} />
         <MenuItem label="Session details" detail="Branch, usage and Launch here" onClick={() => { close(); setDetailsOpen(true); }} />
         {terminalsHere && !noShell && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail={terminalBlock ?? "Open a shell in this folder (the checkout when its worktree is gone)"} disabled={!!terminalBlock} onClick={() => { close(); void openTerminal.folder(s.cwd, s.runner_id); }} />}
@@ -458,13 +468,14 @@ export function SessionPane({ sessionId, onClear, initialView }: { sessionId: st
       {readingExpanded && <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-line-2 px-3 py-1">
         <span className="min-w-0 flex-1 truncate text-[13px] font-semibold" title={s.title}>{s.title}</span>
         <SessionStatus s={s} />
-        {!archivePrimary && primary}
+        {!archivePrimary && <StatePrimary s={s} primary={primary} />}
       </div>}
       {phone ? <><PhoneBar title={<>{isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}</>} onBack={onClear} backLabel="Back to agents" end={actionsMenu} />
       <div className="session-header @container grid items-center border-b border-line-2">
         {renaming && <div className="session-heading flex min-w-0 items-center gap-1">{titleEl}</div>}
         <span className="session-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3 tabular-nums">
           <SessionStatus s={s} />
+          {s.launch_spec.bot && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} className="flex min-w-0 max-w-[40%] shrink-0 no-underline" aria-label={`Open the chat of ${s.launch_spec.bot.name}`}><BotChip name={s.launch_spec.bot.name} className="max-w-full" /></Link>}
           <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{place} <Icon name="chev" size={12} /></button>
           {stateChips}
         </span>

@@ -20,15 +20,21 @@ import { useScope } from "@/lib/workspace";
 import { isNoUpdate } from "@/lib/routines";
 import { sendPresence } from "@/lib/ws";
 import { isCollapsed, useLayout, type AgentGroup } from "@/stores/layout";
-import { SessionPane } from "./SessionPane";
+import { SessionPane, type View } from "./SessionPane";
+import { phoneBack } from "@/mobile/back";
+import { PullToRefresh } from "@/components/PullToRefresh";
+import { useQueryClient } from "@tanstack/react-query";
 import { SessionStatus } from "./SessionBits";
 import { useMarkSeen, useWindowFocused } from "./useSeen";
 import { age, formatReset } from "@/lib/format";
 import { toastError } from "@/components/Toast";
-import { usePhone } from "@/lib/phone";
+import { isPhone, usePhone } from "@/lib/phone";
 
 /** Statuses whose badge tells more than the group heading. */
 const informative = (s: Session) => s.open_question || s.status === "error" || s.status === "interrupted" || s.status === "quota_paused";
+
+/** Row height: the phone's larger text needs more room for the two lines of the last message. */
+const ROW = isPhone ? 80 : 68;
 
 const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onClick, onMarkUnread }: { s: Session; project: string; selected: boolean; pinned: boolean; onClick: () => void; onMarkUnread: () => void }) {
   const dim = s.status === "closed";
@@ -47,7 +53,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
       <button
         type="button"
         onClick={onClick}
-        className={`grid h-[68px] w-full grid-cols-[18px_1fr_auto] content-start gap-x-2 gap-y-1 border-b border-line-2 px-3 py-2 text-left hover:bg-chrome ${selected ? "bg-select hover:bg-select" : ""}`}
+        style={{ height: ROW }} className={`grid w-full grid-cols-[18px_1fr_auto] content-start gap-x-2 gap-y-1 border-b border-line-2 px-3 py-2 text-left hover:bg-chrome ${selected ? "bg-select hover:bg-select" : ""}`}
       >
         <span className="row-span-2 mt-px">
           <HarnessMark harness={s.harness} size={18} />
@@ -101,6 +107,7 @@ export function AgentsView() {
   const sessionsQuery = useSessions();
   const allSessions = sessionsQuery.data ?? [];
   const sessions = allSessions.filter(scope.hasSession);
+  const qc = useQueryClient();
   const [panelLoad, setPanelLoad] = useState(0);
   const [filter, setFilter] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -111,7 +118,7 @@ export function AgentsView() {
   const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
   const projects = useProjects().data;
   const { selectedSession, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
-  const search = useSearch({ strict: false }) as { session?: string; view?: "changes" };
+  const search = useSearch({ strict: false }) as { session?: string; view?: View };
   const navigate = useNavigate();
   // The phone shows the list or one session at a time; the address holds the session, so Back returns to the list.
   const phone = usePhone();
@@ -122,10 +129,9 @@ export function AgentsView() {
     setPanelLoad((n) => n + 1);
     if (phone) void navigate({ to: "/agents", search: { session: id } });
   };
-  const back = () => {
-    void navigate({ to: "/agents", search: {} });
-  };
-  const [initialView, setInitialView] = useState<"changes" | undefined>(undefined);
+  // ‹, Archive and Mark as unread: one step back (to Today when the agent came from there), never a new entry.
+  const back = () => phoneBack("/agents");
+  const [initialView, setInitialView] = useState<View | undefined>(undefined);
 
   // From a notification or another page: /agents?session=<id>[&view=changes]. The desktop then clears the address;
   // the phone keeps it and reopens the pane when `view` changes (the pane key holds it).
@@ -195,7 +201,7 @@ export function AgentsView() {
     ...group("In terminal", sessionRows(inTerminal)),
     ...group("Archived", sessionRows(archived.slice(0, archivedLimit)), { tail: archived.length > archivedLimit ? [{ kind: "more" }] : [] }).map((i) => (i.kind === "group" ? { ...i, count: archived.length } : i)),
   ];
-  const size = (i: Item) => (i.kind === "session" ? 68 : i.kind === "archive-old" ? 44 : 34);
+  const size = (i: Item) => (i.kind === "session" ? ROW : i.kind === "archive-old" ? 44 : 34);
   const key = (i: Item) => (i.kind === "session" ? i.session.id : i.kind === "group" ? `group-${i.title}` : i.kind);
   const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => size(items[i]), getItemKey: (i) => key(items[i]), overscan: 6, useFlushSync: false });
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
@@ -212,6 +218,7 @@ export function AgentsView() {
           {matches.error && <span className="text-[12px] text-danger-ink">{matches.error.message}</span>}
         </div>
         <div ref={listRef} data-tour="agents.list" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+        {phone && <PullToRefresh target={listRef} onRefresh={() => qc.invalidateQueries({ queryKey: ["sessions"] })} />}
         {sessions.length === 0 && (
           <div className="grid gap-3 p-4 text-[13px] text-ink-2">
             {`No agent in ${scope.workspace.name} yet.`}
@@ -234,7 +241,7 @@ export function AgentsView() {
       </div>
       <div className={`min-h-0 min-w-0 flex-1 bg-paper ${phone && !paneOpen ? "hidden" : ""}`}>
         {visibleSession ? (
-          <SessionPane key={`${scope.workspace.id}:${visibleSession}:${panelLoad}${phone ? `:${search.view ?? ""}` : ""}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onClear={() => (phone ? back() : clearSession(visibleSession))} />
+          <SessionPane key={`${scope.workspace.id}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onView={phone ? (view) => void navigate({ to: "/agents", search: { session: visibleSession, view }, replace: true }) : undefined} onClear={() => (phone ? back() : clearSession(visibleSession))} />
         ) : phone ? null : (
           <Empty fill icon="agents" action={<LaunchButton small />}>Pick an agent on the left. Questions and finished agents wait in <Link to="/" className="text-teal-ink">Today</Link>.</Empty>
         )}

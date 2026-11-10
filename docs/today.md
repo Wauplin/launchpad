@@ -14,7 +14,7 @@ On the phone, the page starts with the filter chips (**All** shows the count) an
 
 A **report** is a card a bot or an agent writes about one thing it handled, usually a GitHub pull request or issue: what it did (merged, approved, commented, waiting, closed) or a question for you. Each report is its own row, so a bot that handles ten pull requests in one run gives ten rows, each with the pull request's link, the text and **Open agent**. A new report about the same pull request from the same bot (or agent) replaces the one that still waits.
 
-A link to one row is `/?card=<id>`: it highlights the row and opens its card. Telegram notifications use it (`/?card=session:<id>`). When the item no longer waits, the link opens the session.
+A link to one row is `/?card=<id>`: it highlights the row and opens its card. Telegram notifications use it (`/?card=session:<id>`); a bot's session links to the bot's chat instead. When the item no longer waits, the link opens the session (a bot's chat for a bot's session). A finished bot session's **Open** opens its chat; **⋯ → Open in Agents** shows its trace.
 
 | Filter | Rows | Buttons |
 | --- | --- | --- |

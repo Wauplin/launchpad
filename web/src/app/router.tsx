@@ -5,6 +5,9 @@ import { validateCodeSearch } from "@/features/code/store";
 /** The shell and the two first pages, loaded with it (app/desktop.ts or mobile/entry.ts). */
 export type Entry = { Root: () => ReactNode; TodayView: RouteComponent; AgentsView: RouteComponent };
 
+const SESSION_VIEWS = ["summary", "trace", "changes", "subagents", "processes"] as const;
+type SessionView = (typeof SESSION_VIEWS)[number];
+
 /** Today's address: `filter` (a chip, such as `send`) and `card` (an item ID such as `proposal:<id>`). */
 export type TodaySearch = { filter?: string; card?: string };
 
@@ -20,7 +23,10 @@ const routeTree = root.addChildren([
   // Phone pages.
   createRoute({ getParentRoute: () => root, path: "/terminals", component: lazyRouteComponent(() => import("@/mobile/TerminalsView"), "TerminalsView") }),
   createRoute({ getParentRoute: () => root, path: "/more", component: lazyRouteComponent(() => import("@/mobile/MoreView"), "MoreView") }),
-  createRoute({ getParentRoute: () => root, path: "/inbox", component: lazyRouteComponent(() => import("@/features/inbox/InboxView"), "InboxView") }),
+  // `thread`: the phone shows one Inbox thread (a history entry, so back returns to the list).
+  createRoute({ getParentRoute: () => root, path: "/inbox", component: lazyRouteComponent(() => import("@/features/inbox/InboxView"), "InboxView"), validateSearch: (s: Record<string, unknown>): { thread?: string } => (typeof s.thread === "string" && s.thread ? { thread: s.thread } : {}) }),
+  // The phone's Chats tab: every bot of the workspace, Ask Launchpad first.
+  createRoute({ getParentRoute: () => root, path: "/chats", component: lazyRouteComponent(() => import("@/mobile/ChatsView"), "ChatsView") }),
   createRoute({ getParentRoute: () => root, path: "/bots", component: lazyRouteComponent(() => import("@/features/bots/BotsView"), "BotsView"), validateSearch: (s: Record<string, unknown>): { new?: boolean } => (s.new === true || s.new === "true" || s.new === 1 ? { new: true } : {}) }),
   createRoute({ getParentRoute: () => root, path: "/bots/$id", component: lazyRouteComponent(() => import("@/features/bots/BotsView"), "BotPage"), validateSearch: (s: Record<string, unknown>): { panel?: string } => (typeof s.panel === "string" && s.panel ? { panel: s.panel } : {}) }),
   createRoute({ getParentRoute: () => root, path: "/schedules", component: lazyRouteComponent(() => import("@/features/schedules/SchedulesView"), "SchedulesView"), validateSearch: (s: Record<string, unknown>): { tab?: "routines" | "launches"; routine?: string; launch?: string } => ({ ...(s.tab === "routines" || s.tab === "launches" ? { tab: s.tab } : {}), ...(typeof s.routine === "string" && s.routine ? { routine: s.routine } : {}), ...(typeof s.launch === "string" && s.launch ? { launch: s.launch } : {}) }) }),
@@ -29,15 +35,20 @@ const routeTree = root.addChildren([
     getParentRoute: () => root,
     path: "/github/$owner/$repo/$number",
     component: lazyRouteComponent(() => import("@/features/github/ItemView"), "ItemView"),
-    // `draft`: the agent suggestion to expand and scroll to.
-    validateSearch: (s: Record<string, unknown>): { draft?: string } => (typeof s.draft === "string" || typeof s.draft === "number" ? { draft: String(s.draft) } : {}),
+    // `draft`: the agent suggestion to expand and scroll to. `tab`: the PR view (Conversation without it). `file`:
+    // the file a PR's Changes shows (the phone's one-file view).
+    validateSearch: (s: Record<string, unknown>): { draft?: string; tab?: "files" | "threads"; file?: string } => ({
+      ...(typeof s.draft === "string" || typeof s.draft === "number" ? { draft: String(s.draft) } : {}),
+      ...(s.tab === "files" || s.tab === "threads" ? { tab: s.tab } : {}),
+      ...(typeof s.file === "string" && s.file ? { file: s.file } : {}),
+    }),
   }),
   createRoute({
     getParentRoute: () => root,
     path: "/agents",
     component: AgentsView,
-    // `view=changes` opens the session's Changes view (Review changes links).
-    validateSearch: (s: Record<string, unknown>): { session?: string; view?: "changes" } => ({ ...(typeof s.session === "string" ? { session: s.session } : {}), ...(s.view === "changes" ? { view: "changes" as const } : {}) }),
+    // `view` opens one view of the session (`changes` from Review changes links; the phone keeps the current one).
+    validateSearch: (s: Record<string, unknown>): { session?: string; view?: SessionView } => ({ ...(typeof s.session === "string" ? { session: s.session } : {}), ...(typeof s.view === "string" && SESSION_VIEWS.includes(s.view as SessionView) ? { view: s.view as SessionView } : {}) }),
   }),
   createRoute({ getParentRoute: () => root, path: "/projects", component: lazyRouteComponent(() => import("@/features/projects/ProjectsView"), "ProjectsView") }),
   createRoute({ getParentRoute: () => root, path: "/projects/$id", component: lazyRouteComponent(() => import("@/features/projects/ProjectPage"), "ProjectPage") }),

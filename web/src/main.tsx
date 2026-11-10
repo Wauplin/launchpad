@@ -12,6 +12,7 @@ import { logToDaemon } from "@/lib/api";
 import { connectEvents } from "@/lib/ws";
 import { useComposer } from "@/stores/composer";
 import { isDemo } from "@/demo/mode";
+import { isExtension } from "@/lib/connection";
 // Reads `?ws=` before anything else rewrites the address.
 import "@/stores/workspace";
 import "./styles.css";
@@ -35,10 +36,10 @@ let navigateTo: ((url: string) => void) | null = null;
 const deployment = demo.then(() => loadDeployment());
 // A runner's own window has no composer (its daemon answers only its status).
 void deployment.then(() => { if (!runnerWindow()) void useComposer.getState().restore(); });
-// Earlier versions registered a service worker (offline shell and Web Push); remove it and its caches.
-if (!isDemo && "serviceWorker" in navigator) {
-  void navigator.serviceWorker.getRegistrations().then((all) => all.forEach((r) => void r.unregister())).catch(() => {});
-  if ("caches" in window) void caches.keys().then((names) => names.filter((n) => n.startsWith("launchpad-")).forEach((n) => void caches.delete(n))).catch(() => {});
+// The installed app's offline shell (public/sw.js: the app page and its assets, never API answers). Only on the
+// daemon's own origin: not in demo mode, the Chrome extension or Vite's dev server. A failed registration changes nothing.
+if (!isDemo && !isExtension && import.meta.env.PROD && "serviceWorker" in navigator) {
+  void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }
 
 window.addEventListener("error", (e) => logToDaemon(`uncaught: ${e.message} at ${e.filename}:${e.lineno}`, "error"));

@@ -16,6 +16,7 @@ import type { Session } from "@/gen/Session";
 import type { Suggestion } from "@/gen/Suggestion";
 import { useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
+import { ImageThumb } from "@/components/ImageViewer";
 import { toastError } from "@/components/Toast";
 import { AskCard } from "@/features/agents/AskCard";
 import { AssistantRow, Separator } from "@/features/agents/EventRow";
@@ -38,6 +39,7 @@ import { api } from "@/lib/api";
 import { pastedImages } from "@/lib/attachments";
 import { daemonAsset } from "@/lib/connection";
 import { age, when } from "@/lib/format";
+import { useNextSession } from "./nextSession";
 import { usePhone } from "@/lib/phone";
 import { useCrons, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
@@ -246,7 +248,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
     case "user":
       return <div className="flex py-1.5"><div className="ml-auto max-w-[85%] rounded-card rounded-br-sm bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
         {item.text}
-        {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url; return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
+        {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url; return <ImageThumb key={i} src={src} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />; })}</div>}
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
       </div></div>;
     case "routine":
@@ -376,7 +378,8 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
   const [busy, setBusy] = useState(false);
   // "New session" checkbox: the next message starts a new session of the thread. Offered only while the current
   // session waits for input (or ended), and cleared when the current session changes.
-  const [checked, setChecked] = useState(false);
+  const checked = useNextSession((st) => st.bots.has(bot.id));
+  const setChecked = (on: boolean) => useNextSession.getState().set(bot.id, on);
   useEffect(() => setChecked(false), [current?.id]);
   const canStartNew = !!current && !rotation && ["waiting", "error", "interrupted", "stopped"].includes(current.status);
   const fresh = checked && canStartNew;
@@ -443,7 +446,7 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
           <button className="iconbtn" title={`Attach files${acceptsImages ? " or images" : ""}. ${ATTACH_LIMITS}`} aria-label="Attach files" disabled={busy || reading || blocked} onClick={() => fileRef.current?.click()}><Icon name="clip" size={14} /></button>
           <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || reading || blocked || (!text.trim() && !files.length && !withContext && !presets.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>
         </div>
-        {phone && newSession}
+        {phone && fresh && <div className="mt-1 flex items-center gap-1.5 text-[12px] text-ink-2"><span className="lp-chip">New session<button className="ml-1 inline-flex" aria-label="Keep the current session" title="Keep the current session" onClick={() => setChecked(false)}><Icon name="x" size={12} /></button></span></div>}
       </div>
     </div>
   );

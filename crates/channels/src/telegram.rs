@@ -229,9 +229,12 @@ async fn session_link(app: &App, id: &str) -> String {
     }
 }
 
-/// The session's card in Today (`/?card=session:<id>`), which holds its main action. No buttons in Telegram:
-/// every owner click happens in Launchpad.
+/// The session's card in Today (`/?card=session:<id>`), which holds its main action; a bot's session opens the
+/// bot's chat instead (bots talk there). No buttons in Telegram: every owner click happens in Launchpad.
 async fn card_link(app: &App, id: &str) -> String {
+    if app.sessions.get(id).is_some_and(|s| s.launch_spec.bot.is_some()) {
+        return session_link(app, id).await;
+    }
     format!("{}/?card=session:{id}{}", crate::channels::home_origin(app), ws_param(app, id, '&').await)
 }
 

@@ -9,7 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ToolDefaultsEditor } from "@/features/settings/ToolDefaults";
 import { useLayers } from "@/lib/toolDefaults";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { Markdown } from "@/components/Markdown";
@@ -17,6 +17,8 @@ import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, Loading, PageHeader, StatusBadge, Tabs, type StatusTone } from "@/components/ui";
 import { PatchView } from "@/features/github/DiffReview";
 import { BotChat } from "@/features/chat/BotChat";
+import { BotConversationRow } from "./BotConversationRow";
+import { useNextSession } from "@/features/chat/nextSession";
 import { SplitView } from "@/components/SplitView";
 import type { Bot } from "@/gen/Bot";
 import type { BotSettings } from "@/gen/BotSettings";
@@ -27,7 +29,7 @@ import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { VaultOverview } from "@/gen/VaultOverview";
 import { api } from "@/lib/api";
-import { askTarget, botInitial, botJob, botProfile, botState, botThread, currentSession, rotationReason, useBots, useBotTemplates, type BotState } from "@/lib/bots";
+import { botInitial, botProfile, conversationOrder, botState, botThread, currentSession, rotationReason, useBots, useBotTemplates, type BotState } from "@/lib/bots";
 import { daemonUrl } from "@/lib/connection";
 import { age, ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
@@ -50,6 +52,8 @@ const CLI_ACCESS: { id: LaunchpadAccess; label: string; detail: string }[] = [
 ];
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
+import { phoneBack } from "@/mobile/back";
+import { useKeptDraft, versionOf } from "@/lib/keptDraft";
 import { Sheet } from "@/mobile/Sheet";
 
 const PERMISSIONS: { id: PermissionMode; label: string; detail: string }[] = [
@@ -90,7 +94,6 @@ export function BotsView() {
   const bots = useBots();
   const scope = useScope();
   const sessions = useBotSessions();
-  const projects = useProjects().data ?? [];
   const search = useSearch({ strict: false }) as { new?: boolean };
   const navigate = useNavigate();
   const mine = (bots.data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
@@ -107,7 +110,7 @@ export function BotsView() {
           {bots.isLoading ? <Loading what="bots" /> : bots.error ? <ErrorState error={bots.error} onRetry={() => void bots.refetch()} /> : <>
             {creating && <NewBot first={mine.length === 0} onCancel={mine.length ? close : undefined} />}
             <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
-              {mine.map((b) => <BotRow key={b.id} bot={b} thread={botThread(sessions, b.id)} folder={folderLabel(projects, b.settings.folder)} />)}
+              {conversationOrder(mine, sessions, scope.workspace.id).map(({ bot, thread, pinned }) => <BotConversationRow key={bot.id} bot={bot} thread={thread} pinned={pinned} className="rounded-card border border-line bg-paper" />)}
             </div>
           </>}
         </div>
@@ -116,20 +119,11 @@ export function BotsView() {
   );
 }
 
-const BotRow = memo(function BotRow({ bot, thread, folder }: { bot: Bot; thread: Session[]; folder: string }) {
-  const last = thread.at(-1);
-  return <Link to="/bots/$id" params={{ id: bot.id }} className="flex min-h-[56px] items-center gap-3 rounded-card border border-line bg-paper px-3 py-2 no-underline hover:bg-sunk">
-    <BotAvatar name={bot.settings.name} size={32} />
-    <span className="min-w-0 flex-1">
-      <span className="flex items-center gap-2 text-[13px] font-semibold text-ink"><span className="truncate">{bot.settings.name}</span><StateBadge state={botState(thread)} /></span>
-      <span className="block truncate text-[12px] text-ink-3">{botJob(bot) || "No instructions yet"}</span>
-    </span>
-    <span className="hidden flex-none text-right text-[12px] text-ink-3 sm:block">
-      <span className="block">{folder}</span>
-      <span className="block">{last ? ago(last.status_since) : "never ran"}</span>
-    </span>
-  </Link>;
-});
+/** The phone's ⋯ entry that makes the next message start a new session of the thread. */
+function NextSessionButton({ bot }: { bot: string }) {
+  const on = useNextSession((s) => s.bots.has(bot));
+  return <button className="btn btn-sm" aria-pressed={on} title="Send the next message to a new session of the thread; it references the previous session's trace" onClick={() => useNextSession.getState().set(bot, !on)}>{on ? "Keep the current session" : "Next message starts a new session"}</button>;
+}
 
 // ---------------------------------------------------------------- creating a bot
 
@@ -235,7 +229,6 @@ export function BotPage() {
   const phone = usePhone();
   const bots = useBots();
   const bot = bots.data?.find((b) => b.id === id);
-  const workspaceId = useScope().workspace.id;
   const sessions = useBotSessions();
   const thread = useMemo(() => botThread(sessions, id), [sessions, id]);
   const current = currentSession(thread);
@@ -249,13 +242,14 @@ export function BotPage() {
   const profiles = useProfiles();
   const projects = useProjects().data ?? [];
   const where = useRunnerTag(current?.runner_id);
-  const navigate = useNavigate();
   const qc = useQueryClient();
   if (bots.isLoading) return <Loading what="the bot" />;
   if (bots.error) return <ErrorState error={bots.error} onRetry={() => void bots.refetch()} />;
   if (!bot) return <div className="flex h-full flex-col"><PageHeader title="Bot" /><Empty fill icon="spark" action={<Link to="/bots" className="btn btn-sm">All bots</Link>}>This bot no longer exists.</Empty></div>;
   const profile = botProfile(bot, profiles);
   const rotation = rotationReason(bot, current, profile?.id ?? null);
+  // Phone: "New session" for the next message sits in ⋯ (the chat shows a chip while it is set).
+  const canStartNew = !!current && !rotation && ["waiting", "error", "interrupted", "stopped"].includes(current.status);
   const threadIds = new Set(thread.map((s) => s.id));
   const written = (proposalList.data ?? []).filter((p) => !!p.session_id && threadIds.has(p.session_id));
   const folder = folderLabel(projects, bot.settings.folder);
@@ -283,13 +277,13 @@ export function BotPage() {
   if (phone) {
     const title = panel ? `${bot.settings.name} · ${PANELS.find((p) => p.id === panel)!.label}` : bot.settings.name;
     // The Ask tab shows the workspace's default bot as a tab of its own: no way back to All bots from its chat.
-    const tabRoot = !panel && askTarget(bots.data ?? [], workspaceId)?.id === bot.id;
     return <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
-      <PhoneHeader title={title} onBack={panel ? () => setPanel(null) : tabRoot ? undefined : () => void navigate({ to: "/bots" })} backLabel={panel ? "Back to the chat" : "All bots"}
+      <PhoneHeader title={title} onBack={panel ? () => setPanel(null) : () => phoneBack("/chats")} backLabel={panel ? "Back to the chat" : "All chats"}
         subtitle={panel ? undefined : <span className="flex flex-wrap items-center gap-x-2"><StateBadge state={botState(thread)} />{bot.paused && <span className="text-attn">Paused</span>}</span>}
         actions={<span data-tour="bots.panels" className="contents">
           {PANELS.map((p) => <button key={p.id} className="btn btn-sm" aria-pressed={panel === p.id} onClick={() => setPanel(p.id)}>{p.label}{count(p.id) ? ` · ${count(p.id)}` : ""}</button>)}
           {routines.length > 0 && pause}{openTrace}
+          {canStartNew && <NextSessionButton bot={bot.id} />}
         </span>}
         details={<><span className="flex flex-wrap items-center gap-x-2 text-[12px] text-ink-3">{meta}</span><p className="m-0 text-[13px] text-ink-2">{BOT_INTRO}</p></>} />
       {panel ? <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{side}</div> : chat}
@@ -399,12 +393,14 @@ function InstructionsSection({ bot }: { bot: Bot }) {
  * A draft survives closing the editor until it is saved or discarded. */
 function InstructionsEditor({ bot, onSave }: { bot: Bot; onSave: (text: string) => Promise<boolean> }) {
   const phone = usePhone();
-  const [text, setText] = useState(bot.instructions);
+  // The draft survives back and leaving the page (kept per bot and BOT.md version) until Save or Discard.
+  const draft = useKeptDraft(`bot.${bot.id}.${versionOf(bot.instructions)}`, bot.instructions);
+  const { text, setText } = draft;
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"read" | "edit">("read");
   const [busy, setBusy] = useState(false);
   const dirty = text !== bot.instructions;
-  const save = async () => { setBusy(true); const ok = await onSave(text); setBusy(false); if (ok) setOpen(false); };
+  const save = async () => { setBusy(true); const ok = await onSave(text); setBusy(false); if (ok) { draft.clear(); setOpen(false); } };
   const buttons = dirty && <>
     <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => setText(bot.instructions)}>Discard</button>
     <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void save()}>Save</button>
@@ -420,7 +416,7 @@ function InstructionsEditor({ bot, onSave }: { bot: Bot; onSave: (text: string) 
       {text.trim() ? <Markdown text={text} className="text-[12px]" /> : <span className="text-[12px] text-ink-3">No instructions yet. Expand to write what {bot.settings.name} does.</span>}
       {cut && <span className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-sunk to-transparent" />}
     </div>
-    {dirty && <div className="flex items-center justify-end gap-1.5"><span className="mr-auto text-[12px] text-attn">Unsaved changes</span>{buttons}</div>}
+    {dirty && <div className="flex items-center justify-end gap-1.5"><span className="mr-auto text-[12px] text-attn">{draft.kept ? "Draft kept: unsaved changes from before" : "Unsaved changes"}</span>{buttons}</div>}
     {open && (phone
       ? <Sheet title="BOT.md" full onClose={close}>
         {/* Read first (no keyboard on open); Save and Discard stay above the keyboard. */}

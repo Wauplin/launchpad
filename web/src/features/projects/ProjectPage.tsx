@@ -1,6 +1,7 @@
 import { usePhone } from "@/lib/phone";
 import { FolderToolDefaults } from "@/features/settings/ToolDefaults";
 import { PhoneHeader, PhoneActions } from "@/mobile/PhoneHeader";
+import { phoneBack } from "@/mobile/back";
 // A project: running agents, GitHub items, worktrees and all agents.
 
 import { openExternal } from "@/lib/platform";
@@ -68,7 +69,7 @@ export function ProjectPage() {
   </>;
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="folder.page">
-      {phone ? <PhoneHeader title={p.name} onBack={() => void navigate({ to: "/projects" })} backLabel="Back to folders" primary={<LaunchButton ctx={{ projectId: p.id }} />} subtitle={counts} actions={<div className="ml-auto flex gap-1.5">{buttons}</div>}
+      {phone ? <PhoneHeader title={p.name} onBack={() => phoneBack("/projects")} backLabel="Back" primary={<LaunchButton ctx={{ projectId: p.id }} />} subtitle={counts} actions={<div className="ml-auto flex gap-1.5">{buttons}</div>}
         details={<div className="grid gap-2"><span className="break-all font-mono text-[12px] text-ink-3">{p.path}</span><Description p={p} />{p.is_temp && <p className="m-0 text-[13px] text-ink-2">{TEMP_INTRO}</p>}</div>} />
         : <PageHeader title={p.name} introId="temp-folder" intro={p.is_temp ? TEMP_INTRO : undefined} tabs={tabs} actions={<>{buttons}<LaunchButton ctx={{ projectId: p.id }} /></>} meta={<>
           <span className="truncate font-mono" title={p.path}>{p.path}</span>

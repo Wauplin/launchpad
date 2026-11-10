@@ -19,6 +19,10 @@ import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useWorkspaces } from "@/lib/workspace";
 import { useWorkspace } from "@/stores/workspace";
+import { create } from "zustand";
+import { useSessions } from "@/lib/queries";
+import { useBackClose } from "@/mobile/back";
+import { PullToRefresh } from "@/components/PullToRefresh";
 import { FILTERS, isView, useTodayHere, type TodayItem, type TodayView as View } from "./data";
 import { ItemRow, LOOK } from "./TodayRows";
 
@@ -64,6 +68,10 @@ function StartAll({ proposals }: { proposals: Proposal[] }) {
 }
 
 type Entry = { item?: TodayItem; heading?: TodayItem["filter"] };
+
+/** Where Today was left (scroll offset and open cards), kept while the window lives: a detail page and back return
+ * to the same place. */
+const useKept = create<{ scroll: number; expanded: ReadonlySet<string> }>(() => ({ scroll: 0, expanded: new Set() }));
 const LABEL = Object.fromEntries(FILTERS.map(([f, label]) => [f, label])) as Record<TodayItem["filter"], string>;
 
 export function TodayView() {
@@ -93,8 +101,12 @@ export function TodayView() {
     }
     return out;
   }, [shown, view]);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(search.card ? [search.card] : []));
-  const toggle = useCallback((id: string) => setExpanded((old) => { const next = new Set(old); if (!next.delete(id)) next.add(id); return next; }), []);
+  const [expanded, setExpandedState] = useState<ReadonlySet<string>>(() => search.card ? new Set([search.card]) : useKept.getState().expanded);
+  const setExpanded = useCallback((next: (old: ReadonlySet<string>) => ReadonlySet<string>) => setExpandedState((old) => { const value = next(old); useKept.setState({ expanded: value }); return value; }), []);
+  // Phone: the card opened by the last tap is an overlay, so Android back folds it.
+  const [tapped, setTapped] = useState<string | null>(null);
+  const toggle = useCallback((id: string) => setExpanded((old) => { const next = new Set(old); if (!next.delete(id)) { next.add(id); setTapped(id); } else setTapped((t) => (t === id ? null : t)); return next; }), [setExpanded]);
+  useBackClose(phone && !!tapped && expanded.has(tapped), () => { const id = tapped; setTapped(null); if (id) setExpanded((old) => { const next = new Set(old); next.delete(id); return next; }); });
 
   const ref = useRef<HTMLDivElement>(null);
   const list = useVirtualizer({
@@ -104,6 +116,7 @@ export function TodayView() {
     getItemKey: (i) => rows[i].item?.id ?? `heading:${rows[i].heading}`,
     overscan: 6,
     useFlushSync: false,
+    initialOffset: search.card ? 0 : useKept.getState().scroll,
   });
   // Open the linked card once the list has it.
   const revealed = useRef<string | null>(null);
@@ -120,17 +133,26 @@ export function TodayView() {
   const current = useWorkspace((st) => (st.requested === null ? st.current : null));
   const workspaces = useWorkspaces().data;
   const settled = !!current && !!workspaces?.some((w) => w.id === current);
+  // A bot's session opens its chat. The phone keeps Today under it, so back returns here instead of closing the app.
+  const sessions = useSessions().data;
+  const qc = useQueryClient();
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["today"] }), qc.invalidateQueries({ queryKey: ["sessions"] }), qc.invalidateQueries({ queryKey: ["proposals"] })]);
   useEffect(() => {
-    if (loading || error || !settled || !search.card?.startsWith("session:") || shown.some((i) => i.id === search.card)) return;
-    void navigate({ to: "/agents", search: { session: search.card.slice("session:".length) }, replace: true });
-  }, [loading, error, settled, search.card, shown, navigate]);
+    if (loading || error || !settled || !sessions || !search.card?.startsWith("session:") || shown.some((i) => i.id === search.card)) return;
+    const id = search.card.slice("session:".length);
+    const bot = sessions.find((x) => x.id === id)?.launch_spec.bot;
+    const to = bot ? { to: "/bots/$id", params: { id: bot.id } } : { to: "/agents", search: { session: id } };
+    if (phone) { void navigate({ to: "/", search: {}, replace: true }).then(() => navigate(to as never)); }
+    else void navigate({ ...(to as object), replace: true } as never);
+  }, [loading, error, settled, sessions, search.card, shown, navigate, phone]);
 
   const chips = <FilterChips tour="today.filters" label="Today filters">
     <FilterChip active={view === "all"} count={items.length} countNeeds onClick={() => setView("all")}>All</FilterChip>
     {FILTERS.map(([id, label, title]) => (counts[id] > 0 || view === id) && <FilterChip key={id} active={view === id} count={counts[id]} countNeeds title={title} onClick={() => setView(id)}>{label}</FilterChip>)}
     <FilterChip active={view === "done"} title="What you handled in the last 30 days, with where it went" onClick={() => setView("done")}>Done</FilterChip>
   </FilterChips>;
-  const groupActions = (view === "approve" || view === "all") && <StartAll proposals={waitingProposals} />;
+  // Start all applies to Approve cards only; on the phone it shows only in that filter, so the chips keep the row.
+  const groupActions = (view === "approve" || (view === "all" && !phone)) && <StartAll proposals={waitingProposals} />;
   const meta = items.length ? `${items.length} decision${items.length === 1 ? "" : "s"}` : "Nothing waits";
 
   return (
@@ -139,7 +161,8 @@ export function TodayView() {
         // Phone: one first row, the chips (All carries the count) and Start all; its confirmation wraps below.
         ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line-2 px-3 py-1"><div className="min-w-[40%] flex-1 basis-0">{chips}</div>{groupActions}</div>
         : <PageHeader title="Today" meta={<span>{meta}</span>} intro="Everything that waits for your decision, one row each, grouped by what to do. Hover an icon to see what it is; click a title to read more. Nothing reaches GitHub or other people without your click." actions={groupActions || undefined} tabs={<div className="pb-3">{chips}</div>} />}
-      <div ref={ref} className="min-h-0 flex-1 overflow-y-auto [overflow-wrap:anywhere]">
+      <div ref={ref} className="min-h-0 flex-1 overflow-y-auto [overflow-wrap:anywhere]" onScroll={() => useKept.setState({ scroll: ref.current?.scrollTop ?? 0 })}>
+        {phone && <PullToRefresh target={ref} onRefresh={refresh} />}
         {error ? <ErrorState className="m-4" error={error} /> : loading ? <Loading what="Today" /> : shown.length === 0 && <Empty fill={phone} icon="check" className={phone ? "" : "max-w-text px-5 pt-6"}>{EMPTY[view]}</Empty>}
         <div className="relative w-full max-w-page" style={{ height: list.getTotalSize() }}>
           {list.getVirtualItems().map((row) => {

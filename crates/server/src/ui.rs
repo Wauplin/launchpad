@@ -17,8 +17,9 @@ pub async fn serve(uri: Uri) -> Response {
     }
     if let Some(file) = Assets::get(path).filter(|_| !path.is_empty()) {
         let mime = match path {
-            // The manifest has its own type.
+            // The manifest has its own type; browsers register the service worker only as JavaScript.
             "manifest.webmanifest" => "application/manifest+json".parse().unwrap(),
+            "sw.js" => "text/javascript".parse().unwrap(),
             _ => mime_guess::from_path(path).first_or_octet_stream(),
         };
         // Vite puts content hashes in asset names, so they never change. Everything else is revalidated.
