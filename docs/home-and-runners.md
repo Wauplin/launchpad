@@ -91,7 +91,7 @@ A grant decides where a tool or an MCP server can be used. The default tools dec
 
 - **Workspace:** Settings → Workspace → **Tools and MCP servers**, On or Off for each granted item. Without a choice, an item is on.
 - **Folder:** the folder's Settings tab → **Default tools**: Inherit (the workspace's choice), On or Off.
-- **Bot:** the bot's Settings tab → **Default tools** (`[tools]` in `bot.toml`, for example `gh = false` or `"mcp:gmail" = true`), over the workspace and the bot's folder.
+- **Bot:** the bot's About → Access → **Edit** → **Default tools** (`[tools]` in `bot.toml`, for example `gh = false` or `"mcp:gmail" = true`), over the workspace and the bot's folder.
 
 The composer's **Tools** option starts from these defaults for the chosen folder and switches any granted item on or off for one launch. Home applies the defaults each time it builds a session's lease, so a changed default applies at the session's next start or resume. An admin session can set the workspace and folder defaults with `launchpad do tools.defaults workspace|folder <id> --tools '{"gh": false}'`.
 
