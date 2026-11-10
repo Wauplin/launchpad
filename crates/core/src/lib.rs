@@ -17,6 +17,7 @@ pub mod drafts;
 pub mod events;
 pub mod exec;
 pub mod git;
+pub mod git_safe;
 pub mod github;
 pub mod harness;
 pub mod files;
@@ -159,6 +160,8 @@ impl App {
                 ("XDG_STATE_HOME".into(), value(&home.join(".local/state"))),
                 ("XDG_CACHE_HOME".into(), value(&home.join(".cache"))),
             ]);
+            // Agents write the repositories this daemon runs Git in: never their config, hooks or helpers.
+            env = env.with_git_guard(git_safe::Guard::new(&paths.data_dir, paths.port));
         }
         if paths.role == role::Role::Home {
             home_backup::restore_if_empty(&paths, &env).await.context("restore the Home backup")?;

@@ -337,9 +337,9 @@ async fn keep_git_temp(app: &App, temp_id: &str, path: &Path, name: &str, worksp
     let (remote_url, _, _) = remote_info(path).await;
     let p: Project = serde_json::from_value(crate::home_link::home_request("POST", "/api/projects/remote", Some(serde_json::json!({"name": name, "url": remote_url.clone().unwrap_or_default(), "workspace_id": workspace_id, "temp_id": temp_id}))).await?)?;
     if remote_url.is_none() {
-        let header = crate::repo_cache::daemon_header(app)?;
         let url = crate::repo_cache::home_url(app, &p.id);
-        crate::home_git::git_in(app, path, &["-c", &header, "-c", &format!("http.extraHeader={}: 1", crate::home_git::IMPORT_HEADER), "push", "--quiet", &url, "refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*"], 1800).await
+        let import = format!("http.{url}.extraHeader={}: 1", crate::home_git::IMPORT_HEADER);
+        crate::repo_cache::git(app, path, &["-c", &import, "push", "--quiet", &url, "refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*"], crate::repo_cache::Auth::Daemon(&p.id), 1800).await
             .context("import the folder into Home Git")?;
     }
     store_home(app, vec![p.clone()], false).await?;

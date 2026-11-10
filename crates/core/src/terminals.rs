@@ -809,7 +809,8 @@ pub async fn folders(app: &App, cwd: &str) -> Result<TerminalFolders> {
         let list = crate::procs::output(&app.env, "git", &["worktree", "list", "--porcelain"], Some(dir)).await.unwrap_or_default();
         let here = crate::files::canonicalize(cwd).await.ok();
         let main = crate::files::canonicalize(&p.path).await.ok();
-        for block in list.split("\n\n") {
+        // The first entry is the main checkout (named after the daemon's own Git directory on a runner, `git_safe`).
+        for block in list.split("\n\n").skip(1) {
             let path = block.lines().find_map(|l| l.strip_prefix("worktree ")).map(|w| Path::new(&String::from(w)).join(prefix.trim()).to_string_lossy().into_owned());
             let Some(path) = path else { continue };
             let branch = block.lines().find_map(|l| l.strip_prefix("branch ")).map(|b| b.trim_start_matches("refs/heads/").to_string());

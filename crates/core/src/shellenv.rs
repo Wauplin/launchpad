@@ -17,6 +17,8 @@ pub struct UserEnv {
     vars: Arc<BTreeMap<String, String>>,
     /// Processes started with this environment run in this jail (`jail.rs`).
     jail: Option<Arc<crate::jail::Jail>>,
+    /// A runner's daemon `git` never reads agent-writable Git config (`git_safe.rs`).
+    git_guard: Option<Arc<crate::git_safe::Guard>>,
 }
 
 impl UserEnv {
@@ -37,19 +39,19 @@ impl UserEnv {
         vars.remove("LAUNCHPAD_ENV");
         // A Burst runner's own credential never reaches a process it starts.
         vars.remove("LAUNCHPAD_BURST_CREDENTIAL");
-        UserEnv { vars: Arc::new(vars), jail: None }
+        UserEnv { vars: Arc::new(vars), jail: None, git_guard: None }
     }
 
     /// An environment with exactly these variables (tests).
     pub fn from_vars(vars: BTreeMap<String, String>) -> UserEnv {
-        UserEnv { vars: Arc::new(vars), jail: None }
+        UserEnv { vars: Arc::new(vars), jail: None, git_guard: None }
     }
 
     /// This environment with profile overrides.
     pub fn with(&self, overrides: &[(String, String)]) -> UserEnv {
         let mut vars = (*self.vars).clone();
         vars.extend(overrides.iter().cloned());
-        UserEnv { vars: Arc::new(vars), jail: self.jail.clone() }
+        UserEnv { vars: Arc::new(vars), jail: self.jail.clone(), git_guard: self.git_guard.clone() }
     }
 
     /// This environment for processes in `jail` (None: unchanged).
@@ -63,6 +65,17 @@ impl UserEnv {
 
     pub fn jail(&self) -> Option<&Arc<crate::jail::Jail>> {
         self.jail.as_ref()
+    }
+
+    /// This environment with every `git` it starts outside a jail going through `guard`.
+    pub fn with_git_guard(&self, guard: crate::git_safe::Guard) -> UserEnv {
+        let mut env = self.clone();
+        env.git_guard = Some(Arc::new(guard));
+        env
+    }
+
+    pub fn git_guard(&self) -> Option<&Arc<crate::git_safe::Guard>> {
+        self.git_guard.as_ref()
     }
 
     pub fn vars(&self) -> &BTreeMap<String, String> {

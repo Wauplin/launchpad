@@ -184,8 +184,18 @@ impl Cmd {
                 cmd
             }
             None => {
+                let git = Path::new(&resolved).file_name().is_some_and(|n| n == "git");
                 let mut cmd = tokio::process::Command::new(resolved);
-                cmd.env_clear().envs(self.env.vars().iter()).args(&self.args);
+                cmd.env_clear().envs(self.env.vars().iter());
+                // A runner's daemon Git: never the repository's own config, hooks or helpers (`git_safe.rs`).
+                if let Some(guard) = self.env.git_guard().filter(|_| git) {
+                    let prepared = guard.prepare(self.cwd.as_deref());
+                    for k in crate::git_safe::DROPPED_ENV {
+                        cmd.env_remove(k);
+                    }
+                    cmd.envs(prepared.env).args(prepared.args);
+                }
+                cmd.args(&self.args);
                 cmd
             }
         };

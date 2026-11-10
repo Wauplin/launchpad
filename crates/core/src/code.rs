@@ -569,7 +569,8 @@ pub async fn sources(app: &App, project: &Project) -> Result<CodeSources> {
     let env = &app.env;
     let list = run(env, root, &["worktree", "list", "--porcelain"]).await.unwrap_or_default();
     let mut worktrees: Vec<Worktree> = Vec::new();
-    for block in list.split("\n\n") {
+    // The first entry is the main checkout (named after the daemon's own Git directory on a runner, `git_safe`).
+    for block in list.split("\n\n").skip(1) {
         let mut path = None;
         let mut branch = None;
         for line in block.lines() {

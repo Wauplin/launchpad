@@ -179,6 +179,24 @@ async fn git(app: &App, dir: &str, args: &[&str]) -> Result<String> {
     crate::home_git::git_in(app, Path::new(dir), args, 120).await
 }
 
+/// Pushes from the worktree to `origin` (Home, in the daemon's own Git config) as the worktree's session: the
+/// worktree's own config (and its session header) is the agent's, never read by daemon Git (`git_safe`).
+async fn push_home(app: &App, w: &TaskWorktree, args: &[&str]) -> Result<String> {
+    let session = w.sessions.last().map(String::as_str).unwrap_or_default();
+    let mut all = vec!["push", "--quiet"];
+    all.extend_from_slice(args);
+    crate::repo_cache::git(app, Path::new(&w.root), &all, crate::repo_cache::Auth::Session(&w.project_id, session), 900).await
+}
+
+/// `git worktree add` from the clone, its `.git` file pointing at the clone (`git_safe::Guard::relink`).
+async fn add_worktree(app: &App, cache: &str, w: &TaskWorktree, start: &str) -> Result<()> {
+    git(app, cache, &["worktree", "add", "--quiet", "--no-track", "-B", &w.branch, &w.root, start]).await?;
+    if let Some(guard) = app.env.git_guard() {
+        guard.relink(Path::new(&w.root)).with_context(|| format!("link the worktree {}", w.root))?;
+    }
+    Ok(())
+}
+
 pub fn folder(w: &TaskWorktree) -> String {
     w.root.clone()
 }
@@ -312,7 +330,7 @@ pub async fn prepare(app: &App, id: &str) -> Result<TaskWorktree> {
     let cache_s = cache.to_string_lossy().into_owned();
     if let Some(pr) = w.pull_request.clone() {
         w.pull_request = Some(pull_request_branch(app, &project, &w, &PullRequestRef { repo: pr.repo, number: pr.number }).await?);
-        crate::repo_cache::git(app, &cache, &["fetch", "--quiet", "origin"], true, 600).await?;
+        crate::repo_cache::git(app, &cache, &["fetch", "--quiet", "origin"], crate::repo_cache::Auth::Daemon(&project.id), 600).await?;
     }
     let base = match &w.base_branch {
         Some(b) => b.clone(),
@@ -333,7 +351,7 @@ pub async fn prepare(app: &App, id: &str) -> Result<TaskWorktree> {
         tokio::fs::create_dir_all(parent).await?;
     }
     let _ = git(app, &cache_s, &["worktree", "prune"]).await;
-    git(app, &cache_s, &["worktree", "add", "--quiet", "--no-track", "-B", &w.branch, &w.root, &start]).await?;
+    add_worktree(app, &cache_s, &w, &start).await?;
     configure(app, &w, w.sessions.last().map(String::as_str).unwrap_or_default()).await?;
     w.base_commit = if w.pull_request.is_some() || w.from_branch {
         git(app, &cache_s, &["merge-base", &start, &format!("refs/remotes/origin/{base}")]).await.unwrap_or_else(|_| start.clone())
@@ -351,10 +369,19 @@ pub async fn prepare(app: &App, id: &str) -> Result<TaskWorktree> {
 }
 
 /// Per-worktree Git settings: pushes name the session, and `git push` goes to the same branch on Home.
+/// Written as files into the clone's config (daemon Git reads its own, `git_safe`), only inside this runner's clones.
 async fn configure(app: &App, w: &TaskWorktree, session_id: &str) -> Result<()> {
-    git(app, &w.root, &["config", "--worktree", "http.extraHeader", &crate::repo_cache::session_header(app, session_id)?]).await?;
-    git(app, &w.root, &["config", &format!("branch.{}.remote", w.branch), "origin"]).await?;
-    git(app, &w.root, &["config", &format!("branch.{}.merge", w.branch), &format!("refs/heads/{}", w.branch)]).await?;
+    let found = crate::git_safe::find(Path::new(&w.root), &app.paths.data_dir).context("the worktree has no Git directory")?;
+    ensure!(
+        crate::git_safe::cache_project(&app.paths.data_dir, &found.common_dir).as_deref() == Some(w.project_id.as_str()) && found.git_dir.starts_with(found.common_dir.join("worktrees")),
+        "the worktree {} does not belong to this runner's clone of its folder",
+        w.root
+    );
+    let worktree = found.git_dir.join("config.worktree").to_string_lossy().into_owned();
+    let common = found.common_dir.join("config").to_string_lossy().into_owned();
+    git(app, &w.root, &["config", "--file", &worktree, "http.extraHeader", &crate::repo_cache::session_header(app, session_id)?]).await?;
+    git(app, &w.root, &["config", "--file", &common, &format!("branch.{}.remote", w.branch), "origin"]).await?;
+    git(app, &w.root, &["config", "--file", &common, &format!("branch.{}.merge", w.branch), &format!("refs/heads/{}", w.branch)]).await?;
     Ok(())
 }
 
@@ -413,7 +440,7 @@ async fn push_branch(app: &App, w: &mut TaskWorktree) -> Result<bool> {
         return Ok(false);
     }
     let lease = format!("--force-with-lease=refs/heads/{}", w.branch);
-    let result = crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", &lease, "origin", &format!("refs/heads/{0}:refs/heads/{0}", w.branch)], 900).await;
+    let result = push_home(app, w, &[&lease, "origin", &format!("refs/heads/{0}:refs/heads/{0}", w.branch)]).await;
     match result {
         Ok(_) => {
             w.pushed = Some(head);
@@ -504,7 +531,7 @@ pub(crate) async fn snapshot(app: &App, w: &TaskWorktree) -> Result<String> {
     if SNAPSHOTS.lock().unwrap().get(&w.id) == Some(&key) {
         return Ok(key);
     }
-    crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{commit}:{}", snapshot_ref(&w.id))], 900).await?;
+    push_home(app, w, &["origin", &format!("+{commit}:{}", snapshot_ref(&w.id))]).await?;
     SNAPSHOTS.lock().unwrap().insert(w.id.clone(), key.clone());
     Ok(key)
 }
@@ -848,7 +875,7 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
         }
     };
     let _ = git(app, &cache_s, &["worktree", "prune"]).await;
-    git(app, &cache_s, &["worktree", "add", "--quiet", "--no-track", "-B", &w.branch, &w.root, &start]).await?;
+    add_worktree(app, &cache_s, &w, &start).await?;
     configure(app, &w, w.sessions.last().map(String::as_str).unwrap_or_default()).await?;
     // What this runner pushed before says nothing about Home's snapshot now (another runner may have pushed since).
     SNAPSHOTS.lock().unwrap().remove(&w.id);
@@ -871,7 +898,7 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
     // Older or diverged (or not applied): its uncommitted files stay reachable on a scratch branch.
     if let Some(snap) = scratch {
         let scratch = format!("lp-scratch/{}-snapshot", w.branch.trim_start_matches("lp/"));
-        match crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{snap}:refs/heads/{scratch}")], 900).await {
+        match push_home(app, &w, &["origin", &format!("+{snap}:refs/heads/{scratch}")]).await {
             Ok(_) => {
                 let files = git(app, &cache_s, &["diff", "--name-only", &format!("{snap}^1"), &snap]).await.map(|o| o.lines().count() as u32).unwrap_or(0);
                 let leftovers = Leftovers { branch: scratch, files };
@@ -896,7 +923,8 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
 /// Home's snapshot of the worktree (`snapshot`), fetched into the runner's clone; None without one.
 async fn fetch_snapshot(app: &App, cache: &Path, worktree_id: &str) -> Option<String> {
     let r = snapshot_ref(worktree_id);
-    crate::repo_cache::git(app, cache, &["fetch", "--quiet", "--no-tags", "origin", &format!("+{r}:{r}")], true, 600).await.ok()?;
+    let project = cache.file_name()?.to_string_lossy().into_owned();
+    crate::repo_cache::git(app, cache, &["fetch", "--quiet", "--no-tags", "origin", &format!("+{r}:{r}")], crate::repo_cache::Auth::Daemon(&project), 600).await.ok()?;
     git(app, &cache.to_string_lossy(), &["rev-parse", "--verify", &format!("{r}^{{commit}}")]).await.ok()
 }
 
@@ -954,7 +982,7 @@ async fn remove_clean(app: &App, id: &str) -> Result<TaskWorktree> {
         if !dirty.is_empty() {
             let commit = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch), false).await?.context("leftover files could not be saved")?;
             let scratch = format!("lp-scratch/{}", w.branch.trim_start_matches("lp/"));
-            crate::home_git::git_in(app, Path::new(&w.root), &["push", "--quiet", "origin", &format!("+{commit}:refs/heads/{scratch}")], 900).await.context("Home did not confirm the leftover files")?;
+            push_home(app, &w, &["origin", &format!("+{commit}:refs/heads/{scratch}")]).await.context("Home did not confirm the leftover files")?;
             leftovers = Some(Leftovers { branch: scratch, files: dirty.len() as u32 });
         }
         saved = Some((state, leftovers));
@@ -1009,11 +1037,10 @@ pub(crate) async fn release_moved(app: &App, session_id: &str, generation: u32) 
             if w.pushed.as_deref() != Some(tip.as_str()) {
                 let scratch = format!("lp-scratch/{}-gen{generation}", w.branch.trim_start_matches("lp/"));
                 // As the daemon, not the session: Home refuses the Git requests of a session that now runs
-                // elsewhere (`home_git::check_session`). The empty value drops the worktree's session header.
-                let header = crate::repo_cache::daemon_header(app)?;
+                // elsewhere (`home_git::check_session`).
                 let url = crate::repo_cache::home_url(app, &w.project_id);
-                let args = ["-c", "http.extraHeader=", "-c", header.as_str(), "push", "--quiet", url.as_str(), &format!("+{tip}:refs/heads/{scratch}")];
-                crate::home_git::git_in(app, Path::new(&w.root), &args, 900)
+                let args = ["push", "--quiet", url.as_str(), &format!("+{tip}:refs/heads/{scratch}")];
+                crate::repo_cache::git(app, Path::new(&w.root), &args, crate::repo_cache::Auth::Daemon(&w.project_id), 900)
                     .await
                     .with_context(|| format!("Home did not confirm the leftovers of {}", w.branch))?;
                 tracing::info!("released worktree {}: leftovers on {scratch}", w.root);

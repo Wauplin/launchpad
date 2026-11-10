@@ -19,12 +19,28 @@ pub fn dir(app: &App, project_id: &str) -> PathBuf {
 
 /// Home Git as seen from this daemon.
 pub fn home_url(app: &App, project_id: &str) -> String {
-    format!("http://127.0.0.1:{}/git/{project_id}.git", app.paths.port)
+    crate::git_safe::home_url(app.paths.port, project_id)
 }
 
-/// `-c http.extraHeader=…` for the daemon's own fetches and pushes.
-pub fn daemon_header(app: &App) -> Result<String> {
-    Ok(format!("http.extraHeader={}: {}", crate::home_git::TOKEN_HEADER, crate::home_git::token(app, "daemon")?))
+/// Who a daemon Git request to Home speaks for.
+#[derive(Clone, Copy)]
+pub enum Auth<'a> {
+    /// No credential (local commands, the folder's own remote).
+    None,
+    /// The daemon, for folder `project_id`.
+    Daemon(&'a str),
+    /// The session `session_id`, for folder `project_id` (pushes of its worktrees).
+    Session(&'a str, &'a str),
+}
+
+/// `http.<Home URL>.extraHeader=…`: the credential goes only to Home's exact URL, whatever a repository says.
+pub fn auth_config(app: &App, auth: Auth) -> Result<Option<String>> {
+    let (project, who) = match auth {
+        Auth::None => return Ok(None),
+        Auth::Daemon(project) => (project, "daemon".to_string()),
+        Auth::Session(project, session) => (project, format!("session:{session}")),
+    };
+    Ok(Some(format!("http.{}.extraHeader={}: {}", home_url(app, project), crate::home_git::TOKEN_HEADER, crate::home_git::token(app, &who)?)))
 }
 
 /// The header a session's worktrees send (their per-worktree Git config).
@@ -36,13 +52,12 @@ fn lock(app: &App, project_id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
     app.suggestion_locks.get(&format!("repo-cache:{project_id}"))
 }
 
-/// Git in `dir`, as the daemon (`daemon`: with its Home credential header), bounded by `secs`.
-pub async fn git(app: &App, dir: &Path, args: &[&str], daemon: bool, secs: u64) -> Result<String> {
-    let header;
+/// Git in `dir` with the credential `auth`, bounded by `secs`.
+pub async fn git(app: &App, dir: &Path, args: &[&str], auth: Auth<'_>, secs: u64) -> Result<String> {
+    let header = auth_config(app, auth)?;
     let mut all: Vec<&str> = vec![];
-    if daemon {
-        header = daemon_header(app)?;
-        all.extend(["-c", header.as_str()]);
+    if let Some(h) = &header {
+        all.extend(["-c", h.as_str()]);
     }
     all.extend_from_slice(args);
     crate::home_git::git_in(app, dir, &all, secs).await
@@ -59,20 +74,28 @@ pub async fn sync(app: &App, p: &Project) -> Result<PathBuf> {
         create(app, p, &dir).await?;
     }
     crate::home_link::refresh_mirror(app, &p.id).await.with_context(|| format!("Home could not refresh {}", p.name))?;
-    if git(app, &dir, &["remote"], false, 10).await?.lines().any(|r| r == "upstream")
-        && let Err(e) = git(app, &dir, &["fetch", "--quiet", "--no-tags", "upstream"], false, 600).await
+    // The folder's remote as Home knows it, never the clone's own config (agents can write it).
+    if let Some(url) = upstream(p)
+        && let Err(e) = git(app, &dir, &["fetch", "--quiet", "--no-tags", url, "+refs/heads/*:refs/remotes/upstream/*"], Auth::None, 600).await
     {
         tracing::debug!("{}: direct fetch from the remote failed, Home sends everything: {e:#}", p.name);
     }
-    git(app, &dir, &["fetch", "--quiet", "--prune", "origin"], true, 900).await.context("fetch from Home Git")?;
-    let _ = git(app, &dir, &["remote", "set-head", "origin", "--auto"], true, 60).await;
+    // `origin` is Home's URL in the daemon's own config (`git_safe`).
+    let auth = Auth::Daemon(&p.id);
+    git(app, &dir, &["fetch", "--quiet", "--prune", "origin"], auth, 900).await.context("fetch from Home Git")?;
+    let _ = git(app, &dir, &["remote", "set-head", "origin", "--auto"], auth, 60).await;
     // The view follows the default branch while nobody changed it.
-    if git(app, &dir, &["status", "--porcelain"], false, 60).await.is_ok_and(|s| s.is_empty())
+    if git(app, &dir, &["status", "--porcelain"], Auth::None, 60).await.is_ok_and(|s| s.is_empty())
         && app.terminals.alive_in(&dir.to_string_lossy()).is_empty()
     {
-        let _ = git(app, &dir, &["checkout", "--quiet", "--detach", "refs/remotes/origin/HEAD"], false, 120).await;
+        let _ = git(app, &dir, &["checkout", "--quiet", "--detach", "refs/remotes/origin/HEAD"], Auth::None, 120).await;
     }
     Ok(dir)
+}
+
+/// The folder's remote, from Home's record.
+fn upstream(p: &Project) -> Option<&str> {
+    p.remote_url.as_deref().filter(|u| !u.trim().is_empty() && !u.starts_with('-'))
 }
 
 async fn create(app: &App, p: &Project, dir: &Path) -> Result<()> {
@@ -81,14 +104,23 @@ async fn create(app: &App, p: &Project, dir: &Path) -> Result<()> {
     let partial = parent.join(format!(".{}.creating", p.id));
     let _ = tokio::fs::remove_dir_all(&partial).await;
     tokio::fs::create_dir_all(&partial).await?;
-    git(app, &partial, &["init", "--quiet"], false, 30).await?;
-    for (k, v) in [("extensions.worktreeConfig", "true"), ("push.default", "upstream"), ("advice.detachedHead", "false")] {
-        git(app, &partial, &["config", k, v], false, 10).await?;
+    git(app, &partial, &["init", "--quiet"], Auth::None, 30).await?;
+    // The clone's own config is for the agents' Git (daemon Git reads its own, `git_safe`): written as a file.
+    let config = partial.join(".git/config");
+    let config = config.to_string_lossy();
+    let origin = home_url(app, &p.id);
+    let mut values = vec![
+        ("extensions.worktreeConfig", "true"),
+        ("push.default", "upstream"),
+        ("advice.detachedHead", "false"),
+        ("remote.origin.url", origin.as_str()),
+        ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"),
+    ];
+    if let Some(url) = upstream(p) {
+        values.extend([("remote.upstream.url", url), ("remote.upstream.fetch", "+refs/heads/*:refs/remotes/upstream/*"), ("remote.upstream.pushurl", "no-push")]);
     }
-    git(app, &partial, &["remote", "add", "origin", &home_url(app, &p.id)], false, 10).await?;
-    if let Some(url) = p.remote_url.as_deref().filter(|u| !u.trim().is_empty()) {
-        git(app, &partial, &["remote", "add", "upstream", url], false, 10).await?;
-        git(app, &partial, &["config", "remote.upstream.pushurl", "no-push"], false, 10).await?;
+    for (k, v) in values {
+        git(app, &partial, &["config", "--file", &config, k, v], Auth::None, 10).await?;
     }
     let _ = tokio::fs::remove_dir_all(dir).await;
     tokio::fs::rename(&partial, dir).await?;
@@ -99,7 +131,7 @@ async fn create(app: &App, p: &Project, dir: &Path) -> Result<()> {
 /// without touching its index or files. Returns the commit, or `None` when nothing changed (`always`: the commit
 /// even then, with `HEAD`'s files).
 pub async fn capture(app: &App, worktree: &Path, message: &str, always: bool) -> Result<Option<String>> {
-    let index = git(app, worktree, &["rev-parse", "--path-format=absolute", "--git-path", "index"], false, 30).await?;
+    let index = git(app, worktree, &["rev-parse", "--path-format=absolute", "--git-path", "index"], Auth::None, 30).await?;
     let tmp = std::env::temp_dir().join(format!("lp-index-{}", uuid::Uuid::new_v4()));
     if Path::new(&index).exists() {
         tokio::fs::copy(&index, &tmp).await?;
