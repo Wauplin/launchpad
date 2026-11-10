@@ -51,7 +51,8 @@ pub const CONFIG: &[&str] = &[
     "credential.helper=",
     "protocol.ext.allow=never",
     "submodule.recurse=false",
-    "diff.ignoreSubmodules=all",
+    // Submodule commits still show; their work trees are never examined (that would run Git there).
+    "diff.ignoreSubmodules=dirty",
     "status.submoduleSummary=false",
     "fetch.recurseSubmodules=false",
     "push.recurseSubmodules=no",
