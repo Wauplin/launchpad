@@ -9,7 +9,8 @@ import { clock, DemoError, publish, route } from "../daemon";
 import { world } from "../world";
 import { ASK_DEFAULT, ASK_STARTERS, settingsText } from "../world/bots";
 import { session, setStatus } from "../store";
-import { createCron, launch, nextDue } from "./launch";
+import { applyRoutineFile, createCron, launch, nextDue, recordBotChange, routinePath } from "./launch";
+import { defOf, routineToml } from "../routine";
 import type { CronAgent } from "@/gen/CronAgent";
 import { defaultSpec } from "../store";
 import { sendMessage, withContext } from "./agents";
@@ -21,12 +22,7 @@ const botOf = (id: string) => {
   return b;
 };
 const changed = (b: Bot) => { b.version += 1; publish("bots", "changed", { id: b.id }); };
-const record = (b: Bot, path: string, before: string, after: string) => {
-  const list = (world.botChanges[b.id] ??= []);
-  const id = (list[0]?.id ?? 0) + 1;
-  const patch = `@@ -1 +1 @@\n${before.trimEnd().split("\n").map((l) => `-${l}`).join("\n")}\n${after.trimEnd().split("\n").map((l) => `+${l}`).join("\n")}\n`;
-  list.unshift({ id, path, sha256: before ? `old-${id}` : null, new_sha256: `new-${id}`, at: clock.now(), session_id: null, author: { kind: "owner", name: "You", session_id: null, model: null, runner: null }, added: after.split("\n").length, removed: before ? before.split("\n").length : 0, patch });
-};
+const record = (b: Bot, path: string, before: string, after: string) => recordBotChange(b.id, path, before || null, after);
 const thread = (id: string) => world.sessions.filter((s) => s.launch_spec.bot?.id === id).sort((a, b) => a.started_at - b.started_at);
 
 /** The profile a bot runs with: its own, else the first subscription profile (Home's `bots::profile_of`). */
@@ -43,7 +39,8 @@ route("GET", "/api/bots/:id", ({ params }) => withMemory(botOf(params.id)));
 route("GET", "/api/bots/:id/file", ({ params, query }) => {
   const b = botOf(params.id);
   const path = query.get("path") ?? "";
-  const text = path === "BOT.md" ? b.instructions : path === "bot.toml" ? b.settings_text : world.botMemory[b.id]?.[path];
+  const routine = world.crons.find((c) => c.bot_id === b.id && c.file === path);
+  const text = path === "BOT.md" ? b.instructions : path === "bot.toml" ? b.settings_text : routine ? routineToml(defOf(routine)) : world.botMemory[b.id]?.[path];
   if (text == null) throw new DemoError(404, `there is no ${path}`);
   return new Response(text, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
 });
@@ -61,7 +58,7 @@ route("POST", "/api/bots", ({ body }) => {
 });
 route("PATCH", "/api/bots/:id", ({ params, body }) => {
   const b = botOf(params.id);
-  const p = body as { settings?: BotSettings; instructions?: string; settings_text?: string; set?: Record<string, unknown> };
+  const p = body as { settings?: BotSettings; instructions?: string; settings_text?: string; set?: Record<string, unknown>; files?: Record<string, string | null> };
   if (p.set) p.settings = Object.fromEntries(Object.entries({ ...b.settings, ...p.set }).filter(([, v]) => v != null)) as BotSettings;
   if (p.settings_text != null) throw new DemoError(400, "Demo: edit the settings with the form in the Settings tab.");
   if (p.settings && p.settings.name.trim() !== b.settings.name) {
@@ -74,6 +71,7 @@ route("PATCH", "/api/bots/:id", ({ params, body }) => {
   }
   if (p.settings) { const before = b.settings_text; b.settings = { ...p.settings }; b.settings_text = settingsText(b.settings); record(b, "bot.toml", before, b.settings_text); }
   if (p.instructions != null) { const before = b.instructions; b.instructions = p.instructions; record(b, "BOT.md", before, b.instructions); }
+  for (const [path, text] of Object.entries(p.files ?? {})) applyRoutineFile(b.id, path, text);
   changed(b);
   return withMemory(b);
 });
@@ -91,7 +89,11 @@ route("POST", "/api/bots/:id/routines", ({ params, body }) => {
   if (!r.title?.trim()) throw new DemoError(400, "give the routine a name");
   if (!r.instructions?.trim()) throw new DemoError(400, "write what the bot does at each run");
   const profile = profileOf(b);
-  return createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), text: r.instructions.trim(), workspace_id: b.workspace_id }, r.schedule ?? "", r.conditions ?? [], r.trigger ?? { kind: "schedule" }, { title: r.title.trim(), bot_id: b.id, bot_paused: b.paused, ...(r.time_zone ? { time_zone: r.time_zone } : {}) });
+  // Its definition is a new file of the bot, routines/<name>.toml.
+  const file = routinePath(r.title, world.crons.filter((c) => c.bot_id === b.id && c.file).map((c) => c.file!));
+  const c = createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), text: r.instructions.trim(), workspace_id: b.workspace_id }, r.schedule ?? "", r.conditions ?? [], r.trigger ?? { kind: "schedule" }, { title: r.title.trim(), bot_id: b.id, bot_paused: b.paused, file, ...(r.time_zone ? { time_zone: r.time_zone } : {}) });
+  record(b, file, "", routineToml(defOf(c)));
+  return c;
 });
 route("DELETE", "/api/bots/:id", ({ params }) => {
   world.bots = world.bots.filter((b) => b.id !== params.id);

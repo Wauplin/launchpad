@@ -105,7 +105,7 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, onChange,
 }
 
 /** A routine's state, recent runs, actions and history. Used in the Schedules page and on a bot's page. */
-export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAgent; bot?: Bot | null; onOpen: (sessionId: string) => void; onDeleted?: () => void }) {
+export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { cron: CronAgent; bot?: Bot | null; onOpen: (sessionId: string) => void; onDeleted?: () => void; onEditFile?: () => void }) {
   const qc = useQueryClient();
   const harnessName = useHarnessName();
   const projects = useProjects().data ?? [];
@@ -143,6 +143,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
           <b>{routineState(cron, bot?.settings.name)}</b>
           <span className="ml-auto"><RunStrip history={cron.history} /></span>
         </div>
+        {cron.file_error && <p className="m-0 rounded-control bg-attn-soft px-2 py-1 text-[12px] text-attn">{cron.file} cannot be used: {cron.file_error}. The routine keeps its last good definition{onEditFile ? "; fix it with Edit as file" : ""}.</p>}
         <p className="m-0 text-ink-2" title={cronTitle(cron)}>{triggerSummary(cron, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder")}</p>
         <p className="m-0 text-[12px] text-ink-3">{where}</p>
         {cron.conditions.length > 0 && <ul className="m-0 list-disc pl-5 text-[12px] text-ink-2">{cron.conditions.map((c, i) => <li key={i}>{conditionSummary(c, cron.spec.harness, harnessName)}</li>)}</ul>}
@@ -152,7 +153,8 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted }: { cron: CronAge
           <button className="btn btn-sm" disabled={busy} onClick={() => setEdit({ trigger: cron.trigger, schedule: cron.schedule, conditions: cron.conditions, title: cron.title, instructions: cron.spec.text })}><Icon name="pencil" size={12} />Edit</button>
           <MoreMenu label={`More actions for ${cron.title}`} width={280}>{(close) => <>
             <MenuItem icon={<Icon name={cron.paused ? "play" : "stop"} size={14} />} label={cron.paused ? "Resume" : "Pause"} detail={cron.bot_paused ? "Resume the bot to resume its routines" : cron.paused ? "Runs start again from the next trigger" : "No run starts until you resume it"} disabled={busy || cron.bot_paused} onClick={() => { close(); void act(async () => { await api.patch(`/api/launch/crons/${cron.id}`, { paused: !cron.paused }); }); }} />
-            <MenuSection><ConfirmButton icon="trash" consequence={`Delete the routine “${cron.title}”? Its past runs stay in Agents.`} confirmLabel="Delete routine" onConfirm={() => { close(); return act(async () => { await api.delete(`/api/launch/crons/${cron.id}`); onDeleted?.(); }); }}>Delete</ConfirmButton></MenuSection>
+            {onEditFile && <MenuItem icon={<Icon name="file" size={14} />} label="Edit as file" detail={cron.file ?? undefined} onClick={() => { close(); onEditFile(); }} />}
+            <MenuSection><ConfirmButton icon="trash" consequence={`Delete the routine “${cron.title}”${cron.file ? ` and its file ${cron.file}` : ""}? Its past runs stay in Agents.`} confirmLabel="Delete routine" onConfirm={() => { close(); return act(async () => { await api.delete(`/api/launch/crons/${cron.id}`); onDeleted?.(); }); }}>Delete</ConfirmButton></MenuSection>
           </>}</MoreMenu>
         </div>
       </>}

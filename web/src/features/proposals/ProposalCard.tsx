@@ -28,9 +28,9 @@ import { BranchActions, ghParams } from "@/features/today/TodayCards";
 export const useProposalList = (enabled = true) => useQuery({ enabled, queryKey: ["proposals"], queryFn: () => api.get<Proposal[]>("/api/proposals"), staleTime: 30_000 });
 
 /** The icon of a proposal's kind: the card's and Today's row. */
-export const proposalIcon = (p: Proposal): IconName => p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : p.body.kind === "bot_instructions" ? "file" : p.body.kind === "ready" ? "check" : p.body.kind === "report" ? (p.body.outcome === "needs_you" ? "alert" : "comment") : "play";
+export const proposalIcon = (p: Proposal): IconName => p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : p.body.kind === "bot_instructions" || p.body.kind === "bot_files" ? "file" : p.body.kind === "ready" ? "check" : p.body.kind === "report" ? (p.body.outcome === "needs_you" ? "alert" : "comment") : "play";
 
-export const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine", bot_instructions: "Apply to BOT.md", ready: "", report: "" };
+export const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine", bot_instructions: "Apply to BOT.md", bot_files: "Apply", ready: "", report: "" };
 
 type Report = Extract<Proposal["body"], { kind: "report" }>;
 const OUTCOME: Record<Report["outcome"], [string, BadgeTone]> = { needs_you: ["Needs you", "attn"], merged: ["Merged", "ok"], approved: ["Approved", "ok"], commented: ["Commented", "neutral"], waiting: ["Waiting", "neutral"], closed: ["Closed", "danger"], info: ["Info", "neutral"] };
@@ -82,6 +82,22 @@ function BotInstructionsBody({ body }: { body: Extract<Proposal["body"], { kind:
     <>
       <span className="flex flex-wrap gap-1"><Token icon="file">BOT.md of {bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"}</Token></span>
       <div className="max-h-[320px] overflow-auto rounded-control border border-line"><PatchView patch={body.patch} path="BOT.md" language="markdown" split={false} wrap /></div>
+    </>
+  );
+}
+
+/** Changes to a bot's files (BOT.md, routines/<name>.toml): one diff per file. Applying writes them all at once and
+ * fails when one changed since. */
+function BotFilesBody({ body }: { body: Extract<Proposal["body"], { kind: "bot_files" }> }) {
+  const bots = useBots().data ?? [];
+  const paths = Object.keys(body.files).sort((a, b) => (a === "BOT.md" ? -1 : b === "BOT.md" ? 1 : a.localeCompare(b)));
+  return (
+    <>
+      <span className="flex flex-wrap gap-1"><Token icon="file">Files of {bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"} · {paths.length}</Token></span>
+      {paths.map((path) => <div key={path} className="grid gap-1">
+        <span className="flex items-center gap-1.5 font-mono text-[12px] text-ink-2">{path}<span className="font-sans text-ink-3">{body.files[path] == null ? "· deleted" : body.before[path] == null ? "· new" : ""}</span></span>
+        <div className="max-h-[320px] overflow-auto rounded-control border border-line"><PatchView patch={body.patches[path] ?? ""} path={path} language={path.endsWith(".toml") ? "toml" : "markdown"} split={false} wrap /></div>
+      </div>)}
     </>
   );
 }
@@ -287,7 +303,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
   const session = started && (p.body.kind === "launch" || p.body.kind === "message") ? sessions.find((s) => s.id === p.result_id) : undefined;
   const statusSessions = p.body.kind === "status" ? p.body.session_ids.map((id) => sessions.find((s) => s.id === id)).filter((s): s is Session => !!s) : [];
   return (
-    <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-card border bg-paper p-3 [overflow-wrap:anywhere] ${(p.body.kind === "cron" || p.body.kind === "routine") && !started ? "border-attn-line" : "border-line"}`}>
+    <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-card border bg-paper p-3 [overflow-wrap:anywhere] ${(p.body.kind === "cron" || p.body.kind === "routine" || (p.body.kind === "bot_files" && Object.keys(p.body.files).some((f) => f.startsWith("routines/")))) && !started ? "border-attn-line" : "border-line"}`}>
       <div className="flex items-start gap-2">
         <Icon name={proposalIcon(p)} size={14} className="mt-0.5 flex-none text-ink-3" />
         <div className="min-w-0 flex-1">
@@ -305,11 +321,12 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       {p.body.kind === "bot" && <BotBody body={p.body} />}
       {p.body.kind === "routine" && <RoutineBody body={p.body} />}
       {p.body.kind === "bot_instructions" && <BotInstructionsBody body={p.body} />}
+      {p.body.kind === "bot_files" && <BotFilesBody body={p.body} />}
       {p.body.kind === "ready" && <ReadyBody p={p} body={p.body} dismiss={() => void act("dismiss")} />}
       {p.body.kind === "report" && <ReportBody p={p} body={p.body} busy={busy} dismiss={() => void act("dismiss")} />}
       {statusSessions.length > 0 && <div className="grid">{statusSessions.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
       {session && <SessionRow s={session} />}
-      {started && !session && p.body.kind !== "status" && p.body.kind !== "report" && <span className="text-[12px] text-gh-open"><Icon name="check" size={12} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "settings" }}>Settings</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : p.body.kind === "ready" ? "Done" : "Started"}</span>}
+      {started && !session && p.body.kind !== "status" && p.body.kind !== "report" && <span className="text-[12px] text-gh-open"><Icon name="check" size={12} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "settings" }}>Settings</Link></> : p.body.kind === "bot_files" ? <>Applied: see <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: Object.keys(p.body.files).includes("BOT.md") ? "settings" : "routines" }}>the bot</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : p.body.kind === "ready" ? "Done" : "Started"}</span>}
       {p.state === "replaced" && <span className="text-[12px] text-ink-3">{p.replaced_by ? "Replaced" : "Edited in the composer"}{p.replaced_by && <> · <Link to="/" search={{ card: `proposal:${p.replaced_by}` }} onClick={() => { if (p.workspace_id) useWorkspace.getState().switchTo(p.workspace_id); }} className="underline">View replacement</Link></>}</span>}
       {p.state === "dismissed" && p.body.kind !== "report" && <span className="text-[12px] text-ink-3">Dismissed</span>}
       {p.state === "failed" && p.error && <ErrorState error={p.error} />}

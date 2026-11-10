@@ -19,7 +19,7 @@ import { appendEvent, defaultSpec, demoId, publishSession, refreshCounts, sessio
 import { world } from "../world";
 import { demoSession, FOLDER, MODELS, PROFILE, SUMMARY_INSTRUCTION, taskWorktree } from "../world/agents";
 import { P, ROOT, TMP } from "../world/ids";
-import { routineText } from "../routine";
+import { defOf, parseRoutineToml, routinePath, routineText, routineToml } from "../routine";
 import { found, quotaReset, ready, sendMessage } from "./agents";
 
 // ---------------------------------------------------------------- launch
@@ -258,6 +258,43 @@ export function nextRuns(expr: string, count: number, from = clock.now()): numbe
 const publishCrons = () => publish("crons", "changed", null);
 const cronOf = (id: string) => { const c = world.crons.find((x) => x.id === id); if (!c) throw new DemoError(404, "no such cron"); return c; };
 
+/** One change of a bot's files in its history (Home's plain history), with its diff. */
+export function recordBotChange(botId: string, path: string, before: string | null, after: string | null) {
+  const list = (world.botChanges[botId] ??= []);
+  const id = Math.max(0, ...list.map((c) => c.id)) + 1;
+  const lines = (t: string | null) => { const x = (t ?? "").trimEnd(); return x ? x.split("\n") : []; };
+  const patch = `@@ -1 +1 @@\n${[...lines(before).map((l) => `-${l}`), ...lines(after).map((l) => `+${l}`)].join("\n")}\n`;
+  list.unshift({ id, path, sha256: before != null ? `old-${id}` : null, new_sha256: after != null ? `new-${id}` : null, at: clock.now(), session_id: null, author: { kind: "owner", name: "You", session_id: null, model: null, runner: null }, added: lines(after).length, removed: lines(before).length, patch });
+  const bot = world.bots.find((b) => b.id === botId);
+  if (bot) { bot.version += 1; publish("bots", "changed", { id: botId }); }
+}
+
+/** A bot routine's file was written: the record follows it (Home's `crons::sync_bot_files`). */
+export function applyRoutineFile(botId: string, path: string, text: string | null) {
+  const c = world.crons.find((x) => x.bot_id === botId && x.file === path);
+  const before = c ? routineToml(defOf(c)) : null;
+  if (text == null) {
+    if (c) world.crons = world.crons.filter((x) => x !== c);
+  } else {
+    let d;
+    try { d = parseRoutineToml(text); } catch (e) { throw new DemoError(400, `${path}: ${e instanceof Error ? e.message : String(e)}`); }
+    if (d.trigger.kind === "schedule") nextRuns(d.schedule, 1);
+    if (c) {
+      c.title = d.title; c.paused = d.paused; c.schedule = d.schedule; c.time_zone = d.time_zone; c.trigger = d.trigger; c.conditions = d.conditions; c.spec = { ...c.spec, text: d.instructions }; c.file_error = null;
+      c.next_run_at = nextDue(c);
+    } else {
+      const bot = world.bots.find((b) => b.id === botId);
+      if (!bot) throw new DemoError(400, "this bot no longer exists");
+      const profile = world.config.profiles.find((x) => x.id === bot.settings.profile);
+      createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: bot.settings.profile ?? null, target: botTarget(bot), text: d.instructions, workspace_id: bot.workspace_id }, d.schedule, d.conditions, d.trigger, { title: d.title, paused: d.paused, bot_id: bot.id, bot_paused: bot.paused, file: path, ...(d.time_zone ? { time_zone: d.time_zone } : {}) });
+    }
+  }
+  recordBotChange(botId, path, before, text);
+  publishCrons();
+}
+
+export { routinePath };
+
 export const nextDue = (c: CronAgent) => (c.paused || c.bot_paused || c.trigger.kind !== "schedule" ? null : nextRuns(c.schedule, 1)[0] ?? null);
 
 export function createCron(spec: LaunchSpec, expr: string, conditions: CronCondition[], trigger: CronAgent["trigger"] = { kind: "schedule" }, extra: Partial<CronAgent> = {}): CronAgent {
@@ -265,7 +302,7 @@ export function createCron(spec: LaunchSpec, expr: string, conditions: CronCondi
   if (trigger.kind === "schedule") nextRuns(expr, 1);
   if (trigger.kind === "github" && !trigger.events.length) throw new DemoError(400, "pick at least one kind of GitHub activity");
   if (trigger.kind === "failure" && !trigger.events.length) throw new DemoError(400, "pick at least one kind of failure");
-  const c: CronAgent = { id: demoId("demo-cron"), spec, title: titleOf(spec.text), schedule: expr.trim(), trigger, bot_id: null, bot_paused: false, conditions, paused: false, created_at: clock.now(), next_run_at: null, last_check_at: null, last_outcome: null, runs: [], history: [], github_seen: null, failure_seen: null, waiting: null, ...extra };
+  const c: CronAgent = { id: demoId("demo-cron"), spec, title: titleOf(spec.text), schedule: expr.trim(), trigger, bot_id: null, bot_paused: false, conditions, paused: false, created_at: clock.now(), next_run_at: null, last_check_at: null, last_outcome: null, runs: [], history: [], github_seen: null, failure_seen: null, file: null, file_error: null, waiting: null, ...extra };
   c.next_run_at = nextDue(c);
   world.crons = [...world.crons, c];
   publishCrons();
@@ -277,6 +314,7 @@ route("GET", "/api/launch/crons/next", (r) => nextRuns(r.query.get("schedule") ?
 route("POST", "/api/launch/crons", (r) => createCron({ ...defaultSpec(), ...(r.body?.spec as LaunchSpec) }, String(r.body?.schedule ?? ""), r.body?.conditions ?? [], r.body?.trigger ?? { kind: "schedule" }, { ...(r.body?.title ? { title: String(r.body.title) } : {}), ...(r.body?.time_zone ? { time_zone: String(r.body.time_zone) } : {}) }));
 route("PATCH", "/api/launch/crons/:id", (r) => {
   const c = cronOf(r.params.id);
+  const before = c.file ? routineToml(defOf(c)) : null;
   if (r.body?.trigger) c.trigger = r.body.trigger;
   if (r.body?.schedule != null) c.schedule = String(r.body.schedule).trim();
   if (c.trigger.kind === "schedule") nextRuns(c.schedule, 1);
@@ -286,10 +324,18 @@ route("PATCH", "/api/launch/crons/:id", (r) => {
   if (r.body?.title != null) c.title = String(r.body.title).trim() || c.title;
   if (r.body?.instructions != null) c.spec = { ...c.spec, text: String(r.body.instructions).trim() };
   c.next_run_at = nextDue(c);
+  // A bot routine: saving writes its file, a version in the bot's history.
+  if (c.file && c.bot_id) recordBotChange(c.bot_id, c.file, before, routineToml(defOf(c)));
   publishCrons();
   return c;
 });
-route("DELETE", "/api/launch/crons/:id", (r) => { cronOf(r.params.id); world.crons = world.crons.filter((c) => c.id !== r.params.id); publishCrons(); return { ok: true }; });
+route("DELETE", "/api/launch/crons/:id", (r) => {
+  const c = cronOf(r.params.id);
+  world.crons = world.crons.filter((x) => x.id !== r.params.id);
+  if (c.file && c.bot_id) recordBotChange(c.bot_id, c.file, routineToml(defOf(c)), null);
+  publishCrons();
+  return { ok: true };
+});
 route("POST", "/api/launch/crons/:id/run", (r) => {
   const c = cronOf(r.params.id);
   // A bot's routine posts to the bot's current session; others start a new agent.
@@ -338,6 +384,17 @@ route("POST", "/api/proposals/:id/accept", (r) => {
       if (!bot) throw new DemoError(400, "this bot no longer exists");
       if (bot.instructions !== b.before) throw new DemoError(400, `BOT.md changed since this proposal: ask ${bot.settings.name} again`);
       bot.instructions = b.instructions; bot.version += 1; publish("bots", "changed", { id: bot.id });
+      p.result_id = bot.id;
+    }
+    else if (b.kind === "bot_files") {
+      const bot = world.bots.find((x) => x.id === b.bot_id);
+      if (!bot) throw new DemoError(400, "this bot no longer exists");
+      // Every routine file is checked before anything is written: all or nothing.
+      for (const [path, text] of Object.entries(b.files)) if (path !== "BOT.md" && text != null) parseRoutineToml(text);
+      for (const [path, text] of Object.entries(b.files)) {
+        if (path === "BOT.md") { const before = bot.instructions; bot.instructions = text ?? before; recordBotChange(bot.id, path, before, bot.instructions); }
+        else applyRoutineFile(bot.id, path, text ?? null);
+      }
       p.result_id = bot.id;
     }
     else if (b.kind === "routine") {

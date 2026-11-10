@@ -343,7 +343,9 @@ function RoutinesPanel({ bot, routines }: { bot: Bot; routines: CronAgent[] }) {
   const repo = folder && !folder.plain ? folder.gh_repo ?? folder.gh_upstream ?? null : null;
   const harness = profiles.find((p) => p.id === bot.settings.profile)?.harness ?? null;
   // Routines the bot (or Ask Launchpad) proposed for it, waiting for your click.
-  const proposed = (useProposalList().data ?? []).filter((p) => p.body.kind === "routine" && p.body.bot_id === bot.id && (p.state === "proposed" || p.state === "failed"));
+  // Cards that change BOT.md show under BOT.md (Settings); the others that change routine files show here.
+  const proposed = (useProposalList().data ?? []).filter((p) => (p.body.kind === "routine" || (p.body.kind === "bot_files" && !("BOT.md" in p.body.files))) && p.body.bot_id === bot.id && (p.state === "proposed" || p.state === "failed"));
+  const [fileOf, setFileOf] = useState<string | null>(null);
   return <div data-tour="bots.routines">
     <Section title="Routines" action={!adding && <button className="btn btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={12} />New routine</button>}>
       {bot.paused && <p className="m-0 text-[12px] text-attn">{bot.settings.name} is paused: no routine starts until you resume it.</p>}
@@ -352,10 +354,35 @@ function RoutinesPanel({ bot, routines }: { bot: Bot; routines: CronAgent[] }) {
       {!adding && routines.length === 0 && <button className="btn btn-sm btn-primary w-fit" data-tour="bots.routine-new" onClick={() => setAdding(true)}><Icon name="plus" size={12} />Add a routine</button>}
     </Section>
     {routines.map((r) => <Section key={r.id} title={<button className="flex w-full min-w-0 items-center gap-2 text-left normal-case" aria-expanded={open === r.id} onClick={() => setOpen(open === r.id ? null : r.id)}><span className="min-w-0 flex-1 truncate">{r.title}</span><RunStrip history={r.history} count={10} /></button>}>
-      {open === r.id ? <RoutineDetails cron={r} bot={bot} onOpen={(sid) => void navigate({ to: "/agents", search: { session: sid } as never })} onDeleted={() => setOpen(null)} />
-        : <p className="m-0 text-[12px] text-ink-3" title={cronTitle(r)}>{triggerSummary(r, (fid) => projects.find((p) => p.id === fid)?.name ?? "a removed folder")} · {routineState(r, bot.settings.name)}</p>}
+      {r.file && fileOf === r.file ? <RoutineFileEditor bot={bot} path={r.file} onClose={() => setFileOf(null)} />
+        : open === r.id ? <RoutineDetails cron={r} bot={bot} onOpen={(sid) => void navigate({ to: "/agents", search: { session: sid } as never })} onDeleted={() => setOpen(null)} onEditFile={r.file ? () => setFileOf(r.file) : undefined} />
+        : <p className="m-0 text-[12px] text-ink-3" title={cronTitle(r)}>{r.file_error ? <span className="text-attn">File error · </span> : null}{triggerSummary(r, (fid) => projects.find((p) => p.id === fid)?.name ?? "a removed folder")} · {routineState(r, bot.settings.name)}</p>}
     </Section>)}
   </div>;
+}
+
+/** Edit as file: a routine's `routines/<name>.toml`. Saving checks it; the routine follows its file. */
+function RoutineFileEditor({ bot, path, onClose }: { bot: Bot; path: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const text = useBotFile(bot.id, path, `${bot.version}`);
+  const save = async (t: string) => {
+    try {
+      await runAction<Bot>("bot.update", { id: bot.id }, { files: { [path]: t } });
+      await Promise.all([qc.invalidateQueries({ queryKey: ["crons"] }), qc.invalidateQueries({ queryKey: ["bots"] })]);
+      toast("Saved: the routine follows its file");
+      onClose();
+      return true;
+    } catch (e) { toastError(e); return false; }
+  };
+  return <div className="grid gap-1.5">
+    <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-2">{path}</span><button className="btn btn-sm btn-ghost" onClick={onClose}>Close</button></div>
+    {text.isLoading ? <Loading what="the file" /> : text.error ? <ErrorState error={text.error} /> : <FileEditor key={text.data} value={text.data ?? ""} mono rows={12} onSave={save} />}
+  </div>;
+}
+
+/** One of a bot's files as text (`GET /api/bots/<id>/file`). */
+function useBotFile(bot: string, path: string, version: string) {
+  return useQuery({ queryKey: ["bot-file", bot, path, version], queryFn: async () => { const r = await fetch(daemonUrl(`/api/bots/${bot}/file?path=${encodeURIComponent(path)}`), { credentials: "include" }); if (!r.ok) throw new Error(await r.text()); return r.text(); } });
 }
 
 // ---------------------------------------------------------------- memory
@@ -401,7 +428,7 @@ const useSaveFiles = (bot: Bot) => {
 /** BOT.md, and the new BOT.md the bot proposed (a diff to apply with a click). */
 function InstructionsSection({ bot }: { bot: Bot }) {
   const save = useSaveFiles(bot);
-  const proposed = (useProposalList().data ?? []).filter((p) => p.body.kind === "bot_instructions" && p.body.bot_id === bot.id && (p.state === "proposed" || p.state === "failed"));
+  const proposed = (useProposalList().data ?? []).filter((p) => (p.body.kind === "bot_instructions" || (p.body.kind === "bot_files" && "BOT.md" in p.body.files)) && p.body.bot_id === bot.id && (p.state === "proposed" || p.state === "failed"));
   return <div data-tour="bots.files">
     {proposed.length > 0 && <Section title="Proposed by the bot">{proposed.map((p) => <ProposalCard key={p.id} p={p} />)}</Section>}
     {/* Keyed on the file, not the store version: the bot writing its memory must not reset a draft. */}
@@ -500,7 +527,8 @@ export function Version({ base, change }: { base: string; change: Change }) {
   return <div className="grid gap-1">
     <div className="flex items-center gap-2 text-[12px]">
       <button className="min-w-0 flex-1 truncate text-left hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>{change.path} · {change.author?.name ?? "You"} · {ago(change.at)}{change.added != null && <span className="text-ink-3"> · +{change.added} −{change.removed ?? 0}</span>}</button>
-      {change.sha256 && <ConfirmButton icon="refresh" tone="publish" consequence={`Puts back ${change.path} as it was before this change. The restore is itself a version.`} confirmLabel="Restore" onConfirm={async () => { try { await api.post(`${base}/restore/${change.id}`); await qc.invalidateQueries({ queryKey: ["bots"] }); toast("Restored"); } catch (e) { toastError(e); } }}>Restore previous</ConfirmButton>}
+      {/* A routine file or a memory note that this change created is removed by Restore (the routine goes with it). */}
+      {(change.sha256 || /^(routines|memory)\//.test(change.path)) && <ConfirmButton icon="refresh" tone="publish" consequence={change.sha256 ? `Puts back ${change.path} as it was before this change. The restore is itself a version.` : `This change created ${change.path}: Restore removes it${change.path.startsWith("routines/") ? ", and its routine with its runs" : ""}. The restore is itself a version.`} confirmLabel="Restore" onConfirm={async () => { try { await api.post(`${base}/restore/${change.id}`); await Promise.all([qc.invalidateQueries({ queryKey: ["bots"] }), qc.invalidateQueries({ queryKey: ["crons"] })]); toast("Restored"); } catch (e) { toastError(e); } }}>Restore previous</ConfirmButton>}
     </div>
     {open && (diff.isLoading ? <Loading what="the diff" /> : diff.data?.patch ? <PatchView patch={diff.data.patch} path={change.path} language={change.path.endsWith(".toml") ? "toml" : "markdown"} split={false} wrap /> : <p className="m-0 text-[12px] text-ink-3">No text difference.</p>)}
   </div>;

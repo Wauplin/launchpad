@@ -93,14 +93,14 @@ export const ask: Chapter = {
     {
       id: "ask.bot-routines", route: `${BOT_ROUTE}?panel=routines`, anchor: "bots.routines",
       title: "Routines: work on its own",
-      body: "A routine sends the bot a task by itself: every weekday morning, when CI fails on GitHub, or when another agent is done. Each run lands in its thread and ends with a report, or with No update, which never notifies you. Pause stops every routine of the bot.",
+      body: "A routine sends the bot a task by itself: every weekday morning, when CI fails on GitHub, or when another agent is done. Each run lands in its thread and ends with a report, or with No update, which never notifies you. Each routine is a file of the bot (Edit as file in its ⋯), and a bot proposes changes to its BOT.md and routines as one card with a diff per file. Pause stops every routine of the bot.",
       tryIt: { text: "press Run now on a routine.", done: () => (world.crons.find((c) => c.id === DAILY)?.history.length ?? 0) > dailyRuns, doIt: () => api.post(`/api/launch/crons/${DAILY}/run`) },
       enter: () => { dailyRuns = world.crons.find((c) => c.id === DAILY)?.history.length ?? 0; },
     },
     {
       id: "ask.bot-panels", route: BOT_ROUTE, anchor: "bots.panels",
       title: "Memory, instructions and settings",
-      body: "Beside the chat: Memory lists its notes in the knowledge base and the sessions of its thread, Proposals keeps every card it wrote, and Settings holds BOT.md, its profile, folder and permissions, what it can reach, and bot.toml, with every version for 30 days. On the phone they open from ⋯.",
+      body: "Beside the chat: Memory lists its own notes and the sessions of its thread, Proposals keeps every card it wrote, and Settings holds BOT.md, its profile, folder and permissions, what it can reach, and bot.toml, with every version of its files (BOT.md, bot.toml, routines, memory) for 30 days. On the phone they open from ⋯.",
     },
   ],
 };

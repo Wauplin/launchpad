@@ -5,7 +5,7 @@
 
 import type { CronAgent } from "@/gen/CronAgent";
 import type { RoutineRun } from "@/gen/RoutineRun";
-import { CI, DAILY, routineText } from "../routine";
+import { CI, DAILY, MAINTAINER_BOT_MD_NEXT, MAINTAINER_BOT_MD_PATCH, REVIEW_ROUTINE, routineText } from "../routine";
 import type { EventBody } from "@/gen/EventBody";
 import type { FileAttachment } from "@/gen/FileAttachment";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
@@ -324,10 +324,13 @@ export function agentsWorld() {
     { id: "demo-prop-report-119", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "#119 Lazy-load product images: approved", note: null,
       body: { kind: "report", outcome: "approved", github: "acme-labs/storefront#119", body: "Checks pass and the change only adds `loading=\"lazy\"` to product images. I approved it with one note about the hero image, which should stay eager." },
       state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(21), updated_at: clock.ago(21) },
-    // The Maintainer proposes a routine for itself (shown in its Routines tab and on the Proposals page).
+    // The Maintainer proposes a change to its own files: one line of BOT.md and a new routine, one diff each (shown
+    // in its Settings and on the Proposals page).
     { id: "demo-prop-review-routine", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "Review requests on storefront",
       note: "So I review pull requests as soon as GitHub asks you for a review, and prepare my review as a suggestion.",
-      body: { kind: "routine", bot_id: "demo-bot-maintainer", title: "Review requests", instructions: "Review each pull request below. Prepare your review as a suggestion for me to post; do not post it yourself. Report one line per pull request with your verdict.", trigger: { kind: "github", repo: "acme-labs/storefront", events: ["review_requested"] }, schedule: "", conditions: [] },
+      body: { kind: "bot_files", bot_id: "demo-bot-maintainer", files: { "BOT.md": MAINTAINER_BOT_MD_NEXT, "routines/review-requests.toml": REVIEW_ROUTINE },
+        before: { "BOT.md": "b2", "routines/review-requests.toml": null },
+        patches: { "BOT.md": MAINTAINER_BOT_MD_PATCH, "routines/review-requests.toml": `@@ -0,0 +1,${REVIEW_ROUTINE.trimEnd().split("\n").length} @@\n${REVIEW_ROUTINE.trimEnd().split("\n").map((l) => `+${l}`).join("\n")}\n` } },
       state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(12), updated_at: clock.ago(12) },
     { id: "demo-prop-empty-cart", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: "Fix the empty-cart 500 in the invoices API",
       note: "Issue #77 mentions you: `GET /invoices` returns 500 when the cart is empty. The fix is likely a missing empty check.",
@@ -363,19 +366,19 @@ export function agentsWorld() {
     id: "demo-cron-audit", title: "Nightly dependency audit", schedule: "0 3 * * *", trigger: { kind: "schedule" }, bot_id: null, bot_paused: false, paused: false, created_at: clock.ago(day * 12),
     spec: defaultSpec({ harness: "codex", profile: "codex-plus", target: { kind: "project", project_id: P.billing }, text: "Run cargo audit and pnpm audit. Report new advisories only, with the fix for each.", workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "weekly", min_left_percent: 30 }, { kind: "previous_run_finished" }],
-    next_run_at: nextAt(3, 0), last_check_at: clock.ago(60 * 9), last_outcome: "Report", runs: ["demo-s-audit"], github_seen: null, failure_seen: null, waiting: null,
+    next_run_at: nextAt(3, 0), last_check_at: clock.ago(60 * 9), last_outcome: "Report", runs: ["demo-s-audit"], github_seen: null, failure_seen: null, file: null, file_error: null, waiting: null,
     history: [run(day * 4 + 540, "no_update", null), run(day * 3 + 540, "no_update", null), run(day * 2 + 540, "skipped", null, "Scheduled", "28% of the weekly quota left, below 30%"), run(day + 540, "no_update", null), run(540, "report", "demo-s-audit")],
   }, {
     id: "demo-routine-daily", title: "Daily check", schedule: "0 9 * * 1-5", trigger: { kind: "schedule" }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 6),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: DAILY, workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
-    next_run_at: nextAt(9, 0), last_check_at: clock.ago(50), last_outcome: "No update", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, waiting: null,
+    next_run_at: nextAt(9, 0), last_check_at: clock.ago(50), last_outcome: "No update", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, file: "routines/daily-check.toml", file_error: null, waiting: null,
     history: [run(day * 5 + 50, "report", "demo-s-bot-maintainer"), run(day * 4 + 50, "no_update", "demo-s-bot-maintainer"), run(day * 3 + 50, "no_update", "demo-s-bot-maintainer"), run(day + 50, "report", "demo-s-bot-maintainer"), run(50, "no_update", "demo-s-bot-maintainer")],
   }, {
     id: "demo-routine-ci", title: "CI failures", schedule: "", trigger: { kind: "github", repo: "acme-labs/storefront", events: ["ci_activity"] }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 6),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: CI, workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
-    next_run_at: null, last_check_at: clock.ago(40), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, waiting: null,
+    next_run_at: null, last_check_at: clock.ago(40), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, file: "routines/ci-failures.toml", file_error: null, waiting: null,
     history: [run(day * 2 + 300, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#112"), run(day + 200, "skipped", null, "GitHub, CI activity: acme-labs/storefront#115", "Maintainer was working"), run(40, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#118")],
   }];
 
