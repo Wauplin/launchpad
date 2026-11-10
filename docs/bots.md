@@ -41,7 +41,7 @@ A bot's CLI acts on an agent of another runner (or of a stopped Burst job) like 
 
 ## Proposals
 
-A proposal is an inert card: a launch, a message to a session, a scheduled launch, a cron, a status card, a preset, a tool, a bot, a routine, a new `BOT.md`, a ready click or a report. Cards wait in [Today](today.md) → Approve, on the bot's **Proposals** tab and under the session that wrote them. **Start** (or Send, Schedule, Add routine, Apply to BOT.md) acts. The card's **⋯** holds **Dismiss**, which drops it, and **Edit**, which opens a launch in the composer and marks the card “Edited in the composer”, so it no longer waits. **Start all** and **Dismiss all** act on every waiting card of every kind, after one confirmation that lists them. Paid usage is always off for proposals.
+A proposal is an inert card: a launch, a message to a session, a scheduled launch, a cron, a status card, a preset, a tool, a bot, changes to a bot's files (`BOT.md` and its routines, see [Bot file cards](#bot-file-cards)), a ready click or a report. Cards wait in [Today](today.md) → Approve, on the bot's **Proposals** tab and under the session that wrote them. **Start** (or Send, Schedule, Apply) acts. The card's **⋯** holds **Dismiss**, which drops it, and **Edit**, which opens a launch in the composer and marks the card “Edited in the composer”, so it no longer waits. **Start all** and **Dismiss all** act on every waiting card of every kind, after one confirmation that lists them. Paid usage is always off for proposals.
 
 A **ready click** prepares an action that stays yours: merge a branch, publish or merge a Local PR, post a suggestion, send an Outbox message, approve the waiting GitHub Actions runs of a pull request from a fork (**Approve and run workflows**), mark Inbox threads done, update Home's Space (`home.update`). The card shows what it acts on and the button of that action, with its page link and **Dismiss** in **⋯**; the click runs the same call as the button on its page, with the same confirmation. Accepting the card never runs it, and Start all and auto mode skip it.
 
@@ -49,7 +49,7 @@ A **report** tells you what the bot did about one item, usually a pull request: 
 
 `[tools]` in `bot.toml` sets the bot's [default tools](home-and-runners.md#default-tools) over those of its workspace and folder (Settings tab → **Default tools**).
 
-`proposals` in `bot.toml` sets the bot's proposal mode: `manual` (the default: every card waits for your click) or `auto` (new launches, messages and schedules apply at once; crons, routines, presets, bots, tools, `BOT.md` changes and ready clicks still wait).
+`proposals` in `bot.toml` sets the bot's proposal mode: `manual` (the default: every card waits for your click) or `auto` (new launches, messages and schedules apply at once; crons, presets, bots, tools, bot file changes (`BOT.md` and routines) and ready clicks still wait).
 
 ## Create a bot
 
@@ -106,7 +106,7 @@ The header has the bot's state, **Pause** and **Open in Agents**; **ⓘ** next t
 - **Memory**: **Its memory** lists the bot's notes (see [Memory](#memory)); click a note to read it. **Its changes to the knowledge base** lists the recent changes its sessions made there, with **Open Knowledge**. The panel also lists every session of its thread with its status and context use.
 - **Proposals**: the cards its sessions wrote, waiting or handled, with **Start all** and **Dismiss all**.
 - **Routines**: what the bot does on its own (see below).
-- **Settings**: `BOT.md` (its instructions), shown short: **Expand** (or a click on it) opens a large editor with a live preview (on the phone, a full-screen sheet with **Read** and **Edit**), and an unsaved draft stays until you save or discard it; how it runs (name, profile, model, folder, permissions, proposal mode, Launchpad CLI access and Inbox); what it can reach; `bot.toml`, the same settings as a file; **Versions**, every change of its files (memory included) in the last 30 days with its diff and **Restore previous**; and **Delete bot**. Renaming a bot also gives it a new slug from the new name, and its Telegram command follows. Its memory stays where it is. Deleting a bot deletes its files, its memory and its routines. Its sessions and its folder stay. A bot cannot edit `BOT.md` or `bot.toml` unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md`, shown as a diff at the top of this tab (and in Today) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
+- **Settings**: `BOT.md` (its instructions), shown short: **Expand** (or a click on it) opens a large editor with a live preview (on the phone, a full-screen sheet with **Read** and **Edit**), and an unsaved draft stays until you save or discard it; how it runs (name, profile, model, folder, permissions, proposal mode, Launchpad CLI access and Inbox); what it can reach; `bot.toml`, the same settings as a file; **Versions**, every change of its files (`BOT.md`, `bot.toml`, routine files and memory) in the last 30 days with its diff and **Restore previous**; and **Delete bot**. Renaming a bot also gives it a new slug from the new name, and its Telegram command follows. Its memory stays where it is. Deleting a bot deletes its files, its memory and its routines. Its sessions and its folder stay. A bot cannot edit `BOT.md`, `bot.toml` or its routine files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md` in a [bot file card](#bot-file-cards). A card that changes `BOT.md` shows at the top of this tab (and in Today) until you click **Apply**.
 
 **Pause** (in the header, once the bot has routines) stops every routine and incoming hook of the bot from starting runs; your own messages still go through, and **Stop** in its session ends a run that is working. **Resume** starts them again from their next trigger.
 
@@ -116,7 +116,7 @@ The sidebar's **Bots** group lists the bots of the workspace, Ask Launchpad amon
 
 Each bot has its own memory: Markdown notes in `memory/` of its files on Home. The bot writes them itself: your preferences, the facts it needs next time and what you asked it to remember. Notes stay short and current, never a journal of its runs. Facts that other agents need go in the [knowledge base](knowledge.md) instead.
 
-- A bot session gets a read-only copy of the bot's files on its runner. The variable `$LAUNCHPAD_BOT` points to it: `BOT.md`, `bot.toml` and `memory/`. The copy updates after each write and every minute.
+- A bot session gets a read-only copy of the bot's files on its runner. The variable `$LAUNCHPAD_BOT` points to it: `BOT.md`, `bot.toml`, `routines/` and `memory/`. The copy updates after each write and every minute.
 - The bot writes with `launchpad bot memory`: `list`, `read <path>`, `write <path>` (stdin or `--file`), `append <path>` and `rm <path>`. Paths are relative to `memory/`. It works at every Launchpad CLI access level, like `launchpad kb`. Home applies writes one at a time and records the session as the author. A write whose base changed is kept as a `.concurrent-<id>` copy, like in the knowledge base.
 - You read the notes in the bot's **Memory** panel and on the Knowledge page, under **Bot memory**. Both are read-only. Every change shows in **Versions** on the Settings tab, and **Restore previous** undoes it for 30 days.
 
@@ -124,13 +124,13 @@ Before this, bots kept their notes in `bots/<slug>/` of the knowledge base. At i
 
 ## Files
 
-Home stores each bot's files with versions, like a plain folder, and includes them in every backup. Home's backups also keep readable copies in the bucket: `<workspace>/bots/<slug>/` holds `BOT.md`, `bot.toml` and `memory/`, next to `<workspace>/kb/` for the knowledge base. Home never reads these copies back.
+Home stores each bot's files with versions, like a plain folder, and includes them in every backup. Home's backups also keep readable copies in the bucket: `<workspace>/bots/<slug>/` holds `BOT.md`, `bot.toml`, `routines/` and `memory/`, next to `<workspace>/kb/` for the knowledge base. Home never reads these copies back.
 
 ## Routines
 
 A routine sends the bot a task by itself. Open the bot's **Routines** tab and click **New routine** (or start from **Daily check**, **Review requests**, **CI failures**, **After each agent** or **Morning brief**). A routine has a name, what the bot does at each run, and when it runs:
 
-- **On a schedule**: a 5-field cron schedule in your browser's time zone (kept with the routine and shown next to it), for example weekdays at 9:00. The routine shows it as a sentence (“Weekdays at 09:00”); hover it to see the cron. A proposed routine takes the zone of the browser where you click **Add routine**; without a browser, `[home] time_zone` in config.toml, else the server's.
+- **On a schedule**: a 5-field cron schedule in your browser's time zone (kept with the routine and shown next to it), for example weekdays at 9:00. The routine shows it as a sentence (“Weekdays at 09:00”); hover it to see the cron. A proposed routine without a zone takes the zone of the browser where you click **Apply**; without a browser, `[home] time_zone` in config.toml, else the server's.
 - **GitHub activity**: new activity in your Inbox (GitHub notifications) for the bot's repository or any repository of the workspace: review requested, mentioned, assigned, CI activity, new release, or any activity. Home is a private Space that GitHub cannot call, so Launchpad reads the Inbox about every minute; all new matching activity of one check starts one run, listed in the run's message.
 - **When an agent is done**: another agent's turn ends Done in a folder (or any folder of the workspace). The run gets a reference to that agent's trace. Runs of routines never start other routines.
 - **When Launchpad fails**: an agent of the workspace fails or is interrupted, a Burst job fails, a routine run cannot start (or is skipped after waiting an hour for a quota reading), a scheduled launch fails, a runner goes offline while agents run on it, automatic work has waited 15 minutes for a quota reading, or Home starts again. Runner, Home, quota and Burst failures reach every workspace. Home checks every 30 seconds; the new failures of one check start one run, whose message lists each failure with its ids and reason. A routine never runs for its own runs or for its bot's own agents. While the bot works, the failures wait (up to one hour). With admin access, the bot then investigates them with the commands of [Diagnose Launchpad](#diagnose-launchpad).
@@ -141,6 +141,32 @@ Each run is a message to the bot's thread, shown in the chat as one line (**Rout
 
 Every routine shows its last runs as small squares and its history in text: **Report**, **No update**, **Skipped** (why), **Failed** or **Interrupted**, the last successful run and the next one. **Run now** starts a run at once. **Pause** (in the routine's **⋯**, with **Delete**) stops one routine; the bot's **Pause** stops all of them.
 
-The bot can propose a routine for itself, for example after you say "check this every morning": the card waits in its Routines tab (and in Today) until you click **Add routine**. A session can propose routines and `BOT.md` changes for any bot of its own workspace.
+The bot can propose a routine for itself, for example after you say “check this every morning”: the card waits in its Routines tab (and in Today) until you click **Apply** (see [Bot file cards](#bot-file-cards)). A session can propose routines and `BOT.md` changes for any bot of its own workspace.
+
+### Routine files
+
+Each routine of a bot is a file of the bot: `routines/<name>.toml`, named after its title (`daily-check.toml`, then `daily-check-2.toml` for a second one with the same title). The file holds the definition: `title`, `paused`, `schedule`, `time_zone`, `instructions`, a `[trigger]` table with its `kind` (`schedule`, `github`, `session_done` or `failure`) and its fields, and `[[conditions]]`. Home keeps the rest in its records: the runs, the next run and what the routine has already seen.
+
+```toml
+title = "Daily check"
+schedule = "0 9 * * 1-5"
+instructions = """
+Look at what changed in your folder since your last run. Report only what needs my attention."""
+
+[trigger]
+kind = "schedule"
+```
+
+- Saving a routine on the bot's page writes its file. In the other direction, every change of the file updates the routine at once: **Edit as file** (in the routine's **⋯**), **Restore previous** in Versions, an accepted card, or an admin bot's `launchpad bot update`.
+- A save with an error (a bad cron, an unknown trigger, no instructions) is refused with the error. A file that still has an error (for example after a Restore) keeps the routine on its last good definition, and the routine shows the error. A routine whose file never worked stays paused and cannot **Run now**.
+- A new schedule, time zone or trigger computes the next run from now; a new trigger also starts from now, so it never runs for older GitHub activity or failures. Editing only the title or instructions keeps the next run.
+- Deleting the file deletes the routine and its run history. **Delete** in the routine's **⋯** does the same. Restoring the file creates the routine again, with no history.
+- An admin bot's changes to routine files show as a **Changed** line in its chat, with **Undo**.
+
+Routines that bots had before this change became files once, at Home's first start after the update, with their history kept. Routines that are not a bot's (launches repeated on a schedule) stay records on Home.
+
+### Bot file cards
+
+A bot proposes changes to its own files in one card: a new `BOT.md`, new or changed routine files, and deleted routines (`launchpad propose bot-files`). The card shows one diff per file, with “new” or “deleted” next to its path, and one **Apply**, which writes every file at once as one change in Versions. Applying fails if one of the files changed since the bot wrote the card: ask the bot again. `bot.toml` and `memory/` cannot be proposed: `bot.toml` stays yours, and the bot writes its memory itself. The older `routine` and `bot-instructions` proposals become bot file cards.
 
 All routines, of bots (the morning brief of Ask Launchpad included) and launches repeated on a schedule, are also on the **Schedules** page. **Add the morning brief** on that page gives Ask Launchpad (or the workspace's first bot) a weekday 8:30 routine.

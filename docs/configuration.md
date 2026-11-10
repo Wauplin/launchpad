@@ -115,7 +115,7 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad folders\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list` | Read Launchpad state as JSON |
 | `launchpad today` | Print what waits for the owner (the [Today](today.md) list) as JSON |
 | `launchpad activity list` | List what sessions with admin access changed directly, with the values before |
-| `launchpad propose launch\|message\|schedule\|cron\|status\|preset\|tool\|bot\|routine\|bot-instructions\|ready` | Store a proposal (sessions with propose or admin access to the Launchpad CLI tool); the owner starts it, except one-time starts of a bot in auto mode. `ready` prepares an owner click (merge, publish, post, send, run CI, Inbox done) |
+| `launchpad propose launch\|message\|schedule\|cron\|status\|preset\|tool\|bot\|routine\|bot-files\|bot-instructions\|ready` | Store a proposal (sessions with propose or admin access to the Launchpad CLI tool); the owner starts it, except one-time starts of a bot in auto mode. `bot-files` proposes a bot's `BOT.md` and routine files in one card (`routine` and `bot-instructions` become such cards). `ready` prepares an owner click (merge, publish, post, send, run CI, Inbox done) |
 | `launchpad api <GET\|POST\|PUT\|PATCH\|DELETE> <path> [--body-file <file.json>]` | Call Launchpad's API directly: sessions with admin access only, limited to Launchpad's own records |
 
 Agents receive the exact binary path and environment in their prompt. The [launchpad skill](../skills/launchpad/SKILL.md) documents these commands for them; the daemon links it into `~/.agents/skills/launchpad` at startup.
