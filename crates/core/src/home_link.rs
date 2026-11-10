@@ -222,6 +222,17 @@ pub async fn home_request(method: &str, path: &str, body: Option<serde_json::Val
     Ok(value)
 }
 
+/// Runner: a GET to Home whose answer is plain text (a trace), through the tunnel. Errors carry Home's message.
+pub async fn home_text(path: &str) -> Result<String> {
+    let r = REQUESTER.get().context("this daemon has no Home")?;
+    let (status, text) = r("GET".into(), path.into(), None).await?;
+    if !(200..300).contains(&status) {
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+        anyhow::bail!("{}", value["error"].as_str().map(str::to_string).unwrap_or_else(|| format!("Home answered {status}")));
+    }
+    Ok(text)
+}
+
 /// Home refreshes a folder's mirror from its remote (created on first use); a runner asks Home.
 pub async fn refresh_mirror(app: &App, project_id: &str) -> Result<()> {
     if crate::home_git::here(app) {

@@ -188,7 +188,13 @@ impl Broker {
         if tool == "browser_trace" {
             let index = args["index"].as_u64().unwrap_or(0) as usize;
             let trace = s.launch_spec.agent_traces.get(index).context("No trace at this index; only explicitly attached traces can be read")?;
-            let text = app.sessions.trace_text(app, &trace.session_id, Some(trace.through_seq)).await?;
+            // Home holds every trace; a runner's own store may never have seen the source agent.
+            let text = if app.paths.role == crate::role::Role::Runner {
+                crate::home_link::home_text(&format!("/api/sessions/{}/trace?through={}", trace.session_id, trace.through_seq)).await
+                    .with_context(|| format!("Could not read the trace of agent {} from Home", trace.session_id))?
+            } else {
+                app.sessions.trace_text(app, &trace.session_id, Some(trace.through_seq)).await?
+            };
             let offset = args["offset"].as_u64().unwrap_or(0).min(usize::MAX as u64) as usize;
             let chars: Vec<_> = text.chars().collect();
             let start = offset.min(chars.len());

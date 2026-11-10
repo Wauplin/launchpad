@@ -685,6 +685,26 @@ pub fn git_inside(root: &Path) -> Option<String> {
 /// has are removed. A local Git repository records the start, so Changes compares with it.
 pub async fn sync_down(app: &App, id: &str, dir: &Path, session: &str) -> Result<()> {
     home::lock(app, id, session, true).await?;
+    download(app, id, dir).await?;
+    // A temporary folder stays as the agent left it: no Git repository of Launchpad's in it.
+    if temp_of(id).is_none() {
+        baseline(app, dir).await;
+    }
+    Ok(())
+}
+
+/// A read-only context folder that this runner has no copy of (a fresh Burst runner, or a session that moved
+/// here): Home's files, without the lock, since no session of this runner uses the folder. An existing copy is
+/// left as it is: a session of this runner may hold it.
+pub async fn reference(app: &App, id: &str, dir: &Path) -> Result<()> {
+    if tokio::fs::try_exists(dir).await.unwrap_or(false) {
+        return Ok(());
+    }
+    download(app, id, dir).await.with_context(|| format!("Could not bring folder {id} from Home"))
+}
+
+/// Brings the copy to Home's version and records it (`Synced`).
+async fn download(app: &App, id: &str, dir: &Path) -> Result<()> {
     let tree = home::tree(app, id).await?;
     tokio::fs::create_dir_all(dir).await?;
     let state = state_file(app, dir);
@@ -717,10 +737,6 @@ pub async fn sync_down(app: &App, id: &str, dir: &Path, session: &str) -> Result
         tokio::fs::create_dir_all(parent).await?;
     }
     tokio::fs::write(&state, serde_json::to_vec(&synced)?).await?;
-    // A temporary folder stays as the agent left it: no Git repository of Launchpad's in it.
-    if temp_of(id).is_none() {
-        baseline(app, dir).await;
-    }
     Ok(())
 }
 

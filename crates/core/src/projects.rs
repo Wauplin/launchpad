@@ -111,6 +111,22 @@ pub async fn get(app: &App, id: &str) -> Result<Option<Project>> {
     Ok(refresh_metadata(app, project.into_iter().collect()).await?.pop())
 }
 
+/// A folder that a launch or a message names. A runner holds copies of Home's folders (sent when it connects and
+/// after each change); one it does not have yet (a folder created a moment ago) comes from Home, so a runner never
+/// refuses a folder only because its own copy of the list is behind.
+pub async fn resolve(app: &App, id: &str) -> Result<Project> {
+    if let Some(p) = get(app, id).await? {
+        return Ok(p);
+    }
+    ensure!(app.paths.role == crate::role::Role::Runner, "Home has no folder {id}");
+    ensure!(!id.is_empty() && !id.contains(['/', '?', '#']), "invalid folder id {id:?}");
+    let v = crate::home_link::home_request("GET", &format!("/api/projects/{id}"), None).await.with_context(|| format!("Could not read folder {id} from Home"))?;
+    let p: Project = serde_json::from_value(v).with_context(|| format!("Home sent an unreadable record for folder {id}"))?;
+    ensure!(p.home_git || p.plain, "Folder {} ({id}) is a temporary folder of another runner: it cannot be used here", p.name);
+    store_home(app, vec![p], false).await?;
+    get(app, id).await?.with_context(|| format!("Folder {id} from Home could not be stored on this runner"))
+}
+
 /// Remote metadata is derived from disk, never from the registration-time snapshot.
 async fn refresh_metadata(app: &App, projects: Vec<Project>) -> Result<Vec<Project>> {
     // Home reads no folder of its own disk: its temporary folder records name runners' paths.

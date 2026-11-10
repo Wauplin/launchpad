@@ -805,12 +805,30 @@ impl Sessions {
 
     /// The stored trace of a session through a fixed event, as text for another agent.
     pub async fn trace_text(&self, app: &App, id: &str, through_seq: Option<i64>) -> Result<String> {
-        let source = self.get(id).context("no such session")?;
+        let source = self.get(id).with_context(|| format!("no agent {id}"))?;
         let through_seq = through_seq.unwrap_or(source.last_seq);
-        anyhow::ensure!(through_seq > 0 && through_seq <= source.last_seq, "invalid trace sequence");
+        anyhow::ensure!(through_seq > 0 && through_seq <= source.last_seq, "invalid trace sequence: agent {id} has events through {} only, not {through_seq}", source.last_seq);
         let events = self.events_through(app, &source.id, 0, through_seq).await?;
-        anyhow::ensure!(events.last().is_some_and(|e| e.seq == through_seq), "trace is unavailable");
+        anyhow::ensure!(events.last().is_some_and(|e| e.seq == through_seq), "the trace of agent {id} through event {through_seq} is unavailable");
         crate::compose::render_trace(&source, through_seq, &events)
+    }
+
+    /// The source agents of context traces. Home holds every session and every event of every generation; a
+    /// runner holds only the sessions it ran (a Burst runner none), so it asks Home for the others and for those
+    /// whose local record ends before the requested event (a session that moved away).
+    async fn context_traces(&self, app: &App, refs: &[crate::model::AgentTraceRef]) -> Result<Vec<(Session, i64)>> {
+        let runner = app.paths.role == crate::role::Role::Runner;
+        resolve_traces(refs, |id| self.get(id), |id| {
+            let sessions = self.clone();
+            async move {
+                if !runner {
+                    return sessions.get(&id).context("no such session");
+                }
+                let v = crate::home_link::home_request("GET", &format!("/api/sessions/{id}"), None).await?;
+                Ok(serde_json::from_value(v)?)
+            }
+        })
+        .await
     }
 
     pub fn sink(&self, app: &App, id: &str) -> Sink {
@@ -830,13 +848,13 @@ impl Sessions {
         crate::attachments::validate(&spec.attachments)?;
         let (cwd, project) = match &spec.target {
             Target::Project { project_id } | Target::Predraft { project_id } => {
-                let p = crate::projects::get(app, project_id).await?.context("the project no longer exists")?;
+                let p = crate::projects::resolve(app, project_id).await?;
                 (Some(p.path.clone()), Some(p))
             }
             Target::ExistingPredraft { predraft_id } => {
                 let p = crate::predrafts::get(app, predraft_id).await?;
                 anyhow::ensure!(p.agents_can_work(), "this Local PR is archived or merged");
-                let project = crate::projects::get(app, &p.project_id).await?.context("folder not found")?;
+                let project = crate::projects::resolve(app, &p.project_id).await?;
                 (Some(project.path.clone()), Some(project))
             }
             Target::SessionFolder { session_id } => {
@@ -848,7 +866,7 @@ impl Sessions {
                 (Some(source.cwd), project)
             }
             Target::Browser { project_id: Some(project_id), .. } => {
-                let p = crate::projects::get(app, project_id).await?.context("the project no longer exists")?;
+                let p = crate::projects::resolve(app, project_id).await?;
                 (Some(p.path.clone()), Some(p))
             }
             Target::Browser { source_session_id, .. } => {
@@ -872,10 +890,9 @@ impl Sessions {
         let in_checkout = project_target && spec.worktree.is_none() && !home_git;
         let worktree_launch = project_target && (spec.worktree.is_some() || home_git);
         for cp in &spec.context_projects {
-            if let Some(p) = crate::projects::get(app, &cp.project_id).await? {
-                add_dirs.push(p.path.clone());
-                context.push(ContextInfo { path: p.path, description: p.description, branch: cp.branch.clone(), editable: cp.editable, own_worktree: cp.editable && !in_checkout });
-            } else { anyhow::bail!("Context folder no longer exists; remove it and select it again"); }
+            let p = crate::projects::resolve(app, &cp.project_id).await.context("Context folder unavailable; remove it and select it again")?;
+            add_dirs.push(p.path.clone());
+            context.push(ContextInfo { path: p.path, description: p.description, branch: cp.branch.clone(), editable: cp.editable, own_worktree: cp.editable && !in_checkout });
         }
         crate::prompt_context::validate_mentions(&spec.text, &spec.mentions)?;
         let mut prompt = render_prompt(spec, &context, &launch_presets(app, spec, &config).await?);
@@ -884,12 +901,7 @@ impl Sessions {
             let harness = spec.harness.context("Pick a harness for selected skills")?;
             prompt.push_str(&crate::prompt_context::render_skills(app, harness, spec, cwd.as_deref()).await?);
         }
-        let mut traces = Vec::new();
-        for trace in &spec.agent_traces {
-            let source = self.get(&trace.session_id).context("context agent no longer exists")?;
-            anyhow::ensure!(trace.through_seq > 0 && trace.through_seq <= source.last_seq, "invalid context trace sequence");
-            traces.push((source, trace.through_seq));
-        }
+        let traces = self.context_traces(app, &spec.agent_traces).await?;
         if !traces.is_empty() {
             if !prompt.is_empty() {
                 prompt.push_str("\n\n");
@@ -980,7 +992,7 @@ impl Sessions {
         let mut created: Vec<String> = vec![];
         // The Local PR this session works on (an existing one), or opens once its branch exists.
         let mut local_pr: Option<(Option<crate::predrafts::Predraft>, String)> = None;
-        // Read-only context folders of Home: their clones are refreshed before the agent starts.
+        // Read-only context folders of Home: their clones are refreshed (plain ones brought when missing) before the agent starts.
         let mut views: Vec<Project> = vec![];
         // A runner starts only launches Home placed on it (`runners::record_placement`, before Home relayed the
         // launch): Home gives leases only to sessions it placed (`vault::check_owner`). A failed launch below
@@ -1066,7 +1078,7 @@ impl Sessions {
             }
             for cp in &spec.context_projects {
                 if cp.editable && !in_checkout { continue }
-                if let Some(p) = crate::projects::get(app, &cp.project_id).await?.filter(|p| p.home_git) { views.push(p); }
+                if let Some(p) = crate::projects::get(app, &cp.project_id).await?.filter(|p| p.home_git || p.plain) { views.push(p); }
             }
             for cp in spec.context_projects.iter().filter(|c| c.editable && !in_checkout) {
                 let Some(project) = crate::projects::get(app, &cp.project_id).await? else { continue };
@@ -1189,7 +1201,8 @@ impl Sessions {
             }
             for p in &views {
                 if *cancelled.borrow() || !prepared { break; }
-                if let Err(e) = crate::repo_cache::sync(&app2, p).await {
+                let synced = if p.plain { crate::plain::reference(&app2, &p.id, std::path::Path::new(&p.path)).await } else { crate::repo_cache::sync(&app2, p).await.map(drop) };
+                if let Err(e) = synced {
                     sink.emit(EventBody::Notice { text: format!("Could not refresh the context folder {}: {e:#}", p.name) }).await;
                 }
             }
@@ -1345,12 +1358,18 @@ impl Sessions {
         let attachment_dir = crate::attachments::dir(app, &s.id);
         if crate::files::is_dir(&attachment_dir).await { add_dirs.push(attachment_dir.to_string_lossy().into_owned()); }
         for cp in &s.launch_spec.context_projects {
-            if let Some(p) = crate::projects::get(app, &cp.project_id).await? {
+            if let Ok(p) = crate::projects::resolve(app, &cp.project_id).await {
                 // Editable context projects resolve to their recorded worktree, never to today's checkout.
                 let in_checkout = matches!(s.launch_spec.target, Target::Project { .. }) && s.launch_spec.worktree.is_none() && !worktrees.iter().any(|w| w.primary);
                 if cp.editable && !in_checkout {
                     add_dirs.push(crate::worktrees::context_folder(app, &worktrees, &p).await?);
                 } else {
+                    // A session that moved here has no copy of its read-only context folders yet.
+                    if p.plain {
+                        crate::plain::reference(app, &p.id, std::path::Path::new(&p.path)).await?;
+                    } else if p.home_git && !crate::files::is_dir(&p.path).await {
+                        crate::repo_cache::sync(app, &p).await?;
+                    }
                     add_dirs.push(p.path);
                 }
             }
@@ -1742,15 +1761,12 @@ impl Sessions {
         for cp in &context.context_projects {
             anyhow::ensure!(!session.launch_spec.target.browser_only(), "This session cannot attach project folders");
             anyhow::ensure!(!cp.editable, "Follow-up context folders must be read-only");
-            let project = crate::projects::get(app, &cp.project_id).await?.context("context project no longer exists")?;
+            let project = crate::projects::resolve(app, &cp.project_id).await.context("Context folder unavailable; remove it and select it again")?;
+            if project.plain { crate::plain::reference(app, &project.id, std::path::Path::new(&project.path)).await?; }
+            if project.home_git && !crate::files::is_dir(&project.path).await { crate::repo_cache::sync(app, &project).await?; }
             folders.push(ContextInfo { path: project.path, description: project.description, branch: cp.branch.clone(), editable: false, own_worktree: false });
         }
-        let mut traces = Vec::new();
-        for trace in &context.agent_traces {
-            let source = self.get(&trace.session_id).context("context agent no longer exists")?;
-            anyhow::ensure!(trace.through_seq > 0 && trace.through_seq <= source.last_seq, "invalid context trace sequence");
-            traces.push((source, trace.through_seq));
-        }
+        let traces = self.context_traces(app, &context.agent_traces).await?;
         crate::prompt_context::validate_mentions(text, &context.mentions)?;
         let spec = LaunchSpec { text: text.into(), github_refs: context.github_refs, mentions: context.mentions, skills: context.skills, profile: session.launch_spec.profile.clone(), ..Default::default() };
         let mut prompt = render_prompt(&spec, &folders, &[]);
@@ -2187,6 +2203,31 @@ impl Sessions {
             sink.emit(EventBody::Error { message: e }).await;
         }
     }
+}
+
+/// Resolves context traces: the local record when it already covers the requested events, else Home's
+/// (`home`). Errors name the agent and what Home has.
+async fn resolve_traces<F>(refs: &[crate::model::AgentTraceRef], local: impl Fn(&str) -> Option<Session>, home: impl Fn(String) -> F) -> Result<Vec<(Session, i64)>>
+where
+    F: std::future::Future<Output = Result<Session>>,
+{
+    let mut out = Vec::new();
+    for t in refs {
+        let id = &t.session_id;
+        anyhow::ensure!(!id.is_empty() && !id.contains(['/', '?', '#']), "invalid context agent id {id:?}");
+        let source = match local(id).filter(|s| t.through_seq <= s.last_seq) {
+            Some(s) => s,
+            None => home(id.clone()).await.with_context(|| format!("Could not read context agent {id} from Home"))?,
+        };
+        anyhow::ensure!(
+            t.through_seq > 0 && t.through_seq <= source.last_seq,
+            "The context trace of agent {id} goes through event {}, but Home has its events through {} only",
+            t.through_seq,
+            source.last_seq
+        );
+        out.push((source, t.through_seq));
+    }
+    Ok(out)
 }
 
 /// The presets a launch can name. Presets are shared settings of Home: a runner's own config.toml does not

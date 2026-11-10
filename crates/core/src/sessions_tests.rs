@@ -103,3 +103,54 @@ fn capacity_errors_are_specific() {
         assert!(!super::is_capacity_error(message), "{message}");
     }
 }
+
+fn trace_source(id: &str, last_seq: i64) -> crate::model::Session {
+    serde_json::from_value(serde_json::json!({
+        "id": id, "harness": "codex", "cwd": "/tmp/source", "title": "source task",
+        "status": "waiting", "status_since": 0, "live": false, "open_question": false,
+        "prompt": "task", "usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}, "started_at": 0, "last_seq": last_seq,
+        "launch_spec": {}, "seen_at": 0
+    })).unwrap()
+}
+
+fn trace_ref(id: &str, through_seq: i64) -> crate::model::AgentTraceRef {
+    crate::model::AgentTraceRef { session_id: id.into(), through_seq }
+}
+
+/// A launch (or a follow-up message: both use `context_traces`) on a runner that never saw the source agent,
+/// like a fresh Burst runner: the source comes from Home.
+#[tokio::test]
+async fn context_traces_of_agents_this_runner_never_ran_come_from_home() {
+    let asked = std::sync::Mutex::new(vec![]);
+    let traces = super::resolve_traces(&[trace_ref("e95db580", 4702)], |_| None, |id| {
+        asked.lock().unwrap().push(id.clone());
+        async move { Ok(trace_source(&id, 4702)) }
+    }).await.unwrap();
+    assert_eq!(*asked.lock().unwrap(), ["e95db580"]);
+    assert_eq!((traces[0].0.id.as_str(), traces[0].1), ("e95db580", 4702));
+    assert!(crate::compose::trace_references(&traces, "launchpad").contains("`launchpad trace e95db580 --through 4702`"));
+}
+
+#[tokio::test]
+async fn context_traces_use_a_local_record_only_when_it_covers_the_events() {
+    let asked = std::sync::Mutex::new(0);
+    let home = |id: String| {
+        *asked.lock().unwrap() += 1;
+        async move { Ok(trace_source(&id, 50)) }
+    };
+    // Covered: no request to Home.
+    super::resolve_traces(&[trace_ref("a", 20)], |id| Some(trace_source(id, 30)), home).await.unwrap();
+    assert_eq!(*asked.lock().unwrap(), 0);
+    // A session that moved away: the local record ends before the requested event, Home has more.
+    let traces = super::resolve_traces(&[trace_ref("a", 40)], |id| Some(trace_source(id, 30)), home).await.unwrap();
+    assert_eq!((*asked.lock().unwrap(), traces[0].0.last_seq), (1, 50));
+}
+
+#[tokio::test]
+async fn context_trace_errors_name_the_agent_and_what_home_has() {
+    let missing = super::resolve_traces(&[trace_ref("gone", 3)], |_| None, |_| async { anyhow::bail!("no such session") }).await.unwrap_err();
+    assert_eq!(format!("{missing:#}"), "Could not read context agent gone from Home: no such session");
+    let short = super::resolve_traces(&[trace_ref("a", 9)], |_| None, |id| async move { Ok(trace_source(&id, 5)) }).await.unwrap_err();
+    assert_eq!(format!("{short:#}"), "The context trace of agent a goes through event 9, but Home has its events through 5 only");
+    assert!(super::resolve_traces(&[trace_ref("../x", 1)], |_| None, |id| async move { Ok(trace_source(&id, 5)) }).await.is_err());
+}
