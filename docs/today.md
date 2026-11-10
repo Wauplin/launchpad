@@ -39,7 +39,7 @@ A row belongs to the workspace of its folder, its agent or its repository. Rows 
 
 ## Where the history is
 
-- Proposals: Today → Done, and the bot's chat at the turn that wrote them.
+- Proposals: Today → Done, and the bot's chat at the turn that wrote them, as one-line receipts.
 - Sent or discarded messages and posted suggestions: Today → Done.
 - Agent branches: the **Branches** tab of the folder page.
 - Review requests: Today → GitHub, and the [Inbox](github.md#inbox).
