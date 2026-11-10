@@ -1,3 +1,4 @@
+import { ReviewReady } from "@/features/github/ReviewReady";
 import { PhoneHeader, PhoneActions, PhoneBarEnd } from "@/mobile/PhoneHeader";
 import { phoneBack } from "@/mobile/back";
 import { PullToRefresh } from "@/components/PullToRefresh";
@@ -63,9 +64,7 @@ export function useInboxAction() {
 
 /** "Suggestion ready": an agent review (or comment) for this PR waits on the PR page. */
 function ReadyChip({ t, s }: { t: Thread; s: Suggestion }) {
-  return <Link to="/github/$owner/$repo/$number" params={ghParams(t)} search={{ draft: s.id }} className="flex-none no-underline" title="Open the PR at the agent's suggestion; it posts only when you click" onClick={(e) => e.stopPropagation()}>
-    <Badge tone="teal" icon="comment">{s.kind === "review" ? "Agent review ready" : "Suggestion ready"}</Badge>
-  </Link>;
+  return <span onClick={(e) => e.stopPropagation()}>{s.kind === "review" ? <ReviewReady repo={t.repo} number={t.number!} /> : <Link to="/github/$owner/$repo/$number" params={ghParams(t)} search={{ draft: s.id }}><Badge tone="teal" icon="comment">Suggestion ready</Badge></Link>}</span>;
 }
 
 const ThreadRow = memo(function ThreadRow({ t, selected, projects, ready, select, act, busy }: { t: Thread; selected: boolean; projects: Project[]; ready: Suggestion | undefined; select: (t: Thread) => void; act: (t: Thread, action: string) => void; busy: boolean }) {
@@ -158,7 +157,7 @@ function PreviewPane({ t, projects, ready, act, busy }: { t: Thread; projects: P
   // One primary, two secondary, then ⋯. Review requests lead with the agent review.
   const primary = request
     ? ready
-      ? <Link className="btn btn-sm btn-primary no-underline" to="/github/$owner/$repo/$number" params={ghParams(t)} search={{ draft: ready.id }}>{ready.kind === "review" ? "Post review…" : "Post comment…"}</Link>
+      ? ready.kind === "review" ? <ReviewReady repo={t.repo} number={t.number!} /> : <Link className="btn btn-sm btn-primary no-underline" to="/github/$owner/$repo/$number" params={ghParams(t)} search={{ draft: ready.id }}>Post comment…</Link>
       : <button className="btn btn-sm btn-primary" title="Opens a launch draft that asks an agent for a local suggested review" onClick={() => reviewWithAgent({ projects, repo: t.repo, number: t.number!, title: t.title, url: t.url, head })}>Review with agent</button>
     : done(true);
   const secondary = request ? <>{done(false)}{conversation}</> : <><LaunchButton small primary={false} ctx={launchContext(t, projects)} />{conversation || <button className="btn btn-sm" onClick={() => openExternal(t.url)}>Open on GitHub</button>}</>;

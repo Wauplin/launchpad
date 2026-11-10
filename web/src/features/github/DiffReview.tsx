@@ -12,6 +12,7 @@ import { isDemo } from "@/demo/mode";
 import { storageAllowed } from "@/lib/clientStorage";
 import { usePhone } from "@/lib/phone";
 import { useBackClose } from "@/mobile/back";
+import { useReviewState } from "@/lib/reviewState";
 import { useTheme } from "@/stores/theme";
 
 export type DiffEntry = { path: string; previous?: string | null; status: string; additions?: number | null; deletions?: number | null };
@@ -54,7 +55,7 @@ const Cell = memo(function Cell({ line, tokens, wrap, noted, picked, onPick, gut
 });
 
 /** The patch of one file: unified or split, optional wrap, clickable lines for notes. Scrolls inside its parent. */
-export const PatchView = memo(function PatchView({ patch, path, language, split, wrap, notes, picked, onPick, maxHeight }: { patch: string; path: string; language?: string; split: boolean; wrap: boolean; notes?: LineNote[]; picked?: number | null; onPick?: (line: Line) => void; maxHeight?: number }) {
+export const PatchView = memo(function PatchView({ patch, path, language, split, wrap, notes, picked, onPick, maxHeight, below, jump }: { patch: string; path: string; language?: string; split: boolean; wrap: boolean; notes?: LineNote[]; picked?: number | null; onPick?: (line: Line) => void; maxHeight?: number; below?: (line: Line) => ReactNode; jump?: number | null }) {
   const theme = useTheme((s) => s.theme);
   const parsed = useMemo(() => parsePatch(patch), [patch]);
   const [tokens, setTokens] = useState<Tokens | null>(null);
@@ -85,16 +86,19 @@ export const PatchView = memo(function PatchView({ patch, path, language, split,
     return notes.some((n) => n.line === line && (n.side ? n.side === side : n.code === l.text));
   };
   const ref = useRef<HTMLDivElement>(null);
-  const v = useVirtualizer({ count: rows.length, getScrollElement: () => ref.current, estimateSize: () => 20, overscan: 8, useFlushSync: false, measureElement: wrap ? (el) => el.getBoundingClientRect().height : undefined });
+  const v = useVirtualizer({ count: rows.length, getScrollElement: () => ref.current, estimateSize: () => 20, overscan: 8, useFlushSync: false, measureElement: (el) => el.getBoundingClientRect().height });
   useEffect(() => { ref.current?.scrollTo({ top: 0 }); }, [patch]);
+  useEffect(() => { if (jump != null) { const at = rows.findIndex((r) => r.left?.next === jump || r.right?.next === jump || r.left?.old === jump); if (at >= 0) v.scrollToIndex(at, { align: "center" }); } }, [jump, rows]);
   const width = useMemo(() => wrap ? undefined : Math.max(...rows.map((r) => split ? 2 * Math.max(r.left?.text.length ?? 0, r.right?.text.length ?? 0) * 7.3 + 140 : (r.left?.text.length ?? 0) * 7.3 + 110), 240), [rows, wrap, split]);
   const cell = (l: Line | null, g: "both" | "one") => <Cell line={l} tokens={l ? tokens?.[l.index] : undefined} wrap={wrap} noted={isNoted(l)} picked={!!l && picked === l.index} onPick={onPick && l ? () => onPick(l) : undefined} gutter={g} />;
   return <div ref={ref} className={`min-h-0 overflow-auto ${maxHeight ? "" : "flex-1"}`} style={maxHeight ? { height: Math.min(maxHeight, rows.length * 20 + 20) } : undefined}>
     <div className="relative min-w-full" style={{ height: v.getTotalSize(), width: width ?? "100%" }}>
       {v.getVirtualItems().map((r) => {
         const row = rows[r.index];
-        return <div key={r.key} data-index={r.index} ref={wrap ? v.measureElement : undefined} className="absolute left-0 w-full" style={{ transform: `translateY(${r.start}px)` }}>
+        return <div key={r.key} data-index={r.index} ref={v.measureElement} className="absolute left-0 w-full" style={{ transform: `translateY(${r.start}px)` }}>
           {!split || row.both ? cell(row.left, split ? "one" : "both") : <div className="grid grid-cols-2">{cell(row.left, "one")}<div className="border-l border-line">{cell(row.right, "one")}</div></div>}
+          {row.left && below?.(row.left)}
+          {row.right && row.right !== row.left && below?.(row.right)}
         </div>;
       })}
     </div>
@@ -144,7 +148,7 @@ const FileRow = memo(function FileRow({ f, active, viewed, notes, onClick, phone
   </button>;
 });
 
-export function DiffReview({ files, selected, onSelect, patch, loading, error, emptyPatch, truncated, language, viewed, onToggleViewed, notes = [], onAddNote, noteLabel = "Note for the agent", notePlaceholder = "What should the agent change here?", toolbar, status, fileActions, banner, phoneView, phoneBar }: {
+export function DiffReview({ files, selected, onSelect, patch, loading, error, emptyPatch, truncated, language, viewed, onToggleViewed, notes = [], onAddNote, noteLabel = "Note for the agent", notePlaceholder = "What should the agent change here?", toolbar, status, fileActions, banner, phoneView, phoneBar, onEditNote, onDeleteNote, draftKey, focusLine }: {
   files: DiffEntry[];
   selected: string | undefined;
   onSelect: (path: string) => void;
@@ -159,6 +163,10 @@ export function DiffReview({ files, selected, onSelect, patch, loading, error, e
   /** Absent or disabled while the patch loads: the host cannot tell what was viewed. */
   onToggleViewed?: (path: string) => void;
   notes?: LineNote[];
+  onEditNote?: (note: LineNote, text: string) => void;
+  onDeleteNote?: (note: LineNote) => void;
+  draftKey?: string;
+  focusLine?: number | null;
   onAddNote?: (note: LineNote) => void;
   noteLabel?: string;
   notePlaceholder?: string;
@@ -178,11 +186,15 @@ export function DiffReview({ files, selected, onSelect, patch, loading, error, e
   const showList = phoneView ? !phoneView.file : ownList;
   // A host without `phoneView` (session Changes, a commit): the opened file is an overlay, so back returns to the list.
   useBackClose(phone && !phoneView && !ownList, () => setShowList(true));
-  const [picked, setPicked] = useState<{ index: number; line: number | null; side: "old" | "new"; code: string } | null>(null);
-  const [draft, setDraft] = useState("");
+  type Picked = { index: number; line: number | null; side: "old" | "new"; code: string };
+  const drafts = useReviewState<Record<string, { picked: Picked | null; text: string }>>(draftKey ?? `diff-draft:${selected}`, {});
+  const fileDraft = drafts.value[selected ?? ""];
+  const picked = fileDraft?.picked ?? null, draft = fileDraft?.text ?? "";
+  const setPicked = (picked: Picked | null) => drafts.set((v) => ({ ...v, [selected ?? ""]: { picked, text: v[selected ?? ""]?.text ?? "" } }));
+  const setDraft = (text: string) => drafts.set((v) => ({ ...v, [selected ?? ""]: { picked: v[selected ?? ""]?.picked ?? null, text } }));
   const listRef = useRef<HTMLDivElement>(null);
   const list = useVirtualizer({ count: files.length, getScrollElement: () => listRef.current, estimateSize: () => (phone ? 44 : 28), overscan: 6, useFlushSync: false });
-  useEffect(() => { setPicked(null); setDraft(""); }, [selected]);
+
   const viewedCount = files.filter((f) => viewed(f.path)).length;
   const at = files.findIndex((f) => f.path === selected);
   const entry = files[at];
@@ -232,12 +244,12 @@ export function DiffReview({ files, selected, onSelect, patch, loading, error, e
         {truncated && <p className="px-2 py-1 text-[12px] text-ink-3">Large diff: showing its beginning and end.</p>}
         {patch !== undefined && !patch && !loading && <Empty icon="info">{emptyPatch ?? "No text changes for this file."}</Empty>}
         {hintable && (!phone || firstHint) && <p className="border-b border-line-2 px-2 py-1 text-[12px] text-ink-3">{phone ? "Tap" : "Click"} a line to write a {noteLabel.toLowerCase()}.</p>}
-        {!!patch && selected && <PatchView patch={patch} path={selected} language={language} split={split} wrap={wrap} notes={fileNotes} picked={picked?.index ?? null} onPick={onAddNote ? (l) => setPicked({ index: l.index, ...noteLine(l), code: l.text }) : undefined} />}
-        {picked && onAddNote && <div className="grid gap-1.5 border-t border-line bg-chrome p-2 text-[12px]">
+        {!!patch && selected && <PatchView patch={patch} path={selected} language={language} split={split} wrap={wrap} notes={fileNotes} picked={picked?.index ?? null} jump={focusLine} below={(l) => <><div className="max-w-text">{fileNotes.filter((n) => n.line === noteLine(l).line && (n.side ?? "new") === noteLine(l).side).map((n, i) => <InlineNote key={i} note={n} onEdit={onEditNote} onDelete={onDeleteNote} />)}</div>{picked?.index === l.index && (picked && onAddNote && <div className="grid gap-1.5 border-t border-line bg-chrome p-2 text-[12px]">
           <span className="truncate">{noteLabel} on <span className="font-mono">{selected}:{picked.line}</span> <span className="font-mono text-ink-3">{picked.code.slice(0, 80)}</span></span>
           <textarea autoFocus aria-label={noteLabel} className="field-input h-16 resize-y py-1.5" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={notePlaceholder} />
-          <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={!draft.trim()} onClick={add}>Add {noteLabel.toLowerCase()}</button><button className="btn btn-sm" onClick={() => { setPicked(null); setDraft(""); }}>Cancel</button></div>
-        </div>}
+          <div className="flex gap-2"><button className="btn btn-sm btn-primary" disabled={!draft.trim()} onClick={add}>Comment</button><button className="btn btn-sm" onClick={() => { setPicked(null); setDraft(""); }}>Cancel</button></div>
+        </div>)}</>} onPick={onAddNote ? (l) => setPicked({ index: l.index, ...noteLine(l), code: l.text }) : undefined} />}
+
         {phoneFile && !picked && <div className="flex flex-none flex-wrap items-center gap-2 border-t border-line bg-chrome px-3 py-1 text-[12px]">
           {viewedBox}
           {wrapChoice}
@@ -249,4 +261,13 @@ export function DiffReview({ files, selected, onSelect, patch, loading, error, e
       </div>}
     </div>}
   </section>;
+}
+
+function InlineNote({ note, onEdit, onDelete }: { note: LineNote; onEdit?: (n: LineNote, text: string) => void; onDelete?: (n: LineNote) => void }) {
+  const [editing, setEditing] = useState(false), [text, setText] = useState(note.text);
+  return <div className="grid gap-2 border-y border-line bg-chrome p-3 text-[12px]">
+    <b>You · line {note.line}</b>
+    {editing ? <textarea aria-label="Edit line comment" className="field-input min-h-16" value={text} onChange={(e) => setText(e.target.value)} /> : <span className="whitespace-pre-wrap">{note.text}</span>}
+    <div className="flex gap-2">{onEdit && <button className="btn btn-sm" disabled={editing && !text.trim()} onClick={() => { if (editing) onEdit(note, text); else setText(note.text); setEditing(!editing); }}>{editing ? "Save" : "Edit"}</button>}{onDelete && <button className="btn btn-sm" onClick={() => onDelete(note)}>Delete</button>}</div>
+  </div>;
 }

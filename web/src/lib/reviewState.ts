@@ -21,6 +21,7 @@ const backupKey = `launchpad-review-pending:${sessionStorage.getItem("launchpad-
 sessionStorage.setItem("launchpad-review-client", backupKey.split(":").at(-1)!);
 const pending = new Map<string, Pending>();
 try { for (const [key, entry] of Object.entries(JSON.parse(localStorage.getItem(backupKey) ?? "{}"))) pending.set(key, entry as Pending); } catch { /* Unreadable backup. */ }
+const localListeners = new Map<string, Set<() => void>>();
 const running = new Set<string>();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 let setupDone = false;
@@ -83,6 +84,7 @@ export function scheduleReviewState(qc: QueryClient, key: string, value: unknown
   const previous = pending.get(key);
   pending.set(key, { value: isEmpty ? null : value, base: previous?.base ?? qc.getQueryData<Stored>(queryKey(key))?.updated_at ?? 0, conflict: previous?.conflict });
   backup();
+  for (const notify of localListeners.get(key) ?? []) notify();
   clearTimeout(timers.get(key));
   timers.set(key, setTimeout(() => void flushReviewState(qc, key), DEBOUNCE_MS));
 }
@@ -137,12 +139,20 @@ export function useReviewState<T>(key: string, empty: T) {
   // Send an unsent edit right away when the view closes.
   useEffect(() => () => { void flushReviewState(qc, key); }, [key]);
   const set = useCallback((next: T | ((old: T) => T)) => {
-    const v = typeof next === "function" ? (next as (old: T) => T)(current.current) : next;
+    const v = typeof next === "function" ? (next as (old: T) => T)((pending.get(key)?.value as T | undefined) ?? current.current) : next;
     if (JSON.stringify(v) === JSON.stringify(current.current)) return;
     current.current = v;
     setLocal(v);
     scheduleReviewState(qc, key, v, JSON.stringify(v) === emptyJson);
   }, [qc, key, emptyJson]);
+  useEffect(() => {
+    const listeners = localListeners.get(key) ?? new Set<() => void>();
+    localListeners.set(key, listeners);
+    const sync = () => { const entry = pending.get(key); if (entry) { current.current = (entry.value as T | null) ?? JSON.parse(emptyJson) as T; setLocal(current.current); } };
+    listeners.add(sync);
+    sync();
+    return () => { listeners.delete(sync); if (!listeners.size) localListeners.delete(key); };
+  }, [key, emptyJson]);
   /** Deletes the stored value now, for example after the draft was posted. */
   const clear = useCallback(() => {
     current.current = JSON.parse(emptyJson) as T;

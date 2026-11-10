@@ -1,3 +1,4 @@
+import { ReviewReady } from "@/features/github/ReviewReady";
 // Today's rows: one compact line per decision (icon of its kind, title, one meta line, its buttons). Rows whose
 // decision needs reading (a question, a proposal, a message, a suggestion, an agent's last message) open their
 // full card below the line with the title or the arrow button. The bot chat keeps the cards (TodayCards.tsx).
@@ -113,7 +114,7 @@ const LocalPrLine = ({ item, phone }: { item: TodayItem; phone: boolean }) => (
 
 /** Review: opens the page of a Local PR (publish to GitHub or merge locally there). */
 const ReviewLocalPr = ({ id }: { id: string }) =>
-  <Link className="btn btn-sm no-underline" to="/predrafts/$id" params={{ id }} title="Publish to GitHub or merge locally from its page">Review</Link>;
+  <Link className="btn btn-sm no-underline" to="/predrafts/$id" params={{ id }} title="Publish to GitHub or merge locally from its page">Local PR</Link>;
 
 /** The main button of a row whose decision needs reading first: it opens the card. */
 const Expand = ({ item, expanded, toggle, children }: Pick<RowProps, "item" | "expanded" | "toggle"> & { children: ReactNode }) =>
@@ -204,8 +205,8 @@ function FinishedRow(p: RowProps) {
     main={stopped ? <FixMergeButton sessionId={item.record} branch={branch} label={phone ? "Fix" : undefined} primary={false} />
       : pr ? <ReviewLocalPr id={pr.record} />
       : safe ? <MergeButton sessionId={item.record} branch={branch} label="Merge" primary={false} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)} />
-      : work ? <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record, view: "changes" }} title="Review the changes of the agent">Review</Link>
-      : !loading && (s?.launch_spec.bot ? <OpenChat bot={s.launch_spec.bot} /> : <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record }} title="Open the agent at its last message">{phone ? "Open" : "Open agent"}</Link>)}
+      : work ? <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record, view: "changes" }} title="Review the changes of the agent">Changes</Link>
+      : !loading && (s?.launch_spec.bot ? <OpenChat bot={s.launch_spec.bot} /> : <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record }} title="Open the agent at its last message">Read</Link>)}
     second={!phone && <Archive id={item.record} />}
     menu={SessionMenu({ id: item.record, open: !!stopped || !!pr || safe || work || loading || !!s?.launch_spec.bot, archive: phone })}
     details={(s?.last_message || facts || stopped) && <>
@@ -273,12 +274,12 @@ function OutboxRow(p: RowProps) {
 function SuggestionRow({ s, ...p }: RowProps & { s: Suggestion | undefined }) {
   const ref = githubRef(p.item);
   return <Row {...p}
-    main={<Expand {...p}>Review</Expand>}
+    main={ref && s?.kind === "review" ? <ReviewReady repo={ref.repo} number={ref.number} /> : <Expand {...p}>Read</Expand>}
     menu={(!!ref || !!s?.session_id) && ((close) => <>
       {ref && <Go close={close} icon="pr" label="Open pull request" go={(n) => n({ to: "/github/$owner/$repo/$number", params: ghParams(ref.repo, ref.number), search: s ? { draft: s.id } : undefined })} />}
       {s?.session_id && <OpenAgent id={s.session_id} close={close} />}
     </>)}
-    details={s && s.target.kind === "git_hub" ? <SuggestionCard suggestion={s} /> : <Loading what="the suggestion" />} card />;
+    details={s?.kind === "review" ? undefined : s && s.target.kind === "git_hub" ? <SuggestionCard suggestion={s} /> : <Loading what="the suggestion" />} card />;
 }
 
 /** Review with agent; Open (the PR page) and Done (removes the notification here and on GitHub) in ⋯. */
@@ -287,8 +288,9 @@ function ReviewRequestRow(p: RowProps) {
   const ref = githubRef(item);
   return <Row {...p}
     to={ref && <Link className="block max-w-full text-ink no-underline hover:underline" to="/github/$owner/$repo/$number" params={ghParams(ref.repo, ref.number)}><span className="block truncate text-[13px] font-semibold" title={item.title}>{item.title}</span></Link>}
-    main={<ReviewWithAgent item={item} primary={false} label="Review" />}
+    main={ref && <Link className="btn btn-sm no-underline" to="/github/$owner/$repo/$number" params={ghParams(ref.repo, ref.number)} search={{ tab: "files" }}>Open PR</Link>}
     menu={(close) => <>
+      <ReviewWithAgent item={item} primary={false} label="Review with agent" />
       {ref && <Go close={close} icon="pr" label="Open pull request" go={(n) => n({ to: "/github/$owner/$repo/$number", params: ghParams(ref.repo, ref.number) })} />}
       <ActionMenuItem name="inbox.done" params={{ id: item.record }} close={close} detail="Not for you: done here and on GitHub" />
     </>} />;

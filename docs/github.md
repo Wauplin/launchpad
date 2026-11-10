@@ -22,8 +22,10 @@ GitHub's API cannot mirror the web inbox exactly, so Launchpad tracks inbox memb
 
 ![A pull request with an agent suggestion](images/pr.webp)
 
-An item page has **Conversation**, **Changes** and **Review threads** tabs, and a side panel with status, checks, reviewers and labels. In a narrow window the panel hides: **Status, checks and labels** above the conversation opens it over the page.
+An item page has **Conversation**, **Changes** and **Review threads** tabs, and a side panel with status, checks, reviewers, labels and agents whose launch named the item. In a narrow window the panel hides: **Status, checks and labels** above the conversation opens it over the page.
 
+- **Your review** holds one pending review per PR on Home: summary, event, line comments and any agent source. Changes and Review threads show the panel at laptop widths from 1100 px; **Review (n)** opens it in a smaller window or a phone sheet. Android back closes the sheet and keeps the draft. Conversation keeps a one-line **Write a comment** box for plain comments.
+- Click a diff line to write a comment under it. Comments have **Edit** and **Delete**; unfinished text stays with each file. **Approve ▾** also offers **Comment** and **Request changes**, remembering the choice per repository. Summary and current-head line comments post together only on your click. **Then squash and merge** appears only for Approve and asks for confirmation.
 - **Changes** loads the diff from local Git first (`pull/N/head`), with the GitHub API as fallback. Files load one at a time, so very large PRs stay fast. Viewed markers and unsent review comments are saved by the daemon and shared across your devices.
 - **Merge pull request** is the primary button only when GitHub reports the PR as mergeable and clean and no suggestion waits to be posted. Otherwise the panel shows the blocking reason.
 - **Review with agent** opens the composer with the PR head and review instructions. The agent writes its review as a suggestion. If the PR head changes, the suggested review is blocked.
@@ -48,9 +50,9 @@ Agents write comments and reviews with the `launchpad suggest` CLI. They are sav
 launchpad suggest review --repo owner/repo --number 123 --head <commit> --body-file review.md --event approve
 ```
 
-A suggestion appears as a card on the item's Conversation tab and in [Today](today.md) → **GitHub** (**Review** opens it there). While it waits, the item page and the Inbox preview show **Post review…** (or **Post comment…**), which goes to the card. On the phone, the Conversation tab shows the card first, without this button. **Edit**, then **Post review** (or **Post comment**) publishes it under your account after you confirm, ending with the agent's [attribution line](agents.md#attribution). **Discard** deletes it; for a suggestion that is posted or uncertain, the confirmation asks you to check GitHub first.
+A suggested review appears in **Your review**, with **Use** to copy its summary, event and follow-up into the pending review, and **Drop** to discard it. Today, Inbox, the PR banner and the session's next steps show **Review ready · n comments**, which opens the panel. Agent reviews currently have no line comments. Posting the combined review claims the source suggestion, so it cannot be posted again separately. Suggested plain comments keep their Conversation card. Agent text published from a source suggestion ends with its [attribution line](agents.md#attribution).
 
-A review can also do one more thing with the same click. An approving review with `--merge squash|merge|rebase` shows **Post review and merge**: it posts the review, then merges the pull request at the reviewed commit. A review with `--run-ci` shows **Post review and run CI**: it posts the review, then approves the GitHub Actions runs of the reviewed commit that wait for a maintainer (pull requests from forks of first-time contributors). **Edit** changes or removes the follow-up (**After posting**). If the merge or the approval fails, the review stays posted, the card shows the error and nothing is retried.
+A suggested follow-up enters the panel with **Use**. Approvals can **then squash and merge**; `--run-ci` suggests approving the waiting CI runs instead. Uncheck the follow-up to post only the review. Follow-ups run after the review is recorded as posted. A failure reports that the review was posted and never retries the follow-up.
 
 When workflow runs of a pull request wait for approval, its **Checks** section shows **Approve and run workflows**. Agents can prepare the same click as a ready card (`github.run-ci`, see [Bots](bots.md#proposals)). It runs the pull request's code in the repository's CI, so it stays your click, like GitHub's own button.
 
@@ -73,7 +75,7 @@ flowchart LR
 ```
 
 - **Create**: choose **Run in → New Local PR** in the composer's options, or let an agent run `launchpad pr create` in its worktree. Local PRs opened by one agent form a **change set**: their pages link to each other, and **Publish all** publishes them together and links the pull requests to each other. Publish all first checks that every branch is still at the commit you reviewed, and publishes nothing when one moved.
-- **Review**: the agent keeps the title and description up to date with `launchpad pr update`. **Notes** (general or per file) go back to the agent as one message. While notes wait, **Send notes to agent** is the primary button; otherwise **Publish** is.
+- **Review**: line notes store their path, line and side separately from editable text. Notes save on Home without a Save notes button. **Publish…** opens branch, draft and fork options; the bar also has **Merge** and **⋯ → Discard**. The agent keeps the title and description up to date with `launchpad pr update`. **Notes** (general or per file) go back to the agent as one message. While notes wait, **Send notes to agent** is the primary button; otherwise **Publish** is.
 - **Publish**: choose a remote branch name and GitHub draft or ready, then confirm. Home pushes exactly the commit you reviewed (a newer push asks you to review again) and creates the PR, its description ending with the agent's [attribution line](agents.md#attribution). Check **From my fork** when you cannot push to `origin`: Home pushes to your existing GitHub fork and opens the PR from it. After publication, the Local PR stays open to agents: new commits on its branch reach the published branch through Home, never forced. Until GitHub has the newest commit, the Local PR and the agent's branch show **Not on GitHub yet**, with the last push error; **Refresh** retries. If the push fails and the remote shows that nothing arrived, the Local PR unlocks itself. Otherwise a banner offers **Unlock**, and a branch that was already pushed keeps its name for the next Publish.
 - **Merge**: Home pushes the reviewed commit to the base branch on the folder's remote, then fast-forwards the base branch on Home. When the remote refuses the push (a protected branch, for example), nothing is merged and the Local PR shows why; publish it instead. It never forces or retries automatically. If the base branch moved, send a note asking the agent to rebase.
 - **Discard** deletes the branch on Home. Its tip stays restorable for 30 days (folder page → Launchpad branches).
@@ -84,7 +86,7 @@ Publication and merges wait until the Local PR's agent is idle.
 
 [Today](today.md) lists what waits for your decision in the current workspace:
 
-- **GitHub**: unposted suggestions, and open PRs where your review is requested (**Review with agent** prepares a suggested review).
-- **Review**: finished agents with their branch (**Merge** when it is safe) or their Local PR (**Review** opens it), and Local PRs not yet published whose agent does not need you.
+- **GitHub**: unposted suggestions, and open PRs where your review is requested (**Open PR** opens Changes; **Review with agent** is in ⋯).
+- **Review**: finished agents with their branch (**Merge** when it is safe) or their Local PR (**Local PR** opens it), and Local PRs not yet published whose agent does not need you.
 
 The **Branches** tab of a folder page lists the agent branches with work to look at: commits ahead of their base, uncommitted files or a merge request. Each row has **Changes**, which opens the agent's Changes, and **⋯ → Open agent**.

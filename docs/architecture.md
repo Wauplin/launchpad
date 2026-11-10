@@ -139,6 +139,8 @@ A launch only does local work in the request: it records the session (Starting) 
 | Librarian (`librarian.rs`) | a normal bot, created once per workspace (existing and new) with its paused `routines/weekly-tidy.toml`; a `seeded` row records it | Home |
 | Vault (`vault.rs`) | Credentials (write-only), tools, leases, access log, in `state.db` | Home only |
 
+Pending PR reviews live in Home’s `review_state` under `pending-review:<repo>#<number>`. Summary, event, follow-up, line comments, source suggestion and an uncertain submission travel together. Posting claims a source suggestion before the GitHub write and records success before any merge or CI follow-up; follow-ups never retry. Local PR line notes store path, line and side separately from their text.
+
 Rust types shared with the UI derive `ts_rs::TS`, so the API is typed end to end without an OpenAPI spec.
 
 ## Security model

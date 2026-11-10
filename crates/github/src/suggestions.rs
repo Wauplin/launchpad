@@ -235,6 +235,8 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
             );
             p.notes.push(predrafts::Note {
                 path: None,
+                line: None,
+                side: None,
                 text: format!(
                     "Suggested by {}{}:\n{}",
                     s.author,
@@ -353,6 +355,65 @@ pub fn instruction(app: &App, session: &str) -> String {
         "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes; an approving review may add --merge squash|merge|rebase (the owner's Post click then merges at that head), and a review may add --run-ci (Post also approves the head's GitHub Actions runs that wait for a maintainer). For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
         app.paths.cli_command()
     )
+}
+
+/// Posts the owner's combined review. A source suggestion is claimed before publication, so its other entry
+/// points cannot post a second review. Follow-ups run once after the review is known to have been posted.
+pub async fn submit_review(app: &App, repo: &str, number: u64, mut body: serde_json::Value) -> Result<serde_json::Value> {
+    let source = body["source"].as_str().map(str::to_owned);
+    let lock = app.suggestion_locks.get(source.as_deref().unwrap_or("owner-review"));
+    let _guard = lock.lock().await;
+    let mut suggestion = if let Some(id) = &source {
+        let s = get(app, id).await?;
+        ensure!(s.status == "draft", "publication already attempted; check GitHub");
+        ensure!(s.kind == SuggestionKind::Review && s.target == (SuggestionTarget::GitHub { repo: repo.to_string(), number }), "review source belongs to another item");
+        ensure!(s.head.as_deref() == body["commit_id"].as_str(), "reviewed commit changed");
+        Some(s)
+    } else { None };
+    let current = items::detail(app, repo, number, true).await?;
+    ensure!(current["state"] == "OPEN" && current["headRefOid"] == body["commit_id"], "PR head changed or PR closed; inspect it again");
+    let merge = body["merge"].as_bool().unwrap_or(false);
+    let run_ci = body["run_ci"].as_bool().unwrap_or(false);
+    ensure!(!merge || body["event"] == "APPROVE", "only an approving review can merge");
+    ensure!(!(merge && run_ci), "choose merge or run CI");
+    if let Some(s) = &mut suggestion {
+        s.body = body["body"].as_str().unwrap_or_default().to_owned();
+        s.event = body["event"].as_str().unwrap_or_default().to_owned();
+        s.merge = merge.then(|| "squash".to_owned());
+        s.run_ci = run_ci;
+        s.status = "posting".into();
+        save(app, s).await?;
+        if let Some(line) = launchpad_core::attribution::for_session(app, s.session_id.as_deref()) {
+            body["body"] = json!(launchpad_core::attribution::sign(body["body"].as_str().unwrap_or_default(), &line, launchpad_core::attribution::Separator::Rule));
+        }
+    }
+    let result = items::mutate(app, repo, number, "review", body.clone()).await;
+    let mut result = match result {
+        Ok(v) => v,
+        Err(e) => {
+            if let Some(s) = &mut suggestion {
+                s.status = "uncertain".into();
+                save(app, s).await?;
+            }
+            return Err(e);
+        }
+    };
+    if let Some(s) = &mut suggestion {
+        s.status = "posted".into();
+        s.url = result["html_url"].as_str().map(str::to_owned);
+        save(app, s).await?;
+    }
+    let followup = if merge {
+        items::mutate(app, repo, number, "merge", json!({"sha":body["commit_id"],"merge_method":"squash"})).await.err()
+    } else if run_ci {
+        items::mutate(app, repo, number, "run-ci", json!({"head":body["commit_id"]})).await.err()
+    } else { None };
+    if let Some(e) = followup {
+        let message = format!("Review posted. Follow-up failed: {e:#}. Check GitHub; it will not be retried.");
+        result["followup_error"] = json!(message);
+        if let Some(s) = &mut suggestion { s.followup_error = Some(message); save(app, s).await?; }
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

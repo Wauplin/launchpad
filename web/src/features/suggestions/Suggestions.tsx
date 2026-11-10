@@ -1,3 +1,4 @@
+import { ReviewReady } from "@/features/github/ReviewReady";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useRef, useState } from "react";
@@ -16,7 +17,12 @@ export function useSuggestions(target: SuggestionTarget) {
   const q = useQuery({ queryKey: ["suggestions"], queryFn: () => api.get<Suggestion[]>("/api/suggestions") });
   return { ...q, data: (q.data ?? []).filter((s) => s.target.kind === target.kind && (s.target.kind === "predraft" && target.kind === "predraft" ? s.target.id === target.id : s.target.kind === "git_hub" && target.kind === "git_hub" && s.target.repo.toLowerCase() === target.repo.toLowerCase() && s.target.number === target.number)) };
 }
-export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head, onPosted }: { suggestion: Suggestion; head?: string; onPosted?: () => void }) {
+export const SuggestionCard = memo(function SuggestionCard(props: { suggestion: Suggestion; head?: string; onPosted?: () => void }) {
+  const s = props.suggestion;
+  if (s.kind === "review" && s.target.kind === "git_hub" && s.status !== "posted") return <ReviewReady repo={s.target.repo} number={s.target.number} />;
+  return <SuggestionEditor {...props} />;
+});
+const SuggestionEditor = memo(function SuggestionEditor({ suggestion: s, head, onPosted }: { suggestion: Suggestion; head?: string; onPosted?: () => void }) {
   const qc = useQueryClient();
   // Unsaved edits live in the daemon so they follow the owner across devices.
   const edit = useReviewState<{ body?: string; event?: string; merge?: string | null; run_ci?: boolean }>(`suggestion:${s.id}`, {});

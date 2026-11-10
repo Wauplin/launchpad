@@ -1,29 +1,27 @@
 // Changes of a GitHub PR or a Local PR, through the shared DiffReview. Viewed markers live in review_state
-// (`viewed:`). PR line notes become line comments of your next review (`pr-notes:`, local until Submit review);
+// (`viewed:`). PR line notes belong to the pending review on Home;
 // Local PR line notes go to the Local PR's notes for the agent (`onAddNote`).
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { useReviewState, viewedKey } from "@/lib/reviewState";
 import type { Diff, DiffFile } from "./types";
 import { itemPath, openGitHub } from "./lib";
+import { usePendingReview } from "./pendingReview";
 import { DiffReview, type LineNote, type PhoneFileView } from "./DiffReview";
 export { FilePatch } from "./DiffReview";
 
-export const prNotesKey = (repo: string, number: number) => `pr-notes:${repo}#${number}`;
-/** Line comments of the next review on a PR, kept locally until Submit review. */
-export const usePrNotes = (repo: string, number: number) => useReviewState<LineNote[]>(prNotesKey(repo, number), []);
 
-export function FilesChanged({ repo, number, head, base, local, notes, onAddNote, file: addressed, phoneFile, phoneBar }: {
+export function FilesChanged({ repo, number, head, base, local, notes, onAddNote, file: addressed, phoneFile, phoneBar, toolbar, focusLine }: {
   repo: string;
   number: number;
   head: string;
   base?: string;
   local?: { id: string };
-  /** Local PRs: notes for the agent, shown as line markers. PRs use `pr-notes:` review state. */
+  /** Local PRs: notes for the agent, shown as line markers. PRs share the pending review on Home. */
   notes?: LineNote[];
   onAddNote?: (note: LineNote) => void;
   /** The file from the address (`?file=`): the selection when `phoneFile` keeps it there, else the first one shown. */
@@ -31,6 +29,8 @@ export function FilesChanged({ repo, number, head, base, local, notes, onAddNote
   /** Phone: the file view kept in the address by the host. */
   phoneFile?: Omit<PhoneFileView, "file">;
   phoneBar?: ReactNode;
+  toolbar?: ReactNode;
+  focusLine?: number | null;
 }) {
   const q = useQuery({
     queryKey: local ? ["predrafts", local.id, "diff", head] : ["pr-diff", repo, number, base, head],
@@ -38,10 +38,12 @@ export function FilesChanged({ repo, number, head, base, local, notes, onAddNote
     staleTime: Infinity,
   });
   const [own, setPath] = useState(addressed);
+  useEffect(() => { if (addressed) setPath(addressed); }, [addressed]);
   const path = phoneFile ? addressed : own;
   // Viewed markers live in the daemon so every device shares review progress.
   const viewed = useReviewState<string[]>(viewedKey(local?.id ?? repo, number, head), []);
-  const prNotes = useReviewState<LineNote[]>(local ? "pr-notes:unused" : prNotesKey(repo, number), []);
+  const prNotes = usePendingReview(repo, number);
+  const preference = useReviewState<"APPROVE" | "COMMENT" | "REQUEST_CHANGES">(`review-event:${repo.toLowerCase()}`, "APPROVE");
   const files = q.data?.files ?? [];
   const listed = files.find((f) => f.filename === path) ?? files[0];
   // PR file lists come without patches: load the selected file's patch on demand.
@@ -53,7 +55,7 @@ export function FilesChanged({ repo, number, head, base, local, notes, onAddNote
     staleTime: Infinity,
   });
   const file = lazy ? patch.data : listed;
-  const noteList = local ? notes ?? [] : prNotes.value.filter((n) => !n.head || n.head === head);
+  const noteList = local ? notes ?? [] : prNotes.value.comments.filter((n) => !n.head || n.head === head);
   const fileActions = (p: string) => {
     const f = files.find((x) => x.filename === p);
     if (!f || !q.data) return null;
@@ -74,8 +76,13 @@ export function FilesChanged({ repo, number, head, base, local, notes, onAddNote
     status={q.data ? q.data.fallback ? "GitHub patches (large patches may be truncated)" : "Local git diff" : undefined}
     viewed={(p) => viewed.value.includes(p)}
     onToggleViewed={(p) => viewed.set((s) => s.includes(p) ? s.filter((n) => n !== p) : [...s, p])}
+    focusLine={focusLine}
+    toolbar={toolbar}
+    draftKey={`line-draft:${local?.id ?? repo}#${number}@${head}`}
+    onEditNote={local ? undefined : (note, text) => prNotes.set((v) => ({ ...v, comments: v.comments.map((n) => n === note ? { ...n, text } : n) }))}
+    onDeleteNote={local ? undefined : (note) => prNotes.set((v) => ({ ...v, comments: v.comments.filter((n) => n !== note) }))}
     notes={noteList}
-    onAddNote={local ? onAddNote : (n) => prNotes.set((all) => [...all, { ...n, head }])}
+    onAddNote={local ? onAddNote : (n) => prNotes.set((v) => ({ ...v, event: v.event ?? preference.value, comments: [...v.comments, { ...n, head }] }))}
     noteLabel={local ? "Note for the agent" : "Line comment"}
     notePlaceholder={local ? "What should the agent change here?" : "Comment for this line, posted with your next review"}
     fileActions={fileActions}

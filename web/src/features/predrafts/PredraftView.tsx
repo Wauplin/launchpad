@@ -3,6 +3,7 @@
 // Description · Changes · Commits. Line notes from Changes and general notes go to the agent as feedback.
 
 import { usePhone } from "@/lib/phone";
+import { Popover } from "@/components/Popover";
 import { Icon } from "@/components/Icon";
 import { PhoneActions, PhoneHeader } from "@/mobile/PhoneHeader";
 import { Sheet } from "@/mobile/Sheet";
@@ -33,11 +34,16 @@ type Detail = Diff & { predraft: Predraft; status: string | null; github?: Follo
 type View = "description" | "files" | "commits";
 const RUNNING = ["starting", "working", "background", "in_terminal"];
 
-/** Line notes are stored as Local PR notes ("Line 12: …"); this reads the line back for the markers in Changes. */
-const lineNoteText = (n: LineNote) => `Line ${n.line}${n.side === "old" ? " (removed line)" : ""}${n.code.trim() ? ` \`${n.code.trim().slice(0, 120)}\`` : ""}: ${n.text}`;
 function asLineNote(n: Note): LineNote | null {
-  const m = /^Line (\d+)( \(removed line\))?/.exec(n.text);
-  return n.path && m ? { path: n.path, line: Number(m[1]), side: m[2] ? "old" : "new", code: "", text: n.text } : null;
+  if (n.path && n.line != null) return { path: n.path, line: n.line, side: n.side === "old" ? "old" : "new", code: "", text: n.text };
+  const legacy = /^Line (\d+)( \(removed line\))?/.exec(n.text);
+  return n.path && legacy ? { path: n.path, line: Number(legacy[1]), side: legacy[2] ? "old" : "new", code: "", text: n.text } : null;
+}
+
+function normalizeNote(n: Note): Note {
+  if (!n.path || n.line != null) return n;
+  const m = /^Line (\d+)( \(removed line\))?(?: `[^`]*`)?: ([\s\S]*)$/.exec(n.text);
+  return m ? { ...n, line: Number(m[1]), side: m[2] ? "old" : "new", text: m[3] } : n;
 }
 
 export function PredraftView() {
@@ -79,7 +85,7 @@ function Review({ id }: { id: string }) {
   const saved = useReviewState<{ title?: string; body?: string; notes?: Note[]; note?: string; notePath?: string }>(`predraft:${id}`, {});
   function apply(v: typeof saved.value) {
     if (!p) return;
-    setTitle(v.title ?? p.title); setBody(v.body ?? p.body); setNotes(v.notes ?? p.notes);
+    setTitle(v.title ?? p.title); setBody(v.body ?? p.body); setNotes((v.notes ?? p.notes).map(normalizeNote));
     setNote(v.note ?? "");
     setEditing(v.title !== undefined || v.body !== undefined);
   }
@@ -165,7 +171,7 @@ function Review({ id }: { id: string }) {
     </div>}
     {!!error && <ErrorState className="m-2" error={error} />}
     {notesBar}
-    {tab === "files" && !p.archived && d.head ? <FilesChanged repo="local" number={0} head={d.head} local={{ id }} notes={lineNotes} onAddNote={active ? (n) => setNotes((all) => [...all, { path: n.path, text: lineNoteText(n) }]) : undefined} /> : <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+    {tab === "files" && !p.archived && d.head ? <FilesChanged repo="local" number={0} head={d.head} local={{ id }} notes={lineNotes} onAddNote={active ? (n) => setNotes((all) => [...all, { path: n.path, text: n.text, line: n.line ?? undefined, side: n.side }]) : undefined} /> : <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
       {tab === "files" && <Empty icon="info">{p.archived ? "This Local PR was discarded." : "No commits to compare yet."}</Empty>}
       {tab === "description" && <div className="grid max-w-text gap-4">
         {editing && active ? <div className="grid gap-3">{kept && <span className="text-[12px] text-ink-3">Draft kept: your unsaved title and description from before.</span>}<input aria-label="PR title" className="field-input" value={title} onChange={(e) => setTitle(e.target.value)} /><textarea aria-label="PR description" className="field-input min-h-48" value={body} onChange={(e) => setBody(e.target.value)} /><div className="flex gap-2"><button className="btn btn-primary w-fit" disabled={busy} onClick={() => void run(save, "Title and description saved")}>Save title and description</button><button className="btn" disabled={busy} onClick={() => { setTitle(p.title); setBody(p.body); setEditing(false); }}>Cancel</button></div></div>
@@ -173,9 +179,9 @@ function Review({ id }: { id: string }) {
         {active && <section className="grid gap-2 rounded-card border border-line p-3">
           <h3 className="seclabel m-0">Notes for the agent</h3>
           {notes.length === 0 && <p className="text-[12px] text-ink-3">Click a line in Changes to add a line note, or write a general note below.</p>}
-          {notes.map((n, i) => <div key={i} className="grid gap-1"><span className="font-mono text-[12px] text-ink-3">{n.path ?? "General"}</span><div className="flex items-start gap-2"><textarea aria-label={`Note ${i + 1}`} className="field-input min-h-14 flex-1" disabled={busy} value={n.text} onChange={(e) => setNotes((a) => a.map((v, j) => j === i ? { ...v, text: e.target.value } : v))} /><button className="iconbtn" aria-label="Remove note" title="Remove note" disabled={busy} onClick={() => setNotes((a) => a.filter((_, j) => i !== j))}><Icon name="trash" size={14} /></button></div></div>)}
+          {notes.map((n, i) => <div key={i} className="grid gap-1"><span className="font-mono text-[12px] text-ink-3">{n.path ?? "General"}{n.line != null && `:${n.line} (${n.side === "old" ? "removed" : "new"} line)`}</span><div className="flex items-start gap-2"><textarea aria-label={`Note ${i + 1}`} className="field-input min-h-14 flex-1" disabled={busy} value={n.text} onChange={(e) => setNotes((a) => a.map((v, j) => j === i ? { ...v, text: e.target.value } : v))} /><button className="iconbtn" aria-label="Remove note" title="Remove note" disabled={busy} onClick={() => setNotes((a) => a.filter((_, j) => i !== j))}><Icon name="trash" size={14} /></button></div></div>)}
           <textarea aria-label="General note" placeholder="General note for the agent…" className="field-input min-h-16" value={note} onChange={(e) => setNote(e.target.value)} />
-          <div className="flex flex-wrap items-center gap-2"><button className={`btn btn-sm ${all.length ? "btn-primary" : ""}`} disabled={!canSend} title={p.session_id ? undefined : "No agent works on this Local PR"} onClick={() => void sendNotes()}>Send {all.length || ""} note{all.length === 1 ? "" : "s"} to agent</button><button className="btn btn-sm" disabled={busy} onClick={() => void run(save, "Notes saved")}>Save notes</button><span className="text-[12px] text-ink-3">Notes stay on Home.</span></div>
+          <div className="flex flex-wrap items-center gap-2"><button className={`btn btn-sm ${all.length ? "btn-primary" : ""}`} disabled={!canSend} title={p.session_id ? undefined : "No agent works on this Local PR"} onClick={() => void sendNotes()}>Send {all.length || ""} note{all.length === 1 ? "" : "s"} to agent</button><span className="text-[12px] text-ink-3">Notes stay on Home.</span></div>
         </section>}
         <LocalSuggestions id={id} />
       </div>}
@@ -188,10 +194,11 @@ function Review({ id }: { id: string }) {
       <PhoneActions label="Local PR actions" closeOnAction={false}>{github ? <>{mergeButton("")}{discardButton}</> : discardButton}</PhoneActions>
       {publishing && <Sheet title="Publish on GitHub" onClose={() => setPublishing(false)}><div className="grid gap-3 p-4">{publishFields}{publishButton("")}</div></Sheet>}
     </div> : <div data-tour="predraft.actions" className="phone-publish-bar flex flex-wrap items-center gap-2 border-t border-line p-3">
-      {publishFields}
-      {publishButton(all.length ? "" : "btn-primary")}
+      {github && <Popover label="Publish on GitHub" align="left" width={360} trigger={({ toggle }) => <button className={`btn ${all.length ? "" : "btn-primary"}`} disabled={busy || running || !d.head} onClick={toggle}>Publish…</button>}>
+        {() => <div className="grid gap-3 p-3"><b className="text-[12px]">Branch and publication options</b>{publishFields}{publishButton("")}</div>}
+      </Popover>}
       {mergeButton("")}
-      {discardButton}
+      <Popover label="Local PR actions" align="right" trigger={({ toggle }) => <button className="iconbtn" aria-label="Local PR actions" onClick={toggle}><Icon name="more" size={16} /></button>}>{() => discardButton}</Popover>
     </div>)}
   </div>;
 }

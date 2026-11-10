@@ -58,7 +58,9 @@ async fn action(
         return Ok(Json(items::diff_summary(&s.app, &repo, n).await?));
     }
     // Publication succeeds independently of subsequent cache refresh.
-    let v = items::mutate(&s.app, &repo, n, &a, body).await?;
+    let v = if a == "review" {
+        launchpad_github::suggestions::submit_review(&s.app, &repo, n, body).await?
+    } else { items::mutate(&s.app, &repo, n, &a, body).await? };
 
     Ok(Json(v))
 }

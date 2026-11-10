@@ -291,7 +291,7 @@ export function githubWorld() {
     predraft({
       id: "demo-pr-refunds", project_id: P.docs, root: WT.refunds, branch: "lp/document-refund-flow", initial_base: DEMO_COMMITS.docsHead, session_id: "demo-s-docs", created_at: clock.ago(170),
       title: "Document the refund flow", body: "Adds `guide/refunds.md`: full and partial refunds, and the refund states.\n\n- New page in the navigation\n- A table of the refund states",
-      notes: [{ path: "guide/refunds.md", text: "Line 14: Say whether the customer also gets an email for a partial refund." }],
+      notes: [{ path: "guide/refunds.md", line: 14, side: "new", text: "Say whether the customer also gets an email for a partial refund." }],
     }),
     predraft({
       id: "demo-pr-prices", project_id: P.storefront, root: WT.prices, branch: "lp/format-prices", initial_base: DEMO_COMMITS.storefrontPrev, created_at: clock.ago(60 * 24),

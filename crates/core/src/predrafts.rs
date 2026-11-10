@@ -15,6 +15,12 @@ use ts_rs::TS;
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 pub struct Note {
     pub path: Option<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub line: Option<u64>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub side: Option<String>,
     pub text: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -422,7 +428,7 @@ pub async fn feedback(app: &App, id: &str) -> Result<()> {
     let message = format!(
         "Please address these Local PR review notes on branch `{}`, commit your changes, and update the title and description with launchpad pr update. Do not open a pull request on GitHub.\n\n{}",
         p.branch,
-        p.notes.iter().map(|n| format!("{}:\n{}", n.path.as_deref().unwrap_or("General"), n.text)).collect::<Vec<_>>().join("\n\n")
+        p.notes.iter().map(|n| format!("{}:\n{}", n.path.as_deref().unwrap_or("General"), match n.line { Some(line) => format!("Line {line} ({}): {}", n.side.as_deref().unwrap_or("new"), n.text), None => n.text.clone() })).collect::<Vec<_>>().join("\n\n")
     );
     let sent_notes = p.notes.clone();
     drop(_lock);

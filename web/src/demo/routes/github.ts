@@ -151,7 +151,10 @@ route("POST", "/api/items/:owner/:repo/:number/:action", ({ params, body }) => {
     case "review": {
       const state = REVIEW[body?.event];
       if (!state) throw new DemoError(400, "invalid review");
+      if (body?.commit_id && body.commit_id !== item.headRefOid) throw new DemoError(400, "PR head changed");
       postReview(item, state, String(body?.body ?? ""), body?.comments ?? []);
+      if (body?.source) { const s = suggestionOf(body.source); s.status = "posted"; publish("suggestions", "updated", s); }
+      if (body?.merge) { item.merged = true; item.state = "CLOSED"; touch(item); }
       githubDemo(`posted a review on #${item.number}`);
       break;
     }
@@ -296,7 +299,7 @@ route("POST", "/api/predrafts/:id/:action", ({ params, body }) => {
     case "refresh": return detail(p);
     case "feedback": {
       if (!p.session_id || !p.notes.length) throw new DemoError(400, "no notes to send");
-      const text = `Feedback on the Local PR “${p.title}”:\n\n${p.notes.map((n) => `- ${n.path ? `${n.path}: ` : ""}${n.text}`).join("\n")}`;
+      const text = `Feedback on the Local PR “${p.title}”:\n\n${p.notes.map((n) => `- ${n.path ? `${n.path}${n.line ? `:${n.line} (${n.side ?? "new"})` : ""}: ` : ""}${n.text}`).join("\n")}`;
       if (localPrHooks.feedback) localPrHooks.feedback(p, text);
       else appendEvent(p.session_id, { kind: "user_message", text, client_id: `demo-feedback-${clock.now()}`, queued: false, images: [] });
       p.notes = [];

@@ -119,6 +119,7 @@ The Git and storage design is in `docs/architecture.md`; these rules must hold.
 
 ### GitHub
 
+- A PR has one pending review on Home (`pending-review:` review state): summary, event, follow-up, line comments and source suggestion. Review entry points open that panel; agent reviews enter through Use or Drop. Never create GitHub pending reviews. Posting claims the source suggestion before the write, records success before follow-ups and never retries an uncertain publication or follow-up. Local PR line-note locations are records, separate from editable text.
 - Detail and list GETs return cached content; POST refreshes. Label/reviewer pickers read `cache.db` only.
 - `all=true` notifications include historical Done threads; keep inbox membership in `state.db` and never promise exact parity with the web inbox. A missing thread subscription (404) is not evidence of unsubscribe.
 
