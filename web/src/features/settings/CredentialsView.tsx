@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { HomeToken } from "@/gen/HomeToken";
 import type { LeaseInfo } from "@/gen/LeaseInfo";
+import type { LoginCheck } from "@/gen/LoginCheck";
 import type { ProxyAuth } from "@/gen/ProxyAuth";
 import type { Tool } from "@/gen/Tool";
 import type { ToolTest } from "@/gen/ToolTest";
@@ -18,8 +19,9 @@ import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { delegatedAccess } from "@/lib/deployment";
 import { homeStatus } from "@/features/setup/summary";
-import { ago } from "@/lib/format";
-import { useSessions } from "@/lib/queries";
+import { ago, time } from "@/lib/format";
+import { useSessions, useStatus } from "@/lib/queries";
+import { runAction } from "@/lib/actions";
 import { useWorkspaces } from "@/lib/workspace";
 import { Card, SettingsPage } from "./SettingsView";
 import { McpServers } from "./McpServers";
@@ -53,7 +55,7 @@ function Vault({ v }: { v: VaultOverview }) {
             <div key={l.harness} className="grid gap-1.5 border-b border-line-2 pb-2.5 last:border-b-0 last:pb-0">
               <div className="text-[13px] font-semibold">{l.name}</div>
               {mine.length === 0 && <span className="text-[12px] text-ink-3">No login yet: {l.name} sessions cannot start.</span>}
-              {mine.map((e, i) => <EntryRow key={e.id} id={e.id} name={e.name} detail={e.detail} note={i === 0 ? "default" : undefined} updatedAt={e.updated_at} onDone={refresh} />)}
+              {mine.map((e, i) => <LoginRow key={e.id} id={e.id} name={e.name} detail={e.detail} harness={l.harness} harnessName={l.name} note={i === 0 ? "default" : undefined} updatedAt={e.updated_at} onDone={refresh} />)}
               {delegatedAccess() && SIGN_IN[l.harness] ? (
                 <HomeSignIn tool={SIGN_IN[l.harness]} name={l.name} onDone={refresh}>
                   <AddSecret label="Paste a login instead" kind={l.kind} hint={l.how} multiline={l.kind === "codex_login"} onDone={refresh} />
@@ -92,10 +94,13 @@ async function gateway(path: string, body: Record<string, unknown>): Promise<{ l
 
 /** Signs in on Home itself, like its setup page: Home runs `claude setup-token`, `codex login --device-auth` or
  * `gh auth login --web`, the owner approves in the browser (and pastes Claude's code back). A harness login goes
- * straight into the vault with a profile that uses it; GitHub's stays Home's own login (sealed in its bucket). */
-export function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | "codex" | "github"; name: string; onDone: () => unknown; children?: ReactNode }) {
+ * straight into the vault with a profile that uses it, or replaces the login `replace` in place (same ID and name,
+ * so its profiles and leases keep it); GitHub's stays Home's own login (sealed in its bucket). `startNow` starts the
+ * sign-in at once (Refresh found a refused login). */
+export function HomeSignIn({ tool, name, onDone, children, replace, startNow, onCancel }: { tool: "claude" | "codex" | "github"; name: string; onDone: () => unknown; children?: ReactNode; replace?: string; startNow?: boolean; onCancel?: () => void }) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(!!startNow);
+  const setOpen = (o: boolean) => { setOpenState(o); if (!o) onCancel?.(); };
   const [label, setLabel] = useState("");
   const [login, setLogin] = useState<GatewayLogin | null>(null);
   const [code, setCode] = useState("");
@@ -113,7 +118,7 @@ export function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | 
         setLogin(next);
         if (next && !next.running && !next.error) {
           watching.current = false;
-          toast(github ? "Signed in to GitHub" : `Signed in to ${name}: Home keeps the login`);
+          toast(github ? "Signed in to GitHub" : replace ? `Signed in to ${name} again: Home replaced the login` : `Signed in to ${name}: Home keeps the login`);
           setOpen(false);
           setLabel("");
           void qc.invalidateQueries({ queryKey: ["config"] });
@@ -122,12 +127,19 @@ export function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | 
       }, () => undefined);
     }, 1500);
     return () => clearInterval(timer);
-  }, [active, name, onDone, qc]);
+  }, [active, name, onDone, qc, replace]);
   const run = (path: string, body: Record<string, unknown>) => {
     setBusy(true);
     return gateway(path, body).then((r) => setLogin(r.login), toastError).finally(() => setBusy(false));
   };
-  const start = () => { watching.current = true; void run("/_home/login", { tool, name: label.trim() || null }); };
+  const start = () => { watching.current = true; void run("/_home/login", replace ? { tool, replace } : { tool, name: label.trim() || null }); };
+  // Started once, also under React's double effects in development.
+  const startedNow = useRef(false);
+  useEffect(() => {
+    if (!startNow || startedNow.current) return;
+    startedNow.current = true;
+    start();
+  });
   const failed = login && !login.running ? login.error : null;
   // GitHub has one login and nothing to name: the button starts the sign-in.
   if (github && !active) return <div className="grid gap-1.5">
@@ -138,8 +150,12 @@ export function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | 
   return (
     <div className="grid gap-2 rounded-card border border-line-2 p-2.5 text-[13px]">
       {!active ? <>
-        <span className="text-[12px] text-ink-3">Home runs the {name} sign-in itself. Approve it in your browser with the subscription account; the login goes straight into Home's vault, with a profile that uses it.</span>
-        <label className="grid gap-1"><span className="text-ink-2">Name <span className="text-ink-3">(optional)</span></span><input className="field-input w-[280px] max-w-full" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Work" /></label>
+        {replace
+          ? <span className="text-[12px] text-ink-3">Home runs the {name} sign-in itself. Approve it in your browser with the same subscription account; the new login replaces this one, so its profiles and running agents keep it.</span>
+          : <>
+            <span className="text-[12px] text-ink-3">Home runs the {name} sign-in itself. Approve it in your browser with the subscription account; the login goes straight into Home's vault, with a profile that uses it.</span>
+            <label className="grid gap-1"><span className="text-ink-2">Name <span className="text-ink-3">(optional)</span></span><input className="field-input w-[280px] max-w-full" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Work" /></label>
+          </>}
         {failed && <span className="text-[12px] text-attn">{failed}</span>}
         <div className="flex flex-wrap gap-2">
           <button className="btn btn-sm btn-primary" disabled={busy} onClick={start}>{busy ? "Starting…" : `Sign in to ${name}`}</button>
@@ -161,7 +177,7 @@ export function HomeSignIn({ tool, name, onDone, children }: { tool: "claude" | 
             <a className="btn btn-sm btn-primary w-fit" href={login.link} target="_blank" rel="noreferrer">Open the sign-in page</a>
           </>}
         <span className="text-[12px] text-ink-3">{tool === "claude" ? "The code goes to Claude Code on Home; the token it creates goes straight into the vault." : github ? "The code expires after a few minutes. This updates when you approve it; Home keeps the login encrypted in its bucket." : "The code expires after a few minutes. This updates when you approve it."}</span>
-        <button className="btn btn-sm w-fit" disabled={busy} onClick={() => { watching.current = false; void run("/_home/cancel", {}).then(() => setLogin(null)); }}>Cancel the sign-in</button>
+        <button className="btn btn-sm w-fit" disabled={busy} onClick={() => { watching.current = false; void run("/_home/cancel", {}).then(() => { setLogin(null); if (replace) setOpen(false); }); }}>Cancel the sign-in</button>
       </>}
     </div>
   );
@@ -173,6 +189,43 @@ function EntryRow({ id, name, detail, note, updatedAt, onDone }: { id: string; n
       <span className="min-w-0 flex-1"><b>{name}</b> <span className="font-mono text-[12px] text-ink-3">{id}</span> <span className="text-[12px] text-ink-3">· {detail} · updated {ago(updatedAt)}</span></span>
       {note && <Badge tone="teal">{note}</Badge>}
       <ConfirmButton icon="trash" consequence={`Deletes ${name} from Home. Sessions that use it fail to start or lose it at their next lease renewal.`} confirmLabel="Delete" onConfirm={() => api.delete(`/api/vault/entries/${id}`).then(onDone, toastError)}>Delete</ConfirmButton>
+    </div>
+  );
+}
+
+/** A harness login of the vault. Refresh (the row's main action) refreshes a Codex login on Home now or checks a
+ * Claude token with a one-token request, then reads the quota again; the result shows under the row. When the
+ * provider refused the login (Refresh, or Home's last quota reading), Home's own sign-in starts for this login on a
+ * Space and replaces it in place. */
+function LoginRow({ id, name, detail, harness, harnessName, note, updatedAt, onDone }: { id: string; name: string; detail: string; harness: string; harnessName: string; note?: string; updatedAt: number; onDone: () => unknown }) {
+  const [result, setResult] = useState<(LoginCheck & { at: number }) | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [signIn, setSignIn] = useState(false);
+  const reading = useStatus().data?.quotas[`vault:${id}`];
+  const gatewaySignIn = delegatedAccess() && SIGN_IN[harness];
+  const refresh = () => {
+    setBusy(true);
+    setResult(null);
+    void runAction<LoginCheck>("vault.refresh-login", { id }).then((r) => {
+      setResult({ ...r, at: Date.now() });
+      if (r.sign_in && gatewaySignIn) setSignIn(true);
+      return onDone();
+    }, toastError).finally(() => setBusy(false));
+  };
+  const refused = result ? result.sign_in : !!reading?.refused;
+  const how = gatewaySignIn ? "Refresh starts a new sign-in on Home." : "Sign in again on Home's setup page.";
+  return (
+    <div className="grid gap-1.5">
+      <div className="group flex flex-wrap items-center gap-2 text-[13px]">
+        <span className="min-w-0 flex-1"><b>{name}</b> <span className="font-mono text-[12px] text-ink-3">{id}</span> <span className="text-[12px] text-ink-3">· {detail} · updated {ago(updatedAt)}</span></span>
+        {note && <Badge tone="teal">{note}</Badge>}
+        <RowActions label={`More actions for ${name}`} width={80} main={<button className="btn btn-sm" disabled={busy || signIn} onClick={refresh}>{busy ? "Refreshing…" : "Refresh"}</button>} more={(close) => <>
+          <MenuSection><ConfirmButton icon="trash" consequence={`Deletes ${name} from Home. Sessions that use it fail to start or lose it at their next lease renewal.`} confirmLabel="Delete" onConfirm={() => api.delete(`/api/vault/entries/${id}`).then(() => { close(); return onDone(); }, toastError)}>Delete</ConfirmButton></MenuSection>
+        </>} />
+      </div>
+      {result && !refused && <span className={`text-[12px] ${result.ok ? "text-ink-3" : "text-attn"}`}>{result.ok ? `${result.message} at ${time(result.at)}.` : result.message}</span>}
+      {refused && !signIn && <span className="text-[12px] text-attn">{harnessName} refused this login: it needs a new sign-in. {how}{(result?.message ?? reading?.quota_error) && <span className="text-ink-3"> ({result?.message ?? reading?.quota_error})</span>}</span>}
+      {signIn && gatewaySignIn && <HomeSignIn tool={gatewaySignIn} name={harnessName} replace={id} startNow onCancel={() => setSignIn(false)} onDone={() => { setSignIn(false); setResult(null); return onDone(); }} />}
     </div>
   );
 }

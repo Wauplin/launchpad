@@ -68,6 +68,7 @@ export type ActionName =
   | "outbox.discard"
   | "inbox.done"
   | "inbox.restore"
+  | "vault.refresh-login"
   | "tool.save";
 
 export const ACTIONS: Record<ActionName, Action> = {
@@ -137,5 +138,6 @@ export const ACTIONS: Record<ActionName, Action> = {
   "outbox.discard": {"name":"outbox.discard","method":"POST","route":"/api/outbox/{id}/discard","label":"Discard","icon":null,"help":"Discard an Outbox message","input":[],"body_file":null,"fixed":null,"confirm":"Moves the draft to Discarded.","effect":"record","access":"owner","card":null,"undo":null,"before":null,"ready":false},
   "inbox.done": {"name":"inbox.done","method":"POST","route":"/api/inbox/{id}/action","label":"Done","icon":"check","help":"Mark an Inbox thread done, here and on GitHub","input":[],"body_file":null,"fixed":"{\"action\": \"done\"}","confirm":null,"effect":"outside","access":"owner","card":null,"undo":"inbox.restore","before":null,"ready":true},
   "inbox.restore": {"name":"inbox.restore","method":"POST","route":"/api/inbox/restore","label":"Restore","icon":"refresh","help":"Bring Inbox threads marked done back","input":[{"name":"ids","kind":"json","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"owner","card":null,"undo":null,"before":null,"ready":false},
+  "vault.refresh-login": {"name":"vault.refresh-login","method":"POST","route":"/api/vault/entries/{id}/refresh","label":"Refresh","icon":"refresh","help":"Refresh a harness login of Home's vault now (a Codex login gets new tokens whatever their expiry; a Claude token is checked with a one-token request) and read its quota again; says when the login needs a new sign-in","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"checks","access":"owner","card":null,"undo":null,"before":null,"ready":false},
   "tool.save": {"name":"tool.save","method":"PUT","route":"/api/vault/tools/{id}","label":"Add tool","icon":null,"help":"Add a tool to Home's registry","input":[],"body_file":null,"fixed":null,"confirm":"Adds this tool and its credential hosts to Home's registry.","effect":"machine","access":"owner","card":"tool","undo":null,"before":null,"ready":false},
 };

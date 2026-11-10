@@ -1252,6 +1252,13 @@ impl harness::Harness for Adapter {
         let server = self.quota_servers.lock().unwrap().entry(account.key.clone()).or_insert_with(|| CodexServer::new(self.env.with(&account.env))).clone();
         Some(spawn_quota(app, server, account.key))
     }
+    async fn read_quota_now(&self, _app: &App, account: launchpad_core::quota::QuotaAccount) -> Result<launchpad_core::quota::QuotaPair> {
+        // The app-server keeps the login it started with: start it again on Home's rewritten copy.
+        let server = self.quota_servers.lock().unwrap().entry(account.key.clone()).or_insert_with(|| CodexServer::new(self.env.with(&account.env))).clone();
+        server.restart().await;
+        let res = server.request("account/rateLimits/read", Value::Null).await?;
+        Ok(windows(&res["rateLimits"]))
+    }
     fn terminal_resume_markers(&self) -> &'static [&'static str] {
         &["resume"]
     }
@@ -1313,6 +1320,12 @@ impl harness::Harness for Adapter {
 }
 /// Quota from a Codex `rateLimits` object.
 fn rate_limits(status: &launchpad_core::status::StatusHandle, account: &str, rl: &Value) {
+    let (five, week) = windows(rl);
+    status.update_quota(account, five, week);
+}
+
+/// The 5-hour and weekly windows of a Codex `rateLimits` object.
+fn windows(rl: &Value) -> launchpad_core::quota::QuotaPair {
     let mut five = None;
     let mut week = None;
     for key in ["primary", "secondary"] {
@@ -1335,7 +1348,7 @@ fn rate_limits(status: &launchpad_core::status::StatusHandle, account: &str, rl:
             _ => week = Some(q),
         }
     }
-    status.update_quota(account, five, week);
+    (five, week)
 }
 /// Reads the rate limits of one login through an app-server running with its `CODEX_HOME`, and listens to
 /// the updates it pushes in between.

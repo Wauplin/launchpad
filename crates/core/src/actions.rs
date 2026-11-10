@@ -182,6 +182,7 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "outbox.discard", route: "/api/outbox/{id}/discard", label: "Discard", help: "Discard an Outbox message", confirm: Some("Moves the draft to Discarded."), access: Owner, ..A },
     Action { name: "inbox.done", route: "/api/inbox/{id}/action", label: "Done", icon: Some("check"), help: "Mark an Inbox thread done, here and on GitHub", fixed: Some("{\"action\": \"done\"}"), effect: Outside, access: Owner, undo: Some("inbox.restore"), ready: true, ..A },
     Action { name: "inbox.restore", route: "/api/inbox/restore", label: "Restore", icon: Some("refresh"), help: "Bring Inbox threads marked done back", input: &[f("ids", Json)], access: Owner, ..A },
+    Action { name: "vault.refresh-login", route: "/api/vault/entries/{id}/refresh", label: "Refresh", icon: Some("refresh"), help: "Refresh a harness login of Home's vault now (a Codex login gets new tokens whatever their expiry; a Claude token is checked with a one-token request) and read its quota again; says when the login needs a new sign-in", effect: Checks, access: Owner, ..A },
     Action { name: "tool.save", method: "PUT", route: "/api/vault/tools/{id}", label: "Add tool", help: "Add a tool to Home's registry", confirm: Some("Adds this tool and its credential hosts to Home's registry."), effect: Machine, access: Owner, card: Some("tool"), ..A },
 ];
 

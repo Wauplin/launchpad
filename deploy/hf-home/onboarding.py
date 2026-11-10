@@ -299,6 +299,14 @@ class Login:
                 "needs_code": self.terminal and bool(link) and not self.code_sent, "error": self.error}
 
 
+def replaced_entry(entries, harness, entry_id):
+    """The vault login a new sign-in replaces: an existing entry of this harness's login kind."""
+    entry = next((e for e in entries if e.get("id") == str(entry_id) and e.get("kind") == LOGINS.get(harness)), None)
+    if not entry:
+        raise ValueError(f"Home's vault has no {NAMES.get(harness, harness)} login {entry_id}")
+    return entry
+
+
 class Setup:
     def __init__(self, space, host, bucket, credentials, key):
         self.space, self.host, self.bucket = space, host, bucket
@@ -585,8 +593,9 @@ class Setup:
 
     # ------------------------------------------------------------------ actions
 
-    async def start(self, tool, name=None):
-        """Starts a fixed sign-in. `name` labels a Claude Code or Codex login (Settings → Credentials adds more than one)."""
+    async def start(self, tool, name=None, replace=None):
+        """Starts a fixed sign-in. `name` labels a Claude Code or Codex login (Settings → Credentials adds more than one);
+        `replace` is the ID of a vault login that the new sign-in replaces in place (Settings → Credentials, Refresh)."""
         name = re.sub(r"\s+", " ", str(name or "")).strip()[:60] or None
         async with self.lock:
             if self.login and self.login.running:
@@ -608,6 +617,14 @@ class Setup:
             elif tool in ("codex", "claude"):
                 if not self.api:
                     raise ValueError("Home is still starting. Try again in a moment.")
+                entry = replaced_entry((await self.api("GET", "/api/vault"))["entries"], tool, replace) if replace else None
+
+                async def store(secret):
+                    if entry:
+                        await self.replace_login(tool, secret, entry)
+                    else:
+                        await self.add_login(tool, secret, name)
+
                 # A throwaway home for the CLI: the login goes to the vault, then this folder is deleted.
                 folder = Path.home() / ".local/state/home-setup" / secrets.token_hex(8)
                 folder.mkdir(mode=0o700, parents=True)
@@ -619,7 +636,7 @@ class Setup:
                     (folder / "config.toml").write_text('cli_auth_credentials_store = "file"\n')
 
                     async def done(_):
-                        await self.add_login("codex", (folder / "auth.json").read_text(), name)
+                        await store((folder / "auth.json").read_text())
 
                     self.login = Login(tool, ("codex", "login", "--device-auth"), dict(base, CODEX_HOME=str(folder)), done, cleanup)
                 else:
@@ -627,7 +644,7 @@ class Setup:
                         token = claude_token(output, complete=True)
                         if not token:
                             raise ValueError("Claude Code did not print a token. Start the sign-in again.")
-                        await self.add_login("claude", token, name)
+                        await store(token)
 
                     env = dict(base, CLAUDE_CONFIG_DIR=str(folder), TERM="xterm-256color")
                     env.pop("NO_COLOR")
@@ -673,6 +690,12 @@ class Setup:
         await self.api("PUT", "/api/config", config)
         await self.check_home(force=True)
 
+    async def replace_login(self, harness, secret, entry):
+        """A new sign-in of an existing vault login: same ID and name, so its profiles and the leases that hold it keep
+        it (Home renews them and reads the quota again). Profiles are not touched."""
+        await self.api("PUT", f"/api/vault/entries/{entry['id']}", {"kind": LOGINS[harness], "name": entry["name"], "value": secret})
+        await self.check_home(force=True)
+
     async def set_profiles(self, body):
         """The default model and effort of each signed-in profile (`profiles`: a list of `id`, `model`, `effort`)."""
         choices = body.get("profiles")
@@ -701,7 +724,7 @@ class Setup:
 
     async def action(self, path, body):
         if path == "/_home/login":
-            await self.start(body.get("tool"), body.get("name"))
+            await self.start(body.get("tool"), body.get("name"), body.get("replace"))
         elif path == "/_home/cancel":
             if self.login:
                 self.login.cancelled = True

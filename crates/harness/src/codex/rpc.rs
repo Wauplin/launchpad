@@ -67,6 +67,16 @@ impl CodexServer {
         }
     }
 
+    /// Ends the running process, if any: the next request starts a new one, which reads its login again.
+    pub async fn restart(&self) {
+        let old = self.proc.lock().await.take();
+        if let Some(p) = old {
+            p.alive.store(false, Ordering::Relaxed);
+            // The app-server exits at the end of its input.
+            let _ = p.stdin.lock().await.shutdown().await;
+        }
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<Incoming> {
         self.incoming.subscribe()
     }

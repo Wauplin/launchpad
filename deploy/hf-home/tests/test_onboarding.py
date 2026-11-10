@@ -1,6 +1,6 @@
 import unittest
 
-from onboarding import SKIPPED, Setup, claude_token, derive_key, device_prompt, github_refused, key_opens, last_line, noreply_email, seal, unique_id, unseal
+from onboarding import SKIPPED, Setup, claude_token, derive_key, device_prompt, github_refused, key_opens, last_line, noreply_email, replaced_entry, seal, unique_id, unseal
 
 
 class DevicePrompt(unittest.TestCase):
@@ -116,3 +116,12 @@ class Steps(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReplacedEntry(unittest.TestCase):
+    def test_only_an_existing_login_of_the_harness(self):
+        entries = [{"id": "codex", "kind": "codex_login", "name": "Work"}, {"id": "gh", "kind": "token", "name": "GitHub"}]
+        self.assertEqual(replaced_entry(entries, "codex", "codex")["name"], "Work")
+        for harness, entry_id in (("claude", "codex"), ("codex", "gh"), ("codex", "missing")):
+            with self.assertRaises(ValueError):
+                replaced_entry(entries, harness, entry_id)

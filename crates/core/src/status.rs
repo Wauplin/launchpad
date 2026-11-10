@@ -57,6 +57,9 @@ pub struct QuotaStatus {
     #[ts(type = "number | null")]
     pub quota_at: Option<i64>,
     pub quota_error: Option<String>,
+    /// The provider refused this vault login (401, expired or revoked token): it needs a new sign-in. Cleared by
+    /// the next reading.
+    pub refused: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
@@ -109,7 +112,11 @@ impl StatusHandle {
     }
 
     pub fn quota_error(&self, account: &str, error: String) {
-        self.update(|s| if let Some(q) = s.quotas.get_mut(account) { q.quota_error = Some(error) });
+        let refused = account.starts_with("vault:") && crate::vault::login_refused(&error);
+        self.update(|s| if let Some(q) = s.quotas.get_mut(account) {
+            q.quota_error = Some(error);
+            q.refused = refused;
+        });
     }
 
     pub fn update_harness(

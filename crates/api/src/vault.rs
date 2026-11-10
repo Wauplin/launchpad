@@ -17,6 +17,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/vault", get(overview))
         .route("/api/vault/entries/{id}", put(put_entry).delete(delete_entry))
         .route("/api/vault/entries/{id}/from-home", post(entry_from_home))
+        .route("/api/vault/entries/{id}/refresh", post(refresh_entry))
         .route("/api/vault/tools/{id}", put(put_tool).delete(delete_tool))
         .route("/api/vault/tools/{id}/test", post(test_tool))
         .route("/api/vault/tools.toml", get(export))
@@ -62,6 +63,11 @@ struct FromHomeBody {
 /// Copies Home's own GitHub or Hugging Face token into an entry. Only on Home; the token is never returned.
 async fn entry_from_home(State(s): State<Ctx>, Path(id): Path<String>, Json(b): Json<FromHomeBody>) -> ApiResult<VaultEntry> {
     Ok(Json(vault::put_from_home(&s.app, &id, &b.name, b.source).await.map_err(bad)?))
+}
+
+/// Refresh of a harness login (the owner's click): what it found, also when the provider refused the login.
+async fn refresh_entry(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<vault::LoginCheck> {
+    Ok(Json(vault::refresh_login(&s.app, &id).await.map_err(bad)?))
 }
 
 async fn delete_entry(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {

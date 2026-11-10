@@ -3,6 +3,7 @@
 
 import { toast } from "@/components/Toast";
 import type { Config } from "@/gen/Config";
+import type { LoginCheck } from "@/gen/LoginCheck";
 import type { QuotaStatus } from "@/gen/QuotaStatus";
 import type { SignInCheck } from "@/gen/SignInCheck";
 import type { ProfileSpend } from "@/gen/ProfileSpend";
@@ -34,7 +35,7 @@ function syncProfiles() {
     const old = quotas[key] ?? world.status.quotas[key];
     quotas[key] = old
       ? { ...old, profiles: quotas[key] ? [...quotas[key]!.profiles, p.id] : [p.id] }
-      : { harness: p.harness, profiles: [p.id], five_hour: { used_percent: Math.round(rand() * 20), resets_at: Math.floor(clock.ago(-180) / 1000) }, weekly: { used_percent: Math.round(rand() * 15), resets_at: Math.floor(clock.ago(-60 * 24 * 5) / 1000) }, quota_at: clock.now(), quota_error: null };
+      : { harness: p.harness, profiles: [p.id], five_hour: { used_percent: Math.round(rand() * 20), resets_at: Math.floor(clock.ago(-180) / 1000) }, weekly: { used_percent: Math.round(rand() * 15), resets_at: Math.floor(clock.ago(-60 * 24 * 5) / 1000) }, quota_at: clock.now(), quota_error: null, refused: false };
   }
   const spend: ProfileSpend[] = profiles.filter((p) => p.billing === "pay_as_you_go" && p.spend_limits.length).map((p) => {
     const old = world.status.spend.find((s) => s.profile === p.id);
@@ -215,6 +216,8 @@ route("GET", "/api/burst", () => ({ config: world.config.home.burst, unavailable
 route("GET", "/api/vault/tools.toml", () => ({ toml: "[[tools]]\nid = \"gh\"\n" }));
 route("PUT", "/api/vault/entries/:id", notInDemo);
 route("POST", "/api/vault/entries/:id/from-home", notInDemo);
+// Refresh of a harness login: the demo's Claude token always works.
+route("POST", "/api/vault/entries/:id/refresh", (): LoginCheck => ({ ok: true, message: "The login works; quota read", sign_in: false, refreshed: false }));
 route("DELETE", "/api/vault/entries/:id", notInDemo);
 route("POST", "/api/vault/tools/:id/test", () => ({ ok: true, status: 200, message: "The token works on api.github.com." }));
 route("PUT", "/api/vault/tools/:id", notInDemo);

@@ -985,6 +985,9 @@ impl harness::Harness for Adapter {
     fn spawn_quota(&self, app: &App, account: launchpad_core::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
         Some(spawn_quota(app, account))
     }
+    async fn read_quota_now(&self, app: &App, account: launchpad_core::quota::QuotaAccount) -> Result<launchpad_core::quota::QuotaPair> {
+        read_quota_now(app, &account).await
+    }
     async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<harness::trace::TraceFile>> {
         let id = harness::trace::conversation(session)?;
         let root = harness::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await?;
@@ -1234,6 +1237,27 @@ fn spawn_quota(app: &App, account: launchpad_core::quota::QuotaAccount) -> tokio
             };
         }
     })
+}
+
+/// The owner's Refresh of a vault login: a one-token request (`probe_with_token`) checks the token and reads the
+/// quota. While a window is used up and has not reset, that request could be paid extra usage: only the usage
+/// endpoint is asked then (a `claude setup-token` token cannot read it, so the token stays unchecked).
+async fn read_quota_now(app: &App, account: &launchpad_core::quota::QuotaAccount) -> Result<QuotaPair> {
+    let token = account.env.iter().find(|(k, _)| k == "CLAUDE_CODE_OAUTH_TOKEN").map(|(_, v)| v.clone()).context("this login has no token in Home's vault")?;
+    let client = launchpad_core::status::http_client();
+    let now = now_ms();
+    let q = launchpad_core::quota::reading(app, &account.key);
+    let Some(used_up) = launchpad_core::quota::exhausted(&q).into_iter().find(|b| b.resets_at.is_none_or(|r| r > now / 1000)) else {
+        return probe_with_token(&client, &token).await;
+    };
+    match usage_with_token(&client, &token).await {
+        Ok(pair) => Ok(pair),
+        Err(e) if launchpad_core::vault::login_refused(&format!("{e:#}")) => Err(e),
+        Err(_) => {
+            let reset = used_up.resets_at.map(|r| format!(" (resets in {} min)", (r - now / 1000).max(60) / 60)).unwrap_or_default();
+            bail!("the {} quota is used up{reset}: Home sent no model request, which could use extra usage, so the token was not checked", used_up.window.to_lowercase())
+        }
+    }
 }
 
 /// A one-token request may read the quota: no fresh reading, and no used-up window that has not reset (a

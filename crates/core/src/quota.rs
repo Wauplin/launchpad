@@ -9,6 +9,9 @@ use crate::{
 };
 use std::collections::{BTreeMap, HashMap};
 
+/// The 5-hour and weekly windows of one reading.
+pub type QuotaPair = (Option<crate::status::QuotaWindow>, Option<crate::status::QuotaWindow>);
+
 /// A monitored subscription login, given to `Harness::spawn_quota`.
 #[derive(Clone, Debug)]
 pub struct QuotaAccount {
@@ -31,6 +34,8 @@ pub fn reading_for(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> QuotaS
 
 /// An incomplete provider snapshot cannot erase an exhausted window or authorize automatic work.
 pub fn update_reading(s: &mut QuotaStatus, five: Option<crate::status::QuotaWindow>, week: Option<crate::status::QuotaWindow>) {
+    // Any reading came with the login: the provider accepts it.
+    s.refused = false;
     if [&five, &week].into_iter().any(|w| w.as_ref().is_none_or(|w| !w.used_percent.is_finite() || w.used_percent < 0.0)) {
         // Partial evidence may add a blocker, but only a complete reading may remove one.
         for (stored, incoming) in [(&mut s.five_hour, five), (&mut s.weekly, week)] {
@@ -292,11 +297,14 @@ fn vault_readings(app: &App) -> BTreeMap<String, QuotaStatus> {
     out
 }
 
+type Env = Vec<(String, String)>;
+
 /// Starts a quota monitor for each wanted login and stops those no longer wanted.
 fn spawn_monitors(app: &App) {
     let app = app.clone();
     tokio::spawn(async move {
-        let mut tasks: HashMap<String, tokio::task::JoinHandle<()>> = HashMap::new();
+        // Each monitor with the login variables it started with: a replaced login (a new token) starts it again.
+        let mut tasks: HashMap<String, (tokio::task::JoinHandle<()>, Env)> = HashMap::new();
         let mut sent = String::new();
         let mut tick = 0u32;
         loop {
@@ -318,8 +326,8 @@ fn spawn_monitors(app: &App) {
                 continue;
             }
             let wanted = vault_wanted(&app).await;
-            tasks.retain(|key, task| {
-                let keep = wanted.contains_key(key);
+            tasks.retain(|key, (task, env)| {
+                let keep = wanted.get(key).is_some_and(|(account, _)| &account.env == env);
                 if !keep { task.abort(); }
                 keep
             });
@@ -338,8 +346,9 @@ fn spawn_monitors(app: &App) {
             }
             for (key, (account, _)) in wanted {
                 if tasks.contains_key(&key) { continue; }
+                let env = account.env.clone();
                 if let Some(task) = app.harnesses.get(account.harness).spawn_quota(&app, account) {
-                    tasks.insert(key, task);
+                    tasks.insert(key, (task, env));
                 }
             }
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;

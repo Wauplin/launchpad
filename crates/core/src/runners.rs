@@ -560,6 +560,8 @@ pub mod proto {
         Settings { worktrees_keep: u32 },
         /// Quota readings of Home's logins (`vault:<id>`), on connect and when they change.
         Quotas { quotas: std::collections::BTreeMap<String, crate::status::QuotaStatus> },
+        /// Home refreshed or replaced this vault login: renew the leases that hold it now (`contain::renew_soon`).
+        RenewLeases { login: String },
         /// The status and headers of an exchange opened with `FromRunner::HttpOpen`.
         HttpHead { id: u64, status: u16, headers: Vec<(String, String)> },
         /// A part of a response body (base64); `end` closes it, with `error` when it ended early.

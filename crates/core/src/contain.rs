@@ -320,6 +320,17 @@ pub async fn release(app: &App, session_id: &str) {
     });
 }
 
+/// Home refreshed or replaced the vault login `login`: the leases that hold it renew at the next renewal check
+/// (within a minute) instead of up to ten minutes later. Their hour without Home counts from the same time.
+pub fn renew_soon(app: &App, login: &str) {
+    let due = now_ms() - crate::vault::RENEW_EVERY_MS;
+    for active in app.proxy.all() {
+        if active.lease.read().unwrap().login.as_ref().is_some_and(|l| l.id == login) {
+            active.renewed_at.fetch_min(due, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
 /// Renews every lease every ten minutes; a lease that Home refuses, or that could not be renewed for an hour,
 /// is dropped.
 fn spawn_renewals(app: App) {

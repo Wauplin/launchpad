@@ -234,6 +234,12 @@ pub trait Harness: Send + Sync {
     fn spawn_quota(&self, _app: &App, _account: crate::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
         None
     }
+    /// Reads the quota of one vault login now, on the owner's Refresh (Settings → Credentials and tools), which
+    /// also tells whether the provider still accepts the login. `account.env` is Home's copy of the login
+    /// (`vault::login_home`), just rewritten: a harness that keeps the login in a running process starts it again.
+    async fn read_quota_now(&self, _app: &App, _account: crate::quota::QuotaAccount) -> Result<crate::quota::QuotaPair> {
+        bail!("this harness cannot read its quota on demand")
+    }
     fn terminal_command(&self, _session: &Session, _is_temp: bool) -> Result<Vec<String>> {
         bail!("terminal handoff is not supported")
     }

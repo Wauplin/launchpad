@@ -58,8 +58,8 @@ export function coreWorld() {
     // One reading per subscription login (key: `profiles::account`, the harness alone without account variables).
     // Claude is close to its 5-hour limit, so the meters and quota protection have something to show.
     quotas: {
-      claude: { harness: "claude", profiles: ["claude-max"], five_hour: { used_percent: 86, resets_at: Math.floor(clock.ago(-47) / 1000) }, weekly: { used_percent: 41, resets_at: Math.floor(clock.ago(-60 * 24 * 4.7) / 1000) }, quota_at: clock.ago(2), quota_error: null },
-      codex: { harness: "codex", profiles: ["codex-plus"], five_hour: { used_percent: 23, resets_at: Math.floor(clock.ago(-60 * 3.2) / 1000) }, weekly: { used_percent: 35, resets_at: Math.floor(clock.ago(-60 * 24 * 2.4) / 1000) }, quota_at: clock.ago(1), quota_error: null },
+      claude: { harness: "claude", profiles: ["claude-max"], five_hour: { used_percent: 86, resets_at: Math.floor(clock.ago(-47) / 1000) }, weekly: { used_percent: 41, resets_at: Math.floor(clock.ago(-60 * 24 * 4.7) / 1000) }, quota_at: clock.ago(2), quota_error: null, refused: false },
+      codex: { harness: "codex", profiles: ["codex-plus"], five_hour: { used_percent: 23, resets_at: Math.floor(clock.ago(-60 * 3.2) / 1000) }, weekly: { used_percent: 35, resets_at: Math.floor(clock.ago(-60 * 24 * 2.4) / 1000) }, quota_at: clock.ago(1), quota_error: null, refused: false },
     },
     sessions: { running: 0, done: 0, quota_paused: 0 },
     time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? null,

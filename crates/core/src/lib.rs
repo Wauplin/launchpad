@@ -281,6 +281,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     runners::RunnerStatus::export_all(cfg)?;
     vault::VaultOverview::export_all(cfg)?;
     vault::ToolTest::export_all(cfg)?;
+    vault::LoginCheck::export_all(cfg)?;
     tool_defaults::ToolDefaults::export_all(cfg)?;
     vault::LeaseInfo::export_all(cfg)?;
     proxy::Access::export_all(cfg)?;

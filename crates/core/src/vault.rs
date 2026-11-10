@@ -514,6 +514,7 @@ pub async fn put(app: &App, id: &str, kind: Kind, name: &str, value: &str) -> Re
         Kind::Token => anyhow::ensure!(!value.contains(['\n', '\r']), "a token is one line"),
     }
     let detail = detail_of(kind, &value);
+    let replaced = secret(app, id).await?.is_some_and(|(k, _)| k == kind && k != Kind::Token);
     let entry = VaultEntry { id: id.into(), kind, name: if name.trim().is_empty() { id.into() } else { name.trim().into() }, detail, updated_at: now_ms() };
     let (e, kind_s) = (entry.clone(), serde_json::to_value(kind)?.as_str().unwrap_or_default().to_string());
     app.state_db
@@ -527,6 +528,14 @@ pub async fn put(app: &App, id: &str, kind: Kind, name: &str, value: &str) -> Re
         })
         .await?;
     app.bus.publish("vault", "changed", Value::Null);
+    // A new sign-in of an existing login (Home's sign-in with `replace`): leases and the quota reading take it now.
+    if replaced && let Some(harness) = harness_of(kind) {
+        renew_leases(app, id);
+        let (app, id) = (app.clone(), id.to_string());
+        tokio::spawn(async move {
+            read_now(&app, &id, harness, false).await;
+        });
+    }
     Ok(entry)
 }
 
@@ -801,7 +810,7 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
             let (_, value) = secret(app, &chosen.id).await?.context("the login disappeared")?;
             let (token, claims, account_id) = match kind {
                 Kind::CodexLogin => {
-                    let auth = codex_fresh(app, &chosen.id, &value).await?;
+                    let auth = codex_fresh(app, &chosen.id, &value, false).await?;
                     let t = &auth["tokens"];
                     (t["access_token"].as_str().unwrap_or_default().to_string(), codex_claims(&auth.to_string()).unwrap_or(Value::Null), t["account_id"].as_str().map(str::to_string))
                 }
@@ -968,18 +977,43 @@ pub fn codex_needs_refresh(auth: &Value, now_ms: i64) -> bool {
     last.is_some_and(|t| now_ms / 1000 - t.unix_timestamp() > 7 * 24 * 3600)
 }
 
-/// The current `auth.json` of a Codex login, refreshed on Home when needed. Home is the only place that
-/// refreshes: runners only ever receive the access token.
-async fn codex_fresh(app: &App, id: &str, value: &str) -> Result<Value> {
+/// Whether to refresh a Codex login now: always on the owner's Refresh (`force`), else when `codex_needs_refresh`.
+pub fn codex_refresh_due(auth: &Value, now_ms: i64, force: bool) -> bool {
+    force || codex_needs_refresh(auth, now_ms)
+}
+
+/// The words of a refused or failed refresh of a Codex login. OpenAI answers 400 or 401 when the refresh token is
+/// revoked, expired or already used (`refresh_token_reused`, `invalid_grant`): only a new sign-in helps then.
+fn codex_refresh_error(status: u16, body: &Value) -> String {
+    let code = body["error"]["code"].as_str().or(body["error"].as_str()).unwrap_or_default();
+    if matches!(status, 400 | 401) {
+        let why = if code.is_empty() { status.to_string() } else { format!("{status} {code}") };
+        format!("OpenAI refused the refresh token ({why}): this login was revoked and needs a new sign-in")
+    } else {
+        format!("refreshing the Codex login failed ({status}{}): try again later", if code.is_empty() { String::new() } else { format!(" {code}") })
+    }
+}
+
+/// Whether a quota or refresh error says the provider refused the login itself (a new sign-in is needed), not a
+/// rate limit or a network failure. A `claude setup-token` token that cannot read usage (403) is not refused.
+pub fn login_refused(error: &str) -> bool {
+    let e = error.to_ascii_lowercase();
+    e.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| w == "401")
+        || ["unauthorized", "token_expired", "invalid_grant", "refresh_token_", "revoked", "authentication_error", "oauth token has expired", "token has been invalidated"].iter().any(|w| e.contains(w))
+}
+
+/// The current `auth.json` of a Codex login, refreshed on Home when needed, or now with `force` (the owner's
+/// Refresh). Home is the only place that refreshes: runners only ever receive the access token.
+async fn codex_fresh(app: &App, id: &str, value: &str, force: bool) -> Result<Value> {
     let auth: Value = serde_json::from_str(value)?;
-    if !codex_needs_refresh(&auth, now_ms()) {
+    if !codex_refresh_due(&auth, now_ms(), force) {
         return Ok(auth);
     }
     let _guard = app.suggestion_locks.get(&format!("codex-refresh:{id}")).lock_owned().await;
     // Another lease may have refreshed it while this one waited.
     let (_, value) = secret(app, id).await?.context("the login disappeared")?;
     let mut auth: Value = serde_json::from_str(&value)?;
-    if !codex_needs_refresh(&auth, now_ms()) {
+    if !codex_refresh_due(&auth, now_ms(), force) {
         return Ok(auth);
     }
     let refresh = auth["tokens"]["refresh_token"].as_str().context("no refresh token")?.to_string();
@@ -992,7 +1026,7 @@ async fn codex_fresh(app: &App, id: &str, value: &str) -> Result<Value> {
         .context("refresh the Codex login")?;
     let status = res.status();
     let body: Value = res.json().await.unwrap_or(Value::Null);
-    anyhow::ensure!(status.is_success(), "refreshing the Codex login failed ({status}): sign in again with codex login and paste the new auth.json");
+    anyhow::ensure!(status.is_success(), "{}", codex_refresh_error(status.as_u16(), &body));
     for k in ["id_token", "access_token", "refresh_token"] {
         if let Some(v) = body[k].as_str() {
             auth["tokens"][k] = Value::String(v.into());
@@ -1061,7 +1095,7 @@ pub async fn login_home(app: &App, id: &str) -> Result<(std::path::PathBuf, Vec<
                 Some(disk) if codex_newer(disk, &serde_json::from_str::<Value>(&value)?) => codex_adopt(app, id, disk).await?,
                 _ => value,
             };
-            let auth = codex_fresh(app, id, &value).await?;
+            let auth = codex_fresh(app, id, &value, false).await?;
             // Written only when it changed, so the app-server's own writes are not raced every minute.
             if on_disk.as_ref() != Some(&auth) {
                 crate::paths::write_private(&file, &serde_json::to_string_pretty(&auth)?)?;
@@ -1076,6 +1110,75 @@ pub async fn login_home(app: &App, id: &str) -> Result<(std::path::PathBuf, Vec<
 pub async fn logins(app: &App, harness: HarnessKind) -> Result<Vec<VaultEntry>> {
     let Some(kind) = Kind::login_of(harness) else { return Ok(vec![]) };
     Ok(entries(app).await?.into_iter().filter(|e| e.kind == kind).collect())
+}
+
+/// The harness whose login this kind is (its adapter declares it).
+fn harness_of(kind: Kind) -> Option<HarnessKind> {
+    crate::harness::registrations().iter().find(|r| r.descriptor.vault_login.is_some_and(|l| l.kind == kind)).map(|r| r.descriptor.id)
+}
+
+/// What the owner's Refresh of a harness login found (Settings → Credentials and tools).
+#[derive(Clone, Debug, Serialize, TS)]
+pub struct LoginCheck {
+    /// The provider accepts the login and its quota was read.
+    pub ok: bool,
+    /// What happened, in words.
+    pub message: String,
+    /// The provider refused the login: it needs a new sign-in (the window starts Home's sign-in for this entry).
+    pub sign_in: bool,
+    /// Home refreshed the login's tokens now (Codex).
+    pub refreshed: bool,
+}
+
+/// Home: the owner's Refresh of a harness login. A Codex login is refreshed now, whatever its expiry, and active
+/// leases renew at once; a Claude token (`claude setup-token`) has nothing to refresh. Then the harness reads the
+/// quota now (`Harness::read_quota_now`), which also tells whether the provider still accepts the login.
+pub async fn refresh_login(app: &App, id: &str) -> Result<LoginCheck> {
+    ensure_home(app)?;
+    let (kind, value) = secret(app, id).await?.context("no such login")?;
+    let harness = harness_of(kind).context("only harness logins can be refreshed")?;
+    let mut refreshed = false;
+    if kind == Kind::CodexLogin {
+        if let Err(e) = codex_fresh(app, id, &value, true).await {
+            let text = format!("{e:#}");
+            tracing::info!("vault: refresh of the Codex login {id}: {text}");
+            app.status.quota_error(&crate::quota::vault_key(harness, Some(id)), text.clone());
+            return Ok(LoginCheck { ok: false, sign_in: login_refused(&text), message: text, refreshed: false });
+        }
+        app.bus.publish("vault", "changed", Value::Null);
+        renew_leases(app, id);
+        refreshed = true;
+    }
+    Ok(read_now(app, id, harness, refreshed).await)
+}
+
+/// Runners renew the leases that hold this login now instead of at their next renewal (`contain::renew_soon`).
+fn renew_leases(app: &App, id: &str) {
+    app.runners.broadcast(crate::runners::proto::ToRunner::RenewLeases { login: id.to_string() });
+}
+
+/// Rewrites Home's copy of the login (`login_home`) and reads its quota now.
+async fn read_now(app: &App, id: &str, harness: HarnessKind, refreshed: bool) -> LoginCheck {
+    let key = crate::quota::vault_key(harness, Some(id));
+    let result = async {
+        let (_, env) = login_home(app, id).await?;
+        app.harnesses.get(harness).read_quota_now(app, crate::quota::QuotaAccount { key: key.clone(), harness, env }).await
+    }
+    .await;
+    match result {
+        Ok((five, week)) => {
+            app.status.update_quota(&key, five, week);
+            let message = if refreshed { "Refreshed; quota read" } else { "The login works; quota read" };
+            LoginCheck { ok: true, message: message.into(), sign_in: false, refreshed }
+        }
+        Err(e) => {
+            let text = format!("{e:#}");
+            tracing::info!("vault: quota of {id}: {text}");
+            app.status.quota_error(&key, text.clone());
+            let message = if refreshed { format!("Refreshed, but the quota could not be read: {text}") } else { text.clone() };
+            LoginCheck { ok: false, message, sign_in: login_refused(&text), refreshed }
+        }
+    }
 }
 
 /// Request names of the access log, for display: the GraphQL operation or a known REST action.
@@ -1202,6 +1305,23 @@ mod tests {
         assert!(codex_needs_refresh(&expiring, now));
         let old = json!({"tokens": {"access_token": token(now / 1000 + 9 * 86400)}, "last_refresh": iso(now - 8 * 86_400_000)});
         assert!(codex_needs_refresh(&old, now));
+        // The owner's Refresh refreshes a fresh login too.
+        assert!(!codex_refresh_due(&fresh, now, false));
+        assert!(codex_refresh_due(&fresh, now, true));
+    }
+
+    #[test]
+    fn refused_logins_need_a_new_sign_in() {
+        let revoked = codex_refresh_error(401, &json!({"error": {"code": "refresh_token_reused", "message": "Your refresh token has already been used"}}));
+        assert!(revoked.contains("needs a new sign-in") && login_refused(&revoked));
+        assert!(login_refused(&codex_refresh_error(400, &json!({"error": "invalid_grant"}))));
+        assert!(!login_refused(&codex_refresh_error(503, &Value::Null)));
+        assert!(login_refused("model request returned 401 Unauthorized without both quota windows: OAuth token has expired"));
+        assert!(login_refused("codex: {\"code\":-32603,\"message\":\"token_expired\"}"));
+        // A setup-token cannot read usage (403), a rate limit or a number that contains 401 is not a refusal.
+        assert!(!login_refused("usage endpoint returned 403 Forbidden: this token cannot read usage (a claude setup-token token only allows model requests)"));
+        assert!(!login_refused("usage endpoint returned 429; backing off"));
+        assert!(!login_refused("model request returned 500: request 14012 failed"));
     }
 
     #[test]

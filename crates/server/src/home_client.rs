@@ -524,6 +524,7 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
                     }
                     Ok(ToRunner::Ack { n }) => replica::acked(app, n).await?,
                     Ok(ToRunner::Quotas { quotas }) => launchpad_core::quota::apply_home_readings(app, quotas),
+                    Ok(ToRunner::RenewLeases { login }) => launchpad_core::contain::renew_soon(app, &login),
                     Ok(ToRunner::Refuse { reason }) => return Ok(Some(reason)),
                     Ok(msg @ (ToRunner::HttpHead { .. } | ToRunner::HttpBody { .. })) => http_from_home(msg),
                     Ok(ToRunner::WsOpen { id, path }) => crate::terminals::open_for_home(app, id, &path, res_tx.clone()),

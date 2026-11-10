@@ -12,4 +12,9 @@ profiles: Array<string>, five_hour: QuotaWindow | null, weekly: QuotaWindow | nu
 /**
  * When the quota was last read (Unix milliseconds).
  */
-quota_at: number | null, quota_error: string | null, };
+quota_at: number | null, quota_error: string | null, 
+/**
+ * The provider refused this vault login (401, expired or revoked token): it needs a new sign-in. Cleared by
+ * the next reading.
+ */
+refused: boolean, };
