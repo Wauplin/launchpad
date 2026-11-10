@@ -32,9 +32,11 @@ pub fn router() -> Router<Server> {
         .route("/api/assets", post(create_in_worktree))
 }
 
-/// Runner requests (with their credential) skip the browser sign-in; the handlers check the credential.
-pub fn runner_request(path: &str, headers: &HeaderMap) -> bool {
-    path.starts_with("/api/plain/") && headers.contains_key(crate::runners::CREDENTIAL_HEADER)
+/// Home: runner requests (with their credential) skip the browser sign-in; the handlers check the credential
+/// (`caller`), and refuse a present but unreadable one. Never on a runner: it would forward the request to Home as
+/// itself (`home_client::forward_writes`).
+pub fn runner_request(role: launchpad_core::role::Role, path: &str, headers: &HeaderMap) -> bool {
+    role == launchpad_core::role::Role::Home && path.starts_with("/api/plain/") && headers.contains_key(crate::runners::CREDENTIAL_HEADER)
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -42,13 +44,18 @@ fn bad(e: anyhow::Error) -> ApiError {
 }
 
 /// Home: checks a runner credential when there is one (the owner passed the sign-in otherwise), and that the
-/// named session still runs on that runner. Returns the session.
+/// named session still runs on that runner. Returns the session. A credential header that is present always
+/// authenticates, even when it is unreadable: `runner_request` skipped the sign-in because of it.
 async fn caller(s: &Server, headers: &HeaderMap) -> Result<Option<String>, ApiError> {
     if !launchpad_core::home_git::here(&s.app) {
         return Err(ApiError::bad_request("plain folders are stored by Home"));
     }
-    let session = headers.get(SESSION_HEADER).and_then(|v| v.to_str().ok()).map(str::to_string);
-    if let Some(credential) = headers.get(crate::runners::CREDENTIAL_HEADER).and_then(|v| v.to_str().ok()) {
+    let session = match headers.get(SESSION_HEADER) {
+        Some(v) => Some(v.to_str().map_err(|_| ApiError::bad_request("unreadable session header"))?.to_string()),
+        None => None,
+    };
+    if let Some(credential) = headers.get(crate::runners::CREDENTIAL_HEADER) {
+        let credential = credential.to_str().unwrap_or("");
         let runner = launchpad_core::runners::authenticate(&s.app, credential).await.filter(|r| r.state == launchpad_core::runners::RunnerState::Approved).ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "unknown runner"))?;
         if let Some(sid) = &session {
             launchpad_core::home_git::check_session(&s.app, &runner.id, sid).map_err(|e| ApiError::new(StatusCode::FORBIDDEN, format!("{e:#}")))?;

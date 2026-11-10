@@ -464,7 +464,7 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
     }
     // Runners authenticate these with their own credential, checked by the handlers.
     // Incoming hooks authenticate with their own secret, checked by the handler.
-    if crate::runners::runner_path(path) || crate::burst::runner_path(path) || crate::git_http::git_path(path) || crate::plain_http::runner_request(path, req.headers())
+    if crate::runners::runner_path(path) || crate::burst::runner_path(path) || crate::git_http::git_path(path) || crate::plain_http::runner_request(s.app.paths.role, path, req.headers())
         || (req.method() == Method::POST && launchpad_http::hook_path(path)) {
         return private_response(next.run(req).await, true);
     }
