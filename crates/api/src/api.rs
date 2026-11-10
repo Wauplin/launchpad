@@ -635,7 +635,7 @@ async fn inbox_agent_done(State(s): State<Ctx>, Json(b): Json<AgentDone>) -> Api
     let bot_id = session.launch_spec.bot.as_ref().map(|x| x.id.clone()).ok_or_else(|| forbidden("only a bot whose bot.toml says `inbox_done = true` may mark Inbox threads done; propose a ready card (`inbox.done`) instead"))?;
     let bot = launchpad_core::bots::get(&s.app, &bot_id).await.map_err(|_| ApiError::not_found("the session's bot no longer exists"))?;
     if bot.settings_error.is_some() || !bot.settings.inbox_done || bot.settings.launchpad == launchpad_core::vault::LaunchpadAccess::Read {
-        return Err(forbidden("this bot may not mark Inbox threads done: the owner sets `inbox_done = true` in its bot.toml (Settings tab); propose a ready card (`inbox.done`) instead"));
+        return Err(forbidden("this bot may not mark Inbox threads done: the owner sets `inbox_done = true` in its bot.toml (the bot's page: About → Access); propose a ready card (`inbox.done`) instead"));
     }
     if b.ids.is_empty() || b.ids.len() > 200 {
         return Err(ApiError::bad_request("give 1 to 200 thread ids (from `launchpad inbox list`)"));

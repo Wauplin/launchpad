@@ -568,7 +568,7 @@ pub struct BotLaunch {
     #[ts(optional, as = "Option<String>")]
     pub version: String,
     /// Why this session of the thread started (`bots::rotation`: first, profile, folder, model, effort,
-    /// permissions, archived; new: the owner's New session checkbox).
+    /// permissions, archived; new: the owner's Start a new session, with `note`).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<String>")]
     pub reason: Option<String>,

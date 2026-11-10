@@ -231,7 +231,7 @@ pub fn parse_settings(text: &str) -> Result<BotSettings> {
 }
 
 fn render_settings(s: &BotSettings) -> Result<String> {
-    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# inbox_done = true: it may mark your Inbox threads done (or unsubscribe from them) itself, here and on GitHub.\n# starters: ready-made messages over the message box; one ending in \"…\" fills the box so you finish it.\n{}", toml::to_string(s)?))
+    Ok(format!("# Edited from the bot's page (About → Access, or ⋯ → Edit as file). folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# inbox_done = true: it may mark your Inbox threads done (or unsubscribe from them) itself, here and on GitHub.\n# starters: ready-made messages over the message box; one ending in \"…\" fills the box so you finish it.\n{}", toml::to_string(s)?))
 }
 
 type Row = (String, String, String, i64, Option<String>, bool);
@@ -360,7 +360,7 @@ async fn check_settings(app: &App, workspace_id: &str, s: &BotSettings) -> Resul
         ensure!(!folder.is_temp, "{} is a temporary folder: choose a registered folder, or none", folder.name);
     }
     if let Some(p) = &s.profile {
-        ensure!(app.config.get().profiles.iter().any(|x| &x.id == p), "no profile {p}: choose one in the bot's Settings");
+        ensure!(app.config.get().profiles.iter().any(|x| &x.id == p), "no profile {p}: choose one on the bot's page (About → Access)");
     }
     crate::tool_defaults::check(&s.tools)?;
     Ok(())
@@ -409,7 +409,7 @@ pub async fn update(app: &App, id: &str, p: Patch) -> Result<Bot> {
         name = Some(s.name.clone());
         files.push((SETTINGS.to_string(), Some(render_settings(&s)?)));
     } else if let Some(set) = p.set {
-        ensure!(bot.settings_error.is_none(), "{}'s bot.toml has an error: fix it in its Settings tab first", bot.settings.name);
+        ensure!(bot.settings_error.is_none(), "{}'s bot.toml has an error: fix it on its page first (⋯ → Edit as file)", bot.settings.name);
         let s = set_fields(&bot.settings, &set)?;
         check_settings(app, &bot.workspace_id, &s).await?;
         name = Some(s.name.clone());
@@ -641,7 +641,7 @@ pub async fn record_instructions(app: &App, session_id: &str, (version, instruct
 
 /// Sends the owner's message to the bot's thread: to its open session, or to a new one.
 pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool) -> Result<Session> {
-    message_with(app, id, text, attachments, context, new_session, None, false).await
+    message_with(app, id, text, attachments, context, new_session.then(String::new), false).await
 }
 
 /// A message to the bot's thread. `automatic` (routines, incoming hooks, other agents): a paused bot refuses it, and
@@ -649,9 +649,8 @@ pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAtt
 /// running turn. `context` (folders, GitHub links, agent traces, as in an agent's message box) goes with the
 /// message to the current session, or into the launch of a new one. `context.from`, set only by Home's own code
 /// (`senders`), names a sender other than the owner: the message arrives under its header.
-///
-/// `note`: the owner's reason for a new session they asked for (`new_session`), shown in the chat's divider.
-pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool, note: Option<String>, automatic: bool) -> Result<Session> {
+/// `new_session`: the owner asked for a new session, with their reason (may be empty), shown in the chat's divider.
+pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: Option<String>, automatic: bool) -> Result<Session> {
     ensure!(!text.trim().is_empty() || !attachments.is_empty() || !context.is_empty(), "the message is empty");
     if let Some(f) = &context.from {
         crate::senders::guard(f.hops)?;
@@ -659,11 +658,11 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
     let bot = get(app, id).await?;
     ensure!(!automatic || !bot.paused, "{} is paused", bot.settings.name);
     if let Some(e) = &bot.settings_error {
-        bail!("bot.toml cannot be used ({e}); fix it in the bot's Settings tab");
+        bail!("bot.toml cannot be used ({e}); fix it on the bot's page (⋯ → Edit as file)");
     }
     let s = &bot.settings;
     let config = app.config.get();
-    let profile = profile_of(&config, s).context("choose a profile for this bot in its Settings tab")?;
+    let profile = profile_of(&config, s).context("choose a profile for this bot on its page (About → Access)")?;
     let sessions = thread(app, id);
     let current = sessions.iter().rev().find(|x| x.status != SessionStatus::Closed);
     let resolved = BotSettings { profile: Some(profile.id.clone()), model: s.model.clone().or_else(|| profile.model.clone()), effort: s.effort.clone().or_else(|| profile.effort.clone()), ..s.clone() };
@@ -671,7 +670,7 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
         None if !sessions.is_empty() => Some("archived"),
         c => rotation(&resolved, c.map(Current::of)),
     };
-    match (new_session, reason) {
+    match (new_session.is_some(), reason) {
         (false, None) => {
             let c = current.expect("a current session");
             crate::runners::send_anywhere_with(app, &c.id, &text, attachments, context, None).await?;
@@ -692,8 +691,8 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
         spec.from = Some(f);
     }
     if let Some(b) = &mut spec.bot {
-        b.reason = Some(if new_session && reason.is_none() { "new" } else { reason.unwrap_or("first") }.to_string());
-        b.note = if new_session { note_of(note) } else { None };
+        b.reason = Some(if new_session.is_some() && reason.is_none() { "new" } else { reason.unwrap_or("first") }.to_string());
+        b.note = note_of(new_session);
     }
     crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await
 }
@@ -709,9 +708,9 @@ fn note_of(note: Option<String>) -> Option<String> {
 pub async fn next_spec(app: &App, bot: &Bot, thread: &[Session], text: String, attachments: Vec<FileAttachment>, context: MessageContext) -> Result<LaunchSpec> {
     let s = &bot.settings;
     let config = app.config.get();
-    let profile = profile_of(&config, s).context("choose a profile for this bot in its Settings tab")?;
+    let profile = profile_of(&config, s).context("choose a profile for this bot on its page (About → Access)")?;
     let folder = match &s.folder {
-        Some(f) => Some(crate::projects::get(app, f).await?.context("the bot's folder no longer exists: choose another one in its Settings tab")?),
+        Some(f) => Some(crate::projects::get(app, f).await?.context("the bot's folder no longer exists: choose another one on its page (About → Access)")?),
         None => None,
     };
     let previous = thread.last().map(|p| BotHandoff { session_id: p.id.clone(), title: p.title.clone(), through_seq: p.last_seq });
@@ -753,7 +752,7 @@ pub fn instruction(bot: &BotLaunch, cli: &str) -> String {
     let mut out = format!(
         "You are {name}, a Launchpad bot: a persistent agent with one thread that continues across sessions. The owner's instructions for you (BOT.md):\n\n<bot-instructions>\n{instructions}\n</bot-instructions>\n\n\
 Your folder: `$LAUNCHPAD_BOT` is a read-only copy of your files: BOT.md, bot.toml, `routines/<name>.toml` (your routines) and `memory/`, your own notes. Your instructions hold these notes as they were at start (\"Your memory\", up to {loaded} lines; when they say it was cut, read the rest before you answer anything it may cover). Write them with `{cli} bot memory write <file>` (content on stdin, or `--file <file>`; paths are relative to `memory/`, for example `notes.md`), `{cli} bot memory append <file> <text>` and `{cli} bot memory rm <file>`; `{cli} bot memory list` and `{cli} bot memory read <file>` read them. Keep them short and current: the owner's preferences and the few facts a later session needs, and what the owner asks you to remember. They are not a journal: never record your runs, what you did, or what went well or failed (the thread and its traces keep that); most turns write nothing. Facts other agents need (shared facts about people, projects, how-tos) go in the workspace knowledge base ($LAUNCHPAD_KB) instead.\n\
-Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. Unless your Launchpad CLI access is admin, you cannot edit BOT.md, bot.toml or your routines. When your instructions or routines should change (the owner asked, or you learned how they like the work done), propose the whole new files as one card and tell the owner it waits for their click: `{cli} propose bot-files --title \"<what changes>\" --spec-file files.json`, where the file holds {{\"bot_id\": \"{id}\", \"files\": {{\"BOT.md\": \"<the whole new BOT.md>\", \"routines/<name>.toml\": \"<the whole new routine file>\"}}}} (only the files that change; null deletes a routine; start from your copies in `$LAUNCHPAD_BOT`). The owner sees one diff per file. Changes to bot.toml (profile, folder, permissions, Launchpad CLI access) are the owner's, in the bot's Settings tab (or yours at admin access, when the owner asks).\n\
+Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. Unless your Launchpad CLI access is admin, you cannot edit BOT.md, bot.toml or your routines. When your instructions or routines should change (the owner asked, or you learned how they like the work done), propose the whole new files as one card and tell the owner it waits for their click: `{cli} propose bot-files --title \"<what changes>\" --spec-file files.json`, where the file holds {{\"bot_id\": \"{id}\", \"files\": {{\"BOT.md\": \"<the whole new BOT.md>\", \"routines/<name>.toml\": \"<the whole new routine file>\"}}}} (only the files that change; null deletes a routine; start from your copies in `$LAUNCHPAD_BOT`). The owner sees one diff per file. Changes to bot.toml (profile, folder, permissions, Launchpad CLI access) are the owner's, on the bot's page (About → Access) (or yours at admin access, when the owner asks).\n\
 Folders: find the workspace's folders and what they hold with `{cli} folders list` and your notes; when a task needs one, add a worktree of it to this session with `{cli} work add-project --session-id $LAUNCHPAD_SESSION_ID --project <name>`, which prints the folder to edit.\n\
 Routines: when the owner wants you to do something on your own later or again (every morning, when CI fails, when another agent is done), propose a routine for yourself and tell the owner it waits for their click: `{cli} propose routine --title \"Daily check\" --spec-file routine.json`, where the file holds {{\"bot_id\": \"{id}\", \"title\": \"Daily check\", \"instructions\": \"<what you do at each run>\", \"trigger\": {triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}}; it becomes a card with your new file `routines/<name>.toml`. To change or delete routines, propose their files with `bot-files` as above (the same fields in TOML; your copies in `$LAUNCHPAD_BOT/routines/` show the format). A run arrives in this thread as a message starting with “Routine”; end it with a short report, or with exactly `no_update` when there is nothing to report.",
         name = bot.name,
@@ -823,6 +822,14 @@ mod tests {
         assert_eq!(parse_settings("name = \"x\"").unwrap().folder, None);
         assert_eq!(parse_settings("name = \"x\"\nfolder = \" \"").unwrap().folder, None);
         assert!(parse_settings("name = \"\"\nfolder = \"f\"").is_err());
+    }
+
+    #[test]
+    fn the_reason_for_a_new_session_is_one_short_line() {
+        assert_eq!(note_of(None), None);
+        assert_eq!(note_of(Some("  \n ".into())), None);
+        assert_eq!(note_of(Some(" Fresh\n context  ".into())).as_deref(), Some("Fresh context"));
+        assert_eq!(note_of(Some("é".repeat(200))).map(|n| n.chars().count()), Some(120));
     }
 
     #[test]

@@ -465,7 +465,7 @@ pub async fn create(
 /// The spec a bot routine stands for: the bot's profile and folder (for quotas and workspace lists).
 async fn bot_spec(app: &App, bot: &launchpad_core::bots::Bot, text: String) -> Result<LaunchSpec> {
     let config = app.config.get();
-    let profile = launchpad_core::bots::profile_of(&config, &bot.settings).cloned().context("choose a profile for this bot in its Settings tab")?;
+    let profile = launchpad_core::bots::profile_of(&config, &bot.settings).cloned().context("choose a profile for this bot on its page (About → Access)")?;
     Ok(LaunchSpec {
         text,
         harness: Some(profile.harness),
@@ -984,7 +984,7 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
     let result = match &record.bot_id {
         Some(bot) => {
             let context = launchpad_core::model::MessageContext { from: Some(routine_sender(&record, hops)), ..Default::default() };
-            launchpad_core::bots::message_with(app, bot, bot_message(&record, &launch), vec![], context, false, None, automatic).await
+            launchpad_core::bots::message_with(app, bot, bot_message(&record, &launch), vec![], context, None, automatic).await
         }
         None => {
             let spec = LaunchSpec { routine: Some(launch), from: Some(routine_sender(&record, hops)), ..record.spec.clone() };

@@ -25,7 +25,7 @@ previous: BotHandoff | null,
 version?: string, 
 /**
  * Why this session of the thread started (`bots::rotation`: first, profile, folder, model, effort,
- * permissions, archived; new: the owner's New session checkbox).
+ * permissions, archived; new: the owner's Start a new session, with `note`).
  */
 reason?: string, 
 /**

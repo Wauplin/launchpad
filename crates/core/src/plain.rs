@@ -212,7 +212,7 @@ pub async fn write_blob(app: &App, sha: &str, data: &[u8]) -> Result<()> {
 pub async fn commit(app: &App, id: &str, session: Option<&str>, updates: Vec<Update>) -> Result<i64> {
     ensure_store(app, id).await?;
     ensure!(crate::kb::workspace_of(id).is_none(), "the knowledge base is written with launchpad kb");
-    ensure!(crate::bots::id_of(id).is_none(), "a bot's files change in its Settings and Files tabs");
+    ensure!(crate::bots::id_of(id).is_none(), "a bot's files change on its page (About, or ⋯ → Edit as file)");
     if let Some(s) = session
         && temp_of(id).is_none()
     {
