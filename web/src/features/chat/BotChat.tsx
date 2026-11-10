@@ -140,7 +140,12 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
     };
   }), [ready.map((s) => `${s.id}:${s.status}`).join(), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
   const first = ready[0] ? thread.indexOf(ready[0]) : 0;
-  const items = useMemo(() => chatRows(sessions, cards, first), [sessions, cards, first]);
+  // Hook and Telegram messages waiting for the turn to end: grey rows after the chat, each with Cancel.
+  const queued = useQuery({ queryKey: ["bot-queued", bot.id], queryFn: () => api.get<QueuedMessage[]>(`/api/bots/${bot.id}/queued`), retry: false }).data;
+  const items = useMemo(() => [
+    ...chatRows(sessions, cards, first),
+    ...(queued ?? []).map((m): ChatItem => ({ t: "queued", key: `queued/${m.n}`, v: "", n: m.n, at: m.at, source: m.source, text: m.text })),
+  ], [sessions, cards, first, queued]);
   const more = from > 0 || !!(ready[0] && logs[ready[0].id]?.earlier);
   const failedLog = visible.map((s) => logs[s.id]).find((l) => l?.error);
 
@@ -221,13 +226,12 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
                 const extra = item.t === "card" && item.kind === "ready" && data ? bySuggestion.get((data as TodayItem).record) : undefined;
                 return (
                   <div key={it.key} data-index={it.index} ref={v.measureElement} className="absolute top-0 right-0 left-0" style={{ transform: `translateY(${it.start}px)` }}>
-                    <ChatRow item={item} data={data} extra={extra} canContinue={item.key === continueKey} />
+                    <ChatRow item={item} data={data} extra={extra} canContinue={item.key === continueKey} botId={bot.id} />
                   </div>
                 );
               })}
             </div>
           </>}
-          <QueuedRows bot={bot} stick={() => { const el = scrollRef.current; if (el && atBottom.current) el.scrollTop = el.scrollHeight; }} />
           <div className="h-3" />
         </div>
       </div>
@@ -239,27 +243,20 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
 
 // ---------------------------------------------------------------- rows
 
-/** Hook and Telegram messages waiting for the bot's turn to end: grey rows under the chat, each with Cancel. */
-function QueuedRows({ bot, stick }: { bot: Bot; stick: () => void }) {
+/** A hook or Telegram message waiting for the bot's turn to end, with Cancel. */
+function QueuedRow({ item, botId }: { item: Extract<ChatItem, { t: "queued" }>; botId: string }) {
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["bot-queued", bot.id], queryFn: () => api.get<QueuedMessage[]>(`/api/bots/${bot.id}/queued`), retry: false });
-  const list = q.data ?? [];
-  // A new waiting row stays in view when the chat was at its bottom.
-  useLayoutEffect(() => { if (list.length) stick(); }, [list.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!list.length) return null;
-  return <div className="grid gap-1.5 pt-1.5" data-tour="chat.queued">
-    {list.map((m) => <div key={m.n} className="flex items-center gap-2 rounded-card border border-dashed border-line px-2.5 py-1.5 text-[13px] text-ink-3">
-      <Icon name="clock" size={12} className="flex-none" />
-      <span className="min-w-0 flex-1">
-        <span className="line-clamp-2 break-words whitespace-pre-wrap">{m.text}</span>
-        <span className="block text-[11px]">Waiting · from {m.source === "telegram" ? "Telegram" : "a hook"} · {ago(m.at)} · sent when {bot.settings.name}'s turn ends</span>
-      </span>
-      <ActionButton name="bot.cancel-queued" params={{ id: bot.id, n: String(m.n) }} icon={null} onDone={() => qc.invalidateQueries({ queryKey: ["bot-queued", bot.id] })} />
-    </div>)}
-  </div>;
+  return <div className="py-1" data-tour="chat.queued"><div className="flex items-center gap-2 rounded-card border border-dashed border-line px-2.5 py-1.5 text-[13px] text-ink-3">
+    <Icon name="clock" size={12} className="flex-none" />
+    <span className="min-w-0 flex-1">
+      <span className="line-clamp-2 break-words whitespace-pre-wrap">{item.text}</span>
+      <span className="block text-[11px]">Waiting · from {item.source === "telegram" ? "Telegram" : "a hook"} · {ago(item.at)} · sent when the current turn ends</span>
+    </span>
+    <ActionButton name="bot.cancel-queued" params={{ id: botId, n: String(item.n) }} icon={null} onDone={() => qc.invalidateQueries({ queryKey: ["bot-queued", botId] })} />
+  </div></div>;
 }
 
-const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item: ChatItem; data: Proposal | TodayItem | Activity | Change | undefined; extra: Suggestion | undefined; canContinue: boolean }) {
+const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId }: { item: ChatItem; data: Proposal | TodayItem | Activity | Change | undefined; extra: Suggestion | undefined; canContinue: boolean; botId: string }) {
   switch (item.t) {
     case "divider":
       return <div className="pt-4 pb-2"><Separator>
@@ -302,8 +299,10 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
       return <ChangesRow sessionId={item.sessionId} />;
     case "working":
       return <WorkingRow item={item} />;
+    case "queued":
+      return <QueuedRow item={item} botId={botId} />;
   }
-}, (a, b) => a.item.key === b.item.key && a.item.v === b.item.v && a.data === b.data && a.extra === b.extra && a.canContinue === b.canContinue);
+}, (a, b) => a.item.key === b.item.key && a.item.v === b.item.v && a.data === b.data && a.extra === b.extra && a.canContinue === b.canContinue && a.botId === b.botId);
 
 /** A name in a chat line that opens its page: the same text, underlined on hover. */
 const NAME_LINK = "text-inherit no-underline hover:underline";
