@@ -145,9 +145,15 @@ async fn records_sent(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> 
 /// Home: the session's worktree of `branch` in folder `project_id`, from the records its runners sent or its last
 /// handoff (a runner's merge request is checked against it).
 pub async fn session_branch(app: &App, session_id: &str, project_id: &str, branch: &str) -> Result<Option<TaskWorktree>> {
+    Ok(session_records(app, session_id).await?.into_iter().find(|w| w.project_id == project_id && w.branch == branch))
+}
+
+/// Home: the session's worktree records, from its runners and its last handoff, without Home's completions.
+pub async fn session_records(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> {
     let mut list = records_sent(app, session_id).await?;
     list.extend(crate::handoff::latest(app, session_id).await?.map(|h| h.worktrees).unwrap_or_default());
-    Ok(list.into_iter().find(|w| w.project_id == project_id && w.branch == branch && w.sessions.iter().any(|s| s == session_id)))
+    list.retain(|w| w.sessions.iter().any(|s| s == session_id));
+    Ok(list)
 }
 
 /// Home: stores a worktree record a runner sent, only when its session is one Home placed there and runs there

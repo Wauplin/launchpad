@@ -24,16 +24,58 @@ use crate::util::now_ms;
 /// Previous branch tips and leftover branches are kept this long.
 pub const KEEP_MS: i64 = 30 * 24 * 3600 * 1000;
 
-/// Refuses pushes to anything but Launchpad branches and snapshots, except imports by a runner daemon.
+/// Refuses pushes to anything but Launchpad branches and snapshots, except imports by a runner daemon. A
+/// session's push (`LP_SESSION=1`) may write only the refs of `LP_SESSION_REFS` (`session_ref_patterns`).
 const PRE_RECEIVE: &str = r#"#!/bin/sh
 [ "$LP_IMPORT" = 1 ] && exit 0
+set -f
 while read old new ref; do
   case "$ref" in
     refs/heads/lp/*|refs/heads/lp-scratch/*|refs/lp-snapshots/*) ;;
     *) echo "Home Git: only Launchpad branches (lp/...) can be pushed here; $ref changes through Merge or Publish in Launchpad"; exit 1 ;;
   esac
+  if [ "$LP_SESSION" = 1 ]; then
+    ok=
+    for p in $LP_SESSION_REFS; do
+      case "$ref" in $p) ok=1; break ;; esac
+    done
+    [ -n "$ok" ] || { echo "Home Git: a session may push only its own branches and snapshots; $ref is not one of them"; exit 1; }
+  fi
 done
 "#;
+
+/// Home: what a session's Git token may write in a folder, as shell `case` patterns for the pre-receive hook: the
+/// branches named for it (`lp/<slug>-<session8>`) and the branches and snapshots of its worktree records
+/// (`branches`, `worktree_ids`), with their `lp-scratch/` leftovers (`<name>`, `<name>-snapshot`,
+/// `<name>-gen<n>`). Names with characters Git refuses in refs (or pattern characters) are left out.
+pub fn session_ref_patterns(session_id: &str, branches: &[String], worktree_ids: &[String]) -> Vec<String> {
+    let safe = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'));
+    let short: String = session_id.chars().take(8).collect();
+    let mut names = vec![];
+    if safe(&short) {
+        names.push(format!("*-{short}"));
+    }
+    names.extend(branches.iter().filter_map(|b| b.strip_prefix("lp/")).filter(|n| safe(n)).map(str::to_string));
+    let mut out = vec![];
+    for n in names {
+        out.push(format!("refs/heads/lp/{n}"));
+        out.push(format!("refs/heads/lp-scratch/{n}"));
+        out.push(format!("refs/heads/lp-scratch/{n}-snapshot"));
+        out.push(format!("refs/heads/lp-scratch/{n}-gen[0-9]*"));
+    }
+    out.extend(worktree_ids.iter().filter(|id| safe(id) && !id.contains('/')).map(|id| crate::worktrees::snapshot_ref(id)));
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Home: `session_ref_patterns` from Home's records of the session's worktrees in the folder.
+pub async fn session_refs(app: &App, project_id: &str, session_id: &str) -> Vec<String> {
+    let records: Vec<_> = crate::away::session_records(app, session_id).await.unwrap_or_default().into_iter().filter(|w| w.project_id == project_id).collect();
+    let branches: Vec<String> = records.iter().map(|w| w.branch.clone()).collect();
+    let ids: Vec<String> = records.iter().map(|w| w.id.clone()).collect();
+    session_ref_patterns(session_id, &branches, &ids)
+}
 
 pub fn root(app: &App) -> PathBuf {
     app.paths.data_dir.join("git")
@@ -85,6 +127,10 @@ pub async fn ensure(app: &App, p: &Project) -> Result<PathBuf> {
     ensure!(here(app), "Home Git runs on Home");
     let dir = mirror(app, &p.id);
     if dir.join("HEAD").exists() && dir.join("hooks/pre-receive").exists() {
+        // Mirrors made by an older Home get the current hook.
+        if tokio::fs::read_to_string(dir.join("hooks/pre-receive")).await.ok().as_deref() != Some(PRE_RECEIVE) {
+            write_hook(&dir).await?;
+        }
         restore_pending(app, p).await?;
         return Ok(dir);
     }
@@ -176,15 +222,18 @@ fn restore_updates(restored: &str, existing: &str) -> String {
         .collect()
 }
 
+/// Writes the hook beside it and renames it into place, so a push never runs a half-written (empty, accepting) hook.
 async fn write_hook(dir: &Path) -> Result<()> {
     let hook = dir.join("hooks/pre-receive");
     tokio::fs::create_dir_all(hook.parent().unwrap()).await?;
-    tokio::fs::write(&hook, PRE_RECEIVE).await?;
+    let tmp = dir.join(format!("hooks/.pre-receive.{}", uuid::Uuid::new_v4()));
+    tokio::fs::write(&tmp, PRE_RECEIVE).await?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).await?;
+        tokio::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755)).await?;
     }
+    tokio::fs::rename(&tmp, &hook).await?;
     Ok(())
 }
 
@@ -650,8 +699,9 @@ pub fn spawn(app: &App) {
 }
 
 /// Environment of `git http-backend` for one request on a mirror.
+/// `session_refs`: a session's push, which may write only these refs (`session_ref_patterns`); None for the daemon.
 #[allow(clippy::too_many_arguments)]
-pub fn backend_env(app: &App, path_info: &str, method: &str, query: &str, content_type: Option<&str>, encoding: Option<&str>, protocol: Option<&str>, import: bool) -> Vec<(String, String)> {
+pub fn backend_env(app: &App, path_info: &str, method: &str, query: &str, content_type: Option<&str>, encoding: Option<&str>, protocol: Option<&str>, import: bool, session_refs: Option<&[String]>) -> Vec<(String, String)> {
     let mut env = vec![
         ("GIT_PROJECT_ROOT".to_string(), root(app).to_string_lossy().into_owned()),
         ("GIT_HTTP_EXPORT_ALL".into(), "1".into()),
@@ -661,6 +711,8 @@ pub fn backend_env(app: &App, path_info: &str, method: &str, query: &str, conten
         ("REMOTE_USER".into(), "launchpad".into()),
         ("REMOTE_ADDR".into(), "127.0.0.1".into()),
         ("LP_IMPORT".into(), if import { "1" } else { "0" }.into()),
+        ("LP_SESSION".into(), if session_refs.is_some() { "1" } else { "0" }.into()),
+        ("LP_SESSION_REFS".into(), session_refs.map(|r| r.join(" ")).unwrap_or_default()),
     ];
     if let Some(t) = content_type { env.push(("CONTENT_TYPE".into(), t.into())); }
     if let Some(e) = encoding { env.push(("HTTP_CONTENT_ENCODING".into(), e.into())); }
@@ -714,6 +766,39 @@ pub fn check_session(app: &App, runner_id: &str, session: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Runs the pre-receive hook with `sh`, as a session (`refs`) or the daemon (None), on one pushed ref.
+    fn hook_accepts(refs: Option<&[String]>, pushed: &str) -> bool {
+        use std::io::Write;
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", PRE_RECEIVE])
+            .env("LP_IMPORT", "0")
+            .env("LP_SESSION", if refs.is_some() { "1" } else { "0" })
+            .env("LP_SESSION_REFS", refs.map(|r| r.join(" ")).unwrap_or_default())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.take().unwrap(), "0000 1111 {pushed}").unwrap();
+        child.wait().unwrap().success()
+    }
+
+    #[test]
+    fn a_session_pushes_only_its_own_refs() {
+        let refs = session_ref_patterns("abcd1234-5678", &["lp/fix-login-ffff0000".into(), "lp/bad*name".into()], &["wt-1".into()]);
+        assert!(!refs.iter().any(|r| r.contains("bad")));
+        let session = Some(refs.as_slice());
+        for ok in ["refs/heads/lp/fix-abcd1234", "refs/heads/lp/fix-login-ffff0000", "refs/heads/lp-scratch/fix-abcd1234", "refs/heads/lp-scratch/fix-login-ffff0000-snapshot", "refs/heads/lp-scratch/fix-login-ffff0000-gen3", "refs/lp-snapshots/wt-1"] {
+            assert!(hook_accepts(session, ok), "{ok}");
+        }
+        for refused in ["refs/heads/lp/other-99990000", "refs/heads/lp-scratch/other-99990000", "refs/lp-snapshots/wt-2", "refs/heads/main", "refs/heads/lp-scratch/fix-login-ffff0000-genx"] {
+            assert!(!hook_accepts(session, refused), "{refused}");
+        }
+        // The daemon keeps its rights on Launchpad refs, never on base branches.
+        assert!(hook_accepts(None, "refs/heads/lp/other-99990000"));
+        assert!(hook_accepts(None, "refs/lp-snapshots/wt-2"));
+        assert!(!hook_accepts(None, "refs/heads/main"));
+    }
 
     #[test]
     fn restore_creates_only_missing_refs() {

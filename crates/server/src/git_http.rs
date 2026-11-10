@@ -139,7 +139,12 @@ async fn serve_inner(s: &Server, rest: &str, method: &Method, query: &str, heade
     home_git::ensure(&app, &project).await?;
     let receive = path_info.ends_with("/git-receive-pack");
     let before = if receive { Some(home_git::launchpad_refs(&app, &project.id).await?) } else { None };
-    let env = home_git::backend_env(&app, &path_info, method.as_str(), query, header_str(headers, "content-type"), header_str(headers, "content-encoding"), header_str(headers, "git-protocol"), import);
+    // A session's push writes only its own branches and snapshots (the pre-receive hook checks each ref).
+    let session_refs = match (&session, receive) {
+        (Some(sid), true) => Some(home_git::session_refs(&app, &project.id, sid).await),
+        _ => None,
+    };
+    let env = home_git::backend_env(&app, &path_info, method.as_str(), query, header_str(headers, "content-type"), header_str(headers, "content-encoding"), header_str(headers, "git-protocol"), import, session_refs.as_deref());
     let mut cmd = launchpad_core::procs::command(&app.env, "git", None);
     cmd.arg("http-backend").envs(env).stdin(launchpad_core::exec::Io::Piped).stdout(launchpad_core::exec::Io::Piped).stderr(launchpad_core::exec::Io::Piped);
     let mut child = cmd.spawn().await?;
