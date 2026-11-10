@@ -683,9 +683,12 @@ async fn drop_global_telegram(app: &App) -> Result<()> {
     if !claimed {
         return Ok(());
     }
+    let had = launchpad_core::vault::secret(app, OLD_TOKEN_ID).await?.is_some();
     launchpad_core::vault::delete(app, OLD_TOKEN_ID).await?;
     app.state_db.call(|c| Ok(c.execute_batch("DROP TABLE IF EXISTS telegram; DROP TABLE IF EXISTS telegram_reply;")?)).await?;
-    tracing::info!("telegram: the single Telegram bot of every workspace was removed; add one per workspace in Settings → Workspace");
+    if had {
+        tracing::info!("telegram: the single Telegram bot of every workspace was removed; add one per workspace in Settings → Workspace");
+    }
     Ok(())
 }
 
