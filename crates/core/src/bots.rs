@@ -119,6 +119,9 @@ pub struct Bot {
     pub version: i64,
     /// Its notes: the files under `memory/`, with their store paths.
     pub memory: Vec<plain::Entry>,
+    /// Its routine files (`routines/<name>.toml`) as written, by path: what an Undo of a file change puts back.
+    #[ts(type = "Record<string, string>")]
+    pub routines: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -253,7 +256,11 @@ async fn load(app: &App, (id, workspace_id, slug, created_at, own, paused): Row)
     };
     let own_folder = own.is_some() && own == settings.folder;
     let memory = tree.files.iter().filter(|f| f.path.starts_with(crate::bot_memory::DIR)).cloned().collect();
-    Ok(Bot { id, workspace_id, slug, created_at, settings, instructions, settings_text, settings_error, own_folder, paused, version: tree.version, memory })
+    let mut routines = std::collections::BTreeMap::new();
+    for f in tree.files.iter().filter(|f| routine_path_ok(&f.path)) {
+        routines.insert(f.path.clone(), text_of(app, &tree.files, &f.path).await);
+    }
+    Ok(Bot { id, workspace_id, slug, created_at, settings, instructions, settings_text, settings_error, own_folder, paused, version: tree.version, memory, routines })
 }
 
 pub async fn list(app: &App) -> Result<Vec<Bot>> {
@@ -301,7 +308,7 @@ pub async fn write_files(app: &App, id: &str, files: Vec<(String, Option<String>
 pub async fn routine_files(app: &App, id: &str) -> Result<Vec<(String, String)>> {
     let tree = plain::tree(app, &store(id)).await?;
     let mut out = vec![];
-    for f in tree.files.iter().filter(|f| f.path.starts_with(ROUTINES)) {
+    for f in tree.files.iter().filter(|f| routine_path_ok(&f.path)) {
         out.push((f.path.clone(), text_of(app, &tree.files, &f.path).await));
     }
     Ok(out)

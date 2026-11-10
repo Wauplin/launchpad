@@ -27,11 +27,11 @@ export function botsWorld() {
   const ask: Bot["settings"] = { name: "Ask Launchpad", permission_mode: "yolo", proposals: "manual", launchpad: "admin", starters: [...ASK_STARTERS] };
   const bots: Bot[] = [{
     id: ASK_BOT, workspace_id: WS.acme, slug: "ask-launchpad", created_at: clock.ago(60 * 24 * 30), settings: ask, instructions: ASK_DEFAULT,
-    settings_text: settingsText(ask), settings_error: null, own_folder: true, paused: false, version: 2, memory: [],
+    settings_text: settingsText(ask), settings_error: null, own_folder: true, paused: false, version: 2, memory: [], routines: {},
   }, {
     id: BOT, workspace_id: WS.acme, slug: "maintainer", created_at: clock.ago(60 * 26), settings,
     instructions: MAINTAINER_BOT_MD,
-    settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 4, memory: [],
+    settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 4, memory: [], routines: {},
   }];
   // Each bot's memory/ notes: path (in its folder) → content.
   const botMemory: Record<string, Record<string, string>> = {

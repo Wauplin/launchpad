@@ -535,8 +535,6 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 let current = current_files(app, &bot_id).await?;
                 let mut writes = vec![];
                 for (path, text) in files {
-                    let now = current.get(path.as_str()).map(|(sha, _)| sha.clone());
-                    ensure!(before.get(&path).cloned().flatten() == now, "{path} changed since this proposal: ask {} again", bot.settings.name);
                     let text = match text {
                         Some(t) if launchpad_core::bots::routine_path_ok(&path) => {
                             let f = crate::crons::check_file(app, &bot, &t).await.with_context(|| path.clone())?;
@@ -544,6 +542,11 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                         }
                         t => t,
                     };
+                    let now = current.get(path.as_str());
+                    // Already as proposed (an earlier attempt wrote it before failing, or the same change was made by
+                    // hand): this card overwrites nothing.
+                    let applied = now.map(|(_, t)| t) == text.as_ref();
+                    ensure!(applied || before.get(&path).cloned().flatten() == now.map(|(sha, _)| sha.clone()), "{path} changed since this proposal: ask {} again", bot.settings.name);
                     writes.push((path, text));
                 }
                 launchpad_core::bots::write_files(app, &bot_id, writes).await?;

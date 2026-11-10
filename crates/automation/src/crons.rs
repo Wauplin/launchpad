@@ -483,6 +483,7 @@ fn in_thread(r: &CronAgent) -> bool {
 /// A new routine of a bot: writes its file `routines/<name>.toml` (the name from its title), which creates the
 /// record. Its runs are messages to the bot's thread.
 pub async fn create_for_bot(app: &App, bot_id: &str, r: BotRoutine) -> Result<CronAgent> {
+    let _edit = EDIT.lock().await;
     let bot = launchpad_core::bots::get(app, bot_id).await?;
     let file = RoutineFile {
         title: r.title.trim().to_string(),
@@ -501,12 +502,17 @@ pub async fn create_for_bot(app: &App, bot_id: &str, r: BotRoutine) -> Result<Cr
     by_file(app, bot_id, &path).await
 }
 
+/// Serializes the saves that build a routine file from its record (create, edit, delete), so two of them never
+/// pick the same new file name or write over each other's change.
+static EDIT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// The record of a bot's routine file.
 async fn by_file(app: &App, bot_id: &str, path: &str) -> Result<CronAgent> {
     list(app).await?.into_iter().find(|r| r.bot_id.as_deref() == Some(bot_id) && r.file.as_deref() == Some(path)).context("the routine's file was saved, but its routine is missing: open the bot's routines")
 }
 
 pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> {
+    let _edit = EDIT.lock().await;
     let current = get(app, id).await?;
     if let (Some(bot_id), Some(path)) = (&current.bot_id, &current.file) {
         return update_file(app, &current, bot_id, path, patch).await;
@@ -531,7 +537,8 @@ pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> 
         }
         if let Some(t) = patch.trigger {
             if t != r.trigger {
-                r.github_seen = None;
+                // A new trigger starts from now: never runs for activity or failures from before the change.
+                r.github_seen = Some(rfc3339(now));
                 r.failure_seen = Some(now);
             }
             r.trigger = t;
@@ -591,6 +598,7 @@ async fn update_file(app: &App, current: &CronAgent, bot_id: &str, path: &str, p
 }
 
 pub async fn delete(app: &App, id: &str) -> Result<()> {
+    let _edit = EDIT.lock().await;
     if let Ok(r) = get(app, id).await
         && let (Some(bot_id), Some(path)) = (&r.bot_id, &r.file)
         && launchpad_core::bots::routine_files(app, bot_id).await?.iter().any(|(p, _)| p == path)
@@ -713,7 +721,7 @@ static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Home, after every write of a bot's files: its routine records follow `routines/*.toml`. A new file makes a
 /// record, a changed one updates its definition (a new schedule, time zone, trigger or pause recomputes the next
-/// run from now; a new trigger restarts its watermark), a removed one deletes its record and history. A file with
+/// run from now; a new trigger starts its watermarks from now), a removed one deletes its record and history. A file with
 /// an error keeps the record's last good definition and shows the error (`file_error`); a new file with an error
 /// gets a paused record that shows it.
 pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
@@ -734,7 +742,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                 modify(app, &r.id, move |r| {
                     let timing = r.schedule != f.schedule || r.time_zone != f.time_zone || r.trigger != f.trigger || r.paused != f.paused || undue(r);
                     if r.trigger != f.trigger {
-                        r.github_seen = None;
+                        r.github_seen = Some(rfc3339(now));
                         r.failure_seen = Some(now);
                     }
                     r.title = f.title;
@@ -982,6 +990,8 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
 /// Run now: ignores the conditions and the trigger.
 pub async fn run_now(app: &App, id: &str) -> Result<Session> {
     let record = get(app, id).await?;
+    // A routine whose file never worked has nothing to run yet.
+    ensure!(!record.spec.text.trim().is_empty(), "{} has no instructions: fix its file {}", record.title, record.file.as_deref().unwrap_or_default());
     if let Some(why) = thread_busy(app, &record) {
         bail!("{why}: wait for its turn to end, or Stop it");
     }

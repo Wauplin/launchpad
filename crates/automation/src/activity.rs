@@ -73,6 +73,12 @@ pub fn undo_call(a: &actions::Action, args: &[String], body: Option<&Value>, bef
         }
         let mut old = serde_json::Map::new();
         for k in body.keys() {
+            // `bot.update` with `files`: each routine file as it was (null: it did not exist, so Undo deletes it).
+            if a.name == "bot.update" && k == "files" {
+                let (Some(files), Some(was)) = (body[k].as_object(), before.get("routines")) else { return (None, None) };
+                old.insert(k.clone(), Value::Object(files.keys().map(|p| (p.clone(), was.get(p).cloned().unwrap_or(Value::Null))).collect()));
+                continue;
+            }
             // A key the record does not show cannot be put back.
             let Some(v) = before.get(k) else { return (None, None) };
             old.insert(k.clone(), v.clone());
@@ -178,6 +184,10 @@ mod tests {
         let (before, undo) = undo_call(bot, &["b".into()], Some(&json!({"set": {"inbox_done": true}})), Some(&json!({"id": "b", "settings": {"name": "Scout", "proposals": "auto"}})), None);
         assert_eq!(before, Some(json!({"set": {"inbox_done": false}})));
         assert_eq!(undo.unwrap().body, Some(json!({"set": {"inbox_done": false}})));
+        // Routine files: the old text of a changed one, null for a new one (Undo deletes it).
+        let files = json!({"files": {"routines/a.toml": "new a", "routines/b.toml": "b"}});
+        let (_, undo) = undo_call(bot, &["b".into()], Some(&files), Some(&json!({"id": "b", "routines": {"routines/a.toml": "old a"}})), None);
+        assert_eq!(undo.unwrap().body, Some(json!({"files": {"routines/a.toml": "old a", "routines/b.toml": null}})));
 
     }
 }

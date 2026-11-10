@@ -22,4 +22,8 @@ paused: boolean, version: number,
 /**
  * Its notes: the files under `memory/`, with their store paths.
  */
-memory: Array<Entry>, };
+memory: Array<Entry>, 
+/**
+ * Its routine files (`routines/<name>.toml`) as written, by path: what an Undo of a file change puts back.
+ */
+routines: Record<string, string>, };
