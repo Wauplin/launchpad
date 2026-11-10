@@ -51,7 +51,8 @@ route("POST", "/api/bots", ({ body }) => {
 });
 route("PATCH", "/api/bots/:id", ({ params, body }) => {
   const b = botOf(params.id);
-  const p = body as { settings?: BotSettings; instructions?: string; settings_text?: string };
+  const p = body as { settings?: BotSettings; instructions?: string; settings_text?: string; set?: Record<string, unknown> };
+  if (p.set) p.settings = Object.fromEntries(Object.entries({ ...b.settings, ...p.set }).filter(([, v]) => v != null)) as BotSettings;
   if (p.settings_text != null) throw new DemoError(400, "Demo: edit the settings with the form in the Settings tab.");
   if (p.settings) { const before = b.settings_text; b.settings = { ...p.settings }; b.settings_text = settingsText(b.settings); record(b, "bot.toml", before, b.settings_text); }
   if (p.instructions != null) { const before = b.instructions; b.instructions = p.instructions; record(b, "BOT.md", before, b.instructions); }

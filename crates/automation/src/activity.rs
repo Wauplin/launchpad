@@ -68,6 +68,9 @@ pub fn undo_call(a: &actions::Action, args: &[String], body: Option<&Value>, bef
     }
     if a.before.is_some() {
         let (Some(body), Some(before)) = (body.and_then(Value::as_object), before) else { return (None, None) };
+        if let Some(old) = bot_set_before(a, body, before) {
+            return (Some(old.clone()), Some(UndoCall { action: u.name.into(), args: args.to_vec(), body: Some(old) }));
+        }
         let mut old = serde_json::Map::new();
         for k in body.keys() {
             // A key the record does not show cannot be put back.
@@ -81,6 +84,16 @@ pub fn undo_call(a: &actions::Action, args: &[String], body: Option<&Value>, bef
         Some(id) => (None, Some(UndoCall { action: u.name.into(), args: vec![id.into()], body: None })),
         None => (None, None),
     }
+}
+
+/// `bot.update` with `set` (only some bot.toml fields): the values before of those fields, defaults included, as
+/// a `set` that puts them back. None for every other call.
+fn bot_set_before(a: &actions::Action, body: &serde_json::Map<String, Value>, before: &Value) -> Option<Value> {
+    let set = body.get("set").filter(|_| a.name == "bot.update")?.as_object()?;
+    let settings: launchpad_core::bots::BotSettings = serde_json::from_value(before.get("settings")?.clone()).ok()?;
+    let values = launchpad_core::bots::setting_values(&settings);
+    let old: Option<serde_json::Map<String, Value>> = set.keys().map(|k| values.get(k).map(|v| (k.clone(), v.clone()))).collect();
+    Some(serde_json::json!({"set": old?}))
 }
 
 fn target_of(result: Option<&Value>) -> Option<String> {
@@ -160,5 +173,11 @@ mod tests {
         let create = actions::get("workspace.create").unwrap();
         assert_eq!(undo_call(create, &[], Some(&json!({"name": "W"})), None, Some(&json!({"id": "w1"}))).1, Some(UndoCall { action: "workspace.delete".into(), args: vec!["w1".into()], body: None }));
         assert_eq!(undo_call(actions::get("session.archive").unwrap(), &["s".into()], None, None, None).1, None);
+        // A bot.toml field set alone is put back alone, a default included.
+        let bot = actions::get("bot.update").unwrap();
+        let (before, undo) = undo_call(bot, &["b".into()], Some(&json!({"set": {"inbox_done": true}})), Some(&json!({"id": "b", "settings": {"name": "Scout", "proposals": "auto"}})), None);
+        assert_eq!(before, Some(json!({"set": {"inbox_done": false}})));
+        assert_eq!(undo.unwrap().body, Some(json!({"set": {"inbox_done": false}})));
+
     }
 }

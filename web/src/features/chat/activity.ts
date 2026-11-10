@@ -45,8 +45,10 @@ export function activityLink(a: Activity): ActivityLink | null {
  * before → after. */
 export function activityParts(a: Activity): { before: string; target: string | null; after: string } {
   const what = (ACTIONS as Record<string, { help: string }>)[a.action]?.help ?? a.action;
-  const body = (a.body ?? {}) as Record<string, unknown>;
-  const before = a.before as Record<string, unknown> | null;
+  let body = (a.body ?? {}) as Record<string, unknown>;
+  let before = a.before as Record<string, unknown> | null;
+  // bot.update with `set`: each bot.toml field changed.
+  if (body.set && typeof body.set === "object" && Object.keys(body).length === 1) { body = body.set as Record<string, unknown>; before = (before?.set ?? null) as Record<string, unknown> | null; }
   const values = before ? Object.keys(body).map((k) => `${k.replace(/_/g, " ")}: ${short(before[k])} → ${short(body[k])}`) : [];
   if (values.length) return { before: "", target: a.target, after: (a.target ? " · " : "") + values.join(" · ") };
   return { before: a.target ? `${what} · ` : what, target: a.target, after: "" };

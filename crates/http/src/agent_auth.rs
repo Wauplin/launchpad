@@ -222,6 +222,7 @@ mod tests {
         let folder = actions::get("folder.set").unwrap();
         assert_eq!(unknown_field(folder, Some(&serde_json::json!({"worktree_setup": "x"}))).as_deref(), Some("worktree_setup"));
         assert!(unknown_field(folder, Some(&serde_json::json!({"when_done": "keep"}))).is_none());
+        assert!(unknown_field(actions::get("bot.update").unwrap(), Some(&serde_json::json!({"set": {"inbox_done": true}}))).is_none());
         assert!(asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": true}})));
         assert!(!asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": false}})));
     }

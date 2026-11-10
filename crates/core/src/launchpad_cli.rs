@@ -31,6 +31,10 @@ A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"targ
             let body = a.body_file.map(|b| format!(" (body: {b})")).unwrap_or_default();
             out.push_str(&format!("- `{}`: {}{body}\n", usage(cli, a), a.help));
         }
+        out.push_str(&format!(
+            "\nTo change some of a bot's settings, send only those `bot.toml` fields with `set`; the others stay: `{cli} bot update <bot-id> --body-file <file.json>` with {{\"set\": {{\"inbox_done\": true}}}}. Fields: {} (`inbox_done`: the bot marks the owner's Inbox threads done itself, on GitHub too; `launchpad`: its CLI access, read, propose or admin; `proposals`: manual or auto). Null puts a field back to its default. Read the bot back with `{cli} bots list` to check.\n",
+            crate::bots::SETTING_FIELDS.join(", ")
+        ));
         let owner: Vec<&str> = ACTIONS.iter().filter(|a| a.access == ActionAccess::Owner).map(|a| a.help).collect();
         out.push_str(&format!(
             "\nEach direct change goes to the owner's activity list, with Undo when the action has one (`{cli} activity list`). A Home update restarts Home a few minutes after your call returns: your session keeps running on its runner, and Launchpad CLI calls that need Home fail until it is back; then run `{cli} home check-update` to see what it runs. Only the owner's click runs these, never you: {}. Propose a ready card for merge, publish, post, send, run CI and Inbox done, and a tool card for tools. Every other change (profiles, the rest of config.toml, the Outbox, channels, credentials, devices, terminals, runners, Burst, setup fixes, folder setup commands, paid usage) is refused: ask the owner. `{cli} api <GET|POST|PUT|PATCH|DELETE> <path> [--body-file <file.json>]` reads any other state (GET) and runs the same actions by their API path.",

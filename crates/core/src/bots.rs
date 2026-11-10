@@ -129,6 +129,47 @@ pub struct Patch {
     pub instructions: Option<String>,
     /// A hand edit of `bot.toml`, checked before it is saved.
     pub settings_text: Option<String>,
+    /// Only these fields of `bot.toml` (`set_fields`), the others kept: `{"inbox_done": true}`. Null puts a field
+    /// back to its default.
+    pub set: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// The fields of `bot.toml`, as `Patch::set` names them.
+pub const SETTING_FIELDS: &[&str] = &["name", "profile", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "inbox_done", "tools"];
+
+/// Every field of the settings with its value, defaults included (bot.toml leaves defaults out): the values a
+/// `set` puts back.
+pub fn setting_values(s: &BotSettings) -> serde_json::Map<String, serde_json::Value> {
+    let mut v = match serde_json::to_value(s) {
+        Ok(serde_json::Value::Object(m)) => m,
+        _ => Default::default(),
+    };
+    for k in SETTING_FIELDS {
+        v.entry(k.to_string()).or_insert_with(|| match *k {
+            "inbox_done" => serde_json::Value::Bool(false),
+            "tools" => serde_json::json!({}),
+            _ => serde_json::Value::Null,
+        });
+    }
+    v
+}
+
+/// The settings with only the fields of `set` changed (null: the field's default).
+pub fn set_fields(current: &BotSettings, set: &serde_json::Map<String, serde_json::Value>) -> Result<BotSettings> {
+    ensure!(!set.is_empty(), "name at least one bot.toml field to set");
+    let mut v = serde_json::to_value(current)?;
+    let obj = v.as_object_mut().context("bot settings")?;
+    for (k, val) in set {
+        ensure!(SETTING_FIELDS.contains(&k.as_str()), "bot.toml has no field {k} (fields: {})", SETTING_FIELDS.join(", "));
+        if val.is_null() {
+            obj.remove(k);
+        } else {
+            obj.insert(k.clone(), val.clone());
+        }
+    }
+    let mut s: BotSettings = serde_json::from_value(v).context("bot.toml")?;
+    s.folder = s.folder.filter(|f| !f.trim().is_empty());
+    Ok(s)
 }
 
 fn ensure_home(app: &App) -> Result<()> {
@@ -281,6 +322,11 @@ pub async fn update(app: &App, id: &str, p: Patch) -> Result<Bot> {
         check_settings(app, &bot.workspace_id, &s).await?;
         files.push((SETTINGS, text));
     } else if let Some(s) = p.settings {
+        check_settings(app, &bot.workspace_id, &s).await?;
+        files.push((SETTINGS, render_settings(&s)?));
+    } else if let Some(set) = p.set {
+        ensure!(bot.settings_error.is_none(), "{}'s bot.toml has an error: fix it in its Settings tab first", bot.settings.name);
+        let s = set_fields(&bot.settings, &set)?;
         check_settings(app, &bot.workspace_id, &s).await?;
         files.push((SETTINGS, render_settings(&s)?));
     }
@@ -467,6 +513,25 @@ Routines: when the owner wants you to do something on your own later or again (e
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn set_changes_only_the_named_fields() {
+        let cur = BotSettings { name: "Scout".into(), profile: Some("p1".into()), model: Some("m".into()), proposals: ProposalMode::Auto, ..Default::default() };
+        let set = |v: serde_json::Value| v.as_object().unwrap().clone();
+        let s = set_fields(&cur, &set(serde_json::json!({"inbox_done": true}))).unwrap();
+        assert_eq!(s, BotSettings { inbox_done: true, ..cur.clone() });
+        // Null puts back the default; the undo values of `setting_values` restore the settings.
+        let s2 = set_fields(&s, &set(serde_json::json!({"model": null, "launchpad": "admin"}))).unwrap();
+        assert_eq!((s2.model.as_deref(), s2.launchpad, s2.profile.as_deref()), (None, crate::vault::LaunchpadAccess::Admin, Some("p1")));
+        let old = setting_values(&cur);
+        let back: serde_json::Map<_, _> = ["model", "launchpad", "inbox_done"].iter().map(|k| (k.to_string(), old[*k].clone())).collect();
+        assert_eq!(set_fields(&BotSettings { inbox_done: true, ..s2 }, &back).unwrap(), cur);
+        assert!(set_fields(&cur, &set(serde_json::json!({"inbox-done": true}))).is_err());
+        assert!(set_fields(&cur, &set(serde_json::json!({"inbox_done": "yes"}))).is_err());
+        assert!(set_fields(&cur, &serde_json::Map::new()).is_err());
+        // Every field of bot.toml is named.
+        assert_eq!(setting_values(&cur).keys().map(String::as_str).collect::<std::collections::BTreeSet<_>>(), SETTING_FIELDS.iter().copied().collect());
+    }
 
     #[test]
     fn slugs_are_unique_ascii_words() {
