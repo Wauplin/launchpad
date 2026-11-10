@@ -31,12 +31,12 @@ export function AskPanel() {
         {bots.length > 1 && bot
           ? <select className="min-w-0 flex-1 truncate bg-transparent text-[13px] font-semibold outline-none" aria-label="Bot" value={bot.id} onChange={(e) => show(e.target.value)}>{bots.map((b) => <option key={b.id} value={b.id}>{b.settings.name}</option>)}</select>
           : <b className="min-w-0 flex-1 truncate text-[13px]">{bot?.settings.name ?? "Ask"}</b>}
-        {bot && <Link to="/bots/$id" params={{ id: bot.id }} className="iconbtn" title={`Open ${bot.settings.name}'s page: memory, proposals, routines and settings`} aria-label="Open the bot's page"><Icon name="ext" size={14} /></Link>}
+        {bot && <Link to="/bots/$id" params={{ id: bot.id }} className="iconbtn" title={`Open ${bot.settings.name}'s page`} aria-label="Open the bot's page"><Icon name="ext" size={14} /></Link>}
         <button className="iconbtn" title="Close the panel" aria-label="Close the Ask panel" onClick={close}><Icon name="x" size={14} /></button>
       </div>
       {bot
         ? <BotChat key={bot.id} view="ask" bot={bot} thread={thread} rotation={rotationReason(bot, current, profile)} needsProfile={!profile}
-            openSettings={() => void navigate({ to: "/bots/$id", params: { id: bot.id }, search: { panel: "settings" } as never })}
+            openSettings={() => void navigate({ to: "/bots/$id", params: { id: bot.id }, search: { panel: "about" } as never })}
             intro={<p className="m-0 text-[13px] text-ink-2">Ask {bot.settings.name} about your agents, folders and Inbox, or to change Launchpad for you. Its answers end in cards you start with one click, and in changes you can undo.</p>} />
         : <div className="grid flex-1 place-items-center p-6 text-center text-[13px] text-ink-2"><div>This workspace has no bot. <Link to="/bots" className="underline">Create one</Link> to ask it things.</div></div>}
     </aside>

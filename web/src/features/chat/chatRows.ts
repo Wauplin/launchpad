@@ -21,6 +21,8 @@ export type ChatSession = {
   folder: string | null;
   /** Why it started (`BotLaunch.reason`: profile, folder, model, effort, permissions, archived, new, first). */
   reason?: string | null;
+  /** The owner's words for a new session they asked for (`BotLaunch.note`). */
+  note?: string | null;
   /** Starting, working or background: its last turn without an end gets the working line. */
   running: boolean;
   rows: TraceRow[];
@@ -97,6 +99,7 @@ export const ROTATION_REASONS: Record<string, string> = {
 };
 
 function why(prev: ChatSession | undefined, s: ChatSession): string | null {
+  if (s.reason === "new" && s.note) return `you asked for a new session: “${s.note}”`;
   if (s.reason) return ROTATION_REASONS[s.reason] ?? null;
   // Sessions from before the reason was recorded: what differs from the previous one.
   if (!prev) return null;

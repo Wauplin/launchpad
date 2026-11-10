@@ -37,7 +37,7 @@ export const ask: Chapter = {
       enter: () => useAskPanel.getState().show(ASK_BOT),
     },
     {
-      id: "ask.ready", route: `${ASK_ROUTE}?panel=proposals`, anchor: "proposal.card", anchorId: READY,
+      id: "ask.ready", route: ASK_ROUTE, anchor: "proposal.card", anchorId: READY,
       title: "Your click",
       body: "Merging, publishing, posting, sending and marking Inbox threads done stay yours. A bot can prepare them as a ready click: the card runs the same call as the button on its page, with the same confirmation, and only when you click it.",
       enter: () => useAskPanel.getState().close(),
@@ -59,20 +59,20 @@ export const ask: Chapter = {
       tryIt: { text: "ask “What needs me today?”.", done: () => proposal()?.state === "proposed", doIt: () => api.post(`/api/sessions/${THREAD}/input`, { text: "What needs me today?" }) },
     },
     {
-      id: "ask.proposal", route: `${ASK_ROUTE}?panel=proposals`, anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
+      id: "ask.proposal", route: ASK_ROUTE, anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
       title: "Proposals wait for you",
       body: "Each card shows the profile, the folder and anything unusual. Start launches it; its ⋯ holds Edit (opens it in the composer) and Dismiss (drops it). Paid usage is always off for proposals. Proposals of every bot also wait in Today, under Approve.",
       tryIt: { text: "press Start.", done: () => proposal()?.state === "started", doIt: () => api.post(`/api/proposals/${TODAY_PROPOSAL}/accept`) },
     },
     {
-      id: "ask.started", route: `${ASK_ROUTE}?panel=proposals`, anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
+      id: "ask.started", route: ASK_ROUTE, anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
       title: "A normal agent",
       body: "A started proposal becomes a normal agent, listed in Agents like any other. Cron proposals say “Creates a repeating agent” before you accept them.",
     },
     {
-      id: "ask.customize", route: `${ASK_ROUTE}?panel=settings`, anchor: "bots.files",
+      id: "ask.customize", route: `${ASK_ROUTE}?panel=about`, anchor: "bots.files",
       title: "Make it yours",
-      body: "Its BOT.md says how it works and answers; edit it here, or tell it “from now on, …” and it proposes the change. An edit reaches its current session with your next message. bot.toml holds its profile, folder, permissions and proposal mode. You can also delete it and build your own: any bot with the Launchpad CLI tool can do the same.",
+      body: "About holds what defines the bot. Its BOT.md says how it works and answers; edit it here, or tell it “from now on, …” and it proposes the change. An edit reaches its current session with your next message. Access sums up its profile, model, folder, permissions and proposal mode in one line; Edit changes them, and ⋯ → Edit as file opens bot.toml. You can also delete it and build your own: any bot with the Launchpad CLI tool can do the same.",
     },
     {
       id: "ask.bots", route: "/bots", anchor: "sidebar.bots",
@@ -82,7 +82,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",
       title: "One thread, many sessions",
-      body: "The chat shows the whole thread, with a divider at each new session; older messages load as you scroll up. Messages go to the current session. A new session starts when its profile, folder, model, effort or permission mode changes (the divider says why), or when you check New session next to the message box; it reads the previous trace only when it needs it. After you edit BOT.md, “Instructions updated” over the message box means your next message brings the new one, in the same session. A routine run with nothing to report is one quiet line.",
+      body: "The chat shows the whole thread, with a divider at each new session; older messages load as you scroll up. Messages go to the current session. A new session starts when its profile, folder, model, effort or permission mode changes (the divider says why), or when you pick Start a new session in ⋯, with a reason the divider shows; it reads the previous trace only when it needs it. After you edit BOT.md, “Instructions updated” over the message box means your next message brings the new one, in the same session. A routine run with nothing to report is one quiet line.",
       tryIt: { text: "ask the Maintainer for the refund test.", done: () => botSessions().some((s) => (world.events[s.id] ?? []).some((e) => e.body.kind === "user_message" && e.body.text.toLowerCase().includes("refund"))), doIt: () => api.post(`/api/bots/${BOT}/message`, { text: "Prepare the refund end-to-end test as a Local PR." }) },
     },
     {
@@ -96,21 +96,21 @@ export const ask: Chapter = {
       body: "A hook or Telegram message that arrives while the bot works waits for the end of its turn, as a grey row at the bottom of the chat. Cancel drops it before it is sent.",
     },
     {
-      id: "ask.bot-routines", route: `${BOT_ROUTE}?panel=routines`, anchor: "bots.routines",
-      title: "Routines: work on its own",
-      body: "A routine sends the bot a task by itself: every weekday morning, when CI fails on GitHub, or when another agent is done. Each run lands in its thread and ends with a report, or with No update, which never notifies you. “When an agent is done” leaves bots' answers out unless you check Bots' answers count too, and a routine started by events runs at most six times an hour. Each routine is a file of the bot (Edit as file in its ⋯), and a bot proposes changes to its BOT.md and routines as one card with a diff per file. Pause stops every routine of the bot.",
+      id: "ask.bot-about", route: BOT_ROUTE, anchor: "bots.about",
+      title: "About the bot",
+      body: "The chat is the page; the line under the name says what the bot does now, or when it runs next. About opens a drawer with what defines it, top to bottom: BOT.md, Triggers, Memory (its own notes, loaded at the start of each session, up to 100 lines), Access and Versions (every version of its files for 30 days, with Restore). This device remembers whether it was open. ⋯ holds Pause all triggers, Start a new session, Open current session in Agents, Edit as file and Delete. On the phone, ⓘ opens About as a page.",
+    },
+    {
+      id: "ask.bot-routines", route: `${BOT_ROUTE}?panel=about`, anchor: "bots.triggers",
+      title: "Triggers: work on its own",
+      body: "A routine sends the bot a task by itself: every weekday morning, when CI fails on GitHub, or when another agent is done. Each run lands in its thread and ends with a report, or with No update, which never notifies you. “When an agent is done” leaves bots' answers out unless you check Bots' answers count too, and a routine started by events runs at most six times an hour. Incoming hooks and the Telegram command that message the bot are listed too. Each routine is a file of the bot (Edit as file in its ⋯), and a bot proposes changes to its BOT.md and routines as one card with a diff per file. Pause all stops every trigger of the bot; your own messages still go through.",
       tryIt: { text: "press Run now on a routine.", done: () => (world.crons.find((c) => c.id === DAILY)?.history.length ?? 0) > dailyRuns, doIt: () => api.post(`/api/launch/crons/${DAILY}/run`) },
       enter: () => { dailyRuns = world.crons.find((c) => c.id === DAILY)?.history.length ?? 0; },
     },
     {
-      id: "ask.bot-start", route: `${BOT_ROUTE}?panel=settings`, anchor: "bots.start-preview",
+      id: "ask.bot-start", route: `${BOT_ROUTE}?panel=about`, anchor: "bots.start-preview",
       title: "What it sees at start",
       body: "Shows the instructions and the first prompt of its next session, in parts you open one by one: the knowledge base and its INDEX.md, its memory, the Launchpad CLI reference, BOT.md and your message. Launchpad builds them like a real start. The composer has the same button for any launch.",
-    },
-    {
-      id: "ask.bot-panels", route: BOT_ROUTE, anchor: "bots.panels",
-      title: "Memory, instructions and settings",
-      body: "Beside the chat: Memory lists its own notes, loaded at the start of each session (up to 100 lines), and the sessions of its thread, Proposals keeps every card it wrote, and Settings holds BOT.md, its profile, folder and permissions, what it can reach, and bot.toml, with every version of its files (BOT.md, bot.toml, routines, memory) for 30 days. On the phone they open from ⋯.",
     },
   ],
 };

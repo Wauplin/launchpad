@@ -43,7 +43,6 @@ import { api } from "@/lib/api";
 import { pastedImages } from "@/lib/attachments";
 import { daemonAsset } from "@/lib/connection";
 import { age, ago, when } from "@/lib/format";
-import { usePhone } from "@/lib/phone";
 import { useCrons, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
 import { isRunning } from "@/lib/sessionStatus";
@@ -80,7 +79,10 @@ function useChanges(bot: Bot, ids: Set<string>): { cards: ChatCard[]; activity: 
   }, [kb, done, ids]);
 }
 
-export function BotChat({ bot, thread, rotation, needsProfile, openSettings, intro, view = "bot" }: {
+/** A new session the owner asked for (⋯ → Start a new session): the next message starts it, with their reason. */
+export type NewSessionRequest = { reason: string };
+
+export function BotChat({ bot, thread, rotation, needsProfile, openSettings, intro, view = "bot", newSession = null, onNewSession, onStep }: {
   bot: Bot;
   /** Which view shows the chat (a bot page, the Ask panel), for the sessions this window reports on screen. */
   view?: string;
@@ -92,6 +94,11 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
   openSettings: () => void;
   /** Shown while the thread is empty. */
   intro: React.ReactNode;
+  /** The next message starts a new session (the bot page's ⋯); `onNewSession(null)` cancels it, and sending clears it. */
+  newSession?: NewSessionRequest | null;
+  onNewSession?: (r: NewSessionRequest | null) => void;
+  /** The step the current turn works on (its last step title), for the page's status line. */
+  onStep?: (step: string | null) => void;
 }) {
   const current = [...thread].reverse().find((s) => s.status !== "closed") ?? null;
   // Sessions shown, counted from the newest; a new session of the thread adds to them.
@@ -138,7 +145,7 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
     let rows = folded.get(log);
     if (!rows) { rows = foldTrace(buildRows(log), s.launch_spec.text, presets); folded.set(log, rows); }
     return {
-      id: s.id, started_at: s.started_at, profile: s.launch_spec.profile, folder: s.launch_spec.target.kind === "temp" ? null : s.project_id, reason: s.launch_spec.bot?.reason ?? null,
+      id: s.id, started_at: s.started_at, profile: s.launch_spec.profile, folder: s.launch_spec.target.kind === "temp" ? null : s.project_id, reason: s.launch_spec.bot?.reason ?? null, note: s.launch_spec.bot?.note ?? null,
       running: isRunning(s), rows, firstTs: log.events[0]?.ts ?? null, partial: !!log.earlier, changes: s.status !== "closed",
     };
   }), [ready.map((s) => `${s.id}:${s.status}`).join(), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -149,6 +156,8 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
     ...chatRows(sessions, cards, first),
     ...(queued ?? []).map((m): ChatItem => ({ t: "queued", key: `queued/${m.n}`, v: "", n: m.n, at: m.at, source: m.source, text: m.text })),
   ], [sessions, cards, first, queued]);
+  const step = useMemo(() => { const w = items.findLast((i) => i.t === "working"); return w?.t === "working" ? w.step : null; }, [items]);
+  useEffect(() => { onStep?.(step); }, [step, onStep]);
   const more = from > 0 || !!(ready[0] && logs[ready[0].id]?.earlier);
   const failedLog = visible.map((s) => logs[s.id]).find((l) => l?.error);
 
@@ -239,7 +248,7 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
         </div>
       </div>
       <BotComposer bot={bot} current={current} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} ask={ask}
-        onSent={() => { atBottom.current = true; }} />
+        newSession={newSession} onNewSession={onNewSession} onSent={() => { atBottom.current = true; }} />
     </div>
   );
 }
@@ -264,7 +273,6 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId }:
     case "divider":
       return <div className="pt-4 pb-2"><Separator>
         <span>Session {item.index} · started {when(item.at)}{item.reason ? ` because ${item.reason}` : ""}</span>
-        <Link to="/agents" search={{ session: item.sessionId }} className="chat-tap text-teal-ink no-underline hover:underline" title="The whole trace of this session in Agents">Open in Agents</Link>
       </Separator></div>;
     case "user":
       return <div className="flex py-1.5"><div className="ml-auto max-w-[85%] rounded-card rounded-br-sm bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
@@ -411,27 +419,21 @@ function WorkingRow({ item }: { item: Extract<ChatItem, { t: "working" }> }) {
 
 // ---------------------------------------------------------------- the message box
 
-function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, onSent }: {
+function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, newSession, onNewSession, onSent }: {
   bot: Bot; current: Session | null; rotation: string | null; needsProfile: boolean;
   openSettings: () => void;
   ask: { request_id: string; count: number; permission: boolean } | null;
+  newSession: NewSessionRequest | null;
+  onNewSession?: (r: NewSessionRequest | null) => void;
   onSent: () => void;
 }) {
   const qc = useQueryClient();
   const harness = useHarnessInfo(current?.harness ?? null);
   const acceptsImages = harness ? harness.capabilities.images : true;
-  const phone = usePhone();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  // "New session" checkbox: the next message starts a new session of the thread. Offered only while the current
-  // session waits for input (or ended), and cleared when the current session changes.
-  const [checked, setChecked] = useState(false);
-  useEffect(() => setChecked(false), [current?.id]);
-  const canStartNew = !!current && !rotation && ["waiting", "error", "interrupted", "stopped"].includes(current.status);
-  const fresh = checked && canStartNew;
-  const newSession = canStartNew && <label className={`flex flex-none cursor-pointer items-center gap-1.5 text-[12px] text-ink-2 select-none ${phone ? "mt-0.5 min-h-11 w-fit px-1" : "self-center"}`} title={`Send this message to a new session of ${bot.settings.name}'s thread; it references the previous session's trace`}>
-    <input type="checkbox" checked={checked} disabled={busy} onChange={(e) => setChecked(e.target.checked)} className="accent-teal" />New session
-  </label>;
+  // ⋯ → Start a new session: the next message starts a new session of the thread (the page keeps the request).
+  const fresh = !!newSession;
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const attachments = useMessageAttachments(acceptsImages);
@@ -458,14 +460,14 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
         await runAction("session.answer", { id: current.id }, { request_id: ask!.request_id, answers: Array(ask!.count).fill(t || "See the attachments in my next message.") });
         if (files.length) await runAction("bot.message", { id: bot.id }, { text: "", attachments: files });
       } else {
-        await runAction("bot.message", { id: bot.id }, { text: t, attachments: files, new_session: fresh, ...(withContext ? { context } : {}) });
+        await runAction("bot.message", { id: bot.id }, { text: t, attachments: files, ...(fresh ? { new_session: true, reason: newSession!.reason } : {}), ...(withContext ? { context } : {}) });
+        onNewSession?.(null);
         setContext(EMPTY_CONTEXT);
         setPresets([]);
       }
       setText("");
       attachments.clear();
       onSent();
-      setChecked(false);
       await qc.invalidateQueries({ queryKey: ["sessions"] });
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
@@ -475,6 +477,7 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
     <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5" data-tour="bots.reply">
       <div className="mx-auto w-full max-w-text">
         {rotation && current && <div className="mb-1.5 text-[12px] text-ink-3">{rotation}: your next message starts a new session of {bot.settings.name}'s thread, with a reference to the previous one.</div>}
+        {fresh && !rotation && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="bots.new-session"><Icon name="plus" size={12} className="flex-none" /><span className="min-w-0 flex-1 truncate">Your next message starts a new session{newSession!.reason ? ` · “${newSession!.reason}”` : ""}</span><button className="chat-tap flex-none text-teal-ink hover:underline" onClick={() => onNewSession?.(null)}>Cancel</button></div>}
         {!rotation && !fresh && instructionsUpdated(bot, current) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="bots.instructions-updated" title={`BOT.md changed since ${bot.settings.name}'s current session read it: the new BOT.md goes with your next message, in the same session`}><Icon name="file" size={12} />Instructions updated · applies to your next message</div>}
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void attachments.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
         <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
@@ -488,12 +491,10 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
             onPaste={(e) => { if (!acceptsImages || busy) return; const pasted = pastedImages(e); if (pasted) void attachments.add(pasted); }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}
             className="min-h-6 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
-          {!phone && newSession}
           {!answering && <MessageContextButton sessionId={current?.id ?? null} value={context} onChange={setContext} presets={{ presets: botPresets, selected: presets, onChange: setPresets }} disabled={busy || reading || blocked} />}
           <button className="iconbtn" title={`Attach files${acceptsImages ? " or images" : ""}. ${ATTACH_LIMITS}`} aria-label="Attach files" disabled={busy || reading || blocked} onClick={() => fileRef.current?.click()}><Icon name="clip" size={14} /></button>
           <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || reading || blocked || (!text.trim() && !files.length && !withContext && !presets.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>
         </div>
-        {phone && newSession}
       </div>
     </div>
   );

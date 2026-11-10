@@ -191,7 +191,7 @@ const NoteRow = memo(function NoteRow({ path, display = path, indent, hit, activ
 
 /** A bot in the Bot memory list: a link to its page. */
 const BotRow = memo(function BotRow({ bot }: { bot: Bot }) {
-  return <Link to="/bots/$id" params={{ id: bot.id }} search={{ panel: "memory" } as never} className="flex h-full min-w-0 items-center gap-1.5 px-3 text-[13px] text-ink no-underline hover:bg-sunk" title={`Open ${bot.settings.name}`}>
+  return <Link to="/bots/$id" params={{ id: bot.id }} search={{ panel: "about" } as never} className="flex h-full min-w-0 items-center gap-1.5 px-3 text-[13px] text-ink no-underline hover:bg-sunk" title={`Open ${bot.settings.name}`}>
     <Icon name="spark" size={12} className="flex-none text-ink-3" />
     <span className="min-w-0 truncate font-semibold">{bot.settings.name}</span>
     <span className="text-[12px] text-ink-3">{bot.memory.length}</span>
@@ -208,7 +208,7 @@ function BotNotePane({ bot, path }: { bot: Bot | undefined; path: string }) {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-line-2 px-4 py-2">
         <span className="min-w-0 flex-1 truncate font-mono text-[13px]" title={path}>{bot.settings.name} · {path}</span>
-        <Link to="/bots/$id" params={{ id: bot.id }} search={{ panel: "memory" } as never} className="btn btn-sm no-underline">Open {bot.settings.name}</Link>
+        <Link to="/bots/$id" params={{ id: bot.id }} search={{ panel: "about" } as never} className="btn btn-sm no-underline">Open {bot.settings.name}</Link>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {text.isLoading ? <Loading what="the note" /> : text.error ? <ErrorState error={text.error} /> : fm && <>

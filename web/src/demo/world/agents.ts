@@ -333,7 +333,7 @@ export function agentsWorld() {
       body: { kind: "report", outcome: "approved", github: "acme-labs/storefront#119", body: "Checks pass and the change only adds `loading=\"lazy\"` to product images. I approved it with one note about the hero image, which should stay eager." },
       state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(21), updated_at: clock.ago(21) },
     // The Maintainer proposes a change to its own files: one line of BOT.md and a new routine, one diff each (shown
-    // in its Settings and on the Proposals page).
+    // in its About and on the Proposals page).
     { id: "demo-prop-review-routine", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "Review requests on storefront",
       note: "So I review pull requests as soon as GitHub asks you for a review, and prepare my review as a suggestion.",
       body: { kind: "bot_files", bot_id: "demo-bot-maintainer", files: { "BOT.md": MAINTAINER_BOT_MD_NEXT, "routines/review-requests.toml": REVIEW_ROUTINE },

@@ -63,11 +63,12 @@ test("a session divider names the recorded reason, and a message keeps its typed
     session("a", [user("hello"), answer("hi"), end(10)]),
     session("b", [user(`Check CI\n\n${block}\n\nContext:\n- Issue #3`), answer("ok"), end(20)], { reason: "model", firstTs: 15 }),
     session("c", [user(block), end(30)], { reason: "first", firstTs: 25 }),
+    session("d", [user("Start over"), end(40)], { reason: "new", note: "fresh context for the release", firstTs: 35 }),
   ]);
   const dividers = items.filter((i) => i.t === "divider");
-  assert.deepEqual(dividers.map((d) => d.reason), [null, "the model changed", null]);
+  assert.deepEqual(dividers.map((d) => d.reason), [null, "the model changed", null, "you asked for a new session: “fresh context for the release”"]);
   const users = items.filter((i) => i.t === "user");
-  assert.deepEqual(users.map((u) => [u.text, u.instructions]), [["hello", false], ["Check CI\n\nContext:\n- Issue #3", true], ["", true]]);
+  assert.deepEqual(users.map((u) => [u.text, u.instructions]), [["hello", false], ["Check CI\n\nContext:\n- Issue #3", true], ["", true], ["Start over", false]]);
 });
 
 test("a message from another bot shows its sender, without Home's header and fence", async () => {

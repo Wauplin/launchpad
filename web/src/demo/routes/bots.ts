@@ -60,7 +60,7 @@ route("PATCH", "/api/bots/:id", ({ params, body }) => {
   const b = botOf(params.id);
   const p = body as { settings?: BotSettings; instructions?: string; settings_text?: string; set?: Record<string, unknown>; files?: Record<string, string | null> };
   if (p.set) p.settings = Object.fromEntries(Object.entries({ ...b.settings, ...p.set }).filter(([, v]) => v != null)) as BotSettings;
-  if (p.settings_text != null) throw new DemoError(400, "Demo: edit the settings with the form in the Settings tab.");
+  if (p.settings_text != null) throw new DemoError(400, "Demo: edit the settings with the form in About → Access.");
   if (p.settings && p.settings.name.trim() !== b.settings.name) {
     // A new name gives a new slug, unique in the workspace (Home's `bots::rename`).
     const base = p.settings.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "bot";
@@ -145,6 +145,6 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
   const previous = sessions.at(-1);
   const spec = { harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), worktree: !b.settings.folder || world.projects.find((p) => p.id === b.settings.folder)?.plain ? null : { base: null, when_done: "keep" }, workspace_id: b.workspace_id, text,
     model: b.settings.model ?? profile?.model ?? null, permission_mode: b.settings.permission_mode,
-    bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", version: botVersion(b.instructions), reason: fresh && !reason ? "new" : reason ?? "first", permission_mode: b.settings.permission_mode, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
+    bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", version: botVersion(b.instructions), reason: fresh && !reason ? "new" : reason ?? "first", note: fresh ? String((body as { reason?: string }).reason ?? "").trim().slice(0, 120) || undefined : undefined, permission_mode: b.settings.permission_mode, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
   return launch(spec, undefined, b.slug === "ask-launchpad" ? pickReply(text, true) : undefined);
 });
