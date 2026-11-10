@@ -630,6 +630,9 @@ pub mod proto {
         /// Home's settings a runner applies to its own work: how many idle task worktrees it keeps (`[worktrees] keep`,
         /// Settings → Disk cleanup), on connect and after each change.
         Settings { worktrees_keep: u32 },
+        /// Entries of Home's spending ledger (`spend.rs`): all that runners need on connect and after a
+        /// configuration change, each new one as Home stores it.
+        Spend { entries: Vec<crate::spend::Entry> },
         /// Quota readings of Home's logins (`vault:<id>`), on connect and when they change.
         Quotas { quotas: std::collections::BTreeMap<String, crate::status::QuotaStatus> },
         /// Home refreshed or replaced this vault login: renew the leases that hold it now (`contain::renew_soon`).

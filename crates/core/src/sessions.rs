@@ -144,7 +144,7 @@ struct Inner {
     /// Running turns interrupted at their cost limit, with the time of the last attempt.
     budget_interrupts: Mutex<HashMap<String, i64>>,
     /// Reported cost increases of profile sessions, in time order (see `spend.rs`).
-    spend: Mutex<Vec<crate::spend::Entry>>,
+    spend: Mutex<crate::spend::Ledger>,
     /// Sessions whose process must restart to apply model, effort or permission changes.
     process_restarts: Mutex<HashSet<String>>,
     /// New sessions running their worktree setup command before the agent starts.
@@ -203,7 +203,7 @@ impl Sessions {
                 quota_interrupts: Mutex::new(HashMap::new()),
                 manual_quota_retries: Mutex::new(HashMap::new()),
                 budget_interrupts: Mutex::new(HashMap::new()),
-                spend: Mutex::new(Vec::new()),
+                spend: Mutex::new(crate::spend::Ledger::default()),
                 process_restarts: Mutex::new(HashSet::new()),
                 setups: Mutex::new(HashMap::new()),
                 shutdowns: Mutex::new(HashMap::new()),
@@ -219,13 +219,19 @@ impl Sessions {
 
     /// Loads sessions from `state.db`. Sessions that were mid-turn when the daemon stopped become
     /// `interrupted`; done ones stay done without a process (sending a message resumes them).
-    pub(crate) fn spend_entries<R>(&self, f: impl FnOnce(&mut Vec<crate::spend::Entry>) -> R) -> R {
+    pub(crate) fn spend_entries<R>(&self, f: impl FnOnce(&mut crate::spend::Ledger) -> R) -> R {
         f(&mut self.inner.spend.lock().unwrap())
     }
 
     pub async fn load(&self, app: &App) -> Result<()> {
         let spend = crate::spend::load(app).await?;
-        self.spend_entries(|entries| *entries = spend);
+        let now = now_ms();
+        self.spend_entries(|ledger| {
+            *ledger = crate::spend::Ledger::default();
+            for e in spend {
+                ledger.insert(e, now);
+            }
+        });
         let rows: Vec<Session> = app
             .state_db
             .call(|c| {
@@ -626,6 +632,7 @@ impl Sessions {
             Item::Project { .. } | Item::ForgetProject { .. } => return crate::projects::apply_replica(app, runner_id, n, item).await,
             Item::Access { access } => return crate::replica::apply_access(app, runner_id, n, access).await,
             Item::Worktree { worktree } => return crate::away::apply_replica(app, runner_id, n, *worktree).await,
+            Item::Spend { entry } => return crate::spend::apply_replica(app, runner_id, n, entry).await,
         }
         Ok(())
     }

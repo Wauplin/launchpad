@@ -592,6 +592,7 @@ async fn serve(app: &App, router: &Router, out: &tokio::sync::mpsc::UnboundedSen
                         replica::wake();
                     }
                     Ok(ToRunner::Quotas { quotas }) => launchpad_core::quota::apply_home_readings(app, quotas),
+                    Ok(ToRunner::Spend { entries }) => launchpad_core::spend::apply_home(app, entries),
                     Ok(ToRunner::RenewLeases { login }) => launchpad_core::contain::renew_soon(app, &login),
                     Ok(ToRunner::Refuse { reason }) => return Ok(Some(reason)),
                     Ok(msg @ (ToRunner::HttpHead { .. } | ToRunner::HttpBody { .. } | ToRunner::HttpAck { .. } | ToRunner::HttpCancel { .. })) => http_from_home(msg),

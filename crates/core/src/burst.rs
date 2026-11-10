@@ -317,6 +317,15 @@ async fn start(app: &App, session_id: Option<String>, pending: Pending) -> Resul
     if let Some(reason) = unavailable(app).await {
         bail!("{reason}");
     }
+    // Home holds every machine's spending: a launch or message past a profile's limit starts no paid job.
+    let spec = match &pending {
+        Pending::Launch { spec, .. } => Some((**spec).clone()),
+        Pending::Request { session_id, .. } => app.sessions.get(session_id).map(|s| s.launch_spec),
+        Pending::Move { .. } => None,
+    };
+    if let Some(spec) = spec {
+        crate::spend::ensure(app, &spec)?;
+    }
     let config = app.config.get().home.burst;
     let (image, namespace) = (image().context("no image")?, namespace().context("no namespace")?);
     let cost_per_minute = price(app, &config.flavor).await?;

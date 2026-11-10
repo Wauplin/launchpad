@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS plain_lock (store TEXT PRIMARY KEY, session_id TEXT N
 CREATE TABLE IF NOT EXISTS plain_asset (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bot (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, slug TEXT NOT NULL, created_at INTEGER NOT NULL, own_folder TEXT);
 CREATE TABLE IF NOT EXISTS kb_seen (workspace_id TEXT PRIMARY KEY, change_id INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS profile_cost (profile TEXT NOT NULL, at INTEGER NOT NULL, usd REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS profile_cost (profile TEXT NOT NULL, at INTEGER NOT NULL, usd REAL NOT NULL, id TEXT);
 CREATE TABLE IF NOT EXISTS onboarding (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS home_update (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cli_update (id TEXT PRIMARY KEY, json TEXT NOT NULL);
@@ -249,6 +249,10 @@ CREATE TABLE IF NOT EXISTS daemon_start (at INTEGER PRIMARY KEY, commit_id TEXT 
         .query_map([], |r| r.get::<_, String>(1))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let bot_columns = conn.prepare("PRAGMA table_info(bot)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    // Cost entries carry an ID so Home counts each runner's increase once (`spend.rs`).
+    let cost_columns = conn.prepare("PRAGMA table_info(profile_cost)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !cost_columns.iter().any(|c| c == "id") { conn.execute_batch("ALTER TABLE profile_cost ADD COLUMN id TEXT;")?; }
+    conn.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS profile_cost_id ON profile_cost (id);")?;
     if !bot_columns.iter().any(|c| c == "paused") { conn.execute_batch("ALTER TABLE bot ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;")?; }
     if !device_columns.iter().any(|c| c == "last_seen_at") { conn.execute_batch("ALTER TABLE browser_device ADD COLUMN last_seen_at INTEGER;")?; }
     // The vault SSH key (removed): agents push to Home Git and clones use the GitHub sign-in.

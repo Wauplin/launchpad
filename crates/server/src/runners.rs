@@ -328,6 +328,8 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
     let (out_tx, bulk_tx, mut writer) = crate::wire::lanes::<ToRunner>(tx);
     let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, runner.burst, (out_tx.clone(), bulk_tx));
     let send = |msg: ToRunner| out_tx.send(msg).is_ok();
+    // After `connect`, so an entry Home stores meanwhile is also broadcast to this runner (IDs count once).
+    send(ToRunner::Spend { entries: launchpad_core::spend::for_runners(&s.app) });
     tokio::spawn({
         let (app, id) = (s.app.clone(), runner.id.clone());
         async move { runners::deliver_pending(&app, &id).await }
@@ -352,7 +354,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => (true, true, true),
                     Err(_) => (false, false, false),
                 };
-                if p && (!send(profiles(&s)) || !send(settings(&s))) { break }
+                if p && (!send(profiles(&s)) || !send(settings(&s)) || !send(ToRunner::Spend { entries: launchpad_core::spend::for_runners(&s.app) })) { break }
                 if w && !send(workspaces(&s).await) { break }
                 if f && let Some(f) = folders(&s).await && !send(f) { break }
             }

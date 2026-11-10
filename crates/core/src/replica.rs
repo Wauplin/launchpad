@@ -42,6 +42,8 @@ pub enum Item {
     Access { access: crate::proxy::Access },
     /// A worktree record, with the branch tip in its folder (`worktrees::save`), for Home's away views.
     Worktree { worktree: Box<crate::worktrees::TaskWorktree> },
+    /// A cost increase of a session here (`spend.rs`): Home holds the ledger of every machine.
+    Spend { entry: crate::spend::Entry },
 }
 
 /// Queues an item in the caller's transaction (runner only; replicas of other instances never go back).
@@ -233,6 +235,7 @@ pub async fn ingest(app: &App, runner_id: &str, n: u64, item: serde_json::Value)
         Ok(item @ (Item::Project { .. } | Item::ForgetProject { .. })) => crate::projects::apply_replica(app, runner_id, n, item).await,
         Ok(Item::Access { access }) => apply_access(app, runner_id, n, access).await,
         Ok(Item::Worktree { worktree }) => crate::away::apply_replica(app, runner_id, n, *worktree).await,
+        Ok(Item::Spend { entry }) => crate::spend::apply_replica(app, runner_id, n, entry).await,
         Ok(item) => app.sessions.apply_replica(app, runner_id, n, item).await,
         Err(e) => {
             // An item this Home cannot read (another build) is skipped, never retried forever.
