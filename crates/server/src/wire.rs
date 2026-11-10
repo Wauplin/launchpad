@@ -119,6 +119,8 @@ pub struct Inbound {
 pub struct InboundTx {
     tx: tokio::sync::mpsc::UnboundedSender<Result<bytes::Bytes, std::io::Error>>,
     queued: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// `WINDOW`, or no limit for a peer without flow control.
+    limit: usize,
 }
 
 impl InboundTx {
@@ -126,7 +128,7 @@ impl InboundTx {
     pub fn push(&self, part: Result<bytes::Bytes, std::io::Error>) -> bool {
         use std::sync::atomic::Ordering;
         let len = part.as_ref().map(|b| b.len()).unwrap_or(0);
-        if self.queued.fetch_add(len, Ordering::AcqRel) + len > WINDOW {
+        if self.queued.fetch_add(len, Ordering::AcqRel).saturating_add(len) > self.limit {
             return false;
         }
         self.tx.send(part).is_ok()
@@ -138,10 +140,15 @@ impl InboundTx {
 }
 
 impl Inbound {
-    pub fn new(ack: impl Fn(u32) + Send + Sync + 'static, cancel: impl FnOnce() + Send + Sync + 'static) -> (InboundTx, Self) {
+    /// `flow`: the peer keeps to the window and understands `HttpAck` and `HttpCancel` (`Capabilities.flow`,
+    /// `Welcome.flow`). Without it, nothing is acknowledged or cancelled and the body has no limit, as before.
+    pub fn new(flow: bool, ack: impl Fn(u32) + Send + Sync + 'static, cancel: impl FnOnce() + Send + Sync + 'static) -> (InboundTx, Self) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let queued = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        (InboundTx { tx, queued: queued.clone() }, Inbound { rx, queued, unacked: 0, ack: Box::new(ack), cancel: Some(Box::new(cancel)) })
+        let limit = if flow { WINDOW } else { usize::MAX };
+        let ack: Box<dyn Fn(u32) + Send + Sync> = if flow { Box::new(ack) } else { Box::new(|_| {}) };
+        let cancel: Option<Box<dyn FnOnce() + Send + Sync>> = if flow { Some(Box::new(cancel)) } else { None };
+        (InboundTx { tx, queued: queued.clone(), limit }, Inbound { rx, queued, unacked: 0, ack, cancel })
     }
 }
 
@@ -176,9 +183,10 @@ impl Drop for Inbound {
     }
 }
 
-/// The sending end's window of an exchange body: one permit per byte in flight.
-pub fn window() -> std::sync::Arc<tokio::sync::Semaphore> {
-    std::sync::Arc::new(tokio::sync::Semaphore::new(WINDOW))
+/// The sending end's window of an exchange body: one permit per byte in flight. Without `flow` (an older peer
+/// that never acknowledges), the window never fills; the bounded bulk lane still holds the sender back.
+pub fn window(flow: bool) -> std::sync::Arc<tokio::sync::Semaphore> {
+    std::sync::Arc::new(tokio::sync::Semaphore::new(if flow { WINDOW } else { tokio::sync::Semaphore::MAX_PERMITS }))
 }
 
 /// Waits for room to send a part of `len` bytes (at most `CHUNK`). False: the exchange was cancelled (the window
@@ -186,7 +194,12 @@ pub fn window() -> std::sync::Arc<tokio::sync::Semaphore> {
 pub async fn take_part(window: &tokio::sync::Semaphore, len: usize) -> bool {
     match window.acquire_many(len.min(WINDOW) as u32).await {
         Ok(p) => {
-            p.forget();
+            // An unlimited window gets its permits back, so it never runs out.
+            if window.available_permits() > WINDOW {
+                drop(p);
+            } else {
+                p.forget();
+            }
             true
         }
         Err(_) => false,
@@ -195,6 +208,9 @@ pub async fn take_part(window: &tokio::sync::Semaphore, len: usize) -> bool {
 
 /// The receiver acknowledged `n` bytes (never more than the window, whatever it says).
 pub fn acked(window: &tokio::sync::Semaphore, n: u32) {
+    if window.available_permits() > WINDOW {
+        return;
+    }
     let room = WINDOW.saturating_sub(window.available_permits());
     window.add_permits((n as usize).min(room));
 }
@@ -230,7 +246,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let (acks, cancels) = (std::sync::Arc::new(AtomicUsize::new(0)), std::sync::Arc::new(AtomicUsize::new(0)));
         let (a, c) = (acks.clone(), cancels.clone());
-        let (tx, mut body) = super::Inbound::new(move |n| { a.fetch_add(n as usize, Ordering::Relaxed); }, move || { c.fetch_add(1, Ordering::Relaxed); });
+        let (tx, mut body) = super::Inbound::new(true, move |n| { a.fetch_add(n as usize, Ordering::Relaxed); }, move || { c.fetch_add(1, Ordering::Relaxed); });
         assert!(tx.push(Ok(bytes::Bytes::from_static(b"ab"))));
         assert!(tx.push(Ok(bytes::Bytes::from_static(b"cde"))));
         // A small part read while more waits is acknowledged later, in a batch; the last one read flushes.
@@ -245,7 +261,7 @@ mod tests {
         // A body read to its end cancels nothing.
         let c2 = std::sync::Arc::new(AtomicUsize::new(0));
         let c = c2.clone();
-        let (tx, mut body) = super::Inbound::new(|_| {}, move || { c.fetch_add(1, Ordering::Relaxed); });
+        let (tx, mut body) = super::Inbound::new(true, |_| {}, move || { c.fetch_add(1, Ordering::Relaxed); });
         drop(tx);
         assert!(body.next().await.is_none());
         drop(body);
@@ -254,7 +270,7 @@ mod tests {
 
     #[tokio::test]
     async fn acknowledgements_never_open_the_window_wider() {
-        let w = super::window();
+        let w = super::window(true);
         for _ in 0..3 {
             assert!(super::take_part(&w, 1000).await);
         }

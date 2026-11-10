@@ -295,6 +295,8 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
         return;
     }
     let compat = role::compat(role::PROTOCOL, launchpad_core::commit(), protocol, &commit);
+    // An older runner never acknowledges exchange bodies: no window with it (`wire::Inbound`).
+    let flow = capabilities.flow;
     let id = runner.id.clone();
     let runner = match runners::seen(&s.app, runner, &commit, protocol, capabilities).await {
         Ok(r) => r,
@@ -310,7 +312,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
             return;
         }
     };
-    if !send(&mut tx, &ToRunner::Welcome { compat, commit: launchpad_core::commit().into(), acked }).await {
+    if !send(&mut tx, &ToRunner::Welcome { compat, commit: launchpad_core::commit().into(), acked, flow: true }).await {
         return;
     }
     tracing::info!("runner {} ({}) connected, {compat:?}", runner.name, runner.id);
@@ -417,9 +419,9 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                         // stops the runner's upload.
                         let (ack, stop) = (s.app.runners.clone(), s.app.runners.clone());
                         let (r1, r2) = (runner.id.clone(), runner.id.clone());
-                        let (body_tx, body) = crate::wire::Inbound::new(move |n| ack.send_to(&r1, ToRunner::HttpAck { id, n }), move || stop.send_to(&r2, ToRunner::HttpCancel { id }));
+                        let (body_tx, body) = crate::wire::Inbound::new(flow, move |n| ack.send_to(&r1, ToRunner::HttpAck { id, n }), move || stop.send_to(&r2, ToRunner::HttpCancel { id }));
                         bodies.insert(id, body_tx);
-                        let window = crate::wire::window();
+                        let window = crate::wire::window(flow);
                         let task = tokio::spawn(crate::exchange::run(s.clone(), runner.id.clone(), id, target, method, path, headers, body, window.clone()));
                         exchanges.insert(id, (window, task.abort_handle()));
                     }

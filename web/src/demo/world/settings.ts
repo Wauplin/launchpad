@@ -157,7 +157,7 @@ export function demoNetworkCheck(at: number): NetworkCheck {
 /** Home and runners: the owner's laptop runner (every demo agent runs there) and two Burst jobs that ran sessions
  * while the laptop slept. */
 function homeWorld() {
-  const caps = { vm: false, docker: false, burst: false, self_update: true, terminals: true, cli_update: true };
+  const caps = { vm: false, docker: false, burst: false, self_update: true, terminals: true, cli_update: true, flow: true };
   const runners: RunnerStatus[] = [{
     runner: { id: "demo-runner-laptop", name: "laptop", os: "linux", code: "", state: "approved", created_at: clock.ago(60 * 24 * 9), approved_at: clock.ago(60 * 24 * 9), last_seen_at: clock.ago(1), commit: "demo", protocol: 1, capabilities: caps, burst: false },
     connected: true, compat: "same", guard: { paused: false },

@@ -27,4 +27,9 @@ terminals: boolean,
 /**
  * Updates its agent CLIs on Home's request (`launchpad_setup::cli_update`).
  */
-cli_update: boolean, };
+cli_update: boolean, 
+/**
+* Keeps exchange bodies to their window and sends `HttpAck` and `HttpCancel` (`server::wire`). Home keeps
+ * no window with an older runner, so it can still download Home's build.
+ */
+flow: boolean, };

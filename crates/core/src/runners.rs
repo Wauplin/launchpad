@@ -77,6 +77,9 @@ pub struct Capabilities {
     pub terminals: bool,
     /// Updates its agent CLIs on Home's request (`launchpad_setup::cli_update`).
     pub cli_update: bool,
+    /// Keeps exchange bodies to their window and sends `HttpAck` and `HttpCancel` (`server::wire`). Home keeps
+    /// no window with an older runner, so it can still download Home's build.
+    pub flow: bool,
 }
 
 /// This runner's capabilities.
@@ -89,7 +92,7 @@ pub async fn capabilities(app: &App) -> Capabilities {
             .ok()
             .and_then(|r| r.ok())
             .is_some_and(|s| s.success());
-    Capabilities { vm, docker, burst, self_update: crate::self_update::supported(app), terminals: true, cli_update: crate::self_update::supported(app) }
+    Capabilities { vm, docker, burst, self_update: crate::self_update::supported(app), terminals: true, cli_update: crate::self_update::supported(app), flow: true }
 }
 
 /// A runner with its live state, for Settings.
@@ -606,8 +609,9 @@ pub mod proto {
     #[derive(Clone, Debug, Serialize, Deserialize)]
     #[serde(tag = "t", rename_all = "snake_case")]
     pub enum ToRunner {
-        /// Answer to `Hello`, with the last outbox number Home saved for this runner.
-        Welcome { compat: Compat, commit: String, acked: u64 },
+        /// Answer to `Hello`, with the last outbox number Home saved for this runner. `flow`: Home keeps exchange
+        /// bodies to their window and sends `HttpAck` and `HttpCancel` (an older Home does not).
+        Welcome { compat: Compat, commit: String, acked: u64, #[serde(default)] flow: bool },
         /// Home saved every outbox item up to `n`.
         Ack { n: u64 },
         /// The connection is refused (unknown, pending or incompatible runner); the runner shows the reason.

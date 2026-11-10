@@ -40,6 +40,8 @@ struct HomeHandle {
     /// HTTP exchanges through Home: waiting for their head, then receiving their body.
     heads: std::sync::Mutex<std::collections::HashMap<u64, tokio::sync::oneshot::Sender<Head>>>,
     bodies: std::sync::Mutex<std::collections::HashMap<u64, crate::wire::InboundTx>>,
+    /// Home keeps exchange bodies to their window (`ToRunner::Welcome`).
+    flow: std::sync::atomic::AtomicBool,
     /// Request bodies on their way to Home: the window Home's `HttpAck`s open.
     uploads: std::sync::Mutex<std::collections::HashMap<u64, std::sync::Arc<tokio::sync::Semaphore>>>,
 }
@@ -86,8 +88,9 @@ async fn stream_to_home(target: launchpad_core::runners::proto::HttpTarget, meth
     let id = HOME.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
     let (head_tx, head_rx) = tokio::sync::oneshot::channel();
     // Created first: every early return below drops it, which cancels the exchange.
-    let (body_tx, reply_body) = crate::wire::Inbound::new(move |n| { control(FromRunner::HttpAck { id, n }); }, move || cancel_exchange(id));
-    let window = crate::wire::window();
+    let flow = HOME.flow.load(std::sync::atomic::Ordering::Relaxed);
+    let (body_tx, reply_body) = crate::wire::Inbound::new(flow, move |n| { control(FromRunner::HttpAck { id, n }); }, move || cancel_exchange(id));
+    let window = crate::wire::window(flow);
     HOME.heads.lock().unwrap().insert(id, head_tx);
     HOME.bodies.lock().unwrap().insert(id, body_tx);
     HOME.uploads.lock().unwrap().insert(id, window.clone());
@@ -466,7 +469,10 @@ async fn session(app: &App, router: &Router, url: &str, mut tx: crate::wire::Wir
     let (compat, acked) = loop {
         match tokio::time::timeout(Duration::from_secs(30), rx.next()).await? {
             Some(Ok(t)) => match serde_json::from_str::<ToRunner>(&t)? {
-                ToRunner::Welcome { compat, acked, .. } => break (compat, acked),
+                ToRunner::Welcome { compat, acked, flow, .. } => {
+                    HOME.flow.store(flow, std::sync::atomic::Ordering::Relaxed);
+                    break (compat, acked);
+                }
                 ToRunner::Refuse { reason } => return Ok(Some(reason)),
                 _ => {}
             },
