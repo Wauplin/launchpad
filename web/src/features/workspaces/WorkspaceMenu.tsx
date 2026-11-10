@@ -73,7 +73,7 @@ export function WorkspaceMenu() {
             <MenuItem icon={<Icon name="plus" size={12} />} label="New workspace" detail="Each folder belongs to one workspace" onClick={() => setMode("new")} />
             <div className="border-t border-line-2 px-2 pt-1.5 pb-1">
               {last ? <span className="text-[12px] text-ink-3">The last workspace cannot be deleted.</span>
-                : <ConfirmButton icon="trash" consequence="Only an empty workspace can be deleted: move or remove its folders first." confirmLabel={`Delete ${workspace.name}`} onConfirm={async () => { try { await api.delete(`/api/workspaces/${workspace.id}`); await qc.invalidateQueries({ queryKey: ["workspaces"] }); close(); } catch (e) { toastError(e); } }}>Delete workspace</ConfirmButton>}
+                : <ConfirmButton icon="trash" consequence="Only an empty workspace can be deleted: move or remove its folders first. Its bots are deleted with it." confirmLabel={`Delete ${workspace.name}`} onConfirm={async () => { try { await api.delete(`/api/workspaces/${workspace.id}`); await qc.invalidateQueries({ queryKey: ["workspaces"] }); close(); } catch (e) { toastError(e); } }}>Delete workspace</ConfirmButton>}
             </div>
           </>
         )}

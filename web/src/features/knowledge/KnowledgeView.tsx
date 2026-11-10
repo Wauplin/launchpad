@@ -106,7 +106,7 @@ export function KnowledgeView() {
   const actions = <>
     <button className="btn btn-sm" title="Agents' memory files on a runner (Claude Code, Codex), imported once as your notes" onClick={() => { setTab("notes"); setPanel("import"); }}><Icon name="download" size={12} />Import memories</button>
     {librarian
-      ? <Link to="/bots/$id" params={{ id: librarian.id }} className="btn btn-sm no-underline" title={`${librarian.settings.name} merges duplicates, adds links and keeps INDEX.md current: open its chat`}><Icon name="spark" size={12} />Ask {librarian.settings.name === "Librarian" ? "the Librarian" : librarian.settings.name}</Link>
+      ? <Link to="/bots/$id" params={{ id: librarian.id }} className="btn btn-sm no-underline" title={`${librarian.settings.name} merges duplicates, adds links and keeps INDEX.md current: open its chat`}><Icon name="spark" size={12} />Ask {librarianName(librarian)}</Link>
       : <button className="btn btn-sm" title="An agent that merges duplicates, adds links and keeps INDEX.md current" onClick={gardener}><Icon name="spark" size={12} />Run the gardener</button>}
     <button className="btn btn-sm btn-primary" onClick={() => { setTab("notes"); setPanel("new"); }}><Icon name="plus" size={12} />New note</button>
   </>;
@@ -127,6 +127,9 @@ export function KnowledgeView() {
     </div>
   );
 }
+
+/** How hints name the workspace's Librarian: "the Librarian", or its own name after a rename that kept its slug. */
+const librarianName = (b: Bot) => b.settings.name === "Librarian" ? "the Librarian" : b.settings.name;
 
 // ---------------------------------------------------------------- Notes
 
@@ -243,6 +246,7 @@ function NotePane({ ws, notes, changes, path, select, showHistory, refresh }: { 
   const linking = [...new Set((backlinks.data?.hits ?? []).map((h) => h.path).filter((p) => p !== path))];
   const mine = changes.filter((c) => c.path === path);
   const concurrent = notes.concurrent.filter((c) => c.note === path);
+  const librarian = librarianOf(useBots().data, ws);
   const ofConcurrent = notes.concurrent.find((c) => c.path === path);
   const links = useMemo(() => ({
     image: (src: string) => /^[a-z]+:/i.test(src) ? null : fileUrl(ws, `path=${encodeURIComponent(resolveLink(paths, decodeURIComponent(src), path) ?? src.replace(/^\.\//, ""))}`),
@@ -271,7 +275,7 @@ function NotePane({ ws, notes, changes, path, select, showHistory, refresh }: { 
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {concurrent.map((c) => <div key={c.path} className="mb-3 flex flex-wrap items-center gap-2 rounded-card border border-attn bg-attn-soft px-3 py-2 text-[12px]">
-          <span className="min-w-0 flex-1">A second version of this note was written while it changed: <button className="underline" onClick={() => select(c.path)}>{c.path}</button>. Keep one, or ask the Librarian to merge them.</span>
+          <span className="min-w-0 flex-1">A second version of this note was written while it changed: <button className="underline" onClick={() => select(c.path)}>{c.path}</button>. Keep one, or {librarian ? `ask ${librarianName(librarian)}` : "run the gardener"} to merge them.</span>
           <ConfirmButton tone="publish" consequence="Removes the second version; this note stays as it is." confirmLabel="Keep this note" onConfirm={() => resolve(c.path, false)}>Keep this note</ConfirmButton>
           <ConfirmButton tone="publish" consequence="Replaces this note with the second version. The current one stays restorable." confirmLabel="Use the other version" onConfirm={() => resolve(c.path, true)}>Use the other version</ConfirmButton>
         </div>)}
@@ -330,6 +334,7 @@ function NoteEditor({ ws, path: initialPath, base, initial, isNew, paths, done }
 
 function ImportPanel({ ws, existing, done }: { ws: string; existing: string[]; done: () => void }) {
   const runners = (useRunners().data ?? []).filter((r) => r.runner.state === "approved" && !r.runner.burst);
+  const librarian = librarianOf(useBots().data, ws);
   const [runner, setRunner] = useState<string | null>(null);
   const chosen = runner ?? runners.find((r) => r.connected)?.runner.id ?? null;
   const from = runners.find((r) => r.runner.id === chosen)?.runner.name ?? "a runner";
@@ -347,7 +352,7 @@ function ImportPanel({ ws, existing, done }: { ws: string; existing: string[]; d
     setBusy(true);
     try {
       const r = await api.post<{ lines: string[] }>(`/api/knowledge/${ws}/import`, { from, files: picked.map((f) => ({ path: f.path, content: f.content })) });
-      toast(`${r.lines.join(" ")}. Ask the Librarian to fold them into your notes.`);
+      toast(`${r.lines.join(" ")}. ${librarian ? `Ask ${librarianName(librarian)}` : "Run the gardener"} to fold them into your notes.`);
       done();
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
@@ -359,7 +364,7 @@ function ImportPanel({ ws, existing, done }: { ws: string; existing: string[]; d
         <button className="btn btn-sm btn-primary" disabled={busy || picked.length === 0} onClick={() => void run()}>{busy ? "Importing…" : `Import ${picked.length} ${picked.length === 1 ? "file" : "files"}`}</button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 text-[13px]">
-        <p className="m-0 mb-3 text-[12px] text-ink-3">Claude Code and Codex keep their own memory files on each machine. Launchpad turns that memory off in its sessions; import the files once into <span className="font-mono">imported/</span>, then ask the Librarian to fold them into your notes. Nothing is removed from the machine.</p>
+        <p className="m-0 mb-3 text-[12px] text-ink-3">Claude Code and Codex keep their own memory files on each machine. Launchpad turns that memory off in its sessions; import the files once into <span className="font-mono">imported/</span>, then {librarian ? `ask ${librarianName(librarian)}` : "run the gardener"} to fold them into your notes. Nothing is removed from the machine.</p>
         {runners.length === 0 ? <Empty icon="term">Connect a runner first: memories are read on the machine where your agents ran.</Empty>
           : <Choices label="Runner" className="mb-3">{runners.map((r) => <Choice key={r.runner.id} active={r.runner.id === chosen} disabled={!r.connected} title={r.connected ? undefined : "Offline"} onClick={() => setRunner(r.runner.id)}>{r.runner.name}</Choice>)}</Choices>}
         {q.isLoading ? <Loading what="memory files" /> : q.error ? <ErrorState error={q.error} /> : q.data && (files.length === 0 ? <Empty icon="book">No harness memory found on {from}.</Empty> : <div className="grid gap-1">

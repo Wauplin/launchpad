@@ -1,7 +1,7 @@
 //! The activity list: actions that sessions with admin Launchpad CLI access ran directly (`actions::ACTIONS`),
 //! recorded per session on Home with the values before the change and the call that undoes it. The front door
-//! records them (`launchpad_server` guard); the bot chat shows them as Changed lines with Undo. Undo is the owner's
-//! click on the undo action itself (same API call), then `undone`.
+//! records them (`launchpad_server` guard); the bot chat shows them as Changed lines (no Undo button there: the
+//! record's name links to its page). An undo is the undo action itself (same API call), then `undone`.
 use anyhow::{Context, Result, ensure};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};

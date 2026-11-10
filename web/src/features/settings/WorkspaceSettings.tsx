@@ -66,7 +66,7 @@ export function WorkspaceSettings() {
       <Card title="Delete">
         {last ? <span className="text-[13px] text-ink-2">The last workspace cannot be deleted: Launchpad always shows one.</span> : (
           <SettingRow label="Delete this workspace" hint="Only an empty workspace can be deleted: move or remove its folders first.">
-            <ConfirmButton icon="trash" consequence={`Deletes ${w.name}. This window then shows another workspace.`} confirmLabel={`Delete ${w.name}`} onConfirm={() => api.delete(`/api/workspaces/${w.id}`).then(() => qc.invalidateQueries({ queryKey: ["workspaces"] }), toastError)}>Delete workspace</ConfirmButton>
+            <ConfirmButton icon="trash" consequence={`Deletes ${w.name} and its bots. This window then shows another workspace.`} confirmLabel={`Delete ${w.name}`} onConfirm={() => api.delete(`/api/workspaces/${w.id}`).then(() => qc.invalidateQueries({ queryKey: ["workspaces"] }), toastError)}>Delete workspace</ConfirmButton>
           </SettingRow>
         )}
       </Card>

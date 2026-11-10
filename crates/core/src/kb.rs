@@ -8,7 +8,7 @@
 //!   session starts. Jails mount it read-only; agents read it as files and write with `launchpad kb`. Your own
 //!   edits in the mirror (for example in Obsidian) go up as yours.
 //! - A write states the content it started from. When the note changed since, both versions are kept: the
-//!   new one as `<name>.concurrent-<id>.<ext>` until you or the gardener merge them.
+//!   new one as `<name>.concurrent-<id>.<ext>` until you or the Librarian merge them.
 //! - Harness memory is off in every session; the adapter's instruction file points to the knowledge base and
 //!   carries `INDEX.md`.
 

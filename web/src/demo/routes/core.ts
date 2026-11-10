@@ -135,7 +135,12 @@ route("DELETE", "/api/workspaces/:id", ({ params }) => {
   if (world.workspaces.length <= 1) throw new DemoError(400, "the last workspace cannot be deleted: Launchpad always shows one");
   const folders = world.projects.filter((p) => p.workspace_id === params.id).length;
   if (folders) throw new DemoError(400, `move or remove its ${folders} folder${folders === 1 ? "" : "s"} first`);
+  // Its bots go with it (`workspace::delete`), with their routines.
+  const bots = new Set(world.bots.filter((b) => b.workspace_id === params.id).map((b) => b.id));
+  world.bots = world.bots.filter((b) => !bots.has(b.id));
+  world.crons = world.crons.filter((c) => !c.bot_id || !bots.has(c.bot_id));
   world.workspaces = world.workspaces.filter((w) => w.id !== params.id);
+  if (bots.size) publish("bots", "changed", {});
   workspacesChanged();
   return { ok: true };
 });

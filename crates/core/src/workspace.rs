@@ -120,7 +120,8 @@ pub async fn project_ids(app: &App, id: &str) -> Result<Vec<String>> {
         .await
 }
 
-/// Deletes an empty workspace. Its folders must first move to another workspace or be removed, so every
+/// Deletes an empty workspace and its bots (Ask Launchpad, the Librarian, the owner's own: their files and
+/// routines; their sessions stay). Its folders must first move to another workspace or be removed, so every
 /// folder keeps exactly one workspace.
 pub async fn delete(app: &App, id: &str) -> Result<()> {
     let all = list(app).await?;
@@ -138,6 +139,15 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
         let own = bots.iter().filter(|b| b.workspace_id == id && b.own_folder && b.settings.folder.as_ref().is_some_and(|f| ids.contains(f))).count();
         let hint = if own > 0 { format!(" ({own} belong{} to bots: delete the bot in Bots, then remove its folder)", if own == 1 { "s" } else { "" }) } else { String::new() };
         bail!("move or remove its {folders} folder{} first{hint}", if folders == 1 { "" } else { "s" });
+    }
+    if crate::home_git::here(app) {
+        let bots: Vec<_> = crate::bots::list(app).await?.into_iter().filter(|b| b.workspace_id == id).collect();
+        if let Some(b) = bots.iter().find(|b| crate::bots::thread(app, &b.id).iter().any(|s| s.status.is_running())) {
+            bail!("{} is working: stop it first", b.settings.name);
+        }
+        for b in bots {
+            crate::bots::delete(app, &b.id).await?;
+        }
     }
     let id = id.to_string();
     app.state_db.call(move |c| Ok(c.execute("DELETE FROM workspace WHERE id = ?1", [id])?)).await?;
