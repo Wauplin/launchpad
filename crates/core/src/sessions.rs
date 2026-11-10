@@ -1733,7 +1733,7 @@ impl Sessions {
         self.ensure_local(id)?;
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
-        if context.context_projects.is_empty() && context.github_refs.is_empty() && context.agent_traces.is_empty() && context.skills.is_empty() {
+        if context.is_empty() {
             return self.send_locked(app, id, text, images, InputMode::Manual, client_id).await;
         }
         let session = self.get(id).context("no such session")?;
@@ -1782,11 +1782,6 @@ impl Sessions {
     pub async fn send_follow_up(&self, app: &App, id: &str, text: &str, automatic: bool) -> Result<()> {
         self.ensure_local(id)?;
         self.send_inner(app, id, text, vec![], if automatic { InputMode::FollowUpAutomatic } else { InputMode::FollowUpManual }, None).await
-    }
-
-    pub async fn send_with_id(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, client_id: String) -> Result<()> {
-        self.ensure_local(id)?;
-        self.send_inner(app, id, text, images, InputMode::Manual, Some(client_id)).await
     }
 
     async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>) -> Result<()> {

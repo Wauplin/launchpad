@@ -5,7 +5,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use launchpad_core::ask_bot;
 use launchpad_core::bots::{self, Bot, Create, Patch};
-use launchpad_core::model::{FileAttachment, Session};
+use launchpad_core::model::{FileAttachment, MessageContext, Session};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -52,13 +52,16 @@ struct Message {
     text: String,
     #[serde(default)]
     attachments: Vec<FileAttachment>,
+    /// Folders, GitHub links and agent traces, as in an agent's message box.
+    #[serde(default)]
+    context: MessageContext,
     /// Start a new session of the thread (with a reference to the previous one).
     #[serde(default)]
     new_session: bool,
 }
 
 async fn message(State(s): State<Ctx>, Path(id): Path<String>, Json(m): Json<Message>) -> ApiResult<Session> {
-    Ok(Json(bots::message(&s.app, &id, m.text, m.attachments, m.new_session).await.map_err(bad)?))
+    Ok(Json(bots::message(&s.app, &id, m.text, m.attachments, m.context, m.new_session).await.map_err(bad)?))
 }
 async fn history(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Vec<launchpad_core::plain::Change>> {
     Ok(Json(bots::history(&s.app, &id).await.map_err(bad)?))

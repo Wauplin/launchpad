@@ -668,7 +668,7 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
     .await?;
     let launch = RoutineLaunch { id: record.id.clone(), title: record.title.clone(), cause, context };
     let result = match &record.bot_id {
-        Some(bot) => launchpad_core::bots::message_with(app, bot, bot_message(&record, &launch), vec![], false, automatic).await,
+        Some(bot) => launchpad_core::bots::message_with(app, bot, bot_message(&record, &launch), vec![], Default::default(), false, automatic).await,
         None => {
             let spec = LaunchSpec { routine: Some(launch), ..record.spec.clone() };
             launchpad_core::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await

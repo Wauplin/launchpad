@@ -52,7 +52,7 @@ The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the 
 
 Session titles appear immediately from the prompt. Claude Code and Codex also generate a short AI title, then refresh it each time a turn ends (done, failed, interrupted or stopped) from what the agent actually did: the prompt, the agent's final message and the recent conversation, without Launchpad's own instructions. So an agent started from a bare link (a Slack thread, an issue) gets a title that names the real subject once it has worked on it. Naming uses Haiku for Claude Code and prefers Luna or Mini for Codex, with the lowest supported effort. Quota or spending limits can skip naming; a failed request keeps the existing title. OpenCode keeps the prompt-based title.
 
-New launches ask the agent to end its first task with a short, self-contained summary. In an agent's message box, the **+** icon next to attachments adds the same context and presets to the next message. Follow-up messages are sent unchanged, except the first message after a Local PR is published, which tells the agent to push to the published branch from now on.
+New launches ask the agent to end its first task with a short, self-contained summary. In an agent's message box, and in a bot's message box (presets checked for **Bots** there), the **+** icon next to attachments adds the same context and presets to the next message; a message can carry context without text. On a phone, **+** opens a bottom sheet. Follow-up messages are sent unchanged, except the first message after a Local PR is published, which tells the agent to push to the published branch from now on.
 
 ## Temporary folders
 
@@ -204,7 +204,7 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 Any agent granted the Launchpad CLI tool can propose cards too; they wait in Today → Approve and in the session that wrote them; handled cards are in Today → Done. **Add tool** asks you to confirm, then you paste the tool's token. **Edit** (in the card's **⋯**) moves a proposal into the composer and replaces the card (“Edited in the composer”). **Start all** (in Today and on a bot's Proposals tab) and **Dismiss all** (on a bot's Proposals tab) act on every waiting card after one confirmation.
 
-In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or both for each preset. **+ Add context** → **Presets…** (in the composer and an agent's message box) adds the selected instructions after your text, in settings order. Bots can also propose a new preset or new values (label, text, agent availability) for an existing one; they cannot delete presets. Agent availability includes launches, steering and Send later. For example, a bots-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
+In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or both for each preset. **+ Add context** → **Presets…** (in the composer, an agent's message box and a bot's message box) adds the selected instructions after your text, in settings order. Bots can also propose a new preset or new values (label, text, agent availability) for an existing one; they cannot delete presets. Agent availability includes launches, steering and Send later. For example, a bots-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
 
 ## Workspaces
 

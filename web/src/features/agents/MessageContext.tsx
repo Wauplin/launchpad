@@ -11,7 +11,8 @@ export function hasMessageContext(context: MessageContext): boolean {
   return !!(context.context_projects.length || context.github_refs.length || context.agent_traces.length || context.skills?.length);
 }
 
-type PickerProps = { sessionId: string; value: MessageContext; onChange: (value: MessageContext) => void; disabled: boolean };
+/** `sessionId`: the session the message goes to (left out of its own pickers), or null for a bot without one. */
+type PickerProps = { sessionId: string | null; value: MessageContext; onChange: (value: MessageContext) => void; disabled: boolean };
 
 /** The "+" icon of the message box: opens the Add context menu (folders, GitHub links, agent traces, presets, recent contexts). */
 export function MessageContextButton({ sessionId, value, onChange, disabled, presets }: PickerProps & { presets?: PresetPick }) {
@@ -44,8 +45,8 @@ export function MessageContextButton({ sessionId, value, onChange, disabled, pre
     onToggleTrace={(trace) => onChange({ ...value, agent_traces: value.agent_traces.some((t) => t.session_id === trace.session_id) ? value.agent_traces.filter((t) => t.session_id !== trace.session_id) : [...value.agent_traces, trace] })} />;
 }
 
-/** The context added to the next message, as removable chips under the message box (nothing when empty). */
-export function MessageContextChips({ value, onChange, disabled }: Omit<PickerProps, "sessionId">) {
+/** The context added to the next message, as removable chips next to the message box (nothing when empty). */
+export function MessageContextChips({ value, onChange, disabled, className = "mt-1.5" }: Omit<PickerProps, "sessionId"> & { className?: string }) {
   const projects = useProjects().data ?? [];
   const sessions = useSessions().data ?? [];
   if (!hasMessageContext(value)) return null;
@@ -54,7 +55,7 @@ export function MessageContextChips({ value, onChange, disabled }: Omit<PickerPr
     <span className="truncate">{label}</span>
     <button className="iconbtn shrink-0" aria-label={`Remove ${label}`} disabled={disabled} onClick={remove}><Icon name="x" size={12} /></button>
   </span>;
-  return <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+  return <div className={`${className} flex min-w-0 flex-wrap items-center gap-1.5`}>
     <SkillChips skills={value.skills} disabled={disabled} onRemove={(path) => onChange({ ...value, skills: (value.skills ?? []).filter((v) => v.path !== path) })} />
     {value.context_projects.map((c) => chip(c.project_id, "folder", projects.find((p) => p.id === c.project_id)?.name ?? "Removed folder", "Read-only folder reference", () => onChange({ ...value, context_projects: value.context_projects.filter((r) => r.project_id !== c.project_id) })))}
     {value.github_refs.map((g) => chip(g.url, g.kind === "pr" ? "pr" : "issue", g.number ? `${g.repo}#${g.number}` : g.title ?? g.url, g.url, () => onChange({ ...value, github_refs: value.github_refs.filter((r) => r.url !== g.url) })))}

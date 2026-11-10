@@ -328,10 +328,8 @@ export function sendMessage(s: Session, text: string, clientId: string, files: {
   playScenario(s.id, pickReply(text, isAsk(s)));
 }
 
-route("POST", "/api/sessions/:id/input", (r) => {
-  const s = found(r.params.id);
-  let text = String(r.body?.text ?? "");
-  const context = r.body?.context as MessageContext | undefined;
+/** A message's context (folders, GitHub links, agent traces) as a block after its text, like Home renders it. */
+export function withContext(text: string, context: MessageContext | undefined): string {
   const lines: string[] = [];
   for (const c of context?.context_projects ?? []) {
     const project = world.projects.find((p) => p.id === c.project_id);
@@ -343,7 +341,12 @@ route("POST", "/api/sessions/:id/input", (r) => {
     const source = found(t.session_id);
     lines.push(`- Reference agent trace: ${source.title}, through event ${t.through_seq}.`);
   }
-  if (lines.length) text = [text.trim(), `Context:\n${lines.join("\n")}`].filter(Boolean).join("\n\n");
+  return lines.length ? [text.trim(), `Context:\n${lines.join("\n")}`].filter(Boolean).join("\n\n") : text;
+}
+
+route("POST", "/api/sessions/:id/input", (r) => {
+  const s = found(r.params.id);
+  const text = withContext(String(r.body?.text ?? ""), r.body?.context as MessageContext | undefined);
   const files = (r.body?.files ?? []) as { name: string }[];
   if (!text.trim() && !files.length) throw new DemoError(400, "the message is empty");
   if (s.quota_pause) {

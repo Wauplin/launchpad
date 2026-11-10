@@ -1021,18 +1021,21 @@ pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
 
 /// A message to a session wherever it runs, placed like the owner's messages (`place`). `files` are
 /// attachments the session's machine stores.
-pub async fn send_anywhere(app: &App, id: &str, text: &str, mut files: Vec<crate::model::FileAttachment>, key: Option<String>) -> Result<()> {
+pub async fn send_anywhere(app: &App, id: &str, text: &str, files: Vec<crate::model::FileAttachment>, key: Option<String>) -> Result<()> {
+    send_anywhere_with(app, id, text, files, crate::model::MessageContext::default(), key).await
+}
+
+/// `send_anywhere` with the message's context (folders, GitHub links, agent traces), rendered on the session's
+/// runner by `Sessions::send_with_context`, like the owner's messages from the message box.
+pub async fn send_anywhere_with(app: &App, id: &str, text: &str, mut files: Vec<crate::model::FileAttachment>, context: crate::model::MessageContext, key: Option<String>) -> Result<()> {
     if app.paths.role == crate::role::Role::Home {
         crate::attachments::inline_files(&mut files)?;
-        let body = serde_json::json!({"text": text, "files": files}).to_string();
+        let body = serde_json::json!({"text": text, "files": files, "context": context}).to_string();
         let (status, body) = continue_anywhere(app, id, "input", Some(body), key).await?;
         return answer::<serde_json::Value>(status, &body).map(|_| ());
     }
     let (text, images) = crate::attachments::for_message(app, id, text, &files).await?;
-    match key {
-        Some(k) => app.sessions.send_with_id(app, id, &text, images, k).await,
-        None => app.sessions.send(app, id, &text, images).await,
-    }
+    app.sessions.send_with_context(app, id, &text, images, context, key).await
 }
 
 #[cfg(test)]

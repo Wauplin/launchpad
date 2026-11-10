@@ -409,6 +409,13 @@ pub struct MessageContext {
     pub agent_traces: Vec<AgentTraceRef>,
 }
 
+impl MessageContext {
+    /// Nothing to add to the message (mentions only mark text that is already there).
+    pub fn is_empty(&self) -> bool {
+        self.context_projects.is_empty() && self.github_refs.is_empty() && self.agent_traces.is_empty() && self.skills.is_empty()
+    }
+}
+
 /// A selected prompt occurrence. Offsets are UTF-16 units, matching textarea selection APIs.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct PromptMention {

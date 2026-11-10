@@ -12,7 +12,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::model::{BotHandoff, BotLaunch, FileAttachment, LaunchSpec, PermissionMode, Session, SessionStatus, Target, WorktreeOptions};
+use crate::model::{BotHandoff, BotLaunch, FileAttachment, ContextProject, LaunchSpec, MessageContext, PermissionMode, Session, SessionStatus, Target, WorktreeOptions};
 use crate::plain::{self, Meta, Update};
 use crate::{App, util::now_ms};
 
@@ -369,15 +369,16 @@ pub fn rotation(bot: &BotSettings, current: Option<(SessionStatus, Option<&str>,
 }
 
 /// Sends the owner's message to the bot's thread: to its open session, or to a new one.
-pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, new_session: bool) -> Result<Session> {
-    message_with(app, id, text, attachments, new_session, false).await
+pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool) -> Result<Session> {
+    message_with(app, id, text, attachments, context, new_session, false).await
 }
 
 /// A message to the bot's thread. `automatic` (routines, incoming hooks): a paused bot refuses it, and a new
 /// session needs confirmed quota. Hooks and Telegram go through `hooks::deliver`, which waits for the end of a
-/// running turn.
-pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, new_session: bool, automatic: bool) -> Result<Session> {
-    ensure!(!text.trim().is_empty() || !attachments.is_empty(), "the message is empty");
+/// running turn. `context` (folders, GitHub links, agent traces, as in an agent's message box) goes with the
+/// message to the current session, or into the launch of a new one.
+pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool, automatic: bool) -> Result<Session> {
+    ensure!(!text.trim().is_empty() || !attachments.is_empty() || !context.is_empty(), "the message is empty");
     let bot = get(app, id).await?;
     ensure!(!automatic || !bot.paused, "{} is paused", bot.settings.name);
     if let Some(e) = &bot.settings_error {
@@ -394,7 +395,7 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
     match (new_session, rotation(&resolved, current.map(|c| (c.status, c.launch_spec.profile.as_deref(), current_folder.as_deref())))) {
         (false, None) => {
             let c = current.expect("a current session");
-            crate::runners::send_anywhere(app, &c.id, &text, attachments, None).await?;
+            crate::runners::send_anywhere_with(app, &c.id, &text, attachments, context, None).await?;
             return app.sessions.get(&c.id).context("the bot's session disappeared");
         }
         _ => {
@@ -422,6 +423,11 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
         worktree: folder.as_ref().filter(|f| !f.plain).map(|f| WorktreeOptions { when_done: f.when_done, ..Default::default() }),
         workspace_id: Some(bot.workspace_id.clone()),
         bot: Some(BotLaunch { id: bot.id.clone(), name: s.name.clone(), slug: bot.slug.clone(), instructions: bot.instructions.clone(), previous }),
+        mentions: context.mentions,
+        skills: context.skills,
+        context_projects: context.context_projects.into_iter().map(|c| ContextProject { editable: false, ..c }).collect(),
+        github_refs: context.github_refs,
+        agent_traces: context.agent_traces,
         ..Default::default()
     };
     crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await

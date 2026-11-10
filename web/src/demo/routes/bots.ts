@@ -4,6 +4,7 @@
 import type { Bot } from "@/gen/Bot";
 import type { BotSettings } from "@/gen/BotSettings";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
+import type { MessageContext } from "@/gen/MessageContext";
 import { clock, DemoError, publish, route } from "../daemon";
 import { world } from "../world";
 import { ASK_DEFAULT, settingsText } from "../world/bots";
@@ -11,7 +12,7 @@ import { session, setStatus } from "../store";
 import { createCron, launch, nextDue } from "./launch";
 import type { CronAgent } from "@/gen/CronAgent";
 import { defaultSpec } from "../store";
-import { sendMessage } from "./agents";
+import { sendMessage, withContext } from "./agents";
 import { pickReply } from "../scenarios";
 
 const botOf = (id: string) => {
@@ -84,7 +85,7 @@ route("GET", "/api/bots/:id/history/:change", ({ params }) => ({ patch: (world.b
 route("POST", "/api/bots/:id/restore/:change", () => { throw new DemoError(400, "Demo: restoring a version works on a real Home."); });
 route("POST", "/api/bots/:id/message", ({ params, body }) => {
   const b = botOf(params.id);
-  const text = String((body as { text?: string })?.text ?? "").trim();
+  const text = withContext(String((body as { text?: string })?.text ?? ""), (body as { context?: MessageContext })?.context).trim();
   if (!text) throw new DemoError(400, "the message is empty");
   const sessions = thread(b.id);
   const current = [...sessions].reverse().find((s) => s.status !== "closed");

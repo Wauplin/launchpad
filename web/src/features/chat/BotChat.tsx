@@ -20,7 +20,9 @@ import { toastError } from "@/components/Toast";
 import { AskCard } from "@/features/agents/AskCard";
 import { AssistantRow, Separator } from "@/features/agents/EventRow";
 import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "@/features/agents/MessageAttachments";
-import { usePresets } from "@/features/agents/MessagePresets";
+import { PresetChips, usePresets } from "@/features/agents/MessagePresets";
+import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextChips } from "@/features/agents/MessageContext";
+import { withPresets } from "@/lib/presets";
 import { useMarkSeen, useWindowFocused } from "@/features/agents/useSeen";
 import { buildRows } from "@/features/agents/rows";
 import { foldTrace } from "@/features/agents/traceRows";
@@ -385,22 +387,31 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
   const fileRef = useRef<HTMLInputElement>(null);
   const attachments = useMessageAttachments(acceptsImages);
   const { files, reading } = attachments;
+  // Context and presets for the next message, as in an agent's message box (never with an answer to a question).
+  const [storedContext, setContext] = useState(EMPTY_CONTEXT);
+  const [selectedPresets, setPresets] = useState<string[]>([]);
+  const botPresets = usePresets("bots");
   // Grows with the text up to 10 lines, then scrolls.
   useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 220)}px`; }, [text]);
   const answering = !!ask && !fresh && !!current?.open_question && !!current.live;
   // Typed text never grants a permission; a harness that cannot take messages while it works waits for the turn end.
   const busyTurn = !fresh && !!current && isRunning(current) && !current.open_question && !!harness && !harness.capabilities.messages_while_running;
   const blocked = (answering && ask!.permission) || busyTurn;
+  const context = answering ? EMPTY_CONTEXT : storedContext;
+  const presets = answering ? [] : selectedPresets.filter((id) => botPresets.some((p) => p.id === id));
+  const withContext = hasMessageContext(context);
   const send = async (typed = text) => {
-    const t = typed.trim();
-    if ((!t && !files.length) || busy || reading || blocked) return;
+    const t = answering ? typed.trim() : withPresets(typed, presets, botPresets);
+    if ((!t && !files.length && !withContext) || busy || reading || blocked) return;
     setBusy(true);
     try {
       if (answering && current) {
         await runAction("session.answer", { id: current.id }, { request_id: ask!.request_id, answers: Array(ask!.count).fill(t || "See the attachments in my next message.") });
         if (files.length) await runAction("bot.message", { id: bot.id }, { text: "", attachments: files });
       } else {
-        await runAction("bot.message", { id: bot.id }, { text: t, attachments: files, new_session: fresh });
+        await runAction("bot.message", { id: bot.id }, { text: t, attachments: files, new_session: fresh, ...(withContext ? { context } : {}) });
+        setContext(EMPTY_CONTEXT);
+        setPresets([]);
       }
       setText("");
       attachments.clear();
@@ -417,7 +428,9 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
         {rotation && current && <div className="mb-1.5 text-[12px] text-ink-3">{rotation}: your next message starts a new session of {bot.settings.name}'s thread, with a reference to the previous one.</div>}
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void attachments.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
         <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
-        {phone && !text && !files.length && !answering && !blocked && !busy && <QuickChips onSend={(t) => void send(t)} onFill={(t) => { setText(t); requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } }); }} />}
+        {!answering && <PresetChips surface="bots" selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
+        {!answering && <MessageContextChips className="mb-1.5" value={context} onChange={setContext} disabled={busy || reading} />}
+        {phone && !text && !files.length && !withContext && !presets.length && !answering && !blocked && !busy && <QuickChips onSend={(t) => void send(t)} onFill={(t) => { setText(t); requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } }); }} />}
         <div className="session-message-input flex items-end gap-2 rounded-control border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
           <textarea ref={ref} rows={1} value={text} disabled={busy || blocked} aria-label={`Message ${bot.settings.name}`}
             placeholder={busyTurn ? `${bot.settings.name} is working: Stop it or wait for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? `Answer or message ${bot.settings.name}…` : `Message ${bot.settings.name}…`}
@@ -426,8 +439,9 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}
             className="min-h-6 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
           {!phone && newSession}
+          {!answering && <MessageContextButton sessionId={current?.id ?? null} value={context} onChange={setContext} presets={{ presets: botPresets, selected: presets, onChange: setPresets }} disabled={busy || reading || blocked} />}
           <button className="iconbtn" title={`Attach files${acceptsImages ? " or images" : ""}. ${ATTACH_LIMITS}`} aria-label="Attach files" disabled={busy || reading || blocked} onClick={() => fileRef.current?.click()}><Icon name="clip" size={14} /></button>
-          <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || reading || blocked || (!text.trim() && !files.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>
+          <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || reading || blocked || (!text.trim() && !files.length && !withContext && !presets.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>
         </div>
         {phone && newSession}
       </div>
