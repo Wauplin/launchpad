@@ -74,15 +74,24 @@ async fn adoption(State(s): State<Server>, Path(id): Path<String>, headers: Head
 struct HandoffBody {
     #[serde(default, rename = "final")]
     is_final: bool,
+    /// A final handoff runs as a job under this key: Home asks again with it until it is done (`handoff::final_on`).
+    #[serde(default)]
+    job: Option<String>,
 }
 
-/// Runner: Home asks for the session's handoff (a planned move or a finished Burst session).
+/// Runner: Home asks for the session's handoff (a planned move or a finished Burst session). A final one answers
+/// `{"state": "running"}` while its job runs, then `{"state": "done"}` or its error.
 async fn handoff(State(s): State<Server>, Path(id): Path<String>, body: Option<Json<HandoffBody>>) -> ApiResult<Value> {
     if s.app.paths.role != Role::Runner {
         return Err(ApiError::bad_request("only runners hand sessions off"));
     }
-    let is_final = body.map(|b| b.0.is_final).unwrap_or_default();
-    launchpad_core::handoff::upload(&s.app, &id, is_final).await.map_err(bad)?;
+    let body = body.map(|b| b.0).unwrap_or_default();
+    if body.is_final {
+        let key = body.job.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let done = launchpad_core::handoff::final_job(&s.app, &id, &key).await.map_err(bad)?;
+        return Ok(Json(json!({"ok": true, "state": if done { "done" } else { "running" }})));
+    }
+    launchpad_core::handoff::upload(&s.app, &id, false).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

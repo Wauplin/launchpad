@@ -568,9 +568,30 @@ pub(crate) async fn local(app: &App, router: &Router, method: &str, path: &str, 
     local_as(app, router, method, path, body, headers, None).await
 }
 
+/// Runner: Home relays a request about a session it placed here that this runner does not hold: its adoption
+/// failed or never ran (`handoff::move_to`), so the runner takes it over first. Home's answer decides
+/// (`handoff::adoption` refuses a session Home placed elsewhere).
+async fn adopt_first(app: &App, method: &str, path: &str) -> anyhow::Result<()> {
+    if app.paths.role != role::Role::Runner || method != "POST" {
+        return Ok(());
+    }
+    let bare = path.split('?').next().unwrap_or_default();
+    let Some(id) = session_id(bare) else { return Ok(()) };
+    let action = bare.trim_start_matches("/api/sessions/").trim_start_matches(id).trim_start_matches('/');
+    // Adoption itself, a release, an Archive of a session it no longer has, and window marks never adopt.
+    if matches!(action, "adopt" | "release" | "close" | "seen" | "unread") || app.sessions.get(id).is_some() {
+        return Ok(());
+    }
+    use anyhow::Context;
+    launchpad_core::handoff::adopt_moved(app, id).await.context("this runner could not take the session over")
+}
+
 /// `local`, for the agent session `agent` (Home: a runner's request that names one of its sessions).
 pub(crate) async fn local_as(app: &App, router: &Router, method: &str, path: &str, body: Option<String>, headers: &[(String, String)], agent: Option<String>) -> anyhow::Result<(u16, String)> {
     anyhow::ensure!(path.starts_with("/api/"), "only API requests go through the tunnel");
+    if let Err(e) = adopt_first(app, method, path).await {
+        return Ok((409, serde_json::json!({"error": format!("{e:#}")}).to_string()));
+    }
     let mut req = Request::builder()
         .method(method)
         .uri(path)

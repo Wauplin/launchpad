@@ -255,7 +255,14 @@ pub async fn is_burst(app: &App, id: &str) -> bool {
 /// since no record will come from it again.
 pub async fn remove(app: &App, id: &str) -> Result<()> {
     let key = id.to_string();
-    app.state_db.call(move |c| Ok(c.execute("DELETE FROM runner WHERE id = ?1", [key])?)).await?;
+    app.state_db
+        .call(move |c| {
+            c.execute("DELETE FROM runner WHERE id = ?1", [&key])?;
+            // What waited for it never goes.
+            c.execute("DELETE FROM runner_delivery WHERE runner_id = ?1", [&key])?;
+            Ok(())
+        })
+        .await?;
     app.runners.disconnect(id);
     let orphans: Vec<String> = app.sessions.list().into_iter().filter(|s| s.runner_id.as_deref() == Some(id) && (s.status.is_running() || s.open_question || s.quota_pause.is_some())).map(|s| s.id).collect();
     for sid in orphans {
@@ -263,14 +270,14 @@ pub async fn remove(app: &App, id: &str) -> Result<()> {
             tracing::warn!("session {sid} of removed runner {id}: {e:#}");
         }
     }
-    let _ = take_archives(app, |r, _| r == id);
     app.bus.publish("runners", "changed", serde_json::Value::Null);
     Ok(())
 }
 
 // ---------------------------------------------------------------- What a runner learns when it is back
 
-/// Something Home did to a session while its runner was away, delivered once when the runner reconnects.
+/// Something Home did to a session while its runner was away, delivered once when the runner reconnects. Kept in
+/// `state.db` (`runner_delivery`, backed up with it) until the runner confirmed it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 struct PendingArchive {
     runner: String,
@@ -281,32 +288,78 @@ struct PendingArchive {
     release: Option<u32>,
 }
 
-static ARCHIVES: Mutex<()> = Mutex::new(());
+impl PendingArchive {
+    fn kind(&self) -> &'static str {
+        if self.release.is_some() { "release" } else { "archive" }
+    }
+}
 
-/// Named in Home backups too (`home_backup::data_files`).
+/// The file older Homes kept these items in; imported once into `runner_delivery` (`import_archives_file`).
 fn archives_file(app: &App) -> std::path::PathBuf {
     app.paths.data_dir.join("runner-archives.json")
 }
 
-fn read_archives(app: &App) -> Vec<PendingArchive> {
-    std::fs::read_to_string(archives_file(app)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+/// Home start: items of the former `runner-archives.json` (also what a restore of an older backup wrote) move
+/// into `state.db`, then the file goes. A damaged file stays, with a warning.
+async fn import_archives_file(app: &App) {
+    let file = archives_file(app);
+    let Ok(text) = std::fs::read_to_string(&file) else { return };
+    let list: Vec<PendingArchive> = match serde_json::from_str(&text) {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::warn!("{} is damaged, its pending Archives and releases are not delivered: {e}", file.display());
+            return;
+        }
+    };
+    for item in list {
+        if let Err(e) = store_pending(app, &item).await {
+            tracing::warn!("{}: {e:#}", file.display());
+            return;
+        }
+    }
+    let _ = std::fs::remove_file(&file);
 }
 
-fn write_archives(app: &App, list: &[PendingArchive]) -> Result<()> {
-    std::fs::write(archives_file(app), serde_json::to_string(list)?)?;
-    // Home backups carry the file (`home_backup::data_files`).
-    crate::home_backup::changed();
+async fn store_pending(app: &App, item: &PendingArchive) -> Result<()> {
+    let (runner, session, kind, generation) = (item.runner.clone(), item.session.clone(), item.kind(), item.release);
+    app.state_db
+        .call(move |c| {
+            // A newer release replaces an older one; an Archive is stored once.
+            c.execute(
+                "INSERT INTO runner_delivery (runner_id, session_id, kind, generation) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT (runner_id, session_id, kind) DO UPDATE SET generation = ?4",
+                rusqlite::params![runner, session, kind, generation],
+            )?;
+            Ok(())
+        })
+        .await?;
     Ok(())
 }
 
-/// Removes and returns the pending items that match.
-fn take_archives(app: &App, matches: impl Fn(&str, &str) -> bool) -> Result<Vec<PendingArchive>> {
-    let _lock = ARCHIVES.lock().unwrap();
-    let (taken, kept): (Vec<_>, Vec<_>) = read_archives(app).into_iter().partition(|a| matches(&a.runner, &a.session));
-    if !taken.is_empty() {
-        write_archives(app, &kept)?;
-    }
-    Ok(taken)
+async fn pending_of(app: &App, runner: &str) -> Result<Vec<PendingArchive>> {
+    let runner = runner.to_string();
+    app.state_db
+        .call(move |c| {
+            let mut st = c.prepare("SELECT session_id, generation FROM runner_delivery WHERE runner_id = ?1 ORDER BY rowid")?;
+            let rows = st.query_map([&runner], |r| Ok(PendingArchive { runner: runner.clone(), session: r.get(0)?, release: r.get::<_, Option<u32>>(1)? }))?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+        .await
+}
+
+/// Drops a delivered item, unless it changed meanwhile (a newer release of the same session waits).
+async fn delivered(app: &App, item: &PendingArchive) -> Result<()> {
+    let (runner, session, kind, generation) = (item.runner.clone(), item.session.clone(), item.kind(), item.release);
+    app.state_db
+        .call(move |c| {
+            c.execute(
+                "DELETE FROM runner_delivery WHERE runner_id = ?1 AND session_id = ?2 AND kind = ?3 AND generation IS ?4",
+                rusqlite::params![runner, session, kind, generation],
+            )?;
+            Ok(())
+        })
+        .await?;
+    Ok(())
 }
 
 /// Adds an item for a runner Home knows (a removed one never comes back).
@@ -314,14 +367,7 @@ async fn deliver_later(app: &App, item: PendingArchive) -> Result<()> {
     if !load(app).await?.into_iter().any(|(r, _)| r.id == item.runner) {
         return Ok(());
     }
-    let _lock = ARCHIVES.lock().unwrap();
-    let mut list = read_archives(app);
-    list.retain(|a| !(a.runner == item.runner && a.session == item.session && a.release.is_some() && item.release.is_some()));
-    if !list.contains(&item) {
-        list.push(item);
-        write_archives(app, &list)?;
-    }
-    Ok(())
+    store_pending(app, &item).await
 }
 
 /// Home: Archive of a session whose runner is offline or removed. The record closes on Home now; an offline
@@ -340,49 +386,63 @@ pub async fn unarchive_away(app: &App, id: &str) -> Result<()> {
     let s = app.sessions.get(id).context("no such session")?;
     let runner = s.runner_id.clone().context("this session runs on Home")?;
     anyhow::ensure!(!app.runners.connected(&runner), "its runner is connected");
-    {
-        let _lock = ARCHIVES.lock().unwrap();
-        let (dropped, kept): (Vec<_>, Vec<_>) = read_archives(app).into_iter().partition(|a| a.session == id && a.release.is_none());
-        if !dropped.is_empty() {
-            write_archives(app, &kept)?;
-        }
-    }
+    let session = id.to_string();
+    app.state_db
+        .call(move |c| {
+            c.execute("DELETE FROM runner_delivery WHERE session_id = ?1 AND kind = 'archive'", [session])?;
+            Ok(())
+        })
+        .await?;
     app.sessions.unarchive(app, id).await?;
     Ok(())
 }
 
-/// Home: `runner` still holds an older generation of a session Home moved on while it was away; it releases
-/// its copy when it reconnects.
+/// Home: `runner` still holds an older generation of a session Home moved on (it was away, or the move took
+/// the session from it); it releases its copy when it is next connected (`deliver_pending`).
 pub async fn release_later(app: &App, runner: &str, session: &str, generation: u32) -> Result<()> {
     deliver_later(app, PendingArchive { runner: runner.to_string(), session: session.to_string(), release: Some(generation) }).await
 }
 
-/// Home: a runner that reconnected receives the Archives clicked and the moves made while it was away, once each.
+/// Whether a delivery attempt settles its item (it is dropped): the runner accepted it, or refused an Archive (a
+/// session it no longer has). A refused release (Home did not confirm the leftovers) and a dropped tunnel wait
+/// for the next connection.
+fn settled(release: bool, sent: &Result<(u16, String)>) -> bool {
+    match sent {
+        Ok((status, _)) => *status < 300 || !release,
+        Err(_) => false,
+    }
+}
+
+/// Home: a runner that (re)connected receives the Archives clicked and the moves made while it was away. Each
+/// item stays in `state.db` until the runner answered it, so a Home restart meanwhile delivers it again.
 pub async fn deliver_pending(app: &App, runner_id: &str) {
-    let Ok(list) = take_archives(app, |r, _| r == runner_id) else { return };
-    let mut failed = vec![];
+    let lock = app.suggestion_locks.get(&format!("deliver:{runner_id}"));
+    let _lock = lock.lock().await;
+    let list = match pending_of(app, runner_id).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::warn!("pending deliveries of runner {runner_id}: {e:#}");
+            return;
+        }
+    };
     for a in list {
         let sent = match a.release {
             None => app.runners.request(runner_id, "POST", &format!("/api/sessions/{}/close", a.session), None).await,
             Some(generation) => app.runners.request(runner_id, "POST", &format!("/api/sessions/{}/release", a.session), Some(serde_json::json!({"generation": generation}).to_string())).await,
         };
-        match sent {
-            // A release that failed (Home did not confirm the leftovers) is tried again at the next connection.
-            Ok((status, body)) if status >= 300 && a.release.is_some() => {
-                tracing::warn!("Release of {} on its runner: {status} {body}", a.session);
-                failed.push(a);
-            }
-            Ok((status, body)) if status >= 300 => tracing::warn!("Archive of {} on its runner: {status} {body}", a.session),
-            Ok(_) => {}
-            // The tunnel dropped again: the next connection delivers it.
-            Err(_) => failed.push(a),
+        if let Ok((status, body)) = &sent
+            && *status >= 300
+        {
+            tracing::warn!("{} of {} on its runner: {status} {body}", if a.release.is_some() { "Release" } else { "Archive" }, a.session);
         }
-    }
-    if !failed.is_empty() {
-        let _lock = ARCHIVES.lock().unwrap();
-        let mut list = read_archives(app);
-        list.extend(failed);
-        let _ = write_archives(app, &list);
+        if settled(a.release.is_some(), &sent) {
+            if let Err(e) = delivered(app, &a).await {
+                tracing::warn!("pending delivery of {}: {e:#}", a.session);
+            }
+        } else if sent.is_err() {
+            // The tunnel dropped again: the next connection delivers the rest.
+            return;
+        }
     }
 }
 
@@ -401,6 +461,7 @@ pub fn spawn(app: &App) {
     }
     let app = app.clone();
     tokio::spawn(async move {
+        import_archives_file(&app).await;
         let mut away: HashMap<String, i64> = HashMap::new();
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
@@ -747,6 +808,11 @@ async fn holds(app: &App, s: &crate::model::Session) -> bool {
     s.runner_id.as_deref().is_some_and(|r| app.runners.connected(r)) && !crate::burst::needs_new_job(app, s).await
 }
 
+/// Home: the lock every placement and move of a session takes (`place`, `handoff::move_to`).
+pub(crate) fn place_lock(app: &App, id: &str) -> Arc<tokio::sync::Mutex<()>> {
+    app.suggestion_locks.get(&format!("place:{id}"))
+}
+
 /// Home: where a request that continues a session goes (a message, Resume, an answer), in the owner's order:
 /// its runner when connected; else, between turns, a move to another runner that takes launches (`pick`);
 /// else Burst; else a clear error. Burst is always last. The move happens here; Burst is only named (the
@@ -755,8 +821,8 @@ pub async fn place(app: &App, id: &str) -> Result<Place> {
     if app.paths.role != crate::role::Role::Home {
         return Ok(Place::Here);
     }
-    // One placement at a time per session: a second message waits and finds the session moved.
-    let lock = app.suggestion_locks.get(&format!("place:{id}"));
+    // One placement or move at a time per session: a second message waits and finds the session moved.
+    let lock = place_lock(app, id);
     let _lock = lock.lock().await;
     let s = app.sessions.get(id).context("no such session")?;
     let r = s.runner_id.clone().context("this session runs on no runner")?;
@@ -787,7 +853,7 @@ pub async fn place(app: &App, id: &str) -> Result<Place> {
         bail!("{reason}");
     }
     if let Some(to) = pick(app, None) {
-        crate::handoff::move_to(app, id, &to).await?;
+        crate::handoff::move_locked(app, id, &to).await?;
         return Ok(Place::Runner(to));
     }
     if let Some(why) = crate::burst::unavailable(app).await {
@@ -1084,5 +1150,19 @@ mod tests {
         assert_eq!(super::choose(&available, Some("gone"), busy).as_deref(), Some("b"));
         assert_eq!(super::choose(&available, None, |_| 0).as_deref(), Some("a"));
         assert_eq!(super::choose(&[], Some("a"), busy), None);
+    }
+
+    #[test]
+    fn a_pending_delivery_is_dropped_only_once_the_runner_answered_it() {
+        let ok = Ok((200, String::new()));
+        let refused = Ok((400, "no such session".to_string()));
+        let dropped: anyhow::Result<(u16, String)> = Err(anyhow::anyhow!("the runner disconnected"));
+        assert!(super::settled(false, &ok));
+        assert!(super::settled(true, &ok));
+        // A refused Archive (the runner no longer has the session) is not sent again; a refused release is.
+        assert!(super::settled(false, &refused));
+        assert!(!super::settled(true, &refused));
+        assert!(!super::settled(false, &dropped));
+        assert!(!super::settled(true, &dropped));
     }
 }

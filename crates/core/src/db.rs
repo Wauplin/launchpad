@@ -192,6 +192,7 @@ CREATE INDEX IF NOT EXISTS access_log_session ON access_log (session_id, at);
 CREATE TABLE IF NOT EXISTS runner_ack (runner_id TEXT PRIMARY KEY, n INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS runner_worktree (id TEXT PRIMARY KEY, runner_id TEXT NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS branch_merge (project_id TEXT NOT NULL, branch TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (project_id, branch));
+CREATE TABLE IF NOT EXISTS runner_delivery (runner_id TEXT NOT NULL, session_id TEXT NOT NULL, kind TEXT NOT NULL, generation INTEGER, PRIMARY KEY (runner_id, session_id, kind));
 CREATE TABLE IF NOT EXISTS session_handoff (session_id TEXT PRIMARY KEY, generation INTEGER NOT NULL, runner_id TEXT NOT NULL, at INTEGER NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS mcp_server (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS burst_run (runner_id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, json TEXT NOT NULL);

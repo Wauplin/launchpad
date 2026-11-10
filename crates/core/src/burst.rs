@@ -732,16 +732,23 @@ async fn tick(app: &App, stuck: &mut std::collections::HashMap<String, Stuck>) -
             continue;
         }
         let mut failure = None;
+        let mut saving = false;
         for s in sessions.iter().filter(|s| s.status != SessionStatus::Closed) {
-            let why = match app.runners.request(&r.runner_id, "POST", &format!("/api/sessions/{}/handoff", s.id), Some(json!({"final": true}).to_string())).await {
-                Ok((status, _)) if (200..300).contains(&status) => continue,
-                Ok((_, body)) => error_of(&body),
+            // A job on the runner under a key of this run: a handoff still running is asked again at the next
+            // check, never started twice at once.
+            let why = match crate::handoff::final_on(app, &r.runner_id, &s.id, &format!("burst-{}", r.runner_id), std::time::Instant::now()).await {
+                Ok(true) => continue,
+                Ok(false) => {
+                    saving = true;
+                    continue;
+                }
                 Err(e) => format!("{e:#}"),
             };
             tracing::info!("Burst {}: {} kept running: {why}", r.runner_id, s.id);
             failure = Some((s.id.clone(), why));
         }
         match failure {
+            None if saving => {}
             None => {
                 stuck.remove(&r.runner_id);
                 update(app, &r.runner_id, |r| {

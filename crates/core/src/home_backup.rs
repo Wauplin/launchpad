@@ -10,8 +10,7 @@
 //! secret), the vault's secrets are sealed with AES-256-GCM inside the backup copy of `state.db`, and opened again
 //! on restore. Everything else stays plain, so the bucket can be browsed and deduplicated.
 //!
-//! Other files a restore needs go in as objects too: uploads (`uploads/<sha256>`) and `runner-archives.json`
-//! (`data_files`). Plain folder blobs and handoff files are listed as `plain/<sha256>` and fetched on first use.
+//! Other files a restore needs go in as objects too: uploads (`uploads/<sha256>`, `data_files`). Plain folder blobs and handoff files are listed as `plain/<sha256>` and fetched on first use.
 //!
 //! Retention (`prune`, after each complete backup, one at a time with backups): keep the newest backup, the one
 //! before it, the newest one at least an hour old, and the newest one at least 1, 2, …, 7 days old (`retained`);
@@ -478,14 +477,10 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
 }
 
 /// Home's files outside `state.db` that a restore needs, by object name: uploads (`uploads/<sha256>`: the
-/// attachments of drafts, scheduled launches and routines) and what waits for runners that are away
-/// (`runner-archives.json`).
+/// attachments of drafts, scheduled launches and routines). What waits for runners that are away is in `state.db`
+/// (`runner_delivery`).
 async fn data_files(paths: &crate::paths::Paths) -> Vec<(String, PathBuf)> {
     let mut out = vec![];
-    let archives = paths.data_dir.join(ARCHIVES);
-    if archives.is_file() {
-        out.push((ARCHIVES.to_string(), archives));
-    }
     if let Ok(mut rd) = tokio::fs::read_dir(paths.data_dir.join("uploads")).await {
         while let Ok(Some(e)) = rd.next_entry().await {
             let name = e.file_name().to_string_lossy().into_owned();
@@ -497,7 +492,7 @@ async fn data_files(paths: &crate::paths::Paths) -> Vec<(String, PathBuf)> {
     out
 }
 
-/// `runner-archives.json` (`runners::archives_file`).
+/// `runner-archives.json` of older backups: restored, then imported into `state.db` at start (`runners::spawn`).
 const ARCHIVES: &str = "runner-archives.json";
 
 fn is_hash(name: &str) -> bool {

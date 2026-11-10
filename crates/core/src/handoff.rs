@@ -235,6 +235,87 @@ pub async fn upload(app: &App, id: &str, is_final: bool) -> Result<()> {
     Ok(())
 }
 
+/// A final handoff on this runner, started by Home with a key (`final_job`).
+struct FinalJob {
+    key: String,
+    /// None while it runs, then its result.
+    done: tokio::sync::watch::Receiver<Option<Result<(), String>>>,
+}
+
+/// Final handoffs by session: they run on their own, so a move's outcome never depends on how long Home's
+/// request waits (`final_on`).
+static FINAL: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, FinalJob>>> = std::sync::LazyLock::new(Default::default);
+
+/// How long one request for a final handoff waits for it before answering "running".
+const FINAL_WAIT: std::time::Duration = std::time::Duration::from_secs(25);
+
+/// What a request for a final handoff does, given the job this runner holds for the session (its key, and
+/// whether it is done).
+#[derive(Debug, PartialEq)]
+enum FinalStep {
+    /// Its own job: wait for it.
+    Join,
+    /// Another key's job still runs: wait for it, then answer "running" (the next request starts its own).
+    WaitOther,
+    /// Start a job with this key (none yet, or another key's job is done).
+    Start,
+}
+
+fn final_step(job: Option<(&str, bool)>, key: &str) -> FinalStep {
+    match job {
+        Some((k, _)) if k == key => FinalStep::Join,
+        Some((_, false)) => FinalStep::WaitOther,
+        _ => FinalStep::Start,
+    }
+}
+
+/// Runner: the final handoff of a session for a move, as a job Home polls with the same `key`. Ok(true): done;
+/// Ok(false): still running (ask again). A result is answered once; asking again with the same key starts a new
+/// final handoff, which is safe to repeat.
+pub async fn final_job(app: &App, id: &str, key: &str) -> Result<bool> {
+    let (mut rx, mine) = {
+        let mut jobs = FINAL.lock().unwrap();
+        let job = jobs.get(id).map(|j| (j.key.clone(), j.done.clone()));
+        match final_step(job.as_ref().map(|(k, rx)| (k.as_str(), rx.borrow().is_some())), key) {
+            FinalStep::Join => (job.map(|(_, rx)| rx).context("no job")?, true),
+            FinalStep::WaitOther => (job.map(|(_, rx)| rx).context("no job")?, false),
+            FinalStep::Start => {
+                let (tx, rx) = tokio::sync::watch::channel(None);
+                jobs.insert(id.to_string(), FinalJob { key: key.to_string(), done: rx.clone() });
+                let (app, id) = (app.clone(), id.to_string());
+                tokio::spawn(async move {
+                    let result = upload(&app, &id, true).await.map_err(|e| format!("{e:#}"));
+                    let _ = tx.send(Some(result));
+                });
+                (rx, true)
+            }
+        }
+    };
+    let _ = tokio::time::timeout(FINAL_WAIT, rx.wait_for(Option::is_some)).await.map(|r| r.map(|_| ()));
+    let result = rx.borrow().clone();
+    // A task that ended without a result (it panicked) leaves its job: the next request starts again.
+    let gone = result.is_none() && rx.has_changed().is_err();
+    let drop_job = || {
+        let mut jobs = FINAL.lock().unwrap();
+        if jobs.get(id).is_some_and(|j| j.done.same_channel(&rx)) {
+            jobs.remove(id);
+        }
+    };
+    match result {
+        // Answered once: asking again with this key starts a new one.
+        Some(r) if mine => {
+            drop_job();
+            r.map(|_| true).map_err(anyhow::Error::msg)
+        }
+        None if gone => {
+            drop_job();
+            ensure!(!mine, "the handoff stopped before it finished");
+            Ok(false)
+        }
+        _ => Ok(false),
+    }
+}
+
 /// Hash of a session's native conversation files.
 fn files_digest(files: &[HandoffFile]) -> String {
     let mut hasher = Sha256::new();
@@ -377,13 +458,27 @@ async fn relocate(app: &App, s: &mut Session, worktrees: &mut [TaskWorktree]) ->
 }
 
 /// A runner takes over a session Home moved here: it fetches the handoff, records the worktrees and puts the
-/// conversation where its harness resumes it.
+/// conversation where its harness resumes it. Nothing happens when it already holds that generation.
 pub async fn adopt(app: &App, id: &str) -> Result<()> {
+    adopt_with(app, id, false).await
+}
+
+/// Runner: `adopt` for a request Home relayed about a session this runner does not hold (`home_client::local_as`).
+/// Only a session Home moved (generation above 0): a new session's launch may still be on its way.
+pub async fn adopt_moved(app: &App, id: &str) -> Result<()> {
+    adopt_with(app, id, true).await
+}
+
+async fn adopt_with(app: &App, id: &str, moved_only: bool) -> Result<()> {
     ensure!(app.paths.role == crate::role::Role::Runner, "only runners take over sessions");
+    // Home's adopt request and a relayed request that adopts lazily (`home_client::local_as`) take turns.
+    let lock = app.suggestion_locks.get(&format!("adopt:{id}"));
+    let _lock = lock.lock().await;
     let a: Adoption = serde_json::from_value(answer(to_home(app, reqwest::Method::GET, &format!("/api/handoff/{id}"))?).await?)?;
     let mut s = a.session;
-    if let Some(local) = app.sessions.get(id) {
-        ensure!(local.generation < s.generation, "this runner already has the session");
+    ensure!(!moved_only || s.generation > 0, "no such session on this runner");
+    if app.sessions.get(id).is_some_and(|local| local.generation >= s.generation) {
+        return Ok(());
     }
     s.runner_id = None;
     s.live = false;
@@ -552,10 +647,41 @@ pub async fn offline_copy(app: &App, s: &Session) -> Result<Handoff> {
     h.context("its runner is offline and Home has no copy of this agent's conversation yet: wait for the runner to be back")
 }
 
+/// Home: asks `runner` for the final handoff of session `id` (`final_job`, under `key`) until it is done or
+/// `until` passed. Ok(false): it still runs there (ask again with the same key to learn its outcome).
+pub async fn final_on(app: &App, runner: &str, id: &str, key: &str, until: std::time::Instant) -> Result<bool> {
+    loop {
+        let (status, body) = app.runners.request(runner, "POST", &format!("/api/sessions/{id}/handoff"), Some(serde_json::json!({"final": true, "job": key}).to_string())).await?;
+        ensure!((200..300).contains(&status), "{}", error_of(&body));
+        let running = serde_json::from_str::<serde_json::Value>(&body).is_ok_and(|v| v["state"] == "running");
+        if !running {
+            return Ok(true);
+        }
+        if std::time::Instant::now() >= until {
+            return Ok(false);
+        }
+    }
+}
+
+fn error_of(body: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(body).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or_else(|| body.to_string())
+}
+
+/// How long a move waits for the old runner's final handoff (pushes, leftovers, plain folders, conversation).
+const FINAL_LIMIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 /// Home: moves an idle session to `to` (a connected runner). The old runner prepares the move when it is
-/// connected; otherwise its last handoff is used, and the old runner releases its copy when it is back
-/// (`release`: unsaved work goes to `lp-scratch/…`).
+/// connected; otherwise its last handoff is used. Either way the old runner releases its copy when it is next
+/// connected (`release`: unsaved work goes to `lp-scratch/…`). Moves and placements of a session take turns
+/// (`runners::place_lock`), so two runners never adopt the same session.
 pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
+    let lock = crate::runners::place_lock(app, id);
+    let _lock = lock.lock().await;
+    move_locked(app, id, to).await
+}
+
+/// `move_to`, for a caller that holds the session's placement lock (`runners::place`).
+pub(crate) async fn move_locked(app: &App, id: &str, to: &str) -> Result<Session> {
     ensure!(app.paths.role == crate::role::Role::Home, "only Home moves sessions");
     let s = app.sessions.get(id).context("no such session")?;
     if let Some(reason) = blocked(&s) {
@@ -567,32 +693,57 @@ pub async fn move_to(app: &App, id: &str, to: &str) -> Result<Session> {
     let mut lost_files = false;
     let offline = !app.runners.connected(&from);
     if !offline {
-        let (status, body) = app.runners.request(&from, "POST", &format!("/api/sessions/{id}/handoff"), Some(serde_json::json!({"final": true}).to_string())).await?;
-        ensure!((200..300).contains(&status), "{}", serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or(body));
+        // A job on the runner: a slow handoff is waited for, never reported failed while it still runs there.
+        let key = uuid::Uuid::new_v4().to_string();
+        if !final_on(app, &from, id, &key, std::time::Instant::now() + FINAL_LIMIT).await? {
+            bail!("{} is still saving this session for the move: try again in a few minutes.", crate::runners::runner_name(app, &from).await);
+        }
     } else {
         let h = offline_copy(app, &s).await?;
         lost_files = !h.is_final && h.worktrees.iter().any(|w| w.state == WorktreeState::Active);
     }
     let s = app.sessions.reassign(app, id, to).await?;
-    if offline {
-        // The old runner still holds the older generation: it releases it when it is back (at once if it came
-        // back during the move, after its own delivery ran).
-        crate::runners::release_later(app, &from, id, s.generation).await?;
-        if app.runners.connected(&from) {
-            let (app, from) = (app.clone(), from.clone());
-            tokio::spawn(async move { crate::runners::deliver_pending(&app, &from).await });
-        }
+    // The old runner still holds the older generation: it releases it when it is connected (at once if it is, or
+    // came back during the move).
+    crate::runners::release_later(app, &from, id, s.generation).await?;
+    if app.runners.connected(&from) {
+        let (app, from) = (app.clone(), from.clone());
+        tokio::spawn(async move { crate::runners::deliver_pending(&app, &from).await });
     }
     if let Some(pid) = &s.project_id {
         crate::projects::move_temp(app, pid, to).await?;
     }
-    let (status, body) = app.runners.request(to, "POST", &format!("/api/sessions/{id}/adopt"), None).await?;
-    ensure!((200..300).contains(&status), "{}", serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or(body));
+    // A failed adoption is not the end of the move: the new runner adopts the session when Home relays its next
+    // request (`home_client::local_as` on the runner).
+    let adopted = match app.runners.request(to, "POST", &format!("/api/sessions/{id}/adopt"), None).await {
+        Ok((status, _)) if (200..300).contains(&status) => None,
+        Ok((_, body)) => Some(error_of(&body)),
+        Err(e) => Some(format!("{e:#}")),
+    };
     let name = if crate::runners::is_burst(app, to).await { "Burst".to_string() } else { crate::runners::list(app).await?.into_iter().find(|r| r.runner.id == to).map(|r| r.runner.name).unwrap_or_else(|| "another runner".into()) };
     let mut text = format!("Moved to {name}.");
+    if let Some(why) = adopted {
+        tracing::warn!("session {id}: adoption on {to} failed: {why}");
+        text.push_str(&format!(" {name} could not take it over yet ({why}): it tries again with the next message."));
+    }
     if lost_files {
         text.push_str(" Its previous runner was offline: it continues from its last saved turn and Home's last snapshot of its uncommitted files; work that runner did not save goes to an lp-scratch branch on Home when it is back.");
     }
     crate::sessions::notice_anywhere(app, id, &text).await;
     Ok(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FinalStep, final_step};
+
+    #[test]
+    fn a_final_handoff_joins_its_own_job_and_never_runs_twice_at_once() {
+        assert_eq!(final_step(None, "a"), FinalStep::Start);
+        assert_eq!(final_step(Some(("a", false)), "a"), FinalStep::Join);
+        assert_eq!(final_step(Some(("a", true)), "a"), FinalStep::Join);
+        // Another move's handoff still runs: wait for it, never start a second one beside it.
+        assert_eq!(final_step(Some(("a", false)), "b"), FinalStep::WaitOther);
+        assert_eq!(final_step(Some(("a", true)), "b"), FinalStep::Start);
+    }
 }
