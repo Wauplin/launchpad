@@ -8,9 +8,9 @@ import type { MessageContext } from "@/gen/MessageContext";
 import { clock, DemoError, publish, route } from "../daemon";
 import { world } from "../world";
 import { ASK_DEFAULT, ASK_STARTERS, settingsText } from "../world/bots";
-import { session, setStatus } from "../store";
-import { applyRoutineFile, createCron, launch, nextDue, recordBotChange, routinePath } from "./launch";
-import { defOf, routineToml } from "../routine";
+import { publishSession, session, setStatus } from "../store";
+import { applyRoutineFile, createCron, launch, memoryParts, nextDue, recordBotChange, routinePath, startPreview } from "./launch";
+import { botVersion, defOf, routineToml } from "../routine";
 import type { CronAgent } from "@/gen/CronAgent";
 import { defaultSpec } from "../store";
 import { sendMessage, withContext } from "./agents";
@@ -31,7 +31,7 @@ const profileOf = (b: Bot) => b.settings.profile ? world.config.profiles.find((p
 export const botTarget = (b: Bot): LaunchSpec["target"] => b.settings.folder ? { kind: "project", project_id: b.settings.folder } : { kind: "temp" };
 
 /** A bot with its memory/ files listed (Home's `Bot.memory`). */
-const withMemory = (b: Bot): Bot => ({ ...b, routines: Object.fromEntries(world.crons.filter((c) => c.bot_id === b.id && c.file).map((c) => [c.file!, routineToml(defOf(c))])), memory: Object.entries(world.botMemory[b.id] ?? {}).map(([path, content]) => ({ path, sha256: `${b.id}-${path}-${content.length}`, size: content.length, executable: false })).sort((x, y) => x.path.localeCompare(y.path)) });
+const withMemory = (b: Bot): Bot => ({ ...b, instructions_version: botVersion(b.instructions), memory_loaded: (({ loaded, total }) => ({ loaded, total }))(memoryParts(world.botMemory[b.id] ?? {})), routines: Object.fromEntries(world.crons.filter((c) => c.bot_id === b.id && c.file).map((c) => [c.file!, routineToml(defOf(c))])), memory: Object.entries(world.botMemory[b.id] ?? {}).map(([path, content]) => ({ path, sha256: `${b.id}-${path}-${content.length}`, size: content.length, executable: false })).sort((x, y) => x.path.localeCompare(y.path)) });
 
 route("GET", "/api/bots", () => world.bots.map(withMemory));
 route("GET", "/api/bots/templates", () => [{ id: "ask-launchpad", name: "Ask Launchpad", instructions: ASK_DEFAULT, starters: ASK_STARTERS }]);
@@ -50,7 +50,7 @@ route("POST", "/api/bots", ({ body }) => {
   const slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "bot";
   // No folder: each session starts in a temporary folder.
   const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder: c.folder || undefined, permission_mode: "yolo", proposals: "manual", launchpad: "propose", ...(c.starters?.length ? { starters: c.starters } : {}) };
-  const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 1, memory: [], routines: {} };
+  const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 1, memory: [], routines: {}, instructions_version: "", memory_loaded: { loaded: 0, total: 0 } };
   world.bots.push(b);
   record(b, "BOT.md", "", b.instructions);
   changed(b);
@@ -101,6 +101,13 @@ route("DELETE", "/api/bots/:id", ({ params }) => {
   publish("bots", "changed", { id: params.id });
   return { ok: true };
 });
+route("GET", "/api/bots/:id/start-preview", ({ params }) => {
+  const b = botOf(params.id);
+  const profile = profileOf(b);
+  const previous = thread(b.id).at(-1);
+  return startPreview({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), workspace_id: b.workspace_id, text: "(your next message)",
+    bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: b.instructions, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } });
+});
 route("GET", "/api/bots/:id/queued", ({ params }) => world.botQueued[params.id] ?? []);
 route("DELETE", "/api/bots/:id/queued/:n", ({ params }) => {
   const list = world.botQueued[params.id] ?? [];
@@ -119,13 +126,25 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
   const sessions = thread(b.id);
   const current = [...sessions].reverse().find((s) => s.status !== "closed");
   const profile = profileOf(b);
-  if (current && !(body as { new_session?: boolean }).new_session && current.launch_spec.profile === (profile?.id ?? null)) {
-    sendMessage(current, text, `${current.id}-${current.last_seq + 1}`);
+  // Home's `bots::rotation`: a new profile, model or permission mode starts a new session.
+  const reason = !current ? (sessions.length ? "archived" : "first")
+    : current.launch_spec.profile !== (profile?.id ?? null) ? "profile"
+    : (current.launch_spec.model ?? null) !== (b.settings.model ?? profile?.model ?? null) ? "model"
+    : current.launch_spec.permission_mode !== b.settings.permission_mode ? "permissions" : null;
+  const fresh = !!(body as { new_session?: boolean }).new_session;
+  if (current && !fresh && !reason) {
+    // BOT.md changed since the session read it: the new one goes after the typed text (`bots::with_new_instructions`).
+    const v = botVersion(b.instructions);
+    const bot = current.launch_spec.bot;
+    const changedText = bot?.version && bot.version !== v ? `${text}\n\nYour instructions changed. The owner edited BOT.md since this session started or last heard of it. From now on, follow this version instead of the earlier one:\n\n<bot-instructions>\n${b.instructions.trim()}\n</bot-instructions>` : text;
+    if (bot && bot.version !== v) { bot.version = v; publishSession(current); }
+    sendMessage(current, changedText, `${current.id}-${current.last_seq + 1}`);
     return session(current.id);
   }
   if (current) setStatus(current.id, "closed");
   const previous = sessions.at(-1);
   const spec = { harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), worktree: !b.settings.folder || world.projects.find((p) => p.id === b.settings.folder)?.plain ? null : { base: null, when_done: "keep" }, workspace_id: b.workspace_id, text,
-    bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
+    model: b.settings.model ?? profile?.model ?? null, permission_mode: b.settings.permission_mode,
+    bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", version: botVersion(b.instructions), reason: fresh && !reason ? "new" : reason ?? "first", previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
   return launch(spec, undefined, b.slug === "ask-launchpad" ? pickReply(text, true) : undefined);
 });

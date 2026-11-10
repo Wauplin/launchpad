@@ -5,7 +5,8 @@
 
 import type { CronAgent } from "@/gen/CronAgent";
 import type { RoutineRun } from "@/gen/RoutineRun";
-import { CI, DAILY, MAINTAINER_BOT_MD_NEXT, MAINTAINER_BOT_MD_PATCH, REVIEW_ROUTINE, routineText } from "../routine";
+import { botVersion, CI, DAILY, MAINTAINER_BOT_MD_NEXT, MAINTAINER_BOT_MD_PATCH, MAINTAINER_BOT_MD_PREV, REVIEW_ROUTINE, routineText } from "../routine";
+import { ASK_DEFAULT } from "./bots";
 import type { EventBody } from "@/gen/EventBody";
 import type { FileAttachment } from "@/gen/FileAttachment";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
@@ -284,7 +285,7 @@ export function agentsWorld() {
 
   // Ask Launchpad: the Acme bot's thread, with a short prerecorded conversation.
   add({ id: "demo-s-ask-acme", title: "What is running in Acme right now?", project: P.ask, harness: "claude", minutesAgo: 35, cwd: `${TMP}/tmp-1105-whats-running-in-acme`,
-    spec: { profile: "claude-max", workspace_id: WS.acme, text: "What is running in Acme right now?", bot: { id: "demo-bot-ask-acme", name: "Ask Launchpad", slug: "ask-launchpad", instructions: "", previous: null } },
+    spec: { profile: "claude-max", workspace_id: WS.acme, text: "What is running in Acme right now?", bot: { id: "demo-bot-ask-acme", name: "Ask Launchpad", slug: "ask-launchpad", instructions: "", previous: null, version: botVersion(ASK_DEFAULT), reason: "first" } },
     events: [
       user("What is running in Acme right now?", false),
       ...tool("Bash", "launchpad sessions list --workspace Acme", "[{\"title\":\"Add a dark-mode toggle to the header\",\"status\":\"working\"},{\"title\":\"Speed up invoice PDF rendering\",\"status\":\"working\"},{\"title\":\"Run the load test on the invoices API\",\"status\":\"background\"}, …]"),
@@ -299,7 +300,7 @@ export function agentsWorld() {
     ] });
   // Bots: the Maintainer of storefront, one session in its thread (its definition is in world/bots.ts).
   add({ id: "demo-s-bot-maintainer", title: "What changed in checkout this week", project: P.storefront, harness: "claude", minutesAgo: 70, seen: true, worktree: "maintainer-checkout-week",
-    spec: { text: "What changed in checkout this week, and is anything still risky?", bot: { id: "demo-bot-maintainer", name: "Maintainer", slug: "maintainer", instructions: "", previous: null } },
+    spec: { text: "What changed in checkout this week, and is anything still risky?", bot: { id: "demo-bot-maintainer", name: "Maintainer", slug: "maintainer", instructions: "", previous: null, version: botVersion(MAINTAINER_BOT_MD_PREV), reason: "first" } },
     events: [
       user("What changed in checkout this week, and is anything still risky?"),
       ...tool("Bash", "git log --since=7.days --oneline -- src/checkout", "a41c9e2 Poll the order in the checkout e2e test\n7f03b11 Verify Stripe webhooks before saving"),

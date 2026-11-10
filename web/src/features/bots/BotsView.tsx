@@ -52,6 +52,8 @@ const CLI_ACCESS: { id: LaunchpadAccess; label: string; detail: string }[] = [
 import { useScope, useWorkspaces } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { Sheet } from "@/mobile/Sheet";
+import { StartPreviewDialog } from "@/features/launch/StartPreview";
+import type { StartPreview } from "@/gen/StartPreview";
 
 const PERMISSIONS: { id: PermissionMode; label: string; detail: string }[] = [
   { id: "yolo", label: "YOLO", detail: "Runs commands without asking, inside its jail" },
@@ -270,7 +272,7 @@ function BotPageOf({ id }: { id: string }) {
   if (bots.error) return <ErrorState error={bots.error} onRetry={() => void bots.refetch()} />;
   if (!bot) return <div className="flex h-full flex-col"><PageHeader title="Bot" /><Empty fill icon="spark" action={<Link to="/bots" className="btn btn-sm">All bots</Link>}>This bot no longer exists.</Empty></div>;
   const profile = botProfile(bot, profiles);
-  const rotation = rotationReason(bot, current, profile?.id ?? null);
+  const rotation = rotationReason(bot, current, profile);
   const threadIds = new Set(thread.map((s) => s.id));
   const written = (proposalList.data ?? []).filter((p) => !!p.session_id && threadIds.has(p.session_id));
   const folder = folderLabel(projects, bot.settings.folder);
@@ -322,7 +324,7 @@ function BotPageOf({ id }: { id: string }) {
 }
 
 /** The bot page explanation (ⓘ): how its thread, routines and notes work. */
-const BOT_INTRO = "Your messages go to the bot's current session. A new session starts when the profile or folder changes, or when you check New session next to the message box; it reads the previous trace only when it needs it. A routine sends the bot a task by itself: on a schedule, on GitHub activity, or when another agent is done; a run with no update never notifies you. Its notes are in the knowledge base, where every change can be restored for 30 days.";
+const BOT_INTRO = "Your messages go to the bot's current session; after you edit BOT.md, your next message brings it the new one. A new session starts when the profile, folder, model, effort or permission mode changes, or when you check New session next to the message box; it reads the previous trace only when it needs it. A routine sends the bot a task by itself: on a schedule, on GitHub activity, or when another agent is done; a run with no update never notifies you. Its notes are in its memory, loaded at the start of each session, and every change can be restored for 30 days.";
 
 export function Section({ title, children, action }: { title: ReactNode; children: ReactNode; action?: ReactNode }) {
   return <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 border-b border-line-2 p-3">
@@ -387,6 +389,9 @@ function useBotFile(bot: string, path: string, version: string) {
 
 // ---------------------------------------------------------------- memory
 
+/** The lines of its notes a new session gets in its instructions (`bot_memory::LOADED_LINES`). */
+const MEMORY_LINES = 100;
+
 function MemoryPanel({ bot, thread, current }: { bot: Bot; thread: Session[]; current: Session | null }) {
   const ws = bot.workspace_id;
   const changes = useQuery({ queryKey: ["knowledge", ws, "changes"], queryFn: () => api.get<{ changes: Change[] }>(`/api/knowledge/${ws}/changes`) });
@@ -395,7 +400,7 @@ function MemoryPanel({ bot, thread, current }: { bot: Bot; thread: Session[]; cu
   const recent = (changes.data?.changes ?? []).filter((c) => c.author?.session_id && ids.has(c.author.session_id)).slice(0, 12);
   const [open, setOpen] = useState<string | null>(null);
   return <div data-tour="bots.memory">
-    <Section title="Its memory">
+    <Section title="Its memory" action={bot.memory_loaded.total > 0 && <span className="text-[12px] text-ink-3" data-tour="bots.memory-loaded" title={`A new session gets up to ${MEMORY_LINES} lines of its notes in its instructions, and reads the rest itself`}>{bot.memory_loaded.loaded < bot.memory_loaded.total ? `Loaded at start: ${bot.memory_loaded.loaded} of ${bot.memory_loaded.total} lines` : "Loaded at start"}</span>}>
       {own.length === 0
         ? <p className="m-0 text-[12px] text-ink-3">No note yet. {bot.settings.name} writes here what it needs to remember between sessions.</p>
         : own.map((f) => <div key={f.path}>
@@ -421,7 +426,7 @@ function NoteText({ bot, path, sha }: { bot: string; path: string; sha: string }
 const useSaveFiles = (bot: Bot) => {
   const qc = useQueryClient();
   return async (patch: Record<string, string>) => {
-    try { await runAction<Bot>("bot.update", { id: bot.id }, patch); await qc.invalidateQueries({ queryKey: ["bots"] }); toast("Saved: the next session reads it"); return true; } catch (e) { toastError(e); return false; }
+    try { await runAction<Bot>("bot.update", { id: bot.id }, patch); await qc.invalidateQueries({ queryKey: ["bots"] }); toast(patch.instructions !== undefined ? "Saved: it applies to your next message" : patch.settings_text !== undefined ? "Saved: a new profile, folder, model, effort or permission mode starts a new session" : "Saved"); return true; } catch (e) { toastError(e); return false; }
   };
 };
 
@@ -477,7 +482,7 @@ function InstructionsEditor({ bot, onSave }: { bot: Bot; onSave: (text: string) 
         <div role="dialog" aria-modal="true" aria-label={`BOT.md of ${bot.settings.name}`} className="flex h-[calc(86vh/var(--lp-zoom,1))] w-[min(1200px,calc(92vw/var(--lp-zoom,1)))] flex-col overflow-hidden rounded-card border border-line bg-paper shadow-[0_20px_60px_-20px_rgba(23,32,43,.6)]" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-2 border-b border-line-2 px-4 py-2.5">
             <b className="min-w-0 flex-1 truncate text-[15px]">BOT.md · {bot.settings.name}</b>
-            <span className="text-[12px] text-ink-3">The next session reads it</span>
+            <span className="text-[12px] text-ink-3">Applies to your next message</span>
             <button className="iconbtn" aria-label="Close" title="Close (your draft stays until you discard it)" onClick={close}><Icon name="x" size={14} /></button>
           </div>
           <div className="grid min-h-0 flex-1 grid-cols-2">
@@ -561,6 +566,7 @@ function SettingsPanel({ bot }: { bot: Bot }) {
   const workspaces = useWorkspaces().data ?? [];
   const sessions = useBotSessions();
   const [s, setS] = useState<BotSettings>(bot.settings);
+  const [preview, setPreview] = useState(false);
   useEffect(() => setS(bot.settings), [bot.settings]);
   const profile = botProfile({ ...bot, settings: s }, profiles);
   const fallback = profiles.find((p) => p.billing === "subscription") ?? profiles[0];
@@ -570,7 +576,7 @@ function SettingsPanel({ bot }: { bot: Bot }) {
   const toolLayers = useLayers(bot.workspace_id, s.folder ?? null);
   const running = botThread(sessions, bot.id).some((x) => ["starting", "working", "background"].includes(x.status));
   const save = async () => {
-    try { await runAction<Bot>("bot.update", { id: bot.id }, { settings: s }); await qc.invalidateQueries({ queryKey: ["bots"] }); toast(s.profile !== bot.settings.profile || (s.folder ?? null) !== (bot.settings.folder ?? null) ? "Saved: the next message starts a new session" : "Saved"); } catch (e) { toastError(e); }
+    try { await runAction<Bot>("bot.update", { id: bot.id }, { settings: s }); await qc.invalidateQueries({ queryKey: ["bots"] }); toast(s.profile !== bot.settings.profile || (s.folder ?? null) !== (bot.settings.folder ?? null) || s.model !== bot.settings.model || s.effort !== bot.settings.effort || s.permission_mode !== bot.settings.permission_mode ? "Saved: the next message starts a new session" : "Saved"); } catch (e) { toastError(e); }
   };
   return <div data-tour="bots.settings">
     <InstructionsSection bot={bot} />
@@ -620,9 +626,10 @@ function SettingsPanel({ bot }: { bot: Bot }) {
       </div>
       {dirty && <div className="flex justify-end gap-1.5"><button className="btn btn-sm btn-ghost" onClick={() => setS(bot.settings)}>Discard</button><button className="btn btn-sm btn-primary" disabled={!s.name.trim()} onClick={() => void save()}>Save</button></div>}
     </Section>
-    <Section title="What it can reach">
+    <Section title="What it can reach" action={<button className="btn btn-sm" data-tour="bots.start-preview" title="The instructions and first prompt of its next new session, as Launchpad builds them" onClick={() => setPreview(true)}>What it sees at start</button>}>
       <Access folder={projects.find((p) => p.id === s.folder) ?? null} workspace={workspaces.find((w) => w.id === bot.workspace_id)?.name ?? ""} workspaceId={bot.workspace_id} mode={s.permission_mode} proposals={s.proposals} launchpad={s.launchpad} />
     </Section>
+    {preview && <StartPreviewDialog queryKey={["bot", bot.id, bot.version]} load={() => api.get<StartPreview>(`/api/bots/${bot.id}/start-preview`)} subject={`${bot.settings.name}'s next session`} onClose={() => setPreview(false)} />}
     <FileSections bot={bot} />
     <Section title="Delete">
       <p className="m-0 text-[12px] text-ink-3">Deleting removes the bot and its files: BOT.md, bot.toml, its routines and its memory. Its sessions stay in Agents{bot.own_folder ? ", and its folder stays in Folders" : ""}.</p>

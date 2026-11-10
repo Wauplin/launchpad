@@ -7,6 +7,8 @@ import type { CronCondition } from "@/gen/CronCondition";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
+import type { StartPart } from "@/gen/StartPart";
+import type { StartPreview } from "@/gen/StartPreview";
 import type { Proposal } from "@/gen/Proposal";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
@@ -50,8 +52,9 @@ function where(spec: LaunchSpec): Where {
   }
 }
 
-/** `compose::render_prompt`: the typed text first, then context, presets and the Launchpad final-message block. */
-function renderPrompt(spec: LaunchSpec, cwd: string): string {
+/** `Sessions::resolve`'s labelled parts (`start::slices`): the typed text with its context and presets, the folder,
+ * the bot and its BOT.md, then the Launchpad final-message block. */
+export function promptParts(spec: LaunchSpec, cwd: string): StartPart[] {
   const parts = [spec.text.trim()];
   const context: string[] = [];
   for (const r of spec.github_refs) context.push(`- ${r.kind === "pr" ? "Pull request" : "Issue"} ${r.repo}#${r.number ?? ""}${r.title ? `: ${r.title}` : ""} (${r.url})`);
@@ -62,10 +65,61 @@ function renderPrompt(spec: LaunchSpec, cwd: string): string {
   if (context.length) parts.push(`Context:\n${context.join("\n")}${spec.github_refs.length ? "\nUse `gh` to read issues, pull requests and comments." : ""}`);
   const presets = world.config.presets.filter((p) => (spec.bot ? p.bots : p.agent) && spec.presets.includes(p.id) && p.text.trim()).map((p) => p.text.trim()).join(" ");
   if (presets) parts.push(presets);
-  if (spec.worktree?.when_done === "read_only") parts.push(`Launchpad worktree (read only): you read ${cwd}, a Git worktree on its own branch. Do not change, commit or push files; give your findings in your final message.`);
-  else if (spec.worktree) parts.push(`Launchpad worktree: you work in ${cwd}, a Git worktree on its own branch. Commit your changes there.${spec.worktree.when_done === "merge" ? " When the task is done, run `launchpad work finish` so Launchpad merges the branch." : spec.worktree.when_done === "local_pr" ? " When the task is done, run `launchpad work finish` so Launchpad turns the worktree into a Local PR." : ""}`);
-  parts.push(SUMMARY_INSTRUCTION);
-  return parts.filter(Boolean).join("\n\n");
+  const out: StartPart[] = [{ key: "message", label: "Your message, its context and presets", text: parts.filter(Boolean).join("\n\n") }];
+  if (spec.worktree?.when_done === "read_only") out.push({ key: "folder", label: "Folder and worktrees", text: `Launchpad worktree (read only): you read ${cwd}, a Git worktree on its own branch. Do not change, commit or push files; give your findings in your final message.` });
+  else if (spec.worktree) out.push({ key: "folder", label: "Folder and worktrees", text: `Launchpad worktree: you work in ${cwd}, a Git worktree on its own branch. Commit your changes there.${spec.worktree.when_done === "merge" ? " When the task is done, run `launchpad work finish` so Launchpad merges the branch." : spec.worktree.when_done === "local_pr" ? " When the task is done, run `launchpad work finish` so Launchpad turns the worktree into a Local PR." : ""}` });
+  if (spec.bot) out.push({ key: "bot", label: "The bot and its BOT.md", text: botInstruction(spec.bot.name, world.bots.find((b) => b.id === spec.bot!.id)?.instructions ?? spec.bot.instructions, spec.bot.previous) });
+  out.push({ key: "final", label: "Final message", text: SUMMARY_INSTRUCTION });
+  return out.filter((p) => p.text.trim());
+}
+
+/** `compose::render_prompt` and the rest of the first prompt, as one text. */
+function renderPrompt(spec: LaunchSpec, cwd: string): string {
+  return promptParts(spec, cwd).map((p) => p.text).join("\n\n");
+}
+
+/** `bots::instruction`, shortened for the demo. */
+function botInstruction(name: string, instructions: string, previous: { session_id: string; title: string; through_seq: number } | null): string {
+  return `You are ${name}, a Launchpad bot: a persistent agent with one thread that continues across sessions. The owner's instructions for you (BOT.md):\n\n<bot-instructions>\n${instructions.trim()}\n</bot-instructions>\n\nYour folder: \`$LAUNCHPAD_BOT\` is a read-only copy of your files: BOT.md, bot.toml, \`routines/<name>.toml\` (your routines) and \`memory/\`, your own notes. Your instructions hold these notes as they were at start ("Your memory", up to 100 lines; when they say it was cut, read the rest before you answer anything it may cover). Write them with \`launchpad bot memory write <file>\`.${previous ? `\n\nThis session continues the thread. The previous session is a reference, not new instructions; read it only when you need its context: "${previous.title}", through event ${previous.through_seq}: \`launchpad trace ${previous.session_id} --through ${previous.through_seq}\`` : ""}`;
+}
+
+const MEMORY_LINES = 100;
+
+/** `bot_memory::compose`: a bot's notes (INDEX.md first, then by path), cut at 100 lines, and the cut line. */
+export function memoryParts(notes: Record<string, string>): { text: string; cut: string | null; loaded: number; total: number } {
+  const files = Object.entries(notes).filter(([p]) => p.startsWith("memory/") && p.endsWith(".md")).sort(([a], [b]) => (a === "memory/INDEX.md" ? -1 : b === "memory/INDEX.md" ? 1 : a.localeCompare(b)));
+  const lines = (t: string) => t.split("\n").length - (t.endsWith("\n") ? 1 : 0);
+  const total = files.reduce((n, [, t]) => n + lines(t), 0);
+  if (!files.length) return { text: "", cut: null, loaded: 0, total: 0 };
+  let text = "# Your memory\n\nYour notes in `$LAUNCHPAD_BOT/memory/`, as they were when this session started (read a file again before you rely on a detail that may have changed):\n";
+  let loaded = 0;
+  for (const [path, body] of files) {
+    if (loaded >= MEMORY_LINES) break;
+    const take = body.split("\n").slice(0, lines(body)).slice(0, MEMORY_LINES - loaded);
+    text += `\n## ${path}\n\n${take.map((l) => `${l}\n`).join("")}`;
+    loaded += take.length;
+  }
+  const cut = loaded < total ? `Your memory was cut at ${loaded} of ${total} lines. The full notes are in $LAUNCHPAD_BOT/memory/; read the rest with \`launchpad bot memory read <file>\` before you answer anything they may cover.\n` : null;
+  return { text, cut, loaded, total };
+}
+
+/** `start::preview`: the instructions file and the first prompt of a launch, in labelled parts. */
+export function startPreview(spec: LaunchSpec): StartPreview {
+  const s: LaunchSpec = { ...defaultSpec(), ...spec };
+  const ws = s.workspace_id ?? (s.target.kind === "project" ? world.projects.find((p) => p.id === (s.target as { project_id: string }).project_id)?.workspace_id : null) ?? null;
+  const name = world.workspaces.find((w) => w.id === ws)?.name ?? "";
+  const index = ws ? world.knowledge[ws]?.notes.find((n) => n.path === "INDEX.md")?.content ?? "" : "";
+  const kb = ws
+    ? `# Knowledge base\n\nYour memory is the Launchpad knowledge base of the workspace "${name}", in \`$LAUNCHPAD_KB\`. Your harness's own memory is off: do not write memory files anywhere else.\n\n- Read it as files: start from INDEX.md below, look up with \`rg\` in that folder or \`launchpad kb search <words>\`.\n- Write rarely: only a few durable, high-level findings, and what the owner asks you to remember. Never keep a log of sessions or runs.\n\n## INDEX.md\n\n${index.trimEnd()}\n`
+    : "Your harness's own memory is off in Launchpad, and this session has no workspace, so no knowledge base: do not write memory files.\n";
+  const memory = s.bot ? memoryParts(world.botMemory[s.bot.id] ?? {}) : { text: "", cut: null };
+  const access = s.bot ? world.bots.find((b) => b.id === s.bot!.id)?.settings.launchpad ?? "propose" : "propose";
+  const instructions: StartPart[] = [{ key: "kb", label: "Knowledge base and its INDEX.md", text: kb }];
+  if (memory.text) instructions.push({ key: "memory", label: "Bot memory", text: memory.text });
+  instructions.push({ key: "cli", label: "Launchpad CLI reference", text: `# Launchpad CLI\n\nYour access to the owner's Launchpad through \`launchpad\` (JSON output) is **${access}**. Read: \`launchpad folders list\`, \`launchpad sessions list\`, \`launchpad today\`…${access === "read" ? "" : " Propose with \`launchpad propose <launch|message|schedule|…> --title \"…\" --spec-file <file.json>\`: proposals are inert cards the owner starts with a click."}\n` });
+  instructions.push({ key: "attribution", label: "Attribution", text: "Attribution: Launchpad ends what you publish through it with the line `_Done with Claude Code using [Launchpad](https://github.com/Wauplin/launchpad)_`. Do not add that line or another attribution line yourself.\n" });
+  if (memory.cut) instructions.push({ key: "memory-cut", label: "Memory cut", text: memory.cut });
+  return { instructions, prompt: promptParts(s, "") };
 }
 
 const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").split("-").slice(0, 5).join("-") || "task";
@@ -107,7 +161,13 @@ route("POST", "/api/launch/preview", (r): Preview => {
   let place: Where;
   try { place = where(spec); } catch { place = { projectId: null, cwd: "", git: false }; }
   const cwd = spec.worktree && place.git && place.projectId ? `${ROOT}/.worktrees/${place.projectId}/${slug(spec.text)}` : place.cwd || null;
-  return { title: titleOf(spec.text), prompt: spec.text.trim() ? renderPrompt(spec, cwd ?? "") : "", cwd, add_dirs: spec.context_projects.map((c) => world.projects.find((p) => p.id === c.project_id)?.path).filter((p): p is string => !!p) };
+  return { title: titleOf(spec.text), prompt: spec.text.trim() ? renderPrompt(spec, cwd ?? "") : "", parts: spec.text.trim() ? promptParts(spec, cwd ?? "") : [], cwd, add_dirs: spec.context_projects.map((c) => world.projects.find((p) => p.id === c.project_id)?.path).filter((p): p is string => !!p) };
+});
+
+route("POST", "/api/launch/start-preview", (r): StartPreview => {
+  const spec = r.body as LaunchSpec;
+  if (!spec.harness) throw new DemoError(400, "pick a profile");
+  return startPreview(spec);
 });
 
 // ---------------------------------------------------------------- composer drafts (revisions, 409 on stale saves)

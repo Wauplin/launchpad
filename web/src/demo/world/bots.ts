@@ -8,7 +8,7 @@ import type { Activity } from "@/gen/Activity";
 import type { QueuedMessage } from "@/gen/QueuedMessage";
 import { clock } from "../daemon";
 import { P, WS } from "./ids";
-import { DAILY, MAINTAINER_BOT_MD } from "../routine";
+import { botVersion, DAILY, MAINTAINER_BOT_MD, MAINTAINER_BOT_MD_PREV } from "../routine";
 
 export const BOT = "demo-bot-maintainer";
 export const ASK_BOT = "demo-bot-ask-acme";
@@ -28,10 +28,12 @@ export function botsWorld() {
   const bots: Bot[] = [{
     id: ASK_BOT, workspace_id: WS.acme, slug: "ask-launchpad", created_at: clock.ago(60 * 24 * 30), settings: ask, instructions: ASK_DEFAULT,
     settings_text: settingsText(ask), settings_error: null, own_folder: true, paused: false, version: 2, memory: [], routines: {},
+    instructions_version: botVersion(ASK_DEFAULT), memory_loaded: { loaded: 0, total: 0 },
   }, {
     id: BOT, workspace_id: WS.acme, slug: "maintainer", created_at: clock.ago(60 * 26), settings,
     instructions: MAINTAINER_BOT_MD,
     settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 4, memory: [], routines: {},
+    instructions_version: botVersion(MAINTAINER_BOT_MD), memory_loaded: { loaded: 0, total: 0 },
   }];
   // Each bot's memory/ notes: path (in its folder) → content.
   const botMemory: Record<string, Record<string, string>> = {
@@ -42,10 +44,12 @@ export function botsWorld() {
   const maintainer = { kind: "agent" as const, name: "What changed in checkout this week", session_id: "demo-s-bot-maintainer", model: "demo-large", runner: "laptop" };
   const botChanges: Record<string, (Change & { patch: string })[]> = {
     [BOT]: [
+      // You asked for short answers after its current session started: that session gets the new BOT.md with your next message.
+      { id: 6, path: "BOT.md", sha256: "b2", new_sha256: "b3", at: clock.ago(30), session_id: null, author: you, added: 1, removed: 1, patch: `@@ -1,3 +1,3 @@\n # Maintainer\n \n-${MAINTAINER_BOT_MD_PREV.split("\n")[2]}\n+${MAINTAINER_BOT_MD.split("\n")[2]}\n` },
       // You moved its daily check from 8:00 to 9:00 (its routine file).
       { id: 5, path: "routines/daily-check.toml", sha256: "r1", new_sha256: "r2", at: clock.ago(40), session_id: null, author: you, added: 1, removed: 1, patch: `@@ -3,4 +3,4 @@\n title = "Daily check"\n-schedule = "0 8 * * 1-5"\n+schedule = "0 9 * * 1-5"\n instructions = """\n ${DAILY}"""\n` },
       { id: 4, path: "memory/checkout.md", sha256: null, new_sha256: "m1", at: clock.ago(66), session_id: "demo-s-bot-maintainer", author: maintainer, added: CHECKOUT_NOTE.split("\n").length - 1, removed: 0, patch: `@@ -0,0 +1,${CHECKOUT_NOTE.split("\n").length - 1} @@\n${CHECKOUT_NOTE.trimEnd().split("\n").map((l) => `+${l}`).join("\n")}\n` },
-      { id: 3, path: "BOT.md", sha256: "b1", new_sha256: "b2", at: clock.ago(60 * 25), session_id: null, author: you, added: 1, removed: 1, patch: "@@ -1,3 +1,3 @@\n # Maintainer\n \n-Maintain storefront: answer my questions about the code and prepare fixes as Local PRs.\n+Maintain storefront: answer my questions about the code, investigate issues and failing checks, and prepare fixes as Local PRs for my review. Keep answers short and cite commits.\n" },
+      { id: 3, path: "BOT.md", sha256: "b1", new_sha256: "b2", at: clock.ago(60 * 25), session_id: null, author: you, added: 1, removed: 1, patch: "@@ -1,3 +1,3 @@\n # Maintainer\n \n-Maintain storefront: answer my questions about the code and prepare fixes as Local PRs.\n+Maintain storefront: answer my questions about the code, investigate issues and failing checks, and prepare fixes as Local PRs for my review.\n" },
       { id: 2, path: "bot.toml", sha256: null, new_sha256: "t1", at: clock.ago(60 * 26), session_id: null, author: you, added: 5, removed: 0, patch: `@@ -0,0 +1,5 @@\n${settingsText(settings).trimEnd().split("\n").map((l) => `+${l}`).join("\n")}\n` },
       { id: 1, path: "BOT.md", sha256: null, new_sha256: "b1", at: clock.ago(60 * 26), session_id: null, author: you, added: 3, removed: 0, patch: "@@ -0,0 +1,3 @@\n+# Maintainer\n+\n+Maintain storefront: answer my questions about the code and prepare fixes as Local PRs.\n" },
     ],

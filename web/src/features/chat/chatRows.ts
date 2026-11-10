@@ -17,6 +17,8 @@ export type ChatSession = {
   profile: string | null;
   /** The folder ID, null for a temporary folder. */
   folder: string | null;
+  /** Why it started (`BotLaunch.reason`: profile, folder, model, effort, permissions, archived, new, first). */
+  reason?: string | null;
   /** Starting, working or background: its last turn without an end gets the working line. */
   running: boolean;
   rows: TraceRow[];
@@ -33,7 +35,8 @@ export type ChatCard = { kind: "proposal" | "ready" | "changed"; id: string; ses
 
 export type ChatItem = { key: string; v: string } & (
   | { t: "divider"; sessionId: string; index: number; at: number; reason: string | null }
-  | { t: "user"; text: string; images: ImageAttachment[]; queued: boolean }
+  /** `instructions`: the message carried the new BOT.md (Home adds it after BOT.md changed), left out of `text`. */
+  | { t: "user"; text: string; images: ImageAttachment[]; queued: boolean; instructions: boolean }
   | { t: "routine"; title: string; cause: string }
   | { t: "quiet"; title: string; cause: string; at: number | null }
   | { t: "answer"; text: string; streaming: boolean }
@@ -78,11 +81,37 @@ function stepLines(rows: TraceRow[]): string[] {
   return out;
 }
 
+/** Why a session of the thread started (`bots::rotation`), for its divider. */
+export const ROTATION_REASONS: Record<string, string> = {
+  profile: "the profile changed",
+  folder: "the folder changed",
+  model: "the model changed",
+  effort: "the effort changed",
+  permissions: "the permission mode changed",
+  archived: "the previous session was archived",
+  new: "you asked for a new session",
+};
+
 function why(prev: ChatSession | undefined, s: ChatSession): string | null {
+  if (s.reason) return ROTATION_REASONS[s.reason] ?? null;
+  // Sessions from before the reason was recorded: what differs from the previous one.
   if (!prev) return null;
-  if (prev.profile !== s.profile) return "the profile changed";
-  if (prev.folder !== s.folder) return "the folder changed";
+  if (prev.profile !== s.profile) return ROTATION_REASONS.profile;
+  if (prev.folder !== s.folder) return ROTATION_REASONS.folder;
   return null;
+}
+
+/** How Home's block with a changed BOT.md starts (`bots::changed_block`), and how it ends. */
+const CHANGED = "Your instructions changed. The owner edited BOT.md";
+const CHANGED_END = "</bot-instructions>";
+
+/** A message without the changed-BOT.md block Home added after its typed text, and whether it had one. */
+export function withoutInstructions(text: string): { text: string; instructions: boolean } {
+  const at = text.indexOf(CHANGED);
+  if (at < 0) return { text, instructions: false };
+  const end = text.indexOf(CHANGED_END, at);
+  const rest = end < 0 ? "" : text.slice(end + CHANGED_END.length);
+  return { text: `${text.slice(0, at).trimEnd()}${rest.trim() ? `\n\n${rest.trim()}` : ""}`, instructions: true };
 }
 
 /** The chat items of the loaded sessions (oldest first), with their cards placed at their turn. */
@@ -137,7 +166,7 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
         out.push({ key: k(`q:${t.key}`), v: "", t: "quiet", title: routine.title, cause: routine.cause, at: t.end.ts });
       } else {
         if (routine) out.push({ key: k(`r:${t.key}`), v: t.user!.queued ? "q" : "", t: "routine", title: routine.title, cause: routine.cause });
-        else if (t.user) out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "user", text: t.user.text, images: t.user.images, queued: t.user.queued });
+        else if (t.user) { const m = withoutInstructions(t.user.text); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "user", text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions }); }
         if (answer) out.push({ key: k(answer.key), v: `${answer.text.length}${answer.streaming ? "s" : ""}`, t: "answer", text: answer.text, streaming: answer.streaming });
         if (steps.length && !working) out.push({ key: k(`s:${t.key}`), v: `${steps.length}:${t.end?.duration_ms ?? ""}`, t: "steps", sessionId: s.id, count: steps.length, durationMs: t.end?.duration_ms ?? null, steps });
       }

@@ -79,6 +79,10 @@ export function routinePath(title: string, taken: string[]): string {
 
 // The Maintainer's BOT.md, and the change it proposes with its new routine (a bot-files card).
 export const MAINTAINER_BOT_MD = "# Maintainer\n\nMaintain storefront: answer my questions about the code, investigate issues and failing checks, and prepare fixes as Local PRs for my review. Keep answers short and cite commits.\n";
+/** Its BOT.md before your last edit: its current session still runs this one ("Instructions updated"). */
+export const MAINTAINER_BOT_MD_PREV = "# Maintainer\n\nMaintain storefront: answer my questions about the code, investigate issues and failing checks, and prepare fixes as Local PRs for my review.\n";
+/** A short version of BOT.md (Home's `bots::version`, a hash): sessions record the one they run. */
+export const botVersion = (text: string) => { let a = 5381, b = 52711; for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); a = (a * 33) ^ c; b = (b * 31) ^ c; } return ((a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0")); };
 export const MAINTAINER_BOT_MD_NEXT = `${MAINTAINER_BOT_MD}\nReview requests: prepare each review as a suggestion for me to post, never post it yourself.\n`;
 export const MAINTAINER_BOT_MD_PATCH = "@@ -2,3 +2,5 @@\n \n Maintain storefront: answer my questions about the code, investigate issues and failing checks, and prepare fixes as Local PRs for my review. Keep answers short and cite commits.\n+\n+Review requests: prepare each review as a suggestion for me to post, never post it yourself.\n";
 export const REVIEW_ROUTINE = routineToml({ title: "Review requests", paused: false, schedule: "", instructions: "Review each pull request below. Prepare your review as a suggestion for me to post; do not post it yourself. Report one line per pull request with your verdict.", trigger: { kind: "github", repo: "acme-labs/storefront", events: ["review_requested"] }, conditions: [] });

@@ -72,7 +72,7 @@ export const ask: Chapter = {
     {
       id: "ask.customize", route: `${ASK_ROUTE}?panel=settings`, anchor: "bots.files",
       title: "Make it yours",
-      body: "Its BOT.md says how it works and answers; edit it here, or tell it “from now on, …” and it proposes the change. bot.toml holds its profile, folder, permissions and proposal mode. You can also delete it and build your own: any bot with the Launchpad CLI tool can do the same.",
+      body: "Its BOT.md says how it works and answers; edit it here, or tell it “from now on, …” and it proposes the change. An edit reaches its current session with your next message. bot.toml holds its profile, folder, permissions and proposal mode. You can also delete it and build your own: any bot with the Launchpad CLI tool can do the same.",
     },
     {
       id: "ask.bots", route: "/bots", anchor: "sidebar.bots",
@@ -82,7 +82,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",
       title: "One thread, many sessions",
-      body: "The chat shows the whole thread, with a divider at each new session; older messages load as you scroll up. Messages go to the current session. A new session starts when its profile or folder changes, or when you check New session next to the message box; it reads the previous trace only when it needs it. A routine run with nothing to report is one quiet line.",
+      body: "The chat shows the whole thread, with a divider at each new session; older messages load as you scroll up. Messages go to the current session. A new session starts when its profile, folder, model, effort or permission mode changes (the divider says why), or when you check New session next to the message box; it reads the previous trace only when it needs it. After you edit BOT.md, “Instructions updated” over the message box means your next message brings the new one, in the same session. A routine run with nothing to report is one quiet line.",
       tryIt: { text: "ask the Maintainer for the refund test.", done: () => botSessions().some((s) => (world.events[s.id] ?? []).some((e) => e.body.kind === "user_message" && e.body.text.toLowerCase().includes("refund"))), doIt: () => api.post(`/api/bots/${BOT}/message`, { text: "Prepare the refund end-to-end test as a Local PR." }) },
     },
     {
@@ -98,9 +98,14 @@ export const ask: Chapter = {
       enter: () => { dailyRuns = world.crons.find((c) => c.id === DAILY)?.history.length ?? 0; },
     },
     {
+      id: "ask.bot-start", route: `${BOT_ROUTE}?panel=settings`, anchor: "bots.start-preview",
+      title: "What it sees at start",
+      body: "Shows the instructions and the first prompt of its next session, in parts you open one by one: the knowledge base and its INDEX.md, its memory, the Launchpad CLI reference, BOT.md and your message. Launchpad builds them like a real start. The composer has the same button for any launch.",
+    },
+    {
       id: "ask.bot-panels", route: BOT_ROUTE, anchor: "bots.panels",
       title: "Memory, instructions and settings",
-      body: "Beside the chat: Memory lists its own notes and the sessions of its thread, Proposals keeps every card it wrote, and Settings holds BOT.md, its profile, folder and permissions, what it can reach, and bot.toml, with every version of its files (BOT.md, bot.toml, routines, memory) for 30 days. On the phone they open from ⋯.",
+      body: "Beside the chat: Memory lists its own notes, loaded at the start of each session (up to 100 lines), and the sessions of its thread, Proposals keeps every card it wrote, and Settings holds BOT.md, its profile, folder and permissions, what it can reach, and bot.toml, with every version of its files (BOT.md, bot.toml, routines, memory) for 30 days. On the phone they open from ⋯.",
     },
   ],
 };

@@ -16,6 +16,8 @@ import { isImageAttachment, pastedImages, readAttachments } from "@/lib/attachme
 import { ATTACH_LIMITS, AttachmentList } from "@/features/agents/MessageAttachments";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
+import type { StartPreview } from "@/gen/StartPreview";
+import { StartPreviewDialog } from "./StartPreview";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
@@ -222,6 +224,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const [cron, setCron] = useState<CronDraft | null>(null);
   const [later, setLater] = useState(false);
   const [cronValid, setCronValid] = useState(true);
+  const [startPreview, setStartPreview] = useState<LaunchSpec | null>(null);
   // A scheduled agent opens in "Start later", so removing its last condition does not switch to Start now.
   useEffect(() => { if (editing) { setLater(true); setCron(null); } }, [editing]);
   const [launching, setLaunching] = useState(false);
@@ -799,9 +802,13 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {timing === "repeat" ? <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); else setTiming("now"); }} onValidityChange={setCronValid} /> : <DelaySelector conditions={conditions} harness={spec.harness} profile={spec.profile} exclude={editing} onChange={setConditions} onValidityChange={setDelayValid} />}
         </div>}
 
-        <Popover width={400} trigger={({ toggle }) => <button className="btn btn-sm w-fit" onClick={toggle}><Icon name="eye" size={12} />Preview prompt</button>}>
-          {() => <PromptPreview spec={spec} title={`Prompt sent to ${spec.harness ? harnessName(spec.harness) : "the agent"}`} />}
-        </Popover>
+        <div className="flex flex-wrap items-center gap-2">
+          <Popover width={400} trigger={({ toggle }) => <button className="btn btn-sm w-fit" onClick={toggle}><Icon name="eye" size={12} />Preview prompt</button>}>
+            {() => <PromptPreview spec={spec} title={`Prompt sent to ${spec.harness ? harnessName(spec.harness) : "the agent"}`} />}
+          </Popover>
+          <button className="btn btn-sm btn-ghost w-fit" data-tour="composer.start-preview" title="Its instructions (knowledge base, Launchpad CLI) and first prompt, as Launchpad builds them at start" disabled={!spec.harness} onClick={() => setStartPreview(spec)}>What it sees at start</button>
+        </div>
+        {startPreview && <StartPreviewDialog queryKey={["launch", startPreview]} load={() => api.post<StartPreview>("/api/launch/start-preview", startPreview)} subject="this agent" onClose={() => setStartPreview(null)} />}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-line bg-chrome px-3.5 py-2.5">

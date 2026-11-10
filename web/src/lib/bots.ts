@@ -27,15 +27,25 @@ export const botThread = (sessions: Session[], id: string) => sessions.filter((s
 
 export const currentSession = (thread: Session[]) => [...thread].reverse().find((s) => s.status !== "closed") ?? null;
 
-/** Why the next message starts a new session (the same rule as Home's `bots::rotation`), or null. */
-export function rotationReason(bot: Bot, current: Session | null, profile: string | null): string | null {
+/** Why the next message starts a new session (the same rule as Home's `bots::rotation`), or null. `profile` is
+ * the bot's profile: its model and effort apply when bot.toml names none. */
+export function rotationReason(bot: Bot, current: Session | null, profile: { id: string; model: string | null; effort: string | null } | null): string | null {
   if (!current) return null;
-  if (current.launch_spec.profile !== profile) return "The bot's profile changed";
+  if (current.launch_spec.profile !== (profile?.id ?? null)) return "The bot's profile changed";
   // Without a folder, each session runs in its own temporary folder.
   const folder = current.launch_spec.target.kind === "temp" ? null : current.project_id;
   if (folder !== (bot.settings.folder ?? null)) return "The bot's folder changed";
+  if ((current.launch_spec.model ?? null) !== (bot.settings.model ?? profile?.model ?? null)) return "The bot's model changed";
+  if ((current.launch_spec.effort ?? null) !== (bot.settings.effort ?? profile?.effort ?? null)) return "The bot's effort changed";
+  if (current.launch_spec.permission_mode !== bot.settings.permission_mode) return "The bot's permission mode changed";
   return null;
 }
+
+/** The current session runs an older BOT.md: Home sends the new one with the next message (`bots::with_new_instructions`). */
+export const instructionsUpdated = (bot: Bot, current: Session | null) => {
+  const v = current?.launch_spec.bot?.version;
+  return !!v && v !== bot.instructions_version;
+};
 
 export type BotState = "needs" | "running" | "paused" | "idle" | "new";
 

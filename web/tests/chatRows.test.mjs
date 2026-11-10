@@ -56,3 +56,16 @@ test("a turn cut by the next message takes no cards, and keys stay unique across
   assert.deepEqual(kinds(items).slice(0, 6), ["divider", "user", "answer", "user", "answer", "card"]);
   assert.equal(new Set(items.map((i) => i.key)).size, items.length);
 });
+
+test("a session divider names the recorded reason, and a message keeps its typed text without the new BOT.md", () => {
+  const block = "Your instructions changed. The owner edited BOT.md since this session started or last heard of it. From now on, follow this version instead of the earlier one:\n\n<bot-instructions>\n# Scout\n</bot-instructions>";
+  const items = chatRows([
+    session("a", [user("hello"), answer("hi"), end(10)]),
+    session("b", [user(`Check CI\n\n${block}\n\nContext:\n- Issue #3`), answer("ok"), end(20)], { reason: "model", firstTs: 15 }),
+    session("c", [user(block), end(30)], { reason: "first", firstTs: 25 }),
+  ]);
+  const dividers = items.filter((i) => i.t === "divider");
+  assert.deepEqual(dividers.map((d) => d.reason), [null, "the model changed", null]);
+  const users = items.filter((i) => i.t === "user");
+  assert.deepEqual(users.map((u) => [u.text, u.instructions]), [["hello", false], ["Check CI\n\nContext:\n- Issue #3", true], ["", true]]);
+});

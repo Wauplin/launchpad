@@ -25,6 +25,7 @@ import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "@/features
 import { PresetChips, usePresets } from "@/features/agents/MessagePresets";
 import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextChips } from "@/features/agents/MessageContext";
 import { withPresets } from "@/lib/presets";
+import { instructionsUpdated } from "@/lib/bots";
 import { useMarkSeen, useWindowFocused } from "@/features/agents/useSeen";
 import { buildRows } from "@/features/agents/rows";
 import { foldTrace } from "@/features/agents/traceRows";
@@ -135,7 +136,7 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
     let rows = folded.get(log);
     if (!rows) { rows = foldTrace(buildRows(log), s.launch_spec.text, presets); folded.set(log, rows); }
     return {
-      id: s.id, started_at: s.started_at, profile: s.launch_spec.profile, folder: s.launch_spec.target.kind === "temp" ? null : s.project_id,
+      id: s.id, started_at: s.started_at, profile: s.launch_spec.profile, folder: s.launch_spec.target.kind === "temp" ? null : s.project_id, reason: s.launch_spec.bot?.reason ?? null,
       running: isRunning(s), rows, firstTs: log.events[0]?.ts ?? null, partial: !!log.earlier, changes: s.status !== "closed",
     };
   }), [ready.map((s) => `${s.id}:${s.status}`).join(), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -268,6 +269,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId }:
         {item.text}
         {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url; return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
+        {item.instructions && <span className="mt-1 flex items-center gap-1 text-[11px] text-ink-3" title="BOT.md changed since this session last read it: the new BOT.md went with this message"><Icon name="file" size={12} />With your updated BOT.md</span>}
       </div></div>;
     case "routine":
       return <div className="py-1.5"><Separator><span className="flex min-w-0 items-center gap-1.5" title="A routine started this run"><Icon name="refresh" size={12} className="flex-none" /><span className="min-w-0">Routine “<RoutineName title={item.title} />” · {item.cause}</span></span></Separator></div>;
@@ -448,6 +450,7 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
     <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5" data-tour="bots.reply">
       <div className="mx-auto w-full max-w-text">
         {rotation && current && <div className="mb-1.5 text-[12px] text-ink-3">{rotation}: your next message starts a new session of {bot.settings.name}'s thread, with a reference to the previous one.</div>}
+        {!rotation && !fresh && instructionsUpdated(bot, current) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="bots.instructions-updated" title={`BOT.md changed since ${bot.settings.name}'s current session read it: the new BOT.md goes with your next message, in the same session`}><Icon name="file" size={12} />Instructions updated · applies to your next message</div>}
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void attachments.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
         <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
         {!answering && <PresetChips surface="bots" selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
