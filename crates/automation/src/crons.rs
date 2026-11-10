@@ -726,11 +726,13 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
         let parsed = check_file(app, &bot, text).await.map_err(|e| format!("{e:#}"));
         match (records.iter().find(|r| r.file.as_deref() == Some(path.as_str())), parsed) {
             (Some(r), Ok(f)) => {
-                if file_of(r) == f && r.file_error.is_none() {
+                // An active schedule always has its next due time.
+                let undue = |r: &CronAgent| r.active() && r.trigger == Trigger::Schedule && r.next_run_at.is_none();
+                if file_of(r) == f && r.file_error.is_none() && !undue(r) {
                     continue;
                 }
                 modify(app, &r.id, move |r| {
-                    let timing = r.schedule != f.schedule || r.time_zone != f.time_zone || r.trigger != f.trigger || r.paused != f.paused;
+                    let timing = r.schedule != f.schedule || r.time_zone != f.time_zone || r.trigger != f.trigger || r.paused != f.paused || undue(r);
                     if r.trigger != f.trigger {
                         r.github_seen = None;
                         r.failure_seen = Some(now);

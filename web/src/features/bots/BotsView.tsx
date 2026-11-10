@@ -524,11 +524,11 @@ export function Version({ base, change }: { base: string; change: Change }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const diff = useQuery({ queryKey: ["bot-diff", base, change.id], queryFn: () => api.get<{ patch: string }>(`${base}/history/${change.id}`), enabled: open, staleTime: Infinity });
-  return <div className="grid gap-1">
-    <div className="flex items-center gap-2 text-[12px]">
+  return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1">
+    <div className="flex min-w-0 items-center gap-2 text-[12px]">
       <button className="min-w-0 flex-1 truncate text-left hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>{change.path} · {change.author?.name ?? "You"} · {ago(change.at)}{change.added != null && <span className="text-ink-3"> · +{change.added} −{change.removed ?? 0}</span>}</button>
       {/* A routine file or a memory note that this change created is removed by Restore (the routine goes with it). */}
-      {(change.sha256 || /^(routines|memory)\//.test(change.path)) && <ConfirmButton icon="refresh" tone="publish" consequence={change.sha256 ? `Puts back ${change.path} as it was before this change. The restore is itself a version.` : `This change created ${change.path}: Restore removes it${change.path.startsWith("routines/") ? ", and its routine with its runs" : ""}. The restore is itself a version.`} confirmLabel="Restore" onConfirm={async () => { try { await api.post(`${base}/restore/${change.id}`); await Promise.all([qc.invalidateQueries({ queryKey: ["bots"] }), qc.invalidateQueries({ queryKey: ["crons"] })]); toast("Restored"); } catch (e) { toastError(e); } }}>Restore previous</ConfirmButton>}
+      {(change.sha256 || /^(routines|memory)\//.test(change.path)) && <span className="flex-none"><ConfirmButton icon="refresh" tone="publish" consequence={change.sha256 ? `Puts back ${change.path} as it was before this change. The restore is itself a version.` : `This change created ${change.path}: Restore removes it${change.path.startsWith("routines/") ? ", and its routine with its runs" : ""}. The restore is itself a version.`} confirmLabel="Restore" onConfirm={async () => { try { await api.post(`${base}/restore/${change.id}`); await Promise.all([qc.invalidateQueries({ queryKey: ["bots"] }), qc.invalidateQueries({ queryKey: ["crons"] })]); toast("Restored"); } catch (e) { toastError(e); } }}>Restore previous</ConfirmButton></span>}
     </div>
     {open && (diff.isLoading ? <Loading what="the diff" /> : diff.data?.patch ? <PatchView patch={diff.data.patch} path={change.path} language={change.path.endsWith(".toml") ? "toml" : "markdown"} split={false} wrap /> : <p className="m-0 text-[12px] text-ink-3">No text difference.</p>)}
   </div>;
@@ -625,7 +625,7 @@ function SettingsPanel({ bot }: { bot: Bot }) {
     </Section>
     <FileSections bot={bot} />
     <Section title="Delete">
-      <p className="m-0 text-[12px] text-ink-3">Deleting removes the bot, its files and its routines. Its sessions stay in Agents, its notes stay in the knowledge base{bot.own_folder ? ", and its folder stays in Folders" : ""}.</p>
+      <p className="m-0 text-[12px] text-ink-3">Deleting removes the bot and its files: BOT.md, bot.toml, its routines and its memory. Its sessions stay in Agents{bot.own_folder ? ", and its folder stays in Folders" : ""}.</p>
       <ActionButton name="bot.delete" params={{ id: bot.id }} disabled={running} title={running ? "Stop its session first" : undefined} consequence={`Delete ${bot.settings.name}? Its sessions, notes${bot.own_folder ? " and folder" : ""} stay.`} confirmLabel={`Delete ${bot.settings.name}`} onDone={async () => { await qc.invalidateQueries({ queryKey: ["bots"] }); void navigate({ to: "/bots" }); }} />
     </Section>
   </div>;

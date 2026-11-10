@@ -368,7 +368,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
                         }
                     }
                     Some(t) => {
-                        crate::crons::check_file(app, &bot, t).await.with_context(|| format!("{path}"))?;
+                        crate::crons::check_file(app, &bot, t).await.with_context(|| path.clone())?;
                     }
                     None => {
                         ensure!(path != launchpad_core::bots::INSTRUCTIONS, "BOT.md cannot be deleted");
