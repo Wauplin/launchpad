@@ -81,6 +81,8 @@ const LINKED: &[&str] = &["objects", "refs", "packed-refs", "logs", "shallow", "
 #[derive(Debug)]
 pub struct Guard {
     data_dir: PathBuf,
+    /// `data_dir` with symlinks resolved: repositories outside it are refused.
+    real_data_dir: PathBuf,
     port: u16,
 }
 
@@ -101,7 +103,7 @@ pub struct Found {
 
 impl Guard {
     pub fn new(data_dir: &Path, port: u16) -> Guard {
-        Guard { data_dir: data_dir.to_path_buf(), port }
+        Guard { data_dir: data_dir.to_path_buf(), real_data_dir: std::fs::canonicalize(data_dir).unwrap_or_else(|_| data_dir.to_path_buf()), port }
     }
 
     fn shadow_root(&self) -> PathBuf {
@@ -144,6 +146,12 @@ impl Guard {
 
     /// Creates or refreshes the shadow common directory of a repository.
     fn shadow(&self, found: &Found) -> std::io::Result<PathBuf> {
+        // A `.git` file or `commondir` an agent pointed elsewhere: daemon Git would write there.
+        for dir in [&found.git_dir, &found.common_dir] {
+            if !std::fs::canonicalize(dir).is_ok_and(|d| d.starts_with(&self.real_data_dir)) {
+                return Err(std::io::Error::other(format!("{} is outside Launchpad's folders", dir.display())));
+            }
+        }
         let key = hex::encode(Sha256::digest(found.common_dir.to_string_lossy().as_bytes()));
         let dir = self.shadow_root().join(&key[..24]);
         std::fs::create_dir_all(dir.join("hooks"))?;
