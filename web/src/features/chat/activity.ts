@@ -1,5 +1,6 @@
 // The activity list: what sessions with admin Launchpad CLI access changed directly, with the values before
-// (crates/automation/src/activity.rs). The bot chat shows it as Changed lines whose record name links to its page.
+// (crates/automation/src/activity.rs). The bot chat shows each as a receipt on its turn's steps line ("changed
+// routine Daily check", linking to the record) and the full line, with the values before, when the steps are open.
 
 import { useQuery } from "@tanstack/react-query";
 import type { Activity } from "@/gen/Activity";
@@ -55,3 +56,15 @@ export function activityParts(a: Activity): { before: string; target: string | n
 }
 
 export const activityLine = (a: Activity): string => { const p = activityParts(a); return `${p.before}${p.target ?? ""}${p.after}`; };
+
+/** The record kind of an action group, for receipts. */
+const NOUN: Record<string, string> = { bot: "bot", routine: "routine", schedule: "scheduled launch", session: "agent", folder: "folder", tool: "tool", tools: "default tools", mcp: "MCP tool", workspace: "workspace", settings: "settings", proposal: "card", home: "Home" };
+
+/** A short receipt of a direct change: "changed routine Daily check", "added routine Review requests". */
+export function activityReceipt(a: Pick<Activity, "action" | "target" | "body">): string {
+  const [group, verb = ""] = a.action.split(".");
+  if (a.action === "bot.add-routine") return `added a routine${a.target ? ` to ${a.target}` : ""}`;
+  const did = verb === "create" || verb.startsWith("add") ? "added" : verb === "delete" ? "deleted" : verb === "cancel" ? "cancelled" : verb === "pause" ? ((a.body as { paused?: boolean } | null)?.paused === false ? "resumed" : "paused") : verb === "run" || verb === "start" ? "started" : verb === "message" ? "messaged" : verb === "launch" ? "launched" : "changed";
+  const noun = NOUN[group] ?? group;
+  return `${did} ${noun}${a.target ? ` ${a.target}` : ""}`;
+}

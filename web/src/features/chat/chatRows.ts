@@ -34,8 +34,12 @@ export type ChatSession = {
   changes: boolean;
 };
 
-/** Something written during a session, placed at the turn that wrote it: a proposal, a ready click, a change. */
-export type ChatCard = { kind: "proposal" | "ready" | "changed"; id: string; session_id: string; at: number; v: string; text?: string };
+/** Something written during a session, placed at the turn that wrote it: a proposal, a ready click, a change.
+ * A change has its full line (`text`) and a short receipt for the turn's steps line (`receipt`). */
+export type ChatCard = { kind: "proposal" | "ready" | "changed"; id: string; session_id: string; at: number; v: string; text?: string; receipt?: string };
+
+/** A change made during a turn, shown as a small receipt on its steps line. */
+export type StepReceipt = { id: string; receipt: string; text: string };
 
 export type ChatItem = { key: string; v: string } & (
   | { t: "divider"; sessionId: string; index: number; at: number; reason: string | null }
@@ -46,7 +50,8 @@ export type ChatItem = { key: string; v: string } & (
   | { t: "routine"; title: string; cause: string }
   | { t: "quiet"; title: string; cause: string; at: number | null }
   | { t: "answer"; text: string; streaming: boolean }
-  | { t: "steps"; sessionId: string; count: number; durationMs: number | null; steps: string[] }
+  /** One quiet line per turn; `changes`: the turn's changes as receipts (their full lines show with the steps). */
+  | { t: "steps"; sessionId: string; count: number; durationMs: number | null; steps: string[]; changes: StepReceipt[] }
   | { t: "ask"; sessionId: string; row: AskRow }
   | { t: "ended"; sessionId: string; interrupted: boolean; error: string | null }
   | { t: "card"; kind: ChatCard["kind"]; id: string; text: string | null }
@@ -168,6 +173,7 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
       const answer = answerAt >= 0 ? t.body[answerAt] as Extract<Row, { t: "assistant" }> : null;
       const steps = stepLines(t.body.filter((_, i) => i !== answerAt));
       const routine = t.user ? routineMessage(t.user.text) : null;
+      let cardsHere = placed[ti];
 
       if (routine && t.end && !t.end.error && !t.end.interrupted && answer && !answer.streaming && isNoUpdate(answer.text)) {
         out.push({ key: k(`q:${t.key}`), v: "", t: "quiet", title: routine.title, cause: routine.cause, at: t.end.ts });
@@ -176,10 +182,16 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
         else if (t.user && fromAgent(t.user.from)) { const m = withoutInstructions(withoutSender(t.user.text)); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "from", text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions, from: t.user.from }); }
         else if (t.user) { const m = withoutInstructions(t.user.text); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "user", text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions }); }
         if (answer) out.push({ key: k(answer.key), v: `${answer.text.length}${answer.streaming ? "s" : ""}`, t: "answer", text: answer.text, streaming: answer.streaming });
-        if (steps.length && !working) out.push({ key: k(`s:${t.key}`), v: `${steps.length}:${t.end?.duration_ms ?? ""}`, t: "steps", sessionId: s.id, count: steps.length, durationMs: t.end?.duration_ms ?? null, steps });
+        if (steps.length && !working) {
+          // The turn's changes become receipts on its steps line instead of rows of their own.
+          const changes = cardsHere.filter((c) => c.kind === "changed").map((c): StepReceipt => ({ id: c.id, receipt: c.receipt ?? c.text ?? "", text: c.text ?? "" }));
+          cardsHere = cardsHere.filter((c) => c.kind !== "changed");
+          out.push({ key: k(`s:${t.key}`), v: `${steps.length}:${t.end?.duration_ms ?? ""}:${changes.map((c) => c.id).join(",")}`, t: "steps", sessionId: s.id, count: steps.length, durationMs: t.end?.duration_ms ?? null, steps, changes });
+        }
       }
+      // Its cards, then its questions: an open question is the last thing of the turn, next to the message box.
+      for (const c of cardsHere) out.push({ key: `c:${c.kind}:${c.id}`, v: c.v, t: "card", kind: c.kind, id: c.id, text: c.text ?? null });
       for (const r of t.body) if (r.t === "ask") out.push({ key: k(r.key), v: r.answers ? "a" : "", t: "ask", sessionId: s.id, row: r });
-      for (const c of placed[ti]) out.push({ key: `c:${c.kind}:${c.id}`, v: c.v, t: "card", kind: c.kind, id: c.id, text: c.text ?? null });
       if (t.end && (t.end.error || t.end.interrupted)) out.push({ key: k(`e:${t.end.key}`), v: "", t: "ended", sessionId: s.id, interrupted: t.end.interrupted, error: t.end.error });
       if (working) out.push({ key: k("w"), v: steps.at(-1) ?? "", t: "working", sessionId: s.id, step: steps.at(-1) ?? null });
     });
@@ -190,10 +202,10 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
   return out;
 }
 
-/** "7 steps · 41 s" */
+/** "7 steps · 41 s", "12 steps · 3 min" (whole minutes from one minute on: a quiet line, not a timer). */
 export function stepsLabel(count: number, ms: number | null): string {
   const steps = `${count} step${count === 1 ? "" : "s"}`;
   if (ms == null) return steps;
   const sec = Math.round(ms / 1000);
-  return `${steps} · ${sec < 60 ? `${sec} s` : `${Math.floor(sec / 60)} min ${sec % 60} s`}`;
+  return `${steps} · ${sec < 60 ? `${sec} s` : `${Math.round(sec / 60)} min`}`;
 }

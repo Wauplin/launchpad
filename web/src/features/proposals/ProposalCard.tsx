@@ -8,7 +8,7 @@ import { HarnessMark } from "@/components/HarnessMark";
 import { Icon, type IconName } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { MenuItem } from "@/components/Popover";
-import { Badge, type BadgeTone, ConfirmButton, ErrorState, MenuSection, MoreMenu, Token } from "@/components/ui";
+import { Badge, type BadgeTone, ConfirmButton, ErrorState, MenuSection, MoreMenu, RowActions, Token } from "@/components/ui";
 import { Markdown } from "@/components/Markdown";
 import { api } from "@/lib/api";
 import { useProfiles } from "@/lib/profiles";
@@ -16,6 +16,7 @@ import { useProjects, useSessions } from "@/lib/queries";
 import { useComposer } from "@/stores/composer";
 import { useWorkspace } from "@/stores/workspace";
 import { useBots } from "@/lib/bots";
+import { usePhone } from "@/lib/phone";
 import { browserZone, cronTitle, describeCron, triggerSummary } from "@/lib/routines";
 import { PatchView } from "@/features/github/DiffReview";
 import { useLayout } from "@/stores/layout";
@@ -24,6 +25,7 @@ import { action as actionOf, runAction, type ActionName } from "@/lib/actions";
 import { ActionButton } from "@/components/ActionButton";
 import { ACTIONS } from "@/gen/actions";
 import { BranchActions, ghParams } from "@/features/today/TodayCards";
+import { proposalPurpose, proposalReceipt, REPORT_OUTCOME } from "./proposalState";
 
 export const useProposalList = (enabled = true) => useQuery({ enabled, queryKey: ["proposals"], queryFn: () => api.get<Proposal[]>("/api/proposals"), staleTime: 30_000 });
 
@@ -33,7 +35,7 @@ export const proposalIcon = (p: Proposal): IconName => p.body.kind === "message"
 export const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine", bot_instructions: "Apply to BOT.md", bot_files: "Apply", ready: "", report: "" };
 
 type Report = Extract<Proposal["body"], { kind: "report" }>;
-const OUTCOME: Record<Report["outcome"], [string, BadgeTone]> = { needs_you: ["Needs you", "attn"], merged: ["Merged", "ok"], approved: ["Approved", "ok"], commented: ["Commented", "neutral"], waiting: ["Waiting", "neutral"], closed: ["Closed", "danger"], info: ["Info", "neutral"] };
+const TONE: Record<Report["outcome"], BadgeTone> = { needs_you: "attn", merged: "ok", approved: "ok", commented: "neutral", waiting: "neutral", closed: "danger", info: "neutral" };
 
 /** A report: its outcome, GitHub item, author and Markdown. A question takes a reply that goes to the author's
  * thread; any report can be marked read. */
@@ -41,7 +43,8 @@ function ReportBody({ p, body, busy, dismiss }: { p: Proposal; body: Report; bus
   const qc = useQueryClient();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
-  const [label, tone] = OUTCOME[body.outcome];
+  const label = REPORT_OUTCOME[body.outcome];
+  const tone = TONE[body.outcome];
   const ref = body.github?.match(/^([^/]+\/[^#]+)#(\d+)$/);
   const waiting = p.state === "proposed" || p.state === "failed";
   const question = body.outcome === "needs_you";
@@ -179,22 +182,35 @@ function readyLink(body: Ready): { to: string; params?: Record<string, string>; 
 
 /** A ready click: an owner action an agent prepared. The owner's click runs the action's own call with its
  * confirmation, as on its page (a merge shows the branch and Merge only when safe); then the card is started. */
-function ReadyBody({ p, body, dismiss }: { p: Proposal; body: Ready; dismiss: () => void }) {
+/** After the owner's click ran a ready card's action: the card is started. */
+function useRan(p: Proposal) {
   const qc = useQueryClient();
-  const navigate = useNavigate();
-  const known = body.action in ACTIONS;
-  const name = body.action as ActionName;
-  const session = useSessions().data?.find((s) => s.id === body.session_id) ?? null;
-  const waiting = p.state === "proposed" || p.state === "failed";
-  const ran = async () => {
+  return async () => {
     const next = await api.post<Proposal>(`/api/proposals/${p.id}/ran`);
     qc.setQueryData<Proposal[]>(["proposals"], (old) => old?.map((x) => (x.id === next.id ? next : x)));
     void qc.invalidateQueries({ queryKey: ["today"] });
   };
-  if (!known) return <ErrorState error={`Unknown action ${body.action}`} />;
+}
+
+/** A ready card's action and its route parameters (from `args`, in the route's order). */
+function readyCall(body: Ready): { name: ActionName; params: Record<string, string> } | null {
+  if (!(body.action in ACTIONS)) return null;
+  const name = body.action as ActionName;
+  const route = actionOf(name).route.match(/\{(\w+)\}/g)?.map((x) => x.slice(1, -1)) ?? [];
+  return { name, params: Object.fromEntries(route.map((k, i) => [k, body.args[i] ?? ""])) };
+}
+
+const READY_VARS = { base: "the base branch", branch: "the branch", channel: "its channel", version: "the newest version" };
+
+function ReadyBody({ p, body, dismiss }: { p: Proposal; body: Ready; dismiss: () => void }) {
+  const navigate = useNavigate();
+  const session = useSessions().data?.find((s) => s.id === body.session_id) ?? null;
+  const waiting = p.state === "proposed" || p.state === "failed";
+  const ran = useRan(p);
+  const call = readyCall(body);
+  if (!call) return <ErrorState error={`Unknown action ${body.action}`} />;
+  const { name, params } = call;
   const a = actionOf(name);
-  const route = a.route.match(/\{(\w+)\}/g)?.map((x) => x.slice(1, -1)) ?? [];
-  const params = Object.fromEntries(route.map((k, i) => [k, body.args[i] ?? ""]));
   const link = readyLink(body);
   // The action is the one visible button; the page link and Dismiss go in ⋯.
   const more = <MoreMenu label="More actions">{(close) => <>
@@ -208,7 +224,7 @@ function ReadyBody({ p, body, dismiss }: { p: Proposal; body: Ready; dismiss: ()
       {waiting && (name === "worktree.merge" && body.session_id
         ? <BranchActions sessionId={body.session_id} s={session} head={typeof body.input.head === "string" ? body.input.head : undefined} onMerged={ran}>{more}</BranchActions>
         : <div className="flex flex-wrap items-center gap-1.5">
-            <ActionButton name={name} params={params} body={body.input} primary vars={{ base: "the base branch", branch: "the branch", channel: "its channel", version: "the newest version", ...params }} onDone={() => ran().catch(toastError)} />
+            <ActionButton name={name} params={params} body={body.input} primary vars={{ ...READY_VARS, ...params }} onDone={() => ran().catch(toastError)} />
             {more}
           </div>)}
     </>
@@ -282,9 +298,9 @@ const SessionRow = memo(function SessionRow({ s }: { s: Session }) {
   );
 });
 
-export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor = false }: { p: Proposal; onAccepted?: () => void; anchor?: boolean }) {
+/** Start, Dismiss or Recheck a card, with its busy state; the card list takes the new state at once. */
+function useProposalAct(p: Proposal, onAccepted?: () => void) {
   const qc = useQueryClient();
-  const sessions = useSessions().data ?? [];
   const [busy, setBusy] = useState(false);
   const act = async (action: "accept" | "dismiss" | "recheck") => {
     setBusy(true);
@@ -298,6 +314,12 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       if (next.state === "failed") toastError(new Error(next.error ?? "It could not start"));
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
+  return { busy, act };
+}
+
+export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor = false }: { p: Proposal; onAccepted?: () => void; anchor?: boolean }) {
+  const sessions = useSessions().data ?? [];
+  const { busy, act } = useProposalAct(p, onAccepted);
   const spec = specOf(p);
   const started = p.state === "started";
   const session = started && (p.body.kind === "launch" || p.body.kind === "message") ? sessions.find((s) => s.id === p.result_id) : undefined;
@@ -345,3 +367,85 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
   );
 });
 
+
+/** Where a handled card's receipt leads: the record it made, or its replacement. */
+function receiptLink(p: Proposal): { to: string; params?: Record<string, string>; search?: Record<string, string> } | null {
+  const id = p.result_id ?? "";
+  if (p.state === "replaced") return p.replaced_by ? { to: "/", search: { card: `proposal:${p.replaced_by}` } } : null;
+  if (p.state !== "started") return null;
+  switch (p.body.kind) {
+    case "launch": case "message": return id ? { to: "/agents", search: { session: id } } : null;
+    case "schedule": return { to: "/schedules", search: { tab: "launches" } };
+    case "cron": case "routine": return id ? { to: "/schedules", search: { routine: id } } : null;
+    case "bot": return id ? { to: "/bots/$id", params: { id } } : null;
+    case "bot_instructions": case "bot_files": return id ? { to: "/bots/$id", params: { id }, search: { panel: "about" } } : null;
+    case "tool": return id ? { to: "/settings/credentials", search: { tool: id } } : null;
+    default: return null;
+  }
+}
+
+/** A proposal in a bot's chat: one line (icon, title, its main button, ⋯ with Details, Dismiss and Edit) and a
+ * second line saying what it does. Details shows the full card in place. A handled card is a one-line receipt
+ * ("Added routine Review requests"). `onReply` answers a question report from the chat's message box. Today and
+ * the Proposals list keep the full card. */
+export const ProposalLine = memo(function ProposalLine({ p, onReply }: { p: Proposal; onReply?: (p: Proposal) => void }) {
+  const [open, setOpen] = useState(p.state === "uncertain");
+  const { busy, act } = useProposalAct(p);
+  const ran = useRan(p);
+  const navigate = useNavigate();
+  const bots = useBots().data;
+  const projects = useProjects().data;
+  const sessions = useSessions().data;
+  const phone = usePhone();
+  const receipt = proposalReceipt(p);
+  if (open) return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1">
+    <ProposalCard p={p} />
+    <button className="chat-tap justify-self-start text-[12px] text-teal-ink hover:underline" onClick={() => setOpen(false)}>Hide details</button>
+  </div>;
+  if (receipt) {
+    const link = receiptLink(p);
+    return <div className="flex min-h-7 min-w-0 items-center gap-1.5 py-0.5 text-[12px] text-ink-3" data-tour="proposal.card" data-tour-id={p.id}>
+      <Icon name={p.state === "started" ? "check" : p.state === "dismissed" ? "x" : proposalIcon(p)} size={12} className={`flex-none ${p.state === "started" ? "text-gh-open" : ""}`} />
+      <span className="min-w-0 truncate" title={p.note ?? undefined}>{link ? <Link to={link.to as never} params={link.params as never} search={link.search as never} className="text-inherit no-underline hover:underline">{receipt}</Link> : receipt}</span>
+      <button className="chat-tap flex-none text-teal-ink hover:underline" onClick={() => setOpen(true)}>Details</button>
+    </div>;
+  }
+  const purpose = proposalPurpose(p, {
+    folder: (id) => projects?.find((x) => x.id === id)?.name,
+    bot: (id) => bots?.find((b) => b.id === id)?.settings.name,
+    session: (id) => sessions?.find((s) => s.id === id)?.title,
+    action: (name) => (ACTIONS as Record<string, { help: string }>)[name]?.help.toLowerCase(),
+  });
+  const b = p.body;
+  const ready = b.kind === "ready" ? readyCall(b) : null;
+  const link = b.kind === "ready" ? readyLink(b) : null;
+  const question = b.kind === "report" && b.outcome === "needs_you";
+  const main = b.kind === "report"
+    ? question
+      ? <button className="btn btn-sm" disabled={busy} title="Answer from the message box" onClick={() => (onReply ? onReply(p) : setOpen(true))}>{!phone && <Icon name="send" size={12} />}Reply</button>
+      : <button className="btn btn-sm" disabled={busy} onClick={() => void act("dismiss")}>{!phone && <Icon name="check" size={12} />}{phone ? "Read" : "Mark read"}</button>
+    : b.kind === "status" || (b.kind === "ready" && (!ready || (ready.name === "worktree.merge" && b.session_id)))
+      ? <button className="btn btn-sm" onClick={() => setOpen(true)}>{b.kind === "status" ? "Show agents" : "Review"}</button>
+      : b.kind === "ready" && ready
+        ? <ActionButton name={ready.name} params={ready.params} body={b.input} vars={{ ...READY_VARS, ...ready.params }} icon={phone ? null : undefined} onDone={() => ran().catch(toastError)} />
+        : <button className="btn btn-sm" disabled={busy} onClick={() => void act("accept")}>{!phone && <Icon name="play" size={12} />}{busy ? "Starting…" : START[b.kind]}</button>;
+  const warn = (b.kind === "cron" || b.kind === "routine" || (b.kind === "bot_files" && Object.keys(b.files).some((f) => f.startsWith("routines/"))));
+  return (
+    <article data-tour="proposal.card" data-tour-id={p.id} className={`group grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 rounded-card border bg-paper py-1.5 pr-1.5 pl-2.5 ${warn ? "border-attn-line" : "border-line"}`}>
+      <div className="flex min-w-0 items-center gap-2">
+        <Icon name={proposalIcon(p)} size={14} className="flex-none text-ink-3" />
+        <span className="min-w-0 flex-1">
+          <b className={`block text-[13px] ${phone ? "line-clamp-2" : "truncate"}`} title={p.title}>{p.title}</b>
+          <span className={`block text-[12px] ${phone ? "line-clamp-2" : "truncate"} ${p.state === "failed" ? "text-gh-closed" : "text-ink-3"}`} title={p.note ?? purpose}>{p.state === "failed" && p.error ? `Failed: ${p.error}` : purpose}</span>
+        </span>
+        <RowActions width={0} label="More actions" main={main} more={(close) => <>
+          <MenuItem icon={<Icon name="expand" size={14} />} label="Details" detail="The full card" onClick={() => { close(); setOpen(true); }} />
+          {link && <MenuItem icon={<Icon name="ext" size={14} />} label={link.label} onClick={() => { close(); void navigate({ to: link.to as never, params: link.params as never, search: link.search as never }); }} />}
+          {question && <MenuItem icon={<Icon name="check" size={14} />} label="Mark read" disabled={busy} onClick={() => { close(); void act("dismiss"); }} />}
+          {b.kind !== "report" && <MenuItem icon={<Icon name="x" size={14} />} label="Dismiss" disabled={busy} onClick={() => { close(); void act("dismiss"); }} />}
+          <EditMenuItem p={p} close={close} />
+        </>} />
+      </div>
+    </article>
+  );
+});

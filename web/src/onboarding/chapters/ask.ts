@@ -21,7 +21,7 @@ const botSessions = () => world.sessions.filter((s) => s.launch_spec.bot?.id ===
 
 export const ask: Chapter = {
   ...meta("ask"),
-  learned: ["Ask from the top-bar field on any page: the bot's chat opens as a panel, with the page as context", "Ask Launchpad is a bot like the others, created in every workspace, with its own memory", "It reads Launchpad state and answers with proposals through the Launchpad CLI tool", "Manual mode waits for your click; auto mode (bot.toml) starts one-time proposals; Edit sends a proposal to the composer", "Its BOT.md and bot.toml have versions; edit them, or replace it with your own bot", "A bot is an agent that stays: one thread shown as a chat, its instructions in BOT.md, its notes in its own memory; the trace stays in Agents", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
+  learned: ["Ask from the top-bar field on any page: the bot's chat opens as a panel, with the page as context", "Ask Launchpad is a bot like the others, created in every workspace, with its own memory", "It reads Launchpad state and answers with proposals through the Launchpad CLI tool", "Manual mode waits for your click; auto mode (bot.toml) starts one-time proposals; Edit sends a proposal to the composer", "Its BOT.md and bot.toml have versions; edit them, or replace it with your own bot", "A bot is an agent that stays: one thread shown as a chat, its instructions in BOT.md, its notes in its own memory; the trace stays in Agents", "In a bot's chat, proposals are one line with Details, handled ones fold into a receipt, and the message box answers its questions", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
@@ -45,29 +45,29 @@ export const ask: Chapter = {
     {
       id: "ask.changed", route: ASK_ROUTE, anchor: "chat.changed",
       title: "Changed",
-      body: "With admin access, Ask Launchpad changes Launchpad's own records directly: bots, routines, schedules, folder settings and presets. Each change is a Changed line with the value before and after; names of notes, bots and routines open their page.",
+      body: "With admin access, Ask Launchpad changes Launchpad's own records directly: bots, routines, schedules, folder settings and presets. Each change is a small receipt on the steps line of its turn, like “changed folder storefront”, and opens the record. A tap on the line shows each change with the value before and after.",
     },
     {
       id: "ask.thread", route: ASK_ROUTE, anchor: "bots.thread",
       title: "Ask Launchpad",
-      body: "Every workspace starts with this bot. Its page is a chat: your messages, its answers and the cards it writes. One line per turn counts the steps behind an answer; Open trace shows them in Agents. It reads your folders, agents, inbox, schedules and quotas with the Launchpad CLI, and keeps what it learns about you in its own memory.",
+      body: "Every workspace starts with this bot. Its page is a chat: your messages, its answers and the cards it writes. One quiet line per turn counts the steps behind an answer and the time it took; a tap lists the step titles. The full trace stays in Agents (⋯ → Open current session in Agents). It reads your folders, agents, inbox, schedules and quotas with the Launchpad CLI, and keeps what it learns about you in its own memory.",
     },
     {
       id: "ask.question", route: ASK_ROUTE, anchor: "bots.reply",
       title: "Ask in plain words",
-      body: "Ask what needs you, or describe work. The chips over the message box are its starters (starters in bot.toml): one sends at once, one ending in “…” fills the box for you to finish. It answers in the chat and writes proposal cards for what it suggests; they appear at the turn that wrote them. Questions it asks you are answered in place.",
+      body: "Ask what needs you, or describe work. The chips over the message box are its starters (starters in bot.toml): one sends at once, one ending in “…” fills the box for you to finish. It answers in the chat and writes proposal cards for what it suggests; they appear at the turn that wrote them. A question it asks shows its options as chips; to answer in your own words, type in the same message box.",
       tryIt: { text: "ask “What needs me today?”.", done: () => proposal()?.state === "proposed", doIt: () => api.post(`/api/sessions/${THREAD}/input`, { text: "What needs me today?" }) },
     },
     {
       id: "ask.proposal", route: ASK_ROUTE, anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
       title: "Proposals wait for you",
-      body: "Each card shows the profile, the folder and anything unusual. Start launches it; its ⋯ holds Edit (opens it in the composer) and Dismiss (drops it). Paid usage is always off for proposals. Proposals of every bot also wait in Today, under Approve.",
+      body: "In the chat, a proposal is one line: its title, its button, and what it does in plain words. Start launches it; its ⋯ holds Details (the full card: profile, folder, diffs), Dismiss and Edit (opens it in the composer). Paid usage is always off for proposals. Proposals of every bot also wait in Today, under Approve, as full cards.",
       tryIt: { text: "press Start.", done: () => proposal()?.state === "started", doIt: () => api.post(`/api/proposals/${TODAY_PROPOSAL}/accept`) },
     },
     {
       id: "ask.started", route: ASK_ROUTE, anchor: "proposal.card", anchorId: TODAY_PROPOSAL,
       title: "A normal agent",
-      body: "A started proposal becomes a normal agent, listed in Agents like any other. Cron proposals say “Creates a repeating agent” before you accept them.",
+      body: "Once handled, a card folds into a one-line receipt: “Started …”, “Added routine …” or “Dismissed …”, linking to what it made. A started proposal is a normal agent, listed in Agents like any other.",
     },
     {
       id: "ask.customize", route: `${ASK_ROUTE}?panel=about`, anchor: "bots.files",
@@ -83,7 +83,12 @@ export const ask: Chapter = {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",
       title: "One thread, many sessions",
       body: "The chat shows the whole thread, with a divider at each new session; older messages load as you scroll up. Messages go to the current session. A new session starts when its profile, folder, model, effort or permission mode changes (the divider says why), or when you pick Start a new session in ⋯, with a reason the divider shows; it reads the previous trace only when it needs it. After you edit BOT.md, “Instructions updated” over the message box means your next message brings the new one, in the same session. A routine run with nothing to report is one quiet line.",
-      tryIt: { text: "ask the Maintainer for the refund test.", done: () => botSessions().some((s) => (world.events[s.id] ?? []).some((e) => e.body.kind === "user_message" && e.body.text.toLowerCase().includes("refund"))), doIt: () => api.post(`/api/bots/${BOT}/message`, { text: "Prepare the refund end-to-end test as a Local PR." }) },
+      tryIt: { text: "ask the Maintainer for the refund test.", done: () => botSessions().some((s) => (world.events[s.id] ?? []).some((e) => (e.body.kind === "user_message" && e.body.text.toLowerCase().includes("refund")) || e.body.kind === "ask_answered")), doIt: () => api.post(`/api/bots/${BOT}/message`, { text: "Prepare the refund end-to-end test as a Local PR." }) },
+    },
+    {
+      id: "ask.bot-answer", route: BOT_ROUTE, anchor: "chat.answering",
+      title: "One message box",
+      body: "When the bot asks you something, its options are chips on the question, and the message box answers it: “Answering: …” over the box says so. Cancel sends a normal message instead. A report that waits for your answer works the same way with its Reply. Approval requests keep their Allow and Deny buttons, and typed text never approves anything.",
     },
     {
       id: "ask.bot-from", route: BOT_ROUTE, anchor: "chat.from",

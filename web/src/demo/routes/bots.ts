@@ -138,6 +138,8 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
     const bot = current.launch_spec.bot;
     const changedText = bot?.version && bot.version !== v ? `${text}\n\nYour instructions changed. The owner edited BOT.md since this session started or last heard of it. From now on, follow this version instead of the earlier one:\n\n<bot-instructions>\n${b.instructions.trim()}\n</bot-instructions>` : text;
     if (bot && bot.version !== v) { bot.version = v; publishSession(current); }
+    // A message instead of an answer (Cancel on “Answering: …”): the bot reads it and drops its question.
+    if (current.open_question) { current.open_question = false; publishSession(current); }
     sendMessage(current, changedText, `${current.id}-${current.last_seq + 1}`);
     return session(current.id);
   }

@@ -88,3 +88,16 @@ test("a message from another bot shows its sender, without Home's header and fen
   const own = chatRows([session("b", [{ ...user("hello"), from: null }, answer("hi"), end(5)])]);
   assert.equal(own[1].t, "user");
 });
+
+test("a turn's changes become receipts on its steps line; a turn without one keeps them as rows", () => {
+  const cards = [
+    { kind: "changed", id: "bot4", session_id: "a", at: 90, v: "", text: "Created memory/checkout.md · +3 −0", receipt: "noted in its memory" },
+    { kind: "proposal", id: "p", session_id: "a", at: 95, v: "" },
+  ];
+  const items = chatRows([session("a", [user("hi"), tools("Bash"), answer("Noted."), end(100)])], cards);
+  assert.deepEqual(kinds(items), ["divider", "user", "answer", "steps", "card"]);
+  assert.deepEqual(items[3].changes, [{ id: "bot4", receipt: "noted in its memory", text: "Created memory/checkout.md · +3 −0" }]);
+  assert.equal(stepsLabel(12, 185_000), "12 steps · 3 min");
+  const running = chatRows([session("a", [user("hi"), tools("Bash")], { running: true })], cards);
+  assert.deepEqual(kinds(running), ["divider", "user", "card", "card", "working"]);
+});

@@ -1,12 +1,14 @@
 // An open question of the agent with its options. Answers go to the harness at once (single choice) or
-// with Send answer (multiple choice). Shared by the trace, Today cards and bot chats.
+// with Send answer (multiple choice). Shared by the trace, Today cards and bot chats. `chips` (bot chats) shows the
+// options as chips and no hint: the chat's message box says it answers the question. Approval requests always keep
+// their full buttons.
 
 import { useState } from "react";
 import { toastError } from "@/components/Toast";
 import { runAction } from "@/lib/actions";
 import type { Row } from "./rows";
 
-export function AskCard({ row, sessionId, live, hint = "Or type another answer below." }: { row: Pick<Extract<Row, { t: "ask" }>, "request_id" | "questions" | "answers">; sessionId: string; live: boolean; hint?: string }) {
+export function AskCard({ row, sessionId, live, hint = "Or type another answer below.", chips = false }: { row: Pick<Extract<Row, { t: "ask" }>, "request_id" | "questions" | "answers">; sessionId: string; live: boolean; hint?: string; chips?: boolean }) {
   const [picked, setPicked] = useState<Record<number, string[]>>({});
   const [busy, setBusy] = useState(false);
   const answered = row.answers !== null;
@@ -30,6 +32,8 @@ export function AskCard({ row, sessionId, live, hint = "Or type another answer b
       void send(row.questions.map((_, i) => all[i].join(", ")));
     }
   };
+  const permission = row.questions.some((q) => q.permission);
+  const compact = chips && !permission;
   return (
     <div data-tour={answered ? undefined : row.questions.some((q) => q.permission) ? "session.approval" : "session.question"} className={`grid gap-2 rounded-card border px-2.5 py-[9px] ${answered ? "border-line-2 bg-chrome" : "border-attn-line bg-attn-soft"}`}>
       {row.questions.map((q, qi) => (
@@ -39,6 +43,10 @@ export function AskCard({ row, sessionId, live, hint = "Or type another answer b
           {answered ? (
             <div className="text-[13px] text-ink-2">
               → <b className="text-ink">{row.answers![qi]}</b>
+            </div>
+          ) : compact ? (
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Answers">
+              {q.options.map((o, oi) => <button key={oi} className="lp-chip" aria-pressed={q.multi_select ? (picked[qi] ?? []).includes(o.label) : undefined} title={o.description || undefined} disabled={busy || !live} onClick={() => choose(qi, o.label)}>{o.label}</button>)}
             </div>
           ) : (
             q.options.map((o, oi) => {
@@ -66,7 +74,7 @@ export function AskCard({ row, sessionId, live, hint = "Or type another answer b
           Send answer
         </button>
       )}
-      {!answered && <div className="text-[12px] text-ink-3">{live ? row.questions.some((q) => q.permission) ? "Waiting for your decision. Only the buttons above approve or deny this operation." : hint : "This request is no longer active here."}</div>}
+      {!answered && (!compact || !live) && <div className="text-[12px] text-ink-3">{live ? row.questions.some((q) => q.permission) ? "Waiting for your decision. Only the buttons above approve or deny this operation." : hint : "This request is no longer active here."}</div>}
     </div>
   );
 }

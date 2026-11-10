@@ -322,8 +322,11 @@ export function agentsWorld() {
       user(routineText("CI failures", "GitHub, CI activity: acme-labs/storefront#118", CI, "- CI activity: acme-labs/storefront#118 “Poll the order in the checkout e2e test” (PullRequest, ci_activity) https://github.com/acme-labs/storefront/pull/118"), false),
       ...tool("Bash", "gh run view --log-failed --repo acme-labs/storefront", "checkout.spec.ts:18 Timeout 10000ms exceeded waiting for POST /api/payments"),
       say("**CI on #118 fails because of the change itself**: the test now waits for the order request, but the payment request finishes later on CI. I prepared a fix (also wait for `POST /api/payments`) as the Local PR **Wait for the payment request in the checkout test**. Nothing was pushed to the pull request."),
-      ...end(2), status("waiting"),
-    ] });
+      // An open question: its options are chips in the chat, and the message box answers it.
+      { kind: "ask_user", request_id: "demo-q-refund-test", questions: [{ permission: false, id: "demo-q-refund-test", header: "Refund test", question: "While I am at it: should I add the missing refund end-to-end test?", multi_select: false,
+        options: [{ label: "Yes, as a Local PR", description: "A new branch with the test, for your review" }, { label: "Not now", description: "I note it in my memory and stop here" }] }] },
+      status("waiting"),
+    ], patch: { open_question: true } });
   const proposals: Proposal[] = [
     // The Maintainer's reports: one card per pull request it handled, a question waits for your reply.
     { id: "demo-prop-report-118", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "#118 Save carts for later: keep the old cart table?", note: null,
@@ -340,6 +343,11 @@ export function agentsWorld() {
         before: { "BOT.md": "b2", "routines/review-requests.toml": null },
         patches: { "BOT.md": MAINTAINER_BOT_MD_PATCH, "routines/review-requests.toml": `@@ -0,0 +1,${REVIEW_ROUTINE.trimEnd().split("\n").length} @@\n${REVIEW_ROUTINE.trimEnd().split("\n").map((l) => `+${l}`).join("\n")}\n` } },
       state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(12), updated_at: clock.ago(12) },
+    // A card the owner already handled: one receipt line in the Maintainer's chat.
+    { id: "demo-prop-weekly-summary", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "Weekly checkout summary",
+      note: "A short summary of checkout changes every Monday, so nothing slips through.",
+      body: { kind: "routine", bot_id: "demo-bot-maintainer", title: "Weekly checkout summary", instructions: "Summarize last week's checkout changes and what is still risky, in five lines at most.", trigger: { kind: "schedule" }, schedule: "0 9 * * 1", conditions: [] },
+      state: "dismissed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(62), updated_at: clock.ago(55) },
     { id: "demo-prop-empty-cart", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: "Fix the empty-cart 500 in the invoices API",
       note: "Issue #77 mentions you: `GET /invoices` returns 500 when the cart is empty. The fix is likely a missing empty check.",
       body: { kind: "launch", spec: defaultSpec({ harness: "codex", profile: "codex-plus", target: { kind: "project", project_id: P.billing }, worktree: { base: null, when_done: "keep" }, text: "Fix acme-labs/billing-api#77: GET /invoices returns 500 when the cart is empty. Add a regression test.", workspace_id: WS.acme }) },
