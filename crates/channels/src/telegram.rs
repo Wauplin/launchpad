@@ -95,23 +95,43 @@ async fn load(app: &App, workspace: &str) -> State {
 
 /// Every workspace's Telegram state.
 async fn all(app: &App) -> Vec<(String, State)> {
-    app.state_db
+    states(app).await.unwrap_or_default()
+}
+
+/// `all`, with the database error: the supervisor keeps its loops when it cannot read the states.
+async fn states(app: &App) -> Result<Vec<(String, State)>> {
+    let rows = app
+        .state_db
         .call(|c| {
             let mut st = c.prepare("SELECT workspace_id, json FROM telegram_chat ORDER BY workspace_id")?;
             let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(rows)
         })
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|(ws, j)| Some((ws, serde_json::from_str(&j).ok()?)))
-        .collect()
+        .await?;
+    Ok(rows.into_iter().filter_map(|(ws, j)| Some((ws, serde_json::from_str(&j).ok()?))).collect())
 }
 
-async fn store(app: &App, workspace: &str, st: &State) -> Result<()> {
-    let (ws, json) = (workspace.to_string(), serde_json::to_string(st)?);
-    app.state_db.call(move |c| Ok(c.execute("INSERT INTO telegram_chat (workspace_id, json) VALUES (?1, ?2) ON CONFLICT (workspace_id) DO UPDATE SET json = ?2", [ws, json])?)).await?;
-    Ok(())
+/// One writer of the Telegram states at a time: every change loads, changes and stores under it, so a poll loop's
+/// offset never overwrites the owner's switch, and a loop's write after Delete never brings the row back.
+static WRITE: std::sync::LazyLock<tokio::sync::Mutex<()>> = std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+/// Changes the workspace's saved state (`set_token` alone creates it). None: it has none (deleted meanwhile).
+async fn modify(app: &App, workspace: &str, f: impl FnOnce(&mut State)) -> Result<Option<State>> {
+    let _w = WRITE.lock().await;
+    let ws = workspace.to_string();
+    let json: Option<String> = app
+        .state_db
+        .call(move |c| {
+            use rusqlite::OptionalExtension;
+            Ok(c.query_row("SELECT json FROM telegram_chat WHERE workspace_id = ?1", [ws], |r| r.get::<_, String>(0)).optional()?)
+        })
+        .await?;
+    let Some(json) = json else { return Ok(None) };
+    let mut st: State = serde_json::from_str(&json).unwrap_or_default();
+    f(&mut st);
+    let (ws, json) = (workspace.to_string(), serde_json::to_string(&st)?);
+    app.state_db.call(move |c| Ok(c.execute("UPDATE telegram_chat SET json = ?2 WHERE workspace_id = ?1", [ws, json])?)).await?;
+    Ok(Some(st))
 }
 
 async fn token(app: &App, workspace: &str) -> Option<String> {
@@ -222,9 +242,15 @@ pub async fn set_token(app: &App, workspace: &str, token: &str) -> Result<Telegr
     }
     let me = call(token, "getMe", json!({}), 20).await?;
     let username = me["username"].as_str().context("Telegram did not return the bot's name")?.to_string();
-    launchpad_core::vault::put(app, &token_id(workspace), launchpad_core::vault::Kind::Token, "Telegram bot", token).await?;
-    let st = State { bot_id: Some(me["id"].as_i64().unwrap_or(bot_id)), bot_username: Some(username), code: Some(code()), code_expires_at: Some(now_ms() + CODE_TTL_MS), notify: true, ..Default::default() };
-    store(app, workspace, &st).await?;
+    {
+        let _w = WRITE.lock().await;
+        // Again under the lock: two workspaces saving the same bot at once.
+        ensure!(used_elsewhere(&all(app).await, workspace, bot_id).is_none(), "this Telegram bot already serves another workspace: create another bot with @BotFather for this workspace");
+        launchpad_core::vault::put(app, &token_id(workspace), launchpad_core::vault::Kind::Token, "Telegram bot", token).await?;
+        let st = State { bot_id: Some(bot_id), bot_username: Some(username), code: Some(code()), code_expires_at: Some(now_ms() + CODE_TTL_MS), notify: true, ..Default::default() };
+        let (ws, json) = (workspace.to_string(), serde_json::to_string(&st)?);
+        app.state_db.call(move |c| Ok(c.execute("INSERT INTO telegram_chat (workspace_id, json) VALUES (?1, ?2) ON CONFLICT (workspace_id) DO UPDATE SET json = ?2", [ws, json])?)).await?;
+    }
     changed(app, workspace);
     Ok(status(app, workspace).await)
 }
@@ -233,10 +259,12 @@ pub async fn set_token(app: &App, workspace: &str, token: &str) -> Result<Telegr
 pub async fn new_code(app: &App, workspace: &str) -> Result<TelegramStatus> {
     ensure_workspace(app, workspace).await?;
     ensure!(token(app, workspace).await.is_some(), "add the bot token first");
-    let mut st = load(app, workspace).await;
-    st.code = Some(code());
-    st.code_expires_at = Some(now_ms() + CODE_TTL_MS);
-    store(app, workspace, &st).await?;
+    modify(app, workspace, |st| {
+        st.code = Some(code());
+        st.code_expires_at = Some(now_ms() + CODE_TTL_MS);
+    })
+    .await?
+    .context("add the bot token first")?;
     changed(app, workspace);
     Ok(status(app, workspace).await)
 }
@@ -250,10 +278,12 @@ pub struct Patch {
 pub async fn patch(app: &App, workspace: &str, p: Patch) -> Result<TelegramStatus> {
     ensure_workspace(app, workspace).await?;
     ensure!(token(app, workspace).await.is_some(), "add the bot token first");
-    let mut st = load(app, workspace).await;
-    if let Some(v) = p.notify { st.notify = v; }
-    if let Some(v) = p.titles { st.titles = v; }
-    store(app, workspace, &st).await?;
+    modify(app, workspace, |st| {
+        if let Some(v) = p.notify { st.notify = v; }
+        if let Some(v) = p.titles { st.titles = v; }
+    })
+    .await?
+    .context("add the bot token first")?;
     changed(app, workspace);
     Ok(status(app, workspace).await)
 }
@@ -261,6 +291,7 @@ pub async fn patch(app: &App, workspace: &str, p: Patch) -> Result<TelegramStatu
 /// Removes the workspace's token and bound chat (also when its workspace was deleted).
 pub async fn remove(app: &App, workspace: &str) -> Result<()> {
     crate::channels::ensure_home(app)?;
+    let _w = WRITE.lock().await;
     launchpad_core::vault::delete(app, &token_id(workspace)).await?;
     let ws = workspace.to_string();
     let gone: Vec<String> = app
@@ -277,6 +308,7 @@ pub async fn remove(app: &App, workspace: &str) -> Result<()> {
             Ok(ids)
         })
         .await?;
+    drop(_w);
     {
         let mut pending = PENDING.lock().unwrap();
         for id in gone {
@@ -486,17 +518,27 @@ pub(crate) const FROM_TELEGRAM: &str = "\n\n(Sent from Telegram. Your final mess
 async fn handle(app: &App, workspace: &str, msg: &Value) -> Result<()> {
     let Some(chat) = msg["chat"]["id"].as_i64() else { return Ok(()) };
     let text = msg["text"].as_str().unwrap_or("");
-    let mut st = load(app, workspace).await;
+    let st = load(app, workspace).await;
     if let Incoming::Start(Some(c)) = parse(text)
         && msg["chat"]["type"] == "private"
         && st.code.as_deref().is_some_and(|code| code.eq_ignore_ascii_case(&c))
         && st.code_expires_at.is_some_and(|e| e > now_ms())
     {
-        st.chat_id = Some(chat);
-        st.chat_name = msg["chat"]["username"].as_str().map(|u| format!("@{u}")).or_else(|| msg["chat"]["first_name"].as_str().map(str::to_string));
-        st.code = None;
-        st.code_expires_at = None;
-        store(app, workspace, &st).await?;
+        let name = msg["chat"]["username"].as_str().map(|u| format!("@{u}")).or_else(|| msg["chat"]["first_name"].as_str().map(str::to_string));
+        // Single use: the code is spent with the binding, under the write lock (a new code meanwhile wins).
+        let bound = modify(app, workspace, |st| {
+            if st.code.as_deref().is_some_and(|code| code.eq_ignore_ascii_case(&c)) {
+                st.chat_id = Some(chat);
+                st.chat_name = name;
+                st.code = None;
+                st.code_expires_at = None;
+            }
+        })
+        .await?
+        .is_some_and(|st| st.chat_id == Some(chat) && st.code.is_none());
+        if !bound {
+            return Ok(());
+        }
         changed(app, workspace);
         let name = launchpad_core::workspace::get(app, workspace).await.map(|w| w.name).unwrap_or_default();
         return say(app, workspace, &format!("This chat is now bound to the Launchpad workspace {name}. Only this chat is answered.\n\n{}", help(app, workspace).await)).await;
@@ -699,7 +741,7 @@ async fn supervise(app: &App) {
         Ok(l) => l.into_iter().map(|w| w.id).collect(),
         Err(_) => return,
     };
-    let states = all(app).await;
+    let Ok(states) = states(app).await else { return };
     for (ws, _) in states.iter().filter(|(ws, _)| !workspaces.contains(ws)) {
         if let Err(e) = remove(app, ws).await {
             tracing::warn!("telegram of a deleted workspace: {e:#}");
@@ -766,9 +808,7 @@ fn poll(app: &App, workspace: String, wake: Arc<tokio::sync::Notify>) {
             match result {
                 Ok(updates) => {
                     if st.error.is_some() {
-                        let mut st = load(&app, &workspace).await;
-                        st.error = None;
-                        let _ = store(&app, &workspace, &st).await;
+                        let _ = modify(&app, &workspace, |st| st.error = None).await;
                         crate::channels::changed(&app);
                     }
                     for u in updates.as_array().cloned().unwrap_or_default() {
@@ -777,9 +817,7 @@ fn poll(app: &App, workspace: String, wake: Arc<tokio::sync::Notify>) {
                             return;
                         }
                         // Claimed before it is handled: a crash never runs a message twice.
-                        let mut st = load(&app, &workspace).await;
-                        st.offset = st.offset.max(update_id + 1);
-                        if store(&app, &workspace, &st).await.is_err() {
+                        if !matches!(modify(&app, &workspace, |st| st.offset = st.offset.max(update_id + 1)).await, Ok(Some(_))) {
                             break;
                         }
                         if let Err(e) = handle(&app, &workspace, &u["message"]).await {
@@ -789,11 +827,9 @@ fn poll(app: &App, workspace: String, wake: Arc<tokio::sync::Notify>) {
                 }
                 Err(e) => {
                     let message = format!("{e:#}");
-                    let mut st = load(&app, &workspace).await;
-                    if st.error.as_deref() != Some(message.as_str()) {
+                    if load(&app, &workspace).await.error.as_deref() != Some(message.as_str()) {
                         tracing::warn!("telegram ({workspace}): {message}");
-                        st.error = Some(message);
-                        let _ = store(&app, &workspace, &st).await;
+                        let _ = modify(&app, &workspace, |st| st.error = Some(message)).await;
                         crate::channels::changed(&app);
                     }
                     tokio::select! { _ = wake.notified() => {}, _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {} }

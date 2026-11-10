@@ -204,7 +204,7 @@ mod tests {
         }
         assert_eq!(tool_need(&Method::GET, "/api/context/sessions/s1"), Some(LaunchpadAccess::Read));
         // The owner's routes with secrets or machine state stay closed, whatever the access.
-        for path in ["/api/burst", "/api/runners", "/api/vault/leases", "/api/channels", "/api/home/backup", "/api/config"] {
+        for path in ["/api/burst", "/api/runners", "/api/vault/leases", "/api/channels", "/api/channels/telegram/w1", "/api/home/backup", "/api/config"] {
             assert!(!admin_allows(&Method::GET, path), "{path}");
         }
     }

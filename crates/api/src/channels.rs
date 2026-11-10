@@ -61,7 +61,12 @@ async fn remove(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value
     channels::delete(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
-async fn send_draft(State(s): State<Ctx>, Json(d): Json<Draft>) -> ApiResult<DraftResult> {
+/// An agent's `launchpad send`: Home takes the session from its own record of the CLI token, never from the body,
+/// so an agent reaches only the Telegram chat of its own workspace.
+async fn send_draft(State(s): State<Ctx>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut d): Json<Draft>) -> ApiResult<DraftResult> {
+    if let Some(a) = agent {
+        d.session_id = Some(a.0.0);
+    }
     Ok(Json(channels::draft(&s.app, d).await.map_err(bad)?))
 }
 

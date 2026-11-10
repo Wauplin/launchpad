@@ -48,7 +48,7 @@ export function TelegramCard({ workspace, name }: { workspace: string; name: str
         ) : <>
           <div className="flex flex-wrap items-center gap-2 text-[13px]"><span>Bot</span><b>@{t.bot_username}</b></div>
           {t.code && t.link && (
-            <div className="grid gap-2 rounded-card border border-line-2 p-2.5 text-[13px]" data-tour="channels.telegram-bind">
+            <div className="grid gap-2 rounded-card border border-line-2 p-2.5 text-[13px]">
               <span>{t.bound ? "To bind another chat" : "To bind your chat"}, open the link on your phone and press <b>Start</b>, or send <code>/start {t.code}</code> to @{t.bot_username}. The first chat that sends this code is bound; every other chat is ignored.</span>
               <span className="flex flex-wrap items-center gap-2">
                 <Token>{t.code}</Token>
