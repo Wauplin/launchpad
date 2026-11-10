@@ -106,13 +106,16 @@ export function describeCron(expr: string): string {
   return raw;
 }
 
+/** Runs a routine started by events may start in an hour (`crons::EVENT_RUNS_PER_HOUR`). */
+export const EVENT_RUNS_PER_HOUR = 6;
+
 /** `time_zone` absent: a record saved before schedules kept a zone runs in the server's time. */
 export function triggerSummary(r: Pick<CronAgent, "trigger" | "schedule" | "time_zone">, folderName?: (id: string) => string): string {
   const t: Trigger = r.trigger;
   if (t.kind === "schedule") return `${describeCron(r.schedule)} (${r.time_zone ?? "server time"})`;
   if (t.kind === "github") return `GitHub · ${t.events.map((e) => GITHUB_EVENTS.find((x) => x.id === e)?.label.toLowerCase() ?? e).join(", ")} · ${t.repo ?? "the workspace's repositories"}`;
   if (t.kind === "failure") return `When Launchpad fails · ${t.events.map((e) => FAILURE_EVENTS.find((x) => x.id === e)?.label.toLowerCase() ?? e).join(", ")}`;
-  return `When an agent is done · ${t.folder ? folderName?.(t.folder) ?? "a folder" : "any folder of the workspace"}`;
+  return `When an agent is done · ${t.folder ? folderName?.(t.folder) ?? "a folder" : "any folder of the workspace"}${t.include_bots ? " · bots too" : ""}`;
 }
 
 /** Tooltip with the raw cron expression of a schedule trigger. */

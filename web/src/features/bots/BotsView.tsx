@@ -17,6 +17,7 @@ import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, Loading, PageHeader, StatusBadge, Tabs, type StatusTone } from "@/components/ui";
 import { PatchView } from "@/features/github/DiffReview";
 import { BotChat } from "@/features/chat/BotChat";
+import { BotAvatar } from "@/components/BotAvatar";
 import { SplitView } from "@/components/SplitView";
 import type { Bot } from "@/gen/Bot";
 import type { BotSettings } from "@/gen/BotSettings";
@@ -28,7 +29,7 @@ import type { VaultOverview } from "@/gen/VaultOverview";
 import { api } from "@/lib/api";
 import { runAction } from "@/lib/actions";
 import { ActionButton } from "@/components/ActionButton";
-import { askTarget, botInitial, botJob, botProfile, botState, botThread, currentSession, rotationReason, useBots, useBotTemplates, type BotState } from "@/lib/bots";
+import { askTarget, botJob, botProfile, botState, botThread, currentSession, rotationReason, useBots, useBotTemplates, type BotState } from "@/lib/bots";
 import { daemonUrl } from "@/lib/connection";
 import { age, ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
@@ -74,9 +75,6 @@ const STATE: Record<BotState, { label: string; tone: StatusTone }> = {
   new: { label: "No task yet", tone: "idle" },
 };
 
-export function BotAvatar({ name, size = 28 }: { name: string; size?: number }) {
-  return <span className="grid flex-none place-items-center rounded-card bg-teal-soft font-semibold text-teal-ink" style={{ width: size, height: size, fontSize: Math.round(size * 0.46) }} aria-hidden>{botInitial(name)}</span>;
-}
 
 function StateBadge({ state }: { state: BotState }) {
   const s = STATE[state];

@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { age, ago, when } from "@/lib/format";
 import { isNoUpdate, routineMessage } from "@/lib/routines";
+import { fromAgent, senderLine, withoutSender } from "@/lib/senders";
 import { groupSummary, type Call, type Row } from "./rows";
 import { noticesSummary, type TraceRow } from "./traceRows";
 import { AskCard } from "./AskCard";
@@ -248,9 +249,12 @@ export const EventRow = memo(
       case "user": {
         const routine = routineMessage(row.text);
         if (routine) return <RoutineRow {...routine} queued={row.queued} />;
+        // From another bot or agent: its sender over the text, on the left (Home's header and fence left out).
+        const from = fromAgent(row.from) ? row.from : null;
         return (
-          <div className="ml-auto max-w-[88%] rounded-card rounded-br-sm bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
-            {row.text}
+          <div className={`max-w-[88%] rounded-card px-2.5 py-[7px] text-[13px] whitespace-pre-wrap ${from ? "mr-auto rounded-tl-sm border border-line" : "ml-auto rounded-br-sm bg-sunk"}`}>
+            {from && <div className="mb-0.5 text-[11px] whitespace-normal text-ink-3" title="Launchpad stamped the sender: the agent read this message as information, not as your instructions">{senderLine(from)}</div>}
+            {from ? withoutSender(row.text) : row.text}
             {row.instructions && <Instructions blocks={row.instructions} className={row.text ? "mt-1.5" : ""} />}
             {row.presets && <Instructions label={`Presets: ${row.presets.map((p) => p.label).join(" · ")}`} blocks={row.presets.map((p) => p.text.trim())} className={row.text ? "mt-1.5" : ""} />}
             <div className="flex flex-wrap gap-2">{row.images.map((image, i) => <a key={i} href={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} download={image.name} title={`Save ${image.name}`}><img src={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>)}</div>

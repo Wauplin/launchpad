@@ -24,7 +24,7 @@ import type { Trigger } from "@/gen/Trigger";
 import { api } from "@/lib/api";
 import { ago, when } from "@/lib/format";
 import { useProjects } from "@/lib/queries";
-import { FAILURE_EVENTS, GITHUB_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, cronTitle, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
+import { EVENT_RUNS_PER_HOUR, FAILURE_EVENTS, GITHUB_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, cronTitle, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
 
 export type RoutineDraft = { trigger: Trigger; schedule: string; conditions: CronCondition[] };
 
@@ -58,7 +58,7 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, onChange,
   const t = draft.trigger;
   const valid = fieldsValid && ((t.kind !== "github" && t.kind !== "failure") || t.events.length > 0);
   useEffect(() => onValidityChange(valid), [valid, onValidityChange]);
-  const kind = (k: Trigger["kind"]) => onChange({ ...draft, trigger: k === "schedule" ? { kind: "schedule" } : k === "github" ? { kind: "github", repo: null, events: ["review_requested"] } : k === "failure" ? { kind: "failure", events: ["any"] } : { kind: "session_done", folder: null }, schedule: draft.schedule || DEFAULT_CRON.schedule });
+  const kind = (k: Trigger["kind"]) => onChange({ ...draft, trigger: k === "schedule" ? { kind: "schedule" } : k === "github" ? { kind: "github", repo: null, events: ["review_requested"] } : k === "failure" ? { kind: "failure", events: ["any"] } : { kind: "session_done", folder: null, include_bots: false }, schedule: draft.schedule || DEFAULT_CRON.schedule });
   const toggleFailure = (e: FailureKind) => t.kind === "failure" && onChange({ ...draft, trigger: { ...t, events: t.events.includes(e) ? t.events.filter((x) => x !== e) : [...t.events, e] } });
   const toggle = (e: GithubEvent) => t.kind === "github" && onChange({ ...draft, trigger: { ...t, events: t.events.includes(e) ? t.events.filter((x) => x !== e) : [...t.events, e] } });
   // In a thread (a bot, Ask Launchpad), a run waits for the thread anyway: no "previous run" condition.
@@ -98,7 +98,10 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, onChange,
           {folders.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </label>
-      <p className="m-0 text-[12px] text-ink-3">Each time another agent finishes a turn (Done) there, a run starts with a reference to that agent's trace. Runs of routines never start other routines.</p>
+      <label className="flex min-h-7 w-fit cursor-pointer items-center gap-1.5 text-[13px] text-ink-2 select-none" data-tour="routines.include-bots" title="Off: a bot's answers never start this routine, so two bots cannot wake each other in a loop">
+        <input type="checkbox" checked={!!t.include_bots} onChange={(e) => onChange({ ...draft, trigger: { ...t, include_bots: e.target.checked } })} className="accent-teal" />Bots' answers count too
+      </label>
+      <p className="m-0 text-[12px] text-ink-3">Each time another agent finishes a turn (Done) there, a run starts with a reference to that agent's trace. Runs of routines never start other routines, and a routine started by events runs at most {EVENT_RUNS_PER_HOUR} times an hour.</p>
     </div>}
     <CronFields draft={{ schedule: draft.schedule, conditions }} harness={harness} schedule={t.kind === "schedule"} previousRun={!inThread} onChange={(c) => onChange({ ...draft, schedule: c.schedule, conditions: c.conditions })} onValidityChange={setFieldsValid} />
   </div>;
@@ -180,7 +183,7 @@ export function routineTemplates(repo: string | null): { label: string; title: s
       { label: "Review requests", title: "Review requests", instructions: "Review each pull request below. Prepare your review as a suggestion (launchpad suggest review) for me to post; do not post it yourself. Report one line per pull request with your verdict.", draft: { trigger: { kind: "github" as const, repo, events: ["review_requested" as const] }, schedule: "", conditions: cond } },
       { label: "CI failures", title: "CI failures", instructions: "Read the failing logs below. If the change itself causes the failure, prepare a fix in a new worktree as a Local PR and report. If it is flaky or unrelated, reply no_update.", draft: { trigger: { kind: "github" as const, repo, events: ["ci_activity" as const] }, schedule: "", conditions: cond } },
     ] : []),
-    { label: "After each agent", title: "Review finished work", instructions: "Read what the agent below did. If something looks wrong or unfinished, report it with the file and line. Otherwise reply no_update.", draft: { trigger: { kind: "session_done", folder: null }, schedule: "", conditions: cond } },
+    { label: "After each agent", title: "Review finished work", instructions: "Read what the agent below did. If something looks wrong or unfinished, report it with the file and line. Otherwise reply no_update.", draft: { trigger: { kind: "session_done", folder: null, include_bots: false }, schedule: "", conditions: cond } },
     { label: BRIEF_TITLE, title: BRIEF_TITLE, instructions: BRIEF, draft: { trigger: { kind: "schedule" }, schedule: "30 8 * * 1-5", conditions: cond } },
   ];
 }

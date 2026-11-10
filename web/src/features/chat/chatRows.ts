@@ -1,12 +1,14 @@
 // The chat of a bot's thread: a second way to draw the same session events (no storage of its own). Per turn it
-// keeps the owner's message, the bot's last answer, one steps line for the work behind it, its questions, and the
+// keeps the message (the owner's, or another bot's or agent's under its sender), the bot's last answer, one steps line for the work behind it, its questions, and the
 // cards written during the turn; a routine run that ends with `no_update` is one quiet line. Each session of the
 // thread starts with a divider. Pure, so it is tested (tests/chatRows.test.mjs).
 
 import type { ImageAttachment } from "@/gen/ImageAttachment";
 import type { Row } from "../agents/rows.ts";
 import type { TraceRow } from "../agents/traceRows.ts";
+import type { MessageFrom } from "@/gen/MessageFrom";
 import { isNoUpdate, routineMessage } from "../../lib/routines.ts";
+import { fromAgent, withoutSender } from "../../lib/senders.ts";
 
 type AskRow = Extract<Row, { t: "ask" }>;
 
@@ -37,6 +39,8 @@ export type ChatItem = { key: string; v: string } & (
   | { t: "divider"; sessionId: string; index: number; at: number; reason: string | null }
   /** `instructions`: the message carried the new BOT.md (Home adds it after BOT.md changed), left out of `text`. */
   | { t: "user"; text: string; images: ImageAttachment[]; queued: boolean; instructions: boolean }
+  /** A message from another bot or agent (Home's header and fence left out of `text`): never the owner's bubble. */
+  | { t: "from"; text: string; images: ImageAttachment[]; queued: boolean; instructions: boolean; from: MessageFrom }
   | { t: "routine"; title: string; cause: string }
   | { t: "quiet"; title: string; cause: string; at: number | null }
   | { t: "answer"; text: string; streaming: boolean }
@@ -166,6 +170,7 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
         out.push({ key: k(`q:${t.key}`), v: "", t: "quiet", title: routine.title, cause: routine.cause, at: t.end.ts });
       } else {
         if (routine) out.push({ key: k(`r:${t.key}`), v: t.user!.queued ? "q" : "", t: "routine", title: routine.title, cause: routine.cause });
+        else if (t.user && fromAgent(t.user.from)) { const m = withoutInstructions(withoutSender(t.user.text)); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "from", text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions, from: t.user.from }); }
         else if (t.user) { const m = withoutInstructions(t.user.text); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "user", text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions }); }
         if (answer) out.push({ key: k(answer.key), v: `${answer.text.length}${answer.streaming ? "s" : ""}`, t: "answer", text: answer.text, streaming: answer.streaming });
         if (steps.length && !working) out.push({ key: k(`s:${t.key}`), v: `${steps.length}:${t.end?.duration_ms ?? ""}`, t: "steps", sessionId: s.id, count: steps.length, durationMs: t.end?.duration_ms ?? null, steps });

@@ -86,6 +86,11 @@ export const ask: Chapter = {
       tryIt: { text: "ask the Maintainer for the refund test.", done: () => botSessions().some((s) => (world.events[s.id] ?? []).some((e) => e.body.kind === "user_message" && e.body.text.toLowerCase().includes("refund"))), doIt: () => api.post(`/api/bots/${BOT}/message`, { text: "Prepare the refund end-to-end test as a Local PR." }) },
     },
     {
+      id: "ask.bot-from", route: BOT_ROUTE, anchor: "chat.from",
+      title: "Messages from other bots",
+      body: "A message from another bot or agent (an admin bot's message, or a card you accepted) shows its sender instead of your bubble. The bot reads it under a line saying it is not from you, so it treats it as information, not as your instructions. After three automatic messages in a row, Launchpad stops the chain until you write again.",
+    },
+    {
       id: "ask.bot-waiting", route: BOT_ROUTE, anchor: "chat.queued",
       title: "Messages that wait",
       body: "A hook or Telegram message that arrives while the bot works waits for the end of its turn, as a grey row at the bottom of the chat. Cancel drops it before it is sent.",
@@ -93,7 +98,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-routines", route: `${BOT_ROUTE}?panel=routines`, anchor: "bots.routines",
       title: "Routines: work on its own",
-      body: "A routine sends the bot a task by itself: every weekday morning, when CI fails on GitHub, or when another agent is done. Each run lands in its thread and ends with a report, or with No update, which never notifies you. Each routine is a file of the bot (Edit as file in its ⋯), and a bot proposes changes to its BOT.md and routines as one card with a diff per file. Pause stops every routine of the bot.",
+      body: "A routine sends the bot a task by itself: every weekday morning, when CI fails on GitHub, or when another agent is done. Each run lands in its thread and ends with a report, or with No update, which never notifies you. “When an agent is done” leaves bots' answers out unless you check Bots' answers count too, and a routine started by events runs at most six times an hour. Each routine is a file of the bot (Edit as file in its ⋯), and a bot proposes changes to its BOT.md and routines as one card with a diff per file. Pause stops every routine of the bot.",
       tryIt: { text: "press Run now on a routine.", done: () => (world.crons.find((c) => c.id === DAILY)?.history.length ?? 0) > dailyRuns, doIt: () => api.post(`/api/launch/crons/${DAILY}/run`) },
       enter: () => { dailyRuns = world.crons.find((c) => c.id === DAILY)?.history.length ?? 0; },
     },

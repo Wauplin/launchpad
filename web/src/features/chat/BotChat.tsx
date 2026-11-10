@@ -16,6 +16,7 @@ import type { QueuedMessage } from "@/gen/QueuedMessage";
 import { ActionButton } from "@/components/ActionButton";
 import type { Session } from "@/gen/Session";
 import type { Suggestion } from "@/gen/Suggestion";
+import { BotAvatar } from "@/components/BotAvatar";
 import { useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
@@ -25,6 +26,7 @@ import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "@/features
 import { PresetChips, usePresets } from "@/features/agents/MessagePresets";
 import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextChips } from "@/features/agents/MessageContext";
 import { withPresets } from "@/lib/presets";
+import { senderLine } from "@/lib/senders";
 import { instructionsUpdated } from "@/lib/bots";
 import { useMarkSeen, useWindowFocused } from "@/features/agents/useSeen";
 import { buildRows } from "@/features/agents/rows";
@@ -169,7 +171,7 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
   // Continue only on the last turn of the current session, when it failed or was interrupted.
   const continueKey = useMemo(() => {
     if (!current || (current.status !== "error" && current.status !== "interrupted")) return null;
-    const last = items.findLast((i) => i.t === "ended" || i.t === "user" || i.t === "answer" || i.t === "routine");
+    const last = items.findLast((i) => i.t === "ended" || i.t === "user" || i.t === "from" || i.t === "answer" || i.t === "routine");
     return last?.t === "ended" && last.sessionId === current.id ? last.key : null;
   }, [items, current]);
 
@@ -271,6 +273,8 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId }:
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
         {item.instructions && <span className="mt-1 flex items-center gap-1 text-[11px] text-ink-3" title="BOT.md changed since this session last read it: the new BOT.md went with this message"><Icon name="file" size={12} />With your updated BOT.md</span>}
       </div></div>;
+    case "from":
+      return <FromRow item={item} />;
     case "routine":
       return <div className="py-1.5"><Separator><span className="flex min-w-0 items-center gap-1.5" title="A routine started this run"><Icon name="refresh" size={12} className="flex-none" /><span className="min-w-0">Routine “<RoutineName title={item.title} />” · {item.cause}</span></span></Separator></div>;
     case "quiet":
@@ -305,6 +309,27 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId }:
       return <QueuedRow item={item} botId={botId} />;
   }
 }, (a, b) => a.item.key === b.item.key && a.item.v === b.item.v && a.data === b.data && a.extra === b.extra && a.canContinue === b.canContinue && a.botId === b.botId);
+
+/** A message from another bot or agent (Home stamped its sender): on the left under the sender's mark and name, never
+ * as your bubble. */
+function FromRow({ item }: { item: Extract<ChatItem, { t: "from" }> }) {
+  const f = item.from;
+  const line = senderLine(f);
+  return <div className="flex items-start gap-2 py-1.5" data-tour="chat.from">
+    {f.kind === "bot" ? <BotAvatar name={f.name} size={24} /> : <span className="grid size-6 flex-none place-items-center rounded-card bg-sunk text-ink-3" aria-hidden><Icon name="agents" size={12} /></span>}
+    <div className="min-w-0 max-w-[85%] rounded-card rounded-tl-sm border border-line px-2.5 py-[7px] text-[13px]">
+      <div className="mb-0.5 text-[11px] text-ink-3" title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">
+        {f.kind === "bot"
+          ? <Link to="/bots/$id" params={{ id: f.id }} className={NAME_LINK}>{line}</Link>
+          : <Link to="/agents" search={{ session: f.id }} className={NAME_LINK}>{line}</Link>}
+      </div>
+      <div className="break-words whitespace-pre-wrap">{item.text}</div>
+      {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url; return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
+      {item.queued && <span className="text-[11px] text-ink-3">queued: read after the current step</span>}
+      {item.instructions && <span className="mt-1 flex items-center gap-1 text-[11px] text-ink-3" title="BOT.md changed since this session last read it: the new BOT.md went with this message"><Icon name="file" size={12} />With your updated BOT.md</span>}
+    </div>
+  </div>;
+}
 
 /** A name in a chat line that opens its page: the same text, underlined on hover. */
 const NAME_LINK = "text-inherit no-underline hover:underline";

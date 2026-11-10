@@ -11,7 +11,7 @@ import { useComposer } from "@/stores/composer";
 import { conditionsSummary } from "@/features/launch/DelaySelector";
 import { DEFAULT_CRON } from "@/features/launch/CronSelector";
 import { ScheduledPane } from "@/features/agents/ScheduledPane";
-import { BotAvatar } from "@/features/bots/BotsView";
+import { BotAvatar } from "@/components/BotAvatar";
 import type { Bot } from "@/gen/Bot";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
