@@ -42,4 +42,4 @@ On a runner, the copy is in `<runner data folder>/knowledge/<workspace name>/`, 
 
 Home stores the knowledge base like a plain folder: the file list is in its database, and the contents are stored by hash. Both go into every Home backup. After each backup, Home also writes a readable copy of the notes to the bucket, under `<workspace>/kb/`, and removes the files you deleted. Home never reads that copy back: edit notes on the Knowledge page or in a runner's copy.
 
-Bots keep their own notes in their own memory, not in the knowledge base (see [Bots](bots.md#memory)). Home moved the notes that bots had kept in `bots/<bot>/` there once, at its first start after the update.
+Bots keep their own notes in their own memory, not in the knowledge base. A new bot session loads up to 100 lines of it at start (see [Bots](bots.md#memory)). Home moved the notes that bots had kept in `bots/<bot>/` there once, at its first start after the update.

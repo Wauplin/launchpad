@@ -73,11 +73,15 @@ A bot has one thread: a chain of sessions. Your messages go to its current sessi
 A new session starts:
 
 - for the first message,
-- when the bot's profile or folder changed (the page says so before you send),
+- when the bot's profile, folder, model, effort or permission mode in `bot.toml` changed (the page says so before you send),
 - when the current session was archived,
 - when you check **New session** next to the message box before you send (offered while the bot waits for you).
 
-A new session gets a reference to the previous session's trace (`launchpad trace …`), never a copy of it, and the bot's notes in the knowledge base. The harness compacts a long context on its own.
+A permission mode you change on the session itself, in Agents, keeps the thread: only a change in `bot.toml` starts a new session.
+
+A new session gets a reference to the previous session's trace (`launchpad trace …`), never a copy of it, and the bot's memory (see [Memory](#memory)). The harness compacts a long context on its own.
+
+An edit of `BOT.md` starts no new session. The current session gets the new `BOT.md` with your next message: after your text, the message carries a block that starts with “Your instructions changed” and holds the whole new `BOT.md`. This also holds for messages from routines, hooks, Telegram and cards. Until then, the message box says **Instructions updated · applies to your next message**. In the chat, that message shows **With your updated BOT.md** under your text instead of the block.
 
 With a Git folder, each session works in a fresh worktree of Home Git. Without a folder, a session's temporary folder is saved on Home at every turn end and follows the session to any runner; Home deletes it 30 days after the session is archived (a new session archives the previous one), so keep what matters in the knowledge base or on a branch. The bot prepares branches, Local PRs and suggestions for your review, and acts directly on GitHub only when you explicitly ask.
 
@@ -93,7 +97,7 @@ The bot's page is a chat over the whole thread. It opens at the newest message; 
 
 Each answer has one **⋯** with **Copy** (the text without Markdown) and **Copy as Markdown**. With a mouse, it shows over the answer's top right corner on hover; on a touch screen, it sits at the right of the answer.
 
-A routine run that ends with no update is one muted line. A divider marks the start of each session, with the reason when the profile or folder changed, and **Open in Agents**. While the bot works, a live line shows the current step and **Stop**.
+A routine run that ends with no update is one muted line. A divider marks the start of each session, with its reason (for example “the model changed” or “you asked for a new session”), and **Open in Agents**. While the bot works, a live line shows the current step and **Stop**.
 
 Messages from Telegram and incoming hooks never join a running turn. While the bot is busy, they wait at the end of the chat as grey dashed rows: the start of the message (for a hook, its name and the start of the body), where it came from, when it arrived, and **Cancel**. They are sent in order when the current turn ends. **Cancel** deletes a waiting message, after a confirmation.
 
@@ -103,19 +107,24 @@ The message box sends to the current session. Its **+** icon, next to **Attach**
 
 The header has the bot's state, **Pause** and **Open in Agents**; **ⓘ** next to the name explains sessions, routines and notes. On a laptop, the top bar shows **Bots / bot** to go back to the list. On a laptop, a side panel next to the chat has four tabs; drag the line between the chat and the panel to resize it (double-click resets it). This browser remembers the width. On a phone, the header's **⋯** menu holds the header buttons and the same four panels; a panel replaces the chat, and Back returns to it. The panels:
 
-- **Memory**: **Its memory** lists the bot's notes (see [Memory](#memory)); click a note to read it. **Its changes to the knowledge base** lists the recent changes its sessions made there, with **Open Knowledge**. The panel also lists every session of its thread with its status and context use.
+- **Memory**: **Its memory** lists the bot's notes (see [Memory](#memory)); click a note to read it. **Loaded at start** says how much of it a new session gets, for example “Loaded at start: 100 of 240 lines” when it was cut. **Its changes to the knowledge base** lists the recent changes its sessions made there, with **Open Knowledge**. The panel also lists every session of its thread with its status and context use.
 - **Proposals**: the cards its sessions wrote, waiting or handled, with **Start all** and **Dismiss all**.
 - **Routines**: what the bot does on its own (see below).
-- **Settings**: `BOT.md` (its instructions), shown short: **Expand** (or a click on it) opens a large editor with a live preview (on the phone, a full-screen sheet with **Read** and **Edit**), and an unsaved draft stays until you save or discard it; how it runs (name, profile, model, folder, permissions, proposal mode, Launchpad CLI access and Inbox); what it can reach; `bot.toml`, the same settings as a file; **Versions**, every change of its files (`BOT.md`, `bot.toml`, routine files and memory) in the last 30 days with its diff and **Restore previous**; and **Delete bot**. Renaming a bot also gives it a new slug from the new name, and its Telegram command follows. Its memory stays where it is. Deleting a bot deletes its files, its memory and its routines. Its sessions and its folder stay. A bot cannot edit `BOT.md`, `bot.toml` or its routine files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md` in a [bot file card](#bot-file-cards). A card that changes `BOT.md` shows at the top of this tab (and in Today) until you click **Apply**.
+- **Settings**: `BOT.md` (its instructions), shown short: **Expand** (or a click on it) opens a large editor with a live preview (on the phone, a full-screen sheet with **Read** and **Edit**), and an unsaved draft stays until you save or discard it; how it runs (name, profile, model, folder, permissions, proposal mode, Launchpad CLI access and Inbox); what it can reach, with **What it sees at start** (see [What it sees at start](#what-it-sees-at-start)); `bot.toml`, the same settings as a file; **Versions**, every change of its files (`BOT.md`, `bot.toml`, routine files and memory) in the last 30 days with its diff and **Restore previous**; and **Delete bot**. Renaming a bot also gives it a new slug from the new name, and its Telegram command follows. Its memory stays where it is. Deleting a bot deletes its files, its memory and its routines. Its sessions and its folder stay. A bot cannot edit `BOT.md`, `bot.toml` or its routine files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md` in a [bot file card](#bot-file-cards). A card that changes `BOT.md` shows at the top of this tab (and in Today) until you click **Apply**.
 
 **Pause** (in the header, once the bot has routines) stops every routine and incoming hook of the bot from starting runs; your own messages still go through, and **Stop** in its session ends a run that is working. **Resume** starts them again from their next trigger.
 
 The sidebar's **Bots** group lists the bots of the workspace, Ask Launchpad among them. A dot shows when a bot's current session needs you; a spinner when it works. Counts stay in Today, so a decision is never counted twice. The chevron collapses the group on this device; collapsed, it shows one state dot.
 
+### What it sees at start
+
+**What it sees at start**, in the Settings tab, shows what the bot's next new session gets, without starting it. It lists labelled parts that open one by one, with their line counts. **Instructions** is the file the harness reads before every turn: the knowledge base and its `INDEX.md`, the bot's memory, the Launchpad CLI reference, the attribution rule and, when the memory was cut, the line that says so. **First prompt** is the first message: your next message, `BOT.md`, the final-message rule and the other parts a real start adds. Launchpad builds it with the same code as a real start. Only a few values differ: the knowledge base shows as `$LAUNCHPAD_KB`, the CLI command is Home's, and the session ID and temporary folder are placeholders. The composer has the same button for any launch (see [Launching an agent](agents.md#launching-an-agent)).
+
 ## Memory
 
 Each bot has its own memory: Markdown notes in `memory/` of its files on Home. The bot writes them itself: your preferences, the facts it needs next time and what you asked it to remember. Notes stay short and current, never a journal of its runs. Facts that other agents need go in the [knowledge base](knowledge.md) instead.
 
+- A new session loads the memory at start, in its instructions: `memory/INDEX.md` first, then the other notes by path, up to 100 lines. When the notes are longer, the instructions end with a line that says where they were cut (“N of M lines”) and tells the bot to read the rest with `launchpad bot memory read <file>` before it answers anything they may cover. Keep `INDEX.md` short, so the most useful notes fit.
 - A bot session gets a read-only copy of the bot's files on its runner. The variable `$LAUNCHPAD_BOT` points to it: `BOT.md`, `bot.toml`, `routines/` and `memory/`. The copy updates after each write and every minute.
 - The bot writes with `launchpad bot memory`: `list`, `read <path>`, `write <path>` (stdin or `--file`), `append <path>` and `rm <path>`. Paths are relative to `memory/`. It works at every Launchpad CLI access level, like `launchpad kb`. Home applies writes one at a time and records the session as the author. A write whose base changed is kept as a `.concurrent-<id>` copy, like in the knowledge base.
 - You read the notes in the bot's **Memory** panel and on the Knowledge page, under **Bot memory**. Both are read-only. Every change shows in **Versions** on the Settings tab, and **Restore previous** undoes it for 30 days.
