@@ -31,7 +31,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { Choice, Choices } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
-import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
+import { useConfig, useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { costUnavailableMessage, supportsModelCost, parseUsd, usd, usesModelReference, useProfileModels, useProfiles } from "@/lib/profiles";
 import { ModelSearch } from "@/components/ModelSearch";
 import { findModel, pickModel, ProviderPicker } from "@/components/ProviderPicker";
@@ -198,7 +198,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   }, [sessions]);
   const overlay = useOverlay(useZoomScale());
   const agentPresets = usePresets("agent");
-  const defaults = useHarnessDefaults(spec.harness).data;
+  const defaultsQuery = useHarnessDefaults(spec.harness);
+  const defaults = defaultsQuery.data;
+  const projectsLoaded = useProjects().isSuccess;
+  const configLoaded = useConfig().isSuccess;
   const harness = useHarnessInfo(spec.harness);
   const profiles = useProfiles();
   const profile = profiles.find((v) => v.id === spec.profile) ?? null;
@@ -229,6 +232,15 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const [delayValid, setDelayValid] = useState(true);
   const [cron, setCron] = useState<CronDraft | null>(null);
   const [later, setLater] = useState(false);
+  // Schedules' New routine and Schedule a launch open the composer on that timing.
+  const requestedTiming = useComposer((s) => s.requestedTiming);
+  useEffect(() => {
+    if (!open || !requestedTiming) return;
+    useComposer.setState({ requestedTiming: null });
+    if (requestedTiming === "later") { setCron(null); setLater(true); }
+    else { setLater(false); setCron((c) => c ?? { ...DEFAULT_CRON, conditions: DEFAULT_CRON.conditions.filter((x) => harness?.capabilities.quota || x.kind !== "quota_left") }); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, requestedTiming]);
   const [cronValid, setCronValid] = useState(true);
   const [startPreview, setStartPreview] = useState<LaunchSpec | null>(null);
   // A scheduled agent opens in "Start later", so removing its last condition does not switch to Start now.
@@ -332,6 +344,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const efforts = ownModels ? [] : model?.efforts.length ? model.efforts : (defaults?.efforts ?? []);
   const modelMissing = !spec.model && !fallbackModel && !!profile && usesModelReference(Object.entries(profile.env));
   const scheduled = conditions.length > 0;
+  // Everything a blocker depends on has loaded: what still blocks a top-bar launch needs the owner.
+  const settled = projectsLoaded && configLoaded && !!scope.workspace.id && !defaultsQuery.isPending && !(profile?.models_url && providerModels.isPending);
   // Launch ▾ chooses when: now, later (start conditions) or repeatedly (a cron agent).
   const timing: "now" | "later" | "repeat" = cron ? "repeat" : later || scheduled ? "later" : "now";
   const setTiming = (t: "now" | "later" | "repeat") => {
@@ -476,12 +490,10 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     </span>
   );
 
-  // Launch from the top-bar field: launch the hidden draft once it can start now (the field opens it otherwise).
-  if (autoLaunchUntil > Date.now() && canLaunch && !launching && timing === "now" && !conflict && !editing)
-    queueMicrotask(() => { if (useComposer.getState().autoLaunchUntil > Date.now()) { useComposer.setState({ autoLaunchUntil: 0 }); void launch(); } });
-
-  // A minimized draft is the "draft" badge of the top-bar Launch button (LaunchSplitButton).
-  if (minimized) return null;
+  // A minimized draft is the "draft" badge of the top-bar Launch button (LaunchSplitButton). Launch from the top-bar
+  // field: the hidden draft launches once it can start now, or opens at once when what blocks it will not change.
+  if (minimized)
+    return autoLaunchUntil ? <AutoLaunch ready={canLaunch && !launching && timing === "now" && !conflict && !editing} settled={settled} blocker={blocker} launch={launch} /> : null;
 
   const modelLabel = spec.model ?? fallbackModel ?? "default model";
   const effortLabel = spec.effort ?? profile?.effort ?? defaults?.effort ?? null;
@@ -861,4 +873,29 @@ function TargetCheckout({ projectId }: { projectId: string }) {
       Checkout{q.data?.current && <span className="font-mono text-[12px]">· {q.data.current}</span>}
     </>
   );
+}
+
+/** The top-bar Launch of a hidden draft: launches as soon as it can, or opens the composer with what is missing once
+ * everything it depends on has loaded (a short grace lets the folder and profile defaults apply first). The field's
+ * 4-second fallback still opens it if neither happens. */
+function AutoLaunch({ ready, settled, blocker, launch }: { ready: boolean; settled: boolean; blocker: string | null; launch: () => Promise<void> }) {
+  const run = useRef(launch);
+  run.current = launch;
+  useEffect(() => {
+    if (ready) {
+      if (useComposer.getState().autoLaunchUntil <= Date.now()) return;
+      useComposer.setState({ autoLaunchUntil: 0 });
+      void run.current();
+      return;
+    }
+    if (!settled) return;
+    const t = setTimeout(() => {
+      if (!useComposer.getState().autoLaunchUntil) return;
+      useComposer.setState({ autoLaunchUntil: 0 });
+      useComposer.getState().setMinimized(false);
+      toast(blocker ? `Finish the launch options: ${blocker}` : "Finish the launch options, then Launch.");
+    }, 400);
+    return () => clearTimeout(t);
+  }, [ready, settled, blocker]);
+  return null;
 }

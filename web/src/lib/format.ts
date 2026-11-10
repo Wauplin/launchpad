@@ -44,6 +44,8 @@ export function when(ms: number): string {
 
 /** Hour and minute only, for a moment of today: "14:02" ("Offline since 14:02"). */
 export const time = (ms: number): string => clock(new Date(ms));
+/** A time of day without a date (a routine's "at 03:00"), in the same locale clock as `time` and `when`. */
+export const clockAt = (hour: number, minute: number): string => clock(new Date(2000, 0, 1, hour, minute));
 
 /** A calendar day without the time: "Oct 3" ("Oct 3, 2025" in another year). */
 export function day(ms: number): string {

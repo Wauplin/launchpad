@@ -97,8 +97,8 @@ export function LaunchSplitButton({ ctx, text, onLaunch, onUsed, primary = false
   return (
     <span className={`inline-flex rounded-card transition-shadow ${flash ? "ring-[3px] ring-teal" : ""}`} data-tour="topbar.launch">
       <button className={`btn ${cls} rounded-r-none`} title={draft ? `Open the draft${first ? `: ${first}` : ""}${age ? ` (started ${age})` : ""}${text.trim() ? "; your text is added to it" : ""}` : title} onClick={onLaunch}>
-        <Icon name="play" size={12} />
-        Launch
+        {autoLaunchUntil ? <span className="lp-spin" aria-hidden /> : <Icon name="play" size={12} />}
+        {autoLaunchUntil ? "Launching…" : "Launch"}
         {draft && <span className={`rounded-full px-1.5 text-[11px] leading-4 font-semibold ${stale ? "bg-attn-soft text-attn" : "bg-sunk text-ink-2"}`}>draft{items ? ` · ${items}` : ""}</span>}
       </button>
       <Popover align="right" width={280} trigger={({ open: menu, toggle }) => (

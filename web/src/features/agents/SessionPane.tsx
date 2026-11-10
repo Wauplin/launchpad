@@ -44,7 +44,7 @@ import { SessionStatus, usageLine } from "./SessionBits";
 import { useOpenTerminal, useTerminalBlock, useTerminals, useTerminalsHere } from "@/features/terminals/lib";
 import { TerminalMenu } from "@/features/terminals/TerminalMenu";
 import { Sheet } from "@/mobile/Sheet";
-import { WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
+import { gitPoll, useGitRefreshAtTurnEnd, WorktreeCard, useSessionWorktrees, WorktreeChip } from "./Worktrees";
 import { usePhone } from "@/lib/phone";
 import { useBackClose } from "@/mobile/back";
 import { PhoneBar } from "@/mobile/PhoneHeader";
@@ -60,6 +60,12 @@ function act(id: string, action: "session.archive" | "session.stop" | "session.r
 }
 
 type PendingAsk = { request_id: string; count: number; permission: boolean } | null;
+
+/** The typed answers to `count` questions: one non-empty line each, else null. */
+export function typedAnswers(text: string, count: number): string[] | null {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.length === count ? lines : null;
+}
 
 /** The session message box (on the phone, opened by Reply in the bottom bar and closed by `onHide`). */
 export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, ask, dropImages, inputRef: ref, onSent, onHide }: { acceptsImages: boolean; sessionId: string; placeholder: string; disabled: boolean; ask: PendingAsk; dropImages: React.RefObject<((files: File[]) => void) | null>; inputRef: React.RefObject<HTMLTextAreaElement | null>; onSent: () => void; onHide?: () => void }) {
@@ -107,7 +113,14 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
     try {
       if (ask) {
         // A typed answer to the open question.
-        await api.post(`/api/sessions/${sessionId}/answer`, { request_id: ask.request_id, answers: Array(ask.count).fill(t || "See the attachments in my next message.") });
+        // Several questions: one typed line per question, in order (never the same text for every question).
+        const answers = ask.count > 1 ? typedAnswers(t, ask.count) : [t || "See the attachments in my next message."];
+        if (!answers) {
+          toastError(new Error(`The agent asked ${ask.count} questions: type one answer per line, in order, or pick the options in the question card.`));
+          setDelivery(null);
+          return;
+        }
+        await api.post(`/api/sessions/${sessionId}/answer`, { request_id: ask.request_id, answers });
         if (files.length) await api.post(`/api/sessions/${sessionId}/input`, payload);
       } else {
         await api.post(`/api/sessions/${sessionId}/input`, payload);
@@ -251,8 +264,9 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
     else if (sessionRunning && !wasRunning.current && view === "summary") setViewState("trace");
     wasRunning.current = sessionRunning;
   }, [s, view, sessionRunning]);
-  const git = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${sessionId}/git`), refetchInterval: 5000 });
-  const history = useQuery({ queryKey: ["session-git-commits", sessionId, ""], queryFn: () => api.get<SessionGitHistory | null>(`/api/sessions/${sessionId}/git-commits`), refetchInterval: 5000 });
+  const git = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${sessionId}/git`), refetchInterval: gitPoll(s) });
+  const history = useQuery({ queryKey: ["session-git-commits", sessionId, ""], queryFn: () => api.get<SessionGitHistory | null>(`/api/sessions/${sessionId}/git-commits`), refetchInterval: gitPoll(s) });
+  useGitRefreshAtTurnEnd(s);
   // Settled outcomes: a failed Git query (a folder that is not Git) goes back to pending at each poll, which made Archive blink.
   const gitState = useSettled(git);
   const historyState = useSettled(history);
@@ -376,7 +390,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
     : s.status === "in_terminal"
       ? "Open in the terminal: re-attach it to continue here"
       : s.open_question
-        ? `Answer or message ${name}`
+        ? ask && ask.count > 1 ? `Answer the ${ask.count} questions: one line each, in order` : `Answer or message ${name}`
         : running
           ? s.status === "background" ? `Message ${name}. Background work is still running.` : harness?.working_message ?? `Message ${name}`
           : resumable

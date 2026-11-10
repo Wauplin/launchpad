@@ -1,6 +1,6 @@
 import { SessionAccess } from "./SessionAccess";
 import { openExternal } from "@/lib/platform";
-import { WorktreeSteps, isMergedWorktree, useSessionWorktrees } from "./Worktrees";
+import { gitPoll, WorktreeSteps, isMergedWorktree, useSessionWorktrees } from "./Worktrees";
 import { mergeIsMain, useBranch } from "@/features/today/TodayCards";
 import { useHarnessInfo, useHarnessName } from "@/components/HarnessMark";
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -109,7 +109,9 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   const worktrees = useSessionWorktrees(s.id).data ?? [];
   const branch = useBranch(s.id, s);
   const mainMerge = mergeIsMain(s, branch) ? branch.t?.id : undefined;
-  const git = useQuery({ queryKey: ["session-git", s.id], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${s.id}/git`), refetchInterval: 5000 });
+  // What "compared with" means: the branch the worktree started from.
+  const baseName = branch.base ?? "the default branch";
+  const git = useQuery({ queryKey: ["session-git", s.id], queryFn: () => api.get<SessionGitStatus>(`/api/sessions/${s.id}/git`), refetchInterval: gitPoll(s) });
   const [scheduling, setScheduling] = useState(false);
   const [message, setMessage] = useState("");
   const [followUpPresets, setFollowUpPresets] = useState<string[]>([]);
@@ -160,7 +162,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   if (s.launch_spec.target.kind === "browser") metadata.push(["Browser access", `Tabs shared from the Chrome extension · ${s.launch_spec.target.act ? "Act: can click and type" : "Read only"}`]);
   if (s.launch_spec.target.kind !== "browser" || s.launch_spec.target.project_id) metadata.push(["Folder", s.cwd]);
   if (git.data) metadata.push(["Branch", `${git.data.branch} · ${git.data.files.length ? `${git.data.files.length} uncommitted files` : "clean"}${git.data.unpushed_commits == null ? "" : git.data.unpushed_commits ? ` · ${git.data.unpushed_commits} commits absent from cached remote refs` : " · present in cached remote refs"}`]);
-  if (changes) metadata.push(["Changes", `${changes.files} tracked files compared with main${changes.additions == null ? "" : ` · +${changes.additions} −${changes.deletions}`}`]);
+  if (changes) metadata.push(["Changes", `${changes.files} tracked files compared with ${baseName}${changes.additions == null ? "" : ` · +${changes.additions} −${changes.deletions}`}`]);
   const context = [...s.launch_spec.github_refs.map((r) => `${r.repo}${r.number ? ` #${r.number}` : ""} · ${r.kind}`), ...s.launch_spec.context_projects.map((r) => `${projects.find((p) => p.id === r.project_id)?.name ?? r.project_id}${r.branch ? ` (${r.branch})` : ""}`), ...s.launch_spec.files.map((r) => `${r.path}${r.start_line ? `:${r.start_line}${r.end_line ? `–${r.end_line}` : ""}` : ""}`), ...s.launch_spec.presets];
   if (context.length) metadata.push(["Context", context.join(" · ")]);
   if (lastCommand) metadata.push([lastCommand.result ? "Last command" : s.status === "stopped" ? "Cut off" : "Last command", `${lastCommand.summary}${lastCommand.result?.exit_code != null ? ` · exit ${lastCommand.result.exit_code}` : ""}`]);
@@ -178,7 +180,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   const tempFolder = temporary ? projects.find((p) => p.id === s.project_id && p.is_temp) : undefined;
   // Merged already (its Local PR, or its primary worktree with nothing new): nothing left to open or publish.
   const mergedWork = !!localPr?.merged || worktrees.some((i) => i.worktree.primary && isMergedWorktree(i));
-  const prStep = !mergedWork && !(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url && !localPr.merged || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== "main" && !refs.some((r) => r.kind === "pr")) && !!s.project_id;
+  const prStep = !mergedWork && !(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url && !localPr.merged || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== (branch.base ?? "main") && !refs.some((r) => r.kind === "pr")) && !!s.project_id;
   // Review & publish shows the same committed diff on the Local PR page: Review diff stays only for uncommitted files.
   const uncommitted = git.data?.files.length ?? 0;
   return <div className="min-h-0 flex-1 overflow-y-auto bg-paper">
@@ -197,7 +199,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
       </div>}
       {prStep && <NextStep source="Git" text={localPr ? `This agent prepared a Local PR${localPr.title ? `: ${localPr.title}` : ""}.` : (git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button={localPr ? "Review & publish" : "Open Local PR"} onClick={openPr} disabled={busy} />}
       {drafts.map((d) => <NextStep key={d.id} source={d.target.kind === "predraft" ? "Local" : "GitHub"} text={`This agent drafted a ${d.kind} ${d.target.kind === "predraft" ? "on its Local PR" : `on ${d.target.repo} #${d.target.number}`}${d.status === "draft" ? "" : ": publication was attempted, check GitHub"}.`} button={`Post ${d.kind}…`} onClick={() => { const t = d.target; if (t.kind === "predraft") void navigate({ to: "/predrafts/$id", params: { id: t.id } }); else { const [owner, repo] = t.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(t.number) } }); } }} />)}
-      {(uncommitted > 0 || (changes?.files ?? 0) > 0 && !(prStep && localPr)) && <NextStep source="Git" text={`${uncommitted} uncommitted files${changes ? `; ${changes.files} tracked files differ from main` : ""}.`} button="Review diff" onClick={() => reviewDiff((changes?.files ?? 0) > 0)} />}
+      {(uncommitted > 0 || (changes?.files ?? 0) > 0 && !(prStep && localPr)) && <NextStep source="Git" text={`${uncommitted} uncommitted files${changes ? `; ${changes.files} tracked files differ from ${baseName}` : ""}.`} button="Review diff" onClick={() => reviewDiff((changes?.files ?? 0) > 0)} />}
       {(unfinished || s.status === "closed") && <NextStep source="Session" text={s.status === "closed" ? temporary ? "This archived session is resumable: Home keeps its temporary folder 30 days after Archive." : "This archived session is still resumable." : "The last turn did not finish successfully."} button="Resume" disabled={busy} onClick={() => void run(async () => { if (unfinished) await api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }); else await api.post(`/api/sessions/${s.id}/resume`); showTrace(); })} />}
       {!working && s.status !== "in_terminal" && <NextStep source="Session" text="A separate agent in the same folder, with this trace as context." button="Launch here" onClick={() => useComposer.getState().followUpFrom(s)} />}
       <NextStep source="Session" text="Reference this trace in a new agent's prompt, in any folder." button="Use trace as context" disabled={s.last_seq === 0} onClick={() => useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] })} />

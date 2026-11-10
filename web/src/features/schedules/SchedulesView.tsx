@@ -18,7 +18,7 @@ import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import { api } from "@/lib/api";
 import { askTarget, useBots } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
-import { when } from "@/lib/format";
+import { clockAt, when } from "@/lib/format";
 import { useCrons, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { browserZone, cronTitle, routineState, triggerSummary } from "@/lib/routines";
 import { useScope } from "@/lib/workspace";
@@ -35,7 +35,7 @@ export function useCreateBrief() {
     try {
       const r = await api.post<CronAgent>(`/api/bots/${bot.id}/routines`, { title: BRIEF_TITLE, instructions: BRIEF, trigger: { kind: "schedule" }, schedule: "30 8 * * 1-5", conditions: DEFAULT_CRON.conditions.filter((c) => c.kind === "quota_left"), time_zone: browserZone() });
       await qc.invalidateQueries({ queryKey: ["crons"] });
-      toast(`Morning brief added: weekdays at 8:30, by ${bot.settings.name}`);
+      toast(`Morning brief added: weekdays at ${clockAt(8, 30)}, by ${bot.settings.name}`);
       return r;
     } catch (e) { toastError(e); return null; }
   };
@@ -64,7 +64,7 @@ export function SchedulesView() {
   const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => void navigate({ to: "/schedules", search: { tab: t } as never, replace: true })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }]} />;
   const header = phone
     ? <PhoneHeader title="Schedules" details={<p className="m-0 text-[13px] text-ink-2">{INTRO}</p>} />
-    : <PageHeader title="Schedules" meta={next ? `Next run ${when(next)}` : undefined} intro={INTRO} tabs={tabs} />;
+    : <PageHeader title="Schedules" meta={next ? `Next run ${when(next)}` : undefined} intro={INTRO} tabs={tabs} actions={<NewButtons />} />;
   // The phone's ‹ goes one step back to the list instead of adding an entry.
   const closeDetail = () => (phone ? phoneBack(`/schedules?tab=${tab}`) : go({ tab }));
   const panel = selected
@@ -78,7 +78,7 @@ export function SchedulesView() {
       {routines.length > 0 && <div className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-card border border-line" data-tour="schedules.routines">
         {routines.map((r) => <RoutineRow key={r.id} r={r} bot={bots.find((b) => b.id === r.bot_id)} selected={r.id === selected?.id} onClick={() => go({ tab, routine: r.id })} />)}
       </div>}
-      {!hasBrief && briefBot && <Idea icon="spark" title="Morning brief" body={`${briefBot.settings.name} summarizes what needs you, weekdays at 8:30. A quiet morning sends nothing.`} action={<button className="btn btn-sm btn-primary" data-tour="schedules.brief" onClick={async () => { const r = await createBrief(briefBot); if (r) go({ tab, routine: r.id }); }}><Icon name="plus" size={12} />Add the morning brief</button>} />}
+      {!hasBrief && briefBot && <Idea icon="spark" title="Morning brief" body={`${briefBot.settings.name} summarizes what needs you, weekdays at ${clockAt(8, 30)}. A quiet morning sends nothing.`} action={<button className="btn btn-sm btn-primary" data-tour="schedules.brief" onClick={async () => { const r = await createBrief(briefBot); if (r) go({ tab, routine: r.id }); }}><Icon name="plus" size={12} />Add the morning brief</button>} />}
     </> : launches.length ? <div className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-card border border-line">
       {launches.map((l) => <LaunchRow key={l.id} l={l} detail={conditionsSummary(l, sessions, launches)} selected={l.id === launch?.id} onClick={() => go({ tab, launch: l.id })} />)}
     </div> : <Empty icon="clock" action={<OpenComposer />}>Nothing scheduled. In the composer, the arrow next to Launch → Start later starts an agent after a delay, at a time, after other agents, or when quota is back.</Empty>}
@@ -99,7 +99,16 @@ export function SchedulesView() {
 }
 
 /** The page explanation (ⓘ): what routines and scheduled launches are, and where to create them. */
-const INTRO = "Routines start on their own, on a schedule or an event; scheduled launches start once. Give a bot a routine from its Routines panel, or turn any prompt into a routine in the composer: the arrow next to Launch → Repeat on a schedule. Each run starts a new agent, or messages the bot's thread.";
+const INTRO = "Routines start on their own, on a schedule or an event; scheduled launches start once. New routine and Schedule a launch open the composer with the timing chosen; a bot gets routines from its Routines panel. Each run starts a new agent, or messages the bot's thread.";
+
+/** New routine and Schedule a launch: the composer, with Repeat on a schedule or Start later already chosen. */
+function NewButtons() {
+  const startTimed = useComposer((s) => s.startTimed);
+  return <>
+    <button className="btn btn-sm" data-tour="schedules.new" onClick={() => startTimed("repeat")}><Icon name="refresh" size={12} />New routine</button>
+    <button className="btn btn-sm" onClick={() => startTimed("later")}><Icon name="clock" size={12} />Schedule a launch</button>
+  </>;
+}
 
 function OpenComposer() {
   const start = useComposer((s) => s.start);

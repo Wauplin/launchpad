@@ -76,6 +76,10 @@ type Composer = {
   openAfterLaunch: boolean;
   loaded: boolean;
   start: (ctx?: LaunchContext) => void;
+  /** Opens the composer with Start later or Repeat on a schedule chosen (Schedules' New buttons); the composer reads
+   * and clears `requestedTiming`. */
+  startTimed: (timing: "later" | "repeat") => void;
+  requestedTiming: "later" | "repeat" | null;
   /** Launch from the top-bar field: a new draft with `ctx` and `text`, launched by the (hidden) composer as soon
    * as it can, with the folder's defaults. Past `autoLaunchUntil` the composer opens to show what is missing. */
   launchNow: (ctx: LaunchContext | undefined, text: string) => void;
@@ -311,6 +315,11 @@ export const useComposer = create<Composer>((set, get) => ({
     const collect = !!ctx && ctx.projectId === undefined && !!(ctx.githubRefs?.length || ctx.files?.length || ctx.contextProjects?.length || ctx.agentTraces?.length);
     set({ open: true, minimized: get().open && get().minimized && collect, spec });
     save(spec, true, get().conditions);
+  },
+  requestedTiming: null,
+  startTimed: (timing) => {
+    set({ requestedTiming: timing });
+    get().start();
   },
   autoLaunchUntil: 0,
   launchNow: (ctx, text) => {

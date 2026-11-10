@@ -15,6 +15,9 @@ import { DiffReview, type LineNote } from "@/features/github/DiffReview";
 import type { SessionGitStatus as Status } from "@/gen/SessionGitStatus";
 import type { SessionGitHistory as History } from "@/gen/SessionGitHistory";
 import type { SessionGitDiff as Diff } from "@/gen/SessionGitDiff";
+import { useSession } from "@/lib/queries";
+import { useBranch } from "@/features/today/TodayCards";
+import { gitPoll } from "./Worktrees";
 
 type Note = LineNote;
 
@@ -40,15 +43,18 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
   const [main, setMain] = useState(initialMain);
   const [mode, setMode] = useState<"auto" | "live" | "committed">("auto");
   const [commit, setCommit] = useState("");
-  const history = useQuery({ queryKey: ["session-git-commits", sessionId, ""], queryFn: () => api.get<History | null>(`/api/sessions/${sessionId}/git-commits`), refetchInterval: 5000 });
-  const commitHistory = useQuery({ queryKey: ["session-git-commits", sessionId, commit], queryFn: () => api.get<History | null>(`/api/sessions/${sessionId}/git-commits?commit=${commit}`), enabled: !!commit, refetchInterval: commit ? 5000 : false });
+  const poll = gitPoll(useSession(sessionId));
+  // The branch the worktree started from (main, develop…): what "Compared with" means.
+  const base = useBranch(sessionId, null).base ?? "the base branch";
+  const history = useQuery({ queryKey: ["session-git-commits", sessionId, ""], queryFn: () => api.get<History | null>(`/api/sessions/${sessionId}/git-commits`), refetchInterval: poll });
+  const commitHistory = useQuery({ queryKey: ["session-git-commits", sessionId, commit], queryFn: () => api.get<History | null>(`/api/sessions/${sessionId}/git-commits?commit=${commit}`), enabled: !!commit, refetchInterval: commit ? poll : false });
   const selectedHistory = commit ? commitHistory.data : history.data;
   const [staged, setStaged] = useState(false);
-  const status = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<Status>(`/api/sessions/${sessionId}/git`), refetchInterval: 5000 });
+  const status = useQuery({ queryKey: ["session-git", sessionId], queryFn: () => api.get<Status>(`/api/sessions/${sessionId}/git`), refetchInterval: poll });
   const committed = mode === "committed" || (mode === "auto" && !status.isPending && !status.data?.files.length && !!history.data?.commits.length);
   const files = (committed ? selectedHistory?.files : main ? status.data?.main_files : status.data?.files) ?? [];
   const selected = files.find((f) => f.path === path)?.path ?? files[0]?.path;
-  const diff = useQuery({ queryKey: ["session-git-diff", sessionId, selected, main, committed, commit, committed ? selectedHistory?.head : null], queryFn: () => api.get<Diff>(`/api/sessions/${sessionId}/git-diff?path=${encodeURIComponent(selected!)}&main=${main}&committed=${committed}${committed && commit ? `&commit=${commit}` : ""}`), enabled: !!selected, refetchInterval: 5000 });
+  const diff = useQuery({ queryKey: ["session-git-diff", sessionId, selected, main, committed, commit, committed ? selectedHistory?.head : null], queryFn: () => api.get<Diff>(`/api/sessions/${sessionId}/git-diff?path=${encodeURIComponent(selected!)}&main=${main}&committed=${committed}${committed && commit ? `&commit=${commit}` : ""}`), enabled: !!selected, refetchInterval: poll });
   const viewed = useReviewState<Record<string, string>>(`session-viewed:${sessionId}`, {});
   const notes = useReviewState<Note[]>(`session-notes:${sessionId}`, []);
   const [preview, setPreview] = useState(false);
@@ -110,7 +116,7 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
       loading={!!selected && diff.isPending}
       error={diff.error}
       truncated={diff.data?.truncated}
-      emptyPatch={`No ${committed ? "committed" : main ? "changes compared with main" : staged ? "staged" : "working tree"} changes for this file.`}
+      emptyPatch={`No ${committed ? "committed" : main ? `changes compared with ${base}` : staged ? "staged" : "working tree"} changes for this file.`}
       viewed={isViewed}
       onToggleViewed={diff.data ? toggleViewed : undefined}
       notes={notes.value}
@@ -119,12 +125,12 @@ export function GitPanel({ sessionId, initialMain = false, canMessage = true }: 
         <Choices label="Compared changes">
           <Choice active={!staged && !main && !committed} onClick={() => live(false, false)}>Working tree</Choice>
           <Choice active={staged && !main && !committed} onClick={() => live(true, false)}>Staged</Choice>
-          <Choice active={main && !committed} disabled={!status.data?.main_changes} onClick={() => live(false, true)}>Compared with main</Choice>
+          <Choice active={main && !committed} disabled={!status.data?.main_changes} onClick={() => live(false, true)}>Compared with {base}</Choice>
           {!!history.data?.commits.length && <Choice active={committed} onClick={() => setMode("committed")}>Committed</Choice>}
         </Choices>
         <button className="iconbtn" aria-label="Refresh changes" title="Refresh changes" onClick={() => { void status.refetch(); void history.refetch(); if (commit) void commitHistory.refetch(); if (selected) void diff.refetch(); }}><Icon name="refresh" size={14} /></button>
       </>}
-      banner={(status.data || history.data) && !files.length ? <Empty icon="check">{committed ? "No net file changes in these commits." : main ? "No tracked changes compared with main." : "Working tree clean."}</Empty> : undefined}
+      banner={(status.data || history.data) && !files.length ? <Empty icon="check">{committed ? "No net file changes in these commits." : main ? `No tracked changes compared with ${base}.` : "Working tree clean."}</Empty> : undefined}
     />}
   </div>;
 }

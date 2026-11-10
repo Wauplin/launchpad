@@ -2,7 +2,7 @@
 // agent's turn ending Done, or Launchpad's own failures. A bot's routine sends its instructions to the bot's thread; other routines launch a
 // new session. A run ends with a report, or with `no_update`, which stays silent.
 
-import { when } from "./format.ts";
+import { clockAt, when } from "./format.ts";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { FailureKind } from "@/gen/FailureKind";
 import type { GithubEvent } from "@/gen/GithubEvent";
@@ -69,7 +69,7 @@ const list = (items: string[]) => (items.length < 2 ? items.join("") : `${items.
 const two = (n: number) => String(n).padStart(2, "0");
 
 /**
- * A five-field cron expression in words: "Every day at 03:00", "Weekdays at 09:00", "Mondays at 09:00",
+ * A five-field cron expression in words, times in the locale clock like `when()`: "Every day at 03:00", "Weekdays at 09:00", "Mondays at 09:00",
  * "Every hour", "Every 15 minutes". Expressions it cannot say exactly (ranges, names, steps that do not divide the
  * hour or the day, months) come back unchanged: never a wrong sentence.
  */
@@ -92,7 +92,7 @@ export function describeCron(expr: string): string {
   if (everyH && dom === "*" && dow === "*") return `Every ${everyH} hours${m ? ` at :${two(m)}` : ""}`;
   const hours = hour.split(",").map((h) => num(h, 0, 23));
   if (hours.some(isNaN)) return raw;
-  const at = `at ${list([...new Set(hours)].sort((a, b) => a - b).map((h) => `${two(h)}:${two(m)}`))}`;
+  const at = `at ${list([...new Set(hours)].sort((a, b) => a - b).map((h) => clockAt(h, m)))}`;
   if (dom === "*" && dow === "*") return `Every day ${at}`;
   if (dom === "*" && dow === "1-5") return `Weekdays ${at}`;
   if (dom === "*") {

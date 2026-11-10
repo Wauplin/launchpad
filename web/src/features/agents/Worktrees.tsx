@@ -1,9 +1,10 @@
 // Task worktrees of a session: the header chip and the Summary next steps share one card with every
 // end action (merge on Home, Local PR, discard). Branches live on Home Git; the folder is a disposable clone.
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { isRunning } from "@/lib/sessionStatus";
 import type { Predraft } from "@/gen/Predraft";
 import type { Session } from "@/gen/Session";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
@@ -14,6 +15,22 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { isPhone } from "@/lib/phone";
 import { ActionButton } from "@/components/ActionButton";
+
+/** Git views of a session poll only while it runs (a Done, archived or away session does not change); the turn end
+ * refreshes them once (`useGitRefreshAtTurnEnd`). */
+export const gitPoll = (s: Session | null | undefined): number | false => (s && isRunning(s) ? 5000 : false);
+
+/** Refreshes a session's Git status, commits and diffs when its turn ends (Running → not running). */
+export function useGitRefreshAtTurnEnd(s: Session | null | undefined) {
+  const qc = useQueryClient();
+  const running = !!s && isRunning(s);
+  const was = useRef(running);
+  const id = s?.id;
+  useEffect(() => {
+    if (was.current && !running && id) for (const key of ["session-git", "session-git-commits", "session-git-diff"]) void qc.invalidateQueries({ queryKey: [key, id] });
+    was.current = running;
+  }, [running, id, qc]);
+}
 
 export function useSessionWorktrees(sessionId: string) {
   return useQuery({ queryKey: ["worktrees", "session", sessionId], queryFn: () => api.get<WorktreeInfo[]>(`/api/sessions/${sessionId}/worktrees`), refetchInterval: 10_000 });
