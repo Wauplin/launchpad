@@ -230,7 +230,7 @@ fn busy(s: &Session) -> bool {
 
 async fn send(app: &App, q: &Queued) -> Result<Session> {
     match &q.target {
-        Target::Bot { id } => launchpad_core::bots::message_with(app, id, q.text.clone(), vec![], Default::default(), false, q.automatic).await,
+        Target::Bot { id } => launchpad_core::bots::message_with(app, id, q.text.clone(), vec![], Default::default(), false, None, q.automatic).await,
     }
 }
 

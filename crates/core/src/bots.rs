@@ -641,7 +641,7 @@ pub async fn record_instructions(app: &App, session_id: &str, (version, instruct
 
 /// Sends the owner's message to the bot's thread: to its open session, or to a new one.
 pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool) -> Result<Session> {
-    message_with(app, id, text, attachments, context, new_session, false).await
+    message_with(app, id, text, attachments, context, new_session, None, false).await
 }
 
 /// A message to the bot's thread. `automatic` (routines, incoming hooks, other agents): a paused bot refuses it, and
@@ -649,7 +649,9 @@ pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAtt
 /// running turn. `context` (folders, GitHub links, agent traces, as in an agent's message box) goes with the
 /// message to the current session, or into the launch of a new one. `context.from`, set only by Home's own code
 /// (`senders`), names a sender other than the owner: the message arrives under its header.
-pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool, automatic: bool) -> Result<Session> {
+///
+/// `note`: the owner's reason for a new session they asked for (`new_session`), shown in the chat's divider.
+pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool, note: Option<String>, automatic: bool) -> Result<Session> {
     ensure!(!text.trim().is_empty() || !attachments.is_empty() || !context.is_empty(), "the message is empty");
     if let Some(f) = &context.from {
         crate::senders::guard(f.hops)?;
@@ -691,8 +693,15 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
     }
     if let Some(b) = &mut spec.bot {
         b.reason = Some(if new_session && reason.is_none() { "new" } else { reason.unwrap_or("first") }.to_string());
+        b.note = if new_session { note_of(note) } else { None };
     }
     crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await
+}
+
+/// The owner's reason for a new session: one line, at most 120 characters, None when empty.
+fn note_of(note: Option<String>) -> Option<String> {
+    let line = note?.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!line.is_empty()).then(|| line.chars().take(120).collect())
 }
 
 /// The launch of a new session of the thread: the bot's settings, BOT.md and its version, and the previous
@@ -725,6 +734,7 @@ pub async fn next_spec(app: &App, bot: &Bot, thread: &[Session], text: String, a
             instructions: bot.instructions.clone(),
             version: bot.instructions_version.clone(),
             reason: None,
+            note: None,
             permission_mode: Some(s.permission_mode),
             previous,
             inbox_done: s.inbox_done && s.launchpad != crate::vault::LaunchpadAccess::Read,

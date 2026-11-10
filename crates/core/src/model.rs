@@ -572,6 +572,11 @@ pub struct BotLaunch {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<String>")]
     pub reason: Option<String>,
+    /// The owner's own words for a new session they asked for (Start a new session on the bot page), shown in the
+    /// chat's divider.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<String>")]
+    pub note: Option<String>,
     /// The permission mode bot.toml gave the session at start: `bots::rotation` compares bot.toml with it, so a
     /// mode the owner set on the session itself (Agents) keeps the thread going. None for older sessions.
     #[serde(skip_serializing_if = "Option::is_none")]

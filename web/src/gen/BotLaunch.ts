@@ -29,6 +29,11 @@ version?: string,
  */
 reason?: string, 
 /**
+ * The owner's own words for a new session they asked for (Start a new session on the bot page), shown in the
+ * chat's divider.
+ */
+note?: string, 
+/**
  * The permission mode bot.toml gave the session at start: `bots::rotation` compares bot.toml with it, so a
  * mode the owner set on the session itself (Agents) keeps the thread going. None for older sessions.
  */

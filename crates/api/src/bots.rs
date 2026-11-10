@@ -142,13 +142,16 @@ struct Message {
     /// Start a new session of the thread (with a reference to the previous one).
     #[serde(default)]
     new_session: bool,
+    /// The owner's reason for that new session, shown in the chat's divider.
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 /// The owner's message, or an agent's (`launchpad bot message`): Home stamps the agent as its sender from its own
 /// record (`senders::agent`), never from the body, and a paused bot refuses it like a routine's.
 async fn message(State(s): State<Ctx>, Path(id): Path<String>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut m): Json<Message>) -> ApiResult<Session> {
     m.context.from = launchpad_core::senders::of_request(&s.app, agent.as_ref().map(|a| a.0.0.as_str())).await.map_err(bad)?;
-    Ok(Json(bots::message_with(&s.app, &id, m.text, m.attachments, m.context, m.new_session, agent.is_some()).await.map_err(bad)?))
+    Ok(Json(bots::message_with(&s.app, &id, m.text, m.attachments, m.context, m.new_session, m.reason, agent.is_some()).await.map_err(bad)?))
 }
 #[derive(Deserialize)]
 struct FileQuery {
