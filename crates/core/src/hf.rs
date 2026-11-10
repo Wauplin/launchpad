@@ -4,12 +4,24 @@ use anyhow::{Context, Result};
 use crate::{exec::Io, shellenv::UserEnv};
 
 pub(crate) async fn hf(env: &UserEnv, args: &[&str], data: Option<Vec<u8>>) -> Result<String> {
+    match run(env, args, data).await? {
+        (true, out, _) => Ok(out),
+        (false, _, err) => anyhow::bail!("hf command failed ({}); check CLI version, sign-in and bucket permissions", last_line(&err)),
+    }
+}
+
+/// Runs `hf`: whether it succeeded, its output and its error output.
+pub(crate) async fn run(env: &UserEnv, args: &[&str], data: Option<Vec<u8>>) -> Result<(bool, String, String)> {
     let mut cmd = crate::procs::command(env, "hf", None);
-    cmd.args(args).stdin(Io::Null).stderr(Io::Null);
+    cmd.args(args).stdin(Io::Null).stderr(Io::Piped);
     if let Some(data) = data { cmd.stdin_bytes(data); }
     let out = tokio::time::timeout(Duration::from_secs(if args.first() == Some(&"auth") { 20 } else { 120 }), cmd.output()).await.context("hf timed out")??;
-    anyhow::ensure!(out.status.success(), "hf command failed; check CLI version, sign-in and bucket permissions");
-    Ok(String::from_utf8(out.stdout)?)
+    Ok((out.status.success(), String::from_utf8(out.stdout)?, String::from_utf8_lossy(&out.stderr).into_owned()))
+}
+
+/// The last non-empty line of an error output, cut to 300 characters.
+pub(crate) fn last_line(err: &str) -> String {
+    err.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("no error output").chars().take(300).collect()
 }
 
 pub async fn account(env: &UserEnv) -> Result<String> {

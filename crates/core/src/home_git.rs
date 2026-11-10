@@ -54,7 +54,14 @@ fn lock(app: &App, project_id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
 
 /// A noninteractive Git command in `dir`, bounded by `secs`.
 pub(crate) async fn git_in(app: &App, dir: &Path, args: &[&str], secs: u64) -> Result<String> {
+    git_with_input(app, dir, args, None, secs).await
+}
+
+async fn git_with_input(app: &App, dir: &Path, args: &[&str], input: Option<Vec<u8>>, secs: u64) -> Result<String> {
     let mut cmd = crate::procs::command(&app.env, "git", Some(dir));
+    if let Some(input) = input {
+        cmd.stdin_bytes(input);
+    }
     cmd.process_tree().args(args).stdin(Io::Null)
         .env("GIT_TERMINAL_PROMPT", "0").env("GIT_ASKPASS", "true")
         .env("GCM_INTERACTIVE", "Never").env("SSH_ASKPASS", "true").env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes");
@@ -78,11 +85,14 @@ pub async fn ensure(app: &App, p: &Project) -> Result<PathBuf> {
     ensure!(here(app), "Home Git runs on Home");
     let dir = mirror(app, &p.id);
     if dir.join("HEAD").exists() && dir.join("hooks/pre-receive").exists() {
+        restore_pending(app, p).await?;
         return Ok(dir);
     }
     let lock = lock(app, &p.id);
     let _lock = lock.lock().await;
     if dir.join("hooks/pre-receive").exists() {
+        drop(_lock);
+        restore_pending(app, p).await?;
         return Ok(dir);
     }
     let partial = root(app).join(format!(".{}.creating", p.id));
@@ -111,6 +121,58 @@ pub async fn ensure(app: &App, p: &Project) -> Result<PathBuf> {
     // A Home restored from a backup gets its Launchpad branches back.
     crate::home_backup::restore_bundle(app, &p.id).await?;
     Ok(dir)
+}
+
+/// A restored mirror whose bundle is not applied yet (an earlier fetch or download failed): fetch the remote the
+/// bundle builds on, then apply it. Every use of the mirror tries again until it worked.
+async fn restore_pending(app: &App, p: &Project) -> Result<()> {
+    if !crate::home_backup::bundle_pending(app, &p.id) {
+        return Ok(());
+    }
+    if upstream(p).is_some() {
+        fetch_origin(app, p).await.with_context(|| format!("fetch {} before applying its Home Git bundle", p.name))?;
+    }
+    crate::home_backup::restore_bundle(app, &p.id).await
+}
+
+/// Where a bundle is fetched first, so it never overwrites a ref pushed since the restore.
+const RESTORE_NS: &str = "refs/lp-restore/";
+
+/// Applies a backup bundle to a mirror: fetched under `RESTORE_NS`, then only the refs the mirror does not have
+/// are created.
+pub(crate) async fn apply_bundle(app: &App, project_id: &str, bundle: &Path) -> Result<()> {
+    let dir = mirror(app, project_id);
+    let lock = lock(app, project_id);
+    let _lock = lock.lock().await;
+    let refs = "--format=%(objectname) %(refname)";
+    let clear = |listed: String| listed.lines().filter_map(|l| l.split_once(' ')).map(|(_, r)| format!("delete {r}\n")).collect::<String>();
+    let leftover = clear(git(app, &dir, &["for-each-ref", refs, RESTORE_NS]).await?);
+    if !leftover.is_empty() {
+        git_with_input(app, &dir, &["update-ref", "--stdin"], Some(leftover.into_bytes()), 60).await?;
+    }
+    let source = bundle.to_string_lossy();
+    git_in(app, &dir, &["fetch", "--quiet", "--no-tags", &source, &format!("+refs/*:{RESTORE_NS}*")], 600).await?;
+    let restored = git(app, &dir, &["for-each-ref", refs, RESTORE_NS]).await?;
+    let existing = git(app, &dir, &["for-each-ref", refs]).await?;
+    let updates = restore_updates(&restored, &existing) + &clear(restored);
+    if !updates.is_empty() {
+        git_with_input(app, &dir, &["update-ref", "--stdin"], Some(updates.into_bytes()), 60).await?;
+    }
+    browse_stale(project_id);
+    Ok(())
+}
+
+/// `update-ref --stdin` lines that create each restored ref (`<sha> refs/lp-restore/<ref>` lines) the mirror does
+/// not have (`<sha> <ref>` lines). `create` fails if a push created the ref meanwhile: the next try skips it.
+fn restore_updates(restored: &str, existing: &str) -> String {
+    let have: std::collections::HashSet<&str> = existing.lines().filter_map(|l| l.split_once(' ')).map(|(_, r)| r).collect();
+    restored
+        .lines()
+        .filter_map(|l| l.split_once(' '))
+        .filter_map(|(sha, r)| Some((sha, format!("refs/{}", r.strip_prefix(RESTORE_NS)?))))
+        .filter(|(_, r)| !have.contains(r.as_str()))
+        .map(|(sha, r)| format!("create {r} {sha}\n"))
+        .collect()
 }
 
 async fn write_hook(dir: &Path) -> Result<()> {
@@ -646,4 +708,17 @@ pub fn check_session(app: &App, runner_id: &str, session: &str) -> Result<()> {
         bail!("this session now runs on another runner; this runner can no longer push its branches");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restore_creates_only_missing_refs() {
+        let restored = "a1 refs/lp-restore/heads/lp/old\nb2 refs/lp-restore/heads/lp/pushed-since\nc3 refs/lp-restore/kept/1/lp/x";
+        let existing = "f9 refs/heads/main\nd4 refs/heads/lp/pushed-since\nb2 refs/lp-restore/heads/lp/pushed-since";
+        assert_eq!(restore_updates(restored, existing), "create refs/heads/lp/old a1\ncreate refs/kept/1/lp/x c3\n");
+        assert_eq!(restore_updates("", existing), "");
+    }
 }
