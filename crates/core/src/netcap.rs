@@ -7,8 +7,10 @@
 //! Burst (`token_relay::tcp`). On a lease host on port 443, the proxy reads the TLS server name and adds the
 //! token as for `HTTPS_PROXY` clients. The runner CA is in the sandbox's system certificate store.
 //!
-//! One policy, written here: loopback goes to its own address, UDP reaches port 53 (DNS) only, IPv4 and IPv6 are
-//! handled the same way, and Home relays Burst traffic to public addresses only. A machine that cannot run the
+//! One policy, written here: loopback goes to its own address, UDP reaches port 53 (DNS) only, link-local and
+//! cloud metadata addresses are refused except for DNS (`refused`), IPv4 and IPv6 are handled the same way, Unix
+//! sockets reach paths but never the abstract namespace (`unix_target`: it belongs to the network namespace, which
+//! the jail shares with the machine: X11, D-Bus), and Home relays Burst traffic to public addresses only. A machine that cannot run the
 //! supervisor (Linux older than 5.9, no seccomp) runs no agents.
 
 use std::net::{IpAddr, SocketAddr};
@@ -35,6 +37,52 @@ pub fn udp_allowed(port: u16) -> bool {
 pub fn goes_direct(ip: IpAddr) -> bool {
     let ip = ip.to_canonical();
     ip.is_loopback() || ip.is_unspecified()
+}
+
+/// Link-local addresses (cloud metadata services, instance credentials) and the metadata addresses outside that
+/// range: never reached from a session, on any port but DNS (some clouds resolve names on 169.254.169.254). The
+/// supervisor refuses them before the proxy, and the runner proxy again on the resolved address (`proxy::connect_out`,
+/// names such as `metadata.google.internal`); Burst relays only public addresses (`public`).
+pub fn refused(ip: IpAddr, port: u16) -> bool {
+    if port == DNS_PORT {
+        return false;
+    }
+    match ip.to_canonical() {
+        IpAddr::V4(v4) => v4.is_link_local() || v4.octets() == [100, 100, 100, 200],
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            // NAT64 (64:ff9b::/96) carries an IPv4 address.
+            if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+                let o = v6.octets();
+                return refused(IpAddr::V4(std::net::Ipv4Addr::new(o[12], o[13], o[14], o[15])), port);
+            }
+            (s[0] & 0xffc0) == 0xfe80 || s == [0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254]
+        }
+    }
+}
+
+/// What a Unix socket address names.
+#[derive(Debug, PartialEq)]
+pub enum UnixTarget {
+    /// No name (`bind` autobinds, `connect` fails).
+    Unnamed,
+    /// The abstract namespace (`sun_path[0] == 0`): refused.
+    Abstract,
+    /// A path in the file system (the bytes before the first NUL).
+    Path(Vec<u8>),
+}
+
+/// The target of a `sockaddr_un` (None: another family or too short).
+pub fn unix_target(addr: &[u8]) -> Option<UnixTarget> {
+    if addr.len() < 2 || u16::from_ne_bytes([addr[0], addr[1]]) as i32 != libc::AF_UNIX {
+        return None;
+    }
+    let path = &addr[2..];
+    Some(match path.first() {
+        None => UnixTarget::Unnamed,
+        Some(0) => UnixTarget::Abstract,
+        Some(_) => UnixTarget::Path(path.iter().take_while(|b| **b != 0).copied().collect()),
+    })
 }
 
 /// Whether Home relays a Burst connection to this address: public unicast only, never Home's own loopback, its
@@ -203,6 +251,9 @@ fn label(id: &str) -> (&'static str, bool) {
         "udp_refused" => ("UDP other than DNS is refused", true),
         "udp_dns" => ("DNS over UDP is allowed", true),
         "io_uring" => ("io_uring is blocked", true),
+        "unix_path" => ("Unix sockets at a path work", true),
+        "unix_abstract" => ("Abstract Unix sockets (X11, D-Bus) are refused", true),
+        "link_local" => ("Link-local addresses (cloud metadata) are refused", true),
         "dns" => ("Names resolve", true),
         "tcp_v4" => ("IPv4 connection from a client that ignores proxy settings", true),
         "tcp_v6" => ("IPv6 connection (depends on the network)", false),
@@ -298,4 +349,30 @@ pub fn remember(runner_id: &str, check: &NetworkCheck) {
 
 pub fn last(runner_id: &str) -> Option<NetworkCheck> {
     LAST.lock().unwrap().get(runner_id).cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn link_local_and_metadata_are_refused_except_dns() {
+        for (ip, port) in [("169.254.169.254", 80), ("169.254.0.1", 443), ("::ffff:169.254.169.254", 80), ("fe80::1", 22), ("febf::1", 80), ("fd00:ec2::254", 80), ("64:ff9b::a9fe:a9fe", 80), ("100.100.100.200", 80)] {
+            assert!(refused(ip.parse().unwrap(), port), "{ip}:{port}");
+        }
+        // DNS stays (GCE resolves on 169.254.169.254); the LAN, the tailnet and the internet stay reachable.
+        for (ip, port) in [("169.254.169.254", 53), ("192.168.1.10", 80), ("10.0.0.1", 443), ("100.101.102.103", 22), ("100.100.100.100", 53), ("fd7a:115c:a1e0::1", 80), ("fd00:ec2::253", 80), ("140.82.112.3", 443), ("2606:4700::1", 443), ("127.0.0.1", 80)] {
+            assert!(!refused(ip.parse().unwrap(), port), "{ip}:{port}");
+        }
+    }
+
+    #[test]
+    fn abstract_unix_addresses_are_told_apart() {
+        let addr = |path: &[u8]| [&(libc::AF_UNIX as u16).to_ne_bytes()[..], path].concat();
+        assert_eq!(unix_target(&addr(b"\0/tmp/.X11-unix/X0")), Some(UnixTarget::Abstract));
+        assert_eq!(unix_target(&addr(b"/tmp/sccache.sock\0junk")), Some(UnixTarget::Path(b"/tmp/sccache.sock".to_vec())));
+        assert_eq!(unix_target(&addr(b"")), Some(UnixTarget::Unnamed));
+        assert_eq!(unix_target(&[&(libc::AF_INET as u16).to_ne_bytes()[..], &[0; 14]].concat()), None);
+        assert_eq!(unix_target(&[1]), None);
+    }
 }

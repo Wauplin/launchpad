@@ -9,8 +9,12 @@
 //! - A TCP connect to a remote address connects that copy to the runner proxy's capture port instead, with a
 //!   header naming the destination. The proxy connects to the destination first, so `connect` returns only once
 //!   the destination is reached, with its real error otherwise (fallbacks between addresses keep working).
-//! - Loopback connects go to their address. UDP reaches port 53 only. Other socket families, io_uring and TCP
-//!   Fast Open are refused.
+//! - Loopback connects go to their address. UDP reaches port 53 only. Link-local and metadata addresses are refused
+//!   (`policy::refused`). Other socket families, io_uring and TCP Fast Open are refused.
+//! - Unix sockets reach paths, never the abstract namespace (the machine's X11 and D-Bus share it with the jail):
+//!   the supervisor runs `connect` and `bind` of a Unix socket itself, on a copy of the descriptor, with the
+//!   address it checked, so the agent cannot change the address after the check. Addresses given to `sendto` and
+//!   `sendmsg` are checked in place.
 //!
 //! It reads the agent's memory and descriptors (`process_vm_readv`, `/proc/<pid>/fd`, `pidfd_getfd`), which the
 //! kernel allows like a ptrace attach:
@@ -144,6 +148,7 @@ fn filter(handoff: RawFd, keep_dumpable: bool) -> Vec<SockFilter> {
         Jeq(nr(libc::SYS_socket), L("socket"), Next),
         Jeq(nr(libc::SYS_socketpair), L("socketpair"), Next),
         Jeq(nr(libc::SYS_connect), L("notif"), Next),
+        Jeq(nr(libc::SYS_bind), L("notif"), Next),
         Jeq(nr(libc::SYS_sendto), L("sendto"), Next),
         Jeq(nr(libc::SYS_sendmsg), L("sendmsg"), Next),
         Jeq(nr(libc::SYS_sendmmsg), L("sendmmsg"), Next),
@@ -693,6 +698,8 @@ impl Supervisor {
             self.socket(n.id, a[0] as i32, a[1] as i32, a[2] as i32)
         } else if nr == libc::SYS_connect {
             self.connect(n)
+        } else if nr == libc::SYS_bind {
+            self.bind(n)
         } else if nr == libc::SYS_sendto {
             self.send_check(n, a[0], a[4], a[5] as usize)
         } else if nr == libc::SYS_sendmsg {
@@ -764,6 +771,9 @@ impl Supervisor {
     /// `sendto`, `sendmsg` and `sendmmsg` with an address: UDP reaches port 53 only.
     fn send_check(&self, n: &libc::seccomp_notif, fd: u64, addr: u64, len: usize) -> Reply {
         let Some(bytes) = read_mem(n.pid, addr, len.min(128)) else { return Reply::Err(libc::EFAULT) };
+        if policy::unix_target(&bytes) == Some(policy::UnixTarget::Abstract) {
+            return Reply::Err(libc::EACCES);
+        }
         let dest = match parse_addr(&bytes) {
             Ok(Some(d)) => d,
             Ok(None) => return Reply::Continue,
@@ -785,25 +795,29 @@ impl Supervisor {
             return Reply::Err(libc::EINVAL);
         }
         let Some(bytes) = read_mem(n.pid, addr, len) else { return Reply::Err(libc::EFAULT) };
-        let dest = match parse_addr(&bytes) {
-            Ok(Some(d)) => d,
-            // Unix, netlink and AF_UNSPEC addresses: unchanged.
-            Ok(None) => return Reply::Continue,
-            Err(e) => return Reply::Err(e),
-        };
         let ino = match self.inode(n, fd) {
             Ok(i) => i,
             Err(e) => return Reply::Err(e),
         };
+        let kind = self.table.lock().unwrap().kinds.get(&ino).copied();
+        let dest = match (kind, parse_addr(&bytes)) {
+            (_, Err(e)) => return Reply::Err(e),
+            // Unix and netlink sockets, and internet sockets the supervisor no longer tracks.
+            (None, _) => return self.unchecked_socket(n, fd, bytes, false),
+            (Some(_), Ok(Some(d))) => d,
+            // Disconnecting a UDP socket (AF_UNSPEC).
+            (Some(Kind::Udp), Ok(None)) => return Reply::Continue,
+            (Some(Kind::Tcp), Ok(None)) => return Reply::Err(libc::EAFNOSUPPORT),
+        };
         if !self.valid(n.id) {
             return Reply::None;
         }
+        if policy::refused(dest.ip(), dest.port()) {
+            return Reply::Err(libc::EACCES);
+        }
         let mut table = self.table.lock().unwrap();
-        match table.kinds.get(&ino).copied() {
-            Some(Kind::Udp) => return if policy::udp_allowed(dest.port()) { Reply::Continue } else { Reply::Err(libc::EACCES) },
-            Some(Kind::Tcp) => {}
-            // Not an internet socket of this session (a Unix socket given an internet address): the kernel answers.
-            None => return Reply::Continue,
+        if kind == Some(Kind::Udp) {
+            return if policy::udp_allowed(dest.port()) { Reply::Continue } else { Reply::Err(libc::EACCES) };
         }
         if table.peers.contains_key(&ino) {
             // A connect restarted after a signal, or a second connect: the socket is already connected.
@@ -828,6 +842,121 @@ impl Supervisor {
             self.respond(id, if result == 0 { Reply::Val(0) } else { Reply::Err(result) });
         });
         Reply::None
+    }
+
+    /// `bind`: internet sockets of the session as asked; Unix sockets through `unchecked_socket`.
+    fn bind(self: Arc<Self>, n: &libc::seccomp_notif) -> Reply {
+        let (fd, addr, len) = (n.data.args[0], n.data.args[1], n.data.args[2] as usize);
+        if !(2..=128).contains(&len) {
+            return Reply::Err(libc::EINVAL);
+        }
+        let Some(bytes) = read_mem(n.pid, addr, len) else { return Reply::Err(libc::EFAULT) };
+        let ino = match self.inode(n, fd) {
+            Ok(i) => i,
+            Err(e) => return Reply::Err(e),
+        };
+        if self.table.lock().unwrap().kinds.contains_key(&ino) {
+            return Reply::Continue;
+        }
+        self.unchecked_socket(n, fd, bytes, true)
+    }
+
+    /// `connect` or `bind` of a socket the supervisor did not create. A Unix socket gets it from the supervisor, on
+    /// a copy of the descriptor with the address checked here (never the abstract namespace; a relative path is
+    /// resolved in the agent's folder), so changing the address in memory after the check changes nothing. An
+    /// internet socket the supervisor does not track is refused; other families (netlink) continue. Where the
+    /// descriptor cannot be copied (HF Jobs refuse `pidfd_getfd`), the address is checked in place.
+    fn unchecked_socket(self: Arc<Self>, n: &libc::seccomp_notif, fd: u64, bytes: Vec<u8>, bind: bool) -> Reply {
+        let target = policy::unix_target(&bytes);
+        if target == Some(policy::UnixTarget::Abstract) {
+            return Reply::Err(libc::EACCES);
+        }
+        let copy = match self.copy_fd(n, fd) {
+            Ok(c) => c,
+            Err(libc::EPERM | libc::ENOSYS) => return if parse_addr(&bytes).is_ok_and(|d| d.is_some()) { Reply::Err(libc::EACCES) } else { Reply::Continue },
+            Err(e) => return Reply::Err(e),
+        };
+        let mut domain: libc::c_int = 0;
+        let mut l = 4 as libc::socklen_t;
+        // SAFETY: reads an option of the supervisor's copy into a local.
+        if unsafe { libc::getsockopt(copy.as_raw_fd(), libc::SOL_SOCKET, libc::SO_DOMAIN, (&mut domain as *mut libc::c_int).cast(), &mut l) } != 0 {
+            return Reply::Err(errno());
+        }
+        match domain {
+            libc::AF_UNIX => {}
+            libc::AF_INET | libc::AF_INET6 => return Reply::Err(libc::EACCES),
+            _ => return Reply::Continue,
+        }
+        // The address the supervisor uses: a relative path through a descriptor of its folder in the agent's view.
+        let mut dir: Option<OwnedFd> = None;
+        let addr = match target {
+            Some(policy::UnixTarget::Path(path)) if path.first() != Some(&b'/') => {
+                let (parent, name) = match path.iter().rposition(|b| *b == b'/') {
+                    Some(i) => (&path[..i], &path[i + 1..]),
+                    None => (&b"."[..], &path[..]),
+                };
+                let Ok(at) = CString::new([format!("/proc/{}/cwd/", n.pid).as_bytes(), parent].concat()) else { return Reply::Err(libc::EINVAL) };
+                // SAFETY: opens a folder path from a local C string.
+                let d = unsafe { libc::open(at.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+                if d < 0 {
+                    return Reply::Err(errno());
+                }
+                // SAFETY: d was just opened by this process.
+                let d = unsafe { OwnedFd::from_raw_fd(d) };
+                let full = [format!("/proc/self/fd/{}/", d.as_raw_fd()).as_bytes(), name].concat();
+                dir = Some(d);
+                if full.len() >= 108 {
+                    return Reply::Err(libc::ENAMETOOLONG);
+                }
+                [&(libc::AF_UNIX as u16).to_ne_bytes()[..], &full, &[0]].concat()
+            }
+            _ => bytes,
+        };
+        if !self.valid(n.id) {
+            return Reply::None;
+        }
+        let id = n.id;
+        let run = move || {
+            // SAFETY: the address is a local buffer of its length; the copy and the folder stay open meanwhile.
+            let r = unsafe {
+                let p = addr.as_ptr().cast::<libc::sockaddr>();
+                let l = addr.len() as libc::socklen_t;
+                if bind { libc::bind(copy.as_raw_fd(), p, l) } else { libc::connect(copy.as_raw_fd(), p, l) }
+            };
+            let reply = if r == 0 { Reply::Val(0) } else { Reply::Err(errno()) };
+            drop(dir);
+            reply
+        };
+        if bind {
+            return run();
+        }
+        // A connect to a busy listener can wait: on its own thread.
+        std::thread::spawn(move || {
+            let reply = run();
+            self.respond(id, reply);
+        });
+        Reply::None
+    }
+
+    /// A copy of a descriptor of the notifying process (`pidfd_getfd`), once the notification proves the PID
+    /// still names it.
+    fn copy_fd(&self, n: &libc::seccomp_notif, fd: u64) -> Result<OwnedFd, i32> {
+        // SAFETY: opens a pidfd and copies one descriptor into this process; both are owned below.
+        unsafe {
+            let pidfd = libc::syscall(libc::SYS_pidfd_open, n.pid as libc::pid_t, 0) as RawFd;
+            if pidfd < 0 {
+                return Err(errno());
+            }
+            let pidfd = OwnedFd::from_raw_fd(pidfd);
+            if !self.valid(n.id) {
+                return Err(libc::ESRCH);
+            }
+            let copy = libc::syscall(libc::SYS_pidfd_getfd, pidfd.as_raw_fd(), fd as libc::c_int, 0) as RawFd;
+            if copy < 0 {
+                return Err(errno());
+            }
+            Ok(OwnedFd::from_raw_fd(copy))
+        }
     }
 
     /// Connects the agent's socket to the proxy's capture port, which connects to `dest`. 0 or an errno.
@@ -1202,6 +1331,25 @@ pub fn probe(args: &[String]) -> ! {
         }
         Err(e) => add("udp_refused", false, format!("{e}")),
     }
+    // Unix sockets: a path works (bind and connect run in the supervisor), the abstract namespace is refused.
+    let path = std::env::temp_dir().join(format!("lp-netcap-{}.sock", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let unix = std::os::unix::net::UnixListener::bind(&path).and_then(|l| std::os::unix::net::UnixStream::connect(&path).map(|_| l));
+    let _ = std::fs::remove_file(&path);
+    add("unix_path", unix.is_ok(), match &unix {
+        Ok(_) => "a Unix socket at a path works".into(),
+        Err(e) => format!("a Unix socket at a path failed: {e}"),
+    });
+    let abs = {
+        use std::os::linux::net::SocketAddrExt;
+        std::os::unix::net::SocketAddr::from_abstract_name(b"launchpad-netcap-check").and_then(|a| std::os::unix::net::UnixStream::connect_addr(&a))
+    };
+    let refused = abs.as_ref().err().and_then(|e| e.raw_os_error()) == Some(libc::EACCES);
+    add("unix_abstract", refused, if refused { "abstract Unix sockets are refused".into() } else { format!("an abstract Unix socket was not refused: {:?}", abs.map(|_| ())) });
+    // Link-local (cloud metadata) is refused before any connection.
+    let meta = std::net::TcpStream::connect_timeout(&SocketAddr::from(([169, 254, 169, 254], 80)), Duration::from_secs(5));
+    let refused = meta.as_ref().err().and_then(|e| e.raw_os_error()) == Some(libc::EACCES);
+    add("link_local", refused, if refused { "link-local addresses (cloud metadata) are refused".into() } else { format!("169.254.169.254:80 was not refused: {:?}", meta.map(|_| ())) });
     // SAFETY: io_uring_setup with a zeroed parameter block; refused by the filter.
     let mut params = [0u8; 120];
     let r = unsafe { libc::syscall(libc::SYS_io_uring_setup, 1, params.as_mut_ptr()) };

@@ -304,7 +304,16 @@ async fn connect_out(host: &str, port: u16) -> std::result::Result<Box<dyn Strea
     if crate::home_link::burst().is_some() {
         return through_home(host, port).await.map(|s| Box::new(s) as Box<dyn Stream>);
     }
-    match tokio::time::timeout(std::time::Duration::from_secs(30), tokio::net::TcpStream::connect((host, port))).await {
+    // Link-local and metadata addresses are refused on the resolved address (`netcap::refused`).
+    let connect = async {
+        let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host, port)).await?.collect();
+        let allowed: Vec<std::net::SocketAddr> = addrs.iter().copied().filter(|a| !crate::netcap::refused(a.ip(), a.port())).collect();
+        if allowed.is_empty() && !addrs.is_empty() {
+            return Err(std::io::Error::from_raw_os_error(libc::EACCES));
+        }
+        tokio::net::TcpStream::connect(&allowed[..]).await
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(30), connect).await {
         Ok(Ok(s)) => {
             let _ = s.set_nodelay(true);
             Ok(Box::new(s))
