@@ -25,7 +25,7 @@ For a Local PR, replace `--repo` and `--number` with `--predraft <id>`. Its card
 
 ## Channels
 
-When the session prompt lists the owner's channels, send a message only when the task asks for it: write it to a file, then run `launchpad send <channel> --body-file /path/to/message.md [--title "…"] --session-id <session-id>`. `telegram` is the owner's own chat and is sent at once; keep it short and plain. Every other channel (Slack, Discord, webhooks) reaches other people: the command only saves a draft in the owner's Outbox, and the owner edits and sends it. Never send the same message twice and never use other tools to post to these channels.
+When the session prompt lists the owner's channels, send a message only when the task asks for it: write it to a file, then run `launchpad send <channel> --body-file /path/to/message.md [--title "…"] --session-id <session-id>`. `telegram` is the owner's own chat of your session's workspace (listed only when a workspace has one) and is sent at once; keep it short and plain. Every other channel (Slack, Discord, webhooks) reaches other people: the command only saves a draft in the owner's Outbox, and the owner edits and sends it. Never send the same message twice and never use other tools to post to these channels.
 
 ## Task worktrees
 

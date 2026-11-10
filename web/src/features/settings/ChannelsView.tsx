@@ -1,5 +1,5 @@
-// Settings → Channels: the owner's Telegram chat (direct), outgoing webhooks (their messages wait in the Outbox)
-// and incoming hooks. Everything lives on Home; webhook URLs, the bot token and hook secrets are write-only.
+// Settings → Channels: outgoing webhooks (their messages wait in the Outbox) and incoming hooks, plus a pointer to
+// each workspace's Telegram (Settings → Workspace). Everything lives on Home; webhook URLs and hook secrets are write-only.
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,18 +9,17 @@ import type { ChannelKind } from "@/gen/ChannelKind";
 import type { CreatedHook } from "@/gen/CreatedHook";
 import type { Hook } from "@/gen/Hook";
 import type { HookTarget } from "@/gen/HookTarget";
-import type { TelegramStatus } from "@/gen/TelegramStatus";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, MenuSection, MoreMenu, RowActions, SettingRow, Token } from "@/components/ui";
+import { ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, MenuSection, RowActions } from "@/components/ui";
 import { MenuItem } from "@/components/Popover";
 import { api } from "@/lib/api";
 import { useBots } from "@/lib/bots";
 import { copyText } from "@/lib/clipboard";
-import { ago, when } from "@/lib/format";
+import { ago } from "@/lib/format";
 import { Card, SettingsPage } from "./SettingsView";
 
-export type ChannelsOverview = { here: boolean; origin: string; names: string[]; channels: Channel[]; telegram: TelegramStatus; hooks: Hook[] };
+export type ChannelsOverview = { here: boolean; origin: string; names: string[]; channels: Channel[]; hooks: Hook[] };
 
 export const useChannels = () => useQuery({ queryKey: ["channels"], queryFn: () => api.get<ChannelsOverview>("/api/channels"), staleTime: 30_000 });
 
@@ -29,7 +28,7 @@ const copy = (text: string, what: string) => void copyText(text).then(() => toas
 /** The page explanation (ⓘ): one paragraph per kind of channel. */
 const INTRO = <>
   How agents reach you and other people, and how outside tools reach your agents. Home keeps these. URLs, tokens and secrets are never shown again.
-  <span className="mt-1 block"><b>Telegram.</b> Messages to your own chat go out directly: notifications, the answers to what you send from Telegram, and agents' <code>launchpad send telegram</code>. Plain text goes to your first bot (Ask Launchpad of your first workspace); <code>/&lt;bot&gt; text</code> gives another bot a task. Messages from Telegram never start paid usage.</span>
+  <span className="mt-1 block"><b>Telegram.</b> Each workspace has its own Telegram bot and chat, set up in Settings → Workspace. Messages to your chat go out directly: that workspace's notifications, the answers to what you send from Telegram, and its agents' <code>launchpad send telegram</code>. Plain text goes to the workspace's Ask bot; <code>/&lt;bot&gt; text</code> gives another of its bots a task. Messages from Telegram never start paid usage.</span>
   <span className="mt-1 block"><b>Outgoing.</b> Agents draft messages with <code>launchpad send &lt;name&gt; --body-file &lt;file&gt;</code>. Drafts wait in Today (Send): you edit them and click Send. Nothing is sent on its own or sent twice.</span>
   <span className="mt-1 block"><b>Incoming hooks.</b> A hook turns a POST request into a message to a bot (Ask Launchpad or another): a short note naming the hook, then the request body (at most 16 KB) as data. One message every 10 seconds per hook; extra requests get 429. Home is a private Space, so callers also send <code>Authorization: Bearer &lt;HF token with read access to the Space&gt;</code>: curl and CI jobs can, GitHub's own webhooks cannot.</span>
 </>;
@@ -39,7 +38,7 @@ export function ChannelsView() {
   return (
     <SettingsPage tour="settings.channels" title="Channels" intro={INTRO}>
       {q.isLoading ? <Loading what="channels" /> : q.error ? <ErrorState error={q.error} /> : q.data && <>
-        <Telegram t={q.data.telegram} />
+        <TelegramPointer />
         <Outgoing channels={q.data.channels} />
         <Incoming hooks={q.data.hooks} origin={q.data.origin} />
       </>}
@@ -49,54 +48,11 @@ export function ChannelsView() {
 
 // ---------------------------------------------------------------- Telegram
 
-function Telegram({ t }: { t: TelegramStatus }) {
-  const qc = useQueryClient();
-  const set = (next: TelegramStatus) => qc.setQueryData<ChannelsOverview>(["channels"], (o) => (o ? { ...o, telegram: next } : o));
-  const refresh = () => qc.invalidateQueries({ queryKey: ["channels"] });
-  const [token, setToken] = useState("");
-  const [busy, setBusy] = useState(false);
-  const act = (f: () => Promise<unknown>) => { setBusy(true); void f().catch(toastError).finally(() => setBusy(false)); };
+/** Telegram is a setting of each workspace: this page only points there. */
+function TelegramPointer() {
   return (
-    <Card title="Telegram: your own chat" end={t.bound ? <Badge tone="ok" icon="check">Bound to {t.chat_name ?? "your chat"}</Badge> : t.configured ? <Badge tone="attn">Not bound</Badge> : undefined}>
-      {t.error && <ErrorState error={t.error} />}
-      {!t.configured ? (
-        <SettingRow label="Bot token" hint={<>In Telegram, open <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a>, send <code>/newbot</code> and paste the token it gives you. Home checks it with Telegram.</>}>
-          <span className="flex flex-wrap gap-2">
-            <input className="field-input min-w-[260px] flex-1 font-mono text-[12px]" type="password" aria-label="Telegram bot token" placeholder="123456:ABC…" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
-            <button className="btn btn-sm btn-primary" disabled={busy || !token.trim()} onClick={() => act(() => api.put<TelegramStatus>("/api/channels/telegram/token", { token }).then((s) => { set(s); setToken(""); toast("Saved on Home"); }))}>Save on Home</button>
-          </span>
-        </SettingRow>
-      ) : <>
-        <div className="flex flex-wrap items-center gap-2 text-[13px]"><span>Bot</span><b>@{t.bot_username}</b></div>
-        {t.code && t.link && (
-          <div className="grid gap-2 rounded-card border border-line-2 p-2.5 text-[13px]" data-tour="channels.telegram-bind">
-            <span>{t.bound ? "To bind another chat" : "To bind your chat"}, open the link on your phone and press <b>Start</b>, or send <code>/start {t.code}</code> to @{t.bot_username}. The first chat that sends this code is bound; every other chat is ignored.</span>
-            <span className="flex flex-wrap items-center gap-2">
-              <Token>{t.code}</Token>
-              <a className="btn btn-sm no-underline" href={t.link} target="_blank" rel="noreferrer"><Icon name="ext" size={12} />Open in Telegram</a>
-              <button className="btn btn-sm" onClick={() => copy(t.link!, "Link")}><Icon name="copy" size={12} />Copy link</button>
-              {t.code_expires_at && <span className="text-[12px] text-ink-3">Valid until {when(t.code_expires_at)}</span>}
-            </span>
-          </div>
-        )}
-        {!t.code && !t.bound && <button className="btn btn-sm w-fit" disabled={busy} onClick={() => act(() => api.post<TelegramStatus>("/api/channels/telegram/code").then(set))}>Show a binding code</button>}
-        {t.bound && <>
-          <SettingRow label="Notifications" hint="Completed turns, failures, unexpected interruptions, automatic quota and cost stops, automatic resumption. Never code or messages.">
-            <span className="grid gap-1 text-[13px]">
-              <label className="flex items-center gap-2"><input type="checkbox" className="accent-teal" checked={t.notify} disabled={busy} onChange={(e) => act(() => api.patch<TelegramStatus>("/api/channels/telegram", { notify: e.target.checked }).then(set))} />Send notifications to this chat</label>
-              <label className="flex items-center gap-2"><input type="checkbox" className="accent-teal" checked={t.titles} disabled={busy || !t.notify} onChange={(e) => act(() => api.patch<TelegramStatus>("/api/channels/telegram", { titles: e.target.checked }).then(set))} />Include session titles</label>
-            </span>
-          </SettingRow>
-        </>}
-        {/* One visible button (Send test message); Bind another chat and Delete Telegram setup in ⋯. */}
-        <div className="flex flex-wrap items-center gap-1">
-          {t.bound && <button className="btn btn-sm" disabled={busy} onClick={() => act(() => api.post("/api/channels/telegram/test").then(() => toast("Test message sent")))}><Icon name="send" size={12} />Send test message</button>}
-          <MoreMenu label="More Telegram actions" width={280}>{(close) => <>
-            {t.bound && !t.code && <MenuItem icon={<Icon name="plus" size={14} />} label="Bind another chat" detail="Shows a new binding code" disabled={busy} onClick={() => { close(); act(() => api.post<TelegramStatus>("/api/channels/telegram/code").then(set)); }} />}
-            <MenuSection><ConfirmButton icon="trash" consequence="Deletes the bot token and the bound chat from Home. Telegram is no longer read or answered." confirmLabel="Delete" onConfirm={() => api.delete("/api/channels/telegram").then(() => { close(); return refresh(); }, toastError)}>Delete Telegram setup</ConfirmButton></MenuSection>
-          </>}</MoreMenu>
-        </div>
-      </>}
+    <Card title="Telegram: your own chat" end={<Link to="/settings/workspace" className="btn btn-sm no-underline">Open Workspace settings</Link>}>
+      <span className="text-[13px] text-ink-2">Each workspace has its own Telegram bot and chat, in Settings → Workspace.</span>
     </Card>
   );
 }

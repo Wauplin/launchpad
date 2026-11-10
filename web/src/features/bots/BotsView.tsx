@@ -17,6 +17,7 @@ import { ConfirmButton, Empty, ErrorState, IconButton, Loading, MoreMenu, PageHe
 import { PatchView } from "@/features/github/DiffReview";
 import { BotChat, type NewSessionRequest } from "@/features/chat/BotChat";
 import type { ChannelsOverview } from "@/features/settings/ChannelsView";
+import { useTelegram } from "@/features/settings/TelegramSettings";
 import { BotAvatar } from "@/components/BotAvatar";
 import { SplitView } from "@/components/SplitView";
 import type { Bot } from "@/gen/Bot";
@@ -511,7 +512,8 @@ function TriggersSection({ bot, routines, onEditFile }: { bot: Bot; routines: Cr
   const navigate = useNavigate();
   const channels = useQuery({ queryKey: ["channels"], queryFn: () => api.get<ChannelsOverview>("/api/channels"), retry: false }).data;
   const hooks = (channels?.hooks ?? []).filter((h) => h.target.kind === "bot" && h.target.id === bot.id);
-  const telegram = !!channels?.telegram.bound;
+  const telegram = !!useTelegram(bot.workspace_id).data?.bound;
+  const askBot = askTarget(useBots().data ?? [], bot.workspace_id)?.id === bot.id;
   const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const folder = projects.find((p) => p.id === bot.settings.folder);
@@ -540,9 +542,9 @@ function TriggersSection({ bot, routines, onEditFile }: { bot: Bot; routines: Cr
         <Icon name="down" size={12} className="flex-none text-ink-3" />
         <span className="min-w-0 flex-1"><span className="block truncate">Hook “{h.name}”</span><span className="block truncate text-[12px] text-ink-3">{h.last_at ? `Last call ${ago(h.last_at)}` : "Never called"} · {h.count} message{h.count === 1 ? "" : "s"}</span></span>
       </Link>)}
-      {telegram && <Link to="/settings/channels" className={row} title="Your Telegram chat: /command followed by a task messages this bot">
+      {telegram && <Link to="/settings/workspace" className={row} title="The workspace's Telegram chat: /command followed by a task messages this bot">
         <Icon name="send" size={12} className="flex-none text-ink-3" />
-        <span className="min-w-0 flex-1"><span className="block truncate">Telegram /{bot.slug.replace(/-/g, "_")}</span><span className="block truncate text-[12px] text-ink-3">From your own chat</span></span>
+        <span className="min-w-0 flex-1"><span className="block truncate">Telegram /{bot.slug.replace(/-/g, "_")}</span><span className="block truncate text-[12px] text-ink-3">From the workspace's chat{askBot ? " · plain text too" : ""}</span></span>
       </Link>}
       {!routines.length && !hooks.length && !telegram && !adding && <p className="m-0 text-[12px] text-ink-3">No trigger yet: {bot.settings.name} runs only when you message it.</p>}
     </div>

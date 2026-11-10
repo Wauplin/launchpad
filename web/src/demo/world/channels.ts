@@ -1,5 +1,5 @@
 // Channels part of the demo world: a Slack channel with two agent drafts in the Outbox (one to send, one sent),
-// a bound Telegram chat and one incoming hook to the Maintainer bot. No URL, token or secret exists.
+// Acme's own Telegram bot with a bound chat, and one incoming hook to the Maintainer bot. No URL, token or secret exists.
 
 import type { Channel } from "@/gen/Channel";
 import type { Hook } from "@/gen/Hook";
@@ -7,6 +7,7 @@ import type { OutboxMessage } from "@/gen/OutboxMessage";
 import type { TelegramStatus } from "@/gen/TelegramStatus";
 import { clock } from "../daemon";
 import { BOT } from "./bots";
+import { WS } from "./ids";
 
 export function channelsWorld() {
   const channels: Channel[] = [{ id: "demo-ch-team", name: "team-chat", kind: "slack", host: "hooks.slack.com", created_at: clock.ago(60 * 24 * 3) }];
@@ -22,7 +23,10 @@ export function channelsWorld() {
       session_id: "demo-s-checkout", author: "Claude Code", created_at: clock.ago(60 * 20), status: "sent", sent_at: clock.ago(60 * 19), error: null,
     },
   ];
-  const telegram: TelegramStatus = { configured: true, bot_username: "acme_launchpad_bot", bound: true, chat_name: "@demo-user", code: null, link: null, code_expires_at: null, notify: true, titles: false, error: null };
+  // Telegram is per workspace: Acme has its own bot with a bound chat; Personal has none yet.
+  const telegram: Record<string, TelegramStatus> = {
+    [WS.acme]: { workspace_id: WS.acme, configured: true, bot_username: "acme_launchpad_bot", bound: true, chat_name: "@demo-user", code: null, link: null, code_expires_at: null, notify: true, titles: false, error: null },
+  };
   const hooks: Hook[] = [{ id: "demo-hook-ci", name: "Nightly CI", target: { kind: "bot", id: BOT }, created_at: clock.ago(60 * 24 * 2), last_at: clock.ago(60 * 9), count: 4, last_session: "demo-s-bot-maintainer" }];
   return { channels, outbox, telegram, hooks };
 }

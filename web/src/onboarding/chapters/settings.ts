@@ -8,7 +8,7 @@ const qrShown = () => /demo\.invalid/.test(document.querySelector("main")?.textC
 
 export const settings: Chapter = {
   ...meta("settings"),
-  learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Pair a phone with a QR code", "Settings has two parts: Workspace, and Launchpad, shared by every workspace", "Repositories without a folder reach no Inbox; Settings → GitHub lists them"],
+  learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Pair a phone with a QR code", "Settings has two parts: Workspace, and Launchpad, shared by every workspace", "Each workspace can have its own Telegram bot and chat", "Repositories without a folder reach no Inbox; Settings → GitHub lists them"],
   steps: [
     {
       id: "settings.trace-sync", route: "/settings/huggingface", anchor: "settings.trace-sync",
@@ -39,7 +39,12 @@ export const settings: Chapter = {
     {
       id: "settings.channels", route: "/settings/channels", anchor: "settings.channels",
       title: "Channels",
-      body: "Bind your own Telegram chat to get notifications and talk to Ask Launchpad or a bot from anywhere. Add Slack, Discord or webhook channels for agents' messages to other people: those wait in Today, under Send. Incoming hooks let CI and scripts message a bot.",
+      body: "Add Slack, Discord or webhook channels for agents' messages to other people: those wait in Today, under Send. Incoming hooks let CI and scripts message a bot.",
+    },
+    {
+      id: "settings.telegram", route: "/settings/workspace", anchor: "settings.telegram",
+      title: "Telegram, per workspace",
+      body: "Each workspace can have its own Telegram bot and chat. Plain text goes to the workspace's Ask bot, /<bot> to its other bots, and only its own notifications arrive there, so two workspaces never mix.",
     },
     {
       id: "settings.mcp", route: "/settings/credentials", anchor: "settings.mcp",
@@ -49,7 +54,7 @@ export const settings: Chapter = {
     {
       id: "settings.github-repos", route: "/settings/github", anchor: "settings.github-repos",
       title: "Repositories without a folder",
-      body: "Notifications of repositories with no folder belong to no workspace: no Inbox or count shows them. This list does. Add to clones one into a workspace, whose Inbox then shows its items; Open on GitHub, in the ⋯ of a row, checks the others there. This page is under Launchpad, shared by every workspace; Workspace, at the top, holds its name, bots, tools and MCP servers.",
+      body: "Notifications of repositories with no folder belong to no workspace: no Inbox or count shows them. This list does. Add to clones one into a workspace, whose Inbox then shows its items; Open on GitHub, in the ⋯ of a row, checks the others there. This page is under Launchpad, shared by every workspace; Workspace, at the top, holds its name, bots, Telegram, tools and MCP servers.",
     },
   ],
 };
