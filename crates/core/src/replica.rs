@@ -149,6 +149,27 @@ fn strip_data_urls(v: &mut serde_json::Value) {
     }
 }
 
+/// How long Home retries an item it fails to store (the runner sends it again every few seconds) before it skips
+/// it, so one item that never stores cannot stop a runner's replication for good.
+pub const GIVE_UP_MS: i64 = 10 * 60 * 1000;
+
+/// Home, after item `n` failed to store: whether to skip it now. `failing` holds the failing item and since when.
+pub fn give_up(failing: &mut Option<(u64, i64)>, n: u64, now: i64) -> bool {
+    match *failing {
+        Some((f, since)) if f == n => now - since >= GIVE_UP_MS,
+        _ => {
+            *failing = Some((n, now));
+            false
+        }
+    }
+}
+
+/// Home: moves a runner's mark past item `n` without storing it (`give_up`).
+pub async fn skip(app: &App, runner_id: &str, n: u64) -> Result<()> {
+    let id = runner_id.to_string();
+    app.state_db.call(move |c| set_acked(c, &id, n)).await
+}
+
 /// Home saved everything up to `n`: the runner drops it.
 pub async fn acked(app: &App, n: u64) -> Result<()> {
     app.state_db.call(move |c| Ok(c.execute("DELETE FROM home_outbox WHERE n <= ?1", [n as i64])?)).await?;
@@ -244,6 +265,17 @@ mod tests {
         assert_eq!(after_ack(10, Some(20), 10), (10, false));
         // A late acknowledgement never moves the mark back.
         assert_eq!(after_ack(20, None, 15), (20, true));
+    }
+
+    #[test]
+    fn an_item_that_keeps_failing_is_skipped_after_ten_minutes() {
+        let mut failing = None;
+        assert!(!give_up(&mut failing, 5, 0));
+        assert!(!give_up(&mut failing, 5, GIVE_UP_MS - 1));
+        assert!(give_up(&mut failing, 5, GIVE_UP_MS));
+        // Another item starts its own clock.
+        assert!(!give_up(&mut failing, 6, GIVE_UP_MS * 2));
+        assert_eq!(failing, Some((6, GIVE_UP_MS * 2)));
     }
 
     #[test]

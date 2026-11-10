@@ -979,7 +979,7 @@ impl Sessions {
     async fn launch_inner(&self, app: &App, spec: LaunchSpec, id: String, automatic: bool) -> Result<Session> {
         crate::role::ensure_runs_agents(app.paths.role)?;
         // Home sends references: their bytes come from Home before the checks read them.
-        crate::attachments::fetch_missing(app, &spec.attachments).await?;
+        crate::attachments::fetch_missing(app, &id, &spec.attachments).await?;
         anyhow::ensure!(app.paths.role != crate::role::Role::Runner || !crate::home_link::guard(&app.paths).paused, "This runner takes no new sessions: switch Takes new sessions back on in its own window");
         let _action = self.inner.actions.lock().await;
         anyhow::ensure!(self.get(&id).is_none(), "a session with this id already exists");
@@ -1303,7 +1303,7 @@ impl Sessions {
                 let client_id = uuid::Uuid::new_v4().to_string();
                 sink.emit(EventBody::UserMessage { text: prompt.clone(), client_id: client_id.clone(), queued: false, images: images.clone(), from: session.launch_spec.from.clone() }).await;
                 sink.set_status(SessionStatus::Working).await;
-                let sent = match crate::attachments::for_harness(app, &images).await {
+                let sent = match crate::attachments::for_harness(app, id, &images).await {
                     Ok(images) => live.send(&prompt, &client_id, &images).await,
                     Err(e) => Err(e),
                 };
@@ -1751,7 +1751,7 @@ impl Sessions {
                 text.push_str(&message.text);
                 images.extend(message.images.iter().cloned());
             }
-            live.send(&text, &client_id, &crate::attachments::for_harness(app, &images).await?).await?;
+            live.send(&text, &client_id, &crate::attachments::for_harness(app, id, &images).await?).await?;
             for message in &p.messages {
                 sink.emit(EventBody::MessageDelivered { client_id: message.client_id.clone() }).await;
             }
@@ -1921,7 +1921,7 @@ impl Sessions {
         if !queued {
             sink.set_status(SessionStatus::Working).await;
         }
-        let sent = match crate::attachments::for_harness(app, &images).await {
+        let sent = match crate::attachments::for_harness(app, id, &images).await {
             Ok(images) => live.send(text, &client_id, &images).await,
             Err(e) => Err(e),
         };

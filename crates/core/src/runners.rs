@@ -926,7 +926,7 @@ fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> 
 pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
     anyhow::ensure!(app.paths.role == crate::role::Role::Home, "only Home launches sessions: a runner starts the ones Home places on it");
     // Uploads are stored on Home: the runner or Burst job receives references and fetches the bytes.
-    crate::attachments::to_refs(&mut spec.attachments).await?;
+    crate::attachments::to_refs(&id, &mut spec.attachments).await?;
     if spec.runner_id.as_deref() == Some(crate::burst::CHOICE) {
         return crate::burst::launch(app, spec, id, automatic).await;
     }
@@ -1061,7 +1061,7 @@ pub async fn send_anywhere(app: &App, id: &str, text: &str, files: Vec<crate::mo
 /// runner by `Sessions::send_with_context`, like the owner's messages from the message box.
 pub async fn send_anywhere_with(app: &App, id: &str, text: &str, mut files: Vec<crate::model::FileAttachment>, context: crate::model::MessageContext, key: Option<String>) -> Result<()> {
     if app.paths.role == crate::role::Role::Home {
-        crate::attachments::to_refs(&mut files).await?;
+        crate::attachments::to_refs(id, &mut files).await?;
         let body = serde_json::json!({"text": text, "files": files, "context": context}).to_string();
         let (status, body) = continue_anywhere(app, id, "input", Some(body), key).await?;
         return answer::<serde_json::Value>(status, &body).map(|_| ());

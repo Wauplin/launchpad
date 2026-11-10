@@ -416,7 +416,7 @@ async fn input(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::http
         b.context.from = None;
     }
     // Images stay references (records and events carry no bytes); the harness gets data URLs at delivery.
-    launchpad_core::attachments::fetch_missing_images(&s.app, &b.images).await.map_err(bad)?;
+    launchpad_core::attachments::fetch_missing_images(&s.app, &id, &b.images).await.map_err(bad)?;
     launchpad_core::attachments::validate_images(&b.images).map_err(bad)?;
     let (text, images) = launchpad_core::attachments::for_message(&s.app, &id, &b.text, &b.files).await.map_err(bad)?;
     b.text = text;

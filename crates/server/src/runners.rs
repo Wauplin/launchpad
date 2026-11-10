@@ -335,6 +335,8 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
     let mut last_heard = tokio::time::Instant::now();
     // Request bodies of HTTP exchanges in progress.
     let mut bodies: std::collections::HashMap<u64, tokio::sync::mpsc::UnboundedSender<bytes::Bytes>> = Default::default();
+    // The replica item that keeps failing to store, and since when (`replica::give_up`).
+    let mut failing: Option<(u64, i64)> = None;
     loop {
         tokio::select! {
             msg = out_rx.recv() => {
@@ -368,8 +370,16 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                         let Some(mut last) = items.first().map(|(n, _)| n.saturating_sub(1)) else { continue };
                         for (n, item) in items {
                             if let Err(e) = launchpad_core::replica::ingest(&s.app, &runner.id, n, item).await {
-                                tracing::warn!("runner {}: could not store item {n}: {e:#}", runner.id);
-                                break;
+                                if !launchpad_core::replica::give_up(&mut failing, n, launchpad_core::util::now_ms()) {
+                                    tracing::warn!("runner {}: could not store item {n}: {e:#}", runner.id);
+                                    break;
+                                }
+                                // One item that never stores must not stop the runner's replication.
+                                tracing::error!("runner {}: item {n} failed to store for 10 minutes, skipped: {e:#}", runner.id);
+                                if let Err(e) = launchpad_core::replica::skip(&s.app, &runner.id, n).await {
+                                    tracing::warn!("runner {}: could not skip item {n}: {e:#}", runner.id);
+                                    break;
+                                }
                             }
                             last = n;
                         }
@@ -503,12 +513,12 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     // A message with uploads: they are stored on Home, so the runner receives references and fetches the bytes. Its sender is the owner,
     // or the agent whose CLI sent it (Home's record of it, `senders::agent`), never what the body says.
     let body = match (parts.as_slice(), body) {
-        (["api", "sessions", _, "input"], Some(b)) => {
+        (["api", "sessions", session_id, "input"], Some(b)) => {
             let from = match launchpad_core::senders::of_request(&s.app, agent.as_deref()).await {
                 Ok(f) => f,
                 Err(e) => return ApiError::bad_request(format!("{e:#}")).into_response(),
             };
-            match upload_refs(&b).await.and_then(|b| launchpad_core::senders::set_from(&b, from.as_ref()).ok_or_else(|| anyhow::anyhow!("the message is not a JSON object"))) {
+            match upload_refs(session_id, &b).await.and_then(|b| launchpad_core::senders::set_from(&b, from.as_ref()).ok_or_else(|| anyhow::anyhow!("the message is not a JSON object"))) {
                 Ok(b) => Some(b),
                 Err(e) => return ApiError::bad_request(format!("{e:#}")).into_response(),
             }
@@ -566,12 +576,12 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
 
 /// A session input body with its `files` and `images` data URLs replaced by stored references (the runner
 /// fetches the bytes, `attachments::fetch_missing`), so no tunnel message, record or event carries them.
-async fn upload_refs(body: &str) -> anyhow::Result<String> {
+async fn upload_refs(session_id: &str, body: &str) -> anyhow::Result<String> {
     let mut v: Value = serde_json::from_str(body)?;
     for key in ["files", "images"] {
         if let Some(items) = v.get_mut(key) {
             let mut files: Vec<launchpad_core::model::FileAttachment> = serde_json::from_value(items.take())?;
-            launchpad_core::attachments::to_refs(&mut files).await?;
+            launchpad_core::attachments::to_refs(session_id, &mut files).await?;
             *items = serde_json::to_value(files)?;
         }
     }
