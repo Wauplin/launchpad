@@ -9,7 +9,7 @@ import { delegatedAccess } from "@/lib/deployment";
 export type NavEntry = { to: string; label: string; icon: IconName; exact?: boolean; keywords?: string };
 
 /** Settings of the window's workspace. */
-export const WORKSPACE_NAV: NavEntry[] = [{ to: "/settings/workspace", label: "Workspace", icon: "folder", keywords: "workspace name rename delete window mcp servers tools bots" }];
+export const WORKSPACE_NAV: NavEntry[] = [{ to: "/settings/workspace", label: "Workspace", icon: "folder", keywords: "workspace name rename delete window mcp servers tools bots telegram notifications" }];
 
 /** Launchpad's settings, shared by every workspace. */
 export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
@@ -24,7 +24,7 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
   { group: "Machines & access", items: [
     { to: "/settings/runners", label: "Home and runners", icon: "window", keywords: "runner home burst vm jail update connect approve jobs machines computer" },
     { to: "/settings/credentials", label: "Credentials and tools", icon: "sliders", keywords: "vault tokens secrets logins mcp tools proxy launchpad cli access admin" },
-    { to: "/settings/channels", label: "Channels", icon: "send", keywords: "telegram webhook outbox hooks messages notifications notify alerts" },
+    { to: "/settings/channels", label: "Channels", icon: "send", keywords: "webhook outbox hooks messages notifications notify alerts" },
     { to: "/settings/devices", label: "Devices", icon: "window", keywords: "browser pair qr phone sign out tailscale remote access" },
     { to: "/settings/github", label: "GitHub", icon: "pr", keywords: "token account repositories poll rate limit inbox" },
     { to: "/settings/huggingface", label: "Hugging Face", icon: "huggingface", keywords: "traces bucket backup hf token" },

@@ -105,7 +105,7 @@ The agent appears in **Agents → Running**. When it finishes, a card waits in *
 - **Dates.** Past moments read “just now”, “5 min ago”, “3 h ago”, “yesterday” or “Oct 3”. Exact and future moments read “today 15:00”, “tomorrow 03:00” or “Fri 7 Nov, 03:00”, in your browser's time format, without seconds. Schedules read as sentences, for example “Weekdays at 09:00”; hover them to see the cron.
 - **Page explanations.** A page explains itself under its title on your first visit on this device. After that, click **ⓘ** next to the title to read it again. The line under the title shows facts, such as counts.
 - **Breadcrumbs.** On a laptop, the top bar shows where a detail page belongs: **Folders / folder / Local PR**, **Folders / folder / Pull requests / #N**, or **Inbox / owner/repo#N** for a GitHub item without a folder, and **Bots / bot**. Click a part to open that page.
-- **Settings search.** On a laptop, Settings replaces the sidebar with its pages (**Back to Launchpad** returns to the page you were on); the field at the top finds pages by name and by keyword: "telegram" finds Channels and "runner" finds Home and runners.
+- **Settings search.** On a laptop, Settings replaces the sidebar with its pages (**Back to Launchpad** returns to the page you were on); the field at the top finds pages by name and by keyword: "telegram" finds Workspace (its Telegram bot) and "runner" finds Home and runners.
 
 ### Open Launchpad on your phone
 
