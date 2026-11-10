@@ -21,7 +21,7 @@ const botSessions = () => world.sessions.filter((s) => s.launch_spec.bot?.id ===
 
 export const ask: Chapter = {
   ...meta("ask"),
-  learned: ["Ask from the top-bar field on any page: the bot's chat opens as a panel, with the page as context", "Ask Launchpad is a bot like the others, created in every workspace, with its notes in the knowledge base", "It reads Launchpad state and answers with proposals through the Launchpad CLI tool", "Manual mode waits for your click; auto mode (bot.toml) starts one-time proposals; Edit sends a proposal to the composer", "Its BOT.md and bot.toml have versions; edit them, or replace it with your own bot", "A bot is an agent that stays: one thread shown as a chat, its instructions in BOT.md, its notes in the knowledge base; the trace stays in Agents", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
+  learned: ["Ask from the top-bar field on any page: the bot's chat opens as a panel, with the page as context", "Ask Launchpad is a bot like the others, created in every workspace, with its own memory", "It reads Launchpad state and answers with proposals through the Launchpad CLI tool", "Manual mode waits for your click; auto mode (bot.toml) starts one-time proposals; Edit sends a proposal to the composer", "Its BOT.md and bot.toml have versions; edit them, or replace it with your own bot", "A bot is an agent that stays: one thread shown as a chat, its instructions in BOT.md, its notes in its own memory; the trace stays in Agents", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
@@ -50,7 +50,7 @@ export const ask: Chapter = {
     {
       id: "ask.thread", route: ASK_ROUTE, anchor: "bots.thread",
       title: "Ask Launchpad",
-      body: "Every workspace starts with this bot. Its page is a chat: your messages, its answers and the cards it writes. One line per turn counts the steps behind an answer; Open trace shows them in Agents. It reads your folders, agents, inbox, schedules and quotas with the Launchpad CLI, and keeps what it learns about you in its notes in the knowledge base.",
+      body: "Every workspace starts with this bot. Its page is a chat: your messages, its answers and the cards it writes. One line per turn counts the steps behind an answer; Open trace shows them in Agents. It reads your folders, agents, inbox, schedules and quotas with the Launchpad CLI, and keeps what it learns about you in its own memory.",
     },
     {
       id: "ask.question", route: ASK_ROUTE, anchor: "bots.reply",
@@ -77,7 +77,7 @@ export const ask: Chapter = {
     {
       id: "ask.bots", route: "/bots", anchor: "sidebar.bots",
       title: "Bots: agents that stay",
-      body: "Your other bots each have a job, one thread you come back to, and notes they keep in the knowledge base. Ask Launchpad can propose one for you.",
+      body: "Your other bots each have a job, one thread you come back to, and their own memory: notes they keep between sessions. Ask Launchpad can propose one for you.",
     },
     {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",

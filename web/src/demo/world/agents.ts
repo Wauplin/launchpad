@@ -303,8 +303,8 @@ export function agentsWorld() {
     events: [
       user("What changed in checkout this week, and is anything still risky?"),
       ...tool("Bash", "git log --since=7.days --oneline -- src/checkout", "a41c9e2 Poll the order in the checkout e2e test\n7f03b11 Verify Stripe webhooks before saving"),
-      ...tool("Bash", "launchpad kb write bots/maintainer/checkout.md", "Saved bots/maintainer/checkout.md"),
-      say("Two changes in checkout this week:\n\n- **Webhooks are verified before the order is saved** (7f03b11), as decided with Maria.\n- **The flaky e2e test now polls the order** for 10 seconds (a41c9e2).\n\nStill risky: the refund path has no end-to-end test. I noted it in my notes (`bots/maintainer/checkout.md`); say the word and I prepare one as a Local PR."),
+      ...tool("Bash", "launchpad bot memory write checkout.md", "Wrote memory/checkout.md"),
+      say("Two changes in checkout this week:\n\n- **Webhooks are verified before the order is saved** (7f03b11), as decided with Maria.\n- **The flaky e2e test now polls the order** for 10 seconds (a41c9e2).\n\nStill risky: the refund path has no end-to-end test. I noted it in my memory (`memory/checkout.md`); say the word and I prepare one as a Local PR."),
       ...end(2),
       // Two routine runs in the same thread: a quiet daily check, then a CI failure with a report.
       user(routineText("Daily check", "Scheduled", DAILY), false),

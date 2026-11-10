@@ -34,16 +34,26 @@ const profileOf = (b: Bot) => b.settings.profile ? world.config.profiles.find((p
 /** A bot's sessions start in its folder, or in a temporary folder without one. */
 export const botTarget = (b: Bot): LaunchSpec["target"] => b.settings.folder ? { kind: "project", project_id: b.settings.folder } : { kind: "temp" };
 
-route("GET", "/api/bots", () => world.bots);
+/** A bot with its memory/ files listed (Home's `Bot.memory`). */
+const withMemory = (b: Bot): Bot => ({ ...b, memory: Object.entries(world.botMemory[b.id] ?? {}).map(([path, content]) => ({ path, sha256: `${b.id}-${path}-${content.length}`, size: content.length, executable: false })).sort((x, y) => x.path.localeCompare(y.path)) });
+
+route("GET", "/api/bots", () => world.bots.map(withMemory));
 route("GET", "/api/bots/templates", () => [{ id: "ask-launchpad", name: "Ask Launchpad", instructions: ASK_DEFAULT, starters: ASK_STARTERS }]);
-route("GET", "/api/bots/:id", ({ params }) => botOf(params.id));
+route("GET", "/api/bots/:id", ({ params }) => withMemory(botOf(params.id)));
+route("GET", "/api/bots/:id/file", ({ params, query }) => {
+  const b = botOf(params.id);
+  const path = query.get("path") ?? "";
+  const text = path === "BOT.md" ? b.instructions : path === "bot.toml" ? b.settings_text : world.botMemory[b.id]?.[path];
+  if (text == null) throw new DemoError(404, `there is no ${path}`);
+  return new Response(text, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+});
 route("POST", "/api/bots", ({ body }) => {
   const c = body as { workspace_id: string; name: string; instructions: string; profile: string | null; folder: string | null; starters?: string[] };
   if (!c.name?.trim()) throw new DemoError(400, "give the bot a name");
   const slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "bot";
   // No folder: each session starts in a temporary folder.
   const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder: c.folder || undefined, permission_mode: "yolo", proposals: "manual", launchpad: "propose", ...(c.starters?.length ? { starters: c.starters } : {}) };
-  const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 1 };
+  const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 1, memory: [] };
   world.bots.push(b);
   record(b, "BOT.md", "", b.instructions);
   changed(b);
@@ -65,7 +75,7 @@ route("PATCH", "/api/bots/:id", ({ params, body }) => {
   if (p.settings) { const before = b.settings_text; b.settings = { ...p.settings }; b.settings_text = settingsText(b.settings); record(b, "bot.toml", before, b.settings_text); }
   if (p.instructions != null) { const before = b.instructions; b.instructions = p.instructions; record(b, "BOT.md", before, b.instructions); }
   changed(b);
-  return b;
+  return withMemory(b);
 });
 route("POST", "/api/bots/:id/pause", ({ params, body }) => {
   const b = botOf(params.id);
@@ -73,7 +83,7 @@ route("POST", "/api/bots/:id/pause", ({ params, body }) => {
   for (const c of world.crons.filter((x) => x.bot_id === b.id)) { c.bot_paused = b.paused; c.next_run_at = nextDue(c); }
   publish("crons", "changed", null);
   changed(b);
-  return b;
+  return withMemory(b);
 });
 route("POST", "/api/bots/:id/routines", ({ params, body }) => {
   const b = botOf(params.id);

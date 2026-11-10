@@ -8,7 +8,7 @@ const findOpen = () => !!document.querySelector('input[placeholder="Find in file
 
 export const folders: Chapter = {
   ...meta("folders"),
-  learned: ["A folder page shows its agents, GitHub items and worktrees", "Files browses any checkout or worktree, with Find", "Each folder belongs to one workspace; a window shows one workspace", "Add folder clones a GitHub repository or creates a plain folder", "Knowledge is the memory of a workspace: notes agents read and write, every change restorable"],
+  learned: ["A folder page shows its agents, GitHub items and worktrees", "Files browses any checkout or worktree, with Find", "Each folder belongs to one workspace; a window shows one workspace", "Add folder clones a GitHub repository or creates a plain folder", "Knowledge is the shared memory of a workspace: notes agents read and write, every change restorable; each bot's own memory is listed there too"],
   steps: [
     {
       id: "folders.page", route: "/projects/demo-storefront", anchor: "folder.page",
@@ -34,7 +34,7 @@ export const folders: Chapter = {
     {
       id: "folders.knowledge", route: "/knowledge", anchor: "knowledge.notes",
       title: "Knowledge",
-      body: "Each workspace has a knowledge base: Markdown notes and media, the only memory agents have. Agents read it as files and write with launchpad kb; their harness's own memory is off. Edit notes here, or run the gardener to merge duplicates and keep INDEX.md current.",
+      body: "Each workspace has a knowledge base: Markdown notes and media, the memory its agents share. Agents read it as files and write with launchpad kb; their harness's own memory is off. Edit notes here, or run the gardener to merge duplicates and keep INDEX.md current. Bot memory, under the notes, lists each bot's own notes.",
     },
     {
       id: "folders.knowledge-changes", route: "/knowledge", anchor: "knowledge.tabs",

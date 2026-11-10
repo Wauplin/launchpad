@@ -21,7 +21,6 @@ import { SplitView } from "@/components/SplitView";
 import type { Bot } from "@/gen/Bot";
 import type { BotSettings } from "@/gen/BotSettings";
 import type { Change } from "@/gen/Change";
-import type { Notes } from "@/gen/Notes";
 import type { PermissionMode } from "@/gen/PermissionMode";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
@@ -363,23 +362,21 @@ function RoutinesPanel({ bot, routines }: { bot: Bot; routines: CronAgent[] }) {
 
 function MemoryPanel({ bot, thread, current }: { bot: Bot; thread: Session[]; current: Session | null }) {
   const ws = bot.workspace_id;
-  const notes = useQuery({ queryKey: ["knowledge", ws, "notes"], queryFn: () => api.get<Notes>(`/api/knowledge/${ws}`) });
   const changes = useQuery({ queryKey: ["knowledge", ws, "changes"], queryFn: () => api.get<{ changes: Change[] }>(`/api/knowledge/${ws}/changes`) });
-  const prefix = `bots/${bot.slug}/`;
-  const own = (notes.data?.files ?? []).filter((f) => f.path.startsWith(prefix));
+  const own = bot.memory;
   const ids = new Set(thread.map((s) => s.id));
   const recent = (changes.data?.changes ?? []).filter((c) => c.author?.session_id && ids.has(c.author.session_id)).slice(0, 12);
   const [open, setOpen] = useState<string | null>(null);
   return <div data-tour="bots.memory">
-    <Section title={`Its notes · ${prefix}`} action={<Link to="/knowledge" className="text-[12px]">Open Knowledge</Link>}>
-      {notes.isLoading ? <Loading what="notes" /> : own.length === 0
-        ? <p className="m-0 text-[12px] text-ink-3">No note yet. {bot.settings.name} writes here what it needs to remember between sessions; it also reads and writes the rest of the knowledge base.</p>
+    <Section title="Its memory">
+      {own.length === 0
+        ? <p className="m-0 text-[12px] text-ink-3">No note yet. {bot.settings.name} writes here what it needs to remember between sessions.</p>
         : own.map((f) => <div key={f.path}>
-          <button className="flex min-h-[28px] w-full items-center gap-1.5 text-left text-[13px] hover:underline" aria-expanded={open === f.path} onClick={() => setOpen(open === f.path ? null : f.path)}><Icon name="file" size={12} className="text-ink-3" />{f.path.slice(prefix.length)}</button>
-          {open === f.path && <NoteText ws={ws} path={f.path} sha={f.sha256} />}
+          <button className="flex min-h-[28px] w-full items-center gap-1.5 text-left text-[13px] hover:underline" aria-expanded={open === f.path} onClick={() => setOpen(open === f.path ? null : f.path)}><Icon name="file" size={12} className="text-ink-3" />{f.path.replace(/^memory\//, "")}</button>
+          {open === f.path && <NoteText bot={bot.id} path={f.path} sha={f.sha256} />}
         </div>)}
     </Section>
-    <Section title="Recent changes by this bot">
+    <Section title="Its changes to the knowledge base" action={<Link to="/knowledge" className="text-[12px]">Open Knowledge</Link>}>
       {recent.length === 0 ? <p className="m-0 text-[12px] text-ink-3">None in the last 30 days.</p>
         : <ul className="m-0 grid gap-1 p-0">{recent.map((c) => <li key={c.id} className="flex list-none items-center gap-2 text-[12px]"><span className="min-w-0 flex-1 truncate" title={c.path}>{c.new_sha256 ? (c.sha256 ? "Edited" : "Created") : "Removed"} {c.path}</span><span className="text-ink-3 tabular-nums">{c.added != null && `+${c.added} −${c.removed ?? 0}`}</span><span className="text-ink-3">{age(c.at)}</span></li>)}</ul>}
     </Section>
@@ -387,8 +384,8 @@ function MemoryPanel({ bot, thread, current }: { bot: Bot; thread: Session[]; cu
   </div>;
 }
 
-function NoteText({ ws, path, sha }: { ws: string; path: string; sha: string }) {
-  const q = useQuery({ queryKey: ["knowledge", ws, "file", path, sha], queryFn: async () => { const r = await fetch(daemonUrl(`/api/knowledge/${ws}/file?path=${encodeURIComponent(path)}`), { credentials: "include" }); if (!r.ok) throw new Error(await r.text()); return r.text(); }, staleTime: Infinity });
+function NoteText({ bot, path, sha }: { bot: string; path: string; sha: string }) {
+  const q = useQuery({ queryKey: ["bot-file", bot, path, sha], queryFn: async () => { const r = await fetch(daemonUrl(`/api/bots/${bot}/file?path=${encodeURIComponent(path)}`), { credentials: "include" }); if (!r.ok) throw new Error(await r.text()); return r.text(); }, staleTime: Infinity });
   return q.isLoading ? <Loading what="the note" /> : q.error ? <ErrorState error={q.error} /> : <div className="mb-2 rounded-control bg-sunk px-3 py-2"><Markdown text={q.data ?? ""} className="text-[13px]" /></div>;
 }
 

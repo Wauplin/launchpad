@@ -1,7 +1,8 @@
-// Knowledge: the knowledge base of a workspace, the only memory agents have. Notes (read, edit, concurrent
+// Knowledge: the knowledge base of a workspace, the memory its agents share. Notes (read, edit, concurrent
 // edits, backlinks), Changes (who changed what, with the diff and Restore previous) and the two one-click
 // helpers: the gardener (a normal launch, weekly with Repeat on a schedule) and the import of a runner's
-// harness memories. Home stores everything; every change is restorable for 30 days.
+// harness memories. Home stores everything; every change is restorable for 30 days. Under the notes, each bot's
+// own memory (memory/ of its folder), read-only here, with a link to the bot.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearch } from "@tanstack/react-router";
@@ -12,12 +13,14 @@ import { Markdown } from "@/components/Markdown";
 import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, FilterChip, Loading, PageHeader, Tabs } from "@/components/ui";
 import { PatchView } from "@/features/github/DiffReview";
+import type { Bot } from "@/gen/Bot";
 import type { Change } from "@/gen/Change";
 import type { Hit } from "@/gen/Hit";
 import type { NativeMemory } from "@/gen/NativeMemory";
 import type { Notes } from "@/gen/Notes";
 import { api, ApiError } from "@/lib/api";
 import { daemonUrl } from "@/lib/connection";
+import { useBots } from "@/lib/bots";
 import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useSessions } from "@/lib/queries";
@@ -39,6 +42,13 @@ async function getText(ws: string, q: string): Promise<string> {
   if (!res.ok) throw new ApiError(res.status, (await res.text().catch(() => "")) || res.statusText);
   return res.text();
 }
+
+/** A bot's memory note in the list: `bot:<bot id>:<path in its folder>`. */
+const botKey = (bot: string, path: string) => `bot:${bot}:${path}`;
+const parseBotKey = (key: string): { bot: string; path: string } | null => { const m = /^bot:([^:]+):(.+)$/.exec(key); return m ? { bot: m[1], path: m[2] } : null; };
+
+type Row = { kind: "note"; path: string; hit: Hit | null } | { kind: "heading" } | { kind: "bot"; bot: Bot } | { kind: "memory"; bot: Bot; path: string };
+const rowKey = (r: Row) => r.kind === "note" ? r.path : r.kind === "heading" ? "#bots" : r.kind === "bot" ? `#bot-${r.bot.id}` : botKey(r.bot.id, r.path);
 
 const stem = (path: string) => path.split("/").pop()!.replace(/\.md$/i, "");
 
@@ -71,6 +81,8 @@ export function KnowledgeView() {
   const [historyOf, setHistoryOf] = useState<string | null>(null);
   const [panel, setPanel] = useState<"note" | "new" | "import">("note");
   const notes = useQuery({ queryKey: ["knowledge", ws, "notes"], queryFn: () => api.get<Notes>(`/api/knowledge/${ws}`), enabled: !!ws });
+  const allBots = useBots().data;
+  const bots = useMemo(() => (allBots ?? []).filter((b) => b.workspace_id === ws && b.memory.length > 0), [allBots, ws]);
   const changes = useQuery({ queryKey: ["knowledge", ws, "changes"], queryFn: () => api.get<{ changes: Change[] }>(`/api/knowledge/${ws}/changes`), enabled: !!ws });
   const unseen = (changes.data?.changes ?? []).filter((c) => c.id > (notes.data?.seen ?? 0) && c.author?.kind === "agent").length;
   // A link to one note (`/knowledge?note=<path>`, from a bot chat's Changed line) opens it.
@@ -101,11 +113,11 @@ export function KnowledgeView() {
   const showHistory = (path: string) => { setHistoryOf(path); setTab("changes"); };
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="knowledge.page">
-      {phone ? <PhoneHeader title="Knowledge" onBack={selected && tab === "notes" ? () => setSelected(null) : undefined} actions={actions} /> : <PageHeader title="Knowledge" meta={meta} intro="The only memory agents have. Every change is restorable for 30 days." actions={actions} tabs={tabs} />}
+      {phone ? <PhoneHeader title="Knowledge" onBack={selected && tab === "notes" ? () => setSelected(null) : undefined} actions={actions} /> : <PageHeader title="Knowledge" meta={meta} intro="The memory agents share. Each bot also keeps its own notes, listed under Bot memory. Every change is restorable for 30 days." actions={actions} tabs={tabs} />}
       {phone && <div className="px-3">{tabs}</div>}
       {notes.isLoading ? <Loading what="the knowledge base" /> : notes.error ? <ErrorState error={notes.error} onRetry={() => void notes.refetch()} /> : notes.data && (
         tab === "notes"
-          ? <NotesTab ws={ws} notes={notes.data} changes={changes.data?.changes ?? []} selected={selected} select={openNote} panel={panel} setPanel={setPanel} showHistory={showHistory} refresh={refresh} />
+          ? <NotesTab ws={ws} notes={notes.data} bots={bots} changes={changes.data?.changes ?? []} selected={selected} select={openNote} panel={panel} setPanel={setPanel} showHistory={showHistory} refresh={refresh} />
           : <ChangesTab ws={ws} notes={notes.data} changes={changes.data?.changes ?? []} loading={changes.isLoading} error={changes.error} historyOf={historyOf} clearHistory={() => setHistoryOf(null)} openNote={openNote} refresh={refresh} />
       )}
     </div>
@@ -114,18 +126,25 @@ export function KnowledgeView() {
 
 // ---------------------------------------------------------------- Notes
 
-function NotesTab({ ws, notes, changes, selected, select, panel, setPanel, showHistory, refresh }: { ws: string; notes: Notes; changes: Change[]; selected: string | null; select: (p: string) => void; panel: "note" | "new" | "import"; setPanel: (p: "note" | "new" | "import") => void; showHistory: (p: string) => void; refresh: () => unknown }) {
+function NotesTab({ ws, notes, bots, changes, selected, select, panel, setPanel, showHistory, refresh }: { ws: string; notes: Notes; bots: Bot[]; changes: Change[]; selected: string | null; select: (p: string) => void; panel: "note" | "new" | "import"; setPanel: (p: "note" | "new" | "import") => void; showHistory: (p: string) => void; refresh: () => unknown }) {
   const phone = usePhone();
   const [filter, setFilter] = useState("");
   const words = filter.trim();
   const hits = useQuery({ queryKey: ["knowledge", ws, "search", words], queryFn: () => api.get<{ hits: Hit[] }>(`/api/knowledge/${ws}/search?q=${encodeURIComponent(words)}`), enabled: words.length >= 2, staleTime: 10_000 });
-  const rows = useMemo(() => {
-    if (!words) return notes.files.map((f) => ({ path: f.path, hit: null as Hit | null }));
-    const byName = notes.files.filter((f) => f.path.toLowerCase().includes(words.toLowerCase())).map((f) => ({ path: f.path, hit: null as Hit | null }));
-    const seen = new Set(byName.map((r) => r.path));
-    const byText = (hits.data?.hits ?? []).filter((h) => !seen.has(h.path) && (seen.add(h.path), true)).map((h) => ({ path: h.path, hit: h }));
-    return [...byName, ...byText];
-  }, [notes.files, words, hits.data]);
+  const rows = useMemo((): Row[] => {
+    const w = words.toLowerCase();
+    // Each bot's memory, under the notes: found by name only (it is not part of the knowledge base's search).
+    const memory: Row[] = bots.flatMap((bot) => {
+      const files = bot.memory.filter((f) => !w || f.path.toLowerCase().includes(w) || bot.settings.name.toLowerCase().includes(w));
+      return files.length ? [{ kind: "bot" as const, bot }, ...files.map((f) => ({ kind: "memory" as const, bot, path: f.path }))] : [];
+    });
+    const tail: Row[] = memory.length ? [{ kind: "heading" }, ...memory] : [];
+    if (!words) return [...notes.files.map((f): Row => ({ kind: "note", path: f.path, hit: null })), ...tail];
+    const byName = notes.files.filter((f) => f.path.toLowerCase().includes(w)).map((f): Row => ({ kind: "note", path: f.path, hit: null }));
+    const seen = new Set(notes.files.filter((f) => f.path.toLowerCase().includes(w)).map((f) => f.path));
+    const byText = (hits.data?.hits ?? []).filter((h) => !seen.has(h.path) && (seen.add(h.path), true)).map((h): Row => ({ kind: "note", path: h.path, hit: h }));
+    return [...byName, ...byText, ...tail];
+  }, [notes.files, bots, words, hits.data]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => scrollRef.current, estimateSize: () => ROW, overscan: 12, useFlushSync: false });
   const showList = !phone || (!selected && panel === "note");
@@ -141,15 +160,19 @@ function NotesTab({ ws, notes, changes, selected, select, panel, setPanel, showH
         </div>}
         {rows.length === 0 ? <Empty icon="search">{words ? (hits.isFetching ? "Searching…" : "No note matches.") : "No note yet."}</Empty> : <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
           <div className="relative" style={{ height: v.getTotalSize() }}>
-            {v.getVirtualItems().map((r) => <div key={rows[r.index].path} className="absolute inset-x-0" style={{ top: r.start, height: ROW }}>
-              <NoteRow path={rows[r.index].path} hit={rows[r.index].hit} active={rows[r.index].path === selected && panel === "note"} onClick={select} />
-            </div>)}
+            {v.getVirtualItems().map((r) => { const row = rows[r.index]; return <div key={rowKey(row)} className="absolute inset-x-0" style={{ top: r.start, height: ROW }}>
+              {row.kind === "note" ? <NoteRow path={row.path} hit={row.hit} active={row.path === selected && panel === "note"} onClick={select} />
+                : row.kind === "heading" ? <div className="seclabel flex h-full items-end px-3 pb-1" data-tour="knowledge.bot-memory">Bot memory</div>
+                : row.kind === "bot" ? <BotRow bot={row.bot} />
+                : <NoteRow path={row.path} display={row.path.replace(/^memory\//, "")} indent hit={null} active={botKey(row.bot.id, row.path) === selected && panel === "note"} onClick={() => select(botKey(row.bot.id, row.path))} />}
+            </div>; })}
           </div>
         </div>}
       </aside>}
       {showPane && <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         {panel === "import" ? <ImportPanel ws={ws} existing={notes.files.map((f) => f.path)} done={() => { setPanel("note"); void refresh(); }} />
           : panel === "new" ? <NoteEditor ws={ws} isNew paths={notes.files.map((f) => f.path)} done={(path) => { setPanel("note"); if (path) select(path); void refresh(); }} />
+          : selected && parseBotKey(selected) ? <BotNotePane key={selected} bot={bots.find((b) => b.id === parseBotKey(selected)!.bot)} path={parseBotKey(selected)!.path} />
           : selected ? <NotePane key={selected} ws={ws} notes={notes} changes={changes} path={selected} select={select} showHistory={showHistory} refresh={refresh} />
           : <Empty fill icon="book">Choose a note.</Empty>}
       </section>}
@@ -157,14 +180,46 @@ function NotesTab({ ws, notes, changes, selected, select, panel, setPanel, showH
   );
 }
 
-const NoteRow = memo(function NoteRow({ path, hit, active, onClick }: { path: string; hit: Hit | null; active: boolean; onClick: (p: string) => void }) {
-  const i = path.lastIndexOf("/");
-  return <button className={`flex h-full w-full min-w-0 items-center gap-1.5 px-3 text-left text-[13px] hover:bg-sunk ${active ? "bg-sunk font-semibold" : ""}`} title={hit ? `${path}:${hit.line} ${hit.text}` : path} onClick={() => onClick(path)}>
+const NoteRow = memo(function NoteRow({ path, display = path, indent, hit, active, onClick }: { path: string; display?: string; indent?: boolean; hit: Hit | null; active: boolean; onClick: (p: string) => void }) {
+  const i = display.lastIndexOf("/");
+  return <button className={`flex h-full w-full min-w-0 items-center gap-1.5 ${indent ? "pr-3 pl-7" : "px-3"} text-left text-[13px] hover:bg-sunk ${active ? "bg-sunk font-semibold" : ""}`} title={hit ? `${path}:${hit.line} ${hit.text}` : path} onClick={() => onClick(path)}>
     <Icon name={MEDIA.test(path) || VIDEO.test(path) || AUDIO.test(path) ? "clip" : "file"} size={12} className="flex-none text-ink-3" />
-    <span className="min-w-0 truncate">{i >= 0 && <span className="text-ink-3">{path.slice(0, i + 1)}</span>}{path.slice(i + 1)}</span>
+    <span className="min-w-0 truncate">{i >= 0 && <span className="text-ink-3">{display.slice(0, i + 1)}</span>}{display.slice(i + 1)}</span>
     {hit && <span className="min-w-0 flex-1 truncate text-[11px] text-ink-3">{hit.text}</span>}
   </button>;
 });
+
+/** A bot in the Bot memory list: a link to its page. */
+const BotRow = memo(function BotRow({ bot }: { bot: Bot }) {
+  return <Link to="/bots/$id" params={{ id: bot.id }} search={{ panel: "memory" } as never} className="flex h-full min-w-0 items-center gap-1.5 px-3 text-[13px] text-ink no-underline hover:bg-sunk" title={`Open ${bot.settings.name}`}>
+    <Icon name="spark" size={12} className="flex-none text-ink-3" />
+    <span className="min-w-0 truncate font-semibold">{bot.settings.name}</span>
+    <span className="text-[12px] text-ink-3">{bot.memory.length}</span>
+  </Link>;
+});
+
+/** A bot's memory note: read-only here (the bot writes it; its page has the versions). */
+function BotNotePane({ bot, path }: { bot: Bot | undefined; path: string }) {
+  const entry = bot?.memory.find((f) => f.path === path);
+  const text = useQuery({ queryKey: ["bot-file", bot?.id, path, entry?.sha256], queryFn: async () => { const r = await fetch(daemonUrl(`/api/bots/${bot!.id}/file?path=${encodeURIComponent(path)}`), { credentials: "include" }); if (!r.ok) throw new ApiError(r.status, (await r.text().catch(() => "")) || r.statusText); return r.text(); }, enabled: !!entry, staleTime: Infinity });
+  if (!bot || !entry) return <Empty fill icon="file">This note is no longer in the bot's memory.</Empty>;
+  const fm = text.data != null ? splitFrontMatter(text.data) : null;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex flex-wrap items-center gap-2 border-b border-line-2 px-4 py-2">
+        <span className="min-w-0 flex-1 truncate font-mono text-[13px]" title={path}>{bot.settings.name} · {path}</span>
+        <Link to="/bots/$id" params={{ id: bot.id }} search={{ panel: "memory" } as never} className="btn btn-sm no-underline">Open {bot.settings.name}</Link>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        {text.isLoading ? <Loading what="the note" /> : text.error ? <ErrorState error={text.error} /> : fm && <>
+          {fm.meta.length > 0 && <div className="mb-3 flex flex-wrap gap-1.5">{fm.meta.map(([k, val]) => <Badge key={k} tone="neutral" title={k}>{k === "title" ? val : `${k}: ${val}`}</Badge>)}</div>}
+          {path.endsWith(".md") ? <Markdown className="markdown-body" text={fm.body} /> : <pre className="m-0 whitespace-pre-wrap font-mono text-[12px]">{text.data}</pre>}
+        </>}
+      </div>
+      <div className="border-t border-line-2 px-5 py-2 text-[12px] text-ink-3">Read-only: {bot.settings.name} writes its memory. Versions are on its page.</div>
+    </div>
+  );
+}
 
 function Authors({ changes }: { changes: Change[] }) {
   const agents = new Set(changes.filter((c) => c.author?.kind === "agent").map((c) => c.author!.session_id));
