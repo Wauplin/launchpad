@@ -1,6 +1,7 @@
 // A main area and a side panel on the right, split by a line the owner drags (or moves with the arrow keys when
 // focused). The panel width is device-local (browser storage, per `storageKey`; the demo keeps it in memory) and
 // stays between `min` px and `maxRatio` of the view, so the main area never gets narrower than the panel allows.
+// Without `side` (a closed drawer) only the main area shows, and it stays mounted when the panel opens or closes.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useZoomScale } from "@/lib/zoom";
 
@@ -37,6 +38,7 @@ export function SplitView({ storageKey, main, side, initial = 400, min = 280, ma
   return (
     <div ref={root} className="flex min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">{main}</div>
+      {side && <>
       <div
         role="separator"
         aria-label={`Resize ${sideLabel}`}
@@ -77,6 +79,7 @@ export function SplitView({ storageKey, main, side, initial = 400, min = 280, ma
         <span className="w-px bg-line group-hover:w-[3px] group-hover:bg-teal group-focus-visible:w-[3px] group-focus-visible:bg-teal" />
       </div>
       <aside className="flex min-h-0 min-w-0 flex-none flex-col" style={{ width: shown }} aria-label={sideLabel}>{side}</aside>
+      </>}
     </div>
   );
 }

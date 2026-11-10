@@ -258,6 +258,8 @@ function BotPageOf({ id }: { id: string }) {
   // About from the chat adds one history entry, so Back (and ‹) returns to the chat.
   const about = !!search.panel;
   const pushed = useRef(false);
+  // Android back (or the browser's) closed About: its entry is gone, so ‹ must not go back once more.
+  useEffect(() => { if (!about) pushed.current = false; }, [about]);
   const setAbout = (open: boolean) => {
     if (!phone) rememberAbout(id, open);
     if (phone && !open && pushed.current) { pushed.current = false; router.history.back(); return; }
@@ -314,8 +316,9 @@ function BotPageOf({ id }: { id: string }) {
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
       <PageHeader title={<span className="flex min-w-0 items-center gap-2"><BotAvatar name={bot.settings.name} size={24} /><span className="truncate">{bot.settings.name}</span></span>}
         meta={statusLine}
-        actions={<><button className="btn btn-sm" aria-pressed={about} data-tour="bots.about" title={`What defines ${bot.settings.name}: BOT.md, triggers, memory, access and versions`} onClick={() => setAbout(!about)}><Icon name="info" size={12} />About</button>{more}</>} />
-      {about ? <SplitView storageKey="launchpad.bot-about-width" sideLabel="About" initial={380} min={320} maxRatio={0.5} main={chat} side={drawer} /> : chat}
+        actions={<><button className={`btn btn-sm ${about ? "border-teal/40 bg-teal-soft text-teal-ink" : ""}`} aria-pressed={about} data-tour="bots.about" title={`What defines ${bot.settings.name}: BOT.md, triggers, memory, access and versions`} onClick={() => setAbout(!about)}><Icon name="info" size={12} />About</button>{more}</>} />
+      {/* Always the split view, so the chat (and a draft in its message box) stays mounted when About opens or closes. */}
+      <SplitView storageKey="launchpad.bot-about-width" sideLabel="About" initial={380} min={320} maxRatio={0.5} main={chat} side={about ? drawer : null} />
       {dialogs}
     </div>
   );
@@ -326,7 +329,7 @@ function statusOf(bot: Bot, thread: Session[], current: Session | null, routines
   if (current?.open_question) return { text: "Waiting for you · 1 question", tone: "text-attn" };
   if (current && isRunning(current)) return { text: `Working${step ? ` · ${step}` : ""} (${age(current.status_since)})`, tone: "text-work" };
   if (current && isQuotaPaused(current)) return { text: "Quota paused · continues when the quota allows", tone: "text-attn" };
-  if (bot.paused) return { text: "Paused · no trigger starts it; your messages still go through", tone: "text-attn" };
+  if (bot.paused) return { text: "Paused · no trigger starts it; your messages still go through", tone: "text-ink-2" };
   if (current?.status === "error") return { text: "The last turn failed", tone: "text-gh-closed" };
   if (current?.status === "interrupted") return { text: "The last turn was interrupted", tone: "text-gh-closed" };
   if (!thread.length) return { text: "No task yet", tone: "text-ink-3" };
@@ -502,6 +505,7 @@ const TRIGGER_ICON: Record<CronAgent["trigger"]["kind"], IconName> = { schedule:
  * it and its Telegram command, with one Pause for all of them. */
 function TriggersSection({ bot, routines, onEditFile }: { bot: Bot; routines: CronAgent[]; onEditFile: (path: string) => void }) {
   const qc = useQueryClient();
+  const phone = usePhone();
   const projects = useProjects().data ?? [];
   const profiles = useProfiles();
   const navigate = useNavigate();
@@ -521,7 +525,8 @@ function TriggersSection({ bot, routines, onEditFile }: { bot: Bot; routines: Cr
   </ActionButton>;
   const row = "flex min-h-9 w-full min-w-0 items-center gap-2 rounded-control px-1.5 py-1 text-left text-[13px] text-ink no-underline hover:bg-sunk";
   return <Section title="Triggers" tour="bots.triggers" action={pause}>
-    {bot.paused && <p className="m-0 text-[12px] text-attn">Paused: no trigger starts {bot.settings.name} until you resume it. Your own messages still go through.</p>}
+    {/* The laptop header's status line says it already; the phone's About page has no status line. */}
+    {bot.paused && phone && <p className="m-0 text-[12px] text-ink-2">Paused: no trigger starts {bot.settings.name} until you resume it. Your own messages still go through.</p>}
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5" data-tour="bots.routines">
       {routines.map((r) => <div key={r.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1">
         <button className={row} aria-expanded={open === r.id} title={cronTitle(r)} onClick={() => setOpen(open === r.id ? null : r.id)}>
