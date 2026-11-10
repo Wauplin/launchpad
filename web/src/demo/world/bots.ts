@@ -45,7 +45,7 @@ export function botsWorld() {
   ];
   // A hook message waiting for the Maintainer's turn to end (a grey row at the bottom of its chat, with Cancel).
   const botQueued: Record<string, QueuedMessage[]> = {
-    [BOT]: [{ n: 1, at: clock.ago(2), source: "hook", text: "The incoming hook \"CI failures\" received a request" }],
+    [BOT]: [{ n: 1, at: clock.ago(2), source: "hook", text: "The incoming hook \"CI failures\" received a request: { \"workflow\": \"checkout-e2e\", \"conclusion\": \"failure\" }" }],
   };
   return { bots, botChanges, activity, botQueued };
 }

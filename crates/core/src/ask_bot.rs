@@ -60,7 +60,10 @@ pub async fn seed(app: &App) -> Result<()> {
     }
     for w in crate::workspace::list(app).await? {
         seed_workspace(app, &w.id).await?;
-        seed_starters(app, &w.id).await?;
+        // Not fatal: an Ask Launchpad whose settings no longer pass the checks gets them at a later start.
+        if let Err(e) = seed_starters(app, &w.id).await {
+            tracing::warn!("Ask Launchpad's starters in workspace {}: {e:#}", w.id);
+        }
     }
     Ok(())
 }

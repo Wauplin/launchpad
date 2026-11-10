@@ -282,13 +282,28 @@ pub struct QueuedMessage {
     pub at: i64,
     /// "telegram" or "hook".
     pub source: String,
-    /// The message without Launchpad's own lines: the Telegram text, or the hook's first line.
+    /// The message without Launchpad's own lines: the Telegram text, or the hook's name and the start of its body.
     pub text: String,
 }
 
 fn preview(q: &Queued) -> QueuedMessage {
-    let text = if q.telegram { q.text.strip_suffix(crate::telegram::FROM_TELEGRAM).unwrap_or(&q.text).to_string() } else { q.text.split(". ").next().unwrap_or(&q.text).to_string() };
+    let text = if q.telegram { q.text.strip_suffix(crate::telegram::FROM_TELEGRAM).unwrap_or(&q.text).to_string() } else { hook_preview(&q.text) };
     QueuedMessage { n: 0, at: 0, source: if q.telegram { "telegram" } else { "hook" }.into(), text }
+}
+
+/// A hook message (`message`) as a waiting row shows it: its first sentence, then the start of the fenced body on
+/// one line.
+fn hook_preview(text: &str) -> String {
+    let head = text.split(". ").next().unwrap_or(text);
+    let body = text.split_once("\n\n").and_then(|(_, rest)| {
+        let f: String = rest.chars().take_while(|c| *c == '`').collect();
+        let (_, inside) = rest.split_once('\n')?;
+        Some(inside.rfind(&format!("\n{f}")).map_or(inside, |end| &inside[..end]))
+    });
+    match body.map(str::trim).filter(|b| !b.is_empty()) {
+        Some(b) => format!("{head}: {}", b.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(300).collect::<String>()),
+        None => head.to_string(),
+    }
 }
 
 /// The messages waiting for the bot's current turn to end, oldest first.
@@ -404,5 +419,14 @@ mod tests {
         let long = "é".repeat(MAX_BODY);
         assert!(message("x", long.as_bytes()).contains("was cut"));
         assert!(same(b"abc", b"abc") && !same(b"abc", b"abd") && !same(b"abc", b"ab"));
+    }
+
+    #[test]
+    fn waiting_rows_show_the_hook_body() {
+        assert_eq!(hook_preview(&message("CI", b"build failed")), "The incoming hook \"CI\" received a request: build failed");
+        assert_eq!(hook_preview(&message("x", b"has ``` inside")), "The incoming hook \"x\" received a request: has ``` inside");
+        assert_eq!(hook_preview(&message("CI", br#"{"a":1}"#)), "The incoming hook \"CI\" received a request: { \"a\": 1 }");
+        assert_eq!(hook_preview(&message("x", b"")), "The incoming hook \"x\" received a request");
+        assert_eq!(hook_preview("plain"), "plain");
     }
 }

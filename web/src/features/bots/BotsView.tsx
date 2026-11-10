@@ -8,7 +8,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ToolDefaultsEditor } from "@/features/settings/ToolDefaults";
 import { useLayers } from "@/lib/toolDefaults";
-import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useRouter, useSearch } from "@tanstack/react-router";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { HarnessMark } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
@@ -250,10 +250,17 @@ function BotPageOf({ id }: { id: string }) {
   const current = currentSession(thread);
   const search = useSearch({ strict: false }) as { panel?: string };
   const navigate = useNavigate();
+  const router = useRouter();
   // The URL's ?panel= is the only source of the open panel. The phone shows the chat until a panel is opened;
-  // opening one there adds a history entry, so Back returns to the chat.
+  // opening one from the chat adds a history entry, so Back (and ‹) returns to the chat without a second entry.
   const panel: Panel | null = PANELS.find((p) => p.id === search.panel)?.id ?? (phone ? null : "memory");
-  const setPanel = (p: Panel | null) => void navigate({ to: "/bots/$id", params: { id }, search: (p ? { panel: p } : {}) as never, replace: !phone || !p });
+  const pushed = useRef(false);
+  const setPanel = (p: Panel | null) => {
+    if (phone && !p && pushed.current) { pushed.current = false; router.history.back(); return; }
+    const push = phone && !!p && !panel;
+    if (push) pushed.current = true;
+    void navigate({ to: "/bots/$id", params: { id }, search: (p ? { panel: p } : {}) as never, replace: !push });
+  };
   const routines = (useCrons().data ?? []).filter((c) => c.bot_id === id);
   const proposalList = useProposalList();
   const profiles = useProfiles();
