@@ -9,7 +9,7 @@
 - [Remote access and phones](remote-access.md): pairing, Tailscale, the phone layout, notifications and a self-hosted Home.
 - [Hugging Face](hugging-face.md): open models, trace copies in the Home bucket and Home in a Space.
 - [Home and runners](home-and-runners.md): one Home that keeps records, runners and Burst that run agents, how sessions move and how work is saved.
-- [Knowledge](knowledge.md): the knowledge base of each workspace, the only memory agents have.
+- [Knowledge](knowledge.md): the knowledge base of each workspace, the memory agents share.
 - [Bots](bots.md): persistent agents with one thread, their instructions in `BOT.md` and their notes in the knowledge base.
 - [Channels and the Outbox](channels.md): your Telegram chat, outgoing channels whose drafts wait in Today, and incoming hooks.
 - [Chrome extension](../extension/README.md): give an agent the browser tabs you choose.

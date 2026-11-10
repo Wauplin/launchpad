@@ -13,7 +13,7 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Bot | assistant, teammate, persona | A named agent that stays: one thread of sessions, `BOT.md` instructions, notes in the knowledge base. Ask Launchpad is the bot every workspace starts with. Its page is a chat, with the panels Memory · Proposals · Routines · Settings (`BOT.md`, `bot.toml`). |
 | Routine | cron, cron agent, repeating agent | Work that starts on its own again and again: on a schedule, on GitHub activity or when another agent is done. "Cron" stays in the code (`crons.rs`, `/api/launch/crons`) and names only the schedule format. |
 | Schedules | Cron group, Scheduled group | The one page with Routines · Scheduled launches. |
-| Knowledge | memory, notes, wiki | The knowledge base of a workspace: notes and media that are the only memory agents have. |
+| Knowledge | memory, notes, wiki | The knowledge base of a workspace: notes and media that are the memory agents share (bots also keep their own). |
 | Home Git | Git server, mirror | Home's copy of every Git folder, with the Launchpad branches. Runners clone from it and push to it. |
 | Suggestion | agent draft, Agent draft banner, suggested comment | A comment or review written by an agent, posted with a click. |
 | Draft | (5 meanings) | Only an unsent composer launch. GitHub draft PRs say "GitHub draft"; unsent replies are "unsent reply". |

@@ -1,12 +1,12 @@
 # Bots
 
-A bot is an agent that stays. It has a name, a job you describe, one thread you come back to, and notes it keeps in the knowledge base between sessions. Bots and their routines are phases A and B of the [Bots plan](https://wauplin-launchpad-bots-research.static.hf.space/bots.html). A bot works when you message it, and on its own through its routines.
+A bot is an agent that stays. It has a name, a job you describe, one thread you come back to, and a memory of its own that it keeps between sessions. Bots and their routines are phases A and B of the [Bots plan](https://wauplin-launchpad-bots-research.static.hf.space/bots.html). A bot works when you message it, and on its own through its routines.
 
 Bots live on Home with your other records. Each session of a bot runs on a runner, contained like any agent.
 
 ## Ask Launchpad
 
-Every workspace starts with one bot, **Ask Launchpad**. Home creates it once, without a folder (each of its sessions runs in a temporary folder) and with admin access to the Launchpad CLI. It reads your folders, agents, Inbox, schedules and quotas, answers your questions, turns requests into proposals you start with one click, and changes Launchpad's settings (bots, routines, schedules, workspaces) when you ask it to. It keeps what it learns about you in its notes (`bots/ask-launchpad/` in the knowledge base), like any bot. Home also gives it a few starters, the quick chips over its message box (see [The bot's page](#the-bots-page)).
+Every workspace starts with one bot, **Ask Launchpad**. Home creates it once, without a folder (each of its sessions runs in a temporary folder) and with admin access to the Launchpad CLI. It reads your folders, agents, Inbox, schedules and quotas, answers your questions, turns requests into proposals you start with one click, and changes Launchpad's settings (bots, routines, schedules, workspaces) when you ask it to. It keeps what it learns about you in its memory, like any bot (see [Memory](#memory)). Home also gives it a few starters, the quick chips over its message box (see [The bot's page](#the-bots-page)).
 
 Ask Launchpad has no special treatment: its `BOT.md` and `bot.toml` are edited, versioned and restored like any bot's, and you can rename it, delete it or replace it with your own. Home never recreates a deleted Ask Launchpad; **New bot → Start from: Ask Launchpad** creates a new one with the default instructions. Any bot can do the same work, as long as the Launchpad CLI tool is granted to its workspace and its access level allows it.
 
@@ -103,18 +103,28 @@ The message box sends to the current session. Its **+** icon, next to **Attach**
 
 The header has the bot's state, **Pause** and **Open in Agents**; **ⓘ** next to the name explains sessions, routines and notes. On a laptop, the top bar shows **Bots / bot** to go back to the list. On a laptop, a side panel next to the chat has four tabs; drag the line between the chat and the panel to resize it (double-click resets it). This browser remembers the width. On a phone, the header's **⋯** menu holds the header buttons and the same four panels; a panel replaces the chat, and Back returns to it. The panels:
 
-- **Memory**: the bot's notes in the knowledge base (`bots/<slug>/`): short and current, with your preferences, the facts it needs next time and what you asked it to remember, never a journal of its runs; the recent changes made by its sessions, and every session of its thread with its status and context use. Correct a note on the Knowledge page; every change can be restored for 30 days.
+- **Memory**: **Its memory** lists the bot's notes (see [Memory](#memory)); click a note to read it. **Its changes to the knowledge base** lists the recent changes its sessions made there, with **Open Knowledge**. The panel also lists every session of its thread with its status and context use.
 - **Proposals**: the cards its sessions wrote, waiting or handled, with **Start all** and **Dismiss all**.
 - **Routines**: what the bot does on its own (see below).
-- **Settings**: `BOT.md` (its instructions), shown short: **Expand** (or a click on it) opens a large editor with a live preview (on the phone, a full-screen sheet with **Read** and **Edit**), and an unsaved draft stays until you save or discard it; how it runs (name, profile, model, folder, permissions, proposal mode, Launchpad CLI access and Inbox); what it can reach; `bot.toml`, the same settings as a file; **Versions**, every change of both files in the last 30 days with its diff and **Restore previous**; and **Delete bot**. Renaming a bot also gives it a new slug from the new name: its Telegram command follows, and its notes move to `bots/<new slug>/`, with the links in `INDEX.md`. A session that already runs keeps the old path until the next session. Deleting keeps the bot's sessions, its notes and its folder. A bot cannot edit its files unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md`, shown as a diff at the top of this tab (and in Today) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
+- **Settings**: `BOT.md` (its instructions), shown short: **Expand** (or a click on it) opens a large editor with a live preview (on the phone, a full-screen sheet with **Read** and **Edit**), and an unsaved draft stays until you save or discard it; how it runs (name, profile, model, folder, permissions, proposal mode, Launchpad CLI access and Inbox); what it can reach; `bot.toml`, the same settings as a file; **Versions**, every change of its files (memory included) in the last 30 days with its diff and **Restore previous**; and **Delete bot**. Renaming a bot also gives it a new slug from the new name, and its Telegram command follows. Its memory stays where it is. Deleting a bot deletes its files, its memory and its routines. Its sessions and its folder stay. A bot cannot edit `BOT.md` or `bot.toml` unless its Launchpad CLI access is admin: when its instructions should change, it proposes a new `BOT.md`, shown as a diff at the top of this tab (and in Today) until you click **Apply to BOT.md**; applying fails if `BOT.md` changed in between.
 
 **Pause** (in the header, once the bot has routines) stops every routine and incoming hook of the bot from starting runs; your own messages still go through, and **Stop** in its session ends a run that is working. **Resume** starts them again from their next trigger.
 
 The sidebar's **Bots** group lists the bots of the workspace, Ask Launchpad among them. A dot shows when a bot's current session needs you; a spinner when it works. Counts stay in Today, so a decision is never counted twice. The chevron collapses the group on this device; collapsed, it shows one state dot.
 
+## Memory
+
+Each bot has its own memory: Markdown notes in `memory/` of its files on Home. The bot writes them itself: your preferences, the facts it needs next time and what you asked it to remember. Notes stay short and current, never a journal of its runs. Facts that other agents need go in the [knowledge base](knowledge.md) instead.
+
+- A bot session gets a read-only copy of the bot's files on its runner. The variable `$LAUNCHPAD_BOT` points to it: `BOT.md`, `bot.toml` and `memory/`. The copy updates after each write and every minute.
+- The bot writes with `launchpad bot memory`: `list`, `read <path>`, `write <path>` (stdin or `--file`), `append <path>` and `rm <path>`. Paths are relative to `memory/`. It works at every Launchpad CLI access level, like `launchpad kb`. Home applies writes one at a time and records the session as the author. A write whose base changed is kept as a `.concurrent-<id>` copy, like in the knowledge base.
+- You read the notes in the bot's **Memory** panel and on the Knowledge page, under **Bot memory**. Both are read-only. Every change shows in **Versions** on the Settings tab, and **Restore previous** undoes it for 30 days.
+
+Before this, bots kept their notes in `bots/<slug>/` of the knowledge base. At its first start after the update, Home moves each bot's notes from there into its memory, once. It removes them from the knowledge base and drops their lines from `INDEX.md`. If a note with the same name already exists with other content, the moved one becomes a `.concurrent-` copy. Folders under `bots/` that belong to no bot stay in the knowledge base. If the knowledge base's `AGENTS.md` still has the old line that sent bot notes to `bots/<bot>/`, Home replaces it with one that points to the bot's memory.
+
 ## Files
 
-Home stores each bot's files with versions, like a plain folder, and includes them in every backup. Home's backups also keep readable copies in the bucket: `<workspace>/bots/<slug>/BOT.md` and `bot.toml`, next to `<workspace>/kb/` for the knowledge base. Home never reads these copies back.
+Home stores each bot's files with versions, like a plain folder, and includes them in every backup. Home's backups also keep readable copies in the bucket: `<workspace>/bots/<slug>/` holds `BOT.md`, `bot.toml` and `memory/`, next to `<workspace>/kb/` for the knowledge base. Home never reads these copies back.
 
 ## Routines
 
