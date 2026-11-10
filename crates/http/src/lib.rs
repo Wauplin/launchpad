@@ -32,3 +32,9 @@ pub const FROM_HOME: &str = "x-launchpad-from-home";
 pub fn hook_path(path: &str) -> bool {
     path.strip_prefix("/hooks/").is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
+
+/// Home: the agent session that sent this request (a request extension), from Home's own records: a session CLI
+/// token checked on Home, or a runner's tunnel request that names one of the sessions Home placed on that runner.
+/// Messages it sends are stamped as its (`launchpad_core::senders`), never as the owner's.
+#[derive(Clone, Debug)]
+pub struct AgentSession(pub String);

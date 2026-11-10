@@ -275,8 +275,17 @@ pub enum EventBody {
     Subagent { agent_id: String, parent_id: Option<String>, name: Option<String>, status: Option<String>, model: Option<String> },
     /// Child traces share the root session's durable sequence and transport, but stay separate in the UI.
     SubagentEvent { agent_id: String, body: Box<EventBody> },
-    /// Sent by you. `queued` while the agent has not read it yet.
-    UserMessage { text: String, client_id: String, queued: bool, #[serde(default)] images: Vec<ImageAttachment> },
+    /// Sent by you, or by `from` (another bot or agent, a routine). `queued` while the agent has not read it yet.
+    UserMessage {
+        text: String,
+        client_id: String,
+        queued: bool,
+        #[serde(default)]
+        images: Vec<ImageAttachment>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        from: Option<MessageFrom>,
+    },
     /// The agent read a queued message.
     MessageDelivered { client_id: String },
     /// Live text of an assistant message (not stored; the final text comes as `assistant_message`).
@@ -407,6 +416,46 @@ pub struct MessageContext {
     pub context_projects: Vec<ContextProject>,
     pub github_refs: Vec<GitHubRef>,
     pub agent_traces: Vec<AgentTraceRef>,
+    /// Who sends it when it is not the owner: Home stamps it from its own records (`senders`), never from a request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub from: Option<MessageFrom>,
+}
+
+/// Who sent a message that is not the owner's, stamped by Home from its own record of the sender (`senders`): another
+/// bot or agent (its text arrives under a header naming it, fenced), or a routine run (its own first line says so).
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct MessageFrom {
+    pub kind: SenderKind,
+    /// The bot, session or routine ID.
+    pub id: String,
+    /// The bot's name, the session's title or the routine's title.
+    pub name: String,
+    /// Delivered by this message card (proposal ID).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub card: Option<String>,
+    /// The owner clicked the card that delivered it ("from Scout, accepted by you").
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub accepted: bool,
+    /// Automatic messages in the chain that caused it (routine runs, agents' messages, cards accepted automatically),
+    /// itself included; 0 after an owner message or click (`senders::MAX_HOPS`).
+    #[ts(type = "number")]
+    pub hops: u32,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SenderKind {
+    /// A session of a bot's thread.
+    #[default]
+    Bot,
+    /// An agent session that is not a bot's.
+    Session,
+    /// A run of a routine.
+    Routine,
 }
 
 impl MessageContext {
@@ -483,6 +532,10 @@ pub struct LaunchSpec {
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routine: Option<RoutineLaunch>,
+    /// Who sends its first message when it is not the owner (`MessageContext::from`), stamped by Home.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<MessageFrom>,
 }
 
 /// What a routine's run tells the agent: the routine, what started this run and the related items.

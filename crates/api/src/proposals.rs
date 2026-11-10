@@ -52,8 +52,8 @@ struct AcceptQuery {
     /// The browser's IANA time zone, for routines and crons.
     time_zone: Option<String>,
 }
-async fn accept(State(s): State<Ctx>, Path(id): Path<String>, Query(q): Query<AcceptQuery>) -> ApiResult<Proposal> {
-    Ok(Json(proposals::accept_in(&s.app, &id, q.time_zone).await.map_err(bad)?))
+async fn accept(State(s): State<Ctx>, Path(id): Path<String>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Query(q): Query<AcceptQuery>) -> ApiResult<Proposal> {
+    Ok(Json(proposals::accept_in(&s.app, &id, q.time_zone, agent.map(|a| a.0.0)).await.map_err(bad)?))
 }
 async fn dismiss(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Proposal> {
     Ok(Json(proposals::dismiss(&s.app, &id).await.map_err(bad)?))

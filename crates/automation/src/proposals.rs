@@ -434,7 +434,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     if matches!(p.body, ProposalBody::Launch { .. } | ProposalBody::Message { .. } | ProposalBody::Schedule { .. })
         && auto_mode(app, author.as_ref()).await
     {
-        return accept_inner(app, &p.id, false, None).await;
+        return accept_inner(app, &p.id, false, None, None).await;
     }
     Ok(p)
 }
@@ -479,16 +479,32 @@ static ACCEPT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// Owner click: claim, act, record the result. `body` may replace the proposal's spec (edited in the card).
 pub async fn accept(app: &App, id: &str) -> Result<Proposal> {
-    accept_inner(app, id, true, None).await
+    accept_inner(app, id, true, None, None).await
 }
 
-/// Accept from a browser: a routine or cron keeps the browser's time zone.
-pub async fn accept_in(app: &App, id: &str, time_zone: Option<String>) -> Result<Proposal> {
-    accept_inner(app, id, true, time_zone).await
+/// Accept from a browser: a routine or cron keeps the browser's time zone. `agent`: a session with admin access
+/// accepted it, not the owner.
+pub async fn accept_in(app: &App, id: &str, time_zone: Option<String>, agent: Option<String>) -> Result<Proposal> {
+    accept_inner(app, id, true, time_zone, agent).await
 }
 
-/// `manual`: an owner click, which may also retry a failed card.
-async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<String>) -> Result<Proposal> {
+/// Who a message card's text comes from: its author (its bot, else its session). The owner's click resets the
+/// hop count; a card accepted automatically (auto mode) or by an agent counts one hop after the author's turn, or the
+/// accepting agent's.
+async fn card_sender(app: &App, p: &Proposal, owner_click: bool, agent: Option<&str>) -> Result<Option<launchpad_core::model::MessageFrom>> {
+    let Some(author) = p.session_id.as_deref().and_then(|sid| app.sessions.get(sid)) else { return Ok(None) };
+    let hops = match (owner_click, agent) {
+        (true, None) => 0,
+        (_, Some(a)) => launchpad_core::senders::hops_of(app, a).await + 1,
+        (false, None) => launchpad_core::senders::hops_of(app, &author.id).await + 1,
+    };
+    launchpad_core::senders::guard(hops)?;
+    let from = launchpad_core::senders::sender_of(&author, hops);
+    Ok(Some(launchpad_core::model::MessageFrom { card: Some(p.id.clone()), accepted: owner_click && agent.is_none(), ..from }))
+}
+
+/// `manual`: an owner click (or an admin session's `agent` accept), which may also retry a failed card.
+async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<String>, agent: Option<String>) -> Result<Proposal> {
     let mut p = {
         let _lock = ACCEPT.lock().await;
         let mut p = get(app, id).await?;
@@ -518,7 +534,9 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 Ok(launchpad_core::runners::launch_anywhere(app, spec, id, false).await?.id)
             }
             ProposalBody::Message { session_id, text } => {
-                launchpad_core::runners::send_anywhere(app, &session_id, &text, vec![], Some(format!("proposal-{}", p.id))).await?;
+                let from = card_sender(app, &p, manual, agent.as_deref()).await?;
+                let context = launchpad_core::model::MessageContext { from, ..Default::default() };
+                launchpad_core::runners::send_anywhere_with(app, &session_id, &text, vec![], context, Some(format!("proposal-{}", p.id))).await?;
                 Ok(session_id)
             }
             ProposalBody::Schedule { spec, conditions } => Ok(crate::schedules::create(app, spec, conditions).await?.id),

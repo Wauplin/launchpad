@@ -480,7 +480,10 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
         return match crate::agent_auth::authorize(&s.app, &session.id, req).await {
             Ok(mut req) => {
                 req.extensions_mut().insert(Access { session: None, device: None, changes: s.auth.changes.subscribe() });
-                req.extensions_mut().insert(crate::home_client::AgentCall);
+                req.extensions_mut().insert(crate::home_client::AgentCall(session.id.clone()));
+                if s.app.paths.role == launchpad_core::role::Role::Home {
+                    req.extensions_mut().insert(launchpad_http::AgentSession(session.id.clone()));
+                }
                 // Direct admin actions go to the activity list, with the values before them for Undo.
                 let (req, pending) = crate::activity::prepare(&s.app, &session.id, req).await;
                 let res = next.run(req).await;

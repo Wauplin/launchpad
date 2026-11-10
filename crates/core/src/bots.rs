@@ -644,12 +644,16 @@ pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAtt
     message_with(app, id, text, attachments, context, new_session, false).await
 }
 
-/// A message to the bot's thread. `automatic` (routines, incoming hooks): a paused bot refuses it, and a new
-/// session needs confirmed quota. Hooks and Telegram go through `hooks::deliver`, which waits for the end of a
+/// A message to the bot's thread. `automatic` (routines, incoming hooks, other agents): a paused bot refuses it, and
+/// a new session needs confirmed quota. Hooks and Telegram go through `hooks::deliver`, which waits for the end of a
 /// running turn. `context` (folders, GitHub links, agent traces, as in an agent's message box) goes with the
-/// message to the current session, or into the launch of a new one.
+/// message to the current session, or into the launch of a new one. `context.from`, set only by Home's own code
+/// (`senders`), names a sender other than the owner: the message arrives under its header.
 pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool, automatic: bool) -> Result<Session> {
     ensure!(!text.trim().is_empty() || !attachments.is_empty() || !context.is_empty(), "the message is empty");
+    if let Some(f) = &context.from {
+        crate::senders::guard(f.hops)?;
+    }
     let bot = get(app, id).await?;
     ensure!(!automatic || !bot.paused, "{} is paused", bot.settings.name);
     if let Some(e) = &bot.settings_error {
@@ -678,7 +682,13 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
             }
         }
     }
+    let from = context.from.clone();
     let mut spec = next_spec(app, &bot, &sessions, text, attachments, context).await?;
+    // The first message of the new session, from another bot or agent: under its header, like `runners::deliver`.
+    if let Some(f) = from {
+        spec.text = crate::senders::wrap(&f, &spec.text);
+        spec.from = Some(f);
+    }
     if let Some(b) = &mut spec.bot {
         b.reason = Some(if new_session && reason.is_none() { "new" } else { reason.unwrap_or("first") }.to_string());
     }

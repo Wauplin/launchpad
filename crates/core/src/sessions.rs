@@ -1285,7 +1285,7 @@ impl Sessions {
         let sink = self.sink(app, id);
         let protected = crate::quota::protected(app, harness, &session.launch_spec);
         if protected && (!crate::quota::blockers(app, harness, &session.launch_spec).is_empty() || (automatic && !crate::quota::available(&crate::quota::reading_for(app, harness, &session.launch_spec), now_ms()))) {
-            if let Err(e) = self.hold_input(app, id, &prompt, images).await {
+            if let Err(e) = self.hold_input(app, id, &prompt, images, session.launch_spec.from.clone()).await {
                 sink.fail(&format!("{e:#}")).await;
             }
             return;
@@ -1296,7 +1296,7 @@ impl Sessions {
         match self.attach(app, harness, start, sink.clone()).await {
             Ok(live) => {
                 let client_id = uuid::Uuid::new_v4().to_string();
-                sink.emit(EventBody::UserMessage { text: prompt.clone(), client_id: client_id.clone(), queued: false, images: images.clone() }).await;
+                sink.emit(EventBody::UserMessage { text: prompt.clone(), client_id: client_id.clone(), queued: false, images: images.clone(), from: session.launch_spec.from.clone() }).await;
                 sink.set_status(SessionStatus::Working).await;
                 if let Err(e) = live.send(&prompt, &client_id, &images).await {
                     sink.fail(&format!("{e:#}")).await;
@@ -1427,7 +1427,7 @@ impl Sessions {
     }
 
     /// Hold an input without sending it to a harness. This also covers launches at exhausted quota.
-    async fn hold_input(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>) -> Result<()> {
+    async fn hold_input(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, from: Option<crate::model::MessageFrom>) -> Result<()> {
         self.inner.quota_stops.lock().unwrap().remove(id);
         let s = self.get(id).context("no such session")?;
         let client_id = uuid::Uuid::new_v4().to_string();
@@ -1436,7 +1436,7 @@ impl Sessions {
             message: text.into(), images: images.clone(), client_id: Some(client_id.clone()), error: None, messages: vec![],
         })).await?;
         let sink = self.sink(app, id);
-        sink.emit(EventBody::UserMessage { text: text.into(), client_id, queued: true, images }).await;
+        sink.emit(EventBody::UserMessage { text: text.into(), client_id, queued: true, images, from }).await;
         sink.set_status(SessionStatus::QuotaPaused).await;
         sink.emit(EventBody::Notice { text: format!("{} input held until a fresh quota reading confirms included quota availability.", s.harness.display()) }).await;
         Ok(())
@@ -1656,7 +1656,7 @@ impl Sessions {
         let label = match mode { PermissionMode::Yolo => "YOLO", PermissionMode::Approvals => "Ask for approval", PermissionMode::Auto => "Auto approval" };
         sink.emit(EventBody::Notice { text: format!("Permissions changed to {label}.{}", if continued { " Resuming the same conversation; pending requests were cancelled." } else { " Applies when the session next runs." }) }).await;
         if continued {
-            self.send_locked(app, id, "Continue the task from where you stopped. The owner changed this session's permission mode; reconsider any cancelled operation under the current native permissions.", vec![], InputMode::Manual, None).await.context("Permissions saved, but the session could not continue")?;
+            self.send_locked(app, id, "Continue the task from where you stopped. The owner changed this session's permission mode; reconsider any cancelled operation under the current native permissions.", vec![], InputMode::Manual, None, None).await.context("Permissions saved, but the session could not continue")?;
         }
         self.get(id).context("no such session")
     }
@@ -1727,7 +1727,7 @@ impl Sessions {
             let sink = self.sink(app, id);
             let client_id = p.client_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             if p.client_id.is_none() {
-                sink.emit(EventBody::UserMessage { text: p.message.clone(), client_id: client_id.clone(), queued: false, images: p.images.clone() }).await;
+                sink.emit(EventBody::UserMessage { text: p.message.clone(), client_id: client_id.clone(), queued: false, images: p.images.clone(), from: None }).await;
             }
             sink.emit(EventBody::Notice { text: if paid { "Continuing with paid usage allowed" } else if fallback { "Last known 5-hour reset passed by one minute; retrying automatically with subscription-only protection while quota is unconfirmed. Paid credits may still be used if included quota is exhausted." } else if manual { "Continuing with subscription-only protection despite an unconfirmed quota reading; paid credits may still be used if the included quota is exhausted." } else { "Quota available; continuing automatically" }.into() }).await;
             sink.set_status(SessionStatus::Working).await;
@@ -1777,7 +1777,7 @@ impl Sessions {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
         if context.is_empty() {
-            return self.send_locked(app, id, text, images, InputMode::Manual, client_id).await;
+            return self.send_locked(app, id, text, images, InputMode::Manual, client_id, context.from).await;
         }
         let session = self.get(id).context("no such session")?;
         anyhow::ensure!(context.skills.is_empty() || !session.launch_spec.target.browser_only(), "This session cannot use filesystem skills");
@@ -1816,7 +1816,7 @@ impl Sessions {
                 prompt.push_str(&crate::compose::trace_references(&traces, &app.paths.cli_command()));
             }
         }
-        self.send_locked(app, id, &prompt, images, InputMode::Manual, client_id).await
+        self.send_locked(app, id, &prompt, images, InputMode::Manual, client_id, context.from).await
     }
 
     pub async fn send_follow_up(&self, app: &App, id: &str, text: &str, automatic: bool) -> Result<()> {
@@ -1827,11 +1827,11 @@ impl Sessions {
     async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>) -> Result<()> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
-        self.send_locked(app, id, text, images, mode, client_id).await
+        self.send_locked(app, id, text, images, mode, client_id, None).await
     }
 
     /// Caller holds the action and work locks, including during permission changes.
-    async fn send_locked(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>) -> Result<()> {
+    async fn send_locked(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>, from: Option<crate::model::MessageFrom>) -> Result<()> {
         crate::role::ensure_runs_agents(app.paths.role)?;
         self.ensure_local(id)?;
         self.ensure_shutdown_finished(id)?;
@@ -1865,7 +1865,7 @@ impl Sessions {
                 });
             }).await?;
             self.sink(app, id).emit(EventBody::UserMessage {
-                text: text.into(), client_id, queued: true, images,
+                text: text.into(), client_id, queued: true, images, from,
             }).await;
             return Ok(());
         }
@@ -1876,7 +1876,7 @@ impl Sessions {
         }
         if protected && !self.quota_blockers(app, &s).is_empty() {
             if s.status.is_running() || s.open_question { bail!("Included quota exhausted; wait for quota to reset before sending input or answering this question."); }
-            self.hold_input(app, id, text, images).await?;
+            self.hold_input(app, id, text, images, from).await?;
             return Ok(());
         }
         anyhow::ensure!(
@@ -1900,7 +1900,7 @@ impl Sessions {
         self.inner.budget_interrupts.lock().unwrap().remove(id);
         let client_id = client_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let queued = s.status.is_running() && !resumed;
-        sink.emit(EventBody::UserMessage { text: text.to_string(), client_id: client_id.clone(), queued, images: images.clone() }).await;
+        sink.emit(EventBody::UserMessage { text: text.to_string(), client_id: client_id.clone(), queued, images: images.clone(), from }).await;
         if !queued {
             sink.set_status(SessionStatus::Working).await;
         }
@@ -2112,10 +2112,10 @@ impl Sessions {
                 .map(|a| ImageAttachment { name: a.name.clone(), data_url: a.data_url.clone() })
                 .collect::<Vec<_>>();
             crate::attachments::resolve_images(&mut images)?;
-            return self.send_locked(app, id, &s.prompt, images, InputMode::Manual, None).await;
+            return self.send_locked(app, id, &s.prompt, images, InputMode::Manual, None, None).await;
         }
         if continue_turn {
-            return self.send_locked(app, id, "Continue the unfinished turn.", vec![], InputMode::Manual, None).await;
+            return self.send_locked(app, id, "Continue the unfinished turn.", vec![], InputMode::Manual, None, None).await;
         }
         self.inner.quota_stops.lock().unwrap().remove(id);
         self.reattach(app, id).await?;

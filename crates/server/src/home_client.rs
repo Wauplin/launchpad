@@ -122,11 +122,11 @@ fn http_from_home(msg: ToRunner) {
 static HOME: std::sync::LazyLock<HomeHandle> = std::sync::LazyLock::new(HomeHandle::default);
 
 /// Sends an API request to Home through the tunnel.
-async fn to_home(method: &str, path: &str, body: Option<String>) -> anyhow::Result<(u16, String)> {
+async fn to_home(method: &str, path: &str, body: Option<String>, session: Option<String>) -> anyhow::Result<(u16, String)> {
     let id = HOME.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
     let (tx, rx) = tokio::sync::oneshot::channel();
     HOME.pending.lock().unwrap().insert(id, tx);
-    let sent = HOME.tx.lock().unwrap().as_ref().is_some_and(|t| t.send(FromRunner::Req { id, method: method.into(), path: path.into(), body }).is_ok());
+    let sent = HOME.tx.lock().unwrap().as_ref().is_some_and(|t| t.send(FromRunner::Req { id, method: method.into(), path: path.into(), body, session }).is_ok());
     if !sent {
         HOME.pending.lock().unwrap().remove(&id);
         anyhow::bail!("Home is unreachable; this change needs Home");
@@ -189,9 +189,10 @@ pub(crate) fn home_accepts(method: &str, path: &str) -> bool {
             && (method == "GET" || launchpad_core::actions::find(method, path).is_some_and(|a| a.access == launchpad_core::actions::ActionAccess::Admin)))
 }
 
-/// Marks a request of a session's CLI token (`auth::guard`): its launches go to Home, like the owner's.
+/// Marks a request of a session's CLI token (`auth::guard`), with its session: its launches and messages go to Home,
+/// like the owner's, and Home stamps its messages as the session's (`launchpad_core::senders`).
 #[derive(Clone)]
-pub(crate) struct AgentCall;
+pub(crate) struct AgentCall(pub String);
 
 /// `/api/sessions/{id}` and its sub-paths: the session's ID.
 fn session_id(path: &str) -> Option<&str> {
@@ -211,6 +212,10 @@ fn to_home_too(s: &crate::Server, req: &axum::extract::Request) -> bool {
     }
     if path == "/api/sessions" {
         return req.method() == axum::http::Method::POST && req.extensions().get::<AgentCall>().is_some();
+    }
+    // An agent's message to any session goes to Home, which stamps it as the agent's and places it.
+    if req.method() == axum::http::Method::POST && req.extensions().get::<AgentCall>().is_some() && session_id(path).is_some_and(|id| path == format!("/api/sessions/{id}/input")) {
+        return true;
     }
     session_id(path).is_some_and(|id| s.app.sessions.get(id).is_none()) && home_accepts(req.method().as_str(), path)
 }
@@ -248,13 +253,14 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
         }
     }
     let (method, path) = (req.method().to_string(), req.uri().path_and_query().map(|p| p.to_string()).unwrap_or_default());
+    let agent = req.extensions().get::<AgentCall>().map(|a| a.0.clone());
     let (parts, body) = req.into_parts();
     let bytes = match axum::body::to_bytes(body, 1 << 20).await {
         Ok(b) => b,
         Err(e) => return crate::error::ApiError::bad_request(format!("{e}")).into_response(),
     };
     let body = (!bytes.is_empty()).then(|| String::from_utf8_lossy(&bytes).into_owned());
-    match to_home(&method, &path, body).await {
+    match to_home(&method, &path, body, agent).await {
         Ok((status, body)) => (axum::http::StatusCode::from_u16(status).unwrap_or(axum::http::StatusCode::BAD_GATEWAY), [(header::CONTENT_TYPE, "application/json")], body).into_response(),
         // Home is out of reach: this runner's own copy of its session (complete unless it was adopted).
         Err(_) if local => next.run(axum::extract::Request::from_parts(parts, Body::from(bytes))).await,
@@ -316,7 +322,7 @@ async fn local_relay() -> anyhow::Result<()> {
 }
 
 pub fn spawn(app: App, router: Router) {
-    launchpad_core::home_link::set_requester(Box::new(|method, path, body| Box::pin(async move { to_home(&method, &path, body).await })));
+    launchpad_core::home_link::set_requester(Box::new(|method, path, body| Box::pin(async move { to_home(&method, &path, body, None).await })));
     launchpad_core::home_link::set_caller(Box::new(|op, body| Box::pin(call_home(op, body))));
     launchpad_core::home_link::set_streamer(Box::new(|target, method, path, headers, body| Box::pin(stream_to_home(target, method, path, headers, body))));
     if let Some(b) = home_link::burst() {
@@ -534,6 +540,11 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
 
 /// Runs an API request against this daemon's own router, as its local owner.
 pub(crate) async fn local(app: &App, router: &Router, method: &str, path: &str, body: Option<String>, headers: &[(String, String)]) -> anyhow::Result<(u16, String)> {
+    local_as(app, router, method, path, body, headers, None).await
+}
+
+/// `local`, for the agent session `agent` (Home: a runner's request that names one of its sessions).
+pub(crate) async fn local_as(app: &App, router: &Router, method: &str, path: &str, body: Option<String>, headers: &[(String, String)], agent: Option<String>) -> anyhow::Result<(u16, String)> {
     anyhow::ensure!(path.starts_with("/api/"), "only API requests go through the tunnel");
     let mut req = Request::builder()
         .method(method)
@@ -547,6 +558,9 @@ pub(crate) async fn local(app: &App, router: &Router, method: &str, path: &str, 
         req.headers_mut().insert(header::HeaderName::from_bytes(k.as_bytes())?, v.parse()?);
     }
     req.extensions_mut().insert(axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 0))));
+    if let Some(a) = agent {
+        req.extensions_mut().insert(launchpad_http::AgentSession(a));
+    }
     let res = router.clone().oneshot(req).await?;
     let status = res.status().as_u16();
     if headers.iter().any(|(k, v)| k.eq_ignore_ascii_case(crate::runners::ENVELOPE_HEADER) && v == "1") {

@@ -830,7 +830,7 @@ async fn notification(sink: &Sink, st: &Arc<Mutex<State>>, method: &str, p: &Val
                 "userMessage" => {
                     if sink.agent_id.is_some() {
                         let text = item["content"].as_array().into_iter().flatten().filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n");
-                        if !text.is_empty() { sink.emit(EventBody::UserMessage { text, client_id: id.clone(), queued: false, images: vec![] }).await; }
+                        if !text.is_empty() { sink.emit(EventBody::UserMessage { text, client_id: id.clone(), queued: false, images: vec![], from: None }).await; }
                     }
                     if let Some(c) = item["clientId"].as_str() {
                         sink.emit(EventBody::MessageDelivered { client_id: c.into() }).await;

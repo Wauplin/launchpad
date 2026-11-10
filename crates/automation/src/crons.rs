@@ -20,6 +20,9 @@ use launchpad_core::{App, model::{LaunchSpec, RoutineLaunch, Session, SessionSta
 /// Runs later than this (daemon stopped, old GitHub activity) are skipped instead of started.
 const MISSED_GRACE_MS: i64 = 60 * 60_000;
 const RUNS_KEPT: usize = 50;
+/// Runs a routine started by events (GitHub, another agent's turn, failures) may start in an hour; a later event is
+/// skipped. Schedules are not limited: their cron sets their pace.
+pub const EVENT_RUNS_PER_HOUR: usize = 6;
 pub use launchpad_core::routines::{NO_UPDATE, TRIGGER_FORMS, instruction, is_no_update};
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
@@ -40,8 +43,14 @@ pub enum Trigger {
     Schedule,
     /// New activity in the Inbox (GitHub notifications) of a repository: one of the workspace's when None.
     Github { repo: Option<String>, events: Vec<GithubEvent> },
-    /// A turn of another agent ended Done, in this folder (any folder of the workspace when None).
-    SessionDone { folder: Option<String> },
+    /// A turn of another agent ended Done, in this folder (any folder of the workspace when None). Turns of bot
+    /// threads count only with `include_bots`: by default a bot's answer never starts a routine.
+    SessionDone {
+        folder: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        include_bots: bool,
+    },
     /// Launchpad failures of these kinds (`failures::FailureKind`) in the workspace, plus failures shared by
     /// every workspace (runners, Home, Burst jobs without a session). One run for all new failures.
     Failure { events: Vec<crate::failures::FailureKind> },
@@ -899,6 +908,25 @@ async fn skip_run(app: &App, id: &str, cause: String, reason: String, missed: bo
     .map(|_| ())
 }
 
+/// Why an event may not start a run of the routine now: the run's message would pass the loop guard (`hops`, the
+/// automatic messages in its chain, itself included: `senders::guard`), or the routine already started
+/// `EVENT_RUNS_PER_HOUR` runs in the last hour (event triggers only).
+fn limit_reason(r: &CronAgent, hops: u32, now: i64) -> Option<String> {
+    if let Err(e) = launchpad_core::senders::guard(hops) {
+        return Some(format!("{e:#}"));
+    }
+    if r.trigger == Trigger::Schedule {
+        return None;
+    }
+    let started = r.history.iter().filter(|x| x.outcome != RunOutcome::Skipped && now - x.at < 3_600_000).count();
+    (started >= EVENT_RUNS_PER_HOUR).then(|| format!("rate limit: {started} runs in the last hour (at most {EVENT_RUNS_PER_HOUR} for a routine started by events)"))
+}
+
+/// The sender of a routine run's message: the routine, `hops` into its chain.
+fn routine_sender(r: &CronAgent, hops: u32) -> launchpad_core::model::MessageFrom {
+    launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Routine, id: r.id.clone(), name: r.title.clone(), hops, ..Default::default() }
+}
+
 /// The message a bot routine sends to the bot's thread. The UI recognizes its first line.
 fn bot_message(r: &CronAgent, launch: &RoutineLaunch) -> String {
     format!("Routine “{}” · {}\n\n{}\n\n{}", r.title, launch.cause, r.spec.text.trim(), instruction(launch))
@@ -937,7 +965,7 @@ async fn why_blocked(app: &App, r: &CronAgent) -> Result<Option<String>> {
 
 /// Starts one run: claims a history entry, then sends the bot's message or launches the spec (sent once, never
 /// retried). `automatic` runs need confirmed quota.
-async fn start(app: &App, id: &str, cause: String, context: String, automatic: bool) -> Result<Session> {
+async fn start(app: &App, id: &str, cause: String, context: String, automatic: bool, hops: u32) -> Result<Session> {
     let at = now_ms();
     let current = get(app, id).await?;
     let quiet_ok = thread_current(app, &current).is_none_or(|s| !s.needs_you());
@@ -954,9 +982,12 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
     .await?;
     let launch = RoutineLaunch { id: record.id.clone(), title: record.title.clone(), cause, context };
     let result = match &record.bot_id {
-        Some(bot) => launchpad_core::bots::message_with(app, bot, bot_message(&record, &launch), vec![], Default::default(), false, automatic).await,
+        Some(bot) => {
+            let context = launchpad_core::model::MessageContext { from: Some(routine_sender(&record, hops)), ..Default::default() };
+            launchpad_core::bots::message_with(app, bot, bot_message(&record, &launch), vec![], context, false, automatic).await
+        }
         None => {
-            let spec = LaunchSpec { routine: Some(launch), ..record.spec.clone() };
+            let spec = LaunchSpec { routine: Some(launch), from: Some(routine_sender(&record, hops)), ..record.spec.clone() };
             launchpad_core::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await
         }
     };
@@ -997,14 +1028,18 @@ pub async fn run_now(app: &App, id: &str) -> Result<Session> {
     }
     let app = app.clone();
     // Keep starting even if the browser disconnects while it waits for the response.
-    tokio::spawn(async move { start(&app, &record.id, "Run now".into(), String::new(), false).await }).await?
+    tokio::spawn(async move { start(&app, &record.id, "Run now".into(), String::new(), false, 0).await }).await?
 }
 
-/// Starts an event run when the routine allows it; otherwise records why it was skipped.
-async fn on_event(app: &App, r: &CronAgent, cause: String, context: String) -> Result<()> {
+/// Starts an event run when the routine allows it; otherwise records why it was skipped. `hops`: the automatic
+/// messages in the chain of its message, itself included (1 for a schedule, GitHub or a failure).
+async fn on_event(app: &App, r: &CronAgent, cause: String, context: String, hops: u32) -> Result<()> {
+    if let Some(why) = limit_reason(r, hops, now_ms()) {
+        return skip(app, &r.id, cause, why).await;
+    }
     match why_blocked(app, r).await? {
         Some(why) => skip(app, &r.id, cause, why).await,
-        None => start(app, &r.id, cause, context, true).await.map(|_| ()),
+        None => start(app, &r.id, cause, context, true, hops).await.map(|_| ()),
     }
 }
 
@@ -1037,7 +1072,7 @@ async fn tick(app: &App, record: CronAgent) -> Result<()> {
         let (reason, missed) = late_reason(due.unwrap_or(now), held.or(waited), crate::failures::started_at());
         return skip_run(app, &record.id, "Scheduled".into(), reason, missed).await;
     }
-    on_event(app, &record, "Scheduled".into(), String::new()).await
+    on_event(app, &record, "Scheduled".into(), String::new(), 1).await
 }
 
 /// Why a scheduled run more than an hour late is skipped, and whether that is a failure: it waited for its quota
@@ -1142,8 +1177,13 @@ async fn session_done(app: &App, s: &Session, records: &[CronAgent]) -> Result<(
         None => None,
     }
     .or_else(|| s.launch_spec.workspace_id.clone());
+    // The chain of the message its turn answered: the run's message is one more hop.
+    let hops = launchpad_core::senders::hops_of(app, &s.id).await;
     for r in records.iter().filter(|r| r.active()) {
-        let Trigger::SessionDone { folder: want } = &r.trigger else { continue };
+        let Trigger::SessionDone { folder: want, include_bots } = &r.trigger else { continue };
+        if s.launch_spec.bot.is_some() && !include_bots {
+            continue;
+        }
         let matches = match want {
             Some(f) => folder.as_deref() == Some(f.as_str()),
             None => workspace.is_some() && workspace == r.spec.workspace_id,
@@ -1160,7 +1200,7 @@ async fn session_done(app: &App, s: &Session, records: &[CronAgent]) -> Result<(
             s.id,
             s.last_seq
         );
-        on_event(app, r, cause, context).await?;
+        on_event(app, r, cause, context, hops + 1).await?;
     }
     Ok(())
 }
@@ -1242,7 +1282,7 @@ async fn inbox_synced_inner(app: &App) -> Result<()> {
             .map(|(t, e)| format!("- {}: {}{} “{}” ({}, {}) {}", e.label(), t.repo, t.number.map(|n| format!("#{n}")).unwrap_or_default(), t.title.replace('"', "'"), t.kind, t.reason, t.url))
             .collect::<Vec<_>>()
             .join("\n");
-        on_event(app, &record, cause, context).await?;
+        on_event(app, &record, cause, context, 1).await?;
     }
     Ok(())
 }
@@ -1283,7 +1323,7 @@ async fn failures_noticed(app: &App) -> Result<()> {
         }
         let lines = fresh.iter().map(|f| crate::failures::describe(f)).collect::<Vec<_>>().join("\n");
         let context = format!("{lines}\n\nInvestigate with the Launchpad CLI (the command given in your first instructions): `health`, `sessions show <id>`, `logs --session <id>` (or `--runner <id>`), `burst runs`, `burst job <runner id>`, `runners list`, `home`, `failures`.");
-        on_event(app, &record, cause, context).await?;
+        on_event(app, &record, cause, context, 1).await?;
     }
     Ok(())
 }
@@ -1409,6 +1449,44 @@ mod tests {
         assert!(parse_file("title = \" \"\ninstructions = \"y\"\nschedule = \"0 9 * * *\"\n").is_err());
         assert_eq!(file_path_for("Daily check!", &["routines/daily-check.toml".into()]), "routines/daily-check-2.toml");
         assert_eq!(file_path_for("✦", &[]), "routines/routine.toml");
+    }
+
+    #[test]
+    fn event_routines_stop_at_the_loop_guard_and_the_hourly_limit() {
+        let now = 100 * 3_600_000;
+        let record = |trigger: Trigger, runs: Vec<(i64, RunOutcome)>| -> CronAgent {
+            let mut r: CronAgent = serde_json::from_value(serde_json::json!({"id": "r1", "spec": {}, "title": "Review", "schedule": "", "conditions": [], "paused": false, "created_at": 0, "next_run_at": null, "last_check_at": null, "last_outcome": null, "runs": []})).unwrap();
+            r.trigger = trigger;
+            r.history = runs.into_iter().map(|(at, outcome)| RoutineRun { at, cause: "x".into(), session_id: None, outcome, detail: None, quiet_ok: false, missed: false }).collect();
+            r
+        };
+        let done = Trigger::SessionDone { folder: None, include_bots: false };
+        // Within the hop limit and with few runs: it starts.
+        assert_eq!(limit_reason(&record(done.clone(), vec![]), 1, now), None);
+        assert_eq!(limit_reason(&record(done.clone(), vec![]), launchpad_core::senders::MAX_HOPS, now), None);
+        // A message caused by too many automatic messages before it.
+        let why = limit_reason(&record(done.clone(), vec![]), launchpad_core::senders::MAX_HOPS + 1, now).unwrap();
+        assert!(why.starts_with("loop guard: 4 hops"), "{why}");
+        // Six started runs in the last hour (skipped ones and older ones do not count).
+        let mut runs: Vec<(i64, RunOutcome)> = (0..EVENT_RUNS_PER_HOUR as i64).map(|i| (now - i * 60_000, RunOutcome::Report)).collect();
+        assert!(limit_reason(&record(done.clone(), runs.clone()), 1, now).unwrap().starts_with("rate limit: 6 runs in the last hour"));
+        runs[0].1 = RunOutcome::Skipped;
+        runs.push((now - 3_600_000, RunOutcome::Report));
+        assert_eq!(limit_reason(&record(done, runs.clone()), 1, now), None);
+        // Schedules keep the pace of their cron.
+        let many: Vec<(i64, RunOutcome)> = (0..20).map(|i| (now - i * 60_000, RunOutcome::NoUpdate)).collect();
+        assert_eq!(limit_reason(&record(Trigger::Schedule, many), 1, now), None);
+    }
+
+    #[test]
+    fn session_done_triggers_leave_bots_out_unless_asked() {
+        let hand = "title = \"x\"\ninstructions = \"y\"\ntrigger = { kind = \"session_done\", folder = \"f1\" }\n";
+        assert_eq!(parse_file(hand).unwrap().trigger, Trigger::SessionDone { folder: Some("f1".into()), include_bots: false });
+        let with_bots = RoutineFile { title: "x".into(), paused: false, schedule: String::new(), time_zone: None, instructions: "y".into(), trigger: Trigger::SessionDone { folder: None, include_bots: true }, conditions: vec![] };
+        let text = render_file(&with_bots).unwrap();
+        assert!(text.contains("include_bots = true"), "{text}");
+        assert_eq!(parse_file(&text).unwrap(), with_bots);
+        assert!(!render_file(&RoutineFile { trigger: Trigger::SessionDone { folder: None, include_bots: false }, ..with_bots }).unwrap().contains("include_bots"));
     }
 
     #[test]

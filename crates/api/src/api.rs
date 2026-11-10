@@ -411,6 +411,10 @@ async fn input(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::http
         return Err(ApiError::bad_request("the message is empty"));
     }
     let mut b = b;
+    // Only Home names a sender other than the owner (`launchpad_core::senders`), in the messages it relays.
+    if !headers.contains_key(launchpad_http::FROM_HOME) {
+        b.context.from = None;
+    }
     launchpad_core::attachments::validate_images(&b.images).map_err(bad)?;
     launchpad_core::attachments::resolve_images(&mut b.images).map_err(bad)?;
     let (text, images) = launchpad_core::attachments::for_message(&s.app, &id, &b.text, &b.files).await.map_err(bad)?;

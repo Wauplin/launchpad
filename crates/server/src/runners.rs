@@ -374,12 +374,14 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                         }
                         if let Some(n) = last && !send(&mut tx, &ToRunner::Ack { n }).await { break }
                     }
-                    Ok(FromRunner::Req { id, method, path, body }) => {
+                    Ok(FromRunner::Req { id, method, path, body, session }) => {
                         let (app, out) = (s.app.clone(), s.app.runners.clone());
                         let runner_id = runner.id.clone();
                         tokio::spawn(async move {
+                            // An agent's request: only a session Home placed on this runner, in Home's record.
+                            let agent = session.filter(|sid| app.sessions.get(sid).is_some_and(|x| x.runner_id.as_deref() == Some(runner_id.as_str())));
                             let res = match crate::ROUTER.get() {
-                                Some(router) if crate::home_client::home_accepts(&method, path.split('?').next().unwrap_or_default()) => crate::home_client::local(&app, router, &method, &path, body, &[]).await,
+                                Some(router) if crate::home_client::home_accepts(&method, path.split('?').next().unwrap_or_default()) => crate::home_client::local_as(&app, router, &method, &path, body, &[], agent).await,
                                 _ => Err(anyhow::anyhow!("runners may only send requests about records Home owns")),
                             };
                             let (status, body) = res.unwrap_or_else(|e| (400, json!({"error": format!("{e:#}")}).to_string()));
@@ -492,16 +494,27 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     }
     let path_and_query = req.uri().path_and_query().map(|p| p.to_string()).unwrap_or_else(|| path.clone());
     let uri = req.uri().clone();
+    let agent = req.extensions().get::<launchpad_http::AgentSession>().map(|a| a.0.clone());
     let body = match axum::body::to_bytes(req.into_body(), 32 << 20).await {
         Ok(b) => (!b.is_empty()).then(|| String::from_utf8_lossy(&b).into_owned()),
         Err(e) => return ApiError::bad_request(format!("{e}")).into_response(),
     };
-    // A message with uploads: they are stored on Home, so the runner receives their bytes.
+    // A message with uploads: they are stored on Home, so the runner receives their bytes. Its sender is the owner,
+    // or the agent whose CLI sent it (Home's record of it, `senders::agent`), never what the body says.
     let body = match (parts.as_slice(), body) {
-        (["api", "sessions", _, "input"], Some(b)) => match inline_uploads(&b) {
-            Ok(b) => Some(b),
-            Err(e) => return ApiError::bad_request(format!("{e:#}")).into_response(),
-        },
+        (["api", "sessions", _, "input"], Some(b)) => {
+            let from = match &agent {
+                Some(a) => match launchpad_core::senders::agent(&s.app, a).await {
+                    Ok(f) => Some(f),
+                    Err(e) => return ApiError::bad_request(format!("{e:#}")).into_response(),
+                },
+                None => None,
+            };
+            match inline_uploads(&b).and_then(|b| launchpad_core::senders::set_from(&b, from.as_ref()).ok_or_else(|| anyhow::anyhow!("the message is not a JSON object"))) {
+                Ok(b) => Some(b),
+                Err(e) => return ApiError::bad_request(format!("{e:#}")).into_response(),
+            }
+        }
         (_, b) => b,
     };
     let runner = match runner {

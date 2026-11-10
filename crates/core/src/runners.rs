@@ -510,7 +510,15 @@ pub mod proto {
         /// Outbox items (`replica::Item`) with their numbers, oldest first.
         Items { items: Vec<(u64, serde_json::Value)> },
         /// A change made in a window of the runner that Home owns (workspaces), for Home's API.
-        Req { id: u64, method: String, path: String, body: Option<String> },
+        Req {
+            id: u64,
+            method: String,
+            path: String,
+            body: Option<String>,
+            /// The agent session whose CLI sent it (Home checks that it placed the session on this runner).
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            session: Option<String>,
+        },
         /// A request about the runner's own sessions (leases, ssh-agent), answered with `ToRunner::Res`.
         /// Home knows the runner from the tunnel; windows can never send it.
         Call { id: u64, op: String, body: serde_json::Value },
@@ -798,9 +806,15 @@ pub async fn continue_anywhere(app: &App, id: &str, action: &str, body: Option<S
     }
 }
 
-/// Home: sends a continuation to the runner that has the session. A message to a bot session whose BOT.md changed
-/// gets the new one after its typed text, recorded in the session once the runner accepted it.
+/// Home: sends a continuation to the runner that has the session. A message from another bot or agent
+/// (`context.from`, stamped by Home) arrives under its sender's header, fenced (`senders::delivered`). A message to a
+/// bot session whose BOT.md changed gets the new one after its typed text, recorded in the session once the runner
+/// accepted it.
 pub async fn deliver(app: &App, runner: &str, id: &str, action: &str, body: Option<String>, key: Option<String>) -> Result<(u16, String)> {
+    let body = match (action, body) {
+        ("input", Some(b)) => Some(crate::senders::delivered(&b)?),
+        (_, b) => b,
+    };
     let (body, received) = match action {
         "input" => crate::bots::with_new_instructions(app, id, body).await,
         _ => (body, None),

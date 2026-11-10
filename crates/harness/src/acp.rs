@@ -601,7 +601,7 @@ async fn update(sink: &Sink, state: &Mutex<State>, update: &Value) {
                 if first {
                     let child = sink.child(&agent);
                     child.emit(EventBody::Notice { text: "This harness version exposes only the delegation prompt and result; inner trace events are unavailable.".into() }).await;
-                    if let Some(text) = tool["rawInput"]["prompt"].as_str() { child.emit(EventBody::UserMessage { text: text.into(), client_id: agent.clone(), queued: false, images: vec![] }).await; }
+                    if let Some(text) = tool["rawInput"]["prompt"].as_str() { child.emit(EventBody::UserMessage { text: text.into(), client_id: agent.clone(), queued: false, images: vec![], from: None }).await; }
                     child.emit(EventBody::ToolCall { item_id: id.into(), name: "Agent".into(), summary: "Delegation result".into(), input: tool["rawInput"].clone() }).await;
                 }
                 if tool["status"] == "completed" || tool["status"] == "failed" { sink.child(&agent).emit(EventBody::ToolResult { item_id: id.into(), output: tool_output(&tool), is_error: tool["status"] == "failed", exit_code: None, duration_ms: None }).await; }

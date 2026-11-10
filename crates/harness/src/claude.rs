@@ -665,7 +665,7 @@ async fn tool_use(sink: &Sink, st: &Arc<Mutex<State>>, block: &Value) {
         st.lock().unwrap().active_agents.insert(id.clone());
         sink.subagent(&id, Some(summary(&name, &input)), Some("running".into()), input["model"].as_str().map(str::to_string)).await;
         if let Some(prompt) = input["prompt"].as_str() {
-            sink.child(&id).emit(EventBody::UserMessage { text: prompt.into(), client_id: id.clone(), queued: false, images: vec![] }).await;
+            sink.child(&id).emit(EventBody::UserMessage { text: prompt.into(), client_id: id.clone(), queued: false, images: vec![], from: None }).await;
         }
     }
     if name == "TodoWrite" {

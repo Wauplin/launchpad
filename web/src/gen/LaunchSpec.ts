@@ -6,6 +6,7 @@ import type { FileAttachment } from "./FileAttachment";
 import type { FileRef } from "./FileRef";
 import type { GitHubRef } from "./GitHubRef";
 import type { HarnessKind } from "./HarnessKind";
+import type { MessageFrom } from "./MessageFrom";
 import type { PermissionMode } from "./PermissionMode";
 import type { PromptMention } from "./PromptMention";
 import type { RoutineLaunch } from "./RoutineLaunch";
@@ -69,4 +70,8 @@ bot?: BotLaunch,
 /**
  * A run of a routine (`crons.rs`): its prompt says what started it and how to end.
  */
-routine?: RoutineLaunch, };
+routine?: RoutineLaunch, 
+/**
+ * Who sends its first message when it is not the owner (`MessageContext::from`), stamped by Home.
+ */
+from?: MessageFrom, };

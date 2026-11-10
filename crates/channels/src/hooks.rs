@@ -14,6 +14,7 @@ use ts_rs::TS;
 
 use launchpad_core::App;
 use launchpad_core::model::{Session, SessionStatus};
+use launchpad_core::senders::fence;
 use launchpad_core::util::now_ms;
 
 pub const MIN_INTERVAL_MS: i64 = 10_000;
@@ -110,17 +111,6 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
     app.state_db.call(move |c| Ok(c.execute("DELETE FROM incoming_hook WHERE id = ?1", [key])?)).await?;
     app.bus.publish("channels", "changed", Value::Null);
     Ok(())
-}
-
-/// A fence longer than any backtick run in the text.
-fn fence(text: &str) -> String {
-    let mut longest = 0;
-    let mut run = 0;
-    for c in text.chars() {
-        run = if c == '`' { run + 1 } else { 0 };
-        longest = longest.max(run);
-    }
-    "`".repeat((longest + 1).max(3))
 }
 
 /// The message a request becomes.
