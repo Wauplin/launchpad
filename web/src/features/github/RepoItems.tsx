@@ -91,6 +91,8 @@ export function RepoItems({
   const predrafts = (local.data ?? []).filter(
     (p) => p.project_id === projectId && (showArchived || !p.archived),
   );
+  // Open Local PRs (not discarded, published or merged): the same count in the tab, this line and the folder header.
+  const openLocal = predrafts.filter(isOpenLocalPr).length;
   const [tab, setTab] = useState<"prs" | "issues">("prs");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [labelFilter, setLabelFilter] = useState("all");
@@ -157,7 +159,7 @@ export function RepoItems({
   return (
     <section className="rounded-card border border-line overflow-clip">
       <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line bg-chrome px-3">
-        <Tabs<"prs" | "issues"> label="Folder GitHub items" value={tab} onChange={setTab} className="min-w-0 flex-1" items={[{ id: "prs", label: "Pull requests", count: (q.data?.prs?.length ?? 0) + predrafts.length }, { id: "issues", label: "Issues", count: q.data?.issues?.length ?? 0 }]} />
+        <Tabs<"prs" | "issues"> label="Folder GitHub items" value={tab} onChange={setTab} className="min-w-0 flex-1" items={[{ id: "prs", label: "Pull requests", count: (q.data?.prs?.length ?? 0) + openLocal }, { id: "issues", label: "Issues", count: q.data?.issues?.length ?? 0 }]} />
         {q.data && !phone && <span className="text-[12px] text-ink-3">Synced {ago(q.data.fetched_at)}</span>}
         <button className="iconbtn" aria-label="Refresh from GitHub" title="Refresh from GitHub" disabled={busy || !repo} onClick={() => void refresh()}><Icon name="refresh" size={phone ? 16 : 13} className={busy ? "animate-spin" : ""} /></button>
         {phone ? <PhoneActions label="Item options" closeOnAction={false} details={<div className="grid gap-3"><button className="btn" disabled={!repo} onClick={() => openGitHub(`https://github.com/${repo}/${tab === "prs" ? "pulls" : "issues"}`)}>Open on GitHub</button><label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />Discarded Local PRs</label></div>} />
@@ -180,7 +182,7 @@ export function RepoItems({
           {labelFilter !== "all" && <button className="btn btn-sm" onClick={() => setLabelFilter("all")}>Clear filter</button>}
           <span className="text-ink-3">
             {githubList.length} of {items.length} recent open {tab === "prs" ? "pull requests" : "issues"}
-            {tab === "prs" && predrafts.length > 0 && ` · ${predrafts.length} Local PR${predrafts.length === 1 ? "" : "s"}`}
+            {tab === "prs" && openLocal > 0 && ` · ${openLocal} open Local PR${openLocal === 1 ? "" : "s"}`}
           </span>
         </div>
       )}
@@ -234,12 +236,17 @@ export function RepoItems({
   );
 }
 
+/** A Local PR still to publish or merge (not discarded, published or merged). */
+export const isOpenLocalPr = (p: Predraft) => !p.archived && !p.published_url && !p.merged;
+
+/** A Local PR row: highlighted with "Review" only while it is open; otherwise its state (merged, published, discarded). */
 const LocalRow = memo(function LocalRow({ p }: { p: Predraft }) {
+  const open = isOpenLocalPr(p);
   return (
     <Link
       to="/predrafts/$id"
       params={{ id: p.id }}
-      className="flex h-[52px] items-center gap-3 border-b border-line-2 bg-teal-soft px-3 no-underline text-teal-ink"
+      className={`flex h-[52px] items-center gap-3 border-b border-line-2 px-3 no-underline ${open ? "bg-teal-soft text-teal-ink" : "text-ink-2"}`}
     >
       <Icon name="pr-local" size={16} />
       <span className="min-w-0 flex-1">
@@ -247,13 +254,15 @@ const LocalRow = memo(function LocalRow({ p }: { p: Predraft }) {
         <span className="text-[12px]">
           {p.archived
             ? "Discarded"
-            : p.published_number
-              ? `Published #${p.published_number}`
-              : "Local PR"}{" "}
+            : p.merged
+              ? `Merged into ${p.base_branch}`
+              : p.published_number
+                ? `Published #${p.published_number}`
+                : "Local PR"}{" "}
           · {p.branch}
         </span>
       </span>
-      <span className="text-[12px]">Review</span>
+      {open && <span className="text-[12px]">Review</span>}
     </Link>
   );
 });

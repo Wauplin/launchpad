@@ -251,7 +251,7 @@ function Controls({ item, act, busy, shown = true, onClose }: { item: Item; act:
         <Picker label={labelsChanged ? `Labels · ${labels.length} selected` : "Edit labels"} options={meta?.labels.map((l) => l.name) ?? []} selected={labels} onChange={setLabels} disabled={busy} render={(name) => <LabelChip label={{ name, color: colors.get(name) ?? "d0d7de" }} />} />
         {labelsChanged && <div className="flex gap-2"><button className="btn btn-sm" disabled={busy} onClick={() => void act("labels", { labels })}>Save labels</button><button className="btn btn-sm" disabled={busy} onClick={() => setLabels(current)}>Revert</button></div>}
       </Section>
-      {open && <Section title="Danger zone">
+      {open && <Section title="Close">
         <div className="grid justify-items-start gap-2">
           <ConfirmButton disabled={busy} consequence={isPr ? "Closes the PR on GitHub without merging." : "Closes the issue on GitHub as completed."} confirmLabel={isPr ? "Close PR" : "Close issue"} onConfirm={() => act("state", { kind: isPr ? "pr" : "issue", state: "closed", state_reason: "completed" })}>{isPr ? "Close PR" : "Close as completed"}</ConfirmButton>
           {!isPr && <ConfirmButton disabled={busy} consequence="Closes the issue on GitHub as not planned." confirmLabel="Close issue" onConfirm={() => act("state", { kind: "issue", state: "closed", state_reason: "not_planned" })}>Close as not planned</ConfirmButton>}

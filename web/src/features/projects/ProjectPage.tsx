@@ -17,7 +17,7 @@ import type { HomeBranch } from "@/gen/HomeBranch";
 import type { AssetInfo } from "@/gen/AssetInfo";
 import type { Change } from "@/gen/Change";
 import { useComposer } from "@/stores/composer";
-import { RepoItems } from "@/features/github/RepoItems";
+import { isOpenLocalPr, RepoItems } from "@/features/github/RepoItems";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
 import { Badge, ConfirmButton, Empty, Choice, Choices, PageHeader, SettingRow, Tabs, useSaveState } from "@/components/ui";
 import { ago } from "@/lib/format";
@@ -52,7 +52,7 @@ export function ProjectPage() {
   const tabs = <Tabs tour="folder.tabs" label="Folder views" value={tab} onChange={setTab} items={[{ id: "overview", label: "Overview" }, { id: "branches", label: "Branches" }, { id: "settings", label: "Settings" }]} />;
   const running = sessions.filter(isRunning).length;
   const waiting = sessions.filter(needsYou).length;
-  const open = predrafts.filter((d) => !d.archived && !d.published_url && !d.merged).length;
+  const open = predrafts.filter(isOpenLocalPr).length;
   const counts = `${running} running · ${waiting} waiting · ${open} Local PR${open === 1 ? "" : "s"}`;
   const buttons = <>
     {p.gh_repo && (
