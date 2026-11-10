@@ -38,7 +38,7 @@ pub enum BurstState {
     /// The job is starting; Home dials it until its runner answers.
     Starting,
     Running,
-    /// The session was handed off; the job stops after Home's next backup.
+    /// The session was handed off; the job stops after Home's next backup (at most `BACKUP_WAIT_MS` later).
     Stopping,
     Stopped,
     Failed,
@@ -642,6 +642,29 @@ pub fn spawn(app: &App) {
     });
 }
 
+/// How long a handed-off job waits for a complete Home backup newer than its handoff before it stops anyway.
+const BACKUP_WAIT_MS: i64 = 15 * 60 * 1000;
+
+#[derive(Debug, PartialEq, Eq)]
+enum AfterHandoff {
+    Wait,
+    /// Home's backup holds the handoff (or there is no backup destination).
+    Stop,
+    /// No newer complete backup within `BACKUP_WAIT_MS`: stop with a visible reason.
+    StopUnsaved,
+}
+
+/// What a handed-off job (`Stopping`, handed off at `since`) does now.
+fn after_handoff(since: i64, now: i64, backup_set: bool, last_complete: Option<i64>) -> AfterHandoff {
+    if !backup_set || last_complete.is_some_and(|t| t > since) {
+        AfterHandoff::Stop
+    } else if now - since > BACKUP_WAIT_MS {
+        AfterHandoff::StopUnsaved
+    } else {
+        AfterHandoff::Wait
+    }
+}
+
 /// How long a job may keep running after its final handoff starts failing.
 const STUCK_LIMIT_MS: i64 = 2 * 3600 * 1000;
 /// How long a job waits on an open question before Home says that it keeps billing.
@@ -690,9 +713,19 @@ async fn tick(app: &App, stuck: &mut std::collections::HashMap<String, Stuck>) -
                 continue;
             };
             let info = app.home_backups.info();
-            let backed_up = app.config.get().home.backup.trim().is_empty() || info.last_complete_at.is_some_and(|t| t > since);
-            if backed_up {
-                stop(app, &r.runner_id, None).await?;
+            match after_handoff(since, now_ms(), !app.config.get().home.backup.trim().is_empty(), info.last_complete_at) {
+                AfterHandoff::Wait => {}
+                AfterHandoff::Stop => stop(app, &r.runner_id, None).await?,
+                // Backups fail or lag: the job stops anyway instead of billing until HF's limit, and fails
+                // visibly (failures, Settings → Home and runners, the session) with the reason.
+                AfterHandoff::StopUnsaved => {
+                    let why = info.error.map(|e| format!(" (last backup error: {e})")).unwrap_or_default();
+                    let reason = format!("stopped {} minutes after its handoff without a newer complete Home backup{why}: the handoff is only on Home's disk until a backup succeeds", BACKUP_WAIT_MS / 60_000);
+                    for s in sessions.iter().filter(|s| s.status != SessionStatus::Closed) {
+                        crate::sessions::notice_anywhere(app, &s.id, &format!("Launchpad stopped this agent's idle Burst runner {reason}.")).await;
+                    }
+                    stop(app, &r.runner_id, Some(reason)).await?;
+                }
             }
             continue;
         }
@@ -838,6 +871,17 @@ mod tests {
 
     fn run(created: i64, stopped: Option<i64>) -> BurstRun {
         BurstRun { runner_id: "r".into(), job_id: None, namespace: "n".into(), flavor: "cpu-basic".into(), url: None, state: BurstState::Stopped, session_id: None, created_at: created, connected_at: None, stopped_at: stopped, cost_per_minute: 0.01, error: None, pending: None, queued: vec![], handed_off_at: None, limit_stop_at: None }
+    }
+
+    #[test]
+    fn a_handed_off_job_waits_for_a_backup_at_most_fifteen_minutes() {
+        let since = 1_000_000;
+        assert_eq!(after_handoff(since, since + 60_000, false, None), AfterHandoff::Stop);
+        assert_eq!(after_handoff(since, since + 60_000, true, Some(since + 1)), AfterHandoff::Stop);
+        // An older backup does not hold the handoff.
+        assert_eq!(after_handoff(since, since + 60_000, true, Some(since)), AfterHandoff::Wait);
+        assert_eq!(after_handoff(since, since + BACKUP_WAIT_MS, true, None), AfterHandoff::Wait);
+        assert_eq!(after_handoff(since, since + BACKUP_WAIT_MS + 1, true, Some(since - 5)), AfterHandoff::StopUnsaved);
     }
 
     #[test]
