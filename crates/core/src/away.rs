@@ -142,6 +142,14 @@ async fn records_sent(app: &App, session_id: &str) -> Result<Vec<TaskWorktree>> 
     Ok(rows.iter().filter_map(|j| serde_json::from_str::<TaskWorktree>(j).ok()).filter(|w| w.sessions.iter().any(|s| s == session_id)).collect())
 }
 
+/// Home: the session's worktree of `branch` in folder `project_id`, from the records its runners sent or its last
+/// handoff (a runner's merge request is checked against it).
+pub async fn session_branch(app: &App, session_id: &str, project_id: &str, branch: &str) -> Result<Option<TaskWorktree>> {
+    let mut list = records_sent(app, session_id).await?;
+    list.extend(crate::handoff::latest(app, session_id).await?.map(|h| h.worktrees).unwrap_or_default());
+    Ok(list.into_iter().find(|w| w.project_id == project_id && w.branch == branch && w.sessions.iter().any(|s| s == session_id)))
+}
+
 /// Home: stores a worktree record a runner sent, only when its session is one Home placed there and runs there
 /// now (not moved on). The record of a worktree whose sessions are all archived goes: their away views use the
 /// last handoff.

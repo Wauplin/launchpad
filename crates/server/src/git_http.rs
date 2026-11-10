@@ -279,10 +279,21 @@ struct Merge {
     branch: String,
     head: String,
     base: String,
+    /// The session whose worktree asks (Home checks the branch, its When done and workspace in its own records).
+    #[serde(default)]
+    session_id: Option<String>,
+    /// `launchpad work finish` rather than the owner's Merge; missing counts as the agent's.
+    #[serde(default = "yes")]
+    by_agent: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 async fn merge(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<Merge>) -> ApiResult<home_git::MergeOutcome> {
     let p = home_folder(&s, &id).await?;
+    launchpad_core::worktrees::check_merge_request(&s.app, &p, b.session_id.as_deref(), &b.branch, &b.base, b.by_agent).await.map_err(|e| ApiError::new(StatusCode::FORBIDDEN, format!("{e:#}")))?;
     Ok(Json(launchpad_core::worktrees::merge_on_home(&s.app, &p, &b.branch, &b.head, &b.base).await.map_err(bad)?))
 }
 

@@ -637,7 +637,7 @@ pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, Stri
         text.push_str(&format!("\nThis work continues pull request #{} on GitHub: after each push, Launchpad pushes your commits to its branch. Never force-push or rewrite commits that are already pushed. If Launchpad reports that the pull request branch moved, run `git fetch upstream refs/pull/{}/head` and rebase onto `FETCH_HEAD`, re-run your checks and commit. Do not open another pull request. The pull request on GitHub is the review: Launchpad does not merge this branch.", pr.number, pr.number));
     }
     text.push_str(&format!(
-        "\nTo modify another registered folder, first run `{cli} work add-project --session-id {session_id} --project <name>`. It prints a dedicated worktree folder: edit that folder."
+        "\nTo modify another Git folder of this workspace, first run `{cli} work add-project --session-id {session_id} --project <name>`. It prints a dedicated worktree folder: edit that folder."
     ));
     let bases: Vec<String> = worktrees.iter().filter_map(|(w, _)| w.base_branch.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().map(|b| format!("`{b}`")).collect();
     let base = if bases.is_empty() { "its base branch".to_string() } else { bases.join(", ") };
@@ -789,12 +789,14 @@ pub async fn session_info(app: &App, session_id: &str) -> Result<Vec<WorktreeInf
 /// `launchpad work add-project`: a worktree of another Git folder, during the task.
 pub async fn add_project(app: &App, session_id: &str, project: &str) -> Result<String> {
     let s = app.sessions.get(session_id).context("no such session")?;
-    let projects = crate::projects::list(app).await?;
+    // Workspaces are a boundary for agents: only the folders of the session's own workspace.
+    let workspace = crate::kb::workspace_of_session(app, session_id).await.context("this session belongs to no workspace, so it cannot add folders")?;
+    let projects: Vec<Project> = crate::projects::list(app).await?.into_iter().filter(|p| p.workspace_id.as_deref() == Some(workspace.as_str())).collect();
     let wanted = project.trim();
     let matches: Vec<&Project> = projects.iter().filter(|p| p.id == wanted || p.name.eq_ignore_ascii_case(wanted)).collect();
     let p = match matches.as_slice() {
         [p] => (*p).clone(),
-        [] => bail!("no registered folder named {wanted:?}; registered folders: {}", projects.iter().filter(|p| p.home_git).map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")),
+        [] => bail!("no folder named {wanted:?} in this session's workspace; its Git folders: {}", projects.iter().filter(|p| p.home_git).map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")),
         _ => bail!("several folders are named {wanted:?}; use the folder ID"),
     };
     ensure!(p.home_git, "{} is not a Git folder", p.name);
@@ -1086,13 +1088,17 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool, head: Option<Str
     Ok(w)
 }
 
-/// `launchpad work finish`: requests the merge of every worktree of the session, or opens a Local PR of the
-/// primary worktree's branch when the launch chose it.
+/// `launchpad work finish`: requests the merge of every worktree of the session when the launch chose Merge, or
+/// opens a Local PR of the primary worktree's branch when it chose Local PR; Keep changes nothing.
 pub async fn finish(app: &App, session_id: &str) -> Result<String> {
     let when_done = app.sessions.get(session_id).and_then(|s| s.launch_spec.worktree).map(|o| o.when_done).unwrap_or_default();
     ensure!(when_done != crate::model::WhenDone::ReadOnly, "this session is read only: there is nothing to finish. Undo your changes and give your answer in your final message");
     if when_done == crate::model::WhenDone::LocalPr {
         return finish_local_pr(app, session_id).await;
+    }
+    // Only a launch that chose Merge lets the agent request one; Keep leaves the branch to the owner.
+    if when_done != crate::model::WhenDone::Merge {
+        return Ok("Nothing to do: this launch keeps your branches for the owner, who merges, publishes or discards them from Launchpad. Commit your work, end your turn and report the branches as ready for review. Do not merge yourself.".into());
     }
     let all = for_session(app, session_id).await?;
     let records: Vec<_> = all.into_iter().filter(|w| w.state == WorktreeState::Active && w.base_branch.is_some() && w.pull_request.is_none()).collect();
@@ -1251,13 +1257,35 @@ async fn try_merge(app: &App, w: &mut TaskWorktree) -> Result<Step> {
         let project = crate::projects::get(app, &w.project_id).await?.context("the folder no longer exists")?;
         merge_on_home(app, &project, &w.branch, &head, &base).await?
     } else {
-        let v = crate::home_link::home_request("POST", &format!("/api/home-git/{}/merge", w.project_id), Some(json!({"branch": w.branch, "head": head, "base": base}))).await?;
+        // Home checks the session's own records (When done, workspace, branch) before it merges.
+        let by_agent = w.merge.as_ref().is_none_or(|m| m.by_agent);
+        let body = json!({"branch": w.branch, "head": head, "base": base, "session_id": w.sessions.last(), "by_agent": by_agent});
+        let v = crate::home_link::home_request("POST", &format!("/api/home-git/{}/merge", w.project_id), Some(body)).await?;
         serde_json::from_value(v)?
     };
     Ok(match outcome {
         crate::home_git::MergeOutcome::Merged { head, note } => Step::Merged(head, note),
         crate::home_git::MergeOutcome::NeedsRebase { reason, .. } => Step::Conflict(reason),
     })
+}
+
+/// Home: checks a runner's merge request (`/api/home-git/{id}/merge`) against Home's own records instead of
+/// trusting it: the branch must be a worktree of the named session in that folder, with that base. An agent's
+/// request (`launchpad work finish`) also needs the launch's When done = Merge and the folder in the session's
+/// workspace.
+pub async fn check_merge_request(app: &App, project: &Project, session_id: Option<&str>, branch: &str, base: &str, by_agent: bool) -> Result<()> {
+    let sid = session_id.filter(|s| !s.is_empty()).context("this merge request names no session; update the runner")?;
+    let s = app.sessions.get(sid).context("Home has no record of this session")?;
+    let w = crate::away::session_branch(app, sid, &project.id, branch).await?.with_context(|| format!("{branch} is not a worktree of this session in {}", project.name))?;
+    ensure!(w.base_branch.as_deref() == Some(base), "{branch} is based on {}, not {base}", w.base_branch.as_deref().unwrap_or("no branch"));
+    ensure!(w.pull_request.is_none(), "this branch continues a pull request: merge it on GitHub");
+    if by_agent {
+        let when_done = s.launch_spec.worktree.map(|o| o.when_done).unwrap_or_default();
+        ensure!(when_done == crate::model::WhenDone::Merge, "this launch did not choose Merge when done: the owner merges from Launchpad");
+        let workspace = crate::kb::workspace_of_session(app, sid).await;
+        ensure!(workspace.is_some() && project.workspace_id == workspace, "{} is not in this session's workspace", project.name);
+    }
+    Ok(())
 }
 
 /// Home: a worktree merge (`home_git::merge`) that also closes the open Local PRs of the branch, so they
