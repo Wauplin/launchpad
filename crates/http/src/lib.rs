@@ -34,7 +34,8 @@ pub fn hook_path(path: &str) -> bool {
 }
 
 /// Home: the agent session that sent this request (a request extension), from Home's own records: a session CLI
-/// token checked on Home, or a runner's tunnel request that names one of the sessions Home placed on that runner.
+/// token checked on Home (also the credential Home signs for an agent's call a runner forwards for one of the
+/// sessions Home placed on it).
 /// Messages it sends are stamped as its (`launchpad_core::senders`), never as the owner's.
 #[derive(Clone, Debug)]
 pub struct AgentSession(pub String);

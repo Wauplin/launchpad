@@ -5,8 +5,8 @@
 //! each change (session, model, runner, or you) and how many lines it added and removed.
 //!
 //! - Runners keep a mirror in `<data_dir>/knowledge/<workspace name>/`, synced every minute and before a
-//!   session starts. Jails mount it read-only; agents read it as files and write with `launchpad kb`. Your own
-//!   edits in the mirror (for example in Obsidian) go up as yours.
+//!   session starts. Jails mount it read-only; agents read it as files and write with `launchpad kb`. Edits made in
+//!   a runner's mirror do not go up (a runner writes only for its sessions): edit notes in Home's window.
 //! - A write states the content it started from. When the note changed since, both versions are kept: the
 //!   new one as `<name>.concurrent-<id>.<ext>` until you or the Librarian merge them.
 //! - Harness memory is off in every session; the adapter's instruction file points to the knowledge base and
@@ -455,15 +455,11 @@ async fn session_author(app: &App, session_id: &str) -> Result<(Author, String)>
 /// Home: writes a runner sends for one of its sessions (`launchpad kb` through the tunnel).
 pub async fn runner_apply(app: &App, runner_id: &str, body: Value) -> Result<Value> {
     let ops: Vec<Op> = serde_json::from_value(body["ops"].clone())?;
-    let (author, ws) = if body["owner"].as_bool() == Some(true) {
-        // Your edits in a runner's mirror.
-        let runner = crate::runners::list(app).await.ok().and_then(|l| l.into_iter().find(|x| x.runner.id == runner_id)).map(|x| x.runner.name);
-        (Author { runner, ..Author::owner(None) }, body["workspace_id"].as_str().context("workspace_id")?.to_string())
-    } else {
-        let session_id = body["session_id"].as_str().context("session_id")?;
-        crate::home_git::check_session(app, runner_id, session_id)?;
-        session_author(app, session_id).await?
-    };
+    // Only a session writes through a runner: the owner edits the knowledge base on Home.
+    ensure!(body["owner"].as_bool() != Some(true), "runners write the knowledge base only for their sessions: edit it in Home's window");
+    let session_id = body["session_id"].as_str().context("session_id")?;
+    crate::home_git::check_session(app, runner_id, session_id)?;
+    let (author, ws) = session_author(app, session_id).await?;
     Ok(json!({"lines": apply(app, &ws, author, ops).await?}))
 }
 
@@ -668,7 +664,7 @@ pub async fn mirror_dir(app: &App, workspace_id: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Runner: sends the owner's edits in the mirror, then brings it to Home's version. Returns the mirror.
+/// Runner: brings the mirror to Home's version (edits made in it are not sent). Returns the mirror.
 pub async fn sync(app: &App, workspace_id: &str) -> Result<PathBuf> {
     static SYNCS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>> = std::sync::LazyLock::new(Default::default);
     let gate = SYNCS.lock().unwrap().entry(workspace_id.to_string()).or_default().clone();
@@ -686,31 +682,28 @@ pub async fn sync(app: &App, workspace_id: &str) -> Result<PathBuf> {
     if synced.dir != dir {
         synced = Synced { dir: dir.clone(), ..Default::default() };
     }
-    // Your edits since the last sync.
-    let mut ops = vec![];
+    // Edits in this mirror do not go to Home (the owner edits the knowledge base in Home's window): Home's version
+    // replaces them below.
     let mut local = BTreeMap::new();
+    let mut edited = vec![];
     for rel in plain::walk(&dir) {
         if plain::check_path(&rel).is_err() || rel.split('/').any(|c| c.starts_with('.')) {
             continue;
         }
-        let (h, size, _) = plain::hash_file(&dir.join(&rel)).await?;
-        if synced.files.get(&rel) != Some(&h) && !synced.files.is_empty() {
-            plain::home::upload(app, &id, &h, tokio::fs::read(dir.join(&rel)).await?).await?;
-            ops.push(Op::Write { path: rel.clone(), sha256: h.clone(), size, base: synced.files.get(&rel).cloned() });
+        let (h, _, _) = plain::hash_file(&dir.join(&rel)).await?;
+        if synced.files.get(&rel).is_some_and(|s| s != &h) {
+            edited.push(rel.clone());
         }
         local.insert(rel, h);
     }
-    for rel in synced.files.keys().filter(|r| !local.contains_key(*r)) {
-        ops.push(Op::Remove { path: rel.clone() });
-    }
-    if !ops.is_empty() {
-        crate::home_link::home_call("kb", json!({"workspace_id": workspace_id, "owner": true, "ops": ops})).await?;
+    if !edited.is_empty() {
+        tracing::warn!("knowledge base mirror {}: local edits of {} are replaced by Home's version (edit notes in Home's window)", dir.display(), edited.join(", "));
     }
     // Home's version.
     let tree = plain::home::tree(app, &id).await?;
     let wanted: BTreeMap<&str, &plain::Entry> = tree.files.iter().map(|e| (e.path.as_str(), e)).collect();
     for (rel, h) in &local {
-        // Files Home no longer has, unless they are yours and new (sent above, so Home has them).
+        // Files Home no longer has (files new in this mirror stay, unsent).
         if !wanted.contains_key(rel.as_str()) && synced.files.get(rel) == Some(h) {
             let _ = tokio::fs::remove_file(dir.join(rel)).await;
         }

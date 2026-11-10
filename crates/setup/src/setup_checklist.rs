@@ -191,7 +191,7 @@ fn harnesses(app: &App) -> SetupItem {
 
 /// Home's vault (entries without values) and agents' Git identity. `None`: Home is unreachable.
 async fn vault_view() -> Option<(Vec<launchpad_core::vault::VaultEntry>, String, String)> {
-    let v = launchpad_core::home_link::home_request("GET", "/api/vault", None).await.ok()?;
+    let v = launchpad_core::home_link::home_call("vault-view", serde_json::Value::Null).await.ok()?;
     let entries = serde_json::from_value(v["entries"].clone()).ok()?;
     Some((entries, v["git_name"].as_str().unwrap_or_default().to_string(), v["git_email"].as_str().unwrap_or_default().to_string()))
 }

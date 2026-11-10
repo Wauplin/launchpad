@@ -2,7 +2,8 @@
 //!
 //! On Home, runners call `/api/plain/<id>/…` with their credential (`X-Launchpad-Runner`) to read the tree,
 //! download and upload content, commit changes and take the lock; the owner reads the history and restores
-//! versions. A runner forwards the owner's requests to Home (`home_client::home_owned`).
+//! versions (never with a runner credential). A runner creates asset folders through its tunnel
+//! (`runner_trust`), which reaches these routes without a runner header.
 
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, State};
@@ -75,6 +76,9 @@ async fn tree(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMa
 async fn blob(State(s): State<Server>, Path((id, sha)): Path<(String, String)>, headers: HeaderMap) -> Result<Response, ApiError> {
     caller(&s, &headers).await?;
     plain::tree(&s.app, &id).await.map_err(bad)?;
+    if !plain::holds(&s.app, &id, &sha).await.map_err(bad)? {
+        return Err(ApiError::not_found("this folder holds no such content"));
+    }
     let data = plain::read_blob(&s.app, &sha).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
     Ok(([(header::CONTENT_TYPE, "application/octet-stream")], data).into_response())
 }
@@ -103,7 +107,16 @@ async fn unlock(State(s): State<Server>, Path(id): Path<String>, headers: Header
     Ok(Json(json!({"ok": true})))
 }
 
+/// The owner's routes (history, Restore, untrash, the asset list): never on a runner's credential.
+fn owner_only(headers: &HeaderMap) -> Result<(), ApiError> {
+    if headers.contains_key(crate::runners::CREDENTIAL_HEADER) {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "this is the owner's action: open Home's window"));
+    }
+    Ok(())
+}
+
 async fn history(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap) -> ApiResult<Value> {
+    owner_only(&headers)?;
     caller(&s, &headers).await?;
     let holder = plain::lock_holder(&s.app, &id).await?;
     Ok(Json(json!({"changes": plain::history(&s.app, &id).await.map_err(bad)?, "locked_by": holder})))
@@ -115,6 +128,7 @@ struct Restore {
 }
 
 async fn restore(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap, Json(b): Json<Restore>) -> ApiResult<Value> {
+    owner_only(&headers)?;
     caller(&s, &headers).await?;
     Ok(Json(json!({"version": plain::restore(&s.app, &id, b.change).await.map_err(bad)?})))
 }
@@ -127,8 +141,12 @@ struct Keep {
 /// Keep as folder, from the runner that has the temporary folder `id` (it moves its copy afterwards).
 async fn keep(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap, Json(b): Json<Keep>) -> ApiResult<launchpad_core::model::Project> {
     caller(&s, &headers).await?;
-    if !headers.contains_key(crate::runners::CREDENTIAL_HEADER) {
-        return Err(ApiError::bad_request("Keep as folder runs on the runner that has the temporary folder"));
+    let credential = headers.get(crate::runners::CREDENTIAL_HEADER).and_then(|v| v.to_str().ok()).ok_or_else(|| ApiError::bad_request("Keep as folder runs on the runner that has the temporary folder"))?;
+    let runner = launchpad_core::runners::authenticate(&s.app, credential).await.ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "unknown runner"))?;
+    // Only the runner that holds the folder, after the owner's Keep as folder that Home relayed to it.
+    let held = launchpad_core::projects::get(&s.app, &id).await?.is_some_and(|p| p.is_temp && p.runner_id.as_deref() == Some(runner.id.as_str()));
+    if !held || !s.app.runners.granted(&runner.id, &format!("keep:{id}")) {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "Keep as folder comes from the owner's window, for a temporary folder of this runner"));
     }
     Ok(Json(launchpad_core::projects::keep_temp(&s.app, &id, &b.name).await.map_err(bad)?))
 }
@@ -139,16 +157,19 @@ struct NewAsset {
 }
 
 async fn create_asset(State(s): State<Server>, Path(project): Path<String>, headers: HeaderMap, Json(b): Json<NewAsset>) -> ApiResult<plain::Asset> {
+    owner_only(&headers)?;
     caller(&s, &headers).await?;
     Ok(Json(plain::create_asset(&s.app, &project, &b.name).await.map_err(bad)?))
 }
 
 async fn list_assets(State(s): State<Server>, Path(project): Path<String>, headers: HeaderMap) -> ApiResult<Vec<plain::AssetInfo>> {
+    owner_only(&headers)?;
     caller(&s, &headers).await?;
     Ok(Json(plain::asset_infos(&s.app, &project).await.map_err(bad)?))
 }
 
 async fn untrash(State(s): State<Server>, Path(id): Path<String>, headers: HeaderMap) -> ApiResult<Value> {
+    owner_only(&headers)?;
     caller(&s, &headers).await?;
     Ok(Json(json!({"version": plain::untrash_asset(&s.app, &id).await.map_err(bad)?})))
 }

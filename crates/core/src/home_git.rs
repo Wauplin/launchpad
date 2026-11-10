@@ -341,8 +341,10 @@ pub async fn launchpad_refs(app: &App, project_id: &str) -> Result<BTreeMap<Stri
 }
 
 /// After a push: keeps the previous tip of every changed Launchpad branch, forwards followed branches to
-/// GitHub and tells windows. `session`: the pushing session, if any.
-pub async fn after_push(app: &App, project_id: &str, before: &BTreeMap<String, String>, session: Option<&str>) -> Result<()> {
+/// GitHub and tells windows. `session`: the pushing session, if any. `runner`: a runner pushed (else Home itself):
+/// a followed branch goes to GitHub only when the pushing session is the follow's or works on that branch by
+/// Home's records, never for a push with the runner daemon's own token.
+pub async fn after_push(app: &App, project_id: &str, before: &BTreeMap<String, String>, session: Option<&str>, runner: bool) -> Result<()> {
     let after = launchpad_refs(app, project_id).await?;
     let dir = mirror(app, project_id);
     let at = now_ms();
@@ -380,7 +382,15 @@ pub async fn after_push(app: &App, project_id: &str, before: &BTreeMap<String, S
     }
     app.bus.publish("home_git", "pushed", serde_json::json!({"project_id": project_id, "branches": changed, "session_id": session}));
     for branch in &changed {
-        if after.contains_key(&format!("refs/heads/{branch}")) && follow(app, project_id, branch).await?.is_some() {
+        if after.contains_key(&format!("refs/heads/{branch}")) && let Some(f) = follow(app, project_id, branch).await? {
+            let owner = match session {
+                Some(sid) => f.session_id.as_deref() == Some(sid) || crate::away::session_branch(app, sid, project_id, branch).await.ok().flatten().is_some(),
+                None => !runner,
+            };
+            if !owner {
+                tracing::warn!("{branch} follows {}: a push by {} does not go to GitHub", f.url, session.map(|s| format!("session {s}, which does not work on it")).unwrap_or_else(|| "a runner daemon".into()));
+                continue;
+            }
             let (app, project_id, branch) = (app.clone(), project_id.to_string(), branch.clone());
             tokio::spawn(async move { forward(&app, &project_id, &branch).await });
         }
@@ -561,7 +571,7 @@ pub async fn restore(app: &App, project_id: &str, branch: &str, commit: &str) ->
     ensure!(!kept.is_empty(), "this commit is not a kept tip of {branch}");
     let before = launchpad_refs(app, project_id).await?;
     git(app, &dir, &["update-ref", &format!("refs/heads/{branch}"), commit]).await?;
-    after_push(app, project_id, &before, None).await
+    after_push(app, project_id, &before, None, false).await
 }
 
 /// Deletes a Launchpad branch on Home; its tip stays restorable. `worktree`: the snapshot of that worktree
@@ -579,7 +589,7 @@ pub async fn delete(app: &App, project_id: &str, branch: &str, worktree: Option<
     let before = launchpad_refs(app, project_id).await?;
     if before.contains_key(&format!("refs/heads/{branch}")) {
         git(app, &mirror(app, project_id), &["update-ref", "-d", &format!("refs/heads/{branch}")]).await?;
-        after_push(app, project_id, &before, None).await?;
+        after_push(app, project_id, &before, None, false).await?;
     }
     Ok(())
 }
@@ -637,7 +647,7 @@ pub async fn pull_request(app: &App, p: &Project, number: u64, branch: &str) -> 
     git_in(app, &dir, &["fetch", "--quiet", "--no-tags", "origin", &format!("+refs/pull/{number}/head:refs/heads/{branch}")], 300).await
         .with_context(|| format!("could not fetch pull request #{number}"))?;
     drop(_lock);
-    after_push(app, &p.id, &before, None).await?;
+    after_push(app, &p.id, &before, None, false).await?;
     tip(app, &p.id, &format!("refs/heads/{branch}")).await?.context("pull request head missing")
 }
 
@@ -753,11 +763,11 @@ pub const SESSION_HEADER: &str = "X-Launchpad-Session";
 /// A runner daemon's import of a folder without a remote: every ref may be written.
 pub const IMPORT_HEADER: &str = "X-Launchpad-Import";
 
-/// Home: refuses Git requests of a session that now runs elsewhere (another runner or generation).
+/// Home: refuses requests a runner makes for a session Home did not place on it, or that now runs elsewhere
+/// (another runner or generation).
 pub fn check_session(app: &App, runner_id: &str, session: &str) -> Result<()> {
-    if let Some(s) = app.sessions.get(session)
-        && s.runner_id.as_deref() != Some(runner_id)
-    {
+    let s = app.sessions.get(session).context("Home did not place this session on this runner")?;
+    if s.runner_id.as_deref() != Some(runner_id) {
         bail!("this session now runs on another runner; this runner can no longer push its branches");
     }
     Ok(())

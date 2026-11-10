@@ -882,6 +882,13 @@ pub async fn launchpad_access(app: &App, req: &LeaseRequest) -> Result<Option<La
     Ok(launchpad_level(app, granted, req.bot_id.as_deref()).await)
 }
 
+/// Home: the Launchpad CLI access of a session Home placed, from its own record (`grant`'s rule): what Home checks
+/// for an agent's call a runner forwards (`launchpad_http::agent_auth`).
+pub async fn session_access(app: &App, session_id: &str) -> Result<Option<LaunchpadAccess>> {
+    let s = app.sessions.get(session_id).context("Home has no record of this session")?;
+    launchpad_access(app, &crate::contain::request(app, &s).await?).await
+}
+
 /// The kept tool that already sends another token to one of `t`'s hosts (the proxy adds one token per host): two
 /// Slack tools, for example. The first tool in the registry's order (by name) wins.
 pub fn host_conflict<'a>(kept: &'a [Tool], t: &Tool) -> Option<&'a Tool> {
@@ -932,6 +939,11 @@ pub async fn runner_call(app: &App, runner_id: &str, op: &str, body: Value) -> R
         "kb" => crate::kb::runner_apply(app, runner_id, body).await,
         "bot-memory" => crate::bot_memory::runner_apply(app, runner_id, body).await,
         "quota" => crate::quota::runner_reading(app, body),
+        // The runner's setup checklist: the vault's entries (names and kinds, never values) and agents' Git identity.
+        "vault-view" => {
+            let home = app.config.get().home.clone();
+            Ok(json!({"entries": entries(app).await?, "git_name": home.git_name, "git_email": home.git_email}))
+        }
         // The bytes of an upload Home sent to one of this runner's sessions (`attachments::fetch_missing`).
         "upload" => crate::attachments::read_for_runner(app, runner_id, &body),
         _ => bail!("unknown runner call {op}"),

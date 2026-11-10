@@ -11,6 +11,7 @@ mod home_client;
 mod operations;
 mod routes;
 mod runners;
+mod runner_trust;
 mod terminals;
 mod tailnet;
 mod worktrees;

@@ -575,7 +575,8 @@ pub mod proto {
         Res { id: u64, status: u16, body: String },
         /// Outbox items (`replica::Item`) with their numbers, oldest first.
         Items { items: Vec<(u64, serde_json::Value)> },
-        /// A change made in a window of the runner that Home owns (workspaces), for Home's API.
+        /// An API request to Home: the runner's own work (`server::runner_trust`'s closed list), or with
+        /// `session` an agent's CLI call that Home checks with that session's access.
         Req {
             id: u64,
             method: String,
@@ -686,6 +687,31 @@ struct HubInner {
     /// Requests waiting for an answer, with their runner.
     pending: Mutex<HashMap<u64, (String, Reply)>>,
     next: std::sync::atomic::AtomicU64,
+    /// What Home let a runner do on its own credential because of a request Home sent it (`grant`).
+    grants: Mutex<HashMap<(String, String), i64>>,
+}
+
+/// How long a grant (`Hub::grant`) holds.
+const GRANT_MS: i64 = 24 * 3600 * 1000;
+
+/// The agents whose traces a request body names as context (`agent_traces` at any depth: a launch spec, a
+/// message's context).
+pub fn traced_agents(body: &serde_json::Value) -> Vec<String> {
+    let mut out = vec![];
+    match body {
+        serde_json::Value::Object(m) => {
+            for (k, v) in m {
+                if k == "agent_traces" && let Some(list) = v.as_array() {
+                    out.extend(list.iter().filter_map(|t| t["session_id"].as_str().map(str::to_string)));
+                } else {
+                    out.extend(traced_agents(v));
+                }
+            }
+        }
+        serde_json::Value::Array(a) => a.iter().for_each(|v| out.extend(traced_agents(v))),
+        _ => {}
+    }
+    out
 }
 
 impl Hub {
@@ -782,6 +808,12 @@ impl Hub {
     }
 
     pub async fn request_with(&self, id: &str, method: &str, path: &str, body: Option<String>, headers: Vec<(String, String)>) -> Result<(u16, String)> {
+        // The context traces a launch or a message names: the runner reads them from Home on its own credential.
+        if let Some(v) = body.as_deref().and_then(|b| serde_json::from_str::<serde_json::Value>(b).ok()) {
+            for agent in traced_agents(&v) {
+                self.grant(id, &format!("trace:{agent}"));
+            }
+        }
         let n = self.inner.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
         let (tx, rx) = oneshot::channel();
         self.inner.pending.lock().unwrap().insert(n, (id.to_string(), tx));
@@ -798,6 +830,21 @@ impl Hub {
                 bail!("the runner did not answer within two minutes")
             }
         }
+    }
+
+    /// Home: lets runner `id` do `key` on its own credential for a day, because Home asked it to (the owner's
+    /// Merge or Keep as folder that Home relayed, a context trace Home sent with a launch or a message).
+    pub fn grant(&self, id: &str, key: &str) {
+        let now = crate::util::now_ms();
+        let mut grants = self.inner.grants.lock().unwrap();
+        grants.retain(|_, at| now - *at < GRANT_MS);
+        grants.insert((id.to_string(), key.to_string()), now);
+    }
+
+    /// Whether runner `id` holds the grant `key` (`grant`).
+    pub fn granted(&self, id: &str, key: &str) -> bool {
+        let now = crate::util::now_ms();
+        self.inner.grants.lock().unwrap().get(&(id.to_string(), key.to_string())).is_some_and(|at| now - *at < GRANT_MS)
     }
 
     pub fn answered(&self, id: u64, status: u16, body: String) {
@@ -1171,6 +1218,16 @@ pub async fn send_anywhere_with(app: &App, id: &str, text: &str, mut files: Vec<
 
 #[cfg(test)]
 mod tests {
+    /// A launch spec and a message's context name the agents whose traces the runner may then read from Home.
+    #[test]
+    fn traced_agents_are_found_at_any_depth() {
+        let launch = serde_json::json!({"spec": {"agent_traces": [{"session_id": "a", "through_seq": 3}]}, "text": "x"});
+        assert_eq!(super::traced_agents(&launch), vec!["a".to_string()]);
+        let message = serde_json::json!({"text": "x", "context": {"agent_traces": [{"session_id": "b"}, {"through_seq": 1}]}});
+        assert_eq!(super::traced_agents(&message), vec!["b".to_string()]);
+        assert!(super::traced_agents(&serde_json::json!({"agent_traces": "a"})).is_empty());
+    }
+
     #[test]
     fn choose_prefers_the_previous_runner_then_the_least_busy() {
         let available = vec!["b".to_string(), "a".to_string(), "c".to_string()];

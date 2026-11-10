@@ -32,9 +32,16 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
     }
 }
 
-/// The session's access, from its lease (None: the tool is not granted). A session without a lease on this
-/// machine (not contained) proposes, never more.
-fn access_of(app: &App, id: &str) -> Option<LaunchpadAccess> {
+/// The session's access (None: the tool is not granted). Home: from its own records of the session (the rule
+/// its leases follow), for the calls runners forward. A runner: from the session's lease; a session without a
+/// lease on this machine (not contained) proposes, never more.
+async fn access_of(app: &App, id: &str) -> Option<LaunchpadAccess> {
+    if app.paths.role == launchpad_core::role::Role::Home {
+        return launchpad_core::vault::session_access(app, id).await.unwrap_or_else(|e| {
+            tracing::warn!("Launchpad CLI access of session {id}: {e:#}");
+            None
+        });
+    }
     match app.proxy.for_session(id) {
         Some(a) => a.lease.read().unwrap().launchpad,
         None => Some(LaunchpadAccess::Propose),
@@ -64,12 +71,8 @@ fn admin_may_accept(body: &Value) -> bool {
     kind == "status" || (ids && actions::for_card(kind).is_some_and(|a| a.access == ActionAccess::Admin))
 }
 
-/// A proposal's body: on a runner from Home (which holds proposals), else from this daemon's state.
+/// A proposal's body, from Home's state (a runner forwards the accept to Home, which checks it there).
 async fn proposal_body(app: &App, id: &str) -> Option<Value> {
-    if app.paths.role == launchpad_core::role::Role::Runner {
-        let list = launchpad_core::home_link::home_request("GET", "/api/proposals", None).await.ok()?;
-        return list.as_array()?.iter().find(|p| p["id"] == id).map(|p| p["body"].clone());
-    }
     let id = id.to_string();
     let json: Option<String> = app.state_db.call(move |c| Ok(c.query_row("SELECT json FROM launch_proposal WHERE id = ?1", [&id], |r| r.get(0)).ok())).await.ok()?;
     serde_json::from_str::<Value>(&json?).ok().map(|p| p["body"].clone())
@@ -109,7 +112,7 @@ async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
 pub async fn authorize(app: &App, id: &str, req: Request) -> Result<Request, ApiError> {
     let denied = || ApiError::new(axum::http::StatusCode::FORBIDDEN, "this session CLI token can only read context and prepare local work; use an owner window for this action");
     let path = req.uri().path().to_string();
-    let access = access_of(app, id);
+    let access = access_of(app, id).await;
     if let Some(need) = tool_need(req.method(), &path)
         && access.is_none_or(|a| a < need)
     {
@@ -127,7 +130,8 @@ pub async fn authorize(app: &App, id: &str, req: Request) -> Result<Request, Api
         if req.method() == Method::GET || req.method() == Method::DELETE {
             return Ok(req);
         }
-        if let Some(pid) = path.strip_prefix("/api/proposals/").and_then(|r| r.strip_suffix("/accept")) {
+        // A runner forwards the accept to Home, which checks the card.
+        if app.paths.role == launchpad_core::role::Role::Home && let Some(pid) = path.strip_prefix("/api/proposals/").and_then(|r| r.strip_suffix("/accept")) {
             let direct = proposal_body(app, pid).await.as_ref().is_some_and(admin_may_accept);
             if !direct {
                 return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "admin access cannot run this card's action directly (tools and ready cards): it waits for the owner's click"));

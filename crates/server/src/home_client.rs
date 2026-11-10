@@ -1,7 +1,7 @@
 //! A runner's tunnel to Home: one outbound WebSocket, kept open with retries. No inbound port is needed.
 //!
 //! Home sends API requests (`Req`), which the runner answers by calling its own router in process, as its
-//! local owner. The runner reports its guard (local settings) on connect and when it changes. Home owns the
+//! local owner. What the runner sends Home is not trusted as the owner's (`runner_trust`). The runner reports its guard (local settings) on connect and when it changes. Home owns the
 //! workspaces: it sends them on connect and after each change, and the runner forwards their changes to Home.
 
 use std::time::Duration;
@@ -208,7 +208,8 @@ async fn call_home(op: String, body: serde_json::Value) -> anyhow::Result<(u16, 
 
 /// Requests about records Home owns, which a runner sends to Home: workspace changes (the runner keeps a copy
 /// for reading), routines and scheduled launches (only Home launches), Home Git, review drafts (`/api/review-state`, so they follow the owner to every window), and the context reads of the Launchpad CLI (only Home sees the sessions, schedules and
-/// Inbox of every runner).
+/// Inbox of every runner). An agent's call goes with its session and Home checks it with the agent's access; the
+/// runner's own requests pass only Home's closed list (`runner_trust`).
 pub(crate) fn home_owned(path: &str) -> bool {
     path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/") || path.starts_with("/api/plain/") || path.starts_with("/api/knowledge/") || path.starts_with("/api/vault") || path == "/api/mcp" || path.starts_with("/api/mcp/")
         || path == "/api/tool-defaults" || path.starts_with("/api/tool-defaults/")
@@ -223,15 +224,6 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/activity" || path.starts_with("/api/activity/") || path == "/api/settings/shared"
         || path == "/api/review-state"
         || path == "/api/home/update" || path == "/api/home/update/check" || path.starts_with("/api/cli-updates")
-}
-
-/// Home: requests a runner may send through its tunnel (as Home's owner). Sessions: reads, and the admin actions
-/// of the action list (an agent's CLI acting on a session of another runner, as the owner's button would);
-/// never the owner-only ones (paid usage).
-pub(crate) fn home_accepts(method: &str, path: &str) -> bool {
-    home_owned(path) || path.starts_with("/api/projects") || path.starts_with("/api/predrafts") || trace_id(path).is_some() || (method == "GET" && path == "/api/logs")
-        || ((path == "/api/sessions" || path.starts_with("/api/sessions/"))
-            && (method == "GET" || launchpad_core::actions::find(method, path).is_some_and(|a| a.access == launchpad_core::actions::ActionAccess::Admin)))
 }
 
 /// Marks a request of a session's CLI token (`auth::guard`), with its session: its launches and messages go to Home,
@@ -262,7 +254,23 @@ fn to_home_too(s: &crate::Server, req: &axum::extract::Request) -> bool {
     if req.method() == axum::http::Method::POST && req.extensions().get::<AgentCall>().is_some() && session_id(path).is_some_and(|id| path == format!("/api/sessions/{id}/input")) {
         return true;
     }
-    session_id(path).is_some_and(|id| s.app.sessions.get(id).is_none()) && home_accepts(req.method().as_str(), path)
+    // A session of another runner: reads, and an agent's admin actions (Home checks them with its access).
+    (session_id(path).is_some_and(|id| s.app.sessions.get(id).is_none())
+        && (req.method() == axum::http::Method::GET || launchpad_core::actions::find(req.method().as_str(), path).is_some_and(|a| a.access == launchpad_core::actions::ActionAccess::Admin)))
+        || agent_to_home(req)
+}
+
+/// Runner: an agent's call whose handler here would only pass it on to Home (Local PR records, folder settings):
+/// it goes to Home as the agent's, so Home checks it with the agent's access (`runner_trust`). A Local PR of a
+/// worktree (`cwd`) and `resolve` stay here: they read this runner's worktrees.
+fn agent_to_home(req: &axum::extract::Request) -> bool {
+    if req.extensions().get::<AgentCall>().is_none() {
+        return false;
+    }
+    let (method, path) = (req.method(), req.uri().path());
+    (path.starts_with("/api/projects/") && method != axum::http::Method::GET)
+        || (path.starts_with("/api/predrafts/") && path != "/api/predrafts/resolve")
+        || (path == "/api/predrafts" && method == axum::http::Method::GET)
 }
 
 /// `/api/sessions/{id}/trace`: the session's ID.
@@ -271,19 +279,27 @@ fn trace_id(path: &str) -> Option<&str> {
 }
 
 /// Runner: requests about records Home owns go to Home; the runner's copy follows Home's snapshots.
-pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate::Server>, req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
-    use axum::response::IntoResponse;
+/// Runner: whether this request goes to Home (`forward_writes`).
+pub(crate) fn goes_to_home(s: &crate::Server, req: &axum::extract::Request) -> bool {
+    if s.app.paths.role != role::Role::Runner {
+        return false;
+    }
     let path = req.uri().path();
-    let forwarded = home_owned(path) && (req.method() != axum::http::Method::GET || !(path == "/api/workspaces" || path.starts_with("/api/workspaces/")));
+    let get = req.method() == axum::http::Method::GET;
     // Traces always come from Home: it holds every event of every generation, while a runner that adopted a
     // session has only the turns since (a bot's earlier session, a context trace, a moved session).
-    let trace = if req.method() == axum::http::Method::GET { trace_id(path).map(str::to_string) } else { None };
+    let trace = get && trace_id(path).is_some();
     // Scheduled follow-ups are Home's records, sent through placement when due.
     let follow_up = req.method() == axum::http::Method::POST && session_id(path).is_some_and(|id| path == format!("/api/sessions/{id}/follow-up"));
-    let forwarded = forwarded || trace.is_some() || follow_up || (s.app.paths.role == role::Role::Runner && to_home_too(&s, &req));
-    if s.app.paths.role != role::Role::Runner || !forwarded {
+    (home_owned(path) && (!get || !(path == "/api/workspaces" || path.starts_with("/api/workspaces/")))) || trace || follow_up || to_home_too(s, req)
+}
+
+pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate::Server>, req: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if !goes_to_home(&s, &req) {
         return next.run(req).await;
     }
+    let trace = if req.method() == axum::http::Method::GET { trace_id(req.uri().path()).map(str::to_string) } else { None };
     // A session of this runner: the events queued before this request reach Home first (a few seconds at most;
     // events of a running turn queued later do not hold it, nor a tunnel that is down).
     let local = trace.as_deref().is_some_and(|id| s.app.sessions.get(id).is_some());
@@ -608,9 +624,26 @@ async fn serve(app: &App, router: &Router, out: &tokio::sync::mpsc::UnboundedSen
     Ok(None)
 }
 
-/// Runs an API request against this daemon's own router, as its local owner.
-pub(crate) async fn local(app: &App, router: &Router, method: &str, path: &str, body: Option<String>, headers: &[(String, String)]) -> anyhow::Result<(u16, String)> {
-    local_as(app, router, method, path, body, headers, None).await
+/// Home: an agent's CLI call that a runner forwarded for a session Home placed there (`runner_trust::agent`). It
+/// runs through Home's router with that session's CLI credential (signed here, for its current generation), so
+/// Home checks it like a call of its own (`agent_auth::authorize` with the session's access from Home's records,
+/// the activity list), never as the owner.
+pub(crate) async fn local_agent(app: &App, router: &Router, method: &str, path: &str, body: Option<String>, session: &str) -> anyhow::Result<(u16, String)> {
+    anyhow::ensure!(path.starts_with("/api/"), "only API requests go through the tunnel");
+    let s = app.sessions.get(session).ok_or_else(|| anyhow::anyhow!("no such session"))?;
+    let token = launchpad_core::session_token::token(&app.paths.token()?, &s.id, s.generation)?;
+    let mut req = Request::builder()
+        .method(method)
+        .uri(path)
+        .header(header::HOST, format!("127.0.0.1:{}", app.paths.port))
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.unwrap_or_default()))?;
+    req.extensions_mut().insert(axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 0))));
+    let res = router.clone().oneshot(req).await?;
+    let status = res.status().as_u16();
+    let bytes = axum::body::to_bytes(res.into_body(), 64 << 20).await?;
+    Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
 }
 
 /// Runner: Home relays a request about a session it placed here that this runner does not hold: its adoption
@@ -631,8 +664,9 @@ async fn adopt_first(app: &App, method: &str, path: &str) -> anyhow::Result<()> 
     launchpad_core::handoff::adopt_moved(app, id).await.context("this runner could not take the session over")
 }
 
-/// `local`, for the agent session `agent` (Home: a runner's request that names one of its sessions).
-pub(crate) async fn local_as(app: &App, router: &Router, method: &str, path: &str, body: Option<String>, headers: &[(String, String)], agent: Option<String>) -> anyhow::Result<(u16, String)> {
+/// Runs an API request against this daemon's own router, as its local owner: Home's requests to a runner, and on
+/// Home a runner's own requests that `runner_trust::check` let through.
+pub(crate) async fn local(app: &App, router: &Router, method: &str, path: &str, body: Option<String>, headers: &[(String, String)]) -> anyhow::Result<(u16, String)> {
     anyhow::ensure!(path.starts_with("/api/"), "only API requests go through the tunnel");
     if let Err(e) = adopt_first(app, method, path).await {
         return Ok((409, serde_json::json!({"error": format!("{e:#}")}).to_string()));
@@ -649,9 +683,6 @@ pub(crate) async fn local_as(app: &App, router: &Router, method: &str, path: &st
         req.headers_mut().insert(header::HeaderName::from_bytes(k.as_bytes())?, v.parse()?);
     }
     req.extensions_mut().insert(axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 0))));
-    if let Some(a) = agent {
-        req.extensions_mut().insert(launchpad_http::AgentSession(a));
-    }
     let res = router.clone().oneshot(req).await?;
     let status = res.status().as_u16();
     if headers.iter().any(|(k, v)| k.eq_ignore_ascii_case(crate::runners::ENVELOPE_HEADER) && v == "1") {

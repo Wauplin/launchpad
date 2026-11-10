@@ -332,10 +332,10 @@ pub async fn register_remote(app: &App, name: &str, url: &str, workspace_id: &st
 /// `name`: Home registers its remote; a repository without a remote is imported into Home Git (every branch and
 /// tag) over the runner's link. Agents never work in the temporary folder's repository afterwards: every runner
 /// clones the folder from Home.
-async fn keep_git_temp(app: &App, path: &Path, name: &str, workspace_id: &str) -> Result<Project> {
+async fn keep_git_temp(app: &App, temp_id: &str, path: &Path, name: &str, workspace_id: &str) -> Result<Project> {
     ensure!(!crate::home_git::here(app), "Home stores no folder of its own disk");
     let (remote_url, _, _) = remote_info(path).await;
-    let p: Project = serde_json::from_value(crate::home_link::home_request("POST", "/api/projects/remote", Some(serde_json::json!({"name": name, "url": remote_url.clone().unwrap_or_default(), "workspace_id": workspace_id}))).await?)?;
+    let p: Project = serde_json::from_value(crate::home_link::home_request("POST", "/api/projects/remote", Some(serde_json::json!({"name": name, "url": remote_url.clone().unwrap_or_default(), "workspace_id": workspace_id, "temp_id": temp_id}))).await?)?;
     if remote_url.is_none() {
         let header = crate::repo_cache::daemon_header(app)?;
         let url = crate::repo_cache::home_url(app, &p.id);
@@ -715,7 +715,7 @@ pub async fn keep_as_folder(app: &App, id: &str, name: &str) -> Result<Project> 
     ensure!(!mine.iter().any(|s| app.sessions.is_busy(s)), "an agent works in {}; keep it when its turn ended", p.name);
     if old.join(".git").exists() {
         let workspace = p.workspace_id.as_deref().context("this temporary folder has no workspace")?;
-        return keep_git_temp(app, &old, name, workspace).await;
+        return keep_git_temp(app, id, &old, name, workspace).await;
     }
     // The author of the last upload: an agent of the folder on this disk, else Launchpad itself.
     let author = mine.iter().max_by_key(|s| s.started_at).map(|s| s.id.clone()).unwrap_or_else(|| format!("keep-{}", uuid::Uuid::new_v4()));

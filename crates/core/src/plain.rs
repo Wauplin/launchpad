@@ -184,6 +184,18 @@ pub async fn tree(app: &App, id: &str) -> Result<Tree> {
 }
 
 /// Home: a blob, fetched from the backup destination when this disk lost it (a restored Home).
+/// Whether store `id` holds the content `sha` now or held it in its kept history: a runner reads only the content
+/// of the store it names.
+pub async fn holds(app: &App, id: &str, sha: &str) -> Result<bool> {
+    let (id, sha) = (id.to_string(), sha.to_string());
+    app.state_db
+        .call(move |c| {
+            let now: bool = c.query_row("SELECT EXISTS (SELECT 1 FROM plain_file WHERE store = ?1 AND sha256 = ?2)", params![id, sha], |r| r.get(0))?;
+            Ok(now || c.query_row("SELECT EXISTS (SELECT 1 FROM plain_history WHERE store = ?1 AND (sha256 = ?2 OR new_sha256 = ?2))", params![id, sha], |r| r.get(0))?)
+        })
+        .await
+}
+
 pub async fn read_blob(app: &App, sha: &str) -> Result<Vec<u8>> {
     let path = blob_path(app, sha)?;
     if let Ok(data) = tokio::fs::read(&path).await {

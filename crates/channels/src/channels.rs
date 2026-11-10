@@ -234,7 +234,7 @@ async fn refresh_names(app: &App) {
         names
     } else {
         // A runner asks Home (its sessions' prompts name the channels too).
-        match launchpad_core::home_link::home_request("GET", "/api/channels", None).await {
+        match launchpad_core::home_link::home_request("GET", "/api/channels/names", None).await {
             Ok(v) => v["names"].as_array().map(|a| a.iter().filter_map(|n| n.as_str().map(str::to_string)).collect()).unwrap_or_default(),
             Err(_) => return,
         }

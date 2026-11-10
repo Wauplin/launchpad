@@ -21,6 +21,7 @@ pub fn router() -> Router<Ctx> {
     Router::new()
         .route("/api/channels", get(overview).post(add))
         .route("/api/channels/send", post(send_draft))
+        .route("/api/channels/names", get(names))
         .route("/api/channels/{id}", delete(remove))
         .route("/api/channels/telegram/notify", post(telegram_notify))
         .route("/api/channels/telegram/{workspace}", get(telegram_status).patch(telegram_patch).delete(telegram_remove))
@@ -53,6 +54,10 @@ async fn overview(State(s): State<Ctx>) -> ApiResult<Value> {
         "channels": if here { channels::list(app).await? } else { vec![] },
         "hooks": if here { hooks::list(app).await? } else { vec![] },
     })))
+}
+/// The channel names agents can use, without the channels: what a runner reads (`home_client`'s runner list).
+async fn names(State(s): State<Ctx>) -> ApiResult<Value> {
+    Ok(Json(json!({"names": channels::names(&s.app).await})))
 }
 async fn add(State(s): State<Ctx>, Json(n): Json<NewChannel>) -> ApiResult<Channel> {
     Ok(Json(channels::add(&s.app, n).await.map_err(bad)?))

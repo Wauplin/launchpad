@@ -484,8 +484,9 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
                 if s.app.paths.role == launchpad_core::role::Role::Home {
                     req.extensions_mut().insert(launchpad_http::AgentSession(session.id.clone()));
                 }
-                // Direct admin actions go to the activity list, with the values before them for Undo.
-                let (req, pending) = crate::activity::prepare(&s.app, &session.id, req).await;
+                // Direct admin actions go to the activity list, with the values before them for Undo (on Home for
+                // the calls a runner forwards there).
+                let (req, pending) = if crate::home_client::goes_to_home(&s, &req) { (req, None) } else { crate::activity::prepare(&s.app, &session.id, req).await };
                 let res = next.run(req).await;
                 let res = match pending { Some(p) => crate::activity::finish(&s.app, p, res).await, None => res };
                 private_response(res, private)

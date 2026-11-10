@@ -393,11 +393,20 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                         let (app, out) = (s.app.clone(), s.app.runners.clone());
                         let runner_id = runner.id.clone();
                         tokio::spawn(async move {
-                            // An agent's request: only a session Home placed on this runner, in Home's record.
-                            let agent = session.filter(|sid| app.sessions.get(sid).is_some_and(|x| x.runner_id.as_deref() == Some(runner_id.as_str())));
-                            let res = match crate::ROUTER.get() {
-                                Some(router) if crate::home_client::home_accepts(&method, path.split('?').next().unwrap_or_default()) => crate::home_client::local_as(&app, router, &method, &path, body, &[], agent).await,
-                                _ => Err(anyhow::anyhow!("runners may only send requests about records Home owns")),
+                            let bare = path.split('?').next().unwrap_or_default().to_string();
+                            let res = match (crate::ROUTER.get(), session) {
+                                (None, _) => Err(anyhow::anyhow!("Home is starting")),
+                                // An agent's CLI call: checked here with that session's own access, never the runner's
+                                // word (`runner_trust`).
+                                (Some(router), Some(sid)) => match crate::runner_trust::agent(&app, &runner_id, &sid) {
+                                    Ok(()) => crate::home_client::local_agent(&app, router, &method, &path, body, &sid).await,
+                                    Err(e) => Ok((403, json!({"error": format!("{e:#}")}).to_string())),
+                                },
+                                // The runner's own work: a closed list, scoped to its sessions and folders.
+                                (Some(router), None) => match crate::runner_trust::check(&app, &runner_id, &method, &bare, body).await {
+                                    Ok(body) => crate::home_client::local(&app, router, &method, &path, body, &[]).await.inspect(|(status, answer)| crate::runner_trust::after(&app, &runner_id, &method, &bare, *status, answer)),
+                                    Err(e) => Ok((403, json!({"error": format!("{e:#}")}).to_string())),
+                                },
                             };
                             let (status, body) = res.unwrap_or_else(|e| (400, json!({"error": format!("{e:#}")}).to_string()));
                             out.send_to(&runner_id, ToRunner::Res { id, status, body });
@@ -497,7 +506,7 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         }
         ["api", "sessions", id, rest @ ..] if *id != "search" => {
             // Scheduled follow-ups are Home's records: Home sends them through placement when they are due.
-            let served = (get && matches!(rest, [] | ["events"] | ["events", "page"] | ["trace"] | ["images", ..] | ["access"])) || rest == ["move"] || rest == ["follow-up"];
+            let served = (get && matches!(rest, [] | ["events"] | ["events", "page"] | ["trace"] | ["images", ..] | ["access"] | ["machines"])) || rest == ["move"] || rest == ["follow-up"];
             match s.app.sessions.get(id).and_then(|x| x.runner_id) {
                 Some(r) if !served => Some(r),
                 _ => return next.run(req).await,
@@ -589,6 +598,19 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         return e.into_response();
     }
     let worktree_list = get && matches!(parts.as_slice(), ["api", "sessions", _, "worktrees"]);
+    // The owner's Merge and Keep as folder: the runner then asks Home on its own credential, which Home accepts as
+    // the owner's only with this grant (`runner_trust`); without it a runner's merge counts as its agent's.
+    if agent.is_none() && method == axum::http::Method::POST {
+        match parts.as_slice() {
+            ["api", "worktrees", _, "merge"] => {
+                if let Some(head) = body.as_deref().and_then(|b| serde_json::from_str::<Value>(b).ok()).and_then(|b| b["head"].as_str().map(str::to_string)) {
+                    s.app.runners.grant(&runner, &format!("merge:{head}"));
+                }
+            }
+            ["api", "projects", id, "promote"] => s.app.runners.grant(&runner, &format!("keep:{id}")),
+            _ => {}
+        }
+    }
     match s.app.runners.request_with(&runner, method.as_str(), &path_and_query, body, headers).await {
         Ok((status, body)) if binary => from_envelope(status, &body),
         // Continue in TUI: the terminal is on this runner.
