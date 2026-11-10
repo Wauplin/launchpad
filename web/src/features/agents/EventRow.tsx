@@ -4,6 +4,8 @@ import { daemonAsset } from "@/lib/connection";
 import { useQuery } from "@tanstack/react-query";
 import { memo, useContext, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
+import { MenuItem } from "@/components/Popover";
+import { MoreMenu } from "@/components/ui";
 import { CodeLinksContext, Markdown } from "@/components/Markdown";
 import { toast } from "@/components/Toast";
 import { api } from "@/lib/api";
@@ -32,28 +34,25 @@ function duration(ms: number | null | undefined) {
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
 }
 
+/** An answer, with one ⋯ (Copy, Copy as Markdown): over its top right corner on hover with a mouse, and at its
+ * right on touch screens. */
 export function AssistantRow({ text, streaming }: { text: string; streaming: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   return (
-    <div className="group relative">
-      {!streaming && (
-        <div className="absolute -top-2 right-0 z-[2] hidden gap-1 group-hover:flex [@media(hover:none)]:static [@media(hover:none)]:mb-1 [@media(hover:none)]:flex [@media(hover:none)]:justify-end">
-          <button className="btn btn-sm shadow-[0_1px_3px_rgba(23,32,43,.12)]" title="Copy the raw markdown" onClick={() => void copyText(text).then(() => toast("Copied"))}>
-            <Icon name="copy" size={12} />
-            Copy
-          </button>
-          <button
-            className="btn btn-sm shadow-[0_1px_3px_rgba(23,32,43,.12)]"
-            title="Copy the text without markdown"
-            onClick={() => void copyText(ref.current?.innerText ?? text).then(() => toast("Copied as text"))}
-          >
-            Copy as text
-          </button>
-        </div>
-      )}
-      <div ref={ref}>
+    <div className="group relative flex items-start gap-1">
+      <div ref={ref} className="min-w-0 flex-1">
         <Markdown text={text} runShell={!streaming} />
       </div>
+      {!streaming && (
+        <span className="lp-row-more z-[2] flex flex-none rounded-control bg-paper [@media(hover:hover)]:absolute [@media(hover:hover)]:-top-2 [@media(hover:hover)]:right-0 [@media(hover:hover)]:shadow-[0_1px_3px_rgba(23,32,43,.12)]">
+          <MoreMenu label="Copy this answer">
+            {(close) => <>
+              <MenuItem icon={<Icon name="copy" size={14} />} label="Copy" detail="The text, without Markdown" onClick={() => { close(); void copyText(ref.current?.innerText ?? text).then(() => toast("Copied")); }} />
+              <MenuItem icon={<Icon name="copy" size={14} />} label="Copy as Markdown" detail="The raw Markdown" onClick={() => { close(); void copyText(text).then(() => toast("Copied as Markdown")); }} />
+            </>}
+          </MoreMenu>
+        </span>
+      )}
     </div>
   );
 }

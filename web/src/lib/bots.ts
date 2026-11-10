@@ -9,7 +9,7 @@ import { api } from "./api";
 import { isQuotaPaused, isRunning, needsYou } from "./sessionStatus";
 
 /** Ready-made bots the New bot form starts from (Ask Launchpad). */
-export type BotTemplate = { id: string; name: string; instructions: string };
+export type BotTemplate = { id: string; name: string; instructions: string; starters?: string[] };
 export const useBotTemplates = () => useQuery({ queryKey: ["bot-templates"], queryFn: () => api.get<BotTemplate[]>("/api/bots/templates"), staleTime: Infinity, retry: false });
 
 /** The profile a bot runs with: its own, or (none in bot.toml) the first subscription profile, else the first. */

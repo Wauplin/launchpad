@@ -417,6 +417,30 @@ pub async fn apply(app: &App, workspace_id: &str, author: Author, ops: Vec<Op>) 
     Ok(out)
 }
 
+/// Home: moves every note under `from/` to `to/` (a renamed bot's notes) and points INDEX.md's links at the new
+/// folder, as one change by Launchpad. Nothing to move: nothing changes.
+pub async fn move_folder(app: &App, workspace_id: &str, from: &str, to: &str) -> Result<()> {
+    let (from, to) = (format!("{}/", from.trim_end_matches('/')), format!("{}/", to.trim_end_matches('/')));
+    let tree = plain::tree(app, &store(workspace_id)).await?;
+    let mut ops = vec![];
+    for e in tree.files.iter().filter(|e| e.path.starts_with(&from)) {
+        ops.push(Op::Write { path: format!("{to}{}", &e.path[from.len()..]), sha256: e.sha256.clone(), size: e.size, base: None });
+        ops.push(Op::Remove { path: e.path.clone() });
+    }
+    if ops.is_empty() {
+        return Ok(());
+    }
+    if let Some(index) = tree.files.iter().find(|e| e.path == "INDEX.md")
+        && let Some(text) = blob_text(app, &index.sha256).await
+        && text.contains(&from)
+    {
+        let (h, size) = put(app, text.replace(&from, &to).as_bytes()).await?;
+        ops.push(Op::Write { path: "INDEX.md".into(), sha256: h, size, base: Some(index.sha256.clone()) });
+    }
+    apply(app, workspace_id, Author::launchpad(), ops).await?;
+    Ok(())
+}
+
 /// Home: the author of a session's writes, from Home's own records.
 async fn session_author(app: &App, session_id: &str) -> Result<(Author, String)> {
     let s = app.sessions.get(session_id).context("no such session")?;

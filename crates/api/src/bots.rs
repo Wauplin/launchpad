@@ -88,5 +88,5 @@ async fn pause(State(s): State<Ctx>, Path(id): Path<String>, Json(p): Json<Pause
 
 /// Ready-made bots the New bot form starts from (Ask Launchpad, to recreate or adapt it).
 async fn templates() -> Json<Value> {
-    Json(json!([{ "id": "ask-launchpad", "name": ask_bot::NAME, "instructions": ask_bot::DEFAULT_INSTRUCTIONS }]))
+    Json(json!([{ "id": "ask-launchpad", "name": ask_bot::NAME, "instructions": ask_bot::DEFAULT_INSTRUCTIONS, "starters": ask_bot::STARTERS }]))
 }

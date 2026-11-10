@@ -30,4 +30,9 @@ inbox_done?: boolean,
  * Default tools of its sessions (`tool_defaults`): tool ID or `mcp:<server>` → on or off, over the
  * workspace's and the folder's defaults. Only tools granted to its workspace apply.
  */
-tools?: { [key in string]: boolean }, };
+tools?: { [key in string]: boolean }, 
+/**
+ * Ready-made messages shown over the bot's message box: a message sends at once; one ending in "…" fills the
+ * box so you finish it. None: no chips.
+ */
+starters?: Array<string>, };

@@ -72,6 +72,11 @@ pub struct BotSettings {
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     #[ts(optional, as = "Option<crate::tool_defaults::ToolChoice>")]
     pub tools: crate::tool_defaults::ToolChoice,
+    /// Ready-made messages shown over the bot's message box: a message sends at once; one ending in "…" fills the
+    /// box so you finish it. None: no chips.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<String>>")]
+    pub starters: Vec<String>,
 }
 
 /// The profile a bot runs with: its own, or the default when bot.toml names none.
@@ -120,6 +125,8 @@ pub struct Create {
     pub proposals: ProposalMode,
     #[serde(default)]
     pub launchpad: crate::vault::LaunchpadAccess,
+    #[serde(default)]
+    pub starters: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -135,7 +142,7 @@ pub struct Patch {
 }
 
 /// The fields of `bot.toml`, as `Patch::set` names them.
-pub const SETTING_FIELDS: &[&str] = &["name", "profile", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "inbox_done", "tools"];
+pub const SETTING_FIELDS: &[&str] = &["name", "profile", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "inbox_done", "tools", "starters"];
 
 /// Every field of the settings with its value, defaults included (bot.toml leaves defaults out): the values a
 /// `set` puts back.
@@ -148,6 +155,7 @@ pub fn setting_values(s: &BotSettings) -> serde_json::Map<String, serde_json::Va
         v.entry(k.to_string()).or_insert_with(|| match *k {
             "inbox_done" => serde_json::Value::Bool(false),
             "tools" => serde_json::json!({}),
+            "starters" => serde_json::json!([]),
             _ => serde_json::Value::Null,
         });
     }
@@ -200,7 +208,7 @@ pub fn parse_settings(text: &str) -> Result<BotSettings> {
 }
 
 fn render_settings(s: &BotSettings) -> Result<String> {
-    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# inbox_done = true: it may mark your Inbox threads done (or unsubscribe from them) itself, here and on GitHub.\n{}", toml::to_string(s)?))
+    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# inbox_done = true: it may mark your Inbox threads done (or unsubscribe from them) itself, here and on GitHub.\n# starters: ready-made messages over the message box; one ending in \"…\" fills the box so you finish it.\n{}", toml::to_string(s)?))
 }
 
 type Row = (String, String, String, i64, Option<String>, bool);
@@ -305,7 +313,7 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
     let profile = c.profile.filter(|p| !p.is_empty());
     let folder = c.folder.filter(|f| !f.is_empty());
     let own: Option<String> = None;
-    let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, inbox_done: false, tools: Default::default() };
+    let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, inbox_done: false, tools: Default::default(), starters: c.starters };
     check_settings(app, &c.workspace_id, &settings).await?;
     let instructions = if c.instructions.trim().is_empty() { format!("# {name}\n") } else { format!("{}\n", c.instructions.trim_end()) };
     let (id2, ws, slug2, at) = (id.clone(), c.workspace_id.clone(), slug.clone(), now_ms());
@@ -317,24 +325,49 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
 pub async fn update(app: &App, id: &str, p: Patch) -> Result<Bot> {
     let bot = get(app, id).await?;
     let mut files = vec![];
+    let mut name = None;
     if let Some(text) = p.settings_text {
         let s = parse_settings(&text)?;
         check_settings(app, &bot.workspace_id, &s).await?;
+        name = Some(s.name.clone());
         files.push((SETTINGS, text));
     } else if let Some(s) = p.settings {
         check_settings(app, &bot.workspace_id, &s).await?;
+        name = Some(s.name.clone());
         files.push((SETTINGS, render_settings(&s)?));
     } else if let Some(set) = p.set {
         ensure!(bot.settings_error.is_none(), "{}'s bot.toml has an error: fix it in its Settings tab first", bot.settings.name);
         let s = set_fields(&bot.settings, &set)?;
         check_settings(app, &bot.workspace_id, &s).await?;
+        name = Some(s.name.clone());
         files.push((SETTINGS, render_settings(&s)?));
     }
     if let Some(i) = p.instructions {
         files.push((INSTRUCTIONS, i));
     }
     write(app, id, files).await?;
+    if let Some(name) = name.filter(|n| n.trim() != bot.settings.name.trim()) {
+        rename(app, &bot, &name).await?;
+    }
     get(app, id).await
+}
+
+/// A new name gives the bot a new slug (unique in its workspace): its Telegram command follows, and its notes
+/// move from `bots/<old>/` to `bots/<new>/` of the knowledge base. A session that already runs keeps the old
+/// folder in its instructions until the next session.
+async fn rename(app: &App, bot: &Bot, name: &str) -> Result<()> {
+    let taken: Vec<String> = rows(app).await?.into_iter().filter(|r| r.1 == bot.workspace_id && r.0 != bot.id).map(|r| r.2).collect();
+    let slug = slug_for(name.trim(), &taken);
+    if slug == bot.slug {
+        return Ok(());
+    }
+    let (id, s) = (bot.id.clone(), slug.clone());
+    app.state_db.call(move |c| Ok(c.execute("UPDATE bot SET slug = ?2 WHERE id = ?1", params![id, s])?)).await?;
+    if let Err(e) = crate::kb::move_folder(app, &bot.workspace_id, &format!("bots/{}", bot.slug), &format!("bots/{slug}")).await {
+        tracing::warn!("moving {}'s notes to bots/{slug}/: {e:#}", bot.settings.name);
+    }
+    app.bus.publish("bots", "changed", serde_json::json!({"id": bot.id}));
+    Ok(())
 }
 
 /// Pause or Resume: a paused bot's routines and incoming hooks start nothing. Stop ends the current run.
@@ -543,6 +576,8 @@ mod tests {
     #[test]
     fn settings_round_trip_and_reject_missing_fields() {
         let s = BotSettings { name: "Scout".into(), profile: Some("claude".into()), folder: Some("f1".into()), ..Default::default() };
+        assert_eq!(parse_settings(&render_settings(&s).unwrap()).unwrap(), s);
+        let s = BotSettings { tools: [("gh".to_string(), false)].into_iter().collect(), starters: vec!["What needs me?".into(), "Status of …".into()], ..s };
         assert_eq!(parse_settings(&render_settings(&s).unwrap()).unwrap(), s);
         assert_eq!(parse_settings("name = \"x\"").unwrap().folder, None);
         assert_eq!(parse_settings("name = \"x\"\nfolder = \" \"").unwrap().folder, None);

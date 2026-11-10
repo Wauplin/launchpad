@@ -263,7 +263,55 @@ pub async fn deliver(app: &App, target: Target, text: String, automatic: bool, t
     }
     let json = serde_json::to_string(&q)?;
     app.state_db.call(move |c| Ok(c.execute("INSERT INTO queued_message (target, at, json) VALUES (?1, ?2, ?3)", rusqlite::params![key, now_ms(), json])?)).await?;
+    changed(app, &q.target);
     Ok(Delivered { session: cur, queued: true })
+}
+
+/// The bot's chat shows its waiting messages again.
+fn changed(app: &App, t: &Target) {
+    let Target::Bot { id } = t;
+    app.bus.publish("bots", "queued", serde_json::json!({"id": id}));
+}
+
+/// A message waiting for a busy bot, as its chat shows it.
+#[derive(Clone, Debug, Serialize, TS)]
+pub struct QueuedMessage {
+    #[ts(type = "number")]
+    pub n: i64,
+    #[ts(type = "number")]
+    pub at: i64,
+    /// "telegram" or "hook".
+    pub source: String,
+    /// The message without Launchpad's own lines: the Telegram text, or the hook's first line.
+    pub text: String,
+}
+
+fn preview(q: &Queued) -> QueuedMessage {
+    let text = if q.telegram { q.text.strip_suffix(crate::telegram::FROM_TELEGRAM).unwrap_or(&q.text).to_string() } else { q.text.split(". ").next().unwrap_or(&q.text).to_string() };
+    QueuedMessage { n: 0, at: 0, source: if q.telegram { "telegram" } else { "hook" }.into(), text }
+}
+
+/// The messages waiting for the bot's current turn to end, oldest first.
+pub async fn queued(app: &App, bot_id: &str) -> Result<Vec<QueuedMessage>> {
+    let key = key_of(&Target::Bot { id: bot_id.into() });
+    let rows: Vec<(i64, i64, String)> = app
+        .state_db
+        .call(move |c| {
+            let mut st = c.prepare("SELECT n, at, json FROM queued_message WHERE target = ?1 ORDER BY n")?;
+            let rows = st.query_map([key], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await?;
+    Ok(rows.into_iter().filter_map(|(n, at, json)| serde_json::from_str::<Queued>(&json).ok().map(|q| QueuedMessage { n, at, ..preview(&q) })).collect())
+}
+
+/// Cancel: the waiting message is deleted and never sent.
+pub async fn cancel(app: &App, bot_id: &str, n: i64) -> Result<()> {
+    let key = key_of(&Target::Bot { id: bot_id.into() });
+    let gone = app.state_db.call(move |c| Ok(c.execute("DELETE FROM queued_message WHERE n = ?1 AND target = ?2", rusqlite::params![n, key])?)).await?;
+    ensure!(gone > 0, "this message is no longer waiting: it was sent or cancelled");
+    changed(app, &Target::Bot { id: bot_id.into() });
+    Ok(())
 }
 
 /// Sends the oldest queued message of each idle thread. Claimed (deleted) before the send, never retried: a
@@ -307,6 +355,7 @@ async fn drain(app: &App) -> Result<()> {
         if !claim(app).await? {
             continue;
         }
+        changed(app, &q.target);
         match send(app, &q).await {
             Ok(s) => {
                 last.insert(key, (s.id.clone(), s.status_since, now_ms()));

@@ -31,6 +31,13 @@ You help the owner run their day in Launchpad: answer questions about their agen
 - After proposing, say what each card does and check its returned state.
 ";
 
+/// Its `starters` in bot.toml: the chips over its message box. Ending in "…": fills the box.
+pub const STARTERS: &[&str] = &["What needs me?", "How are my agents doing?", "What happened today?", "Start an agent to …", "What is the status of …"];
+
+fn starters() -> Vec<String> {
+    STARTERS.iter().map(|s| s.to_string()).collect()
+}
+
 /// Marks `key` done; false when it already was.
 async fn claim(app: &App, key: String) -> Result<bool> {
     app.state_db.call(move |c| Ok(c.execute("INSERT OR IGNORE INTO seeded (key, at) VALUES (?1, ?2)", params![key, now_ms()])? == 1)).await
@@ -53,6 +60,7 @@ pub async fn seed(app: &App) -> Result<()> {
     }
     for w in crate::workspace::list(app).await? {
         seed_workspace(app, &w.id).await?;
+        seed_starters(app, &w.id).await?;
     }
     Ok(())
 }
@@ -67,7 +75,22 @@ pub async fn seed_workspace(app: &App, workspace_id: &str) -> Result<()> {
     let exists = bots::list(app).await?.iter().any(|b| b.workspace_id == workspace_id && b.slug == "ask-launchpad");
     if !exists {
         let instructions = DEFAULT_INSTRUCTIONS.to_string();
-        bots::create(app, bots::Create { workspace_id: workspace_id.into(), name: NAME.into(), instructions, profile: None, folder: None, permission_mode: Default::default(), proposals: Default::default(), launchpad: crate::vault::LaunchpadAccess::Admin }).await?;
+        bots::create(app, bots::Create { workspace_id: workspace_id.into(), name: NAME.into(), instructions, profile: None, folder: None, permission_mode: Default::default(), proposals: Default::default(), launchpad: crate::vault::LaunchpadAccess::Admin, starters: starters() }).await?;
+    }
+    claim(app, key).await?;
+    Ok(())
+}
+
+/// Gives an Ask Launchpad created before bots had starters its starters, once per workspace (kept when it has some).
+async fn seed_starters(app: &App, workspace_id: &str) -> Result<()> {
+    let key = format!("ask-launchpad-starters:{workspace_id}");
+    if done(app, key.clone()).await? {
+        return Ok(());
+    }
+    if let Some(b) = bots::list(app).await?.into_iter().find(|b| b.workspace_id == workspace_id && b.slug == "ask-launchpad" && b.settings_error.is_none() && b.settings.starters.is_empty()) {
+        let mut set = serde_json::Map::new();
+        set.insert("starters".into(), serde_json::json!(starters()));
+        bots::update(app, &b.id, bots::Patch { set: Some(set), ..Default::default() }).await?;
     }
     claim(app, key).await?;
     Ok(())

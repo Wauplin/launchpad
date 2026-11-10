@@ -481,7 +481,7 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
             }
             ProposalBody::Bot { name, instructions, profile, folder } => {
                 let workspace_id = p.workspace_id.clone().context("this proposal has no workspace")?;
-                Ok(launchpad_core::bots::create(app, launchpad_core::bots::Create { workspace_id, name, instructions, profile, folder, permission_mode: Default::default(), proposals: Default::default(), launchpad: Default::default() }).await?.id)
+                Ok(launchpad_core::bots::create(app, launchpad_core::bots::Create { workspace_id, name, instructions, profile, folder, permission_mode: Default::default(), proposals: Default::default(), launchpad: Default::default(), starters: vec![] }).await?.id)
             }
             ProposalBody::Preset { preset_id, label, text, agent } => {
                 let create = preset_id.is_none();

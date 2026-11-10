@@ -22,5 +22,6 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     telegram::TelegramStatus::export_all(cfg)?;
     hooks::Hook::export_all(cfg)?;
     hooks::CreatedHook::export_all(cfg)?;
+    hooks::QueuedMessage::export_all(cfg)?;
     Ok(())
 }

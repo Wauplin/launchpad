@@ -174,7 +174,8 @@ export function connectEvents(queryClient: QueryClient) {
     } else if (topic === "crons") {
       void queryClient.invalidateQueries({ queryKey: ["crons"] });
     } else if (topic === "bots") {
-      void queryClient.invalidateQueries({ queryKey: ["bots"] });
+      // Messages waiting for a busy bot changed: only its chat's list.
+      void queryClient.invalidateQueries({ queryKey: ev.type === "queued" ? ["bot-queued"] : ["bots"] });
     } else if (topic === "drafts") {
       useComposer.getState().remoteChanged(ev.payload as { workspace: string | null; revision: number; client: string | null });
     } else if (topic === "schedules") {

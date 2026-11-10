@@ -123,17 +123,17 @@ The Git and storage design is in `docs/architecture.md`; these rules must hold.
 
 ### Bots
 
-- A bot is files on Home (`BOT.md`, `bot.toml`, store `bot-<id>`) plus one thread: the sessions whose `LaunchSpec.bot` names it. `bot.toml` is the only source of its settings (profile, model, folder, permission mode, proposal mode, Launchpad CLI access, `inbox_done`); no profile means the first subscription profile (`bots::profile_of`). Only the owner and sessions with admin Launchpad CLI access write either file. Its folder is optional: without one, each session runs in a temporary folder and adds worktrees with `launchpad work add-project`.
+- A bot is files on Home (`BOT.md`, `bot.toml`, store `bot-<id>`) plus one thread: the sessions whose `LaunchSpec.bot` names it. `bot.toml` is the only source of its settings (profile, model, folder, permission mode, proposal mode, Launchpad CLI access, `inbox_done`, `starters`: the chips over its message box, seeded for Ask Launchpad as data, never per bot identity); no profile means the first subscription profile (`bots::profile_of`). Only the owner and sessions with admin Launchpad CLI access write either file. Its folder is optional: without one, each session runs in a temporary folder and adds worktrees with `launchpad work add-project`.
 - A new session of the thread starts only on the first message, a profile or folder change, an archived current session or the owner's New session checkbox; it references the previous trace (`launchpad trace`), never inlines it. Harness compaction handles a full context.
 - The bot page is a chat over the thread, built from session events by `chatRows` (`web/src/features/chat/`) with no Ask-only code; the full trace stays in Agents (Open trace).
-- Bot sessions are normal sessions (counted once, in Today); the sidebar shows only a state dot per bot. Their notes go in `bots/<slug>/` of the knowledge base. Creating a bot (form or proposal) starts nothing; bot proposals never auto-start.
+- Bot sessions are normal sessions (counted once, in Today); the sidebar shows only a state dot per bot. Their notes go in `bots/<slug>/` of the knowledge base; a rename gives a new slug (unique in the workspace) and moves them (`kb::move_folder`), and the Telegram command follows the slug. Creating a bot (form or proposal) starts nothing; bot proposals never auto-start.
 
 ### Channels and the Outbox
 
 - Channels live on Home (`crates/channels`: `channels.rs`, `telegram.rs`, `hooks.rs`); runners forward `/api/channels`, `/api/outbox` and `/api/suggestions`. Webhook URLs and the Telegram token are `channel-…` vault entries: never listed, lent or returned by an API.
 - Messages to other people (webhooks, GitHub suggestions) wait in the Outbox for an owner click (shown in Today → Send and Today → GitHub; "Outbox" stays the concept and code name, there is no Outbox page); a send is claimed (`sending`) first, never retried, and `uncertain` if incomplete. Automated checks never send real Outbox messages or call Telegram with a real token.
 - The owner's own Telegram chat (bound with a single-use code; other chats ignored) gets messages directly. Updates are claimed (offset saved) before handling. Telegram never enables paid usage. Notifications of finished, failed and interrupted sessions link to their Today card (`/?card=session:<id>`); every link carries `ws=` of its workspace. No buttons in Telegram.
-- Incoming hooks (`POST /hooks/<id>`) need `X-Launchpad-Hook-Secret` (SHA-256 stored, constant-time compare), one message per 10 seconds, an HF token on a private Space; the body is a fenced, size-limited block marked as outside data.
+- Incoming hooks (`POST /hooks/<id>`) need `X-Launchpad-Hook-Secret` (SHA-256 stored, constant-time compare), one message per 10 seconds, an HF token on a private Space; the body is a fenced, size-limited block marked as outside data. Hook and Telegram messages to a busy bot wait in `queued_message`; its chat lists them (`GET /api/bots/{id}/queued`, bus `bots`/`queued`) with Cancel (`bot.cancel-queued`).
 
 ### Ask Launchpad and proposals
 

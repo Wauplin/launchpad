@@ -29,6 +29,8 @@ pub fn router() -> Router<Ctx> {
         .route("/api/channels/telegram/notify", post(telegram_notify))
         .route("/api/channels/hooks", post(hook_create))
         .route("/api/channels/hooks/{id}", delete(hook_delete))
+        .route("/api/bots/{id}/queued", get(queued))
+        .route("/api/bots/{id}/queued/{n}", delete(queued_cancel))
         .route("/api/outbox", get(outbox))
         .route("/api/outbox/{id}", patch(edit))
         .route("/api/outbox/{id}/send", post(send))
@@ -102,6 +104,15 @@ async fn hook_create(State(s): State<Ctx>, Json(n): Json<NewHook>) -> ApiResult<
 }
 async fn hook_delete(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
     hooks::delete(&s.app, &id).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+/// Hook and Telegram messages waiting for the bot's current turn to end.
+async fn queued(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Vec<hooks::QueuedMessage>> {
+    Ok(Json(hooks::queued(&s.app, &id).await.map_err(bad)?))
+}
+async fn queued_cancel(State(s): State<Ctx>, Path((id, n)): Path<(String, i64)>) -> ApiResult<Value> {
+    hooks::cancel(&s.app, &id, n).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

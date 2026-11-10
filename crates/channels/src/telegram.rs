@@ -363,7 +363,7 @@ async fn help(app: &App) -> String {
     format!("{first}To give a bot a task: /<bot> <text> or /bot <name> <text>. Bots: {list}.")
 }
 
-const FROM_TELEGRAM: &str = "\n\n(Sent from Telegram. Your final message of this turn goes back to the owner's chat as plain text: keep it short.)";
+pub(crate) const FROM_TELEGRAM: &str = "\n\n(Sent from Telegram. Your final message of this turn goes back to the owner's chat as plain text: keep it short.)";
 
 async fn handle(app: &App, msg: &Value) -> Result<()> {
     let Some(chat) = msg["chat"]["id"].as_i64() else { return Ok(()) };

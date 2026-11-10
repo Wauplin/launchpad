@@ -7,7 +7,7 @@ import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { MessageContext } from "@/gen/MessageContext";
 import { clock, DemoError, publish, route } from "../daemon";
 import { world } from "../world";
-import { ASK_DEFAULT, settingsText } from "../world/bots";
+import { ASK_DEFAULT, ASK_STARTERS, settingsText } from "../world/bots";
 import { session, setStatus } from "../store";
 import { createCron, launch, nextDue } from "./launch";
 import type { CronAgent } from "@/gen/CronAgent";
@@ -35,14 +35,14 @@ const profileOf = (b: Bot) => b.settings.profile ? world.config.profiles.find((p
 export const botTarget = (b: Bot): LaunchSpec["target"] => b.settings.folder ? { kind: "project", project_id: b.settings.folder } : { kind: "temp" };
 
 route("GET", "/api/bots", () => world.bots);
-route("GET", "/api/bots/templates", () => [{ id: "ask-launchpad", name: "Ask Launchpad", instructions: ASK_DEFAULT }]);
+route("GET", "/api/bots/templates", () => [{ id: "ask-launchpad", name: "Ask Launchpad", instructions: ASK_DEFAULT, starters: ASK_STARTERS }]);
 route("GET", "/api/bots/:id", ({ params }) => botOf(params.id));
 route("POST", "/api/bots", ({ body }) => {
-  const c = body as { workspace_id: string; name: string; instructions: string; profile: string | null; folder: string | null };
+  const c = body as { workspace_id: string; name: string; instructions: string; profile: string | null; folder: string | null; starters?: string[] };
   if (!c.name?.trim()) throw new DemoError(400, "give the bot a name");
   const slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "bot";
   // No folder: each session starts in a temporary folder.
-  const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder: c.folder || undefined, permission_mode: "yolo", proposals: "manual", launchpad: "propose" };
+  const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder: c.folder || undefined, permission_mode: "yolo", proposals: "manual", launchpad: "propose", ...(c.starters?.length ? { starters: c.starters } : {}) };
   const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 1 };
   world.bots.push(b);
   record(b, "BOT.md", "", b.instructions);
@@ -54,6 +54,14 @@ route("PATCH", "/api/bots/:id", ({ params, body }) => {
   const p = body as { settings?: BotSettings; instructions?: string; settings_text?: string; set?: Record<string, unknown> };
   if (p.set) p.settings = Object.fromEntries(Object.entries({ ...b.settings, ...p.set }).filter(([, v]) => v != null)) as BotSettings;
   if (p.settings_text != null) throw new DemoError(400, "Demo: edit the settings with the form in the Settings tab.");
+  if (p.settings && p.settings.name.trim() !== b.settings.name) {
+    // A new name gives a new slug, unique in the workspace (Home's `bots::rename`).
+    const base = p.settings.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "bot";
+    const taken = world.bots.filter((x) => x.workspace_id === b.workspace_id && x.id !== b.id).map((x) => x.slug);
+    let slug = base;
+    for (let n = 2; taken.includes(slug); n++) slug = `${base}-${n}`;
+    b.slug = slug;
+  }
   if (p.settings) { const before = b.settings_text; b.settings = { ...p.settings }; b.settings_text = settingsText(b.settings); record(b, "bot.toml", before, b.settings_text); }
   if (p.instructions != null) { const before = b.instructions; b.instructions = p.instructions; record(b, "BOT.md", before, b.instructions); }
   changed(b);
@@ -79,6 +87,14 @@ route("DELETE", "/api/bots/:id", ({ params }) => {
   world.bots = world.bots.filter((b) => b.id !== params.id);
   world.crons = world.crons.filter((c) => c.bot_id !== params.id);
   publish("bots", "changed", { id: params.id });
+  return { ok: true };
+});
+route("GET", "/api/bots/:id/queued", ({ params }) => world.botQueued[params.id] ?? []);
+route("DELETE", "/api/bots/:id/queued/:n", ({ params }) => {
+  const list = world.botQueued[params.id] ?? [];
+  if (!list.some((m) => m.n === Number(params.n))) throw new DemoError(400, "this message is no longer waiting: it was sent or cancelled");
+  world.botQueued[params.id] = list.filter((m) => m.n !== Number(params.n));
+  publish("bots", "queued", { id: params.id });
   return { ok: true };
 });
 route("GET", "/api/bots/:id/history", ({ params }) => (world.botChanges[params.id] ?? []).map(({ patch: _patch, ...c }) => c));

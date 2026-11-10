@@ -12,6 +12,8 @@ import { useShallow } from "zustand/react/shallow";
 import type { Bot } from "@/gen/Bot";
 import type { Change } from "@/gen/Change";
 import type { Proposal } from "@/gen/Proposal";
+import type { QueuedMessage } from "@/gen/QueuedMessage";
+import { ActionButton } from "@/components/ActionButton";
 import type { Session } from "@/gen/Session";
 import type { Suggestion } from "@/gen/Suggestion";
 import { useHarnessInfo } from "@/components/HarnessMark";
@@ -37,7 +39,7 @@ import { activityLine, activityLink, activityParts, useActivity } from "./activi
 import { api } from "@/lib/api";
 import { pastedImages } from "@/lib/attachments";
 import { daemonAsset } from "@/lib/connection";
-import { age, when } from "@/lib/format";
+import { age, ago, when } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useCrons, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
@@ -225,6 +227,7 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
               })}
             </div>
           </>}
+          <QueuedRows bot={bot} stick={() => { const el = scrollRef.current; if (el && atBottom.current) el.scrollTop = el.scrollHeight; }} />
           <div className="h-3" />
         </div>
       </div>
@@ -235,6 +238,26 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
 }
 
 // ---------------------------------------------------------------- rows
+
+/** Hook and Telegram messages waiting for the bot's turn to end: grey rows under the chat, each with Cancel. */
+function QueuedRows({ bot, stick }: { bot: Bot; stick: () => void }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["bot-queued", bot.id], queryFn: () => api.get<QueuedMessage[]>(`/api/bots/${bot.id}/queued`), retry: false });
+  const list = q.data ?? [];
+  // A new waiting row stays in view when the chat was at its bottom.
+  useLayoutEffect(() => { if (list.length) stick(); }, [list.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!list.length) return null;
+  return <div className="grid gap-1.5 pt-1.5" data-tour="chat.queued">
+    {list.map((m) => <div key={m.n} className="flex items-center gap-2 rounded-card border border-dashed border-line px-2.5 py-1.5 text-[13px] text-ink-3">
+      <Icon name="clock" size={12} className="flex-none" />
+      <span className="min-w-0 flex-1">
+        <span className="line-clamp-2 break-words whitespace-pre-wrap">{m.text}</span>
+        <span className="block text-[11px]">Waiting · from {m.source === "telegram" ? "Telegram" : "a hook"} · {ago(m.at)} · sent when {bot.settings.name}'s turn ends</span>
+      </span>
+      <ActionButton name="bot.cancel-queued" params={{ id: bot.id, n: String(m.n) }} icon={null} onDone={() => qc.invalidateQueries({ queryKey: ["bot-queued", bot.id] })} />
+    </div>)}
+  </div>;
+}
 
 const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item: ChatItem; data: Proposal | TodayItem | Activity | Change | undefined; extra: Suggestion | undefined; canContinue: boolean }) {
   switch (item.t) {
@@ -250,7 +273,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue }: { item
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
       </div></div>;
     case "routine":
-      return <div className="py-1.5"><Separator><span className="flex items-center gap-1.5" title="A routine started this run"><Icon name="refresh" size={12} />Routine “<RoutineName title={item.title} />” · {item.cause}</span></Separator></div>;
+      return <div className="py-1.5"><Separator><span className="flex min-w-0 items-center gap-1.5" title="A routine started this run"><Icon name="refresh" size={12} className="flex-none" /><span className="min-w-0">Routine “<RoutineName title={item.title} />” · {item.cause}</span></span></Separator></div>;
     case "quiet":
       return <div className="flex items-center gap-1.5 py-1 text-[12px] text-ink-3" title="The run had nothing to report: no notification"><Icon name="refresh" size={12} /><span className="truncate"><RoutineName title={item.title} /> · {item.cause}{item.at ? ` · ${when(item.at)}` : ""} · no update</span></div>;
     case "answer":
@@ -430,7 +453,7 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, ask, 
         <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
         {!answering && <PresetChips surface="bots" selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
         {!answering && <MessageContextChips className="mb-1.5" value={context} onChange={setContext} disabled={busy || reading} />}
-        {phone && !text && !files.length && !withContext && !presets.length && !answering && !blocked && !busy && <QuickChips onSend={(t) => void send(t)} onFill={(t) => { setText(t); requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } }); }} />}
+        {!text && !files.length && !withContext && !presets.length && !answering && !blocked && !busy && <QuickChips starters={bot.settings.starters ?? []} onSend={(t) => void send(t)} onFill={(t) => { setText(t); requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } }); }} />}
         <div className="session-message-input flex items-end gap-2 rounded-control border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
           <textarea ref={ref} rows={1} value={text} disabled={busy || blocked} aria-label={`Message ${bot.settings.name}`}
             placeholder={busyTurn ? `${bot.settings.name} is working: Stop it or wait for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? `Answer or message ${bot.settings.name}…` : `Message ${bot.settings.name}…`}

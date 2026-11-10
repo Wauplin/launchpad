@@ -55,7 +55,7 @@ export const ask: Chapter = {
     {
       id: "ask.question", route: ASK_ROUTE, anchor: "bots.reply",
       title: "Ask in plain words",
-      body: "Ask what needs you, or describe work. It answers in the chat and writes proposal cards for what it suggests; they appear at the turn that wrote them. Questions it asks you are answered in place.",
+      body: "Ask what needs you, or describe work. The chips over the message box are its starters (starters in bot.toml): one sends at once, one ending in “…” fills the box for you to finish. It answers in the chat and writes proposal cards for what it suggests; they appear at the turn that wrote them. Questions it asks you are answered in place.",
       tryIt: { text: "ask “What needs me today?”.", done: () => proposal()?.state === "proposed", doIt: () => api.post(`/api/sessions/${THREAD}/input`, { text: "What needs me today?" }) },
     },
     {
@@ -84,6 +84,11 @@ export const ask: Chapter = {
       title: "One thread, many sessions",
       body: "The chat shows the whole thread, with a divider at each new session; older messages load as you scroll up. Messages go to the current session. A new session starts when its profile or folder changes, or when you check New session next to the message box; it reads the previous trace only when it needs it. A routine run with nothing to report is one quiet line.",
       tryIt: { text: "ask the Maintainer for the refund test.", done: () => botSessions().some((s) => (world.events[s.id] ?? []).some((e) => e.body.kind === "user_message" && e.body.text.toLowerCase().includes("refund"))), doIt: () => api.post(`/api/bots/${BOT}/message`, { text: "Prepare the refund end-to-end test as a Local PR." }) },
+    },
+    {
+      id: "ask.bot-waiting", route: BOT_ROUTE, anchor: "chat.queued",
+      title: "Messages that wait",
+      body: "A hook or Telegram message that arrives while the bot works waits for the end of its turn, as a grey row at the bottom of the chat. Cancel drops it before it is sent.",
     },
     {
       id: "ask.bot-routines", route: `${BOT_ROUTE}?panel=routines`, anchor: "bots.routines",
