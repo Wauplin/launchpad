@@ -1831,6 +1831,8 @@ impl Sessions {
     }
 
     /// Caller holds the action and work locks, including during permission changes.
+    /// `from`: the sender Home stamped when it is not the owner (`senders`), recorded on the `user_message` event.
+    #[allow(clippy::too_many_arguments)]
     async fn send_locked(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>, from: Option<crate::model::MessageFrom>) -> Result<()> {
         crate::role::ensure_runs_agents(app.paths.role)?;
         self.ensure_local(id)?;
