@@ -6,15 +6,67 @@ use std::time::Duration;
 
 pub fn generate(app: &App, session: &Session) {
     if !session.title_pending || session.quota_pause.is_some() || !capacity(app, session) { return; }
+    // The 1 s guard calls this for every live session: one request at a time, failures back off.
+    if !claim(&session.id, crate::util::now_ms()) { return; }
     let app = app.clone();
     let id = session.id.clone();
     tokio::spawn(async move {
         let lock = app.sessions.title_request_lock(&id);
         let _guard = lock.lock().await;
-        if let Some(session) = app.sessions.get(&id).filter(|s| s.title_pending) {
-            save_title(&app, &session, false).await;
+        let failed = match app.sessions.get(&id).filter(|s| s.title_pending) {
+            Some(session) => !save_title(&app, &session, false).await,
+            None => false,
+        };
+        let give_up = settle(&id, failed, crate::util::now_ms());
+        if give_up {
+            // Keep the prompt title: no more automatic naming requests for this session.
+            if let Err(e) = app.sessions.update(&app, &id, |s| s.title_pending = false).await {
+                tracing::warn!("stop title retries: {e:#}");
+            }
         }
     });
+}
+
+/// Initial naming attempts per session (in memory): failures so far, the earliest next try, and
+/// whether a request is running.
+#[derive(Default)]
+struct Attempts { failures: u32, next_at: i64, running: bool }
+
+static ATTEMPTS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, Attempts>>> = std::sync::LazyLock::new(Default::default);
+
+/// Failed naming requests before the session keeps its prompt title.
+const MAX_FAILURES: u32 = 4;
+
+/// The wait after the given number of failed requests, `None` once naming gives up.
+fn retry_delay_ms(failures: u32) -> Option<i64> {
+    match failures {
+        0 => Some(0),
+        n if n >= MAX_FAILURES => None,
+        // 1, 4 then 16 minutes.
+        n => Some(60_000 * 4i64.pow(n - 1)),
+    }
+}
+
+/// Marks a request as running when none is and the backoff allows it.
+fn claim(id: &str, now: i64) -> bool {
+    let mut all = ATTEMPTS.lock().unwrap();
+    let a = all.entry(id.to_string()).or_default();
+    if a.running || now < a.next_at || retry_delay_ms(a.failures).is_none() { return false; }
+    a.running = true;
+    true
+}
+
+/// Records the end of a request; true when naming gives up after this failure.
+fn settle(id: &str, failed: bool, now: i64) -> bool {
+    let mut all = ATTEMPTS.lock().unwrap();
+    if !failed { all.remove(id); return false; }
+    let a = all.entry(id.to_string()).or_default();
+    a.running = false;
+    a.failures += 1;
+    match retry_delay_ms(a.failures) {
+        Some(delay) => { a.next_at = now + delay; false }
+        None => { all.remove(id); true }
+    }
 }
 
 /// Rename from the conversation once, at the first turn end: follow-up turns keep the title, so a
@@ -34,37 +86,47 @@ pub async fn refresh(app: &App, completed: &Session) {
     save_title(app, &session, true).await;
 }
 
-async fn save_title(app: &App, session: &Session, conversation: bool) {
-    if session.quota_pause.is_some() || !capacity(app, session) { return; }
+/// Returns false when the request failed (the title stays pending); a skipped request is no failure.
+async fn save_title(app: &App, session: &Session, conversation: bool) -> bool {
+    if session.quota_pause.is_some() || !capacity(app, session) { return true; }
     let result = match title(app, session, conversation).await {
         // A quota cancellation keeps initial naming pending for the next eligible resume.
         Err(_) if !capacity(app, session) => Ok(None),
         other => other,
     };
-    if let Ok(Some(reply)) = result {
-        // Naming costs count toward the session limit and profile spending ledger too.
-        if reply.cost_unavailable || reply.cost_usd.is_some_and(|c| c > 0.0) {
-            app.sessions.sink(app, &session.id).update_usage(|us| {
-                us.cost_unavailable |= reply.cost_unavailable;
-                if let Some(cost) = reply.cost_usd {
-                    us.cost_usd = Some(us.cost_usd.unwrap_or(0.0) + cost);
-                }
-            }).await;
+    let reply = match result {
+        Ok(Some(reply)) => reply,
+        Ok(None) => return true,
+        Err(e) => {
+            tracing::info!("session title unavailable; keeping existing title: {e:#}");
+            return false;
         }
-        if let Err(e) = app.sessions.update(app, &session.id, |s| {
-            if s.title == session.title && s.generation == session.generation
-                && (!conversation || (s.status == session.status && s.status_since == session.status_since))
-                && (conversation || s.title_pending)
-            {
-                if let Some(title) = reply.title { s.title = title; }
-                s.title_pending = false;
+    };
+    // Naming costs count toward the session limit and profile spending ledger too, also for a rejected title.
+    if reply.cost_unavailable || reply.cost_usd.is_some_and(|c| c > 0.0) {
+        app.sessions.sink(app, &session.id).update_usage(|us| {
+            us.cost_unavailable |= reply.cost_unavailable;
+            if let Some(cost) = reply.cost_usd {
+                us.cost_usd = Some(us.cost_usd.unwrap_or(0.0) + cost);
             }
-        }).await {
-            tracing::warn!("save session title: {e:#}");
-        }
-    } else if let Err(e) = result {
-        tracing::info!("session title unavailable; keeping existing title: {e:#}");
+        }).await;
     }
+    let Some(title) = reply.title else {
+        tracing::info!("session title unavailable; keeping existing title: {}", reply.error.as_deref().unwrap_or("no title"));
+        return false;
+    };
+    if let Err(e) = app.sessions.update(app, &session.id, |s| {
+        if s.title == session.title && s.generation == session.generation
+            && (!conversation || (s.status == session.status && s.status_since == session.status_since))
+            && (conversation || s.title_pending)
+        {
+            s.title = title;
+            s.title_pending = false;
+        }
+    }).await {
+        tracing::warn!("save session title: {e:#}");
+    }
+    true
 }
 
 fn capacity(app: &App, session: &Session) -> bool {
@@ -87,7 +149,7 @@ async fn title(app: &App, session: &Session, conversation: bool) -> Result<Optio
     std::fs::create_dir_all(&cwd)?;
     let adapter = app.harnesses.get(session.harness);
     let Some(mut cmd) = adapter.title_command(app, session, &cwd) else {
-        return Ok(Some(Named { title: Some(session.title.clone()), cost_usd: None, cost_unavailable: false }));
+        return Ok(Some(Named { title: Some(session.title.clone()), cost_usd: None, cost_unavailable: false, error: None }));
     };
     match crate::contain::auxiliary(app, session, &cwd).await? {
         Some((env, jail)) => {
@@ -112,12 +174,29 @@ async fn title(app: &App, session: &Session, conversation: bool) -> Result<Optio
             }
         }
     };
-    anyhow::ensure!(output.status.success(), "title generator failed ({})", output.status);
-    let stdout = String::from_utf8(output.stdout)?;
-    let reply = adapter.title_response(stdout)?;
-    let title = reply.title.trim().trim_matches('"').trim();
-    anyhow::ensure!(!title.is_empty() && !title.contains('\n') && title.chars().count() <= 100, "invalid generated title");
-    Ok(Some(Named { title: Some(title.to_string()), cost_usd: reply.cost_usd, cost_unavailable: reply.cost_unavailable }))
+    // A failed or unusable answer may still report what it cost.
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let reply = adapter.title_response(stdout);
+    let (cost_usd, cost_unavailable) = reply.as_ref().map(|r| (r.cost_usd, r.cost_unavailable)).unwrap_or((None, false));
+    let error = if !output.status.success() { Some(format!("title generator failed ({})", output.status)) }
+        else { reply.as_ref().ok().and_then(|r| r.error.clone()) };
+    let title = match (&error, &reply) {
+        (None, Ok(r)) => clean_title(&r.title),
+        _ => None,
+    };
+    let error = error.or_else(|| reply.as_ref().err().map(|e| format!("{e:#}"))).or_else(|| title.is_none().then(|| "invalid generated title".to_string()));
+    Ok(Some(Named { title, cost_usd, cost_unavailable, error }))
+}
+
+/// The first non-empty line of a generated title, without quotes, at most 80 characters.
+fn clean_title(raw: &str) -> Option<String> {
+    let line = raw.lines().map(|l| l.trim().trim_matches(['"', '*', '#', '`']).trim()).find(|l| !l.is_empty())?;
+    let mut title: String = line.chars().take(80).collect();
+    if line.chars().count() > 80 {
+        // Cut at a word boundary when one is near the end.
+        if let Some(i) = title.rfind(' ').filter(|&i| i >= 40) { title.truncate(i); }
+    }
+    Some(title.trim_end().to_string())
 }
 
 /// Keep the original goal, the final agent message and the recent root conversation, without
@@ -172,9 +251,10 @@ fn owner_text(text: &str) -> &str {
     text.split("\n\nLaunchpad ").next().unwrap_or(text).trim()
 }
 
-/// A naming attempt: the title to save (None keeps the prompt title) and the cost it reported.
+/// A naming attempt: the title to save (None: the request failed, see `error`) and the cost it reported.
 struct Named {
     title: Option<String>,
+    error: Option<String>,
     cost_usd: Option<f64>,
     cost_unavailable: bool,
 }
@@ -196,5 +276,33 @@ mod tests {
         assert!(text.starts_with("Initial prompt: https://slack.example/p1 please open a PR to fix\nFinal agent message: Fixed `hf repos settings` help.\n"));
         assert!(text.ends_with("Earlier conversation:\nAgent: Running checks."));
         assert_eq!(conversation_summary("Hi", &[]), "Initial prompt: Hi\n");
+    }
+
+    #[test]
+    fn failed_title_requests_back_off_then_give_up() {
+        assert_eq!((0..5).map(retry_delay_ms).collect::<Vec<_>>(), vec![Some(0), Some(60_000), Some(240_000), Some(960_000), None]);
+        let id = "title-backoff-test";
+        assert!(claim(id, 0));
+        assert!(!claim(id, 0), "one request at a time");
+        assert!(!settle(id, true, 0));
+        assert!(!claim(id, 59_999));
+        assert!(claim(id, 60_000));
+        assert!(!settle(id, true, 60_000));
+        assert!(claim(id, 300_000));
+        assert!(!settle(id, true, 300_000));
+        assert!(claim(id, 1_260_000));
+        assert!(settle(id, true, 1_260_000), "the fourth failure gives up");
+        assert!(claim("title-success-test", 0));
+        assert!(!settle("title-success-test", false, 0));
+        assert!(claim("title-success-test", 0));
+    }
+
+    #[test]
+    fn generated_titles_keep_their_first_line() {
+        assert_eq!(clean_title("\n\"Fix the login\"\nBecause it failed").as_deref(), Some("Fix the login"));
+        assert_eq!(clean_title("  \n "), None);
+        let long = "word ".repeat(30);
+        let cut = clean_title(&long).unwrap();
+        assert!(cut.chars().count() <= 80 && cut.ends_with("word"));
     }
 }

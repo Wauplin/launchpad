@@ -1125,10 +1125,11 @@ impl harness::Harness for Adapter {
     }
     fn title_response(&self, stdout: String) -> Result<harness::TitleReply> {
         let value: Value = serde_json::from_str(stdout.trim()).context("unreadable title response")?;
-        anyhow::ensure!(value["is_error"].as_bool() != Some(true), "title generator failed: {}", value["result"].as_str().unwrap_or("unknown error"));
-        let title = value["result"].as_str().context("no generated title")?.to_string();
+        // A failed request still reports its cost.
+        let error = (value["is_error"].as_bool() == Some(true)).then(|| format!("title generator failed: {}", value["result"].as_str().unwrap_or("unknown error")));
+        let title = value["result"].as_str().filter(|_| error.is_none()).unwrap_or_default().to_string();
         let cost_unavailable = unknown_model_cost(&value);
-        Ok(harness::TitleReply { title, cost_unavailable, cost_usd: if cost_unavailable { None } else { value["total_cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0) } })
+        Ok(harness::TitleReply { title, cost_unavailable, cost_usd: if cost_unavailable { None } else { value["total_cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0) }, error })
     }
 }
 /// Quota from a Claude `rate_limit_event` (fractions and Unix seconds).

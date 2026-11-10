@@ -294,6 +294,8 @@ pub struct TitleReply {
     pub cost_usd: Option<f64>,
     /// Naming used unknown native pricing; the whole session cost is incomplete.
     pub cost_unavailable: bool,
+    /// The harness reported a failed request (its cost still counts); `title` is then ignored.
+    pub error: Option<String>,
 }
 
 #[derive(Clone)]
