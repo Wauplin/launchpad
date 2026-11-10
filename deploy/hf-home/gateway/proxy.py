@@ -8,6 +8,8 @@ HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
        "te", "trailer", "transfer-encoding", "upgrade"}
 IDENTITY = {"authorization", "cookie", "host", "forwarded", "origin"}
 BLOCKED = ("/auth", "/api/devices", "/api/push", "/api/open", "/api/window")
+# The daemon's tunnel message limit (`MAX_MESSAGE` in crates/server/src/wire.rs): a lower one would drop runners' tunnels.
+WS_MAX_MESSAGE = 64 * 1024 * 1024
 
 
 def canonical_path(raw):
@@ -82,8 +84,8 @@ class Proxy:
 
     async def socket(self, request, url, headers):
         assert self.client
-        async with self.client.ws_connect(url, headers=headers, max_msg_size=16 * 1024 * 1024) as upstream:
-            downstream = web.WebSocketResponse(max_msg_size=16 * 1024 * 1024)
+        async with self.client.ws_connect(url, headers=headers, max_msg_size=WS_MAX_MESSAGE) as upstream:
+            downstream = web.WebSocketResponse(max_msg_size=WS_MAX_MESSAGE)
             await downstream.prepare(request)
 
             async def pipe(source, target):

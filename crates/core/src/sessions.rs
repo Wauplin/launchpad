@@ -497,7 +497,7 @@ impl Sessions {
                 s.title_refreshed,
             ],
         )?;
-        crate::replica::queue(c, &crate::replica::Item::Session { session: Box::new(s.clone()) })?;
+        crate::replica::queue(c, &crate::replica::Item::Session { session: Box::new(s.without_bytes()) })?;
         Ok(())
     }
 
@@ -978,6 +978,8 @@ impl Sessions {
 
     async fn launch_inner(&self, app: &App, spec: LaunchSpec, id: String, automatic: bool) -> Result<Session> {
         crate::role::ensure_runs_agents(app.paths.role)?;
+        // Home sends references: their bytes come from Home before the checks read them.
+        crate::attachments::fetch_missing(app, &spec.attachments).await?;
         anyhow::ensure!(app.paths.role != crate::role::Role::Runner || !crate::home_link::guard(&app.paths).paused, "This runner takes no new sessions: switch Takes new sessions back on in its own window");
         let _action = self.inner.actions.lock().await;
         anyhow::ensure!(self.get(&id).is_none(), "a session with this id already exists");
@@ -1301,7 +1303,11 @@ impl Sessions {
                 let client_id = uuid::Uuid::new_v4().to_string();
                 sink.emit(EventBody::UserMessage { text: prompt.clone(), client_id: client_id.clone(), queued: false, images: images.clone(), from: session.launch_spec.from.clone() }).await;
                 sink.set_status(SessionStatus::Working).await;
-                if let Err(e) = live.send(&prompt, &client_id, &images).await {
+                let sent = match crate::attachments::for_harness(app, &images).await {
+                    Ok(images) => live.send(&prompt, &client_id, &images).await,
+                    Err(e) => Err(e),
+                };
+                if let Err(e) = sent {
                     sink.fail(&format!("{e:#}")).await;
                 }
             }
@@ -1745,7 +1751,7 @@ impl Sessions {
                 text.push_str(&message.text);
                 images.extend(message.images.iter().cloned());
             }
-            live.send(&text, &client_id, &images).await?;
+            live.send(&text, &client_id, &crate::attachments::for_harness(app, &images).await?).await?;
             for message in &p.messages {
                 sink.emit(EventBody::MessageDelivered { client_id: message.client_id.clone() }).await;
             }
@@ -1915,7 +1921,11 @@ impl Sessions {
         if !queued {
             sink.set_status(SessionStatus::Working).await;
         }
-        if let Err(e) = live.send(text, &client_id, &images).await {
+        let sent = match crate::attachments::for_harness(app, &images).await {
+            Ok(images) => live.send(text, &client_id, &images).await,
+            Err(e) => Err(e),
+        };
+        if let Err(e) = sent {
             if e.is::<InputDeliveryError>() {
                 sink.emit(EventBody::Notice { text: format!("{e:#}") }).await;
             } else {
@@ -2118,11 +2128,10 @@ impl Sessions {
             bail!("the session is still open in another terminal: close it there first");
         }
         if s.harness_session_id.is_none() {
-            let mut images = s.launch_spec.attachments.iter()
+            let images = s.launch_spec.attachments.iter()
                 .filter(|a| crate::attachments::is_image(&a.data_url))
                 .map(|a| ImageAttachment { name: a.name.clone(), data_url: a.data_url.clone() })
                 .collect::<Vec<_>>();
-            crate::attachments::resolve_images(&mut images)?;
             return self.send_locked(app, id, &s.prompt, images, InputMode::Manual, None, None).await;
         }
         if continue_turn {

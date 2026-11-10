@@ -11,8 +11,9 @@ use futures_util::{Sink, SinkExt, Stream, StreamExt};
 pub type WireTx = Pin<Box<dyn Sink<String, Error = anyhow::Error> + Send>>;
 pub type WireRx = Pin<Box<dyn Stream<Item = anyhow::Result<String>> + Send>>;
 
-/// The largest tunnel message: a launch or message with inlined attachments (20 MB in base64) or a file
-/// download in an envelope. Each message is one frame, so frames get the same limit (the default is 16 MiB).
+/// The largest tunnel message: a file download in an envelope, or a replica item (`replica::MAX_ITEM_BYTES`;
+/// attachments travel as references). Each message is one frame, so frames get the same limit (the default is
+/// 16 MiB). The Space gateway uses the same limit (`WS_MAX_MESSAGE` in deploy/hf-home/gateway/proxy.py).
 const MAX_MESSAGE: usize = 64 << 20;
 
 /// Accepts a tunnel WebSocket with the tunnel's message limit.

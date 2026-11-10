@@ -3,7 +3,10 @@
 //! Browsers upload each file once (`POST /api/uploads`) and keep a short reference instead of the
 //! bytes: `upload:<mime>;<sha256>`. Drafts, schedules, crons and launch specs store the reference;
 //! the bytes live once in `<data_dir>/uploads/<sha256>` (in Home backups). Data URLs remain accepted
-//! everywhere. A session's attached files (`dir`) travel in its handoffs (`handoff`), so they follow a move.
+//! everywhere. Session records, events and tunnel messages carry only references: Home turns data URLs into
+//! references before it sends a launch or a message to a runner (`to_refs`), a runner fetches the bytes it lacks
+//! from Home (`fetch_missing`), and harnesses receive data URLs only at delivery (`for_harness`). A session's
+//! attached files (`dir`) travel in its handoffs (`handoff`), so they follow a move.
 use crate::model::{FileAttachment, ImageAttachment};
 use anyhow::{Context, Result, ensure};
 use base64::Engine;
@@ -78,8 +81,8 @@ pub fn read_image(hash: &str, mime: &str) -> Result<Vec<u8>> {
     decode(&format!("upload:{mime};{hash}"), true)
 }
 
-/// Deletes uploads older than two weeks that no draft, scheduled launch or cron still references.
-/// Never-started sessions still need their launch images when resumed. Other sessions sent images to the harness; files were copied at launch.
+/// Deletes uploads older than two weeks that no draft, scheduled launch, cron or message image still references.
+/// Never-started sessions still need their launch images when resumed; files were copied at launch.
 pub async fn collect_garbage(app: &crate::App) -> Result<()> {
     let Ok(dir) = uploads_dir() else { return Ok(()) };
     let specs: Vec<String> = app.state_db.call(|c| {
@@ -91,6 +94,10 @@ pub async fn collect_garbage(app: &crate::App) -> Result<()> {
             out.extend(rows.filter_map(|r| r.ok()));
         }
         let mut stmt = c.prepare("SELECT launch_spec_json FROM session WHERE harness_session_id IS NULL")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        out.extend(rows.filter_map(|r| r.ok()));
+        // Message images are references: the chat shows them from here.
+        let mut stmt = c.prepare("SELECT json FROM session_event WHERE kind = 'user_message' AND json LIKE '%upload:%'")?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         out.extend(rows.filter_map(|r| r.ok()));
         Ok(out)
@@ -122,21 +129,58 @@ pub fn to_data_url(url: &str) -> Result<String> {
     Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
 }
 
-/// Replaces stored references in files by data URLs: uploads stay on the machine that received them, so Home
-/// inlines them before it sends a launch or a message to a runner or to Burst.
-pub fn inline_files(files: &mut [FileAttachment]) -> Result<()> {
+/// Home: replaces data URLs by stored references before a launch or a message goes to a runner or to Burst, so
+/// records, events and tunnel messages never carry the bytes (the runner fetches them, `fetch_missing`).
+pub async fn to_refs(files: &mut [FileAttachment]) -> Result<()> {
     for file in files {
-        file.data_url = to_data_url(&file.data_url)?;
+        if parse_ref(&file.data_url).is_some() {
+            continue;
+        }
+        let bytes = decode(&file.data_url, false)?;
+        let mime = file.data_url.strip_prefix("data:").and_then(|h| h.split([';', ',']).next()).unwrap_or_default().to_string();
+        file.data_url = store(&bytes, &mime).await?;
     }
     Ok(())
 }
 
-/// Replaces stored references in message images by data URLs (event logs keep the bytes).
-pub fn resolve_images(images: &mut [ImageAttachment]) -> Result<()> {
-    for image in images {
-        image.data_url = to_data_url(&image.data_url)?;
+/// Runner: fetches from Home the stored bytes of the files' references it does not hold (runner call `upload`).
+pub async fn fetch_missing(app: &crate::App, files: &[FileAttachment]) -> Result<()> {
+    fetch_urls(app, files.iter().map(|f| f.data_url.clone()).filter(|u| u.starts_with("upload:")).collect()).await
+}
+
+/// `fetch_missing` for message images.
+pub async fn fetch_missing_images(app: &crate::App, images: &[ImageAttachment]) -> Result<()> {
+    fetch_urls(app, images.iter().map(|f| f.data_url.clone()).filter(|u| u.starts_with("upload:")).collect()).await
+}
+
+async fn fetch_urls(app: &crate::App, urls: Vec<String>) -> Result<()> {
+    if app.paths.role != crate::role::Role::Runner {
+        return Ok(());
+    }
+    let dir = uploads_dir()?;
+    for url in &urls {
+        let Some((mime, hash)) = parse_ref(url) else { continue };
+        if dir.join(hash).exists() {
+            continue;
+        }
+        let v = crate::home_link::home_call("upload", serde_json::json!({"reference": url})).await.context("could not fetch an attachment from Home")?;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(v["data"].as_str().context("Home sent no attachment")?)?;
+        ensure!(hex::encode(Sha256::digest(&bytes)) == hash, "Home sent a different attachment");
+        store(&bytes, mime).await?;
     }
     Ok(())
+}
+
+/// Home: the bytes of a stored reference, in base64, for a runner (`fetch_missing`).
+pub fn read_reference(url: &str) -> Result<String> {
+    ensure!(parse_ref(url).is_some(), "invalid attachment reference");
+    Ok(base64::engine::general_purpose::STANDARD.encode(decode(url, false)?))
+}
+
+/// Message images as the harness takes them (data URLs), fetched from Home when missing here.
+pub async fn for_harness(app: &crate::App, images: &[ImageAttachment]) -> Result<Vec<ImageAttachment>> {
+    fetch_missing_images(app, images).await?;
+    images.iter().map(|i| Ok(ImageAttachment { name: i.name.clone(), data_url: to_data_url(&i.data_url)? })).collect()
 }
 
 fn decode(data_url: &str, image_only: bool) -> Result<Vec<u8>> {
@@ -180,7 +224,10 @@ fn decode(data_url: &str, image_only: bool) -> Result<Vec<u8>> {
 /// The bytes and MIME type of a validated image data URL.
 pub fn decode_image(data_url: &str) -> Result<(Vec<u8>, String)> {
     let bytes = decode(data_url, true)?;
-    let mime = data_url[5..].split(';').next().unwrap_or("image/png").to_string();
+    let mime = match parse_ref(data_url) {
+        Some((mime, _)) => mime.to_string(),
+        None => data_url[5..].split(';').next().unwrap_or("image/png").to_string(),
+    };
     Ok((bytes, mime))
 }
 
@@ -217,14 +264,16 @@ pub async fn prepare(
     id: &str,
     files: &[FileAttachment],
 ) -> Result<(Vec<ImageAttachment>, Option<std::path::PathBuf>, String)> {
+    fetch_missing(app, files).await?;
     let mut images = Vec::new();
     let dir = dir(app, id);
     let mut paths = Vec::new();
     for file in files {
         if is_image(&file.data_url) {
+            // Kept as a reference in records and events; `for_harness` turns it into a data URL.
             images.push(ImageAttachment {
                 name: file.name.clone(),
-                data_url: to_data_url(&file.data_url)?,
+                data_url: file.data_url.clone(),
             });
         } else {
             crate::files::create_dir_all_mode(&dir, Some(0o700)).await?;
@@ -269,6 +318,7 @@ pub async fn for_message(app: &crate::App, id: &str, text: &str, files: &[FileAt
     if files.is_empty() {
         return Ok((text.to_string(), Vec::new()));
     }
+    fetch_missing(app, files).await?;
     validate(files)?;
     ensure!(app.sessions.get(id).is_some(), "no such session");
     let (images, _, instruction) = prepare(app, id, files).await?;

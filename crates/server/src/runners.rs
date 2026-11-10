@@ -363,16 +363,17 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                     Ok(FromRunner::Guard { guard }) => s.app.runners.set_guard(&s.app, &runner.id, guard),
                     Ok(FromRunner::Res { id, status, body }) => s.app.runners.answered(id, status, body),
                     Ok(FromRunner::Items { items }) => {
-                        let mut last = None;
+                        // Always acknowledge the last item stored (the one before the batch when none was): the
+                        // runner sends its next batch from there, so a failed item is sent again, never skipped.
+                        let Some(mut last) = items.first().map(|(n, _)| n.saturating_sub(1)) else { continue };
                         for (n, item) in items {
                             if let Err(e) = launchpad_core::replica::ingest(&s.app, &runner.id, n, item).await {
-                                // Not acknowledged: the runner sends it again after reconnecting.
                                 tracing::warn!("runner {}: could not store item {n}: {e:#}", runner.id);
                                 break;
                             }
-                            last = Some(n);
+                            last = n;
                         }
-                        if let Some(n) = last && !send(&mut tx, &ToRunner::Ack { n }).await { break }
+                        if !send(&mut tx, &ToRunner::Ack { n: last }).await { break }
                     }
                     Ok(FromRunner::Req { id, method, path, body, session }) => {
                         let (app, out) = (s.app.clone(), s.app.runners.clone());
@@ -499,7 +500,7 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
         Ok(b) => (!b.is_empty()).then(|| String::from_utf8_lossy(&b).into_owned()),
         Err(e) => return ApiError::bad_request(format!("{e}")).into_response(),
     };
-    // A message with uploads: they are stored on Home, so the runner receives their bytes. Its sender is the owner,
+    // A message with uploads: they are stored on Home, so the runner receives references and fetches the bytes. Its sender is the owner,
     // or the agent whose CLI sent it (Home's record of it, `senders::agent`), never what the body says.
     let body = match (parts.as_slice(), body) {
         (["api", "sessions", _, "input"], Some(b)) => {
@@ -507,7 +508,7 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
                 Ok(f) => f,
                 Err(e) => return ApiError::bad_request(format!("{e:#}")).into_response(),
             };
-            match inline_uploads(&b).and_then(|b| launchpad_core::senders::set_from(&b, from.as_ref()).ok_or_else(|| anyhow::anyhow!("the message is not a JSON object"))) {
+            match upload_refs(&b).await.and_then(|b| launchpad_core::senders::set_from(&b, from.as_ref()).ok_or_else(|| anyhow::anyhow!("the message is not a JSON object"))) {
                 Ok(b) => Some(b),
                 Err(e) => return ApiError::bad_request(format!("{e:#}")).into_response(),
             }
@@ -563,13 +564,14 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     }
 }
 
-/// A session input body with its `files` and `images` references replaced by data URLs.
-fn inline_uploads(body: &str) -> anyhow::Result<String> {
+/// A session input body with its `files` and `images` data URLs replaced by stored references (the runner
+/// fetches the bytes, `attachments::fetch_missing`), so no tunnel message, record or event carries them.
+async fn upload_refs(body: &str) -> anyhow::Result<String> {
     let mut v: Value = serde_json::from_str(body)?;
     for key in ["files", "images"] {
         if let Some(items) = v.get_mut(key) {
             let mut files: Vec<launchpad_core::model::FileAttachment> = serde_json::from_value(items.take())?;
-            launchpad_core::attachments::inline_files(&mut files)?;
+            launchpad_core::attachments::to_refs(&mut files).await?;
             *items = serde_json::to_value(files)?;
         }
     }

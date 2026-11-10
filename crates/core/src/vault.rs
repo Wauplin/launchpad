@@ -932,6 +932,8 @@ pub async fn runner_call(app: &App, runner_id: &str, op: &str, body: Value) -> R
         "kb" => crate::kb::runner_apply(app, runner_id, body).await,
         "bot-memory" => crate::bot_memory::runner_apply(app, runner_id, body).await,
         "quota" => crate::quota::runner_reading(app, body),
+        // The bytes of an upload a launch or message named (`attachments::fetch_missing`); the hash is the capability.
+        "upload" => Ok(json!({"data": crate::attachments::read_reference(body["reference"].as_str().context("reference")?)?})),
         _ => bail!("unknown runner call {op}"),
     }
 }

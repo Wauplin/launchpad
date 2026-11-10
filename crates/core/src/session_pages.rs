@@ -159,11 +159,11 @@ pub fn image_url(session_id: &str, seq: i64, index: usize) -> String {
     format!("/api/sessions/{session_id}/images/{seq}/{index}")
 }
 
-/// Replaces inline image data URLs with authenticated URLs (stored events keep the bytes).
+/// Replaces image data URLs and upload references with authenticated URLs (stored events keep them).
 pub fn link_images(e: &mut SessionEvent) {
     if let EventBody::UserMessage { images, .. } = &mut e.body {
         for (i, image) in images.iter_mut().enumerate() {
-            if image.data_url.starts_with("data:") {
+            if image.data_url.starts_with("data:") || image.data_url.starts_with("upload:") {
                 image.data_url = image_url(&e.session_id, e.seq, i);
             }
         }

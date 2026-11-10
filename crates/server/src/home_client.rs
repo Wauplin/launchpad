@@ -18,6 +18,10 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tower::ServiceExt;
 
 const PING: Duration = Duration::from_secs(25);
+/// A replica batch Home has not acknowledged after this long is sent again.
+const REPLICA_ACK_WAIT: Duration = Duration::from_secs(120);
+/// The pause before sending again items Home failed to store.
+const REPLICA_RETRY: Duration = Duration::from_secs(3);
 
 /// Marks requests that arrived from Home through the tunnel.
 pub use launchpad_http::FROM_HOME;
@@ -436,23 +440,27 @@ async fn session(app: &App, router: &Router, url: &str, mut tx: crate::wire::Wir
     tracing::info!("connected to Home {url} ({compat:?})");
     // Everything Home saved can go; the rest is sent again, in order.
     replica::acked(app, acked).await?;
-    let cursor = acked;
     let (res_tx, mut res_rx) = tokio::sync::mpsc::unbounded_channel::<FromRunner>();
     *HOME.tx.lock().unwrap() = Some(res_tx.clone());
     // Turns not saved on Home yet go now (`turn_sync`).
     launchpad_core::turn_sync::kick();
-    let result = serve(app, router, &mut tx, &mut rx, res_tx, &mut res_rx, cursor).await;
+    let result = serve(app, router, &mut tx, &mut rx, res_tx, &mut res_rx, acked).await;
     // Requests to Home fail now instead of timing out, and terminal viewers of Home's windows end.
     HOME.clear();
     crate::terminals::home_gone();
     result
 }
 
-async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mut crate::wire::WireRx, res_tx: tokio::sync::mpsc::UnboundedSender<FromRunner>, res_rx: &mut tokio::sync::mpsc::UnboundedReceiver<FromRunner>, mut cursor: u64) -> anyhow::Result<Option<String>> {
+async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mut crate::wire::WireRx, res_tx: tokio::sync::mpsc::UnboundedSender<FromRunner>, res_rx: &mut tokio::sync::mpsc::UnboundedReceiver<FromRunner>, mut acked: u64) -> anyhow::Result<Option<String>> {
     let text = |m: &FromRunner| serde_json::to_string(m).unwrap_or_default();
     let mut guard = home_link::guard(&app.paths);
     let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING, PING);
     let mut last_heard = tokio::time::Instant::now();
+    // One replica batch at a time: the last item of the batch Home has not acknowledged yet, and when it went. The
+    // next batch starts after Home's acknowledgement, so an item Home failed to store is sent again (`replica`).
+    let mut in_flight: Option<(u64, tokio::time::Instant)> = None;
+    // After an acknowledgement short of the batch (Home's database was busy), the next try waits a moment.
+    let mut resend_at = tokio::time::Instant::now();
     // Terminal list changes go to Home, which tells its windows.
     let mut bus = app.bus.subscribe(None).rx;
     loop {
@@ -472,10 +480,17 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
                 tx.send(text(&res)).await?;
             }
             _ = replica::wait() => {
-                let items = replica::pending(app, cursor, 200).await?;
-                if let Some((n, _)) = items.last() {
-                    cursor = *n;
-                    tx.send(text(&FromRunner::Items { items })).await?;
+                let now = tokio::time::Instant::now();
+                // No answer for a long time: send again from Home's mark (Home skips what it already stored).
+                if in_flight.is_some_and(|(_, at)| now - at > REPLICA_ACK_WAIT) {
+                    in_flight = None;
+                }
+                if in_flight.is_none() && now >= resend_at {
+                    let items = replica::batch(app, acked).await?;
+                    if let Some((n, _)) = items.last() {
+                        in_flight = Some((*n, now));
+                        tx.send(text(&FromRunner::Items { items })).await?;
+                    }
                 }
             }
             _ = home_link::guard_changed() => {
@@ -522,7 +537,16 @@ async fn serve(app: &App, router: &Router, tx: &mut crate::wire::WireTx, rx: &mu
                             })?;
                         }
                     }
-                    Ok(ToRunner::Ack { n }) => replica::acked(app, n).await?,
+                    Ok(ToRunner::Ack { n }) => {
+                        replica::acked(app, n).await?;
+                        let (mark, complete) = replica::after_ack(acked, in_flight.map(|(sent, _)| sent), n);
+                        acked = mark;
+                        in_flight = None;
+                        if !complete {
+                            resend_at = tokio::time::Instant::now() + REPLICA_RETRY;
+                        }
+                        replica::wake();
+                    }
                     Ok(ToRunner::Quotas { quotas }) => launchpad_core::quota::apply_home_readings(app, quotas),
                     Ok(ToRunner::RenewLeases { login }) => launchpad_core::contain::renew_soon(app, &login),
                     Ok(ToRunner::Refuse { reason }) => return Ok(Some(reason)),

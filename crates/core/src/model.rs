@@ -235,6 +235,19 @@ impl Session {
         s
     }
 
+    /// The session without inline attachment bytes (data URLs; `upload:` references and names stay): what a runner
+    /// replicates to Home. Launches and messages carry references (`attachments::to_refs`), so only older records lose anything.
+    pub fn without_bytes(&self) -> Session {
+        let mut s = self.clone();
+        let inline = |url: &mut String| if url.starts_with("data:") { url.clear() };
+        s.launch_spec.attachments.iter_mut().for_each(|a| inline(&mut a.data_url));
+        if let Some(pause) = &mut s.quota_pause {
+            pause.images.iter_mut().for_each(|i| inline(&mut i.data_url));
+            pause.messages.iter_mut().flat_map(|m| m.images.iter_mut()).for_each(|i| inline(&mut i.data_url));
+        }
+        s
+    }
+
     /// Shared "Needs you" predicate: an open question, or Done, Failed or Interrupted not seen since the status changed.
     pub fn needs_you(&self) -> bool {
         let unseen = self.seen_at < self.status_since;
