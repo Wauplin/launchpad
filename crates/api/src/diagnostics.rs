@@ -248,13 +248,14 @@ fn reqwest_host(url: &str) -> String {
     url.split("://").nth(1).unwrap_or(url).split(['/', '?']).next().unwrap_or_default().rsplit('@').next().unwrap_or_default().to_string()
 }
 
-/// Channels by name, kind and host, and the Telegram link's state and last error (no URL, token or code).
+/// Channels by name, kind and host, and each workspace's Telegram link: its state and last error (no URL, token
+/// or code).
 async fn channels(State(s): State<Ctx>) -> ApiResult<Value> {
     let list = launchpad_channels::channels::list(&s.app).await.unwrap_or_default();
-    let t = launchpad_channels::telegram::status(&s.app).await;
+    let telegram = launchpad_channels::telegram::statuses(&s.app).await;
     Ok(Json(json!({
         "channels": list.iter().map(|c| json!({"id": c.id, "name": c.name, "kind": c.kind, "host": c.host})).collect::<Vec<_>>(),
-        "telegram": {"configured": t.configured, "bound": t.bound, "bot_username": t.bot_username, "notify": t.notify, "error": t.error},
+        "telegram": telegram.iter().map(|t| json!({"workspace": t.workspace_id, "configured": t.configured, "bound": t.bound, "bot_username": t.bot_username, "notify": t.notify, "error": t.error.as_deref().map(logs::redact)})).collect::<Vec<_>>(),
     })))
 }
 
@@ -348,8 +349,9 @@ async fn health(State(s): State<Ctx>) -> ApiResult<Value> {
     for m in launchpad_core::mcp::list(app).await.unwrap_or_default() {
         if let Some(e) = &m.error { add("mcp", format!("MCP server {} failed its last refresh", m.name), Some(logs::redact(e)), json!({"mcp": m.id})); }
     }
-    let t = launchpad_channels::telegram::status(app).await;
-    if let Some(e) = t.error { add("channels", "Telegram failed".into(), Some(logs::redact(&e)), json!({})); }
+    for t in launchpad_channels::telegram::statuses(app).await {
+        if let Some(e) = t.error { add("channels", "Telegram failed".into(), Some(logs::redact(&e)), json!({"workspace": t.workspace_id})); }
+    }
     if let Ok(snap) = launchpad_github::inbox::of(app).snapshot(app).await {
         if let Some(e) = snap.status.error { add("github", "Inbox sync failed".into(), Some(e), json!({"last_sync": snap.status.last_sync})); }
         for (host, l) in snap.limits.iter().filter(|(_, l)| l.remaining <= 0 && l.reset_at * 1000 > now) {

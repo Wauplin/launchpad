@@ -70,10 +70,10 @@ enum Command {
         #[command(subcommand)]
         command: Suggest,
     },
-    /// Send a message through one of the owner's channels: `telegram` goes to the owner's own chat; other
+    /// Send a message through one of the owner's channels: `telegram` goes to the owner's own chat of the session's workspace; other
     /// channels (Slack, Discord, webhooks) wait in the owner's Outbox until they click Send.
     Send {
-        /// The channel name (Settings → Channels), or `telegram`.
+        /// The channel name (Settings → Channels), or `telegram` (Settings → Workspace).
         channel: String,
         #[arg(long)]
         body_file: std::path::PathBuf,
@@ -209,7 +209,7 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
-    /// Channels and the Telegram link's state, without URLs or tokens (JSON; admin access).
+    /// Channels and each workspace's Telegram link, without URLs or tokens (JSON; admin access).
     Channels {
         #[command(subcommand)]
         command: ListOnly,

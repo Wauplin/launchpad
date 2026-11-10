@@ -225,8 +225,10 @@ pub fn redact(line: &str) -> String {
                 continue;
             }
         }
-        // A Telegram bot token: `123456789:AA…`.
-        if word.len() >= 6 && word.chars().all(|c| c.is_ascii_digit()) && chars.get(i) == Some(&':') {
+        // A Telegram bot token: `123456789:AA…`, also in a Bot API path (`/bot123456789:AA…`). Every workspace's
+        // own bot has one.
+        let digits = word.strip_prefix("bot").unwrap_or(&word);
+        if digits.len() >= 6 && digits.chars().all(|c| c.is_ascii_digit()) && chars.get(i) == Some(&':') {
             let n = chars[i + 1..].iter().take_while(|c| c.is_ascii_alphanumeric() || **c == '_' || **c == '-').count();
             if n >= 30 {
                 out.push_str(REDACTED);
@@ -292,6 +294,7 @@ mod tests {
         assert_eq!(redact(r#"{"secret": "s3cr3t", "id": "x"}"#), r#"{"secret": "[redacted]", "id": "x"}"#);
         assert_eq!(redact("clone https://user:pa55@github.com/o/r failed"), "clone https://[redacted]@github.com/o/r failed");
         assert_eq!(redact("telegram 123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ failed"), "telegram [redacted] failed");
+        assert_eq!(redact("POST https://api.telegram.org/bot123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ/getUpdates"), "POST https://api.telegram.org/[redacted]/getUpdates");
         assert_eq!(redact("LAUNCHPAD_BURST_CREDENTIAL=r1.abc"), "LAUNCHPAD_BURST_CREDENTIAL=[redacted]");
         assert!(redact("key Zk3PqLm9Xa2Bc7Dd8Ee1Ff4Gg5Hh6Ii0Jj").contains(REDACTED));
         // Ids and hashes are what diagnosis needs.

@@ -192,7 +192,7 @@ struct Queued {
     target: Target,
     text: String,
     automatic: bool,
-    /// The answer goes back to the Telegram chat.
+    /// The answer goes back to the Telegram chat of the bot's workspace.
     telegram: bool,
 }
 
@@ -364,8 +364,11 @@ async fn drain(app: &App) -> Result<()> {
         match send(app, &q).await {
             Ok(s) => {
                 last.insert(key, (s.id.clone(), s.status_since, now_ms()));
-                if q.telegram {
-                    crate::telegram::await_reply(app, &s).await?;
+                // The answer goes to the Telegram chat of the bot's workspace, where the message came from.
+                if q.telegram
+                    && let Some(ws) = telegram_workspace(app, &q.target).await
+                {
+                    crate::telegram::await_reply(app, &ws, &s).await?;
                 }
             }
             Err(e) => {
@@ -374,13 +377,21 @@ async fn drain(app: &App) -> Result<()> {
                     launchpad_core::sessions::notice_anywhere(app, &c.id, &text).await;
                 }
                 tracing::warn!("queued message for {key}: {e:#}");
-                if q.telegram {
-                    let _ = crate::telegram::say(app, &format!("Launchpad could not send your queued message: {e:#}")).await;
+                if q.telegram
+                    && let Some(ws) = telegram_workspace(app, &q.target).await
+                {
+                    let _ = crate::telegram::say(app, &ws, &format!("Launchpad could not send your queued message: {e:#}")).await;
                 }
             }
         }
     }
     Ok(())
+}
+
+/// The workspace whose Telegram chat sent a message to this target: the bot's.
+async fn telegram_workspace(app: &App, t: &Target) -> Option<String> {
+    let Target::Bot { id } = t;
+    crate::telegram::bot_workspace(app, id).await
 }
 
 /// Home: delivers queued messages when their thread is idle.

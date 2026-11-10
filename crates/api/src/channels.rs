@@ -1,5 +1,5 @@
-//! Channels on Home (`launchpad_core::{channels, telegram, hooks}`): outgoing webhooks and the Outbox, the
-//! owner's Telegram chat and incoming hooks. Runners forward `/api/channels` and `/api/outbox` to Home.
+//! Channels on Home (`launchpad_channels::{channels, telegram, hooks}`): outgoing webhooks and the Outbox, each
+//! workspace's Telegram chat (`/api/channels/telegram/{workspace}`) and incoming hooks. Runners forward `/api/channels` and `/api/outbox` to Home.
 //! `POST /hooks/<id>` skips the browser sign-in: it authenticates with the hook's own secret.
 
 use axum::body::Bytes;
@@ -22,11 +22,11 @@ pub fn router() -> Router<Ctx> {
         .route("/api/channels", get(overview).post(add))
         .route("/api/channels/send", post(send_draft))
         .route("/api/channels/{id}", delete(remove))
-        .route("/api/channels/telegram", patch(telegram_patch).delete(telegram_remove))
-        .route("/api/channels/telegram/token", put(telegram_token))
-        .route("/api/channels/telegram/code", post(telegram_code))
-        .route("/api/channels/telegram/test", post(telegram_test))
         .route("/api/channels/telegram/notify", post(telegram_notify))
+        .route("/api/channels/telegram/{workspace}", get(telegram_status).patch(telegram_patch).delete(telegram_remove))
+        .route("/api/channels/telegram/{workspace}/token", put(telegram_token))
+        .route("/api/channels/telegram/{workspace}/code", post(telegram_code))
+        .route("/api/channels/telegram/{workspace}/test", post(telegram_test))
         .route("/api/channels/hooks", post(hook_create))
         .route("/api/channels/hooks/{id}", delete(hook_delete))
         .route("/api/bots/{id}/queued", get(queued))
@@ -51,7 +51,6 @@ async fn overview(State(s): State<Ctx>) -> ApiResult<Value> {
         "origin": channels::home_origin(app),
         "names": channels::names(app).await,
         "channels": if here { channels::list(app).await? } else { vec![] },
-        "telegram": telegram::status(app).await,
         "hooks": if here { hooks::list(app).await? } else { vec![] },
     })))
 }
@@ -70,21 +69,24 @@ async fn send_draft(State(s): State<Ctx>, Json(d): Json<Draft>) -> ApiResult<Dra
 struct Token {
     token: String,
 }
-async fn telegram_token(State(s): State<Ctx>, Json(t): Json<Token>) -> ApiResult<TelegramStatus> {
-    Ok(Json(telegram::set_token(&s.app, &t.token).await.map_err(bad)?))
+async fn telegram_status(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<TelegramStatus> {
+    Ok(Json(telegram::status(&s.app, &ws).await))
 }
-async fn telegram_patch(State(s): State<Ctx>, Json(p): Json<telegram::Patch>) -> ApiResult<TelegramStatus> {
-    Ok(Json(telegram::patch(&s.app, p).await.map_err(bad)?))
+async fn telegram_token(State(s): State<Ctx>, Path(ws): Path<String>, Json(t): Json<Token>) -> ApiResult<TelegramStatus> {
+    Ok(Json(telegram::set_token(&s.app, &ws, &t.token).await.map_err(bad)?))
 }
-async fn telegram_remove(State(s): State<Ctx>) -> ApiResult<Value> {
-    telegram::remove(&s.app).await.map_err(bad)?;
+async fn telegram_patch(State(s): State<Ctx>, Path(ws): Path<String>, Json(p): Json<telegram::Patch>) -> ApiResult<TelegramStatus> {
+    Ok(Json(telegram::patch(&s.app, &ws, p).await.map_err(bad)?))
+}
+async fn telegram_remove(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Value> {
+    telegram::remove(&s.app, &ws).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
-async fn telegram_code(State(s): State<Ctx>) -> ApiResult<TelegramStatus> {
-    Ok(Json(telegram::new_code(&s.app).await.map_err(bad)?))
+async fn telegram_code(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<TelegramStatus> {
+    Ok(Json(telegram::new_code(&s.app, &ws).await.map_err(bad)?))
 }
-async fn telegram_test(State(s): State<Ctx>) -> ApiResult<Value> {
-    telegram::test(&s.app).await.map_err(bad)?;
+async fn telegram_test(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Value> {
+    telegram::test(&s.app, &ws).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
 }
 

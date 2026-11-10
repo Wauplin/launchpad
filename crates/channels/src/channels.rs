@@ -4,7 +4,7 @@
 //! tools, never lent to sessions) and never shown again. Agents draft messages for other people with
 //! `launchpad send <channel>`; the draft waits in the Outbox until the owner clicks Send. A send is claimed
 //! (`sending`) before the request and never retried: a send that did not finish locally becomes `uncertain`.
-//! Telegram (the owner's own chat, direct) is in `telegram.rs`, incoming hooks in `hooks.rs`.
+//! Telegram (the owner's own chat of each workspace, direct) is in `telegram.rs`, incoming hooks in `hooks.rs`.
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -107,7 +107,8 @@ pub(crate) fn ensure_home(app: &App) -> Result<()> {
     Ok(())
 }
 
-/// Channel names are what agents type: lowercase letters, digits and dashes. `telegram` is the owner's chat.
+/// Channel names are what agents type: lowercase letters, digits and dashes. `telegram` is the owner's chat of
+/// the session's workspace.
 pub fn check_name(name: &str) -> Result<()> {
     ensure!(!name.is_empty() && name.len() <= 40 && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') && !name.starts_with('-'), "a channel name uses lowercase letters, digits and dashes (at most 40)");
     ensure!(name != "telegram", "telegram is the name of your own Telegram chat");
@@ -227,7 +228,7 @@ pub(crate) fn changed(app: &App) {
 async fn refresh_names(app: &App) {
     let names = if launchpad_core::vault::here(app) {
         let mut names: Vec<String> = list(app).await.map(|l| l.into_iter().map(|c| c.name).collect()).unwrap_or_default();
-        if crate::telegram::bound(app).await {
+        if crate::telegram::any_bound(app).await {
             names.insert(0, "telegram".into());
         }
         names
@@ -255,7 +256,7 @@ pub fn instruction(app: &App, session: &str) -> Option<String> {
     }
     let cli = app.paths.cli_command();
     Some(format!(
-        "To send a message through one of the owner's channels ({}), write it to a file and run `{cli} send <channel> --body-file <file> [--title \"…\"] --session-id {session}`. `telegram` goes directly to the owner's own chat; other channels reach other people, so the message waits in the owner's Outbox until they click Send. Send messages only when the task asks for it.",
+        "To send a message through one of the owner's channels ({}), write it to a file and run `{cli} send <channel> --body-file <file> [--title \"…\"] --session-id {session}`. `telegram` goes directly to the owner's own chat of your workspace (when it has one); other channels reach other people, so the message waits in the owner's Outbox until they click Send. Send messages only when the task asks for it.",
         names.join(", ")
     ))
 }
@@ -304,14 +305,15 @@ pub(crate) fn author(app: &App, session_id: Option<&str>) -> Result<String> {
     })
 }
 
-/// `launchpad send`: a draft in the Outbox for a webhook channel, or a direct message to the owner's Telegram chat.
+/// `launchpad send`: a draft in the Outbox for a webhook channel, or a direct message to the Telegram chat of the
+/// session's workspace.
 pub async fn draft(app: &App, d: Draft) -> Result<DraftResult> {
     ensure_home(app)?;
     let name = d.channel.trim().to_ascii_lowercase();
     let title = d.title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
     if name == "telegram" {
         crate::telegram::send_from_agent(app, d.session_id.as_deref(), title.as_deref(), &d.body).await?;
-        return Ok(DraftResult { outbox: None, sent: true, message: "Sent to the owner's Telegram chat.".into() });
+        return Ok(DraftResult { outbox: None, sent: true, message: "Sent to the Telegram chat of the session's workspace.".into() });
     }
     let channels = list(app).await?;
     let Some(ch) = channels.iter().find(|c| c.name == name) else {

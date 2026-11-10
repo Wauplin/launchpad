@@ -177,7 +177,7 @@ mod tests {
             assert!(!read_allowed(path));
             assert!(!own_write(path));
         }
-        for path in ["/api/predrafts/p/publish", "/api/predrafts/p/merge-local", "/api/suggestions/s/post", "/api/outbox/o/send", "/api/channels", "/api/channels/telegram/token"] {
+        for path in ["/api/predrafts/p/publish", "/api/predrafts/p/merge-local", "/api/suggestions/s/post", "/api/outbox/o/send", "/api/channels", "/api/channels/telegram/w1/token", "/api/channels/telegram/w1"] {
             assert!(!own_write(path));
         }
         assert!(read_allowed("/api/context/folders"));

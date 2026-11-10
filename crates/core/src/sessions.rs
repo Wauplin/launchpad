@@ -629,7 +629,7 @@ impl Sessions {
     }
 
     /// Home: a runner's session left Running, so routines settle and trigger. The runner sends its own
-    /// notification (forwarded to Home's Telegram chat).
+    /// notification (forwarded to Home, for the Telegram chat of the session's workspace).
     fn replica_turn_ended(&self, app: &App, s: &Session) {
         crate::ext::extensions().turn_ended(app, s);
     }
