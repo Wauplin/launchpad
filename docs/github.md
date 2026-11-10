@@ -87,4 +87,4 @@ Publication and merges wait until the Local PR's agent is idle.
 - **GitHub**: unposted suggestions, and open PRs where your review is requested (**Review with agent** prepares a suggested review).
 - **Review**: finished agents with their branch (**Merge** when it is safe) or their Local PR (**Review** opens it), and Local PRs not yet published whose agent does not need you.
 
-The **Branches** tab of a folder page lists the agent branches with work to look at: commits ahead of their base, uncommitted files or a merge request. Each row opens the agent's Changes.
+The **Branches** tab of a folder page lists the agent branches with work to look at: commits ahead of their base, uncommitted files or a merge request. Each row has **Changes**, which opens the agent's Changes, and **⋯ → Open agent**.

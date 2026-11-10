@@ -35,7 +35,7 @@ Profiles live in `config.toml` (see [Configuration](configuration.md#profiles)).
 
 The top bar has one field with two buttons:
 
-- **Launch** starts an agent at once with the text, the page as context and the folder's defaults (on a folder page, that folder). If it cannot start within a few seconds, the composer opens instead. With an empty field or a kept draft, it opens the composer. Its **▾** menu has **Launch with options…**, which opens the full composer with the text.
+- **Launch** starts an agent at once with the text, the page as context and the folder's defaults (on a folder page, that folder). While it waits for the folder's defaults it reads **Launching…**; when something blocks the launch (no profile, no folder, a busy worktree), the composer opens at once and says what is missing. With an empty field or a kept draft, it opens the composer. Its **▾** menu has **Launch with options…**, which opens the full composer with the text.
 - **Ask** sends the text to a bot of the workspace and opens its chat in the Ask panel (see [Ask Launchpad](#ask-launchpad)).
 
 The page you look at is the context: a folder, a GitHub item, an agent's trace, a Local PR or a settings page. A chip in the field names it; **✕** removes it. **Ask** is the primary button on every page, and **Enter** sends to Ask. In a workspace without a bot, Launch is the primary button and **Enter** launches. **Shift+Enter** adds a line.
@@ -49,7 +49,9 @@ Folder pages, inbox rows and every **▶** button open the composer too. The com
 - **Preview prompt** shows exactly what the agent will receive.
 - **What it sees at start**, next to Preview prompt, shows the agent's instructions file (the knowledge base, the Launchpad CLI reference, the attribution rule) and its first prompt, in labelled parts with their line counts. Launchpad builds them like a real start, without starting anything.
 
-The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the **Launch** button while you collect more context; its **▾** menu starts a new agent instead or discards the draft.
+The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the **Launch** button while you collect more context; its **▾** menu starts a new agent instead or discards the draft. **Discard** in the composer keeps the draft 10 seconds behind **Undo**.
+
+On a laptop, the composer, the Ask panel and the terminal dock are closed when a window opens: a kept draft waits as the "draft" badge, and each panel opens only when you open it. They stay open while you move between pages.
 
 Session titles appear immediately from the prompt. Claude Code and Codex also generate a short AI title, then refresh it each time a turn ends (done, failed, interrupted or stopped) from what the agent actually did: the prompt, the agent's final message and the recent conversation, without Launchpad's own instructions. So an agent started from a bare link (a Slack thread, an issue) gets a title that names the real subject once it has worked on it. Naming uses Haiku for Claude Code and prefers Luna or Mini for Codex, with the lowest supported effort. Quota or spending limits can skip naming; a failed request keeps the existing title. OpenCode keeps the prompt-based title.
 
@@ -57,7 +59,7 @@ New launches ask the agent to end its first task with a short, self-contained su
 
 ## Temporary folders
 
-**Temporary folder** in the composer's folder menu starts the agent in a new, empty folder in the runner's data folder (`<data_dir>/tmp/`). The agent is told that the folder is temporary, and how to list the workspace's folders and add a worktree of one with `launchpad work add-project`. The Folders page lists them under **Temporary folders**, one row each with its open agents, **Launch**, **⋯ → Delete files** and **Keep as folder**; **ⓘ** next to the title explains them.
+**Temporary folder** in the composer's folder menu starts the agent in a new, empty folder in the runner's data folder (`<data_dir>/tmp/`). The agent is told that the folder is temporary, and how to list the workspace's folders and add a worktree of one with `launchpad work add-project`. The Folders page lists them under **Temporary folders**, one row each with its open agents, **Launch**, and **⋯** with **Keep as folder** (name it there) and **Delete files**; **ⓘ** next to the title explains them.
 
 Launchpad saves a temporary folder's files on Home at the end of every turn, except files listed in a `.gitignore` and nested Git repositories, so the session keeps its folder when it continues on another runner (for example a new Burst job). When you archive the last agent of a temporary folder, Launchpad removes it from the runner and from the folder lists; Home keeps its files 30 days, and **Resume** brings the folder back with them. After 30 days, Home deletes them and a resumed agent continues in an empty folder (the session says so). To keep the files for good, click **Keep as folder** in the session's Next steps (or on the Folders page) once the agent is done, and choose a name: the folder becomes a folder stored by Home under that name (a plain folder, or a Git folder when the agent created a Git repository in it), so agents run in it on any runner, and its sessions stay resumable. Files listed in a `.gitignore` are saved too from then on. A temporary folder that holds a Git repository is not saved on Home: it stays on its runner (the session cannot move, and Archive keeps the folder). Keep it as a folder while its runner is connected. To create a folder before launching, use **Add folder** instead.
 
@@ -65,13 +67,14 @@ Launchpad saves a temporary folder's files on Home at the end of every turn, exc
 
 **Agents** is a monitor of what runs and what ran. Its list groups sessions by state:
 
+- **Needs you** (first, with an amber count): an open question, or a finished, failed or interrupted session you have not seen yet.
 - **Running**: starting, working, or waiting on background commands.
 - **Quota paused**: held until subscription quota is available again.
-- **Done**, **Stopped**, **Interrupted**, **Failed**, **In terminal** and **Archived** for local sessions. Routines and scheduled launches are on the **Schedules** page.
+- **Done** (seen), **Stopped**, **Interrupted**, **Failed**, **In terminal** and **Archived** for local sessions. Routines and scheduled launches are on the **Schedules** page.
 
-Click a row to open its session. The row's **⋯** holds **Stop** (while it runs) or **Archive**, **Mark unread** and **Pin** (pinned sessions show first). A quota-paused row shows when its quota resets; hover it for every window.
+Click a row to open its session, on its default view (a link that opened one session on Changes does not change the next ones); clicking the open session's row keeps it as it is. **Archive N seen, older than 3 d** under Done asks for a confirmation, then says how many it archived. The row's **⋯** holds **Stop** (while it runs) or **Archive**, **Mark unread** and **Pin** (pinned sessions show first). A quota-paused row shows when its quota resets; hover it for every window.
 
-A session **needs you** when it has an open question, or when it finished, failed or was interrupted and you have not seen it yet. Such sessions wait as cards in [Today](today.md) and stay bold in their group here; an unseen one has a small amber dot after its status. A session counts as seen after it was on screen for 1.5 seconds in a window you used recently. The sidebar shows only how many agents run or wait for quota.
+A session **needs you** when it has an open question, or when it finished, failed or was interrupted and you have not seen it yet. Such sessions wait as cards in [Today](today.md) and in the **Needs you** group here; an unseen one has a small amber dot after its status. A session counts as seen after it was on screen for 1.5 seconds in a window you used recently. The sidebar shows only how many agents run or wait for quota.
 
 ```mermaid
 stateDiagram-v2
@@ -111,7 +114,7 @@ On a phone, a bar at the bottom holds **Reply** and the main action. **Reply** o
 
 After **Archive**, a message offers **Undo** for 8 seconds. The agent comes back Done (or Stopped, when it was not Done), without starting its process; your next message resumes it as usual. Agents with admin access can do the same with `launchpad session unarchive <id>`.
 
-A state band above the trace shows only an open question or a turn you stopped.
+A state band above the trace shows only an open question or a turn you stopped. To answer a question in the message box, type the answer; when the agent asked several questions, type one answer per line, in order (or pick the options in the question card).
 
 ### Questions and permissions
 
@@ -172,7 +175,7 @@ flowchart LR
 
 ## Scheduling
 
-**Launch ▾** offers **Start later…** and **Repeat on a schedule…**. The **Schedules** page (sidebar) lists everything that starts on its own: **Routines** and **Scheduled launches**.
+**Launch ▾** offers **Start later…** and **Repeat on a schedule…**. The **Schedules** page (sidebar) lists everything that starts on its own: **Routines** and **Scheduled launches**. Its **New routine** and **Schedule a launch** buttons open the composer with that choice made. Once created, a routine or a scheduled launch opens on Schedules, with when it starts.
 
 - **Start conditions** (combine several; all must be met): after a delay, at a date and time, after other agents are Done (an agent waiting on a question is not Done), when a quota resets.
 - **Edit** on a scheduled launch that has not started opens it in the composer: change the prompt, folder, profile, options and start conditions, then **Save**. It keeps its place, so agents that wait for it keep waiting. **Start now** in the composer saves and starts it; **Repeat on a schedule…** turns it into a routine and cancels the scheduled launch; **Discard changes** leaves it as it was. Scheduled follow-ups cannot be edited: cancel them and schedule again.
@@ -205,7 +208,7 @@ For pay-as-you-go profiles that report costs (Claude Code, OpenCode), set a USD 
 
 ![The Ask panel: an answer and a proposed launch](images/ask.webp)
 
-Any agent granted the Launchpad CLI tool can propose cards too; they wait in Today → Approve and in the session that wrote them; handled cards are in Today → Done. **Add tool** asks you to confirm, then you paste the tool's token. **Edit** (in the card's **⋯**) moves a proposal into the composer and replaces the card (“Edited in the composer”). **Start all** (in Today) acts on every waiting card after one confirmation. A bot's cards also show in its chat, at the turn that wrote them, as one line each with **⋯ → Details** for the full card.
+Any agent granted the Launchpad CLI tool can propose cards too; they wait in Today → Approve and in the session that wrote them; handled cards are in Today → Done. **Add tool** asks you to confirm, then you paste the tool's token. **Edit** (in the card's **⋯**) moves a proposal into the composer and replaces the card (“Edited in the composer”). **Start all** (in Today) starts every waiting card that starts something, after one confirmation. A bot's cards also show in its chat, at the turn that wrote them, as one line each with **⋯ → Details** for the full card.
 
 In **Settings → Presets**, check **Bots**, **Agent composer / steering**, or both for each preset. **+ Add context** → **Presets…** (in the composer, an agent's message box and a bot's message box) adds the selected instructions after your text, in settings order. Bots can also propose a new preset or new values (label, text, agent availability) for an existing one; they cannot delete presets. Agent availability includes launches, steering and Send later. For example, a bots-only preset can say “Please implement the feature using Claude, then launch a review using Codex.”
 

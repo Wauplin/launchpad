@@ -160,6 +160,8 @@ const slackSteps = ["Open Slack: the app and its permissions are already filled 
 route("GET", "/api/vault", () => ({
   entries: [
     { id: "claude-max", kind: "claude_login", name: "Claude Max", detail: "…k3Qa", updated_at: clock.now() - 86_400_000 },
+    // The demo's Codex profile shows quota: its login is in the vault too.
+    { id: "codex-chatgpt", kind: "codex_login", name: "ChatGPT Pro", detail: "demo-user@example.com", updated_at: clock.now() - 2 * 86_400_000 },
     { id: "github", kind: "token", name: "GitHub fine-grained", detail: "…9fZ2", updated_at: clock.now() - 3 * 86_400_000 },
   ],
   tools: [demoTemplates[0]],

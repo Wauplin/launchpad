@@ -281,7 +281,9 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   useBackClose(phone && replying, () => setReplying(false));
   const changesOpen = current === "changes";
   const processesOpen = current === "processes";
-  const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => (p.session_id === sessionId && !p.archived) || p.id === localStorage.getItem(`launchpad.session-predraft.${sessionId}`));
+  // The Local PR this window created for the session (remembered at creation), read once per render, not per row.
+  const rememberedPr = localStorage.getItem(`launchpad.session-predraft.${sessionId}`);
+  const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => (p.session_id === sessionId && !p.archived) || p.id === rememberedPr);
   const projects = useProjects().data;
   const branch = useBranch(sessionId, s ?? null);
   const profileName = useProfile(s?.launch_spec.profile)?.name;

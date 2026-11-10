@@ -167,6 +167,7 @@ function HomeRunners() {
           <BurstCard />
         </>
       )}
+      <HomeUpdateCard bottom />
     </SettingsPage>
   );
 }

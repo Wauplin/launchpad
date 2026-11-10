@@ -20,14 +20,16 @@ function Pending({ u }: { u: HomeUpdate }) {
   return <span className="text-[12px] text-ink-2"><b>Update to {versionLabel(u, p.version)}</b> started {ago(p.requested_at)}{done ? ": Home runs it." : "."} {runners}</span>;
 }
 
-/** Settings → Home and runners, on Home: the installed version, Check for updates and Update Home. */
-export function HomeUpdateCard() {
+/** Settings → Home and runners, on Home: the installed version, Check for updates and Update Home. A Home that
+ * cannot update itself (not on a Space) shows one line at the bottom of the page instead (`bottom`). */
+export function HomeUpdateCard({ bottom = false }: { bottom?: boolean }) {
   const qc = useQueryClient();
   const q = useHomeUpdate();
   const u = q.data;
   const check = <ActionButton<HomeUpdate> name="home.check-update" onDone={(r) => qc.setQueryData(["home-update"], r)} />;
+  if (bottom) return u?.unsupported ? <p className="m-0 text-[12px] text-ink-3">Home updates: {u.unsupported}</p> : null;
   if (!u) return <Card title="Home updates"><Loading what="Home updates" /></Card>;
-  if (u.unsupported) return <Card title="Home updates"><span className="text-[13px] text-ink-3">{u.unsupported}</span></Card>;
+  if (u.unsupported) return null;
   const failed = u.stage && ["BUILD_ERROR", "RUNTIME_ERROR", "CONFIG_ERROR", "NO_APP_FILE"].includes(u.stage);
   return (
     <Card title="Home updates" tour="settings.home-update" end={check}>

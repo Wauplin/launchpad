@@ -54,7 +54,9 @@ export default scenario({
     at(0.8, tool("bash", "pnpm test checkout", { seconds: 2.4, output: " ✓ tests/checkout.test.ts (12 tests) 1.84s\n ✓ tests/cart.test.ts (30 tests) 0.92s\n\n Test Files  2 passed (2)\n      Tests  42 passed (42)" })),
     at(0.6, tool("bash", "for i in $(seq 20); do pnpm test checkout --silent || exit 1; done", { seconds: 1.6, output: "20 runs, 0 failures" })),
     at(0.5, plan([["Reproduce the failure", "completed"], ["Fix the race in the test", "completed"], ["Run the checkout tests", "completed"]])),
-    when("done:merge", at(0.5, commit("Wait for the order request in the checkout test")), merged("lp/fix-checkout-test")),
+    // Committed in both variants: the summary says the changes are on the task branch, and Merge needs no uncommitted file.
+    at(0.5, commit("Wait for the order request in the checkout test")),
+    when("done:merge", merged("lp/fix-checkout-test")),
     final(checkoutSummary),
   ],
 });

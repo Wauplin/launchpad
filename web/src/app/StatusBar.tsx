@@ -54,7 +54,7 @@ function Pair({ harness, name, s, labeled }: { harness: Harness; name: string; s
       {labeled && <span className="max-w-[90px] truncate text-ink-3">{name}</span>}
       <Meter value={s.five_hour?.used_percent ?? 0} harness={harness} />
       <Meter value={s.weekly?.used_percent ?? 0} harness={harness} />
-      <span className="text-ink-3">{pct(s.five_hour)} · {pct(s.weekly)}</span>
+      <span className="text-ink-3">5h {pct(s.five_hour)} · wk {pct(s.weekly)}</span>
     </span>
   );
 }

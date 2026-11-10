@@ -176,10 +176,16 @@ function Last({ text, id, seq }: { text: string | null | undefined; id?: string;
 function QuestionRow(p: RowProps) {
   const { item } = p;
   const s = useSession(item.record);
-  const ask = useOpenQuestion(item.record);
   return <Row {...p} age={!s} meta={<SessionMeta s={s} item={item} />}
     main={<Expand {...p}>Answer</Expand>} menu={(close) => <>{s?.launch_spec.bot && <OpenChat bot={s.launch_spec.bot} close={close} />}<OpenAgent id={item.record} close={close} /></>}
-    details={ask && s?.live ? <AskCard row={ask} sessionId={item.record} live={s.live} hint={s.launch_spec.bot ? "Or open the chat to type another answer." : "Or open the agent to type another answer."} /> : <Last text={s?.last_message ?? (item.detail || "The agent asked a question.")} id={item.record} seq={s?.last_seq} />} />;
+    details={<QuestionDetails item={item} />} />;
+}
+
+/** The open question's options, loaded only once the row is expanded (a folded row loads no events). */
+function QuestionDetails({ item }: { item: TodayItem }) {
+  const s = useSession(item.record);
+  const ask = useOpenQuestion(item.record);
+  return ask && s?.live ? <AskCard row={ask} sessionId={item.record} live={s.live} hint={s.launch_spec.bot ? "Or open the chat to type another answer." : "Or open the agent to type another answer."} /> : <Last text={s?.last_message ?? (item.detail || "The agent asked a question.")} id={item.record} seq={s?.last_seq} />;
 }
 
 /** Fix merge when its merge stopped (the line says "Not merged"), else review its Local PR when it wrote one, else
