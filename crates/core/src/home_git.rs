@@ -170,7 +170,8 @@ fn restore_updates(restored: &str, existing: &str) -> String {
         .lines()
         .filter_map(|l| l.split_once(' '))
         .filter_map(|(sha, r)| Some((sha, format!("refs/{}", r.strip_prefix(RESTORE_NS)?))))
-        .filter(|(_, r)| !have.contains(r.as_str()))
+        // A bundle taken while another was being applied may hold leftovers of that one.
+        .filter(|(_, r)| !r.starts_with(RESTORE_NS) && !have.contains(r.as_str()))
         .map(|(sha, r)| format!("create {r} {sha}\n"))
         .collect()
 }
@@ -716,7 +717,7 @@ mod tests {
 
     #[test]
     fn restore_creates_only_missing_refs() {
-        let restored = "a1 refs/lp-restore/heads/lp/old\nb2 refs/lp-restore/heads/lp/pushed-since\nc3 refs/lp-restore/kept/1/lp/x";
+        let restored = "a1 refs/lp-restore/heads/lp/old\nb2 refs/lp-restore/heads/lp/pushed-since\nc3 refs/lp-restore/kept/1/lp/x\ne5 refs/lp-restore/lp-restore/heads/y";
         let existing = "f9 refs/heads/main\nd4 refs/heads/lp/pushed-since\nb2 refs/lp-restore/heads/lp/pushed-since";
         assert_eq!(restore_updates(restored, existing), "create refs/heads/lp/old a1\ncreate refs/kept/1/lp/x c3\n");
         assert_eq!(restore_updates("", existing), "");

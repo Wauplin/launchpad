@@ -331,11 +331,11 @@ async fn get_blob(store: &Store, env: &UserEnv, hash: &str) -> Result<Vec<u8>> {
     Ok(data)
 }
 
-/// Complete backups under `root`, newest first.
+/// The backups a restore can pick under `root`, newest first. A failed listing or download is an error; a manifest
+/// that does not parse is left out (pruning reads manifests itself, `check_readable`).
 async fn manifests(store: &Store, env: &UserEnv, root: &str) -> Result<Vec<(String, Manifest)>> {
     let mut out = vec![];
     for key in store.list(env, &format!("{root}/backup")).await?.into_iter().filter(|k| k.ends_with("/manifest.json")) {
-        // A failed download stops the caller (pruning or restore); only a damaged manifest is left out.
         let bytes = store.get(env, &key).await?;
         match serde_json::from_slice::<Manifest>(&bytes) {
             Ok(m) => out.push((key, m)),
@@ -566,6 +566,8 @@ async fn readable(app: &App, store: &Store) -> Result<()> {
 /// One bundle per mirror: Launchpad branches, kept tips and leftovers the remote does not have.
 async fn bundles(app: &App, store: &Store, existing: &std::collections::HashSet<String>) -> Result<Vec<Object>> {
     let mut out = vec![];
+    // Read first: a bundle applied while the mirrors are bundled is then in the mirror's own bundle, or still here.
+    let pending = read_pending(&app.paths)?;
     // A fresh restore has pending bundles but no mirror directory yet.
     tokio::fs::create_dir_all(crate::home_git::root(app)).await?;
     let mut entries = tokio::fs::read_dir(crate::home_git::root(app)).await?;
@@ -620,7 +622,7 @@ async fn bundles(app: &App, store: &Store, existing: &std::collections::HashSet<
     // A restored mirror may not have its bundle applied yet (not opened yet, or applying failed). Carry the bundle
     // forward, next to the mirror's own, until `restore_bundle` applied it, so pruning never deletes the only copy of
     // its Launchpad branches.
-    for (id, hashes) in read_pending(&app.paths)? {
+    for (id, hashes) in pending {
         for hash in hashes {
             if out.iter().any(|o| o.sha256 == hash) {
                 continue;
@@ -711,9 +713,23 @@ async fn retry_restores(app: &App) {
 async fn forget_bundles(app: &App, project_id: &str) -> Result<()> {
     let lock = app.suggestion_locks.get(&format!("home-git-restore:{project_id}"));
     let _lock = lock.lock().await;
-    let mut pending = read_pending(&app.paths)?;
-    pending.remove(project_id);
-    write_pending(&app.paths, &pending)
+    drop_pending(&app.paths, project_id, None)
+}
+
+/// One change of `git_restore.json` at a time: folders apply their bundles concurrently.
+static PENDING_FILE: Mutex<()> = Mutex::new(());
+
+/// Removes one applied bundle of a folder from `git_restore.json` (all of them with None).
+fn drop_pending(paths: &crate::paths::Paths, project_id: &str, hash: Option<&str>) -> Result<()> {
+    let _one = PENDING_FILE.lock().unwrap();
+    let mut pending = read_pending(paths)?;
+    if let Some(left) = pending.get_mut(project_id) {
+        left.retain(|h| hash.is_some_and(|hash| h != hash));
+        if left.is_empty() {
+            pending.remove(project_id);
+        }
+    }
+    write_pending(paths, &pending)
 }
 
 /// A restored Home reads plain folder contents it no longer has from the backup destination.
@@ -731,8 +747,7 @@ fn git_restore_file(paths: &crate::paths::Paths) -> PathBuf {
 pub async fn restore_bundle(app: &App, project_id: &str) -> Result<()> {
     let lock = app.suggestion_locks.get(&format!("home-git-restore:{project_id}"));
     let _lock = lock.lock().await;
-    let mut pending = read_pending(&app.paths)?;
-    let Some(hashes) = pending.get(project_id).cloned() else { return Ok(()) };
+    let Some(hashes) = read_pending(&app.paths)?.remove(project_id) else { return Ok(()) };
     let store = Store::parse(&app.config.get().home.backup).context("no backup destination to restore Home Git from")?;
     for hash in hashes {
         let data = get_blob(&store, &app.env, &hash).await.with_context(|| format!("the Home Git bundle of {project_id}"))?;
@@ -742,12 +757,7 @@ pub async fn restore_bundle(app: &App, project_id: &str) -> Result<()> {
         let _ = tokio::fs::remove_file(&path).await;
         result.context("apply the Home Git bundle (the remote may have lost commits Launchpad branches build on)")?;
         changed();
-        let left = pending.entry(project_id.to_string()).or_default();
-        left.retain(|h| *h != hash);
-        if left.is_empty() {
-            pending.remove(project_id);
-        }
-        write_pending(&app.paths, &pending)?;
+        drop_pending(&app.paths, project_id, Some(&hash))?;
     }
     Ok(())
 }
@@ -998,10 +1008,14 @@ pub async fn restore_if_empty(paths: &crate::paths::Paths, env: &UserEnv) -> Res
 /// The newest complete backup and the files a restore writes now, or None when the destination has no backup.
 async fn fetch_newest(paths: &crate::paths::Paths, store: &Store, env: &UserEnv) -> Result<Option<(String, Manifest, Vec<(PathBuf, Vec<u8>)>)>> {
     let all = manifests(store, env, ROOT).await?;
-    let Some((key, m)) = all.into_iter().next() else { return Ok(None) };
+    let existing: std::collections::HashSet<String> = store.list(env, &format!("{ROOT}/blobs/sha256")).await?.into_iter().collect();
+    let Some((key, m)) = all.into_iter().next() else {
+        // Objects without any backup: the listing of backups was wrong, or every manifest is damaged.
+        ensure!(existing.is_empty(), "the backup destination holds backup objects but no readable backup under {ROOT}/backup: fix it, or empty {ROOT}/ to start a new Home");
+        return Ok(None);
+    };
     // Complete: every object is there. Only the files restored now are downloaded (and their hashes checked);
     // Home Git bundles and plain blobs are fetched, and checked, when first needed (`restore_bundle`, `fetch_blob`).
-    let existing: std::collections::HashSet<String> = store.list(env, &format!("{ROOT}/blobs/sha256")).await?.into_iter().collect();
     if let Some(o) = m.objects.iter().find(|o| !existing.contains(&blob_key(&o.sha256))) {
         bail!("backup {key} is incomplete: object {} is missing", o.name);
     }
