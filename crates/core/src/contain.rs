@@ -183,15 +183,16 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         },
         None => None,
     };
-    let mut instructions = match &kb {
+    let kb_text = match &kb {
         Some((ws, dir)) => {
             env.push(("LAUNCHPAD_KB".into(), p(dir)));
             ro.push(dir.clone());
             crate::kb::instructions(app, ws, dir).await
         }
-        None => "Your harness's own memory is off in Launchpad, and this session has no workspace, so no knowledge base: do not write memory files.\n".into(),
+        None => crate::start::NO_KB.into(),
     };
-    // A bot's own files (BOT.md, bot.toml, memory/): a read-only copy.
+    // A bot's own files (BOT.md, bot.toml, memory/): a read-only copy, and its memory loaded in the instructions.
+    let mut memory = crate::bot_memory::Loaded::default();
     if let Some(bot) = &s.launch_spec.bot {
         let dir = match crate::bot_memory::sync(app, &bot.id).await {
             Ok(dir) => Some(dir),
@@ -201,19 +202,16 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
             }
         };
         if let Some(dir) = dir {
+            memory = crate::bot_memory::compose(&crate::bot_memory::mirror_notes(&dir).await, &app.paths.cli_command());
             env.push(("LAUNCHPAD_BOT".into(), p(&dir)));
             ro.push(dir);
         }
     }
     // The Launchpad CLI tool: what the session may do with `launchpad`, at its access level.
-    if let Some(access) = lease.launchpad {
-        instructions.push('\n');
-        instructions.push_str(&crate::launchpad_cli::cli_reference(&app.paths.cli_command(), kb.as_ref().map(|(ws, _)| ws.as_str()), access));
-    }
+    let cli_reference = lease.launchpad.map(|access| crate::launchpad_cli::cli_reference(&app.paths.cli_command(), kb.as_ref().map(|(ws, _)| ws.as_str()), access));
     // The attribution line of what the agent publishes: the harness's own setting and a sentence.
     let attribution = crate::attribution::line(&s);
-    instructions.push('\n');
-    instructions.push_str(&crate::attribution::instruction(&attribution));
+    let instructions = crate::start::join(&crate::start::instruction_parts(crate::start::Inputs { kb: kb_text, memory, cli_reference, attribution: crate::attribution::instruction(&attribution) }));
     env.extend(harness.contained_memory(&home, &instructions)?);
     harness.contained_attribution(&home, &attribution)?;
     // MCP servers of Home: a local address on the runner proxy for each one granted.

@@ -170,7 +170,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/proposals" || path.starts_with("/api/proposals/")
         || path == "/api/launch/crons" || (path.starts_with("/api/launch/crons/") && path != "/api/launch/crons/next")
         || path == "/api/launch/schedules" || path.starts_with("/api/launch/schedules/")
-        || path == "/api/bots" || path.starts_with("/api/bots/") || path.starts_with("/api/context/")
+        || path == "/api/bots" || path.starts_with("/api/bots/") || path.starts_with("/api/context/") || path == "/api/launch/start-preview"
         || (path.starts_with("/api/sessions/") && (path.ends_with("/access") || path.ends_with("/machines")))
         || path == "/api/suggestions" || path.starts_with("/api/suggestions/")
         || path == "/api/channels" || path.starts_with("/api/channels/") || path == "/api/outbox" || path.starts_with("/api/outbox/")

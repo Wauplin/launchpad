@@ -74,6 +74,7 @@ pub mod diff;
 pub mod routines;
 pub mod today;
 pub mod launchpad_cli;
+pub mod start;
 
 /// Build information stamped by the `launchpad` binary (its `build.rs`), so a new commit relinks only the binary
 /// instead of rebuilding this crate.
@@ -259,6 +260,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     harness::HarnessDescriptor::export_all(cfg)?;
     projects::ProjectPatch::export_all(cfg)?;
     sessions::Preview::export_all(cfg)?;
+    start::StartPreview::export_all(cfg)?;
     github::GhItem::export_all(cfg)?;
     terminals::TerminalInfo::export_all(cfg)?;
     terminals::TerminalFolders::export_all(cfg)?;

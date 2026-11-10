@@ -787,17 +787,27 @@ pub async fn place(app: &App, id: &str) -> Result<Place> {
 /// Home: a request that continues a session (`input`, `resume`, `answer`), placed first (`place`). Returns
 /// the runner's answer; a Burst start answers at once (the job sends the request once it is up).
 pub async fn continue_anywhere(app: &App, id: &str, action: &str, body: Option<String>, key: Option<String>) -> Result<(u16, String)> {
-    match place(app, id).await? {
+    let place = place(app, id).await?;
+    // A bot session whose BOT.md changed gets the new one with its next message (after the typed text).
+    let (body, received) = match action {
+        "input" => crate::bots::with_new_instructions(app, id, body).await,
+        _ => (body, None),
+    };
+    let answer = match place {
         Place::Here => bail!("only Home places sessions"),
         Place::Runner(r) => {
             let headers = key.map(|k| vec![("idempotency-key".to_string(), k)]).unwrap_or_default();
-            app.runners.request_with(&r, "POST", &format!("/api/sessions/{id}/{action}"), body, headers).await
+            app.runners.request_with(&r, "POST", &format!("/api/sessions/{id}/{action}"), body, headers).await?
         }
         Place::Burst => {
             crate::burst::continue_session(app, id, action, body, key).await?;
-            Ok((200, serde_json::json!({"ok": true}).to_string()))
+            (200, serde_json::json!({"ok": true}).to_string())
         }
+    };
+    if let Some(r) = received.filter(|_| (200..300).contains(&answer.0)) {
+        crate::bots::record_instructions(app, id, r).await;
     }
+    Ok(answer)
 }
 
 /// The runner a launch must continue on: the session whose folder it continues in (New agent here, Run in),

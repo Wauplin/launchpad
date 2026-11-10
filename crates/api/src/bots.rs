@@ -24,6 +24,18 @@ pub fn router() -> Router<Ctx> {
         .route("/api/bots/{id}/routines", post(create_routine))
         .route("/api/bots/{id}/pause", post(pause))
         .route("/api/bots/templates", get(templates))
+        .route("/api/bots/{id}/start-preview", get(start_preview))
+        .route("/api/launch/start-preview", post(launch_start_preview).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
+}
+
+/// "What it sees at start" of the bot's next new session: its instructions and first prompt, in labelled parts.
+async fn start_preview(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<launchpad_core::start::StartPreview> {
+    Ok(Json(launchpad_core::start::bot_preview(&s.app, &id).await.map_err(bad)?))
+}
+
+/// "What it sees at start" of a launch spec, without starting anything.
+async fn launch_start_preview(State(s): State<Ctx>, Json(spec): Json<launchpad_core::model::LaunchSpec>) -> ApiResult<launchpad_core::start::StartPreview> {
+    Ok(Json(launchpad_core::start::preview(&s.app, &spec).await.map_err(bad)?))
 }
 
 fn bad(e: anyhow::Error) -> ApiError {

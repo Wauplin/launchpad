@@ -509,6 +509,16 @@ pub struct BotLaunch {
     pub instructions: String,
     /// The thread's previous session, referenced by its trace (never inlined).
     pub previous: Option<BotHandoff>,
+    /// The version of BOT.md (`bots::version`) the session started from or last received in a message: when
+    /// BOT.md changed since, Home adds the new one to the next message (`bots::with_new_instructions`).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[ts(optional, as = "Option<String>")]
+    pub version: String,
+    /// Why this session of the thread started (`bots::rotation`: first, profile, folder, model, effort,
+    /// permissions, archived; new: the owner's New session checkbox).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<String>")]
+    pub reason: Option<String>,
     /// `inbox_done = true` in bot.toml (and more than read access): it may run `launchpad inbox done`.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]

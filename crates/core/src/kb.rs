@@ -786,17 +786,28 @@ pub async fn workspace_of_session(app: &App, session_id: &str) -> Option<String>
     }
 }
 
-/// What the agent is told about its knowledge base, with `INDEX.md`.
+/// What the agent is told about its knowledge base, with `INDEX.md`, from this machine's copy (`dir`).
 pub async fn instructions(app: &App, workspace_id: &str, dir: &Path) -> String {
     let name = crate::workspace::get(app, workspace_id).await.map(|w| w.name).unwrap_or_default();
     let index = tokio::fs::read_to_string(dir.join(INDEX)).await.unwrap_or_default();
+    instructions_text(&name, &dir.display().to_string(), &index, &app.paths.cli_command())
+}
+
+/// Home: the same text from Home's store, for "What it sees at start" (the runner's copy is `$LAUNCHPAD_KB`).
+pub async fn instructions_on_home(app: &App, workspace_id: &str) -> String {
+    let name = crate::workspace::get(app, workspace_id).await.map(|w| w.name).unwrap_or_default();
+    let index = read(app, workspace_id, Some(INDEX), None).await.map(|d| String::from_utf8_lossy(&d).into_owned()).unwrap_or_default();
+    instructions_text(&name, "$LAUNCHPAD_KB", &index, &app.paths.cli_command())
+}
+
+/// The knowledge-base part of a session's instructions: how to use it, then `INDEX.md` (its first lines).
+pub fn instructions_text(name: &str, dir: &str, index: &str, cli: &str) -> String {
     let lines: Vec<&str> = index.lines().collect();
     let shown = lines.iter().take(INDEX_LINES).copied().collect::<Vec<_>>().join("\n");
     let more = if lines.len() > INDEX_LINES { format!("\n\n(INDEX.md continues: {} more lines in the file.)", lines.len() - INDEX_LINES) } else { String::new() };
-    let cli = app.paths.cli_command();
+    let also = if dir == "$LAUNCHPAD_KB" { String::new() } else { " (also `$LAUNCHPAD_KB`)".to_string() };
     format!(
-        "# Knowledge base\n\nYour memory is the Launchpad knowledge base of the workspace \"{name}\", in `{dir}` (also `$LAUNCHPAD_KB`). Your harness's own memory is off: do not write memory files anywhere else.\n\n- Read it as files: start from INDEX.md below, look up with `rg` in that folder or `{cli} kb search <words>`.\n- The files are read-only. Write with `{cli} kb write <path>` (content on stdin, or `--file <file>`), `{cli} kb append <path>`, `{cli} kb add-media <file>` and `{cli} kb rm <path>`. Read AGENTS.md there before your first write.\n- Write rarely: only a few durable, high-level findings (the owner's preferences and decisions with their reasons, non-obvious facts that took effort to discover, how-tos), and what the owner asks you to remember. Never keep a log of sessions or runs, task status, what you did, or what went well or failed: traces and Git history keep that. Most sessions write nothing. Every session reads this, so keep notes short, update or remove an existing note instead of adding one, and keep INDEX.md current. Repository instructions (CLAUDE.md, AGENTS.md in a repository) are not memory and stay where they are. A bot keeps its own notes in its folder (`$LAUNCHPAD_BOT/memory/`, `{cli} bot memory`), not here; what other agents need goes here.\n\n## INDEX.md\n\n{shown}{more}\n",
-        dir = dir.display()
+        "# Knowledge base\n\nYour memory is the Launchpad knowledge base of the workspace \"{name}\", in `{dir}`{also}. Your harness's own memory is off: do not write memory files anywhere else.\n\n- Read it as files: start from INDEX.md below, look up with `rg` in that folder or `{cli} kb search <words>`.\n- The files are read-only. Write with `{cli} kb write <path>` (content on stdin, or `--file <file>`), `{cli} kb append <path>`, `{cli} kb add-media <file>` and `{cli} kb rm <path>`. Read AGENTS.md there before your first write.\n- Write rarely: only a few durable, high-level findings (the owner's preferences and decisions with their reasons, non-obvious facts that took effort to discover, how-tos), and what the owner asks you to remember. Never keep a log of sessions or runs, task status, what you did, or what went well or failed: traces and Git history keep that. Most sessions write nothing. Every session reads this, so keep notes short, update or remove an existing note instead of adding one, and keep INDEX.md current. Repository instructions (CLAUDE.md, AGENTS.md in a repository) are not memory and stay where they are. A bot keeps its own notes in its folder (`$LAUNCHPAD_BOT/memory/`, `{cli} bot memory`), not here; what other agents need goes here.\n\n## INDEX.md\n\n{shown}{more}\n"
     )
 }
 

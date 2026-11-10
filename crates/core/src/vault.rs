@@ -838,12 +838,7 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         tools_out.push(t);
     }
     let home = app.config.get().home.clone();
-    let launchpad = match (tools_out.iter().any(|t| t.id == LAUNCHPAD_TOOL), &req.bot_id) {
-        (false, _) => None,
-        (true, None) => Some(LaunchpadAccess::Propose),
-        // A removed bot or a broken bot.toml: the least access.
-        (true, Some(b)) => Some(crate::bots::get(app, b).await.ok().filter(|b| b.settings_error.is_none()).map(|b| b.settings.launchpad).unwrap_or(LaunchpadAccess::Read)),
-    };
+    let launchpad = launchpad_level(app, tools_out.iter().any(|t| t.id == LAUNCHPAD_TOOL), req.bot_id.as_deref()).await;
     Ok(Lease {
         id: lease_id.into(),
         session_id: req.session_id.clone(),
@@ -857,6 +852,25 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         mcp: crate::mcp::granted(app, req.workspace_id.as_deref(), &off).await?,
         launchpad,
     })
+}
+
+/// The Launchpad CLI access a lease gives: none without the tool, propose for other agents, a bot's from its
+/// bot.toml.
+async fn launchpad_level(app: &App, granted: bool, bot_id: Option<&str>) -> Option<LaunchpadAccess> {
+    match (granted, bot_id) {
+        (false, _) => None,
+        (true, None) => Some(LaunchpadAccess::Propose),
+        // A removed bot or a broken bot.toml: the least access.
+        (true, Some(b)) => Some(crate::bots::get(app, b).await.ok().filter(|b| b.settings_error.is_none()).map(|b| b.settings.launchpad).unwrap_or(LaunchpadAccess::Read)),
+    }
+}
+
+/// The Launchpad CLI access a session of this request would get (`grant`'s rule), without a lease: for "What it
+/// sees at start".
+pub async fn launchpad_access(app: &App, req: &LeaseRequest) -> Result<Option<LaunchpadAccess>> {
+    let off = req.off(app).await?;
+    let granted = tools(app).await?.iter().any(|t| t.id == LAUNCHPAD_TOOL && t.granted(req.workspace_id.as_deref()) && !off.contains(&t.id));
+    Ok(launchpad_level(app, granted, req.bot_id.as_deref()).await)
 }
 
 /// The kept tool that already sends another token to one of `t`'s hosts (the proxy adds one token per host): two

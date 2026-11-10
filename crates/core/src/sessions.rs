@@ -895,19 +895,24 @@ impl Sessions {
             context.push(ContextInfo { path: p.path, description: p.description, branch: cp.branch.clone(), editable: cp.editable, own_worktree: cp.editable && !in_checkout });
         }
         crate::prompt_context::validate_mentions(&spec.text, &spec.mentions)?;
+        // Where each labelled part of the prompt starts ("What it sees at start").
+        let mut marks: Vec<(&str, &str, usize)> = vec![("message", "Your message, its context and presets", 0)];
         let mut prompt = render_prompt(spec, &context, &launch_presets(app, spec, &config).await?);
+        marks.push(("skills", "Skills", prompt.len()));
         if !spec.skills.is_empty() {
             anyhow::ensure!(!spec.target.browser_only(), "This session cannot use filesystem skills");
             let harness = spec.harness.context("Pick a harness for selected skills")?;
             prompt.push_str(&crate::prompt_context::render_skills(app, harness, spec, cwd.as_deref()).await?);
         }
         let traces = self.context_traces(app, &spec.agent_traces).await?;
+        marks.push(("traces", "Agent traces", prompt.len()));
         if !traces.is_empty() {
             if !prompt.is_empty() {
                 prompt.push_str("\n\n");
             }
             prompt.push_str(&crate::compose::trace_references(&traces, &cli));
         }
+        marks.push(("folder", "Folder and worktrees", prompt.len()));
         if !for_launch && !prompt.trim().is_empty() && matches!(spec.target, Target::Predraft { .. } | Target::ExistingPredraft { .. }) {
             prompt.push_str("\n\nWork on the Local PR's branch in a fresh worktree. Commit your changes, update the Local PR title and description with launchpad pr update. Do not open a pull request on GitHub.");
         }
@@ -918,6 +923,7 @@ impl Sessions {
             };
             prompt.push_str(&format!("\n\nLaunchpad worktree: Launchpad creates dedicated Git worktrees for this task at launch{}, and lists their exact folders and branches here.", if worktree_launch { format!(", starting from {base}") } else { String::new() }));
         }
+        marks.push(("browser", "Browser", prompt.len()));
         if let Target::Browser { act, .. } = &spec.target {
             if spec.target.browser_only() {
                 anyhow::ensure!(spec.context_projects.is_empty() && spec.worktree.is_none(), "Browser sessions without a project cannot attach project folders or worktrees");
@@ -925,18 +931,23 @@ impl Sessions {
             prompt.push_str("\n\n");
             prompt.push_str(&crate::browser::instruction(*act, !spec.target.browser_only(), !spec.agent_traces.is_empty()));
         }
+        marks.push(("routine", "Routine", prompt.len()));
         if let Some(r) = &spec.routine {
             prompt.push_str("\n\n");
             prompt.push_str(&crate::routines::instruction(r));
         }
+        marks.push(("bot", "The bot and its BOT.md", prompt.len()));
         if let Some(bot) = &spec.bot {
             prompt.push_str("\n\n");
             prompt.push_str(&crate::bots::instruction(bot, &cli));
         }
+        marks.push(("final", "Final message", prompt.len()));
         crate::compose::append_initial_summary_instruction(&mut prompt);
+        let parts = crate::start::slices(&prompt, &marks);
         Ok(Preview {
             title: title_from(&spec.text, project.as_ref().map(|p| p.name.as_str()).unwrap_or("New session")),
             prompt,
+            parts,
             cwd,
             add_dirs,
         })
@@ -2258,6 +2269,8 @@ fn ensure_budget(app: &App, s: &Session) -> Result<()> {
 pub struct Preview {
     pub title: String,
     pub prompt: String,
+    /// The prompt in labelled parts (`start::slices`), for "What it sees at start".
+    pub parts: Vec<crate::start::StartPart>,
     /// None for a new temporary folder (created at launch).
     pub cwd: Option<String>,
     pub add_dirs: Vec<String>,

@@ -18,6 +18,16 @@ instructions: string,
  */
 previous: BotHandoff | null, 
 /**
+ * The version of BOT.md (`bots::version`) the session started from or last received in a message: when
+ * BOT.md changed since, Home adds the new one to the next message (`bots::with_new_instructions`).
+ */
+version?: string, 
+/**
+ * Why this session of the thread started (`bots::rotation`: first, profile, folder, model, effort,
+ * permissions, archived; new: the owner's New session checkbox).
+ */
+reason?: string, 
+/**
  * `inbox_done = true` in bot.toml (and more than read access): it may run `launchpad inbox done`.
  */
 inbox_done?: boolean, };

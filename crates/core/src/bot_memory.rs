@@ -13,6 +13,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 use serde_json::{Value, json};
 
 use crate::App;
@@ -57,6 +58,82 @@ pub async fn runner_apply(app: &App, runner_id: &str, body: Value) -> Result<Val
     let bot = s.launch_spec.bot.as_ref().context("this session is not a bot's: it has no bot memory")?;
     let author = kb::agent_author(app, session_id).await?;
     Ok(json!({"lines": apply(app, &bot.id, author, ops).await?}))
+}
+
+// ---------------------------------------------------------------- loaded at start
+
+/// How many lines of its memory a bot session gets in its instructions at start; it reads the rest itself.
+pub const LOADED_LINES: usize = 100;
+
+/// A bot's memory as its sessions get it at start (`compose`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Loaded {
+    /// The notes, with a heading per file, cut at `LOADED_LINES` lines; empty without notes.
+    pub text: String,
+    /// The line that says the memory was cut and how to read the rest: the last line of the instructions.
+    pub cut: Option<String>,
+    pub loaded: usize,
+    pub total: usize,
+}
+
+/// How much of a bot's memory its sessions get at start, for the bot page: "Loaded at start: 100 of 240 lines".
+#[derive(Clone, Debug, Default, Serialize, TS, PartialEq)]
+pub struct LoadedLines {
+    pub loaded: u32,
+    pub total: u32,
+}
+
+/// The notes of `memory/` (store paths and texts) in a stable order: `memory/INDEX.md` first, then by path. Only
+/// Markdown notes.
+fn ordered(files: &[(String, String)]) -> Vec<&(String, String)> {
+    let mut notes: Vec<&(String, String)> = files.iter().filter(|(p, _)| p.starts_with(DIR) && p.ends_with(".md")).collect();
+    notes.sort_by_key(|(p, _)| (!p.eq_ignore_ascii_case("memory/INDEX.md"), p.clone()));
+    notes
+}
+
+/// The memory part of a bot session's instructions (the same at a real start and in "What it sees at start"):
+/// its notes up to `LOADED_LINES` lines, and when they are longer, the line that says so.
+pub fn compose(files: &[(String, String)], cli: &str) -> Loaded {
+    let notes = ordered(files);
+    let total: usize = notes.iter().map(|(_, t)| t.lines().count()).sum();
+    if notes.is_empty() {
+        return Loaded::default();
+    }
+    let mut text = String::from("# Your memory\n\nYour notes in `$LAUNCHPAD_BOT/memory/`, as they were when this session started (read a file again before you rely on a detail that may have changed):\n");
+    let mut loaded = 0;
+    for (path, body) in notes {
+        if loaded >= LOADED_LINES {
+            break;
+        }
+        text.push_str(&format!("\n## {path}\n\n"));
+        for line in body.lines().take(LOADED_LINES - loaded) {
+            text.push_str(line);
+            text.push('\n');
+            loaded += 1;
+        }
+    }
+    let cut = (loaded < total).then(|| format!("Your memory was cut at {loaded} of {total} lines. The full notes are in $LAUNCHPAD_BOT/memory/; read the rest with `{cli} bot memory read <file>` before you answer anything they may cover.\n"));
+    Loaded { text, cut, loaded, total }
+}
+
+/// Runner: the notes of a bot's read-only copy (`$LAUNCHPAD_BOT`), as store paths and texts.
+pub async fn mirror_notes(dir: &std::path::Path) -> Vec<(String, String)> {
+    let mut out = vec![];
+    for rel in plain::walk(dir).into_iter().filter(|p| p.starts_with(DIR) && p.ends_with(".md")) {
+        if let Ok(text) = tokio::fs::read_to_string(dir.join(&rel)).await {
+            out.push((rel, text));
+        }
+    }
+    out
+}
+
+/// Home: the notes of a bot's store, as store paths and texts.
+pub async fn store_notes(app: &App, files: &[plain::Entry]) -> Vec<(String, String)> {
+    let mut out = vec![];
+    for f in files.iter().filter(|f| f.path.starts_with(DIR) && f.path.ends_with(".md")) {
+        out.push((f.path.clone(), crate::bots::text_of(app, files, &f.path).await));
+    }
+    out
 }
 
 // ---------------------------------------------------------------- the move out of the knowledge base
@@ -350,5 +427,21 @@ mod tests {
         let other = "## Bots\n- [[bots/scout-2/notes]]\n\n## Empty\n";
         assert_eq!(drop_index_lines(other, "scout"), other);
         assert_eq!(drop_index_lines("- see bots/scout/ for more\n- [x](bots/scout)\nend\n", "scout"), "end\n");
+    }
+
+    #[test]
+    fn memory_loads_in_a_stable_order_and_says_when_it_was_cut() {
+        assert_eq!(compose(&[], "lp"), Loaded::default());
+        let small = vec![("memory/b.md".to_string(), "b1\nb2\n".to_string()), ("memory/INDEX.md".into(), "i1\n".into()), ("memory/a.png".into(), "x".into())];
+        let l = compose(&small, "lp");
+        assert_eq!((l.loaded, l.total, l.cut.is_none()), (3, 3, true));
+        assert!(l.text.find("## memory/INDEX.md").unwrap() < l.text.find("## memory/b.md").unwrap());
+        assert!(!l.text.contains("a.png"));
+        let long: String = (0..150).map(|i| format!("line {i}\n")).collect();
+        let big = vec![("memory/a.md".to_string(), long.clone()), ("memory/z.md".into(), long)];
+        let l = compose(&big, "lp");
+        assert_eq!((l.loaded, l.total), (100, 300));
+        assert!(l.text.contains("line 99\n") && !l.text.contains("line 100\n") && !l.text.contains("## memory/z.md"));
+        assert_eq!(l.cut.as_deref(), Some("Your memory was cut at 100 of 300 lines. The full notes are in $LAUNCHPAD_BOT/memory/; read the rest with `lp bot memory read <file>` before you answer anything they may cover.\n"));
     }
 }

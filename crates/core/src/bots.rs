@@ -108,6 +108,9 @@ pub struct Bot {
     pub settings: BotSettings,
     /// BOT.md.
     pub instructions: String,
+    /// Its version (`version`): a session that started from or last received another one gets the new BOT.md
+    /// with the next message.
+    pub instructions_version: String,
     /// `bot.toml` as written, and why it cannot be used (a hand edit with an error).
     pub settings_text: String,
     pub settings_error: Option<String>,
@@ -119,6 +122,8 @@ pub struct Bot {
     pub version: i64,
     /// Its notes: the files under `memory/`, with their store paths.
     pub memory: Vec<plain::Entry>,
+    /// How many lines of its notes a new session gets in its instructions (`bot_memory::compose`).
+    pub memory_loaded: crate::bot_memory::LoadedLines,
     /// Its routine files (`routines/<name>.toml`) as written, by path: what an Undo of a file change puts back.
     #[ts(type = "Record<string, string>")]
     pub routines: std::collections::BTreeMap<String, String>,
@@ -256,11 +261,14 @@ async fn load(app: &App, (id, workspace_id, slug, created_at, own, paused): Row)
     };
     let own_folder = own.is_some() && own == settings.folder;
     let memory = tree.files.iter().filter(|f| f.path.starts_with(crate::bot_memory::DIR)).cloned().collect();
+    let loaded = crate::bot_memory::compose(&crate::bot_memory::store_notes(app, &tree.files).await, "launchpad");
+    let memory_loaded = crate::bot_memory::LoadedLines { loaded: loaded.loaded as u32, total: loaded.total as u32 };
+    let instructions_version = version(&instructions);
     let mut routines = std::collections::BTreeMap::new();
     for f in tree.files.iter().filter(|f| routine_path_ok(&f.path)) {
         routines.insert(f.path.clone(), text_of(app, &tree.files, &f.path).await);
     }
-    Ok(Bot { id, workspace_id, slug, created_at, settings, instructions, settings_text, settings_error, own_folder, paused, version: tree.version, memory, routines })
+    Ok(Bot { id, workspace_id, slug, created_at, settings, instructions, instructions_version, settings_text, settings_error, own_folder, paused, version: tree.version, memory, memory_loaded, routines })
 }
 
 pub async fn list(app: &App) -> Result<Vec<Bot>> {
@@ -530,18 +538,103 @@ pub fn thread(app: &App, id: &str) -> Vec<Session> {
     list
 }
 
-/// Why the next message starts a new session, or None to continue the current one (its status, profile and
-/// folder, None for a temporary folder).
-pub fn rotation(bot: &BotSettings, current: Option<(SessionStatus, Option<&str>, Option<&str>)>) -> Option<&'static str> {
-    let Some((status, profile, folder)) = current else { return Some("first") };
-    if status == SessionStatus::Closed {
+/// The current session of a thread, as `rotation` compares it with the bot's settings: its status, and the
+/// profile, folder (None for a temporary folder), model, effort and permission mode it runs with.
+#[derive(Clone, Copy, Debug)]
+pub struct Current<'a> {
+    pub status: SessionStatus,
+    pub profile: Option<&'a str>,
+    pub folder: Option<&'a str>,
+    pub model: Option<&'a str>,
+    pub effort: Option<&'a str>,
+    pub permission_mode: PermissionMode,
+}
+
+impl<'a> Current<'a> {
+    pub fn of(s: &'a Session) -> Current<'a> {
+        Current {
+            status: s.status,
+            profile: s.launch_spec.profile.as_deref(),
+            folder: if matches!(s.launch_spec.target, Target::Temp) { None } else { s.project_id.as_deref() },
+            model: s.launch_spec.model.as_deref(),
+            effort: s.launch_spec.effort.as_deref(),
+            permission_mode: s.launch_spec.permission_mode,
+        }
+    }
+}
+
+/// Why the next message starts a new session, or None to continue the current one. `bot` holds the values a new
+/// session would get (its profile, and the model and effort of bot.toml or else of the profile).
+pub fn rotation(bot: &BotSettings, current: Option<Current>) -> Option<&'static str> {
+    let Some(c) = current else { return Some("first") };
+    if c.status == SessionStatus::Closed {
         Some("archived")
-    } else if profile != bot.profile.as_deref() {
+    } else if c.profile != bot.profile.as_deref() {
         Some("profile")
-    } else if folder != bot.folder.as_deref() {
+    } else if c.folder != bot.folder.as_deref() {
         Some("folder")
+    } else if c.model != bot.model.as_deref() {
+        Some("model")
+    } else if c.effort != bot.effort.as_deref() {
+        Some("effort")
+    } else if c.permission_mode != bot.permission_mode {
+        Some("permissions")
     } else {
         None
+    }
+}
+
+/// A short version of BOT.md: sessions record the one they run (`BotLaunch.version`).
+pub fn version(instructions: &str) -> String {
+    crate::kb::sha(instructions.as_bytes())[..16].to_string()
+}
+
+/// The block Home adds after the typed text of the first message a session gets after BOT.md changed.
+pub fn changed_block(instructions: &str) -> String {
+    format!("{CHANGED_MARK} The owner edited BOT.md since this session started or last heard of it. From now on, follow this version instead of the earlier one:\n\n<bot-instructions>\n{}\n</bot-instructions>", instructions.trim())
+}
+
+/// How the block starts (the chat shows it as one line).
+pub const CHANGED_MARK: &str = "Your instructions changed.";
+
+/// Home: a message to a bot session whose BOT.md changed since it started or last received it gets the new BOT.md
+/// after its typed text (`changed_block`). Returns the body to send, and the version and text to record in the
+/// session once it is delivered (`record_instructions`).
+pub async fn with_new_instructions(app: &App, session_id: &str, body: Option<String>) -> (Option<String>, Option<(String, String)>) {
+    let unchanged = (body.clone(), None);
+    let Some(launch) = app.sessions.get(session_id).and_then(|s| s.launch_spec.bot) else { return unchanged };
+    let Ok(bot) = get(app, &launch.id).await else { return unchanged };
+    let now = bot.instructions_version.clone();
+    // Sessions from before versions were recorded: the BOT.md they started from.
+    let theirs = if launch.version.is_empty() { version(&launch.instructions) } else { launch.version.clone() };
+    if theirs == now {
+        return (body, launch.version.is_empty().then_some((now, bot.instructions)));
+    }
+    match body.as_deref().and_then(|b| add_block(b, &bot.instructions)) {
+        Some(body) => (Some(body), Some((now, bot.instructions))),
+        None => unchanged,
+    }
+}
+
+/// A session input body (`{"text": …}`) with `changed_block` after its typed text; None for another body.
+fn add_block(body: &str, instructions: &str) -> Option<String> {
+    let mut v = serde_json::from_str::<serde_json::Value>(body).ok().filter(serde_json::Value::is_object)?;
+    let typed = v["text"].as_str().unwrap_or_default().trim_end().to_string();
+    let block = changed_block(instructions);
+    v["text"] = serde_json::Value::String(if typed.is_empty() { block } else { format!("{typed}\n\n{block}") });
+    Some(v.to_string())
+}
+
+/// Home: records the BOT.md a session received (`with_new_instructions`).
+pub async fn record_instructions(app: &App, session_id: &str, (version, instructions): (String, String)) {
+    let done = app.sessions.update(app, session_id, |s| {
+        if let Some(b) = &mut s.launch_spec.bot {
+            b.version = version;
+            b.instructions = instructions;
+        }
+    }).await;
+    if let Err(e) = done {
+        tracing::warn!("instructions version of session {session_id}: {e:#}");
     }
 }
 
@@ -566,10 +659,12 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
     let profile = profile_of(&config, s).context("choose a profile for this bot in its Settings tab")?;
     let sessions = thread(app, id);
     let current = sessions.iter().rev().find(|x| x.status != SessionStatus::Closed);
-    let resolved = BotSettings { profile: Some(profile.id.clone()), ..s.clone() };
-    let folder_of = |c: &Session| if matches!(c.launch_spec.target, Target::Temp) { None } else { c.project_id.as_deref().map(str::to_string) };
-    let current_folder = current.and_then(folder_of);
-    match (new_session, rotation(&resolved, current.map(|c| (c.status, c.launch_spec.profile.as_deref(), current_folder.as_deref())))) {
+    let resolved = BotSettings { profile: Some(profile.id.clone()), model: s.model.clone().or_else(|| profile.model.clone()), effort: s.effort.clone().or_else(|| profile.effort.clone()), ..s.clone() };
+    let reason = match current {
+        None if !sessions.is_empty() => Some("archived"),
+        c => rotation(&resolved, c.map(Current::of)),
+    };
+    match (new_session, reason) {
         (false, None) => {
             let c = current.expect("a current session");
             crate::runners::send_anywhere_with(app, &c.id, &text, attachments, context, None).await?;
@@ -582,12 +677,25 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
             }
         }
     }
+    let mut spec = next_spec(app, &bot, &sessions, text, attachments, context).await?;
+    if let Some(b) = &mut spec.bot {
+        b.reason = Some(if new_session && reason.is_none() { "new" } else { reason.unwrap_or("first") }.to_string());
+    }
+    crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await
+}
+
+/// The launch of a new session of the thread: the bot's settings, BOT.md and its version, and the previous
+/// session to reference. `thread` is the bot's sessions, oldest first.
+pub async fn next_spec(app: &App, bot: &Bot, thread: &[Session], text: String, attachments: Vec<FileAttachment>, context: MessageContext) -> Result<LaunchSpec> {
+    let s = &bot.settings;
+    let config = app.config.get();
+    let profile = profile_of(&config, s).context("choose a profile for this bot in its Settings tab")?;
     let folder = match &s.folder {
         Some(f) => Some(crate::projects::get(app, f).await?.context("the bot's folder no longer exists: choose another one in its Settings tab")?),
         None => None,
     };
-    let previous = sessions.last().map(|p| BotHandoff { session_id: p.id.clone(), title: p.title.clone(), through_seq: p.last_seq });
-    let spec = LaunchSpec {
+    let previous = thread.last().map(|p| BotHandoff { session_id: p.id.clone(), title: p.title.clone(), through_seq: p.last_seq });
+    Ok(LaunchSpec {
         text,
         attachments,
         harness: Some(profile.harness),
@@ -599,22 +707,30 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
         // Git folders: a fresh worktree per session, never the owner's checkout.
         worktree: folder.as_ref().filter(|f| !f.plain).map(|f| WorktreeOptions { when_done: f.when_done, ..Default::default() }),
         workspace_id: Some(bot.workspace_id.clone()),
-        bot: Some(BotLaunch { id: bot.id.clone(), name: s.name.clone(), slug: bot.slug.clone(), instructions: bot.instructions.clone(), previous, inbox_done: s.inbox_done && s.launchpad != crate::vault::LaunchpadAccess::Read }),
+        bot: Some(BotLaunch {
+            id: bot.id.clone(),
+            name: s.name.clone(),
+            slug: bot.slug.clone(),
+            instructions: bot.instructions.clone(),
+            version: bot.instructions_version.clone(),
+            reason: None,
+            previous,
+            inbox_done: s.inbox_done && s.launchpad != crate::vault::LaunchpadAccess::Read,
+        }),
         mentions: context.mentions,
         skills: context.skills,
         context_projects: context.context_projects.into_iter().map(|c| ContextProject { editable: false, ..c }).collect(),
         github_refs: context.github_refs,
         agent_traces: context.agent_traces,
         ..Default::default()
-    };
-    crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await
+    })
 }
 
 /// The bot part of a session's first prompt.
 pub fn instruction(bot: &BotLaunch, cli: &str) -> String {
     let mut out = format!(
         "You are {name}, a Launchpad bot: a persistent agent with one thread that continues across sessions. The owner's instructions for you (BOT.md):\n\n<bot-instructions>\n{instructions}\n</bot-instructions>\n\n\
-Your folder: `$LAUNCHPAD_BOT` is a read-only copy of your files: BOT.md, bot.toml, `routines/<name>.toml` (your routines) and `memory/`, your own notes. Read `$LAUNCHPAD_BOT/memory/` before you answer anything it may cover. Write them with `{cli} bot memory write <file>` (content on stdin, or `--file <file>`; paths are relative to `memory/`, for example `notes.md`), `{cli} bot memory append <file> <text>` and `{cli} bot memory rm <file>`; `{cli} bot memory list` and `{cli} bot memory read <file>` read them. Keep them short and current: the owner's preferences and the few facts a later session needs, and what the owner asks you to remember. They are not a journal: never record your runs, what you did, or what went well or failed (the thread and its traces keep that); most turns write nothing. Facts other agents need (shared facts about people, projects, how-tos) go in the workspace knowledge base ($LAUNCHPAD_KB) instead.\n\
+Your folder: `$LAUNCHPAD_BOT` is a read-only copy of your files: BOT.md, bot.toml, `routines/<name>.toml` (your routines) and `memory/`, your own notes. Your instructions hold these notes as they were at start (\"Your memory\", up to {loaded} lines; when they say it was cut, read the rest before you answer anything it may cover). Write them with `{cli} bot memory write <file>` (content on stdin, or `--file <file>`; paths are relative to `memory/`, for example `notes.md`), `{cli} bot memory append <file> <text>` and `{cli} bot memory rm <file>`; `{cli} bot memory list` and `{cli} bot memory read <file>` read them. Keep them short and current: the owner's preferences and the few facts a later session needs, and what the owner asks you to remember. They are not a journal: never record your runs, what you did, or what went well or failed (the thread and its traces keep that); most turns write nothing. Facts other agents need (shared facts about people, projects, how-tos) go in the workspace knowledge base ($LAUNCHPAD_KB) instead.\n\
 Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. Unless your Launchpad CLI access is admin, you cannot edit BOT.md, bot.toml or your routines. When your instructions or routines should change (the owner asked, or you learned how they like the work done), propose the whole new files as one card and tell the owner it waits for their click: `{cli} propose bot-files --title \"<what changes>\" --spec-file files.json`, where the file holds {{\"bot_id\": \"{id}\", \"files\": {{\"BOT.md\": \"<the whole new BOT.md>\", \"routines/<name>.toml\": \"<the whole new routine file>\"}}}} (only the files that change; null deletes a routine; start from your copies in `$LAUNCHPAD_BOT`). The owner sees one diff per file. Changes to bot.toml (profile, folder, permissions, Launchpad CLI access) are the owner's, in the bot's Settings tab (or yours at admin access, when the owner asks).\n\
 Folders: find the workspace's folders and what they hold with `{cli} folders list` and your notes; when a task needs one, add a worktree of it to this session with `{cli} work add-project --session-id $LAUNCHPAD_SESSION_ID --project <name>`, which prints the folder to edit.\n\
 Routines: when the owner wants you to do something on your own later or again (every morning, when CI fails, when another agent is done), propose a routine for yourself and tell the owner it waits for their click: `{cli} propose routine --title \"Daily check\" --spec-file routine.json`, where the file holds {{\"bot_id\": \"{id}\", \"title\": \"Daily check\", \"instructions\": \"<what you do at each run>\", \"trigger\": {triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}}; it becomes a card with your new file `routines/<name>.toml`. To change or delete routines, propose their files with `bot-files` as above (the same fields in TOML; your copies in `$LAUNCHPAD_BOT/routines/` show the format). A run arrives in this thread as a message starting with “Routine”; end it with a short report, or with exactly `no_update` when there is nothing to report.",
@@ -622,6 +738,7 @@ Routines: when the owner wants you to do something on your own later or again (e
         instructions = bot.instructions.trim(),
         id = bot.id,
         triggers = crate::routines::TRIGGER_FORMS,
+        loaded = crate::bot_memory::LOADED_LINES,
     );
     if bot.inbox_done {
         out.push_str(&format!("\nInbox: the owner lets you mark their Inbox threads done yourself, in Launchpad and on GitHub (Done, not just read): `{cli} inbox done <thread-id>...`, with the ids from `{cli} inbox list`; `{cli} inbox unsubscribe <thread-id>...` also mutes them on GitHub, so later activity does not notify the owner. Only threads your instructions name; never mark them done with `gh` (Launchpad's Inbox would keep them)."));
@@ -688,14 +805,35 @@ mod tests {
 
     #[test]
     fn a_new_session_starts_when_the_thread_cannot_continue() {
-        let bot = BotSettings { name: "Scout".into(), profile: Some("a".into()), folder: Some("f".into()), ..Default::default() };
+        let bot = BotSettings { profile: Some("a".into()), folder: Some("f".into()), model: Some("m".into()), ..Default::default() };
+        let cur = |status, profile, folder| Current { status, profile, folder, model: Some("m"), effort: None, permission_mode: PermissionMode::default() };
         assert_eq!(rotation(&bot, None), Some("first"));
-        assert_eq!(rotation(&bot, Some((SessionStatus::Waiting, Some("a"), Some("f")))), None);
-        assert_eq!(rotation(&bot, Some((SessionStatus::Error, Some("b"), Some("f")))), Some("profile"));
-        assert_eq!(rotation(&bot, Some((SessionStatus::Waiting, Some("a"), Some("g")))), Some("folder"));
-        assert_eq!(rotation(&bot, Some((SessionStatus::Closed, Some("a"), Some("f")))), Some("archived"));
-        let temp = BotSettings { folder: None, ..bot };
-        assert_eq!(rotation(&temp, Some((SessionStatus::Waiting, Some("a"), None))), None);
-        assert_eq!(rotation(&temp, Some((SessionStatus::Waiting, Some("a"), Some("f")))), Some("folder"));
+        assert_eq!(rotation(&bot, Some(cur(SessionStatus::Waiting, Some("a"), Some("f")))), None);
+        assert_eq!(rotation(&bot, Some(cur(SessionStatus::Error, Some("b"), Some("f")))), Some("profile"));
+        assert_eq!(rotation(&bot, Some(cur(SessionStatus::Waiting, Some("a"), Some("g")))), Some("folder"));
+        assert_eq!(rotation(&bot, Some(cur(SessionStatus::Closed, Some("a"), Some("f")))), Some("archived"));
+        assert_eq!(rotation(&bot, Some(Current { model: Some("other"), ..cur(SessionStatus::Waiting, Some("a"), Some("f")) })), Some("model"));
+        assert_eq!(rotation(&bot, Some(Current { effort: Some("high"), ..cur(SessionStatus::Waiting, Some("a"), Some("f")) })), Some("effort"));
+        assert_eq!(rotation(&bot, Some(Current { permission_mode: PermissionMode::Approvals, ..cur(SessionStatus::Waiting, Some("a"), Some("f")) })), Some("permissions"));
+        let temp = BotSettings { profile: Some("a".into()), model: Some("m".into()), ..Default::default() };
+        assert_eq!(rotation(&temp, Some(cur(SessionStatus::Waiting, Some("a"), None))), None);
+        assert_eq!(rotation(&temp, Some(cur(SessionStatus::Waiting, Some("a"), Some("f")))), Some("folder"));
+    }
+
+    #[test]
+    fn changed_instructions_follow_the_typed_text() {
+        let block = changed_block("  # Scout\n\nWatch CI.\n");
+        assert!(block.starts_with(CHANGED_MARK));
+        assert!(block.ends_with("<bot-instructions>\n# Scout\n\nWatch CI.\n</bot-instructions>"));
+        assert_eq!(version("a"), version("a"));
+        assert_ne!(version("a"), version("b"));
+        assert_eq!(version("a").len(), 16);
+        let body = add_block(r#"{"text":"Check CI\n","files":[],"context":{"github_refs":[]}}"#, "New job").unwrap();
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["text"].as_str().unwrap(), format!("Check CI\n\n{}", changed_block("New job")));
+        assert_eq!(v["context"], serde_json::json!({"github_refs": []}));
+        let only: serde_json::Value = serde_json::from_str(&add_block(r#"{"files":[{"name":"a"}]}"#, "J").unwrap()).unwrap();
+        assert_eq!(only["text"].as_str().unwrap(), changed_block("J"));
+        assert!(add_block("not json", "J").is_none());
     }
 }

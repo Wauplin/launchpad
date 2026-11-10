@@ -34,6 +34,7 @@ export type ActionName =
   | "schedule.cancel"
   | "schedule.start"
   | "launch.check"
+  | "launch.start-preview"
   | "proposal.start"
   | "proposal.dismiss"
   | "proposal.reply"
@@ -96,6 +97,7 @@ export const ACTIONS: Record<ActionName, Action> = {
   "schedule.cancel": {"name":"schedule.cancel","method":"DELETE","route":"/api/launch/schedules/{id}","label":"Cancel","icon":"x","help":"Cancel a scheduled launch","input":[],"body_file":null,"fixed":null,"confirm":"Cancels this scheduled launch.","effect":"record","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "schedule.start": {"name":"schedule.start","method":"POST","route":"/api/launch/schedules/{id}/start","label":"Start now","icon":"play","help":"Start a scheduled launch now","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "launch.check": {"name":"launch.check","method":"POST","route":"/api/launch/preview","label":"Check","icon":null,"help":"Check a launch spec without starting it","input":[],"body_file":"a launch spec","fixed":null,"confirm":null,"effect":"checks","access":"admin","card":null,"undo":null,"before":null,"ready":false},
+  "launch.start-preview": {"name":"launch.start-preview","method":"POST","route":"/api/launch/start-preview","label":"What it sees at start","icon":null,"help":"Show the instructions and first prompt a launch spec would give its agent, without starting it","input":[],"body_file":"a launch spec","fixed":null,"confirm":null,"effect":"checks","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "proposal.start": {"name":"proposal.start","method":"POST","route":"/api/proposals/{id}/accept","label":"Start","icon":"play","help":"Start a card (you may start a card only when you could run its action directly)","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "proposal.dismiss": {"name":"proposal.dismiss","method":"POST","route":"/api/proposals/{id}/dismiss","label":"Dismiss","icon":"x","help":"Dismiss a card (a report: mark it read)","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"admin","card":null,"undo":null,"before":null,"ready":false},
   "proposal.reply": {"name":"proposal.reply","method":"POST","route":"/api/proposals/{id}/reply","label":"Reply","icon":"send","help":"Answer a report: the text goes to the thread of the agent or bot that wrote it","input":[{"name":"text","kind":"text","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},
