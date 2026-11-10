@@ -7,7 +7,7 @@ import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { MessageContext } from "@/gen/MessageContext";
 import { clock, DemoError, publish, route } from "../daemon";
 import { world } from "../world";
-import { ASK_DEFAULT, ASK_STARTERS, settingsText } from "../world/bots";
+import { ASK_DEFAULT, ASK_STARTERS, LIBRARIAN_DEFAULT, LIBRARIAN_STARTERS, settingsText } from "../world/bots";
 import { publishSession, session, setStatus } from "../store";
 import { applyRoutineFile, createCron, launch, memoryParts, nextDue, recordBotChange, routinePath, startPreview } from "./launch";
 import { botVersion, defOf, routineToml } from "../routine";
@@ -34,7 +34,7 @@ export const botTarget = (b: Bot): LaunchSpec["target"] => b.settings.folder ? {
 const withMemory = (b: Bot): Bot => ({ ...b, instructions_version: botVersion(b.instructions), memory_loaded: (({ loaded, total }) => ({ loaded, total }))(memoryParts(world.botMemory[b.id] ?? {})), routines: Object.fromEntries(world.crons.filter((c) => c.bot_id === b.id && c.file).map((c) => [c.file!, routineToml(defOf(c))])), memory: Object.entries(world.botMemory[b.id] ?? {}).map(([path, content]) => ({ path, sha256: `${b.id}-${path}-${content.length}`, size: content.length, executable: false })).sort((x, y) => x.path.localeCompare(y.path)) });
 
 route("GET", "/api/bots", () => world.bots.map(withMemory));
-route("GET", "/api/bots/templates", () => [{ id: "ask-launchpad", name: "Ask Launchpad", instructions: ASK_DEFAULT, starters: ASK_STARTERS }]);
+route("GET", "/api/bots/templates", () => [{ id: "ask-launchpad", name: "Ask Launchpad", instructions: ASK_DEFAULT, starters: ASK_STARTERS }, { id: "librarian", name: "Librarian", instructions: LIBRARIAN_DEFAULT, starters: LIBRARIAN_STARTERS }]);
 route("GET", "/api/bots/:id", ({ params }) => withMemory(botOf(params.id)));
 route("GET", "/api/bots/:id/file", ({ params, query }) => {
   const b = botOf(params.id);

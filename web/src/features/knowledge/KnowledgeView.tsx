@@ -1,6 +1,7 @@
 // Knowledge: the knowledge base of a workspace, the memory its agents share. Notes (read, edit, concurrent
 // edits, backlinks), Changes (who changed what, with the diff and Restore previous) and the two one-click
-// helpers: the gardener (a normal launch, weekly with Repeat on a schedule) and the import of a runner's
+// helpers: Ask the Librarian (the bot Home seeds to tend the knowledge base; once deleted, the gardener prompt in
+// the composer instead) and the import of a runner's
 // harness memories. Home stores everything; every change is restorable for 30 days. Under the notes, each bot's
 // own memory (memory/ of its folder), read-only here, with a link to the bot.
 
@@ -20,7 +21,7 @@ import type { NativeMemory } from "@/gen/NativeMemory";
 import type { Notes } from "@/gen/Notes";
 import { api, ApiError } from "@/lib/api";
 import { daemonUrl } from "@/lib/connection";
-import { useBots } from "@/lib/bots";
+import { librarianOf, useBots } from "@/lib/bots";
 import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useSessions } from "@/lib/queries";
@@ -83,6 +84,7 @@ export function KnowledgeView() {
   const notes = useQuery({ queryKey: ["knowledge", ws, "notes"], queryFn: () => api.get<Notes>(`/api/knowledge/${ws}`), enabled: !!ws });
   const allBots = useBots().data;
   const bots = useMemo(() => (allBots ?? []).filter((b) => b.workspace_id === ws && b.memory.length > 0), [allBots, ws]);
+  const librarian = librarianOf(allBots, ws);
   const changes = useQuery({ queryKey: ["knowledge", ws, "changes"], queryFn: () => api.get<{ changes: Change[] }>(`/api/knowledge/${ws}/changes`), enabled: !!ws });
   const unseen = (changes.data?.changes ?? []).filter((c) => c.id > (notes.data?.seen ?? 0) && c.author?.kind === "agent").length;
   // A link to one note (`/knowledge?note=<path>`, from a bot chat's Changed line) opens it.
@@ -103,7 +105,9 @@ export function KnowledgeView() {
   };
   const actions = <>
     <button className="btn btn-sm" title="Agents' memory files on a runner (Claude Code, Codex), imported once as your notes" onClick={() => { setTab("notes"); setPanel("import"); }}><Icon name="download" size={12} />Import memories</button>
-    <button className="btn btn-sm" title="An agent that merges duplicates, adds links and keeps INDEX.md current" onClick={gardener}><Icon name="spark" size={12} />Run the gardener</button>
+    {librarian
+      ? <Link to="/bots/$id" params={{ id: librarian.id }} className="btn btn-sm no-underline" title={`${librarian.settings.name} merges duplicates, adds links and keeps INDEX.md current: open its chat`}><Icon name="spark" size={12} />Ask {librarian.settings.name === "Librarian" ? "the Librarian" : librarian.settings.name}</Link>
+      : <button className="btn btn-sm" title="An agent that merges duplicates, adds links and keeps INDEX.md current" onClick={gardener}><Icon name="spark" size={12} />Run the gardener</button>}
     <button className="btn btn-sm btn-primary" onClick={() => { setTab("notes"); setPanel("new"); }}><Icon name="plus" size={12} />New note</button>
   </>;
   const tabs = <Tabs label="Knowledge views" value={tab} onChange={(t) => { setTab(t); if (t === "notes") setHistoryOf(null); }} items={[{ id: "notes", label: "Notes", count: notes.data?.files.length }, { id: "changes", label: "Changes", count: unseen || undefined }]} tour="knowledge.tabs" />;
@@ -267,7 +271,7 @@ function NotePane({ ws, notes, changes, path, select, showHistory, refresh }: { 
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {concurrent.map((c) => <div key={c.path} className="mb-3 flex flex-wrap items-center gap-2 rounded-card border border-attn bg-attn-soft px-3 py-2 text-[12px]">
-          <span className="min-w-0 flex-1">A second version of this note was written while it changed: <button className="underline" onClick={() => select(c.path)}>{c.path}</button>. Keep one, or ask the gardener to merge them.</span>
+          <span className="min-w-0 flex-1">A second version of this note was written while it changed: <button className="underline" onClick={() => select(c.path)}>{c.path}</button>. Keep one, or ask the Librarian to merge them.</span>
           <ConfirmButton tone="publish" consequence="Removes the second version; this note stays as it is." confirmLabel="Keep this note" onConfirm={() => resolve(c.path, false)}>Keep this note</ConfirmButton>
           <ConfirmButton tone="publish" consequence="Replaces this note with the second version. The current one stays restorable." confirmLabel="Use the other version" onConfirm={() => resolve(c.path, true)}>Use the other version</ConfirmButton>
         </div>)}
@@ -343,7 +347,7 @@ function ImportPanel({ ws, existing, done }: { ws: string; existing: string[]; d
     setBusy(true);
     try {
       const r = await api.post<{ lines: string[] }>(`/api/knowledge/${ws}/import`, { from, files: picked.map((f) => ({ path: f.path, content: f.content })) });
-      toast(`${r.lines.join(" ")}. Run the gardener to fold them into your notes.`);
+      toast(`${r.lines.join(" ")}. Ask the Librarian to fold them into your notes.`);
       done();
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
@@ -355,7 +359,7 @@ function ImportPanel({ ws, existing, done }: { ws: string; existing: string[]; d
         <button className="btn btn-sm btn-primary" disabled={busy || picked.length === 0} onClick={() => void run()}>{busy ? "Importing…" : `Import ${picked.length} ${picked.length === 1 ? "file" : "files"}`}</button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 text-[13px]">
-        <p className="m-0 mb-3 text-[12px] text-ink-3">Claude Code and Codex keep their own memory files on each machine. Launchpad turns that memory off in its sessions; import the files once into <span className="font-mono">imported/</span>, then run the gardener to fold them into your notes. Nothing is removed from the machine.</p>
+        <p className="m-0 mb-3 text-[12px] text-ink-3">Claude Code and Codex keep their own memory files on each machine. Launchpad turns that memory off in its sessions; import the files once into <span className="font-mono">imported/</span>, then ask the Librarian to fold them into your notes. Nothing is removed from the machine.</p>
         {runners.length === 0 ? <Empty icon="term">Connect a runner first: memories are read on the machine where your agents ran.</Empty>
           : <Choices label="Runner" className="mb-3">{runners.map((r) => <Choice key={r.runner.id} active={r.runner.id === chosen} disabled={!r.connected} title={r.connected ? undefined : "Offline"} onClick={() => setRunner(r.runner.id)}>{r.runner.name}</Choice>)}</Choices>}
         {q.isLoading ? <Loading what="memory files" /> : q.error ? <ErrorState error={q.error} /> : q.data && (files.length === 0 ? <Empty icon="book">No harness memory found on {from}.</Empty> : <div className="grid gap-1">

@@ -1,6 +1,6 @@
 // Bots: named, persistent agents of a workspace, stored by Home as files (BOT.md, bot.toml). A bot's thread is
 // the chain of sessions whose launch spec names it; the newest one that is not archived is its current session.
-// Ask Launchpad is one of them: Home creates it once per workspace.
+// Ask Launchpad and the Librarian are two of them: Home creates each once per workspace.
 
 import { useQuery } from "@tanstack/react-query";
 import type { Bot } from "@/gen/Bot";
@@ -8,7 +8,7 @@ import type { Session } from "@/gen/Session";
 import { api } from "./api";
 import { isQuotaPaused, isRunning, needsYou } from "./sessionStatus";
 
-/** Ready-made bots the New bot form starts from (Ask Launchpad). */
+/** Ready-made bots the New bot form starts from (Ask Launchpad, the Librarian). */
 export type BotTemplate = { id: string; name: string; instructions: string; starters?: string[] };
 export const useBotTemplates = () => useQuery({ queryKey: ["bot-templates"], queryFn: () => api.get<BotTemplate[]>("/api/bots/templates"), staleTime: Infinity, retry: false });
 
@@ -19,6 +19,9 @@ export function botProfile<P extends { id: string; billing: string }>(bot: Bot, 
 }
 
 export const useBots = () => useQuery({ queryKey: ["bots"], queryFn: () => api.get<Bot[]>("/api/bots"), staleTime: 30_000, refetchInterval: 60_000, retry: false });
+
+/** The workspace's Librarian (Home seeds it as `librarian`), which tends the knowledge base; null once the owner deleted it. */
+export const librarianOf = (bots: Bot[] | undefined, ws: string | null) => bots?.find((b) => b.workspace_id === ws && b.slug === "librarian") ?? null;
 
 export const botOf = (s: Session) => s.launch_spec.bot?.id ?? null;
 

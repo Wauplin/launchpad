@@ -6,7 +6,7 @@
 import type { CronAgent } from "@/gen/CronAgent";
 import type { RoutineRun } from "@/gen/RoutineRun";
 import { botVersion, CI, DAILY, MAINTAINER_BOT_MD_NEXT, MAINTAINER_BOT_MD_PATCH, MAINTAINER_BOT_MD_PREV, REVIEW_ROUTINE, routineText } from "../routine";
-import { ASK_DEFAULT } from "./bots";
+import { ASK_DEFAULT, LIBRARIAN_BOT, LIBRARIAN_TIDY } from "./bots";
 import type { EventBody } from "@/gen/EventBody";
 import type { FileAttachment } from "@/gen/FileAttachment";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
@@ -396,6 +396,11 @@ export function agentsWorld() {
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
     next_run_at: null, last_check_at: clock.ago(40), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, file: "routines/ci-failures.toml", file_error: null, waiting: null,
     history: [run(day * 2 + 300, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#112"), run(day + 200, "skipped", null, "GitHub, CI activity: acme-labs/storefront#115", "Maintainer was working"), run(40, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#118")],
+  }, {
+    // The Librarian's weekly tidy, created paused with the bot (`librarian::ROUTINE`): Sunday 03:00 in Home's time zone.
+    id: "demo-routine-tidy", title: "Weekly tidy", schedule: "0 3 * * 0", trigger: { kind: "schedule" }, bot_id: LIBRARIAN_BOT, bot_paused: false, paused: true, created_at: clock.ago(day * 30),
+    spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "temp" }, text: LIBRARIAN_TIDY, workspace_id: WS.acme }),
+    conditions: [], next_run_at: null, last_check_at: null, last_outcome: null, runs: [], github_seen: null, failure_seen: null, file: "routines/weekly-tidy.toml", file_error: null, waiting: null, history: [],
   }];
 
   return {

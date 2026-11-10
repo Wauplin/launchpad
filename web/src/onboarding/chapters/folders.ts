@@ -34,7 +34,7 @@ export const folders: Chapter = {
     {
       id: "folders.knowledge", route: "/knowledge", anchor: "knowledge.notes",
       title: "Knowledge",
-      body: "Each workspace has a knowledge base: Markdown notes and media, the memory its agents share. Agents read it as files and write with launchpad kb; their harness's own memory is off. Edit notes here, or run the gardener to merge duplicates and keep INDEX.md current. Bot memory, under the notes, lists each bot's own notes.",
+      body: "Each workspace has a knowledge base: Markdown notes and media, the memory its agents share. Agents read it as files and write with launchpad kb; their harness's own memory is off. Edit notes here, or ask the Librarian (a bot every workspace starts with, its weekly tidy paused until you turn it on) to merge duplicates and keep INDEX.md current. Bot memory, under the notes, lists each bot's own notes.",
     },
     {
       id: "folders.knowledge-changes", route: "/knowledge", anchor: "knowledge.tabs",
