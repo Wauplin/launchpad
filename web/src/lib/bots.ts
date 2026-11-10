@@ -77,3 +77,12 @@ export function askTarget(bots: Bot[], workspaceId: string | null | undefined): 
   const mine = bots.filter((b) => b.workspace_id === workspaceId).sort((a, b) => a.created_at - b.created_at);
   return mine.find((b) => b.settings.launchpad === "admin") ?? mine[0] ?? null;
 }
+
+/** Bots as conversations (the Bots list, the phone's Chats tab): the Ask bot pinned first, then the others by their
+ * thread's last activity, newest first; bots that never ran last, by name. */
+export function conversationOrder(bots: Bot[], sessions: Session[], workspaceId: string | null | undefined): { bot: Bot; thread: Session[]; pinned: boolean }[] {
+  const ask = askTarget(bots, workspaceId);
+  const rows = bots.filter((b) => b.workspace_id === workspaceId).map((bot) => ({ bot, thread: botThread(sessions, bot.id), pinned: bot.id === ask?.id }));
+  const last = (r: { thread: Session[] }) => r.thread.at(-1)?.status_since ?? -1;
+  return rows.sort((a, b) => Number(b.pinned) - Number(a.pinned) || last(b) - last(a) || a.bot.settings.name.localeCompare(b.bot.settings.name));
+}

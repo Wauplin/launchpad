@@ -1,7 +1,8 @@
 import { usePhone } from "@/lib/phone";
 import { PhoneHeader, useBack } from "@/mobile/PhoneHeader";
+import { Sheet } from "@/mobile/Sheet";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useNavigate, useParams, useRouter, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
@@ -9,7 +10,7 @@ import { toast } from "@/components/Toast";
 import { Icon, type IconName } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { ActionButton } from "@/components/ActionButton";
-import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, Loading, PageHeader, Tabs, type BadgeTone } from "@/components/ui";
+import { Badge, ConfirmButton, Count, Empty, ErrorState, Choice, Choices, Loading, PageHeader, Tabs, type BadgeTone } from "@/components/ui";
 import { useInbox, useInboxAction } from "@/features/inbox/InboxView";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { useProjects } from "@/lib/queries";
@@ -279,16 +280,31 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const key = itemKey(repo, number), path = itemPath(repo, number), qc = useQueryClient();
   const q = useQuery({ queryKey: key, queryFn: () => api.get<Item>(path), staleTime: 60_000 });
   const [panel, setPanel] = useState(false);
-  const [refreshing, setRefreshing] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(null), [tab, setTab] = useState<"conversation" | "files" | "threads">("conversation");
-  const rawDraft = (useSearch({ strict: false }) as { draft?: unknown }).draft;
+  const [refreshing, setRefreshing] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(null);
+  const search = useSearch({ strict: false }) as { draft?: unknown; tab?: string; file?: string };
+  const rawDraft = search.draft;
   const draftParam = rawDraft == null ? undefined : String(rawDraft);
+  const navigate = useNavigate();
+  const router = useRouter();
+  // The PR view and the phone's one file live in the address: a tab replaces the entry, opening a file adds one
+  // (Android back returns to the file list), Next file replaces it.
+  const tab = search.tab === "files" || search.tab === "threads" ? search.tab : "conversation";
+  const [owner, name] = repo.split("/");
+  const go = (next: { tab?: "files" | "threads"; file?: string }, replace: boolean) => void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo: name, number: String(number) }, search: next, replace });
+  const setTab = (t: "conversation" | "files" | "threads") => go({ tab: t === "conversation" ? undefined : t }, true);
+  const pushedFile = useRef(false);
+  const phoneFile = {
+    open: (p: string) => { pushedFile.current = true; go({ tab: "files", file: p }, false); },
+    next: (p: string) => go({ tab: "files", file: p }, true),
+    list: () => { if (pushedFile.current && router.history.canGoBack()) { pushedFile.current = false; router.history.back(); } else go({ tab: "files" }, true); },
+  };
+  const [replyOpen, setReplyOpen] = useState(false);
   const [focus, setFocus] = useState<{ id: string | null; n: number }>({ id: null, n: 0 });
   const reviewDraft = (id: string | null) => { setTab("conversation"); setFocus((f) => ({ id, n: f.n + 1 })); };
   useEffect(() => { if (draftParam) reviewDraft(draftParam === "1" ? null : draftParam); }, [draftParam]);
   const projects = useProjects().data ?? [];
   const project = projectForRepo(projects, repo);
   const notes = usePrNotes(repo, number);
-  const navigate = useNavigate();
   // A pull request opens from the Inbox, Today or a folder: back returns there (the Inbox without history).
   const back = useBack(() => void navigate({ to: "/inbox" }));
   async function refresh(force = true) {
@@ -338,32 +354,38 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
     {isPr && item && <span className="font-mono">{item.headRefName} → {item.baseRefName} · {item.headRefOid?.slice(0, 7)}</span>}
     {synced}
   </>;
+  // Phone, one file of Changes: the diff takes the height; the PR header and tabs come back with the file list.
+  const inFile = phone && isPr && tab === "files" && !!search.file;
+  useEffect(() => { if (!inFile) setReplyOpen(false); }, [inFile]);
   const tabs = isPr ? <Tabs tour="item.tabs" label="Pull request views" value={tab} onChange={setTab} items={[{ id: "conversation", label: "Conversation" }, { id: "files", label: "Changes", count: current.length || undefined, title: current.length ? `${current.length} line comments for your next review` : undefined }, { id: "threads", label: "Review threads", count: item?.reviewThreads?.nodes.length || undefined }]} /> : undefined;
+  // The reply and review controls: at the bottom, or in a sheet over the phone's one-file view.
+  const reply = (collapsible: boolean) => item && <GitHubReplyBox
+    repo={repo} number={number} collapsible={collapsible} disabled={busy}
+    comment={{ path: `${path}/comment`, body: (text) => ({ body: text }) }}
+    review={isPr && item.state === "OPEN" ? { path: `${path}/review`, extra: current.length, body: (text, event) => ({ body: text, event, commit_id: head, comments: current.map((n) => ({ path: n.path, line: n.line, side: n.side === "old" ? "LEFT" : "RIGHT", body: n.text })) }) } : undefined}
+    notes={(current.length > 0 || outdated > 0) && <span className="flex flex-wrap items-center gap-2 text-[12px]">
+      {current.length > 0 && <Badge tone="attn" icon="pencil" title="Written in Changes; posted with Submit review">{current.length} line comment{current.length === 1 ? "" : "s"} in this review</Badge>}
+      {outdated > 0 && <span className="text-ink-3">{outdated} on an older commit, not included</span>}
+      <ConfirmButton consequence="Deletes the unsent line comments." confirmLabel="Discard" onConfirm={() => notes.clear()}>Discard line comments</ConfirmButton>
+    </span>}
+    onPosted={(kind) => { if (kind === "review") void notes.set((all) => all.filter((n) => n.head !== head)); setReplyOpen(false); void refresh(); }}
+  />;
   return <div className="flex h-full flex-col">
     {phone ? <>
-      <PhoneHeader title={item?.title ?? `#${number}`} onBack={back} backLabel="Back" subtitle={<span className="flex flex-wrap items-center gap-1.5">{meta}</span>} primary={isPr ? agentReview : launch} actions={<>{isPr && launch}{item && <AddContext refItem={reference(repo, item, isPr ? "pr" : "issue")} />}<button className="btn btn-sm" onClick={openOnGitHub}>Open on GitHub</button><button className="btn btn-sm" disabled={refreshing} onClick={() => void refresh()}>Refresh</button></>} details={item && <Controls key={item.updatedAt} item={item} act={act} busy={busy} />} />
-      {tabs && <div className="px-3">{tabs}</div>}
+      <PhoneHeader title={item?.title ?? `#${number}`} onBack={inFile ? phoneFile.list : back} backLabel={inFile ? "Back to the files" : "Back"} subtitle={inFile ? undefined : <span className="flex flex-wrap items-center gap-1.5">{meta}</span>} primary={inFile ? undefined : isPr ? agentReview : launch} actions={<>{isPr && launch}{item && <AddContext refItem={reference(repo, item, isPr ? "pr" : "issue")} />}<button className="btn btn-sm" onClick={openOnGitHub}>Open on GitHub</button><button className="btn btn-sm" disabled={refreshing} onClick={() => void refresh()}>Refresh</button></>} details={item && <Controls key={item.updatedAt} item={item} act={act} busy={busy} />} />
+      {tabs && !inFile && <div className="px-3">{tabs}</div>}
     </> : <PageHeader title={item?.title ?? `#${number}`} meta={meta} actions={actions} tabs={tabs} />}
     {(!!error || q.error) && <ErrorState className="m-2" error={error ?? q.error} onRetry={() => void refresh()} />}
     {/* The phone's Conversation starts with the suggestion card itself: the banner would repeat its Post review. */}
-    {item && !(phone && tab === "conversation") && <SuggestionBanner item={item} onReview={reviewDraft} />}
+    {item && !(phone && tab === "conversation") && <SuggestionBanner item={item} onReview={reviewDraft} compact={inFile} />}
     {item ? <div className="@container relative flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         {!phone && <div className="flex flex-none justify-end border-b border-line-2 px-5 py-1 @min-[760px]:hidden"><button type="button" className="btn btn-sm" aria-expanded={panel} onClick={() => setPanel(!panel)}><Icon name="sliders" size={12} />Status, checks and labels</button></div>}
-        {tab === "files" && isPr ? <FilesChanged repo={repo} number={number} head={item.headRefOid!} base={item.baseRefOid} />
+        {tab === "files" && isPr ? <FilesChanged repo={repo} number={number} head={item.headRefOid!} base={item.baseRefOid} file={search.file} phoneFile={phone ? phoneFile : undefined}
+          phoneBar={<button className="btn btn-sm" aria-haspopup="dialog" onClick={() => setReplyOpen(true)}>{item.state === "OPEN" ? "Review" : "Reply"}<Count n={current.length} title={`${current.length} line comments for your next review`} /></button>} />
           : tab === "threads" && isPr ? <ReviewThreads item={item} />
             : <Conversation item={item} focus={focus} />}
-        <GitHubReplyBox
-          repo={repo} number={number} collapsible disabled={busy}
-          comment={{ path: `${path}/comment`, body: (text) => ({ body: text }) }}
-          review={isPr && item.state === "OPEN" ? { path: `${path}/review`, extra: current.length, body: (text, event) => ({ body: text, event, commit_id: head, comments: current.map((n) => ({ path: n.path, line: n.line, side: n.side === "old" ? "LEFT" : "RIGHT", body: n.text })) }) } : undefined}
-          notes={(current.length > 0 || outdated > 0) && <span className="flex flex-wrap items-center gap-2 text-[12px]">
-            {current.length > 0 && <Badge tone="attn" icon="pencil" title="Written in Changes; posted with Submit review">{current.length} line comment{current.length === 1 ? "" : "s"} in this review</Badge>}
-            {outdated > 0 && <span className="text-ink-3">{outdated} on an older commit, not included</span>}
-            <ConfirmButton consequence="Deletes the unsent line comments." confirmLabel="Discard" onConfirm={() => notes.clear()}>Discard line comments</ConfirmButton>
-          </span>}
-          onPosted={(kind) => { if (kind === "review") void notes.set((all) => all.filter((n) => n.head !== head)); void refresh(); }}
-        />
+        {inFile ? replyOpen && <Sheet title={isPr && item.state === "OPEN" ? "Review" : "Reply"} onClose={() => setReplyOpen(false)}>{reply(false)}</Sheet> : reply(true)}
       </div>
       {!phone && <Controls key={item.updatedAt} item={item} act={act} busy={busy} shown={panel} onClose={() => setPanel(false)} />}
     </div> : !q.error && <Loading what="this item from GitHub" />}
@@ -371,17 +393,23 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
 }
 
 /** Shown on every tab while a suggestion for this item waits for the owner. */
-function SuggestionBanner({ item, onReview }: { item: Item; onReview: (id: string | null) => void }) {
+function SuggestionBanner({ item, onReview, compact }: { item: Item; onReview: (id: string | null) => void; compact?: boolean }) {
   const all = useSuggestions({ kind: "git_hub", repo: item.repo, number: item.number }).data;
   const waiting = all.filter((s) => s.status !== "posted");
   if (!waiting.length) return null;
   const describe = (s: (typeof waiting)[number]) => s.kind === "review" ? `${s.event === "REQUEST_CHANGES" ? "Request changes" : s.event === "APPROVE" ? "Approve" : "Comment"} review` : "Comment";
   const first = waiting[0];
+  const post = <button className="btn btn-sm ml-auto flex-none" onClick={() => onReview(first.id)}>{first.kind === "review" ? "Post review…" : "Post comment…"}</button>;
+  // The phone's one-file view: one line.
+  if (compact) return <div className="flex flex-none items-center gap-2 border-b border-teal/40 bg-teal-soft px-3 py-0.5 text-[12px]">
+    <span className="min-w-0 flex-1 truncate"><b className="text-teal-ink">{waiting.length === 1 ? "Suggestion" : `${waiting.length} suggestions`}:</b> {waiting.map(describe).join(" · ")}</span>
+    {post}
+  </div>;
   return <div className="flex flex-none flex-wrap items-center gap-2 page-body border-b border-teal/40 bg-teal-soft px-5 py-1.5 text-[13px]">
     <b className="text-teal-ink">{waiting.length === 1 ? "Suggestion" : `${waiting.length} suggestions`}:</b>
     <span>{waiting.length === 1 ? describe(first) : waiting.map(describe).join(" · ")}</span>
     <span className="text-ink-3">· by {first.author}</span>
     {["posting", "uncertain"].includes(first.status) && <Badge tone="attn" icon="alert">Publication attempted: check GitHub</Badge>}
-    <button className="btn btn-sm ml-auto" onClick={() => onReview(first.id)}>{first.kind === "review" ? "Post review…" : "Post comment…"}</button>
+    {post}
   </div>;
 }

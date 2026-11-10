@@ -125,8 +125,17 @@ function Go({ close, label, icon = "ext", detail, go }: { close: () => void; lab
   return <MenuItem icon={<Icon name={icon} size={14} />} label={label} detail={detail} onClick={() => { close(); void go(navigate); }} />;
 }
 
-const OpenAgent = ({ id, close }: { id: string; close: () => void }) =>
-  <Go close={close} icon="agents" label="Open agent" go={(n) => n({ to: "/agents", search: { session: id } })} />;
+const OpenAgent = ({ id, close }: { id: string; close: () => void }) => {
+  const bot = useSession(id)?.launch_spec.bot;
+  return <Go close={close} icon="agents" label={bot ? "Open in Agents" : "Open agent"} detail={bot ? "The full trace of this turn" : undefined} go={(n) => n({ to: "/agents", search: { session: id } })} />;
+};
+
+/** A bot's session opens the bot's chat (bots talk there; the trace stays in Agents). */
+const OpenChat = ({ bot, close }: { bot: { id: string; name: string }; close?: () => void }) => {
+  const phone = usePhone();
+  return close ? <Go close={close} icon="spark" label={`Open the chat of ${bot.name}`} go={(n) => n({ to: "/bots/$id", params: { id: bot.id } })} />
+    : <Link className="btn btn-sm no-underline" to="/bots/$id" params={{ id: bot.id }} title={`Open the chat of ${bot.name}`}>{phone ? "Open" : "Open chat"}</Link>;
+};
 
 /** Open agent (unless it is the row's main button), Archive (unless it is the row's second button) and Mark seen: the
  * ⋯ of a finished or failed agent. */
@@ -169,8 +178,8 @@ function QuestionRow(p: RowProps) {
   const s = useSession(item.record);
   const ask = useOpenQuestion(item.record);
   return <Row {...p} age={!s} meta={<SessionMeta s={s} item={item} />}
-    main={<Expand {...p}>Answer</Expand>} menu={(close) => <OpenAgent id={item.record} close={close} />}
-    details={ask && s?.live ? <AskCard row={ask} sessionId={item.record} live={s.live} hint="Or open the agent to type another answer." /> : <Last text={s?.last_message ?? (item.detail || "The agent asked a question.")} id={item.record} seq={s?.last_seq} />} />;
+    main={<Expand {...p}>Answer</Expand>} menu={(close) => <>{s?.launch_spec.bot && <OpenChat bot={s.launch_spec.bot} close={close} />}<OpenAgent id={item.record} close={close} /></>}
+    details={ask && s?.live ? <AskCard row={ask} sessionId={item.record} live={s.live} hint={s.launch_spec.bot ? "Or open the chat to type another answer." : "Or open the agent to type another answer."} /> : <Last text={s?.last_message ?? (item.detail || "The agent asked a question.")} id={item.record} seq={s?.last_seq} />} />;
 }
 
 /** Fix merge when its merge stopped (the line says "Not merged"), else review its Local PR when it wrote one, else
@@ -190,9 +199,9 @@ function FinishedRow(p: RowProps) {
       : pr ? <ReviewLocalPr id={pr.record} />
       : safe ? <MergeButton sessionId={item.record} branch={branch} label="Merge" primary={false} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)} />
       : work ? <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record, view: "changes" }} title="Review the changes of the agent">Review</Link>
-      : !loading && <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record }} title="Open the agent at its last message">{phone ? "Open" : "Open agent"}</Link>}
+      : !loading && (s?.launch_spec.bot ? <OpenChat bot={s.launch_spec.bot} /> : <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record }} title="Open the agent at its last message">{phone ? "Open" : "Open agent"}</Link>)}
     second={!phone && <Archive id={item.record} />}
-    menu={SessionMenu({ id: item.record, open: !!stopped || !!pr || safe || work || loading, archive: phone })}
+    menu={SessionMenu({ id: item.record, open: !!stopped || !!pr || safe || work || loading || !!s?.launch_spec.bot, archive: phone })}
     details={(s?.last_message || facts || stopped) && <>
       <NotMerged branch={branch} />
       <Last text={s?.last_message} id={item.record} seq={s?.last_seq} />

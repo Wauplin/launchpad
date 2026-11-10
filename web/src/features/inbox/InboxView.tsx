@@ -1,6 +1,8 @@
 import { PhoneHeader, PhoneActions, PhoneBarEnd } from "@/mobile/PhoneHeader";
+import { phoneBack } from "@/mobile/back";
+import { PullToRefresh } from "@/components/PullToRefresh";
 import { openExternal } from "@/lib/platform";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { AddContext, GitHubHTML, reference, itemKey, itemPath } from "@/features/github/lib";
 import { GitHubReplyBox } from "@/features/github/ReplyBox";
 import { reviewWithAgent } from "@/features/github/reviewAgent";
@@ -175,7 +177,7 @@ function PreviewPane({ t, projects, ready, act, busy }: { t: Thread; projects: P
   const facts = [t.review_decision && (decision[t.review_decision] ?? reason(t.review_decision.toLowerCase())), t.checks && (checkText[t.checks] ?? `Checks ${t.checks.toLowerCase()}`)].filter(Boolean).join(" · ");
   const subtitle = `${t.repo}${t.number !== null ? ` #${t.number}` : ""} · ${t.kind === "PullRequest" ? "PR" : t.kind}${t.state ? ` · ${t.state}` : ""} · ${reason(t.reason)}`;
   return <section className={`flex min-h-0 flex-col bg-paper ${phone ? "w-full" : "w-[40%] min-w-[320px] border-l border-line"}`}>
-    {phone ? <PhoneHeader title={t.title} onBack={() => useView.setState({ selected: null })} backLabel="Back to inbox" subtitle={subtitle} primary={primary} actions={<>
+    {phone ? <PhoneHeader title={t.title} onBack={() => phoneBack("/inbox")} backLabel="Back to inbox" subtitle={subtitle} primary={primary} actions={<>
       {secondary}
       <button className="btn btn-sm" title={readTitle} disabled={busy} onClick={() => act(t, t.unread ? "read" : "unread")}>{readLabel}</button>
       {request && <LaunchButton small primary={false} ctx={launchContext(t, projects)} />}
@@ -215,6 +217,10 @@ export function InboxView() {
   const { data, error } = useInbox();
   const projects = useProjects().data ?? [];
   const view = useView();
+  // The phone shows one thread at a time, kept in the address (`?thread=`): back returns to the list.
+  const navigate = useNavigate();
+  const thread = (useSearch({ strict: false }) as { thread?: string }).thread ?? null;
+  const shown = phone ? thread : view.selected;
   const ref = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
   const action = useInboxAction();
@@ -235,7 +241,7 @@ export function InboxView() {
     return c;
   }, [inRepo]);
   const visible = useMemo(() => view.why === "all" ? inRepo : view.why === "you" ? inRepo.filter((t) => forYou(t) || kept.current.has(t.id)) : inRepo.filter((t) => whyOf(t.reason) === view.why), [inRepo, view.why]);
-  const selected = threads.find((t) => t.id === view.selected);
+  const selected = threads.find((t) => t.id === shown);
   const unread = threads.filter((t) => t.unread).length;
   const mine = threads.filter(forYou).length;
   // A repository picked in another workspace does not belong to this one.
@@ -259,29 +265,33 @@ export function InboxView() {
     if (first) { useView.setState({ selected: first.id }); const at = visible.indexOf(first); if (at > 0) v.scrollToIndex(at, { align: "auto" }); }
   }, [data, visible]);
   const mutate = action.mutate;
-  const select = useCallback((t: Thread) => {
-    useView.setState({ selected: t.id });
+  const select = useCallback((t: Thread, replace = false) => {
+    if (phone) void navigate({ to: "/inbox", search: { thread: t.id } as never, replace });
+    else useView.setState({ selected: t.id });
     if (forYou(t)) kept.current.add(t.id);
     if (t.unread) mutate({ id: t.id, action: "read" });
-  }, [mutate]);
+  }, [mutate, phone, navigate]);
   // Done and Unsubscribe on the selected row move the selection to the next row.
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
   const act = useCallback((t: Thread, a: string) => {
-    if ((a === "done" || a === "unsubscribe") && useView.getState().selected === t.id) {
+    if ((a === "done" || a === "unsubscribe") && shownRef.current === t.id) {
       const list = visibleRef.current;
       const at = list.findIndex((x) => x.id === t.id);
       const next = at < 0 ? undefined : list[at + 1] ?? list[at - 1];
-      if (next) select(next); else useView.setState({ selected: null });
+      // The phone replaces the thread's entry with the next one, so back still returns to the list.
+      if (next) select(next, true); else if (phone) phoneBack("/inbox"); else useView.setState({ selected: null });
     }
     mutate({ id: t.id, action: a });
-  }, [mutate, select]);
+  }, [mutate, select, phone]);
   // Warm the next few cached previews without making GitHub requests.
   useEffect(() => {
-    const at = visible.findIndex((t) => t.id === view.selected);
+    const at = visible.findIndex((t) => t.id === shown);
     for (const t of visible.slice(Math.max(0, at + 1), Math.max(0, at + 1) + 3)) { if (t.number && (t.kind === "Issue" || t.kind === "PullRequest")) void qc.prefetchQuery({ queryKey: itemKey(t.repo, t.number), queryFn: () => api.get(itemPath(t.repo, t.number!)), staleTime: 60_000 }); }
     for (const t of visible.slice(Math.max(0, at + 1), Math.max(0, at + 1) + 3)) void qc.prefetchQuery({ queryKey: ["inbox-preview", t.id], queryFn: () => api.get<ThreadPreview | null>(`/api/inbox/${t.id}/preview`), staleTime: 60_000 });
-  }, [view.selected, visible, qc]);
+  }, [shown, visible, qc]);
   const readyOf = (t: Thread) => t.number !== null ? byItem.get(itemSuggestionKey(t.repo, t.number))?.[0] : undefined;
   if (phone && selected) return <div className="flex h-full"><PreviewPane key={selected.id} t={selected} projects={projects} ready={readyOf(selected)} act={act} busy={pending.has(selected.id)} /></div>;
   const syncing = sync.isPending || !!data?.status.syncing;
@@ -304,9 +314,10 @@ export function InboxView() {
     </div>
     <div className="flex min-h-0 flex-1">
       <div data-inbox-list ref={ref} className="min-w-0 flex-1 overflow-y-auto" onScroll={() => useView.setState({ scroll: ref.current?.scrollTop ?? 0 })}>
+        {phone && <PullToRefresh target={ref} onRefresh={() => sync.mutateAsync()} />}
         {visible.length === 0 && (data?.status.syncing || !data ? <Loading what="notifications" /> : <Empty fill icon="inbox">{view.unread || view.repo || view.why !== "all" ? "No notifications match these filters." : scope.projects.some((p) => p.gh_repo) ? "Your inbox is clear." : `No folder of ${scope.workspace.name} has a GitHub repository. Settings → GitHub lists repositories without a folder.`}</Empty>)}
         <div className="relative" style={{ height: v.getTotalSize() }}>
-          {v.getVirtualItems().map((item) => { const t = visible[item.index]; return <div key={item.key} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${item.start}px)` }}><ThreadRow t={t} selected={t.id === view.selected} projects={projects} ready={readyOf(t)} select={select} act={act} busy={pending.has(t.id)} /></div>; })}
+          {v.getVirtualItems().map((item) => { const t = visible[item.index]; return <div key={item.key} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${item.start}px)` }}><ThreadRow t={t} selected={t.id === shown} projects={projects} ready={readyOf(t)} select={select} act={act} busy={pending.has(t.id)} /></div>; })}
         </div>
       </div>
       {selected && <PreviewPane key={selected.id} t={selected} projects={projects} ready={readyOf(selected)} act={act} busy={pending.has(selected.id)} />}

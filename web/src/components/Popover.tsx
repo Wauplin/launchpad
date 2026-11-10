@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useZoomScale } from "@/lib/zoom";
+import { useBackClose } from "@/mobile/back";
 
 export function Popover({
   trigger,
@@ -31,6 +32,8 @@ export function Popover({
   const panelRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<CSSProperties>({});
   const scale = useZoomScale();
+  // On the phone, an open menu is a history entry: Android back closes it.
+  useBackClose(open, () => setOpen(false));
   useLayoutEffect(() => {
     if (!open || !viewport) return;
     const place = () => {

@@ -349,9 +349,12 @@ async fn session_link(app: &App, id: &str, workspace: &str) -> String {
     }
 }
 
-/// The session's card in Today (`/?card=session:<id>`), which holds its main action. No buttons in Telegram:
-/// every owner click happens in Launchpad.
-fn card_link(app: &App, id: &str, workspace: &str) -> String {
+/// The session's card in Today (`/?card=session:<id>`), which holds its main action; a bot's session opens the
+/// bot's chat instead (bots talk there). No buttons in Telegram: every owner click happens in Launchpad.
+async fn card_link(app: &App, id: &str, workspace: &str) -> String {
+    if app.sessions.get(id).is_some_and(|s| s.launch_spec.bot.is_some()) {
+        return session_link(app, id, workspace).await;
+    }
     format!("{}/?card=session:{id}&ws={workspace}", crate::channels::home_origin(app))
 }
 
@@ -436,9 +439,9 @@ pub async fn notification(app: &App, session_id: &str, event: &str) -> Result<()
         .flatten()
         .unwrap_or_else(|| std::path::Path::new(&s.cwd).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
     let title = if st.titles && !s.title.is_empty() { format!("\n{}", s.title.chars().take(160).collect::<String>()) } else { String::new() };
-    // The link opens its card in Today (finished, failed, interrupted) or the session.
+    // The link opens its card in Today (finished, failed, interrupted; a bot's chat for its sessions) or the session.
     let link = match event {
-        "done" | "failed" | "interrupted" => card_link(app, session_id, &workspace),
+        "done" | "failed" | "interrupted" => card_link(app, session_id, &workspace).await,
         _ => session_link(app, session_id, &workspace).await,
     };
     say(app, &workspace, &format!("{} in {project} · {}{title}\n{link}", label(event), session_name(&s))).await

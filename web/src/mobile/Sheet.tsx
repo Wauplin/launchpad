@@ -1,9 +1,12 @@
-// Bottom sheet for the phone shell: slides up over the page, closes with its button or the backdrop.
+// Bottom sheet for the phone shell: slides up over the page, closes with its button, the backdrop or Android back
+// (its own history entry, `useBackClose`).
 
 import type { ReactNode } from "react";
 import { Icon } from "@/components/Icon";
+import { useBackClose } from "./back";
 
 export function Sheet({ title, onClose, children, full }: { title: string; onClose: () => void; children: ReactNode; full?: boolean }) {
+  useBackClose(true, onClose);
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/35" onClick={onClose}>
       <div

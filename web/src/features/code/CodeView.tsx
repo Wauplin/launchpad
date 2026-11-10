@@ -1,5 +1,6 @@
 import { daemonAsset } from "@/lib/connection";
 import { PhoneActions, PhoneBar, useLeave } from "@/mobile/PhoneHeader";
+import { useBackClose } from "@/mobile/back";
 // Code viewer (sketch S7): one source at a time (a working tree or a git
 // revision), a file tree, tabs, colored code with changed-line bars, find in file (Ctrl+F) and
 // search in the project. Selected lines become agent context. Read only.
@@ -102,6 +103,8 @@ function Viewer({ project, root, rev, path, line, session, pr, bar }: { project:
   // A shell in an agent's folder opens on the agent's runner.
   const runner = useSessions().data?.find((s) => s.id === session)?.runner_id ?? null;
   const [browserOpen, setBrowserOpen] = useState(!path);
+  // Phone: the tree opened over a file is an overlay; Android back closes it (with no file open, it is the page).
+  useBackClose(phone && browserOpen && !!path, () => setBrowserOpen(false));
   const skey = sourceKey(root, rev);
   const list = useCodeFiles(root, rev, { always: true });
   const tabs = useCode((s) => s.sources[skey]?.tabs) ?? [];

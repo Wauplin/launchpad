@@ -23,6 +23,7 @@ import { useCrons, useProjects, useSchedules, useSessions } from "@/lib/queries"
 import { browserZone, cronTitle, routineState, triggerSummary } from "@/lib/routines";
 import { useScope } from "@/lib/workspace";
 import { PhoneBar, PhoneHeader } from "@/mobile/PhoneHeader";
+import { phoneBack } from "@/mobile/back";
 import { BRIEF, BRIEF_TITLE, RoutineDetails, RunStrip } from "./Routines";
 
 type Tab = "routines" | "launches";
@@ -60,13 +61,15 @@ export function SchedulesView() {
   const hasBrief = routines.some((r) => !!r.bot_id && r.title === BRIEF_TITLE);
   const briefBot = askTarget(bots, scope.workspace.id);
   const next = routines.filter((r) => !r.paused && !r.bot_paused && r.next_run_at).reduce<number | null>((min, r) => min == null || r.next_run_at! < min ? r.next_run_at : min, null);
-  const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => go({ tab: t })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }]} />;
+  const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => void navigate({ to: "/schedules", search: { tab: t } as never, replace: true })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }]} />;
   const header = phone
     ? <PhoneHeader title="Schedules" details={<p className="m-0 text-[13px] text-ink-2">{INTRO}</p>} />
     : <PageHeader title="Schedules" meta={next ? `Next run ${when(next)}` : undefined} intro={INTRO} tabs={tabs} />;
+  // The phone's ‹ goes one step back to the list instead of adding an entry.
+  const closeDetail = () => (phone ? phoneBack(`/schedules?tab=${tab}`) : go({ tab }));
   const panel = selected
-    ? <Side title={selected.title} onClose={() => go({ tab })}><RoutineDetails cron={selected} bot={bots.find((b) => b.id === selected.bot_id)} onOpen={openSession} onDeleted={() => go({ tab })} /></Side>
-    : launch ? <ScheduledPane launch={launch} onClose={() => go({ tab })} onStart={(s) => openSession(s.id)} /> : null;
+    ? <Side title={selected.title} onClose={closeDetail}><RoutineDetails cron={selected} bot={bots.find((b) => b.id === selected.bot_id)} onOpen={openSession} onDeleted={closeDetail} /></Side>
+    : launch ? <ScheduledPane launch={launch} onClose={closeDetail} onStart={(s) => openSession(s.id)} /> : null;
   const loading = crons.isLoading || schedules.isLoading;
   const error = crons.error ?? schedules.error;
   const list = <div className="grid w-full max-w-page grid-cols-[minmax(0,1fr)] gap-3 px-5 py-4" data-tour="schedules.page">

@@ -4,20 +4,20 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { useReviewState, viewedKey } from "@/lib/reviewState";
 import type { Diff, DiffFile } from "./types";
 import { itemPath, openGitHub } from "./lib";
-import { DiffReview, type LineNote } from "./DiffReview";
+import { DiffReview, type LineNote, type PhoneFileView } from "./DiffReview";
 export { FilePatch } from "./DiffReview";
 
 export const prNotesKey = (repo: string, number: number) => `pr-notes:${repo}#${number}`;
 /** Line comments of the next review on a PR, kept locally until Submit review. */
 export const usePrNotes = (repo: string, number: number) => useReviewState<LineNote[]>(prNotesKey(repo, number), []);
 
-export function FilesChanged({ repo, number, head, base, local, notes, onAddNote }: {
+export function FilesChanged({ repo, number, head, base, local, notes, onAddNote, file: addressed, phoneFile, phoneBar }: {
   repo: string;
   number: number;
   head: string;
@@ -26,13 +26,19 @@ export function FilesChanged({ repo, number, head, base, local, notes, onAddNote
   /** Local PRs: notes for the agent, shown as line markers. PRs use `pr-notes:` review state. */
   notes?: LineNote[];
   onAddNote?: (note: LineNote) => void;
+  /** The file from the address (`?file=`): the selection when `phoneFile` keeps it there, else the first one shown. */
+  file?: string;
+  /** Phone: the file view kept in the address by the host. */
+  phoneFile?: Omit<PhoneFileView, "file">;
+  phoneBar?: ReactNode;
 }) {
   const q = useQuery({
     queryKey: local ? ["predrafts", local.id, "diff", head] : ["pr-diff", repo, number, base, head],
     queryFn: () => local ? api.get<Diff>(`/api/predrafts/${local.id}`) : api.post<Diff>(`${itemPath(repo, number)}/diff`),
     staleTime: Infinity,
   });
-  const [path, setPath] = useState<string>();
+  const [own, setPath] = useState(addressed);
+  const path = phoneFile ? addressed : own;
   // Viewed markers live in the daemon so every device shares review progress.
   const viewed = useReviewState<string[]>(viewedKey(local?.id ?? repo, number, head), []);
   const prNotes = useReviewState<LineNote[]>(local ? "pr-notes:unused" : prNotesKey(repo, number), []);
@@ -73,5 +79,7 @@ export function FilesChanged({ repo, number, head, base, local, notes, onAddNote
     noteLabel={local ? "Note for the agent" : "Line comment"}
     notePlaceholder={local ? "What should the agent change here?" : "Comment for this line, posted with your next review"}
     fileActions={fileActions}
+    phoneView={phoneFile && { ...phoneFile, file: !!addressed }}
+    phoneBar={phoneBar}
   />;
 }

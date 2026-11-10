@@ -21,6 +21,7 @@ import type { Suggestion } from "@/gen/Suggestion";
 import { BotAvatar } from "@/components/BotAvatar";
 import { useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
+import { ImageThumb } from "@/components/ImageViewer";
 import { toastError } from "@/components/Toast";
 import { AskCard } from "@/features/agents/AskCard";
 import { AssistantRow, Separator } from "@/features/agents/EventRow";
@@ -49,6 +50,8 @@ import { api } from "@/lib/api";
 import { pastedImages } from "@/lib/attachments";
 import { daemonAsset } from "@/lib/connection";
 import { age, ago, when } from "@/lib/format";
+import { useKeptDraft } from "@/lib/keptDraft";
+import { useArmedSession, useNextSession } from "./nextSession";
 import { useCrons, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
 import { isRunning } from "@/lib/sessionStatus";
@@ -58,10 +61,6 @@ import { chatRows, stepsLabel, type ChatCard, type ChatItem, type ChatSession } 
 
 /** A record behind a change receipt: a knowledge-base change, a change of the bot's own files, or a direct change. */
 type ChangeRecord = { kind: "kb"; c: Change } | { kind: "bot"; c: Change; botId: string } | { kind: "act"; a: Activity };
-
-/** Unsent text of each bot's message box, kept while the box is not shown (the phone's About page, another bot in
- * the Ask panel). This page load only: the demo never writes browser storage. */
-const drafts = new Map<string, string>();
 
 /** What the message box answers instead of sending a message: the open question, or a question report. */
 type Reply = { kind: "ask"; request_id: string; count: number; permission: boolean; question: string } | { kind: "report"; id: string; title: string };
@@ -111,10 +110,7 @@ function botFileReceipt(c: Change): string {
   return `${c.new_sha256 ? (c.sha256 ? "changed" : "added") : "deleted"} ${what}`;
 }
 
-/** A new session the owner asked for (⋯ → Start a new session): the next message starts it, with their reason. */
-export type NewSessionRequest = { reason: string };
-
-export function BotChat({ bot, thread, rotation, needsProfile, openSettings, intro, view = "bot", newSession = null, onNewSession, onStep }: {
+export function BotChat({ bot, thread, rotation, needsProfile, openSettings, intro, view = "bot", onStep }: {
   bot: Bot;
   /** Which view shows the chat (a bot page, the Ask panel), for the sessions this window reports on screen. */
   view?: string;
@@ -126,9 +122,6 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
   openSettings: () => void;
   /** Shown while the thread is empty. */
   intro: React.ReactNode;
-  /** The next message starts a new session (the bot page's ⋯); `onNewSession(null)` cancels it, and sending clears it. */
-  newSession?: NewSessionRequest | null;
-  onNewSession?: (r: NewSessionRequest | null) => void;
   /** The step the current turn works on (its last step title), for the page's status line. */
   onStep?: (step: string | null) => void;
 }) {
@@ -301,7 +294,7 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
       </div>
       <BotComposer bot={bot} current={current} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} reply={reply} skipped={!reportWaits && ask && ask.request_id === skipped ? ask : null}
         onCancelReply={() => { if (reply?.kind === "report") setReport(null); else if (reply) setSkipped(reply.request_id); }} onUnskip={() => setSkipped(null)}
-        newSession={newSession} onNewSession={onNewSession} onSent={() => { atBottom.current = true; setReport(null); }} />
+        onSent={() => { atBottom.current = true; setReport(null); }} />
     </div>
     </ReplyContext.Provider>
   );
@@ -333,7 +326,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, q
     case "user":
       return <div className="flex py-1.5"><div className="ml-auto max-w-[85%] rounded-card rounded-br-sm bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
         {item.text}
-        {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url; return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
+        {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url; return <ImageThumb key={i} src={src} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />; })}</div>}
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
         {item.instructions && <span className="mt-1 flex items-center gap-1 text-[11px] text-ink-3" title="BOT.md changed since this session last read it: the new BOT.md went with this message"><Icon name="file" size={12} />With your updated BOT.md</span>}
       </div></div>;
@@ -544,7 +537,7 @@ function WorkingRow({ item, quiet }: { item: Extract<ChatItem, { t: "working" }>
 
 const firstLine = (t: string) => t.trim().split("\n")[0] ?? "";
 
-function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply, skipped, onCancelReply, onUnskip, newSession, onNewSession, onSent }: {
+function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply, skipped, onCancelReply, onUnskip, onSent }: {
   bot: Bot; current: Session | null; rotation: string | null; needsProfile: boolean;
   openSettings: () => void;
   /** What the box answers (the open question, or a question report), else null: a normal message. */
@@ -553,17 +546,17 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
   skipped: Extract<Reply, { kind: "ask" }> | null;
   onUnskip: () => void;
   onCancelReply: () => void;
-  newSession: NewSessionRequest | null;
-  onNewSession?: (r: NewSessionRequest | null) => void;
   onSent: () => void;
 }) {
   const qc = useQueryClient();
   const harness = useHarnessInfo(current?.harness ?? null);
   const acceptsImages = harness ? harness.capabilities.images : true;
-  const [text, setTextState] = useState(() => drafts.get(bot.id) ?? "");
-  const setText = (t: string) => { setTextState(t); if (t) drafts.set(bot.id, t); else drafts.delete(bot.id); };
+  // The unsent text survives the box being hidden (the phone's About page, back, another bot in the Ask panel).
+  const { text, setText } = useKeptDraft(`chat.${bot.id}`, "");
   const [busy, setBusy] = useState(false);
-  // ⋯ → Start a new session: the next message starts a new session of the thread (the page keeps the request).
+  // ⋯ → Start a new session: the next message starts a new session of the thread, with the owner's reason.
+  const newSession = useArmedSession(bot.id, current?.id ?? null);
+  const cancelNewSession = () => useNextSession.getState().set(bot.id, null);
   const fresh = !!newSession;
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -606,7 +599,7 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
         // skipped (never a permission: those keep Allow and Deny), then send the message.
         if (skip && current) await runAction("session.answer", { id: current.id }, { request_id: skip.request_id, answers: Array(skip.count).fill("No answer: the owner skipped this question and sent a message instead.") });
         await runAction("bot.message", { id: bot.id }, { text: t, attachments: files, ...(fresh ? { new_session: true, reason: newSession!.reason } : {}), ...(withContext ? { context } : {}) });
-        onNewSession?.(null);
+        cancelNewSession();
         setContext(EMPTY_CONTEXT);
         setPresets([]);
       }
@@ -622,7 +615,7 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
     <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5" data-tour="bots.reply">
       <div className="mx-auto w-full max-w-text">
         {rotation && current && <div className="mb-1.5 text-[12px] text-ink-3">{rotation}: your next message starts a new session of {bot.settings.name}'s thread, with a reference to the previous one.</div>}
-        {fresh && !rotation && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="bots.new-session"><Icon name="plus" size={12} className="flex-none" /><span className="min-w-0 flex-1 truncate">Your next message starts a new session{newSession!.reason ? ` · “${newSession!.reason}”` : ""}</span><button className="chat-tap flex-none text-teal-ink hover:underline" onClick={() => onNewSession?.(null)}>Cancel</button></div>}
+        {fresh && !rotation && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="bots.new-session"><Icon name="plus" size={12} className="flex-none" /><span className="min-w-0 flex-1 truncate">Your next message starts a new session{newSession!.reason ? ` · “${newSession!.reason}”` : ""}</span><button className="chat-tap flex-none text-teal-ink hover:underline" onClick={cancelNewSession}>Cancel</button></div>}
         {answering && !(ask && ask.permission) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="chat.answering">
           <Icon name="comment" size={12} className="flex-none" />
           <span className="min-w-0 flex-1 truncate">{ask ? "Answering" : "Replying to"}: <b className="font-semibold text-ink-2">{firstLine(ask ? ask.question : report!.title)}</b></span>

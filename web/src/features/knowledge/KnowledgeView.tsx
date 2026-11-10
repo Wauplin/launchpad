@@ -6,7 +6,7 @@
 // own memory (memory/ of its folder), read-only here, with a link to the bot.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Icon } from "@/components/Icon";
@@ -28,6 +28,8 @@ import { useSessions } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
 import { useScope } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
+import { phoneBack, useBackClose } from "@/mobile/back";
+import { useKeptDraft } from "@/lib/keptDraft";
 import { useComposer } from "@/stores/composer";
 
 const ROW = 30;
@@ -77,6 +79,7 @@ export function KnowledgeView() {
   const qc = useQueryClient();
   const scope = useScope();
   const ws = scope.workspace.id || null;
+  const navigate = useNavigate();
   const [tab, setTab] = useState<"notes" | "changes">("notes");
   const [selected, setSelected] = useState<string | null>(null);
   const [historyOf, setHistoryOf] = useState<string | null>(null);
@@ -94,6 +97,7 @@ export function KnowledgeView() {
     if (!selected && notes.data && !phone) setSelected(notes.data.files.some((f) => f.path === "INDEX.md") ? "INDEX.md" : notes.data.files[0]?.path ?? null);
   }, [notes.data, selected, phone]);
 
+  useBackClose(phone && panel !== "note", () => setPanel("note"));
   if (!ws) return <div className="flex h-full flex-col"><PageHeader title="Knowledge" /><Loading what="the knowledge base" /></div>;
   const refresh = () => qc.invalidateQueries({ queryKey: ["knowledge"] });
   const gardener = () => {
@@ -113,11 +117,13 @@ export function KnowledgeView() {
   const tabs = <Tabs label="Knowledge views" value={tab} onChange={(t) => { setTab(t); if (t === "notes") setHistoryOf(null); }} items={[{ id: "notes", label: "Notes", count: notes.data?.files.length }, { id: "changes", label: "Changes", count: unseen || undefined }]} tour="knowledge.tabs" />;
   const last = changes.data?.changes[0]?.at;
   const meta = last && <span>Last change {ago(last)}</span>;
-  const openNote = (path: string) => { setTab("notes"); setPanel("note"); setSelected(path); };
+  // The phone keeps the open note in the address (`?note=`, a history entry: back returns to the list); New note
+  // and Import are overlays that back closes.
+  const openNote = (path: string) => { setTab("notes"); setPanel("note"); if (phone) void navigate({ to: "/knowledge", search: { note: path } as never }); else setSelected(path); };
   const showHistory = (path: string) => { setHistoryOf(path); setTab("changes"); };
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="knowledge.page">
-      {phone ? <PhoneHeader title="Knowledge" onBack={selected && tab === "notes" ? () => setSelected(null) : undefined} actions={actions} /> : <PageHeader title="Knowledge" meta={meta} intro="The memory agents share. Each bot also keeps its own notes, listed under Bot memory. Every change is restorable for 30 days." actions={actions} tabs={tabs} />}
+      {phone ? <PhoneHeader title="Knowledge" onBack={selected && tab === "notes" ? () => phoneBack("/knowledge") : undefined} actions={actions} /> : <PageHeader title="Knowledge" meta={meta} intro="The memory agents share. Each bot also keeps its own notes, listed under Bot memory. Every change is restorable for 30 days." actions={actions} tabs={tabs} />}
       {phone && <div className="px-3">{tabs}</div>}
       {notes.isLoading ? <Loading what="the knowledge base" /> : notes.error ? <ErrorState error={notes.error} onRetry={() => void notes.refetch()} /> : notes.data && (
         tab === "notes"
@@ -301,8 +307,13 @@ function NotePane({ ws, notes, changes, path, select, showHistory, refresh }: { 
 
 function NoteEditor({ ws, path: initialPath, base, initial, isNew, paths, done }: { ws: string; path?: string; base?: string; initial?: string; isNew?: boolean; paths: string[]; done: (path?: string) => void }) {
   const today = new Date().toISOString().slice(0, 10);
-  const [path, setPath] = useState(initialPath ?? "topics/");
-  const [text, setText] = useState(initial ?? `---\ntitle: \ntype: fact\nstatus: current\nvalid_from: ${today}\n---\n\n`);
+  // Typed text survives back and a closed page (kept per note and version, `useKeptDraft`) until Save or Cancel.
+  const draftKey = isNew ? `kb.${ws}.new` : `kb.${ws}.${initialPath}.${base ?? ""}`;
+  const pathDraft = useKeptDraft(isNew ? `${draftKey}.path` : null, initialPath ?? "topics/");
+  const [path, setPath] = [pathDraft.text, pathDraft.setText];
+  const draft = useKeptDraft(draftKey, initial ?? `---\ntitle: \ntype: fact\nstatus: current\nvalid_from: ${today}\n---\n\n`);
+  const [text, setText] = [draft.text, draft.setText];
+  const drop = () => { draft.clear(); pathDraft.clear(); };
   const [busy, setBusy] = useState(false);
   const clean = path.trim().replace(/^\/+/, "");
   const finalPath = isNew && clean && !/\.[a-z0-9]+$/i.test(clean) ? `${clean}.md` : clean;
@@ -313,6 +324,7 @@ function NoteEditor({ ws, path: initialPath, base, initial, isNew, paths, done }
     try {
       const r = await api.put<{ lines: string[] }>(`/api/knowledge/${ws}/file`, { path: finalPath, content: text, base: isNew ? null : base });
       toast(r.lines.join(" "));
+      drop();
       done(finalPath);
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
@@ -321,9 +333,10 @@ function NoteEditor({ ws, path: initialPath, base, initial, isNew, paths, done }
       <div className="flex flex-wrap items-center gap-2 border-b border-line-2 px-4 py-2">
         {isNew ? <input autoFocus className="field-input min-w-0 flex-1 font-mono text-[12px]" aria-label="Path of the new note" value={path} onChange={(e) => setPath(e.target.value)} />
           : <span className="min-w-0 flex-1 truncate font-mono text-[13px]">{path}</span>}
-        <button className="btn btn-sm" onClick={() => done()}>Cancel</button>
+        <button className="btn btn-sm" onClick={() => { drop(); done(); }}>Cancel</button>
         <button className="btn btn-sm btn-primary" disabled={busy || !valid || taken} title={taken ? "A note with this path exists" : undefined} onClick={() => void save()}>{busy ? "Saving…" : "Save"}</button>
       </div>
+      {draft.kept && <div className="px-4 pt-2 text-[12px] text-ink-3">Draft kept: your unsaved text from before.</div>}
       {isNew && <div className="px-4 pt-2 text-[12px] text-ink-3">{taken ? "A note with this path exists: open it and choose Edit." : "Folders: people/, projects/, topics/, decisions/, howto/, sources/. Link notes with [[name]]."}</div>}
       <textarea className="field-input m-3 min-h-0 flex-1 resize-none p-3 font-mono text-[13px] leading-5" aria-label="Note" value={text} onChange={(e) => setText(e.target.value)} spellCheck />
     </div>

@@ -1,14 +1,15 @@
 // Phone shell: a top bar with the workspace sheet (workspaces with their counts, nothing else), the section title and
 // a status that warns (a detail page replaces the bar with its ‹, title and ⋯: `PhoneBar`, and keeps the status only
-// while it warns), one page at a time, and bottom tabs (Today · Agents · Ask · Inbox · More). Ask opens the
-// chat of the workspace's default bot (`askTarget`); More holds the other places. Same daemon, rules and feature
+// while it warns), one page at a time, and bottom tabs (Today · Chats · Agents · Inbox · More). Chats lists the
+// workspace's bots (Ask Launchpad pinned first); More holds the other places. Android back follows `./back.ts`: tab
+// taps replace the entries above Today, overlays and detail views own one entry each. Same daemon, rules and feature
 // components as the laptop shell; only the frame differs. Every action stays a visible button.
 
 import { recordingZoom } from "@/lib/zoom";
 import { lazy, Suspense } from "react";
 import { useAddFolder } from "@/features/projects/addFolderStore";
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { useLayoutEffect, useMemo, useState } from "react";
+import { Link, Outlet, useRouter, useRouterState } from "@tanstack/react-router";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconSprite, Icon, type IconName } from "@/components/Icon";
 import { Count } from "@/components/ui";
 import { Toasts } from "@/components/Toast";
@@ -20,23 +21,26 @@ import { useScope, useWorkspaceSync } from "@/lib/workspace";
 import { useSessions } from "@/lib/queries";
 import { useWorkspaceCounts } from "@/features/workspaces/counts";
 import { NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
-import { askTarget, useBots } from "@/lib/bots";
+import { botState, botThread, useBots } from "@/lib/bots";
+import { useTodayHere } from "@/features/today/data";
 import { isRunning } from "@/lib/sessionStatus";
 import { ServerStatus } from "./ServerStatus";
 import { MORE_PLACES, PhoneBarContext, pageTitle } from "./PhoneHeader";
 import { WorkspaceSheet } from "./WorkspaceSheet";
+import { useLaunchIntents } from "./launchIntents";
+import { goTab, installBack } from "./back";
 
 const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then((m) => ({ default: m.AddFolderDialog })));
 
-/** A bottom tab. `active` overrides the router's match (More covers several places, Ask one bot page). */
-function Tab({ to, params, search, icon, label, count, highlight, exact = false, active, tour }: { to: string; params?: Record<string, string>; search?: Record<string, unknown>; icon: IconName; label: string; count?: number; highlight?: boolean; exact?: boolean; active?: boolean; tour?: string }) {
+/** A bottom tab. `active` overrides the router's match (More and Chats cover several places). A tap replaces the
+ * entries above Today (`goTab`), so back from any tab returns to Today; `onAgain` runs on a tap of the current tab. */
+function Tab({ to, icon, label, count, highlight, exact = false, active, tour, onAgain }: { to: string; icon: IconName; label: string; count?: number; highlight?: boolean; exact?: boolean; active?: boolean; tour?: string; onAgain?: () => boolean }) {
   const on = "!text-teal-ink font-semibold";
   return (
     <Link
       to={to}
-      params={params as never}
-      search={search as never}
       data-tour={tour}
+      onClick={(e) => { if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey) return; if (onAgain?.() || goTab(to)) e.preventDefault(); }}
       className={`relative flex min-h-[54px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] text-ink-3 no-underline ${active ? on : ""}`}
       activeProps={active === undefined ? { className: on } : { className: active ? on : "" }}
       aria-current={active ? "page" : undefined}
@@ -47,6 +51,20 @@ function Tab({ to, params, search, icon, label, count, highlight, exact = false,
       <Count n={count ?? 0} needs={highlight} className="absolute top-1.5 left-[calc(50%+6px)]" />
     </Link>
   );
+}
+
+/** A text field has the focus: the keyboard is up, so the tab bar hides (the viewport meta resizes the layout). */
+function useTyping() {
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    const field = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || t.tagName === "TEXTAREA" || (t.tagName === "INPUT" && !["checkbox", "radio", "button", "submit", "range", "file", "color"].includes((t as HTMLInputElement).type)));
+    const onIn = (e: FocusEvent) => setTyping(field(e.target));
+    const onOut = (e: FocusEvent) => { if (!field(e.relatedTarget)) setTyping(false); };
+    document.addEventListener("focusin", onIn);
+    document.addEventListener("focusout", onOut);
+    return () => { document.removeEventListener("focusin", onIn); document.removeEventListener("focusout", onOut); };
+  }, []);
+  return typing;
 }
 
 /** The visual viewport shrinks for the keyboard even when the layout viewport / dvh does not. */
@@ -72,7 +90,11 @@ export function MobileShell() {
     document.documentElement.classList.add("lp-phone");
     document.documentElement.style.zoom = String(recordingZoom() ?? 1);
   }, []);
+  const router = useRouter();
+  useLayoutEffect(() => installBack(router.history), [router]);
+  useLaunchIntents();
   const path = useRouterState({ select: (s) => s.location.pathname });
+  const typing = useTyping();
   const [menu, setMenu] = useState(false);
   const scope = useScope();
   const sessions = (useSessions().data ?? []).filter(scope.hasSession);
@@ -82,10 +104,20 @@ export function MobileShell() {
   // What waits in the other workspaces, shown on the button that opens the sheet.
   const counts = useWorkspaceCounts();
   const inMenu = Object.entries(counts).reduce((n, [id, c]) => n + (id === scope.workspace.id ? 0 : c.total), 0);
-  // Ask: the chat of the workspace's default bot, or the New bot form when the workspace has none.
-  const ask = askTarget(useBots().data ?? [], scope.workspace.id);
-  const onAsk = !!ask && path === `/bots/${ask.id}`;
-  const onMore = !onAsk && MORE_PLACES.some((p) => path === p || path.startsWith(`${p}/`));
+  // Chats: the bots of the workspace; its count is the bots that need you. A second tap opens the last chat.
+  const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
+  const chatsNeed = bots.filter((b) => botState(botThread(sessions, b.id)) === "needs").length;
+  const onChats = path === "/chats" || path.startsWith("/bots");
+  const lastChat = useRef<string | null>(null);
+  if (path.startsWith("/bots/")) lastChat.current = path;
+  const openLastChat = () => {
+    if (path !== "/chats" || !lastChat.current || !bots.some((b) => lastChat.current === `/bots/${b.id}`)) return false;
+    router.history.push(lastChat.current);
+    return true;
+  };
+  const onMore = !onChats && MORE_PLACES.some((p) => path === p || path.startsWith(`${p}/`));
+  // More's count: what needs you among its places (failed routines).
+  const moreNeeds = useTodayHere().items.filter((i) => i.kind === "routine").length;
   const terminals = path.startsWith("/terminals");
   const viewport = useTerminalViewport(terminals);
   const workspaceName = scope.workspace.name;
@@ -110,7 +142,7 @@ export function MobileShell() {
           <span className="truncate font-semibold text-ink">{workspaceName}</span><Icon name="chev" size={14} className="shrink-0" />
           <Count n={inMenu} needs title={`${inMenu} waiting in Today of other workspaces`} className="shrink-0" />
         </button>
-        <b className="max-w-[40vw] min-w-0 truncate text-center text-[15px]">{onAsk ? "Ask" : pageTitle(path)}</b>
+        <b className="max-w-[40vw] min-w-0 truncate text-center text-[15px]">{pageTitle(path)}</b>
         {/* A tab page's primary button and ⋯ (`PhoneBarEnd`), then the status. */}
         <div className="flex min-w-0 items-center justify-end gap-1"><div ref={setEndEl} className="flex min-w-0 items-center gap-1 empty:hidden" />{claims === 0 && <ServerStatus />}</div>
       </header>
@@ -119,14 +151,12 @@ export function MobileShell() {
         {/* Visited terminals stay mounted while other pages show. */}
         <div className={terminals ? "flex h-full flex-col" : "hidden"}><TerminalDock fill={terminals} />{terminals && <Outlet />}</div>
       </main>
-      {!viewport?.keyboard && <nav className="flex flex-none border-t border-line bg-chrome pb-[env(safe-area-inset-bottom)]" aria-label="Main">
+      {!viewport?.keyboard && !typing && <nav className="flex flex-none border-t border-line bg-chrome pb-[env(safe-area-inset-bottom)]" aria-label="Main">
         <Tab to="/" icon="okcircle" label="Today" count={today} highlight exact />
+        <Tab to="/chats" icon="spark" label="Chats" count={chatsNeed} highlight active={onChats} tour="phone.chats-tab" onAgain={openLastChat} />
         <Tab to="/agents" icon="agents" label="Agents" count={running} />
-        {ask
-          ? <Tab to="/bots/$id" params={{ id: ask.id }} search={{}} icon="spark" label="Ask" active={onAsk} tour="phone.ask" />
-          : <Tab to="/bots" search={{ new: true }} icon="spark" label="Ask" active={false} tour="phone.ask" />}
         <Tab to="/inbox" icon="inbox" label="Inbox" count={inbox} highlight />
-        <Tab to="/more" icon="more" label="More" active={onMore} tour="phone.more-tab" />
+        <Tab to="/more" icon="more" label="More" count={moreNeeds} highlight active={onMore} tour="phone.more-tab" />
       </nav>}
       <Composer />
       {menu && <WorkspaceSheet onClose={() => setMenu(false)} />}

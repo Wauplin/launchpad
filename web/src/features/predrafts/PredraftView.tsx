@@ -4,7 +4,9 @@
 
 import { usePhone } from "@/lib/phone";
 import { Icon } from "@/components/Icon";
-import { PhoneHeader } from "@/mobile/PhoneHeader";
+import { PhoneActions, PhoneHeader } from "@/mobile/PhoneHeader";
+import { Sheet } from "@/mobile/Sheet";
+import { phoneBack } from "@/mobile/back";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
@@ -50,6 +52,9 @@ function Review({ id }: { id: string }) {
   const q = useQuery({ queryKey: ["predrafts", id], queryFn: () => api.get<Detail>(`/api/predrafts/${id}`) });
   const p = q.data?.predraft;
   const [editing, setEditing] = useState(false);
+  // An edit left open earlier (it lives on Home, so back or another device never loses it).
+  const [kept, setKept] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
@@ -81,6 +86,7 @@ function Review({ id }: { id: string }) {
   useEffect(() => {
     if (!p || loaded || !saved.loaded) return;
     apply(saved.value);
+    setKept(saved.value.title !== undefined || saved.value.body !== undefined);
     setRemote(p.remote_branch ?? q.data?.default_remote_branch ?? ""); setFork(!!p.push_repo); setLoaded(true);
   }, [p, loaded, saved.loaded]);
   // Another window or device changed the draft.
@@ -111,6 +117,15 @@ function Review({ id }: { id: string }) {
   const all = allNotes();
   const sendNotes = () => run(async () => { await save(); await api.post(`/api/predrafts/${id}/feedback`); setNotes([]); }, "Notes sent to the agent");
   const canSend = !busy && !running && !!p.session_id && all.length > 0;
+  const github = !!projects?.find((x) => x.id === p.project_id)?.gh_repo;
+  const publishFields = <>
+    <input aria-label="Remote branch name" className="field-input min-w-48 flex-1" value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="Remote branch name" />
+    <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />As a GitHub draft</label>
+    <label className="flex items-center gap-2 text-[12px]" title="Push to your fork of origin and open the PR from it, when you cannot push to origin"><input type="checkbox" checked={fork} disabled={!!p.pushed_head} onChange={(e) => setFork(e.target.checked)} />From my fork</label>
+  </>;
+  const publishButton = (className: string) => <ConfirmButton tone="publish" small={false} className={className} disabled={busy || running || !d.head || !remote.trim()} consequence={`Home pushes the reviewed commit ${d.head?.slice(0, 8) ?? ""} as ${remote.trim()} to ${fork ? "your fork" : "origin"} and creates ${draft ? "a GitHub draft" : "a"} PR on GitHub.`} confirmLabel="Push and create PR" onConfirm={() => run(async () => { await save(); await runAction("local-pr.publish", { id }, { remote_branch: remote, draft, head: d.head, fork }); await saved.clear(); setPublishing(false); }, "Local PR published")}>Publish</ConfirmButton>;
+  const mergeButton = (className: string) => <ConfirmButton tone="publish" small={false} className={className} disabled={busy || running || !d.head} consequence={`Home pushes the reviewed commit to ${p.base_branch} on the folder's remote, then fast-forwards ${p.base_branch} on Home; if the remote refuses the push, nothing is merged. If ${p.base_branch} moved, ask the agent to rebase first.`} confirmLabel={`Merge into ${p.base_branch}`} onConfirm={() => run(async () => { await runAction("local-pr.merge", { id }, { head: d.head }); await saved.clear(); }, `Merged into ${p.base_branch}`)}>Merge</ConfirmButton>;
+  const discardButton = <ConfirmButton small={false} disabled={busy || running} consequence="Deletes the branch on Home. Its tip stays restorable from the folder page for 30 days." confirmLabel="Discard" onConfirm={() => run(() => api.post(`/api/predrafts/${id}/discard`), "Local PR discarded")}>Discard</ConfirmButton>;
   const headerActions = <>
     {p.session_id && <button className="btn btn-sm" onClick={() => { show(p.session_id!); void navigate({ to: "/agents", search: phone ? { session: p.session_id! } : {} }); }}>Open agent</button>}
     {active && !p.pushed_head && !p.session_id && <button className="btn btn-sm" disabled={busy} onClick={() => { useComposer.getState().start({ projectId: p.project_id }); useComposer.getState().update((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: p.id }, text: `Continue this Local PR: ${p.title}` })); }}>Launch agent</button>}
@@ -128,7 +143,7 @@ function Review({ id }: { id: string }) {
     <button className="btn btn-sm btn-primary ml-auto" disabled={!canSend} title={p.session_id ? undefined : "No agent works on this Local PR"} onClick={() => void sendNotes()}>Send to agent</button>
   </div>;
   return <div className="flex h-full min-h-0 flex-col">
-    {phone ? <><PhoneHeader title={p.title} subtitle={`Local PR · ${state}`} onBack={() => void navigate({ to: "/", search: { filter: "review" } })} backLabel="Back to Today" actions={<>{headerActions}<button className="btn btn-sm" disabled={busy} onClick={refresh}>Refresh</button></>} details={<p className="break-all font-mono text-[12px] text-ink-3">{p.branch} → {p.base_branch}</p>} /><div className="px-3">{tabs}</div></>
+    {phone ? <><PhoneHeader title={p.title} subtitle={`Local PR · ${state}`} onBack={() => phoneBack("/?filter=review")} backLabel="Back" actions={<>{headerActions}<button className="btn btn-sm" disabled={busy} onClick={refresh}>Refresh</button></>} details={<p className="break-all font-mono text-[12px] text-ink-3">{p.branch} → {p.base_branch}</p>} /><div className="px-3">{tabs}</div></>
       : <PageHeader title={p.title} meta={meta} actions={headerActions} tabs={tabs} />}
     {p.published_url && <div className="border-b border-line-2 px-5 py-2 text-[12px]"><button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub as #{p.published_number}</button><span className="text-ink-3"> · New commits of agents on this branch reach the PR through Home.</span><GitHubSyncNote status={d.github} className="mt-1" /></div>}
     {p.merged && <div className="border-b border-line-2 px-5 py-2 text-[12px] text-ink-2">Merged into <span className="font-mono">{p.base_branch}</span> on Home at <span className="font-mono">{p.merged.head.slice(0, 8)}</span>.</div>}
@@ -153,7 +168,7 @@ function Review({ id }: { id: string }) {
     {tab === "files" && !p.archived && d.head ? <FilesChanged repo="local" number={0} head={d.head} local={{ id }} notes={lineNotes} onAddNote={active ? (n) => setNotes((all) => [...all, { path: n.path, text: lineNoteText(n) }]) : undefined} /> : <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
       {tab === "files" && <Empty icon="info">{p.archived ? "This Local PR was discarded." : "No commits to compare yet."}</Empty>}
       {tab === "description" && <div className="grid max-w-text gap-4">
-        {editing && active ? <div className="grid gap-3"><input aria-label="PR title" className="field-input" value={title} onChange={(e) => setTitle(e.target.value)} /><textarea aria-label="PR description" className="field-input min-h-48" value={body} onChange={(e) => setBody(e.target.value)} /><div className="flex gap-2"><button className="btn btn-primary w-fit" disabled={busy} onClick={() => void run(save, "Title and description saved")}>Save title and description</button><button className="btn" disabled={busy} onClick={() => { setTitle(p.title); setBody(p.body); setEditing(false); }}>Cancel</button></div></div>
+        {editing && active ? <div className="grid gap-3">{kept && <span className="text-[12px] text-ink-3">Draft kept: your unsaved title and description from before.</span>}<input aria-label="PR title" className="field-input" value={title} onChange={(e) => setTitle(e.target.value)} /><textarea aria-label="PR description" className="field-input min-h-48" value={body} onChange={(e) => setBody(e.target.value)} /><div className="flex gap-2"><button className="btn btn-primary w-fit" disabled={busy} onClick={() => void run(save, "Title and description saved")}>Save title and description</button><button className="btn" disabled={busy} onClick={() => { setTitle(p.title); setBody(p.body); setEditing(false); }}>Cancel</button></div></div>
           : <div><Markdown text={p.body || "No description yet. The agent can set it with launchpad pr update."} />{active && <button className="btn btn-sm mt-3" onClick={() => { setTitle(p.title); setBody(p.body); setEditing(true); }}><Icon name="pencil" size={12} />Edit title and description</button>}</div>}
         {active && <section className="grid gap-2 rounded-card border border-line p-3">
           <h3 className="seclabel m-0">Notes for the agent</h3>
@@ -166,15 +181,18 @@ function Review({ id }: { id: string }) {
       </div>}
       {tab === "commits" && <Commits commits={d.commits} />}
     </div>}
-    {/* One filled button: Send notes while notes wait for the agent, else Publish. */}
-    {active && <div data-tour="predraft.actions" className="phone-publish-bar flex flex-wrap items-center gap-2 border-t border-line p-3">
-      <input aria-label="Remote branch name" className="field-input min-w-48 flex-1" value={remote} onChange={(e) => setRemote(e.target.value)} placeholder="Remote branch name" />
-      <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />As a GitHub draft</label>
-      <label className="flex items-center gap-2 text-[12px]" title="Push to your fork of origin and open the PR from it, when you cannot push to origin"><input type="checkbox" checked={fork} disabled={!!p.pushed_head} onChange={(e) => setFork(e.target.checked)} />From my fork</label>
-      <ConfirmButton tone="publish" small={false} className={all.length ? "" : "btn-primary"} disabled={busy || running || !d.head || !remote.trim()} consequence={`Home pushes the reviewed commit ${d.head?.slice(0, 8) ?? ""} as ${remote.trim()} to ${fork ? "your fork" : "origin"} and creates ${draft ? "a GitHub draft" : "a"} PR on GitHub.`} confirmLabel="Push and create PR" onConfirm={() => run(async () => { await save(); await runAction("local-pr.publish", { id }, { remote_branch: remote, draft, head: d.head, fork }); await saved.clear(); }, "Local PR published")}>Publish</ConfirmButton>
-      <ConfirmButton tone="publish" small={false} disabled={busy || running || !d.head} consequence={`Home pushes the reviewed commit to ${p.base_branch} on the folder's remote, then fast-forwards ${p.base_branch} on Home; if the remote refuses the push, nothing is merged. If ${p.base_branch} moved, ask the agent to rebase first.`} confirmLabel={`Merge into ${p.base_branch}`} onConfirm={() => run(async () => { await runAction("local-pr.merge", { id }, { head: d.head }); await saved.clear(); }, `Merged into ${p.base_branch}`)}>Merge</ConfirmButton>
-      <ConfirmButton small={false} disabled={busy || running} consequence="Deletes the branch on Home. Its tip stays restorable from the folder page for 30 days." confirmLabel="Discard" onConfirm={() => run(() => api.post(`/api/predrafts/${id}/discard`), "Local PR discarded")}>Discard</ConfirmButton>
-    </div>}
+    {/* One filled button: Send notes while notes wait for the agent, else Publish. On the phone, one button by state
+        (Publish for a GitHub folder, else Merge) with the branch options in its sheet, and the rest in ⋯. */}
+    {active && (phone ? <div data-tour="predraft.actions" className="phone-publish-bar flex items-center gap-2 border-t border-line p-3">
+      {github ? <button className={`btn flex-1 ${all.length ? "" : "btn-primary"}`} disabled={busy || running || !d.head} onClick={() => setPublishing(true)}>Publish</button> : mergeButton("flex-1")}
+      <PhoneActions label="Local PR actions" closeOnAction={false}>{github ? <>{mergeButton("")}{discardButton}</> : discardButton}</PhoneActions>
+      {publishing && <Sheet title="Publish on GitHub" onClose={() => setPublishing(false)}><div className="grid gap-3 p-4">{publishFields}{publishButton("")}</div></Sheet>}
+    </div> : <div data-tour="predraft.actions" className="phone-publish-bar flex flex-wrap items-center gap-2 border-t border-line p-3">
+      {publishFields}
+      {publishButton(all.length ? "" : "btn-primary")}
+      {mergeButton("")}
+      {discardButton}
+    </div>)}
   </div>;
 }
 

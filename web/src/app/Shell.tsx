@@ -17,6 +17,7 @@ import { TopBar } from "./TopBar";
 import { isDemo } from "@/demo/mode";
 import { WelcomeGate } from "@/onboarding/WelcomeGate";
 import { useAskPanel } from "@/stores/ask";
+import { useLaunchIntents } from "@/mobile/launchIntents";
 
 // Demo mode only: the tour overlay and its chapters (src/onboarding/tour/) load with the demo.
 const TourRoot = lazy(() => import("@/onboarding/tour/TourRoot").then((m) => ({ default: m.TourRoot })));
@@ -57,6 +58,7 @@ export function Shell() {
   const { empty } = useWorkspaceSync();
   useHubPillInset();
   useRememberPlace();
+  useLaunchIntents();
   // Settings replaces the sidebar with its own pages, so there is one level of navigation.
   const settings = useRouterState({ select: (s) => inSettings(s.location.pathname) });
   // There is no default workspace: Setup (whose Workspaces step creates the first one) and Settings open without one.

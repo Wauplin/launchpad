@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { MachineStint } from "@/gen/MachineStint";
 import type { Session } from "@/gen/Session";
 import { ConfirmButton } from "@/components/ui";
+import { Icon } from "@/components/Icon";
+import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useBurst, useBurstRun, useRunnerTag } from "@/lib/burst";
@@ -30,11 +32,13 @@ export function RunsOn({ session: s }: { session: Session }) {
       <span title={tag?.title}>{tag && run ? tag.label : name}{tag && !run ? ` · ${tag.label.replace(`${name} `, "")}` : ""}</span>
       {idle && (targets.length > 0 || canBurst) && (
         <>
-          <select className="field-input h-7 w-auto py-0 text-[12px]" aria-label="Move to" value={to} onChange={(e) => setTo(e.target.value)}>
-            <option value="">Move to…</option>
-            {targets.map((r) => <option key={r.runner.id} value={r.runner.id}>{r.runner.name}{r.runner.capabilities.vm ? " · Local VM" : ""}</option>)}
-            {canBurst && <option value={BURST}>Burst · HF Job</option>}
-          </select>
+          {/* A menu, not a native select: the phone's 16 px field rule would make it larger than the text around it. */}
+          <Popover viewport align="left" width={240} trigger={({ open, toggle }) => <button className="btn btn-sm" aria-haspopup="menu" aria-expanded={open} onClick={toggle}>{to ? `Move to ${label}` : "Move to…"}<Icon name="chev" size={12} /></button>}>
+            {(close) => <>
+              {targets.map((r) => <MenuItem key={r.runner.id} active={to === r.runner.id} label={r.runner.name} detail={r.runner.capabilities.vm ? "Local VM" : undefined} onClick={() => { setTo(r.runner.id); close(); }} />)}
+              {canBurst && <MenuItem active={to === BURST} label="Burst" detail="An HF Job" onClick={() => { setTo(BURST); close(); }} />}
+            </>}
+          </Popover>
           {to && <ConfirmButton icon="send" consequence={`The session continues on ${label} from your next message. Its branches stay on Home; uncommitted files go to a scratch branch, and its folders on ${name} are removed.`} confirmLabel={`Move to ${label}`} onConfirm={move}>Move</ConfirmButton>}
         </>
       )}

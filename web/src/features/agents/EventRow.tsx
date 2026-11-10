@@ -6,6 +6,7 @@ import { memo, useContext, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { MenuItem } from "@/components/Popover";
 import { MoreMenu } from "@/components/ui";
+import { ImageThumb } from "@/components/ImageViewer";
 import { CodeLinksContext, Markdown } from "@/components/Markdown";
 import { toast } from "@/components/Toast";
 import { api } from "@/lib/api";
@@ -257,7 +258,7 @@ export const EventRow = memo(
             {from ? withoutSender(row.text) : row.text}
             {row.instructions && <Instructions blocks={row.instructions} className={row.text ? "mt-1.5" : ""} />}
             {row.presets && <Instructions label={`Presets: ${row.presets.map((p) => p.label).join(" · ")}`} blocks={row.presets.map((p) => p.text.trim())} className={row.text ? "mt-1.5" : ""} />}
-            <div className="flex flex-wrap gap-2">{row.images.map((image, i) => <a key={i} href={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} download={image.name} title={`Save ${image.name}`}><img src={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>)}</div>
+            <div className="flex flex-wrap gap-2">{row.images.map((image, i) => <ImageThumb key={i} src={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />)}</div>
             {row.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
           </div>
         );

@@ -1,5 +1,6 @@
 import { OutdatedRunnerNotice, RunnerChoice, runnerName, ToolsChoice, useLaunchRunners, useLaunchTools } from "./LaunchExtras";
 import { isPhone } from "@/lib/phone";
+import { useBackClose } from "@/mobile/back";
 import { Sheet } from "@/mobile/Sheet";
 // Composer drawer (sketch S2): stays on the right while you navigate, so context can be added from
 // anywhere. It minimizes to a draft pill, and covers the content on narrow windows. Prompt first, then
@@ -170,6 +171,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const harnessName = useHarnessName();
   const harnesses = useHarnesses();
   const { open, minimized, setMinimized, spec, update, close, discard, openAfterLaunch, setOpenAfterLaunch, conditions, setConditions, conflict, loadNewer, keepMine, autoLaunchUntil, editing, stopEditing } = useComposer();
+  // Phone: the full-screen composer is an overlay; Android back closes it and keeps the draft.
+  useBackClose(isPhone && !embedded && open && !minimized, close);
   // Editing a scheduled agent: it must still be queued (or failed) and not started.
   const schedules = useSchedules();
   const edited = editing ? schedules.data?.find((l) => l.id === editing && !l.resume_session_id) : undefined;
@@ -484,6 +487,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       <div className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
         <span className="flex-1 truncate whitespace-nowrap text-[13px] font-bold" title={edited?.title}>{editing ? "Edit scheduled launch" : "Launch an agent"}</span>
         {!embedded && !isPhone && <button className="btn btn-sm btn-ghost" title="Keep the draft as a badge on Launch; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>}
+        {isPhone && !embedded && <button className="btn btn-sm btn-ghost" onClick={() => { setCron(null); setLater(false); discard(); }} title={editing ? "Close without saving; the scheduled agent stays as it is" : "Clear the composer"}>{editing ? "Discard changes" : "Discard"}</button>}
         <button className="iconbtn" title="Close (the draft is kept)" onClick={close}>
           <Icon name="x" size={14} />
         </button>
@@ -811,7 +815,12 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         {startPreview && <StartPreviewDialog queryKey={["launch", startPreview]} load={() => api.post<StartPreview>("/api/launch/start-preview", startPreview)} subject="this agent" onClose={() => setStartPreview(null)} />}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-line bg-chrome px-3.5 py-2.5">
+      {/* Phone: one footer row, Launch at full width (Discard sits next to ✕, the reason Launch waits in one line). */}
+      {isPhone && !embedded ? <div className="composer-phone-footer grid gap-1.5 border-t border-line bg-chrome px-3 py-2">
+        {unconfirmedLaunch && <div role="status" className="text-[12px] text-ink-3">Delivery not confirmed. Retry unchanged to check the result. Inspect Agents before starting another attempt.<button className="btn btn-sm mt-1" disabled={launching} onClick={() => void abandonOperation("/api/sessions", unconfirmedLaunch).then(() => setUnconfirmedLaunch(null)).catch(toastError)}>I checked Agents — start a new attempt</button></div>}
+        {(blocker || unsupportedImages) && !launching && <span role="status" className="truncate text-[12px] text-attn">{unsupportedImages ? "Remove the images or pick another harness" : blocker}</span>}
+        <div className="flex [&>span]:flex-1 [&>span>button:first-child]:flex-1">{launchButton()}</div>
+      </div> : <div className="flex flex-wrap items-center gap-2 border-t border-line bg-chrome px-3.5 py-2.5">
         <label className="mr-auto inline-flex items-center gap-2 text-[12px] text-ink-2" style={scheduled || cron || isPhone ? { visibility: "hidden" } : undefined}>
           <input type="checkbox" className="accent-teal" disabled={scheduled || !!cron} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch
@@ -823,7 +832,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         <span className="text-[12px] text-ink-3" title="Where this launch goes: the chosen runner, or Automatic">Runs on {spec.runner_id ? runnerName(launchRunners, spec.runner_id) : "a runner, else Burst"}</span>
         {(blocker || unsupportedImages) && !launching && <span role="status" className="basis-full text-right text-[12px] text-attn sm:basis-auto">{unsupportedImages ? "Remove the images or pick another harness" : blocker}</span>}
         {launchButton()}
-      </div>
+      </div>}
     </aside>
   );
 }
