@@ -53,7 +53,8 @@ pub enum ProposalBody {
         #[serde(skip_serializing_if = "Option::is_none")]
         folder: Option<String>,
     },
-    /// A new routine of a bot of the workspace: its runs are messages to the bot's thread.
+    /// A new routine of a bot of the workspace: its runs are messages to the bot's thread. A shorthand: Home stores
+    /// it as a `BotFiles` card with the new `routines/<name>.toml` (older cards still start as they are).
     Routine {
         bot_id: String,
         title: String,
@@ -66,8 +67,8 @@ pub enum ProposalBody {
         #[serde(default)]
         conditions: Vec<CronCondition>,
     },
-    /// A new BOT.md for a bot of the workspace, often written by the bot itself; the card shows the diff. Accepting
-    /// fails when BOT.md changed since.
+    /// A new BOT.md for a bot of the workspace. A shorthand: Home stores it as a `BotFiles` card (older cards still
+    /// start as they are). Accepting fails when BOT.md changed since.
     BotInstructions {
         bot_id: String,
         instructions: String,
@@ -77,6 +78,23 @@ pub enum ProposalBody {
         /// The unified diff from `before` (filled by Home).
         #[serde(default)]
         patch: String,
+    },
+    /// Changes to the files of a bot of the workspace, often written by the bot itself: BOT.md and its routines
+    /// (`routines/<name>.toml`, null deletes one), one diff per file. Accepting writes them all at once (the routines
+    /// follow their files) and fails when one of them changed since. bot.toml stays the owner's, `memory/` the bot's.
+    BotFiles {
+        bot_id: String,
+        /// Path → its whole new content, or null to delete a routine file.
+        #[ts(type = "Record<string, string | null>")]
+        files: std::collections::BTreeMap<String, Option<String>>,
+        /// Each file's SHA-256 when the card was made, null when it did not exist (filled by Home).
+        #[serde(default)]
+        #[ts(type = "Record<string, string | null>")]
+        before: std::collections::BTreeMap<String, Option<String>>,
+        /// The unified diff of each file (filled by Home).
+        #[serde(default)]
+        #[ts(type = "Record<string, string>")]
+        patches: std::collections::BTreeMap<String, String>,
     },
     /// A ready click: an owner action of the action list (`actions::Action::ready`) with its route parameters and
     /// body, run only by the owner's click on the card (the same button, confirmation and API call as its page).
@@ -249,6 +267,20 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     };
     let same_workspace = |bot: &launchpad_core::bots::Bot| author.is_none() || author_ws.as_deref() == Some(bot.workspace_id.as_str());
     let mut result_id = None;
+    // The shorthands become one bot-files card, so every change to a bot's files reads as a diff.
+    match &body {
+        ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions } => {
+            ensure!(!title.trim().is_empty(), "give the routine a name");
+            let f = crate::crons::RoutineFile { title: title.trim().into(), paused: false, schedule: schedule.clone(), time_zone: None, instructions: instructions.clone(), trigger: trigger.clone(), conditions: conditions.clone() };
+            let taken: Vec<String> = launchpad_core::bots::routine_files(app, bot_id).await.with_context(|| format!("no bot {bot_id} (see `bots list`)"))?.into_iter().map(|(p, _)| p).collect();
+            let path = crate::crons::file_path_for(&f.title, &taken);
+            body = ProposalBody::BotFiles { bot_id: bot_id.clone(), files: [(path, Some(crate::crons::render_file(&f)?))].into(), before: Default::default(), patches: Default::default() };
+        }
+        ProposalBody::BotInstructions { bot_id, instructions, .. } => {
+            body = ProposalBody::BotFiles { bot_id: bot_id.clone(), files: [(launchpad_core::bots::INSTRUCTIONS.to_string(), Some(instructions.clone()))].into(), before: Default::default(), patches: Default::default() };
+        }
+        _ => {}
+    }
     match &mut body {
         ProposalBody::Launch { spec } | ProposalBody::Schedule { spec, .. } | ProposalBody::Cron { spec, .. } => {
             sanitize(spec, &workspace_id)?;
@@ -317,6 +349,40 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             ensure!(*instructions != bot.instructions, "this is already the bot's BOT.md");
             *before = bot.instructions.clone();
             *patch = launchpad_core::kb::unified(&bot.instructions, instructions);
+            workspace_id = Some(bot.workspace_id);
+        }
+        ProposalBody::BotFiles { bot_id, files, before, patches } => {
+            let bot = launchpad_core::bots::get(app, bot_id).await.with_context(|| format!("no bot {bot_id} (see `bots list`)"))?;
+            ensure!(same_workspace(&bot), "{} belongs to another workspace", bot.settings.name);
+            let current = current_files(app, &bot.id).await?;
+            before.clear();
+            patches.clear();
+            for (path, text) in files.iter_mut() {
+                ensure!(path == launchpad_core::bots::INSTRUCTIONS || launchpad_core::bots::routine_path_ok(path), "a card changes BOT.md and routines/<name>.toml (lowercase letters, digits, - and _), not {path}: bot.toml is the owner's, memory/ yours (`bot memory write`)");
+                let old = current.get(path.as_str());
+                match text {
+                    Some(t) if path == launchpad_core::bots::INSTRUCTIONS => {
+                        ensure!(!t.trim().is_empty(), "write the whole new BOT.md");
+                        if !t.ends_with('\n') {
+                            t.push('\n');
+                        }
+                    }
+                    Some(t) => {
+                        crate::crons::check_file(app, &bot, t).await.with_context(|| format!("{path}"))?;
+                    }
+                    None => {
+                        ensure!(path != launchpad_core::bots::INSTRUCTIONS, "BOT.md cannot be deleted");
+                        ensure!(old.is_some(), "{path} does not exist");
+                    }
+                }
+                before.insert(path.clone(), old.map(|(sha, _)| sha.clone()));
+                patches.insert(path.clone(), launchpad_core::kb::unified(old.map_or("", |(_, t)| t.as_str()), text.as_deref().unwrap_or("")));
+            }
+            // A file the card would leave as it is changes nothing.
+            files.retain(|path, text| current.get(path.as_str()).map(|(_, t)| t) != text.as_ref());
+            before.retain(|path, _| files.contains_key(path));
+            patches.retain(|path, _| files.contains_key(path));
+            ensure!(!files.is_empty(), "these files already have this content");
             workspace_id = Some(bot.workspace_id);
         }
         ProposalBody::Ready { action, args, input, session_id } => {
@@ -464,6 +530,25 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 launchpad_core::bots::update(app, &bot_id, launchpad_core::bots::Patch { instructions: Some(instructions), ..Default::default() }).await?;
                 Ok(bot_id)
             }
+            ProposalBody::BotFiles { bot_id, files, before, .. } => {
+                let bot = launchpad_core::bots::get(app, &bot_id).await?;
+                let current = current_files(app, &bot_id).await?;
+                let mut writes = vec![];
+                for (path, text) in files {
+                    let now = current.get(path.as_str()).map(|(sha, _)| sha.clone());
+                    ensure!(before.get(&path).cloned().flatten() == now, "{path} changed since this proposal: ask {} again", bot.settings.name);
+                    let text = match text {
+                        Some(t) if launchpad_core::bots::routine_path_ok(&path) => {
+                            let f = crate::crons::check_file(app, &bot, &t).await.with_context(|| path.clone())?;
+                            Some(with_zone(t, &f, time_zone.as_deref()))
+                        }
+                        t => t,
+                    };
+                    writes.push((path, text));
+                }
+                launchpad_core::bots::write_files(app, &bot_id, writes).await?;
+                Ok(bot_id)
+            }
             ProposalBody::Status { .. } => bail!("a status card has nothing to start"),
             ProposalBody::Report { .. } => bail!("a report has nothing to start: mark it read or reply"),
             ProposalBody::Ready { action, .. } => bail!("a ready card runs {action} from its own button"),
@@ -505,6 +590,25 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
     p.updated_at = now_ms();
     save(app, &p).await?;
     Ok(p)
+}
+
+/// A bot's BOT.md and routine files: path → (SHA-256, text).
+async fn current_files(app: &App, bot_id: &str) -> Result<std::collections::BTreeMap<String, (String, String)>> {
+    let tree = launchpad_core::plain::tree(app, &launchpad_core::bots::store(bot_id)).await?;
+    let mut out = std::collections::BTreeMap::new();
+    for e in tree.files.into_iter().filter(|e| e.path == launchpad_core::bots::INSTRUCTIONS || launchpad_core::bots::routine_path_ok(&e.path)) {
+        let text = String::from_utf8_lossy(&launchpad_core::plain::read_blob(app, &e.sha256).await?).into_owned();
+        out.insert(e.path, (e.sha256, text));
+    }
+    Ok(out)
+}
+
+/// A proposed schedule without a time zone runs in the zone of the browser that accepts it, like a routine card.
+fn with_zone(text: String, f: &crate::crons::RoutineFile, zone: Option<&str>) -> String {
+    match zone.filter(|z| !z.is_empty()) {
+        Some(z) if f.time_zone.is_none() && f.trigger == crate::crons::Trigger::Schedule => format!("time_zone = {}\n{text}", toml::Value::String(z.to_string())),
+        _ => text,
+    }
 }
 
 /// Creates the preset `id` (appended, Ask Launchpad off) or updates its label, text and agent flag in place.
@@ -664,6 +768,17 @@ mod tests {
     fn read(db: &rusqlite::Connection, id: &str) -> Proposal {
         let json: String = db.query_row("SELECT json FROM launch_proposal WHERE id = ?1", [id], |r| r.get(0)).unwrap();
         serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn accepted_schedules_take_the_browser_zone_once() {
+        let text = crate::crons::render_file(&crate::crons::RoutineFile { title: "Daily".into(), paused: false, schedule: "0 9 * * *".into(), time_zone: None, instructions: "Check".into(), trigger: Default::default(), conditions: vec![] }).unwrap();
+        let f = crate::crons::parse_file(&text).unwrap();
+        let zoned = with_zone(text.clone(), &f, Some("Europe/Paris"));
+        assert_eq!(crate::crons::parse_file(&zoned).unwrap().time_zone.as_deref(), Some("Europe/Paris"));
+        let g = crate::crons::parse_file(&zoned).unwrap();
+        assert_eq!(with_zone(zoned.clone(), &g, Some("UTC")), zoned);
+        assert_eq!(with_zone(text.clone(), &f, None), text);
     }
 
     #[test]

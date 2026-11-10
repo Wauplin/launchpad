@@ -2,6 +2,10 @@
 //! time), new GitHub activity in the Inbox, or another agent's turn ending Done. A routine of a bot sends its
 //! instructions to the bot's thread; any other routine launches the same spec as a new session.
 //!
+//! A bot's routines are defined by files of its store, `routines/<name>.toml` (`RoutineFile`): saving one here
+//! writes its file, and every write of the bot's files syncs the records (`sync_bot_files`). The records keep what
+//! files do not: runs, the next due time, the GitHub and failure watermarks. Other routines are records only.
+//!
 //! Every run is claimed before it starts (`next_run_at` moves forward, the GitHub watermark advances, a history
 //! entry is written), so a crash never repeats it, and a run more than one hour late is skipped. A run ends with
 //! a report, or with the final message `no_update`, which stays silent (no notification, not Needs you).
@@ -18,7 +22,7 @@ const MISSED_GRACE_MS: i64 = 60 * 60_000;
 const RUNS_KEPT: usize = 50;
 pub use launchpad_core::routines::{NO_UPDATE, TRIGGER_FORMS, instruction, is_no_update};
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CronCondition {
     /// The cron's harness has at least this share of the quota window left.
@@ -156,6 +160,13 @@ pub struct CronAgent {
     #[serde(default)]
     #[ts(type = "number | null")]
     pub failure_seen: Option<i64>,
+    /// A bot routine: its file in the bot's store (`routines/<name>.toml`), the definition this record follows.
+    /// None for other routines.
+    #[serde(default)]
+    pub file: Option<String>,
+    /// Why its file cannot be used (a hand edit with an error): the routine keeps its last good definition.
+    #[serde(default)]
+    pub file_error: Option<String>,
     /// Why its due run has not started yet (for example no confirmed quota reading). Never stored: `list` fills it.
     #[serde(default, skip_deserializing)]
     pub waiting: Option<String>,
@@ -433,6 +444,8 @@ pub async fn create(
         history: vec![],
         github_seen: None,
         failure_seen: None,
+        file: None,
+        file_error: None,
         waiting: None,
     };
     record.next_run_at = next_due(&record, now)?;
@@ -467,46 +480,37 @@ fn in_thread(r: &CronAgent) -> bool {
     r.bot_id.is_some()
 }
 
-/// A new routine of a bot. Its runs are messages to the bot's thread.
+/// A new routine of a bot: writes its file `routines/<name>.toml` (the name from its title), which creates the
+/// record. Its runs are messages to the bot's thread.
 pub async fn create_for_bot(app: &App, bot_id: &str, r: BotRoutine) -> Result<CronAgent> {
     let bot = launchpad_core::bots::get(app, bot_id).await?;
-    let title = r.title.trim().to_string();
-    ensure!(!title.is_empty(), "give the routine a name");
-    ensure!(!r.instructions.trim().is_empty(), "write what the bot does at each run");
-    let spec = bot_spec(app, &bot, r.instructions.trim().to_string()).await?;
-    validate_conditions(&r.conditions)?;
-    validate_harness_conditions(spec.harness.context("pick a harness")?, &r.conditions)?;
-    let schedule = normalize(&r.schedule);
-    let time_zone = zone_for(app, r.time_zone)?;
-    validate_trigger(&r.trigger, &schedule, time_zone.as_deref())?;
-    let now = now_ms();
-    let mut record = CronAgent {
-        id: uuid::Uuid::new_v4().to_string(),
-        spec,
-        title,
-        schedule,
-        time_zone,
-        trigger: r.trigger,
-        bot_id: Some(bot.id.clone()),
-        bot_paused: bot.paused,
-        conditions: r.conditions,
+    let file = RoutineFile {
+        title: r.title.trim().to_string(),
         paused: false,
-        created_at: now,
-        next_run_at: None,
-        last_check_at: None,
-        last_outcome: None,
-        runs: vec![],
-        history: vec![],
-        github_seen: None,
-        failure_seen: None,
-        waiting: None,
+        schedule: normalize(&r.schedule),
+        time_zone: zone_for(app, r.time_zone)?,
+        instructions: r.instructions.trim().to_string(),
+        trigger: r.trigger,
+        conditions: r.conditions,
     };
-    record.next_run_at = next_due(&record, now)?;
-    insert(app, &record).await?;
-    Ok(record)
+    let text = render_file(&file)?;
+    check_file(app, &bot, &text).await?;
+    let taken: Vec<String> = launchpad_core::bots::routine_files(app, bot_id).await?.into_iter().map(|(p, _)| p).collect();
+    let path = file_path_for(&file.title, &taken);
+    launchpad_core::bots::write_files(app, bot_id, vec![(path.clone(), Some(text))]).await?;
+    by_file(app, bot_id, &path).await
+}
+
+/// The record of a bot's routine file.
+async fn by_file(app: &App, bot_id: &str, path: &str) -> Result<CronAgent> {
+    list(app).await?.into_iter().find(|r| r.bot_id.as_deref() == Some(bot_id) && r.file.as_deref() == Some(path)).context("the routine's file was saved, but its routine is missing: open the bot's routines")
 }
 
 pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> {
+    let current = get(app, id).await?;
+    if let (Some(bot_id), Some(path)) = (&current.bot_id, &current.file) {
+        return update_file(app, &current, bot_id, path, patch).await;
+    }
     if let Some(c) = &patch.conditions {
         validate_conditions(c)?;
     }
@@ -555,7 +559,49 @@ pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> 
     Ok(record)
 }
 
+/// A bot routine's change: its file gets the record's definition with the patch, then the record follows it.
+async fn update_file(app: &App, current: &CronAgent, bot_id: &str, path: &str, patch: CronPatch) -> Result<CronAgent> {
+    let mut f = file_of(current);
+    if let Some(s) = patch.schedule {
+        f.schedule = normalize(&s);
+    }
+    if let Some(z) = patch.time_zone {
+        f.time_zone = zone_for(app, Some(z))?;
+    }
+    if let Some(t) = patch.trigger {
+        f.trigger = t;
+    }
+    if let Some(c) = patch.conditions {
+        f.conditions = c;
+    }
+    if let Some(p) = patch.paused {
+        f.paused = p;
+    }
+    if let Some(t) = patch.title {
+        f.title = t.trim().to_string();
+    }
+    if let Some(i) = patch.instructions {
+        f.instructions = i.trim().to_string();
+    }
+    let bot = launchpad_core::bots::get(app, bot_id).await?;
+    let text = render_file(&f)?;
+    check_file(app, &bot, &text).await?;
+    launchpad_core::bots::write_files(app, bot_id, vec![(path.to_string(), Some(text))]).await?;
+    get(app, &current.id).await
+}
+
 pub async fn delete(app: &App, id: &str) -> Result<()> {
+    if let Ok(r) = get(app, id).await
+        && let (Some(bot_id), Some(path)) = (&r.bot_id, &r.file)
+        && launchpad_core::bots::routine_files(app, bot_id).await?.iter().any(|(p, _)| p == path)
+    {
+        // Deleting its file deletes the record (`sync_bot_files`).
+        return launchpad_core::bots::write_files(app, bot_id, vec![(path.clone(), None)]).await;
+    }
+    delete_record(app, id).await
+}
+
+async fn delete_record(app: &App, id: &str) -> Result<()> {
     let id = id.to_string();
     app.state_db
         .call(move |c| {
@@ -583,10 +629,218 @@ pub async fn set_bot_paused(app: &App, bot_id: &str, paused: bool) -> Result<()>
     Ok(())
 }
 
-/// Home: a deleted bot takes its routines with it.
+/// Home: a deleted bot takes its routines with it (its files go with its store).
 pub async fn delete_for_bot(app: &App, bot_id: &str) -> Result<()> {
     for r in list(app).await?.into_iter().filter(|r| r.bot_id.as_deref() == Some(bot_id)) {
-        delete(app, &r.id).await?;
+        delete_record(app, &r.id).await?;
+    }
+    Ok(())
+}
+
+/// `routines/<name>.toml` in a bot's store: the definition of one of its routines.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RoutineFile {
+    pub title: String,
+    /// No run starts while it is paused.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
+    /// 5-field cron expression (schedule trigger).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub schedule: String,
+    /// IANA time zone of the schedule. None: `[home] time_zone`, else the host's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
+    /// What the bot does at each run.
+    pub instructions: String,
+    #[serde(default)]
+    pub trigger: Trigger,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditions: Vec<CronCondition>,
+}
+
+const FILE_HEADER: &str = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), github, session_done or failure.\n";
+
+pub fn render_file(f: &RoutineFile) -> Result<String> {
+    Ok(format!("{FILE_HEADER}{}", toml::to_string(f)?))
+}
+
+/// Reads a routine file and checks what needs no bot: a name, instructions, a valid trigger and conditions.
+pub fn parse_file(text: &str) -> Result<RoutineFile> {
+    let mut f: RoutineFile = toml::from_str(text).context("routine file")?;
+    f.title = f.title.trim().to_string();
+    f.instructions = f.instructions.trim().to_string();
+    f.schedule = normalize(&f.schedule);
+    f.time_zone = f.time_zone.map(|z| z.trim().to_string()).filter(|z| !z.is_empty());
+    ensure!(!f.title.is_empty(), "give the routine a title");
+    ensure!(!f.instructions.is_empty(), "write what the bot does at each run (instructions)");
+    if let Some(z) = &f.time_zone {
+        parse_zone(z)?;
+    }
+    validate_conditions(&f.conditions)?;
+    validate_trigger(&f.trigger, &f.schedule, f.time_zone.as_deref())?;
+    Ok(f)
+}
+
+/// `parse_file`, plus the checks that need the bot (its harness reads quota for quota conditions).
+pub async fn check_file(app: &App, bot: &launchpad_core::bots::Bot, text: &str) -> Result<RoutineFile> {
+    let f = parse_file(text)?;
+    if let Ok(spec) = bot_spec(app, bot, String::new()).await
+        && let Some(h) = spec.harness
+    {
+        validate_harness_conditions(h, &f.conditions)?;
+    }
+    Ok(f)
+}
+
+/// The definition a record holds, as a file.
+fn file_of(r: &CronAgent) -> RoutineFile {
+    RoutineFile { title: r.title.clone(), paused: r.paused, schedule: r.schedule.clone(), time_zone: r.time_zone.clone(), instructions: r.spec.text.clone(), trigger: r.trigger.clone(), conditions: r.conditions.clone() }
+}
+
+/// `routines/<slug of the title>.toml`, not one of `taken`.
+pub fn file_path_for(title: &str, taken: &[String]) -> String {
+    let names: Vec<String> = taken.iter().filter_map(|p| p.strip_prefix(launchpad_core::bots::ROUTINES)?.strip_suffix(".toml")).map(str::to_string).collect();
+    let mut slug = launchpad_core::bots::slug_for(title, &names);
+    if slug == "bot" && !title.to_ascii_lowercase().contains("bot") {
+        slug = launchpad_core::bots::slug_for("routine", &names);
+    }
+    format!("{}{slug}.toml", launchpad_core::bots::ROUTINES)
+}
+
+/// Serializes syncs, so two writes never create two records for one file.
+static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Home, after every write of a bot's files: its routine records follow `routines/*.toml`. A new file makes a
+/// record, a changed one updates its definition (a new schedule, time zone, trigger or pause recomputes the next
+/// run from now; a new trigger restarts its watermark), a removed one deletes its record and history. A file with
+/// an error keeps the record's last good definition and shows the error (`file_error`); a new file with an error
+/// gets a paused record that shows it.
+pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
+    let _sync = SYNC.lock().await;
+    let Ok(bot) = launchpad_core::bots::get(app, bot_id).await else { return Ok(()) };
+    let files = launchpad_core::bots::routine_files(app, bot_id).await?;
+    let records: Vec<CronAgent> = list(app).await?.into_iter().filter(|r| r.bot_id.as_deref() == Some(bot_id)).collect();
+    let now = now_ms();
+    for (path, text) in &files {
+        let parsed = check_file(app, &bot, text).await.map_err(|e| format!("{e:#}"));
+        match (records.iter().find(|r| r.file.as_deref() == Some(path.as_str())), parsed) {
+            (Some(r), Ok(f)) => {
+                if file_of(r) == f && r.file_error.is_none() {
+                    continue;
+                }
+                modify(app, &r.id, move |r| {
+                    let timing = r.schedule != f.schedule || r.time_zone != f.time_zone || r.trigger != f.trigger || r.paused != f.paused;
+                    if r.trigger != f.trigger {
+                        r.github_seen = None;
+                        r.failure_seen = Some(now);
+                    }
+                    r.title = f.title;
+                    r.paused = f.paused;
+                    r.schedule = f.schedule;
+                    r.time_zone = f.time_zone;
+                    r.spec.text = f.instructions;
+                    r.trigger = f.trigger;
+                    r.conditions = f.conditions;
+                    r.file_error = None;
+                    if timing {
+                        r.next_run_at = next_due(r, now)?;
+                    }
+                    Ok(())
+                })
+                .await?;
+            }
+            (Some(r), Err(e)) => {
+                if r.file_error.as_deref() != Some(e.as_str()) {
+                    modify(app, &r.id, move |r| {
+                        r.file_error = Some(e);
+                        Ok(())
+                    })
+                    .await?;
+                }
+            }
+            (None, parsed) => {
+                let (f, error) = match parsed {
+                    Ok(f) => (f, None),
+                    // Nothing good to run yet: a paused record that shows the error until the file is fixed.
+                    Err(e) => (RoutineFile { title: path.trim_start_matches(launchpad_core::bots::ROUTINES).to_string(), paused: true, schedule: String::new(), time_zone: None, instructions: String::new(), trigger: Trigger::Schedule, conditions: vec![] }, Some(e)),
+                };
+                let spec = match bot_spec(app, &bot, f.instructions.clone()).await {
+                    Ok(s) => s,
+                    Err(_) => LaunchSpec { text: f.instructions.clone(), target: Target::Temp, workspace_id: Some(bot.workspace_id.clone()), ..Default::default() },
+                };
+                let mut record = CronAgent {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    spec,
+                    title: f.title,
+                    schedule: f.schedule,
+                    time_zone: f.time_zone,
+                    trigger: f.trigger,
+                    bot_id: Some(bot.id.clone()),
+                    bot_paused: bot.paused,
+                    conditions: f.conditions,
+                    paused: f.paused,
+                    created_at: now,
+                    next_run_at: None,
+                    last_check_at: None,
+                    last_outcome: None,
+                    runs: vec![],
+                    history: vec![],
+                    github_seen: None,
+                    failure_seen: None,
+                    file: Some(path.clone()),
+                    file_error: error,
+                    waiting: None,
+                };
+                record.next_run_at = next_due(&record, now).unwrap_or(None);
+                insert(app, &record).await?;
+            }
+        }
+    }
+    for r in records.iter().filter(|r| r.file.as_ref().is_some_and(|p| !files.iter().any(|(f, _)| f == p))) {
+        delete_record(app, &r.id).await?;
+    }
+    Ok(())
+}
+
+/// Home, at start, once: every bot routine made before routines were files gets its file, and its record is keyed
+/// to it. Then every bot's records follow its files. Idempotent until claimed: a file already written with the
+/// same content is kept.
+pub async fn files_from_records(app: &App) -> Result<()> {
+    if !launchpad_core::home_git::here(app) {
+        return Ok(());
+    }
+    const KEY: &str = "bot-routine-files";
+    let done = app.state_db.call(|c| Ok(c.query_row("SELECT 1 FROM seeded WHERE key = ?1", [KEY], |_| Ok(())).is_ok())).await?;
+    let bots = launchpad_core::bots::list(app).await?;
+    if !done {
+        let mut moved = 0;
+        for r in list(app).await?.into_iter().filter(|r| r.file.is_none()) {
+            let Some(bot) = r.bot_id.as_deref().and_then(|b| bots.iter().find(|x| x.id == b)) else { continue };
+            let text = render_file(&file_of(&r))?;
+            let files = launchpad_core::bots::routine_files(app, &bot.id).await?;
+            let path = match files.iter().find(|(_, t)| *t == text) {
+                // Written by an attempt that stopped before keying the record.
+                Some((p, _)) if !list(app).await?.iter().any(|x| x.file.as_deref() == Some(p.as_str()) && x.bot_id == r.bot_id) => p.clone(),
+                _ => file_path_for(&r.title, &files.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>()),
+            };
+            launchpad_core::bots::write_store(app, &launchpad_core::bots::store(&bot.id), vec![(path.clone(), Some(text))]).await?;
+            modify(app, &r.id, move |r| {
+                r.file = Some(path);
+                Ok(())
+            })
+            .await?;
+            moved += 1;
+        }
+        if moved > 0 {
+            tracing::info!("wrote {moved} bot routines as files of their bots");
+        }
+        app.state_db.call(|c| Ok(c.execute("INSERT OR IGNORE INTO seeded (key, at) VALUES (?1, ?2)", params![KEY, now_ms()]).map(|_| ())?)).await?;
+    }
+    for b in &bots {
+        if let Err(e) = sync_bot_files(app, &b.id).await {
+            tracing::warn!("routines of {}: {e:#}", b.settings.name);
+        }
     }
     Ok(())
 }
@@ -1118,6 +1372,31 @@ mod tests {
         let (why, missed) = late_reason(due, None, Some(due - 1));
         assert!(!missed);
         assert!(why.starts_with("Home checked this routine more than an hour"));
+    }
+
+    #[test]
+    fn routine_files_round_trip_and_name_their_errors() {
+        let f = RoutineFile {
+            title: "Daily check".into(),
+            paused: false,
+            schedule: "30 8 * * 1-5".into(),
+            time_zone: Some("Europe/Paris".into()),
+            instructions: "Look at what changed.\nReport in a few lines.".into(),
+            trigger: Trigger::Schedule,
+            conditions: vec![CronCondition::QuotaLeft { window: QuotaKind::FiveHour, min_left_percent: 20 }],
+        };
+        let text = render_file(&f).unwrap();
+        assert_eq!(parse_file(&text).unwrap(), f);
+        let g = RoutineFile { trigger: Trigger::Github { repo: None, events: vec![GithubEvent::ReviewRequested] }, schedule: String::new(), conditions: vec![], paused: true, ..f.clone() };
+        assert_eq!(parse_file(&render_file(&g).unwrap()).unwrap(), g);
+        // A hand-written file with the trigger inline and defaults left out.
+        let hand = "title = \"CI\"\ninstructions = \"Fix it\"\ntrigger = { kind = \"failure\", events = [\"any\"] }\n";
+        assert!(matches!(parse_file(hand).unwrap().trigger, Trigger::Failure { .. }));
+        assert!(parse_file("title = \"x\"\ninstructions = \"y\"\nschedule = \"every day\"\n").unwrap_err().to_string().contains("5 fields"));
+        assert!(parse_file("title = \"x\"\ninstructions = \"y\"\nschedule = \"0 9 * * *\"\ncolor = 1\n").is_err());
+        assert!(parse_file("title = \" \"\ninstructions = \"y\"\nschedule = \"0 9 * * *\"\n").is_err());
+        assert_eq!(file_path_for("Daily check!", &["routines/daily-check.toml".into()]), "routines/daily-check-2.toml");
+        assert_eq!(file_path_for("✦", &[]), "routines/routine.toml");
     }
 
     #[test]

@@ -60,7 +60,7 @@ fn admin_allows(method: &Method, path: &str) -> bool {
 fn admin_may_accept(body: &Value) -> bool {
     let id = |k: &str| body[k].as_str().is_some_and(|s| !s.is_empty() && !s.contains('/'));
     let Some(kind) = body["kind"].as_str() else { return false };
-    let ids = match kind { "message" => id("session_id"), "routine" | "bot_instructions" => id("bot_id"), _ => true };
+    let ids = match kind { "message" => id("session_id"), "routine" | "bot_instructions" | "bot_files" => id("bot_id"), _ => true };
     kind == "status" || (ids && actions::for_card(kind).is_some_and(|a| a.access == ActionAccess::Admin))
 }
 
@@ -219,7 +219,7 @@ mod tests {
         }
         assert!(!admin_allows(&Method::GET, "/api/config"));
         let direct = |b: Value| admin_may_accept(&b);
-        assert!(direct(serde_json::json!({"kind": "routine", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_instructions", "bot_id": "b"})));
+        assert!(direct(serde_json::json!({"kind": "routine", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_instructions", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_files", "bot_id": "b"})));
         assert!(direct(serde_json::json!({"kind": "preset"})));
         assert!(!direct(serde_json::json!({"kind": "tool"})) && !direct(serde_json::json!({"kind": "ready", "action": "outbox.send"})));
         let folder = actions::get("folder.set").unwrap();

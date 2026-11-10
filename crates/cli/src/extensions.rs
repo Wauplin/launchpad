@@ -26,6 +26,9 @@ impl launchpad_core::ext::Extensions for Extensions {
     async fn bot_paused(&self, app: &App, bot_id: &str, paused: bool) -> Result<()> {
         crons::set_bot_paused(app, bot_id, paused).await
     }
+    async fn bot_files_changed(&self, app: &App, bot_id: &str) -> Result<()> {
+        crons::sync_bot_files(app, bot_id).await
+    }
     async fn bot_deleted(&self, app: &App, bot_id: &str) -> Result<()> {
         crons::delete_for_bot(app, bot_id).await
     }

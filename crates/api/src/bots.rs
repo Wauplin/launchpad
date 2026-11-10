@@ -40,6 +40,15 @@ async fn one(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Bot> {
     Ok(Json(bots::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?))
 }
 async fn update(State(s): State<Ctx>, Path(id): Path<String>, Json(p): Json<Patch>) -> ApiResult<Bot> {
+    // Routine files are checked before they are saved (a file with an error would keep its routine's old definition).
+    if let Some(files) = &p.files {
+        let bot = bots::get(&s.app, &id).await.map_err(bad)?;
+        for (path, text) in files {
+            if let Some(t) = text {
+                launchpad_automation::crons::check_file(&s.app, &bot, t).await.map_err(|e| bad(e.context(path.clone())))?;
+            }
+        }
+    }
     Ok(Json(bots::update(&s.app, &id, p).await.map_err(bad)?))
 }
 async fn remove(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {

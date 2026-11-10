@@ -46,6 +46,15 @@ github_seen: string | null,
  */
 failure_seen: number | null, 
 /**
+ * A bot routine: its file in the bot's store (`routines/<name>.toml`), the definition this record follows.
+ * None for other routines.
+ */
+file: string | null, 
+/**
+ * Why its file cannot be used (a hand edit with an error): the routine keeps its last good definition.
+ */
+file_error: string | null, 
+/**
  * Why its due run has not started yet (for example no confirmed quota reading). Never stored: `list` fills it.
  */
 waiting: string | null, };

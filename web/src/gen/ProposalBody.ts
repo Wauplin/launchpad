@@ -26,7 +26,19 @@ before: string,
 /**
  * The unified diff from `before` (filled by Home).
  */
-patch: string, } | { "kind": "ready", action: string, args: Array<string>, input: Record<string, unknown>, 
+patch: string, } | { "kind": "bot_files", bot_id: string, 
+/**
+ * Path → its whole new content, or null to delete a routine file.
+ */
+files: Record<string, string | null>, 
+/**
+ * Each file's SHA-256 when the card was made, null when it did not exist (filled by Home).
+ */
+before: Record<string, string | null>, 
+/**
+ * The unified diff of each file (filled by Home).
+ */
+patches: Record<string, string>, } | { "kind": "ready", action: string, args: Array<string>, input: Record<string, unknown>, 
 /**
  * The agent session the click is about; a merge names the session whose branch it merges.
  */

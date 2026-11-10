@@ -10,7 +10,7 @@ use launchpad_core::{
     util::now_ms,
 };
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum QuotaKind {
     FiveHour,

@@ -120,7 +120,7 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "session.resume-paid", route: "/api/sessions/{id}/resume-paid", label: "Resume with paid usage", help: "Resume a quota-paused agent with paid usage", confirm: Some("Continues on paid usage, billed to the profile's account."), effect: Machine, access: Owner, ..A },
     // Bots.
     Action { name: "bot.create", route: "/api/bots", label: "Create bot", icon: Some("plus"), help: "Create a bot (it starts nothing)", body_file: Some("{\"workspace_id\", \"name\", \"instructions\", \"profile\", \"folder\"}"), card: Some("bot"), undo: Some("bot.delete"), ..A },
-    Action { name: "bot.update", method: "PATCH", route: "/api/bots/{id}", label: "Save", help: "Change a bot's settings or its BOT.md", body_file: Some("{\"set\": {<bot.toml fields to change, for example \"inbox_done\": true; null puts back the default>}}, {\"settings\": <all of bot.toml>} or {\"instructions\": \"<whole BOT.md>\"}"), card: Some("bot_instructions"), undo: Some("bot.update"), before: Some("/api/bots/{id}"), ..A },
+    Action { name: "bot.update", method: "PATCH", route: "/api/bots/{id}", label: "Save", help: "Change a bot's settings, its BOT.md or its routine files", body_file: Some("{\"set\": {<bot.toml fields to change, for example \"inbox_done\": true; null puts back the default>}}, {\"settings\": <all of bot.toml>}, {\"instructions\": \"<whole BOT.md>\"} or {\"files\": {\"routines/<name>.toml\": \"<whole file>\" or null to delete it}}"), card: Some("bot_files"), undo: Some("bot.update"), before: Some("/api/bots/{id}"), ..A },
     Action { name: "bot.delete", method: "DELETE", route: "/api/bots/{id}", label: "Delete bot", icon: Some("trash"), help: "Delete a bot, its memory and its routines", confirm: Some("Deletes the bot, its memory and its routines. Its sessions stay in Agents."), ..A },
     Action { name: "bot.message", route: "/api/bots/{id}/message", label: "Send", icon: Some("send"), help: "Send a message to a bot's thread; context (optional) adds read-only folders and agent traces: {\"context_projects\": [{\"project_id\": \"…\", \"branch\": null}], \"agent_traces\": [{\"session_id\": \"…\", \"through_seq\": 12}]}", input: &[f("text", Text), opt("context", Json), opt("new_session", Bool)], effect: Starts, ..A },
     Action { name: "bot.pause", route: "/api/bots/{id}/pause", label: "Pause", help: "Pause or resume a bot (and its routines and hooks)", input: &[f("paused", Bool)], undo: Some("bot.pause"), before: Some("/api/bots/{id}"), ..A },
@@ -183,6 +183,8 @@ pub fn get(name: &str) -> Option<&'static Action> {
 
 /// The action a card kind runs when it is accepted.
 pub fn for_card(kind: &str) -> Option<&'static Action> {
+    // Older BOT.md cards apply like the bot-files cards that replaced them.
+    let kind = if kind == "bot_instructions" { "bot_files" } else { kind };
     ACTIONS.iter().find(|a| a.card == Some(kind))
 }
 

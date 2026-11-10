@@ -19,6 +19,9 @@ pub async fn start(app: &App) -> Result<()> {
     if let Err(e) = failures::record_start(app).await {
         tracing::warn!("daemon start record: {e:#}");
     }
+    if let Err(e) = crons::files_from_records(app).await {
+        tracing::warn!("bot routine files: {e:#}");
+    }
     schedules::spawn(app);
     crons::spawn(app);
     Ok(())

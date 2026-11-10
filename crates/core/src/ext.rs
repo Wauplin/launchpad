@@ -27,6 +27,11 @@ pub trait Extensions: Send + Sync {
     async fn bot_paused(&self, _app: &App, _bot_id: &str, _paused: bool) -> Result<()> {
         Ok(())
     }
+    /// Home: a bot's files changed (an owner save, Restore, an accepted card): its routines follow
+    /// `routines/*.toml`.
+    async fn bot_files_changed(&self, _app: &App, _bot_id: &str) -> Result<()> {
+        Ok(())
+    }
     /// A bot was deleted: its routines go with it.
     async fn bot_deleted(&self, _app: &App, _bot_id: &str) -> Result<()> {
         Ok(())

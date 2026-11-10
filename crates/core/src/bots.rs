@@ -1,7 +1,8 @@
 //! Bots: named, persistent agents of a workspace. A bot is a set of files Home stores with versions, like a
 //! plain folder (store `bot-<id>`): `BOT.md` (the owner's instructions), `bot.toml` (its profile, folder,
-//! permission mode and proposal mode) and `memory/` (its own notes, `bot_memory`). Runners mirror the store
-//! read-only into its sessions (`$LAUNCHPAD_BOT`).
+//! permission mode and proposal mode), `routines/<name>.toml` (the definitions of its routines; their runs and
+//! watermarks are records of the automation crate, synced after each write through `ext::Extensions`) and
+//! `memory/` (its own notes, `bot_memory`). Runners mirror the store read-only into its sessions (`$LAUNCHPAD_BOT`).
 //! Ask Launchpad is a bot like the others, created once per workspace (`ask_bot`).
 //!
 //! A bot has one thread: a chain of sessions with `LaunchSpec.bot` set. A message goes to the newest open
@@ -19,6 +20,15 @@ use crate::{App, util::now_ms};
 
 pub const INSTRUCTIONS: &str = "BOT.md";
 pub const SETTINGS: &str = "bot.toml";
+/// The folder of its routine files, `routines/<name>.toml`.
+pub const ROUTINES: &str = "routines/";
+
+/// A routine file's path: `routines/<name>.toml`, the name in lowercase ASCII letters, digits, `-` and `_`.
+pub fn routine_path_ok(path: &str) -> bool {
+    path.strip_prefix(ROUTINES).and_then(|p| p.strip_suffix(".toml")).is_some_and(|n| {
+        (1..=64).contains(&n.len()) && n.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_') && !n.starts_with(['-', '_'])
+    })
+}
 
 pub fn store(id: &str) -> String {
     format!("bot-{id}")
@@ -139,6 +149,8 @@ pub struct Patch {
     pub instructions: Option<String>,
     /// A hand edit of `bot.toml`, checked before it is saved.
     pub settings_text: Option<String>,
+    /// Routine files (`routines/<name>.toml`) to write, or to delete (null). The API checks their content first.
+    pub files: Option<std::collections::BTreeMap<String, Option<String>>>,
     /// Only these fields of `bot.toml` (`set_fields`), the others kept: `{"inbox_done": true}`. Null puts a field
     /// back to its default.
     pub set: Option<serde_json::Map<String, serde_json::Value>>,
@@ -264,27 +276,60 @@ pub(crate) async fn exists(app: &App, id: &str) -> Result<bool> {
     app.state_db.call(move |c| Ok(c.query_row("SELECT 1 FROM bot WHERE id = ?1", [id], |_| Ok(true)).optional()?.unwrap_or(false))).await
 }
 
-/// Writes files as the owner, with their history.
-async fn write(app: &App, id: &str, files: Vec<(&str, String)>) -> Result<()> {
+/// Writes (or deletes, None) files as the owner, with their history, then lets the routines follow their files.
+async fn write(app: &App, id: &str, files: Vec<(String, Option<String>)>) -> Result<()> {
+    if files.is_empty() {
+        return Ok(());
+    }
     write_store(app, &store(id), files).await?;
     app.bus.publish("bots", "changed", serde_json::json!({"id": id}));
-    Ok(())
+    crate::ext::extensions().bot_files_changed(app, id).await
 }
 
-/// Writes the files of a bot's store as the owner, each change with its history. Unchanged files are skipped.
-pub(crate) async fn write_store(app: &App, store_id: &str, files: Vec<(&str, String)>) -> Result<()> {
+/// Writes BOT.md and routine files (`routines/<name>.toml`, None deletes one) as the owner, all in one change;
+/// the routines follow. bot.toml goes through `update` (checked), `memory/` through `bot_memory`.
+pub async fn write_files(app: &App, id: &str, files: Vec<(String, Option<String>)>) -> Result<()> {
+    get(app, id).await?;
+    for (path, body) in &files {
+        ensure!(path == INSTRUCTIONS || routine_path_ok(path), "a bot's files here are BOT.md and routines/<name>.toml (lowercase letters, digits, - and _), not {path}");
+        ensure!(path != INSTRUCTIONS || body.is_some(), "BOT.md cannot be deleted");
+    }
+    write(app, id, files).await
+}
+
+/// The routine files of a bot (`routines/<name>.toml`), with their text, by path.
+pub async fn routine_files(app: &App, id: &str) -> Result<Vec<(String, String)>> {
+    let tree = plain::tree(app, &store(id)).await?;
+    let mut out = vec![];
+    for f in tree.files.iter().filter(|f| f.path.starts_with(ROUTINES)) {
+        out.push((f.path.clone(), text_of(app, &tree.files, &f.path).await));
+    }
+    Ok(out)
+}
+
+/// Writes (or deletes, None) the files of a bot's store as the owner, each change with its history. Unchanged
+/// files are skipped. Nothing else follows: callers publish and sync.
+pub async fn write_store(app: &App, store_id: &str, files: Vec<(String, Option<String>)>) -> Result<()> {
     let tree = plain::tree(app, store_id).await?;
     let mut updates = vec![];
     for (path, body) in files {
-        let old = text_of(app, &tree.files, path).await;
-        if old == body && tree.files.iter().any(|f| f.path == path) {
+        let exists = tree.files.iter().any(|f| f.path == path);
+        let old = text_of(app, &tree.files, &path).await;
+        let Some(body) = body else {
+            if exists {
+                let (added, removed) = crate::kb::counts(&old, "");
+                updates.push((Update { path, sha256: None, size: 0, executable: false }, Some(Meta { author: crate::kb::Author::owner(None), added: Some(added), removed: Some(removed) })));
+            }
+            continue;
+        };
+        if old == body && exists {
             continue;
         }
         let data = body.into_bytes();
         let sha = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&data));
         plain::write_blob(app, &sha, &data).await?;
         let (added, removed) = crate::kb::counts(&old, &String::from_utf8_lossy(&data));
-        updates.push((Update { path: path.into(), sha256: Some(sha), size: data.len() as u64, executable: false }, Some(Meta { author: crate::kb::Author::owner(None), added: Some(added), removed: Some(removed) })));
+        updates.push((Update { path, sha256: Some(sha), size: data.len() as u64, executable: false }, Some(Meta { author: crate::kb::Author::owner(None), added: Some(added), removed: Some(removed) })));
     }
     if !updates.is_empty() {
         plain::record(app, store_id, None, updates).await?;
@@ -331,7 +376,7 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
         tx.commit()?;
         Ok(())
     }).await?;
-    write(app, &id, vec![(INSTRUCTIONS, instructions), (SETTINGS, render_settings(&settings)?)]).await?;
+    write(app, &id, vec![(INSTRUCTIONS.into(), Some(instructions)), (SETTINGS.into(), Some(render_settings(&settings)?))]).await?;
     get(app, &id).await
 }
 
@@ -343,20 +388,24 @@ pub async fn update(app: &App, id: &str, p: Patch) -> Result<Bot> {
         let s = parse_settings(&text)?;
         check_settings(app, &bot.workspace_id, &s).await?;
         name = Some(s.name.clone());
-        files.push((SETTINGS, text));
+        files.push((SETTINGS.to_string(), Some(text)));
     } else if let Some(s) = p.settings {
         check_settings(app, &bot.workspace_id, &s).await?;
         name = Some(s.name.clone());
-        files.push((SETTINGS, render_settings(&s)?));
+        files.push((SETTINGS.to_string(), Some(render_settings(&s)?)));
     } else if let Some(set) = p.set {
         ensure!(bot.settings_error.is_none(), "{}'s bot.toml has an error: fix it in its Settings tab first", bot.settings.name);
         let s = set_fields(&bot.settings, &set)?;
         check_settings(app, &bot.workspace_id, &s).await?;
         name = Some(s.name.clone());
-        files.push((SETTINGS, render_settings(&s)?));
+        files.push((SETTINGS.to_string(), Some(render_settings(&s)?)));
     }
     if let Some(i) = p.instructions {
-        files.push((INSTRUCTIONS, i));
+        files.push((INSTRUCTIONS.to_string(), Some(i)));
+    }
+    for (path, body) in p.files.unwrap_or_default() {
+        ensure!(routine_path_ok(&path), "only routine files (routines/<name>.toml: lowercase letters, digits, - and _) go in files, not {path}");
+        files.push((path, body));
     }
     write(app, id, files).await?;
     if let Some(name) = name.filter(|n| n.trim() != bot.settings.name.trim()) {
@@ -427,8 +476,8 @@ pub async fn diff(app: &App, id: &str, change: i64) -> Result<String> {
     Ok(crate::kb::unified(&blob_string(app, c.sha256.as_deref()).await, &blob_string(app, c.new_sha256.as_deref()).await))
 }
 
-/// Restore previous: puts back a file's content from before a change, as a new change by you. A memory note
-/// comes back even when it was removed since; one that the change created is removed.
+/// Restore previous: puts back a file's content from before a change, as a new change by you. A memory note or a
+/// routine file comes back even when it was removed since; one that the change created is removed.
 pub async fn restore(app: &App, id: &str, change: i64) -> Result<Bot> {
     let c = history(app, id).await?.into_iter().find(|c| c.id == change).context("this change is no longer kept")?;
     if c.path.starts_with(crate::bot_memory::DIR) {
@@ -443,6 +492,14 @@ pub async fn restore(app: &App, id: &str, change: i64) -> Result<Bot> {
         crate::bot_memory::apply(app, id, crate::kb::Author::owner(None), vec![op]).await?;
         return get(app, id).await;
     }
+    if routine_path_ok(&c.path) {
+        let text = match c.sha256.as_deref() {
+            Some(h) => Some(blob_string(app, Some(h)).await),
+            None => None,
+        };
+        write(app, id, vec![(c.path, text)]).await?;
+        return get(app, id).await;
+    }
     ensure!(c.sha256.is_some(), "this change created the file: there is no earlier version");
     let text = blob_string(app, c.sha256.as_deref()).await;
     match c.path.as_str() {
@@ -452,7 +509,7 @@ pub async fn restore(app: &App, id: &str, change: i64) -> Result<Bot> {
     }
 }
 
-/// The content of one of the bot's files (`memory/…`, BOT.md, bot.toml).
+/// The content of one of the bot's files (`memory/…`, `routines/…`, BOT.md, bot.toml).
 pub async fn read_file(app: &App, id: &str, path: &str) -> Result<Vec<u8>> {
     get(app, id).await?;
     let e = plain::tree(app, &store(id)).await?.files.into_iter().find(|e| e.path == path).with_context(|| format!("there is no {path}"))?;
@@ -550,10 +607,10 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
 pub fn instruction(bot: &BotLaunch, cli: &str) -> String {
     let mut out = format!(
         "You are {name}, a Launchpad bot: a persistent agent with one thread that continues across sessions. The owner's instructions for you (BOT.md):\n\n<bot-instructions>\n{instructions}\n</bot-instructions>\n\n\
-Your folder: `$LAUNCHPAD_BOT` is a read-only copy of your files: BOT.md, bot.toml and `memory/`, your own notes. Read `$LAUNCHPAD_BOT/memory/` before you answer anything it may cover. Write them with `{cli} bot memory write <file>` (content on stdin, or `--file <file>`; paths are relative to `memory/`, for example `notes.md`), `{cli} bot memory append <file> <text>` and `{cli} bot memory rm <file>`; `{cli} bot memory list` and `{cli} bot memory read <file>` read them. Keep them short and current: the owner's preferences and the few facts a later session needs, and what the owner asks you to remember. They are not a journal: never record your runs, what you did, or what went well or failed (the thread and its traces keep that); most turns write nothing. Facts other agents need (shared facts about people, projects, how-tos) go in the workspace knowledge base ($LAUNCHPAD_KB) instead.\n\
-Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. Unless your Launchpad CLI access is admin, you cannot edit BOT.md or bot.toml. When your instructions should change (the owner asked, or you learned how they like the work done), propose the whole new BOT.md and tell the owner it waits for their click: `{cli} propose bot-instructions --title \"<what changes>\" --spec-file bot.json`, where the file holds {{\"bot_id\": \"{id}\", \"instructions\": \"<the whole new BOT.md>\"}}. Changes to bot.toml (profile, folder, permissions, Launchpad CLI access) are the owner's, in the bot's Settings tab (or yours at admin access, when the owner asks).\n\
+Your folder: `$LAUNCHPAD_BOT` is a read-only copy of your files: BOT.md, bot.toml, `routines/<name>.toml` (your routines) and `memory/`, your own notes. Read `$LAUNCHPAD_BOT/memory/` before you answer anything it may cover. Write them with `{cli} bot memory write <file>` (content on stdin, or `--file <file>`; paths are relative to `memory/`, for example `notes.md`), `{cli} bot memory append <file> <text>` and `{cli} bot memory rm <file>`; `{cli} bot memory list` and `{cli} bot memory read <file>` read them. Keep them short and current: the owner's preferences and the few facts a later session needs, and what the owner asks you to remember. They are not a journal: never record your runs, what you did, or what went well or failed (the thread and its traces keep that); most turns write nothing. Facts other agents need (shared facts about people, projects, how-tos) go in the workspace knowledge base ($LAUNCHPAD_KB) instead.\n\
+Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. Unless your Launchpad CLI access is admin, you cannot edit BOT.md, bot.toml or your routines. When your instructions or routines should change (the owner asked, or you learned how they like the work done), propose the whole new files as one card and tell the owner it waits for their click: `{cli} propose bot-files --title \"<what changes>\" --spec-file files.json`, where the file holds {{\"bot_id\": \"{id}\", \"files\": {{\"BOT.md\": \"<the whole new BOT.md>\", \"routines/<name>.toml\": \"<the whole new routine file>\"}}}} (only the files that change; null deletes a routine; start from your copies in `$LAUNCHPAD_BOT`). The owner sees one diff per file. Changes to bot.toml (profile, folder, permissions, Launchpad CLI access) are the owner's, in the bot's Settings tab (or yours at admin access, when the owner asks).\n\
 Folders: find the workspace's folders and what they hold with `{cli} folders list` and your notes; when a task needs one, add a worktree of it to this session with `{cli} work add-project --session-id $LAUNCHPAD_SESSION_ID --project <name>`, which prints the folder to edit.\n\
-Routines: when the owner wants you to do something on your own later or again (every morning, when CI fails, when another agent is done), propose a routine for yourself and tell the owner it waits for their click: `{cli} propose routine --title \"Daily check\" --spec-file routine.json`, where the file holds {{\"bot_id\": \"{id}\", \"title\": \"Daily check\", \"instructions\": \"<what you do at each run>\", \"trigger\": {triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}}. A run arrives in this thread as a message starting with “Routine”; end it with a short report, or with exactly `no_update` when there is nothing to report.",
+Routines: when the owner wants you to do something on your own later or again (every morning, when CI fails, when another agent is done), propose a routine for yourself and tell the owner it waits for their click: `{cli} propose routine --title \"Daily check\" --spec-file routine.json`, where the file holds {{\"bot_id\": \"{id}\", \"title\": \"Daily check\", \"instructions\": \"<what you do at each run>\", \"trigger\": {triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}}; it becomes a card with your new file `routines/<name>.toml`. To change or delete routines, propose their files with `bot-files` as above (the same fields in TOML; your copies in `$LAUNCHPAD_BOT/routines/` show the format). A run arrives in this thread as a message starting with “Routine”; end it with a short report, or with exactly `no_update` when there is nothing to report.",
         name = bot.name,
         instructions = bot.instructions.trim(),
         id = bot.id,
@@ -599,6 +656,16 @@ mod tests {
         assert_eq!(slug_for("Repo Maintainer!", &[]), "repo-maintainer");
         assert_eq!(slug_for("Scout", &["scout".into(), "scout-2".into()]), "scout-3");
         assert_eq!(slug_for("✦✦", &[]), "bot");
+    }
+
+    #[test]
+    fn routine_paths_are_simple_toml_names() {
+        for ok in ["routines/daily-check.toml", "routines/a.toml", "routines/ci_2.toml"] {
+            assert!(routine_path_ok(ok), "{ok}");
+        }
+        for bad in ["routines/.toml", "routines/Daily.toml", "routines/a/b.toml", "routines/../x.toml", "routines/-a.toml", "routines/a.md", "bot.toml", "memory/a.toml", "routines/a.toml/"] {
+            assert!(!routine_path_ok(bad), "{bad}");
+        }
     }
 
     #[test]
