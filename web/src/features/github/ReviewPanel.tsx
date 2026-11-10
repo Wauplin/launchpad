@@ -2,7 +2,7 @@ import type { Suggestion } from "@/gen/Suggestion";
 import type { PendingReview } from "./pendingReview";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { abandonOperation } from "@/lib/operations";
 import { useReviewState } from "@/lib/reviewState";
 import { ConfirmButton, ErrorState } from "@/components/ui";
@@ -35,8 +35,13 @@ export function ReviewPanel({ repo, number, head, onPosted, onComment }: { repo:
       void qc.invalidateQueries({ queryKey: ["suggestions"] });
       if (result.followup_error) setError(result.followup_error);
       onPosted();
-    } catch (e) { setError(e); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setError(e);
+      // Home answered with a refusal (PR moved, GitHub rejected it): nothing was posted, so the review stays editable.
+      // Without a definite answer, the attempt stays until the owner checked GitHub.
+      if (e instanceof ApiError && e.operationCompleted) draft.set((v) => ({ ...v, attempt: null }));
+      void qc.invalidateQueries({ queryKey: ["suggestions"] });
+    } finally { setBusy(false); }
   }
   const sourceUnavailable = !!d.source && !suggestions.some((s) => s.id === d.source && s.status === "draft");
   const disabled = busy || !!attempt || sourceUnavailable || stale || !draft.loaded || (event !== "APPROVE" && !d.summary.trim() && !current.length);

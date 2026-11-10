@@ -56,7 +56,7 @@ cargo test
 (cd web && pnpm typecheck)
 (cd web && pnpm lint:hooks)
 (cd web && pnpm test:<name>)    # attachments, chat, code, composer, drafts, markdown,
-                                # operations, proposals, sessions, terminals, tour
+                                # operations, proposals, review, sessions, terminals, tour
 (cd web && pnpm ui-check)       # off-scale UI classes (not in CI)
 (cd deploy/hf-home && python -m unittest discover -s tests)   # in a venv with requirements.txt
 ```

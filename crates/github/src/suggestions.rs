@@ -391,11 +391,17 @@ pub async fn submit_review(app: &App, repo: &str, number: u64, mut body: serde_j
     let mut result = match result {
         Ok(v) => v,
         Err(e) => {
+            // A refusal posted nothing: the source stays a draft. Only an incomplete delivery blocks it.
+            let uncertain = launchpad_core::github::delivery_uncertain(&e);
             if let Some(s) = &mut suggestion {
-                s.status = "uncertain".into();
+                s.status = if uncertain { "uncertain" } else { "draft" }.into();
                 save(app, s).await?;
             }
-            return Err(e);
+            return Err(e.context(if uncertain {
+                "Posting did not complete. Check GitHub before another attempt; it will not be retried automatically."
+            } else {
+                "GitHub did not accept the review. Nothing was posted; your review stays editable."
+            }));
         }
     };
     if let Some(s) = &mut suggestion {

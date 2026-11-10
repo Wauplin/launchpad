@@ -288,6 +288,8 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const phone = usePhone();
   const key = itemKey(repo, number), path = itemPath(repo, number), qc = useQueryClient();
   const q = useQuery({ queryKey: key, queryFn: () => api.get<Item>(path), staleTime: 60_000 });
+  // Only an open PR takes a review; a closed one keeps plain comments and its side panel on every tab.
+  const reviewable = q.data?.__typename === "PullRequest" && q.data.state === "OPEN";
   const [panel, setPanel] = useState(false);
   const [refreshing, setRefreshing] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(null);
   const search = useSearch({ strict: false }) as { draft?: unknown; tab?: string; file?: string };
@@ -310,14 +312,14 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const [focusLine, setFocusLine] = useState<number | null>(null);
   const [replyOpen, setReplyOpen] = useState(false);
   const [focus, setFocus] = useState<{ id: string | null; n: number }>({ id: null, n: 0 });
-  const openReview = () => { if (tab === "conversation") setTab("files"); setReplyOpen(phone || window.innerWidth < 1100); };
+  const openReview = () => { if (tab === "conversation") setTab("files"); setReplyOpen(reviewable && (phone || window.innerWidth < 1100)); };
   const itemSuggestions = useSuggestions({ kind: "git_hub", repo, number });
   const reviewDraft = (id: string | null) => {
     if (id && itemSuggestions.data.some((s) => s.id === id && s.kind === "comment")) { setTab("conversation"); setFocus((f) => ({ id, n: f.n + 1 })); }
     else openReview();
   };
-  useEffect(() => { const open = (e: Event) => { const d = (e as CustomEvent<{ repo: string; number: number }>).detail; if (d.repo.toLowerCase() === repo.toLowerCase() && d.number === number) openReview(); }; window.addEventListener("open-review", open); return () => window.removeEventListener("open-review", open); }, [repo, number, phone, tab]);
-  useEffect(() => { if (draftParam) reviewDraft(draftParam === "1" ? null : draftParam); }, [draftParam, itemSuggestions.isSuccess]);
+  useEffect(() => { const open = (e: Event) => { const d = (e as CustomEvent<{ repo: string; number: number }>).detail; if (d.repo.toLowerCase() === repo.toLowerCase() && d.number === number) openReview(); }; window.addEventListener("open-review", open); return () => window.removeEventListener("open-review", open); }, [repo, number, phone, tab, reviewable]);
+  useEffect(() => { if (draftParam) reviewDraft(draftParam === "1" ? null : draftParam); }, [draftParam, itemSuggestions.isSuccess, reviewable]);
   const projects = useProjects().data ?? [];
   const project = projectForRepo(projects, repo);
   const notes = usePendingReview(repo, number);
@@ -354,6 +356,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const isPr = item?.__typename === "PullRequest";
   const state = stateOf(item);
   const head = item?.headRefOid;
+  const controls = !phone && (tab === "conversation" || !reviewable);
   const current = notes.value.comments.filter((n) => !n.head || n.head === head);
 
   const launch = <LaunchButton small primary={!!item && !isPr} ctx={{ projectId: project?.id ?? null, githubRefs: item ? [reference(repo, item, isPr ? "pr" : "issue")] : [] }} />;
@@ -363,7 +366,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   const more = <Popover align="right" width={220} label="More actions" trigger={({ open, toggle }) => <button className="iconbtn" aria-label="More actions" aria-expanded={open} title="More actions" onClick={toggle}><Icon name="more" size={16} /></button>}>
     {(close) => <div className="grid gap-0.5"><MenuItem icon={<Icon name="ext" size={12} />} label="Open on GitHub" onClick={() => { openOnGitHub(); close(); }} /></div>}
   </Popover>;
-  const actions = <>{isPr ? <><button className="btn btn-sm" onClick={openReview}>Review ({current.length})</button>{agentReview}{launch}</> : launch}{item && <AddContext refItem={reference(repo, item, isPr ? "pr" : "issue")} />}{more}</>;
+  const actions = <>{reviewable ? <><button className="btn btn-sm" onClick={openReview}>Review ({current.length})</button>{agentReview}{launch}</> : launch}{item && <AddContext refItem={reference(repo, item, isPr ? "pr" : "issue")} />}{more}</>;
   const meta = <>
     <Badge tone={state.tone} icon={state.icon}>{state.label}</Badge>
     <span>{repo} #{number}</span>
@@ -383,7 +386,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
   />;
   return <div className="flex h-full flex-col">
     {phone ? <>
-      <PhoneHeader title={item?.title ?? `#${number}`} onBack={inFile ? phoneFile.list : back} backLabel={inFile ? "Back to the files" : "Back"} subtitle={inFile ? undefined : <span className="flex flex-wrap items-center gap-1.5">{meta}</span>} primary={inFile ? undefined : isPr ? <button className="btn btn-sm" onClick={openReview}>Review ({current.length})</button> : launch} actions={<>{isPr && <>{agentReview}{launch}</>}{item && <AddContext refItem={reference(repo, item, isPr ? "pr" : "issue")} />}<button className="btn btn-sm" onClick={openOnGitHub}>Open on GitHub</button><button className="btn btn-sm" disabled={refreshing} onClick={() => void refresh()}>Refresh</button></>} details={item && <Controls key={item.updatedAt} item={item} act={act} busy={busy} />} />
+      <PhoneHeader title={item?.title ?? `#${number}`} onBack={inFile ? phoneFile.list : back} backLabel={inFile ? "Back to the files" : "Back"} subtitle={inFile ? undefined : <span className="flex flex-wrap items-center gap-1.5">{meta}</span>} primary={inFile ? undefined : reviewable ? <button className="btn btn-sm" onClick={openReview}>Review ({current.length})</button> : launch} actions={<>{reviewable && <>{agentReview}{launch}</>}{item && <AddContext refItem={reference(repo, item, isPr ? "pr" : "issue")} />}<button className="btn btn-sm" onClick={openOnGitHub}>Open on GitHub</button><button className="btn btn-sm" disabled={refreshing} onClick={() => void refresh()}>Refresh</button></>} details={item && <Controls key={item.updatedAt} item={item} act={act} busy={busy} />} />
       {tabs && !inFile && <div className="px-3">{tabs}</div>}
     </> : <PageHeader title={item?.title ?? `#${number}`} meta={meta} actions={actions} tabs={tabs} />}
     {(!!error || q.error) && <ErrorState className="m-2" error={error ?? q.error} onRetry={() => void refresh()} />}
@@ -391,18 +394,19 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
     {item && <SuggestionBanner item={item} onComment={reviewDraft} compact={inFile} />}
     {item ? <div className="@container relative flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-        {!phone && <div className="flex flex-none justify-end border-b border-line-2 px-5 py-1 @min-[760px]:hidden"><button type="button" className="btn btn-sm" aria-expanded={panel} onClick={() => setPanel(!panel)}><Icon name="sliders" size={12} />Status, checks and labels</button></div>}
-        {tab === "files" && isPr ? <FilesChanged focusLine={focusLine} toolbar={<button className="btn btn-sm min-[1100px]:hidden" onClick={openReview}>Review ({current.length})</button>} repo={repo} number={number} head={item.headRefOid!} base={item.baseRefOid} file={search.file} phoneFile={phone ? phoneFile : undefined}
-          phoneBar={<button className="btn btn-sm" aria-haspopup="dialog" onClick={openReview}>{item.state === "OPEN" ? "Review" : "Reply"}<Count n={current.length} title={`${current.length} line comments for your next review`} /></button>} />
+        {controls && <div className="flex flex-none justify-end border-b border-line-2 px-5 py-1 @min-[760px]:hidden"><button type="button" className="btn btn-sm" aria-expanded={panel} onClick={() => setPanel(!panel)}><Icon name="sliders" size={12} />Status, checks and labels</button></div>}
+        {tab === "files" && isPr ? <FilesChanged focusLine={focusLine} toolbar={reviewable && <button className="btn btn-sm min-[1100px]:hidden" onClick={openReview}>Review ({current.length})</button>} repo={repo} number={number} head={item.headRefOid!} base={item.baseRefOid} file={search.file} phoneFile={phone ? phoneFile : undefined}
+          phoneBar={<button className="btn btn-sm" aria-haspopup="dialog" onClick={reviewable ? openReview : () => setReplyOpen(true)}>{reviewable ? "Review" : "Reply"}<Count n={current.length} title={`${current.length} line comments for your next review`} /></button>} />
           : tab === "threads" && isPr ? <ReviewThreads item={item} />
             : <Conversation item={item} focus={focus} />}
         {(!isPr || tab === "conversation") && !inFile && reply(true)}
       </div>
-      {isPr && item.state === "OPEN" && <>
+      {inFile && !reviewable && replyOpen && <Sheet title="Reply" onClose={() => setReplyOpen(false)}>{reply(false)}</Sheet>}
+      {reviewable && <>
         {!phone && tab !== "conversation" && <aside className="hidden w-80 flex-none overflow-y-auto border-l border-line min-[1100px]:block"><ReviewPanel repo={repo} number={number} head={head!} onPosted={() => void refresh()} onComment={(file, line) => { go({ tab: "files", file }, true); setFocusLine(line); }} /></aside>}
         {replyOpen && (phone ? <Sheet title="Your review" onClose={() => setReplyOpen(false)}><ReviewPanel repo={repo} number={number} head={head!} onPosted={() => void refresh()} onComment={(file, line) => { setFocusLine(line); setReplyOpen(false); if (search.file !== file) phoneFile.open(file); }} /></Sheet> : <div className="absolute inset-y-0 right-0 z-20 w-80 overflow-y-auto border-l border-line bg-paper shadow-lg"><button className="btn btn-sm m-2" onClick={() => setReplyOpen(false)}>Close</button><ReviewPanel repo={repo} number={number} head={head!} onPosted={() => void refresh()} onComment={(file, line) => { go({ tab: "files", file }, true); setFocusLine(line); }} /></div>)}
       </>}
-      {!phone && (tab === "conversation" || !isPr) && <Controls key={item.updatedAt} item={item} act={act} busy={busy} shown={panel} onClose={() => setPanel(false)} />}
+      {controls && <Controls key={item.updatedAt} item={item} act={act} busy={busy} shown={panel} onClose={() => setPanel(false)} />}
     </div> : !q.error && <Loading what="this item from GitHub" />}
   </div>;
 }

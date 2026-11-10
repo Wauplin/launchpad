@@ -81,6 +81,9 @@ jobs:
       - name: Check clipboard attachments
         working-directory: web
         run: pnpm test:attachments
+      - name: Pending review payload
+        working-directory: web
+        run: pnpm test:review
 
   tests:
     name: Tests

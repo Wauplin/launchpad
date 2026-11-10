@@ -187,11 +187,21 @@ export function DiffReview({ files, selected, onSelect, patch, loading, error, e
   // A host without `phoneView` (session Changes, a commit): the opened file is an overlay, so back returns to the list.
   useBackClose(phone && !phoneView && !ownList, () => setShowList(true));
   type Picked = { index: number; line: number | null; side: "old" | "new"; code: string };
-  const drafts = useReviewState<Record<string, { picked: Picked | null; text: string }>>(draftKey ?? `diff-draft:${selected}`, {});
+  // Unfinished comments, one per file: on Home when the host names a key (a PR or Local PR), else in this view only,
+  // so the Changes of different agents or commits never share a draft.
+  type Drafts = Record<string, { picked: Picked | null; text: string }>;
+  const shared = useReviewState<Drafts>(draftKey ?? "line-draft:none", {});
+  const [own, setOwn] = useState<Drafts>({});
+  const drafts = draftKey ? shared : { value: own, set: setOwn };
   const fileDraft = drafts.value[selected ?? ""];
   const picked = fileDraft?.picked ?? null, draft = fileDraft?.text ?? "";
-  const setPicked = (picked: Picked | null) => drafts.set((v) => ({ ...v, [selected ?? ""]: { picked, text: v[selected ?? ""]?.text ?? "" } }));
-  const setDraft = (text: string) => drafts.set((v) => ({ ...v, [selected ?? ""]: { picked: v[selected ?? ""]?.picked ?? null, text } }));
+  const update = (change: (d: { picked: Picked | null; text: string }) => { picked: Picked | null; text: string }) => drafts.set((v) => {
+    const { [selected ?? ""]: before, ...rest } = v;
+    const after = change(before ?? { picked: null, text: "" });
+    return after.picked || after.text ? { ...rest, [selected ?? ""]: after } : rest;
+  });
+  const setPicked = (picked: Picked | null) => update((d) => ({ ...d, picked }));
+  const setDraft = (text: string) => update((d) => ({ ...d, text }));
   const listRef = useRef<HTMLDivElement>(null);
   const list = useVirtualizer({ count: files.length, getScrollElement: () => listRef.current, estimateSize: () => (phone ? 44 : 28), overscan: 6, useFlushSync: false });
 
