@@ -125,7 +125,7 @@ pub async fn native_host(paths: &Paths, origin: &str) -> Result<()> {
         let request: Value = serde_json::from_slice(&bytes)?;
         let result = if request["type"] == "pair" {
             let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(10)).build()?;
-            match http.post(format!("{}/api/devices/pair", paths.base_url())).bearer_auth(paths.token()?).header("x-launchpad-local-pair", "1").send().await {
+            match http.post(format!("{}/api/devices/pair", paths.base_url())).bearer_auth(paths.read_token()?).header("x-launchpad-local-pair", "1").send().await {
                 Ok(res) if res.status().is_success() => res.json::<Value>().await?,
                 _ => json!({"error":"Cannot reach the local Launchpad daemon. Start Launchpad or use a pairing code."}),
             }

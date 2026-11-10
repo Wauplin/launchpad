@@ -22,7 +22,7 @@ struct Client {
 impl Client {
     fn new(paths: &Paths) -> Result<Client> {
         // LAUNCHPAD_TOKEN: a restricted credential (a session's CLI token).
-        let token = match std::env::var("LAUNCHPAD_TOKEN") { Ok(t) if !t.trim().is_empty() => t.trim().to_string(), _ => paths.token()? };
+        let token = match std::env::var("LAUNCHPAD_TOKEN") { Ok(t) if !t.trim().is_empty() => t.trim().to_string(), _ => paths.read_token()? };
         Ok(Client { base: paths.base_url(), token, http: reqwest::Client::new() })
     }
 
@@ -920,7 +920,7 @@ async fn run() -> Result<()> {
         }
         Command::Url | Command::Pair => {
             let res = reqwest::Client::new().post(format!("{}/api/devices/pair", paths.base_url()))
-                .bearer_auth(paths.token()?).send().await.context("is the daemon running?")?;
+                .bearer_auth(paths.read_token()?).send().await.context("is the daemon running?")?;
             let body: serde_json::Value = res.error_for_status()?.json().await?;
             println!("{}", body["url"].as_str().context("missing pairing URL")?);
             if let Some(warning) = body["warning"].as_str() {

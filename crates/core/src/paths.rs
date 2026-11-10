@@ -128,8 +128,12 @@ impl Paths {
         format!("http://127.0.0.1:{}", self.port)
     }
 
-    /// Reads the API token, creating it (256 random bits, mode 0600) on first use.
+    /// Reads the API token, creating it (256 random bits, mode 0600) on first use. A daemon that keeps it in
+    /// memory (`keep_token_in_memory`) never reads or writes the file.
     pub fn token(&self) -> Result<String> {
+        if let Some(t) = MEMORY_TOKEN.get() {
+            return Ok(t.clone());
+        }
         let path = self.token_file();
         if let Ok(t) = std::fs::read_to_string(&path) {
             let t = t.trim().to_string();
@@ -143,7 +147,33 @@ impl Paths {
         write_private(&path, &token)?;
         Ok(token)
     }
+
+    /// The CLI's owner token: the file the daemon wrote, never created here (a daemon that keeps its token in
+    /// memory has no file, and a new file would not match it anyway).
+    pub fn read_token(&self) -> Result<String> {
+        let t = std::fs::read_to_string(self.token_file()).map(|t| t.trim().to_string()).unwrap_or_default();
+        anyhow::ensure!(
+            t.len() == 64,
+            "no daemon token in {}: is the daemon running? (Burst and Local VM runners keep none on disk: use Home's window)",
+            self.data_dir.display()
+        );
+        Ok(t)
+    }
+
+    /// Burst and Local VM runners, where agents run as the daemon's own user without a jail: the owner token
+    /// lives only in this process's memory (a new one at each start) and any earlier file is deleted, so an
+    /// agent cannot read it and act as the owner. Session CLI tokens derive from it, so they also change at
+    /// each start (every harness process starts again anyway).
+    pub fn keep_token_in_memory(&self) -> Result<()> {
+        MEMORY_TOKEN.get_or_init(|| hex::encode(rand::random::<[u8; 32]>()));
+        match std::fs::remove_file(self.token_file()) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e).context("delete the daemon token file"),
+            _ => Ok(()),
+        }
+    }
 }
+
+static MEMORY_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 pub(crate) fn write_private(path: &Path, content: &str) -> Result<()> {
     let tmp = path.with_extension("tmp");

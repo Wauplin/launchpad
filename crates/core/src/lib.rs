@@ -166,11 +166,14 @@ impl App {
         let config = config::ConfigHandle::load(&paths, bus.clone())?;
         // Burst and Local VM: agents run as the daemon's own user, with no jail between them. A non-dumpable
         // daemon cannot be attached to, and its memory and environment (a Burst runner's credential) cannot be
-        // read through /proc by those agents.
-        #[cfg(target_os = "linux")]
+        // read through /proc by those agents; its owner token stays in that memory, never in a file.
         if paths.role.runs_agents() && (home_link::burst().is_some() || config.get().runner.boundary == config::Boundary::Vm) {
+            #[cfg(target_os = "linux")]
             // SAFETY: prctl on this process only.
-            unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0) };
+            unsafe {
+                libc::prctl(libc::PR_SET_DUMPABLE, 0)
+            };
+            paths.keep_token_in_memory()?;
         }
         let state_db = db::open_state(&paths.state_db())?;
         let cache_db = db::open_cache(&paths.cache_db())?;
