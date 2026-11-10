@@ -44,4 +44,8 @@ github_seen: string | null,
 /**
  * Failure trigger: the newest failure (`Failure::seen_at`, Unix ms) already handled.
  */
-failure_seen: number | null, };
+failure_seen: number | null, 
+/**
+ * Why its due run has not started yet (for example no confirmed quota reading). Never stored: `list` fills it.
+ */
+waiting: string | null, };

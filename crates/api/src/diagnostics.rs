@@ -321,7 +321,7 @@ async fn health(State(s): State<Ctx>) -> ApiResult<Value> {
 
     // Routines, schedules and proposals.
     for r in launchpad_automation::crons::list(app).await.unwrap_or_default() {
-        if let Some(run) = r.history.last().filter(|x| matches!(x.outcome, launchpad_automation::crons::RunOutcome::Failed | launchpad_automation::crons::RunOutcome::Interrupted) && x.at > day) {
+        if let Some(run) = r.history.last().filter(|x| (x.missed || matches!(x.outcome, launchpad_automation::crons::RunOutcome::Failed | launchpad_automation::crons::RunOutcome::Interrupted)) && x.at > day) {
             add("routines", format!("Routine “{}”: last run {:?}", r.title, run.outcome).to_lowercase(), run.detail.clone(), json!({"routine": r.id, "session": run.session_id, "bot": r.bot_id}));
         }
     }
@@ -336,6 +336,11 @@ async fn health(State(s): State<Ctx>) -> ApiResult<Value> {
     let status = app.status.get();
     for (login, q) in &status.quotas {
         if let Some(e) = &q.quota_error { add("quota", format!("Quota of {login} ({}) cannot be read", q.harness), Some(e.clone()), json!({"profiles": q.profiles})); }
+    }
+    for (login, hold) in launchpad_core::quota::holds(now).into_iter().filter(|(_, h)| now - h.since >= launchpad_automation::failures::QUOTA_HOLD_MS) {
+        let q = status.quotas.get(&login).cloned().unwrap_or_default();
+        let what = format!("Automatic work (routines, scheduled launches) has waited {} min for a quota reading of {}", (now - hold.since) / 60_000, launchpad_core::quota::login_label(&login, &q));
+        add("quota", what, Some(launchpad_core::quota::reading_detail(&q, now)), json!({"login": login, "profiles": q.profiles, "since": hold.since}));
     }
     for (h, st) in &status.harnesses {
         if let Some(e) = &st.version_error { add("harnesses", format!("{h} version check failed"), Some(e.clone()), json!({})); }

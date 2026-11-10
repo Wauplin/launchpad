@@ -109,6 +109,11 @@ pub struct RoutineRun {
     #[serde(default)]
     #[ts(skip)]
     pub quiet_ok: bool,
+    /// Skipped because Launchpad could not confirm what it needed (a quota reading) for an hour: a failure for
+    /// `failures::collect`.
+    #[serde(default)]
+    #[ts(skip)]
+    pub missed: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -151,6 +156,9 @@ pub struct CronAgent {
     #[serde(default)]
     #[ts(type = "number | null")]
     pub failure_seen: Option<i64>,
+    /// Why its due run has not started yet (for example no confirmed quota reading). Never stored: `list` fills it.
+    #[serde(default, skip_deserializing)]
+    pub waiting: Option<String>,
 }
 
 impl CronAgent {
@@ -305,6 +313,13 @@ pub async fn list(app: &App) -> Result<Vec<CronAgent>> {
             Ok(crate::decode_rows("routine", rows, |s| Ok(serde_json::from_str(s)?)))
         })
         .await
+        .map(|mut records: Vec<CronAgent>| {
+            let held = HELD.lock().unwrap();
+            for r in &mut records {
+                r.waiting = held.get(&r.id).filter(|(due, _)| r.next_run_at == Some(*due)).map(|(_, why)| why.clone());
+            }
+            records
+        })
 }
 
 pub async fn get(app: &App, id: &str) -> Result<CronAgent> {
@@ -418,6 +433,7 @@ pub async fn create(
         history: vec![],
         github_seen: None,
         failure_seen: None,
+        waiting: None,
     };
     record.next_run_at = next_due(&record, now)?;
     insert(app, &record).await?;
@@ -483,6 +499,7 @@ pub async fn create_for_bot(app: &App, bot_id: &str, r: BotRoutine) -> Result<Cr
         history: vec![],
         github_seen: None,
         failure_seen: None,
+        waiting: None,
     };
     record.next_run_at = next_due(&record, now)?;
     insert(app, &record).await?;
@@ -605,8 +622,13 @@ fn push_run(r: &mut CronAgent, run: RoutineRun) {
 }
 
 async fn skip(app: &App, id: &str, cause: String, reason: String) -> Result<()> {
+    skip_run(app, id, cause, reason, false).await
+}
+
+/// `skip`, marked as a failure when `missed`.
+async fn skip_run(app: &App, id: &str, cause: String, reason: String, missed: bool) -> Result<()> {
     modify(app, id, move |r| {
-        push_run(r, RoutineRun { at: now_ms(), cause, session_id: None, outcome: RunOutcome::Skipped, detail: Some(reason), quiet_ok: false });
+        push_run(r, RoutineRun { at: now_ms(), cause, session_id: None, outcome: RunOutcome::Skipped, detail: Some(reason), quiet_ok: false, missed });
         Ok(())
     })
     .await
@@ -661,7 +683,7 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
             if automatic {
                 ensure!(r.active(), "paused");
             }
-            push_run(r, RoutineRun { at, cause, session_id: None, outcome: RunOutcome::Running, detail: None, quiet_ok });
+            push_run(r, RoutineRun { at, cause, session_id: None, outcome: RunOutcome::Running, detail: None, quiet_ok, missed: false });
             Ok(())
         }
     })
@@ -720,14 +742,21 @@ async fn on_event(app: &App, r: &CronAgent, cause: String, context: String) -> R
     }
 }
 
+/// Why a routine's due occurrence waited, with that due time (Unix ms): the reason its late skip gives. In memory.
+static HELD: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, (i64, String)>>> = std::sync::LazyLock::new(Default::default);
+
 async fn tick(app: &App, record: CronAgent) -> Result<()> {
     let now = now_ms();
     // Keep this occurrence due until the protected harness has a fresh reading.
     let spec = effective_spec(app, &record).await?;
-    if spec.harness.is_some_and(|h| !launchpad_core::quota::automatic_ready(app, h, &spec)) && record.next_run_at.is_some_and(|d| now - d <= MISSED_GRACE_MS) {
+    let held = spec.harness.and_then(|h| launchpad_core::quota::hold_reason(app, h, &spec));
+    let due = record.next_run_at;
+    if let (Some(why), Some(d)) = (&held, due)
+        && now - d <= MISSED_GRACE_MS
+    {
+        HELD.lock().unwrap().insert(record.id.clone(), (d, why.clone()));
         return Ok(());
     }
-    let due = record.next_run_at;
     let (record, late) = modify(app, &record.id, move |r| {
         if !r.active() || r.next_run_at != due {
             bail!("already handled");
@@ -737,10 +766,24 @@ async fn tick(app: &App, record: CronAgent) -> Result<()> {
         Ok(due.is_some_and(|d| now - d > MISSED_GRACE_MS))
     })
     .await?;
+    let waited = HELD.lock().unwrap().remove(&record.id).filter(|(d, _)| Some(*d) == due).map(|(_, why)| why);
     if late {
-        return skip(app, &record.id, "Scheduled".into(), "Launchpad was not running at the scheduled time".into()).await;
+        let (reason, missed) = late_reason(due.unwrap_or(now), held.or(waited), crate::failures::started_at());
+        return skip_run(app, &record.id, "Scheduled".into(), reason, missed).await;
     }
     on_event(app, &record, "Scheduled".into(), String::new()).await
+}
+
+/// Why a scheduled run more than an hour late is skipped, and whether that is a failure: it waited for its quota
+/// (`quota::hold_reason`), or Home started after the scheduled time (`home_started`, Unix ms).
+fn late_reason(due: i64, held: Option<String>, home_started: Option<i64>) -> (String, bool) {
+    if let Some(why) = held {
+        return (format!("waited an hour after the scheduled time: {why}"), true);
+    }
+    match home_started.filter(|s| *s > due) {
+        Some(s) => (format!("Home was not running at the scheduled time (it started {} min later)", (s - due) / 60_000), false),
+        None => ("Home checked this routine more than an hour after the scheduled time".into(), false),
+    }
 }
 
 /// Home: a turn ended (the session left Running). Settles the routine run it belongs to, then starts the
@@ -921,7 +964,11 @@ async fn inbox_synced_inner(app: &App) -> Result<()> {
             many => format!("GitHub activity ({})", many.len()),
         };
         if fresh.is_empty() {
-            skip(app, &record.id, cause, "the activity is more than 1 hour old".into()).await?;
+            let (why, missed) = match spec.harness.and_then(|h| launchpad_core::quota::hold_reason(app, h, &spec)) {
+                Some(held) => (format!("the activity is more than 1 hour old; it waited for the quota: {held}"), true),
+                None => ("the activity is more than 1 hour old".into(), false),
+            };
+            skip_run(app, &record.id, cause, why, missed).await?;
             continue;
         }
         let context = fresh
@@ -1053,6 +1100,25 @@ fn validate_harness_conditions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn late_runs_say_why_they_were_skipped() {
+        let due = 10 * 3_600_000;
+        // Held by quota while Home ran: a failure, with the quota's reason.
+        let (why, missed) = late_reason(due, Some("no confirmed Claude quota reading for vault:a: last reading 70 min ago; 429".into()), Some(due - 3_600_000));
+        assert!(missed);
+        assert_eq!(why, "waited an hour after the scheduled time: no confirmed Claude quota reading for vault:a: last reading 70 min ago; 429");
+        // Home started late and held nothing: Home was down, not a failure of its own.
+        let (why, missed) = late_reason(due, None, Some(due + 75 * 60_000));
+        assert!(!missed);
+        assert_eq!(why, "Home was not running at the scheduled time (it started 75 min later)");
+        // Home started late, then waited for the quota for the rest of the hour: the quota is the reason.
+        assert!(late_reason(due, Some("q".into()), Some(due + 10 * 60_000)).1);
+        // Home ran the whole time and nothing held the run.
+        let (why, missed) = late_reason(due, None, Some(due - 1));
+        assert!(!missed);
+        assert!(why.starts_with("Home checked this routine more than an hour"));
+    }
 
     #[test]
     fn github_events_match_notification_reasons() {

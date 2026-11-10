@@ -216,16 +216,20 @@ pub fn http_client() -> reqwest::Client {
         .expect("http client")
 }
 
+/// Waits until a login's next poll: `active` seconds while a protected session of it runs, else `idle`. True when
+/// automatic work asked for a reading in the meantime.
 pub async fn wait_poll(
     app: &App,
     account: &str,
     idle: u64,
     active: u64,
-) {
+) -> bool {
     let start = std::time::Instant::now();
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
+        // Automatic work waits for a reading (`quota::want_reading`): check now.
+        if crate::quota::take_demand(account) { return true; }
         let delay = if crate::quota::monitoring(app, account) { active } else { idle };
-        if start.elapsed().as_secs() >= delay { return; }
+        if start.elapsed().as_secs() >= delay { return false; }
     }
 }

@@ -107,7 +107,82 @@ pub fn protected(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> bool {
 
 /// Automatic work requires confirmed capacity; manual starts may use best-effort protection.
 pub fn automatic_ready(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> bool {
-    !protected(app, harness, spec) || available(&reading_for(app, harness, spec), crate::util::now_ms())
+    hold_reason(app, harness, spec).is_none()
+}
+
+/// Why automatic work of this spec waits for its quota now, or None when it may start. A wait without a fresh
+/// reading asks the login's monitor for one (`want_reading`) and counts in `holds`.
+pub fn hold_reason(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> Option<String> {
+    if !protected(app, harness, spec) { return None; }
+    let key = crate::profiles::account(app, harness, spec);
+    let key = resolve_vault_key(app, &key).unwrap_or(key);
+    let q = reading(app, &key);
+    let now = crate::util::now_ms();
+    let why = hold_text(crate::harness::registration(harness).descriptor.name, &key, &q, now);
+    let mut held = HOLDS.lock().unwrap();
+    match &why {
+        None => { held.remove(&key); }
+        Some(_) => {
+            let h = held.entry(key.clone()).or_insert(Hold { since: now, last: now });
+            h.last = now;
+            drop(held);
+            want_reading(&key);
+        }
+    }
+    why
+}
+
+/// The words of `hold_reason` for one reading: an exhausted window, else the missing or stale reading.
+pub fn hold_text(harness: &str, key: &str, q: &QuotaStatus, now: i64) -> Option<String> {
+    if available(q, now) { return None; }
+    let login = login_label(key, q);
+    if let Some(b) = exhausted(q).into_iter().find(|b| b.resets_at.is_none_or(|r| r > now / 1000)) {
+        let reset = b.resets_at.map(|r| format!(", resets in {} min", (r - now / 1000).max(60) / 60)).unwrap_or_default();
+        return Some(format!("the {} {harness} quota of {login} is used up{reset}", b.window.to_lowercase()));
+    }
+    Some(format!("no confirmed {harness} quota reading for {login}: {}", reading_detail(q, now)))
+}
+
+/// What is known of a login's reading: its age, then its last error.
+pub fn reading_detail(q: &QuotaStatus, now: i64) -> String {
+    let last = match q.quota_at {
+        Some(at) => format!("last reading {} min ago", (now - at).max(0) / 60_000),
+        None => "no reading since Home started".into(),
+    };
+    match &q.quota_error {
+        Some(e) => format!("{last}; {e}"),
+        None => last,
+    }
+}
+
+/// A login's reading key with the profiles that use it, for messages.
+pub fn login_label(key: &str, q: &QuotaStatus) -> String {
+    if q.profiles.is_empty() { key.to_string() } else { format!("{key} (profile {})", q.profiles.join(", ")) }
+}
+
+/// Automatic work waits for this login's quota since `since` (Unix ms); `last` is the last check that waited.
+#[derive(Clone, Copy, Debug)]
+pub struct Hold { pub since: i64, pub last: i64 }
+
+static HOLDS: std::sync::LazyLock<std::sync::Mutex<HashMap<String, Hold>>> = std::sync::LazyLock::new(Default::default);
+
+/// The logins that hold automatic work now (checked in the last two minutes), with since when. In memory: a
+/// restart starts the count again.
+pub fn holds(now: i64) -> Vec<(String, Hold)> {
+    HOLDS.lock().unwrap().iter().filter(|(_, h)| now - h.last <= 120_000).map(|(k, h)| (k.clone(), *h)).collect()
+}
+
+static DEMAND: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::LazyLock::new(Default::default);
+
+/// Automatic work waits for a reading of this login: its monitor checks now instead of at its next poll
+/// (`status::wait_poll`), within its own rate limits.
+pub fn want_reading(key: &str) {
+    DEMAND.lock().unwrap().insert(key.to_string());
+}
+
+/// Takes the pending request for a reading of this login, if any.
+pub fn take_demand(key: &str) -> bool {
+    DEMAND.lock().unwrap().remove(key)
 }
 
 /// A protected session of this login is running or paused: poll it more often.
@@ -351,6 +426,24 @@ mod tests {
         update_reading(&mut s, None, Some(QuotaWindow { used_percent: 100.0, resets_at: None }));
         assert_eq!(exhausted(&s)[0].window, "Weekly");
         assert!(!available(&s, s.quota_at.unwrap()));
+    }
+
+    #[test]
+    fn hold_reasons_name_the_login_and_what_is_missing() {
+        let now = 10_000_000;
+        let window = |used: f64| Some(QuotaWindow { used_percent: used, resets_at: None });
+        let mut q = QuotaStatus { profiles: vec!["claude".into()], ..Default::default() };
+        assert_eq!(hold_text("Claude", "vault:a", &q, now).unwrap(), "no confirmed Claude quota reading for vault:a (profile claude): no reading since Home started");
+        q.quota_at = Some(now - 30 * 60_000);
+        q.five_hour = window(10.0);
+        q.weekly = window(10.0);
+        q.quota_error = Some("usage endpoint returned 403 Forbidden".into());
+        assert_eq!(hold_text("Claude", "vault:a", &q, now).unwrap(), "no confirmed Claude quota reading for vault:a (profile claude): last reading 30 min ago; usage endpoint returned 403 Forbidden");
+        q.quota_error = None;
+        q.quota_at = Some(now);
+        assert_eq!(hold_text("Claude", "vault:a", &q, now), None);
+        q.weekly = Some(QuotaWindow { used_percent: 100.0, resets_at: Some(now / 1000 + 7200) });
+        assert_eq!(hold_text("Claude", "vault:a", &q, now).unwrap(), "the weekly Claude quota of vault:a (profile claude) is used up, resets in 120 min");
     }
 
     #[test]

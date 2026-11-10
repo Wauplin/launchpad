@@ -3,4 +3,4 @@
 /**
  * What failed.
  */
-export type FailureKind = "session" | "burst" | "routine" | "schedule" | "runner" | "home_restart" | "any";
+export type FailureKind = "session" | "burst" | "routine" | "schedule" | "runner" | "home_restart" | "quota" | "any";

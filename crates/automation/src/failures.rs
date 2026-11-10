@@ -1,6 +1,7 @@
 //! Launchpad's own failures, for diagnosis and the `failure` routine trigger: failed or interrupted sessions,
-//! failed Burst jobs, routine runs that could not start, failed scheduled launches, runners that went offline
-//! with running work, and Home restarts (`daemon_start`, written at every start and clean stop).
+//! failed Burst jobs, routine runs that could not start (or were skipped after waiting an hour for a quota
+//! reading), failed scheduled launches, runners that went offline with running work, quota readings that hold
+//! automatic work, and Home restarts (`daemon_start`, written at every start and clean stop).
 //!
 //! Home checks every 30 s (`collect`) and keeps a feed of the last failures in memory. Failures with their own
 //! time (sessions, Burst runs, routine runs, restarts) are found again after a restart; the others (scheduled
@@ -32,6 +33,8 @@ pub enum FailureKind {
     Runner,
     /// Home started again (an update, a restart or a crash).
     HomeRestart,
+    /// Automatic work has waited for a quota reading of a login for 15 minutes (`quota::holds`).
+    Quota,
     /// Every kind (routine triggers only).
     Any,
 }
@@ -45,6 +48,7 @@ impl FailureKind {
             Self::Schedule => "scheduled launch failed",
             Self::Runner => "runner offline",
             Self::HomeRestart => "Home restarted",
+            Self::Quota => "quota reading missing",
             Self::Any => "failure",
         }
     }
@@ -224,12 +228,13 @@ pub async fn collect(app: &App) -> Result<Vec<Failure>> {
         found.push(f);
     }
     for r in crate::crons::list(app).await? {
-        for run in r.history.iter().filter(|x| x.outcome == crate::crons::RunOutcome::Failed && x.detail.is_some() && x.at > floor) {
+        for run in r.history.iter().filter(|x| (x.outcome == crate::crons::RunOutcome::Failed || x.missed) && x.detail.is_some() && x.at > floor) {
             let key = format!("routine:{}:{}", r.id, run.at);
             if known(&key) {
                 continue;
             }
-            let mut f = base(key, FailureKind::Routine, run.at, run.at, format!("Routine “{}” could not run ({})", r.title, run.cause));
+            let what = if run.missed { "was skipped" } else { "could not run" };
+            let mut f = base(key, FailureKind::Routine, run.at, run.at, format!("Routine “{}” {what} ({})", r.title, run.cause));
             f.reason = run.detail.clone();
             f.workspace_id = r.spec.workspace_id.clone();
             f.routine_id = Some(r.id.clone());
@@ -250,6 +255,18 @@ pub async fn collect(app: &App) -> Result<Vec<Failure>> {
         if starts.get(i + 1).is_some() {
             found.push(f);
         }
+    }
+    // Quota readings that hold automatic work. In memory (`quota::holds`): a hold counts from Home's start.
+    let quotas = app.status.get().quotas;
+    for (login, hold) in launchpad_core::quota::holds(now).into_iter().filter(|(_, h)| now - h.since >= QUOTA_HOLD_MS) {
+        let key = format!("quota:{login}:{}", hold.since);
+        if known(&key) {
+            continue;
+        }
+        let q = quotas.get(&login).cloned().unwrap_or_default();
+        let mut f = base(key, FailureKind::Quota, hold.since, now, format!("Automatic work has waited {} min for a quota reading of {}", (now - hold.since) / 60_000, launchpad_core::quota::login_label(&login, &q)));
+        f.reason = Some(launchpad_core::quota::reading_detail(&q, now));
+        found.push(f);
     }
     // Failures without their own time: only the changes after the first check count.
     let primed = with_feed(|f| f.primed);
@@ -305,6 +322,9 @@ pub async fn collect(app: &App) -> Result<Vec<Failure>> {
     }
     Ok(found)
 }
+
+/// How long automatic work waits for a quota reading before it is a failure (and a health problem).
+pub const QUOTA_HOLD_MS: i64 = 15 * 60_000;
 
 /// Whether a routine with these trigger kinds, in this workspace, takes the failure. A routine never takes the
 /// failures of its own runs or of its own bot's thread.

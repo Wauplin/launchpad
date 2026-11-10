@@ -67,6 +67,8 @@ pub async fn items(app: &App) -> Vec<Item> {
             let what = match last.outcome {
                 RunOutcome::Failed => "failed",
                 RunOutcome::Interrupted => "was interrupted",
+                // It waited an hour for a quota reading.
+                RunOutcome::Skipped if last.missed => "was skipped",
                 _ => return None,
             };
             let detail = last.detail.as_deref().map(line).unwrap_or_default();

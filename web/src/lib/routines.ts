@@ -27,6 +27,7 @@ export const FAILURE_EVENTS: { id: FailureKind; label: string }[] = [
   { id: "schedule", label: "Scheduled launch" },
   { id: "runner", label: "Runner offline" },
   { id: "home_restart", label: "Home restarted" },
+  { id: "quota", label: "Quota reading missing" },
 ];
 
 export const OUTCOME: Record<RunOutcome, { label: string; tone: "ok" | "quiet" | "bad" | "work" }> = {
