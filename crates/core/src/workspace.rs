@@ -73,6 +73,11 @@ pub async fn create(app: &App, name: &str) -> Result<Workspace> {
     {
         tracing::warn!("Ask Launchpad of {}: {e:#}", w.name);
     }
+    if crate::home_git::here(app)
+        && let Err(e) = crate::librarian::seed_workspace(app, &w.id).await
+    {
+        tracing::warn!("Librarian of {}: {e:#}", w.name);
+    }
     Ok(w)
 }
 

@@ -43,6 +43,7 @@ pub mod home_backup;
 pub mod home_git;
 pub mod plain;
 pub mod kb;
+pub mod librarian;
 pub mod repo_cache;
 pub mod analytics;
 pub mod review_state;

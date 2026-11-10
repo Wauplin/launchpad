@@ -189,7 +189,11 @@ async fn pause(State(s): State<Ctx>, Path(id): Path<String>, Json(p): Json<Pause
     Ok(Json(bots::set_paused(&s.app, &id, p.paused).await.map_err(bad)?))
 }
 
-/// Ready-made bots the New bot form starts from (Ask Launchpad, to recreate or adapt it).
+/// Ready-made bots the New bot form starts from (Ask Launchpad and the Librarian, to recreate or adapt them).
 async fn templates() -> Json<Value> {
-    Json(json!([{ "id": "ask-launchpad", "name": ask_bot::NAME, "instructions": ask_bot::DEFAULT_INSTRUCTIONS, "starters": ask_bot::STARTERS }]))
+    use launchpad_core::librarian;
+    Json(json!([
+        { "id": "ask-launchpad", "name": ask_bot::NAME, "instructions": ask_bot::DEFAULT_INSTRUCTIONS, "starters": ask_bot::STARTERS },
+        { "id": "librarian", "name": librarian::NAME, "instructions": librarian::DEFAULT_INSTRUCTIONS, "starters": librarian::STARTERS },
+    ]))
 }

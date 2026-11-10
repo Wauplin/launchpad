@@ -1408,6 +1408,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn librarian_routine_is_a_valid_paused_schedule() {
+        assert!(launchpad_core::bots::routine_path_ok(launchpad_core::librarian::ROUTINE_PATH));
+        let f = parse_file(launchpad_core::librarian::ROUTINE).unwrap();
+        assert!(f.paused);
+        assert_eq!((&f.trigger, f.schedule.as_str(), &f.time_zone), (&Trigger::Schedule, "0 3 * * 0", &None));
+        assert_eq!(render_file(&f).unwrap(), launchpad_core::librarian::ROUTINE);
+    }
+
+    #[test]
     fn late_runs_say_why_they_were_skipped() {
         let due = 10 * 3_600_000;
         // Held by quota while Home ran: a failure, with the quota's reason.
