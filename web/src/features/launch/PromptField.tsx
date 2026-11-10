@@ -6,6 +6,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Icon, type IconName } from "@/components/Icon";
 import { api } from "@/lib/api";
 import { useSessions } from "@/lib/queries";
+import { byPickerOrder } from "@/lib/sessionStatus";
 import { useScope } from "@/lib/workspace";
 import { useZoomScale } from "@/lib/zoom";
 import { usePhone } from "@/lib/phone";
@@ -75,7 +76,7 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
     // Only the folders of this window's workspace: other workspaces show counts, never their content.
     const folders = noFolders ? [] : scope.projects.filter((p) => p.id !== projectId && rank(`${p.name} ${p.path} ${p.description}`) !== null).sort((a,b) => (rank(a.name) ?? 100) - (rank(b.name) ?? 100));
     for (const p of folders.slice(0, 10)) suggestions.push({ id: p.id, group: "Project", label: p.name, detail: p.path, token: `#${p.name.replace(/\s+/g, "-")}`, icon: "folder", pick: { kind: "project", value: { project_id: p.id, branch: null, editable: false } } });
-    for (const s of sessions.filter((s) => s.id !== sessionId && s.last_seq > 0 && scope.hasSession(s) && rank(`${s.title} ${s.cwd}`) !== null).sort((a,b) => b.started_at - a.started_at).slice(0, 10)) suggestions.push({ id: s.id, group: "Trace", label: s.title, detail: `${s.cwd} · through event ${s.last_seq}`, token: `#trace:${s.title.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 40) || "agent"}`, icon: "agents", pick: { kind: "trace", value: { session_id: s.id, through_seq: s.last_seq } } });
+    for (const s of sessions.filter((s) => s.id !== sessionId && s.last_seq > 0 && scope.hasSession(s) && rank(`${s.title} ${s.cwd}`) !== null).sort(byPickerOrder).slice(0, 10)) suggestions.push({ id: s.id, group: "Trace", label: s.title, detail: `${s.cwd} · through event ${s.last_seq}`, token: `#trace:${s.title.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 40) || "agent"}`, icon: "agents", pick: { kind: "trace", value: { session_id: s.id, through_seq: s.last_seq } } });
     const github = new Map<string, GitHubRef>();
     for (const s of sessions.filter(scope.hasSession)) for (const g of s.launch_spec.github_refs) if (rank(`${g.repo}#${g.number} ${g.title ?? ""}`) !== null) github.set(g.url, g);
     for (const g of cachedGitHub.data ?? []) github.set(g.url, g);

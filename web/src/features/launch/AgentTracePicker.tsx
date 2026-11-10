@@ -4,6 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Session } from "@/gen/Session";
 import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import { HarnessMark } from "@/components/HarnessMark";
+import { byPickerOrder } from "@/lib/sessionStatus";
 
 const TraceRow = memo(function TraceRow({ session, selected, onToggle }: { session: Session; selected: boolean; onToggle: (trace: AgentTraceRef) => void }) {
   return <label className={`flex h-[48px] w-full cursor-pointer items-center gap-2 rounded-control px-2 text-left hover:bg-select ${selected ? "bg-select" : ""}`}>
@@ -19,7 +20,7 @@ const TraceRow = memo(function TraceRow({ session, selected, onToggle }: { sessi
 export function AgentTracePicker({ sessions, selected, onToggle }: { sessions: Session[]; selected: AgentTraceRef[]; onToggle: (trace: AgentTraceRef) => void }) {
   const [search, setSearch] = useState("");
   const scroll = useRef<HTMLDivElement>(null);
-  const rows = sessions.filter((s) => s.last_seq > 0 && `${s.title} ${s.cwd}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => b.started_at - a.started_at);
+  const rows = sessions.filter((s) => s.last_seq > 0 && `${s.title} ${s.cwd}`.toLowerCase().includes(search.toLowerCase())).sort(byPickerOrder);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => scroll.current, estimateSize: () => 48, overscan: 4, useFlushSync: false });
   return <div className="grid gap-1">
     <input className="field-input w-full" aria-label="Find agent trace" placeholder="Find an agent by title or folder" value={search} onChange={(e) => { setSearch(e.target.value); scroll.current?.scrollTo({ top: 0 }); }} />
