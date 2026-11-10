@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isWaiting, visibleProposals } from "../src/features/proposals/proposalState.ts";
+import { isStartable, isWaiting, visibleProposals } from "../src/features/proposals/proposalState.ts";
 
 test("replacement leaves only its successor waiting and preserves the history", () => {
   const cards = [{ id: "new", state: "proposed" }, { id: "old", state: "replaced" }];
@@ -25,4 +25,10 @@ test("a compact card says what it does, and a handled one is a receipt", async (
   assert.equal(proposalReceipt({ body: routine, state: "dismissed", title: "Daily", replaced_by: null }), "Dismissed Daily");
   assert.equal(proposalReceipt({ body: routine, state: "proposed", title: "Daily", replaced_by: null }), null);
   assert.equal(proposalPurpose({ body: { kind: "report", outcome: "needs_you", github: "o/r#1", body: "" } }), "Needs you · o/r#1");
+});
+
+test("Start all covers only waiting cards that start something", () => {
+  for (const kind of ["launch", "message", "schedule", "cron", "routine", "preset", "tool", "bot", "bot_instructions", "bot_files"]) assert.equal(isStartable({ state: "proposed", body: { kind } }), true);
+  for (const kind of ["status", "ready", "report"]) assert.equal(isStartable({ state: "proposed", body: { kind } }), false);
+  for (const state of ["failed", "uncertain", "started"]) assert.equal(isStartable({ state, body: { kind: "launch" } }), false);
 });

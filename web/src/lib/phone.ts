@@ -19,7 +19,7 @@ function decide(): boolean {
   if (isExtension) return true;
   const choice = layoutChoice();
   if (choice !== "auto") return choice === "phone";
-  return typeof window !== "undefined" && window.matchMedia(query).matches;
+  return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
 }
 
 /** True when this page runs the phone shell. Fixed for the life of the page. */

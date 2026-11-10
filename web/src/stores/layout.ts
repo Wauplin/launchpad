@@ -9,7 +9,7 @@ const storageKey = (workspace: string | null) => (workspace ? `launchpad.layout.
 
 export type Dock = { open: boolean; height: number; active: string | null };
 
-export type AgentGroup = "Done" | "Running" | "Quota paused" | "Stopped" | "Interrupted" | "Failed" | "In terminal" | "Archived";
+export type AgentGroup = "Needs you" | "Done" | "Running" | "Quota paused" | "Stopped" | "Interrupted" | "Failed" | "In terminal" | "Archived";
 
 type LayoutStore = {
   pinned: string[];
@@ -45,7 +45,9 @@ export const useLayout = create<LayoutStore>()(
       merge: (persisted, current) => {
         const { pinned, collapsedGroups, selectedSession, dock } = { ...defaults, ...(persisted as Partial<LayoutStore>) };
         const height = dock.height;
-        return { ...current, pinned, collapsedGroups, selectedSession, dock: { ...defaultDock, ...dock, height: typeof height === "number" && Number.isFinite(height) ? height : defaultDock.height } };
+        // Whether the dock is open is this window's own state: a new window opens with it closed, and another
+        // window opening or closing its dock changes nothing here.
+        return { ...current, pinned, collapsedGroups, selectedSession, dock: { ...defaultDock, ...dock, open: current.dock.open, height: typeof height === "number" && Number.isFinite(height) ? height : defaultDock.height } };
       },
     },
   ),
@@ -57,7 +59,7 @@ useWorkspace.subscribe((s, prev) => {
   const name = storageKey(s.current);
   useLayout.persist.setOptions({ name });
   if (localStorage.getItem(name)) void useLayout.persist.rehydrate();
-  else useLayout.setState(defaults);
+  else useLayout.setState({ ...defaults, dock: { ...defaultDock, open: useLayout.getState().dock.open } });
 });
 
 function refresh() { void useLayout.persist.rehydrate(); }

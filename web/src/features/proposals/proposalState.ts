@@ -4,6 +4,12 @@ export function isWaiting(p: Pick<Proposal, "state">): boolean {
   return p.state === "proposed" || p.state === "failed" || p.state === "uncertain";
 }
 
+/** Start all covers these: waiting cards that start something. A status list has nothing to start, a report only
+ * informs, a ready click runs only from its own button, and failed or uncertain cards wait for the owner's look. */
+export function isStartable(p: Pick<Proposal, "state" | "body">): boolean {
+  return p.state === "proposed" && p.body.kind !== "status" && p.body.kind !== "ready" && p.body.kind !== "report";
+}
+
 /** Keep a linked successor visible even when it falls outside the recent history. */
 export function visibleProposals<T extends Pick<Proposal, "id" | "state">>(proposals: T[], waitingOnly: boolean, reveal: string | null): T[] {
   if (waitingOnly) return proposals.filter(isWaiting);

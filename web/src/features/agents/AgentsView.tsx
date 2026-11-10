@@ -5,11 +5,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { BotChip, Empty, MoreMenu } from "@/components/ui";
+import { BotChip, ConfirmButton, Empty, MoreMenu } from "@/components/ui";
 import { ActionMenuItem } from "@/components/ActionButton";
 import { MenuItem } from "@/components/Popover";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@/gen/Session";
 import { HarnessMark } from "@/components/HarnessMark";
 import { isRunning, isDone, isQuotaPaused, isStopped, isUnseen, needsYou, sessionPlace } from "@/lib/sessionStatus";
@@ -27,7 +27,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { SessionStatus } from "./SessionBits";
 import { useMarkSeen, useWindowFocused } from "./useSeen";
 import { age, formatReset } from "@/lib/format";
-import { toastError } from "@/components/Toast";
+import { toast, toastError } from "@/components/Toast";
+import { runAction } from "@/lib/actions";
 import { isPhone, usePhone } from "@/lib/phone";
 
 /** Statuses whose badge tells more than the group heading. */
@@ -36,7 +37,16 @@ const informative = (s: Session) => s.open_question || s.status === "error" || s
 /** Row height: the phone's larger text needs more room for the two lines of the last message. */
 const ROW = isPhone ? 80 : 68;
 
-const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onClick, onMarkUnread }: { s: Session; project: string; selected: boolean; pinned: boolean; onClick: () => void; onMarkUnread: () => void }) {
+/** The lower-cased text the search box matches, computed once per session record (records are replaced on update). */
+const searchTexts = new WeakMap<Session, string>();
+function searchText(s: Session): string {
+  let text = searchTexts.get(s);
+  if (text === undefined) { text = [s.title, s.cwd, s.prompt, s.last_message ?? ""].join("\n").toLocaleLowerCase(); searchTexts.set(s, text); }
+  return text;
+}
+
+/** Rows take stable callbacks with the session id, so a bus update re-renders only the rows whose session changed. */
+const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onOpen, onMarkUnread }: { s: Session; project: string; selected: boolean; pinned: boolean; onOpen: (id: string) => void; onMarkUnread: (id: string) => void }) {
   const dim = s.status === "closed";
   const stop = isRunning(s) || isQuotaPaused(s);
   const canMarkUnread = !isUnseen(s) && (isDone(s) || s.status === "error" || s.status === "interrupted");
@@ -52,7 +62,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
     <div className="group relative" data-tour="agents.row" data-tour-id={s.id}>
       <button
         type="button"
-        onClick={onClick}
+        onClick={() => onOpen(s.id)}
         style={{ height: ROW }} className={`grid w-full grid-cols-[18px_1fr_auto] content-start gap-x-2 gap-y-1 border-b border-line-2 px-3 py-2 text-left hover:bg-chrome ${selected ? "bg-select hover:bg-select" : ""}`}
       >
         <span className="row-span-2 mt-px">
@@ -74,7 +84,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onCl
         <MoreMenu label={`More actions for ${s.title}`}>{(close) => <>
           {stop && <ActionMenuItem name="session.stop" params={{ id: s.id }} close={close} />}
           {!stop && !dim && <ActionMenuItem name="session.archive" params={{ id: s.id }} close={close} detail="It stays resumable" />}
-          {canMarkUnread && <ActionMenuItem name="session.unread" params={{ id: s.id }} close={() => { close(); onMarkUnread(); }} label="Mark unread" detail="Return to Today for later" icon="mail" />}
+          {canMarkUnread && <ActionMenuItem name="session.unread" params={{ id: s.id }} close={() => { close(); onMarkUnread(s.id); }} label="Mark unread" detail="Return to Today for later" icon="mail" />}
           <MenuItem icon={<span className="text-teal-ink">{pinned ? "★" : "☆"}</span>} label={pinned ? "Unpin" : "Pin"} detail="Pinned sessions show first" onClick={() => { close(); useLayout.getState().togglePin(s.id); }} />
         </>}</MoreMenu>
       </span>
@@ -124,11 +134,10 @@ export function AgentsView() {
   const phone = usePhone();
   const [archivedLimit, setArchivedLimit] = useState(30);
   const listRef = useRef<HTMLDivElement>(null);
-  const open = (id: string) => {
-    show(id);
-    setPanelLoad((n) => n + 1);
-    if (phone) void navigate({ to: "/agents", search: { session: id } });
-  };
+  // A click in the list opens the session on its default view (a `view` from a link applied only to that session);
+  // clicking the row of the open session keeps its pane as it is (tab, scroll, trace position).
+  const openRef = useRef<(id: string) => void>(() => {});
+  const open = useCallback((id: string) => openRef.current(id), []);
   // ‹, Archive and Mark as unread: one step back (to Today when the agent came from there), never a new entry.
   const back = () => phoneBack("/agents");
   const [initialView, setInitialView] = useState<View | undefined>(undefined);
@@ -153,12 +162,21 @@ export function AgentsView() {
   useEffect(() => { sendPresence("agents", focused, visibleSession ? [visibleSession] : []); }, [focused, visibleSession]);
   useEffect(() => () => sendPresence("agents", false, []), []);
   useMarkSeen(visible, focused);
+  openRef.current = (id: string) => {
+    if (phone) { void navigate({ to: "/agents", search: { session: id } }); show(id); return; }
+    if (id === visibleSession) return;
+    setInitialView(undefined);
+    show(id);
+  };
 
   const needle = filter.trim().toLocaleLowerCase();
-  const filtered = sessions.filter((s) => (!pinsOnly || pinned.includes(s.id)) && (!needle || [s.title, s.cwd, s.prompt, s.last_message ?? "", projectName(projects, s.project_id, s.cwd)].some((t) => t.toLocaleLowerCase().includes(needle)) || (debounced === filter.trim() && matches.data?.includes(s.id))));
+  const filtered = sessions.filter((s) => (!pinsOnly || pinned.includes(s.id)) && (!needle || searchText(s).includes(needle) || projectName(projects, s.project_id, s.cwd).toLocaleLowerCase().includes(needle) || (debounced === filter.trim() && matches.data?.includes(s.id))));
   const order = (a: Session, b: Session) => b.started_at - a.started_at;
   const newest = (a: Session, b: Session) => b.status_since - a.status_since;
-  const local = filtered;
+  // What needs you (a question, an unseen Done, Failed or Interrupted) comes first, out of its state's group.
+  const needs = filtered.filter((s) => s.status !== "closed" && needsYou(s)).sort(newest);
+  const needIds = new Set(needs.map((s) => s.id));
+  const local = filtered.filter((s) => !needIds.has(s.id));
   const done = local.filter(isDone).sort(newest);
   const running = local.filter((s) => isRunning(s)).sort(order);
   const quotaPaused = local.filter(isQuotaPaused).sort(order);
@@ -170,9 +188,22 @@ export function AgentsView() {
   const now = Date.now();
   const oldDone = done.filter((s) => !needsYou(s) && !pinned.includes(s.id) && now - s.status_since > 3 * DAY);
 
+  // Archives each one and says how many it archived; one failure does not stop the others.
   const archiveOld = async () => {
     setArchiving(true);
-    try { for (const s of oldDone) await api.post(`/api/sessions/${s.id}/close`); } catch (e) { toastError(e); } finally { setArchiving(false); }
+    const list = oldDone;
+    let archivedCount = 0;
+    const errors: string[] = [];
+    try {
+      for (const s of list) {
+        try { await runAction("session.archive", { id: s.id }); archivedCount += 1; }
+        catch (e) { errors.push(e instanceof Error ? e.message : String(e)); }
+      }
+      await qc.invalidateQueries({ queryKey: ["sessions"] });
+    } finally { setArchiving(false); }
+    const what = `Archived ${archivedCount} of ${list.length} session${list.length === 1 ? "" : "s"}`;
+    if (errors.length) toastError(new Error(`${what}. ${errors.length} failed: ${errors[0]}`));
+    else toast(`Archived ${archivedCount} session${archivedCount === 1 ? "" : "s"}. They stay resumable in Archived.`);
   };
 
   // Archiving the shown session returns to the empty pane without reading another run.
@@ -192,6 +223,7 @@ export function AgentsView() {
   const group = (title: AgentGroup, rows: Item[], opts: { highlight?: boolean; detail?: string; tail?: Item[] } = {}): Item[] => rows.length ? [{ kind: "group", title, count: rows.length, highlight: opts.highlight, detail: opts.detail }, ...(groupCollapsed(title) ? [] : [...rows, ...(opts.tail ?? [])])] : [];
   const sessionRows = (list: Session[]) => list.map((session) => ({ kind: "session" as const, session }));
   const items: Item[] = [
+    ...group("Needs you", sessionRows(needs), { highlight: true }),
     ...group("Running", sessionRows(running)),
     ...group("Quota paused", sessionRows(quotaPaused)),
     ...group("Done", sessionRows(done), { tail: oldDone.length ? [{ kind: "archive-old" }] : [] }),
@@ -205,7 +237,10 @@ export function AgentsView() {
   const key = (i: Item) => (i.kind === "session" ? i.session.id : i.kind === "group" ? `group-${i.title}` : i.kind);
   const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => size(items[i]), getItemKey: (i) => key(items[i]), overscan: 6, useFlushSync: false });
   const name = (s: Session) => projectName(projects, s.project_id, s.cwd);
-  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === visibleSession} onClick={() => open(s.id)} onMarkUnread={() => { if (s.id === visibleSession) clearSession(s.id); }} />;
+  const markUnreadRef = useRef<(id: string) => void>(() => {});
+  markUnreadRef.current = (id) => { if (id === visibleSession) clearSession(id); };
+  const markUnread = useCallback((id: string) => markUnreadRef.current(id), []);
+  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === visibleSession} onOpen={open} onMarkUnread={markUnread} />;
 
   const paneOpen = !!visibleSession;
   return (
@@ -232,7 +267,7 @@ export function AgentsView() {
             const item = items[v.index];
             return <div key={v.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: v.size, transform: `translateY(${v.start}px)` }}>
               {item.kind === "session" ? row(item.session) : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} detail={item.detail} collapsed={groupCollapsed(item.title)} onToggle={() => toggleListGroup(item.title)} /> :
-                item.kind === "archive-old" ? <div className="flex h-full min-w-0 items-center px-3"><button className="btn btn-sm min-w-0 truncate" disabled={archiving} title="Archive seen Done sessions older than 3 days. Archived sessions stay resumable in Archived. Pinned sessions are kept." onClick={() => void archiveOld()}><Icon name="archive" size={12} />{archiving ? "Archiving…" : `Archive ${oldDone.length} seen, older than 3 d`}</button></div> :
+                item.kind === "archive-old" ? <div className="flex h-full min-w-0 items-center px-3"><ConfirmButton className="min-w-0 truncate" icon="archive" disabled={archiving} title="Archive seen Done sessions older than 3 days. Archived sessions stay resumable in Archived. Pinned sessions are kept." consequence={`Archive ${oldDone.length}?`} confirmLabel="Archive" onConfirm={archiveOld}>{archiving ? "Archiving…" : `Archive ${oldDone.length} seen, older than 3 d`}</ConfirmButton></div> :
                 <button className="px-3 py-2 text-left text-[12px] text-teal-ink hover:underline" onClick={() => setArchivedLimit((n) => n + 50)}>Show more</button>}
             </div>;
           })}

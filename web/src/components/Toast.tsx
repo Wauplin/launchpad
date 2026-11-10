@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-type Toast = { id: number; text: string; tone: "info" | "error"; action?: { label: string; run: () => void } };
+type Toast = { id: number; text: string; tone: "info" | "error"; action?: { label: string; run: () => void }; ms?: number };
 
 type ToastStore = { toasts: Toast[]; push: (t: Omit<Toast, "id">) => void; dismiss: (id: number) => void };
 
@@ -12,12 +12,13 @@ export const useToasts = create<ToastStore>((set, get) => ({
     const id = next++;
     set({ toasts: [...get().toasts, { ...t, id }] });
     // Errors and toasts with an action (Undo) stay longer.
-    setTimeout(() => get().dismiss(id), t.tone === "error" || t.action ? 8000 : 5000);
+    setTimeout(() => get().dismiss(id), t.ms ?? (t.tone === "error" || t.action ? 8000 : 5000));
   },
   dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 }));
 
-export const toast = (text: string, action?: Toast["action"]) => useToasts.getState().push({ text, tone: "info", action });
+/** `ms`: how long it stays (an Undo that holds data for a fixed time says so). */
+export const toast = (text: string, action?: Toast["action"], ms?: number) => useToasts.getState().push({ text, tone: "info", action, ms });
 export const toastError = (e: unknown) => useToasts.getState().push({ text: e instanceof Error ? e.message : String(e), tone: "error" });
 
 export function Toasts() {

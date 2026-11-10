@@ -44,7 +44,10 @@ import { ProjectPicker } from "./ProjectPicker";
 import { SkillChips } from "./SkillChips";
 import { AddContextMenu } from "./AddContextMenu";
 import { PresetChips, usePresets } from "@/features/agents/MessagePresets";
-import { DelaySelector, conditionsError } from "./DelaySelector";
+import { DelaySelector, conditionsError, conditionsSummary } from "./DelaySelector";
+import { when } from "@/lib/format";
+import type { CronAgent } from "@/gen/CronAgent";
+import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import { CronSelector, DEFAULT_CRON, type CronDraft } from "./CronSelector";
 import { itemIcon, PromptField } from "./PromptField";
 
@@ -386,12 +389,12 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       if (editing) {
         if (cron) {
           // A routine replaces the scheduled agent.
-          await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, time_zone: browserZone() });
+          const r = await api.post<CronAgent>("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, time_zone: browserZone() });
           await api.delete(`/api/launch/schedules/${editing}`).catch(toastError);
           setCron(null);
           discard();
-          void navigate({ to: "/schedules" });
-          toast("Routine created and scheduled launch cancelled. Find the routine in Schedules.");
+          void navigate({ to: "/schedules", search: { tab: "routines", routine: r.id } });
+          toast("Routine created and scheduled launch cancelled.");
           return;
         }
         // Save keeps the scheduled id, so agents that wait for it keep waiting; Start now saves, then starts it.
@@ -411,18 +414,21 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         return;
       }
       if (cron) {
-        await api.post("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, time_zone: browserZone() });
+        const r = await api.post<CronAgent>("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, time_zone: browserZone() });
         setCron(null);
         discard();
-        void navigate({ to: "/agents" });
-        toast("Routine created. Find it in Schedules.");
+        void queryClient.invalidateQueries({ queryKey: ["crons"] });
+        void navigate({ to: "/schedules", search: { tab: "routines", routine: r.id } });
+        toast(r.next_run_at ? `Routine created: first run ${when(r.next_run_at)}` : "Routine created");
         return;
       }
       if (scheduled) {
-        await api.post("/api/launch/schedules", { spec, conditions });
+        const l = await api.post<ScheduledLaunch>("/api/launch/schedules", { spec, conditions });
         discard();
-        void navigate({ to: "/agents" });
-        toast("Agent scheduled. You can start it now or cancel in Agents.");
+        void queryClient.invalidateQueries({ queryKey: ["schedules"] });
+        void navigate({ to: "/schedules", search: { tab: "launches", launch: l.id } });
+        const starts = conditionsSummary(l, sessions ?? []);
+        toast(starts ? `Scheduled: starts ${starts.charAt(0).toLowerCase()}${starts.slice(1)}` : "Scheduled");
         return;
       }
       const s = await api.post<Session>("/api/sessions", spec);
@@ -443,6 +449,13 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     } finally {
       setLaunching(false);
     }
+  };
+  // Discard keeps the draft for 10 seconds behind Undo (a long prompt is one click away from being lost).
+  const discardDraft = () => {
+    setCron(null);
+    setLater(false);
+    const undo = useComposer.getState().discardUndoable();
+    toast(editing ? "Changes discarded" : "Draft discarded", { label: "Undo", run: undo }, 10_000);
   };
   const launchLabel = launching ? (cron ? "Creating…" : editing && scheduled ? "Saving…" : scheduled ? "Scheduling…" : "Sending…") : cron ? "Create routine" : editing ? (timing === "later" ? "Save" : "Start now") : timing === "later" ? "Schedule" : "Launch";
   const launchButton = () => (
@@ -487,7 +500,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       <div className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
         <span className="flex-1 truncate whitespace-nowrap text-[13px] font-bold" title={edited?.title}>{editing ? "Edit scheduled launch" : "Launch an agent"}</span>
         {!embedded && !isPhone && <button className="btn btn-sm btn-ghost" title="Keep the draft as a badge on Launch; + Add buttons keep adding context" onClick={() => setMinimized(true)}>Minimize</button>}
-        {isPhone && !embedded && <button className="btn btn-sm btn-ghost" onClick={() => { setCron(null); setLater(false); discard(); }} title={editing ? "Close without saving; the scheduled agent stays as it is" : "Clear the composer"}>{editing ? "Discard changes" : "Discard"}</button>}
+        {isPhone && !embedded && <button className="btn btn-sm btn-ghost" onClick={discardDraft} title={editing ? "Close without saving; the scheduled agent stays as it is" : "Clear the composer"}>{editing ? "Discard changes" : "Discard"}</button>}
         <button className="iconbtn" title="Close (the draft is kept)" onClick={close}>
           <Icon name="x" size={14} />
         </button>
@@ -825,7 +838,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           <input type="checkbox" className="accent-teal" disabled={scheduled || !!cron} checked={openAfterLaunch} onChange={(e) => setOpenAfterLaunch(e.target.checked)} />
           Open after launch
         </label>
-        <button className="btn btn-ghost" onClick={() => { setCron(null); setLater(false); discard(); }} title={editing ? "Close without saving; the scheduled agent stays as it is" : "Clear the composer"}>
+        <button className="btn btn-ghost" onClick={discardDraft} title={editing ? "Close without saving; the scheduled agent stays as it is" : "Clear the composer"}>
           {editing ? "Discard changes" : "Discard"}
         </button>
         {unconfirmedLaunch && <div role="status" className="text-[12px] text-ink-3">Delivery not confirmed. Retry unchanged to check the result. Inspect Agents before starting another attempt.<button className="btn btn-sm mt-1" disabled={launching} onClick={() => void abandonOperation("/api/sessions", unconfirmedLaunch).then(() => setUnconfirmedLaunch(null)).catch(toastError)}>I checked Agents — start a new attempt</button></div>}

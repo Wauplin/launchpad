@@ -10,10 +10,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Proposal } from "@/gen/Proposal";
 import { Icon } from "@/components/Icon";
-import { toastError } from "@/components/Toast";
-import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader } from "@/components/ui";
-import { runProposalAction, useProposalList } from "@/features/proposals/ProposalCard";
-import { summary } from "@/features/proposals/ProposalList";
+import { Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader } from "@/components/ui";
+import { useProposalList } from "@/features/proposals/ProposalCard";
+import { StartAll } from "@/features/proposals/ProposalList";
 import { useSuggestionList } from "@/features/suggestions/data";
 import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
@@ -48,24 +47,6 @@ const EMPTY: Record<View, string> = {
   fix: "No failed routine and no runner to update.",
   done: "Nothing handled in the last 30 days.",
 };
-
-/** Start every waiting launch card of the list, with one confirmation. */
-function StartAll({ proposals }: { proposals: Proposal[] }) {
-  const qc = useQueryClient();
-  const [busy, setBusy] = useState(false);
-  const startable = proposals.filter((p) => p.state === "proposed" && p.body.kind !== "status" && p.body.kind !== "ready");
-  if (startable.length < 2) return null;
-  const run = async () => {
-    setBusy(true);
-    try {
-      for (const p of startable) {
-        try { await runProposalAction(p.id, "accept"); } catch (e) { toastError(e); }
-      }
-      await Promise.all([qc.invalidateQueries({ queryKey: ["proposals"] }), qc.invalidateQueries({ queryKey: ["sessions"] })]);
-    } finally { setBusy(false); }
-  };
-  return <ConfirmButton tone="publish" className="btn-primary" icon="play" disabled={busy} consequence={`Start ${summary(startable)}?`} confirmLabel="Start all" onConfirm={run}>Start all ({startable.length})</ConfirmButton>;
-}
 
 type Entry = { item?: TodayItem; heading?: TodayItem["filter"] };
 
@@ -151,8 +132,9 @@ export function TodayView() {
     {FILTERS.map(([id, label, title]) => (counts[id] > 0 || view === id) && <FilterChip key={id} active={view === id} count={counts[id]} countNeeds title={title} onClick={() => setView(id)}>{label}</FilterChip>)}
     <FilterChip active={view === "done"} title="What you handled in the last 30 days, with where it went" onClick={() => setView("done")}>Done</FilterChip>
   </FilterChips>;
-  // Start all applies to Approve cards only; on the phone it shows only in that filter, so the chips keep the row.
-  const groupActions = (view === "approve" || (view === "all" && !phone)) && <StartAll proposals={waitingProposals} />;
+  // Start all applies to Approve cards only: in the Approve filter, and next to the APPROVE heading under All (laptop;
+  // the phone keeps its chips row to themselves and shows it only in Approve). An outline button: questions may wait.
+  const groupActions = view === "approve" && <StartAll cards={waitingProposals} />;
   const meta = items.length ? `${items.length} decision${items.length === 1 ? "" : "s"}` : "Nothing waits";
 
   return (
@@ -169,7 +151,7 @@ export function TodayView() {
             const { item, heading } = rows[row.index];
             return (
               <div key={row.key} data-index={row.index} ref={list.measureElement} className={`absolute top-0 ${phone ? "left-0 w-full" : "inset-x-2"}`} style={{ transform: `translateY(${row.start}px)` }}>
-                {heading ? <h2 className="m-0 flex items-baseline gap-2 border-b border-line-2 px-3 pt-4 pb-1.5 text-[11px] font-semibold tracking-wide text-ink-3 uppercase">{LABEL[heading]}<span className="font-normal normal-case">{counts[heading]}</span></h2>
+                {heading ? <h2 className="m-0 flex flex-wrap items-center gap-2 border-b border-line-2 px-3 pt-4 pb-1.5 text-[11px] font-semibold tracking-wide text-ink-3 uppercase">{LABEL[heading]}<span className="font-normal normal-case">{counts[heading]}</span>{heading === "approve" && !phone && <span className="ml-auto font-normal tracking-normal normal-case"><StartAll cards={waitingProposals} /></span>}</h2>
                   : view === "done" ? <DoneRow item={item!} />
                   : <ItemRow item={item!} expanded={expanded.has(item!.id)} toggle={toggle} highlight={item!.id === search.card} proposal={byProposal.get(item!.record)} suggestion={bySuggestion.get(item!.record)} />}
               </div>

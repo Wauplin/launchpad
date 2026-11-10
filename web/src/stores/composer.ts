@@ -5,6 +5,7 @@
 
 import { isDemo } from "../demo/mode.ts";
 import { isExtension } from "../lib/connection.ts";
+import { isPhone } from "../lib/phone.ts";
 import { storageAllowed } from "../lib/clientStorage.ts";
 import { useSaveStatus } from "../lib/saveStatus.ts";
 import { create } from "zustand";
@@ -85,6 +86,8 @@ type Composer = {
   close: () => void;
   setMinimized: (minimized: boolean) => void;
   discard: () => void;
+  /** Discard, returning a function that puts the discarded draft back (the composer's Undo). */
+  discardUndoable: () => () => void;
   setOpenAfterLaunch: (v: boolean) => void;
   restore: () => Promise<void>;
   /** Revision of the saved draft this window started from (0: none saved yet). */
@@ -195,7 +198,7 @@ async function loadDraft(discardLocal = false) {
   let d: SavedDraft;
   const pending = unsent.get(workspace);
   if (pending && !discardLocal) {
-    useComposer.setState({ ...pending.body, editing: pending.body.editing ?? null, revision: pending.revision, conflict: !!pending.conflict });
+    useComposer.setState({ ...pending.body, minimized: keepClosed(pending.body.open, pending.body.minimized), editing: pending.body.editing ?? null, revision: pending.revision, conflict: !!pending.conflict });
     void retryDraft(workspace);
     return;
   }
@@ -205,11 +208,21 @@ async function loadDraft(discardLocal = false) {
   saveTimer = undefined;
   if (discardLocal) { unsent.delete(workspace); backupDrafts(); useSaveStatus.getState().set(`composer:${workspace}`); }
   const revision = d?.revision ?? 0;
-  if (d?.spec) useComposer.setState({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, minimized: !!d.open && !!d.minimized, conditions: d.conditions ?? (d.delay ? [d.delay] : []), editing: d.editing ?? null, revision, conflict: false });
+  if (d?.spec) useComposer.setState({ spec: { ...emptySpec(), ...d.spec }, open: !!d.open, minimized: keepClosed(!!d.open, !!d.minimized), conditions: d.conditions ?? (d.delay ? [d.delay] : []), editing: d.editing ?? null, revision, conflict: false });
   else {
     const { spec } = useComposer.getState();
     useComposer.setState({ spec: { ...emptySpec(), harness: spec.harness, profile: spec.profile ?? null, budget_usd: spec.budget_usd ?? null }, open: false, minimized: false, conditions: [], editing: null, revision, conflict: false });
   }
+}
+
+/** On a laptop the drawer opens only when the owner opens it in this window: a kept draft loads as the "draft" badge
+ * of the top-bar Launch button (a new window, a workspace switch, another window's save), unless this window
+ * already shows the drawer. The phone keeps its full-screen composer as saved. */
+function keepClosed(open: boolean, minimized: boolean): boolean {
+  if (!open) return false;
+  if (isPhone) return minimized;
+  const shown = useComposer.getState();
+  return minimized || !(shown.open && !shown.minimized);
 }
 
 const projectCompletionDefaults = new Map<string, WhenDone>();
@@ -343,6 +356,14 @@ export const useComposer = create<Composer>((set, get) => ({
     const spec = { ...emptySpec(), harness, profile, budget_usd, ...rememberedRun(harness, profile) };
     set({ spec, open: false, minimized: false, conditions: [], editing: null });
     save(spec, false, []);
+  },
+  discardUndoable: () => {
+    const { spec, conditions, editing } = get();
+    get().discard();
+    return () => {
+      set({ spec, open: true, minimized: false, conditions, editing });
+      save(spec, true, conditions);
+    };
   },
   setOpenAfterLaunch: (v) => {
     set({ openAfterLaunch: v });
