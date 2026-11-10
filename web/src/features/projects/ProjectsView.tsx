@@ -62,8 +62,9 @@ export function Description({ p }: { p: Project }) {
 /** What a temporary folder is: the Folders page intro and the folder page intro of a temporary folder. */
 export const TEMP_INTRO = "A temporary folder holds an agent launched without a folder. Home saves its files; it leaves Folders when its last agent is archived, and Home deletes it 30 days later, unless you keep it as a folder.";
 
-/** A temporary folder: a row of the Folders list (`row`) or a box on its own page. Launch and ⋯ (Delete files), then
- * Keep as folder; what a temporary folder is stays in the page intro. */
+/** A temporary folder: a row of the Folders list (`row`) or a box on its own page. Launch and ⋯ (Keep as folder with
+ * its name in the list's rows, Delete files); the box on its page shows Keep as folder below. What a temporary folder
+ * is stays in the page intro. */
 export function TempProjectCard({ p, row }: { p: Project; row?: boolean }) {
   const qc = useQueryClient();
   const sessions = useSessions().data ?? [];
@@ -77,13 +78,13 @@ export function TempProjectCard({ p, row }: { p: Project; row?: boolean }) {
           <span className="truncate font-mono text-[13px] font-semibold" title={p.path}>{p.name.replace(/^tmp-\d{4}-/, "") || p.name}</span>
           <span className="truncate text-[12px] text-ink-3">{open.length ? `${open.length} open agent${open.length > 1 ? "s" : ""}` : "No open agent"} · created {ago(p.created_at)}</span>
         </div>
-        <RowActions label={`More actions for ${p.name}`} menuWidth={280} main={<LaunchButton small ctx={{ projectId: p.id }} primary={false} title={`Launch an agent in ${p.name}`} />} more={(close) => <MenuSection><ConfirmButton icon="trash" consequence={`Deletes ${p.path} from disk${open.length ? " and stops its agents" : ""}. Home keeps a copy of its files 30 days, for a resume.`} confirmLabel="Delete files" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => {
+        <RowActions label={`More actions for ${p.name}`} menuWidth={280} main={<LaunchButton small ctx={{ projectId: p.id }} primary={false} title={`Launch an agent in ${p.name}`} />} more={(close) => <>{row && <div className="grid gap-1.5 p-2"><b className="text-[12px]">Keep as folder</b><KeepFolder p={p} disabled={running} title={running ? "Wait for its agent to finish" : undefined} /></div>}<MenuSection><ConfirmButton icon="trash" consequence={`Deletes ${p.path} from disk${open.length ? " and stops its agents" : ""}. Home keeps a copy of its files 30 days, for a resume.`} confirmLabel="Delete files" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => {
           close();
           toast(`Deleted ${p.path}`);
           void qc.invalidateQueries({ queryKey: ["projects"] });
-        }, toastError)}>Delete files</ConfirmButton></MenuSection>} />
+        }, toastError)}>Delete files</ConfirmButton></MenuSection></>} />
       </div>
-      <KeepFolder p={p} disabled={running} title={running ? "Wait for its agent to finish" : undefined} />
+      {!row && <KeepFolder p={p} disabled={running} title={running ? "Wait for its agent to finish" : undefined} />}
     </div>
   );
 }

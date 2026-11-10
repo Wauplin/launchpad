@@ -115,7 +115,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
   const w = i.worktree;
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState(false);
+  const qc = useQueryClient();
   const localPrs = useLocalPrs();
   const base = w.base_branch;
   const running = !!session && ["starting", "working", "background"].includes(session.status);
@@ -181,8 +181,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}
         {!merged && onHome && w.primary && !w.merge && !w.pull_request && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}
         {w.state === "removed" && !away && <button className="btn btn-sm" disabled={busy} onClick={() => void act("restore", "Worktree restored")}>Restore folder</button>}
-        {!merged && (w.state === "active" || w.state === "removed") && !away && <button className="btn btn-sm text-gh-closed" disabled={busy || running} title={`Delete the folder and the branch, including uncommitted work${w.primary ? ", and archive its agents" : ""}. The branch tip stays restorable on Home for 30 days.`} onClick={() => { if (!confirm) return setConfirm(true); setConfirm(false); void act("discard", "Worktree discarded"); }}>{confirm ? `Confirm: delete ${i.ahead ? `${i.ahead} unmerged commits and ` : ""}the folder` : "Discard"}</button>}
-        {confirm && <button className="btn btn-sm" onClick={() => setConfirm(false)}>Cancel</button>}
+        {!merged && (w.state === "active" || w.state === "removed") && !away && <ActionButton name="worktree.discard" params={{ id: w.id }} query={{ session: decodeURIComponent(owner) }} vars={{ what: `${i.ahead ? `${i.ahead} unmerged commit${i.ahead === 1 ? "" : "s"}, ` : ""}${i.dirty_files ? `${i.dirty_files} uncommitted file${i.dirty_files === 1 ? "" : "s"}, ` : ""}the folder and the branch ${w.branch}${w.primary ? ", and archives its agents" : ""}` }} disabled={busy || running} icon={null} onDone={() => { toast("Worktree discarded"); void qc.invalidateQueries({ queryKey: ["worktrees"] }); }} />}
       </div>
     </div>
   );

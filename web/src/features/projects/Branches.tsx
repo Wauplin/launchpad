@@ -3,13 +3,14 @@
 // agent's worktree card. Today lists a finished agent's branch until you have seen it.
 
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useMemo, useRef } from "react";
 import type { Session } from "@/gen/Session";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { Icon } from "@/components/Icon";
-import { Badge, Empty, Loading } from "@/components/ui";
+import { Badge, Empty, Loading, RowActions } from "@/components/ui";
+import { MenuItem } from "@/components/Popover";
 import { SessionStatus } from "@/features/agents/SessionBits";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/format";
@@ -19,9 +20,10 @@ import { offlineWorktreesNote, useOfflineRunners } from "@/lib/runners";
 
 const BranchRow = memo(function BranchRow({ i, session }: { i: WorktreeInfo; session: Session | undefined }) {
   const phone = usePhone();
+  const navigate = useNavigate();
   const w = i.worktree;
   const state = w.merge ? "merge requested" : w.push_note ? "not on Home" : null;
-  return <div className={`grid items-center gap-x-3 border-b border-line-2 px-4 ${phone ? "h-[112px] grid-cols-[32px_minmax(0,1fr)] content-center gap-y-2" : "h-14 grid-cols-[32px_minmax(0,1fr)_auto]"}`}>
+  return <div className={`group grid items-center gap-x-3 border-b border-line-2 px-4 ${phone ? "h-[112px] grid-cols-[32px_minmax(0,1fr)] content-center gap-y-2" : "h-14 grid-cols-[32px_minmax(0,1fr)_auto]"}`}>
     <span className="grid size-8 place-items-center rounded-card bg-sunk text-ink-2"><Icon name="branch" size={16} /></span>
     <div className="min-w-0">
       <div className="flex min-w-0 items-center gap-2"><span className="truncate text-[13px] font-semibold">{session?.title ?? w.branch}</span>{session && <SessionStatus s={session} />}</div>
@@ -33,9 +35,9 @@ const BranchRow = memo(function BranchRow({ i, session }: { i: WorktreeInfo; ses
         {state && <Badge tone="attn">{state}</Badge>}
       </div>
     </div>
-    {session && <div className={`flex items-center justify-end gap-2 ${phone ? "col-span-2 justify-start" : ""}`}>
-      <Link className="btn btn-sm btn-primary no-underline" to="/agents" search={{ session: session.id, view: "changes" }}>Review changes</Link>
-      <Link className="btn btn-sm no-underline" to="/agents" search={{ session: session.id }}>Open agent</Link>
+    {session && <div className={`flex items-center justify-end ${phone ? "col-span-2 justify-start" : ""}`}>
+      <RowActions label={`More actions for ${w.branch}`} main={<Link className="btn btn-sm no-underline" to="/agents" search={{ session: session.id, view: "changes" }}>Changes</Link>}
+        more={(close) => <MenuItem icon={<Icon name="agents" size={14} />} label="Open agent" detail={session.title} onClick={() => { close(); void navigate({ to: "/agents", search: { session: session.id } }); }} />} />
     </div>}
   </div>;
 });
