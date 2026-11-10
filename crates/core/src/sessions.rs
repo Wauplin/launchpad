@@ -540,7 +540,20 @@ impl Sessions {
                     Ok(())
                 }).await?;
                 if !stale {
-                    self.inner.records.lock().unwrap().insert(s.id.clone(), s.clone());
+                    // Home may have changed its own fields meanwhile (the BOT.md a message carried,
+                    // `bots::record_instructions`): keep them, and store them again.
+                    let again = {
+                        let mut recs = self.inner.records.lock().unwrap();
+                        let newer = recs.get(&s.id).map(|now| now.launch_spec.bot.clone()).filter(|b| *b != s.launch_spec.bot);
+                        if let Some(b) = &newer {
+                            s.launch_spec.bot = b.clone();
+                        }
+                        recs.insert(s.id.clone(), s.clone());
+                        newer.map(|_| Self::persist(&app.state_db, &s))
+                    };
+                    if let Some(stored) = again {
+                        stored.await?;
+                    }
                     app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
                     self.publish_counts(app);
                     if current.as_ref().is_some_and(|c| c.status.is_running() && !s.status.is_running()) {

@@ -472,8 +472,7 @@ async fn drive(app: &App, runner_id: &str) {
         .await,
         Some(Pending::Request { session_id, action, body, key }) => async {
             crate::handoff::move_to(app, &session_id, runner_id).await?;
-            let headers = key.map(|k| vec![("idempotency-key".to_string(), k)]).unwrap_or_default();
-            let (status, body) = app.runners.request_with(runner_id, "POST", &format!("/api/sessions/{session_id}/{action}"), body, headers).await?;
+            let (status, body) = crate::runners::deliver(app, runner_id, &session_id, &action, body, key).await?;
             ensure!((200..300).contains(&status), "{}", error_of(&body));
             Ok(())
         }

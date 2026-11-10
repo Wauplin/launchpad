@@ -539,7 +539,7 @@ pub fn thread(app: &App, id: &str) -> Vec<Session> {
 }
 
 /// The current session of a thread, as `rotation` compares it with the bot's settings: its status, and the
-/// profile, folder (None for a temporary folder), model, effort and permission mode it runs with.
+/// profile, folder (None for a temporary folder), model, effort and permission mode bot.toml gave it at start.
 #[derive(Clone, Copy, Debug)]
 pub struct Current<'a> {
     pub status: SessionStatus,
@@ -558,7 +558,8 @@ impl<'a> Current<'a> {
             folder: if matches!(s.launch_spec.target, Target::Temp) { None } else { s.project_id.as_deref() },
             model: s.launch_spec.model.as_deref(),
             effort: s.launch_spec.effort.as_deref(),
-            permission_mode: s.launch_spec.permission_mode,
+            // The mode bot.toml gave it, not one the owner set on the session in Agents.
+            permission_mode: s.launch_spec.bot.as_ref().and_then(|b| b.permission_mode).unwrap_or(s.launch_spec.permission_mode),
         }
     }
 }
@@ -714,6 +715,7 @@ pub async fn next_spec(app: &App, bot: &Bot, thread: &[Session], text: String, a
             instructions: bot.instructions.clone(),
             version: bot.instructions_version.clone(),
             reason: None,
+            permission_mode: Some(s.permission_mode),
             previous,
             inbox_done: s.inbox_done && s.launchpad != crate::vault::LaunchpadAccess::Read,
         }),

@@ -1,14 +1,10 @@
 //! What a session sees at start: its instructions (the harness's user-level instructions file, written by
 //! `Harness::contained_memory`) and its first prompt, in labelled parts. The real start (`contain::apply`,
-//! `Sessions::resolve`) and "What it sees at start" (`preview`, on Home) build them with the same functions; only
-//! the paths differ (the preview names `$LAUNCHPAD_KB` and Home's CLI command).
+//! `Sessions::resolve`) and "What it sees at start" (Home's `launchpad_api::bots::start_preview`) build them with
+//! the same functions; only the paths differ (the preview names `$LAUNCHPAD_KB` and Home's CLI command).
 
-use anyhow::{Context, Result};
 use serde::Serialize;
 use ts_rs::TS;
-
-use crate::App;
-use crate::model::{LaunchSpec, Target};
 
 /// One labelled part of what a session sees at start.
 #[derive(Clone, Debug, Serialize, TS, PartialEq)]
@@ -42,7 +38,7 @@ pub struct Inputs {
     pub attribution: String,
 }
 
-fn part(key: &str, label: &str, text: String) -> StartPart {
+pub fn part(key: &str, label: &str, text: String) -> StartPart {
     StartPart { key: key.into(), label: label.into(), text }
 }
 
@@ -79,56 +75,6 @@ pub fn slices(prompt: &str, marks: &[(&str, &str, usize)]) -> Vec<StartPart> {
         }
     }
     out
-}
-
-/// Home: what a session of this launch would see at start, built like a real start (`contain::apply` for the
-/// instructions, `Sessions::preview` for the prompt) from Home's records and stores.
-pub async fn preview(app: &App, spec: &LaunchSpec) -> Result<StartPreview> {
-    let harness = spec.harness.context("pick a profile")?;
-    let prompt = app.sessions.preview(app, spec).await?.parts;
-    let project_id = match &spec.target {
-        Target::Project { project_id } | Target::Predraft { project_id } => Some(project_id.clone()),
-        _ => None,
-    };
-    let folder_ws = match &project_id {
-        Some(p) => crate::projects::get(app, p).await?.and_then(|p| p.workspace_id),
-        None => None,
-    };
-    let workspace_id = folder_ws.or_else(|| spec.workspace_id.clone());
-    let cli = app.paths.cli_command();
-    let kb = match &workspace_id {
-        Some(ws) => crate::kb::instructions_on_home(app, ws).await,
-        None => NO_KB.into(),
-    };
-    let memory = match &spec.bot {
-        Some(b) => {
-            let tree = crate::plain::tree(app, &crate::bots::store(&b.id)).await?;
-            crate::bot_memory::compose(&crate::bot_memory::store_notes(app, &tree.files).await, &cli)
-        }
-        None => Default::default(),
-    };
-    let req = crate::vault::LeaseRequest {
-        session_id: String::new(),
-        generation: 0,
-        harness,
-        login: None,
-        workspace_id: workspace_id.clone(),
-        tools_off: spec.tools_off.clone(),
-        tools_on: spec.tools_on.clone(),
-        project_id,
-        bot_id: spec.bot.as_ref().map(|b| b.id.clone()),
-    };
-    let cli_reference = crate::vault::launchpad_access(app, &req).await?.map(|a| crate::launchpad_cli::cli_reference(&cli, workspace_id.as_deref(), a));
-    let attribution = crate::attribution::instruction(&crate::attribution::text(spec.bot.as_ref().map(|b| b.name.as_str()), harness.display()));
-    Ok(StartPreview { instructions: instruction_parts(Inputs { kb, memory, cli_reference, attribution }), prompt })
-}
-
-/// Home: what the bot's next new session would see at start (its next message stands for the typed text).
-pub async fn bot_preview(app: &App, bot_id: &str) -> Result<StartPreview> {
-    let bot = crate::bots::get(app, bot_id).await?;
-    let thread = crate::bots::thread(app, bot_id);
-    let spec = crate::bots::next_spec(app, &bot, &thread, "(your next message)".into(), vec![], Default::default()).await?;
-    preview(app, &spec).await
 }
 
 #[cfg(test)]

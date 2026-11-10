@@ -130,7 +130,7 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
   const reason = !current ? (sessions.length ? "archived" : "first")
     : current.launch_spec.profile !== (profile?.id ?? null) ? "profile"
     : (current.launch_spec.model ?? null) !== (b.settings.model ?? profile?.model ?? null) ? "model"
-    : current.launch_spec.permission_mode !== b.settings.permission_mode ? "permissions" : null;
+    : (current.launch_spec.bot?.permission_mode ?? current.launch_spec.permission_mode) !== b.settings.permission_mode ? "permissions" : null;
   const fresh = !!(body as { new_session?: boolean }).new_session;
   if (current && !fresh && !reason) {
     // BOT.md changed since the session read it: the new one goes after the typed text (`bots::with_new_instructions`).
@@ -145,6 +145,6 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
   const previous = sessions.at(-1);
   const spec = { harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), worktree: !b.settings.folder || world.projects.find((p) => p.id === b.settings.folder)?.plain ? null : { base: null, when_done: "keep" }, workspace_id: b.workspace_id, text,
     model: b.settings.model ?? profile?.model ?? null, permission_mode: b.settings.permission_mode,
-    bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", version: botVersion(b.instructions), reason: fresh && !reason ? "new" : reason ?? "first", previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
+    bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", version: botVersion(b.instructions), reason: fresh && !reason ? "new" : reason ?? "first", permission_mode: b.settings.permission_mode, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
   return launch(spec, undefined, b.slug === "ask-launchpad" ? pickReply(text, true) : undefined);
 });

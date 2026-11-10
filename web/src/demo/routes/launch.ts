@@ -103,7 +103,7 @@ export function memoryParts(notes: Record<string, string>): { text: string; cut:
   return { text, cut, loaded, total };
 }
 
-/** `start::preview`: the instructions file and the first prompt of a launch, in labelled parts. */
+/** Home's start preview (`crates/api/src/bots.rs`): the instructions file and the first prompt of a launch, in labelled parts. */
 export function startPreview(spec: LaunchSpec): StartPreview {
   const s: LaunchSpec = { ...defaultSpec(), ...spec };
   const ws = s.workspace_id ?? (s.target.kind === "project" ? world.projects.find((p) => p.id === (s.target as { project_id: string }).project_id)?.workspace_id : null) ?? null;
@@ -119,7 +119,11 @@ export function startPreview(spec: LaunchSpec): StartPreview {
   instructions.push({ key: "cli", label: "Launchpad CLI reference", text: `# Launchpad CLI\n\nYour access to the owner's Launchpad through \`launchpad\` (JSON output) is **${access}**. Read: \`launchpad folders list\`, \`launchpad sessions list\`, \`launchpad today\`…${access === "read" ? "" : " Propose with \`launchpad propose <launch|message|schedule|…> --title \"…\" --spec-file <file.json>\`: proposals are inert cards the owner starts with a click."}\n` });
   instructions.push({ key: "attribution", label: "Attribution", text: "Attribution: Launchpad ends what you publish through it with the line `_Done with Claude Code using [Launchpad](https://github.com/Wauplin/launchpad)_`. Do not add that line or another attribution line yourself.\n" });
   if (memory.cut) instructions.push({ key: "memory-cut", label: "Memory cut", text: memory.cut });
-  return { instructions, prompt: promptParts(s, "") };
+  // What a launch adds once the session has its id and folder (`Sessions::launch`), shortened for the demo.
+  const prompt = promptParts(s, "");
+  if (s.target.kind === "temp" && ws) prompt.push({ key: "temp", label: "Temporary folder", text: "Launchpad temporary folder: your working directory `<its temporary folder>` is temporary. Launchpad saves its files on Home at the end of every turn, so they follow this session to another machine." });
+  if (s.target.kind !== "browser") prompt.push({ key: "publish", label: "GitHub suggestions and channels", text: "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `launchpad suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id $LAUNCHPAD_SESSION_ID`. Never publish suggestions yourself; the owner edits and posts with a click." });
+  return { instructions, prompt };
 }
 
 const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").split("-").slice(0, 5).join("-") || "task";

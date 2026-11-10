@@ -5,7 +5,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use launchpad_core::ask_bot;
 use launchpad_core::bots::{self, Bot, Create, Patch};
-use launchpad_core::model::{FileAttachment, MessageContext, Session};
+use launchpad_core::model::{FileAttachment, LaunchSpec, MessageContext, Session, Target};
+use launchpad_core::start::{self, StartPreview};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -28,14 +29,75 @@ pub fn router() -> Router<Ctx> {
         .route("/api/launch/start-preview", post(launch_start_preview).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
 }
 
-/// "What it sees at start" of the bot's next new session: its instructions and first prompt, in labelled parts.
-async fn start_preview(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<launchpad_core::start::StartPreview> {
-    Ok(Json(launchpad_core::start::bot_preview(&s.app, &id).await.map_err(bad)?))
+/// "What it sees at start" of the bot's next new session: its instructions and first prompt, in labelled parts
+/// (its next message stands for the typed text).
+async fn start_preview(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<StartPreview> {
+    let app = &s.app;
+    let bot = bots::get(app, &id).await.map_err(bad)?;
+    let thread = bots::thread(app, &id);
+    let spec = bots::next_spec(app, &bot, &thread, "(your next message)".into(), vec![], Default::default()).await.map_err(bad)?;
+    Ok(Json(preview(app, &spec).await.map_err(bad)?))
 }
 
 /// "What it sees at start" of a launch spec, without starting anything.
-async fn launch_start_preview(State(s): State<Ctx>, Json(spec): Json<launchpad_core::model::LaunchSpec>) -> ApiResult<launchpad_core::start::StartPreview> {
-    Ok(Json(launchpad_core::start::preview(&s.app, &spec).await.map_err(bad)?))
+async fn launch_start_preview(State(s): State<Ctx>, Json(spec): Json<LaunchSpec>) -> ApiResult<StartPreview> {
+    Ok(Json(preview(&s.app, &spec).await.map_err(bad)?))
+}
+
+/// What a session of this launch would see at start, built from Home's records and stores with the functions of a
+/// real start (`contain::apply` for the instructions, `Sessions::preview` for the prompt, `launchpad_core::start`).
+async fn preview(app: &launchpad_core::App, spec: &LaunchSpec) -> anyhow::Result<StartPreview> {
+    use anyhow::Context;
+    use launchpad_core::{attribution, bot_memory, kb, launchpad_cli, plain, projects, vault};
+    let harness = spec.harness.context("pick a profile")?;
+    let mut prompt = app.sessions.preview(app, spec).await?.parts;
+    let project_id = match &spec.target {
+        Target::Project { project_id } | Target::Predraft { project_id } => Some(project_id.clone()),
+        _ => None,
+    };
+    // The workspace of its lease (`contain::request`): its folder's, else the launch's.
+    let folder_ws = match &project_id {
+        Some(p) => projects::get(app, p).await?.and_then(|p| p.workspace_id),
+        None => None,
+    };
+    let workspace_id = folder_ws.or_else(|| spec.workspace_id.clone());
+    let cli = app.paths.cli_command();
+    // What a launch adds after the prompt once the session has its id and folder (`Sessions::launch`), with
+    // `$LAUNCHPAD_SESSION_ID` for its id (worktrees are named in the prompt above; attachments are left out).
+    const SESSION: &str = "$LAUNCHPAD_SESSION_ID";
+    if let (Target::Temp, Some(ws)) = (&spec.target, &spec.workspace_id) {
+        prompt.push(start::part("temp", "Temporary folder", launchpad_core::sessions::temp_instruction(&cli, SESSION, ws, "<its temporary folder>")));
+    }
+    if !matches!(spec.target, Target::Browser { .. })
+        && let Some(text) = launchpad_core::ext::extensions().suggestion_instruction(app, SESSION)
+    {
+        prompt.push(start::part("publish", "GitHub suggestions and channels", text));
+    }
+    let kb = match &workspace_id {
+        Some(ws) => kb::instructions_on_home(app, ws).await,
+        None => start::NO_KB.into(),
+    };
+    let memory = match &spec.bot {
+        Some(b) => {
+            let tree = plain::tree(app, &bots::store(&b.id)).await?;
+            bot_memory::compose(&bot_memory::store_notes(app, &tree.files).await, &cli)
+        }
+        None => Default::default(),
+    };
+    let req = vault::LeaseRequest {
+        session_id: String::new(),
+        generation: 0,
+        harness,
+        login: None,
+        workspace_id: workspace_id.clone(),
+        tools_off: spec.tools_off.clone(),
+        tools_on: spec.tools_on.clone(),
+        project_id,
+        bot_id: spec.bot.as_ref().map(|b| b.id.clone()),
+    };
+    let cli_reference = vault::launchpad_access(app, &req).await?.map(|a| launchpad_cli::cli_reference(&cli, workspace_id.as_deref(), a));
+    let attribution = attribution::instruction(&attribution::text(spec.bot.as_ref().map(|b| b.name.as_str()), harness.display()));
+    Ok(StartPreview { instructions: start::instruction_parts(start::Inputs { kb, memory, cli_reference, attribution }), prompt })
 }
 
 fn bad(e: anyhow::Error) -> ApiError {

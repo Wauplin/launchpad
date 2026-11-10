@@ -1,5 +1,5 @@
 // "What it sees at start": the instructions file and the first prompt a session gets, in labelled parts that open
-// one by one. Home builds them with the same functions as a real start (`start::preview`), without starting
+// one by one. Home builds them with the same functions as a real start (`preview` in `crates/api/src/bots.rs`), without starting
 // anything: for a bot's next new session (`GET /api/bots/{id}/start-preview`) or a launch spec from the composer
 // (`POST /api/launch/start-preview`).
 

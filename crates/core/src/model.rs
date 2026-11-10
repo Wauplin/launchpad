@@ -519,6 +519,11 @@ pub struct BotLaunch {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<String>")]
     pub reason: Option<String>,
+    /// The permission mode bot.toml gave the session at start: `bots::rotation` compares bot.toml with it, so a
+    /// mode the owner set on the session itself (Agents) keeps the thread going. None for older sessions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<PermissionMode>")]
+    pub permission_mode: Option<PermissionMode>,
     /// `inbox_done = true` in bot.toml (and more than read access): it may run `launchpad inbox done`.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]

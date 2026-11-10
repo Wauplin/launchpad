@@ -37,7 +37,8 @@ export function rotationReason(bot: Bot, current: Session | null, profile: { id:
   if (folder !== (bot.settings.folder ?? null)) return "The bot's folder changed";
   if ((current.launch_spec.model ?? null) !== (bot.settings.model ?? profile?.model ?? null)) return "The bot's model changed";
   if ((current.launch_spec.effort ?? null) !== (bot.settings.effort ?? profile?.effort ?? null)) return "The bot's effort changed";
-  if (current.launch_spec.permission_mode !== bot.settings.permission_mode) return "The bot's permission mode changed";
+  // The mode bot.toml gave the session at start: one the owner set on the session in Agents keeps the thread.
+  if ((current.launch_spec.bot?.permission_mode ?? current.launch_spec.permission_mode) !== bot.settings.permission_mode) return "The bot's permission mode changed";
   return null;
 }
 
