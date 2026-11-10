@@ -16,4 +16,8 @@ instructions: string,
 /**
  * The thread's previous session, referenced by its trace (never inlined).
  */
-previous: BotHandoff | null, };
+previous: BotHandoff | null, 
+/**
+ * `inbox_done = true` in bot.toml (and more than read access): it may run `launchpad inbox done`.
+ */
+inbox_done?: boolean, };

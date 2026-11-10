@@ -169,8 +169,8 @@ async fn inbox(State(s): State<Ctx>, Query(q): Query<Scope>) -> ApiResult<Value>
     let threads: Vec<Value> = snap.threads.into_iter()
         .filter(|t| snap.active_ids.contains(&t.id))
         .filter(|t| repos.as_ref().is_none_or(|r| r.contains(&t.repo.to_lowercase())))
-        .take(100)
-        .map(|t| json!({"repo": t.repo, "number": t.number, "kind": t.kind, "title": t.title, "reason": t.reason, "unread": t.unread, "url": t.url, "updated_at": t.updated_at, "state": t.state}))
+        .take(300)
+        .map(|t| json!({"id": t.id, "repo": t.repo, "number": t.number, "kind": t.kind, "title": t.title, "reason": t.reason, "unread": t.unread, "url": t.url, "updated_at": t.updated_at, "state": t.state}))
         .collect();
     Ok(Json(json!(threads)))
 }

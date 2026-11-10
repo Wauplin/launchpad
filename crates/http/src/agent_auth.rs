@@ -25,7 +25,7 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
         Some(LaunchpadAccess::Admin)
     } else if method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity") {
         Some(LaunchpadAccess::Read)
-    } else if method == Method::POST && path == "/api/proposals" {
+    } else if method == Method::POST && (path == "/api/proposals" || path == "/api/inbox/agent-done") {
         Some(LaunchpadAccess::Propose)
     } else {
         None
@@ -99,7 +99,7 @@ fn read_allowed(path: &str) -> bool {
 pub const KB_BODY_MAX: usize = 128 << 20;
 
 fn own_write(path: &str) -> bool {
-    matches!(path, "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals" | "/api/kb" | "/api/channels/send")
+    matches!(path, "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals" | "/api/kb" | "/api/channels/send" | "/api/inbox/agent-done")
 }
 
 async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
@@ -182,6 +182,10 @@ mod tests {
         }
         assert!(read_allowed("/api/context/folders"));
         assert!(own_write("/api/worktrees/finish"));
+        // Bots allowed by bot.toml mark Inbox threads done (Home checks the bot); read access never does.
+        assert!(own_write("/api/inbox/agent-done"));
+        assert_eq!(tool_need(&Method::POST, "/api/inbox/agent-done"), Some(LaunchpadAccess::Propose));
+        assert!(!own_write("/api/inbox/t/action"));
     }
 
     #[test]

@@ -22,6 +22,11 @@ folder?: string | null, permission_mode: PermissionMode, proposals: ProposalMode
  */
 launchpad: LaunchpadAccess, 
 /**
+ * It may mark the owner's Inbox threads done itself, here and on GitHub (`launchpad inbox done`), without a
+ * click. Off by default.
+ */
+inbox_done?: boolean, 
+/**
  * Default tools of its sessions (`tool_defaults`): tool ID or `mcp:<server>` → on or off, over the
  * workspace's and the folder's defaults. Only tools granted to its workspace apply.
  */

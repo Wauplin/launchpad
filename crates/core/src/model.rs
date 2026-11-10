@@ -509,6 +509,10 @@ pub struct BotLaunch {
     pub instructions: String,
     /// The thread's previous session, referenced by its trace (never inlined).
     pub previous: Option<BotHandoff>,
+    /// `inbox_done = true` in bot.toml (and more than read access): it may run `launchpad inbox done`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub inbox_done: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]

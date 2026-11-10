@@ -74,6 +74,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/inbox", get(inbox))
         .route("/api/inbox/sync", post(inbox_sync))
         .route("/api/inbox/restore", post(inbox_restore))
+        .route("/api/inbox/agent-done", post(inbox_agent_done))
         .route("/api/inbox/{id}/preview", get(inbox_preview).post(inbox_refresh))
         .route("/api/inbox/{id}/action", post(inbox_action))
         .route("/api/inbox/{id}/reply", post(inbox_reply))
@@ -613,6 +614,39 @@ struct InboxRestore { ids: Vec<String> }
 async fn inbox_restore(State(s): State<Ctx>, Json(b): Json<InboxRestore>) -> ApiResult<Value> {
     launchpad_github::inbox::of(&s.app).restore(&s.app, b.ids).await.map_err(bad)?;
     Ok(Json(json!({"ok":true})))
+}
+
+#[derive(Deserialize)]
+struct AgentDone { session_id: String, ids: Vec<String> }
+/// `launchpad inbox done`: a bot session marks Inbox threads done, here and on GitHub, without the owner's click.
+/// Only for a bot whose bot.toml says `inbox_done = true` (and more than read access), checked on Home with
+/// the bot's current settings; only threads still in the Inbox. Each thread is marked like the Done button.
+async fn inbox_agent_done(State(s): State<Ctx>, Json(b): Json<AgentDone>) -> ApiResult<Value> {
+    let forbidden = |m: &str| ApiError::new(axum::http::StatusCode::FORBIDDEN, m.to_string());
+    let session = s.app.sessions.get(&b.session_id).ok_or_else(|| ApiError::not_found("no such session"))?;
+    if session.status == SessionStatus::Closed {
+        return Err(forbidden("this session is archived"));
+    }
+    let bot_id = session.launch_spec.bot.as_ref().map(|x| x.id.clone()).ok_or_else(|| forbidden("only a bot whose bot.toml says `inbox_done = true` may mark Inbox threads done; propose a ready card (`inbox.done`) instead"))?;
+    let bot = launchpad_core::bots::get(&s.app, &bot_id).await.map_err(|_| ApiError::not_found("the session's bot no longer exists"))?;
+    if bot.settings_error.is_some() || !bot.settings.inbox_done || bot.settings.launchpad == launchpad_core::vault::LaunchpadAccess::Read {
+        return Err(forbidden("this bot may not mark Inbox threads done: the owner sets `inbox_done = true` in its bot.toml (Settings tab); propose a ready card (`inbox.done`) instead"));
+    }
+    if b.ids.is_empty() || b.ids.len() > 200 {
+        return Err(ApiError::bad_request("give 1 to 200 thread ids (from `launchpad inbox list`)"));
+    }
+    let inbox = launchpad_github::inbox::of(&s.app);
+    let active: std::collections::HashSet<String> = inbox.snapshot(&s.app).await?.active_ids.into_iter().collect();
+    let mut results = Vec::new();
+    for id in b.ids {
+        let r = if !active.contains(&id) { Err("not in the Inbox (unknown id, or already done)".to_string()) } else { inbox.action(&s.app, &id, "done").await.map_err(|e| format!("{e:#}")) };
+        match &r {
+            Ok(()) => tracing::info!(session = %b.session_id, bot = %bot_id, thread = %id, "inbox thread marked done by a bot"),
+            Err(e) => tracing::warn!(session = %b.session_id, bot = %bot_id, thread = %id, "inbox done by a bot failed: {e}"),
+        }
+        results.push(match r { Ok(()) => json!({"id": id, "done": true}), Err(e) => json!({"id": id, "done": false, "error": e}) });
+    }
+    Ok(Json(json!(results)))
 }
 
 // ---------------------------------------------------------------- delayed launches

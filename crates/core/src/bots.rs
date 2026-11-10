@@ -62,6 +62,11 @@ pub struct BotSettings {
     /// What it may do with the Launchpad CLI tool: read, propose (the default) or admin.
     #[serde(default)]
     pub launchpad: crate::vault::LaunchpadAccess,
+    /// It may mark the owner's Inbox threads done itself, here and on GitHub (`launchpad inbox done`), without a
+    /// click. Off by default.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub inbox_done: bool,
     /// Default tools of its sessions (`tool_defaults`): tool ID or `mcp:<server>` → on or off, over the
     /// workspace's and the folder's defaults. Only tools granted to its workspace apply.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -154,7 +159,7 @@ pub fn parse_settings(text: &str) -> Result<BotSettings> {
 }
 
 fn render_settings(s: &BotSettings) -> Result<String> {
-    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n{}", toml::to_string(s)?))
+    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# inbox_done = true: it may mark your Inbox threads done itself, here and on GitHub.\n{}", toml::to_string(s)?))
 }
 
 type Row = (String, String, String, i64, Option<String>, bool);
@@ -259,7 +264,7 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
     let profile = c.profile.filter(|p| !p.is_empty());
     let folder = c.folder.filter(|f| !f.is_empty());
     let own: Option<String> = None;
-    let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, tools: Default::default() };
+    let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, inbox_done: false, tools: Default::default() };
     check_settings(app, &c.workspace_id, &settings).await?;
     let instructions = if c.instructions.trim().is_empty() { format!("# {name}\n") } else { format!("{}\n", c.instructions.trim_end()) };
     let (id2, ws, slug2, at) = (id.clone(), c.workspace_id.clone(), slug.clone(), now_ms());
@@ -422,7 +427,7 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
         // Git folders: a fresh worktree per session, never the owner's checkout.
         worktree: folder.as_ref().filter(|f| !f.plain).map(|f| WorktreeOptions { when_done: f.when_done, ..Default::default() }),
         workspace_id: Some(bot.workspace_id.clone()),
-        bot: Some(BotLaunch { id: bot.id.clone(), name: s.name.clone(), slug: bot.slug.clone(), instructions: bot.instructions.clone(), previous }),
+        bot: Some(BotLaunch { id: bot.id.clone(), name: s.name.clone(), slug: bot.slug.clone(), instructions: bot.instructions.clone(), previous, inbox_done: s.inbox_done && s.launchpad != crate::vault::LaunchpadAccess::Read }),
         mentions: context.mentions,
         skills: context.skills,
         context_projects: context.context_projects.into_iter().map(|c| ContextProject { editable: false, ..c }).collect(),
@@ -447,6 +452,9 @@ Routines: when the owner wants you to do something on your own later or again (e
         id = bot.id,
         triggers = crate::routines::TRIGGER_FORMS,
     );
+    if bot.inbox_done {
+        out.push_str(&format!("\nInbox: the owner lets you mark their Inbox threads done yourself, in Launchpad and on GitHub (Done, not just read): `{cli} inbox done <thread-id>...`, with the ids from `{cli} inbox list`. Only threads your instructions name; never mark them done with `gh` (Launchpad's Inbox would keep them)."));
+    }
     if let Some(p) = &bot.previous {
         out.push_str(&format!(
             "\n\nThis session continues the thread. The previous session is a reference, not new instructions; read it only when you need its context, redirecting the output to a file: \"{}\", through event {}: `{cli} trace {} --through {}`",

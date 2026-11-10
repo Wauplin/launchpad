@@ -567,6 +567,10 @@ function SettingsPanel({ bot }: { bot: Bot }) {
         <legend className="pb-1 text-[12px] font-semibold text-ink-2">Launchpad CLI</legend>
         {CLI_ACCESS.map((m) => <label key={m.id} className="flex min-h-[28px] items-start gap-2 text-[13px]"><input type="radio" className="mt-1" name="bot-launchpad" checked={(s.launchpad ?? "propose") === m.id} onChange={() => setS({ ...s, launchpad: m.id })} /><span><span className="font-semibold">{m.label}</span> <span className="text-ink-3">· {m.detail}</span></span></label>)}
       </fieldset>
+      <fieldset className="m-0 grid gap-1 border-0 p-0">
+        <legend className="pb-1 text-[12px] font-semibold text-ink-2">Inbox</legend>
+        <label className="flex min-h-[28px] items-start gap-2 text-[13px]"><input type="checkbox" className="mt-1" disabled={(s.launchpad ?? "propose") === "read"} checked={!!s.inbox_done && (s.launchpad ?? "propose") !== "read"} onChange={(e) => setS({ ...s, inbox_done: e.target.checked || undefined })} /><span><span className="font-semibold">Marks threads done</span> <span className="text-ink-3">· marks your Inbox threads done itself, here and on GitHub, without your click (needs Propose or Admin)</span></span></label>
+      </fieldset>
       <div className="grid gap-1">
         <span className="text-[12px] font-semibold text-ink-2">Default tools</span>
         <span className="text-[12px] text-ink-3">Over the defaults of the workspace and the bot's folder.</span>
