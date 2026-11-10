@@ -492,15 +492,29 @@ pub async fn accept_in(app: &App, id: &str, time_zone: Option<String>, agent: Op
 /// hop count; a card accepted automatically (auto mode) or by an agent counts one hop after the author's turn, or the
 /// accepting agent's.
 async fn card_sender(app: &App, p: &Proposal, owner_click: bool, agent: Option<&str>) -> Result<Option<launchpad_core::model::MessageFrom>> {
-    let Some(author) = p.session_id.as_deref().and_then(|sid| app.sessions.get(sid)) else { return Ok(None) };
+    let Some(sid) = p.session_id.as_deref() else { return Ok(None) };
     let hops = match (owner_click, agent) {
         (true, None) => 0,
         (_, Some(a)) => launchpad_core::senders::hops_of(app, a).await + 1,
-        (false, None) => launchpad_core::senders::hops_of(app, &author.id).await + 1,
+        (false, None) => launchpad_core::senders::hops_of(app, sid).await + 1,
     };
     launchpad_core::senders::guard(hops)?;
-    let from = launchpad_core::senders::sender_of(&author, hops);
+    // An author whose record is gone is still not the owner: "an agent".
+    let from = match app.sessions.get(sid) {
+        Some(author) => launchpad_core::senders::sender_of(&author, hops),
+        None => launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Session, id: sid.to_string(), hops, ..Default::default() },
+    };
     Ok(Some(launchpad_core::model::MessageFrom { card: Some(p.id.clone()), accepted: owner_click && agent.is_none(), ..from }))
+}
+
+/// Who a launch card's first message comes from: nobody when the owner clicked it (the launch is the owner's), else
+/// its author, one hop into the chain (`card_sender`), without a header (the new agent's task is its own). Any sender
+/// the card's spec named is replaced.
+async fn launch_sender(app: &App, p: &Proposal, owner_click: bool, agent: Option<&str>) -> Result<Option<launchpad_core::model::MessageFrom>> {
+    if owner_click && agent.is_none() {
+        return Ok(None);
+    }
+    card_sender(app, p, owner_click, agent).await
 }
 
 /// `manual`: an owner click (or an admin session's `agent` accept), which may also retry a failed card.
@@ -526,11 +540,12 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
     };
     let result: Result<String> = async {
         match p.body.clone() {
-            ProposalBody::Launch { spec } => {
+            ProposalBody::Launch { mut spec } => {
                 let id = p.result_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                 if app.sessions.get(&id).is_some() {
                     return Ok(id);
                 }
+                spec.from = launch_sender(app, &p, manual, agent.as_deref()).await?;
                 Ok(launchpad_core::runners::launch_anywhere(app, spec, id, false).await?.id)
             }
             ProposalBody::Message { session_id, text } => {
@@ -539,7 +554,10 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 launchpad_core::runners::send_anywhere_with(app, &session_id, &text, vec![], context, Some(format!("proposal-{}", p.id))).await?;
                 Ok(session_id)
             }
-            ProposalBody::Schedule { spec, conditions } => Ok(crate::schedules::create(app, spec, conditions).await?.id),
+            ProposalBody::Schedule { mut spec, conditions } => {
+                spec.from = launch_sender(app, &p, manual, agent.as_deref()).await?;
+                Ok(crate::schedules::create(app, spec, conditions).await?.id)
+            }
             ProposalBody::Cron { spec, schedule, conditions } => Ok(crate::crons::create(app, spec, schedule, conditions, Default::default(), None, time_zone).await?.id),
             ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions } => Ok(crate::crons::create_for_bot(app, &bot_id, crate::crons::BotRoutine { title, instructions, trigger, schedule, conditions, time_zone }).await?.id),
             ProposalBody::BotInstructions { bot_id, instructions, before, .. } => {

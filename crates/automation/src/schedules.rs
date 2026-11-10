@@ -92,11 +92,13 @@ pub async fn create(
     create_target(app, spec, conditions, None).await
 }
 
+/// `from`: the agent that schedules it (stamped by Home, `senders`); its text then arrives under its header.
 pub async fn follow_up(
     app: &App,
     id: &str,
     message: String,
     conditions: Vec<LaunchDelay>,
+    from: Option<launchpad_core::model::MessageFrom>,
 ) -> Result<ScheduledLaunch> {
     let session = app.sessions.get(id).context("no such session")?;
     anyhow::ensure!(
@@ -107,6 +109,8 @@ pub async fn follow_up(
     let mut spec = session.launch_spec;
     spec.harness = Some(session.harness);
     spec.text = message;
+    // Not the session's own first sender: the follow-up's.
+    spec.from = from;
     // Use the actual session project for workspace filtering, without creating a worktree.
     spec.target = session
         .project_id
@@ -454,9 +458,12 @@ async fn run(app: &App, record: ScheduledLaunch, automatic: bool) -> Result<Sess
 /// key: a run is claimed once (never retried), and a queued one is sent again later.
 async fn send_follow_up(app: &App, id: &str, record: &ScheduledLaunch, automatic: bool) -> Result<()> {
     if app.paths.role != launchpad_core::role::Role::Home {
-        return app.sessions.send_follow_up(app, id, &record.spec.text, automatic).await;
+        let text = record.spec.from.as_ref().map_or_else(|| record.spec.text.clone(), |f| launchpad_core::senders::wrap(f, &record.spec.text));
+        return app.sessions.send_follow_up(app, id, &text, automatic, record.spec.from.clone()).await;
     }
-    let body = serde_json::json!({"text": record.spec.text, "follow_up": if automatic { "automatic" } else { "manual" }}).to_string();
+    // An agent's follow-up names it (`context.from`): `runners::deliver` puts its text under its header.
+    let context = launchpad_core::model::MessageContext { from: record.spec.from.clone(), ..Default::default() };
+    let body = serde_json::json!({"text": record.spec.text, "follow_up": if automatic { "automatic" } else { "manual" }, "context": context}).to_string();
     let (status, answer) = launchpad_core::runners::continue_anywhere(app, id, "input", Some(body), None).await?;
     if status == 409 {
         return Err(launchpad_core::sessions::FollowUpBusy.into());

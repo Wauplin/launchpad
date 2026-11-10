@@ -503,12 +503,9 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     // or the agent whose CLI sent it (Home's record of it, `senders::agent`), never what the body says.
     let body = match (parts.as_slice(), body) {
         (["api", "sessions", _, "input"], Some(b)) => {
-            let from = match &agent {
-                Some(a) => match launchpad_core::senders::agent(&s.app, a).await {
-                    Ok(f) => Some(f),
-                    Err(e) => return ApiError::bad_request(format!("{e:#}")).into_response(),
-                },
-                None => None,
+            let from = match launchpad_core::senders::of_request(&s.app, agent.as_deref()).await {
+                Ok(f) => f,
+                Err(e) => return ApiError::bad_request(format!("{e:#}")).into_response(),
             };
             match inline_uploads(&b).and_then(|b| launchpad_core::senders::set_from(&b, from.as_ref()).ok_or_else(|| anyhow::anyhow!("the message is not a JSON object"))) {
                 Ok(b) => Some(b),
@@ -520,7 +517,7 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     let runner = match runner {
         Some(r) => r,
         // A launch: a runner that takes it, else Burst (`runners::launch_anywhere`).
-        None => return launch(&s, body.as_deref(), headers).await,
+        None => return launch(&s, body.as_deref(), headers, agent.as_deref()).await,
     };
     // A message, Resume or an answer: placed like every continuation (its runner, else another one, else Burst).
     if method == axum::http::Method::POST
@@ -682,11 +679,17 @@ pub(crate) async fn ask_connected(s: &Server, method: &str, path: &str) -> Vec<V
     futures_util::future::join_all(asks).await.into_iter().filter_map(|a| a.ok()).filter(|(status, _)| *status == 200).filter_map(|(_, body)| serde_json::from_str(&body).ok()).collect()
 }
 
-/// A launch on Home: sent once to a runner that takes it, or started on Burst.
-async fn launch(s: &Server, body: Option<&str>, headers: Vec<(String, String)>) -> Response {
-    let spec: launchpad_core::model::LaunchSpec = match serde_json::from_str(body.unwrap_or("{}")) {
+/// A launch on Home: sent once to a runner that takes it, or started on Burst. An agent's launch names it as the
+/// sender of the first message (Home's record of it, one hop into its chain, refused past the loop guard), without a
+/// header: the new agent's task is its own; the owner's launch names none, whatever the body says.
+async fn launch(s: &Server, body: Option<&str>, headers: Vec<(String, String)>, agent: Option<&str>) -> Response {
+    let mut spec: launchpad_core::model::LaunchSpec = match serde_json::from_str(body.unwrap_or("{}")) {
         Ok(spec) => spec,
         Err(e) => return ApiError::bad_request(format!("{e}")).into_response(),
+    };
+    spec.from = match launchpad_core::senders::of_request(&s.app, agent).await {
+        Ok(f) => f,
+        Err(e) => return ApiError::bad_request(format!("{e:#}")).into_response(),
     };
     let id = headers.into_iter().find(|(k, _)| k == "idempotency-key").map(|(_, v)| v).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     match runners::launch_anywhere(&s.app, spec, id, false).await {

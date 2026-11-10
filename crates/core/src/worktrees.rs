@@ -1215,7 +1215,7 @@ async fn attempt(app: &App, id: &str) {
     };
     // The agent rebases itself, after the locks are released.
     if let Some((w, (Some(session), reason))) = outcome
-        && let Err(e) = app.sessions.send_follow_up(app, &session, &conflict_message(app, &w, &reason, &session), false).await
+        && let Err(e) = app.sessions.send_follow_up(app, &session, &conflict_message(app, &w, &reason, &session), false, None).await
     {
         tracing::warn!("worktree conflict message {session}: {e:#}");
     }

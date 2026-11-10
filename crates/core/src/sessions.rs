@@ -1767,7 +1767,7 @@ impl Sessions {
     }
 
     pub async fn send(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>) -> Result<()> {
-        self.send_inner(app, id, text, images, InputMode::Manual, None).await
+        self.send_inner(app, id, text, images, InputMode::Manual, None, None).await
     }
 
     /// Resolve follow-up context under the same lock as delivery. No launch-only instructions
@@ -1819,15 +1819,17 @@ impl Sessions {
         self.send_locked(app, id, &prompt, images, InputMode::Manual, client_id, context.from).await
     }
 
-    pub async fn send_follow_up(&self, app: &App, id: &str, text: &str, automatic: bool) -> Result<()> {
+    /// `from`: an agent scheduled it (stamped by Home, `senders`); its text arrives already under its header.
+    pub async fn send_follow_up(&self, app: &App, id: &str, text: &str, automatic: bool, from: Option<crate::model::MessageFrom>) -> Result<()> {
         self.ensure_local(id)?;
-        self.send_inner(app, id, text, vec![], if automatic { InputMode::FollowUpAutomatic } else { InputMode::FollowUpManual }, None).await
+        self.send_inner(app, id, text, vec![], if automatic { InputMode::FollowUpAutomatic } else { InputMode::FollowUpManual }, None, from).await
     }
 
-    async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>) -> Result<()> {
+    #[allow(clippy::too_many_arguments)]
+    async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>, from: Option<crate::model::MessageFrom>) -> Result<()> {
         let _action = self.inner.actions.lock().await;
         let _guard = self.allow_work().await;
-        self.send_locked(app, id, text, images, mode, client_id, None).await
+        self.send_locked(app, id, text, images, mode, client_id, from).await
     }
 
     /// Caller holds the action and work locks, including during permission changes.

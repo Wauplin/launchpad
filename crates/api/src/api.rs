@@ -421,7 +421,7 @@ async fn input(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::http
     b.text = text;
     b.images.extend(images);
     if let Some(mode) = &b.follow_up {
-        return match s.app.sessions.send_follow_up(&s.app, &id, &b.text, mode == "automatic").await {
+        return match s.app.sessions.send_follow_up(&s.app, &id, &b.text, mode == "automatic", b.context.from).await {
             Ok(()) => Ok(Json(json!({"ok": true}))),
             Err(e) if e.is::<launchpad_core::sessions::FollowUpBusy>() => Err(ApiError::conflict(format!("{e:#}"))),
             Err(e) => Err(bad(e)),
@@ -662,14 +662,26 @@ use launchpad_automation::schedules::{self, LaunchDelay, ScheduledLaunch};
 struct ScheduleRequest { spec: LaunchSpec, conditions: Vec<LaunchDelay> }
 #[derive(Deserialize)]
 struct FollowUpRequest { message: String, conditions: Vec<LaunchDelay> }
-async fn follow_up(State(s): State<Ctx>, Path(id): Path<String>, Json(b): Json<FollowUpRequest>) -> ApiResult<ScheduledLaunch> {
-    Ok(Json(schedules::follow_up(&s.app, &id, b.message, b.conditions).await.map_err(bad)?))
+/// The sender of a follow-up or scheduled launch: the agent whose CLI asked (Home's record, `senders`), else the
+/// owner; never what the body says.
+async fn sender(s: &Ctx, agent: Option<axum::Extension<launchpad_http::AgentSession>>) -> Result<Option<launchpad_core::model::MessageFrom>, ApiError> {
+    launchpad_core::senders::of_request(&s.app, agent.as_ref().map(|a| a.0.0.as_str())).await.map_err(bad)
+}
+async fn follow_up(State(s): State<Ctx>, Path(id): Path<String>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(b): Json<FollowUpRequest>) -> ApiResult<ScheduledLaunch> {
+    let from = sender(&s, agent).await?;
+    Ok(Json(schedules::follow_up(&s.app, &id, b.message, b.conditions, from).await.map_err(bad)?))
 }
 async fn schedules(State(s): State<Ctx>) -> ApiResult<Vec<ScheduledLaunch>> { Ok(Json(schedules::list(&s.app).await?)) }
-async fn schedule(State(s): State<Ctx>, Json(b): Json<ScheduleRequest>) -> ApiResult<ScheduledLaunch> { Ok(Json(schedules::create(&s.app, b.spec, b.conditions).await.map_err(bad)?)) }
+async fn schedule(State(s): State<Ctx>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut b): Json<ScheduleRequest>) -> ApiResult<ScheduledLaunch> {
+    b.spec.from = sender(&s, agent).await?;
+    Ok(Json(schedules::create(&s.app, b.spec, b.conditions).await.map_err(bad)?))
+}
 #[derive(serde::Deserialize)]
 struct ScheduleUpdate { spec: LaunchSpec, #[serde(default)] conditions: Option<Vec<LaunchDelay>> }
-async fn update_schedule(State(s): State<Ctx>, Path(id): Path<String>, Json(b): Json<ScheduleUpdate>) -> ApiResult<ScheduledLaunch> { Ok(Json(schedules::update(&s.app, &id, b.spec, b.conditions).await.map_err(bad)?)) }
+async fn update_schedule(State(s): State<Ctx>, Path(id): Path<String>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut b): Json<ScheduleUpdate>) -> ApiResult<ScheduledLaunch> {
+    b.spec.from = sender(&s, agent).await?;
+    Ok(Json(schedules::update(&s.app, &id, b.spec, b.conditions).await.map_err(bad)?))
+}
 async fn cancel_schedule(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
     schedules::cancel(&s.app, &id).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))

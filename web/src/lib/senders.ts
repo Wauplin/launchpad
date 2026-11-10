@@ -10,6 +10,9 @@ const HEADER_START = "Message from ";
 /** A message from another bot or agent (a routine run's message shows as a routine instead). */
 export const fromAgent = (from: MessageFrom | null | undefined): from is MessageFrom => !!from && (from.kind === "bot" || from.kind === "session");
 
+/** Whether the text arrived under Home's header (messages; an agent launched by another one gets none). */
+export const hasHeader = (text: string): boolean => text.startsWith(HEADER_START);
+
 /** The text the sender wrote: without Home's header and fence (what follows the fence, such as a changed BOT.md or
  * context Home added, stays after it). */
 export function withoutSender(text: string): string {
