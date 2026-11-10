@@ -617,8 +617,9 @@ async fn inbox_restore(State(s): State<Ctx>, Json(b): Json<InboxRestore>) -> Api
 }
 
 #[derive(Deserialize)]
-struct AgentDone { session_id: String, ids: Vec<String> }
-/// `launchpad inbox done`: a bot session marks Inbox threads done, here and on GitHub, without the owner's click.
+struct AgentDone { session_id: String, ids: Vec<String>, #[serde(default)] unsubscribe: bool }
+/// `launchpad inbox done|unsubscribe`: a bot session marks Inbox threads done, here and on GitHub, without the
+/// owner's click; with `unsubscribe`, it also mutes them on GitHub first, like the Unsubscribe button.
 /// Only for a bot whose bot.toml says `inbox_done = true` (and more than read access), checked on Home with
 /// the bot's current settings; only threads still in the Inbox. Each thread is marked like the Done button.
 async fn inbox_agent_done(State(s): State<Ctx>, Json(b): Json<AgentDone>) -> ApiResult<Value> {
@@ -635,14 +636,15 @@ async fn inbox_agent_done(State(s): State<Ctx>, Json(b): Json<AgentDone>) -> Api
     if b.ids.is_empty() || b.ids.len() > 200 {
         return Err(ApiError::bad_request("give 1 to 200 thread ids (from `launchpad inbox list`)"));
     }
+    let action = if b.unsubscribe { "unsubscribe" } else { "done" };
     let inbox = launchpad_github::inbox::of(&s.app);
     let active: std::collections::HashSet<String> = inbox.snapshot(&s.app).await?.active_ids.into_iter().collect();
     let mut results = Vec::new();
     for id in b.ids {
-        let r = if !active.contains(&id) { Err("not in the Inbox (unknown id, or already done)".to_string()) } else { inbox.action(&s.app, &id, "done").await.map_err(|e| format!("{e:#}")) };
+        let r = if !active.contains(&id) { Err("not in the Inbox (unknown id, or already done)".to_string()) } else { inbox.action(&s.app, &id, action).await.map_err(|e| format!("{e:#}")) };
         match &r {
-            Ok(()) => tracing::info!(session = %b.session_id, bot = %bot_id, thread = %id, "inbox thread marked done by a bot"),
-            Err(e) => tracing::warn!(session = %b.session_id, bot = %bot_id, thread = %id, "inbox done by a bot failed: {e}"),
+            Ok(()) => tracing::info!(session = %b.session_id, bot = %bot_id, thread = %id, action, "inbox thread marked done by a bot"),
+            Err(e) => tracing::warn!(session = %b.session_id, bot = %bot_id, thread = %id, action, "inbox {action} by a bot failed: {e}"),
         }
         results.push(match r { Ok(()) => json!({"id": id, "done": true}), Err(e) => json!({"id": id, "done": false, "error": e}) });
     }

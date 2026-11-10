@@ -307,6 +307,15 @@ enum Inbox {
         #[arg(required = true)]
         ids: Vec<String>,
     },
+    /// Unsubscribe from Inbox threads on GitHub (mute) and mark them done, in Launchpad and on GitHub, like the
+    /// Unsubscribe button (only for a bot whose bot.toml says `inbox_done = true`).
+    Unsubscribe {
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID")]
+        session_id: String,
+        /// Thread ids, from `launchpad inbox list`.
+        #[arg(required = true)]
+        ids: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -680,8 +689,13 @@ async fn run() -> Result<()> {
         Command::Profiles { command: ListOnly::List { .. } } => context_command(&paths, "profiles", None).await,
         Command::Presets { command: ListOnly::List { .. } } => context_command(&paths, "presets", None).await,
         Command::Inbox { command: Inbox::List { workspace } } => context_command(&paths, "inbox", workspace).await,
-        Command::Inbox { command: Inbox::Done { session_id, ids } } => {
-            let body = Client::new(&paths)?.json("POST", "/api/inbox/agent-done", Some(serde_json::json!({"session_id": session_id, "ids": ids}))).await?;
+        Command::Inbox { command: cmd @ (Inbox::Done { .. } | Inbox::Unsubscribe { .. }) } => {
+            let (session_id, ids, unsubscribe) = match cmd {
+                Inbox::Done { session_id, ids } => (session_id, ids, false),
+                Inbox::Unsubscribe { session_id, ids } => (session_id, ids, true),
+                Inbox::List { .. } => unreachable!(),
+            };
+            let body = Client::new(&paths)?.json("POST", "/api/inbox/agent-done", Some(serde_json::json!({"session_id": session_id, "ids": ids, "unsubscribe": unsubscribe}))).await?;
             println!("{}", serde_json::to_string_pretty(&body)?);
             let failed = body.as_array().map_or(0, |r| r.iter().filter(|x| x["done"] != true).count());
             anyhow::ensure!(failed == 0, "{failed} thread(s) not marked done");

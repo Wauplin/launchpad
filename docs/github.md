@@ -16,7 +16,7 @@ Sign in with `gh auth login` on the machine that runs the daemon. Launchpad read
 - The preview shows the latest comments and a reply box. **Read/Unread** and **Unsubscribe** are in the preview.
 - The sidebar count is unread review requests, mentions and assignments.
 
-GitHub's API cannot mirror the web inbox exactly, so Launchpad tracks inbox membership locally. Read and Done changes made on github.com may not appear. A bot that should clear threads itself uses `launchpad inbox done` (see [Bots](bots.md#the-launchpad-cli-tool)), which marks them done in both places.
+GitHub's API cannot mirror the web inbox exactly, so Launchpad tracks inbox membership locally. Read and Done changes made on github.com may not appear. A bot that should clear threads itself uses `launchpad inbox done` or `launchpad inbox unsubscribe` (see [Bots](bots.md#the-launchpad-cli-tool)), which marks them done in both places.
 
 ## Issues and pull requests
 

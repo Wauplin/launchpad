@@ -200,7 +200,7 @@ pub fn parse_settings(text: &str) -> Result<BotSettings> {
 }
 
 fn render_settings(s: &BotSettings) -> Result<String> {
-    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# inbox_done = true: it may mark your Inbox threads done itself, here and on GitHub.\n{}", toml::to_string(s)?))
+    Ok(format!("# Edited from the bot's Settings tab. folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# inbox_done = true: it may mark your Inbox threads done (or unsubscribe from them) itself, here and on GitHub.\n{}", toml::to_string(s)?))
 }
 
 type Row = (String, String, String, i64, Option<String>, bool);
@@ -499,7 +499,7 @@ Routines: when the owner wants you to do something on your own later or again (e
         triggers = crate::routines::TRIGGER_FORMS,
     );
     if bot.inbox_done {
-        out.push_str(&format!("\nInbox: the owner lets you mark their Inbox threads done yourself, in Launchpad and on GitHub (Done, not just read): `{cli} inbox done <thread-id>...`, with the ids from `{cli} inbox list`. Only threads your instructions name; never mark them done with `gh` (Launchpad's Inbox would keep them)."));
+        out.push_str(&format!("\nInbox: the owner lets you mark their Inbox threads done yourself, in Launchpad and on GitHub (Done, not just read): `{cli} inbox done <thread-id>...`, with the ids from `{cli} inbox list`; `{cli} inbox unsubscribe <thread-id>...` also mutes them on GitHub, so later activity does not notify the owner. Only threads your instructions name; never mark them done with `gh` (Launchpad's Inbox would keep them)."));
     }
     if let Some(p) = &bot.previous {
         out.push_str(&format!(
