@@ -1,7 +1,8 @@
 //! Burst on Home: dialing the runners of Burst jobs, handoffs, session moves and the Burst settings.
 //!
 //! - `/api/handoff/{id}` (runner credential): a runner sends the handoff of a session it runs (POST), and the
-//!   new runner of a moved session fetches it (GET).
+//!   new runner of a moved session fetches it (GET). `/api/handoff/{id}/parts` takes a handoff whose files go by
+//!   hash or as their appended tail.
 //! - `/api/sessions/{id}/handoff`, `/api/sessions/{id}/adopt`, `/api/sessions/{id}/release` (runner, from Home
 //!   through the tunnel).
 //! - `/api/sessions/{id}/move` (Home, owner): Move to another runner or to Burst.
@@ -27,6 +28,8 @@ pub fn router() -> Router<Server> {
     Router::new()
         // A handoff carries the agent's whole conversation (base64): far above axum's 2 MB default for long sessions.
         .route("/api/handoff/{id}", get(adoption).post(store).layer(axum::extract::DefaultBodyLimit::max(HANDOFF_MAX)))
+        // The same with files named by hash or sent as their tail (`handoff::send`): a path an older Home refuses.
+        .route("/api/handoff/{id}/parts", post(store).layer(axum::extract::DefaultBodyLimit::max(HANDOFF_MAX)))
         .route("/api/sessions/{id}/handoff", post(handoff))
         .route("/api/sessions/{id}/adopt", post(adopt))
         .route("/api/sessions/{id}/release", post(release))
@@ -41,7 +44,8 @@ const HANDOFF_MAX: usize = 512 << 20;
 
 /// Paths that authenticate with the runner credential (checked here).
 pub fn runner_path(path: &str) -> bool {
-    path.strip_prefix("/api/handoff/").is_some_and(|id| !id.is_empty() && !id.contains('/'))
+    let id = |id: &str| !id.is_empty() && !id.contains('/');
+    path.strip_prefix("/api/handoff/").is_some_and(|rest| id(rest) || rest.strip_suffix("/parts").is_some_and(id))
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
