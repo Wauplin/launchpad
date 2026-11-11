@@ -357,6 +357,27 @@ pub async fn after_push(app: &App, project_id: &str, before: &BTreeMap<String, S
         }
     }
     changed.extend(after.keys().filter(|r| !before.contains_key(*r)).map(|r| r.trim_start_matches("refs/heads/").to_string()));
+    // Leftover branches age from their last push, not from their commits (`prune`).
+    let scratch: Vec<(String, bool)> = changed.iter().filter(|b| b.starts_with("lp-scratch/")).map(|b| (b.clone(), after.contains_key(&format!("refs/heads/{b}")))).collect();
+    if !scratch.is_empty() {
+        let project = project_id.to_string();
+        let recorded = app
+            .state_db
+            .call(move |c| {
+                for (branch, present) in &scratch {
+                    if *present {
+                        c.execute("INSERT OR REPLACE INTO scratch_push (project_id, branch, at) VALUES (?1, ?2, ?3)", rusqlite::params![project, branch, at])?;
+                    } else {
+                        c.execute("DELETE FROM scratch_push WHERE project_id = ?1 AND branch = ?2", [&project, branch])?;
+                    }
+                }
+                Ok(())
+            })
+            .await;
+        if let Err(e) = recorded {
+            tracing::warn!("push times of leftover branches: {e:#}");
+        }
+    }
     // Also for a push of snapshots only (`refs/lp-snapshots/…`): backups bundle them.
     crate::home_backup::changed();
     if changed.is_empty() {
@@ -657,27 +678,58 @@ pub async fn push(app: &App, project_id: &str, remote: &str, commit: &str, branc
     git_in(app, &mirror(app, project_id), &["push", "--quiet", remote, &format!("{commit}:refs/heads/{branch}")], 300).await.map(|_| ())
 }
 
-/// Deletes kept tips, leftover branches and snapshots older than 30 days.
+/// Whether `prune` deletes a leftover branch or snapshot: its last push (when Home recorded one) and its commit
+/// are both older than `cutoff` (milliseconds).
+fn scratch_expired(committed_at: i64, pushed_at: Option<i64>, cutoff: i64) -> bool {
+    committed_at.max(pushed_at.unwrap_or(0)) < cutoff
+}
+
+/// Deletes kept tips older than 30 days, and leftover branches and snapshots 30 days after their last push (or
+/// commit); a leftover branch's tip stays restorable under `refs/kept/` for 30 more days.
 pub async fn prune(app: &App) -> Result<()> {
     let Ok(mut entries) = tokio::fs::read_dir(root(app)).await else { return Ok(()) };
-    let cutoff = now_ms() - KEEP_MS;
+    let now = now_ms();
+    let cutoff = now - KEEP_MS;
     while let Some(e) = entries.next_entry().await? {
         let name = e.file_name().to_string_lossy().into_owned();
-        if !name.ends_with(".git") { continue }
+        let Some(project_id) = name.strip_suffix(".git").map(str::to_string) else { continue };
         let dir = e.path();
+        let project = project_id.clone();
+        let pushed: BTreeMap<String, i64> = app
+            .state_db
+            .call(move |c| {
+                let mut st = c.prepare("SELECT branch, at FROM scratch_push WHERE project_id = ?1")?;
+                let rows = st.query_map([&project], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
+                Ok(rows)
+            })
+            .await?;
         let kept = git(app, &dir, &["for-each-ref", "--format=%(refname)", "refs/kept/"]).await.unwrap_or_default();
         for r in kept.lines() {
             if r.trim_start_matches("refs/kept/").split('/').next().and_then(|t| t.parse::<i64>().ok()).is_some_and(|t| t < cutoff) {
                 git(app, &dir, &["update-ref", "-d", r]).await?;
             }
         }
-        // Leftover branches and snapshots of uncommitted files (`worktrees::snapshot`) by their commit's date.
-        let scratch = git(app, &dir, &["for-each-ref", "--format=%(refname) %(committerdate:unix)", "refs/heads/lp-scratch/", "refs/lp-snapshots/"]).await.unwrap_or_default();
+        // Leftover branches and snapshots of uncommitted files (`worktrees::snapshot`, re-taken at every change).
+        let scratch = git(app, &dir, &["for-each-ref", "--format=%(refname) %(objectname) %(committerdate:unix)", "refs/heads/lp-scratch/", "refs/lp-snapshots/"]).await.unwrap_or_default();
         for l in scratch.lines() {
-            if let Some((r, t)) = l.split_once(' ')
-                && t.parse::<i64>().is_ok_and(|t| t * 1000 < cutoff)
-            {
-                git(app, &dir, &["update-ref", "-d", r]).await?;
+            let [r, commit, t] = l.split(' ').collect::<Vec<_>>()[..] else { continue };
+            let Ok(t) = t.parse::<i64>() else { continue };
+            let branch = r.strip_prefix("refs/heads/");
+            if !scratch_expired(t * 1000, branch.and_then(|b| pushed.get(b).copied()), cutoff) {
+                continue;
+            }
+            if let Some(b) = branch {
+                git(app, &dir, &["update-ref", &format!("refs/kept/{now}/{b}"), commit]).await?;
+            }
+            // Only if it did not move meanwhile.
+            if git(app, &dir, &["update-ref", "-d", r, commit]).await.is_err() {
+                continue;
+            }
+            if let Some(b) = branch.map(str::to_string) {
+                let project = project_id.clone();
+                app.state_db.call(move |c| Ok(c.execute("DELETE FROM scratch_push WHERE project_id = ?1 AND branch = ?2", [&project, &b])?)).await?;
+                browse_stale(&project_id);
+                crate::home_backup::changed();
             }
         }
     }
@@ -776,6 +828,15 @@ pub fn check_session(app: &App, runner_id: &str, session: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn leftover_branches_age_from_their_last_push() {
+        let cutoff = 100 * KEEP_MS;
+        assert!(scratch_expired(cutoff - 1, None, cutoff));
+        assert!(!scratch_expired(cutoff - KEEP_MS, Some(cutoff), cutoff));
+        assert!(scratch_expired(cutoff - KEEP_MS, Some(cutoff - 1), cutoff));
+        assert!(!scratch_expired(cutoff, Some(0), cutoff));
+    }
 
     /// Runs the pre-receive hook with `sh`, as a session (`refs`) or the daemon (None), on one pushed ref.
     fn hook_accepts(refs: Option<&[String]>, pushed: &str) -> bool {
