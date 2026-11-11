@@ -220,7 +220,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
     let get = *method == Method::GET;
     match (get, &p[1..]) {
         (true, ["status"] | ["context", "profiles" | "presets"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
-        (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"]) => Shared,
+        (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
         (false, ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["channels", "send"] | ["inbox", "agent-done"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
         (true, ["context", "folders" | "bots" | "sessions" | "inbox" | "schedules"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"]) => Listed,

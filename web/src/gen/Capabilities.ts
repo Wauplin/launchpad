@@ -29,7 +29,7 @@ terminals: boolean,
  */
 cli_update: boolean, 
 /**
-* Keeps exchange bodies to their window and sends `HttpAck` and `HttpCancel` (`server::wire`). Home keeps
+ * Keeps exchange bodies to their window and sends `HttpAck` and `HttpCancel` (`server::wire`). Home keeps
  * no window with an older runner, so it can still download Home's build.
  */
 flow: boolean, };
