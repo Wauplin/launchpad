@@ -126,6 +126,8 @@ Agent questions appear as cards with one button per option. Permission modes:
 
 Change the mode, model or effort of a running session in **Summary → Run**.
 
+Only you grant permissions. No agent can answer an approval card, even one with admin access to the Launchpad CLI. An agent may change a session's permission mode only to a stricter one: from YOLO to Auto or Ask for approval, or from Auto to Ask for approval. The same holds when an agent edits a scheduled launch (`schedule update`): it cannot loosen the mode the launch has.
+
 ### Automatic retries
 
 Sessions that fail because the model is at capacity or overloaded resume automatically after about five minutes, up to five times. Resume, a new message, Stop or Archive cancels the pending retry.
