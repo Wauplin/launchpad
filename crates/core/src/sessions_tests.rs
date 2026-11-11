@@ -187,3 +187,32 @@ fn only_sessions_idle_between_turns_release_their_process() {
         assert!(!super::idle_release_due(&session(running, false), due, after), "{running}");
     }
 }
+
+#[test]
+fn status_transitions() {
+    use crate::model::QuotaPausePhase::*;
+    use crate::model::SessionStatus::*;
+    use super::{Transition, transition};
+    let to = |status, turn_end| Transition::To { status, turn_end };
+    // A normal turn end, a new turn, and a repeated status.
+    assert_eq!(transition(Working, None, false, Waiting), to(Waiting, true));
+    assert_eq!(transition(Waiting, None, false, Working), to(Working, false));
+    assert_eq!(transition(Waiting, None, false, Waiting), Transition::Ignore);
+    // The quota guard pauses a running turn: nothing changes until the harness ends it, which pauses it.
+    assert_eq!(transition(Working, Some(Pausing), false, QuotaPaused), Transition::Ignore);
+    assert_eq!(transition(Working, Some(Pausing), false, Background), Transition::Ignore);
+    assert_eq!(transition(Working, Some(Pausing), false, Interrupted), to(QuotaPaused, true));
+    assert_eq!(transition(Working, Some(NeedsAttention), false, Waiting), to(QuotaPaused, true));
+    // Once paused (the turn is over or its process gone), the guard's QuotaPaused ends it; late updates do nothing.
+    assert_eq!(transition(Working, Some(Paused), false, QuotaPaused), to(QuotaPaused, true));
+    assert_eq!(transition(Waiting, Some(Paused), false, QuotaPaused), to(QuotaPaused, false));
+    assert_eq!(transition(QuotaPaused, Some(Paused), false, Waiting), Transition::Ignore);
+    assert_eq!(transition(QuotaPaused, Some(Paused), false, Working), Transition::Ignore);
+    // A provider's rejection ends the turn paused; a continuation runs normally.
+    assert_eq!(transition(Working, Some(ProviderLimited), false, QuotaPaused), to(QuotaPaused, true));
+    assert_eq!(transition(QuotaPaused, Some(Resuming), false, Working), to(Working, false));
+    // A cancelled continuation keeps only Done and Archive.
+    assert_eq!(transition(Working, None, true, Interrupted), Transition::Ignore);
+    assert_eq!(transition(Working, None, true, Waiting), to(Waiting, true));
+    assert_eq!(transition(Waiting, None, true, Closed), to(Closed, false));
+}

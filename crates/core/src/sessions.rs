@@ -164,6 +164,9 @@ struct Inner {
     /// One action lock per session (`action_lock`): its user actions, quota decisions and worktree operations
     /// serialize, other sessions never wait for it. Adapter events never take it.
     actions: crate::locks::Locks,
+    /// One status change per session at a time (`Sink::set_status`), from its read to its side effects. Taken
+    /// by adapters and actions alike, never held across a call to Home or a harness write.
+    statuses: crate::locks::Locks,
     /// Attached processes, with an instance number: the exit of an old process never detaches a newer one.
     live: Mutex<LiveSessions>,
     next_instance: std::sync::atomic::AtomicU64,
@@ -197,6 +200,35 @@ impl Default for Sessions {
     }
 }
 
+/// What a status change does to a session (`Sink::set_status`), decided from its record under its status lock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Transition {
+    /// Nothing changes: the same status, a late update during a quota pause, or a cancelled quota continuation.
+    Ignore,
+    /// The session takes `status`; `turn_end`: it leaves a running status, so the turn is saved on Home and
+    /// notified, and routines that wait for it run.
+    To { status: SessionStatus, turn_end: bool },
+}
+
+/// The status change `requested` for a session now `current`, with its quota pause phase. A quota pause
+/// survives late adapter updates, and a turn the quota guard interrupts ends only when the harness says so: while
+/// it pauses (`Pausing`) and the turn runs, the guard's own QuotaPaused waits, and the harness's turn end
+/// (Done, Stopped, Interrupted, Failed) becomes QuotaPaused. `quota_stop`: the owner cancelled the continuation.
+pub(crate) fn transition(current: SessionStatus, pause: Option<QuotaPausePhase>, quota_stop: bool, requested: SessionStatus) -> Transition {
+    use SessionStatus::*;
+    let status = match pause {
+        Some(QuotaPausePhase::Resuming) | None => requested,
+        // The turn still runs: only its real end pauses it.
+        Some(QuotaPausePhase::Pausing) if current.is_running() && requested == QuotaPaused => return Transition::Ignore,
+        Some(_) if requested == QuotaPaused || (current.is_running() && !requested.is_running()) => QuotaPaused,
+        Some(_) => return Transition::Ignore,
+    };
+    if (quota_stop && status != Closed && status != Waiting) || status == current {
+        return Transition::Ignore;
+    }
+    Transition::To { status, turn_end: current.is_running() && !status.is_running() }
+}
+
 /// How far a session's event numbers jump when another runner (or a new generation) takes it over (`handoff::adopt`):
 /// late events of the previous generation keep their own numbers below.
 pub const MOVE_SEQ_GAP: i64 = 1_000_000;
@@ -217,6 +249,7 @@ impl Sessions {
                 setups: Mutex::new(HashMap::new()),
                 shutdowns: Mutex::new(HashMap::new()),
                 actions: crate::locks::Locks::default(),
+                statuses: crate::locks::Locks::default(),
                 live: Mutex::new(HashMap::new()),
                 next_instance: std::sync::atomic::AtomicU64::new(1),
                 raw_counts: Mutex::new(HashMap::new()),
@@ -296,13 +329,15 @@ impl Sessions {
                 Ok(rows)
             })
             .await?;
-        let mut interrupted = vec![];
+        // (record, status before) of the sessions whose status changed here.
+        let mut interrupted: Vec<(Session, SessionStatus)> = vec![];
         {
             let mut recs = self.inner.records.lock().unwrap();
             for mut s in rows {
                 // Replicas: another instance or a runner owns their processes.
                 if s.runner_id.is_some() { recs.insert(s.id.clone(), s); continue; }
                 let mut changed = false;
+                let before = s.status;
                 if !crate::profiles::supports_cost(app, s.harness, &s.launch_spec, s.model.as_deref()) && crate::harness::registration(s.harness).descriptor.capabilities.cost {
                     changed = !s.usage.cost_unavailable;
                     s.usage.cost_unavailable = true;
@@ -322,11 +357,23 @@ impl Sessions {
                     s.status_since = now_ms();
                     changed = true;
                 }
-                if changed { interrupted.push(s.clone()); }
+                if changed { interrupted.push((s.clone(), before)); }
                 recs.insert(s.id.clone(), s);
             }
         }
-        for s in interrupted {
+        for (mut s, before) in interrupted {
+            // A turn the stop cut short ends like any turn: its branch tips first, then the status with the
+            // `unsaved` mark (`turn_sync` saves it once Home is reachable), and a notification once it is.
+            if before.is_running() && !s.status.is_running() {
+                crate::worktrees::record_heads(app, &s.id).await;
+                s.unsaved = crate::turn_sync::mark(app).or(s.unsaved);
+                if let Some(r) = self.inner.records.lock().unwrap().get_mut(&s.id) {
+                    r.unsaved = s.unsaved.clone();
+                }
+                if let Some(event) = crate::notify::status_notification(before, s.status, s.open_question, false, false) {
+                    crate::turn_sync::notify_when_connected(&s.id, event);
+                }
+            }
             Self::persist(&app.state_db, &s).await?;
         }
         // Read only decision events, not transcripts or attachment bytes, during startup.
@@ -468,7 +515,7 @@ impl Sessions {
     }
 
     /// Shown in a focused window that received user input in the last minute (the same rule as "seen" in the UI).
-    fn is_watched(&self, id: &str) -> bool {
+    pub(crate) fn is_watched(&self, id: &str) -> bool {
         let w = self.inner.watched.lock().unwrap();
         let now = now_ms();
         w.values().any(|(focused, sessions, at, input)| {
@@ -1613,7 +1660,7 @@ impl Sessions {
                     phase: QuotaPausePhase::Pausing, blockers, message: "Continue the interrupted task from where you stopped; check the current state before repeating actions.".into(),
                     images: vec![], client_id: None, error: None, messages: vec![],
                 })).await?;
-                self.sink(app, &s.id).set_status(SessionStatus::QuotaPaused).await;
+                // The turn's real end (the harness reports it once interrupted) makes it QuotaPaused (`transition`).
                 self.sink(app, &s.id).emit(EventBody::Notice { text: "Included quota exhausted. Pausing until quota is available; interruption is best effort and commands may still finish.".into() }).await;
                 self.inner.quota_interrupts.lock().unwrap().insert(s.id.clone(), now_ms());
                 if let Some(live) = self.live(&s.id)
@@ -1639,6 +1686,10 @@ impl Sessions {
             if self.live(&s.id).is_some_and(|l| !l.ready_for_turn()) { continue; }
             if p.phase == QuotaPausePhase::Pausing {
                 self.update(app, &s.id, |s| { if let Some(p) = &mut s.quota_pause { p.phase = QuotaPausePhase::Paused; } }).await?;
+            }
+            // The turn is over (or its process is gone) without a final status from the harness: this is its end.
+            if self.get(&s.id).is_some_and(|s| s.status != SessionStatus::QuotaPaused) {
+                self.sink(app, &s.id).set_status(SessionStatus::QuotaPaused).await;
             }
             let reading = crate::quota::reading_for(app, s.harness, &s.launch_spec);
             let mode = if crate::quota::available(&reading, now_ms()) { Some(QuotaResume::Automatic) }
@@ -2021,6 +2072,11 @@ impl Sessions {
                 sink.fail(&format!("{e:#}")).await;
             }
             return Err(e);
+        }
+        // The turn this message joined ended while it was on its way: the harness works on it in a turn of its own,
+        // which is Working again so that its end is a turn end (saved, notified) too.
+        if queued {
+            sink.set_status_when(SessionStatus::Working, |s| s.status == SessionStatus::Waiting && !s.open_question && s.quota_pause.is_none() && live.turn_active()).await;
         }
         Ok(())
     }
@@ -2511,22 +2567,30 @@ impl Sink {
             self.root().subagent(id, None, Some(status.into()), None).await;
             return;
         }
+        self.set_status_when(status, |_| true).await;
+    }
+
+    /// `set_status` when `when` holds for the record as it is under the session's status lock.
+    pub(crate) async fn set_status_when(&self, status: SessionStatus, when: impl FnOnce(&Session) -> bool) {
+        // Subagents (`agent_id`) go through `set_status`, which never calls this for them.
+        if self.agent_id.is_some() { return; }
+        // One change at a time: each one decides from the record the previous one left, and the Git and save
+        // mark awaits between its read and its write let no other change in (`transition`).
+        let lock = self.sessions.inner.statuses.get(&self.id);
+        let _status = lock.lock().await;
         // Detached adapters can still report a final result after Archive or reattachment.
         if self.instance != 0 && self.sessions.inner.live.lock().unwrap().get(&self.id).is_none_or(|(instance, _)| *instance != self.instance) { return; }
+        if !self.sessions.get(&self.id).is_some_and(|s| when(&s)) { return; }
+        let requested = status;
         let budget_stop = self.sessions.inner.budget_interrupts.lock().unwrap().contains_key(&self.id);
         let manual_stop = self.stop_requested() && !budget_stop;
         if matches!(status, SessionStatus::Stopped | SessionStatus::Closed | SessionStatus::Interrupted | SessionStatus::Error) {
             self.sessions.inner.stop_requests.lock().unwrap().remove(&self.id);
         }
         let Some(before) = self.sessions.get(&self.id) else { return };
-        // A quota interruption is durable and must survive late adapter state updates.
-        if before.quota_pause.as_ref().is_some_and(|p| p.phase != QuotaPausePhase::Resuming) && status != SessionStatus::QuotaPaused {
-            return;
-        }
-        if self.sessions.inner.quota_stops.lock().unwrap().contains(&self.id) && status != SessionStatus::Closed && status != SessionStatus::Waiting { return; }
-        if before.status == status {
-            return;
-        }
+        let quota_stop = self.sessions.inner.quota_stops.lock().unwrap().contains(&self.id);
+        let decided = transition(before.status, before.quota_pause.as_ref().map(|p| p.phase), quota_stop, requested);
+        let Transition::To { status, turn_end } = decided else { return };
         let capacity_failure = if status == SessionStatus::Error && before.status != SessionStatus::Closed && !manual_stop && !budget_stop {
             let id = self.id.clone();
             self.app.state_db.call(move |c| {
@@ -2539,17 +2603,18 @@ impl Sink {
         } else { false };
         // A turn end stores the branch tips first, then the new status with an `unsaved` mark: Home receives
         // both in that order and shows the turn as saving until `turn_sync` cleared the mark.
-        let turn_end = before.status.is_running() && !status.is_running();
         let unsaved = if turn_end {
             crate::worktrees::record_heads(&self.app, &self.id).await;
             crate::turn_sync::mark(&self.app)
         } else { None };
+        let mut applied = false;
         let _ = self
             .sessions
             .update(&self.app, &self.id, |s| {
-                if s.quota_pause.as_ref().is_some_and(|p| p.phase != QuotaPausePhase::Resuming) && status != SessionStatus::QuotaPaused { return; }
-                // Owner Archive/Resume may have won while the failure detail was read.
-                if status == SessionStatus::Error && s.status != before.status { return; }
+                // Compare and set: an action that changed the record meanwhile (Archive, Resume, a quota pause)
+                // without this lock wins, and this change does nothing.
+                if s.status != before.status || transition(s.status, s.quota_pause.as_ref().map(|p| p.phase), quota_stop, requested) != decided { return; }
+                applied = true;
                 if unsaved.is_some() { s.unsaved = unsaved; }
                 s.capacity_retry_at = if capacity_failure && s.capacity_retry_count < MAX_CAPACITY_RETRIES {
                     Some(now_ms() + CAPACITY_RETRY_DELAY_MS)
@@ -2559,7 +2624,7 @@ impl Sink {
                 if status.is_running() { s.ended_at = None; }
             })
             .await;
-        if self.sessions.get(&self.id).is_none_or(|s| s.status != status) { return; }
+        if !applied { return; }
         self.emit(EventBody::Status { status }).await;
         // Every turn end saves the session's branches, plain folders and conversation on Home; the first
         // turn end also renames the session once (an LLM call) beside it and never delays it.

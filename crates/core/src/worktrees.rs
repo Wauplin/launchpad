@@ -1477,7 +1477,9 @@ pub enum HomeMerge {
 /// Home's merges for runners, by folder, branch, head and base: each runs once in its own task, whatever happens
 /// to the call that started it, and its outcome stays an hour for the runner's next question.
 type MergeJob = tokio::sync::watch::Receiver<Option<Result<crate::home_git::MergeOutcome, String>>>;
-static HOME_MERGES: std::sync::LazyLock<std::sync::Mutex<HashMap<(String, String, String, String), (std::time::Instant, MergeJob)>>> = std::sync::LazyLock::new(Default::default);
+/// Folder, branch, head and base.
+type MergeKey = (String, String, String, String);
+static HOME_MERGES: std::sync::LazyLock<std::sync::Mutex<HashMap<MergeKey, (std::time::Instant, MergeJob)>>> = std::sync::LazyLock::new(Default::default);
 
 /// Home: a runner's merge request (`/api/home-git/{id}/merge`). The merge runs in its own task and the answer
 /// waits for it at most 40 seconds (less than the runner's call), else says Pending. `again`: the runner asked
