@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 use launchpad_core::App;
+use launchpad_core::safe_fs;
+use std::path::Path;
 use launchpad_core::model::*;
 use launchpad_core::sessions::{LiveSession, Sink, StartSpec, json_line, shorten, text_of, truncate_output};
 
@@ -1045,10 +1047,10 @@ impl harness::Harness for Adapter {
     }
     /// The setup token goes in the proxy; Claude Code sends the placeholder to the proxy's base URL.
     fn contained_login(&self, setup: &harness::LoginSetup) -> Result<Vec<(String, String)>> {
-        let state = setup.home.join(".claude/.claude.json");
-        if !state.exists() {
-            std::fs::create_dir_all(setup.home.join(".claude"))?;
-            std::fs::write(&state, json!({"hasCompletedOnboarding": true, "bypassPermissionsModeAccepted": true}).to_string())?;
+        // The harness home is agent-writable: nothing in it is followed if it is a link (`safe_fs`).
+        let state = Path::new(".claude/.claude.json");
+        if safe_fs::open(setup.home, state).is_err() {
+            safe_fs::write(setup.home, state, json!({"hasCompletedOnboarding": true, "bypassPermissionsModeAccepted": true}).to_string().as_bytes(), None)?;
         }
         Ok(vec![
             ("CLAUDE_CODE_OAUTH_TOKEN".into(), setup.placeholder.clone()),
@@ -1057,32 +1059,27 @@ impl harness::Harness for Adapter {
     }
     /// User-scope servers in `$CLAUDE_CONFIG_DIR/.claude.json`.
     fn contained_mcp(&self, home: &std::path::Path, servers: &[(String, String)]) -> Result<()> {
-        let path = home.join(".claude/.claude.json");
-        std::fs::create_dir_all(home.join(".claude"))?;
-        let mut state: Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+        let path = Path::new(".claude/.claude.json");
+        let mut state: Value = safe_fs::read_text(home, path).and_then(|t| serde_json::from_str(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
         let map: serde_json::Map<String, Value> = servers.iter().map(|(name, url)| (name.clone(), json!({"type": "http", "url": url}))).collect();
         state["mcpServers"] = Value::Object(map);
-        std::fs::write(&path, serde_json::to_string_pretty(&state)?)?;
+        safe_fs::write(home, path, serde_json::to_string_pretty(&state)?.as_bytes(), None)?;
         Ok(())
     }
     fn contained_memory(&self, home: &std::path::Path, instructions: &str) -> Result<Vec<(String, String)>> {
-        let dir = home.join(".claude");
-        std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("CLAUDE.md"), instructions)?;
-        let path = dir.join("settings.json");
-        let mut settings: Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
+        safe_fs::write(home, Path::new(".claude/CLAUDE.md"), instructions.as_bytes(), None)?;
+        let path = Path::new(".claude/settings.json");
+        let mut settings: Value = safe_fs::read_text(home, path).and_then(|t| serde_json::from_str(&t).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
         settings["autoMemoryEnabled"] = Value::Bool(false);
-        std::fs::write(&path, serde_json::to_string_pretty(&settings)?)?;
+        safe_fs::write(home, path, serde_json::to_string_pretty(&settings)?.as_bytes(), None)?;
         Ok(vec![("CLAUDE_CODE_DISABLE_AUTO_MEMORY".into(), "1".into())])
     }
     /// `attribution.pr` in `$CLAUDE_CONFIG_DIR/settings.json` replaces Claude Code's "Generated with Claude Code"
     /// line of pull request descriptions; commit trailers keep Claude Code's default.
     fn contained_attribution(&self, home: &std::path::Path, line: &str) -> Result<()> {
-        let dir = home.join(".claude");
-        std::fs::create_dir_all(&dir)?;
-        let path = dir.join("settings.json");
-        let text = std::fs::read_to_string(&path).unwrap_or_default();
-        std::fs::write(&path, with_attribution(&text, line)?)?;
+        let path = Path::new(".claude/settings.json");
+        let text = safe_fs::read_text(home, path).unwrap_or_default();
+        safe_fs::write(home, path, with_attribution(&text, line)?.as_bytes(), None)?;
         Ok(())
     }
     fn native_memories(&self, home: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {

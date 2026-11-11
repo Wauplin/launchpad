@@ -1,13 +1,15 @@
 //! Files in folders an agent can write, read and written by the daemon outside the jail: plain, temporary and
-//! asset folders, native traces in a session's harness home, its attachment folder and its `/tmp`.
+//! asset folders, native traces and harness setup files in a session's harness home, its attachment folder and
+//! its `/tmp`.
 //!
 //! An agent can plant a symbolic link anywhere in those folders (a file, or a folder on the way to it), so the
 //! daemon would read or write a file of the machine through it. Every call here takes a trusted `base` (opened
-//! normally: the data folder, never agent-writable itself) and a relative path below it whose every component is
+//! normally: one of the data folder's own folders or a session's harness home, never agent-writable themselves)
+//! and a relative path below it whose every component is
 //! opened with `O_NOFOLLOW` from the folder before it (`openat`), so a link is refused wherever it is, with no
 //! window between a check and the use. Files must be regular files (no FIFO, device or link); writes go to a new
 //! file renamed over the old one, so a link or hard link in its place is replaced, never written through.
-//! [`anchor`] picks the base for a path: the data folder when the path is below it.
+//! [`anchor`] picks the base for a path below the data folder.
 
 use std::ffi::OsStr;
 use std::io::{Error, ErrorKind, Result};
@@ -26,12 +28,20 @@ pub fn components(rel: &Path) -> Result<Vec<&OsStr>> {
     Ok(out)
 }
 
-/// The trusted base and the part below it of `path`: `trusted` (the data folder) when `path` lies below it, else
+/// The trusted base and the part below it of `path`. When `path` lies below `trusted` (the data folder, as
+/// given or resolved: it may itself be reached through a link, such as a linked home folder), the base is the
+/// data folder's own folder on the way (`worktrees`, `sessions`, `plain`…: the daemon's, never agent-writable
+/// themselves, so the owner may move one to another disk with a link) and nothing below it is followed. Else
 /// its parent folder (followed) and its name (never followed).
 pub fn anchor(trusted: &Path, path: &Path) -> (PathBuf, PathBuf) {
-    match path.strip_prefix(trusted) {
-        Ok(rel) if components(rel).is_ok_and(|c| !c.is_empty()) => (trusted.to_path_buf(), rel.to_path_buf()),
-        _ => match (path.parent(), path.file_name()) {
+    let below = |root: &Path| -> Option<(PathBuf, PathBuf)> {
+        let parts = components(path.strip_prefix(root).ok()?).ok()?;
+        let (first, rest) = parts.split_first()?;
+        Some(if rest.is_empty() { (root.to_path_buf(), PathBuf::from(first)) } else { (root.join(first), rest.iter().collect()) })
+    };
+    match below(trusted).or_else(|| below(&std::fs::canonicalize(trusted).ok()?)) {
+        Some(found) => found,
+        None => match (path.parent(), path.file_name()) {
             (Some(parent), Some(name)) => (parent.to_path_buf(), PathBuf::from(name)),
             _ => (path.to_path_buf(), PathBuf::new()),
         },
@@ -54,6 +64,12 @@ pub fn read(base: &Path, rel: &Path, max: u64) -> Result<Vec<u8>> {
     let mut data = Vec::with_capacity(len as usize);
     f.by_ref().take(max).read_to_end(&mut data)?;
     Ok(data)
+}
+
+/// A text file (at most 256 MiB); None when it is missing, not a regular file, reached through a link or not
+/// UTF-8.
+pub fn read_text(base: &Path, rel: &Path) -> Option<String> {
+    String::from_utf8(read(base, rel, 256 << 20).ok()?).ok()
 }
 
 /// The last `len` bytes of a regular file.
@@ -144,8 +160,12 @@ mod imp {
         Ok(unsafe { OwnedFd::from_raw_fd(fd) })
     }
 
-    fn base_dir(base: &Path) -> Result<OwnedFd> {
+    /// The trusted base, opened normally (created first when asked: a fresh runner has no `plain` or `sessions`).
+    fn base_dir(base: &Path, create: bool) -> Result<OwnedFd> {
         use std::os::unix::fs::OpenOptionsExt;
+        if create {
+            std::fs::create_dir_all(base)?;
+        }
         let f = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC).open(base)?;
         Ok(f.into())
     }
@@ -169,7 +189,7 @@ mod imp {
     }
 
     pub fn open_dir(base: &Path, rel: &Path, create: bool) -> Result<OwnedFd> {
-        let mut dir = base_dir(base)?;
+        let mut dir = base_dir(base, create)?;
         for c in components(rel)? {
             dir = sub_dir(&dir, c, create).map_err(|e| refused(rel, e))?;
         }
@@ -180,7 +200,7 @@ mod imp {
     fn parent(base: &Path, rel: &Path, create: bool) -> Result<(OwnedFd, OsStringName)> {
         let parts = components(rel)?;
         let (name, dirs) = parts.split_last().ok_or_else(|| Error::new(ErrorKind::InvalidInput, "no file name"))?;
-        let mut dir = base_dir(base)?;
+        let mut dir = base_dir(base, create)?;
         for c in dirs {
             dir = sub_dir(&dir, c, create).map_err(|e| refused(rel, e))?;
         }
@@ -295,8 +315,9 @@ mod tests {
         assert!(components(Path::new("../a")).is_err());
         assert!(components(Path::new("a/../../b")).is_err());
         assert!(components(Path::new("/etc/passwd")).is_err());
-        let (base, rel) = anchor(Path::new("/data"), Path::new("/data/plain/x"));
-        assert_eq!((base.as_path(), rel.as_path()), (Path::new("/data"), Path::new("plain/x")));
+        let (base, rel) = anchor(Path::new("/data"), Path::new("/data/plain/x/y"));
+        assert_eq!((base.as_path(), rel.as_path()), (Path::new("/data/plain"), Path::new("x/y")));
+        assert_eq!(anchor(Path::new("/data"), Path::new("/data/tmp")), (PathBuf::from("/data"), PathBuf::from("tmp")));
         assert_eq!(anchor(Path::new("/data"), Path::new("/data/a/../../etc")).0, Path::new("/data/a/../.."));
         assert_eq!(anchor(Path::new("/data"), Path::new("/elsewhere/x")), (PathBuf::from("/elsewhere"), PathBuf::from("x")));
     }
@@ -324,6 +345,14 @@ mod tests {
         write(&base, Path::new("new/deep/file"), b"ok", None).unwrap();
         assert_eq!(read(&base, Path::new("new/deep/file"), 100).unwrap(), b"ok");
         assert!(read(&base, Path::new("new/deep/file"), 1).is_err());
+        // The data folder reached through a link (a linked home folder), named either way: followed, nothing below.
+        let alias = root.join("alias");
+        std::os::unix::fs::symlink(&base, &alias).unwrap();
+        let (b, r) = anchor(&alias, &base.join("new/deep/file"));
+        assert_eq!(read(&b, &r, 100).unwrap(), b"ok");
+        std::os::unix::fs::symlink(outside.join("secret"), base.join("dir/other")).unwrap();
+        let (b, r) = anchor(&alias, &alias.join("dir/other"));
+        assert!(read(&b, &r, 100).is_err());
         remove_file(&base, Path::new("link")).unwrap();
         assert!(outside.join("secret").exists());
         std::fs::remove_dir_all(&root).unwrap();

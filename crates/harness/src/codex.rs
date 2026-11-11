@@ -11,6 +11,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
+use launchpad_core::safe_fs;
+use std::path::Path;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
@@ -1209,39 +1211,34 @@ impl harness::Harness for Adapter {
     /// Placeholders in `auth.json` (with a fresh `last_refresh`, so Codex never refreshes) and the ChatGPT
     /// endpoints pointed at the proxy, which adds the access token Home keeps fresh.
     fn contained_login(&self, setup: &harness::LoginSetup) -> Result<Vec<(String, String)>> {
-        let dir = setup.home.join(".codex");
-        std::fs::create_dir_all(&dir)?;
+        // The harness home is agent-writable: nothing in it is followed if it is a link (`safe_fs`).
         let now = time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339)?;
         let mut tokens = json!({"id_token": launchpad_core::vault::unsigned_jwt(&setup.login.claims), "access_token": setup.placeholder, "refresh_token": setup.placeholder});
         if let Some(a) = &setup.login.account_id {
             tokens["account_id"] = Value::String(a.clone());
         }
         let auth = json!({"OPENAI_API_KEY": null, "tokens": tokens, "last_refresh": now});
-        std::fs::write(dir.join("auth.json"), serde_json::to_string_pretty(&auth)?)?;
+        safe_fs::write(setup.home, Path::new(".codex/auth.json"), serde_json::to_string_pretty(&auth)?.as_bytes(), None)?;
         let base = &setup.proxy_base;
         let config = format!(
             "chatgpt_base_url = \"{base}/chatgpt.com/backend-api/\"\nmodel_provider = \"launchpad\"\ncheck_for_update_on_startup = false\n\n[model_providers.launchpad]\nname = \"OpenAI\"\nbase_url = \"{base}/chatgpt.com/backend-api/codex\"\nwire_api = \"responses\"\nrequires_openai_auth = true\n"
         );
-        std::fs::write(dir.join("config.toml"), config)?;
+        safe_fs::write(setup.home, Path::new(".codex/config.toml"), config.as_bytes(), None)?;
         Ok(vec![])
     }
     fn contained_memory(&self, home: &std::path::Path, instructions: &str) -> Result<Vec<(String, String)>> {
-        let dir = home.join(".codex");
-        std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("AGENTS.md"), instructions)?;
-        let path = dir.join("config.toml");
-        let config = std::fs::read_to_string(&path).unwrap_or_default();
+        safe_fs::write(home, Path::new(".codex/AGENTS.md"), instructions.as_bytes(), None)?;
+        let path = Path::new(".codex/config.toml");
+        let config = safe_fs::read_text(home, path).unwrap_or_default();
         if !config.contains("[memories]") {
-            std::fs::write(&path, format!("{config}{}\n[memories]\nuse_memories = false\ngenerate_memories = false\n", if config.is_empty() || config.ends_with('\n') { "" } else { "\n" }))?;
+            safe_fs::write(home, path, format!("{config}{}\n[memories]\nuse_memories = false\ngenerate_memories = false\n", if config.is_empty() || config.ends_with('\n') { "" } else { "\n" }).as_bytes(), None)?;
         }
         Ok(vec![])
     }
     /// `[mcp_servers.<name>]` with a Streamable HTTP `url` in `$CODEX_HOME/config.toml`, rewritten each start.
     fn contained_mcp(&self, home: &std::path::Path, servers: &[(String, String)]) -> Result<()> {
-        let dir = home.join(".codex");
-        std::fs::create_dir_all(&dir)?;
-        let path = dir.join("config.toml");
-        let config = std::fs::read_to_string(&path).unwrap_or_default();
+        let path = Path::new(".codex/config.toml");
+        let config = safe_fs::read_text(home, path).unwrap_or_default();
         const MARK: &str = "# Launchpad MCP servers (rewritten at each start)";
         let mut kept = config.split(MARK).next().unwrap_or_default().trim_end().to_string();
         if !servers.is_empty() {
@@ -1250,7 +1247,7 @@ impl harness::Harness for Adapter {
                 kept.push_str(&format!("[mcp_servers.{name}]\nurl = \"{url}\"\n"));
             }
         }
-        std::fs::write(&path, format!("{}\n", kept.trim_end()))?;
+        safe_fs::write(home, path, format!("{}\n", kept.trim_end()).as_bytes(), None)?;
         Ok(())
     }
     fn native_memories(&self, home: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {

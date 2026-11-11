@@ -23,7 +23,6 @@ pub fn session_dir(app: &App, id: &str) -> PathBuf {
     app.paths.data_dir.join("sessions").join(id)
 }
 
-/// The harness home of a session: `HOME` inside its jail.
 /// Where the daemon reads a file an agent named by its path in the jail's `/tmp` or `/var/tmp` (a background
 /// command's output file): in the session's own temporary folder (the machine's `/tmp` where agents run without
 /// a jail), as a base and a path below it whose components `safe_fs` never follows. None for any other path, and
@@ -44,6 +43,7 @@ fn jail_tmp(path: &str) -> Option<(&'static str, PathBuf)> {
     })
 }
 
+/// The harness home of a session: `HOME` inside its jail.
 pub fn harness_home(app: &App, id: &str) -> PathBuf {
     session_dir(app, id).join("home")
 }
@@ -325,7 +325,8 @@ fn write_git_config(home: &Path, lease: &Lease) -> Result<()> {
             }
         }
     }
-    std::fs::write(home.join(".gitconfig"), text)?;
+    // The harness home is agent-writable: a link planted there is replaced, never written through.
+    crate::safe_fs::write(home, Path::new(".gitconfig"), text.as_bytes(), None)?;
     Ok(())
 }
 

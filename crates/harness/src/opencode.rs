@@ -47,9 +47,8 @@ pub struct Adapter;
 #[async_trait]
 impl harness::Harness for Adapter {
     fn contained_memory(&self, home: &std::path::Path, instructions: &str) -> Result<Vec<(String, String)>> {
-        let dir = home.join(".config/opencode");
-        std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("AGENTS.md"), instructions)?;
+        // The harness home is agent-writable: nothing in it is followed if it is a link (`safe_fs`).
+        launchpad_core::safe_fs::write(home, std::path::Path::new(".config/opencode/AGENTS.md"), instructions.as_bytes(), None)?;
         Ok(vec![])
     }
     fn skill_locations(&self) -> Vec<launchpad_core::prompt_context::SkillLocation> {
