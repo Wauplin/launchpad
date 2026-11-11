@@ -211,6 +211,24 @@ pub async fn home_call(op: &str, body: serde_json::Value) -> Result<serde_json::
     Ok(value)
 }
 
+/// A request that reached Home's link but got no answer (timeout or disconnect): Home may still have done it.
+/// Callers whose request changes something treat it as uncertain, never as failed (`is_unanswered`).
+#[derive(Debug)]
+pub struct NoAnswer(pub &'static str);
+
+impl std::fmt::Display for NoAnswer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for NoAnswer {}
+
+/// Whether a `home_request` error means Home got the request but its answer never came.
+pub fn is_unanswered(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| c.is::<NoAnswer>())
+}
+
 /// Runner: an API request to Home through the tunnel. Errors carry Home's message.
 pub async fn home_request(method: &str, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value> {
     let r = REQUESTER.get().context("this daemon has no Home")?;

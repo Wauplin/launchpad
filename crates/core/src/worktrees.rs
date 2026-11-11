@@ -1423,6 +1423,11 @@ async fn attempt(app: &App, id: &str) {
                 notice(app, &w, &format!("Merge of {} stopped: {reason}", w.branch)).await;
                 send.then(|| (w.sessions.last().cloned(), reason))
             }
+            Ok(Step::Uncertain(reason)) => {
+                w.merge = Some(MergeRequest { phase: MergePhase::Failed, reason: reason.clone(), ..m });
+                notice(app, &w, &format!("Merge of {} uncertain: {reason}", w.branch)).await;
+                None
+            }
             Err(e) => {
                 // Usually a race on the base branch: the agent gets it once (automatic Fix merge), never twice.
                 let reason = format!("{e:#}");
@@ -1450,6 +1455,69 @@ enum Step {
     Merged(String, String),
     Wait(String),
     Conflict(String),
+    /// Nobody knows whether the merge happened: it stops for the owner, never retried or sent to the agent.
+    Uncertain(String),
+}
+
+/// Runner: the worktrees whose merge Home did not answer yet, with the head asked for. Asking again for the same
+/// head (`again`) only reads the outcome: Home never starts that merge a second time on its own.
+static ASKED: std::sync::LazyLock<std::sync::Mutex<HashMap<String, String>>> = std::sync::LazyLock::new(Default::default);
+
+/// Home's answer to a runner's merge request (`merge_for_runner`).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum HomeMerge {
+    Done { outcome: crate::home_git::MergeOutcome },
+    /// Still running on Home: ask again for the outcome.
+    Pending,
+    /// Home has no outcome for a merge asked before (it restarted meanwhile).
+    Uncertain { reason: String },
+}
+
+/// Home's merges for runners, by folder, branch, head and base: each runs once in its own task, whatever happens
+/// to the call that started it, and its outcome stays an hour for the runner's next question.
+type MergeJob = tokio::sync::watch::Receiver<Option<Result<crate::home_git::MergeOutcome, String>>>;
+static HOME_MERGES: std::sync::LazyLock<std::sync::Mutex<HashMap<(String, String, String, String), (std::time::Instant, MergeJob)>>> = std::sync::LazyLock::new(Default::default);
+
+/// Home: a runner's merge request (`/api/home-git/{id}/merge`). The merge runs in its own task and the answer
+/// waits for it at most 40 seconds (less than the runner's call), else says Pending. `again`: the runner asked
+/// for this head before and got no outcome; when Home has no task for it (a restart), Home reads its merge
+/// record instead of merging again, and an unknown outcome is Uncertain.
+pub async fn merge_for_runner(app: &App, project: &Project, branch: &str, head: &str, base: &str, again: bool) -> Result<HomeMerge> {
+    let key = (project.id.clone(), branch.to_string(), head.to_string(), base.to_string());
+    let job = {
+        let mut jobs = HOME_MERGES.lock().unwrap();
+        jobs.retain(|_, (at, rx)| rx.borrow().is_none() || at.elapsed() < Duration::from_secs(3600));
+        match jobs.get(&key) {
+            Some((_, rx)) => Some(rx.clone()),
+            None if again => None,
+            None => {
+                let (tx, rx) = tokio::sync::watch::channel(None);
+                jobs.insert(key, (std::time::Instant::now(), rx.clone()));
+                let (app, project, branch, head, base) = (app.clone(), project.clone(), branch.to_string(), head.to_string(), base.to_string());
+                tokio::spawn(async move {
+                    let r = merge_on_home(&app, &project, &branch, &head, &base).await.map_err(|e| format!("{e:#}"));
+                    let _ = tx.send(Some(r));
+                });
+                Some(rx)
+            }
+        }
+    };
+    let Some(mut rx) = job else {
+        if let Some(m) = merged_on_home(app, &project.id, branch).await.filter(|m| m.head == head && m.into == base) {
+            return Ok(HomeMerge::Done { outcome: crate::home_git::MergeOutcome::Merged { head: head.into(), note: m.note } });
+        }
+        return Ok(HomeMerge::Uncertain { reason: format!("Home lost the outcome of this merge (it restarted while merging?): check {base} on the remote, then merge again") });
+    };
+    match tokio::time::timeout(Duration::from_secs(40), rx.wait_for(Option::is_some)).await {
+        Err(_) => Ok(HomeMerge::Pending),
+        Ok(Err(_)) => bail!("the merge stopped on Home without an outcome"),
+        Ok(Ok(r)) => match r.clone() {
+            Some(Ok(outcome)) => Ok(HomeMerge::Done { outcome }),
+            Some(Err(e)) => bail!("{e}"),
+            None => Ok(HomeMerge::Pending),
+        },
+    }
 }
 
 /// The local checks before a merge: the agents are idle and the folder is clean on its branch. `Some`: the merge
@@ -1492,11 +1560,29 @@ async fn merge_remote(app: &App, w: &mut TaskWorktree, tip: &str) -> Result<Step
         let project = crate::projects::get(app, &w.project_id).await?.context("the folder no longer exists")?;
         merge_on_home(app, &project, &w.branch, &head, &base).await?
     } else {
-        // Home checks the session's own records (When done, workspace, branch) before it merges.
+        // Home checks the session's own records (When done, workspace, branch) before it merges. A merge that takes
+        // longer than the call (a slow fetch or push) goes on on Home: the merge waits and asks again for its outcome.
         let by_agent = w.merge.as_ref().is_none_or(|m| m.by_agent);
-        let body = json!({"branch": w.branch, "head": head, "base": base, "session_id": w.sessions.last(), "by_agent": by_agent});
-        let v = crate::home_link::home_request("POST", &format!("/api/home-git/{}/merge", w.project_id), Some(body)).await?;
-        serde_json::from_value(v)?
+        let again = ASKED.lock().unwrap().get(&w.id) == Some(&head);
+        let body = json!({"branch": w.branch, "head": head, "base": base, "session_id": w.sessions.last(), "by_agent": by_agent, "again": again});
+        let answer = crate::home_link::home_request("POST", &format!("/api/home-git/{}/merge", w.project_id), Some(body)).await;
+        let pending = || {
+            ASKED.lock().unwrap().insert(w.id.clone(), head.clone());
+            Ok(Step::Wait(format!("Waiting: Home is still merging {} into {base}", w.branch)))
+        };
+        let answer = match answer {
+            Err(e) if crate::home_link::is_unanswered(&e) => return pending(),
+            answer => answer.and_then(|v| Ok(serde_json::from_value::<HomeMerge>(v)?)),
+        };
+        if matches!(answer, Ok(HomeMerge::Pending)) {
+            return pending();
+        }
+        ASKED.lock().unwrap().remove(&w.id);
+        match answer? {
+            HomeMerge::Done { outcome } => outcome,
+            HomeMerge::Uncertain { reason } => return Ok(Step::Uncertain(reason)),
+            HomeMerge::Pending => unreachable!(),
+        }
     };
     Ok(match outcome {
         crate::home_git::MergeOutcome::Merged { head, note } => Step::Merged(head, note),

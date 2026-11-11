@@ -178,10 +178,10 @@ async fn to_home(method: &str, path: &str, body: Option<String>, session: Option
     }
     match tokio::time::timeout(Duration::from_secs(60), rx).await {
         Ok(Ok(res)) => Ok(res),
-        Ok(Err(_)) => anyhow::bail!("Home disconnected before answering"),
+        Ok(Err(_)) => Err(launchpad_core::home_link::NoAnswer("Home disconnected before answering").into()),
         Err(_) => {
             HOME.pending.lock().unwrap().remove(&id);
-            anyhow::bail!("Home did not answer within a minute")
+            Err(launchpad_core::home_link::NoAnswer("Home did not answer within a minute").into())
         }
     }
 }

@@ -248,6 +248,14 @@ pub async fn refresh(app: &App, p: &Project) -> Result<()> {
     Ok(())
 }
 
+/// When each mirror last fetched its remote (a merge skips the fetch of a mirror fetched seconds ago).
+static FETCHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>> = std::sync::LazyLock::new(Default::default);
+
+/// Whether the mirror fetched its remote within `within`.
+fn fetched_within(project_id: &str, within: Duration) -> bool {
+    FETCHED.lock().unwrap().get(project_id).is_some_and(|t| t.elapsed() < within)
+}
+
 async fn fetch_origin(app: &App, p: &Project) -> Result<()> {
     let dir = mirror(app, &p.id);
     ensure!(dir.join("HEAD").exists(), "{} has no mirror on Home yet", p.name);
@@ -257,6 +265,7 @@ async fn fetch_origin(app: &App, p: &Project) -> Result<()> {
         return Ok(());
     }
     git_in(app, &dir, &["fetch", "--quiet", "--prune", "--no-recurse-submodules", "origin"], 15 * 60).await?;
+    FETCHED.lock().unwrap().insert(p.id.clone(), std::time::Instant::now());
     if let Ok(out) = git_in(app, &dir, &["ls-remote", "--symref", "origin", "HEAD"], 60).await
         && let Some(branch) = out.lines().find_map(|l| l.strip_prefix("ref: refs/heads/").and_then(|s| s.split_once('\t').map(|(b, _)| b.to_string())))
         && git(app, &dir, &["show-ref", "--verify", "--quiet", &format!("refs/heads/{branch}")]).await.is_ok()
@@ -631,7 +640,11 @@ pub enum MergeOutcome {
 /// reason and changes nothing. A branch behind `base` must be rebased by its agent first.
 pub async fn merge(app: &App, p: &Project, branch: &str, head: &str, base: &str) -> Result<MergeOutcome> {
     ensure!(!base.starts_with('-') && !base.starts_with("lp/"), "invalid base branch {base}");
-    let _ = refresh(app, p).await;
+    // A mirror fetched seconds ago (the runner's push, a refresh) is fresh enough: the push to the remote is never
+    // forced, so a base that moved since is refused there.
+    if !fetched_within(&p.id, Duration::from_secs(30)) {
+        let _ = refresh(app, p).await;
+    }
     let lock = lock(app, &p.id);
     let _lock = lock.lock().await;
     let dir = mirror(app, &p.id);
