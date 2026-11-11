@@ -26,6 +26,8 @@ Launchpad does not judge whether a note is true. Review the Changes list when yo
 
 A write records the version of the note that the agent started from. If the note changed in the meantime, Home keeps both versions: the new one is saved as `<note>.concurrent-<id>.md`. The Notes list and the note show it. Click **Keep this note** or **Use the other version**, or ask the Librarian to merge them.
 
+A removal also names the version it removes: the version the agent read, or the one the page showed you. If the note changed since, Home keeps it and says why. Read it again, then remove it if it should still go. Deleting a runner's copy of a note removes nothing on Home: the next sync brings it back.
+
 ## Copies on runners
 
 On a runner, the copy is in `<runner data folder>/knowledge/<workspace name>/`, for example `~/.local/share/launchpad-runner/knowledge/Work/`. You can open that folder as a vault in Obsidian to read the notes. Edits there are not sent to Home: Home's version replaces them at the next sync. Edit notes in Home's window.
