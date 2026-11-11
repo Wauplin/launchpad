@@ -174,7 +174,7 @@ async fn to_home(method: &str, path: &str, body: Option<String>, session: Option
     let sent = HOME.tx.lock().unwrap().as_ref().is_some_and(|t| t.send(FromRunner::Req { id, method: method.into(), path: path.into(), body, session }).is_ok());
     if !sent {
         HOME.pending.lock().unwrap().remove(&id);
-        anyhow::bail!("Home is unreachable; this change needs Home");
+        return Err(launchpad_core::home_link::NotSent("Home is unreachable; this change needs Home").into());
     }
     match tokio::time::timeout(Duration::from_secs(60), rx).await {
         Ok(Ok(res)) => Ok(res),

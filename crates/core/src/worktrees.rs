@@ -1329,7 +1329,10 @@ pub async fn cancel_merge(app: &App, id: &str) -> Result<TaskWorktree> {
     let mut w = get(app, id).await?;
     w.merge = None;
     save(app, &w).await?;
-    notice(app, &w, &format!("Merge of {} cancelled.", w.branch)).await;
+    // A merge Home already runs goes on there (Home's record then shows the branch merged).
+    let started = ASKED.lock().unwrap().remove(id).is_some();
+    let then = if started { " Home had already started it and may still complete it." } else { "" };
+    notice(app, &w, &format!("Merge of {} cancelled.{then}", w.branch)).await;
     Ok(w)
 }
 
@@ -1490,10 +1493,13 @@ pub async fn merge_for_runner(app: &App, project: &Project, branch: &str, head: 
     let job = {
         let mut jobs = HOME_MERGES.lock().unwrap();
         jobs.retain(|_, (at, rx)| rx.borrow().is_none() || at.elapsed() < Duration::from_secs(3600));
+        // A new request (not `again`) after an outcome that merged nothing (a refused push, a base that moved)
+        // merges again: only a merge that happened answers it from the record.
+        let stale = !again && jobs.get(&key).is_some_and(|(_, rx)| matches!(&*rx.borrow(), Some(r) if !matches!(r, Ok(crate::home_git::MergeOutcome::Merged { .. }))));
         match jobs.get(&key) {
-            Some((_, rx)) => Some(rx.clone()),
-            None if again => None,
-            None => {
+            Some((_, rx)) if !stale => Some(rx.clone()),
+            _ if again => None,
+            _ => {
                 let (tx, rx) = tokio::sync::watch::channel(None);
                 jobs.insert(key, (std::time::Instant::now(), rx.clone()));
                 let (app, project, branch, head, base) = (app.clone(), project.clone(), branch.to_string(), head.to_string(), base.to_string());
@@ -1513,7 +1519,11 @@ pub async fn merge_for_runner(app: &App, project: &Project, branch: &str, head: 
     };
     match tokio::time::timeout(Duration::from_secs(40), rx.wait_for(Option::is_some)).await {
         Err(_) => Ok(HomeMerge::Pending),
-        Ok(Err(_)) => bail!("the merge stopped on Home without an outcome"),
+        // The task ended without an outcome (it panicked): nobody knows how far it went.
+        Ok(Err(_)) => {
+            HOME_MERGES.lock().unwrap().remove(&(project.id.clone(), branch.to_string(), head.to_string(), base.to_string()));
+            Ok(HomeMerge::Uncertain { reason: format!("the merge stopped on Home without an outcome: check {base} on the remote, then merge again") })
+        }
         Ok(Ok(r)) => match r.clone() {
             Some(Ok(outcome)) => Ok(HomeMerge::Done { outcome }),
             Some(Err(e)) => bail!("{e}"),
@@ -1574,6 +1584,8 @@ async fn merge_remote(app: &App, w: &mut TaskWorktree, tip: &str) -> Result<Step
         };
         let answer = match answer {
             Err(e) if crate::home_link::is_unanswered(&e) => return pending(),
+            // No tunnel: Home did nothing with this call; an earlier ask (`again`) stays asked.
+            Err(e) if crate::home_link::is_not_sent(&e) => return Ok(Step::Wait(format!("Waiting: {e:#}"))),
             answer => answer.and_then(|v| Ok(serde_json::from_value::<HomeMerge>(v)?)),
         };
         if matches!(answer, Ok(HomeMerge::Pending)) {

@@ -229,6 +229,23 @@ pub fn is_unanswered(e: &anyhow::Error) -> bool {
     e.chain().any(|c| c.is::<NoAnswer>())
 }
 
+/// A request that never left this runner (no tunnel to Home): Home did nothing.
+#[derive(Debug)]
+pub struct NotSent(pub &'static str);
+
+impl std::fmt::Display for NotSent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for NotSent {}
+
+/// Whether a `home_request` error means the request never reached Home's link.
+pub fn is_not_sent(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| c.is::<NotSent>())
+}
+
 /// Runner: an API request to Home through the tunnel. Errors carry Home's message.
 pub async fn home_request(method: &str, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value> {
     let r = REQUESTER.get().context("this daemon has no Home")?;

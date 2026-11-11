@@ -105,12 +105,29 @@ async fn periodic(app: &App, id: &str) {
     }
 }
 
-/// Turns that a restart of this runner cut short, with their notification: sent once the tunnel to Home is up.
-static RESTART_NOTICES: LazyLock<Mutex<Vec<(String, crate::notify::SessionNotification)>>> = LazyLock::new(Default::default);
+/// Turns that a restart of this runner cut short, with the status it gave them and their notification.
+static RESTART_NOTICES: LazyLock<Mutex<Vec<(String, crate::model::SessionStatus, crate::notify::SessionNotification)>>> = LazyLock::new(Default::default);
 
-/// A turn the runner's restart interrupted (`Sessions::load`): its notification goes when Home is reachable.
-pub(crate) fn notify_when_connected(id: &str, event: crate::notify::SessionNotification) {
-    RESTART_NOTICES.lock().unwrap().push((id.to_string(), event));
+/// A turn the runner's restart ended with `status` (`Sessions::load`): its notification goes once it is saved.
+pub(crate) fn notify_when_saved(id: &str, status: crate::model::SessionStatus, event: crate::notify::SessionNotification) {
+    RESTART_NOTICES.lock().unwrap().push((id.to_string(), status, event));
+}
+
+/// Sends the notifications of turns a restart cut short once their turn is saved on Home, so a session Home
+/// moved on meanwhile (its save is refused, then `handoff::release` forgets it) is never notified. One whose
+/// status changed since (a new turn, Archive) is dropped.
+fn notify_restarted(app: &App) {
+    let mut notices = RESTART_NOTICES.lock().unwrap();
+    notices.retain(|(id, status, event)| {
+        let Some(s) = app.sessions.get(id).filter(|s| s.status == *status) else { return false };
+        if s.unsaved.is_some() {
+            return true;
+        }
+        if !app.sessions.is_watched(&s.id) {
+            crate::notify::session(app, &s, *event);
+        }
+        false
+    });
 }
 
 /// The tunnel to Home is back: retry the turns not saved yet.
@@ -138,24 +155,16 @@ pub fn spawn(app: &App) {
     let app = app.clone();
     tokio::spawn(async move {
         loop {
-            let connected = tokio::select! {
-                _ = tokio::time::sleep(RETRY_EVERY) => false,
-                _ = WAKE.notified() => {
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    true
-                }
-            };
-            let notices = if connected { std::mem::take(&mut *RESTART_NOTICES.lock().unwrap()) } else { vec![] };
-            for (id, event) in notices {
-                if let Some(s) = app.sessions.get(&id).filter(|s| !app.sessions.is_watched(&s.id)) {
-                    crate::notify::session(&app, &s, event);
-                }
+            tokio::select! {
+                _ = tokio::time::sleep(RETRY_EVERY) => {}
+                _ = WAKE.notified() => tokio::time::sleep(Duration::from_secs(2)).await,
             }
             // Archive does its own last sync (`plain::after_archive`, worktree cleanup, `handoff::clean_archived`).
             let pending = app.sessions.list().into_iter().filter(|s| s.unsaved.is_some() && s.status != crate::model::SessionStatus::Closed && !app.sessions.is_busy(s));
             for s in pending {
                 save(&app, &s.id).await;
             }
+            notify_restarted(&app);
         }
     });
 }

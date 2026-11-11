@@ -167,6 +167,9 @@ struct Inner {
     /// One status change per session at a time (`Sink::set_status`), from its read to its side effects. Taken
     /// by adapters and actions alike, never held across a call to Home or a harness write.
     statuses: crate::locks::Locks,
+    /// Quota paused sessions whose harness started a turn of its own (a background command's end): the status
+    /// stays QuotaPaused, and that turn's end is still saved on Home (`Sink::set_status_when`).
+    paused_turns: Mutex<HashSet<String>>,
     /// Attached processes, with an instance number: the exit of an old process never detaches a newer one.
     live: Mutex<LiveSessions>,
     next_instance: std::sync::atomic::AtomicU64,
@@ -250,6 +253,7 @@ impl Sessions {
                 shutdowns: Mutex::new(HashMap::new()),
                 actions: crate::locks::Locks::default(),
                 statuses: crate::locks::Locks::default(),
+                paused_turns: Mutex::new(HashSet::new()),
                 live: Mutex::new(HashMap::new()),
                 next_instance: std::sync::atomic::AtomicU64::new(1),
                 raw_counts: Mutex::new(HashMap::new()),
@@ -363,7 +367,7 @@ impl Sessions {
         }
         for (mut s, before) in interrupted {
             // A turn the stop cut short ends like any turn: its branch tips first, then the status with the
-            // `unsaved` mark (`turn_sync` saves it once Home is reachable), and a notification once it is.
+            // `unsaved` mark (`turn_sync` saves it once Home is reachable), and a notification once it is saved.
             if before.is_running() && !s.status.is_running() {
                 crate::worktrees::record_heads(app, &s.id).await;
                 s.unsaved = crate::turn_sync::mark(app).or(s.unsaved);
@@ -371,7 +375,7 @@ impl Sessions {
                     r.unsaved = s.unsaved.clone();
                 }
                 if let Some(event) = crate::notify::status_notification(before, s.status, s.open_question, false, false) {
-                    crate::turn_sync::notify_when_connected(&s.id, event);
+                    crate::turn_sync::notify_when_saved(&s.id, s.status, event);
                 }
             }
             Self::persist(&app.state_db, &s).await?;
@@ -2125,7 +2129,10 @@ impl Sessions {
             if let Some(live) = self.live(id).filter(|l| l.turn_active()) { live.interrupt().await?; }
             self.inner.quota_stops.lock().unwrap().insert(id.to_string());
             self.update(app, id, |s| { s.quota_pause = None; }).await?;
+            // The owner's Stop: a turn still pausing (Working) ends here without a Done notification.
+            self.inner.stop_requests.lock().unwrap().insert(id.to_string());
             self.sink(app, id).set_status(SessionStatus::Waiting).await;
+            self.inner.stop_requests.lock().unwrap().remove(id);
             self.sink(app, id).emit(EventBody::Notice { text: "Automatic quota continuation cancelled by you. Held input will not be sent.".into() }).await;
             return Ok(());
         }
@@ -2590,7 +2597,24 @@ impl Sink {
         let Some(before) = self.sessions.get(&self.id) else { return };
         let quota_stop = self.sessions.inner.quota_stops.lock().unwrap().contains(&self.id);
         let decided = transition(before.status, before.quota_pause.as_ref().map(|p| p.phase), quota_stop, requested);
-        let Transition::To { status, turn_end } = decided else { return };
+        let Transition::To { status, turn_end } = decided else {
+            // A turn the harness ran on its own while quota paused keeps the status, but its end is saved like any.
+            if before.status == SessionStatus::QuotaPaused {
+                let mut turns = self.sessions.inner.paused_turns.lock().unwrap();
+                if requested.is_running() {
+                    turns.insert(self.id.clone());
+                    return;
+                }
+                if !turns.remove(&self.id) { return; }
+            } else { return; }
+            crate::worktrees::record_heads(&self.app, &self.id).await;
+            if let Some(mark) = crate::turn_sync::mark(&self.app)
+                && self.sessions.update(&self.app, &self.id, |s| s.unsaved = Some(mark)).await.is_ok() {
+                let (app, id) = (self.app.clone(), self.id.clone());
+                tokio::spawn(async move { crate::turn_sync::save(&app, &id).await });
+            }
+            return;
+        };
         let capacity_failure = if status == SessionStatus::Error && before.status != SessionStatus::Closed && !manual_stop && !budget_stop {
             let id = self.id.clone();
             self.app.state_db.call(move |c| {
@@ -2625,6 +2649,7 @@ impl Sink {
             })
             .await;
         if !applied { return; }
+        self.sessions.inner.paused_turns.lock().unwrap().remove(&self.id);
         self.emit(EventBody::Status { status }).await;
         // Every turn end saves the session's branches, plain folders and conversation on Home; the first
         // turn end also renames the session once (an LLM call) beside it and never delays it.
