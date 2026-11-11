@@ -26,6 +26,7 @@ Home copies the original conversation of every agent to its backup destination (
 - A runner sends the conversation of a session to Home at the end of every turn (the handoff). After each backup, Home uploads the files that changed since the last pass. A failed upload is retried after the next backup and shows in **Settings → Hugging Face**.
 - Renaming a workspace or folder moves the copies of its sessions. Archiving a session never deletes them.
 - Home never reads the copies back: `state.db` in the backups stays the source. Settings → Hugging Face shows the layout and any copy error.
+- Home keeps the list of copied files in the bucket too (`home/copies/`). A Home restored from the bucket starts from that list and does not copy every trace again.
 - Traces can contain sensitive data: prompts, tool output and file paths. Keep the bucket private.
 
 ## Run Home in a Space
