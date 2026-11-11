@@ -111,9 +111,9 @@ impl Guard {
         self.data_dir.join("git-safe")
     }
 
-    /// The arguments and variables of a `git` started in `cwd`. A failure to set the shadow up leaves `GIT_DIR`
-    /// pointing at a folder that does not exist: the command fails instead of reading the repository's config.
-    pub fn prepare(&self, cwd: Option<&Path>) -> Prepared {
+    /// The arguments and variables of a `git` started in `cwd` with `args`. A failure to set the shadow up leaves
+    /// `GIT_DIR` pointing at a folder that does not exist: the command fails instead of reading the repository's config.
+    pub fn prepare<S: AsRef<std::ffi::OsStr>>(&self, cwd: Option<&Path>, args: &[S]) -> Prepared {
         let mut out = Prepared::default();
         for c in CONFIG {
             out.args.extend(["-c".to_string(), c.to_string()]);
@@ -136,11 +136,14 @@ impl Guard {
                 }
             }
             // No repository yet (`git init`): never look further up.
-            None => {
+            None if creates_repository(args) => {
                 if let Some(parent) = cwd.parent() {
                     out.env.push(("GIT_CEILING_DIRECTORIES".into(), parent.to_string_lossy().into_owned()));
                 }
             }
+            // Any other command fails like Git without a repository would: an agent that swaps `.git` in between
+            // must never get its config read by the `git` that starts next.
+            None => out.env.push(("GIT_DIR".into(), self.shadow_root().join("unavailable").to_string_lossy().into_owned())),
         }
         out
     }
@@ -173,7 +176,7 @@ impl Guard {
                 }
             }
         }
-        let real = std::fs::read_to_string(found.common_dir.join("config")).unwrap_or_default();
+        let real = read_small(&found.common_dir.join("config")).unwrap_or_default();
         let project = cache_project(&self.data_dir, &found.common_dir);
         let text = shadow_config(project.as_deref(), self.port, found.work_tree.is_none(), &extensions(&real));
         let path = dir.join("config");
@@ -189,7 +192,7 @@ impl Guard {
     /// the repository's own directory, so the agent's Git (in its jail, where the shadow does not exist) works.
     pub fn relink(&self, worktree: &Path) -> std::io::Result<()> {
         let file = worktree.join(".git");
-        let text = std::fs::read_to_string(&file)?;
+        let text = read_small(&file).ok_or_else(|| std::io::Error::other(format!("{} is not a readable file", file.display())))?;
         let Some(target) = text.strip_prefix("gitdir:").map(str::trim) else { return Ok(()) };
         let Ok(rest) = Path::new(target).strip_prefix(self.shadow_root()) else { return Ok(()) };
         let mut parts = rest.components();
@@ -221,7 +224,7 @@ pub fn find(cwd: &Path, stop: &Path) -> Option<Found> {
         let git_dir = if meta.is_dir() {
             normalize(&dot)
         } else {
-            let text = std::fs::read_to_string(&dot).ok()?;
+            let text = read_small(&dot)?;
             normalize(&dir.join(text.strip_prefix("gitdir:")?.trim()))
         };
         return Some(Found { work_tree: Some(normalize(dir)), common_dir: common_dir(&git_dir), git_dir });
@@ -230,10 +233,45 @@ pub fn find(cwd: &Path, stop: &Path) -> Option<Found> {
 }
 
 fn common_dir(git_dir: &Path) -> PathBuf {
-    match std::fs::read_to_string(git_dir.join("commondir")) {
-        Ok(text) if !text.trim().is_empty() => normalize(&git_dir.join(text.trim())),
+    match read_small(&git_dir.join("commondir")) {
+        Some(text) if !text.trim().is_empty() => normalize(&git_dir.join(text.trim())),
         _ => git_dir.to_path_buf(),
     }
+}
+
+/// Whether a command without a repository is meant to create one (`git init`, `git clone`): the first argument
+/// after the global options.
+pub fn creates_repository<S: AsRef<std::ffi::OsStr>>(args: &[S]) -> bool {
+    let mut it = args.iter().map(|a| a.as_ref().to_str().unwrap_or("-"));
+    while let Some(a) = it.next() {
+        match a {
+            "-c" => {
+                it.next();
+            }
+            a if a.starts_with('-') => {}
+            a => return matches!(a, "init" | "clone"),
+        }
+    }
+    false
+}
+
+/// A small regular file an agent may have written, read without ever blocking the daemon: a FIFO, a device or a
+/// huge file reads as missing.
+fn read_small(path: &Path) -> Option<String> {
+    use std::io::Read;
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut open = std::fs::OpenOptions::new();
+    open.read(true);
+    #[cfg(unix)]
+    open.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY);
+    let file = open.open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut text = String::new();
+    file.take(64 * 1024 + 1).read_to_string(&mut text).ok()?;
+    (text.len() <= 64 * 1024).then_some(text)
 }
 
 /// `a/b/../c` → `a/c`, lexically.
@@ -390,6 +428,16 @@ mod tests {
         let _ = git(&plain, &wt, &["status", "--porcelain"]).await;
         assert!(mark.exists());
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn only_init_and_clone_run_without_a_repository() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(creates_repository(&args(&["init", "--quiet"])));
+        assert!(creates_repository(&args(&["-c", "init.defaultBranch=main", "--no-pager", "clone", "x"])));
+        assert!(!creates_repository(&args(&["-c", "init", "add", "--all"])));
+        assert!(!creates_repository(&args(&["status", "init"])));
+        assert!(!creates_repository(&args(&[])));
     }
 
     #[test]

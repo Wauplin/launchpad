@@ -189,7 +189,7 @@ impl Cmd {
                 cmd.env_clear().envs(self.env.vars().iter());
                 // A runner's daemon Git: never the repository's own config, hooks or helpers (`git_safe.rs`).
                 if let Some(guard) = self.env.git_guard().filter(|_| git) {
-                    let prepared = guard.prepare(self.cwd.as_deref());
+                    let prepared = guard.prepare(self.cwd.as_deref(), &self.args);
                     for k in crate::git_safe::DROPPED_ENV {
                         cmd.env_remove(k);
                     }
