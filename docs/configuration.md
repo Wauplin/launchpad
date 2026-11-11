@@ -105,17 +105,17 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad daemon [--role runner]` | Run Home (the default: records, no agents; it relays terminals to runners), or a runner, which runs agents in its own folders (`~/.local/share/launchpad-runner`, `~/.config/launchpad-runner`). Runners run only on Linux. `--role home` is accepted; there is no role that does both |
 | `launchpad connect <Home address> [--name <name>]` | Pair this machine as a runner of a Home (Linux only): prints a code to approve in Home's Settings → Home and runners |
 | `launchpad status` | Print the daemon status as JSON |
-| `launchpad url` | Print a link that signs a browser in |
+| `launchpad url` | Print a link that signs a browser in (not on Burst or Local VM runners, which keep no token on disk) |
 | `launchpad pair` | Print a five-minute pairing link and QR code |
-| `launchpad pr create\|update\|show\|list` | Manage Local PRs (used by agents) |
+| `launchpad pr create\|update\|show\|list` | Manage Local PRs (used by agents; an agent updates only its own) |
 | `launchpad suggest comment\|review` | Save an agent-written comment or review as a suggestion; never posts |
 | `launchpad send <channel>\|telegram --body-file <file> --session-id <id>` | Draft a message for an outgoing channel (it waits in the Outbox), or send one to the Telegram chat of the session's workspace ([Channels](channels.md#telegram)) |
-| `launchpad work finish\|add-project` | Request a worktree merge or open a Local PR, or add another folder to a task (used by agents) |
+| `launchpad work finish\|add-project` | Request a worktree merge (only when the launch chose Merge) or open a Local PR, or add another Git folder of the workspace to a task (used by agents) |
 | `launchpad trace <session> [--through <seq>]` | Print the stored trace of a session |
-| `launchpad folders\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list` | Read Launchpad state as JSON |
+| `launchpad folders\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list` | Read Launchpad state as JSON (an agent reads only its own workspace) |
 | `launchpad today` | Print what waits for the owner (the [Today](today.md) list) as JSON |
 | `launchpad activity list` | List what sessions with admin access changed directly, with the values before |
 | `launchpad propose launch\|message\|schedule\|cron\|status\|preset\|tool\|bot\|routine\|bot-files\|bot-instructions\|ready` | Store a proposal (sessions with propose or admin access to the Launchpad CLI tool); the owner starts it, except one-time starts of a bot in auto mode. `bot-files` proposes a bot's `BOT.md` and routine files in one card (`routine` and `bot-instructions` become such cards). `ready` prepares an owner click (merge, publish, post, send, run CI, Inbox done) |
-| `launchpad api <GET\|POST\|PUT\|PATCH\|DELETE> <path> [--body-file <file.json>]` | Call Launchpad's API directly: sessions with admin access only, limited to Launchpad's own records |
+| `launchpad api <GET\|POST\|PUT\|PATCH\|DELETE> <path> [--body-file <file.json>]` | Call Launchpad's API directly: sessions with admin access only, limited to Launchpad's own records of the session's workspace and the shared settings |
 
 Agents receive the exact binary path and environment in their prompt. The [launchpad skill](../skills/launchpad/SKILL.md) documents these commands for them; the daemon links it into `~/.agents/skills/launchpad` at startup.
