@@ -729,8 +729,8 @@ pub async fn prune(app: &App) -> Result<()> {
                 let project = project_id.clone();
                 app.state_db.call(move |c| Ok(c.execute("DELETE FROM scratch_push WHERE project_id = ?1 AND branch = ?2", [&project, &b])?)).await?;
                 browse_stale(&project_id);
-                crate::home_backup::changed();
             }
+            crate::home_backup::changed();
         }
     }
     Ok(())

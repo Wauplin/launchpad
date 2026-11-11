@@ -460,6 +460,21 @@ async fn is_ancestor(app: &App, w: &TaskWorktree, older: &str, newer: &str) -> b
     git(app, &w.root, &["merge-base", "--is-ancestor", older, newer]).await.is_ok()
 }
 
+fn held_note(branch: &str) -> String {
+    format!(
+        "The branch {branch} changed on Home since this runner last pushed it (a Restore, or another runner's commits), so its new commits were not pushed. Run git fetch and look at origin/{branch}: reset to it to drop these commits (after a Restore), or rebase them onto it (after another runner's commits). New commits on top of the held ones are not pushed"
+    )
+}
+
+/// Whether pushes held since Home's branch changed (`held_at`) may go again, by what the new local tip holds:
+/// Home's tip (else the push would lose it), the held commits, and whether Home's tip was already part of them.
+/// When it was (a Restore to an older tip), the agent must drop or rewrite the held commits: committing on top
+/// would undo the Restore. When it was not (another runner's commits, or a Restore to a diverged tip), a rebase
+/// or a merge that takes Home's tip in is enough.
+fn hold_lifted(head_has_tip: bool, head_has_held: bool, held_has_tip: bool) -> bool {
+    head_has_tip && (!head_has_held || !held_has_tip)
+}
+
 /// `push_unlocked` without saving the record. The push expects Home's tip to be the one this record last
 /// confirmed (`pushed`), never the clone's remote-tracking ref, which any fetch moves.
 async fn push_branch(app: &App, w: &mut TaskWorktree) -> Result<bool> {
@@ -471,9 +486,18 @@ async fn push_branch(app: &App, w: &mut TaskWorktree) -> Result<bool> {
     if w.pushed.as_deref() == Some(head.as_str()) && w.push_note.is_none() {
         return Ok(false);
     }
-    // Home's branch changed under this clone and the agent was told: nothing is pushed until its tip moves.
-    if let Some(note) = w.push_note.clone().filter(|_| w.held_at.as_deref() == Some(head.as_str())) {
-        anyhow::bail!("{note}");
+    // Home's branch changed under this clone and the agent was told: nothing is pushed until the agent took Home's
+    // tip in (`hold_lifted`), unless Home's branch changed again (for example the Restore was undone).
+    if let Some(held) = w.held_at.clone() {
+        let lifted = held != head && {
+            let tip = w.pushed.as_deref();
+            let head_has_tip = match tip { Some(t) => is_ancestor(app, w, t, &head).await, None => true };
+            let held_has_tip = match tip { Some(t) => is_ancestor(app, w, t, &held).await, None => false };
+            hold_lifted(head_has_tip, is_ancestor(app, w, &held, &head).await, held_has_tip)
+        };
+        if !lifted && !home_tip(app, w).await.is_ok_and(|now| now != w.pushed) {
+            anyhow::bail!("{}", held_note(&w.branch));
+        }
     }
     let mut result = push_leased(app, w, w.pushed.as_deref()).await;
     if result.is_err()
@@ -489,10 +513,7 @@ async fn push_branch(app: &App, w: &mut TaskWorktree) -> Result<bool> {
             }
             // Someone else changed it (a Restore, another runner): told once, held until the agent acts.
             tip => {
-                let note = format!(
-                    "The branch {} changed on Home since this runner last pushed it (a Restore, or another runner's commits), so its new commits were not pushed. Run git fetch, then rebase onto origin/{} (or reset to it to drop them); the next push follows Home's new tip",
-                    w.branch, w.branch
-                );
+                let note = held_note(&w.branch);
                 w.pushed = tip;
                 w.held_at = Some(head);
                 if w.push_note.as_deref() != Some(note.as_str()) {
@@ -1669,4 +1690,20 @@ pub async fn sizes(app: &App) -> Result<HashMap<String, u64>> {
     let roots: Vec<String> = records.iter().map(|w| w.root.clone()).collect();
     let sizes = crate::files::disk_usage(&roots).await;
     Ok(records.into_iter().zip(sizes).map(|(w, s)| (w.id, s)).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn held_pushes_wait_for_home_tip() {
+        // A Restore to an older tip: committing on top keeps the held commits, so it stays held; a reset goes.
+        assert!(!hold_lifted(true, true, true));
+        assert!(hold_lifted(true, false, true));
+        // Another runner's commits: a merge or a rebase that takes them in goes; new commits without a fetch wait.
+        assert!(hold_lifted(true, true, false));
+        assert!(!hold_lifted(false, true, false));
+        assert!(!hold_lifted(false, false, false));
+    }
 }
