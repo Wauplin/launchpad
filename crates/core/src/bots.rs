@@ -162,6 +162,27 @@ pub struct Patch {
     /// Only these fields of `bot.toml` (`set_fields`), the others kept: `{"inbox_done": true}`. Null puts a field
     /// back to its default.
     pub set: Option<serde_json::Map<String, serde_json::Value>>,
+    /// An agent's change (set by the API from the session CLI token, never from the body): checked with
+    /// `agent_refusal`.
+    #[serde(skip)]
+    pub by_agent: bool,
+}
+
+/// Pure: why an agent may not save `new` over the current settings (None: it may). Only the owner raises a bot's
+/// Launchpad CLI access, lets it mark Inbox threads done or loosens its permission mode; an agent may lower or
+/// tighten them. `current` None: the current bot.toml has an error, read as the strictest settings (read access,
+/// no Inbox done, Ask for approval).
+pub fn agent_refusal(current: Option<&BotSettings>, new: &BotSettings) -> Option<&'static str> {
+    let (access, inbox, mode) = current.map_or((crate::vault::LaunchpadAccess::Read, false, PermissionMode::Approvals), |c| (c.launchpad, c.inbox_done, c.permission_mode));
+    if new.launchpad > access {
+        Some("only the owner raises a bot's Launchpad CLI access (`launchpad` in bot.toml, on the bot's page: About → Access); an agent may only lower it")
+    } else if new.inbox_done && !inbox {
+        Some("only the owner lets a bot mark Inbox threads done (`inbox_done = true` in bot.toml, on the bot's page: About → Access); an agent may only turn it off")
+    } else if new.permission_mode.strictness() < mode.strictness() {
+        Some("only the owner loosens a bot's permission mode (YOLO → Auto → Ask for approval, on the bot's page: About → Access); an agent may only make it stricter")
+    } else {
+        None
+    }
 }
 
 /// The fields of `bot.toml`, as `Patch::set` names them.
@@ -399,18 +420,25 @@ pub async fn update(app: &App, id: &str, p: Patch) -> Result<Bot> {
     let bot = get(app, id).await?;
     let mut files = vec![];
     let mut name = None;
-    if let Some(text) = p.settings_text {
-        let s = parse_settings(&text)?;
+    let agent = |s: &BotSettings| match p.by_agent.then(|| agent_refusal(bot.settings_error.is_none().then_some(&bot.settings), s)).flatten() {
+        Some(why) => bail!("{why}"),
+        None => Ok(()),
+    };
+    if let Some(text) = &p.settings_text {
+        let s = parse_settings(text)?;
+        agent(&s)?;
         check_settings(app, &bot.workspace_id, &s).await?;
         name = Some(s.name.clone());
-        files.push((SETTINGS.to_string(), Some(text)));
-    } else if let Some(s) = p.settings {
-        check_settings(app, &bot.workspace_id, &s).await?;
+        files.push((SETTINGS.to_string(), Some(text.clone())));
+    } else if let Some(s) = &p.settings {
+        agent(s)?;
+        check_settings(app, &bot.workspace_id, s).await?;
         name = Some(s.name.clone());
-        files.push((SETTINGS.to_string(), Some(render_settings(&s)?)));
-    } else if let Some(set) = p.set {
+        files.push((SETTINGS.to_string(), Some(render_settings(s)?)));
+    } else if let Some(set) = &p.set {
         ensure!(bot.settings_error.is_none(), "{}'s bot.toml has an error: fix it on its page first (⋯ → Edit as file)", bot.settings.name);
-        let s = set_fields(&bot.settings, &set)?;
+        let s = set_fields(&bot.settings, set)?;
+        agent(&s)?;
         check_settings(app, &bot.workspace_id, &s).await?;
         name = Some(s.name.clone());
         files.push((SETTINGS.to_string(), Some(render_settings(&s)?)));
@@ -492,8 +520,9 @@ pub async fn diff(app: &App, id: &str, change: i64) -> Result<String> {
 }
 
 /// Restore previous: puts back a file's content from before a change, as a new change by you. A memory note or a
-/// routine file comes back even when it was removed since; one that the change created is removed.
-pub async fn restore(app: &App, id: &str, change: i64) -> Result<Bot> {
+/// routine file comes back even when it was removed since; one that the change created is removed. An agent's
+/// Restore of bot.toml follows `agent_refusal` like its other changes.
+pub async fn restore(app: &App, id: &str, change: i64, by_agent: bool) -> Result<Bot> {
     let c = history(app, id).await?.into_iter().find(|c| c.id == change).context("this change is no longer kept")?;
     if c.path.starts_with(crate::bot_memory::DIR) {
         let current = plain::tree(app, &store(id)).await?.files.into_iter().find(|e| e.path == c.path).map(|e| e.sha256);
@@ -518,7 +547,7 @@ pub async fn restore(app: &App, id: &str, change: i64) -> Result<Bot> {
     ensure!(c.sha256.is_some(), "this change created the file: there is no earlier version");
     let text = blob_string(app, c.sha256.as_deref()).await;
     match c.path.as_str() {
-        SETTINGS => update(app, id, Patch { settings_text: Some(text), ..Default::default() }).await,
+        SETTINGS => update(app, id, Patch { settings_text: Some(text), by_agent, ..Default::default() }).await,
         INSTRUCTIONS => update(app, id, Patch { instructions: Some(text), ..Default::default() }).await,
         _ => bail!("unknown bot file {}", c.path),
     }
@@ -794,6 +823,22 @@ Routines: when the owner wants you to do something on your own later or again (e
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agents_only_lower_a_bots_access_and_tighten_its_mode() {
+        use crate::vault::LaunchpadAccess::*;
+        let cur = BotSettings { name: "Scout".into(), launchpad: Propose, permission_mode: PermissionMode::Auto, ..Default::default() };
+        let with = |f: fn(&mut BotSettings)| { let mut s = cur.clone(); f(&mut s); s };
+        assert!(agent_refusal(Some(&cur), &cur).is_none());
+        assert!(agent_refusal(Some(&cur), &with(|s| { s.launchpad = Read; s.permission_mode = PermissionMode::Approvals; s.name = "Other".into() })).is_none());
+        assert!(agent_refusal(Some(&cur), &with(|s| s.launchpad = Admin)).is_some());
+        assert!(agent_refusal(Some(&cur), &with(|s| s.inbox_done = true)).is_some());
+        assert!(agent_refusal(Some(&cur), &with(|s| s.permission_mode = PermissionMode::Yolo)).is_some());
+        assert!(agent_refusal(Some(&BotSettings { inbox_done: true, ..cur.clone() }), &cur).is_none());
+        // A broken bot.toml reads as the strictest settings.
+        assert!(agent_refusal(None, &with(|s| { s.launchpad = Read; s.permission_mode = PermissionMode::Approvals })).is_none());
+        assert!(agent_refusal(None, &cur).is_some());
+    }
 
     #[test]
     fn set_changes_only_the_named_fields() {

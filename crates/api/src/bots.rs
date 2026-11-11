@@ -107,13 +107,20 @@ fn bad(e: anyhow::Error) -> ApiError {
 async fn list(State(s): State<Ctx>) -> ApiResult<Vec<Bot>> {
     Ok(Json(bots::list(&s.app).await.map_err(bad)?))
 }
-async fn create(State(s): State<Ctx>, Json(c): Json<Create>) -> ApiResult<Bot> {
+/// An agent's new bot gets at most the default Launchpad CLI access (propose): only the owner gives more.
+async fn create(State(s): State<Ctx>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(c): Json<Create>) -> ApiResult<Bot> {
+    if agent.is_some() && c.launchpad > launchpad_core::vault::LaunchpadAccess::default() {
+        return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "only the owner gives a bot more than propose access (`launchpad` in bot.toml); create it without `launchpad`"));
+    }
     Ok(Json(bots::create(&s.app, c).await.map_err(bad)?))
 }
 async fn one(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Bot> {
     Ok(Json(bots::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?))
 }
-async fn update(State(s): State<Ctx>, Path(id): Path<String>, Json(p): Json<Patch>) -> ApiResult<Bot> {
+/// An agent's change never raises the bot's access or Inbox done, nor loosens its permission mode
+/// (`bots::agent_refusal`).
+async fn update(State(s): State<Ctx>, Path(id): Path<String>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut p): Json<Patch>) -> ApiResult<Bot> {
+    p.by_agent = agent.is_some();
     // Routine files are checked before they are saved (a file with an error would keep its routine's old definition).
     if let Some(files) = &p.files {
         let bot = bots::get(&s.app, &id).await.map_err(bad)?;
@@ -172,8 +179,8 @@ async fn history(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Vec<
 async fn diff(State(s): State<Ctx>, Path((id, change)): Path<(String, i64)>) -> ApiResult<Value> {
     Ok(Json(json!({"patch": bots::diff(&s.app, &id, change).await.map_err(bad)?})))
 }
-async fn restore(State(s): State<Ctx>, Path((id, change)): Path<(String, i64)>) -> ApiResult<Bot> {
-    Ok(Json(bots::restore(&s.app, &id, change).await.map_err(bad)?))
+async fn restore(State(s): State<Ctx>, Path((id, change)): Path<(String, i64)>, agent: Option<axum::Extension<launchpad_http::AgentSession>>) -> ApiResult<Bot> {
+    Ok(Json(bots::restore(&s.app, &id, change, agent.is_some()).await.map_err(bad)?))
 }
 
 async fn create_routine(State(s): State<Ctx>, Path(id): Path<String>, Json(r): Json<launchpad_automation::crons::BotRoutine>) -> ApiResult<launchpad_automation::crons::CronAgent> {

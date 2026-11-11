@@ -697,7 +697,14 @@ async fn schedule(State(s): State<Ctx>, agent: Option<axum::Extension<launchpad_
 }
 #[derive(serde::Deserialize)]
 struct ScheduleUpdate { spec: LaunchSpec, #[serde(default)] conditions: Option<Vec<LaunchDelay>> }
+/// An agent's edit never loosens the scheduled launch's permission mode (only the owner does).
 async fn update_schedule(State(s): State<Ctx>, Path(id): Path<String>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut b): Json<ScheduleUpdate>) -> ApiResult<ScheduledLaunch> {
+    if agent.is_some()
+        && let Some(current) = schedules::list(&s.app).await?.into_iter().find(|x| x.id == id)
+        && b.spec.permission_mode.strictness() < current.spec.permission_mode.strictness()
+    {
+        return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "only the owner loosens a scheduled launch's permission mode (YOLO → Auto → Ask for approval); an agent may only make it stricter"));
+    }
     b.spec.from = sender(&s, agent).await?;
     Ok(Json(schedules::update(&s.app, &id, b.spec, b.conditions).await.map_err(bad)?))
 }

@@ -112,12 +112,7 @@ async fn permission_guard(app: &App, action: &str, target: &str, body: Option<&V
 
 /// Pure: whether `to` asks for more approvals than `from` (YOLO, then Auto, then Ask for approval).
 fn stricter(from: PermissionMode, to: PermissionMode) -> bool {
-    let rank = |m: PermissionMode| match m {
-        PermissionMode::Yolo => 0,
-        PermissionMode::Auto => 1,
-        PermissionMode::Approvals => 2,
-    };
-    rank(to) > rank(from)
+    to.strictness() > from.strictness()
 }
 
 /// Whether the question `request_id` of a session asks for a permission (None: no such question here).

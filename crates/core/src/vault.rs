@@ -583,8 +583,10 @@ pub async fn tools(app: &App) -> Result<Vec<Tool>> {
     Ok(all)
 }
 
-pub async fn put_tool(app: &App, tool: Tool) -> Result<Tool> {
+pub async fn put_tool(app: &App, mut tool: Tool) -> Result<Tool> {
     ensure_home(app)?;
+    // Host names compare without case: a rule saved before they had to be lowercase still saves.
+    tool.hosts.iter_mut().for_each(|h| h.host = h.host.to_ascii_lowercase());
     check_tool(&tool)?;
     let (id, json) = (tool.id.clone(), serde_json::to_string(&tool)?);
     app.state_db.call(move |c| Ok(c.execute("INSERT INTO tool (id, json) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE SET json = ?2", [id, json])?)).await?;

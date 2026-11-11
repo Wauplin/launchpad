@@ -33,7 +33,7 @@ A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"targ
             out.push_str(&format!("- `{}`: {}{body}\n", usage(cli, a), a.help));
         }
         out.push_str(&format!(
-            "\nTo change some of a bot's settings, send only those `bot.toml` fields with `set`; the others stay: `{cli} bot update <bot-id> --body-file <file.json>` with {{\"set\": {{\"inbox_done\": true}}}}. Fields: {} (`inbox_done`: the bot marks the owner's Inbox threads done itself, on GitHub too; `launchpad`: its CLI access, read, propose or admin; `proposals`: manual or auto). Null puts a field back to its default. Read the bot back with `{cli} bots list` to check.\n",
+            "\nTo change some of a bot's settings, send only those `bot.toml` fields with `set`; the others stay: `{cli} bot update <bot-id> --body-file <file.json>` with {{\"set\": {{\"proposals\": \"manual\"}}}}. Fields: {} (`inbox_done`: the bot marks the owner's Inbox threads done itself, on GitHub too; `launchpad`: its CLI access, read, propose or admin; `proposals`: manual or auto). Null puts a field back to its default. Only the owner raises `launchpad`, turns `inbox_done` on or loosens `permission_mode` (yolo, auto, approvals: you may only make it stricter), on the bot's page (About → Access); you may lower or turn them off. Read the bot back with `{cli} bots list` to check.\n",
             crate::bots::SETTING_FIELDS.join(", ")
         ));
         let owner: Vec<&str> = ACTIONS.iter().filter(|a| a.access == ActionAccess::Owner).map(|a| a.help).collect();

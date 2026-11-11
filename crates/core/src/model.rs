@@ -425,6 +425,18 @@ pub enum PermissionMode {
     Auto,
 }
 
+impl PermissionMode {
+    /// How strict the mode is: YOLO, then Auto, then Ask for approval. Only the owner loosens a mode; an agent may
+    /// only make one stricter (`agent_auth::permission_guard`, `bots::agent_refusal`, scheduled launches).
+    pub fn strictness(self) -> u8 {
+        match self {
+            PermissionMode::Yolo => 0,
+            PermissionMode::Auto => 1,
+            PermissionMode::Approvals => 2,
+        }
+    }
+}
+
 /// Context attached to one follow-up message. Folders are always read-only references.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[serde(default)]
