@@ -215,7 +215,7 @@ fn vault_logins(app: &App, vault: Option<&[launchpad_core::vault::VaultEntry]>) 
         let Some(kind) = launchpad_core::vault::Kind::login_of(p.harness) else { continue };
         let login = match &p.login {
             Some(id) => entries.iter().find(|e| &e.id == id && e.kind == kind),
-            None => entries.iter().find(|e| e.kind == kind),
+            None => launchpad_core::vault::default_login(entries, kind),
         };
         match login {
             Some(e) => it.found.push(found(&p.name, format!("{} · {}", e.name, e.detail), Some(format!("vault entry {}", e.id)))),

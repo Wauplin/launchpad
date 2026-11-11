@@ -137,7 +137,7 @@ pub struct Profile {
     /// Rolling spending limits of a pay-as-you-go profile, summed over all its sessions.
     #[serde(default)]
     pub spend_limits: Vec<SpendLimit>,
-    /// The harness login in Home's vault (Settings → Credentials and tools). None: the harness's first login.
+    /// The harness login in Home's vault (Settings → Credentials and tools). None: the harness's default login (the first by name).
     #[serde(default)]
     pub login: Option<String>,
 }

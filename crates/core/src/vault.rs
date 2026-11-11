@@ -604,7 +604,7 @@ pub struct LeaseRequest {
     pub session_id: String,
     pub generation: u32,
     pub harness: HarnessKind,
-    /// The profile's login (a vault entry), else the harness's first login.
+    /// The profile's login (a vault entry), else the harness's default login (`default_login`).
     #[serde(default)]
     pub login: Option<String>,
     #[serde(default)]
@@ -1120,13 +1120,13 @@ pub async fn login_home(app: &App, id: &str) -> Result<(std::path::PathBuf, Vec<
     })
 }
 
-/// The logins of a harness kind, for quota monitors and the profile editor.
 /// The login of a profile without its own: the harness's first login by name (then by id). The one rule for
 /// the lease and for the default quota reading (`quota::vault_key(harness, None)`).
 pub fn default_login(entries: &[VaultEntry], kind: Kind) -> Option<&VaultEntry> {
     entries.iter().filter(|e| e.kind == kind).min_by(|a, b| (&a.name, &a.id).cmp(&(&b.name, &b.id)))
 }
 
+/// The logins of a harness kind, for quota monitors and the profile editor.
 pub async fn logins(app: &App, harness: HarnessKind) -> Result<Vec<VaultEntry>> {
     let Some(kind) = Kind::login_of(harness) else { return Ok(vec![]) };
     Ok(entries(app).await?.into_iter().filter(|e| e.kind == kind).collect())

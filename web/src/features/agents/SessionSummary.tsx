@@ -23,7 +23,7 @@ import { copyText } from "@/lib/clipboard";
 import { ago, formatReset, when } from "@/lib/format";
 import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, DelaySelector } from "@/features/launch/DelaySelector";
-import { budgetReached, costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, useProfile } from "@/lib/profiles";
+import { budgetReached, costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, useProfile, useProfiles } from "@/lib/profiles";
 import { compact, statusInfo } from "./SessionBits";
 import { STATUS_COLORS } from "@/components/ui";
 import type { Row } from "./rows";
@@ -343,7 +343,7 @@ export function ModelSwitch({ session: s }: { session: Session }) {
 
 export function QuotaBand({ session: s }: { session: Session }) {
   const [busy, setBusy] = useState(false);
-  const quota = quotaFor(useStatus().data, s.harness, s.launch_spec.profile);
+  const quota = quotaFor(useStatus().data, s.harness, s.launch_spec.profile, useProfiles());
   const p = s.quota_pause;
   if (!p) return null;
   const act = async (action: "session.stop" | "session.resume-subscription") => {

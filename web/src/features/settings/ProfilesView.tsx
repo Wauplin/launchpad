@@ -25,7 +25,7 @@ import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { useConfig, useHarnessDefaults, useStatus, type ConfigResponse } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
-import { costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, usesModelReference, useProfileModels, windowLabel } from "@/lib/profiles";
+import { costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, useProfiles, usesModelReference, useProfileModels, windowLabel } from "@/lib/profiles";
 import { Card, ConfigError, SettingsPage } from "./SettingsView";
 import { ConfirmButton, Loading, MenuSection, MoreMenu } from "@/components/ui";
 import { Link, useBlocker } from "@tanstack/react-router";
@@ -279,7 +279,8 @@ function ProfileCard({ draft: d, open, problem, dirty, onToggle, onChange, onDel
   const harness = harnesses.find((h) => h.id === d.harness);
   const clis = useRunnerClis(d.harness);
   const status = useStatus().data;
-  const quota = d.saved && d.billing === "subscription" ? quotaFor(status, d.harness, d.id) : null;
+  const profiles = useProfiles();
+  const quota = d.saved && d.billing === "subscription" ? quotaFor(status, d.harness, d.id, profiles) : null;
   const spend = d.saved ? status?.spend.find((v) => v.profile === d.id) : undefined;
   const ref = useRef<HTMLDivElement>(null);
   // A new profile is added at the end of the list: bring it into view.

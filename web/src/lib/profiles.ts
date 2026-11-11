@@ -75,7 +75,7 @@ export function useQuotas(): QuotaEntry[] {
       const i = profiles.findIndex((p) => e.q.profiles.includes(p.id));
       return i < 0 ? profiles.length : i;
     };
-    // `vault:default:<harness>` repeats the first vault login of a harness.
+    // `vault:default:<harness>` repeats the reading of a harness's default login (the first by name).
     return Object.entries(quotas ?? {})
       .filter(([key]) => !key.startsWith("vault:default:"))
       .flatMap(([key, q]) => (q ? [{ key, harness: q.harness as HarnessKind, names: q.profiles.map((id) => profiles.find((p) => p.id === id)?.name ?? id), q }] : []))
@@ -83,16 +83,19 @@ export function useQuotas(): QuotaEntry[] {
   }, [quotas, profiles]);
 }
 
-/** The reading of the login that protects work of this harness and profile: the profile's account, else the default login. */
-export function quotaFor(status: Status | undefined, harness: string, profile: string | null | undefined): QuotaStatus | null {
+/** The reading of the login that protects work of this harness and profile: the profile's vault login or account, else the default login. */
+export function quotaFor(status: Status | undefined, harness: string, profile: string | null | undefined, profiles: Profile[]): QuotaStatus | null {
   const quotas = status?.quotas ?? {};
+  // A profile that names its vault login reads that login (`vault:<id>`), never the default one.
+  const login = profile ? profiles.find((p) => p.id === profile && p.harness === harness)?.login : null;
+  if (login) return quotas[`vault:${login}`] ?? null;
   if (profile) {
     const q = Object.values(quotas).find((x) => x?.profiles.includes(profile));
     if (q) return q;
     // A profile of another account that is not monitored (yet) has no reading.
     if (!quotas[`vault:default:${harness}`]) return null;
   }
-  // Logins in Home's vault: the harness's first login, else the machine's default login.
+  // Logins in Home's vault: the harness's default login, else the machine's default login.
   return quotas[`vault:default:${harness}`] ?? quotas[harness] ?? null;
 }
 

@@ -199,7 +199,7 @@ pub fn monitoring(app: &App, account: &str) -> bool {
     })
 }
 
-/// The reading key of a vault login: `vault:<id>`, or `vault:default:<harness>` for the harness's first login.
+/// The reading key of a vault login: `vault:<id>`, or `vault:default:<harness>` for the harness's default login (`vault::default_login`).
 pub fn vault_key(harness: HarnessKind, login: Option<&str>) -> String {
     match login {
         Some(id) => format!("vault:{id}"),

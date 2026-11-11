@@ -30,6 +30,6 @@ models_url: string | null,
  */
 spend_limits: Array<SpendLimit>, 
 /**
- * The harness login in Home's vault (Settings → Credentials and tools). None: the harness's first login.
+ * The harness login in Home's vault (Settings → Credentials and tools). None: the harness's default login (the first by name).
  */
 login: string | null, };
