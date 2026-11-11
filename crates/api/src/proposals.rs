@@ -175,14 +175,33 @@ async fn inbox(State(s): State<Ctx>, Query(q): Query<Scope>) -> ApiResult<Value>
     Ok(Json(json!(threads)))
 }
 
+/// Scheduled launches and routines, by their workspace (a routine's bot's, a follow-up's session's, else the
+/// spec's: its folder, else its own `workspace_id`, so bots without a folder see theirs).
 async fn schedules(State(s): State<Ctx>, Query(q): Query<Scope>) -> ApiResult<Value> {
-    let ids = scope(&s, q.workspace.as_deref()).await?;
-    let inside = |spec: &launchpad_core::model::LaunchSpec| match (&ids, &spec.target) {
-        (None, _) => true,
-        (Some(ids), launchpad_core::model::Target::Project { project_id } | launchpad_core::model::Target::Predraft { project_id }) => ids.contains(project_id),
-        _ => false,
+    use launchpad_core::scope;
+    let ws = match q.workspace.as_deref().filter(|w| !w.is_empty() && *w != "all") {
+        Some(w) => Some(launchpad_core::workspace::list(&s.app).await?.into_iter().find(|x| x.id == w || x.name.eq_ignore_ascii_case(w)).ok_or_else(|| ApiError::not_found(format!("no workspace {w}")))?.id),
+        None => None,
     };
-    let launches: Vec<Value> = launchpad_automation::schedules::list(&s.app).await?.into_iter().filter(|l| inside(&l.spec)).map(|l| json!({"id": l.id, "title": l.title, "conditions": l.conditions, "status": l.status, "resume_session_id": l.resume_session_id})).collect();
-    let crons: Vec<Value> = launchpad_automation::crons::list(&s.app).await?.into_iter().filter(|c| inside(&c.spec)).map(|c| json!({"id": c.id, "title": c.title, "schedule": c.schedule, "next_run_at": c.next_run_at, "paused": c.paused})).collect();
+    let mut launches: Vec<Value> = vec![];
+    for l in launchpad_automation::schedules::list(&s.app).await? {
+        let of = match &l.resume_session_id {
+            Some(sid) => scope::of_session(&s.app, sid).await,
+            None => scope::of_spec(&s.app, &l.spec).await,
+        };
+        if ws.is_none() || of == ws {
+            launches.push(json!({"id": l.id, "title": l.title, "conditions": l.conditions, "status": l.status, "resume_session_id": l.resume_session_id}));
+        }
+    }
+    let mut crons: Vec<Value> = vec![];
+    for c in launchpad_automation::crons::list(&s.app).await? {
+        let of = match &c.bot_id {
+            Some(b) => scope::of_bot(&s.app, b).await,
+            None => scope::of_spec(&s.app, &c.spec).await,
+        };
+        if ws.is_none() || of == ws {
+            crons.push(json!({"id": c.id, "title": c.title, "schedule": c.schedule, "next_run_at": c.next_run_at, "paused": c.paused}));
+        }
+    }
     Ok(Json(json!({"scheduled": launches, "crons": crons})))
 }
