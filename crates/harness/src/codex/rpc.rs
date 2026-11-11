@@ -86,8 +86,11 @@ impl CodexServer {
     /// Ends the process for good and closes every subscription (their receivers then end).
     /// The process exits at the end of its input; it is killed when it has not after 5 seconds.
     pub async fn shutdown(&self) {
-        self.closed.store(true, Ordering::Relaxed);
-        self.subscribers.lock().unwrap().clear();
+        {
+            let mut subscribers = self.subscribers.lock().unwrap();
+            self.closed.store(true, Ordering::Relaxed);
+            subscribers.clear();
+        }
         let old = self.proc.lock().await.take();
         if let Some(p) = old {
             p.alive.store(false, Ordering::Relaxed);
@@ -100,9 +103,14 @@ impl CodexServer {
         }
     }
 
+    /// A lossless queue of every incoming message; already closed when the server was shut down.
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<Incoming> {
         let (tx, rx) = mpsc::unbounded_channel();
-        self.subscribers.lock().unwrap().push(tx);
+        let mut subscribers = self.subscribers.lock().unwrap();
+        // Checked under the same lock `shutdown` clears the list with, so no subscription outlives it.
+        if !self.closed.load(Ordering::Relaxed) {
+            subscribers.push(tx);
+        }
         rx
     }
 

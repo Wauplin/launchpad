@@ -1586,7 +1586,12 @@ impl Sessions {
                 && self.ensure_shutdown_finished(&s.id).is_ok()
                 && live.ready_for_turn() && !live.turn_active() && !live.has_background_work() && !live.has_open_questions() {
                 drop(live);
-                if let Err(e) = self.release(app, &s.id).await { tracing::info!("release idle process {}: {e:#}", s.id); }
+                // Its own task with the lock: stopping a process may take seconds, and the others are checked now.
+                let (this, app, id) = (self.clone(), app.clone(), s.id.clone());
+                tokio::spawn(async move {
+                    let _action = action;
+                    if let Err(e) = this.release(&app, &id).await { tracing::info!("release idle process {id}: {e:#}"); }
+                });
                 continue;
             }
             if (s.budget_reached() || !crate::spend::reached(app, &s.launch_spec).is_empty()) && s.status.is_running() && !s.open_question

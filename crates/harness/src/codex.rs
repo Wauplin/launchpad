@@ -496,8 +496,8 @@ impl LiveSession for CodexSession {
 fn spawn_router(_app: &App, server: &CodexServer, threads: &Threads) {
     let server = server.clone();
     let router_threads = threads.clone();
+    let mut rx = server.subscribe();
     tokio::spawn(async move {
-        let mut rx = server.subscribe();
         // Ends when the server shuts down (its subscriptions close).
         while let Some(msg) = rx.recv().await {
             match msg {
