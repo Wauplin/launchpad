@@ -259,10 +259,12 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     if let Some(h) = dirs::home_dir() {
         ro.extend(crate::jail::HOME_TOOLCHAINS.iter().map(|d| h.join(d)).filter(|d| d.exists()));
     }
-    // Folders on PATH hold programs, never credentials.
+    // Folders on PATH hold programs, never credentials: a PATH folder that holds the home folder, the data folder
+    // or a credential folder (`~`, `/home`, `~/.local`) is left out.
+    let protected = crate::jail::protected(dirs::home_dir().as_deref(), &app.paths.data_dir);
     for entry in app.env.get("PATH").unwrap_or_default().split(':') {
         let d = PathBuf::from(entry);
-        if d.is_absolute() && d.is_dir() && !d.starts_with(&app.paths.data_dir) && !d.starts_with("/usr") && !ro.contains(&d) {
+        if d.is_absolute() && d.is_dir() && !d.starts_with(&app.paths.data_dir) && !d.starts_with("/usr") && !ro.contains(&d) && crate::jail::mountable(&d, &protected) {
             // A Node install's `bin` (node, npm, corepack) links into `../lib/node_modules`: without it npm and
             // pnpm fail inside.
             if let Some(modules) = d.parent().map(|p| p.join("lib/node_modules")).filter(|m| d.ends_with("bin") && m.is_dir() && !ro.contains(m)) {
@@ -275,11 +277,15 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
         if let Some(real) = app.env.which(program).and_then(|p| std::fs::canonicalize(p).ok())
             && let Some(parent) = real.parent()
         {
-            // A release folder (`…/<version>/bin/<program>`) keeps resources next to `bin`.
+            // A release folder (`…/<version>/bin/<program>`) keeps resources next to `bin`; when that folder (or
+            // `bin` itself) would hold the home or data folder (`~/bin/codex`, `~/codex`), only the program.
             let release = if parent.ends_with("bin") { parent.parent().unwrap_or(parent) } else { parent };
-            ro.push(release.to_path_buf());
+            let mount = [release, parent].into_iter().find(|d| crate::jail::mountable(d, &protected)).map(Path::to_path_buf).unwrap_or(real.clone());
+            ro.push(mount);
         }
     }
+    // Last guard: no read-only mount holds the home folder, the data folder or a credential folder.
+    ro.retain(|d| crate::jail::mountable(d, &protected));
     if let Ok(exe) = std::env::current_exe() {
         ro.push(exe);
     }

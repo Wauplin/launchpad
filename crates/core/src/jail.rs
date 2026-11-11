@@ -59,6 +59,26 @@ pub const HOME_TOOLCHAINS: &[&str] = &[
     ".opencode/bin",
 ];
 
+/// What a read-only mount must never contain: the home folder (so never `/home` or `/` either), the data folder and
+/// the home folder's credential folders. Each also by its resolved path.
+pub fn protected(home: Option<&Path>, data_dir: &Path) -> Vec<PathBuf> {
+    let mut out = vec![data_dir.to_path_buf()];
+    if let Some(h) = home {
+        out.push(h.to_path_buf());
+        out.extend([".ssh", ".config", ".local/share", ".gnupg", ".docker", ".kube", ".aws"].iter().map(|d| h.join(d)));
+    }
+    let resolved: Vec<PathBuf> = out.iter().filter_map(|p| std::fs::canonicalize(p).ok()).collect();
+    out.extend(resolved);
+    out
+}
+
+/// Whether the jail may mount `dir` read-only: never a folder that is or contains one of `protected`
+/// (`protected`), by its own path or its resolved one.
+pub fn mountable(dir: &Path, protected: &[PathBuf]) -> bool {
+    let holds = |d: &Path| protected.iter().any(|p| p.starts_with(d));
+    !holds(dir) && !std::fs::canonicalize(dir).is_ok_and(|r| holds(&r))
+}
+
 /// Variables of the machine's environment a jailed process keeps. Everything else (tokens, sockets, the
 /// machine's logins) is dropped; the session's own variables are added on top.
 pub const KEEP_ENV: &[&str] = &[
@@ -186,6 +206,17 @@ mod tests {
         assert!(!joined.contains("--bind / /") && !joined.contains("--ro-bind / /") && !joined.contains("/home/me "));
         // Read-only mounts come before read-write ones.
         assert!(joined.find("/home/me/.local/bin").unwrap() < joined.find("/data/worktrees/s1 ").unwrap());
+    }
+
+    #[test]
+    fn mounts_never_hold_the_home_or_data_folder() {
+        let prot = protected(Some(Path::new("/nonexistent-home/me")), Path::new("/nonexistent-home/me/.local/share/launchpad-runner"));
+        for bad in ["/", "/nonexistent-home", "/nonexistent-home/me", "/nonexistent-home/me/.local", "/nonexistent-home/me/.local/share", "/nonexistent-home/me/.local/share/launchpad-runner"] {
+            assert!(!mountable(Path::new(bad), &prot), "{bad}");
+        }
+        for ok in ["/opt/node/bin", "/nonexistent-home/me/.local/bin", "/nonexistent-home/me/.local/share/claude", "/nonexistent-home/me/bin", "/nonexistent-home/me/.local/share/launchpad-runner/kb/x"] {
+            assert!(mountable(Path::new(ok), &prot), "{ok}");
+        }
     }
 
     #[test]
