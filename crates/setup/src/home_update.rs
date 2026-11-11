@@ -422,8 +422,13 @@ pub async fn start(app: &App, b: Start) -> Result<HomeUpdate> {
     // The record first, saved in a backup: the new Home restores it after the restart and updates the runners.
     let pending = Pending { version: latest.version.clone(), commit: latest.commit.clone(), update_runners: b.update_runners, requested_at: now_ms(), runners_updated: vec![] };
     save_pending(app, Some(&pending)).await?;
+    // The Space restores its newest complete backup when it restarts: without a backup now, the update would lose
+    // everything since the last one, so it is refused.
     if let Err(e) = launchpad_core::home_backup::run(app, true).await {
         tracing::warn!("Home update: backup before the update: {e:#}");
+        let _ = save_pending(app, None).await;
+        check(app).await;
+        anyhow::bail!("the backup before the update failed, so Home was not updated (it would restart from an older backup): {e:#}");
     }
     let summary = format!("Update Launchpad Home to {}", match channel { Channel::Release => latest.version.clone(), Channel::Main => format!("main {}", latest.version) });
     if let Err(e) = commit(app, &space, &summary, &[("Dockerfile", dockerfile), ("README.md", card(channel, &latest.version))]).await {

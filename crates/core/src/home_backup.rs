@@ -244,6 +244,8 @@ pub struct BackupInfo {
     pub prune: Option<String>,
     /// Why the last pruning was skipped or stopped.
     pub prune_error: Option<String>,
+    /// Plain blobs the last backup could not list: neither on Home's disk nor in the destination.
+    pub missing_blobs: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -434,21 +436,34 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
             return Err(e.context("bundle Home Git"));
         }
     }
-    // Plain and asset folders: their contents are already content-addressed.
+    // Plain and asset folders: their contents are already content-addressed. A blob the destination already holds
+    // stays listed by hash, whether or not Home's disk has it (not fetched since a restore), so pruning keeps it.
+    let mut missing = vec![];
     for sha in crate::plain::live_blobs(app).await? {
         if !existing.contains(&blob_key(&sha)) {
             let data = match tokio::fs::read(crate::plain::blob_path(app, &sha)?).await {
                 Ok(d) => d,
-                // Not fetched since a restore: carry it over from the backup it came from.
+                // A listing that lags behind an upload: carry it over from the destination.
                 Err(_) => match get_blob(&store, &app.env, &sha).await {
                     Ok(d) => d,
-                    Err(_) => continue,
+                    // Neither on Home's disk nor in the destination: it is gone. Listing it would make every
+                    // backup incomplete (no restore), so it is left out and reported.
+                    Err(e) => {
+                        tracing::error!("home backup: plain blob {sha} is neither on Home nor in the backup destination: {e:#}");
+                        missing.push(sha);
+                        continue;
+                    }
                 },
             };
             store.put(&app.env, &blob_key(&sha), data).await?;
         }
         objects.push(Object { name: format!("plain/{sha}"), sha256: sha, size: 0 });
     }
+    backups.info.lock().unwrap().missing_blobs = match missing.as_slice() {
+        [] => None,
+        [one] => Some(format!("the file {one} of a plain folder or handoff is missing on Home and in the backup destination")),
+        many => Some(format!("{} files of plain folders or handoffs are missing on Home and in the backup destination (first: {})", many.len(), many[0])),
+    };
     for (name, path) in data_files(&app.paths).await {
         let Ok(data) = tokio::fs::read(&path).await else { continue };
         let hash = hex::encode(Sha256::digest(&data));

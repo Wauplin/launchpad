@@ -19,4 +19,8 @@ pruned_at: number | null, prune: string | null,
 /**
  * Why the last pruning was skipped or stopped.
  */
-prune_error: string | null, };
+prune_error: string | null, 
+/**
+ * Plain blobs the last backup could not list: neither on Home's disk nor in the destination.
+ */
+missing_blobs: string | null, };

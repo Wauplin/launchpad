@@ -212,7 +212,7 @@ async fn home(State(s): State<Ctx>) -> ApiResult<Value> {
         "role": s.app.paths.role.name(), "commit": launchpad_core::commit(), "started_at": started, "uptime_seconds": started.map(|t| (now - t) / 1000),
         "this_start": launchpad_automation::failures::restart_reason(starts.get(1)),
         "starts": starts.iter().take(20).map(|x| json!({"at": x.at, "commit": x.commit, "role": x.role, "stopped_at": x.stopped_at, "clean": x.stopped_at.is_some()})).collect::<Vec<_>>(),
-        "backup": {"destination_set": backup.destination.is_some(), "last_complete_at": backup.last_complete_at, "error": backup.error, "traces_error": backup.traces_error, "pruned_at": backup.pruned_at, "prune": backup.prune, "prune_error": backup.prune_error},
+        "backup": {"destination_set": backup.destination.is_some(), "last_complete_at": backup.last_complete_at, "error": backup.error, "traces_error": backup.traces_error, "pruned_at": backup.pruned_at, "prune": backup.prune, "prune_error": backup.prune_error, "missing_blobs": backup.missing_blobs},
         "update": {"space": update.space, "deployed": update.deployed, "running": update.running, "available": update.available, "building": update.building, "stage": update.stage, "checked_at": update.checked_at, "error": update.error},
     })))
 }
@@ -280,6 +280,7 @@ async fn health(State(s): State<Ctx>) -> ApiResult<Value> {
     if let Some(e) = backup.error.clone() { add("backup", "Home backup failed".into(), Some(e), json!({})); }
     if let Some(e) = backup.traces_error.clone() { add("backup", "Trace copies failed".into(), Some(e), json!({})); }
     if let Some(e) = backup.prune_error.clone() { add("backup", "Pruning old Home backups was skipped".into(), Some(e), json!({})); }
+    if let Some(e) = backup.missing_blobs.clone() { add("backup", "Files missing from Home backups".into(), Some(e), json!({})); }
     let update = launchpad_setup::home_update::current(app);
     if let Some(e) = update.error.clone() { add("home_update", "Home update check failed".into(), Some(e), json!({})); }
 

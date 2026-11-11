@@ -169,7 +169,7 @@ route("POST", "/api/runners/:id/network-check", () => {
   return check;
 });
 route("DELETE", "/api/runners/:id/update", notInDemo);
-route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: null, error: null, credentials_encrypted: false, traces_error: null, pruned_at: null, prune: null, prune_error: null }));
+route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: null, error: null, credentials_encrypted: false, traces_error: null, pruned_at: null, prune: null, prune_error: null, missing_blobs: null }));
 
 // Credentials and tools: a sample vault. Secrets never reach the browser, in the demo either.
 const demoTemplates = [

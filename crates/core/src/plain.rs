@@ -210,7 +210,9 @@ pub async fn read_blob(app: &App, sha: &str) -> Result<Vec<u8>> {
 pub async fn write_blob(app: &App, sha: &str, data: &[u8]) -> Result<()> {
     ensure!(hex::encode(Sha256::digest(data)) == sha, "content does not match its hash");
     let path = blob_path(app, sha)?;
-    if path.exists() {
+    // Already here: written again for pruning (`prune` keeps blobs younger than `BLOB_MIN_AGE_MS`), so it stays
+    // until the record that names it exists.
+    if std::fs::File::options().write(true).open(&path).and_then(|f| f.set_modified(std::time::SystemTime::now())).is_ok() {
         return Ok(());
     }
     tokio::fs::create_dir_all(blob_dir(app)).await?;
@@ -522,6 +524,16 @@ pub async fn live_blobs(app: &App) -> Result<Vec<String>> {
     }).await
 }
 
+/// Blobs are uploaded (or written by a handoff) before the record that names them: a blob this young is never
+/// pruned, so one written after `prune` read the live set survives until its record exists.
+const BLOB_MIN_AGE_MS: i64 = 3600 * 1000;
+
+/// Whether `prune` deletes a blob file: named by a hash, listed by nothing, and written at least `BLOB_MIN_AGE_MS`
+/// ago (a file of unknown age stays).
+fn prunable(name: &str, live: &std::collections::HashSet<String>, written_at: Option<i64>, now: i64) -> bool {
+    name.len() == 64 && !live.contains(name) && written_at.is_some_and(|t| now - t >= BLOB_MIN_AGE_MS)
+}
+
 /// Deletes history older than 30 days and blobs nothing needs any more.
 pub async fn prune(app: &App) -> Result<()> {
     let cutoff = now_ms() - KEEP_MS;
@@ -530,7 +542,8 @@ pub async fn prune(app: &App) -> Result<()> {
     let Ok(mut rd) = tokio::fs::read_dir(blob_dir(app)).await else { return Ok(()) };
     while let Some(e) = rd.next_entry().await? {
         let name = e.file_name().to_string_lossy().into_owned();
-        if name.len() == 64 && !live.contains(&name) {
+        let written_at = e.metadata().await.ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64);
+        if prunable(&name, &live, written_at, now_ms()) {
             let _ = tokio::fs::remove_file(e.path()).await;
         }
     }
@@ -982,6 +995,17 @@ pub async fn create_in_worktree(app: &App, session_id: &str, cwd: &str, path: &s
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prune_keeps_young_and_live_blobs() {
+        let (now, hash, other) = (10 * BLOB_MIN_AGE_MS, "a".repeat(64), "b".repeat(64));
+        let live = std::collections::HashSet::from([other.clone()]);
+        assert!(prunable(&hash, &live, Some(now - BLOB_MIN_AGE_MS), now));
+        assert!(!prunable(&hash, &live, Some(now - BLOB_MIN_AGE_MS + 1), now));
+        assert!(!prunable(&hash, &live, None, now));
+        assert!(!prunable(&other, &live, Some(0), now));
+        assert!(!prunable("x.partial-1", &live, Some(0), now));
+    }
 
     #[test]
     fn temp_walk_skips_gitignored_files_and_nested_repositories() {
