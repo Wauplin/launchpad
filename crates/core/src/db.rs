@@ -272,6 +272,11 @@ CREATE TABLE IF NOT EXISTS daemon_start (at INTEGER PRIMARY KEY, commit_id TEXT 
     if !has("generation") { conn.execute_batch("ALTER TABLE session ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;")?; }
     if !has("unsaved_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN unsaved_json TEXT;")?; }
     if !has("title_pending") { conn.execute_batch("ALTER TABLE session ADD COLUMN title_pending INTEGER;")?; }
+    // Existing sessions with a finished turn already had their conversation title.
+    if !has("title_refreshed") {
+        conn.execute_batch("ALTER TABLE session ADD COLUMN title_refreshed INTEGER NOT NULL DEFAULT 0;
+            UPDATE session SET title_refreshed = EXISTS (SELECT 1 FROM session_event e WHERE e.session_id = session.id AND e.kind = 'turn_end');")?;
+    }
     // Existing sessions start as seen, so old Done sessions do not all need you at once.
     if !has("seen_at") { conn.execute_batch("ALTER TABLE session ADD COLUMN seen_at INTEGER NOT NULL DEFAULT 0; UPDATE session SET seen_at = status_since;")?; }
     if !has("last_message") {

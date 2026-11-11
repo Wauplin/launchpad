@@ -981,6 +981,7 @@ pub(crate) fn placed_record(spec: &crate::model::LaunchSpec, id: &str, runner_id
         cwd: String::new(),
         title,
         title_pending: true,
+        title_refreshed: false,
         status: SessionStatus::Starting,
         archived_done: false,
         status_since: now,

@@ -17,15 +17,20 @@ pub fn generate(app: &App, session: &Session) {
     });
 }
 
-/// Wait for initial naming before using the completed turn's conversation. The caller awaits this
-/// before its routine handoff, so the improved title is queued for replication first.
+/// Rename from the conversation once, at the first turn end: follow-up turns keep the title, so a
+/// session is named at most twice (from the prompt at start, then here). Waits for initial naming first.
 pub async fn refresh(app: &App, completed: &Session) {
     let lock = app.sessions.title_request_lock(&completed.id);
     let _guard = lock.lock().await;
     let Some(session) = app.sessions.get(&completed.id)
-        .filter(|s| s.generation == completed.generation
+        .filter(|s| !s.title_refreshed && s.generation == completed.generation
             && s.status == completed.status && s.status_since == completed.status_since)
     else { return; };
+    // Claimed before the request, so a failed or skipped attempt is never retried at a later turn.
+    if let Err(e) = app.sessions.update(app, &session.id, |s| s.title_refreshed = true).await {
+        tracing::warn!("save session title state: {e:#}");
+        return;
+    }
     save_title(app, &session, true).await;
 }
 

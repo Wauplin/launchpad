@@ -139,6 +139,11 @@ pub struct Session {
     #[serde(skip)]
     #[ts(skip)]
     pub title_pending: bool,
+    /// The title was already renamed from the conversation at a turn end. That happens once, at the first
+    /// turn end: follow-up turns keep the title.
+    #[serde(default)]
+    #[ts(skip)]
+    pub title_refreshed: bool,
     pub status: SessionStatus,
     /// The session was Done when archived; retained only while Closed.
     #[serde(default)]

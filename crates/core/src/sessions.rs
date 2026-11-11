@@ -232,7 +232,7 @@ impl Sessions {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
                             effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending,
-                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json
+                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json, title_refreshed
                      FROM session",
                 )?;
                 let rows = st
@@ -256,6 +256,7 @@ impl Sessions {
                             cwd: r.get(4)?,
                             title,
                             title_pending,
+                            title_refreshed: r.get(28)?,
                             status: SessionStatus::parse(&r.get::<_, String>(6)?),
                             archived_done: r.get(22)?,
                             capacity_retry_count: r.get(23)?,
@@ -457,13 +458,13 @@ impl Sessions {
     pub(crate) fn store(c: &rusqlite::Connection, s: &Session) -> Result<()> {
         c.execute(
             "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
-                open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
+                open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json, title_refreshed)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)
              ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
                 status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
                 ended_at = ?17, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
                 seen_at = ?21, archived_done = ?23, capacity_retry_count = ?24, capacity_retry_at = ?25,
-                runner_id = ?26, generation = ?27, unsaved_json = ?28",
+                runner_id = ?26, generation = ?27, unsaved_json = ?28, title_refreshed = ?29",
             params![
                 s.id,
                 s.harness.as_str(),
@@ -493,6 +494,7 @@ impl Sessions {
                 s.runner_id,
                 s.generation,
                 s.unsaved.as_ref().map(serde_json::to_string).transpose()?,
+                s.title_refreshed,
             ],
         )?;
         crate::replica::queue(c, &crate::replica::Item::Session { session: Box::new(s.clone()) })?;
@@ -1133,6 +1135,7 @@ impl Sessions {
                 cwd: cwd.clone(),
                 title: preview.title.clone(),
                 title_pending: true,
+                title_refreshed: false,
                 status: SessionStatus::Starting,
                 archived_done: false,
                 status_since: now,
@@ -2468,8 +2471,8 @@ impl Sink {
             .await;
         if self.sessions.get(&self.id).is_none_or(|s| s.status != status) { return; }
         self.emit(EventBody::Status { status }).await;
-        // Every turn end saves the session's branches, plain folders and conversation on Home; the title
-        // refresh (an LLM call) runs beside it and never delays it.
+        // Every turn end saves the session's branches, plain folders and conversation on Home; the first
+        // turn end also renames the session once (an LLM call) beside it and never delays it.
         if turn_end {
             let (app, id) = (self.app.clone(), self.id.clone());
             let completed = self.sessions.get(&self.id);
