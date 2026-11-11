@@ -37,7 +37,7 @@ pub(crate) async fn apply(app: &App, bot_id: &str, author: Author, ops: Vec<Op>)
     let bot = crate::bots::get(app, bot_id).await?;
     for op in &ops {
         let path = match op {
-            Op::Write { path, .. } | Op::Append { path, .. } | Op::Remove { path } => path,
+            Op::Write { path, .. } | Op::Append { path, .. } | Op::Remove { path, .. } => path,
         };
         ensure!(path.starts_with(DIR), "{path}: a bot writes only its memory/ folder");
     }
@@ -248,7 +248,7 @@ async fn move_bot(app: &App, b: &crate::bots::Bot) -> Result<usize> {
         writes.push(Op::Write { path, sha256: e.sha256.clone(), size: e.size, base });
     }
     apply(app, &b.id, Author::launchpad(), writes).await?;
-    let mut removes: Vec<Op> = notes.iter().map(|e| Op::Remove { path: e.path.clone() }).collect();
+    let mut removes: Vec<Op> = notes.iter().map(|e| Op::Remove { path: e.path.clone(), base: Some(e.sha256.clone()) }).collect();
     if let Some(index) = tree.files.iter().find(|e| e.path == kb::INDEX)
         && let Some(text) = kb::blob_text(app, &index.sha256).await
     {
@@ -392,7 +392,10 @@ pub async fn session_write(app: &App, session_id: &str, ops: Vec<LocalOp>) -> Re
                 Op::Write { base: state.files.get(&path).cloned(), path, sha256: h, size }
             }
             LocalOp::Append { path, text } => Op::Append { path: store_path(&path)?, text },
-            LocalOp::Remove { path } => Op::Remove { path: store_path(&path)? },
+            LocalOp::Remove { path } => {
+                let path = store_path(&path)?;
+                Op::Remove { base: state.files.get(&path).cloned(), path }
+            }
         });
     }
     let v = crate::home_link::home_call("bot-memory", json!({"session_id": session_id, "ops": sent})).await?;

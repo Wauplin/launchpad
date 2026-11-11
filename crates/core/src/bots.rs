@@ -502,7 +502,7 @@ pub async fn restore(app: &App, id: &str, change: i64) -> Result<Bot> {
                 let size = tokio::fs::metadata(plain::blob_path(app, &h)?).await.map(|m| m.len()).unwrap_or(0);
                 crate::kb::Op::Write { path: c.path, sha256: h, size, base: current }
             }
-            None => crate::kb::Op::Remove { path: c.path },
+            None => crate::kb::Op::Remove { path: c.path, base: current },
         };
         crate::bot_memory::apply(app, id, crate::kb::Author::owner(None), vec![op]).await?;
         return get(app, id).await;

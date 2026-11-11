@@ -96,10 +96,12 @@ async fn write(State(s): State<Ctx>, Path(ws): Path<String>, Json(b): Json<Write
 #[derive(Deserialize)]
 struct PathQuery {
     path: String,
+    /// The content the owner saw: a note that changed since is not removed.
+    base: Option<String>,
 }
 
 async fn remove(State(s): State<Ctx>, Path(ws): Path<String>, Query(q): Query<PathQuery>) -> ApiResult<Value> {
-    Ok(lines(kb::apply(&s.app, &ws, kb::Author::owner(None), vec![kb::Op::Remove { path: q.path }]).await.map_err(bad)?))
+    Ok(lines(kb::apply(&s.app, &ws, kb::Author::owner(None), vec![kb::Op::Remove { path: q.path, base: q.base }]).await.map_err(bad)?))
 }
 
 async fn changes(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Value> {

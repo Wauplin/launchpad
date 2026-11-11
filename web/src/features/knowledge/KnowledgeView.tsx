@@ -267,7 +267,7 @@ function NotePane({ ws, notes, changes, path, select, showHistory, refresh }: { 
   }), [ws, paths, path, select]);
   if (!entry) return <Empty fill icon="file">This note was removed. Find it in Changes to restore it.</Empty>;
   if (editing) return <NoteEditor ws={ws} path={path} base={entry.sha256} initial={text.data ?? ""} paths={paths} done={() => { setEditing(false); void refresh(); }} />;
-  const remove = () => api.delete<{ lines: string[] }>(`/api/knowledge/${ws}/file?path=${encodeURIComponent(path)}`).then((r) => { toast(r.lines.join(" ")); return refresh(); }, toastError);
+  const remove = () => api.delete<{ lines: string[] }>(`/api/knowledge/${ws}/file?path=${encodeURIComponent(path)}&base=${entry.sha256}`).then((r) => { toast(r.lines.join(" ")); return refresh(); }, toastError);
   const resolve = (p: string, useOther: boolean) => api.post<{ lines: string[] }>(`/api/knowledge/${ws}/resolve`, { path: p, use_other: useOther }).then((r) => { toast(r.lines.join(" ")); return refresh(); }, toastError);
   const fm = text.data != null ? splitFrontMatter(text.data) : null;
   const src = fileUrl(ws, `path=${encodeURIComponent(path)}`);

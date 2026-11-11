@@ -119,13 +119,17 @@ impl Author {
 }
 
 /// One write. Contents (`sha256`) are uploaded as blobs first. `base`: the content the writer started from
-/// (None: it expected no file).
+/// (None: it expected no file); a removal names the content it removes and is refused when the note changed.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Op {
     Write { path: String, sha256: String, size: u64, base: Option<String> },
     Append { path: String, text: String },
-    Remove { path: String },
+    Remove {
+        path: String,
+        #[serde(default)]
+        base: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -404,8 +408,16 @@ async fn apply_locked(app: &App, place: &Place<'_>, author: Author, ops: Vec<Op>
                 out.push(format!("Appended to {path}"));
                 (path, Some(h), size)
             }
-            Op::Remove { path } => {
-                ensure!(files.contains_key(&path), "there is no {path} in {}", place.name);
+            Op::Remove { path, base } => {
+                let current = files.get(&path).map(|e| e.sha256.clone());
+                ensure!(current.is_some(), "there is no {path} in {}", place.name);
+                if current != base {
+                    out.push(match author.kind {
+                        AuthorKind::Agent => format!("{path} changed since you read it, so it was not removed: read it again, then remove it if it should still go."),
+                        _ => format!("{path} changed meanwhile, so it was not removed: open it again to check."),
+                    });
+                    continue;
+                }
                 out.push(format!("Removed {path} (restorable for 30 days)"));
                 (path, None, 0)
             }
@@ -527,7 +539,7 @@ pub async fn restore(app: &App, workspace_id: &str, change: i64) -> Result<Vec<S
             let size = tokio::fs::metadata(plain::blob_path(app, &h)?).await.map(|m| m.len()).unwrap_or(0);
             Op::Write { path: c.path, sha256: h, size, base: current }
         }
-        None => Op::Remove { path: c.path },
+        None => Op::Remove { path: c.path, base: current },
     };
     apply(app, workspace_id, Author::owner(None), vec![op]).await
 }
@@ -550,7 +562,7 @@ pub async fn resolve(app: &App, workspace_id: &str, path: &str, use_other: bool)
         let base = files.iter().find(|e| e.path == note).map(|e| e.sha256.clone());
         ops.push(Op::Write { path: note, sha256: other.sha256.clone(), size: other.size, base });
     }
-    ops.push(Op::Remove { path: path.into() });
+    ops.push(Op::Remove { path: path.into(), base: Some(other.sha256.clone()) });
     apply(app, workspace_id, Author::owner(None), ops).await
 }
 
@@ -823,7 +835,10 @@ pub async fn session_write(app: &App, session_id: &str, ops: Vec<LocalOp>) -> Re
                 Op::Write { base: state.files.get(&path).cloned(), path, sha256: h, size }
             }
             LocalOp::Append { path, text } => Op::Append { path: clean_path(&path)?, text },
-            LocalOp::Remove { path } => Op::Remove { path: clean_path(&path)? },
+            LocalOp::Remove { path } => {
+                let path = clean_path(&path)?;
+                Op::Remove { base: state.files.get(&path).cloned(), path }
+            }
         });
     }
     let v = crate::home_link::home_call("kb", json!({"session_id": session_id, "ops": sent})).await?;
