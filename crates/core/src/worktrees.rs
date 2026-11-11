@@ -1039,12 +1039,20 @@ fn removable(app: &App, w: &TaskWorktree) -> Result<()> {
 /// loses this session. The caller holds the session's action lock; `worktree_lock` is never held during a push.
 pub(crate) async fn release_moved(app: &App, session_id: &str, generation: u32) -> Result<()> {
     let shared = |w: &TaskWorktree| w.sessions.iter().any(|id| id != session_id && app.sessions.get(id).is_some_and(|s| s.status != SessionStatus::Closed));
+    // The leftovers (a commit) and what they hold (`HEAD` and the tree), compared again before the folder goes.
+    let leftovers = |w: TaskWorktree| async move {
+        let head = git(app, &w.root, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
+        let tip = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch), false).await?.unwrap_or_else(|| head.clone());
+        let tree = git(app, &w.root, &["rev-parse", &format!("{tip}^{{tree}}")]).await?;
+        anyhow::Ok((tip, format!("{head}:{tree}")))
+    };
     for w in for_session(app, session_id).await? {
+        let mut saved = None;
         if !shared(&w) && w.state == WorktreeState::Active && Path::new(&w.root).is_dir() {
             // A shell there would write after the capture, into a folder that is about to go.
             app.terminals.close_in(&w.root).await?;
-            let head = git(app, &w.root, &["rev-parse", "--verify", "HEAD^{commit}"]).await?;
-            let tip = crate::repo_cache::capture(app, Path::new(&w.root), &format!("Leftover files of {}", w.branch), false).await?.unwrap_or(head);
+            let (tip, key) = leftovers(w.clone()).await?;
+            saved = Some(key);
             if w.pushed.as_deref() != Some(tip.as_str()) {
                 let scratch = format!("lp-scratch/{}-gen{generation}", w.branch.trim_start_matches("lp/"));
                 // As the daemon, not the session: Home refuses the Git requests of a session that now runs
@@ -1065,6 +1073,10 @@ pub(crate) async fn release_moved(app: &App, session_id: &str, generation: u32) 
             continue;
         }
         if w.state == WorktreeState::Active && Path::new(&w.root).is_dir() {
+            // A shell opened or a file written since the capture: save again at the next delivery.
+            app.terminals.close_in(&w.root).await?;
+            let now = leftovers(w.clone()).await?.1;
+            ensure!(saved.as_deref() == Some(now.as_str()), "the files of {} changed while Home saved them: released again later", w.root);
             git(app, &w.repo, &["worktree", "remove", "--force", &w.root]).await?;
         }
         let id = w.id.clone();
