@@ -1043,13 +1043,13 @@ async fn on_event(app: &App, r: &CronAgent, cause: String, context: String, hops
     // Automatic work needs confirmed quota; an event never waits for it here (schedules, GitHub and failures wait
     // before they claim), so the run is missed.
     if let Some(why) = quota_hold(app, r).await? {
-        return skip_run(app, &r.id, cause, format!("waits for its quota: {why}"), true).await;
+        return skip_run(app, &r.id, cause, format!("automatic work needs confirmed quota: {why}"), true).await;
     }
     start(app, &r.id, cause, context, true, hops).await.map(|_| ())
 }
 
-/// Why the routine's automatic run waits for its quota now (`quota::hold_reason`): of the bot thread's open session,
-/// else of the session it would start.
+/// Why the routine's automatic run waits for its quota now (`quota::hold_reason`): of the bot's thread
+/// (`bots::quota_hold`), else of the session it would start. Every trigger checks it before it starts a run.
 async fn quota_hold(app: &App, r: &CronAgent) -> Result<Option<String>> {
     if let Some(b) = &r.bot_id {
         return Ok(launchpad_core::bots::quota_hold(app, &launchpad_core::bots::get(app, b).await?));
@@ -1064,8 +1064,7 @@ static HELD: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<Stri
 async fn tick(app: &App, record: CronAgent) -> Result<()> {
     let now = now_ms();
     // Keep this occurrence due until the protected harness has a fresh reading.
-    let spec = effective_spec(app, &record).await?;
-    let held = spec.harness.and_then(|h| launchpad_core::quota::hold_reason(app, h, &spec));
+    let held = quota_hold(app, &record).await?;
     let due = record.next_run_at;
     if let (Some(why), Some(d)) = (&held, due)
         && now - d <= MISSED_GRACE_MS
@@ -1266,10 +1265,9 @@ async fn inbox_synced_inner(app: &App) -> Result<()> {
             .filter_map(|t| events.iter().find(|e| e.matches(&t.kind, &t.reason)).map(|e| (t, *e)))
             .collect();
         let Some(newest) = new.iter().map(|(t, _)| t.updated_at.clone()).max() else { continue };
-        let spec = effective_spec(app, &r).await?;
         let stale = |t: &launchpad_core::github::Thread| chrono::DateTime::parse_from_rfc3339(&t.updated_at).is_ok_and(|d| now - d.timestamp_millis() > MISSED_GRACE_MS);
         // Wait for a fresh quota reading, but never longer than an hour.
-        if spec.harness.is_some_and(|h| !launchpad_core::quota::automatic_ready(app, h, &spec)) && new.iter().any(|(t, _)| !stale(t)) {
+        if new.iter().any(|(t, _)| !stale(t)) && quota_hold(app, &r).await?.is_some() {
             continue;
         }
         let claimed = newest.clone();
@@ -1287,7 +1285,7 @@ async fn inbox_synced_inner(app: &App) -> Result<()> {
             many => format!("GitHub activity ({})", many.len()),
         };
         if fresh.is_empty() {
-            let (why, missed) = match spec.harness.and_then(|h| launchpad_core::quota::hold_reason(app, h, &spec)) {
+            let (why, missed) = match quota_hold(app, &record).await? {
                 Some(held) => (format!("the activity is more than 1 hour old; it waited for the quota: {held}"), true),
                 None => ("the activity is more than 1 hour old".into(), false),
             };

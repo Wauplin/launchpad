@@ -67,7 +67,7 @@ pub async fn items(app: &App) -> Vec<Item> {
             let what = match last.outcome {
                 RunOutcome::Failed => "failed",
                 RunOutcome::Interrupted => "was interrupted",
-                // It waited an hour for a quota reading.
+                // Missed: it waited an hour for confirmed quota, or an event found none.
                 RunOutcome::Skipped if last.missed => "was skipped",
                 _ => return None,
             };

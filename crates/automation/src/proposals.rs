@@ -418,8 +418,30 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     if let ProposalBody::Cron { schedule, .. } = &body {
         crate::crons::next_after(schedule, None, now_ms()).context("invalid cron schedule")?;
     }
+    // Only proposals authored by a bot in auto mode are eligible, and only one-time starts and messages. Anything
+    // that repeats or lasts (crons, routines, bots, BOT.md, presets, tools) and ready cards always wait for a click
+    // (presets are shared settings: a session with admin access changes them directly, with Undo).
+    // A message to a session with admin access always waits for the owner: an auto-mode bot never steers an
+    // admin session without a click.
+    let to_admin = match &body {
+        ProposalBody::Message { session_id, .. } => launchpad_core::vault::session_access(app, session_id).await.ok().flatten() == Some(launchpad_core::vault::LaunchpadAccess::Admin),
+        _ => false,
+    };
+    let auto = matches!(body, ProposalBody::Launch { .. } | ProposalBody::Message { .. } | ProposalBody::Schedule { .. }) && !to_admin && auto_mode(app, author.as_ref()).await;
+    // Automatic work needs confirmed quota: an automatic launch holds its prompt in its start and a schedule waits
+    // before it runs, but a message is sent at once, so without confirmed quota it waits for the owner's click and
+    // its note says why.
+    let held = match (&body, auto) {
+        (ProposalBody::Message { session_id, .. }, true) => app.sessions.get(session_id).and_then(|s| launchpad_core::quota::hold_reason(app, s.harness, &s.launch_spec)),
+        _ => None,
+    };
+    let mut note = c.note.filter(|n| !n.trim().is_empty());
+    if let Some(why) = &held {
+        let line = format!("Not sent automatically: automatic work needs confirmed quota ({why}). Start sends it now.");
+        note = Some(note.map_or_else(|| line.clone(), |n| format!("{n}\n\n{line}")));
+    }
     let now = now_ms();
-    let p = Proposal { id: uuid::Uuid::new_v4().to_string(), workspace_id, session_id: c.session_id, title: c.title.trim().to_string(), note: c.note.filter(|n| !n.trim().is_empty()), body, state: ProposalState::Proposed, result_id, replaced_by: None, error: None, created_at: now, updated_at: now };
+    let p = Proposal { id: uuid::Uuid::new_v4().to_string(), workspace_id, session_id: c.session_id, title: c.title.trim().to_string(), note, body, state: ProposalState::Proposed, result_id, replaced_by: None, error: None, created_at: now, updated_at: now };
     // Share the claim lock with accept/dismiss: a replacement cannot race an owner click.
     let _lock = ACCEPT.lock().await;
     let replaces = match (&c.replaces, &p.body) {
@@ -430,26 +452,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     app.state_db.call(move |db| store_created(db, &stored, replaces.as_deref())).await?;
     app.bus.publish("proposals", "changed", serde_json::to_value(&p)?);
     drop(_lock);
-    // Only proposals authored by a bot in auto mode are eligible, and only one-time starts and messages. Anything
-    // that repeats or lasts (crons, routines, bots, BOT.md, presets, tools) and ready cards always wait for a click
-    // (presets are shared settings: a session with admin access changes them directly, with Undo).
-    // A message to a session with admin access always waits for the owner: an auto-mode bot never steers an
-    // admin session without a click.
-    let to_admin = match &p.body {
-        ProposalBody::Message { session_id, .. } => launchpad_core::vault::session_access(app, session_id).await.ok().flatten() == Some(launchpad_core::vault::LaunchpadAccess::Admin),
-        _ => false,
-    };
-    // Automatic work needs confirmed quota: a message to a session whose quota is not confirmed waits for the
-    // owner's click (an automatic launch waits for it in its start, a schedule before it runs).
-    let held = match &p.body {
-        ProposalBody::Message { session_id, .. } => app.sessions.get(session_id).and_then(|s| launchpad_core::quota::hold_reason(app, s.harness, &s.launch_spec)),
-        _ => None,
-    };
-    if matches!(p.body, ProposalBody::Launch { .. } | ProposalBody::Message { .. } | ProposalBody::Schedule { .. })
-        && !to_admin
-        && held.is_none()
-        && auto_mode(app, author.as_ref()).await
-    {
+    if auto && held.is_none() {
         return accept_inner(app, &p.id, false, None, None).await;
     }
     Ok(p)

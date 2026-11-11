@@ -236,7 +236,8 @@ async fn send(app: &App, q: &Queued) -> Result<Session> {
 
 /// Sends a hook or Telegram message to a bot's thread, or queues it (in order, in state.db) while
 /// the thread is busy, or, for an automatic one (a hook), while its quota is not confirmed. A queued message is sent
-/// once its turn ends (and its quota is confirmed), never into a running turn.
+/// once its turn ends (and its quota is confirmed), never into a running turn. The owner's (Telegram) messages never
+/// wait for quota: they go ahead of hook messages that wait only for it.
 pub async fn deliver(app: &App, target: Target, text: String, automatic: bool, telegram: bool) -> Result<Delivered> {
     let Target::Bot { id } = &target;
     let bot = launchpad_core::bots::get(app, id).await?;
@@ -245,10 +246,19 @@ pub async fn deliver(app: &App, target: Target, text: String, automatic: bool, t
     let mut last = DELIVERY.lock().await;
     let q = Queued { target, text, automatic, telegram };
     let k = key.clone();
-    let waiting = app.state_db.call(move |c| Ok(c.query_row("SELECT count(*) FROM queued_message WHERE target = ?1", [k], |r| r.get::<_, i64>(0))? > 0)).await?;
-    let cur = current(app, &q.target);
+    let rows: Vec<String> = app
+        .state_db
+        .call(move |c| {
+            let mut st = c.prepare("SELECT json FROM queued_message WHERE target = ?1")?;
+            let rows = st.query_map([k], |r| r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await?;
     // Automatic messages also wait for confirmed quota (`bots::quota_hold`).
-    let held = automatic && launchpad_core::bots::quota_hold(app, &bot).is_some();
+    let quota_held = launchpad_core::bots::quota_hold(app, &bot).is_some();
+    let waiting = rows.iter().any(|j| serde_json::from_str::<Queued>(j).map_or(true, |w| !(w.automatic && quota_held)));
+    let cur = current(app, &q.target);
+    let held = automatic && quota_held;
     if !waiting && !held && cur.as_ref().is_none_or(|s| !busy(s)) {
         let s = send(app, &q).await?;
         last.insert(key, (s.id.clone(), s.status_since, now_ms()));
@@ -322,8 +332,8 @@ pub async fn cancel(app: &App, bot_id: &str, n: i64) -> Result<()> {
     Ok(())
 }
 
-/// Sends the oldest queued message of each idle thread. Claimed (deleted) before the send, never retried: a
-/// failure is a notice in the thread.
+/// Sends the oldest queued message of each idle thread; a hook message that waits for its quota lets the owner's
+/// messages after it go first. Claimed (deleted) before the send, never retried: a failure is a notice in the thread.
 async fn drain(app: &App) -> Result<()> {
     let rows: Vec<(i64, String, String)> = app
         .state_db
@@ -336,7 +346,7 @@ async fn drain(app: &App) -> Result<()> {
     let mut done = std::collections::HashSet::new();
     let mut last = DELIVERY.lock().await;
     for (n, key, json) in rows {
-        if !done.insert(key.clone()) {
+        if done.contains(&key) {
             continue;
         }
         let claim = |app: &App| {
@@ -347,15 +357,17 @@ async fn drain(app: &App) -> Result<()> {
             claim(app).await?;
             continue;
         };
-        let cur = current(app, &q.target);
-        if cur.as_ref().is_some_and(busy) {
-            continue;
-        }
+        // A hook message without confirmed quota keeps waiting; the thread's next message may go.
         let Target::Bot { id } = &q.target;
         if q.automatic
             && let Ok(bot) = launchpad_core::bots::get(app, id).await
             && launchpad_core::bots::quota_hold(app, &bot).is_some()
         {
+            continue;
+        }
+        done.insert(key.clone());
+        let cur = current(app, &q.target);
+        if cur.as_ref().is_some_and(busy) {
             continue;
         }
         // The previous delivery may not show as Running yet (a runner reports it later): wait for a status

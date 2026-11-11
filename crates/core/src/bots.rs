@@ -639,14 +639,16 @@ pub async fn record_instructions(app: &App, session_id: &str, (version, instruct
     }
 }
 
-/// Why an automatic message to the bot's thread waits for its quota now (`quota::hold_reason` of its open session,
-/// else of a new session with its profile), or None when it may go.
+/// Why an automatic message to the bot's thread waits for its quota now (`quota::hold_reason` of its open session
+/// when it runs on the bot's profile, else of a new session with that profile), or None when it may go.
 pub fn quota_hold(app: &App, bot: &Bot) -> Option<String> {
-    if let Some(c) = thread(app, &bot.id).into_iter().rev().find(|x| x.status != SessionStatus::Closed) {
-        return crate::quota::hold_reason(app, c.harness, &c.launch_spec);
-    }
     let config = app.config.get();
     let profile = profile_of(&config, &bot.settings)?;
+    if let Some(c) = thread(app, &bot.id).into_iter().rev().find(|x| x.status != SessionStatus::Closed)
+        && c.launch_spec.profile.as_deref() == Some(profile.id.as_str())
+    {
+        return crate::quota::hold_reason(app, c.harness, &c.launch_spec);
+    }
     let spec = LaunchSpec { harness: Some(profile.harness), profile: Some(profile.id.clone()), ..Default::default() };
     crate::quota::hold_reason(app, profile.harness, &spec)
 }
@@ -657,8 +659,8 @@ pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAtt
 }
 
 /// A message to the bot's thread. `automatic` (routines, incoming hooks, other agents): a paused bot refuses it, and
-/// it needs confirmed quota (`quota_hold`: refused for the open session, held by the start of a new one). Hooks and Telegram go through `hooks::deliver`, which waits for the end of a
-/// running turn. `context` (folders, GitHub links, agent traces, as in an agent's message box) goes with the
+/// it needs confirmed quota (`quota_hold`: refused for the open session, held by the start of a new one). Hooks and
+/// Telegram go through `hooks::deliver`, which waits for the end of a running turn. `context` (folders, GitHub links, agent traces, as in an agent's message box) goes with the
 /// message to the current session, or into the launch of a new one. `context.from`, set only by Home's own code
 /// (`senders`), names a sender other than the owner: the message arrives under its header.
 /// `new_session`: the owner asked for a new session, with their reason (may be empty), shown in the chat's divider.
