@@ -758,8 +758,10 @@ struct SessionSearch { q: String }
 async fn search_sessions(State(s): State<Ctx>, Query(q): Query<SessionSearch>) -> ApiResult<Vec<String>> {
     let needle = q.q.trim().to_string();
     if needle.is_empty() { return Ok(Json(vec![])); }
-    let ids = s.app.state_db.call(move |c| {
-        let mut st = c.prepare("SELECT DISTINCT session_id FROM session_event WHERE instr(lower(json_extract(json, '$.text')), lower(?1)) > 0")?;
+    // Messages only (their partial index), on the reader connection: a long scan never
+    // holds up the database thread that records events and replicas.
+    let ids = s.app.state_db.read(move |c| {
+        let mut st = c.prepare("SELECT DISTINCT session_id FROM session_event WHERE kind IN ('user_message', 'assistant_message') AND instr(lower(json_extract(json, '$.text')), lower(?1)) > 0")?;
         Ok(st.query_map([needle], |r| r.get::<_,String>(0))?.collect::<Result<Vec<_>, _>>()?)
     }).await?;
     Ok(Json(ids.into_iter().filter(|id| s.app.sessions.get(id).is_some()).collect()))

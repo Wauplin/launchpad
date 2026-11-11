@@ -15,20 +15,44 @@ type Job = Box<dyn FnOnce(&mut Connection) + Send>;
 #[derive(Clone)]
 pub struct Db {
     tx: mpsc::Sender<Job>,
+    /// A second, read-only connection on its own thread for slow reads (WAL lets it run
+    /// beside the writer), so they never hold up the main thread.
+    reader: Option<mpsc::Sender<Job>>,
+}
+
+fn thread(mut conn: Connection, name: &str) -> mpsc::Sender<Job> {
+    let (tx, rx) = mpsc::channel::<Job>();
+    std::thread::Builder::new()
+        .name(format!("db-{name}"))
+        .spawn(move || {
+            for job in rx {
+                job(&mut conn);
+            }
+        })
+        .expect("spawn db thread");
+    tx
 }
 
 impl Db {
-    fn spawn(mut conn: Connection, name: &str) -> Db {
-        let (tx, rx) = mpsc::channel::<Job>();
-        std::thread::Builder::new()
-            .name(format!("db-{name}"))
-            .spawn(move || {
-                for job in rx {
-                    job(&mut conn);
-                }
-            })
-            .expect("spawn db thread");
-        Db { tx }
+    fn spawn(conn: Connection, name: &str) -> Db {
+        Db { tx: thread(conn, name), reader: None }
+    }
+
+    /// Runs a read-only `f` on the reader connection (the main one when there is none).
+    /// Use it for slow scans; it may not see a write that is still queued on the main thread.
+    pub async fn read<R, F>(&self, f: F) -> Result<R>
+    where
+        R: Send + 'static,
+        F: FnOnce(&mut Connection) -> Result<R> + Send + 'static,
+    {
+        let Some(reader) = &self.reader else { return self.call(f).await };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        reader
+            .send(Box::new(move |conn| {
+                let _ = tx.send(f(conn));
+            }))
+            .map_err(|_| anyhow!("database thread stopped"))?;
+        rx.await.map_err(|_| anyhow!("database thread stopped"))?
     }
 
     /// Runs `f` on the database thread.
@@ -189,6 +213,7 @@ CREATE TABLE IF NOT EXISTS tool_defaults (scope TEXT PRIMARY KEY, json TEXT NOT 
 CREATE TABLE IF NOT EXISTS vault_lease (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, created_at INTEGER NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS access_log (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, at INTEGER NOT NULL, json TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS access_log_session ON access_log (session_id, at);
+CREATE INDEX IF NOT EXISTS session_event_message ON session_event (kind) WHERE kind IN ('user_message', 'assistant_message');
 CREATE TABLE IF NOT EXISTS runner_ack (runner_id TEXT PRIMARY KEY, n INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS runner_worktree (id TEXT PRIMARY KEY, runner_id TEXT NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS branch_merge (project_id TEXT NOT NULL, branch TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (project_id, branch));
@@ -313,7 +338,10 @@ CREATE TABLE IF NOT EXISTS daemon_start (at INTEGER PRIMARY KEY, commit_id TEXT 
         )?;
         tx.commit()?;
     }
-    Ok(Db::spawn(conn, "state"))
+    let reader = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX)
+        .with_context(|| format!("open {} for reading", path.display()))?;
+    reader.execute_batch("PRAGMA busy_timeout = 5000;")?;
+    Ok(Db { tx: thread(conn, "state"), reader: Some(thread(reader, "state-read")) })
 }
 
 /// `cache.db` schema. Any change to this text rebuilds the cache from scratch.
