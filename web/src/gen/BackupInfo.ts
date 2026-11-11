@@ -11,4 +11,12 @@ credentials_encrypted: boolean,
 /**
  * Why the last pass could not write every trace copy (`trace_copies`).
  */
-traces_error: string | null, };
+traces_error: string | null, 
+/**
+ * The last pruning of old backups (`prune`): when it completed and what it did.
+ */
+pruned_at: number | null, prune: string | null, 
+/**
+ * Why the last pruning was skipped or stopped.
+ */
+prune_error: string | null, };

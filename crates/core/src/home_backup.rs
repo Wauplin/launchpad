@@ -13,8 +13,10 @@
 //! Other files a restore needs go in as objects too: uploads (`uploads/<sha256>`) and `runner-archives.json`
 //! (`data_files`). Plain folder blobs and handoff files are listed as `plain/<sha256>` and fetched on first use.
 //!
-//! Pruning keeps every backup of the last day (and always the newest), then removes objects no kept manifest
-//! needs. `cache.db` is not backed up: it is rebuilt from GitHub.
+//! Retention (`prune`, after each complete backup, one at a time with backups): keep the newest backup, the one
+//! before it, the newest one at least an hour old, and the newest one at least 1, 2, …, 7 days old (`retained`);
+//! delete the other manifests, then the objects no remaining manifest lists (never one uploaded in the last hour).
+//! `cache.db` is not backed up: it is rebuilt from GitHub.
 //!
 //! Home Git: each mirror adds a bundle (`git/<folder-id>.bundle`) of its Launchpad branches and kept tips, minus
 //! what the folder's remote has (a full bundle without a remote). After a restore, a mirror is cloned from the
@@ -33,7 +35,8 @@ use crate::App;
 use crate::shellenv::UserEnv;
 use crate::util::now_ms;
 
-const KEEP_MS: i64 = 24 * 3600 * 1000;
+const HOUR_MS: i64 = 3600 * 1000;
+const DAY_MS: i64 = 24 * HOUR_MS;
 
 /// Where backups go: `hf://buckets/<namespace>/<bucket>` or a local folder.
 #[derive(Clone, Debug, PartialEq)]
@@ -122,6 +125,107 @@ impl Store {
             Store::Dir(d) => Ok(tokio::fs::remove_file(d.join(key)).await?),
         }
     }
+
+    /// The files under `prefix` (recursive) with their size and upload time. Unlike `list`, a failed listing is an
+    /// error, never an empty list: pruning decides what to delete from it.
+    async fn entries(&self, env: &UserEnv, prefix: &str) -> Result<Vec<Entry>> {
+        match self {
+            Store::Bucket(b) => {
+                let out = crate::hf::hf(env, &["buckets", "ls", &format!("{b}/{prefix}"), "-R", "--format", "json"], None).await?;
+                let out = out.trim();
+                // hf prints this instead of JSON for an empty listing.
+                if out.is_empty() || out == "(empty)" {
+                    return Ok(vec![]);
+                }
+                let items: Vec<serde_json::Value> = serde_json::from_str(out).context("unexpected hf buckets ls output")?;
+                let time = |v: &serde_json::Value| v.as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.timestamp_millis());
+                Ok(items
+                    .iter()
+                    .filter(|i| i["type"] == "file")
+                    .filter_map(|i| {
+                        let p = i["path"].as_str()?;
+                        let key = if p.starts_with(prefix) { p.to_string() } else { format!("{prefix}/{p}") };
+                        Some(Entry { key, size: i["size"].as_u64(), uploaded_at: time(&i["uploaded_at"]).or_else(|| time(&i["mtime"])) })
+                    })
+                    .collect())
+            }
+            Store::Dir(d) => {
+                let mut out = vec![];
+                let mut stack = vec![d.join(prefix)];
+                while let Some(dir) = stack.pop() {
+                    let mut rd = match tokio::fs::read_dir(&dir).await {
+                        Ok(rd) => rd,
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                        Err(e) => return Err(anyhow::Error::from(e).context(format!("list {}", dir.display()))),
+                    };
+                    while let Some(e) = rd.next_entry().await? {
+                        let path = e.path();
+                        let meta = e.metadata().await?;
+                        if meta.is_dir() {
+                            stack.push(path);
+                        } else if path.extension().is_none_or(|x| x != "partial")
+                            && let Ok(rel) = path.strip_prefix(d)
+                        {
+                            let uploaded_at = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|t| t.as_millis() as i64);
+                            out.push(Entry { key: rel.to_string_lossy().replace('\\', "/"), size: Some(meta.len()), uploaded_at });
+                        }
+                    }
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    /// Deletes these files, all under `prefix`: a bucket in batches (one listing and one batch call each), a folder
+    /// a few files at a time.
+    async fn remove_many(&self, env: &UserEnv, prefix: &str, keys: &[String]) -> Result<()> {
+        for k in keys {
+            // Exact names only: `--include` takes glob patterns.
+            ensure!(k.starts_with(&format!("{prefix}/")) && !k.contains(['*', '?', '[', ']', '\\']) && !k.split('/').any(|s| s.is_empty() || s == ".." || s == "."), "refusing to delete {k}");
+        }
+        match self {
+            Store::Bucket(b) => {
+                for chunk in keys.chunks(100) {
+                    let target = format!("{b}/{prefix}");
+                    let mut args: Vec<&str> = vec!["buckets", "rm", &target, "--recursive", "--yes", "--quiet"];
+                    for k in chunk {
+                        args.extend(["--include", k.as_str()]);
+                    }
+                    crate::hf::hf(env, &args, None).await.with_context(|| format!("delete {} files under {prefix}", chunk.len()))?;
+                }
+                Ok(())
+            }
+            Store::Dir(d) => {
+                // A few at a time: a bucket mounted as a folder makes each delete a network call.
+                for chunk in keys.chunks(8) {
+                    futures_util::future::try_join_all(chunk.iter().map(|k| remove_in(d, prefix, k))).await?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Deletes a file of a folder destination, and its backup's folder (`<time>/manifest.json`) once empty.
+async fn remove_in(d: &Path, prefix: &str, key: &str) -> Result<()> {
+    let path = d.join(key);
+    match tokio::fs::remove_file(&path).await {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(anyhow::Error::from(e).context(format!("delete {key}"))),
+        _ => {}
+    }
+    if let Some(parent) = path.parent().filter(|p| *p != d.join(prefix)) {
+        let _ = tokio::fs::remove_dir(parent).await;
+    }
+    Ok(())
+}
+
+/// A file of the destination, from a listing.
+#[derive(Clone, Debug)]
+struct Entry {
+    key: String,
+    size: Option<u64>,
+    /// Milliseconds; None when the listing does not say.
+    uploaded_at: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -151,6 +255,12 @@ pub struct BackupInfo {
     pub credentials_encrypted: bool,
     /// Why the last pass could not write every trace copy (`trace_copies`).
     pub traces_error: Option<String>,
+    /// The last pruning of old backups (`prune`): when it completed and what it did.
+    #[ts(type = "number | null")]
+    pub pruned_at: Option<i64>,
+    pub prune: Option<String>,
+    /// Why the last pruning was skipped or stopped.
+    pub prune_error: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -161,6 +271,10 @@ pub struct Backups {
     running: Arc<tokio::sync::Mutex<()>>,
     /// Per mirror: the hash of its refs and the bundle object saved for them.
     bundles: Arc<Mutex<std::collections::HashMap<String, (String, Object)>>>,
+    /// A pruning pass waits for `running`.
+    prune_queued: Arc<std::sync::atomic::AtomicBool>,
+    /// Manifests read by pruning, by key (they never change).
+    manifests: Arc<Mutex<std::collections::HashMap<String, Vec<u8>>>>,
 }
 
 static GIT_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -246,10 +360,6 @@ async fn manifests(store: &Store, env: &UserEnv, root: &str) -> Result<Vec<(Stri
     Ok(out)
 }
 
-/// Which manifests pruning removes: those older than a day, except the newest.
-fn prunable(manifests: &[(String, Manifest)], now: i64) -> Vec<String> {
-    manifests.iter().skip(1).filter(|(_, m)| now - m.created_at > KEEP_MS).map(|(k, _)| k.clone()).collect()
-}
 
 async fn snapshot(app: &App) -> Result<(Vec<u8>, i64)> {
     let tmp = app.paths.data_dir.join(format!("state.backup-{}.db", uuid::Uuid::new_v4()));
@@ -366,9 +476,7 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
     store.put(&app.env, &manifest_key(now), serde_json::to_vec_pretty(&manifest)?).await?;
     *backups.changes.lock().unwrap() = Some(changes);
     backups.info.lock().unwrap().last_complete_at = Some(now);
-    if let Err(e) = prune(&store, &app.env, now).await {
-        tracing::warn!("home backup: pruning: {e:#}");
-    }
+    spawn_prune(app, store.clone(), manifest_key(now));
     if let Err(e) = readable(app, &store).await {
         tracing::warn!("home backup: readable copies: {e:#}");
     }
@@ -567,19 +675,176 @@ pub async fn restore_bundle(app: &App, project_id: &str) -> Result<()> {
     Ok(())
 }
 
-async fn prune(store: &Store, env: &UserEnv, now: i64) -> Result<()> {
-    let all = manifests(store, env, ROOT).await?;
-    let gone = prunable(&all, now);
-    for key in &gone {
-        store.remove(env, key).await?;
-    }
-    let needed: std::collections::HashSet<String> = all.iter().filter(|(k, _)| !gone.contains(k)).flat_map(|(_, m)| m.objects.iter().map(|o| blob_key(&o.sha256))).collect();
-    for key in store.list(env, &format!("{ROOT}/blobs/sha256")).await? {
-        if !needed.contains(&key) {
-            store.remove(env, &key).await?;
+/// The time of a backup from its manifest key (`manifest_key`).
+fn key_time(key: &str) -> Option<i64> {
+    let t = key.strip_prefix(&format!("{ROOT}/backup/"))?.strip_suffix("/manifest.json")?;
+    chrono::NaiveDateTime::parse_from_str(t, "%Y%m%dT%H%M%S%.3fZ").ok().map(|t| t.and_utc().timestamp_millis())
+}
+
+/// The backups retention keeps, as indexes into `times` (each backup's time, None when unknown): the newest, the one
+/// before it, the newest at least an hour old, and the newest at least 1, 2, …, 7 days old. A backup without a known
+/// time, or with a time after `now` (a clock that went back), is kept too: pruning never deletes what it cannot place.
+fn retained(times: &[Option<i64>], now: i64) -> std::collections::BTreeSet<usize> {
+    let mut keep = std::collections::BTreeSet::new();
+    let mut known: Vec<(i64, usize)> = vec![];
+    for (i, t) in times.iter().enumerate() {
+        match t {
+            Some(t) if *t <= now => known.push((*t, i)),
+            Some(t) => {
+                known.push((*t, i));
+                keep.insert(i);
+            }
+            None => {
+                keep.insert(i);
+            }
         }
     }
+    // Newest first, whatever the clock says.
+    known.sort_by(|a, b| b.cmp(a));
+    keep.extend(known.iter().take(2).map(|(_, i)| *i));
+    let ages = std::iter::once(HOUR_MS).chain((1..=7).map(|d| d * DAY_MS));
+    for age in ages {
+        if let Some((_, i)) = known.iter().find(|(t, _)| now - t >= age) {
+            keep.insert(*i);
+        }
+    }
+    keep
+}
+
+/// The objects a manifest needs, by key. One that does not parse keeps every hash it mentions.
+fn references(data: &[u8]) -> Vec<String> {
+    if let Ok(m) = serde_json::from_slice::<Manifest>(data) {
+        return m.objects.iter().map(|o| blob_key(&o.sha256)).collect();
+    }
+    data.split(|b| !b.is_ascii_hexdigit()).filter(|w| w.len() == 64).map(|w| blob_key(&String::from_utf8_lossy(w).to_ascii_lowercase())).collect()
+}
+
+async fn manifest_keys(store: &Store, env: &UserEnv, dir: &str) -> Result<Vec<String>> {
+    let mut keys: Vec<String> = store.entries(env, dir).await?.into_iter().map(|e| e.key).filter(|k| k.ends_with("/manifest.json")).collect();
+    keys.sort();
+    Ok(keys)
+}
+
+/// What one pruning pass did.
+#[derive(Debug, Default)]
+struct Pruned {
+    kept: Vec<String>,
+    manifests: usize,
+    blobs: usize,
+    bytes: u64,
+}
+
+/// A manifest's bytes. Manifests never change once written, so `cache` keeps them between passes.
+async fn read_manifest(store: &Store, env: &UserEnv, key: &str, cache: &mut std::collections::HashMap<String, Vec<u8>>) -> Result<Vec<u8>> {
+    if let Some(data) = cache.get(key) {
+        return Ok(data.clone());
+    }
+    let data = store.get(env, key).await.with_context(|| format!("read {key}"))?;
+    cache.insert(key.to_string(), data.clone());
+    Ok(data)
+}
+
+/// A backup restore can use: its manifest parses and every object it lists is in `blobs`, with the recorded size
+/// (objects recorded with size 0, plain blobs and carried-over bundles, only need to exist).
+async fn check_complete(store: &Store, env: &UserEnv, key: &str, blobs: &std::collections::HashMap<String, Entry>, cache: &mut std::collections::HashMap<String, Vec<u8>>) -> Result<()> {
+    let m: Manifest = serde_json::from_slice(&read_manifest(store, env, key, cache).await?).with_context(|| format!("parse {key}"))?;
+    ensure!(!m.objects.is_empty(), "backup {key} lists no object");
+    for o in &m.objects {
+        let Some(e) = blobs.get(&blob_key(&o.sha256)) else { bail!("backup {key} is incomplete: object {} is missing", o.name) };
+        ensure!(o.size == 0 || e.size == Some(o.size), "backup {key}: object {} has size {:?}, expected {}", o.name, e.size, o.size);
+    }
     Ok(())
+}
+
+/// Retention, after the backup `latest` completed: deletes the manifests `retained` does not keep, then the objects no
+/// remaining manifest lists. Skipped (an error, nothing deleted) unless the newest backups are complete. Never touches
+/// anything outside `home/backup/` and `home/blobs/`. Callers hold `Backups.running`, so no backup runs meanwhile.
+async fn prune(store: &Store, env: &UserEnv, latest: &str, now: i64, cache: &mut std::collections::HashMap<String, Vec<u8>>) -> Result<Pruned> {
+    let backup_dir = format!("{ROOT}/backup");
+    let blob_dir = format!("{ROOT}/blobs/sha256");
+    let listed = manifest_keys(store, env, &backup_dir).await?;
+    ensure!(listed.iter().any(|k| k == latest), "the new backup {latest} is not listed yet");
+    cache.retain(|k, _| listed.contains(k));
+    let blobs = store.entries(env, &blob_dir).await?.into_iter().map(|e| (e.key.clone(), e)).collect::<std::collections::HashMap<_, _>>();
+    let mut times = vec![];
+    for key in &listed {
+        let t = match key_time(key) {
+            Some(t) => Some(t),
+            None => read_manifest(store, env, key, cache).await.ok().and_then(|d| serde_json::from_slice::<Manifest>(&d).ok()).map(|m| m.created_at),
+        };
+        times.push(t);
+    }
+    // The two newest backups (by time, whatever the clock says) are never deleted; the backup just written and the
+    // one a restore would pick must be complete.
+    let mut by_time: Vec<(i64, &String)> = listed.iter().zip(&times).filter_map(|(k, t)| Some(((*t)?, k))).collect();
+    by_time.sort_by(|a, b| b.cmp(a));
+    let newest: Vec<&String> = by_time.iter().take(2).map(|(_, k)| *k).collect();
+    check_complete(store, env, latest, &blobs, cache).await?;
+    if let Some(n) = newest.first().filter(|n| n.as_str() != latest) {
+        check_complete(store, env, n, &blobs, cache).await?;
+    }
+    let keep = retained(&times, now);
+    let kept: Vec<String> = keep.iter().map(|i| listed[*i].clone()).collect();
+    if keep.is_empty() || (listed.len() > 1 && keep.len() < 2) {
+        tracing::error!("home backup: refusing to prune, retention keeps {} of {} backups", keep.len(), listed.len());
+        bail!("refusing to prune: retention keeps {} of {} backups", keep.len(), listed.len());
+    }
+    ensure!(kept.iter().any(|k| k == latest) && newest.iter().all(|n| kept.contains(n)), "refusing to prune: the newest backups are not all kept");
+    let gone: Vec<String> = listed.iter().enumerate().filter(|(i, _)| !keep.contains(i)).map(|(_, k)| k.clone()).collect();
+    // Manifests first: a backup without its manifest is never restored, so a pass stopped halfway leaves only
+    // unused objects, which the next pass deletes.
+    store.remove_many(env, &backup_dir, &gone).await?;
+    for k in &gone {
+        cache.remove(k);
+    }
+
+    // Objects: from fresh listings, so a manifest that appeared meanwhile still protects its objects.
+    let remaining = manifest_keys(store, env, &backup_dir).await?;
+    ensure!(remaining.iter().any(|k| k == latest), "the new backup {latest} is no longer listed");
+    let mut needed = std::collections::HashSet::new();
+    for key in &remaining {
+        needed.extend(references(&read_manifest(store, env, key, cache).await?));
+    }
+    let blobs = store.entries(env, &blob_dir).await?.into_iter().map(|e| (e.key.clone(), e)).collect::<std::collections::HashMap<_, _>>();
+    // An object uploaded in the last hour may belong to a backup whose manifest is not written yet.
+    let unused: Vec<&Entry> = blobs.values().filter(|e| !needed.contains(&e.key) && e.uploaded_at.is_some_and(|t| now - t >= HOUR_MS)).collect();
+    let keys: Vec<String> = unused.iter().map(|e| e.key.clone()).collect();
+    store.remove_many(env, &blob_dir, &keys).await?;
+    Ok(Pruned { kept, manifests: gone.len(), blobs: keys.len(), bytes: unused.iter().filter_map(|e| e.size).sum() })
+}
+
+/// After a complete backup: prunes once the backup released `Backups.running` (never during a backup or another
+/// pass). A failure is logged and shown in the backup status; it never fails the backup.
+fn spawn_prune(app: &App, store: Store, latest: String) {
+    let backups = app.home_backups.clone();
+    if backups.prune_queued.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let env = app.env.clone();
+    tokio::spawn(async move {
+        let _one = backups.running.lock().await;
+        backups.prune_queued.store(false, std::sync::atomic::Ordering::SeqCst);
+        let mut cache = std::mem::take(&mut *backups.manifests.lock().unwrap());
+        let result = prune(&store, &env, &latest, now_ms(), &mut cache).await;
+        *backups.manifests.lock().unwrap() = cache;
+        let mut info = backups.info.lock().unwrap();
+        match result {
+            Ok(p) => {
+                let names: Vec<&str> = p.kept.iter().map(|k| k.trim_start_matches(&format!("{ROOT}/backup/")).trim_end_matches("/manifest.json")).collect();
+                let summary = format!("kept {} backups, deleted {} backups and {} objects ({} MB)", p.kept.len(), p.manifests, p.blobs, p.bytes / 1_000_000);
+                if p.manifests > 0 || p.blobs > 0 {
+                    tracing::info!("home backup: pruning {summary}; kept {}", names.join(", "));
+                }
+                info.pruned_at = Some(now_ms());
+                info.prune = Some(summary);
+                info.prune_error = None;
+            }
+            Err(e) => {
+                tracing::warn!("home backup: pruning skipped: {e:#}");
+                info.prune_error = Some(format!("{e:#}"));
+            }
+        }
+    });
 }
 
 /// On boot, before the database opens: an empty data folder gets the newest complete backup.
@@ -671,19 +936,176 @@ pub fn spawn(app: &App) {
 mod tests {
     use super::*;
 
-    fn manifest(at: i64) -> (String, Manifest) {
-        (manifest_key(at), Manifest { format: 1, created_at: at, commit: String::new(), objects: vec![] })
+    const NOW: i64 = 1_800_000_000_000;
+    const MIN: i64 = 60_000;
+
+    /// `retained` as sorted times, for backups given by time.
+    fn kept(times: &[Option<i64>], now: i64) -> Vec<Option<i64>> {
+        retained(times, now).into_iter().map(|i| times[i]).collect()
     }
 
     #[test]
-    fn pruning_keeps_the_last_day_and_the_newest() {
-        let day = KEEP_MS;
-        let now = 10 * day;
-        let fresh = vec![manifest(now - 1000), manifest(now - day + 1000), manifest(now - 2 * day)];
-        assert_eq!(prunable(&fresh, now), vec![manifest_key(now - 2 * day)]);
-        // Only old backups: the newest stays.
-        let old = vec![manifest(now - 3 * day), manifest(now - 4 * day)];
-        assert_eq!(prunable(&old, now), vec![manifest_key(now - 4 * day)]);
+    fn retention_keeps_one_backup_per_rule() {
+        // A backup every minute for 10 days, newest first.
+        let times: Vec<Option<i64>> = (0..10 * 24 * 60).map(|m| Some(NOW - m * MIN)).collect();
+        let mut want: Vec<Option<i64>> = [0, MIN, HOUR_MS].into_iter().chain((1..=7).map(|d| d * DAY_MS)).map(|age| Some(NOW - age)).collect();
+        want.sort_by_key(|t| std::cmp::Reverse(*t));
+        let mut got = kept(&times, NOW);
+        got.sort_by_key(|t| std::cmp::Reverse(*t));
+        assert_eq!(got, want);
+        // Order of the input does not matter.
+        let mut shuffled = times.clone();
+        shuffled.reverse();
+        assert_eq!(retained(&shuffled, NOW).len(), 10);
+    }
+
+    #[test]
+    fn retention_keeps_the_newest_older_backup_across_gaps() {
+        // Nothing between 30 min and 3 days old: the 1 h, 1 d and 2 d rules all pick the 3-day-old backup.
+        let times = vec![Some(NOW - MIN), Some(NOW - 2 * MIN), Some(NOW - 30 * MIN), Some(NOW - 3 * DAY_MS), Some(NOW - 3 * DAY_MS - MIN), Some(NOW - 9 * DAY_MS)];
+        assert_eq!(kept(&times, NOW), vec![Some(NOW - MIN), Some(NOW - 2 * MIN), Some(NOW - 3 * DAY_MS), Some(NOW - 9 * DAY_MS)]);
+        // Exactly one hour old counts as one hour old.
+        let times = vec![Some(NOW), Some(NOW - MIN), Some(NOW - 2 * MIN), Some(NOW - HOUR_MS), Some(NOW - HOUR_MS - MIN)];
+        assert_eq!(kept(&times, NOW), vec![Some(NOW), Some(NOW - MIN), Some(NOW - HOUR_MS)]);
+    }
+
+    #[test]
+    fn retention_on_a_fresh_install() {
+        assert!(retained(&[], NOW).is_empty());
+        assert_eq!(kept(&[Some(NOW)], NOW), vec![Some(NOW)]);
+        assert_eq!(kept(&[Some(NOW), Some(NOW - MIN)], NOW), vec![Some(NOW), Some(NOW - MIN)]);
+        // A third recent backup is the only one deleted.
+        assert_eq!(kept(&[Some(NOW), Some(NOW - MIN), Some(NOW - 2 * MIN)], NOW), vec![Some(NOW), Some(NOW - MIN)]);
+    }
+
+    #[test]
+    fn retention_with_clock_skew_and_unknown_times() {
+        // The clock went back an hour: backups "in the future" are all kept, and so are the two newest.
+        let times = vec![Some(NOW + HOUR_MS), Some(NOW + 30 * MIN), Some(NOW + MIN), Some(NOW - MIN), Some(NOW - 2 * MIN), Some(NOW - 2 * HOUR_MS)];
+        assert_eq!(kept(&times, NOW), vec![Some(NOW + HOUR_MS), Some(NOW + 30 * MIN), Some(NOW + MIN), Some(NOW - 2 * HOUR_MS)]);
+        // Every backup in the future, even far: none deleted.
+        let times = vec![Some(NOW + 2 * DAY_MS), Some(NOW + DAY_MS), Some(NOW + HOUR_MS)];
+        assert_eq!(retained(&times, NOW).len(), 3);
+        // A backup whose time is unknown is kept, and never counts as one of the newest.
+        let times = vec![None, Some(NOW), Some(NOW - MIN), Some(NOW - 2 * MIN)];
+        assert_eq!(kept(&times, NOW), vec![None, Some(NOW), Some(NOW - MIN)]);
+    }
+
+    #[test]
+    fn manifest_keys_carry_their_time() {
+        let at = 1_762_800_000_123;
+        assert_eq!(key_time(&manifest_key(at)), Some(at));
+        assert_eq!(key_time("home/backup/latest/manifest.json"), None);
+        assert_eq!(key_time("home/backup/20261110T003709.123Z/other.json"), None);
+    }
+
+    #[test]
+    fn unparsable_manifests_keep_every_hash_they_mention() {
+        let h = "ab".repeat(32);
+        assert_eq!(references(format!("{{\"objects\": [{{\"sha256\": \"{h}\"").as_bytes()), vec![blob_key(&h)]);
+        let m = Manifest { format: 1, created_at: 1, commit: String::new(), objects: vec![Object { name: "state.db".into(), sha256: h.clone(), size: 3 }] };
+        assert_eq!(references(&serde_json::to_vec(&m).unwrap()), vec![blob_key(&h)]);
+    }
+
+    /// A folder destination with backups at these times (each with its own object, plus one shared object), objects
+    /// uploaded `uploaded` ago.
+    async fn destination(times: &[i64], uploaded: i64) -> (Store, PathBuf, UserEnv) {
+        let dir = std::env::temp_dir().join(format!("launchpad-prune-{}", uuid::Uuid::new_v4()));
+        let store = Store::Dir(dir.clone());
+        let env = UserEnv::from_vars(Default::default());
+        let shared = b"config".to_vec();
+        for t in times {
+            let data = format!("db {t}").into_bytes();
+            let objects = [("state.db", &data), ("config.toml", &shared)].map(|(n, d)| Object { name: n.into(), sha256: hex::encode(Sha256::digest(d)), size: d.len() as u64 });
+            for (o, d) in objects.iter().zip([&data, &shared]) {
+                put_blob(&store, &env, &dir, &o.sha256, d.clone(), uploaded).await;
+            }
+            let m = Manifest { format: 1, created_at: *t, commit: String::new(), objects: objects.to_vec() };
+            store.put(&env, &manifest_key(*t), serde_json::to_vec(&m).unwrap()).await.unwrap();
+        }
+        (store, dir, env)
+    }
+
+    async fn put_blob(store: &Store, env: &UserEnv, dir: &Path, sha: &str, data: Vec<u8>, uploaded: i64) {
+        store.put(env, &blob_key(sha), data).await.unwrap();
+        let at = std::time::SystemTime::now() - Duration::from_millis(uploaded as u64);
+        std::fs::File::options().write(true).open(dir.join(blob_key(sha))).unwrap().set_modified(at).unwrap();
+    }
+
+    fn files(dir: &Path, sub: &str) -> usize {
+        walk(&dir.join(sub))
+    }
+
+    fn walk(p: &Path) -> usize {
+        std::fs::read_dir(p).map(|rd| rd.flatten().map(|e| if e.path().is_dir() { walk(&e.path()) } else { 1 }).sum()).unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn pruning_deletes_old_backups_and_unused_objects() {
+        let now = now_ms();
+        let times = [now - 2 * MIN, now - MIN, now - 3 * MIN, now - 4 * MIN, now - 2 * HOUR_MS, now - 3 * HOUR_MS];
+        let (store, dir, env) = destination(&times, 2 * HOUR_MS).await;
+        // Not listed by any manifest: one old, one uploaded a minute ago (a backup in flight).
+        put_blob(&store, &env, &dir, &"0".repeat(64), b"old".to_vec(), 2 * HOUR_MS).await;
+        put_blob(&store, &env, &dir, &"1".repeat(64), b"new".to_vec(), MIN).await;
+        // An unreadable manifest is kept, with every object it mentions.
+        put_blob(&store, &env, &dir, &"2".repeat(64), b"odd".to_vec(), 2 * HOUR_MS).await;
+        store.put(&env, "home/backup/odd/manifest.json", format!("not json {}", "2".repeat(64)).into_bytes()).await.unwrap();
+        // Outside the backups: never touched.
+        store.put(&env, "home/credentials/sealed/hf", b"x".to_vec()).await.unwrap();
+        store.put(&env, "Work/traces/a.jsonl", b"x".to_vec()).await.unwrap();
+        let mut cache = Default::default();
+        let p = prune(&store, &env, &manifest_key(now - MIN), now, &mut cache).await.unwrap();
+        // Newest, the one before it, the newest at least an hour old, the unreadable one.
+        assert_eq!(p.kept, vec![manifest_key(now - 2 * HOUR_MS), manifest_key(now - 2 * MIN), manifest_key(now - MIN), "home/backup/odd/manifest.json".to_string()].into_iter().collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>());
+        assert_eq!((p.manifests, p.blobs), (3, 4));
+        assert_eq!(files(&dir, "home/backup"), 4);
+        // 3 state.db copies, the shared config, the recent unused object and the one the odd manifest names.
+        assert_eq!(files(&dir, "home/blobs"), 6);
+        assert!(dir.join(blob_key(&"1".repeat(64))).exists() && dir.join(blob_key(&"2".repeat(64))).exists() && !dir.join(blob_key(&"0".repeat(64))).exists());
+        assert_eq!(files(&dir, "home/credentials") + files(&dir, "Work"), 2);
+        // The backups' own folders went with their manifests.
+        assert_eq!(std::fs::read_dir(dir.join("home/backup")).unwrap().count(), 4);
+        // A second pass deletes nothing.
+        let p = prune(&store, &env, &manifest_key(now - MIN), now, &mut cache).await.unwrap();
+        assert_eq!((p.manifests, p.blobs), (0, 0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn pruning_skips_when_the_latest_backup_is_incomplete() {
+        let now = now_ms();
+        let times = [now - MIN, now - 2 * MIN, now - 3 * MIN, now - 2 * DAY_MS];
+        let (store, dir, env) = destination(&times, 2 * HOUR_MS).await;
+        put_blob(&store, &env, &dir, &"0".repeat(64), b"old".to_vec(), 2 * HOUR_MS).await;
+        let latest = manifest_key(now - MIN);
+        let m: Manifest = serde_json::from_slice(&std::fs::read(dir.join(&latest)).unwrap()).unwrap();
+        // A missing object, then one with the wrong size.
+        let blob = dir.join(blob_key(&m.objects[0].sha256));
+        let data = std::fs::read(&blob).unwrap();
+        std::fs::remove_file(&blob).unwrap();
+        let e = prune(&store, &env, &latest, now, &mut Default::default()).await.unwrap_err();
+        assert!(format!("{e:#}").contains("missing"), "{e:#}");
+        std::fs::write(&blob, &data[1..]).unwrap();
+        let e = prune(&store, &env, &latest, now, &mut Default::default()).await.unwrap_err();
+        assert!(format!("{e:#}").contains("size"), "{e:#}");
+        // Nothing was deleted.
+        assert_eq!(files(&dir, "home/backup"), 4);
+        assert!(dir.join(blob_key(&"0".repeat(64))).exists());
+        // A backup that is not listed (not written yet) is not pruned after either.
+        std::fs::write(&blob, &data).unwrap();
+        assert!(prune(&store, &env, &manifest_key(now), now, &mut Default::default()).await.is_err());
+        assert_eq!(files(&dir, "home/backup"), 4);
+        // The newest backup by time must be complete too, even when it is not the one just written.
+        let future = manifest_key(now + HOUR_MS);
+        store.put(&env, &future, serde_json::to_vec(&Manifest { objects: vec![Object { name: "state.db".into(), sha256: "3".repeat(64), size: 1 }], ..m.clone() }).unwrap()).await.unwrap();
+        assert!(prune(&store, &env, &latest, now, &mut Default::default()).await.is_err());
+        assert_eq!(files(&dir, "home/backup"), 5);
+        std::fs::remove_file(dir.join(&future)).unwrap();
+        // Complete again: it prunes.
+        let p = prune(&store, &env, &latest, now, &mut Default::default()).await.unwrap();
+        assert_eq!(p.manifests, 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

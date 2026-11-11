@@ -11,7 +11,7 @@ import type { SignInCheck } from "@/gen/SignInCheck";
 import { Card, SettingsPage } from "./SettingsView";
 
 type LoginInfo = { check: SignInCheck; account: string | null };
-type HomeBackup = { destination: string | null; last_complete_at: number | null; error: string | null; credentials_encrypted: boolean; traces_error: string | null };
+type HomeBackup = { destination: string | null; last_complete_at: number | null; error: string | null; credentials_encrypted: boolean; traces_error: string | null; pruned_at: number | null; prune: string | null; prune_error: string | null };
 
 export function HuggingFaceView() {
   const login = useQuery({ queryKey: ["home-hf-login"], queryFn: () => api.get<LoginInfo>("/api/setup/huggingface"), refetchInterval: 60_000 });
@@ -26,6 +26,8 @@ export function HuggingFaceView() {
       <p className="m-0 text-[13px] text-ink-2">The private bucket stores Home’s database and session records, the vault, Git branch bundles, plain folders and assets. Backup cannot be turned off.</p>
       {backup.data && <span className={`text-[13px] ${backup.data.credentials_encrypted ? "text-gh-open" : "text-attn"}`}>{backup.data.credentials_encrypted ? "Credentials (vault secrets and Home’s own logins) are encrypted with your credential key, kept as the LP_HOME_KEY secret of this Space. Other data is stored as plain files." : "Credentials are not encrypted yet: finish Home setup to turn encryption on."}</span>}
       {backup.isPending ? <Loading /> : backup.isError ? <ErrorState error={backup.error} /> : backup.data?.error ? <ErrorState error={backup.data.error} /> : <span className="text-[13px] text-ink-2">{backup.data?.last_complete_at ? `Last complete backup ${ago(backup.data.last_complete_at)}` : "Waiting for the first complete backup"}</span>}
+      {backup.data?.pruned_at && backup.data.prune && <span className="text-[12px] text-ink-3">Old backups pruned {ago(backup.data.pruned_at)}: {backup.data.prune}. Kept: the two newest, the newest at least an hour old, and one per day for 7 days.</span>}
+      {backup.data?.prune_error && <ErrorState error={`Pruning old backups skipped: ${backup.data.prune_error}`} />}
       <span className="text-[12px] text-ink-3">The bucket mount is managed by the Home deployment.</span>
     </Card>
     <Card title="Traces" end={bucket && <a className="btn btn-sm no-underline" {...externalLinkProps(`https://huggingface.co/buckets/${bucket}`)}><Icon name="ext" size={12} />Open bucket</a>}>
