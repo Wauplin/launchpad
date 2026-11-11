@@ -698,7 +698,8 @@ fn scratch_expired(committed_at: i64, pushed_at: Option<i64>, cutoff: i64) -> bo
 }
 
 /// Deletes kept tips older than 30 days, and leftover branches and snapshots 30 days after their last push (or
-/// commit); a leftover branch's tip stays restorable under `refs/kept/` for 30 more days.
+/// commit); a leftover branch's tip stays restorable under `refs/kept/` for 30 more days. Then collects each mirror
+/// that needs it (`gc`).
 pub async fn prune(app: &App) -> Result<()> {
     let Ok(mut entries) = tokio::fs::read_dir(root(app)).await else { return Ok(()) };
     let now = now_ms();
@@ -745,8 +746,35 @@ pub async fn prune(app: &App) -> Result<()> {
             }
             crate::home_backup::changed();
         }
+        if let Err(e) = gc(app, &project_id, &dir).await {
+            tracing::warn!("Home Git gc of {project_id}: {e:#}");
+        }
     }
     Ok(())
+}
+
+/// Whether a mirror needs `git gc`, from `git count-objects -v`: many loose objects (every push under
+/// `receive.unpackLimit` leaves them) or many packs. Mirrors keep `gc.auto = 0`, so Git never collects on its own.
+fn needs_gc(count_objects: &str) -> bool {
+    let value = |key: &str| count_objects.lines().find_map(|l| l.strip_prefix(key)?.trim().parse::<u64>().ok()).unwrap_or(0);
+    value("count:") >= 2000 || value("packs:") >= 20
+}
+
+/// Collects a mirror after `prune`: packs loose objects and deletes unreachable ones older than a day. Every ref
+/// (base branches, `lp/…`, `refs/kept/`, snapshots, pending restores) keeps its objects. Pushes and fetches do not
+/// wait for it: the one-day grace is Git's own protection for objects written while it runs. The browse copy borrows
+/// the mirror's objects (`clone --shared`), so it is dropped first and rebuilt at its next read.
+async fn gc(app: &App, project_id: &str, dir: &Path) -> Result<()> {
+    if !needs_gc(&git(app, dir, &["count-objects", "-v"]).await?) {
+        return Ok(());
+    }
+    {
+        let lock = app.suggestion_locks.get(&format!("home-browse:{project_id}"));
+        let _lock = lock.lock().await;
+        let _ = tokio::fs::remove_dir_all(browse_dir(app, project_id)).await;
+        browse_stale(project_id);
+    }
+    git_in(app, dir, &["gc", "--quiet", "--prune=1.day.ago"], 3600).await.map(|_| ())
 }
 
 /// Removes the mirror of a folder that left Home.
@@ -849,6 +877,15 @@ mod tests {
         assert!(!scratch_expired(cutoff - KEEP_MS, Some(cutoff), cutoff));
         assert!(scratch_expired(cutoff - KEEP_MS, Some(cutoff - 1), cutoff));
         assert!(!scratch_expired(cutoff, Some(0), cutoff));
+    }
+
+    #[test]
+    fn mirrors_are_collected_once_objects_pile_up() {
+        let out = |loose: u64, packs: u64| format!("count: {loose}\nsize: 12\nin-pack: 900\npacks: {packs}\nsize-pack: 300\nprune-packable: 0\ngarbage: 0\nsize-garbage: 0");
+        assert!(!needs_gc(&out(10, 1)));
+        assert!(needs_gc(&out(2000, 1)));
+        assert!(needs_gc(&out(0, 20)));
+        assert!(!needs_gc(""));
     }
 
     /// Runs the pre-receive hook with `sh`, as a session (`refs`) or the daemon (None), on one pushed ref.
