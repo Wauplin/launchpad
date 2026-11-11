@@ -535,12 +535,44 @@ pub fn workspace_prefix(name: &str, id: &str) -> String {
     if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(&p)) { format!("{p} {}", &id[..8.min(id.len())]) } else { p }
 }
 
+/// Names of copy states whose last upload to the destination failed (`save_copy_state`).
+static COPY_STATE_UNSAVED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::LazyLock::new(Default::default);
+
+/// What the readable or trace copies already hold in the destination (`readable-copies.json`,
+/// `trace-copies.json`): Home's own file, else the copy kept in the destination (`home/copies/<name>`), so a Home
+/// restored on an empty disk does not copy every file again.
+pub(crate) async fn load_copy_state(app: &App, store: &Store, name: &str) -> Option<Vec<u8>> {
+    if let Ok(data) = tokio::fs::read(app.paths.data_dir.join(name)).await {
+        return Some(data);
+    }
+    store.get(&app.env, &format!("{ROOT}/copies/{name}")).await.ok()
+}
+
+/// Saves a copy state on Home's disk and, when it changed (or its last upload failed), in the destination.
+pub(crate) async fn save_copy_state(app: &App, store: &Store, name: &str, before: Option<&[u8]>, data: Vec<u8>) -> Result<()> {
+    crate::paths::write_private(&app.paths.data_dir.join(name), std::str::from_utf8(&data)?)?;
+    let unsaved = COPY_STATE_UNSAVED.lock().unwrap().contains(name);
+    if before == Some(&data[..]) && !unsaved {
+        return Ok(());
+    }
+    match store.put(&app.env, &format!("{ROOT}/copies/{name}"), data).await {
+        Ok(()) => {
+            COPY_STATE_UNSAVED.lock().unwrap().remove(name);
+            Ok(())
+        }
+        Err(e) => {
+            COPY_STATE_UNSAVED.lock().unwrap().insert(name.to_string());
+            Err(e.context(format!("save {name} in the backup destination")))
+        }
+    }
+}
+
 /// Readable copies next to the backups, for browsing the bucket: `<workspace>/kb/<note>` and
 /// `<workspace>/bots/<slug>/<file>`. Only changed files are uploaded and removed files are deleted. Home never reads
 /// them back: its own store (in every backup) stays the source.
 async fn readable(app: &App, store: &Store) -> Result<()> {
-    let state = app.paths.data_dir.join("readable-copies.json");
-    let mut done: std::collections::BTreeMap<String, String> = tokio::fs::read(&state).await.ok().and_then(|d| serde_json::from_slice(&d).ok()).unwrap_or_default();
+    let before = load_copy_state(app, store, "readable-copies.json").await;
+    let mut done: std::collections::BTreeMap<String, String> = before.as_deref().and_then(|d| serde_json::from_slice(d).ok()).unwrap_or_default();
     let mut want = std::collections::BTreeMap::new();
     let workspaces = crate::workspace::list(app).await?;
     for w in &workspaces {
@@ -569,7 +601,7 @@ async fn readable(app: &App, store: &Store) -> Result<()> {
         }
         Ok(())
     }.await;
-    write_atomic(&state, &serde_json::to_vec(&done)?)?;
+    save_copy_state(app, store, "readable-copies.json", before.as_deref(), serde_json::to_vec(&done)?).await?;
     result
 }
 

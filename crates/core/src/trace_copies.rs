@@ -49,10 +49,14 @@ fn metadata(session: &Session, workspace: &str, folder: &str) -> Result<Vec<u8>>
     Ok(serde_json::to_vec_pretty(&serde_json::json!({ "format": "launchpad", "version": 2, "workspace": workspace, "folder": folder, "session": s }))?)
 }
 
+/// What the destination already holds, per session (`home_backup::load_copy_state`).
+const STATE: &str = "trace-copies.json";
+
 /// One pass after a complete backup.
 pub(crate) async fn run(app: &App, store: &Store) -> Result<()> {
-    let state_path = app.paths.data_dir.join("trace-copies.json");
-    let mut done: BTreeMap<String, Copied> = tokio::fs::read(&state_path).await.ok().and_then(|d| serde_json::from_slice(&d).ok()).unwrap_or_default();
+    // Kept in the destination too, so a restored Home does not copy every trace again.
+    let before = crate::home_backup::load_copy_state(app, store, STATE).await;
+    let mut done: BTreeMap<String, Copied> = before.as_deref().and_then(|d| serde_json::from_slice(d).ok()).unwrap_or_default();
     let handoffs: BTreeMap<String, i64> = app
         .state_db
         .call(|c| {
@@ -131,7 +135,7 @@ pub(crate) async fn run(app: &App, store: &Store) -> Result<()> {
             first_error.get_or_insert(e);
         }
     }
-    crate::paths::write_private(&state_path, &serde_json::to_string(&done)?)?;
+    crate::home_backup::save_copy_state(app, store, STATE, before.as_deref(), serde_json::to_vec(&done)?).await?;
     match first_error {
         Some(e) => Err(e.context("some sessions' traces were not copied; retrying after the next backup")),
         None => Ok(()),
