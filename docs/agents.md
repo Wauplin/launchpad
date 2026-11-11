@@ -98,7 +98,7 @@ stateDiagram-v2
 Each session has three views:
 
 - **Summary**: in order, **Run** (the run facts, then **Credentials**: the workspace's tools and MCP servers, green for those this agent holds, and the requests that received a token), **Task** (the first prompt), **Final message** (the exact last message) and **Next steps** (review uncommitted changes, post suggestions, review and publish a Local PR, **Launch here**, **Use trace as context** and **Archive**). When the agent prepared a Local PR, **Review & publish** shows its diff, so **Review diff** appears only for uncommitted files. **Runs on** names the machine that runs the session now; when its turns ran on more than one machine, **Turns ran on** lists them in order with their turn numbers (for example `laptop · turns 1–3 → Burst · turn 4`).
-- **Trace**: the full conversation with tool calls, diffs, reasoning and nested subagents.
+- **Trace**: the full conversation with tool calls, diffs, reasoning and nested subagents. A background command shows the last lines of its output. The runner reads that output only from the session's own `/tmp` or `/var/tmp`, and only when it is a regular file.
 - **Changes**: the Git diff of the session folder, with viewed markers and line notes that you send back to the agent as one message.
 
 On a laptop, the session header has two rows:
