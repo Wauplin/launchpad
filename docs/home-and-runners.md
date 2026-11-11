@@ -45,7 +45,7 @@ When a session continues (your message, **Resume**, an answer to a question, a b
 
 **Launch here** and **Run in** an existing worktree, and a new agent in an existing temporary folder, follow the same order: when the runner of that session is away, its sessions move first. Accepted proposals, routines, scheduled launches, bot messages and Ask Launchpad use the same order. Each is sent once and never retried after a failure.
 
-While a session runs, Stop, answers and the other session actions go to its runner. Home serves the record, the events and the trace itself. Worktree actions (Merge, Discard, Create Local PR, Restore folder, Fix merge) go to the runner of the worktree's session too.
+While a session runs, Stop, answers and the other session actions go to its runner. Home serves the record, the events and the trace itself. Worktree actions (Merge, Discard, Create Local PR, Restore folder, Fix merge) go to the runner of the worktree's session too. The merge itself runs on Home: when it takes more than about 40 seconds, the runner shows it as waiting and asks again, so a slow merge is never reported as failed.
 
 Terminals and **Continue in TUI** follow the session but never move it: they open on its runner, through Home, and only while that runner is connected. When it is away, or runs an older build, the buttons are disabled with the reason; Home starts no Burst job and moves nothing for a terminal. A Git folder without an agent opens its shell on a runner picked like for a launch. See [Terminals and files](agents.md#terminals-and-files).
 
@@ -54,6 +54,8 @@ Home sends its profiles and the settings runners apply to their own work, such a
 ## Saved on Home
 
 At the end of every turn, the runner saves the session's work on Home: it pushes each worktree branch, syncs plain and temporary folders, and sends the conversation (the handoff). Until Home has all of it, the session shows **Saving** next to its status. When a save fails, it shows **Not on Home** in amber, with the reason in its tooltip. The runner retries every three minutes and when its link to Home comes back. While a session is not saved, Today shows no **Merge** for it, and a routine that waits for that agent to be Done starts only once the save is complete (at most an hour later).
+
+A runner restart cuts the running turns short. When the runner starts again, it treats each of them as a turn end: the session shows Interrupted (or Quota paused), its work is saved on Home once the link is back, and the Telegram notification goes out after that save. A session that Home moved to another runner meanwhile is not notified.
 
 The runner also snapshots every file of each worktree to Home, committed or not, at each turn end and every five minutes during a turn. A snapshot never touches the worktree's files, index or branch.
 
