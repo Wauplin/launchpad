@@ -16,7 +16,9 @@ Sign in with `gh auth login` on the machine that runs the daemon. Launchpad read
 - The preview shows the latest comments and a reply box. **Read/Unread** and **Unsubscribe** are in the preview.
 - The sidebar count is unread review requests, mentions and assignments.
 
-GitHub's API cannot mirror the web inbox exactly, so Launchpad tracks inbox membership locally. Read and Done changes made on github.com may not appear. A bot that should clear threads itself uses `launchpad inbox done` or `launchpad inbox unsubscribe` (see [Bots](bots.md#the-launchpad-cli-tool)), which marks them done in both places.
+GitHub's API cannot mirror the web inbox exactly, so Launchpad tracks inbox membership locally. Read and Done changes made on github.com may not appear.
+
+Home polls GitHub for notifications. A poll reads the newest page first and stops at the first page it already holds unchanged, so a quiet poll costs one or two requests. It only adds or updates threads. A full pass reads the whole history every 3 hours and at each Home start, and replaces the local copy. So a thread that left GitHub's history, or a thread on an older page that you marked read on github.com, can take up to 3 hours to update. A bot that should clear threads itself uses `launchpad inbox done` or `launchpad inbox unsubscribe` (see [Bots](bots.md#the-launchpad-cli-tool)), which marks them done in both places.
 
 ## Issues and pull requests
 
