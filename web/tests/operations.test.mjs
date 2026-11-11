@@ -33,8 +33,8 @@ test("unavailable durable storage fails before a request can be sent", async () 
 });
 
 test("launch, input and explicit GitHub publications use retry protection", () => {
-  for (const p of ["/api/sessions", "/api/sessions/a/input", "/api/items/o/r/1/comment", "/api/items/o/r/1/review", "/api/inbox/123/reply"]) assert.equal(retryProtected(p), true);
-  for (const p of ["/api/sessions/a/answer", "/api/launch/schedules", "/api/sessions/a/input/other", "/api/items/o/r/1/diff", "/api/items/o/r/1/reviewers"]) assert.equal(retryProtected(p), false);
+  for (const p of ["/api/sessions", "/api/sessions/a/input", "/api/items/o/r/1/comment", "/api/items/o/r/1/review", "/api/inbox/123/reply", "/api/bots/b/message"]) assert.equal(retryProtected(p), true);
+  for (const p of ["/api/sessions/a/answer", "/api/launch/schedules", "/api/sessions/a/input/other", "/api/items/o/r/1/diff", "/api/items/o/r/1/reviewers", "/api/bots/b/message/x", "/api/bots/b/queued/1"]) assert.equal(retryProtected(p), false);
 });
 
 test("API retries a lost reply with the same key and clears it only after a recorded response", async () => {

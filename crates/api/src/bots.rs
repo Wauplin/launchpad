@@ -155,10 +155,12 @@ struct Message {
 }
 
 /// The owner's message, or an agent's (`launchpad bot message`): Home stamps the agent as its sender from its own
-/// record (`senders::agent`), never from the body, and a paused bot refuses it like a routine's.
-async fn message(State(s): State<Ctx>, Path(id): Path<String>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut m): Json<Message>) -> ApiResult<Session> {
+/// record (`senders::agent`), never from the body, and a paused bot refuses it like a routine's. A window's
+/// Idempotency-Key (claimed by the server's retry protection) becomes the message's or the new session's id.
+async fn message(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::http::HeaderMap, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut m): Json<Message>) -> ApiResult<Session> {
     m.context.from = launchpad_core::senders::of_request(&s.app, agent.as_ref().map(|a| a.0.0.as_str())).await.map_err(bad)?;
-    Ok(Json(bots::message_with(&s.app, &id, m.text, m.attachments, m.context, m.new_session.then(|| m.reason.unwrap_or_default()), agent.is_some()).await.map_err(bad)?))
+    let key = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    Ok(Json(bots::message_with(&s.app, &id, m.text, m.attachments, m.context, m.new_session.then(|| m.reason.unwrap_or_default()), agent.is_some(), key).await.map_err(bad)?))
 }
 #[derive(Deserialize)]
 struct FileQuery {

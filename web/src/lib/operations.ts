@@ -48,7 +48,7 @@ export async function operationKey(path: string, body: unknown, storage: LedgerS
 }
 
 export function retryProtected(path: string): boolean {
-  return path === "/api/sessions" || /^\/api\/sessions\/[^/]+\/input$/.test(path)
+  return path === "/api/sessions" || /^\/api\/sessions\/[^/]+\/input$/.test(path) || /^\/api\/bots\/[^/]+\/message$/.test(path)
     || /^\/api\/items\/[^/]+\/[^/]+\/\d+\/(comment|review)$/.test(path)
     || /^\/api\/inbox\/[^/]+\/reply$/.test(path);
 }

@@ -684,8 +684,11 @@ pub fn quota_hold(app: &App, bot: &Bot) -> Option<String> {
 
 /// Sends the owner's message to the bot's thread: to its open session, or to a new one.
 pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool) -> Result<Session> {
-    message_with(app, id, text, attachments, context, new_session.then(String::new), false).await
+    message_with(app, id, text, attachments, context, new_session.then(String::new), false, None).await
 }
+
+/// One lock per bot: two messages to the same bot never both decide to start a new session of its thread.
+static MESSAGES: std::sync::LazyLock<crate::locks::Locks> = std::sync::LazyLock::new(Default::default);
 
 /// A message to the bot's thread. `automatic` (routines, incoming hooks, other agents): a paused bot refuses it, and
 /// it needs confirmed quota (`quota_hold`: refused for the open session, held by the start of a new one). Hooks and
@@ -693,11 +696,17 @@ pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAtt
 /// message to the current session, or into the launch of a new one. `context.from`, set only by Home's own code
 /// (`senders`), names a sender other than the owner: the message arrives under its header.
 /// `new_session`: the owner asked for a new session, with their reason (may be empty), shown in the chat's divider.
-pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: Option<String>, automatic: bool) -> Result<Session> {
+/// `key`: the request's Idempotency-Key (the window's retry protection), passed on as the message's or the new
+/// session's id. The bot's lock (`MESSAGES`) covers the choice of session and a new session's launch, so concurrent
+/// messages never start two sessions; a message to the open session is sent after the lock is released.
+#[allow(clippy::too_many_arguments)]
+pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: Option<String>, automatic: bool, key: Option<String>) -> Result<Session> {
     ensure!(!text.trim().is_empty() || !attachments.is_empty() || !context.is_empty(), "the message is empty");
     if let Some(f) = &context.from {
         crate::senders::guard(f.hops)?;
     }
+    let lock = MESSAGES.get(id);
+    let held = lock.lock().await;
     let bot = get(app, id).await?;
     ensure!(!automatic || !bot.paused, "{} is paused", bot.settings.name);
     if let Some(e) = &bot.settings_error {
@@ -720,8 +729,10 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
             if automatic && let Some(why) = crate::quota::hold_reason(app, c.harness, &c.launch_spec) {
                 bail!("{} waits for its quota: {why}", s.name);
             }
-            crate::runners::send_anywhere_with(app, &c.id, &text, attachments, context, None).await?;
-            return app.sessions.get(&c.id).context("the bot's session disappeared");
+            let c = c.id.clone();
+            drop(held);
+            crate::runners::send_anywhere_with(app, &c, &text, attachments, context, key).await?;
+            return app.sessions.get(&c).context("the bot's session disappeared");
         }
         _ => {
             if let Some(c) = current {
@@ -741,7 +752,10 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
         b.reason = Some(if new_session.is_some() && reason.is_none() { "new" } else { reason.unwrap_or("first") }.to_string());
         b.note = note_of(new_session);
     }
-    crate::runners::launch_anywhere(app, spec, uuid::Uuid::new_v4().to_string(), automatic).await
+    let session = key.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let started = crate::runners::launch_anywhere(app, spec, session, automatic).await;
+    drop(held);
+    started
 }
 
 /// The owner's reason for a new session: one line, at most 120 characters, None when empty.

@@ -55,7 +55,10 @@ async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiEr
     let protected = publication || path == "/api/sessions"
         || path
             .strip_prefix("/api/sessions/")
-            .is_some_and(|p| p.split('/').count() == 2 && p.ends_with("/input"));
+            .is_some_and(|p| p.split('/').count() == 2 && p.ends_with("/input"))
+        || path
+            .strip_prefix("/api/bots/")
+            .is_some_and(|p| p.split('/').count() == 2 && p.ends_with("/message"));
     if req.method() != Method::POST || !protected {
         return Ok(next.run(req).await);
     }
