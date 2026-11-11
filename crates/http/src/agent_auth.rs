@@ -4,6 +4,7 @@
 use axum::{body::{Body, to_bytes}, extract::Request, http::Method};
 use launchpad_core::App;
 use launchpad_core::actions::{self, ActionAccess};
+use launchpad_core::model::{EventBody, PermissionMode};
 use launchpad_core::vault::LaunchpadAccess;
 use serde_json::Value;
 
@@ -76,6 +77,61 @@ async fn proposal_body(app: &App, id: &str) -> Option<Value> {
     let id = id.to_string();
     let json: Option<String> = app.state_db.call(move |c| Ok(c.query_row("SELECT json FROM launch_proposal WHERE id = ?1", [&id], |r| r.get(0)).ok())).await.ok()?;
     serde_json::from_str::<Value>(&json?).ok().map(|p| p["body"].clone())
+}
+
+/// Permissions are the owner's: an agent never answers a permission request (Allow or Deny) and never loosens a
+/// session's permission mode; it may only make one stricter. Checked where the session's events and record are: on
+/// Home, or on the runner that runs it (a runner passes other sessions' requests on to Home, which checks them).
+async fn permission_guard(app: &App, action: &str, target: &str, body: Option<&Value>) -> Result<(), ApiError> {
+    let refuse = |why: &str| Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, why.to_string()));
+    let elsewhere = app.paths.role != launchpad_core::role::Role::Home && app.sessions.get(target).is_none();
+    match action {
+        "session.answer" => {
+            let request_id = body.and_then(|b| b["request_id"].as_str()).unwrap_or_default().to_string();
+            match ask_is_permission(app, target, &request_id).await {
+                Some(false) => Ok(()),
+                Some(true) => refuse("only the owner answers a permission request (Allow or Deny), from an owner window"),
+                None if elsewhere => Ok(()),
+                None => refuse("no open question of this session has this request_id"),
+            }
+        }
+        "session.permissions" => {
+            if elsewhere {
+                return Ok(());
+            }
+            let Some(s) = app.sessions.get(target) else { return refuse("no such session") };
+            let mode = body.and_then(|b| serde_json::from_value::<PermissionMode>(b["mode"].clone()).ok());
+            match mode {
+                Some(m) if stricter(s.launch_spec.permission_mode, m) => Ok(()),
+                _ => refuse("an agent may only make a session's permission mode stricter (YOLO → Auto → Ask for approval); loosening it is the owner's choice"),
+            }
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Pure: whether `to` asks for more approvals than `from` (YOLO, then Auto, then Ask for approval).
+fn stricter(from: PermissionMode, to: PermissionMode) -> bool {
+    let rank = |m: PermissionMode| match m {
+        PermissionMode::Yolo => 0,
+        PermissionMode::Auto => 1,
+        PermissionMode::Approvals => 2,
+    };
+    rank(to) > rank(from)
+}
+
+/// Whether the question `request_id` of a session asks for a permission (None: no such question here).
+async fn ask_is_permission(app: &App, session: &str, request_id: &str) -> Option<bool> {
+    let (session, request_id) = (session.to_string(), request_id.to_string());
+    let json: Option<String> = app
+        .state_db
+        .call(move |c| Ok(c.query_row("SELECT json FROM session_event WHERE session_id = ?1 AND kind = 'ask_user' AND json_extract(json, '$.request_id') = ?2 ORDER BY seq DESC LIMIT 1", [&session, &request_id], |r| r.get(0)).ok()))
+        .await
+        .ok()?;
+    match serde_json::from_str::<EventBody>(&json?).ok()? {
+        EventBody::AskUser { questions, .. } => Some(questions.iter().any(|q| q.permission)),
+        _ => None,
+    }
 }
 
 /// A body field an action with a fixed input list does not take (folder.set never sets a setup command).
@@ -153,10 +209,16 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
         if value.as_ref().is_some_and(asks_paid_usage) {
             return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "paid usage is the owner's choice: leave allow_paid_usage off"));
         }
-        if let Some(a) = actions::find(parts.method.as_str(), &path)
+        let action = actions::find(parts.method.as_str(), &path);
+        if let Some(a) = action
             && let Some(key) = unknown_field(a, value.as_ref())
         {
             return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("{} takes no field {key:?}: {}", a.name, actions::usage("launchpad", a))));
+        }
+        if let Some(a) = action
+            && let Some(target) = path.strip_prefix("/api/sessions/").and_then(|r| r.split('/').next())
+        {
+            permission_guard(app, a.name, target, value.as_ref()).await?;
         }
         return Ok(Request::from_parts(parts, Body::from(bytes)));
     }
@@ -408,6 +470,12 @@ pub async fn within_workspace(app: &App, id: &str, req: Request) -> Result<Reque
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agents_only_tighten_permission_modes() {
+        use PermissionMode::*;
+        assert!(stricter(Yolo, Auto) && stricter(Yolo, Approvals) && stricter(Auto, Approvals));
+        assert!(!stricter(Approvals, Auto) && !stricter(Approvals, Yolo) && !stricter(Auto, Yolo) && !stricter(Yolo, Yolo));
+    }
     #[test]
     fn machine_and_publication_routes_are_not_cli_routes() {
         for path in ["/api/config", "/api/terminals", "/api/vault", "/api/code/file", "/api/devices/pair"] {
