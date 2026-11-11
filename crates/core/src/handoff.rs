@@ -2,7 +2,7 @@
 //!
 //! The record and its events are on Home, the branches are on Home Git and plain folders are synced. What a
 //! new runner still needs is a *handoff*: the harness's native conversation files, the session's attached
-//! files and its worktree records. Runners upload one at the end of every turn (when the conversation changed), so a session can
+//! files and its worktree records. Runners upload one at the end of every turn (when the conversation changed; files Home already holds go by hash or as their appended tail), so a session can
 //! continue elsewhere while its machine sleeps, and a final one before a planned move (branches pushed,
 //! uncommitted files saved to a scratch branch, worktrees removed). On Home, a move increases the session's
 //! generation and names the new runner, then that runner adopts the session: it fetches the handoff, records
@@ -28,6 +28,10 @@ pub struct HandoffFile {
     /// Home: the file's content in the blob store (`plain::blob_path`), never in `state.db`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// Runner to Home only: `data` is the new tail of an append-only file whose earlier content is the blob
+    /// `base` of the session's latest handoff on Home; `sha256` names the whole file, which Home checks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -126,7 +130,7 @@ async fn snapshot(app: &App, id: &str) -> Result<Handoff> {
         harness_session_id: s.harness_session_id.clone(),
         cwd: s.cwd.clone(),
         worktrees: crate::worktrees::for_session(app, id).await?,
-        files: files.into_iter().map(|f| HandoffFile { name: f.name, data: base64::engine::general_purpose::STANDARD.encode(f.data), sha256: None }).collect(),
+        files: files.into_iter().map(|f| HandoffFile { name: f.name, data: base64::engine::general_purpose::STANDARD.encode(f.data), sha256: None, base: None }).collect(),
         attachments: read_attachments(app, id).await?,
         is_final: false,
         at: now_ms(),
@@ -143,7 +147,7 @@ async fn read_attachments(app: &App, id: &str) -> Result<Vec<HandoffFile>> {
             continue;
         }
         let data = tokio::fs::read(e.path()).await?;
-        out.push(HandoffFile { name: e.file_name().to_string_lossy().into_owned(), data: base64::engine::general_purpose::STANDARD.encode(data), sha256: None });
+        out.push(HandoffFile { name: e.file_name().to_string_lossy().into_owned(), data: base64::engine::general_purpose::STANDARD.encode(data), sha256: None, base: None });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
@@ -179,38 +183,112 @@ fn to_home(app: &App, method: reqwest::Method, path: &str) -> Result<reqwest::Re
 }
 
 async fn answer(r: reqwest::RequestBuilder) -> Result<serde_json::Value> {
+    answer_or_refusal(r).await?.map_err(|e| anyhow::anyhow!("Home: {e}"))
+}
+
+/// Ok(Err(reason)): Home answered and refused.
+async fn answer_or_refusal(r: reqwest::RequestBuilder) -> Result<std::result::Result<serde_json::Value, String>> {
     let res = r.send().await?;
     let status = res.status();
     let v: serde_json::Value = res.json().await.unwrap_or_default();
-    ensure!(status.is_success(), "Home: {}", v["error"].as_str().unwrap_or(status.as_str()));
-    Ok(v)
+    if !status.is_success() {
+        return Ok(Err(v["error"].as_str().unwrap_or(status.as_str()).to_string()));
+    }
+    Ok(Ok(v))
 }
 
 /// Attached files Home confirmed, by session: a later handoff names them by hash only (`send`).
 static ATTACHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>> = std::sync::LazyLock::new(Default::default);
+/// Native files Home confirmed, by session and name (length, SHA-256): a later handoff sends only what was
+/// appended since (`send`).
+static CONFIRMED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, Confirmed>>> = std::sync::LazyLock::new(Default::default);
+type Confirmed = std::collections::HashMap<String, (usize, String)>;
 
-/// Sends a handoff to Home. Attached files Home already confirmed for the session go by hash only; if Home lost
-/// one, it refuses and the next send carries them all.
+/// How a native file goes to Home, given what Home confirmed of it before.
+#[derive(Debug, PartialEq)]
+enum Part {
+    /// Unchanged: by hash only.
+    Same,
+    /// Only appended to since: the bytes from this offset.
+    Tail(usize),
+    /// New, shorter or rewritten: the whole file.
+    Full,
+}
+
+/// The part of `data` to send and its whole SHA-256 (the prefix Home holds is hashed once, on the way).
+fn part(data: &[u8], known: Option<&(usize, String)>) -> (Part, String) {
+    let mut hasher = Sha256::new();
+    let Some((len, sha)) = known.filter(|(len, _)| *len <= data.len()) else {
+        hasher.update(data);
+        return (Part::Full, hex::encode(hasher.finalize()));
+    };
+    hasher.update(&data[..*len]);
+    let prefix = hex::encode(hasher.clone().finalize());
+    hasher.update(&data[*len..]);
+    let whole = hex::encode(hasher.finalize());
+    let part = if prefix != *sha {
+        Part::Full
+    } else if *len == data.len() {
+        Part::Same
+    } else {
+        Part::Tail(*len)
+    };
+    (part, whole)
+}
+
+/// Sends a handoff to Home. Attached files Home already confirmed for the session go by hash only, and native
+/// files it confirmed go by hash or as their appended tail. If Home lost one (or another runner's handoff
+/// replaced them), it refuses, and the handoff goes again in full at once.
 async fn send(app: &App, id: &str, h: &Handoff) -> Result<()> {
     let known = ATTACHED.lock().unwrap().get(id).cloned().unwrap_or_default();
-    let mut h = h.clone();
+    let confirmed = CONFIRMED.lock().unwrap().get(id).cloned().unwrap_or_default();
+    // `h` names nothing by hash (`snapshot`): it is the full handoff, sent when Home refuses the short one.
+    let mut short = h.clone();
     let mut sent = std::collections::HashSet::new();
-    for f in &mut h.attachments {
+    let mut files = std::collections::HashMap::new();
+    let mut shortened = false;
+    for f in &mut short.attachments {
         let sha = hex::encode(Sha256::digest(base64::engine::general_purpose::STANDARD.decode(&f.data)?));
         if known.contains(&sha) {
             f.data.clear();
             f.sha256 = Some(sha.clone());
+            shortened = true;
         }
         sent.insert(sha);
     }
-    let result = answer(to_home(app, reqwest::Method::POST, &format!("/api/handoff/{id}"))?.json(&h)).await;
-    let mut attached = ATTACHED.lock().unwrap();
+    for f in &mut short.files {
+        let data = base64::engine::general_purpose::STANDARD.decode(&f.data)?;
+        let (part, sha) = part(&data, confirmed.get(&f.name));
+        match part {
+            Part::Same => {
+                f.data.clear();
+                f.sha256 = Some(sha.clone());
+                shortened = true;
+            }
+            Part::Tail(at) => {
+                f.data = base64::engine::general_purpose::STANDARD.encode(&data[at..]);
+                f.base = confirmed.get(&f.name).map(|(_, sha)| sha.clone());
+                f.sha256 = Some(sha.clone());
+                shortened = true;
+            }
+            Part::Full => {}
+        }
+        files.insert(f.name.clone(), (data.len(), sha));
+    }
+    let post = |h: &Handoff| -> Result<reqwest::RequestBuilder> { Ok(to_home(app, reqwest::Method::POST, &format!("/api/handoff/{id}"))?.json(h)) };
+    let mut result = answer_or_refusal(post(&short)?).await;
+    if shortened && matches!(result, Ok(Err(_))) {
+        result = answer_or_refusal(post(h)?).await;
+    }
+    let result = result.and_then(|r| r.map_err(|e| anyhow::anyhow!("Home: {e}")));
     match result {
         Ok(_) => {
-            attached.insert(id.to_string(), sent);
+            ATTACHED.lock().unwrap().insert(id.to_string(), sent);
+            CONFIRMED.lock().unwrap().insert(id.to_string(), files);
         }
         Err(_) => {
-            attached.remove(id);
+            ATTACHED.lock().unwrap().remove(id);
+            CONFIRMED.lock().unwrap().remove(id);
         }
     }
     result.map(|_| ())
@@ -355,6 +433,7 @@ pub async fn clean_archived(app: &App, id: &str) -> Result<bool> {
     tokio::fs::remove_dir_all(&dir).await.with_context(|| format!("remove {}", dir.display()))?;
     SENT.lock().unwrap().remove(id);
     ATTACHED.lock().unwrap().remove(id);
+    CONFIRMED.lock().unwrap().remove(id);
     Ok(true)
 }
 
@@ -566,20 +645,27 @@ async fn release_locked(app: &App, id: &str, generation: u32) -> Result<()> {
 pub async fn store(app: &App, runner_id: &str, mut h: Handoff) -> Result<()> {
     let s = app.sessions.get(&h.session_id).context("no such session")?;
     ensure!(s.runner_id.as_deref() == Some(runner_id) && s.generation == h.generation, "this session runs elsewhere now");
-    // An attached file named by hash only: one Home confirmed for this session before (`send`).
+    // A file named by hash only, or a tail on top of a base: content Home confirmed for this session before
+    // (`send`), never another session's blob.
     let before: std::collections::HashSet<String> = latest_hashes(app, &h.session_id).await?;
-    for f in &h.attachments {
-        if f.data.is_empty()
-            && let Some(sha) = &f.sha256
-        {
-            ensure!(before.contains(sha) && crate::plain::read_blob(app, sha).await.is_ok(), "Home does not have the attached file {}", f.name);
-        }
-    }
     for f in h.files.iter_mut().chain(h.attachments.iter_mut()) {
-        if f.data.is_empty() && f.sha256.is_some() {
-            continue;
-        }
-        let data = base64::engine::general_purpose::STANDARD.decode(&f.data)?;
+        let given = base64::engine::general_purpose::STANDARD.decode(&f.data)?;
+        let data = match (f.base.take(), &f.sha256) {
+            (Some(base), Some(sha)) => {
+                ensure!(before.contains(&base), "Home does not have the start of {}", f.name);
+                let mut data = crate::plain::read_blob(app, &base).await.with_context(|| format!("Home does not have the start of {}", f.name))?;
+                data.extend_from_slice(&given);
+                ensure!(hex::encode(Sha256::digest(&data)) == *sha, "{} changed differently than its new end says", f.name);
+                data
+            }
+            (Some(_), None) => bail!("{} has a start but no hash", f.name),
+            (None, Some(sha)) if given.is_empty() => {
+                ensure!(before.contains(sha) && crate::plain::have_blob(app, sha).await, "Home does not have the file {}", f.name);
+                f.data.clear();
+                continue;
+            }
+            (None, _) => given,
+        };
         let sha = hex::encode(Sha256::digest(&data));
         crate::plain::write_blob(app, &sha, &data).await?;
         f.sha256 = Some(sha);
@@ -601,14 +687,14 @@ pub async fn store(app: &App, runner_id: &str, mut h: Handoff) -> Result<()> {
     Ok(())
 }
 
-/// Home: the hashes of the attached files of a session's latest handoff.
+/// Home: the hashes of the native and attached files of a session's latest handoff.
 async fn latest_hashes(app: &App, id: &str) -> Result<std::collections::HashSet<String>> {
     let key = id.to_string();
     let json: Option<String> = app
         .state_db
         .call(move |c| Ok(rusqlite::OptionalExtension::optional(c.query_row("SELECT json FROM session_handoff WHERE session_id = ?1", [key], |r| r.get(0)))?))
         .await?;
-    Ok(json.and_then(|j| serde_json::from_str::<Handoff>(&j).ok()).map(|h| h.attachments.into_iter().filter_map(|f| f.sha256).collect()).unwrap_or_default())
+    Ok(json.and_then(|j| serde_json::from_str::<Handoff>(&j).ok()).map(|h| h.files.into_iter().chain(h.attachments).filter_map(|f| f.sha256).collect()).unwrap_or_default())
 }
 
 /// Home: the latest handoff of a session.
@@ -745,7 +831,20 @@ pub(crate) async fn move_locked(app: &App, id: &str, to: &str) -> Result<Session
 
 #[cfg(test)]
 mod tests {
-    use super::{FinalStep, final_step};
+    use super::{FinalStep, Part, final_step, part};
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn only_the_appended_tail_of_a_file_home_holds_is_sent() {
+        let sha = |d: &[u8]| hex::encode(Sha256::digest(d));
+        let known = (5, sha(b"hello"));
+        assert_eq!(part(b"hello world", Some(&known)), (Part::Tail(5), sha(b"hello world")));
+        assert_eq!(part(b"hello", Some(&known)), (Part::Same, sha(b"hello")));
+        // Rewritten, cut or never sent: the whole file.
+        assert_eq!(part(b"jello world", Some(&known)).0, Part::Full);
+        assert_eq!(part(b"hell", Some(&known)).0, Part::Full);
+        assert_eq!(part(b"hello", None), (Part::Full, sha(b"hello")));
+    }
 
     #[test]
     fn a_final_handoff_joins_its_own_job_and_never_runs_twice_at_once() {

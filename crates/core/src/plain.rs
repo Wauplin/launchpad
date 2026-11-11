@@ -206,6 +206,16 @@ pub async fn read_blob(app: &App, sha: &str) -> Result<Vec<u8>> {
     Ok(data)
 }
 
+/// Home: whether a blob is here (fetched from the backup destination when this disk lost it), marked as
+/// written now like `write_blob`, so pruning keeps it until the record that names it again exists.
+pub async fn have_blob(app: &App, sha: &str) -> bool {
+    let Ok(path) = blob_path(app, sha) else { return false };
+    if std::fs::File::options().write(true).open(&path).and_then(|f| f.set_modified(std::time::SystemTime::now())).is_ok() {
+        return true;
+    }
+    read_blob(app, sha).await.is_ok()
+}
+
 /// Stores a blob after checking its hash.
 pub async fn write_blob(app: &App, sha: &str, data: &[u8]) -> Result<()> {
     ensure!(hex::encode(Sha256::digest(data)) == sha, "content does not match its hash");
