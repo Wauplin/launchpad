@@ -24,7 +24,7 @@ pub struct Status {
     pub host: String,
     pub harnesses: std::collections::HashMap<String, HarnessStatus>,
     /// Included quota of each monitored subscription login, keyed by `profiles::account`.
-    pub quotas: std::collections::HashMap<String, QuotaStatus>,
+    pub quotas: std::collections::BTreeMap<String, QuotaStatus>,
     pub sessions: SessionCounts,
     /// IANA name of the daemon host time zone (crons use it), when the host exposes one.
     pub time_zone: Option<String>,

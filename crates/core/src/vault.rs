@@ -805,7 +805,7 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         Some(kind) => {
             let chosen = match &req.login {
                 Some(id) => entries.iter().find(|e| &e.id == id && e.kind == kind).with_context(|| format!("the login {id:?} is not in Home's vault"))?,
-                None => entries.iter().find(|e| e.kind == kind).with_context(|| format!("Home has no {} login: add one in Settings → Credentials and tools", req.harness.display()))?,
+                None => default_login(&entries, kind).with_context(|| format!("Home has no {} login: add one in Settings → Credentials and tools", req.harness.display()))?,
             };
             let (_, value) = secret(app, &chosen.id).await?.context("the login disappeared")?;
             let (token, claims, account_id) = match kind {
@@ -1121,6 +1121,12 @@ pub async fn login_home(app: &App, id: &str) -> Result<(std::path::PathBuf, Vec<
 }
 
 /// The logins of a harness kind, for quota monitors and the profile editor.
+/// The login of a profile without its own: the harness's first login by name (then by id). The one rule for
+/// the lease and for the default quota reading (`quota::vault_key(harness, None)`).
+pub fn default_login(entries: &[VaultEntry], kind: Kind) -> Option<&VaultEntry> {
+    entries.iter().filter(|e| e.kind == kind).min_by(|a, b| (&a.name, &a.id).cmp(&(&b.name, &b.id)))
+}
+
 pub async fn logins(app: &App, harness: HarnessKind) -> Result<Vec<VaultEntry>> {
     let Some(kind) = Kind::login_of(harness) else { return Ok(vec![]) };
     Ok(entries(app).await?.into_iter().filter(|e| e.kind == kind).collect())
@@ -1249,6 +1255,15 @@ pub fn reference_values(lease: &Lease) -> BTreeMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_login_is_the_first_by_name_then_id() {
+        let e = |id: &str, kind, name: &str| VaultEntry { id: id.into(), kind, name: name.into(), detail: String::new(), updated_at: 0 };
+        let entries = [e("a", Kind::ClaudeLogin, "Work"), e("x", Kind::CodexLogin, "Alpha"), e("c", Kind::ClaudeLogin, "Personal"), e("b", Kind::ClaudeLogin, "Personal")];
+        assert_eq!(default_login(&entries, Kind::ClaudeLogin).map(|e| e.id.as_str()), Some("b"));
+        assert_eq!(default_login(&entries, Kind::CodexLogin).map(|e| e.id.as_str()), Some("x"));
+        assert!(default_login(&entries[..1], Kind::CodexLogin).is_none());
+    }
 
     #[test]
     fn host_rules_match_exact_hosts_and_subdomains_only() {
