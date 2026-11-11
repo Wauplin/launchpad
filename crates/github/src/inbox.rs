@@ -183,9 +183,24 @@ impl Inbox {
         result
     }
     async fn sync_inner(&self, app: &App, now: i64) -> Result<()> {
-        let full = now - *self.full_at.lock().await >= 30 * 60_000;
+        let full = now - *self.full_at.lock().await >= FULL_EVERY_MS;
+        // What the mirror already holds (threads, and hidden ones by their subscription),
+        // so an incremental poll stops paging at the first page that brings nothing new.
+        let known: HashMap<String, (String, Option<bool>)> = if full { HashMap::new() } else {
+            app.cache_db.call(|c| {
+                let mut q = c.prepare("SELECT id,updated_at,COALESCE(json_extract(json,'$.unread'),0) FROM inbox_thread")?;
+                let mut known: HashMap<String, (String, Option<bool>)> = q.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, Some(r.get(2)?)))))?.collect::<std::result::Result<_, _>>()?;
+                let mut q = c.prepare("SELECT id,updated_at FROM inbox_subscription WHERE COALESCE(ignored,0)=1 OR COALESCE(subscribed,1)=0")?;
+                for row in q.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+                    let (id, at) = row?;
+                    known.entry(id).or_insert((at, None));
+                }
+                Ok(known)
+            }).await?
+        };
         let mut incoming = Vec::new();
-        let mut reconcile = full;
+        // Only a full pass replaces the mirror; incremental polls add and update threads.
+        let reconcile = full;
         let mut page = 1;
         loop {
             let path = format!("/notifications?all=true&per_page=50&page={page}");
@@ -200,16 +215,19 @@ impl Inbox {
             if r.not_modified && !full && page == 1 {
                 break;
             }
-            if page == 1 {reconcile = true;}
             let has_next = r.has_next || (r.not_modified && r.value.as_array().is_some_and(|v|v.len()==50));
-            incoming.extend(
-                r.value
-                    .as_array()
-                    .context("invalid notifications response")?
-                    .iter()
-                    .filter_map(from_rest),
-            );
-            if !has_next {
+            let threads: Vec<Thread> = r
+                .value
+                .as_array()
+                .context("invalid notifications response")?
+                .iter()
+                .filter_map(from_rest)
+                .collect();
+            // Newest first: once a whole page is already in the mirror unchanged, the
+            // older pages are too (until the next full pass checks them).
+            let settled = !full && all_known(&threads, &known);
+            incoming.extend(threads);
+            if !has_next || settled {
                 break;
             }
             page += 1;
@@ -567,6 +585,15 @@ impl Inbox {
         Ok(())
     }
 }
+/// Incremental polls read only the newest pages; this full pass re-reads the whole
+/// `all=true` history and replaces the mirror (threads that left GitHub's history, read
+/// state changed elsewhere on older pages).
+const FULL_EVERY_MS: i64 = 3 * 3_600_000;
+/// True when every thread of a page is already known with the same `updated_at` and
+/// read state (`None`: a hidden thread, known by its `updated_at` only).
+fn all_known(page: &[Thread], known: &HashMap<String, (String, Option<bool>)>) -> bool {
+    page.iter().all(|t| known.get(&t.id).is_some_and(|(at, unread)| at == &t.updated_at && unread.is_none_or(|u| u == t.unread)))
+}
 fn string(v: &Value, key: &str) -> String {
     v[key].as_str().unwrap_or("").to_string()
 }
@@ -641,4 +668,26 @@ pub fn spawn(app: &App) {
             tokio::time::sleep(std::time::Duration::from_secs(seconds)).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn thread(id: &str, at: &str, unread: bool) -> Thread {
+        from_rest(&json!({"id": id, "repository": {"full_name": "o/r"}, "subject": {"type": "Issue", "title": "t", "url": "https://api.github.com/repos/o/r/issues/1"}, "unread": unread, "updated_at": at})).unwrap()
+    }
+    #[test]
+    fn incremental_paging_stops_at_a_known_page() {
+        let known: HashMap<String, (String, Option<bool>)> = [
+            ("1".to_string(), ("a".to_string(), Some(true))),
+            ("2".to_string(), ("b".to_string(), Some(false))),
+            ("3".to_string(), ("c".to_string(), None)),
+        ].into();
+        assert!(all_known(&[thread("1", "a", true), thread("2", "b", false), thread("3", "c", true)], &known));
+        // New activity, a read state changed elsewhere, or an unknown thread: keep paging.
+        assert!(!all_known(&[thread("1", "a2", true)], &known));
+        assert!(!all_known(&[thread("2", "b", true)], &known));
+        assert!(!all_known(&[thread("4", "d", true)], &known));
+        assert!(all_known(&[], &known));
+    }
 }
