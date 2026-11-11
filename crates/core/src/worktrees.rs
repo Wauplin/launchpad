@@ -1242,13 +1242,19 @@ pub async fn cancel_merge(app: &App, id: &str) -> Result<TaskWorktree> {
     Ok(w)
 }
 
-fn conflict_message(app: &App, w: &TaskWorktree, reason: &str, session_id: &str) -> String {
+/// The merge problem for the agent. `by_agent`: it asked for the merge (`work finish`) and asks again; otherwise
+/// the owner merged and merges again after the agent's fix (an agent's request needs When done = Merge).
+fn conflict_message(app: &App, w: &TaskWorktree, reason: &str, session_id: &str, by_agent: bool) -> String {
     let base = w.base_branch.as_deref().unwrap_or_default();
+    let again = if by_agent {
+        format!("Then run `{} work finish --session-id {session_id}` again.", app.paths.cli_command())
+    } else {
+        "Then end your turn: the owner merges again from Launchpad (do not run `work finish`).".to_string()
+    };
     format!(
-        "Launchpad could not merge branch `{}` into `{base}`: {reason}\nIn your worktree `{}`, run `git fetch origin`, rebase onto `origin/{base}`, resolve the conflicts, re-run the relevant checks, and commit. Then run `{} work finish --session-id {session_id}` again. Do not merge into `{base}` yourself.\nWhen you finish this recovery turn, make your final message a concise, self-contained summary of the original task and this recovery: lead with the overall outcome, preserve the substantive results from your previous task summary, and update the checks actually performed and their results, remaining work or limitations, and merge status. Report the merge as requested, not completed. The user sees this as the run's final message, so include the task results even though this is a follow-up turn.",
+        "Launchpad could not merge branch `{}` into `{base}`: {reason}\nIn your worktree `{}`, run `git fetch origin`, rebase onto `origin/{base}`, resolve the conflicts, re-run the relevant checks, and commit. {again} Do not merge into `{base}` yourself.\nWhen you finish this recovery turn, make your final message a concise, self-contained summary of the original task and this recovery: lead with the overall outcome, preserve the substantive results from your previous task summary, and update the checks actually performed and their results, remaining work or limitations, and merge status. Report the merge as requested, not completed. The user sees this as the run's final message, so include the task results even though this is a follow-up turn.",
         w.branch,
         w.root,
-        app.paths.cli_command(),
     )
 }
 
@@ -1258,7 +1264,17 @@ pub async fn fix_with_agent(app: &App, id: &str) -> Result<()> {
     let m = w.merge.clone().context("no merge problem to fix")?;
     ensure!(m.phase != MergePhase::Waiting, "the merge is still waiting");
     let session = w.sessions.last().context("this worktree has no session")?.clone();
-    app.sessions.send(app, &session, &conflict_message(app, &w, &m.reason, &session), vec![]).await
+    app.sessions.send(app, &session, &conflict_message(app, &w, &m.reason, &session, m.by_agent), vec![]).await?;
+    // The owner's merge: the agent fixes the branch, then the owner's Merge (the main action again) merges it.
+    if !m.by_agent {
+        let _lock = app.worktree_lock.lock().await;
+        let mut w = get(app, id).await?;
+        if w.merge.as_ref().is_some_and(|x| x.requested_at == m.requested_at) {
+            w.merge = None;
+            save(app, &w).await?;
+        }
+    }
+    Ok(())
 }
 
 /// One merge attempt at a time per worktree (the 15-second loop, the owner's Merge, an agent's `work finish`).
@@ -1333,7 +1349,7 @@ async fn attempt(app: &App, id: &str) {
     };
     // The agent rebases itself, after the locks are released.
     if let Some((w, (Some(session), reason))) = outcome
-        && let Err(e) = app.sessions.send_follow_up(app, &session, &conflict_message(app, &w, &reason, &session), false, None).await
+        && let Err(e) = app.sessions.send_follow_up(app, &session, &conflict_message(app, &w, &reason, &session, true), false, None).await
     {
         tracing::warn!("worktree conflict message {session}: {e:#}");
     }
