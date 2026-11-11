@@ -178,7 +178,8 @@ impl Cmd {
 
     /// A missing `bwrap` for daemon Git says so, instead of "No such file or directory".
     fn spawn_error(&self, e: std::io::Error) -> std::io::Error {
-        if e.kind() == std::io::ErrorKind::NotFound && self.git_guard().is_some_and(|g| g.sandboxed()) {
+        // Only when `bwrap` is missing: a working folder that is gone fails the same way.
+        if e.kind() == std::io::ErrorKind::NotFound && self.git_guard().is_some_and(|g| g.sandboxed()) && self.env.which("bwrap").is_none() {
             return std::io::Error::new(e.kind(), "bubblewrap is not installed: this runner's own Git runs only in a sandbox (sudo apt install bubblewrap)");
         }
         e
@@ -213,6 +214,10 @@ impl Cmd {
                     cmd.env_clear().envs(self.env.vars().iter());
                     for k in crate::git_safe::DROPPED_ENV {
                         cmd.env_remove(k);
+                    }
+                    // The sandbox's `/tmp` is its own; a `TMPDIR` elsewhere does not exist there.
+                    if guard.sandboxed() {
+                        cmd.env_remove("TMPDIR");
                     }
                     cmd.envs(prepared.env).args(prepared.args).args(&self.args);
                     cmd

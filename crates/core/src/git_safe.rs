@@ -117,6 +117,8 @@ pub const SANDBOX_SYSTEM: &[&str] = &[
     "/etc/ssl",
     "/etc/ca-certificates",
     "/etc/pki",
+    "/etc/crypto-policies",
+    "/etc/gnutls",
 ];
 
 /// Installed on a runner's environment: the daemon's `git` runs through `prepare` (and `sandbox_args`).
@@ -169,8 +171,10 @@ impl Guard {
     pub fn sandbox_args(&self, cwd: Option<&Path>, program: &Path) -> Vec<std::ffi::OsString> {
         let mut rw = vec![self.shadow_root()];
         rw.extend(self.mounts(cwd));
-        // A folder missing here would be created in the sandbox only, and lost (`worktree add`).
-        for dir in &rw {
+        // A root missing here would be created in the sandbox only, and lost (`worktree add`). Never a plain or
+        // temporary folder: one that is gone (archived, moved) must stay gone, the command then fails.
+        let roots = [self.shadow_root(), self.data_dir.join("repos"), self.data_dir.join("worktrees")];
+        for dir in rw.iter().filter(|d| roots.contains(d)) {
             let _ = std::fs::create_dir_all(dir);
         }
         // Both spellings of each folder: Git writes real paths into `.git` files and `gitdir` links.
@@ -314,8 +318,9 @@ pub fn copy_regular(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
     let mut open = std::fs::OpenOptions::new();
     open.read(true);
+    // Never through a link planted as the file itself (it would name a file of the machine).
     #[cfg(unix)]
-    open.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY);
+    open.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY | libc::O_NOFOLLOW);
     let mut file = open.open(from)?;
     if !file.metadata()?.is_file() {
         return Err(std::io::Error::other(format!("{} is not a regular file", from.display())));
@@ -568,6 +573,8 @@ mod tests {
         }
         let plain = args(&format!("{d}/plain/abc/sub"));
         assert!(plain.contains(&format!("--bind-try {d}/plain/abc {d}/plain/abc")) && !plain.contains(&format!("{d}/repos")) && !plain.contains(&format!("{d}/worktrees")));
+        // A plain or temporary folder that is gone is never created again (only the roots are).
+        assert!(!Path::new(&format!("{d}/plain/abc")).exists() && Path::new(&format!("{d}/worktrees")).is_dir());
         assert!(args(&format!("{d}/tmp/tmp-1111-x")).contains(&format!("--bind-try {d}/tmp/tmp-1111-x {d}/tmp/tmp-1111-x")));
         // Anywhere else: the shadows only (the command fails).
         let none = Vec::<PathBuf>::new();
