@@ -53,6 +53,11 @@ pub struct TaskWorktree {
     /// Why the last push to Home failed; cleared by the next successful push.
     #[serde(default)]
     pub push_note: Option<String>,
+    /// The local tip when Home's branch was found changed by someone else (a Restore, another runner): pushes
+    /// wait until the tip differs, so the agent, told once, fetches first and nothing on Home is overwritten blindly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub held_at: Option<String>,
     /// The branch tip in the folder at the last turn end or push. Home receives the record with it, so it can
     /// tell when its copy of the branch is older (`away::info`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -309,6 +314,7 @@ pub async fn plan(app: &App, session_id: &str, project: &Project, opts: &Worktre
         pull_request: pr.map(|pr| PullRequestBranch { repo: pr.repo.clone(), number: pr.number, url: String::new(), head_repo: String::new(), head_branch: String::new() }),
         pushed: None,
         push_note: None,
+        held_at: None,
         head: None,
         leftovers: None,
         from_branch: branch.is_some(),
@@ -430,12 +436,32 @@ pub async fn pull_request_at(app: &App, root: &str) -> Option<PullRequestBranch>
     list(app).await.ok()?.into_iter().find(|w| w.state == WorktreeState::Active && std::path::Path::new(root).starts_with(&w.root))?.pull_request
 }
 
-/// What a push changes in a record: the tip seen, the tip on Home and the failure note.
-fn push_fields(w: &TaskWorktree) -> (Option<String>, Option<String>, Option<String>) {
-    (w.head.clone(), w.pushed.clone(), w.push_note.clone())
+/// What a push changes in a record: the tip seen, the tip on Home, the failure note and the held tip.
+type PushFields = (Option<String>, Option<String>, Option<String>, Option<String>);
+
+fn push_fields(w: &TaskWorktree) -> PushFields {
+    (w.head.clone(), w.pushed.clone(), w.push_note.clone(), w.held_at.clone())
 }
 
-/// `push_unlocked` without saving the record.
+/// Pushes `head` to Home's branch only if Home's tip is still `expected` (None: the branch must not exist yet).
+async fn push_leased(app: &App, w: &TaskWorktree, expected: Option<&str>) -> Result<String> {
+    let lease = format!("--force-with-lease=refs/heads/{}:{}", w.branch, expected.unwrap_or_default());
+    push_home(app, w, &[&lease, "origin", &format!("refs/heads/{0}:refs/heads/{0}", w.branch)]).await
+}
+
+/// Home's tip of the branch now (None: no such branch).
+async fn home_tip(app: &App, w: &TaskWorktree) -> Result<Option<String>> {
+    let session = w.sessions.last().map(String::as_str).unwrap_or_default();
+    let out = crate::repo_cache::git(app, Path::new(&w.root), &["ls-remote", "origin", &format!("refs/heads/{}", w.branch)], crate::repo_cache::Auth::Session(&w.project_id, session), 120).await?;
+    Ok(out.split_whitespace().next().map(str::to_string))
+}
+
+async fn is_ancestor(app: &App, w: &TaskWorktree, older: &str, newer: &str) -> bool {
+    git(app, &w.root, &["merge-base", "--is-ancestor", older, newer]).await.is_ok()
+}
+
+/// `push_unlocked` without saving the record. The push expects Home's tip to be the one this record last
+/// confirmed (`pushed`), never the clone's remote-tracking ref, which any fetch moves.
 async fn push_branch(app: &App, w: &mut TaskWorktree) -> Result<bool> {
     if w.state != WorktreeState::Active || !Path::new(&w.root).is_dir() {
         return Ok(false);
@@ -445,12 +471,43 @@ async fn push_branch(app: &App, w: &mut TaskWorktree) -> Result<bool> {
     if w.pushed.as_deref() == Some(head.as_str()) && w.push_note.is_none() {
         return Ok(false);
     }
-    let lease = format!("--force-with-lease=refs/heads/{}", w.branch);
-    let result = push_home(app, w, &[&lease, "origin", &format!("refs/heads/{0}:refs/heads/{0}", w.branch)]).await;
+    // Home's branch changed under this clone and the agent was told: nothing is pushed until its tip moves.
+    if let Some(note) = w.push_note.clone().filter(|_| w.held_at.as_deref() == Some(head.as_str())) {
+        anyhow::bail!("{note}");
+    }
+    let mut result = push_leased(app, w, w.pushed.as_deref()).await;
+    if result.is_err()
+        && let Ok(tip) = home_tip(app, w).await
+        && tip != w.pushed
+    {
+        match tip {
+            // Already there (the agent pushed it).
+            Some(t) if t == head => result = Ok(String::new()),
+            // Home moved forward to a commit this clone holds (the agent's own push): a fast-forward loses nothing.
+            Some(t) if (w.pushed.is_none() || is_ancestor(app, w, w.pushed.as_deref().unwrap_or_default(), &t).await) && is_ancestor(app, w, &t, &head).await => {
+                result = push_leased(app, w, Some(&t)).await;
+            }
+            // Someone else changed it (a Restore, another runner): told once, held until the agent acts.
+            tip => {
+                let note = format!(
+                    "The branch {} changed on Home since this runner last pushed it (a Restore, or another runner's commits), so its new commits were not pushed. Run git fetch, then rebase onto origin/{} (or reset to it to drop them); the next push follows Home's new tip",
+                    w.branch, w.branch
+                );
+                w.pushed = tip;
+                w.held_at = Some(head);
+                if w.push_note.as_deref() != Some(note.as_str()) {
+                    w.push_note = Some(note.clone());
+                    notice(app, w, &format!("{note}.")).await;
+                }
+                anyhow::bail!("{note}");
+            }
+        }
+    }
     match result {
         Ok(_) => {
             w.pushed = Some(head);
             w.push_note = None;
+            w.held_at = None;
             Ok(true)
         }
         Err(e) => {
@@ -484,7 +541,7 @@ pub async fn record_heads(app: &App, session_id: &str) {
 }
 
 /// Pushes the branch to Home unless Home already has it. Never overwrites a tip Home got elsewhere (a
-/// Restore, another runner): the push expects the tip this clone last saw. The caller holds no lock: the push
+/// Restore, another runner): the push expects the tip this record last confirmed (`push_branch`). The caller holds no lock: the push
 /// runs without one (it may take minutes), and its result goes into the record as it is now, under
 /// `worktree_lock`, so a merge request or cleanup saved meanwhile stays.
 pub async fn push_unlocked(app: &App, w: &mut TaskWorktree) -> Result<bool> {
@@ -493,7 +550,7 @@ pub async fn push_unlocked(app: &App, w: &mut TaskWorktree) -> Result<bool> {
     if push_fields(w) != before {
         let _lock = app.worktree_lock.lock().await;
         if let Ok(mut fresh) = get(app, &w.id).await {
-            (fresh.head, fresh.pushed, fresh.push_note) = push_fields(w);
+            (fresh.head, fresh.pushed, fresh.push_note, fresh.held_at) = push_fields(w);
             save(app, &fresh).await?;
         }
     }
@@ -904,6 +961,7 @@ pub async fn restore(app: &App, id: &str) -> Result<TaskWorktree> {
     w.head = Some(reapplied.as_ref().map(|(head, _)| head.clone()).unwrap_or_else(|| start.clone()));
     w.pushed = Some(start);
     w.push_note = None;
+    w.held_at = None;
     save(app, &w).await?;
     drop(lock);
     // Older or diverged (or not applied): its uncommitted files stay reachable on a scratch branch.
