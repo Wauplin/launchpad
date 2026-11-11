@@ -19,7 +19,7 @@ The script checks your tools and sign-in, creates a private backup bucket and a 
 - **One place for all your agents.** Start an agent in the right folder with the right context in a few clicks. Follow many runs at once, answer their questions, review their changes and send follow-ups.
 - **One list of decisions.** Today shows what waits for you: questions, finished agents, proposals, drafts to send, GitHub suggestions and review requests. Each row has one button, for example Answer, Merge, Review or Start, and the other actions in ⋯.
 - **Every task in its own worktree.** Each agent works on its own Git branch, so its edits stay separate from your checkout. Merge the branch, review it as a local pull request or discard it.
-- **Your subscription, protected.** Launchpad reads the quota of your Claude and ChatGPT subscriptions, pauses agents before they use paid credits, and continues them when quota is available again.
+- **Your subscription, protected.** Launchpad reads the quota of your Claude and ChatGPT subscriptions, pauses agents before they use paid credits, and continues them when quota is available again. Work that starts without you (routines, hooks, auto-mode cards) waits until a fresh reading confirms quota.
 - **GitHub without waiting.** The inbox, issues, pull requests and reviews come from a local cache, so moving between them is instant.
 - **One review across devices.** Write the summary and line comments in one PR review panel, use an agent’s suggested review, and finish from the laptop or phone.
 - **Nothing reaches GitHub without your click.** Comments and reviews written by agents, and pull requests prepared locally, stay on Home until you publish them.

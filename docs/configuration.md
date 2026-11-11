@@ -57,7 +57,7 @@ time_zone = ""                      # IANA zone (Europe/Paris) of routines saved
 boundary = "jail"                   # runner only: jail (bubblewrap), or vm inside a dedicated Local VM, where agents may use Docker
 ```
 
-Credentials and tools live in Home's database, never in `config.toml`: edit them in Settings → Credentials and tools. A profile's `login` names a harness login of Home's vault (default: the harness's first login).
+Credentials and tools live in Home's database, never in `config.toml`: edit them in Settings → Credentials and tools. A profile's `login` names a harness login of Home's vault (default: the harness's default login, the first one by name, then by ID; agents and quota readings use the same one).
 
 Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `bots` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later. Presets are Home's: a runner reads them from Home when it starts an agent, so a launch that names presets fails visibly while Home cannot answer.
 
