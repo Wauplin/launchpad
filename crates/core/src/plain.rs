@@ -680,7 +680,14 @@ pub fn walk(root: &Path) -> Vec<String> {
 /// Files of a store's copy. A temporary folder (`temp`) leaves out `.gitignore`d files and nested Git
 /// repositories (clones the agent can make again).
 fn walk_store(root: &Path, temp: bool) -> Vec<String> {
+    walk_links(root, temp).0
+}
+
+/// [`walk_store`], plus how many symbolic links it left out (never stored: they could name any file of the
+/// machine).
+fn walk_links(root: &Path, temp: bool) -> (Vec<String>, usize) {
     let mut out = vec![];
+    let mut links = 0;
     let walker = ignore::WalkBuilder::new(root)
         .hidden(false)
         .git_ignore(temp)
@@ -692,14 +699,42 @@ fn walk_store(root: &Path, temp: bool) -> Vec<String> {
         .filter_entry(move |e| e.file_name() != ".git" && !(temp && e.depth() > 0 && e.file_type().is_some_and(|t| t.is_dir()) && e.path().join(".git").exists()))
         .build();
     for e in walker.flatten() {
-        if e.file_type().is_some_and(|t| t.is_file())
+        if e.path_is_symlink() {
+            links += 1;
+        } else if e.file_type().is_some_and(|t| t.is_file())
             && let Ok(rel) = e.path().strip_prefix(root)
         {
             out.push(rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/"));
         }
     }
     out.sort();
-    out
+    (out, links)
+}
+
+/// Where a copy's files are opened from: the data folder, and the copy's path below it, whose components are
+/// never followed (`safe_fs`: an agent writes the copy and could plant a link to a file of the machine).
+fn anchored(app: &App, dir: &Path) -> (PathBuf, PathBuf) {
+    crate::safe_fs::anchor(&app.paths.data_dir, dir)
+}
+
+/// A regular file of a copy (never through a link), its hash, size and executable bit, and its bytes.
+async fn read_in(base: &Path, rel: PathBuf) -> Result<(String, u64, bool, Vec<u8>)> {
+    let base = base.to_path_buf();
+    Ok(tokio::task::spawn_blocking(move || -> std::io::Result<_> {
+        use std::io::Read;
+        let mut f = crate::safe_fs::open(&base, &rel)?;
+        #[cfg(unix)]
+        let exec = {
+            use std::os::unix::fs::PermissionsExt;
+            f.metadata()?.permissions().mode() & 0o111 != 0
+        };
+        #[cfg(not(unix))]
+        let exec = false;
+        let mut data = vec![];
+        f.read_to_end(&mut data)?;
+        Ok((hex::encode(Sha256::digest(&data)), data.len() as u64, exec, data))
+    })
+    .await??)
 }
 
 /// The first Git repository in a folder (relative path of its `.git`; `.git` for the folder's own), ignored
@@ -741,31 +776,25 @@ pub async fn reference(app: &App, id: &str, dir: &Path) -> Result<()> {
 /// Brings the copy to Home's version and records it (`Synced`).
 async fn download(app: &App, id: &str, dir: &Path) -> Result<()> {
     let tree = home::tree(app, id).await?;
-    tokio::fs::create_dir_all(dir).await?;
+    // Never through a link an agent planted: not the folder itself, nor a folder or file in it.
+    let (base, root) = anchored(app, dir);
+    crate::safe_fs::create_dir_all(&base, &root).with_context(|| format!("prepare {}", dir.display()))?;
     let state = state_file(app, dir);
     let mut synced: Synced = tokio::fs::read(&state).await.ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let wanted: BTreeMap<&str, &Entry> = tree.files.iter().map(|e| (e.path.as_str(), e)).collect();
     for rel in walk_store(dir, temp_of(id).is_some()) {
         if !wanted.contains_key(rel.as_str()) && synced.files.contains_key(&rel) {
-            let _ = tokio::fs::remove_file(dir.join(&rel)).await;
+            let _ = crate::safe_fs::remove_file(&base, &root.join(&rel));
         }
     }
     for e in &tree.files {
         check_path(&e.path)?;
-        let path = dir.join(&e.path);
-        if path.exists() && hash_file(&path).await.is_ok_and(|(h, _, _)| h == e.sha256) {
+        let rel = root.join(&e.path);
+        if read_in(&base, rel.clone()).await.is_ok_and(|(h, _, _, _)| h == e.sha256) {
             continue;
         }
         let data = home::blob(app, id, &e.sha256).await?;
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        tokio::fs::write(&path, data).await?;
-        #[cfg(unix)]
-        if e.executable {
-            use std::os::unix::fs::PermissionsExt;
-            tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).await?;
-        }
+        crate::safe_fs::write_async(base.clone(), rel, data, e.executable.then_some(0o755)).await.with_context(|| format!("write {}", e.path))?;
     }
     synced = Synced { version: tree.version, files: tree.files.iter().map(|e| (e.path.clone(), e.sha256.clone())).collect() };
     if let Some(parent) = state.parent() {
@@ -794,20 +823,31 @@ async fn baseline(app: &App, dir: &Path) {
 
 /// Sends every change of the copy since the last sync to Home. Returns how many files changed.
 pub async fn sync_up(app: &App, id: &str, dir: &Path, session: &str) -> Result<usize> {
-    if !dir.is_dir() {
+    let (base, root) = anchored(app, dir);
+    if !crate::safe_fs::is_dir(&base, &root) {
+        // Missing, or replaced by a link: nothing is read through it.
         return Ok(0);
     }
     let state = state_file(app, dir);
     let synced: Synced = tokio::fs::read(&state).await.ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let mut updates = vec![];
     let mut now: BTreeMap<String, String> = BTreeMap::new();
-    for rel in walk_store(dir, temp_of(id).is_some()) {
+    let (files, links) = walk_links(dir, temp_of(id).is_some());
+    if links > 0 {
+        tracing::info!("{}: {links} symbolic links left out (never stored)", dir.display());
+    }
+    for rel in files {
         if check_path(&rel).is_err() {
             continue;
         }
-        let (sha, size, executable) = hash_file(&dir.join(&rel)).await?;
+        let (sha, size, executable, data) = match read_in(&base, root.join(&rel)).await {
+            Ok(r) => r,
+            // Replaced by a link (or removed) since the walk: left out, like other links.
+            Err(e) if e.downcast_ref::<std::io::Error>().is_some_and(|e| matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput)) => continue,
+            Err(e) => return Err(e),
+        };
         if synced.files.get(&rel) != Some(&sha) {
-            home::upload(app, id, &sha, tokio::fs::read(dir.join(&rel)).await?).await?;
+            home::upload(app, id, &sha, data).await?;
             updates.push(Update { path: rel.clone(), sha256: Some(sha.clone()), size, executable });
         }
         now.insert(rel, sha);
@@ -826,6 +866,7 @@ pub async fn sync_up(app: &App, id: &str, dir: &Path, session: &str) -> Result<u
 
 /// Whether a copy has no change Home lacks (a temporary folder may then be removed from this disk).
 pub async fn in_sync(app: &App, id: &str, dir: &Path) -> bool {
+    let (base, root) = anchored(app, dir);
     let files: Vec<String> = walk_store(dir, temp_of(id).is_some()).into_iter().filter(|rel| check_path(rel).is_ok()).collect();
     let Ok(bytes) = tokio::fs::read(state_file(app, dir)).await else { return files.is_empty() };
     let Ok(synced) = serde_json::from_slice::<Synced>(&bytes) else { return false };
@@ -833,8 +874,8 @@ pub async fn in_sync(app: &App, id: &str, dir: &Path) -> bool {
         return false;
     }
     for rel in files {
-        match (synced.files.get(&rel), hash_file(&dir.join(&rel)).await) {
-            (Some(sha), Ok((h, _, _))) if *sha == h => {}
+        match (synced.files.get(&rel), read_in(&base, root.join(&rel)).await) {
+            (Some(sha), Ok((h, _, _, _))) if *sha == h => {}
             _ => return false,
         }
     }
@@ -899,8 +940,10 @@ pub async fn release(app: &App, id: &str, session: &str) -> Result<()> {
 }
 
 /// The asset folders a worktree maps in `.launchpad/assets.toml`: `path = "<asset id>"`.
-pub async fn mapped_assets(root: &Path) -> Vec<(String, String)> {
-    let Ok(text) = tokio::fs::read_to_string(root.join(".launchpad/assets.toml")).await else { return vec![] };
+pub async fn mapped_assets(app: &App, root: &Path) -> Vec<(String, String)> {
+    let (base, rel) = anchored(app, &root.join(".launchpad/assets.toml"));
+    let Ok(bytes) = crate::safe_fs::read_async(base, rel, 1 << 20).await else { return vec![] };
+    let Ok(text) = String::from_utf8(bytes) else { return vec![] };
     let Ok(table) = toml::from_str::<toml::Table>(&text) else { return vec![] };
     table.into_iter().filter_map(|(k, v)| Some((k, v.as_str()?.to_string()))).filter(|(k, _)| check_path(k).is_ok()).collect()
 }
@@ -920,8 +963,15 @@ pub async fn session_stores(app: &App, session_id: &str) -> Vec<(String, PathBuf
         }
     }
     for w in crate::worktrees::for_session(app, session_id).await.unwrap_or_default().into_iter().filter(|w| w.state == crate::worktrees::WorktreeState::Active) {
-        for (path, id) in mapped_assets(Path::new(&w.root)).await {
-            out.push((id, Path::new(&w.root).join(path)));
+        for (path, id) in mapped_assets(app, Path::new(&w.root)).await {
+            let dir = Path::new(&w.root).join(path);
+            // An asset folder reached through a link is never synced (it could name any folder of the machine).
+            let (base, rel) = anchored(app, &dir);
+            if tokio::fs::symlink_metadata(&dir).await.is_ok() && !crate::safe_fs::is_dir(&base, &rel) {
+                tracing::warn!("{session_id}: asset folder {} is a symbolic link or goes through one; not synced", dir.display());
+                continue;
+            }
+            out.push((id, dir));
         }
     }
     out
@@ -941,11 +991,11 @@ async fn exclude_asset(app: &App, dir: &Path) {
     let Some(w) = crate::worktrees::find_by_path(app, &dir.to_string_lossy()).await.ok().flatten() else { return };
     let Ok(rel) = dir.strip_prefix(&w.root) else { return };
     let line = format!("/{}/", rel.to_string_lossy().replace('\\', "/"));
-    let file = Path::new(&w.repo).join(".git/info/exclude");
-    let text = tokio::fs::read_to_string(&file).await.unwrap_or_default();
+    // The clone is agent-writable: never through a link.
+    let (base, file) = anchored(app, &Path::new(&w.repo).join(".git/info/exclude"));
+    let text = crate::safe_fs::read_async(base.clone(), file.clone(), 1 << 20).await.ok().and_then(|b| String::from_utf8(b).ok()).unwrap_or_default();
     if !text.lines().any(|l| l == line) {
-        let _ = tokio::fs::create_dir_all(file.parent().unwrap()).await;
-        let _ = tokio::fs::write(&file, format!("{text}{}{line}\n", if text.is_empty() || text.ends_with('\n') { "" } else { "\n" })).await;
+        let _ = crate::safe_fs::write_async(base, file, format!("{text}{}{line}\n", if text.is_empty() || text.ends_with('\n') { "" } else { "\n" }).into_bytes(), None).await;
     }
 }
 
@@ -983,19 +1033,24 @@ pub async fn create_in_worktree(app: &App, session_id: &str, cwd: &str, path: &s
     ensure!(w.sessions.iter().any(|s| s == session_id), "this worktree belongs to another session");
     let path = path.trim().trim_matches('/').to_string();
     check_path(&path)?;
-    ensure!(!mapped_assets(Path::new(&w.root)).await.iter().any(|(p, _)| *p == path), "{path} is already an asset folder");
+    ensure!(!mapped_assets(app, Path::new(&w.root)).await.iter().any(|(p, _)| *p == path), "{path} is already an asset folder");
     let name = format!("{}/{path}", w.branch);
     let asset: Asset = serde_json::from_value(crate::home_link::home_request("POST", &format!("/api/plain/assets/{}", w.project_id), Some(serde_json::json!({"name": name}))).await?)?;
-    let manifest = Path::new(&w.root).join(".launchpad/assets.toml");
-    tokio::fs::create_dir_all(manifest.parent().unwrap()).await?;
-    let mut text = tokio::fs::read_to_string(&manifest).await.unwrap_or_else(|_| "# Asset folders: stored by Launchpad, synced into worktrees, not in Git.\n".into());
+    // The worktree is agent-writable: never through a link.
+    let (base, manifest) = anchored(app, &Path::new(&w.root).join(".launchpad/assets.toml"));
+    let mut text = match crate::safe_fs::read_async(base.clone(), manifest.clone(), 1 << 20).await {
+        Ok(b) => String::from_utf8(b).context(".launchpad/assets.toml is not UTF-8")?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => "# Asset folders: stored by Launchpad, synced into worktrees, not in Git.\n".into(),
+        Err(e) => return Err(e).context("read .launchpad/assets.toml"),
+    };
     if !text.ends_with('\n') {
         text.push('\n');
     }
     text.push_str(&format!("{} = \"{}\"\n", toml::Value::String(path.clone()), asset.id));
-    tokio::fs::write(&manifest, text).await?;
+    crate::safe_fs::write_async(base.clone(), manifest, text.into_bytes(), None).await.context("write .launchpad/assets.toml")?;
     let dir = Path::new(&w.root).join(&path);
-    tokio::fs::create_dir_all(&dir).await?;
+    let (base, rel) = anchored(app, &dir);
+    crate::safe_fs::create_dir_all(&base, &rel).with_context(|| format!("create {path}"))?;
     home::lock(app, &asset.id, session_id, true).await?;
     exclude_asset(app, &dir).await;
     sync_up(app, &asset.id, &dir, session_id).await?;
