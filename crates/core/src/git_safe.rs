@@ -18,6 +18,17 @@
 //!
 //! The daemon's Home credential goes only to Home's exact URL (`http.<url>.extraHeader`, `repo_cache::auth`).
 //! Home's own mirrors are not agent-writable (Home runs no agents) and keep their hooks (`pre-receive`).
+//!
+//! Git still follows symlinks and `objects/info/alternates` that an agent plants (a symlinked ref or `HEAD`,
+//! another repository's objects, a worktree folder swapped for a link), and no check before the command can
+//! close that race. So on a runner whose jail is bubblewrap, daemon Git also runs in a minimal sandbox
+//! (`Guard::sandbox_args`): the system's programs and libraries and a few files of `/etc` read-only, the
+//! shadow directories, and only the agent-writable folders the command works in (the repository caches and
+//! worktrees, or the one plain or temporary folder of its working folder), a private `/tmp`; no home folder or
+//! other file of the machine or of Launchpad's data. What a link points at outside does not exist there. The
+//! network stays shared: pushes and fetches reach this daemon's loopback Git endpoint (and the folder's remote).
+//! A runner without bubblewrap fails these commands. On a Local VM or Burst the machine is the boundary (no
+//! owner files there): no sandbox.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -78,13 +89,45 @@ pub const ENV: &[(&str, &str)] = &[
 /// `modules`, `remotes` or `branches`).
 const LINKED: &[&str] = &["objects", "refs", "packed-refs", "logs", "shallow", "worktrees"];
 
-/// Installed on a runner's environment: the daemon's `git` runs through `prepare`.
+/// What daemon Git sees of the machine in its sandbox, read-only when it exists: programs and libraries, and the
+/// files of `/etc` that user lookups, name resolution and TLS read.
+pub const SANDBOX_SYSTEM: &[&str] = &[
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/lib32",
+    "/lib64",
+    "/libx32",
+    "/nix/store",
+    "/run/systemd/resolve",
+    "/run/resolvconf",
+    "/etc/passwd",
+    "/etc/group",
+    "/etc/nsswitch.conf",
+    "/etc/hosts",
+    "/etc/host.conf",
+    "/etc/resolv.conf",
+    "/etc/gai.conf",
+    "/etc/ld.so.cache",
+    "/etc/ld.so.conf",
+    "/etc/ld.so.conf.d",
+    "/etc/localtime",
+    "/etc/alternatives",
+    "/etc/ssl",
+    "/etc/ca-certificates",
+    "/etc/pki",
+];
+
+/// Installed on a runner's environment: the daemon's `git` runs through `prepare` (and `sandbox_args`).
 #[derive(Debug)]
 pub struct Guard {
     data_dir: PathBuf,
     /// `data_dir` with symlinks resolved: repositories outside it are refused.
     real_data_dir: PathBuf,
     port: u16,
+    /// Run every command in the bubblewrap sandbox (a runner whose jail is bubblewrap).
+    sandbox: bool,
 }
 
 /// Arguments (before the subcommand) and variables for one `git` command.
@@ -103,12 +146,70 @@ pub struct Found {
 }
 
 impl Guard {
-    pub fn new(data_dir: &Path, port: u16) -> Guard {
-        Guard { data_dir: data_dir.to_path_buf(), real_data_dir: std::fs::canonicalize(data_dir).unwrap_or_else(|_| data_dir.to_path_buf()), port }
+    /// `sandbox`: also run each command in bubblewrap (`sandbox_args`).
+    pub fn new(data_dir: &Path, port: u16, sandbox: bool) -> Guard {
+        Guard { data_dir: data_dir.to_path_buf(), real_data_dir: std::fs::canonicalize(data_dir).unwrap_or_else(|_| data_dir.to_path_buf()), port, sandbox }
+    }
+
+    pub fn sandboxed(&self) -> bool {
+        self.sandbox
     }
 
     fn shadow_root(&self) -> PathBuf {
         self.data_dir.join("git-safe")
+    }
+
+    /// A folder of the daemon for files daemon Git reads (a snapshot's temporary index): in its sandbox, never
+    /// mounted in a jail.
+    pub fn scratch_dir(&self) -> PathBuf {
+        self.shadow_root().join("tmp")
+    }
+
+    /// The bubblewrap arguments (before `--`) of a daemon `git` (`program`, resolved) started in `cwd`.
+    pub fn sandbox_args(&self, cwd: Option<&Path>, program: &Path) -> Vec<std::ffi::OsString> {
+        let mut rw = vec![self.shadow_root()];
+        rw.extend(self.mounts(cwd));
+        // A folder missing here would be created in the sandbox only, and lost (`worktree add`).
+        for dir in &rw {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        // Both spellings of each folder: Git writes real paths into `.git` files and `gitdir` links.
+        if self.real_data_dir != self.data_dir {
+            let real: Vec<PathBuf> = rw.iter().filter_map(|p| p.strip_prefix(&self.data_dir).ok()).map(|r| self.real_data_dir.join(r)).collect();
+            rw.extend(real);
+        }
+        let ro: Vec<PathBuf> = self.install_folder(program).into_iter().collect();
+        crate::jail::sandbox_args(SANDBOX_SYSTEM, &ro, &rw, cwd)
+    }
+
+    /// The installation of a `git` outside the system folders, mounted read-only: the release folder above its
+    /// `bin`, or only `bin` when that folder holds the home folder or Launchpad's data.
+    fn install_folder(&self, program: &Path) -> Option<PathBuf> {
+        let real = std::fs::canonicalize(program).ok()?;
+        if SANDBOX_SYSTEM.iter().any(|s| real.starts_with(s)) {
+            return None;
+        }
+        let parent = real.parent()?;
+        let release = parent.parent().filter(|_| parent.ends_with("bin"));
+        let home = dirs::home_dir();
+        let too_wide = |d: &Path| self.real_data_dir.starts_with(d) || self.data_dir.starts_with(d) || home.as_deref().is_some_and(|h| h.starts_with(d));
+        Some(release.filter(|r| !too_wide(r)).unwrap_or(parent).to_path_buf()).filter(|d| !too_wide(d))
+    }
+
+    /// The agent-writable folders a command in `cwd` may use, each one a folder no agent can replace by a link
+    /// (a jail mounts it or a folder above it): the repository caches and the worktrees (a worktree's `.git`
+    /// names its cache, a cache lists its worktrees), or the one plain or temporary folder (`<data_dir>/<kind>/<id>`)
+    /// that holds `cwd`. Nothing for a folder outside the data folder: the command fails.
+    pub fn mounts(&self, cwd: Option<&Path>) -> Vec<PathBuf> {
+        let Some(cwd) = cwd else { return vec![] };
+        let cwd = normalize(cwd);
+        let Some(rest) = cwd.strip_prefix(&self.data_dir).ok().or_else(|| cwd.strip_prefix(&self.real_data_dir).ok()) else { return vec![] };
+        let mut parts = rest.components();
+        match (parts.next(), parts.next()) {
+            (Some(Component::Normal(kind)), _) if kind == "repos" || kind == "worktrees" => vec![self.data_dir.join("repos"), self.data_dir.join("worktrees")],
+            (Some(Component::Normal(kind)), Some(Component::Normal(id))) if kind == "plain" || kind == "tmp" => vec![self.data_dir.join(kind).join(id)],
+            _ => vec![],
+        }
     }
 
     /// The arguments and variables of a `git` started in `cwd` with `args`. A failure to set the shadow up leaves
@@ -205,6 +306,22 @@ impl Guard {
         let real = std::fs::read_link(self.shadow_root().join(key.as_os_str()).join("worktrees"))?;
         std::fs::write(&file, format!("gitdir: {}\n", real.join(name).to_string_lossy()))
     }
+}
+
+/// Copies a file an agent may have written (a worktree's index) if it is a regular file, never blocking on a FIFO.
+pub fn copy_regular(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut open = std::fs::OpenOptions::new();
+    open.read(true);
+    #[cfg(unix)]
+    open.custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY);
+    let mut file = open.open(from)?;
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::other(format!("{} is not a regular file", from.display())));
+    }
+    std::io::copy(&mut file, &mut std::fs::File::create(to)?)?;
+    Ok(())
 }
 
 /// The repository Git would use in `cwd`, found the same way (the nearest folder with `.git`, or a bare
@@ -385,7 +502,7 @@ mod tests {
         let mark = base.join("ran");
         let path = std::env::var("PATH").unwrap_or_default();
         let plain = crate::shellenv::UserEnv::from_vars([("PATH".to_string(), path), ("HOME".to_string(), base.to_string_lossy().into_owned())].into());
-        let guarded = plain.with_git_guard(Guard::new(&data, 7999));
+        let guarded = plain.with_git_guard(Guard::new(&data, 7999, false));
         let git = |env: &crate::shellenv::UserEnv, dir: &Path, args: &[&str]| {
             let (env, dir, args) = (env.clone(), dir.to_path_buf(), args.iter().map(|a| a.to_string()).collect::<Vec<_>>());
             async move {
@@ -415,7 +532,7 @@ mod tests {
         // Daemon Git: a worktree, status, a snapshot-like add, a diff and a commit.
         let wt = data.join("worktrees/s1/p1");
         git(&guarded, &cache, &["worktree", "add", "--quiet", "-b", "lp/x", &wt.to_string_lossy()]).await.unwrap();
-        Guard::new(&data, 7999).relink(&wt).unwrap();
+        Guard::new(&data, 7999, false).relink(&wt).unwrap();
         assert!(std::fs::read_to_string(wt.join(".git")).unwrap().contains("repos/p1/.git/worktrees/"));
         std::fs::write(wt.join("a.txt"), "b\n").unwrap();
         git(&guarded, &wt, &["status", "--porcelain"]).await.unwrap();
@@ -427,6 +544,37 @@ mod tests {
         // The same config does run without the guard (the test plants a working attack).
         let _ = git(&plain, &wt, &["status", "--porcelain"]).await;
         assert!(mark.exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_sandbox_mounts_only_the_folders_of_the_command() {
+        let base = std::env::temp_dir().join(format!("lp-git-sandbox-{}", uuid::Uuid::new_v4()));
+        let d = base.join("data");
+        let guard = Guard::new(&d, 7320, true);
+        let d = d.display().to_string();
+        let args = |cwd: &str| guard.sandbox_args(Some(Path::new(cwd)), Path::new("/usr/bin/git")).into_iter().map(|a| a.into_string().unwrap()).collect::<Vec<_>>().join(" ");
+        let wt = args(&format!("{d}/worktrees/s1/p1"));
+        for want in [format!("--bind-try {d}/git-safe {d}/git-safe"), format!("--bind-try {d}/repos {d}/repos"), format!("--bind-try {d}/worktrees {d}/worktrees"), "--tmpfs /tmp".into(), "--unshare-pid".into(), "--ro-bind-try /usr /usr".into(), "--ro-bind-try /etc/resolv.conf /etc/resolv.conf".into()] {
+            assert!(wt.contains(&want), "{want} missing in {wt}");
+        }
+        assert!(wt.ends_with(&format!("--chdir {d}/worktrees/s1/p1")));
+        // The private /tmp comes before the folders (a data folder under /tmp stays visible).
+        assert!(wt.find("--tmpfs /tmp").unwrap() < wt.find("--bind-try").unwrap());
+        // No home folder, no whole /etc, no root, no other data of Launchpad.
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/nobody"));
+        for bad in [format!(" {} ", home.display()), "/etc /etc".into(), " / / ".into(), format!("{d} {d}"), format!("{d}/plain"), format!("{d}/vault"), "/opt".into()] {
+            assert!(!wt.contains(&bad), "{bad} in {wt}");
+        }
+        let plain = args(&format!("{d}/plain/abc/sub"));
+        assert!(plain.contains(&format!("--bind-try {d}/plain/abc {d}/plain/abc")) && !plain.contains(&format!("{d}/repos")) && !plain.contains(&format!("{d}/worktrees")));
+        assert!(args(&format!("{d}/tmp/tmp-1111-x")).contains(&format!("--bind-try {d}/tmp/tmp-1111-x {d}/tmp/tmp-1111-x")));
+        // Anywhere else: the shadows only (the command fails).
+        let none = Vec::<PathBuf>::new();
+        for cwd in [format!("{d}/plain"), format!("{d}/vault/x"), format!("{d}/worktrees/../vault"), "/home/me/repo".into()] {
+            assert_eq!(guard.mounts(Some(Path::new(&cwd))), none, "{cwd}");
+        }
+        assert_eq!(guard.mounts(None), none);
         let _ = std::fs::remove_dir_all(&base);
     }
 

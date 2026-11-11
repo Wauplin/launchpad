@@ -170,6 +170,20 @@ impl Cmd {
         self
     }
 
+    /// The guard of a runner's daemon `git` (not jailed).
+    fn git_guard(&self) -> Option<&Arc<crate::git_safe::Guard>> {
+        let git = Path::new(&self.program).file_name().is_some_and(|n| n == "git");
+        self.env.git_guard().filter(|_| git && self.env.jail().is_none())
+    }
+
+    /// A missing `bwrap` for daemon Git says so, instead of "No such file or directory".
+    fn spawn_error(&self, e: std::io::Error) -> std::io::Error {
+        if e.kind() == std::io::ErrorKind::NotFound && self.git_guard().is_some_and(|g| g.sandboxed()) {
+            return std::io::Error::new(e.kind(), "bubblewrap is not installed: this runner's own Git runs only in a sandbox (sudo apt install bubblewrap)");
+        }
+        e
+    }
+
     fn local(&self) -> tokio::process::Command {
         let resolved = self.env.which(&self.program).unwrap_or_else(|| self.program.clone().into());
         let mut cmd = match self.env.jail() {
@@ -183,21 +197,32 @@ impl Cmd {
                 cmd.env_clear().envs(jail.environment(self.env.vars())).args(args);
                 cmd
             }
-            None => {
-                let git = Path::new(&resolved).file_name().is_some_and(|n| n == "git");
-                let mut cmd = tokio::process::Command::new(resolved);
-                cmd.env_clear().envs(self.env.vars().iter());
-                // A runner's daemon Git: never the repository's own config, hooks or helpers (`git_safe.rs`).
-                if let Some(guard) = self.env.git_guard().filter(|_| git) {
+            None => match self.git_guard() {
+                // A runner's daemon Git: never the repository's own config, hooks or helpers, and in its sandbox
+                // where the jail is bubblewrap (`git_safe.rs`).
+                Some(guard) => {
                     let prepared = guard.prepare(self.cwd.as_deref(), &self.args);
+                    let mut cmd = if guard.sandboxed() {
+                        let resolved = std::fs::canonicalize(&resolved).unwrap_or(resolved);
+                        let mut cmd = tokio::process::Command::new("bwrap");
+                        cmd.args(guard.sandbox_args(self.cwd.as_deref(), &resolved)).arg("--").arg(resolved);
+                        cmd
+                    } else {
+                        tokio::process::Command::new(resolved)
+                    };
+                    cmd.env_clear().envs(self.env.vars().iter());
                     for k in crate::git_safe::DROPPED_ENV {
                         cmd.env_remove(k);
                     }
-                    cmd.envs(prepared.env).args(prepared.args);
+                    cmd.envs(prepared.env).args(prepared.args).args(&self.args);
+                    cmd
                 }
-                cmd.args(&self.args);
-                cmd
-            }
+                None => {
+                    let mut cmd = tokio::process::Command::new(resolved);
+                    cmd.env_clear().envs(self.env.vars().iter()).args(&self.args);
+                    cmd
+                }
+            },
         };
         #[cfg(windows)]
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW: pipes carry harness output.
@@ -252,11 +277,11 @@ impl Cmd {
             cmd.stderr(std::process::Stdio::piped());
         }
         let Some(data) = self.stdin_data.clone() else {
-            let out = cmd.output().await?;
+            let out = cmd.output().await.map_err(|e| self.spawn_error(e))?;
             return Ok(Output { status: out.status.into(), stdout: out.stdout, stderr: out.stderr });
         };
         cmd.stdin(std::process::Stdio::piped());
-        let mut child = cmd.spawn()?;
+        let mut child = cmd.spawn().map_err(|e| self.spawn_error(e))?;
         if let Some(mut w) = child.stdin.take() {
             tokio::spawn(async move {
                 use tokio::io::AsyncWriteExt;
@@ -272,7 +297,7 @@ impl Cmd {
     }
 
     pub async fn spawn(&mut self) -> std::io::Result<Proc> {
-        let mut child = self.local().spawn()?;
+        let mut child = self.local().spawn().map_err(|e| self.spawn_error(e))?;
         #[cfg(target_os = "macos")]
         let group_guard = if self.process_tree {
             match MacGroupGuard::start(child.id().expect("spawned process has a PID")) {

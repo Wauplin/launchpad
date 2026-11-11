@@ -16,6 +16,29 @@ use std::path::{Path, PathBuf};
 /// System folders mounted read-only when they exist.
 const SYSTEM: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc", "/opt", "/nix", "/run/systemd/resolve", "/run/resolvconf", "/var/cache/fontconfig"];
 
+/// Namespaces of every bubblewrap sandbox: its own processes, IPC and host name. The network stays shared (the
+/// capture or the daemon's loopback endpoint needs it).
+const NAMESPACES: &[&str] = &["--die-with-parent", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try"];
+
+/// Arguments of a minimal sandbox (before `--`): `system` read-only when it exists, `/proc`, `/dev`, an empty
+/// `/tmp`, then `ro` and `rw` at the same path, started in `cwd`. Nothing else of the machine exists inside.
+pub fn sandbox_args(system: &[&str], ro: &[PathBuf], rw: &[PathBuf], cwd: Option<&Path>) -> Vec<OsString> {
+    let mut a: Vec<OsString> = NAMESPACES.iter().map(OsString::from).collect();
+    for dir in system {
+        a.extend(["--ro-bind-try".into(), (*dir).into(), (*dir).into()]);
+    }
+    a.extend(["--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"].map(OsString::from));
+    for (flag, paths) in [("--ro-bind-try", ro), ("--bind-try", rw)] {
+        for p in paths {
+            a.extend([flag.into(), p.as_os_str().into(), p.as_os_str().into()]);
+        }
+    }
+    if let Some(cwd) = cwd {
+        a.extend(["--chdir".into(), cwd.as_os_str().into()]);
+    }
+    a
+}
+
 /// Folders of the home folder that hold toolchains (never credentials), mounted read-only when they exist.
 pub const HOME_TOOLCHAINS: &[&str] = &[
     ".local/bin",
@@ -69,7 +92,7 @@ impl Jail {
     pub fn args(&self, cwd: Option<&Path>) -> Vec<OsString> {
         let mut a: Vec<OsString> = vec![];
         let mut push = |items: &[&str]| a.extend(items.iter().map(OsString::from));
-        push(&["--die-with-parent", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try"]);
+        push(NAMESPACES);
         for dir in SYSTEM {
             push(&["--ro-bind-try", dir, dir]);
         }

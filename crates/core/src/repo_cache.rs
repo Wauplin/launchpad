@@ -132,9 +132,13 @@ async fn create(app: &App, p: &Project, dir: &Path) -> Result<()> {
 /// even then, with `HEAD`'s files).
 pub async fn capture(app: &App, worktree: &Path, message: &str, always: bool) -> Result<Option<String>> {
     let index = git(app, worktree, &["rev-parse", "--path-format=absolute", "--git-path", "index"], Auth::None, 30).await?;
-    let tmp = std::env::temp_dir().join(format!("lp-index-{}", uuid::Uuid::new_v4()));
+    // Where daemon Git can read it (its sandbox has a private `/tmp`).
+    let scratch = app.env.git_guard().map(|g| g.scratch_dir()).unwrap_or_else(std::env::temp_dir);
+    tokio::fs::create_dir_all(&scratch).await?;
+    let tmp = scratch.join(format!("lp-index-{}", uuid::Uuid::new_v4()));
     if Path::new(&index).exists() {
-        tokio::fs::copy(&index, &tmp).await?;
+        let (from, to) = (PathBuf::from(&index), tmp.clone());
+        tokio::task::spawn_blocking(move || crate::git_safe::copy_regular(&from, &to)).await??;
     }
     let run = |args: Vec<String>| {
         let tmp = tmp.clone();

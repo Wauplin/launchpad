@@ -160,8 +160,6 @@ impl App {
                 ("XDG_STATE_HOME".into(), value(&home.join(".local/state"))),
                 ("XDG_CACHE_HOME".into(), value(&home.join(".cache"))),
             ]);
-            // Agents write the repositories this daemon runs Git in: never their config, hooks or helpers.
-            env = env.with_git_guard(git_safe::Guard::new(&paths.data_dir, paths.port));
         }
         if paths.role == role::Role::Home {
             home_backup::restore_if_empty(&paths, &env).await.context("restore the Home backup")?;
@@ -179,6 +177,12 @@ impl App {
                 libc::prctl(libc::PR_SET_DUMPABLE, 0)
             };
             paths.keep_token_in_memory()?;
+        }
+        if paths.role == role::Role::Runner {
+            // Agents write the repositories this daemon runs Git in: never their config, hooks or helpers, and,
+            // where the jail is bubblewrap, never a file outside them (`git_safe.rs`).
+            let sandbox = !(home_link::burst().is_some() || config.get().runner.boundary == config::Boundary::Vm);
+            env = env.with_git_guard(git_safe::Guard::new(&paths.data_dir, paths.port, sandbox));
         }
         let state_db = db::open_state(&paths.state_db())?;
         let cache_db = db::open_cache(&paths.cache_db())?;
