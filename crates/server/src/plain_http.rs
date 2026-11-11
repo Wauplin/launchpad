@@ -67,10 +67,14 @@ async fn caller(s: &Server, headers: &HeaderMap, store: Option<&str>) -> Result<
         if let Some(store) = store {
             let ws = launchpad_core::scope::of_store(&s.app, store).await;
             // A session's request (its locks, syncs and commits; asset folders an agent maps in its worktree)
-            // stays in the session's own workspace.
+            // stays in the session's own workspace, or the folders its launch named (checked at launch).
             if let Some(sid) = &session {
                 let own = launchpad_core::scope::of_session(&s.app, sid).await;
-                if own.is_none() || own != ws {
+                let named = s.app.sessions.get(sid).is_some_and(|x| {
+                    let folder = store.strip_prefix("tmp-").unwrap_or(store);
+                    x.project_id.as_deref() == Some(folder) || x.launch_spec.context_projects.iter().any(|c| c.project_id == folder)
+                });
+                if !named && (own.is_none() || own != ws) {
                     return Err(ApiError::new(StatusCode::FORBIDDEN, "this folder belongs to another workspace than the session"));
                 }
             }

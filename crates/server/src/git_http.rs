@@ -66,11 +66,13 @@ async fn home(State(s): State<Server>, Path(rest): Path<String>, method: Method,
     {
         return ApiError::new(StatusCode::FORBIDDEN, format!("{e:#}")).into_response();
     }
-    // A session reads and pushes only folders of its own workspace (the daemon's own requests are the runner's).
+    // A session reads and pushes only folders of its own workspace, or folders it has worktrees of by Home's
+    // records (the owner may launch with another workspace's folder); the daemon's own requests are the runner's.
     let folder = rest.split('/').next().unwrap_or_default().trim_end_matches(".git");
     if let Some(sid) = &session {
         let ws = launchpad_core::scope::of_session(&s.app, sid).await;
-        if ws.is_none() || ws != launchpad_core::scope::of_project(&s.app, folder).await {
+        let own = ws.is_some() && ws == launchpad_core::scope::of_project(&s.app, folder).await;
+        if !own && !launchpad_core::away::session_records(&s.app, sid).await.is_ok_and(|l| l.iter().any(|w| w.project_id == folder)) {
             return ApiError::new(StatusCode::FORBIDDEN, "this folder belongs to another workspace than the session").into_response();
         }
     }
