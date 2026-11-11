@@ -78,21 +78,6 @@ pub async fn read_to_string(p: impl AsRef<Path>) -> Result<String> {
     String::from_utf8(read(p).await?).map_err(|e| Error::new(ErrorKind::InvalidData, e))
 }
 
-/// The last `len` bytes.
-pub async fn tail(p: impl AsRef<Path>, len: u64) -> Result<Vec<u8>> {
-    let p = p.as_ref().to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        use std::io::{Read, Seek, SeekFrom};
-        let mut f = std::fs::File::open(&p)?;
-        let size = f.metadata()?.len();
-        f.seek(SeekFrom::Start(size.saturating_sub(len)))?;
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf)?;
-        Ok(buf)
-    })
-    .await?
-}
-
 /// Writes a file, with Unix permissions when given.
 pub async fn write_mode(p: impl AsRef<Path>, data: &[u8], mode: Option<u32>) -> Result<()> {
     let p = p.as_ref();

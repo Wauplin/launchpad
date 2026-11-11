@@ -1260,14 +1260,14 @@ impl harness::Harness for Adapter {
     async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<harness::trace::TraceFile>> {
         let id = harness::trace::conversation(session)?;
         let root = harness::trace::root(app, session, "CODEX_HOME", ".codex").await?;
-        trace_files(&root, id).await
+        trace_files(&app.paths.data_dir, &root, id).await
     }
     /// Codex finds rollouts by date: `sessions/YYYY/MM/DD/rollout-YYYY-MM-DDT…-<id>.jsonl`.
     async fn restore_native(&self, app: &App, session: &Session, files: Vec<harness::trace::TraceFile>) -> Result<()> {
         harness::trace::conversation(session)?;
         let root = harness::trace::root(app, session, "CODEX_HOME", ".codex").await?;
         for f in files {
-            harness::trace::write(&root.join("sessions"), &rollout_path(&f.name)?, &f.data)?;
+            harness::trace::write(&app.paths.data_dir, &root.join("sessions"), &rollout_path(&f.name)?, &f.data)?;
         }
         Ok(())
     }
@@ -1443,13 +1443,13 @@ fn rollout_path(name: &str) -> Result<String> {
     Ok(format!("{}/{}/{}/{name}", parts[0], parts[1], parts[2]))
 }
 
-async fn trace_files(root: &std::path::Path, id: &str) -> Result<Vec<harness::trace::TraceFile>> {
+async fn trace_files(trusted: &std::path::Path, root: &std::path::Path, id: &str) -> Result<Vec<harness::trace::TraceFile>> {
     let mut traces = vec![];
     for folder in ["sessions", "archived_sessions"] {
         for path in harness::trace::files(&root.join(folder), 3).await? {
             let name = path.file_name().unwrap().to_string_lossy();
             if name.starts_with("rollout-") && (name.ends_with(&format!("-{id}.jsonl")) || name.contains(&format!("-{id}_"))) && name.ends_with(".jsonl") {
-                traces.push(harness::trace::read(&path, name.into_owned()).await?);
+                traces.push(harness::trace::read(trusted, &path, name.into_owned()).await?);
             }
         }
     }
@@ -1615,9 +1615,9 @@ mod trace_tests {
         let tmp = crate::test_support::Temp::new();
         let native = b"{\"timestamp\":\"2026-10-28T00:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"thread\"}}\n";
         for path in ["sessions/2026/10/28/rollout-time-thread.jsonl", "sessions/2026/10/28/rollout-time-thread_continuation.jsonl", "archived_sessions/rollout-old-thread.jsonl", "sessions/2026/10/28/rollout-time-other.jsonl"] { tmp.write(path, native); }
-        let files = trace_files(&tmp.0, "thread").await.unwrap();
+        let files = trace_files(&tmp.0, &tmp.0, "thread").await.unwrap();
         assert_eq!(files.len(), 3);
         assert!(files.iter().all(|f| f.data == native && !f.name.contains("other")));
-        assert!(trace_files(&tmp.0, "missing").await.is_err());
+        assert!(trace_files(&tmp.0, &tmp.0, "missing").await.is_err());
     }
 }

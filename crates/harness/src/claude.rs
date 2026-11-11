@@ -996,7 +996,7 @@ impl harness::Harness for Adapter {
     async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<harness::trace::TraceFile>> {
         let id = harness::trace::conversation(session)?;
         let root = harness::trace::root(app, session, "CLAUDE_CONFIG_DIR", ".claude").await?;
-        trace_files(&root, &session.cwd, id).await
+        trace_files(&app.paths.data_dir, &root, &session.cwd, id).await
     }
     /// Claude Code finds a conversation under the slug of its working folder.
     async fn restore_native(&self, app: &App, session: &Session, files: Vec<harness::trace::TraceFile>) -> Result<()> {
@@ -1005,7 +1005,7 @@ impl harness::Harness for Adapter {
         let encoded: String = session.cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
         let dir = root.join("projects").join(encoded);
         for f in files {
-            harness::trace::write(&dir, &f.name, &f.data)?;
+            harness::trace::write(&app.paths.data_dir, &dir, &f.name, &f.data)?;
         }
         Ok(())
     }
@@ -1449,14 +1449,14 @@ fn claude_transcripts_dir(root: &std::path::Path, cwd: &str) -> std::path::PathB
     root.join("projects").join(encoded)
 }
 
-async fn trace_files(root: &std::path::Path, cwd: &str, id: &str) -> Result<Vec<harness::trace::TraceFile>> {
+async fn trace_files(trusted: &std::path::Path, root: &std::path::Path, cwd: &str, id: &str) -> Result<Vec<harness::trace::TraceFile>> {
     let encoded: String = cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
     let dir = root.join("projects").join(encoded);
-    let mut traces = vec![harness::trace::read(&dir.join(format!("{id}.jsonl")), format!("{id}.jsonl")).await?];
+    let mut traces = vec![harness::trace::read(trusted, &dir.join(format!("{id}.jsonl")), format!("{id}.jsonl")).await?];
     for path in harness::trace::files(&dir.join(id).join("subagents"), 2).await? {
         if path.extension().is_some_and(|e| e == "jsonl") {
             let name = path.strip_prefix(&dir)?.to_string_lossy().replace('\\', "/");
-            traces.push(harness::trace::read(&path, name).await?);
+            traces.push(harness::trace::read(trusted, &path, name).await?);
         }
     }
     Ok(traces)
@@ -1613,10 +1613,10 @@ mod trace_tests {
         tmp.write("projects/-my-project/session.jsonl", native);
         tmp.write("projects/-my-project/session/subagents/agent-child.jsonl", native);
         tmp.write("projects/-my-project/other.jsonl", b"{}\n");
-        let files = trace_files(&tmp.0, "/my/project", "session").await.unwrap();
+        let files = trace_files(&tmp.0, &tmp.0, "/my/project", "session").await.unwrap();
         assert_eq!(files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["session.jsonl", "session/subagents/agent-child.jsonl"]);
         assert!(files.iter().all(|f| f.data == native));
-        assert!(trace_files(&tmp.0, "/my/project", "missing").await.is_err());
+        assert!(trace_files(&tmp.0, &tmp.0, "/my/project", "missing").await.is_err());
     }
 }
 

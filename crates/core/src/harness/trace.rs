@@ -34,17 +34,20 @@ pub fn conversation(session: &Session) -> Result<&str> {
     Ok(id)
 }
 
-/// Writes a restored trace file under `dir`. Names are relative paths without `..`.
-pub fn write(dir: &Path, name: &str, data: &[u8]) -> Result<()> {
+/// Writes a restored trace file under `dir`. Names are relative paths without `..`. The harness home is
+/// agent-writable: nothing below `trusted` (the data folder) is followed if it is a link (`safe_fs`).
+pub fn write(trusted: &Path, dir: &Path, name: &str, data: &[u8]) -> Result<()> {
     anyhow::ensure!(!name.is_empty() && !name.starts_with('/') && name.split('/').all(|p| !p.is_empty() && p != ".." && p != "."), "invalid trace file name {name:?}");
-    let path = dir.join(name);
-    std::fs::create_dir_all(path.parent().context("trace file without a folder")?)?;
-    std::fs::write(path, data)?;
+    let (base, rel) = crate::safe_fs::anchor(trusted, &dir.join(name));
+    crate::safe_fs::write(&base, &rel, data, None).with_context(|| format!("write trace file {name}"))?;
     Ok(())
 }
 
-pub async fn read(path: &Path, name: String) -> Result<TraceFile> {
-    let mut data = crate::files::read_limited(path, 256 * 1024 * 1024).await?;
+/// Reads a native trace file: only a regular file, never through a link below `trusted` (the data folder), so
+/// an agent cannot swap its transcript for a link to a file of the machine.
+pub async fn read(trusted: &Path, path: &Path, name: String) -> Result<TraceFile> {
+    let (base, rel) = crate::safe_fs::anchor(trusted, path);
+    let mut data = crate::safe_fs::read_async(base, rel, 256 * 1024 * 1024).await?;
     // A live JSONL writer may be halfway through its last record. Retry that tail next pass.
     if name.ends_with(".jsonl") && !data.ends_with(b"\n") {
         let end = data.iter().rposition(|b| *b == b'\n').map_or(0, |n| n + 1);
@@ -57,6 +60,10 @@ pub async fn files(root: &Path, depth: usize) -> Result<Vec<PathBuf>> {
     let mut pending = vec![(root.to_path_buf(), depth)];
     let mut files = vec![];
     while let Some((dir, depth)) = pending.pop() {
+        // A folder an agent replaced by a link is left out (its files would be refused by `read` anyway).
+        if crate::files::symlink_metadata(&dir).await.is_ok_and(|m| m.kind == "symlink") {
+            continue;
+        }
         let entries = match crate::files::read_dir(&dir).await {
             Ok(v) => v,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -99,11 +106,11 @@ pub(crate) mod tests {
         let mut partial = complete.to_vec();
         partial.extend(b"{\"type\":");
         tmp.write("trace.jsonl", &partial);
-        assert_eq!(read(&tmp.0.join("trace.jsonl"), "trace.jsonl".into()).await.unwrap().data, complete);
+        assert_eq!(read(&tmp.0, &tmp.0.join("trace.jsonl"), "trace.jsonl".into()).await.unwrap().data, complete);
         partial.extend(b"\"user\"}");
         tmp.write("trace.jsonl", &partial);
-        assert_eq!(read(&tmp.0.join("trace.jsonl"), "trace.jsonl".into()).await.unwrap().data, partial);
+        assert_eq!(read(&tmp.0, &tmp.0.join("trace.jsonl"), "trace.jsonl".into()).await.unwrap().data, partial);
         tmp.write("export.json", b"{\"native\":true}");
-        assert_eq!(read(&tmp.0.join("export.json"), "export.json".into()).await.unwrap().data, b"{\"native\":true}");
+        assert_eq!(read(&tmp.0, &tmp.0.join("export.json"), "export.json".into()).await.unwrap().data, b"{\"native\":true}");
     }
 }

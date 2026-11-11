@@ -340,7 +340,9 @@ pub async fn prepare(
                 &hex::encode(Sha256::digest(&bytes))[..8],
                 if name.is_empty() { "attachment" } else { &name }
             ));
-            crate::files::write_mode(&path, &bytes, Some(0o600)).await?;
+            // The folder is agent-writable: a link planted in the file's place is replaced, never written through.
+            let (base, rel) = crate::safe_fs::anchor(&app.paths.data_dir, &path);
+            crate::safe_fs::write_async(base, rel, bytes, Some(0o600)).await?;
             paths.push(format!("- {}", path.display()));
         }
     }

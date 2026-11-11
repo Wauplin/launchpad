@@ -139,8 +139,12 @@ impl harness::Harness for Adapter {
         let id = harness::trace::conversation(session)?;
         // Moved here but not started since: OpenCode does not have it yet, the waiting export is the trace.
         let pending = pending_import(app, &session.id, id);
-        if pending.exists() {
-            return Ok(vec![harness::trace::TraceFile { name: format!("{id}.json"), data: std::fs::read(&pending)? }]);
+        // The harness home is agent-writable: only a regular file, never through a link (`safe_fs`).
+        let (base, rel) = launchpad_core::safe_fs::anchor(&app.paths.data_dir, &pending);
+        match launchpad_core::safe_fs::read_async(base, rel, 256 * 1024 * 1024).await {
+            Ok(data) => return Ok(vec![harness::trace::TraceFile { name: format!("{id}.json"), data }]),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
         }
         let env = harness::trace::environment(app, session)?;
         export_trace(&env, id).await
@@ -153,8 +157,8 @@ impl harness::Harness for Adapter {
         let file = files.into_iter().find(|f| f.name == format!("{id}.json")).ok_or_else(|| anyhow::anyhow!("no OpenCode export of this conversation"))?;
         let _: serde_json::Value = serde_json::from_slice(&file.data).map_err(|e| anyhow::anyhow!("the OpenCode export of this conversation is not JSON: {e}"))?;
         let path = pending_import(app, &session.id, id);
-        std::fs::create_dir_all(path.parent().expect("import file has a folder"))?;
-        std::fs::write(&path, &file.data)?;
+        let (base, rel) = launchpad_core::safe_fs::anchor(&app.paths.data_dir, &path);
+        launchpad_core::safe_fs::write(&base, &rel, &file.data, None)?;
         Ok(())
     }
     async fn models(&self, app: &App) -> Result<Vec<ModelInfo>> {

@@ -27,11 +27,14 @@ pub fn components(rel: &Path) -> Result<Vec<&OsStr>> {
 }
 
 /// The trusted base and the part below it of `path`: `trusted` (the data folder) when `path` lies below it, else
-/// `path` itself (its own folders are then followed, nothing below it).
+/// its parent folder (followed) and its name (never followed).
 pub fn anchor(trusted: &Path, path: &Path) -> (PathBuf, PathBuf) {
     match path.strip_prefix(trusted) {
-        Ok(rel) if components(rel).is_ok() => (trusted.to_path_buf(), rel.to_path_buf()),
-        _ => (path.to_path_buf(), PathBuf::new()),
+        Ok(rel) if components(rel).is_ok_and(|c| !c.is_empty()) => (trusted.to_path_buf(), rel.to_path_buf()),
+        _ => match (path.parent(), path.file_name()) {
+            (Some(parent), Some(name)) => (parent.to_path_buf(), PathBuf::from(name)),
+            _ => (path.to_path_buf(), PathBuf::new()),
+        },
     }
 }
 
@@ -50,6 +53,17 @@ pub fn read(base: &Path, rel: &Path, max: u64) -> Result<Vec<u8>> {
     }
     let mut data = Vec::with_capacity(len as usize);
     f.by_ref().take(max).read_to_end(&mut data)?;
+    Ok(data)
+}
+
+/// The last `len` bytes of a regular file.
+pub fn tail(base: &Path, rel: &Path, len: u64) -> Result<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = open(base, rel)?;
+    let size = f.metadata()?.len();
+    f.seek(SeekFrom::Start(size.saturating_sub(len)))?;
+    let mut data = vec![];
+    f.take(len).read_to_end(&mut data)?;
     Ok(data)
 }
 
@@ -283,8 +297,8 @@ mod tests {
         assert!(components(Path::new("/etc/passwd")).is_err());
         let (base, rel) = anchor(Path::new("/data"), Path::new("/data/plain/x"));
         assert_eq!((base.as_path(), rel.as_path()), (Path::new("/data"), Path::new("plain/x")));
-        assert_eq!(anchor(Path::new("/data"), Path::new("/data/../etc")).0, Path::new("/data/../etc"));
-        assert_eq!(anchor(Path::new("/data"), Path::new("/elsewhere/x")).1, Path::new(""));
+        assert_eq!(anchor(Path::new("/data"), Path::new("/data/a/../../etc")).0, Path::new("/data/a/../.."));
+        assert_eq!(anchor(Path::new("/data"), Path::new("/elsewhere/x")), (PathBuf::from("/elsewhere"), PathBuf::from("x")));
     }
 
     #[cfg(unix)]

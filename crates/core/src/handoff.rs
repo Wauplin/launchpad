@@ -146,7 +146,13 @@ async fn read_attachments(app: &App, id: &str) -> Result<Vec<HandoffFile>> {
         if !e.file_type().await?.is_file() {
             continue;
         }
-        let data = tokio::fs::read(e.path()).await?;
+        // Agent-writable: only a regular file, never through a link (`safe_fs`).
+        let (base, rel) = crate::safe_fs::anchor(&app.paths.data_dir, &e.path());
+        let data = match crate::safe_fs::read_async(base, rel, 64 << 20).await {
+            Ok(d) => d,
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput) => continue,
+            Err(e) => return Err(e.into()),
+        };
         out.push(HandoffFile { name: e.file_name().to_string_lossy().into_owned(), data: base64::engine::general_purpose::STANDARD.encode(data), sha256: None, base: None });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -164,7 +170,8 @@ async fn write_attachments(app: &App, id: &str, files: &[HandoffFile]) -> Result
     for f in files {
         ensure!(!f.name.is_empty() && !f.name.contains(['/', '\\']) && f.name != "." && f.name != "..", "invalid attachment name {}", f.name);
         let data = base64::engine::general_purpose::STANDARD.decode(&f.data)?;
-        crate::files::write_mode(&dir.join(&f.name), &data, Some(0o600)).await?;
+        let (base, rel) = crate::safe_fs::anchor(&app.paths.data_dir, &dir.join(&f.name));
+        crate::safe_fs::write_async(base, rel, data, Some(0o600)).await?;
     }
     Ok(())
 }

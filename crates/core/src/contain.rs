@@ -24,6 +24,26 @@ pub fn session_dir(app: &App, id: &str) -> PathBuf {
 }
 
 /// The harness home of a session: `HOME` inside its jail.
+/// Where the daemon reads a file an agent named by its path in the jail's `/tmp` or `/var/tmp` (a background
+/// command's output file): in the session's own temporary folder (the machine's `/tmp` where agents run without
+/// a jail), as a base and a path below it whose components `safe_fs` never follows. None for any other path, and
+/// on Home, which never reads its own disk for an agent.
+pub fn tmp_file(app: &App, id: &str, path: &str) -> Option<(PathBuf, PathBuf)> {
+    if app.paths.role != crate::role::Role::Runner {
+        return None;
+    }
+    let (prefix, rel) = jail_tmp(path)?;
+    Some(if outside_jail(app) { (PathBuf::from(prefix), rel) } else { (session_dir(app, id).join("tmp"), rel) })
+}
+
+fn jail_tmp(path: &str) -> Option<(&'static str, PathBuf)> {
+    ["/tmp", "/var/tmp"].into_iter().find_map(|prefix| {
+        let rel = Path::new(path).strip_prefix(prefix).ok()?;
+        crate::safe_fs::components(rel).ok().filter(|c| !c.is_empty())?;
+        Some((prefix, rel.to_path_buf()))
+    })
+}
+
 pub fn harness_home(app: &App, id: &str) -> PathBuf {
     session_dir(app, id).join("home")
 }
@@ -475,4 +495,16 @@ pub async fn auxiliary(app: &App, session: &Session, cwd: &Path) -> Result<Optio
     };
     let spec = apply(app, spec).await?;
     Ok(Some((spec.env, spec.jail)))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn task_output_paths_stay_in_the_jail_tmp() {
+        assert_eq!(super::jail_tmp("/tmp/claude-1000/x/tasks/a.output"), Some(("/tmp", "claude-1000/x/tasks/a.output".into())));
+        assert_eq!(super::jail_tmp("/var/tmp/a"), Some(("/var/tmp", "a".into())));
+        for bad in ["/tmp", "/tmp/", "/tmp/../home/me/.ssh/id_ed25519", "/tmpx/a", "/data/token", "tmp/a", "/var/tmp/a/../../etc"] {
+            assert_eq!(super::jail_tmp(bad), None, "{bad}");
+        }
+    }
 }

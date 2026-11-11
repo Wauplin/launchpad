@@ -536,7 +536,8 @@ struct TaskQuery {
     task_id: String,
 }
 
-/// The end of a background command's output file. Only files named in the session's own events.
+/// The end of a background command's output file. Only files named in the session's own events, and only in the
+/// session's own `/tmp` on its runner (`contain::tmp_file`), never through a link: an agent could forge the event.
 async fn task_output(State(s): State<Ctx>, Path(id): Path<String>, Query(q): Query<TaskQuery>) -> ApiResult<Value> {
     let events = s.app.sessions.events(&s.app, &id, 0).await?;
     let file = events.iter().rev().find_map(|e| match &e.body {
@@ -544,7 +545,9 @@ async fn task_output(State(s): State<Ctx>, Path(id): Path<String>, Query(q): Que
         _ => None,
     });
     let Some(file) = file else { return Ok(Json(json!({"text": null}))) };
-    let text = launchpad_core::files::tail(&file, 4096).await.ok().map(|b| String::from_utf8_lossy(&b).to_string());
+    let Some((base, rel)) = launchpad_core::contain::tmp_file(&s.app, &id, &file) else { return Ok(Json(json!({"text": null}))) };
+    let tail = tokio::task::spawn_blocking(move || launchpad_core::safe_fs::tail(&base, &rel, 4096)).await;
+    let text = tail.ok().and_then(Result::ok).map(|b| String::from_utf8_lossy(&b).to_string());
     Ok(Json(json!({"text": text})))
 }
 
