@@ -371,6 +371,15 @@ pub async fn prepare(app: &App, id: &str) -> Result<TaskWorktree> {
 /// Per-worktree Git settings: pushes name the session, and `git push` goes to the same branch on Home.
 /// Written as files into the clone's config (daemon Git reads its own, `git_safe`), only inside this runner's clones.
 async fn configure(app: &App, w: &TaskWorktree, session_id: &str) -> Result<()> {
+    let found = set_session_header(app, w, session_id).await?;
+    let common = found.common_dir.join("config").to_string_lossy().into_owned();
+    git(app, &w.root, &["config", "--file", &common, &format!("branch.{}.remote", w.branch), "origin"]).await?;
+    git(app, &w.root, &["config", "--file", &common, &format!("branch.{}.merge", w.branch), &format!("refs/heads/{}", w.branch)]).await?;
+    Ok(())
+}
+
+/// Writes the session's Git header into the worktree's own config (its `git fetch` and `git push` to Home).
+async fn set_session_header(app: &App, w: &TaskWorktree, session_id: &str) -> Result<crate::git_safe::Found> {
     let found = crate::git_safe::find(Path::new(&w.root), &app.paths.data_dir).context("the worktree has no Git directory")?;
     ensure!(
         crate::git_safe::cache_project(&app.paths.data_dir, &found.common_dir).as_deref() == Some(w.project_id.as_str()) && found.git_dir.starts_with(found.common_dir.join("worktrees")),
@@ -378,11 +387,8 @@ async fn configure(app: &App, w: &TaskWorktree, session_id: &str) -> Result<()> 
         w.root
     );
     let worktree = found.git_dir.join("config.worktree").to_string_lossy().into_owned();
-    let common = found.common_dir.join("config").to_string_lossy().into_owned();
     git(app, &w.root, &["config", "--file", &worktree, "http.extraHeader", &crate::repo_cache::session_header(app, session_id)?]).await?;
-    git(app, &w.root, &["config", "--file", &common, &format!("branch.{}.remote", w.branch), "origin"]).await?;
-    git(app, &w.root, &["config", "--file", &common, &format!("branch.{}.merge", w.branch), &format!("refs/heads/{}", w.branch)]).await?;
-    Ok(())
+    Ok(found)
 }
 
 /// Continues a GitHub pull request: Home reads it with its own GitHub login, fetches its head into the session's
@@ -843,6 +849,11 @@ pub async fn restore_for_session(app: &App, session_id: &str) -> Result<bool> {
         if matches!(w.state, WorktreeState::Removed | WorktreeState::Preparing) {
             restore(app, &w.id).await?;
             restored = true;
+        } else if w.state == WorktreeState::Active && Path::new(&w.root).is_dir() {
+            // The header derives from the daemon's token, which Burst and Local VM runners renew at each start.
+            if let Err(e) = set_session_header(app, &w, session_id).await {
+                tracing::warn!("worktree {}: could not renew the session's Git header: {e:#}", w.id);
+            }
         }
     }
     Ok(restored)
