@@ -53,10 +53,26 @@ pub async fn complete(db: &Db, id: &str, status: u16, body: String) -> Result<()
     let id = id.to_owned();
     db.call(move |c| {
         c.execute(
-            "UPDATE browser_operation SET status=?2, response=?3 WHERE id=?1",
-            rusqlite::params![id, status, body],
+            "UPDATE browser_operation SET status=?2, response=?3, done_at=?4 WHERE id=?1",
+            rusqlite::params![id, status, body, crate::util::now_ms()],
         )?;
         Ok(())
+    })
+    .await
+}
+
+/// How long a completed claim answers retries of its request with the saved response.
+pub const KEEP_COMPLETED_MS: i64 = 7 * 24 * 3600 * 1000;
+
+/// Deletes claims that completed more than `KEEP_COMPLETED_MS` ago (claims completed before `done_at` existed
+/// count as old). Claims without a result (in flight or uncertain) stay: they are what stops a repeat, and the owner
+/// may still have to check the destination.
+pub async fn prune(db: &Db, now: i64) -> Result<usize> {
+    db.call(move |c| {
+        Ok(c.execute(
+            "DELETE FROM browser_operation WHERE status IS NOT NULL AND response IS NOT NULL AND coalesce(done_at, 0) < ?1",
+            [now - KEEP_COMPLETED_MS],
+        )?)
     })
     .await
 }
@@ -111,6 +127,11 @@ mod tests {
                 .unwrap(),
             Claim::Uncertain
         ));
+        // Pruning keeps the unresolved claim "b" and the fresh result of "a", then drops "a" once it is old.
+        let now = crate::util::now_ms();
+        assert_eq!(prune(&db, now).await.unwrap(), 0);
+        assert_eq!(prune(&db, now + KEEP_COMPLETED_MS + 60_000).await.unwrap(), 1);
+        assert!(matches!(claim(&db, "b", "/api/sessions/x/input", b"msg").await.unwrap(), Claim::Uncertain));
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
         }

@@ -256,6 +256,9 @@ CREATE TABLE IF NOT EXISTS daemon_start (at INTEGER PRIMARY KEY, commit_id TEXT 
     conn.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS profile_cost_id ON profile_cost (id);")?;
     if !bot_columns.iter().any(|c| c == "paused") { conn.execute_batch("ALTER TABLE bot ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;")?; }
     if !device_columns.iter().any(|c| c == "last_seen_at") { conn.execute_batch("ALTER TABLE browser_device ADD COLUMN last_seen_at INTEGER;")?; }
+    // When a browser operation completed, so completed claims can be pruned (`operations::prune`).
+    let operation_columns = conn.prepare("PRAGMA table_info(browser_operation)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !operation_columns.iter().any(|c| c == "done_at") { conn.execute_batch("ALTER TABLE browser_operation ADD COLUMN done_at INTEGER;")?; }
     // The vault SSH key (removed): agents push to Home Git and clones use the GitHub sign-in.
     conn.execute_batch("DELETE FROM vault WHERE kind = 'ssh_key';")?;
     // Traces imported from other instances (peer trace sync, removed): Home is the only source now.

@@ -121,7 +121,32 @@ fn unanswered_requests(events: &[EventBody]) -> Vec<String> {
     pending.into_iter().collect()
 }
 
+/// Raw harness lines kept per session (`Sink::raw`): at most this many lines and bytes, each line cut to
+/// `RAW_LINE_BYTES`, deleted at Archive and after `RAW_KEEP_MS` (`retention.rs`).
 const RAW_LINES_CAP: i64 = 20_000;
+const RAW_BYTES_CAP: i64 = 16 * 1024 * 1024;
+const RAW_LINE_BYTES: usize = 64 * 1024;
+pub const RAW_KEEP_MS: i64 = 14 * 24 * 3600 * 1000;
+
+/// A raw line cut to at most `max` bytes, on a character boundary.
+fn raw_cut(line: &str, max: usize) -> &str {
+    if line.len() <= max {
+        return line;
+    }
+    let mut end = max;
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    &line[..end]
+}
+
+/// Deletes a session's raw lines (Archive, forget).
+fn drop_raw(app: &App, sessions: &Sessions, id: &str) {
+    sessions.inner.raw_counts.lock().unwrap().remove(id);
+    let id = id.to_string();
+    // Queued, not awaited: nothing reads these lines.
+    drop(app.state_db.enqueue(move |c| Ok(c.execute("DELETE FROM session_raw WHERE session_id = ?1", [id])?)));
+}
 
 #[derive(Debug)]
 pub struct FollowUpBusy;
@@ -173,7 +198,8 @@ struct Inner {
     /// Attached processes, with an instance number: the exit of an old process never detaches a newer one.
     live: Mutex<LiveSessions>,
     next_instance: std::sync::atomic::AtomicU64,
-    raw_counts: Mutex<HashMap<String, i64>>,
+    /// Per session: the next raw line number and the bytes stored so far.
+    raw_counts: Mutex<HashMap<String, (i64, i64)>>,
     /// Sessions shown in a focused window, per window connection: no notification for them.
     watched: Mutex<HashMap<u64, Presence>>,
 }
@@ -814,6 +840,7 @@ impl Sessions {
     /// events leave this disk only, without a replica item: Home holds the newer generation.
     pub(crate) async fn forget_local(&self, app: &App, id: &str) -> Result<()> {
         self.inner.records.lock().unwrap().remove(id);
+        drop_raw(app, self, id);
         let key = id.to_string();
         app.state_db
             .call(move |c| {
@@ -2227,6 +2254,7 @@ impl Sessions {
             s.unsaved = None;
         })
         .await?;
+        drop_raw(app, self, id);
         self.publish_counts(app);
         Ok(())
     }
@@ -2525,35 +2553,35 @@ impl Sink {
         });
     }
 
-    /// Stores a raw harness line (capped per session), so the normalizer can be improved and replayed.
+    /// Stores a raw harness line (capped per session in lines and bytes), so the normalizer can be improved and
+    /// replayed. Nothing reads them in the daemon; they go at Archive and after `RAW_KEEP_MS`.
     pub async fn raw(&self, dir: &str, line: &str) {
         let known = self.sessions.inner.raw_counts.lock().unwrap().contains_key(&self.id);
         if !known {
-            // First line since the daemon started: continue the numbering of earlier processes.
+            // First line since the daemon started: continue the numbering and the size of earlier processes.
             let id = self.id.clone();
             let next = self
                 .app
                 .state_db
-                .call(move |c| Ok(c.query_row("SELECT coalesce(max(n) + 1, 0) FROM session_raw WHERE session_id = ?1", [id], |r| r.get::<_, i64>(0))?))
+                .call(move |c| Ok(c.query_row("SELECT coalesce(max(n) + 1, 0), coalesce(sum(length(CAST(line AS BLOB))), 0) FROM session_raw WHERE session_id = ?1", [id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?))
                 .await
-                .unwrap_or(0);
+                .unwrap_or((0, 0));
             self.sessions.inner.raw_counts.lock().unwrap().entry(self.id.clone()).or_insert(next);
         }
+        let line = raw_cut(line, RAW_LINE_BYTES);
         let n = {
             let mut counts = self.sessions.inner.raw_counts.lock().unwrap();
-            let c = counts.get_mut(&self.id).unwrap();
-            *c += 1;
-            *c - 1
+            let Some((next, bytes)) = counts.get_mut(&self.id) else { return };
+            if *next >= RAW_LINES_CAP || *bytes + line.len() as i64 > RAW_BYTES_CAP {
+                return;
+            }
+            *next += 1;
+            *bytes += line.len() as i64;
+            *next - 1
         };
-        if n >= RAW_LINES_CAP {
-            return;
-        }
-        let (id, dir, line) = (self.id.clone(), dir.to_string(), line.chars().take(200_000).collect::<String>());
-        let _ = self
-            .app
-            .state_db
-            .call(move |c| Ok(c.execute("INSERT OR IGNORE INTO session_raw (session_id, n, ts, dir, line) VALUES (?1, ?2, ?3, ?4, ?5)", params![id, n, now_ms(), dir, line])?))
-            .await;
+        let (id, dir, line) = (self.id.clone(), dir.to_string(), line.to_string());
+        // Queued, not awaited: the harness's output loop never waits for the database.
+        drop(self.app.state_db.enqueue(move |c| Ok(c.execute("INSERT OR IGNORE INTO session_raw (session_id, n, ts, dir, line) VALUES (?1, ?2, ?3, ?4, ?5)", params![id, n, now_ms(), dir, line])?)));
     }
 
     pub fn stop_requested(&self) -> bool {
@@ -2903,6 +2931,13 @@ mod tests;
 #[cfg(test)]
 mod recovery_tests {
     use super::*;
+
+    #[test]
+    fn raw_lines_are_cut_on_a_character_boundary() {
+        assert_eq!(raw_cut("abc", 5), "abc");
+        assert_eq!(raw_cut("abcdef", 3), "abc");
+        assert_eq!(raw_cut("aé", 2), "a");
+    }
 
     #[test]
     fn startup_retires_only_unanswered_root_decisions() {

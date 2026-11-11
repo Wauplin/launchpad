@@ -39,6 +39,7 @@ pub mod quota;
 pub mod role;
 pub mod runners;
 pub mod replica;
+pub mod retention;
 pub mod home_link;
 pub mod home_backup;
 pub mod home_git;
@@ -229,6 +230,7 @@ impl App {
         harness::spawn_model_refresh(&app);
         projects::spawn(&app);
         home_git::spawn(&app);
+        retention::spawn(&app);
         plain::spawn(&app);
         kb::spawn(&app);
         if let Err(e) = projects::forget_disk_folders(&app).await {
