@@ -96,6 +96,8 @@ env = { ANTHROPIC_BASE_URL = "https://router.huggingface.co", ANTHROPIC_AUTH_TOK
 
 Values can use `~/`, `${NAME}` (from your login shell) and `${LAUNCHPAD_MODEL}` (the session's model). On Unix, the file is saved with mode 0600.
 
+`models_url` gives the profile its own model list (an OpenAI-style `/v1/models` endpoint). The composer and a session's model menu then show only that list, with no effort choices, and Home refuses the harness's own models for the profile's sessions, except the profile's `model`.
+
 ## CLI
 
 The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCHPAD_ENV`.

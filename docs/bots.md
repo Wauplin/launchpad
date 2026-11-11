@@ -92,6 +92,8 @@ A new session starts:
 
 A permission mode you change on the session itself, in Agents, keeps the thread: only a change in `bot.toml` starts a new session.
 
+Messages to one bot choose its session one at a time, whoever sends them: your windows, Telegram, hooks, routines and agents. So two messages that arrive together never start two sessions.
+
 A new session gets a reference to the previous session's trace (`launchpad trace …`), never a copy of it, and the bot's memory (see [Memory](#memory)). The harness compacts a long context on its own.
 
 An edit of `BOT.md` starts no new session. The current session gets the new `BOT.md` with your next message: after your text, the message carries a block that starts with “Your instructions changed” and holds the whole new `BOT.md`. This also holds for messages from routines, hooks, Telegram and cards. Until then, the message box says **Instructions updated · applies to your next message**. In the chat, that message shows **With your updated BOT.md** under your text instead of the block.
@@ -139,6 +141,8 @@ The message box sends to the current session. Its **+** icon, next to **Attach**
 One message box also answers. When the bot asks a question, the question shows its options as chips: click one to answer. The box shows **Answering:** and the question, and the text you type is the answer; the **+** icon is hidden. **Cancel** lets you write a normal message instead: the line then says **Your message skips:** and the question, with **Answer it** to go back. When you send, Launchpad first closes the question as skipped, then sends your message, so the bot reads it at once. **Cancel** shows only for harnesses that take messages while they work. A report that needs you works the same way: **Reply** on its line puts **Replying to:** and its title over the box, and your text goes to the bot with the report's title, item and ID. **Cancel** goes back to a normal message. An approval request is different: it keeps **Allow** and **Deny** on its card, and the box is disabled until you choose. Typed text never grants a permission.
 
 The box keeps your unsent text in this browser tab when you open About, go back or open another bot, until you send it. Attachments are not kept.
+
+A message is sent once. Each message from a window carries a retry key, so a double tap or a lost response never sends it twice or starts two sessions. When the answer to a message is lost (for example, the connection dropped), the chat keeps the message and says **Delivery not confirmed**. Send the same message again to check: Home returns the result of the first send and does not send it twice. This also holds for a message that started a new session. Look at the chat first if you are not sure; **I checked the chat — start a new attempt** forgets the key, and your next send is a new message. Launchpad never resends on its own.
 
 The chat is the whole page. The header shows the bot's avatar, its name and one status line in words: for example “Waiting for you · 1 question”, “Working · Edited src/app.ts (3 min)”, “Paused · no trigger starts it; your messages still go through”, “The last turn failed”, “No task yet”, or “Idle · next: Daily check tomorrow 09:00”. A warning about its runner is added when there is one. On a laptop, the top bar shows **Bots / bot** to go back to the list. The header's buttons are **About** and **⋯**.
 
