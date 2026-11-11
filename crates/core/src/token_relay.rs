@@ -60,6 +60,7 @@ pub async fn upstream(app: &App, runner_id: &str, lease_id: &str, host: &str, me
         .find_map(|c| c.hosts.iter().find(|h| h.matches(host)).map(|h| (c.secret.clone(), h.auth.clone())))
         .with_context(|| format!("the lease has no token for {host}"))?;
     let mut url = reqwest::Url::parse(&format!("https://{host}{target}"))?;
+    anyhow::ensure!(crate::vault::url_is_host(&url, &host.to_ascii_lowercase()), "the address names another host than {host}");
     let mut out = reqwest::header::HeaderMap::new();
     for (k, v) in &headers {
         if crate::proxy::HOP.contains(&k.to_ascii_lowercase().as_str()) {

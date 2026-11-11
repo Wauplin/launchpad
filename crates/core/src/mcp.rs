@@ -326,6 +326,15 @@ pub fn refused_calls(body: &Value, off: &[String]) -> Vec<(Value, String)> {
         .collect()
 }
 
+/// A JSON-RPC message (an object) or a non-empty batch of them.
+fn jsonrpc_shape(v: &Value) -> bool {
+    match v {
+        Value::Object(_) => true,
+        Value::Array(a) => !a.is_empty() && a.iter().all(Value::is_object),
+        _ => false,
+    }
+}
+
 /// Home: one request of a session's runner to an MCP server.
 pub async fn gateway(app: &App, runner_id: &str, lease_id: &str, server: &str, method: &str, headers: Vec<(String, String)>, body: ByteStream) -> Result<HttpReply> {
     ensure!(crate::vault::here(app), "MCP servers are reached through Home");
@@ -347,7 +356,15 @@ pub async fn gateway(app: &App, runner_id: &str, lease_id: &str, server: &str, m
     if m == reqwest::Method::POST {
         let parts: Vec<bytes::Bytes> = body.try_collect().await?;
         let bytes = parts.concat();
-        let parsed: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        // A body the gateway cannot read would skip the "tool is off" check: refused, and the server gets the
+        // value read here, never the original bytes.
+        let parsed = match serde_json::from_slice::<Value>(&bytes) {
+            Ok(v) if jsonrpc_shape(&v) => v,
+            _ => {
+                let text = json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "Launchpad could not read this request as JSON-RPC"}}).to_string();
+                return Ok(HttpReply { status: 400, headers: vec![("content-type".into(), "application/json".into())], body: Box::pin(futures_util::stream::once(async move { Ok(bytes::Bytes::from(text)) })) });
+            }
+        };
         let refused = refused_calls(&parsed, &s.tools_off);
         if let Some((id, name)) = refused.into_iter().next() {
             let text = json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": format!("The tool {name} is off in Launchpad (Settings → Credentials and tools)")}}).to_string();
@@ -355,7 +372,7 @@ pub async fn gateway(app: &App, runner_id: &str, lease_id: &str, server: &str, m
         }
         let all = match &parsed { Value::Array(a) => a.clone(), v => vec![v.clone()] };
         calls = all.iter().filter(|m| m["method"] == "tools/call").filter_map(|m| m["params"]["name"].as_str().map(str::to_string)).collect();
-        r = r.body(bytes);
+        r = r.body(parsed.to_string());
     }
     let res = r.send().await.with_context(|| format!("reach {}", s.name))?;
     let status = res.status().as_u16();
@@ -424,6 +441,7 @@ mod tests {
         let batch = json!([{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "search"}}, {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "send_email"}}]);
         assert_eq!(refused_calls(&batch, &off), vec![(json!(5), "send_email".to_string())]);
         let sse = "event: message\ndata: {\"id\":1,\"result\":{}}\n\ndata: {\"id\":2}\n\n";
+        assert!(jsonrpc_shape(&batch) && !jsonrpc_shape(&json!([])) && !jsonrpc_shape(&json!(null)) && !jsonrpc_shape(&json!([1])));
         assert_eq!(messages("text/event-stream", sse), vec![json!({"id": 1, "result": {}}), json!({"id": 2})]);
     }
 }

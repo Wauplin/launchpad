@@ -75,13 +75,36 @@ pub struct HostRule {
 }
 
 impl HostRule {
+    /// Whether a request to `host` gets this rule's token: both must be DNS names (`dns_name`), compared without
+    /// case; `*.example.com` matches every name ending in `.example.com`.
     pub fn matches(&self, host: &str) -> bool {
         let host = host.to_ascii_lowercase();
-        match self.host.strip_prefix("*.") {
-            Some(suffix) => host.ends_with(&format!(".{suffix}")),
-            None => host == self.host.to_ascii_lowercase(),
+        let rule = self.host.to_ascii_lowercase();
+        if !dns_name(&host) {
+            return false;
+        }
+        match rule.strip_prefix("*.") {
+            Some(suffix) => dns_name(suffix) && host.ends_with(&format!(".{suffix}")),
+            None => dns_name(&rule) && host == rule,
         }
     }
+}
+
+/// A lowercase DNS host name: labels of 1 to 63 ASCII letters, digits and dashes (not first or last), joined by
+/// dots, at most 253 characters, with no trailing dot. Ports, user info, paths, IP literals and Unicode names
+/// (use their `xn--` form) are refused.
+pub fn dns_name(host: &str) -> bool {
+    !host.is_empty()
+        && host.len() <= 253
+        && host.split('.').all(|l| {
+            !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-') && l.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
+}
+
+/// Whether `url` (built from `host` and a request target) still goes to exactly `host` on the default port, with
+/// no user info: checked before a token is added.
+pub fn url_is_host(url: &reqwest::Url, host: &str) -> bool {
+    url.scheme() == "https" && url.host_str() == Some(host) && url.port().is_none() && url.username().is_empty() && url.password().is_none()
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -362,7 +385,7 @@ pub fn check_tool(t: &Tool) -> Result<()> {
     }
     for h in &t.hosts {
         let host = h.host.strip_prefix("*.").unwrap_or(&h.host);
-        anyhow::ensure!(!host.is_empty() && host.contains('.') && host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'), "{:?} is not a host name", h.host);
+        anyhow::ensure!(dns_name(host) && host.contains('.'), "{:?} is not a host name (lowercase letters, digits, dashes and dots, like api.example.com or *.example.com)", h.host);
         if let Auth::Header { name, .. } = &h.auth {
             anyhow::ensure!(!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'), "{name:?} is not a header name");
         }
@@ -1275,6 +1298,22 @@ mod tests {
         assert!(wild.matches("a.b.example.com"));
         assert!(!wild.matches("example.com"));
         assert!(!wild.matches("badexample.com"));
+        // Names a URL parser reads as another host, or that are not plain DNS names.
+        for evil in ["evil.com/.example.com", "evil.com\\.example.com", "evil.com#.example.com", "evil.com?.example.com", "user@a.example.com", "evil.com:1@a.example.com", "a.example.com:8443", "a.example.com.", "a..example.com", "-a.example.com", "é.example.com", "a example.com", ""] {
+            assert!(!wild.matches(evil), "{evil}");
+        }
+        assert!(wild.matches("xn--bcher-kva.example.com"));
+        assert!(!HostRule { host: "*.evil.com/x".into(), auth: Auth::Bearer }.matches("a.evil.com/x"));
+        assert!(!HostRule { host: "*.".into(), auth: Auth::Bearer }.matches("a."));
+    }
+
+    #[test]
+    fn urls_built_from_a_valid_host_stay_on_it() {
+        let url = |h: &str, t: &str| reqwest::Url::parse(&format!("https://{h}{t}")).unwrap();
+        assert!(url_is_host(&url("api.github.com", "/repos?x=1"), "api.github.com"));
+        assert!(!url_is_host(&url("api.github.com", ":8443/"), "api.github.com"));
+        assert!(!url_is_host(&url("api.github.com", ".evil.com/"), "api.github.com"));
+        assert!(!url_is_host(&url("api.github.com", "@evil.com/"), "api.github.com"));
     }
 
     #[test]

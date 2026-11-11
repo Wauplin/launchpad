@@ -601,12 +601,17 @@ pub fn add_auth(headers: &mut reqwest::header::HeaderMap, url: &mut reqwest::Url
 /// Adds the credential (if the lease has one for this host), sends the request to `https://<host><target>`
 /// and streams the answer back.
 async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target: &str, req: Request<Incoming>) -> Response<Body> {
+    let host = &host.to_ascii_lowercase();
     let credential = active.as_ref().and_then(|a| credential_for(a, host));
     let method = req.method().as_str().to_string();
     let mut url = match reqwest::Url::parse(&format!("https://{host}{target}")) {
         Ok(u) => u,
         Err(e) => return full(StatusCode::BAD_REQUEST, &format!("bad target: {e}")),
     };
+    // The token goes only to the host its rule matched, never to another one the URL parser read.
+    if credential.is_some() && !crate::vault::url_is_host(&url, host) {
+        return full(StatusCode::BAD_REQUEST, "bad target: the address names another host");
+    }
     let mut headers = reqwest::header::HeaderMap::new();
     for (k, v) in req.headers() {
         if !HOP.contains(&k.as_str()) {
