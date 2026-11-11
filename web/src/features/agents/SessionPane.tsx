@@ -24,6 +24,7 @@ import { citationPath } from "@/lib/fileCitations";
 import { daemonAsset } from "@/lib/connection";
 import { downloadUrl, pathResolver, useCodeFiles } from "@/features/code/lib";
 import { useMessageDrafts } from "@/stores/messages";
+import { useRunners } from "@/lib/runners";
 import { isDone, isRunning, sessionPlace } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
@@ -246,9 +247,16 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [dragging, setDragging] = useState(false);
   const s = useSession(sessionId);
+  const lastProcessesError = useRef<unknown>(null);
   // Terminals open on the agent's runner, relayed by Home: why not now (offline runner, stopped Burst job), or null.
   const terminalBlock = useTerminalBlock(s?.runner_id);
-  const processes = useQuery({ queryKey: ["session-processes", sessionId], queryFn: () => api.get<SessionProcess[]>(`/api/sessions/${sessionId}/processes`), enabled: !!s?.live, refetchInterval: s?.live ? 3000 : false, retry: false });
+  // Background commands of a live session, polled from its runner; never while that runner is offline (its badge says so).
+  const runnerOffline = useRunners().data?.some((r) => r.runner.id === s?.runner_id && !r.connected) ?? false;
+  const pollProcesses = !!s?.live && !runnerOffline;
+  const processes = useQuery({ queryKey: ["session-processes", sessionId], queryFn: () => api.get<SessionProcess[]>(`/api/sessions/${sessionId}/processes`), enabled: pollProcesses, refetchInterval: pollProcesses ? 3000 : false, retry: false });
+  // A refetch after an error without data clears the error until it answers: keep the last one shown so the alert does not blink.
+  const processesError = processes.errorUpdatedAt > processes.dataUpdatedAt ? (processes.error ?? processes.failureReason ?? lastProcessesError.current) : null;
+  if (processesError) lastProcessesError.current = processesError;
   const runningProcesses = s?.live ? processes.data ?? [] : [];
   const hasProcesses = runningProcesses.length > 0;
   const [gitMain, setGitMain] = useState(false);
@@ -566,7 +574,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
         <Icon name="clock" size={16} />Model at capacity · automatic retry {s.capacity_retry_count + 1} scheduled for {when(s.capacity_retry_at)}. Resume now or archive to cancel.
       </div>}
       {s.launch_spec.target.kind === "browser" && <div className="border-b border-line bg-teal-soft px-3 py-1 text-[12px] text-teal-ink">Browser task · tabs shared from the Chrome extension · {s.launch_spec.target.act ? "Act" : "Read"}</div>}
-      {s.live && processes.isError && <div role="alert" className="px-3 py-2 text-[12px] text-danger">{String(processes.error)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}
+      {pollProcesses && processesError != null && <div role="alert" className="px-3 py-2 text-[12px] text-danger">{String(processesError)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}
       {hasProcesses && !processesOpen && !running && <div className="flex items-center gap-2 px-3 py-2 text-[12px] text-ink-3">Background commands are still running.<button className="btn btn-sm" onClick={() => setView("processes")}>View processes</button></div>}
       {processesOpen && <ProcessesPanel sessionId={s.id} processes={runningProcesses} refresh={() => processes.refetch()} />}
       {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} canMessage={s.status !== "in_terminal" && !quotaMessageBlocked && !(running && !harness?.capabilities.messages_while_running)} />}
