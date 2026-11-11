@@ -1857,6 +1857,15 @@ impl Sessions {
         anyhow::ensure!(s.status != SessionStatus::InTerminal, "The session is open in a terminal: re-attach it first.");
         let defaults = app.models.defaults(app, s.harness);
         anyhow::ensure!(effort.is_none() || !defaults.efforts.is_empty() || defaults.models.iter().any(|m| !m.efforts.is_empty()), "This harness does not support an effort override.");
+        // A profile with its own model list (a provider such as the Hugging Face router) cannot serve the
+        // harness's base models: every later turn would fail.
+        if let Some(m) = &model {
+            let config = app.config.get();
+            let own = s.launch_spec.profile.as_deref().and_then(|p| config.profile(p)).filter(|p| p.models_url.is_some());
+            if let Some(p) = own {
+                anyhow::ensure!(p.model.as_deref() == Some(m.as_str()) || !defaults.models.iter().any(|b| &b.id == m), "{} uses its own model list: {m} is not one of its models.", p.name);
+            }
+        }
         if s.model == model && s.effort == effort { return Ok(s); }
         let (m, e) = (model.clone(), effort.clone());
         let s = self.update(app, id, |s| { s.model = m; s.effort = e; }).await?;

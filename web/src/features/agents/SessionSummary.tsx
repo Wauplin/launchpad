@@ -23,7 +23,9 @@ import { copyText } from "@/lib/clipboard";
 import { ago, formatReset, when } from "@/lib/format";
 import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, DelaySelector } from "@/features/launch/DelaySelector";
-import { budgetReached, costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, useProfile, useProfiles } from "@/lib/profiles";
+import { budgetReached, costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, useProfile, useProfileModels, useProfiles } from "@/lib/profiles";
+import { ModelSearch } from "@/components/ModelSearch";
+import { pickModel as pickProviderModel } from "@/components/ProviderPicker";
 import { compact, statusInfo } from "./SessionBits";
 import { STATUS_COLORS } from "@/components/ui";
 import type { Row } from "./rows";
@@ -309,12 +311,17 @@ export function RunSettingsChip({ session: s, open }: { session: Session; open: 
   return <button className="inline-flex h-5 items-center gap-1 rounded-control border border-line-2 bg-chrome px-1.5 text-[11px] text-ink-2 hover:bg-sunk" title="Run settings: edit them in Summary → Run" onClick={open}><Icon name="sliders" size={12} />{PERMISSIONS.find((p) => p.id === mode)?.label}</button>;
 }
 
-/** Model and supported effort choices come from the registered adapter. */
+/** Model and supported effort choices come from the registered adapter; a profile with its own model list
+ * (`models_url`, a provider such as the Hugging Face router) offers only that list, never the harness's models. */
 export function ModelSwitch({ session: s }: { session: Session }) {
   const [busy, setBusy] = useState(false);
-  const defaults = useHarnessDefaults(s.harness).data;
-  const current = defaults?.models.find((m) => m.id === (s.model ?? defaults?.model));
-  const efforts = current?.efforts.length ? current.efforts : (defaults?.efforts ?? []);
+  const profile = useProfile(s.launch_spec.profile);
+  const ownModels = !!profile?.models_url;
+  const providerModels = useProfileModels(profile?.models_url);
+  const defaults = useHarnessDefaults(ownModels ? null : s.harness).data;
+  const fallback = ownModels ? (profile?.model ?? null) : (defaults?.model ?? null);
+  const current = defaults?.models.find((m) => m.id === (s.model ?? fallback));
+  const efforts = ownModels ? [] : current?.efforts.length ? current.efforts : (defaults?.efforts ?? []);
   const set = async (model: string | null, effort: string | null) => {
     setBusy(true);
     try { await api.post(`/api/sessions/${s.id}/model`, { model, effort }); } catch (e) { toastError(e); } finally { setBusy(false); }
@@ -327,13 +334,15 @@ export function ModelSwitch({ session: s }: { session: Session }) {
   return <Popover
     width={300}
     trigger={({ toggle }) => <button className="btn btn-sm" disabled={busy || s.status === "in_terminal"} title="Change the model and effort of this session" onClick={toggle}>
-      {s.model ?? `Default model${defaults?.model ? ` (${defaults.model})` : ""}`}{efforts.length > 0 && <> · {s.effort ?? `default effort${defaults?.effort ? ` (${defaults.effort})` : ""}`}</>}<Icon name="chev" size={12} />
+      {s.model ?? `Default model${fallback ? ` (${fallback})` : ""}`}{efforts.length > 0 && <> · {s.effort ?? `default effort${defaults?.effort ? ` (${defaults.effort})` : ""}`}</>}<Icon name="chev" size={12} />
     </button>}
   >
     {(close) => <>
-      <div className="px-[9px] pt-1 text-[11px] font-semibold text-ink-3">Model</div>
-      {s.model && !defaults?.models.some((m) => m.id === s.model) && <MenuItem label={s.model} detail="Current" active onClick={close} />}
-      {(defaults?.models ?? []).map((m) => <MenuItem key={m.id} label={m.display_name || m.id} detail={`${m.id} · ${m.description}`} active={s.model === m.id} onClick={() => { close(); if (s.model !== m.id) pickModel(m.id); }} />)}
+      <div className="px-[9px] pt-1 text-[11px] font-semibold text-ink-3">Model{ownModels ? ` · ${profile!.name}` : ""}</div>
+      {ownModels ? <ModelSearch models={providerModels.data ?? []} loading={providerModels.isLoading} error={providerModels.error ? String(providerModels.error.message ?? providerModels.error) : null} active={s.model ?? fallback} onPick={(id) => { close(); const next = pickProviderModel(providerModels.data, s.model ?? fallback, id); if (next !== s.model) void set(next, null); }} /> : <>
+        {s.model && !defaults?.models.some((m) => m.id === s.model) && <MenuItem label={s.model} detail="Current" active onClick={close} />}
+        {(defaults?.models ?? []).map((m) => <MenuItem key={m.id} label={m.display_name || m.id} detail={`${m.id} · ${m.description}`} active={s.model === m.id} onClick={() => { close(); if (s.model !== m.id) pickModel(m.id); }} />)}
+      </>}
       {efforts.length > 0 && <div className="px-[9px] pt-2 text-[11px] font-semibold text-ink-3">Effort</div>}
       {efforts.map((e) => <MenuItem key={e} label={e} active={s.effort === e} onClick={() => { close(); if (s.effort !== e) void set(s.model, e); }} />)}
       <div className="px-[9px] py-1 text-[11px] text-ink-3">Applies from the next turn. The harness may restart once idle.</div>
