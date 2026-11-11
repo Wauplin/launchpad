@@ -279,6 +279,26 @@ async fn register_temp(app: &App, path: &Path, workspace_id: &str, id: String) -
     Ok(project)
 }
 
+/// Pure: whether a folder's remote is a network address Home may follow (empty: none, an import). A local path,
+/// `file://` or a transport helper (`ext::`) would let a kept temporary folder's agent-written remote read
+/// Home's own disk, such as another workspace's mirror.
+pub fn network_remote(url: &str) -> bool {
+    if url.is_empty() {
+        return true;
+    }
+    if url.starts_with('-') || url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return false;
+    }
+    if let Some((scheme, rest)) = url.split_once("://") {
+        return matches!(scheme.to_ascii_lowercase().as_str(), "https" | "http" | "ssh" | "git") && !rest.is_empty() && !rest.starts_with('/');
+    }
+    // scp-like `[user@]host:path`: a host before the first colon, no slash in it.
+    match url.split_once(':') {
+        Some((host, path)) => !host.is_empty() && !host.contains('/') && !path.is_empty() && !url.contains("::"),
+        None => false,
+    }
+}
+
 /// Home: registers a Git folder by its remote and creates its mirror. The same remote in the same
 /// workspace returns the existing folder; in another workspace it becomes a second folder.
 pub async fn register_remote(app: &App, name: &str, url: &str, workspace_id: &str) -> Result<Project> {
@@ -287,6 +307,7 @@ pub async fn register_remote(app: &App, name: &str, url: &str, workspace_id: &st
     let url = url.trim();
     let name = name.trim();
     anyhow::ensure!(!name.is_empty() && !name.contains('/'), "invalid folder name");
+    anyhow::ensure!(network_remote(url), "{url} is not a network Git address (https://, ssh:// or host:path); Home never follows a path on its own disk");
     if !url.is_empty()
         && let Some(e) = list(app).await?.into_iter().find(|p| p.home_git && p.remote_url.as_deref() == Some(url) && p.workspace_id.as_deref() == Some(workspace.id.as_str()))
     {
@@ -816,6 +837,16 @@ async fn move_dir(old: &Path, new: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn folders_follow_only_network_remotes() {
+        for ok in ["", "https://github.com/o/r.git", "ssh://git@host/o/r", "git@github.com:o/r.git", "host:r"] {
+            assert!(super::network_remote(ok), "{ok}");
+        }
+        for bad in ["/srv/home-git/x.git", "./x", "../x", "file:///x", "file://host/x", "ext::sh -c evil", "-u", "https:///x", "a/b:c", "fd::x"] {
+            assert!(!super::network_remote(bad), "{bad}");
+        }
+    }
+
     #[test]
     fn temp_name_reads_temporary_folders_only() {
         assert_eq!(super::temp_name("/home/u/.local/share/launchpad-runner/tmp/tmp-1106-hfjs").as_deref(), Some("tmp-1106-hfjs"));
