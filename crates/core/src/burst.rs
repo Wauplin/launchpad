@@ -730,10 +730,11 @@ async fn tick(app: &App, stuck: &mut std::collections::HashMap<String, Stuck>) -
                 AfterHandoff::StopUnsaved => {
                     let why = info.error.map(|e| format!(" (last backup error: {e})")).unwrap_or_default();
                     let reason = format!("stopped {} minutes after its handoff without a newer complete Home backup{why}: the handoff is only on Home's disk until a backup succeeds", BACKUP_WAIT_MS / 60_000);
+                    stop(app, &r.runner_id, Some(reason.clone())).await?;
+                    // After the stop, so a stop that fails (retried at the next check) never repeats the notice.
                     for s in sessions.iter().filter(|s| s.status != SessionStatus::Closed) {
                         crate::sessions::notice_anywhere(app, &s.id, &format!("Launchpad stopped this agent's idle Burst runner {reason}.")).await;
                     }
-                    stop(app, &r.runner_id, Some(reason)).await?;
                 }
             }
             continue;
