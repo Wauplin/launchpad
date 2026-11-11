@@ -66,10 +66,17 @@ async fn home(State(s): State<Server>, Path(rest): Path<String>, method: Method,
     {
         return ApiError::new(StatusCode::FORBIDDEN, format!("{e:#}")).into_response();
     }
+    // A session reads and pushes only folders of its own workspace (the daemon's own requests are the runner's).
+    let folder = rest.split('/').next().unwrap_or_default().trim_end_matches(".git");
+    if let Some(sid) = &session {
+        let ws = launchpad_core::scope::of_session(&s.app, sid).await;
+        if ws.is_none() || ws != launchpad_core::scope::of_project(&s.app, folder).await {
+            return ApiError::new(StatusCode::FORBIDDEN, "this folder belongs to another workspace than the session").into_response();
+        }
+    }
     let import = header_str(&headers, IMPORT_HEADER) == Some("1") && session.is_none();
     // An import writes every ref: only into the Git folder Home just created for this runner's kept temporary
     // folder (`runner_trust::after`).
-    let folder = rest.split('/').next().unwrap_or_default().trim_end_matches(".git");
     if import && !s.app.runners.granted(&runner.id, &format!("import:{folder}")) {
         return ApiError::new(StatusCode::FORBIDDEN, "an import goes only into the folder Home created for this runner's Keep as folder").into_response();
     }

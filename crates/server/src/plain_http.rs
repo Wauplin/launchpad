@@ -46,7 +46,8 @@ fn bad(e: anyhow::Error) -> ApiError {
 
 /// Home: checks a runner credential when there is one (the owner passed the sign-in otherwise), that the
 /// named session still runs on that runner, and that `store` belongs to a workspace of the sessions Home placed
-/// on it (`scope::of_runner`: their knowledge base, bots, plain, asset and temporary folders). Returns the
+/// on it (`scope::of_runner`: their knowledge base, bots, plain, asset and temporary folders), the named
+/// session's own workspace for a session's request. Returns the
 /// session. A credential header that is present always authenticates, even when it is unreadable:
 /// `runner_request` skipped the sign-in because of it.
 async fn caller(s: &Server, headers: &HeaderMap, store: Option<&str>) -> Result<Option<String>, ApiError> {
@@ -65,6 +66,14 @@ async fn caller(s: &Server, headers: &HeaderMap, store: Option<&str>) -> Result<
         }
         if let Some(store) = store {
             let ws = launchpad_core::scope::of_store(&s.app, store).await;
+            // A session's request (its locks, syncs and commits; asset folders an agent maps in its worktree)
+            // stays in the session's own workspace.
+            if let Some(sid) = &session {
+                let own = launchpad_core::scope::of_session(&s.app, sid).await;
+                if own.is_none() || own != ws {
+                    return Err(ApiError::new(StatusCode::FORBIDDEN, "this folder belongs to another workspace than the session"));
+                }
+            }
             if !launchpad_core::scope::runner_reads(&s.app, &runner.id, ws).await {
                 return Err(ApiError::new(StatusCode::FORBIDDEN, "this folder belongs to a workspace with no session on this runner"));
             }

@@ -29,7 +29,7 @@ pub(crate) fn may(method: &str, path: &str) -> bool {
             | ("POST", ["api", "plain", "assets", _])
             | ("GET", ["api", "sessions", _] | ["api", "sessions", _, "trace"])
             | ("GET", ["api", "context", "presets"] | ["api", "channels", "names"])
-            | ("POST", ["api", "channels", "telegram", "notify"] | ["api", "activity"])
+            | ("POST", ["api", "channels", "telegram", "notify"])
     )
 }
 
@@ -131,8 +131,13 @@ pub(crate) async fn check(app: &App, runner: &str, method: &str, path: &str, bod
                 || app.sessions.list().iter().any(|s| s.runner_id.as_deref() == Some(runner) && s.launch_spec.agent_traces.iter().any(|t| t.session_id == *id));
             ensure!(placed(app, runner, id) || context, "Home did not place this session on this runner, nor send it as context");
         }
-        ("POST", ["api", "channels", "telegram", "notify"] | ["api", "activity"]) => {
+        ("POST", ["api", "channels", "telegram", "notify"]) => {
             session(&v)?;
+        }
+        // Asset folders: of a Git folder of a workspace the runner works in.
+        ("POST", ["api", "plain", "assets", project]) => {
+            let ws = launchpad_core::scope::of_project(app, project).await;
+            ensure!(launchpad_core::scope::runner_reads(app, runner, ws).await, "this folder belongs to a workspace with no session on this runner");
         }
         _ => {}
     }
@@ -177,7 +182,6 @@ mod tests {
             ("POST", "/api/home-git/f1/refresh"),
             ("GET", "/api/sessions/s1/trace"),
             ("GET", "/api/context/presets"),
-            ("POST", "/api/activity"),
         ] {
             assert!(may(m, p), "{m} {p}");
         }
@@ -205,6 +209,7 @@ mod tests {
             ("GET", "/api/context/sessions"),
             ("GET", "/api/logs"),
             ("POST", "/api/workspaces"),
+            ("POST", "/api/activity"),
             ("GET", "/api/sessions//trace"),
             ("GET", "/api/projects/"),
         ] {
