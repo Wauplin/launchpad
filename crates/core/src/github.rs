@@ -87,6 +87,37 @@ impl std::fmt::Display for DeliveryUncertain {
 }
 impl std::error::Error for DeliveryUncertain {}
 
+/// An owner or repository name as GitHub allows it: ASCII letters, digits, `-`, `_` and `.`, at most 100
+/// characters, never `.` or `..` (so no `/`, `%` or empty name reaches a GitHub path).
+pub fn valid_name(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 100 && s != "." && s != ".." && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+}
+
+/// `owner/name` with both parts valid (`valid_name`).
+pub fn valid_repo(full: &str) -> bool {
+    full.split_once('/').is_some_and(|(o, r)| valid_name(o) && valid_name(r))
+}
+
+/// A GitHub API path with no dot segment (also percent-encoded, which URL parsers resolve too) and, under
+/// `/repos/`, a valid owner and repository.
+fn safe_path(path: &str) -> bool {
+    let p = path.split(['?', '#']).next().unwrap_or("");
+    let dots = |seg: &str| {
+        let s = seg.to_ascii_lowercase().replace("%2e", ".");
+        s == "." || s == ".."
+    };
+    if p.split('/').any(dots) || p.contains('\\') {
+        return false;
+    }
+    match p.strip_prefix("/repos/") {
+        Some(rest) => {
+            let mut it = rest.split('/');
+            matches!((it.next(), it.next()), (Some(o), Some(r)) if valid_name(o) && valid_name(r))
+        }
+        None => true,
+    }
+}
+
 pub fn delivery_uncertain(e: &anyhow::Error) -> bool {
     e.downcast_ref::<DeliveryUncertain>().is_some()
 }
@@ -136,7 +167,7 @@ impl GitHub {
         conditional: bool,
     ) -> Result<GhResponse> {
         anyhow::ensure!(
-            path.starts_with('/') && !path.starts_with("//"),
+            path.starts_with('/') && !path.starts_with("//") && safe_path(path),
             "invalid GitHub path"
         );
         let resource = if path == "/graphql" { "graphql" } else { "core" };
@@ -448,6 +479,18 @@ fn parse_link(url: &str) -> Option<ParsedLink> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn github_paths_stay_in_their_repository() {
+        assert!(valid_repo("huggingface/huggingface_hub") && valid_repo("a-b/c.d_e"));
+        for bad in ["a", "a/", "/b", "a/b/c", "a/..", "../b", "a/b%2Fc", "a/b c", "a/é"] {
+            assert!(!valid_repo(bad), "{bad}");
+        }
+        assert!(safe_path("/repos/o/r/issues?state=all&q=a/../b") && safe_path("/notifications") && safe_path("/repos/o/r.js/pulls/1"));
+        for bad in ["/repos/../../user/issues", "/repos/o/r/../../../user", "/repos/o/%2e%2E/x", "/repos/o/.%2e/x", "/repos/o", "/repos/o%2Fx/r", "/user/./x", "/repos/o/r\\..\\x"] {
+            assert!(!safe_path(bad), "{bad}");
+        }
+    }
 
     #[test]
     fn links() {

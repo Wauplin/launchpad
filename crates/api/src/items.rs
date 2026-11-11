@@ -24,8 +24,13 @@ pub fn router() -> Router<Ctx> {
         .route("/img", get(image))
 }
 type ItemPath = (String, String, u64);
+/// `owner/name` from a route's parts, refused unless both are names GitHub allows.
+fn repo(o: &str, r: &str) -> Result<String, crate::ApiError> {
+    let full = format!("{o}/{r}");
+    if launchpad_core::github::valid_repo(&full) { Ok(full) } else { Err(crate::ApiError::bad_request("not a GitHub owner and repository")) }
+}
 async fn detail(State(s): State<Ctx>, Path((o, r, n)): Path<ItemPath>) -> ApiResult<Value> {
-    let repo = format!("{o}/{r}");
+    let repo = repo(&o, &r)?;
     if let Some(v) = items::cached(&s.app, format!("item:{repo}:{n}")).await? {
         return Ok(Json(v));
     }
@@ -45,7 +50,7 @@ async fn refresh(
     Json(q): Json<Refresh>,
 ) -> ApiResult<Value> {
     Ok(Json(
-        items::detail(&s.app, &format!("{o}/{r}"), n, q.force).await?,
+        items::detail(&s.app, &repo(&o, &r)?, n, q.force).await?,
     ))
 }
 async fn action(
@@ -53,7 +58,7 @@ async fn action(
     Path((o, r, n, a)): Path<(String, String, u64, String)>,
     Json(body): Json<Value>,
 ) -> ApiResult<Value> {
-    let repo = format!("{o}/{r}");
+    let repo = repo(&o, &r)?;
     if a == "diff" {
         return Ok(Json(items::diff_summary(&s.app, &repo, n).await?));
     }
@@ -65,7 +70,7 @@ async fn action(
     Ok(Json(v))
 }
 async fn list(State(s): State<Ctx>, Path((o, r)): Path<(String, String)>) -> ApiResult<Value> {
-    let repo = format!("{o}/{r}");
+    let repo = repo(&o, &r)?;
     if let Some(v) = items::cached(&s.app, format!("project-items:{repo}")).await?
         && v["prs"].is_array()
         && v["issues"].is_array()
@@ -75,14 +80,14 @@ async fn list(State(s): State<Ctx>, Path((o, r)): Path<(String, String)>) -> Api
     Ok(Json(items::project_items(&s.app, &repo, false).await?))
 }
 async fn meta(State(s): State<Ctx>, Path((o, r)): Path<(String, String)>) -> ApiResult<Value> {
-    Ok(Json(items::repo_meta(&s.app, &format!("{o}/{r}")).await?))
+    Ok(Json(items::repo_meta(&s.app, &repo(&o, &r)?).await?))
 }
 async fn list_refresh(
     State(s): State<Ctx>,
     Path((o, r)): Path<(String, String)>,
 ) -> ApiResult<Value> {
     Ok(Json(
-        items::project_items(&s.app, &format!("{o}/{r}"), true).await?,
+        items::project_items(&s.app, &repo(&o, &r)?, true).await?,
     ))
 }
 #[derive(Deserialize)]
@@ -99,7 +104,7 @@ async fn diff_file(
     Query(q): Query<DiffFileQuery>,
 ) -> ApiResult<Value> {
     Ok(Json(
-        items::diff_file(&s.app, &format!("{o}/{r}"), n, &q.base, &q.head, q.project.as_deref(), &q.path).await?,
+        items::diff_file(&s.app, &repo(&o, &r)?, n, &q.base, &q.head, q.project.as_deref(), &q.path).await?,
     ))
 }
 #[derive(Deserialize)]

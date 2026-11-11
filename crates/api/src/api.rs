@@ -572,7 +572,11 @@ async fn gh_suggest(
     Path((owner, repo)): Path<(String, String)>,
     Query(q): Query<Suggest>,
 ) -> ApiResult<Vec<launchpad_core::github::GhItem>> {
-    Ok(Json(s.app.github.suggest(&format!("{owner}/{repo}"), q.q.as_deref().unwrap_or("")).await.map_err(bad)?))
+    let full = format!("{owner}/{repo}");
+    if !launchpad_core::github::valid_repo(&full) {
+        return Err(ApiError::bad_request("not a GitHub owner and repository"));
+    }
+    Ok(Json(s.app.github.suggest(&full, q.q.as_deref().unwrap_or("")).await.map_err(bad)?))
 }
 
 async fn inbox(State(s): State<Ctx>) -> ApiResult<launchpad_github::inbox::InboxSnapshot> {
