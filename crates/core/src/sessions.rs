@@ -122,7 +122,7 @@ fn unanswered_requests(events: &[EventBody]) -> Vec<String> {
 }
 
 /// Raw harness lines kept per session (`Sink::raw`): at most this many lines and bytes, each line cut to
-/// `RAW_LINE_BYTES`, deleted at Archive and after `RAW_KEEP_MS` (`retention.rs`).
+/// `RAW_LINE_BYTES`, deleted at Archive and after `RAW_KEEP_MS` (the server's `retention.rs`).
 const RAW_LINES_CAP: i64 = 20_000;
 const RAW_BYTES_CAP: i64 = 16 * 1024 * 1024;
 const RAW_LINE_BYTES: usize = 64 * 1024;

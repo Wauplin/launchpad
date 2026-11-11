@@ -64,8 +64,7 @@ pub async fn complete(db: &Db, id: &str, status: u16, body: String) -> Result<()
 /// How long a completed claim answers retries of its request with the saved response.
 pub const KEEP_COMPLETED_MS: i64 = 7 * 24 * 3600 * 1000;
 
-/// Deletes claims that completed more than `KEEP_COMPLETED_MS` ago (claims completed before `done_at` existed
-/// count as old). Claims without a result (in flight or uncertain) stay: they are what stops a repeat, and the owner
+/// Deletes claims that completed more than `KEEP_COMPLETED_MS` ago. Claims without a result (in flight or uncertain) stay: they are what stops a repeat, and the owner
 /// may still have to check the destination.
 pub async fn prune(db: &Db, now: i64) -> Result<usize> {
     db.call(move |c| {

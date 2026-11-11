@@ -9,6 +9,7 @@ mod git_http;
 mod plain_http;
 mod home_client;
 mod operations;
+mod retention;
 mod routes;
 mod runners;
 mod runner_trust;
@@ -60,6 +61,7 @@ pub async fn serve(app: App, api: Router<Ctx>) -> Result<()> {
         home_client::spawn(app.clone(), router.clone());
     }
     burst::spawn(server_for_burst.clone());
+    retention::spawn(&app);
     if let Some(tailnet) = tailnet {
         use std::future::IntoFuture;
         tokio::try_join!(
