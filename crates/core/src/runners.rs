@@ -442,10 +442,30 @@ pub async fn deliver_pending(app: &App, runner_id: &str) {
             if let Err(e) = delivered(app, &a).await {
                 tracing::warn!("pending delivery of {}: {e:#}", a.session);
             }
-        } else if sent.is_err() {
-            // The tunnel dropped again: the next connection delivers the rest.
+        } else if sent.is_err() && !app.runners.connected(runner_id) {
+            // The tunnel dropped again: the next connection delivers the rest. A request that only timed out (a
+            // release pushing large leftovers) stays for the next round, and the others go on.
             return;
         }
+    }
+}
+
+/// Home: delivers again what connected runners still have pending (each runner in its own task).
+async fn retry_pending(app: &App) {
+    let runners: Vec<String> = match app.state_db.call(|c| {
+        let mut st = c.prepare("SELECT DISTINCT runner_id FROM runner_delivery")?;
+        let rows = st.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("pending deliveries: {e:#}");
+            return;
+        }
+    };
+    for r in runners.into_iter().filter(|r| app.runners.connected(r)) {
+        let app = app.clone();
+        tokio::spawn(async move { deliver_pending(&app, &r).await });
     }
 }
 
@@ -466,9 +486,15 @@ pub fn spawn(app: &App) {
     tokio::spawn(async move {
         import_archives_file(&app).await;
         let mut away: HashMap<String, i64> = HashMap::new();
+        let mut round = 0u64;
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             interrupt_away(&app, &mut away).await;
+            // Every 10 minutes, items a connected runner refused or did not answer in time are offered again.
+            round += 1;
+            if round.is_multiple_of(20) {
+                retry_pending(&app).await;
+            }
         }
     });
 }

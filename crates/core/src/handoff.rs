@@ -463,7 +463,7 @@ pub async fn adopt(app: &App, id: &str) -> Result<()> {
     adopt_with(app, id, false).await
 }
 
-/// Runner: `adopt` for a request Home relayed about a session this runner does not hold (`home_client::local_as`).
+/// Runner: `adopt` for a request Home relayed about a session this runner does not hold (`home_client::local`).
 /// Only a session Home moved (generation above 0): a new session's launch may still be on its way.
 pub async fn adopt_moved(app: &App, id: &str) -> Result<()> {
     adopt_with(app, id, true).await
@@ -471,7 +471,7 @@ pub async fn adopt_moved(app: &App, id: &str) -> Result<()> {
 
 async fn adopt_with(app: &App, id: &str, moved_only: bool) -> Result<()> {
     ensure!(app.paths.role == crate::role::Role::Runner, "only runners take over sessions");
-    // Home's adopt request and a relayed request that adopts lazily (`home_client::local_as`) take turns.
+    // Home's adopt request, a relayed request that adopts lazily (`home_client::local`) and `release` take turns.
     let lock = app.suggestion_locks.get(&format!("adopt:{id}"));
     let _lock = lock.lock().await;
     let a: Adoption = serde_json::from_value(answer(to_home(app, reqwest::Method::GET, &format!("/api/handoff/{id}"))?).await?)?;
@@ -518,6 +518,19 @@ async fn adopt_with(app: &App, id: &str, moved_only: bool) -> Result<()> {
 /// folder), the session is adopted again from Home.
 pub async fn release(app: &App, id: &str, generation: u32) -> Result<()> {
     ensure!(app.paths.role == crate::role::Role::Runner, "only runners release sessions");
+    {
+        // An adoption of the same session (Home moved it back here meanwhile) waits until the old copy is gone.
+        let lock = app.suggestion_locks.get(&format!("adopt:{id}"));
+        let _adopt = lock.lock().await;
+        release_locked(app, id, generation).await?;
+    }
+    if let Err(e) = adopt(app, id).await {
+        tracing::debug!("session {id} stays released: {e:#}");
+    }
+    Ok(())
+}
+
+async fn release_locked(app: &App, id: &str, generation: u32) -> Result<()> {
     let Some(s) = app.sessions.get(id) else { return Ok(()) };
     if s.generation >= generation {
         return Ok(());
@@ -543,9 +556,6 @@ pub async fn release(app: &App, id: &str, generation: u32) -> Result<()> {
     SENT.lock().unwrap().remove(id);
     let _ = tokio::fs::remove_dir_all(crate::contain::session_dir(app, id)).await;
     tracing::info!("released session {id}: Home moved it on (generation {generation})");
-    if let Err(e) = adopt(app, id).await {
-        tracing::debug!("session {id} stays released: {e:#}");
-    }
     Ok(())
 }
 
@@ -714,7 +724,7 @@ pub(crate) async fn move_locked(app: &App, id: &str, to: &str) -> Result<Session
         crate::projects::move_temp(app, pid, to).await?;
     }
     // A failed adoption is not the end of the move: the new runner adopts the session when Home relays its next
-    // request (`home_client::local_as` on the runner).
+    // request (`home_client::local` on the runner).
     let adopted = match app.runners.request(to, "POST", &format!("/api/sessions/{id}/adopt"), None).await {
         Ok((status, _)) if (200..300).contains(&status) => None,
         Ok((_, body)) => Some(error_of(&body)),
