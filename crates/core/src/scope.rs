@@ -54,6 +54,17 @@ async fn worktree_record(app: &App, id: &str) -> Option<Value> {
     serde_json::from_str(&json?).ok()
 }
 
+/// Home: a worktree's folder and branch, from the records runners send.
+pub async fn worktree_branch(app: &App, id: &str) -> Option<(String, String)> {
+    let v = worktree_record(app, id).await?;
+    Some((v["project_id"].as_str()?.to_string(), v["branch"].as_str()?.to_string()))
+}
+
+/// The grant of the owner's Merge of one branch at one commit (`runners::relay`, checked by `runner_trust`).
+pub fn merge_grant(project: &str, branch: &str, head: &str) -> String {
+    format!("merge:{project}:{branch}:{head}")
+}
+
 /// Home: a worktree's workspace, from the records runners send (its folder's).
 pub async fn of_worktree(app: &App, id: &str) -> Option<String> {
     let v = worktree_record(app, id).await?;

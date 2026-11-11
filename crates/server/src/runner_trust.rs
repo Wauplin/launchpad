@@ -113,11 +113,12 @@ pub(crate) async fn check(app: &App, runner: &str, method: &str, path: &str, bod
             }
             ensure!(owned, "{branch} is not a branch of a session of this runner");
         }
-        ("POST", ["api", "home-git", _, "merge"]) => {
+        ("POST", ["api", "home-git", project, "merge"]) => {
             session(&v)?;
-            // The owner's merge reaches Home from the owner's window (`runners::relay` grants its reviewed head);
-            // any other merge a runner asks for is its agent's (`worktrees::check_merge_request`).
-            let owners = v["by_agent"] == Value::Bool(false) && v["head"].as_str().is_some_and(|h| app.runners.granted(runner, &format!("merge:{h}")));
+            // The owner's merge reaches Home from the owner's window (`runners::relay` grants that branch at its
+            // reviewed head); any other merge a runner asks for is its agent's (`worktrees::check_merge_request`).
+            let granted = |b: &str, h: &str| app.runners.granted(runner, &launchpad_core::scope::merge_grant(project, b, h));
+            let owners = v["by_agent"] == Value::Bool(false) && matches!((v["branch"].as_str(), v["head"].as_str()), (Some(b), Some(h)) if granted(b, h));
             v["by_agent"] = Value::Bool(!owners);
         }
         ("POST", ["api", "home-git", project, "pull-request"]) => {

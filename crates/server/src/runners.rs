@@ -605,9 +605,11 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
     // the owner's only with this grant (`runner_trust`); without it a runner's merge counts as its agent's.
     if agent.is_none() && method == axum::http::Method::POST {
         match parts.as_slice() {
-            ["api", "worktrees", _, "merge"] => {
-                if let Some(head) = body.as_deref().and_then(|b| serde_json::from_str::<Value>(b).ok()).and_then(|b| b["head"].as_str().map(str::to_string)) {
-                    s.app.runners.grant(&runner, &format!("merge:{head}"));
+            ["api", "worktrees", id, "merge"] => {
+                if let Some(head) = body.as_deref().and_then(|b| serde_json::from_str::<Value>(b).ok()).and_then(|b| b["head"].as_str().map(str::to_string))
+                    && let Some((project, branch)) = launchpad_core::scope::worktree_branch(&s.app, id).await
+                {
+                    s.app.runners.grant(&runner, &launchpad_core::scope::merge_grant(&project, &branch, &head));
                 }
             }
             ["api", "projects", id, "promote"] => s.app.runners.grant(&runner, &format!("keep:{id}")),
