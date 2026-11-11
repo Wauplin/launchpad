@@ -557,9 +557,11 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
   const { text, setText } = useKeptDraft(`chat.${bot.id}`, "");
   const [busy, setBusy] = useState(false);
   // A message whose response was lost: sending it unchanged returns its result (the same Idempotency-Key), never a
-  // second message; only the owner's click after checking the chat starts a new attempt.
-  const [unconfirmed, setUnconfirmed] = useState<Record<string, unknown> | null>(null);
+  // second message; only the owner's click after checking the chat starts a new attempt. The exact body is kept, so
+  // a retry stays the same request even when the lost message already started the new session it asked for.
   const messagePath = `/api/bots/${bot.id}/message`;
+  const [lost, setUnconfirmed] = useState<{ path: string; body: Record<string, unknown>; message: string } | null>(null);
+  const unconfirmed = lost?.path === messagePath ? lost : null;
   // ⋯ → Start a new session: the next message starts a new session of the thread, with the owner's reason.
   const newSession = useArmedSession(bot.id, current?.id ?? null);
   const cancelNewSession = () => useNextSession.getState().set(bot.id, null);
@@ -604,9 +606,10 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
         // A cancelled question still waits in the harness, which would hold the message behind it: close it as
         // skipped (never a permission: those keep Allow and Deny), then send the message.
         if (skip && current) await runAction("session.answer", { id: current.id }, { request_id: skip.request_id, answers: Array(skip.count).fill("No answer: the owner skipped this question and sent a message instead.") });
-        const body = { text: t, attachments: files, ...(fresh ? { new_session: true, reason: newSession!.reason } : {}), ...(withContext ? { context } : {}) };
+        const message = JSON.stringify({ text: t, attachments: files, context: withContext ? context : null });
+        const body = unconfirmed?.message === message ? unconfirmed.body : { text: t, attachments: files, ...(fresh ? { new_session: true, reason: newSession!.reason } : {}), ...(withContext ? { context } : {}) };
         try { await runAction("bot.message", { id: bot.id }, body); }
-        catch (e) { setUnconfirmed(e instanceof ApiError && e.operationCompleted ? null : body); throw e; }
+        catch (e) { setUnconfirmed(e instanceof ApiError && e.operationCompleted ? null : { path: messagePath, body, message }); throw e; }
         setUnconfirmed(null);
         cancelNewSession();
         setContext(EMPTY_CONTEXT);
@@ -625,7 +628,7 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
       <div className="mx-auto w-full max-w-text">
         {rotation && current && <div className="mb-1.5 text-[12px] text-ink-3">{rotation}: your next message starts a new session of {bot.settings.name}'s thread, with a reference to the previous one.</div>}
         {fresh && !rotation && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="bots.new-session"><Icon name="plus" size={12} className="flex-none" /><span className="min-w-0 flex-1 truncate">Your next message starts a new session{newSession!.reason ? ` · “${newSession!.reason}”` : ""}</span><button className="chat-tap flex-none text-teal-ink hover:underline" onClick={cancelNewSession}>Cancel</button></div>}
-        {unconfirmed && !busy && <div role="status" className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3"><span className="min-w-0 flex-1">Delivery not confirmed. Send the same message to check its result.</span><button className="chat-tap flex-none text-teal-ink hover:underline" title="Only if the chat does not show the message: it may then be sent twice" onClick={() => void abandonOperation(messagePath, unconfirmed).then(() => setUnconfirmed(null)).catch(toastError)}>I checked the chat — new attempt</button></div>}
+        {unconfirmed && !busy && <div role="status" className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3"><span className="min-w-0 flex-1">Delivery not confirmed. Send the same message to check its result.</span><button className="chat-tap flex-none text-teal-ink hover:underline" title="Only if the chat does not show the message: it may then be sent twice" onClick={() => void abandonOperation(unconfirmed.path, unconfirmed.body).then(() => setUnconfirmed(null)).catch(toastError)}>I checked the chat — start a new attempt</button></div>}
         {answering && !(ask && ask.permission) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="chat.answering">
           <Icon name="comment" size={12} className="flex-none" />
           <span className="min-w-0 flex-1 truncate">{ask ? "Answering" : "Replying to"}: <b className="font-semibold text-ink-2">{firstLine(ask ? ask.question : report!.title)}</b></span>

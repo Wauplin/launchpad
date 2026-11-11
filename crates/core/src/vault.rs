@@ -91,8 +91,8 @@ impl HostRule {
 }
 
 /// A lowercase DNS host name: labels of 1 to 63 ASCII letters, digits and dashes (not first or last), joined by
-/// dots, at most 253 characters, with no trailing dot. Ports, user info, paths, IP literals and Unicode names
-/// (use their `xn--` form) are refused.
+/// dots, at most 253 characters, with no trailing dot. Ports, user info, paths, IPv6 literals and Unicode names
+/// (use their `xn--` form) are refused; an IPv4 address passes (its parts are digit labels).
 pub fn dns_name(host: &str) -> bool {
     !host.is_empty()
         && host.len() <= 253
