@@ -1446,11 +1446,13 @@ async fn attempt(app: &App, id: &str) {
         }
         result.map(|r| (w, r))
     };
-    // The agent rebases itself, after the locks are released.
+    // The agent rebases itself, after the locks are released. An automatic message: it needs an idle session and
+    // confirmed quota, else the merge stays stopped for the owner's Fix merge.
     if let Some((w, (Some(session), reason))) = outcome
-        && let Err(e) = app.sessions.send_follow_up(app, &session, &conflict_message(app, &w, &reason, &session, true), false, None).await
+        && let Err(e) = app.sessions.send_follow_up(app, &session, &conflict_message(app, &w, &reason, &session, true), true, None).await
     {
         tracing::warn!("worktree conflict message {session}: {e:#}");
+        notice(app, &w, &format!("Not sent to the agent: {e:#} Fix merge sends it.")).await;
     }
 }
 

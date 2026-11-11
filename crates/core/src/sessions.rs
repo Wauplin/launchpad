@@ -126,7 +126,7 @@ const RAW_LINES_CAP: i64 = 20_000;
 #[derive(Debug)]
 pub struct FollowUpBusy;
 impl std::fmt::Display for FollowUpBusy {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("The session is running, in a terminal or awaiting an answer; the follow-up stays queued.") }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("The session is busy (running, in a terminal, awaiting an answer or paused for quota) or its quota is not confirmed.") }
 }
 impl std::error::Error for FollowUpBusy {}
 

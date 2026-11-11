@@ -235,7 +235,8 @@ async fn send(app: &App, q: &Queued) -> Result<Session> {
 }
 
 /// Sends a hook or Telegram message to a bot's thread, or queues it (in order, in state.db) while
-/// the thread is busy. A queued message is sent once its turn ends, never into a running turn.
+/// the thread is busy, or, for an automatic one (a hook), while its quota is not confirmed. A queued message is sent
+/// once its turn ends (and its quota is confirmed), never into a running turn.
 pub async fn deliver(app: &App, target: Target, text: String, automatic: bool, telegram: bool) -> Result<Delivered> {
     let Target::Bot { id } = &target;
     let bot = launchpad_core::bots::get(app, id).await?;
@@ -246,7 +247,9 @@ pub async fn deliver(app: &App, target: Target, text: String, automatic: bool, t
     let k = key.clone();
     let waiting = app.state_db.call(move |c| Ok(c.query_row("SELECT count(*) FROM queued_message WHERE target = ?1", [k], |r| r.get::<_, i64>(0))? > 0)).await?;
     let cur = current(app, &q.target);
-    if !waiting && cur.as_ref().is_none_or(|s| !busy(s)) {
+    // Automatic messages also wait for confirmed quota (`bots::quota_hold`).
+    let held = automatic && launchpad_core::bots::quota_hold(app, &bot).is_some();
+    if !waiting && !held && cur.as_ref().is_none_or(|s| !busy(s)) {
         let s = send(app, &q).await?;
         last.insert(key, (s.id.clone(), s.status_since, now_ms()));
         return Ok(Delivered { session: Some(s), queued: false });
@@ -346,6 +349,13 @@ async fn drain(app: &App) -> Result<()> {
         };
         let cur = current(app, &q.target);
         if cur.as_ref().is_some_and(busy) {
+            continue;
+        }
+        let Target::Bot { id } = &q.target;
+        if q.automatic
+            && let Ok(bot) = launchpad_core::bots::get(app, id).await
+            && launchpad_core::bots::quota_hold(app, &bot).is_some()
+        {
             continue;
         }
         // The previous delivery may not show as Running yet (a runner reports it later): wait for a status

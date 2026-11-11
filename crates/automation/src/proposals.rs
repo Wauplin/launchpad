@@ -439,8 +439,15 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
         ProposalBody::Message { session_id, .. } => launchpad_core::vault::session_access(app, session_id).await.ok().flatten() == Some(launchpad_core::vault::LaunchpadAccess::Admin),
         _ => false,
     };
+    // Automatic work needs confirmed quota: a message to a session whose quota is not confirmed waits for the
+    // owner's click (an automatic launch waits for it in its start, a schedule before it runs).
+    let held = match &p.body {
+        ProposalBody::Message { session_id, .. } => app.sessions.get(session_id).and_then(|s| launchpad_core::quota::hold_reason(app, s.harness, &s.launch_spec)),
+        _ => None,
+    };
     if matches!(p.body, ProposalBody::Launch { .. } | ProposalBody::Message { .. } | ProposalBody::Schedule { .. })
         && !to_admin
+        && held.is_none()
         && auto_mode(app, author.as_ref()).await
     {
         return accept_inner(app, &p.id, false, None, None).await;
@@ -610,7 +617,8 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                     return Ok(id);
                 }
                 spec.from = launch_sender(app, &p, manual, agent.as_deref()).await?;
-                Ok(launchpad_core::runners::launch_anywhere(app, spec, id, false).await?.id)
+                // Auto mode is automatic work: the start waits for confirmed quota.
+                Ok(launchpad_core::runners::launch_anywhere(app, spec, id, !manual).await?.id)
             }
             ProposalBody::Message { session_id, text } => {
                 let from = card_sender(app, &p, manual, agent.as_deref()).await?;

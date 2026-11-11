@@ -639,13 +639,25 @@ pub async fn record_instructions(app: &App, session_id: &str, (version, instruct
     }
 }
 
+/// Why an automatic message to the bot's thread waits for its quota now (`quota::hold_reason` of its open session,
+/// else of a new session with its profile), or None when it may go.
+pub fn quota_hold(app: &App, bot: &Bot) -> Option<String> {
+    if let Some(c) = thread(app, &bot.id).into_iter().rev().find(|x| x.status != SessionStatus::Closed) {
+        return crate::quota::hold_reason(app, c.harness, &c.launch_spec);
+    }
+    let config = app.config.get();
+    let profile = profile_of(&config, &bot.settings)?;
+    let spec = LaunchSpec { harness: Some(profile.harness), profile: Some(profile.id.clone()), ..Default::default() };
+    crate::quota::hold_reason(app, profile.harness, &spec)
+}
+
 /// Sends the owner's message to the bot's thread: to its open session, or to a new one.
 pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool) -> Result<Session> {
     message_with(app, id, text, attachments, context, new_session.then(String::new), false).await
 }
 
 /// A message to the bot's thread. `automatic` (routines, incoming hooks, other agents): a paused bot refuses it, and
-/// a new session needs confirmed quota. Hooks and Telegram go through `hooks::deliver`, which waits for the end of a
+/// it needs confirmed quota (`quota_hold`: refused for the open session, held by the start of a new one). Hooks and Telegram go through `hooks::deliver`, which waits for the end of a
 /// running turn. `context` (folders, GitHub links, agent traces, as in an agent's message box) goes with the
 /// message to the current session, or into the launch of a new one. `context.from`, set only by Home's own code
 /// (`senders`), names a sender other than the owner: the message arrives under its header.
@@ -673,6 +685,10 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
     match (new_session.is_some(), reason) {
         (false, None) => {
             let c = current.expect("a current session");
+            // Automatic work needs confirmed quota (`quota::hold_reason`); a new session waits for it in its start.
+            if automatic && let Some(why) = crate::quota::hold_reason(app, c.harness, &c.launch_spec) {
+                bail!("{} waits for its quota: {why}", s.name);
+            }
             crate::runners::send_anywhere_with(app, &c.id, &text, attachments, context, None).await?;
             return app.sessions.get(&c.id).context("the bot's session disappeared");
         }

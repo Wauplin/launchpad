@@ -1037,10 +1037,25 @@ async fn on_event(app: &App, r: &CronAgent, cause: String, context: String, hops
     if let Some(why) = limit_reason(r, hops, now_ms()) {
         return skip(app, &r.id, cause, why).await;
     }
-    match why_blocked(app, r).await? {
-        Some(why) => skip(app, &r.id, cause, why).await,
-        None => start(app, &r.id, cause, context, true, hops).await.map(|_| ()),
+    if let Some(why) = why_blocked(app, r).await? {
+        return skip(app, &r.id, cause, why).await;
     }
+    // Automatic work needs confirmed quota; an event never waits for it here (schedules, GitHub and failures wait
+    // before they claim), so the run is missed.
+    if let Some(why) = quota_hold(app, r).await? {
+        return skip_run(app, &r.id, cause, format!("waits for its quota: {why}"), true).await;
+    }
+    start(app, &r.id, cause, context, true, hops).await.map(|_| ())
+}
+
+/// Why the routine's automatic run waits for its quota now (`quota::hold_reason`): of the bot thread's open session,
+/// else of the session it would start.
+async fn quota_hold(app: &App, r: &CronAgent) -> Result<Option<String>> {
+    if let Some(b) = &r.bot_id {
+        return Ok(launchpad_core::bots::quota_hold(app, &launchpad_core::bots::get(app, b).await?));
+    }
+    let spec = effective_spec(app, r).await?;
+    Ok(spec.harness.and_then(|h| launchpad_core::quota::hold_reason(app, h, &spec)))
 }
 
 /// Why a routine's due occurrence waited, with that due time (Unix ms): the reason its late skip gives. In memory.
@@ -1305,7 +1320,7 @@ async fn failures_noticed(app: &App) -> Result<()> {
             .collect();
         let Some(newest) = new.iter().map(|f| f.seen_at).max() else { continue };
         let fresh: Vec<&crate::failures::Failure> = new.iter().filter(|f| now - f.seen_at <= MISSED_GRACE_MS).collect();
-        if !fresh.is_empty() && why_blocked(app, &r).await?.is_some() {
+        if !fresh.is_empty() && (why_blocked(app, &r).await?.is_some() || quota_hold(app, &r).await?.is_some()) {
             continue;
         }
         let (record, ()) = modify(app, &r.id, move |r| {
@@ -1320,7 +1335,10 @@ async fn failures_noticed(app: &App) -> Result<()> {
             many => format!("Failures ({})", many.len().max(new.len())),
         };
         if fresh.is_empty() {
-            skip(app, &record.id, cause, "the failures are more than 1 hour old".into()).await?;
+            match quota_hold(app, &record).await? {
+                Some(held) => skip_run(app, &record.id, cause, format!("the failures are more than 1 hour old; they waited for the quota: {held}"), true).await?,
+                None => skip(app, &record.id, cause, "the failures are more than 1 hour old".into()).await?,
+            }
             continue;
         }
         let lines = fresh.iter().map(|f| crate::failures::describe(f)).collect::<Vec<_>>().join("\n");
