@@ -665,8 +665,12 @@ pub async fn merge(app: &App, p: &Project, branch: &str, head: &str, base: &str)
     }
     // The mirror's fetch refspec maps the remote's branches onto its own, so a successful push already moved
     // `base` on Home (Git updates the matching tracking ref): fast-forward only when it did not.
-    if tip(app, &p.id, &format!("refs/heads/{base}")).await?.as_deref() != Some(head) {
-        git(app, &dir, &["update-ref", &format!("refs/heads/{base}"), head, &base_tip]).await?;
+    // A fetch outside this lock may move it to `head` meanwhile: that counts as the fast-forward, not a failure.
+    if tip(app, &p.id, &format!("refs/heads/{base}")).await?.as_deref() != Some(head)
+        && let Err(e) = git(app, &dir, &["update-ref", &format!("refs/heads/{base}"), head, &base_tip]).await
+        && tip(app, &p.id, &format!("refs/heads/{base}")).await?.as_deref() != Some(head)
+    {
+        return Err(e);
     }
     crate::home_backup::changed();
     let note = if remote { format!("Merged into {base} and pushed to the remote.") } else { format!("Merged into {base} on Home (this folder has no remote).") };
