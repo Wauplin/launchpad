@@ -15,9 +15,9 @@
 //! Other files a restore needs go in as objects too: uploads (`uploads/<sha256>`, `data_files`). Plain folder blobs and handoff files are listed as `plain/<sha256>` and fetched on first use.
 //!
 //! Retention (`prune`, after each complete backup, one at a time with backups): keep the newest backup, the one
-//! before it, the newest one at least an hour old, and the newest one at least 1, 2, …, 7 days old (`retained`);
+//! before it, the newest one at least an hour old, and the newest one at least 1, 2, …, 10 days old (`retained`);
 //! delete the other manifests, then the objects no remaining manifest lists (never one uploaded in the last hour).
-//! So the destination holds at most about 10 kept copies of `state.db` plus the copies of the last hour.
+//! So the destination holds at most about 13 kept copies of `state.db` plus the copies of the last hour.
 //! A failed listing or download is an error, never an empty answer: it stops pruning before it deletes anything,
 //! and a boot restore retries, then fails. Pruning also deletes nothing while the listing misses the backup just
 //! written or a manifest of the last day does not parse (`check_readable`).
@@ -894,8 +894,11 @@ fn key_time(key: &str) -> Option<i64> {
     chrono::NaiveDateTime::parse_from_str(t, "%Y%m%dT%H%M%S%.3fZ").ok().map(|t| t.and_utc().timestamp_millis())
 }
 
+/// How many days retention keeps one backup per day for.
+const KEEP_DAYS: i64 = 10;
+
 /// The backups retention keeps, as indexes into `times` (each backup's time, None when unknown): the newest, the one
-/// before it, the newest at least an hour old, and the newest at least 1, 2, …, 7 days old. A backup without a known
+/// before it, the newest at least an hour old, and the newest at least 1, 2, …, `KEEP_DAYS` days old. A backup without a known
 /// time, or with a time after `now` (a clock that went back), is kept too: pruning never deletes what it cannot place.
 fn retained(times: &[Option<i64>], now: i64) -> std::collections::BTreeSet<usize> {
     let mut keep = std::collections::BTreeSet::new();
@@ -915,7 +918,7 @@ fn retained(times: &[Option<i64>], now: i64) -> std::collections::BTreeSet<usize
     // Newest first, whatever the clock says.
     known.sort_by(|a, b| b.cmp(a));
     keep.extend(known.iter().take(2).map(|(_, i)| *i));
-    let ages = std::iter::once(HOUR_MS).chain((1..=7).map(|d| d * DAY_MS));
+    let ages = std::iter::once(HOUR_MS).chain((1..=KEEP_DAYS).map(|d| d * DAY_MS));
     for age in ages {
         if let Some((_, i)) = known.iter().find(|(t, _)| now - t >= age) {
             keep.insert(*i);
@@ -1212,9 +1215,9 @@ mod tests {
 
     #[test]
     fn retention_keeps_one_backup_per_rule() {
-        // A backup every minute for 10 days, newest first.
-        let times: Vec<Option<i64>> = (0..10 * 24 * 60).map(|m| Some(NOW - m * MIN)).collect();
-        let mut want: Vec<Option<i64>> = [0, MIN, HOUR_MS].into_iter().chain((1..=7).map(|d| d * DAY_MS)).map(|age| Some(NOW - age)).collect();
+        // A backup every minute for 12 days, newest first.
+        let times: Vec<Option<i64>> = (0..12 * 24 * 60).map(|m| Some(NOW - m * MIN)).collect();
+        let mut want: Vec<Option<i64>> = [0, MIN, HOUR_MS].into_iter().chain((1..=10).map(|d| d * DAY_MS)).map(|age| Some(NOW - age)).collect();
         want.sort_by_key(|t| std::cmp::Reverse(*t));
         let mut got = kept(&times, NOW);
         got.sort_by_key(|t| std::cmp::Reverse(*t));
@@ -1222,7 +1225,7 @@ mod tests {
         // Order of the input does not matter.
         let mut shuffled = times.clone();
         shuffled.reverse();
-        assert_eq!(retained(&shuffled, NOW).len(), 10);
+        assert_eq!(retained(&shuffled, NOW).len(), 13);
     }
 
     #[test]
