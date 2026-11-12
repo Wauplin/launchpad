@@ -4,6 +4,7 @@
 //! the records). The run's message references the messages (`launchpad channel read`), never inlines them.
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::OptionalExtension;
+use std::collections::HashSet;
 
 use crate::crons::{CronAgent, MISSED_GRACE_MS, Trigger};
 use launchpad_core::{App, util::now_ms};
@@ -43,9 +44,23 @@ pub(crate) fn takes(m: &Message, bot: &str, mentions_only: bool) -> bool {
 }
 
 /// The messages after the watermark `seen` (a message ID; None: those posted after `created_at`, the routine's
-/// creation) that the routine takes, oldest first.
-pub(crate) fn select(messages: &[Message], seen: Option<i64>, created_at: i64, bot: &str, mentions_only: bool) -> Vec<Message> {
-    messages.iter().filter(|m| seen.map_or(m.created_at > created_at, |s| m.id > s) && takes(m, bot, mentions_only)).cloned().collect()
+/// creation) that the routine takes, oldest first. `delivered` holds the messages the channel itself already
+/// delivered to the bot (sent, queued or combined): they never wake it a second time.
+pub(crate) fn select(messages: &[Message], seen: Option<i64>, created_at: i64, bot: &str, mentions_only: bool, delivered: &HashSet<i64>) -> Vec<Message> {
+    messages.iter().filter(|m| seen.map_or(m.created_at > created_at, |s| m.id > s) && takes(m, bot, mentions_only) && !delivered.contains(&m.id)).cloned().collect()
+}
+
+/// The messages after `after` that the channel delivered to `bot` itself (a message delivery, not a digest, in
+/// state sent, queued or combined).
+async fn delivered_to(app: &App, channel: &str, bot: &str, after: i64) -> Result<HashSet<i64>> {
+    let (channel, bot) = (channel.to_string(), bot.to_string());
+    app.state_db
+        .call(move |c| {
+            let mut st = c.prepare("SELECT message_id FROM channel_delivery WHERE channel_id = ?1 AND bot_id = ?2 AND message_id > ?3 AND kind = 'message' AND state IN ('sent', 'queued', 'combined')")?;
+            let ids = st.query_map(rusqlite::params![channel, bot, after], |r| r.get(0))?.collect::<rusqlite::Result<HashSet<i64>>>()?;
+            Ok(ids)
+        })
+        .await
 }
 
 /// The hop of a run's message: one more than the longest chain among the messages it answers (the owner's are
@@ -205,7 +220,8 @@ async fn check_one(app: &App, r: &CronAgent, bots: &[launchpad_core::bots::Bot],
     };
     let all = messages_after(app, &ch.id, after).await?;
     let Some(newest_id) = all.iter().map(|m| m.id).max() else { return Ok(()) };
-    let new = select(&all, Some(after), r.created_at, &bot, *mentions_only);
+    let delivered = delivered_to(app, &ch.id, &bot, after).await?;
+    let new = select(&all, Some(after), r.created_at, &bot, *mentions_only, &delivered);
     let fresh: Vec<Message> = new.iter().filter(|m| now - m.created_at <= MISSED_GRACE_MS).cloned().collect();
     // A routine that cannot run at all (its bot has no profile) still claims its messages and records why below.
     if !fresh.is_empty() && (crate::crons::why_blocked(app, r).await.is_ok_and(|w| w.is_some()) || crate::crons::quota_hold(app, r).await.is_ok_and(|h| h.is_some())) {
@@ -265,15 +281,19 @@ mod tests {
             msg(5, "bot", "b2", &[], 1, 50),
         ];
         let ids = |v: Vec<Message>| v.iter().map(|m| m.id).collect::<Vec<_>>();
+        let none = HashSet::new();
         // Its own bot's messages never start it.
-        assert_eq!(ids(select(&list, Some(0), 0, "b1", false)), vec![1, 3, 4, 5]);
+        assert_eq!(ids(select(&list, Some(0), 0, "b1", false, &none)), vec![1, 3, 4, 5]);
         // After the watermark only.
-        assert_eq!(ids(select(&list, Some(3), 0, "b1", false)), vec![4, 5]);
+        assert_eq!(ids(select(&list, Some(3), 0, "b1", false, &none)), vec![4, 5]);
         // Without a watermark: those posted after the routine's creation.
-        assert_eq!(ids(select(&list, None, 30, "b1", false)), vec![4, 5]);
+        assert_eq!(ids(select(&list, None, 30, "b1", false, &none)), vec![4, 5]);
         // Only mentions of the bot.
-        assert_eq!(ids(select(&list, Some(0), 0, "b1", true)), vec![3]);
-        assert_eq!(ids(select(&list, Some(0), 0, "b2", true)), vec![4]);
+        assert_eq!(ids(select(&list, Some(0), 0, "b1", true, &none)), vec![3]);
+        assert_eq!(ids(select(&list, Some(0), 0, "b2", true, &none)), vec![4]);
+        // Messages the channel already delivered to the bot never wake it twice; with none left, no run.
+        assert_eq!(ids(select(&list, Some(0), 0, "b1", false, &HashSet::from([1, 4]))), vec![3, 5]);
+        assert!(select(&list, Some(0), 0, "b1", true, &HashSet::from([3])).is_empty());
         assert!(takes(&list[0], "b1", false) && !takes(&list[1], "b1", false));
         // An external author with the bot's ID is not the bot.
         assert!(takes(&msg(6, "external", "b1", &[], 0, 60), "b1", false));
