@@ -20,6 +20,7 @@ fn mode_of(v: &Value) -> Result<Mode> {
 
 /// A named channel of the workspace, by name (`release-train`, `#release-train`) or ID.
 async fn named(app: &App, workspace: &str, key: &str) -> Result<channel::Row> {
+    ensure!(!key.trim().starts_with('@'), "a DM's members are its two bots: name a channel to join (release-train)");
     let key = key.trim().trim_start_matches('#');
     ensure!(!key.is_empty(), "name the channel to join (release-train)");
     let (ws, k) = (workspace.to_string(), key.to_string());

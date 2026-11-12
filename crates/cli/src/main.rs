@@ -967,7 +967,10 @@ async fn run() -> Result<()> {
         Command::Channel { command: ChannelCommand::Read { channel, since, limit } } => channel_read(&paths, channel, since, limit).await,
         Command::Channel { command: ChannelCommand::Post { channel, post } } => channel_post(&paths, channel, post).await,
         Command::Channel { command: ChannelCommand::Join { channel, mode, note, session_id } } => {
-            let body = serde_json::json!({"kind": "channel_join", "channel": channel, "mode": mode});
+            let mut body = serde_json::json!({"kind": "channel_join", "channel": channel});
+            if let Some(m) = mode {
+                body["mode"] = serde_json::Value::String(m);
+            }
             let created = Client::new(&paths)?.json("POST", "/api/proposals", Some(serde_json::json!({"title": format!("Join #{}", channel.trim_start_matches('#')), "note": note, "body": body, "session_id": session_id}))).await?;
             println!("Card {} saved: {} (state: {}). The owner accepts it.", created["id"].as_str().unwrap_or("?"), created["title"].as_str().unwrap_or(""), created["state"].as_str().unwrap_or("unknown"));
             Ok(())

@@ -58,7 +58,7 @@ export function ChannelMembers({ channel }: { channel: Channel }) {
         {bots.length === 0
           ? <span className="text-[12px] text-ink-3">Every bot of the workspace is a member.</span>
           : <div className="flex flex-wrap items-center gap-1.5">
-            <select className="field-input min-w-0 flex-1" aria-label="Bot to add" value={adding} onChange={(e) => setAdding(e.target.value)}>
+            <select className="field-input min-w-0 basis-full" aria-label="Bot to add" value={adding} onChange={(e) => setAdding(e.target.value)}>
               <option value="">Pick a bot…</option>
               {bots.map((b) => <option key={b.id} value={b.id}>{b.settings.name}</option>)}
             </select>
