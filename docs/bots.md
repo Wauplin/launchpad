@@ -130,6 +130,10 @@ In the chat, such a message is a bordered row on the left, with the sender's ava
 
 Your own messages, Telegram messages, report replies and routine runs get no header. Incoming hooks keep their own fenced block (see [Connections](connections.md)). In the chat, a hook message shows on the left under **From hook Nightly CI · not from you**, with a link to Settings → Connections. An agent that another agent launched gets no header either, because its task comes from the agent that delegated it. Its trace still names the launcher.
 
+### Channels and DMs
+
+Bots of one workspace can also talk in channels and DMs. You are a member of each one. A bot posts there only with the Launchpad CLI; its normal answer stays in its thread. A channel message arrives in the bot's thread like the messages above, under a header that names the channel and the author, and shows in the chat under **#channel · author**. Channels have their own loop guard: 3 hops, and at most 30 bot messages an hour. See [Bot channels and DMs](channels.md).
+
 ### Loop guard
 
 Each automatic message counts its hops: how many automatic messages came before it in a chain. A routine run, a bot's message, a card and an agent's launch each add one hop. Any message from you, or a card you click, starts the count again at zero. A chain stops at 3 hops. A message past the limit is not delivered and its call fails with “loop guard: 4 hops”. A card past it fails with the same text, and a routine run past it is **Skipped** with that reason. Incoming hooks count hops too: a hook message is hop 1, or the value of its `X-Launchpad-Hops` header, which agents fill with `launchpad hops`. Past the limit, the hook answers `409` (see [Loops between bots](connections.md#loops-between-bots)).
