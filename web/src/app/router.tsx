@@ -63,6 +63,7 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/settings/huggingface", component: lazyRouteComponent(() => import("@/features/settings/HuggingFaceView"), "HuggingFaceView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/github", component: lazyRouteComponent(() => import("@/features/settings/GitHubView"), "GitHubView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/profiles", component: lazyRouteComponent(() => import("@/features/settings/ProfilesView"), "ProfilesView") }),
+  createRoute({ getParentRoute: () => root, path: "/settings/voice", component: lazyRouteComponent(() => import("@/features/settings/VoiceView"), "VoiceView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/usage", component: lazyRouteComponent(() => import("@/features/settings/AnalyticsView"), "AnalyticsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/worktrees", component: lazyRouteComponent(() => import("@/features/settings/WorktreesView"), "WorktreesView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/runners", component: lazyRouteComponent(() => import("@/features/settings/RunnersView"), "RunnersView") }),

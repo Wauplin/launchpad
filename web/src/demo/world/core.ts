@@ -43,6 +43,7 @@ export function coreWorld() {
     ],
     home: { backup: "", git_name: "", git_email: "", burst: { enabled: true, monthly_cap_usd: 20, flavor: "cpu-basic" }, cli_updates: {}, time_zone: "" },
     runner: { boundary: "jail" },
+    voice: { enabled: true, profiles: [], language: "en", silence_stop_s: 8 },
   };
   const status: Status = {
     env: "demo",

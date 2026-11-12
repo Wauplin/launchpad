@@ -37,6 +37,7 @@ export type IconName =
   | "up"
   | "down"
   | "send"
+  | "mic"
   | "alert"
   | "xcircle"
   | "okcircle"
@@ -101,6 +102,7 @@ export function IconSprite() {
     <symbol id="i-trash" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.75 4.5h10.5"/><path d="M6.25 4.5V3h3.5v1.5"/><path d="M4.25 4.5l.6 9h6.3l.6-9"/></g></symbol>
     <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 13V3.5M4 7.5l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></symbol>
     <symbol id="i-down" viewBox="0 0 16 16"><path d="M8 3v9.5M4 8.5l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="5.75" y="1.75" width="4.5" height="8" rx="2.25"/><path d="M3.25 7.5a4.75 4.75 0 0 0 9.5 0M8 12.25v2"/></g></symbol>
     <symbol id="i-send" viewBox="0 0 16 16"><path d="M2.5 8 13.5 2.5 10.5 13.5 8 9z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></symbol>
     <symbol id="i-alert" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3"/></g><circle cx="8" cy="11.6" r=".9" fill="currentColor"/></symbol>
     <symbol id="i-xcircle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="currentColor"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round"/></symbol>

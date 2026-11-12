@@ -18,6 +18,7 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
   ] },
   { group: "Agents", items: [
     { to: "/settings/profiles", label: "Profiles", icon: "agents", keywords: "harness claude codex opencode model effort billing subscription pay as you go api key quota" },
+    { to: "/settings/voice", label: "Voice", icon: "mic", keywords: "dictation microphone mic speech talk transcribe speak language silence sounds" },
     { to: "/settings/presets", label: "Presets", icon: "preset", keywords: "instructions prompt snippets" },
     { to: "/settings/usage", label: "Usage", icon: "clock", keywords: "analytics activity cost tokens spend month" },
   ] },

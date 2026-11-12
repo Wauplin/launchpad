@@ -2,7 +2,7 @@
 //!
 //! `GET /api/voice`: the settings and the sources, in fallback order, with their state (Settings → Voice and the
 //! mic's tooltip). `GET /api/voice/ws`: one WebSocket per window. In: `{"type":"warm"}` (the pointer is on a mic or
-//! a message box has the focus: connect the first source now, kept 30 s), `{"type":"start","keyterms":[…]}`,
+//! a message box has the focus: connect the first source now, kept 30 s), `{"type":"start","keyterms":[…],"profile":…}` (`profile`: only that source, for Test voice),
 //! binary frames (16 kHz mono 16-bit PCM), `{"type":"stop"}` (the last words, then `closed`) and
 //! `{"type":"cancel"}`. Out: `source` (the login that listens, with a `note` after a failover), `delta` (the
 //! phrase so far, replacing the previous one), `done` (a settled phrase to insert), `error` (`reason`) and `closed`.
@@ -83,6 +83,7 @@ pub struct VoiceStatus {
 
 /// A source Home may open: the profile and Home's copy of its login.
 struct Candidate {
+    profile: String,
     name: String,
     harness: launchpad_core::model::HarnessKind,
     env: Vec<(String, String)>,
@@ -148,7 +149,7 @@ async fn sources(app: &App, with_env: bool) -> (VoiceStatus, Vec<Candidate>) {
                         if let Some(r) = b.resets_at { used_up_until = Some(used_up_until.map_or(r, |u| u.min(r))); }
                     } else if source.used && seen_logins.insert(e.id.clone()) && with_env {
                         match launchpad_core::vault::login_home(app, &e.id).await {
-                            Ok((_, env)) => ready.push(Candidate { name: format!("{} ({})", descriptor.name, p.name), harness: p.harness, env }),
+                            Ok((_, env)) => ready.push(Candidate { profile: p.id.clone(), name: format!("{} ({})", descriptor.name, p.name), harness: p.harness, env }),
                             Err(err) => tracing::warn!("voice: login copy of {}: {err:#}", e.id),
                         }
                     }
@@ -291,7 +292,10 @@ async fn run(app: App, mut socket: WebSocket, access: Access) {
                             "start" => {
                                 let keyterms = keyterms_of(&v);
                                 let (status, mut rest) = sources(&app, true).await;
-                                if let Some(reason) = status.unavailable.filter(|_| rest.is_empty()) {
+                                // Test voice: one source only.
+                                if let Some(profile) = v["profile"].as_str() { rest.retain(|c| c.profile == profile) }
+                                if rest.is_empty() {
+                                    let reason = status.unavailable.unwrap_or_else(|| "This voice source is not ready".into());
                                     if !send(&mut socket, json!({"type": "error", "reason": reason})).await { break }
                                     continue;
                                 }
@@ -299,11 +303,11 @@ async fn run(app: App, mut socket: WebSocket, access: Access) {
                                 attempts += 1;
                                 let mut l = Live { started: Instant::now(), buffer: vec![], call: None, rest: vec![], attempt: attempts, finishing: false, keyterms, note: None, bytes: 0 };
                                 // A warm call was opened with the vocabulary hints of its warm-up: use it only for the same ones.
-                                if let Some((call, name, _, _)) = warm.take().filter(|w| w.3 == l.keyterms) {
+                                if let Some((call, name, _, _)) = warm.take().filter(|w| w.3 == l.keyterms && rest.iter().any(|c| c.name == w.1)) {
                                     rest.retain(|c| c.name != name);
                                     if !send(&mut socket, json!({"type": "source", "name": name})).await { break }
                                     l.call = Some((call, name));
-                                } else if !rest.is_empty() {
+                                } else {
                                     warming = None;
                                     open(&app, l.attempt, rest.remove(0), opts(&app, &l.keyterms), opened_tx.clone());
                                 }

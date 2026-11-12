@@ -28,6 +28,9 @@ import { reusableWorktrees } from "./worktreeChoices";
 import { pullRequestOf } from "./pullRequest";
 import { HarnessMark, useHarnessName, useHarnesses, useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
+import { VoiceButton } from "@/components/VoiceButton";
+import { VoiceCaption } from "@/components/VoiceCaption";
+import { useDictation } from "@/lib/voice/useDictation";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { Choice, Choices } from "@/components/ui";
@@ -297,6 +300,9 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const [readingAttachments, setReadingAttachments] = useState(false);
   const attachmentRead = useRef(false);
   const attachmentInput = useRef<HTMLInputElement>(null);
+  // Launch while dictating waits for the last words, then launches.
+  const promptInput = useRef<HTMLTextAreaElement>(null);
+  const dictation = useDictation({ inputRef: promptInput, onSend: () => void launch() });
   const addAttachments = async (input: File[] | Promise<File[]>) => {
     if (launching || attachmentRead.current) return;
     attachmentRead.current = true;
@@ -524,7 +530,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const launchLabel = launching ? (cron ? "Creating…" : editing && scheduled ? "Saving…" : scheduled ? "Scheduling…" : "Sending…") : cron ? "Create routine" : editing ? (timing === "later" ? "Save" : "Start now") : timing === "later" ? "Schedule" : "Launch";
   const launchButton = () => (
     <span className="inline-flex" data-tour="composer.launch">
-      <button className={`btn btn-primary ${browserOnly ? "" : "rounded-r-none"} ${isPhone ? "min-w-[120px] justify-center" : ""}`} disabled={!canLaunch || launching} title={unsupportedImages ? "This harness does not support attached images" : blocker ?? undefined} onClick={() => void launch()}>
+      <button className={`btn btn-primary ${browserOnly ? "" : "rounded-r-none"} ${isPhone ? "min-w-[120px] justify-center" : ""}`} disabled={!canLaunch || launching} title={dictation.active ? "Launch waits until dictation has finished" : unsupportedImages ? "This harness does not support attached images" : blocker ?? undefined} onClick={() => (dictation.active ? dictation.stopAndSend() : void launch())}>
         <Icon name={timing === "repeat" ? "refresh" : timing === "later" ? (editing ? "check" : "clock") : "play"} size={14} />
         {launchLabel}
       </button>
@@ -589,7 +595,9 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3">
         <div className="composer-prompt" data-tour="composer.prompt">
+          <VoiceCaption dictation={dictation} className="px-2.5 pt-2" />
           <PromptField
+            inputRef={promptInput}
             disabled={launching || readingAttachments}
             onPaste={(e) => { if (launching || attachmentRead.current) return; const files = pastedImages(e); if (files) void addAttachments(files); }}
             document={{ text: spec.text, mentions: spec.mentions, skills: spec.skills, context_projects: spec.context_projects, github_refs: spec.github_refs, agent_traces: spec.agent_traces }}
@@ -621,7 +629,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               })}
               presets={{ presets: agentPresets, selected: spec.presets, onChange: (ids) => set((s) => ({ ...s, presets: ids })) }}
             />
-            <button className={isPhone ? "btn btn-ghost text-[13px]" : "btn btn-sm btn-ghost"} disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. ${ATTACH_LIMITS}`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} />{isPhone ? "Attach files or images" : "Attach"}</button>
+            <button className={`${isPhone ? "btn btn-ghost text-[13px]" : "btn btn-sm btn-ghost"} ml-auto`} disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. ${ATTACH_LIMITS}`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} />{isPhone ? "Attach files or images" : "Attach"}</button>
+            <VoiceButton dictation={dictation} />
           </div>
         </div>
         {(readingAttachments || (spec.attachments ?? []).length > 0 || unsupportedImages) && <div>

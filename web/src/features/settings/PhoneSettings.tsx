@@ -72,6 +72,7 @@ export function PhoneSettings() {
       <Group title="On the phone">
         <Row to="/settings/connections" icon="send" label="Connections" />
         <Row to="/settings/workspace" icon="folder" label="Workspace" state={workspace.name} />
+        <Row to="/settings/voice" icon="mic" label="Voice" />
         <Row to="/settings/presets" icon="preset" label="Presets" state={presets ? count(presets.length, "preset") : undefined} />
         <Row to="/settings/github" icon="pr" label="GitHub" />
         <Row to="/settings/usage" icon="clock" label="Usage" />
