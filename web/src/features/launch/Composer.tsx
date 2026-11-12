@@ -19,6 +19,7 @@ import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
 import type { StartPreview } from "@/gen/StartPreview";
 import { StartPreviewDialog } from "./StartPreview";
+import type { Predraft } from "@/gen/Predraft";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
@@ -106,6 +107,50 @@ function Branch({ projectId, branch, onChange, currentLabel = "checkout", field 
   );
 }
 
+/** One menu for where a Git folder's agent works: a new worktree from a branch, an existing worktree or an existing Local PR. */
+function RunIn({ projectId, label, base, worktrees, selectedWorktree, localPrs, selectedLocalPr, onBranch, onWorktree, onLocalPr }: {
+  projectId: string;
+  label: string;
+  /** The base of a new worktree; undefined when the agent works elsewhere. */
+  base: string | null | undefined;
+  worktrees: ReturnType<typeof reusableWorktrees>;
+  selectedWorktree?: string;
+  localPrs: Predraft[];
+  selectedLocalPr?: string;
+  onBranch: (base: string | null) => void;
+  onWorktree: (w: ReturnType<typeof reusableWorktrees>[number]) => void;
+  onLocalPr: (p: Predraft) => void;
+}) {
+  const q = useQuery({
+    queryKey: ["branches", projectId],
+    queryFn: () => api.get<{ current: string | null; branches: string[] }>(`/api/projects/${projectId}/branches`),
+    staleTime: 30_000,
+  });
+  // A branch that already has a worktree or a Local PR shows once, in its own section.
+  const taken = new Set([q.data?.current, ...worktrees.map((w) => w.branch), ...localPrs.map((p) => p.branch)]);
+  const branches = (q.data?.branches ?? []).filter((b) => !taken.has(b));
+  const heading = (text: string) => <div className="px-[9px] pt-1.5 pb-0.5 text-[11px] font-[650] text-ink-3">{text}</div>;
+  return (
+    <Popover
+      width="100%"
+      trigger={({ toggle }) => <SelectButton onClick={toggle}><Icon name="branch" size={12} className="flex-none text-ink-3" /><span className="truncate">{label}</span></SelectButton>}
+    >
+      {(close) => (
+        <>
+          {heading("New worktree from")}
+          <MenuItem icon={<Icon name="branch" size={12} />} label="Default branch" detail={q.data?.current ?? undefined} active={base === null} onClick={() => (onBranch(null), close())} />
+          {branches.map((b) => <MenuItem key={b} icon={<Icon name="branch" size={12} />} label={<span className="font-mono text-[12px]">{b}</span>} active={base === b} onClick={() => (onBranch(b), close())} />)}
+          {q.isLoading && <div className="px-2 py-1 text-[12px] text-ink-3">Loading branches…</div>}
+          {!!worktrees.length && heading("Existing worktrees")}
+          {worktrees.map((w) => <MenuItem key={w.id} label={<span className="font-mono text-[12px]">{w.branch}</span>} detail={w.busy ? "Agent active" : undefined} disabled={w.busy} active={w.id === selectedWorktree} onClick={() => (onWorktree(w), close())} />)}
+          {!!localPrs.length && heading("Existing Local PRs")}
+          {localPrs.map((p) => <MenuItem key={p.id} label={p.title} detail={p.published_number ? `PR #${p.published_number}` : <span className="font-mono">{p.branch}</span>} active={p.id === selectedLocalPr} onClick={() => (onLocalPr(p), close())} />)}
+        </>
+      )}
+    </Popover>
+  );
+}
+
 function PromptPreview({ spec, title }: { spec: LaunchSpec; title: string }) {
   const debounced = useDebounced(spec, 250);
   const preview = useQuery({ queryKey: ["preview", debounced], queryFn: () => api.post<Preview>("/api/launch/preview", debounced), placeholderData: (prev) => prev });
@@ -144,11 +189,11 @@ function useOverlay(scale: number) {
   return width / scale < OVERLAY_BELOW;
 }
 
-/** Makes `p` the target of a draft (keeping a Local PR target kind), and drops it from the context folders. */
+/** Makes `p` the target of a draft, and drops it from the context folders. */
 function withFolder(s: LaunchSpec, p: Project): LaunchSpec {
   // Git folders of Home always run in a fresh worktree.
-  const worktree = p.home_git && s.target.kind !== "predraft" ? (s.worktree ?? { base: null, when_done: p.when_done }) : s.worktree;
-  return { ...s, worktree, target: { kind: s.target.kind === "predraft" ? "predraft" : "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) };
+  const worktree = p.home_git ? (s.worktree ?? { base: null, when_done: p.when_done }) : s.worktree;
+  return { ...s, worktree, target: { kind: "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) };
 }
 
 function Token({ warn, title, children }: { warn?: boolean; title?: string; children: React.ReactNode }) {
@@ -315,6 +360,11 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     update((s) => (s.profile ? s : withProfile(s, pick)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, spec.profile, profiles]);
+  // Drafts saved with the former "New Local PR" target run in a new worktree that opens a Local PR when done.
+  useEffect(() => {
+    if (open && spec.target.kind === "predraft") update((s) => (s.target.kind === "predraft" ? { ...s, target: { kind: "project", project_id: s.target.project_id }, worktree: { base: s.worktree?.base ?? null, when_done: "local_pr" } } : s));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, spec.target.kind]);
   const launchRunners = useLaunchRunners();
   // The lease takes the workspace of the session's folder, else the launch's.
   const toolsWorkspace = projects.find((p) => p.id === targetId)?.workspace_id ?? spec.workspace_id;
@@ -499,7 +549,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const effortLabel = spec.effort ?? profile?.effort ?? defaults?.effort ?? null;
   const worktreeMode = spec.target.kind === "project" && !!spec.worktree && gitTarget;
   // Only values that differ from the defaults show in the option line; a new worktree is the default for Git folders.
-  const runIn = spec.target.kind === "session_folder" ? (selectedWorktree ? `worktree · ${selectedWorktree.branch}` : "previous agent’s folder") : spec.target.kind === "predraft" ? "new Local PR" : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? (pushToPr ? `PR #${pushToPr.number}` : null) : null;
+  const runIn = spec.target.kind === "session_folder" ? (selectedWorktree ? `worktree · ${selectedWorktree.branch}` : "previous agent’s folder") : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? (pushToPr ? `PR #${pushToPr.number}` : null) : null;
   const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
   const billingText = !supportsCost && harness?.capabilities.cost ? costUnavailableMessage : payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
   // Where it runs and what happens when done, first on the options line ("New worktree from main · keep branch").
@@ -686,21 +736,22 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         {showOptions && <OptionsFrame onClose={() => setShowOptions(false)}>
           {!browserOnly && <OptionRow label="Run in">
             <div className="grid gap-1.5">
-              {target ? <select className="field-input w-full" aria-label="Run in" value={selectedWorktree ? `worktree:${selectedWorktree.id}` : worktreeMode ? "worktree" : existing ? `predraft:${existing.id}` : spec.target.kind} onChange={(e) => {
-                const v = e.target.value;
-                const worktree = worktreeChoices.find((w) => v === `worktree:${w.id}`);
-                const predraft = existingPrChoices.find((p) => v === `predraft:${p.id}`);
-                if (worktree) set((s) => ({ ...s, target: { kind: "session_folder", session_id: worktree.source.id }, worktree: null }));
-                else if (predraft) set((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: predraft.id }, worktree: null }));
-                else if (v === "worktree" || v === "project" || v === "predraft") set((s) => ({ ...s, target: { kind: v === "predraft" ? "predraft" : "project", project_id: target.id }, worktree: v === "worktree" ? (s.worktree ?? { base: null, when_done: "keep" }) : null }));
+              {target && gitTarget ? <RunIn
+                projectId={target.id}
+                label={pushToPr ? `PR #${pushToPr.number}` : selectedWorktree ? selectedWorktree.branch : existing ? `Local PR: ${existing.title}` : spec.target.kind === "session_folder" ? "Previous agent’s folder" : `New worktree from ${spec.worktree?.base ?? `default branch${targetBranches.data?.current ? ` (${targetBranches.data.current})` : ""}`}`}
+                base={worktreeMode ? (spec.worktree?.base ?? null) : undefined}
+                worktrees={worktreeChoices}
+                selectedWorktree={selectedWorktree?.id}
+                localPrs={existingPrChoices}
+                selectedLocalPr={existing?.id}
+                onBranch={(base) => set((s) => ({ ...s, target: { kind: "project", project_id: target.id }, worktree: { ...(s.worktree ?? { when_done: target.when_done }), base } }))}
+                onWorktree={(w) => set((s) => ({ ...s, target: { kind: "session_folder", session_id: w.source.id }, worktree: null }))}
+                onLocalPr={(p) => set((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: p.id }, worktree: null }))}
+              /> : target ? <select className="field-input w-full" aria-label="Run in" value={spec.target.kind} onChange={(e) => {
+                if (e.target.value === "project") set((s) => ({ ...s, target: { kind: "project", project_id: target.id }, worktree: null }));
               }}>
-                {spec.target.kind === "session_folder" && !selectedWorktree && <option value="session_folder">Previous agent’s folder</option>}
-                {gitTarget && <option value="worktree">New worktree</option>}
-                {!target.home_git && <option value="project">{target.plain ? "Folder (no Git)" : "Temporary folder"}</option>}
-                {gitTarget && <option value="predraft">New Local PR</option>}
-                {!!worktreeChoices.length && <optgroup label="Existing worktrees">{worktreeChoices.map((w) => <option key={w.id} value={`worktree:${w.id}`} disabled={w.busy}>{w.branch}{w.busy ? " · Agent active" : ""}</option>)}</optgroup>}
-                {existing && !existingPrChoices.some((p) => p.id === existing.id) && <option value={`predraft:${existing.id}`} disabled>Local PR: {existing.title} · Unavailable</option>}
-                {!!existingPrChoices.length && <optgroup label="Existing Local PRs">{existingPrChoices.map((p) => <option key={p.id} value={`predraft:${p.id}`}>{p.title}{p.published_number ? ` · PR #${p.published_number}` : ""}</option>)}</optgroup>}
+                {spec.target.kind === "session_folder" && <option value="session_folder">Previous agent’s folder</option>}
+                <option value="project">{target.plain ? "Folder (no Git)" : "Temporary folder"}</option>
               </select> : <div className="field-input">{spec.target.kind === "session_folder" ? source?.cwd ?? "Source session unavailable" : spec.target.kind === "temp" ? "Deleted at Archive" : "—"}</div>}
               {taskWorktrees.isFetching && !taskWorktrees.data && target && <div className="mt-1 text-[12px] text-ink-3">Loading existing worktrees…</div>}
               {taskWorktrees.isError && target && <div className="mt-1 text-[12px] text-danger-ink">Could not load existing worktrees. <button className="underline" onClick={() => void taskWorktrees.refetch()}>Retry</button></div>}
@@ -714,7 +765,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               </label>}
             </div>
           </OptionRow>}
-          {worktreeMode && target && !pushToPr && <OptionRow label="From"><Branch field projectId={target.id} branch={spec.worktree?.base ?? null} currentLabel="default branch" onChange={(base) => set((s) => ({ ...s, worktree: { ...(s.worktree ?? { when_done: "keep" }), base } }))} /></OptionRow>}
           {worktreeMode && target && !pushToPr && <OptionRow label="When done">
             <span className="grid" title="Merge: the agent asks Launchpad to merge when it is done; Home fast-forwards the base branch, and a base that moved goes back to the agent for a rebase. Open a Local PR: the agent opens a Local PR of its branch on Home, with a title and description for you to review and publish. Read only: for questions and audits; the agent changes nothing, and Archive deletes the unchanged worktree and branch.">
               <select className="field-input w-auto" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project, except Read only" onChange={(e) => {

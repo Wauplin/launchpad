@@ -91,7 +91,7 @@ Every folder is stored by Home, so agents run in it on any runner. The sidebar l
 
 1. Click **Launch** next to the field in the top bar, with the field empty: the composer opens. (Typing the task in the field first and clicking **Launch** starts at once with the page as context and the folder's defaults.)
 2. Write the task. Type `@` to mention files, `/` for skills and `#` for folders, agent traces and GitHub items.
-3. Choose the folder. The options line under the prompt says where the agent works, for example "New worktree from main · keep branch": in Git folders, a new worktree (the default) gives the agent its own branch. Click the line to change **Run in**, **From** or **When done**. The line "Runs on" names the runner: the one you chose, or by default a runner, else Burst. To only ask a question or request an audit, choose **When done → Read only**: the agent changes nothing, and archiving it deletes its worktree.
+3. Choose the folder. The options line under the prompt says where the agent works, for example "New worktree from main · keep branch": in Git folders, a new worktree (the default) gives the agent its own branch. Click the line to change **Run in** (a new worktree from a branch, or an existing worktree or Local PR) or **When done**. The line "Runs on" names the runner: the one you chose, or by default a runner, else Burst. To only ask a question or request an audit, choose **When done → Read only**: the agent changes nothing, and archiving it deletes its worktree.
 4. Click **Launch**.
 
 ![The composer with its options line](images/composer.webp)
