@@ -40,8 +40,18 @@ impl Client {
     async fn json(&self, method: &str, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value> {
         let (status, text) = self.send(method, path, body).await?;
         let body: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text));
-        anyhow::ensure!((200..300).contains(&status), "{}", body["error"].as_str().unwrap_or("request failed"));
+        anyhow::ensure!((200..300).contains(&status), "{}", failure(status, &body));
         Ok(body)
+    }
+}
+
+/// The reason of a failed request: its JSON `error`, else a short plain-text body (axum's input rejections), else
+/// the status.
+fn failure(status: u16, body: &serde_json::Value) -> String {
+    match (body["error"].as_str(), body.as_str()) {
+        (Some(e), _) => e.to_string(),
+        (None, Some(t)) if !t.trim().is_empty() && t.len() <= 500 => t.trim().to_string(),
+        _ => format!("request failed (HTTP {status})"),
     }
 }
 
