@@ -34,14 +34,20 @@ pub fn target(key: &str) -> Result<Target<'_>> {
     Ok(t)
 }
 
-/// Pure: the bot of `workspace` that `key` names: its slug, ID or name (any case), with or without `@`.
-pub(crate) fn find_bot<'a>(bots: &'a HashMap<String, BotInfo>, workspace: &str, key: &str) -> Option<&'a str> {
+/// Pure: the bot of `workspace` that `key` names: its slug or ID, else its slug or name in any case when only one
+/// bot of the workspace has it (Err: none, or several).
+pub(crate) fn find_bot<'a>(bots: &'a HashMap<String, BotInfo>, workspace: &str, key: &str) -> Result<&'a str> {
     let key = key.trim().trim_start_matches('@');
     let mine = || bots.iter().filter(|(_, b)| b.workspace_id == workspace);
-    mine()
-        .find(|(id, b)| b.slug == key || id.as_str() == key)
-        .or_else(|| mine().find(|(_, b)| b.slug.eq_ignore_ascii_case(key) || b.name.eq_ignore_ascii_case(key)))
-        .map(|(id, _)| id.as_str())
+    if let Some((id, _)) = mine().find(|(id, b)| b.slug == key || id.as_str() == key) {
+        return Ok(id.as_str());
+    }
+    let found: Vec<(&String, &BotInfo)> = mine().filter(|(_, b)| b.slug.eq_ignore_ascii_case(key) || b.name.eq_ignore_ascii_case(key)).collect();
+    match found.as_slice() {
+        [(id, _)] => Ok(id.as_str()),
+        [] => bail!("no bot {key} in this workspace (`launchpad bots list`); DMs never cross workspaces"),
+        _ => bail!("several bots of this workspace are named {key}: name one by its slug ({})", found.iter().map(|(_, b)| b.slug.as_str()).collect::<Vec<_>>().join(", ")),
+    }
 }
 
 /// The calling session: its bot (None for an agent that is not a bot), workspace and admin access.
@@ -73,7 +79,7 @@ async fn resolve(app: &App, me: &Caller, key: &str, bots: &HashMap<String, BotIn
     match target(key)? {
         Target::Dm(other) => {
             let mine = me.bot.as_deref().context(if create { NOT_A_BOT } else { "a DM is between two bots: only a bot's session has DMs (name a channel instead)" })?;
-            let id = find_bot(bots, &me.workspace, other).with_context(|| format!("no bot {other} in this workspace (`launchpad bots list`); DMs never cross workspaces"))?;
+            let id = find_bot(bots, &me.workspace, other)?;
             ensure!(id != mine, "@{other} is you: a DM is with another bot");
             let found = by_name(app, &me.workspace, &channel::dm_key(mine, id)).await?;
             let cid = match found {
@@ -268,11 +274,17 @@ mod tests {
     fn bots_are_found_by_slug_id_or_name_in_their_workspace_only() {
         let b = |name: &str, slug: &str, ws: &str| BotInfo { name: name.into(), slug: slug.into(), workspace_id: ws.into(), paused: false };
         let bots: HashMap<String, BotInfo> = [("b1".to_string(), b("Release", "release", "w1")), ("b2".to_string(), b("Docs Bot", "docs-bot", "w1")), ("b3".to_string(), b("Other", "other", "w2"))].into();
-        assert_eq!(find_bot(&bots, "w1", "release"), Some("b1"));
-        assert_eq!(find_bot(&bots, "w1", "@Release"), Some("b1"));
-        assert_eq!(find_bot(&bots, "w1", "docs bot"), Some("b2"));
-        assert_eq!(find_bot(&bots, "w1", "b2"), Some("b2"));
-        assert_eq!(find_bot(&bots, "w1", "other"), None);
-        assert_eq!(find_bot(&bots, "w2", "b1"), None);
+        let find = |ws: &str, key: &str| find_bot(&bots, ws, key).ok();
+        assert_eq!(find("w1", "release"), Some("b1"));
+        assert_eq!(find("w1", "@Release"), Some("b1"));
+        assert_eq!(find("w1", "docs bot"), Some("b2"));
+        assert_eq!(find("w1", "b2"), Some("b2"));
+        assert_eq!(find("w1", "other"), None);
+        assert_eq!(find("w2", "b1"), None);
+        // Two bots of one name: only their slugs name them.
+        let mut twins = bots.clone();
+        twins.insert("b4".into(), b("release", "release-2", "w1"));
+        assert_eq!(find_bot(&twins, "w1", "release").ok(), Some("b1"));
+        assert!(find_bot(&twins, "w1", "RELEASE").unwrap_err().to_string().contains("several bots"));
     }
 }

@@ -313,7 +313,8 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (true, ["context", "folders" | "bots" | "sessions" | "inbox" | "schedules"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
         (false, ["channels"] | ["channels", "dm"]) => Body,
         // The agent's own channels: Home resolves them in the session's workspace (`launchpad_channels::agent`).
-        (_, ["channels", "agent", ..]) => Shared,
+        (true, ["channels", "agent"] | ["channels", "agent", "read"]) | (false, ["channels", "agent", "post"]) => Shared,
+        (_, ["channels", "agent", ..]) => Unscoped,
         (_, ["channels", id, ..]) => Channel(id),
         (true, ["context", "sessions", id]) => Session(id),
         (false, ["sessions"] | ["bots"] | ["launch", "crons" | "schedules" | "preview" | "start-preview"]) => Body,
@@ -552,6 +553,8 @@ mod tests {
         assert_eq!(names(&Method::PUT, "/api/channels/c1/members/b1"), Channel("c1"));
         assert_eq!(names(&Method::POST, "/api/channels/dm"), Body);
         assert_eq!(names(&Method::GET, "/api/channels"), Listed);
+        assert_eq!(names(&Method::GET, "/api/channels/agent/messages"), Unscoped);
+        assert_eq!(names(&Method::GET, "/api/channels/agent/post"), Unscoped);
         for path in ["/api/context/sessions", "/api/context/folders", "/api/proposals", "/api/today", "/api/activity", "/api/predrafts"] {
             assert_eq!(names(&Method::GET, path), Listed, "{path}");
         }
