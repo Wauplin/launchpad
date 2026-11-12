@@ -43,6 +43,16 @@ pub(crate) fn takes(m: &Message, bot: &str, mentions_only: bool) -> bool {
     !(m.author_kind == "bot" && m.author_id == bot) && (!mentions_only || m.mentions.iter().any(|x| x == bot))
 }
 
+/// How old a message must be before a check reads it: a post commits its message before it writes its delivery
+/// rows, so a younger one may still get a delivery the check cannot see yet.
+const SETTLE_MS: i64 = 5_000;
+
+/// The messages a check reads (`all`, oldest first): those up to the first one younger than `SETTLE_MS`, so the
+/// watermark never passes a message that is left for the next check.
+pub(crate) fn settled(all: Vec<Message>, now: i64) -> Vec<Message> {
+    all.into_iter().take_while(|m| now - m.created_at >= SETTLE_MS).collect()
+}
+
 /// The messages after the watermark `seen` (a message ID; None: those posted after `created_at`, the routine's
 /// creation) that the routine takes, oldest first. `delivered` holds the messages the channel itself already
 /// delivered to the bot (sent, queued or combined): they never wake it a second time.
@@ -219,7 +229,7 @@ async fn check_one(app: &App, r: &CronAgent, bots: &[launchpad_core::bots::Bot],
             app.state_db.call(move |c| Ok(c.query_row("SELECT COALESCE(MAX(id), 0) FROM channel_message WHERE channel_id = ?1 AND created_at <= ?2", rusqlite::params![channel, created], |r| r.get(0))?)).await?
         }
     };
-    let all = messages_after(app, &ch.id, after).await?;
+    let all = settled(messages_after(app, &ch.id, after).await?, now);
     let Some(newest_id) = all.iter().map(|m| m.id).max() else { return Ok(()) };
     let delivered = delivered_to(app, &ch.id, &bot, after).await?;
     let new = select(&all, Some(after), r.created_at, &bot, *mentions_only, &delivered);
@@ -296,6 +306,9 @@ mod tests {
         assert_eq!(ids(select(&list, Some(0), 0, "b1", false, &HashSet::from([1, 4]))), vec![3, 5]);
         assert!(select(&list, Some(0), 0, "b1", true, &HashSet::from([3])).is_empty());
         assert!(takes(&list[0], "b1", false) && !takes(&list[1], "b1", false));
+        // A check reads only settled messages, up to the first young one (IDs and times may be out of order).
+        let young = vec![msg(1, "owner", "owner", &[], 0, 1_000), msg(2, "owner", "owner", &[], 0, 9_000), msg(3, "owner", "owner", &[], 0, 2_000)];
+        assert_eq!(ids(settled(young, 10_000)), vec![1]);
         // An external author with the bot's ID is not the bot.
         assert!(takes(&msg(6, "external", "b1", &[], 0, 60), "b1", false));
     }
