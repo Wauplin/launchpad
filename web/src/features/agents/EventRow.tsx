@@ -1,6 +1,6 @@
-import { daemonAsset } from "@/lib/connection";
 // One display row of a session (see rows.ts). Memoized on the row version.
 
+import { attachmentSrc } from "@/lib/attachments";
 import { useQuery } from "@tanstack/react-query";
 import { memo, useContext, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
@@ -258,7 +258,7 @@ export const EventRow = memo(
             {from ? withoutSender(row.text) : row.text}
             {row.instructions && <Instructions blocks={row.instructions} className={row.text ? "mt-1.5" : ""} />}
             {row.presets && <Instructions label={`Presets: ${row.presets.map((p) => p.label).join(" · ")}`} blocks={row.presets.map((p) => p.text.trim())} className={row.text ? "mt-1.5" : ""} />}
-            <div className="flex flex-wrap gap-2">{row.images.map((image, i) => <ImageThumb key={i} src={image.data_url.startsWith("/api/") ? daemonAsset(image.data_url) : image.data_url} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />)}</div>
+            <div className="flex flex-wrap gap-2">{row.images.map((image, i) => <ImageThumb key={i} src={attachmentSrc(image.data_url)} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />)}</div>
             {row.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
           </div>
         );

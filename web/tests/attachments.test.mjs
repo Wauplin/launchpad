@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pastedImages } from "../src/lib/attachments.ts";
+import { attachmentSrc, pastedImages } from "../src/lib/attachments.ts";
 
 function paste({ files = [], items = [], types = [], text = "" } = {}) {
   return {
@@ -26,4 +26,13 @@ test("text and empty clipboards keep the native paste", () => {
     assert.equal(pastedImages(event), null);
     assert.equal(event.prevented, false);
   }
+});
+
+test("image sources: upload references become daemon URLs, data URLs stay", () => {
+  globalThis.window ??= {};
+  const hash = "a".repeat(64);
+  assert.equal(attachmentSrc(`upload:image/png;${hash}`), `/api/uploads/${hash}?type=image%2Fpng`);
+  assert.equal(attachmentSrc("data:image/png;base64,AAAA"), "data:image/png;base64,AAAA");
+  assert.equal(attachmentSrc("/api/x.png"), "/api/x.png");
+  assert.equal(attachmentSrc("upload:image/png;bad"), "upload:image/png;bad");
 });
