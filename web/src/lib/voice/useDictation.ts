@@ -2,11 +2,12 @@
 // the keyboard: Ctrl+Space in the box (a tap toggles, holding ≥ 300 ms talks until release) and Esc stops.
 
 import { useEffect, useId, useRef } from "react";
+import { useBackClose } from "@/mobile/back";
 import { useBots } from "../bots";
 import { useScope } from "../workspace";
 import { usePhone } from "../phone";
 import { cancelDictation, startDictation, stopDictation, useVoice, useVoiceAvailability, warmVoice, type Phase } from "./dictation";
-import { insertAtCaret } from "./text";
+import { appendPhrase, insertAtCaret } from "./text";
 
 export type Dictation = {
   id: string;
@@ -16,6 +17,8 @@ export type Dictation = {
   shown: boolean;
   /** Why the mic is disabled, or null. */
   reason: string | null;
+  /** The source that will listen first ("Claude Code (Work)"), for the mic's tooltip. */
+  source: string | null;
   toggle: () => void;
   start: (held?: boolean) => void;
   stop: () => Promise<void>;
@@ -34,7 +37,7 @@ function useTerms(extra: string[] | undefined): string[] {
   return [...(extra ?? []), ...bots.filter((b) => b.workspace_id === scope.workspace.id).map((b) => b.settings.name), ...scope.projects.map((p) => p.name)].slice(0, 80);
 }
 
-export function useDictation({ inputRef, onSend, map, keyterms, blurOnStart, profile }: {
+export function useDictation({ inputRef, onSend, map, keyterms, blurOnStart, profile, keep }: {
   inputRef: React.RefObject<HTMLTextAreaElement | HTMLInputElement | null>;
   /** The box's send, called by Stop & send after the last words are in. */
   onSend?: () => void;
@@ -45,6 +48,8 @@ export function useDictation({ inputRef, onSend, map, keyterms, blurOnStart, pro
   blurOnStart?: boolean;
   /** Test voice: only this profile. */
   profile?: string;
+  /** The box's draft without the box: phrases that settle after it closed (back, Hide, another page) go there. */
+  keep?: { read: () => string; write: (text: string) => void };
 }): Dictation {
   const id = useId();
   const phone = usePhone();
@@ -52,8 +57,9 @@ export function useDictation({ inputRef, onSend, map, keyterms, blurOnStart, pro
   const mine = useVoice((s) => s.owner === id);
   const phase = useVoice((s) => (s.owner === id ? s.phase : "idle"));
   const terms = useTerms(keyterms);
-  const latest = useRef({ onSend, map, terms, silence: status?.silence_stop_s ?? 8 });
-  latest.current = { onSend, map, terms, silence: status?.silence_stop_s ?? 8 };
+  const latest = useRef({ onSend, map, terms, keep, silence: status?.silence_stop_s ?? 8 });
+  latest.current = { onSend, map, terms, keep, silence: status?.silence_stop_s ?? 8 };
+  const first = status?.sources.find((s) => s.used && s.state === "ready");
   const ready = shown && !reason;
   const start = (held = false) => {
     if (!ready) return;
@@ -64,8 +70,9 @@ export function useDictation({ inputRef, onSend, map, keyterms, blurOnStart, pro
       profile,
       insert: (phrase) => {
         const el = inputRef.current;
-        if (!el) return;
-        insertAtCaret(el, latest.current.map ? latest.current.map(phrase) : phrase);
+        const text = latest.current.map ? latest.current.map(phrase) : phrase;
+        if (el?.isConnected) insertAtCaret(el, text);
+        else if (latest.current.keep) latest.current.keep.write(appendPhrase(latest.current.keep.read(), text));
       },
     }, { held, silenceS: latest.current.silence });
   };
@@ -109,6 +116,8 @@ export function useDictation({ inputRef, onSend, map, keyterms, blurOnStart, pro
     el.addEventListener("focus", focus);
     return () => { el.removeEventListener("keydown", down); el.removeEventListener("keyup", up); el.removeEventListener("focus", focus); };
   }, [inputRef, ready]);
+  // On the phone, back stops the dictation and keeps the text (one history entry while it records).
+  useBackClose(phone && active && mine, () => void stop());
   // Esc anywhere stops this box's dictation (the phone's field is blurred while dictating).
   useEffect(() => {
     if (!active) return;
@@ -118,5 +127,5 @@ export function useDictation({ inputRef, onSend, map, keyterms, blurOnStart, pro
   }, [active]);
   // A box that goes away stops its dictation; its text stays in the draft.
   useEffect(() => () => { if (useVoice.getState().owner === id) void stopDictation(); }, [id]);
-  return { id, phase, active: active && mine, shown, reason, toggle, start, stop, stopAndSend, cancel: () => { if (mine) cancelDictation(); }, warm };
+  return { id, phase, active: active && mine, shown, reason, source: first ? `${first.harness} (${first.name})` : null, toggle, start, stop, stopAndSend, cancel: () => { if (mine) cancelDictation(); }, warm };
 }

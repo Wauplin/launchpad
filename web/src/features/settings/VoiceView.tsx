@@ -10,8 +10,10 @@ import type { VoiceConfig } from "@/gen/VoiceConfig";
 import type { VoiceSource } from "@/gen/VoiceSource";
 import { Icon } from "@/components/Icon";
 import { VoiceCaption } from "@/components/VoiceCaption";
-import { Badge, Choice, Choices, IconButton, Loading, SettingRow, useSaveState, type BadgeTone } from "@/components/ui";
+import { MenuItem } from "@/components/Popover";
+import { Badge, Choice, Choices, IconButton, Loading, MoreMenu, SettingRow, useSaveState, type BadgeTone } from "@/components/ui";
 import { isDemo } from "@/demo/mode";
+import { usePhone } from "@/lib/phone";
 import { when } from "@/lib/format";
 import { useConfig } from "@/lib/queries";
 import { microphones } from "@/lib/voice/capture";
@@ -28,6 +30,8 @@ const STATE: Record<string, [BadgeTone, string]> = { ready: ["ok", "Ready"], use
 function SourceRow({ s, index, count, onMove, onRemove }: { s: VoiceSource; index: number; count: number; onMove: (to: number) => void; onRemove: () => void }) {
   const [tone, label] = STATE[s.state] ?? ["neutral", s.state];
   const detail = s.state === "used_up" && s.resets_at ? `${s.detail} until ${when(s.resets_at * 1000)}, skipped` : s.detail;
+  // The phone has no room for three 44 px buttons next to the badge: they go in ⋯.
+  const phone = usePhone();
   return (
     <div className="flex min-h-12 items-center gap-3 border-b border-line-2 py-2 last:border-b-0">
       <span className="grid size-6 flex-none place-items-center rounded-full bg-sunk text-[12px] font-semibold text-ink-2">{index + 1}</span>
@@ -36,11 +40,15 @@ function SourceRow({ s, index, count, onMove, onRemove }: { s: VoiceSource; inde
         <span className="truncate text-[12px] text-ink-3" title={detail}>{detail}</span>
       </div>
       <Badge tone={tone}>{label}</Badge>
-      <span className="flex flex-none gap-0.5">
+      {phone ? <MoreMenu label={`${s.name} as a voice source`}>{(close) => <>
+        <MenuItem icon={<Icon name="up" size={14} />} label="Move up" disabled={index === 0} onClick={() => { close(); onMove(index - 1); }} />
+        <MenuItem icon={<Icon name="down" size={14} />} label="Move down" disabled={index === count - 1} onClick={() => { close(); onMove(index + 1); }} />
+        <MenuItem icon={<Icon name="x" size={14} />} label="Remove from voice" onClick={() => { close(); onRemove(); }} />
+      </>}</MoreMenu> : <span className="flex flex-none gap-0.5">
         <IconButton icon="up" label="Move up" disabled={index === 0} onClick={() => onMove(index - 1)} />
         <IconButton icon="down" label="Move down" disabled={index === count - 1} onClick={() => onMove(index + 1)} />
         <IconButton icon="x" label="Remove from voice" onClick={onRemove} />
-      </span>
+      </span>}
     </div>
   );
 }
@@ -87,7 +95,7 @@ export function VoiceView() {
       setTests([...results]);
     }
   };
-  const caption: Dictation = { id: TEST_OWNER, phase: "idle", active: false, shown: true, reason: null, toggle: () => {}, start: () => {}, stop: () => Promise.resolve(), stopAndSend: () => {}, cancel: () => {}, warm: () => {} };
+  const caption: Dictation = { id: TEST_OWNER, phase: "idle", active: false, shown: true, reason: null, source: null, toggle: () => {}, start: () => {}, stop: () => Promise.resolve(), stopAndSend: () => {}, cancel: () => {}, warm: () => {} };
   const meta = !config ? undefined : voice.enabled ? `On · ${used.length} source${used.length === 1 ? "" : "s"}` : "Off";
   return (
     <SettingsPage title="Voice" meta={meta} intro="Dictate in every message box: tap the mic left of Send, or hold Ctrl+Space. Your words are transcribed with your Claude subscription logins on Home; nothing is sent until you send it.">

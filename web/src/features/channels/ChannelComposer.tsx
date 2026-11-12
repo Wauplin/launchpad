@@ -11,7 +11,7 @@ import { toastError } from "@/components/Toast";
 import type { Channel } from "@/gen/Channel";
 import { runAction } from "@/lib/actions";
 import { mentionAt } from "@/lib/channels";
-import { useKeptDraft } from "@/lib/keptDraft";
+import { readDraft, useKeptDraft, writeDraft } from "@/lib/keptDraft";
 import { usePhone } from "@/lib/phone";
 
 /** Your message: Enter sends, Shift+Enter adds a line; `@` suggests the member bots (Enter or Tab picks the first).
@@ -47,7 +47,7 @@ export function ChannelComposer({ channel, onSent, replyTo, className = "border-
   };
   // A spoken member name ("at Hubert JS") becomes its mention (@hubert-js), on an exact match only.
   const members = channel.members.filter((m) => m.slug).map((m) => ({ name: m.name, slug: m.slug }));
-  const dictation = useDictation({ inputRef: ref, onSend: () => void send(), map: (t) => spokenMentions(t, members), keyterms: members.flatMap((m) => [m.name, m.slug]) });
+  const dictation = useDictation({ inputRef: ref, onSend: () => void send(), map: (t) => spokenMentions(t, members), keep: { read: () => readDraft(`channel.${channel.id}`) ?? "", write: (t) => writeDraft(`channel.${channel.id}`, t) }, keyterms: members.flatMap((m) => [m.name, m.slug]) });
   const dm = channel.kind === "dm";
   const closed = channel.archived;
   const name = dm ? "both bots" : channel.title;

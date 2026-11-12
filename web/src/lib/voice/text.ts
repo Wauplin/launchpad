@@ -11,6 +11,11 @@ export function fitPhrase(before: string, phrase: string, after: string): string
   return t;
 }
 
+/** `text` with a phrase added at its end, spaced like an insertion at the caret. */
+export function appendPhrase(text: string, phrase: string): string {
+  return text + fitPhrase(text, phrase, "");
+}
+
 /** Inserts a settled phrase at the caret of `el`. A focused field gets a native edit (its own undo step, and
  * PromptField's history step); a blurred one (the phone keeps the keyboard closed) gets the value through the input
  * event React listens to. Returns the inserted text. */

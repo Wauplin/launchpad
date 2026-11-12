@@ -5,7 +5,6 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
 import { VoiceButton } from "@/components/VoiceButton";
 import { VoiceCaption } from "@/components/VoiceCaption";
-import { useBackClose } from "@/mobile/back";
 import { usePhone } from "@/lib/phone";
 import { useDictation } from "@/lib/voice/useDictation";
 import { toastError } from "@/components/Toast";
@@ -69,9 +68,8 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
   }, [text, ref]);
   const phone = usePhone();
   // Phone Reply: dictating closes the keyboard (the text stays in view over a large Stop); back stops and keeps the text.
-  const dictation = useDictation({ inputRef: ref, onSend: () => void send(), blurOnStart: !!onHide });
+  const dictation = useDictation({ inputRef: ref, onSend: () => void send(), blurOnStart: !!onHide, keep: { read: () => useMessageDrafts.getState().drafts[sessionId] ?? "", write: (t) => useMessageDrafts.getState().set(sessionId, t) } });
   const bigStop = phone && !!onHide && dictation.active;
-  useBackClose(bigStop, () => void dictation.stop());
   const send = async () => {
     const t = message;
     if ((!t && !files.length && !hasMessageContext(context)) || busy || disabled || reading || ask?.permission) return;

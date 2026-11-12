@@ -54,7 +54,7 @@ import { activityLine, activityLink, activityParts, activityReceipt, useActivity
 import { api } from "@/lib/api";
 import { attachmentSrc, pastedImages } from "@/lib/attachments";
 import { age, ago, when } from "@/lib/format";
-import { useKeptDraft } from "@/lib/keptDraft";
+import { readDraft, useKeptDraft, writeDraft } from "@/lib/keptDraft";
 import { useArmedSession, useNextSession } from "./nextSession";
 import { useCrons, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
@@ -605,7 +605,7 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
   const context = answering ? EMPTY_CONTEXT : storedContext;
   const presets = answering ? [] : selectedPresets.filter((id) => botPresets.some((p) => p.id === id));
   const withContext = hasMessageContext(context);
-  const dictation = useDictation({ inputRef: ref, onSend: () => void send() });
+  const dictation = useDictation({ inputRef: ref, onSend: () => void send(), keep: { read: () => readDraft(`chat.${bot.id}`) ?? "", write: (t) => writeDraft(`chat.${bot.id}`, t) } });
   const send = async (typed = text) => {
     const t = answering ? typed.trim() : withPresets(typed, presets, botPresets);
     if ((!t && !files.length && !withContext) || busy || reading || blocked) return;

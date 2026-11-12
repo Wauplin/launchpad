@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { Icon } from "./Icon";
+import { IconButton } from "./ui";
 import { clearVoiceError, useVoice } from "@/lib/voice/dictation";
 import type { Dictation } from "@/lib/voice/useDictation";
 
@@ -32,7 +33,7 @@ export function VoiceCaption({ dictation: d, className = "mb-1.5", inline }: { d
   const startedAt = useVoice((s) => s.startedAt);
   if (!mine) return null;
   if (phase === "idle") {
-    if (error) return <div role="alert" className={`flex items-start gap-1.5 text-[12px] text-danger-ink ${className}`}><Icon name="alert" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 flex-1">{error}</span><button type="button" className="flex-none text-ink-3 hover:text-ink" aria-label="Dismiss" title="Dismiss" onClick={() => clearVoiceError(d.id)}><Icon name="x" size={12} /></button></div>;
+    if (error) return <div role="alert" className={`flex items-center gap-1.5 text-[12px] text-danger-ink ${className}`}><Icon name="alert" size={12} className="flex-none" /><span className="min-w-0 flex-1">{error}</span><IconButton icon="x" label="Dismiss" className="flex-none" onClick={() => clearVoiceError(d.id)} /></div>;
     return null;
   }
   const state = phase === "starting" ? "Connecting…" : phase === "finishing" ? "Finishing…" : "Listening";

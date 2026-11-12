@@ -3,16 +3,17 @@
 
 const WORKLET = `
 class Pcm16k extends AudioWorkletProcessor {
-  constructor() { super(); this.step = sampleRate / 16000; this.pos = 0; this.acc = 0; this.n = 0; this.out = new Int16Array(1600); this.len = 0; this.sq = 0; }
+  constructor() { super(); this.step = sampleRate / 16000; this.pos = 0; this.acc = 0; this.n = 0; this.last = 0; this.out = new Int16Array(1600); this.len = 0; this.sq = 0; }
   process(inputs) {
     const input = inputs[0] && inputs[0][0];
     if (!input) return true;
     for (let i = 0; i < input.length; i++) {
       this.acc += input[i]; this.n++; this.pos += 1;
-      if (this.pos >= this.step) {
+      // Each output sample averages the input samples of its period; below 16 kHz (a headset), samples repeat.
+      while (this.pos >= this.step) {
         this.pos -= this.step;
-        const v = Math.max(-1, Math.min(1, this.acc / this.n));
-        this.acc = 0; this.n = 0;
+        const v = this.n ? Math.max(-1, Math.min(1, this.acc / this.n)) : this.last;
+        this.last = v; this.acc = 0; this.n = 0;
         this.sq += v * v;
         this.out[this.len++] = v < 0 ? v * 0x8000 : v * 0x7fff;
         if (this.len === this.out.length) {
@@ -40,14 +41,20 @@ export function micError(e: unknown): string {
 
 export async function startCapture(deviceId: string | null, onFrame: (pcm: ArrayBuffer, level: number) => void): Promise<Capture> {
   const constraints = (id: string | null): MediaStreamConstraints => ({ audio: { ...(id ? { deviceId: { exact: id } } : {}), channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-  let stream: MediaStream;
-  try { stream = await navigator.mediaDevices.getUserMedia(constraints(deviceId)); }
-  catch (e) {
-    // The chosen microphone is gone: the default one.
-    if (!deviceId || !(e instanceof DOMException) || (e.name !== "OverconstrainedError" && e.name !== "NotFoundError")) throw e;
-    stream = await navigator.mediaDevices.getUserMedia(constraints(null));
-  }
+  // Created before the first await, while the click still counts as a user gesture (Safari keeps it suspended otherwise).
   const ctx = new AudioContext();
+  let stream: MediaStream;
+  try {
+    try { stream = await navigator.mediaDevices.getUserMedia(constraints(deviceId)); }
+    catch (e) {
+      // The chosen microphone is gone: the default one.
+      if (!deviceId || !(e instanceof DOMException) || (e.name !== "OverconstrainedError" && e.name !== "NotFoundError")) throw e;
+      stream = await navigator.mediaDevices.getUserMedia(constraints(null));
+    }
+  } catch (e) {
+    void ctx.close();
+    throw e;
+  }
   try {
     const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
     try { await ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }

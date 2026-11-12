@@ -2,10 +2,12 @@
 //!
 //! `GET /api/voice`: the settings and the sources, in fallback order, with their state (Settings → Voice and the
 //! mic's tooltip). `GET /api/voice/ws`: one WebSocket per window. In: `{"type":"warm"}` (the pointer is on a mic or
-//! a message box has the focus: connect the first source now, kept 30 s), `{"type":"start","keyterms":[…],"profile":…}` (`profile`: only that source, for Test voice),
-//! binary frames (16 kHz mono 16-bit PCM), `{"type":"stop"}` (the last words, then `closed`) and
-//! `{"type":"cancel"}`. Out: `source` (the login that listens, with a `note` after a failover), `delta` (the
-//! phrase so far, replacing the previous one), `done` (a settled phrase to insert), `error` (`reason`) and `closed`.
+//! a message box has the focus: connect the first source now, kept 30 s; a start while it connects takes it over),
+//! `{"type":"start","id":…,"keyterms":[…],"profile":…}` (`profile`: only that source, for Test voice), binary frames
+//! (16 kHz mono 16-bit PCM), `{"type":"stop"}` (the last words, then `closed`) and `{"type":"cancel"}`. Out, each
+//! with the `id` of its start, so a window never takes a late message of an earlier dictation: `source` (the login
+//! that listens, with a `note` after a failover), `delta` (the phrase so far, replacing the previous one), `done` (a
+//! settled phrase to insert), `error` (`reason`) and `closed`.
 //!
 //! Home picks the first ready source (`[voice] profiles`: subscription profiles of a harness with voice, skipping
 //! logins with a used-up window), opens it with Home's copy of the vault login (`Harness::open_voice`), and keeps
@@ -186,14 +188,18 @@ async fn status(State(s): State<Server>, access: Option<Extension<Access>>, agen
 async fn socket(State(s): State<Server>, access: Option<Extension<Access>>, agent: Option<Extension<crate::home_client::AgentCall>>, headers: HeaderMap, ws: WebSocketUpgrade) -> Response {
     if let Some(r) = owner(&access, &agent) { return r }
     let Some(Extension(access)) = access else { return StatusCode::FORBIDDEN.into_response() };
-    // A browser window of Home: signed in as a device, from an allowed Origin (checked exactly by the front door).
-    if s.app.paths.role != launchpad_core::role::Role::Home || access.device.is_none() || !headers.contains_key(header::ORIGIN) {
+    // A browser window of Home: signed in as a device, from an allowed Origin (checked exactly by the front door),
+    // never the Chrome extension's.
+    let window = headers.get(header::ORIGIN).is_some_and(|o| o.as_bytes() != launchpad_core::browser::extension_origin().as_bytes());
+    if s.app.paths.role != launchpad_core::role::Role::Home || access.device.is_none() || !window {
         return (StatusCode::FORBIDDEN, Json(json!({"error": "voice input runs in Home's browser windows only"}))).into_response();
     }
     ws.max_message_size(1 << 20).on_upgrade(move |socket| run(s.app, socket, access))
 }
 
 struct Live {
+    /// The window's `id` of this dictation, sent back with every message about it.
+    id: Value,
     started: Instant,
     /// Audio since the last settled phrase, played again into the next source after a failover.
     buffer: Vec<u8>,
@@ -237,6 +243,25 @@ async fn send(socket: &mut WebSocket, v: Value) -> bool {
     socket.send(Message::Text(v.to_string().into())).await.is_ok()
 }
 
+/// A message about the dictation `id`.
+async fn send_for(socket: &mut WebSocket, id: &Value, mut v: Value) -> bool {
+    v["id"] = id.clone();
+    send(socket, v).await
+}
+
+/// The source failed (`why`): opens the next one, which gets the audio since the last settled phrase. False when
+/// none is left.
+fn fail_over(app: &App, l: &mut Live, why: String, attempts: &mut u64, tx: &mpsc::Sender<Opened>) -> bool {
+    if l.rest.is_empty() { return false }
+    l.call = None;
+    l.note = Some(why);
+    *attempts += 1;
+    l.attempt = *attempts;
+    let next = l.rest.remove(0);
+    open(app, l.attempt, next, VoiceOpts { language: app.config.get().voice.language, keyterms: l.keyterms.clone() }, tx.clone());
+    true
+}
+
 /// Why a source failed, in a few words for the window.
 fn failure(name: &str, e: &anyhow::Error) -> String {
     if e.downcast_ref::<VoiceRefused>().is_some() || launchpad_core::vault::login_refused(&format!("{e:#}")) {
@@ -251,7 +276,8 @@ async fn run(app: App, mut socket: WebSocket, access: Access) {
     let mut live: Option<Live> = None;
     let mut warm: Option<(VoiceCall, String, Instant, Vec<String>)> = None;
     let mut warm_terms: Vec<String> = vec![];
-    let mut warming: Option<u64> = None;
+    // The warm-up that is connecting: its attempt and source.
+    let mut warming: Option<(u64, String)> = None;
     let mut attempts = 0u64;
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     let opts = |app: &App, keyterms: &[String]| VoiceOpts { language: app.config.get().voice.language, keyterms: keyterms.to_vec() };
@@ -284,29 +310,37 @@ async fn run(app: App, mut socket: WebSocket, access: Access) {
                                     let (_, mut ready) = sources(&app, true).await;
                                     if !ready.is_empty() && app.config.get().voice.enabled {
                                         attempts += 1;
-                                        warming = Some(attempts);
-                                        open(&app, attempts, ready.remove(0), opts(&app, &warm_terms), opened_tx.clone());
+                                        let first = ready.remove(0);
+                                        warming = Some((attempts, first.name.clone()));
+                                        open(&app, attempts, first, opts(&app, &warm_terms), opened_tx.clone());
                                     }
                                 }
                             }
                             "start" => {
+                                let id = v["id"].clone();
                                 let keyterms = keyterms_of(&v);
                                 let (status, mut rest) = sources(&app, true).await;
                                 // Test voice: one source only.
-                                if let Some(profile) = v["profile"].as_str() { rest.retain(|c| c.profile == profile) }
+                                let test = v["profile"].as_str();
+                                if let Some(profile) = test { rest.retain(|c| c.profile == profile) }
                                 if rest.is_empty() {
+                                    live = None;
                                     let reason = status.unavailable.unwrap_or_else(|| "This voice source is not ready".into());
-                                    if !send(&mut socket, json!({"type": "error", "reason": reason})).await { break }
+                                    if !send_for(&mut socket, &id, json!({"type": "error", "reason": reason})).await { break }
                                     continue;
                                 }
                                 // One dictation at a time: a new start replaces the last one (below).
                                 attempts += 1;
-                                let mut l = Live { started: Instant::now(), buffer: vec![], call: None, rest: vec![], attempt: attempts, finishing: false, keyterms, note: None, bytes: 0 };
+                                let mut l = Live { id, started: Instant::now(), buffer: vec![], call: None, rest: vec![], attempt: attempts, finishing: false, keyterms, note: None, bytes: 0 };
                                 // A warm call was opened with the vocabulary hints of its warm-up: use it only for the same ones.
                                 if let Some((call, name, _, _)) = warm.take().filter(|w| w.3 == l.keyterms && rest.iter().any(|c| c.name == w.1)) {
                                     rest.retain(|c| c.name != name);
-                                    if !send(&mut socket, json!({"type": "source", "name": name})).await { break }
+                                    if !send_for(&mut socket, &l.id, json!({"type": "source", "name": name})).await { break }
                                     l.call = Some((call, name));
+                                } else if let Some((attempt, _)) = warming.take().filter(|(_, name)| test.is_none() && warm_terms == l.keyterms && rest[0].name == *name) {
+                                    // The warm-up is still connecting to this source: its call becomes this dictation's.
+                                    rest.remove(0);
+                                    l.attempt = attempt;
                                 } else {
                                     warming = None;
                                     open(&app, l.attempt, rest.remove(0), opts(&app, &l.keyterms), opened_tx.clone());
@@ -331,7 +365,7 @@ async fn run(app: App, mut socket: WebSocket, access: Access) {
                 }
             }
             Some((attempt, name, result)) = opened.recv() => {
-                if warming == Some(attempt) {
+                if warming.as_ref().is_some_and(|(a, _)| *a == attempt) {
                     warming = None;
                     match result {
                         Ok(call) if live.is_none() => warm = Some((call, name, Instant::now(), std::mem::take(&mut warm_terms))),
@@ -349,53 +383,51 @@ async fn run(app: App, mut socket: WebSocket, access: Access) {
                         for chunk in l.buffer.chunks(REPLAY_FRAME) { let _ = call.input.send(VoiceInput::Audio(chunk.to_vec())).await; }
                         if l.finishing { let _ = call.input.send(VoiceInput::Finish).await; }
                         l.call = Some((call, name));
-                        if !send(&mut socket, v).await { break }
+                        if !send_for(&mut socket, &l.id, v).await { break }
                     }
                     Err(e) => {
                         let why = failure(&name, &e);
                         tracing::info!("voice: source failed: {why}");
-                        if l.rest.is_empty() {
+                        if !fail_over(&app, l, why.clone(), &mut attempts, &opened_tx) {
+                            let id = l.id.clone();
                             live = None;
-                            if !send(&mut socket, json!({"type": "error", "reason": format!("No voice source answered. {why}")})).await { break }
-                        } else {
-                            l.note = Some(why);
-                            attempts += 1;
-                            l.attempt = attempts;
-                            let next = l.rest.remove(0);
-                            open(&app, l.attempt, next, opts(&app, &l.keyterms), opened_tx.clone());
+                            if !send_for(&mut socket, &id, json!({"type": "error", "reason": format!("No voice source answered. {why}")})).await { break }
                         }
                     }
                 }
             }
             ev = recv_call(&mut live) => {
                 let Some(l) = live.as_mut() else { continue };
+                let id = l.id.clone();
                 match ev {
-                    Some(VoiceEvent::Interim(text)) => { if !send(&mut socket, json!({"type": "delta", "text": text})).await { break } }
+                    Some(VoiceEvent::Interim(text)) => { if !send_for(&mut socket, &id, json!({"type": "delta", "text": text})).await { break } }
                     Some(VoiceEvent::Final(text)) => {
                         l.buffer.clear();
-                        if !send(&mut socket, json!({"type": "done", "text": text})).await { break }
+                        if !send_for(&mut socket, &id, json!({"type": "done", "text": text})).await { break }
                     }
                     Some(VoiceEvent::Error { message, refused }) => {
                         let name = l.call.take().map(|(_, n)| n).unwrap_or_default();
                         let why = if refused { format!("{name}: this login can't use voice") } else { format!("{name}: {message}") };
                         tracing::info!("voice: source stopped: {} ({} chars)", if refused { "refused" } else { "error" }, message.len());
-                        if l.rest.is_empty() {
+                        if !fail_over(&app, l, why.clone(), &mut attempts, &opened_tx) {
                             live = None;
-                            if !send(&mut socket, json!({"type": "error", "reason": why})).await { break }
-                        } else {
-                            l.note = Some(why);
-                            attempts += 1;
-                            l.attempt = attempts;
-                            let next = l.rest.remove(0);
-                            open(&app, l.attempt, next, opts(&app, &l.keyterms), opened_tx.clone());
+                            if !send_for(&mut socket, &id, json!({"type": "error", "reason": why})).await { break }
+                        }
+                    }
+                    Some(VoiceEvent::Closed) | None if !l.finishing => {
+                        // The provider ended the call on its own: the next source takes over, as after an error.
+                        let name = l.call.take().map(|(_, n)| n).unwrap_or_default();
+                        let why = format!("{name}: the voice service ended the dictation");
+                        tracing::info!("voice: source ended the call after {} ms", l.started.elapsed().as_millis());
+                        if !fail_over(&app, l, why.clone(), &mut attempts, &opened_tx) {
+                            live = None;
+                            if !send_for(&mut socket, &id, json!({"type": "error", "reason": why})).await { break }
                         }
                     }
                     Some(VoiceEvent::Closed) | None => {
-                        let finished = l.finishing;
                         tracing::info!("voice: dictation ended after {} ms, {} audio bytes", l.started.elapsed().as_millis(), l.bytes);
                         live = None;
-                        let v = if finished { json!({"type": "closed"}) } else { json!({"type": "error", "reason": "The voice service ended the dictation"}) };
-                        if !send(&mut socket, v).await { break }
+                        if !send_for(&mut socket, &id, json!({"type": "closed"})).await { break }
                     }
                 }
             }

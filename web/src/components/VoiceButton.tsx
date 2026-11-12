@@ -13,7 +13,7 @@ export function VoiceButton({ dictation: d, className = "", large }: { dictation
   const countdown = useVoice((s) => (s.owner === d.id ? s.countdown : null));
   const press = useRef<{ timer: ReturnType<typeof setTimeout> | null; held: boolean }>({ timer: null, held: false });
   if (!d.shown) return null;
-  const label = d.active ? (d.phase === "finishing" ? "Finishing…" : "Stop dictation (Esc)") : d.reason ?? "Dictate (Ctrl+Space; long press on a phone to hold)";
+  const label = d.active ? (d.phase === "finishing" ? "Finishing…" : "Stop dictation (Esc)") : d.reason ?? `Dictate${d.source ? ` · ${d.source}` : ""} (Ctrl+Space; long press on a phone to hold)`;
   const ring = countdown !== null && <svg viewBox="0 0 20 20" className="pointer-events-none absolute inset-0 size-full -rotate-90" aria-hidden>
     <circle cx="10" cy="10" r="9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray={`${(1 - countdown) * 56.5} 56.5`} />
   </svg>;
@@ -33,7 +33,12 @@ export function VoiceButton({ dictation: d, className = "", large }: { dictation
         press.current.timer = null;
         if (press.current.held) void d.stop();
       }}
-      onPointerCancel={() => { if (press.current.timer) clearTimeout(press.current.timer); press.current.timer = null; }}
+      onPointerCancel={() => {
+        // The browser took the touch over (a scroll, a system gesture): a hold that started ends here, since no release follows.
+        if (press.current.timer) clearTimeout(press.current.timer);
+        press.current.timer = null;
+        if (press.current.held) { press.current.held = false; void d.stop(); }
+      }}
       onClick={() => {
         // The click that ends a long press is not a tap.
         if (press.current.held) { press.current.held = false; return; }

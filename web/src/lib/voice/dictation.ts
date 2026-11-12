@@ -89,7 +89,7 @@ export function warmVoice(keyterms: string[] = []) {
   send(JSON.stringify({ type: "warm", keyterms }));
 }
 
-type Incoming = { type: "source"; name: string; note?: string } | { type: "delta"; text: string } | { type: "done"; text: string } | { type: "error"; reason: string } | { type: "closed" };
+type Incoming = ({ type: "source"; name: string; note?: string } | { type: "delta"; text: string } | { type: "done"; text: string } | { type: "error"; reason: string } | { type: "closed" }) & { id?: number };
 
 type Target = { owner: string; insert: (phrase: string) => void; keyterms: string[]; profile?: string; silenceMs: number };
 let target: Target | null = null;
@@ -97,10 +97,12 @@ let capture: Capture | null = null;
 let finished: (() => void)[] = [];
 let quietSince = 0, floor = 0.01, heardAt = 0;
 let limitTimer: ReturnType<typeof setTimeout> | null = null;
+/** The current dictation: Home sends it back with each message, so a late message of an earlier one is dropped. */
+let current = 0;
 
 function onMessage(m: Incoming) {
   const s = useVoice.getState();
-  if (s.phase === "idle") return;
+  if (s.phase === "idle" || m.id !== current) return;
   if (m.type === "source") useVoice.setState({ source: m.name, note: m.note ?? null, phase: s.phase === "starting" ? "listening" : s.phase });
   else if (m.type === "delta") useVoice.setState({ interim: m.text });
   else if (m.type === "done") { useVoice.setState({ interim: "" }); target?.insert(m.text); }
@@ -146,21 +148,25 @@ export async function startDictation(t: Omit<Target, "silenceMs">, opts: { held?
   if (isDemo) return;
   const s = useVoice.getState();
   if (s.phase !== "idle") await stopDictation();
+  const id = ++current;
   target = { ...t, silenceMs: (opts.silenceS ?? 8) * 1000 };
   quietSince = 0; heardAt = 0; floor = 0.01;
   useVoice.setState({ owner: t.owner, phase: "starting", interim: "", level: 0, startedAt: Date.now(), source: null, note: null, error: null, countdown: null, held: !!opts.held });
   tick("start");
-  send(JSON.stringify({ type: "start", keyterms: t.keyterms, ...(t.profile ? { profile: t.profile } : {}) }));
+  send(JSON.stringify({ type: "start", id, keyterms: t.keyterms, ...(t.profile ? { profile: t.profile } : {}) }));
   try {
     const c = await startCapture(useVoiceDevice.getState().mic, onFrame);
-    if (useVoice.getState().phase === "idle" || target?.owner !== t.owner) { c.stop(); return; }
+    // Stopped or replaced while the microphone started (its permission prompt, for example).
+    const phase = useVoice.getState().phase;
+    if (phase === "idle" || phase === "finishing" || current !== id) { c.stop(); return; }
     capture = c;
   } catch (e) {
+    if (current !== id) return;
     send(JSON.stringify({ type: "cancel" }));
     end(micError(e));
     return;
   }
-  limitTimer = setTimeout(() => void stopDictation(), MAX_MS);
+  limitTimer = setTimeout(() => { if (current === id) void stopDictation(); }, MAX_MS);
 }
 
 /** Stops recording; resolves once the last words are in the box (or after 7 s). */
@@ -173,7 +179,8 @@ export function stopDictation(): Promise<void> {
     capture = null;
     useVoice.setState({ phase: "finishing", countdown: null, held: false });
     send(JSON.stringify({ type: "stop" }));
-    setTimeout(() => { if (useVoice.getState().phase === "finishing") { send(JSON.stringify({ type: "cancel" })); end(null); } }, 7_000);
+    const id = current;
+    setTimeout(() => { if (current === id && useVoice.getState().phase === "finishing") { send(JSON.stringify({ type: "cancel" })); end(null); } }, 7_000);
   }
   return done;
 }

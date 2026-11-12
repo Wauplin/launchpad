@@ -302,7 +302,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const attachmentInput = useRef<HTMLInputElement>(null);
   // Launch while dictating waits for the last words, then launches.
   const promptInput = useRef<HTMLTextAreaElement>(null);
-  const dictation = useDictation({ inputRef: promptInput, onSend: () => void launch() });
+  const dictation = useDictation({ inputRef: promptInput, onSend: () => void launch(), keep: { read: () => useComposer.getState().spec.text, write: (text) => useComposer.getState().update((s) => ({ ...s, text })) } });
   const addAttachments = async (input: File[] | Promise<File[]>) => {
     if (launching || attachmentRead.current) return;
     attachmentRead.current = true;
