@@ -24,7 +24,7 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
   { group: "Machines & access", items: [
     { to: "/settings/runners", label: "Home and runners", icon: "window", keywords: "runner home burst vm jail update connect approve jobs machines computer" },
     { to: "/settings/credentials", label: "Credentials and tools", icon: "sliders", keywords: "vault tokens secrets logins mcp tools proxy launchpad cli access admin" },
-    { to: "/settings/channels", label: "Channels", icon: "send", keywords: "webhook outbox hooks messages notifications notify alerts" },
+    { to: "/settings/connections", label: "Connections", icon: "send", keywords: "webhook outbox hooks messages notifications notify alerts" },
     { to: "/settings/devices", label: "Devices", icon: "window", keywords: "browser pair qr phone sign out tailscale remote access" },
     { to: "/settings/github", label: "GitHub", icon: "pr", keywords: "token account repositories poll rate limit inbox" },
     { to: "/settings/huggingface", label: "Hugging Face", icon: "huggingface", keywords: "traces bucket backup hf token" },

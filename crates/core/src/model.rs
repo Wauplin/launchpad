@@ -453,14 +453,15 @@ pub struct MessageContext {
 }
 
 /// Who sent a message that is not the owner's, stamped by Home from its own record of the sender (`senders`): another
-/// bot or agent (its text arrives under a header naming it, fenced), or a routine run (its own first line says so).
+/// bot or agent (its text arrives under a header naming it, fenced), a routine run or an incoming hook (their own first
+/// line says so).
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
 #[serde(default)]
 pub struct MessageFrom {
     pub kind: SenderKind,
-    /// The bot, session or routine ID.
+    /// The bot, session, routine or hook ID.
     pub id: String,
-    /// The bot's name, the session's title or the routine's title.
+    /// The bot's name, the session's title, the routine's title or the hook's name.
     pub name: String,
     /// Delivered by this message card (proposal ID).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -486,6 +487,8 @@ pub enum SenderKind {
     Session,
     /// A run of a routine.
     Routine,
+    /// An incoming hook (`POST /hooks/<id>`); its hops come from `X-Launchpad-Hops`.
+    Hook,
 }
 
 impl MessageContext {

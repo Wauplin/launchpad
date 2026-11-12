@@ -406,7 +406,7 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
     }
     Ok(s)
 }
-/// Included in every launched session, with the exact daemon and session identity (followed by the channels'
+/// Included in every launched session, with the exact daemon and session identity (followed by the connections'
 /// instruction, when the owner has some).
 pub fn instruction(app: &App, session: &str) -> String {
     format!(

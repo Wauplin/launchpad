@@ -71,7 +71,7 @@ async fn preview(app: &launchpad_core::App, spec: &LaunchSpec) -> anyhow::Result
     if !matches!(spec.target, Target::Browser { .. })
         && let Some(text) = launchpad_core::ext::extensions().suggestion_instruction(app, SESSION)
     {
-        prompt.push(start::part("publish", "GitHub suggestions and channels", text));
+        prompt.push(start::part("publish", "GitHub suggestions and connections", text));
     }
     let kb = match &workspace_id {
         Some(ws) => kb::instructions_on_home(app, ws).await,

@@ -377,8 +377,8 @@ fn valid_env(name: &str) -> bool {
 pub fn check_tool(t: &Tool) -> Result<()> {
     anyhow::ensure!(valid_id(&t.id), "a tool ID uses lowercase letters, digits and dashes");
     anyhow::ensure!(!t.name.trim().is_empty(), "a tool needs a name");
-    // Channel secrets (webhook URLs, the workspaces' Telegram tokens) are used by Home only, never lent to sessions.
-    anyhow::ensure!(!t.credential.as_deref().is_some_and(|c| c.starts_with("channel-")), "channel-… entries belong to channels (webhooks, Telegram) and cannot be lent to tools");
+    // Connection secrets (`channel-…`: webhook URLs, the workspaces' Telegram tokens) are used by Home only, never lent to sessions.
+    anyhow::ensure!(!t.credential.as_deref().is_some_and(|c| c.starts_with("channel-")), "channel-… entries belong to connections (webhooks, Telegram) and cannot be lent to tools");
     for v in &t.env {
         anyhow::ensure!(valid_env(v), "{v:?} is not a variable name");
         anyhow::ensure!(!RESERVED_ENV.contains(&v.as_str()), "{v} is set by Launchpad");
@@ -462,7 +462,7 @@ fn detail_of(kind: Kind, secret: &str) -> String {
     }
 }
 
-/// Every entry, without secrets. Channel secrets (`channel-…`: webhook URLs of Settings → Channels and each
+/// Every entry, without secrets. Connection secrets (`channel-…`: webhook URLs of Settings → Connections and each
 /// workspace's Telegram token, `channel-telegram-<workspace id>`) are not listed here.
 pub async fn entries(app: &App) -> Result<Vec<VaultEntry>> {
     app.state_db

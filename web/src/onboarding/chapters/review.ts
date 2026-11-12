@@ -55,7 +55,7 @@ export const review: Chapter = {
     {
       id: "review.send", route: "/?filter=send", anchor: "today.filters",
       title: "Drafts to send",
-      body: "Messages agents drafted for your Slack, Discord or webhook channels wait under Send; GitHub suggestions wait under GitHub. Edit a draft, then Send it, or Discard it. A send that did not complete is marked uncertain and never sent again. Done keeps what you sent for 30 days.",
+      body: "Messages agents drafted for your Slack, Discord or webhook connections wait under Send; GitHub suggestions wait under GitHub. Edit a draft, then Send it, or Discard it. A send that did not complete is marked uncertain and never sent again. Done keeps what you sent for 30 days.",
     },
   ],
 };

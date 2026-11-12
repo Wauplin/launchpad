@@ -86,11 +86,11 @@ function drafts(): Draft[] {
     out.push(item("routine", "fix", c.id, `Routine “${c.title}” ${last.outcome === "failed" ? "failed" : "was interrupted"}`, specPlace(c.spec), last.at, { detail: last.detail ? line(last.detail) : "", session_id: last.session_id }));
   }
   for (const m of world.outbox) {
-    const more = { session_id: m.session_id, detail: `${m.channel} · drafted by ${m.author}` };
+    const more = { session_id: m.session_id, detail: `${m.connection} · drafted by ${m.author}` };
     const add = (at: number, extra: Partial<Draft>) => out.push(item("outbox", "send", m.id, m.title?.trim() || line(m.body), m.session_id ? { session: m.session_id } : { everywhere: true }, at, { ...more, ...extra }));
     if (m.status === "draft") add(m.created_at, { action: "outbox.send" });
-    else if (m.status === "uncertain" || m.status === "sending") add(m.created_at, { detail: `Uncertain: check ${m.channel} before anything else`, action: "outbox.discard" });
-    else if (m.status === "sent") add(m.sent_at ?? m.created_at, { outcome: `Sent to ${m.channel}` });
+    else if (m.status === "uncertain" || m.status === "sending") add(m.created_at, { detail: `Uncertain: check ${m.connection} before anything else`, action: "outbox.discard" });
+    else if (m.status === "sent") add(m.sent_at ?? m.created_at, { outcome: `Sent to ${m.connection}` });
     else add(m.created_at, { outcome: "Discarded" });
   }
   const reviewed = new Set<string>();

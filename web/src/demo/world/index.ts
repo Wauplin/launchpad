@@ -9,16 +9,16 @@ import { codeWorld } from "./code";
 import { settingsWorld } from "./settings";
 import { knowledgeWorld } from "./knowledge";
 import { botsWorld } from "./bots";
-import { channelsWorld } from "./channels";
+import { connectionsWorld } from "./connections";
 import { WS } from "./ids";
 import { clock } from "../daemon";
 
-export type World = ReturnType<typeof coreWorld> & ReturnType<typeof agentsWorld> & ReturnType<typeof githubWorld> & ReturnType<typeof codeWorld> & ReturnType<typeof settingsWorld> & ReturnType<typeof knowledgeWorld> & ReturnType<typeof botsWorld> & ReturnType<typeof channelsWorld>;
+export type World = ReturnType<typeof coreWorld> & ReturnType<typeof agentsWorld> & ReturnType<typeof githubWorld> & ReturnType<typeof codeWorld> & ReturnType<typeof settingsWorld> & ReturnType<typeof knowledgeWorld> & ReturnType<typeof botsWorld> & ReturnType<typeof connectionsWorld>;
 
 export let world: World = null as unknown as World;
 
 export function resetWorld() {
-  world = { ...coreWorld(), ...agentsWorld(), ...githubWorld(), ...codeWorld(), ...settingsWorld(), ...knowledgeWorld(), ...botsWorld(), ...channelsWorld() };
+  world = { ...coreWorld(), ...agentsWorld(), ...githubWorld(), ...codeWorld(), ...settingsWorld(), ...knowledgeWorld(), ...botsWorld(), ...connectionsWorld() };
   // A ready click from Ask Launchpad: an Inbox thread to mark done, run only by your click.
   const old = world.inboxThreads.find((t) => t.reason === "assign" && !t.unread);
   if (old) world.proposals.push({ id: "demo-prop-ready-done", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: `Mark “${old.title}” done`,

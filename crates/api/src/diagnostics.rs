@@ -1,6 +1,6 @@
 //! Diagnostic reads for sessions with admin Launchpad CLI access (`agent_auth`): the recent log of Home and
 //! runners (`/api/logs`), runners, Burst runs and their HF Jobs, Home's starts, backups and update, the failure
-//! feed, tools, MCP servers and channels, and `health`, a summary of everything failing now. These routes return
+//! feed, tools, MCP servers and connections, and `health`, a summary of everything failing now. These routes return
 //! no secret: no token, vault value, runner secret, webhook URL or pairing code; log lines are redacted when they
 //! are written (`launchpad_http::logs`).
 use axum::extract::{Path, Query, State};
@@ -25,7 +25,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/context/home", get(home))
         .route("/api/context/failures", get(failures))
         .route("/api/context/tools", get(tools))
-        .route("/api/context/channels", get(channels))
+        .route("/api/context/connections", get(connections))
         .route("/api/context/health", get(health))
 }
 
@@ -230,7 +230,7 @@ async fn failures(State(_): State<Ctx>, Query(q): Query<Since>) -> ApiResult<Val
     Ok(Json(json!(launchpad_automation::failures::recent(since))))
 }
 
-// ------------------------------------------------------------------ tools and channels
+// ------------------------------------------------------------------ tools and connections
 
 /// Tools (no token), vault entries by name and kind only, and MCP servers with their last refresh and error.
 async fn tools(State(s): State<Ctx>) -> ApiResult<Value> {
@@ -248,13 +248,13 @@ fn reqwest_host(url: &str) -> String {
     url.split("://").nth(1).unwrap_or(url).split(['/', '?']).next().unwrap_or_default().rsplit('@').next().unwrap_or_default().to_string()
 }
 
-/// Channels by name, kind and host, and each workspace's Telegram link: its state and last error (no URL, token
+/// Connections by name, kind and host, and each workspace's Telegram link: its state and last error (no URL, token
 /// or code).
-async fn channels(State(s): State<Ctx>) -> ApiResult<Value> {
-    let list = launchpad_channels::channels::list(&s.app).await.unwrap_or_default();
+async fn connections(State(s): State<Ctx>) -> ApiResult<Value> {
+    let list = launchpad_channels::connections::list(&s.app).await.unwrap_or_default();
     let telegram = launchpad_channels::telegram::statuses(&s.app).await;
     Ok(Json(json!({
-        "channels": list.iter().map(|c| json!({"id": c.id, "name": c.name, "kind": c.kind, "host": c.host})).collect::<Vec<_>>(),
+        "connections": list.iter().map(|c| json!({"id": c.id, "name": c.name, "kind": c.kind, "host": c.host})).collect::<Vec<_>>(),
         "telegram": telegram.iter().map(|t| json!({"workspace": t.workspace_id, "configured": t.configured, "bound": t.bound, "bot_username": t.bot_username, "notify": t.notify, "error": t.error.as_deref().map(logs::redact)})).collect::<Vec<_>>(),
     })))
 }
@@ -335,7 +335,7 @@ async fn health(State(s): State<Ctx>) -> ApiResult<Value> {
         add("proposals", format!("Card “{}” is {:?}", p.title, p.state).to_lowercase(), p.error.clone(), json!({"proposal": p.id, "session": p.session_id}));
     }
 
-    // Quota, harnesses, tools, channels, GitHub.
+    // Quota, harnesses, tools, connections, GitHub.
     let status = app.status.get();
     for (login, q) in &status.quotas {
         if let Some(e) = &q.quota_error { add("quota", format!("Quota of {login} ({}) cannot be read", q.harness), Some(e.clone()), json!({"profiles": q.profiles})); }
@@ -352,7 +352,7 @@ async fn health(State(s): State<Ctx>) -> ApiResult<Value> {
         if let Some(e) = &m.error { add("mcp", format!("MCP server {} failed its last refresh", m.name), Some(logs::redact(e)), json!({"mcp": m.id})); }
     }
     for t in launchpad_channels::telegram::statuses(app).await {
-        if let Some(e) = t.error { add("channels", "Telegram failed".into(), Some(logs::redact(&e)), json!({"workspace": t.workspace_id})); }
+        if let Some(e) = t.error { add("connections", "Telegram failed".into(), Some(logs::redact(&e)), json!({"workspace": t.workspace_id})); }
     }
     if let Ok(snap) = launchpad_github::inbox::of(app).snapshot(app).await {
         if let Some(e) = snap.status.error { add("github", "Inbox sync failed".into(), Some(e), json!({"last_sync": snap.status.last_sync})); }

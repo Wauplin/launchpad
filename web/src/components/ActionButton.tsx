@@ -13,7 +13,7 @@ export function ActionButton<T = unknown>({ name, params, vars, body, query, bef
   name: ActionName;
   /** The route's `{param}` values; they also fill the confirmation. */
   params?: ActionParams;
-  /** Other values of the confirmation text, such as `{channel}`. */
+  /** Other values of the confirmation text, such as `{connection}`. */
   vars?: Record<string, string>;
   body?: Record<string, unknown> | (() => Record<string, unknown>);
   query?: Record<string, string>;

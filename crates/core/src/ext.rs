@@ -1,4 +1,4 @@
-//! Extension points: the few calls the core makes to the crates above it (channels, GitHub features,
+//! Extension points: the few calls the core makes to the crates above it (connections, GitHub features,
 //! automation), and the state those crates keep per daemon. The binary installs one `Extensions` at startup;
 //! until then, and in unit tests, every call does nothing.
 use std::any::{Any, TypeId};
@@ -14,12 +14,12 @@ use crate::model::Session;
 #[async_trait]
 pub trait Extensions: Send + Sync {
     /// A session notification for the Telegram chat of the session's workspace (`notify::session`). `event`: the event's name.
-    fn notify_channels(&self, _app: &App, _session: &Session, _event: &'static str) {}
+    fn notify_connections(&self, _app: &App, _session: &Session, _event: &'static str) {}
     /// A turn ended: routine run records and `session_done` triggers (`crons::turn_ended`).
     fn turn_ended(&self, _app: &App, _session: &Session) {}
     /// Home: the work of a session's last turn reached Home (its `unsaved` mark cleared after the turn ended).
     fn turn_saved(&self, _app: &App, _session: &Session) {}
-    /// Instructions added to a session's initial prompt about agent-written GitHub text and channels.
+    /// Instructions added to a session's initial prompt about agent-written GitHub text and connections.
     fn suggestion_instruction(&self, _app: &App, _session_id: &str) -> Option<String> {
         None
     }

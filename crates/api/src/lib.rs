@@ -4,8 +4,8 @@
 mod activity;
 mod api;
 mod bots;
-mod channels;
 mod code;
+mod connections;
 mod diagnostics;
 mod items;
 mod kb_http;
@@ -33,7 +33,7 @@ pub fn router() -> Router<Ctx> {
         .merge(suggestions::router())
         .merge(proposals::router())
         .merge(bots::router())
-        .merge(channels::router())
+        .merge(connections::router())
         .merge(prompt_context::router())
         .merge(setup::router())
         .merge(mcp::router())

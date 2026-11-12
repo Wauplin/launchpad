@@ -70,11 +70,11 @@ enum Command {
         #[command(subcommand)]
         command: Suggest,
     },
-    /// Send a message through one of the owner's channels: `telegram` goes to the owner's own chat of the session's workspace; other
-    /// channels (Slack, Discord, webhooks) wait in the owner's Outbox until they click Send.
+    /// Send a message through one of the owner's connections: `telegram` goes to the owner's own chat of the session's workspace;
+    /// other connections (Slack, Discord, webhooks) wait in the owner's Outbox until they click Send.
     Send {
-        /// The channel name (Settings → Channels), or `telegram` (Settings → Workspace).
-        channel: String,
+        /// The connection name (Settings → Connections), or `telegram` (Settings → Workspace).
+        connection: String,
         #[arg(long)]
         body_file: std::path::PathBuf,
         #[arg(long)]
@@ -209,11 +209,13 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
-    /// Channels and each workspace's Telegram link, without URLs or tokens (JSON; admin access).
-    Channels {
+    /// Connections and each workspace's Telegram link, without URLs or tokens (JSON; admin access).
+    Connections {
         #[command(subcommand)]
         command: ListOnly,
     },
+    /// The hop count to send with `X-Launchpad-Hops` when this session calls an incoming hook of Launchpad (for agents).
+    Hops,
     /// Store an inert proposal for the owner to start with a click; never starts anything.
     Propose {
         #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-files", "bot-instructions", "ready", "report"])]
@@ -784,10 +786,10 @@ async fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Suggest { command } => suggest_command(&paths, command).await,
-        Command::Send { channel, body_file, title, session_id } => {
+        Command::Send { connection, body_file, title, session_id } => {
             let body = std::fs::read_to_string(&body_file).with_context(|| format!("read {}", body_file.display()))?;
             let session_id = session_id.or_else(|| std::env::var("LAUNCHPAD_SESSION_ID").ok()).context("pass --session-id <your session id>")?;
-            let result = Client::new(&paths)?.json("POST", "/api/channels/send", Some(serde_json::json!({"channel": channel, "body": body, "title": title, "session_id": session_id}))).await?;
+            let result = Client::new(&paths)?.json("POST", "/api/connections/send", Some(serde_json::json!({"connection": connection, "body": body, "title": title, "session_id": session_id}))).await?;
             println!("{}", result["message"].as_str().unwrap_or("Done."));
             Ok(())
         }
@@ -843,7 +845,12 @@ async fn run() -> Result<()> {
         Command::Burst { command: Burst::Job { runner_id } } => list_command(&paths, &format!("/api/context/burst/{}/job", url_segment(&runner_id)), None).await,
         Command::Home => list_command(&paths, "/api/context/home", None).await,
         Command::Tools { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/tools", None).await,
-        Command::Channels { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/channels", None).await,
+        Command::Connections { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/connections", None).await,
+        Command::Hops => {
+            let v = Client::new(&paths)?.json("GET", "/api/context/hops", None).await?;
+            println!("{}", v["hops"].as_u64().context("Home did not return a hop count")?);
+            Ok(())
+        }
         Command::Today { workspace } => list_command(&paths, "/api/today", workspace).await,
         Command::Activity { command: ListOnly::List { workspace } } => list_command(&paths, "/api/activity", workspace).await,
         Command::Propose { kind, title, note, replaces, spec_file, session_id } => {

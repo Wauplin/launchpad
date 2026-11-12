@@ -2,6 +2,11 @@
 //! time. A hook accepts at most one message every ten seconds. A message to a busy thread (and Telegram's) waits
 //! in `queued_message` for the end of its turn. The message is a fixed template naming the hook,
 //! then the request body (JSON pretty-printed, at most 16 KB) in a fenced block, marked as data.
+//!
+//! Hop count (loop guard, `senders`): `X-Launchpad-Hops: <n>` names the caller's place in a chain of automatic
+//! messages (an agent sends `launchpad hops`). Without it the message is hop 1; with it, at least 1. Past
+//! `senders::MAX_HOPS` the hook answers 409 "loop guard: N hops" and delivers nothing. The message carries the hop
+//! (`MessageFrom` of kind `hook`), so what the bot sends while answering it counts from there.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -13,7 +18,7 @@ use sha2::{Digest, Sha256};
 use ts_rs::TS;
 
 use launchpad_core::App;
-use launchpad_core::model::{Session, SessionStatus};
+use launchpad_core::model::{MessageContext, MessageFrom, SenderKind, Session, SessionStatus};
 use launchpad_core::senders::fence;
 use launchpad_core::util::now_ms;
 
@@ -88,12 +93,12 @@ async fn save(app: &App, h: &Hook, secret_hash: Option<String>) -> Result<()> {
             Ok(())
         })
         .await?;
-    app.bus.publish("channels", "changed", Value::Null);
+    app.bus.publish("connections", "changed", Value::Null);
     Ok(())
 }
 
 pub async fn create(app: &App, n: NewHook) -> Result<CreatedHook> {
-    crate::channels::ensure_home(app)?;
+    crate::connections::ensure_home(app)?;
     let name = n.name.trim().to_string();
     ensure!(!name.is_empty() && name.chars().count() <= 60 && !name.contains(['\n', '"', '`']), "give the hook a short name (at most 60 characters, no quotes)");
     let Target::Bot { id } = &n.target;
@@ -106,10 +111,10 @@ pub async fn create(app: &App, n: NewHook) -> Result<CreatedHook> {
 }
 
 pub async fn delete(app: &App, id: &str) -> Result<()> {
-    crate::channels::ensure_home(app)?;
+    crate::connections::ensure_home(app)?;
     let key = id.to_string();
     app.state_db.call(move |c| Ok(c.execute("DELETE FROM incoming_hook WHERE id = ?1", [key])?)).await?;
-    app.bus.publish("channels", "changed", Value::Null);
+    app.bus.publish("connections", "changed", Value::Null);
     Ok(())
 }
 
@@ -145,8 +150,20 @@ fn internal(e: anyhow::Error) -> Refused {
     Refused(500, format!("{e:#}"))
 }
 
-/// `POST /hooks/<id>`: checks the secret and the rate, then sends or queues the message.
-pub async fn receive(app: &App, id: &str, secret: Option<&str>, body: &[u8]) -> Result<Delivered, Refused> {
+/// The hop count of a hook message from its `X-Launchpad-Hops` header: 1 without it, at least 1 with it; refused
+/// (400) when it is not a whole number and (409, "loop guard") past `senders::MAX_HOPS`.
+pub fn hops(header: Option<&str>) -> Result<u32, Refused> {
+    let hops = match header.map(str::trim).filter(|h| !h.is_empty()) {
+        None => 1,
+        Some(h) => u32::try_from(h.parse::<u64>().map_err(|_| Refused(400, "X-Launchpad-Hops must be a whole number".into()))?).unwrap_or(u32::MAX).max(1),
+    };
+    launchpad_core::senders::guard(hops).map_err(|e| Refused(409, e.to_string()))?;
+    Ok(hops)
+}
+
+/// `POST /hooks/<id>`: checks the secret, the hop count (`hops_header`, `X-Launchpad-Hops`) and the rate, then sends
+/// or queues the message.
+pub async fn receive(app: &App, id: &str, secret: Option<&str>, hops_header: Option<&str>, body: &[u8]) -> Result<Delivered, Refused> {
     if !launchpad_core::vault::here(app) {
         return Err(Refused(404, "incoming hooks are served by Home".into()));
     }
@@ -165,6 +182,7 @@ pub async fn receive(app: &App, id: &str, secret: Option<&str>, body: &[u8]) -> 
         return Err(Refused(401, "missing or wrong X-Launchpad-Hook-Secret".into()));
     }
     let mut hook: Hook = serde_json::from_str(&json).context("the hook record cannot be read").map_err(internal)?;
+    let hops = hops(hops_header)?;
     {
         let now = now_ms();
         let mut last = LAST.lock().unwrap();
@@ -176,7 +194,8 @@ pub async fn receive(app: &App, id: &str, secret: Option<&str>, body: &[u8]) -> 
     let text = message(&hook.name, body);
     // Sent once: a failure is reported to the caller, never retried by Home. A busy thread gets it after its turn.
     let automatic = matches!(hook.target, Target::Bot { .. });
-    let d = deliver(app, hook.target.clone(), text, automatic, false).await.map_err(|e| Refused(503, format!("{e:#}")))?;
+    let from = MessageFrom { kind: SenderKind::Hook, id: hook.id.clone(), name: hook.name.clone(), hops, ..Default::default() };
+    let d = deliver_from(app, hook.target.clone(), text, automatic, false, Some(from)).await.map_err(|e| Refused(503, format!("{e:#}")))?;
     hook.last_at = Some(now_ms());
     hook.count += 1;
     hook.last_session = d.session.as_ref().map(|s| s.id.clone()).or(hook.last_session);
@@ -194,6 +213,9 @@ struct Queued {
     automatic: bool,
     /// The answer goes back to the Telegram chat of the bot's workspace.
     telegram: bool,
+    /// The hook that sent it, with its hop count (None: the owner's Telegram message).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    from: Option<MessageFrom>,
 }
 
 /// Where a message from a hook or Telegram went.
@@ -230,7 +252,10 @@ fn busy(s: &Session) -> bool {
 
 async fn send(app: &App, q: &Queued) -> Result<Session> {
     match &q.target {
-        Target::Bot { id } => launchpad_core::bots::message_with(app, id, q.text.clone(), vec![], Default::default(), None, q.automatic, None).await,
+        Target::Bot { id } => {
+            let context = MessageContext { from: q.from.clone(), ..Default::default() };
+            launchpad_core::bots::message_with(app, id, q.text.clone(), vec![], context, None, q.automatic, None).await
+        }
     }
 }
 
@@ -239,12 +264,17 @@ async fn send(app: &App, q: &Queued) -> Result<Session> {
 /// once its turn ends (and its quota is confirmed), never into a running turn. The owner's (Telegram) messages never
 /// wait for quota: they go ahead of hook messages that wait only for it.
 pub async fn deliver(app: &App, target: Target, text: String, automatic: bool, telegram: bool) -> Result<Delivered> {
+    deliver_from(app, target, text, automatic, telegram, None).await
+}
+
+/// `deliver` with the message's sender (a hook, with its hop count).
+pub async fn deliver_from(app: &App, target: Target, text: String, automatic: bool, telegram: bool, from: Option<MessageFrom>) -> Result<Delivered> {
     let Target::Bot { id } = &target;
     let bot = launchpad_core::bots::get(app, id).await?;
     ensure!(!automatic || !bot.paused, "{} is paused", bot.settings.name);
     let key = key_of(&target);
     let mut last = DELIVERY.lock().await;
-    let q = Queued { target, text, automatic, telegram };
+    let q = Queued { target, text, automatic, telegram, from };
     let k = key.clone();
     let rows: Vec<String> = app
         .state_db
@@ -442,6 +472,21 @@ mod tests {
         let long = "é".repeat(MAX_BODY);
         assert!(message("x", long.as_bytes()).contains("was cut"));
         assert!(same(b"abc", b"abc") && !same(b"abc", b"abd") && !same(b"abc", b"ab"));
+    }
+
+    #[test]
+    fn the_hop_header_starts_at_one_and_stops_loops() {
+        let h = |v: Option<&str>| hops(v).map_err(|Refused(status, m)| (status, m));
+        assert_eq!(h(None).ok(), Some(1));
+        assert_eq!(h(Some(" ")).ok(), Some(1));
+        assert_eq!(h(Some("0")).ok(), Some(1));
+        assert_eq!(h(Some(" 2 ")).ok(), Some(2));
+        assert_eq!(h(Some(&launchpad_core::senders::MAX_HOPS.to_string())).ok(), Some(launchpad_core::senders::MAX_HOPS));
+        let (status, m) = h(Some("4")).unwrap_err();
+        assert!(status == 409 && m.starts_with("loop guard: 4 hops"), "{m}");
+        assert_eq!(h(Some("99999999999")).unwrap_err().0, 409);
+        assert_eq!(h(Some("-1")).unwrap_err().0, 400);
+        assert_eq!(h(Some("two")).unwrap_err().0, 400);
     }
 
     #[test]

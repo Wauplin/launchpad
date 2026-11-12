@@ -174,7 +174,7 @@ pub async fn statuses(app: &App) -> Vec<TelegramStatus> {
     out
 }
 
-/// Some workspace has a bound chat: `telegram` is a channel name agents may use.
+/// Some workspace has a bound chat: `telegram` is a connection name agents may use.
 pub async fn any_bound(app: &App) -> bool {
     for (ws, st) in all(app).await {
         if st.chat_id.is_some() && token(app, &ws).await.is_some() {
@@ -185,7 +185,7 @@ pub async fn any_bound(app: &App) -> bool {
 }
 
 async fn ensure_workspace(app: &App, workspace: &str) -> Result<()> {
-    crate::channels::ensure_home(app)?;
+    crate::connections::ensure_home(app)?;
     launchpad_core::workspace::get(app, workspace).await.map(|_| ())
 }
 
@@ -202,7 +202,7 @@ fn changed(app: &App, workspace: &str) {
         n.notify_one();
     }
     SUPERVISE.notify_one();
-    crate::channels::changed(app);
+    crate::connections::changed(app);
 }
 
 /// One Bot API call. Errors never contain the URL (it holds the token).
@@ -290,7 +290,7 @@ pub async fn patch(app: &App, workspace: &str, p: Patch) -> Result<TelegramStatu
 
 /// Removes the workspace's token and bound chat (also when its workspace was deleted).
 pub async fn remove(app: &App, workspace: &str) -> Result<()> {
-    crate::channels::ensure_home(app)?;
+    crate::connections::ensure_home(app)?;
     let _w = WRITE.lock().await;
     launchpad_core::vault::delete(app, &token_id(workspace)).await?;
     let ws = workspace.to_string();
@@ -342,7 +342,7 @@ fn truncate(text: &str, max: usize) -> String {
 
 /// Where a session's messages show: its bot's chat, else the session in Agents, with `ws=` of its workspace.
 async fn session_link(app: &App, id: &str, workspace: &str) -> String {
-    let origin = crate::channels::home_origin(app);
+    let origin = crate::connections::home_origin(app);
     match app.sessions.get(id).and_then(|s| s.launch_spec.bot.map(|b| b.id)) {
         Some(bot) => format!("{origin}/bots/{bot}?ws={workspace}"),
         None => format!("{origin}/agents?session={id}&ws={workspace}"),
@@ -355,7 +355,7 @@ async fn card_link(app: &App, id: &str, workspace: &str) -> String {
     if app.sessions.get(id).is_some_and(|s| s.launch_spec.bot.is_some()) {
         return session_link(app, id, workspace).await;
     }
-    format!("{}/?card=session:{id}&ws={workspace}", crate::channels::home_origin(app))
+    format!("{}/?card=session:{id}&ws={workspace}", crate::connections::home_origin(app))
 }
 
 fn session_name(s: &Session) -> String {
@@ -401,7 +401,7 @@ pub fn notify(app: &App, s: &Session, event: &'static str) {
         let result = if launchpad_core::vault::here(&app) {
             notification(&app, &id, event).await
         } else {
-            launchpad_core::home_link::home_request("POST", "/api/channels/telegram/notify", Some(json!({"session_id": id, "event": event}))).await.map(|_| ())
+            launchpad_core::home_link::home_request("POST", "/api/connections/telegram/notify", Some(json!({"session_id": id, "event": event}))).await.map(|_| ())
         };
         if let Err(e) = result {
             tracing::debug!("telegram notification: {e:#}");
@@ -418,7 +418,7 @@ fn notification_chat(st: Option<&State>, configured: bool) -> Option<i64> {
 /// Home: sends a notification to the chat of the session's workspace when its notifications are on. Never
 /// contains code or messages.
 pub async fn notification(app: &App, session_id: &str, event: &str) -> Result<()> {
-    crate::channels::ensure_home(app)?;
+    crate::connections::ensure_home(app)?;
     // The session's workspace, through its folder, like Today.
     let Some(workspace) = launchpad_core::kb::workspace_of_session(app, session_id).await else { return Ok(()) };
     let st = load(app, &workspace).await;
@@ -812,7 +812,7 @@ fn poll(app: &App, workspace: String, wake: Arc<tokio::sync::Notify>) {
                 Ok(updates) => {
                     if st.error.is_some() {
                         let _ = modify(&app, &workspace, |st| st.error = None).await;
-                        crate::channels::changed(&app);
+                        crate::connections::changed(&app);
                     }
                     for u in updates.as_array().cloned().unwrap_or_default() {
                         let Some(update_id) = u["update_id"].as_i64() else { continue };
@@ -833,7 +833,7 @@ fn poll(app: &App, workspace: String, wake: Arc<tokio::sync::Notify>) {
                     if load(&app, &workspace).await.error.as_deref() != Some(message.as_str()) {
                         tracing::warn!("telegram ({workspace}): {message}");
                         let _ = modify(&app, &workspace, |st| st.error = Some(message)).await;
-                        crate::channels::changed(&app);
+                        crate::connections::changed(&app);
                     }
                     tokio::select! { _ = wake.notified() => {}, _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {} }
                 }

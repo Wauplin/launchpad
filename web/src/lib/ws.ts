@@ -169,8 +169,8 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["suggestions"] });
     } else if (topic === "outbox") {
       void queryClient.invalidateQueries({ queryKey: ["outbox"] });
-    } else if (topic === "channels") {
-      void queryClient.invalidateQueries({ queryKey: ["channels"] });
+    } else if (topic === "connections") {
+      void queryClient.invalidateQueries({ queryKey: ["connections"] });
     } else if (topic === "terminals") {
       void queryClient.invalidateQueries({ queryKey: ["terminals"] });
     } else if (topic === "crons") {

@@ -11,11 +11,11 @@ use serde_json::Value;
 use crate::error::ApiError;
 
 /// Diagnostic reads (`launchpad_api::diagnostics`): the recent log of Home and runners, runners, Burst runs and
-/// their HF Jobs, Home's starts, the failure feed, tools, channels and health. They hold no secret, and need admin
+/// their HF Jobs, Home's starts, the failure feed, tools, connections and health. They hold no secret, and need admin
 /// access.
 pub fn diagnostic(path: &str) -> bool {
     path == "/api/logs"
-        || ["runners", "burst", "home", "failures", "tools", "channels", "health"].iter().any(|p| {
+        || ["runners", "burst", "home", "failures", "tools", "connections", "health"].iter().any(|p| {
             path.strip_prefix("/api/context/").and_then(|r| r.strip_prefix(p)).is_some_and(|rest| rest.is_empty() || rest.strip_prefix('/').is_some_and(|r| !r.split('/').any(str::is_empty)))
         })
 }
@@ -50,13 +50,13 @@ async fn access_of(app: &App, id: &str) -> Option<LaunchpadAccess> {
 }
 
 /// Admin access: reads (except the closed list) and the `Admin` actions of the action list
-/// (`launchpad_core::actions`). GitHub, the Outbox, channels, credentials, devices, terminals, hosts, runners,
+/// (`launchpad_core::actions`). GitHub, the Outbox, connections, credentials, devices, terminals, hosts, runners,
 /// setup fixes, backups, Burst and config.toml (except the shared settings list, `settings.set`) are never `Admin`
 /// actions, whatever the access.
 fn admin_allows(method: &Method, path: &str) -> bool {
     if *method == Method::GET {
         let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-        const CLOSED: &[&str] = &["config", "devices", "terminals", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "channels", "outbox", "review-state", "plain", "kb", "knowledge", "code", "browser"];
+        const CLOSED: &[&str] = &["config", "devices", "terminals", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "connections", "outbox", "review-state", "plain", "kb", "knowledge", "code", "browser"];
         return p.first() == Some(&"api") && p.get(1).is_some_and(|a| !CLOSED.contains(a));
     }
     actions::find(method.as_str(), path).is_some_and(|a| a.access == ActionAccess::Admin)
@@ -153,7 +153,7 @@ fn read_allowed(path: &str) -> bool {
 pub const KB_BODY_MAX: usize = 128 << 20;
 
 fn own_write(path: &str) -> bool {
-    matches!(path, "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/channels/send" | "/api/inbox/agent-done")
+    matches!(path, "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/inbox/agent-done")
 }
 
 async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
@@ -276,9 +276,9 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
     }
     let get = *method == Method::GET;
     match (get, &p[1..]) {
-        (true, ["status"] | ["context", "profiles" | "presets"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
+        (true, ["status"] | ["context", "profiles" | "presets" | "hops"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
-        (false, ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["channels", "send"] | ["inbox", "agent-done"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
+        (false, ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["connections", "send"] | ["inbox", "agent-done"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
         (true, ["context", "folders" | "bots" | "sessions" | "inbox" | "schedules"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"]) => Listed,
         (true, ["context", "sessions", id]) => Session(id),
@@ -477,7 +477,7 @@ mod tests {
             assert!(!read_allowed(path));
             assert!(!own_write(path));
         }
-        for path in ["/api/predrafts/p/publish", "/api/predrafts/p/merge-local", "/api/suggestions/s/post", "/api/outbox/o/send", "/api/channels", "/api/channels/telegram/w1/token", "/api/channels/telegram/w1"] {
+        for path in ["/api/predrafts/p/publish", "/api/predrafts/p/merge-local", "/api/suggestions/s/post", "/api/outbox/o/send", "/api/connections", "/api/connections/telegram/w1/token", "/api/connections/telegram/w1"] {
             assert!(!own_write(path));
         }
         assert!(read_allowed("/api/context/folders"));
@@ -512,7 +512,7 @@ mod tests {
         for path in ["/api/context/sessions", "/api/context/folders", "/api/proposals", "/api/today", "/api/activity", "/api/predrafts"] {
             assert_eq!(names(&Method::GET, path), Listed, "{path}");
         }
-        for path in ["/api/context/presets", "/api/status", "/api/settings/shared", "/api/context/health", "/api/logs", "/api/predrafts/resolve"] {
+        for path in ["/api/context/presets", "/api/context/hops", "/api/status", "/api/settings/shared", "/api/context/health", "/api/logs", "/api/predrafts/resolve"] {
             assert_eq!(names(&Method::GET, path), Shared, "{path}");
         }
         // Lists of every workspace's records and other machines' state.
@@ -533,7 +533,7 @@ mod tests {
 
     #[test]
     fn diagnostics_need_admin_and_stay_reads() {
-        for path in ["/api/logs", "/api/context/health", "/api/context/runners", "/api/context/burst", "/api/context/burst/r1/job", "/api/context/home", "/api/context/failures", "/api/context/tools", "/api/context/channels"] {
+        for path in ["/api/logs", "/api/context/health", "/api/context/runners", "/api/context/burst", "/api/context/burst/r1/job", "/api/context/home", "/api/context/failures", "/api/context/tools", "/api/context/connections"] {
             assert!(diagnostic(path), "{path}");
             assert_eq!(tool_need(&Method::GET, path), Some(LaunchpadAccess::Admin), "{path}");
             assert!(!read_allowed(path), "{path}");
@@ -544,7 +544,7 @@ mod tests {
         }
         assert_eq!(tool_need(&Method::GET, "/api/context/sessions/s1"), Some(LaunchpadAccess::Read));
         // The owner's routes with secrets or machine state stay closed, whatever the access.
-        for path in ["/api/burst", "/api/runners", "/api/vault/leases", "/api/channels", "/api/channels/telegram/w1", "/api/home/backup", "/api/config"] {
+        for path in ["/api/burst", "/api/runners", "/api/vault/leases", "/api/connections", "/api/connections/telegram/w1", "/api/home/backup", "/api/config"] {
             assert!(!admin_allows(&Method::GET, path), "{path}");
         }
     }

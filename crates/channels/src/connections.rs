@@ -1,8 +1,8 @@
-//! Channels on Home: outgoing webhooks (Slack, Discord or a generic JSON endpoint) and the Outbox.
+//! Connections on Home: outgoing webhooks (Slack, Discord or a generic JSON endpoint) and the Outbox.
 //!
-//! A webhook URL is a credential: it is stored in the vault (`channel-<id>`, never listed in Credentials and
+//! A webhook URL is a credential: it is stored in the vault (`channel-<id>`, a name kept from before the rename to Connections; never listed in Credentials and
 //! tools, never lent to sessions) and never shown again. Agents draft messages for other people with
-//! `launchpad send <channel>`; the draft waits in the Outbox until the owner clicks Send. A send is claimed
+//! `launchpad send <connection>`; the draft waits in the Outbox until the owner clicks Send. A send is claimed
 //! (`sending`) before the request and never retried: a send that did not finish locally becomes `uncertain`.
 //! Telegram (the owner's own chat of each workspace, direct) is in `telegram.rs`, incoming hooks in `hooks.rs`.
 
@@ -16,7 +16,7 @@ use launchpad_core::util::now_ms;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ChannelKind {
+pub enum ConnectionKind {
     /// A Slack incoming webhook: `{"text": …}`.
     Slack,
     /// A Discord webhook: `{"content": …}`.
@@ -25,13 +25,13 @@ pub enum ChannelKind {
     Generic,
 }
 
-/// An outgoing webhook channel as the UI sees it: never the URL.
+/// An outgoing webhook connection as the UI sees it: never the URL.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-pub struct Channel {
+pub struct Connection {
     pub id: String,
     /// The name agents use: `launchpad send <name>`.
     pub name: String,
-    pub kind: ChannelKind,
+    pub kind: ConnectionKind,
     /// The webhook's host, for recognition (the path is the secret).
     pub host: String,
     #[ts(type = "number")]
@@ -39,9 +39,9 @@ pub struct Channel {
 }
 
 #[derive(Deserialize)]
-pub struct NewChannel {
+pub struct NewConnection {
     pub name: String,
-    pub kind: ChannelKind,
+    pub kind: ConnectionKind,
     pub url: String,
 }
 
@@ -57,13 +57,16 @@ pub enum OutboxStatus {
     Discarded,
 }
 
-/// A message an agent drafted for an outgoing channel.
+/// A message an agent drafted for an outgoing connection.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct OutboxMessage {
     pub id: String,
-    pub channel_id: String,
-    pub channel: String,
-    pub kind: ChannelKind,
+    /// Stored as `channel_id` and `channel` before the rename to Connections.
+    #[serde(alias = "channel_id")]
+    pub connection_id: String,
+    #[serde(alias = "channel")]
+    pub connection: String,
+    pub kind: ConnectionKind,
     pub title: Option<String>,
     pub body: String,
     pub session_id: Option<String>,
@@ -78,10 +81,11 @@ pub struct OutboxMessage {
     pub error: Option<String>,
 }
 
-/// `launchpad send`: a message for a channel, from a session.
+/// `launchpad send`: a message for a connection, from a session.
 #[derive(Deserialize)]
 pub struct Draft {
-    pub channel: String,
+    #[serde(alias = "channel")]
+    pub connection: String,
     pub body: String,
     pub title: Option<String>,
     pub session_id: Option<String>,
@@ -89,7 +93,7 @@ pub struct Draft {
 
 #[derive(Serialize)]
 pub struct DraftResult {
-    /// The Outbox draft (webhook channels).
+    /// The Outbox draft (webhook connections).
     pub outbox: Option<OutboxMessage>,
     /// Sent directly (Telegram, the owner's own chat).
     pub sent: bool,
@@ -103,59 +107,59 @@ pub struct Edit {
 }
 
 pub(crate) fn ensure_home(app: &App) -> Result<()> {
-    ensure!(launchpad_core::vault::here(app), "channels are kept on Home: change them there");
+    ensure!(launchpad_core::vault::here(app), "connections are kept on Home: change them there");
     Ok(())
 }
 
-/// Channel names are what agents type: lowercase letters, digits and dashes. `telegram` is the owner's chat of
+/// Connection names are what agents type: lowercase letters, digits and dashes. `telegram` is the owner's chat of
 /// the session's workspace.
 pub fn check_name(name: &str) -> Result<()> {
-    ensure!(!name.is_empty() && name.len() <= 40 && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') && !name.starts_with('-'), "a channel name uses lowercase letters, digits and dashes (at most 40)");
+    ensure!(!name.is_empty() && name.len() <= 40 && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') && !name.starts_with('-'), "a connection name uses lowercase letters, digits and dashes (at most 40)");
     ensure!(name != "telegram", "telegram is the name of your own Telegram chat");
     Ok(())
 }
 
 /// Checks a webhook URL for its kind and returns its host.
-pub fn check_url(kind: ChannelKind, url: &str) -> Result<String> {
+pub fn check_url(kind: ConnectionKind, url: &str) -> Result<String> {
     let u = reqwest::Url::parse(url.trim()).context("this is not a valid URL")?;
     ensure!(u.scheme() == "https", "the webhook URL must start with https://");
     let host = u.host_str().context("the URL has no host")?.to_ascii_lowercase();
     match kind {
-        ChannelKind::Slack => ensure!(host == "hooks.slack.com" && u.path().starts_with("/services/"), "a Slack incoming webhook starts with https://hooks.slack.com/services/"),
-        ChannelKind::Discord => ensure!(matches!(host.as_str(), "discord.com" | "discordapp.com" | "ptb.discord.com" | "canary.discord.com") && u.path().starts_with("/api/webhooks/"), "a Discord webhook starts with https://discord.com/api/webhooks/"),
-        ChannelKind::Generic => {}
+        ConnectionKind::Slack => ensure!(host == "hooks.slack.com" && u.path().starts_with("/services/"), "a Slack incoming webhook starts with https://hooks.slack.com/services/"),
+        ConnectionKind::Discord => ensure!(matches!(host.as_str(), "discord.com" | "discordapp.com" | "ptb.discord.com" | "canary.discord.com") && u.path().starts_with("/api/webhooks/"), "a Discord webhook starts with https://discord.com/api/webhooks/"),
+        ConnectionKind::Generic => {}
     }
     Ok(host)
 }
 
 /// Discord refuses longer messages; the others accept much more.
-fn max_body(kind: ChannelKind) -> usize {
-    if kind == ChannelKind::Discord { 2000 } else { 30_000 }
+fn max_body(kind: ConnectionKind) -> usize {
+    if kind == ConnectionKind::Discord { 2000 } else { 30_000 }
 }
 
-fn check_body(kind: ChannelKind, body: &str, title: Option<&str>) -> Result<()> {
+fn check_body(kind: ConnectionKind, body: &str, title: Option<&str>) -> Result<()> {
     ensure!(!body.trim().is_empty(), "the message is empty");
     let total = body.chars().count() + title.map(|t| t.chars().count() + 4).unwrap_or(0);
-    ensure!(total <= max_body(kind), "the message is too long for this channel (at most {} characters)", max_body(kind));
+    ensure!(total <= max_body(kind), "the message is too long for this connection (at most {} characters)", max_body(kind));
     ensure!(title.is_none_or(|t| t.chars().count() <= 200 && !t.contains('\n')), "a title is one line of at most 200 characters");
     Ok(())
 }
 
 /// The JSON body of a webhook request.
-pub fn payload(kind: ChannelKind, title: Option<&str>, body: &str, session_id: Option<&str>) -> Value {
+pub fn payload(kind: ConnectionKind, title: Option<&str>, body: &str, session_id: Option<&str>) -> Value {
     let title = title.map(str::trim).filter(|t| !t.is_empty());
     match kind {
-        ChannelKind::Slack => json!({"text": match title { Some(t) => format!("*{t}*\n{body}"), None => body.to_string() }}),
+        ConnectionKind::Slack => json!({"text": match title { Some(t) => format!("*{t}*\n{body}"), None => body.to_string() }}),
         // No mentions: a draft never pings @everyone or roles.
-        ChannelKind::Discord => json!({"content": match title { Some(t) => format!("**{t}**\n{body}"), None => body.to_string() }, "allowed_mentions": {"parse": []}}),
-        ChannelKind::Generic => json!({"text": body, "title": title, "session_id": session_id}),
+        ConnectionKind::Discord => json!({"content": match title { Some(t) => format!("**{t}**\n{body}"), None => body.to_string() }, "allowed_mentions": {"parse": []}}),
+        ConnectionKind::Generic => json!({"text": body, "title": title, "session_id": session_id}),
     }
 }
 
-/// A message ending with the attribution line of the agent that drafted it, in the channel's link syntax.
-pub fn signed(kind: ChannelKind, body: &str, line: &str) -> String {
+/// A message ending with the attribution line of the agent that drafted it, in the connection's link syntax.
+pub fn signed(kind: ConnectionKind, body: &str, line: &str) -> String {
     use launchpad_core::attribution as a;
-    let line = if kind == ChannelKind::Slack { a::slack(line) } else { line.to_string() };
+    let line = if kind == ConnectionKind::Slack { a::slack(line) } else { line.to_string() };
     a::sign(body, &line, a::Separator::Blank)
 }
 
@@ -176,13 +180,13 @@ fn secret_id(id: &str) -> String {
     format!("channel-{id}")
 }
 
-// ---------------------------------------------------------------- channels
+// ---------------------------------------------------------------- connections
 
-pub async fn list(app: &App) -> Result<Vec<Channel>> {
-    let mut all: Vec<Channel> = app
+pub async fn list(app: &App) -> Result<Vec<Connection>> {
+    let mut all: Vec<Connection> = app
         .state_db
         .call(|c| {
-            let mut st = c.prepare("SELECT json FROM channel")?;
+            let mut st = c.prepare("SELECT json FROM connection")?;
             let rows = st.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(rows.iter().filter_map(|j| serde_json::from_str(j).ok()).collect())
         })
@@ -191,36 +195,36 @@ pub async fn list(app: &App) -> Result<Vec<Channel>> {
     Ok(all)
 }
 
-pub async fn add(app: &App, n: NewChannel) -> Result<Channel> {
+pub async fn add(app: &App, n: NewConnection) -> Result<Connection> {
     ensure_home(app)?;
     let name = n.name.trim().to_ascii_lowercase();
     check_name(&name)?;
     let host = check_url(n.kind, &n.url)?;
-    ensure!(!list(app).await?.iter().any(|c| c.name == name), "a channel named {name} already exists");
+    ensure!(!list(app).await?.iter().any(|c| c.name == name), "a connection named {name} already exists");
     let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
-    launchpad_core::vault::put(app, &secret_id(&id), launchpad_core::vault::Kind::Token, &format!("Channel {name}"), n.url.trim()).await?;
-    let ch = Channel { id: id.clone(), name, kind: n.kind, host, created_at: now_ms() };
+    launchpad_core::vault::put(app, &secret_id(&id), launchpad_core::vault::Kind::Token, &format!("Connection {name}"), n.url.trim()).await?;
+    let ch = Connection { id: id.clone(), name, kind: n.kind, host, created_at: now_ms() };
     let json = serde_json::to_string(&ch)?;
-    app.state_db.call(move |c| Ok(c.execute("INSERT INTO channel (id, json) VALUES (?1, ?2)", [id, json])?)).await?;
+    app.state_db.call(move |c| Ok(c.execute("INSERT INTO connection (id, json) VALUES (?1, ?2)", [id, json])?)).await?;
     changed(app);
     Ok(ch)
 }
 
-/// Removes a channel and its URL. Its drafts stay in the Outbox but cannot be sent any more.
+/// Removes a connection and its URL. Its drafts stay in the Outbox but cannot be sent any more.
 pub async fn delete(app: &App, id: &str) -> Result<()> {
     ensure_home(app)?;
     launchpad_core::vault::delete(app, &secret_id(id)).await?;
     let key = id.to_string();
-    app.state_db.call(move |c| Ok(c.execute("DELETE FROM channel WHERE id = ?1", [key])?)).await?;
+    app.state_db.call(move |c| Ok(c.execute("DELETE FROM connection WHERE id = ?1", [key])?)).await?;
     changed(app);
     Ok(())
 }
 
-/// Channel names for the session prompt, kept in memory (the prompt is built synchronously).
+/// Connection names for the session prompt, kept in memory (the prompt is built synchronously).
 static NAMES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 pub(crate) fn changed(app: &App) {
-    app.bus.publish("channels", "changed", Value::Null);
+    app.bus.publish("connections", "changed", Value::Null);
     let app = app.clone();
     tokio::spawn(async move { refresh_names(&app).await });
 }
@@ -233,8 +237,8 @@ async fn refresh_names(app: &App) {
         }
         names
     } else {
-        // A runner asks Home (its sessions' prompts name the channels too).
-        match launchpad_core::home_link::home_request("GET", "/api/channels/names", None).await {
+        // A runner asks Home (its sessions' prompts name the connections too).
+        match launchpad_core::home_link::home_request("GET", "/api/connections/names", None).await {
             Ok(v) => v["names"].as_array().map(|a| a.iter().filter_map(|n| n.as_str().map(str::to_string)).collect()).unwrap_or_default(),
             Err(_) => return,
         }
@@ -242,13 +246,13 @@ async fn refresh_names(app: &App) {
     *NAMES.lock().unwrap() = names;
 }
 
-/// Channel names agents can use, for `GET /api/channels`.
+/// Connection names agents can use, for `GET /api/connections`.
 pub async fn names(app: &App) -> Vec<String> {
     refresh_names(app).await;
     NAMES.lock().unwrap().clone()
 }
 
-/// The part of a session's prompt about channels, when there is one.
+/// The part of a session's prompt about connections, when there is one.
 pub fn instruction(app: &App, session: &str) -> Option<String> {
     let names = NAMES.lock().unwrap().clone();
     if names.is_empty() {
@@ -256,7 +260,7 @@ pub fn instruction(app: &App, session: &str) -> Option<String> {
     }
     let cli = app.paths.cli_command();
     Some(format!(
-        "To send a message through one of the owner's channels ({}), write it to a file and run `{cli} send <channel> --body-file <file> [--title \"…\"] --session-id {session}`. `telegram` goes directly to the owner's own chat of your workspace (when it has one); other channels reach other people, so the message waits in the owner's Outbox until they click Send. Send messages only when the task asks for it.",
+        "To send a message through one of the owner's connections ({}), write it to a file and run `{cli} send <connection> --body-file <file> [--title \"…\"] --session-id {session}`. `telegram` goes directly to the owner's own chat of your workspace (when it has one); other connections reach other people, so the message waits in the owner's Outbox until they click Send. Send messages only when the task asks for it.",
         names.join(", ")
     ))
 }
@@ -305,26 +309,26 @@ pub(crate) fn author(app: &App, session_id: Option<&str>) -> Result<String> {
     })
 }
 
-/// `launchpad send`: a draft in the Outbox for a webhook channel, or a direct message to the Telegram chat of the
+/// `launchpad send`: a draft in the Outbox for a webhook connection, or a direct message to the Telegram chat of the
 /// session's workspace.
 pub async fn draft(app: &App, d: Draft) -> Result<DraftResult> {
     ensure_home(app)?;
-    let name = d.channel.trim().to_ascii_lowercase();
+    let name = d.connection.trim().to_ascii_lowercase();
     let title = d.title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
     if name == "telegram" {
         crate::telegram::send_from_agent(app, d.session_id.as_deref(), title.as_deref(), &d.body).await?;
         return Ok(DraftResult { outbox: None, sent: true, message: "Sent to the Telegram chat of the session's workspace.".into() });
     }
-    let channels = list(app).await?;
-    let Some(ch) = channels.iter().find(|c| c.name == name) else {
-        let names: Vec<_> = channels.iter().map(|c| c.name.as_str()).collect();
-        bail!("no channel named {name}; channels: {}", if names.is_empty() { "none (the owner adds them in Settings → Channels)".to_string() } else { names.join(", ") });
+    let connections = list(app).await?;
+    let Some(ch) = connections.iter().find(|c| c.name == name) else {
+        let names: Vec<_> = connections.iter().map(|c| c.name.as_str()).collect();
+        bail!("no connection named {name}; connections: {}", if names.is_empty() { "none (the owner adds them in Settings → Connections)".to_string() } else { names.join(", ") });
     };
     check_body(ch.kind, &d.body, title.as_deref())?;
     let m = OutboxMessage {
         id: uuid::Uuid::new_v4().to_string(),
-        channel_id: ch.id.clone(),
-        channel: ch.name.clone(),
+        connection_id: ch.id.clone(),
+        connection: ch.name.clone(),
         kind: ch.kind,
         title,
         body: d.body,
@@ -381,14 +385,14 @@ pub async fn mark_sent(app: &App, id: &str) -> Result<OutboxMessage> {
     Ok(m)
 }
 
-/// Owner click: one request to the channel's webhook. Never retried.
+/// Owner click: one request to the connection's webhook. Never retried.
 pub async fn send(app: &App, id: &str) -> Result<OutboxMessage> {
     ensure_home(app)?;
     let l = lock(app, id);
     let _g = l.lock().await;
     let mut m = get(app, id).await?;
     ensure!(m.status == OutboxStatus::Draft, "a send was already attempted; check the destination before discarding");
-    let (_, url) = launchpad_core::vault::secret(app, &secret_id(&m.channel_id)).await?.context("this channel was removed: discard the message")?;
+    let (_, url) = launchpad_core::vault::secret(app, &secret_id(&m.connection_id)).await?.context("this connection was removed: discard the message")?;
     let text = match launchpad_core::attribution::for_session(app, m.session_id.as_deref()) {
         Some(line) => signed(m.kind, &m.body, &line),
         None => m.body.clone(),
@@ -408,15 +412,15 @@ pub async fn send(app: &App, id: &str) -> Result<OutboxMessage> {
             let status = r.status();
             let text: String = r.text().await.unwrap_or_default().chars().take(200).collect();
             m.status = OutboxStatus::Draft;
-            m.error = Some(format!("The channel refused the message ({status}){}", if text.trim().is_empty() { String::new() } else { format!(": {}", text.trim()) }));
+            m.error = Some(format!("The connection refused the message ({status}){}", if text.trim().is_empty() { String::new() } else { format!(": {}", text.trim()) }));
         }
         Ok(r) => {
             m.status = OutboxStatus::Uncertain;
-            m.error = Some(format!("The channel answered {}. Check the destination before discarding; this message is not sent again.", r.status()));
+            m.error = Some(format!("The connection answered {}. Check the destination before discarding; this message is not sent again.", r.status()));
         }
         Err(e) if e.is_connect() => {
             m.status = OutboxStatus::Draft;
-            m.error = Some(format!("Could not reach {}: nothing was sent.", e.url().and_then(|u| u.host_str()).unwrap_or("the channel")));
+            m.error = Some(format!("Could not reach {}: nothing was sent.", e.url().and_then(|u| u.host_str()).unwrap_or("the connection")));
         }
         Err(_) => {
             m.status = OutboxStatus::Uncertain;
@@ -466,28 +470,28 @@ mod tests {
 
     #[test]
     fn payloads_follow_each_kind() {
-        assert_eq!(payload(ChannelKind::Slack, Some("Build"), "ok", None), json!({"text": "*Build*\nok"}));
-        assert_eq!(payload(ChannelKind::Discord, None, "ok", None)["content"], "ok");
-        assert_eq!(payload(ChannelKind::Generic, Some(" "), "ok", Some("s1")), json!({"text": "ok", "title": null, "session_id": "s1"}));
+        assert_eq!(payload(ConnectionKind::Slack, Some("Build"), "ok", None), json!({"text": "*Build*\nok"}));
+        assert_eq!(payload(ConnectionKind::Discord, None, "ok", None)["content"], "ok");
+        assert_eq!(payload(ConnectionKind::Generic, Some(" "), "ok", Some("s1")), json!({"text": "ok", "title": null, "session_id": "s1"}));
     }
 
     #[test]
     fn messages_end_with_the_attribution_line_once() {
         let line = launchpad_core::attribution::text(Some("HFJS Bot"), "Claude Code");
-        let slack = signed(ChannelKind::Slack, "Released.", &line);
+        let slack = signed(ConnectionKind::Slack, "Released.", &line);
         assert_eq!(slack, "Released.\n\n_Written by HFJS Bot via <https://github.com/Wauplin/launchpad|Launchpad>_");
-        assert_eq!(signed(ChannelKind::Slack, &slack, &line), slack);
-        assert_eq!(signed(ChannelKind::Discord, "Released.", &line), format!("Released.\n\n{line}"));
+        assert_eq!(signed(ConnectionKind::Slack, &slack, &line), slack);
+        assert_eq!(signed(ConnectionKind::Discord, "Released.", &line), format!("Released.\n\n{line}"));
     }
 
     #[test]
     fn urls_and_names_are_checked() {
-        assert!(check_url(ChannelKind::Slack, "https://hooks.slack.com/services/T/B/x").is_ok());
-        assert!(check_url(ChannelKind::Slack, "https://example.com/services/x").is_err());
-        assert!(check_url(ChannelKind::Discord, "https://discord.com/api/webhooks/1/x").is_ok());
-        assert!(check_url(ChannelKind::Generic, "http://example.com/x").is_err());
+        assert!(check_url(ConnectionKind::Slack, "https://hooks.slack.com/services/T/B/x").is_ok());
+        assert!(check_url(ConnectionKind::Slack, "https://example.com/services/x").is_err());
+        assert!(check_url(ConnectionKind::Discord, "https://discord.com/api/webhooks/1/x").is_ok());
+        assert!(check_url(ConnectionKind::Generic, "http://example.com/x").is_err());
         assert!(check_name("team-chat").is_ok());
         assert!(check_name("telegram").is_err() && check_name("Team").is_err());
-        assert!(check_body(ChannelKind::Discord, &"x".repeat(2001), None).is_err());
+        assert!(check_body(ConnectionKind::Discord, &"x".repeat(2001), None).is_err());
     }
 }

@@ -16,9 +16,9 @@ import { copyText } from "@/lib/clipboard";
 import { when } from "@/lib/format";
 import { Card } from "./SettingsView";
 
-/** The workspace's Telegram state; `["channels", …]` follows the `channels` bus topic. */
+/** The workspace's Telegram state; `["connections", …]` follows the `connections` bus topic. */
 export const useTelegram = (workspace: string | null | undefined) => useQuery({
-  queryKey: ["channels", "telegram", workspace],
+  queryKey: ["connections", "telegram", workspace],
   queryFn: () => api.get<TelegramStatus>(actionPath("telegram.set", { workspace: workspace! })),
   enabled: !!workspace, staleTime: 30_000, retry: false,
 });
@@ -27,8 +27,8 @@ export function TelegramCard({ workspace, name }: { workspace: string; name: str
   const qc = useQueryClient();
   const q = useTelegram(workspace);
   const params = { workspace };
-  const set = (next: TelegramStatus) => qc.setQueryData(["channels", "telegram", workspace], next);
-  const refresh = () => qc.invalidateQueries({ queryKey: ["channels"] });
+  const set = (next: TelegramStatus) => qc.setQueryData(["connections", "telegram", workspace], next);
+  const refresh = () => qc.invalidateQueries({ queryKey: ["connections"] });
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const act = (f: () => Promise<unknown>) => { setBusy(true); void f().catch(toastError).finally(() => setBusy(false)); };

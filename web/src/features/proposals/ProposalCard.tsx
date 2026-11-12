@@ -200,7 +200,7 @@ function readyCall(body: Ready): { name: ActionName; params: Record<string, stri
   return { name, params: Object.fromEntries(route.map((k, i) => [k, body.args[i] ?? ""])) };
 }
 
-const READY_VARS = { base: "the base branch", branch: "the branch", channel: "its channel", version: "the newest version" };
+const READY_VARS = { base: "the base branch", branch: "the branch", connection: "its connection", version: "the newest version" };
 
 function ReadyBody({ p, body, dismiss }: { p: Proposal; body: Ready; dismiss: () => void }) {
   const navigate = useNavigate();

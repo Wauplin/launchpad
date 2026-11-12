@@ -18,7 +18,7 @@ import { PatchView } from "@/features/github/DiffReview";
 import { BotChat } from "@/features/chat/BotChat";
 import { useNextSession } from "@/features/chat/nextSession";
 import { BotConversationRow } from "./BotConversationRow";
-import type { ChannelsOverview } from "@/features/settings/ChannelsView";
+import type { ConnectionsOverview } from "@/features/settings/ConnectionsView";
 import { useTelegram } from "@/features/settings/TelegramSettings";
 import { BotAvatar } from "@/components/BotAvatar";
 import { SplitView } from "@/components/SplitView";
@@ -483,8 +483,8 @@ function TriggersSection({ bot, routines, onEditFile }: { bot: Bot; routines: Cr
   const projects = useProjects().data ?? [];
   const profiles = useProfiles();
   const navigate = useNavigate();
-  const channels = useQuery({ queryKey: ["channels"], queryFn: () => api.get<ChannelsOverview>("/api/channels"), retry: false }).data;
-  const hooks = (channels?.hooks ?? []).filter((h) => h.target.kind === "bot" && h.target.id === bot.id);
+  const connections = useQuery({ queryKey: ["connections"], queryFn: () => api.get<ConnectionsOverview>("/api/connections"), retry: false }).data;
+  const hooks = (connections?.hooks ?? []).filter((h) => h.target.kind === "bot" && h.target.id === bot.id);
   const telegram = !!useTelegram(bot.workspace_id).data?.bound;
   const askBot = askTarget(useBots().data ?? [], bot.workspace_id)?.id === bot.id;
   const [adding, setAdding] = useState(false);
@@ -511,7 +511,7 @@ function TriggersSection({ bot, routines, onEditFile }: { bot: Bot; routines: Cr
         </button>
         {open === r.id && <RoutineDetails cron={r} bot={bot} onOpen={(sid) => void navigate({ to: "/agents", search: { session: sid } as never })} onDeleted={() => setOpen(null)} onEditFile={r.file ? () => onEditFile(r.file!) : undefined} />}
       </div>)}
-      {hooks.map((h) => <Link key={h.id} to="/settings/channels" className={row} title="Incoming hook: edit or delete it in Settings → Channels">
+      {hooks.map((h) => <Link key={h.id} to="/settings/connections" className={row} title="Incoming hook: edit or delete it in Settings → Connections">
         <Icon name="down" size={12} className="flex-none text-ink-3" />
         <span className="min-w-0 flex-1"><span className="block truncate">Hook “{h.name}”</span><span className="block truncate text-[12px] text-ink-3">{h.last_at ? `Last call ${ago(h.last_at)}` : "Never called"} · {h.count} message{h.count === 1 ? "" : "s"}</span></span>
       </Link>)}
@@ -522,7 +522,7 @@ function TriggersSection({ bot, routines, onEditFile }: { bot: Bot; routines: Cr
       {!routines.length && !hooks.length && !telegram && !adding && <p className="m-0 text-[12px] text-ink-3">No trigger yet: {bot.settings.name} runs only when you message it.</p>}
     </div>
     {adding ? <NewRoutine bot={bot} repo={repo} harness={harness} onDone={() => setAdding(false)} />
-      : <button className="btn btn-sm w-fit" data-tour="bots.routine-new" title="A routine: on a schedule, on GitHub activity, when another agent is done or on a Launchpad failure. Incoming hooks are created in Settings → Channels." onClick={() => setAdding(true)}><Icon name="plus" size={12} />New trigger</button>}
+      : <button className="btn btn-sm w-fit" data-tour="bots.routine-new" title="A routine: on a schedule, on GitHub activity, when another agent is done or on a Launchpad failure. Incoming hooks are created in Settings → Connections." onClick={() => setAdding(true)}><Icon name="plus" size={12} />New trigger</button>}
   </Section>;
 }
 

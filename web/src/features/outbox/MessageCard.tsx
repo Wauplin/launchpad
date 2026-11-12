@@ -1,4 +1,4 @@
-// An Outbox message: what an agent drafted for an outgoing channel (Slack, Discord, webhooks), on its Today card.
+// An Outbox message: what an agent drafted for an outgoing connection (Slack, Discord, webhooks), on its Today card.
 // Sending is never automatic and never retried: a send that did not complete shows "uncertain" until the owner
 // checks the destination.
 
@@ -48,7 +48,7 @@ export const MessageCard = memo(function MessageCard({ m }: { m: OutboxMessage }
   return (
     <article className="rounded-card border border-line bg-paper p-4" data-tour="outbox.card">
       <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
-        <Token icon="send">{m.channel}</Token>
+        <Token icon="send">{m.connection}</Token>
         <span>{KIND_LABEL[m.kind]} · drafted by <SessionLink id={m.session_id}>{m.author}</SessionLink> {ago(m.created_at)}</span>
         {m.status === "sent" && <Badge tone="ok" icon="check">Sent{m.sent_at ? ` ${ago(m.sent_at)}` : ""}</Badge>}
         {uncertain && <Badge tone="attn" icon="alert">{m.status === "sending" ? "Sending" : "Uncertain"}</Badge>}
@@ -65,12 +65,12 @@ export const MessageCard = memo(function MessageCard({ m }: { m: OutboxMessage }
           <p className="m-0 whitespace-pre-wrap break-words text-ink-2">{m.body}</p>
         </div>
       )}
-      {uncertain && <p className="mt-3 flex items-center gap-1.5 text-[12px] text-attn"><Icon name="alert" size={12} />Uncertain, check the destination: the send did not complete and may have arrived in {m.channel}. Launchpad never sends it again.</p>}
+      {uncertain && <p className="mt-3 flex items-center gap-1.5 text-[12px] text-attn"><Icon name="alert" size={12} />Uncertain, check the destination: the send did not complete and may have arrived in {m.connection}. Launchpad never sends it again.</p>}
       {m.error && draft && <ErrorState className="mt-2" error={m.error} />}
       {!!error && <ErrorState className="mt-2" error={error} />}
       <div className={`mt-3 flex flex-wrap items-center gap-2 ${phone ? "[&_.btn]:min-h-11" : ""}`}>
         {draft && <>
-          <ActionButton name="outbox.send" params={{ id: m.id }} vars={{ channel: m.channel }} disabled={busy || !body.trim()} confirmLabel="Send now" before={() => { setError(null); return save(); }} onDone={() => { toast(`Sent to ${m.channel}`); void refresh(); }} onError={failed} />
+          <ActionButton name="outbox.send" params={{ id: m.id }} vars={{ connection: m.connection }} disabled={busy || !body.trim()} confirmLabel="Send now" before={() => { setError(null); return save(); }} onDone={() => { toast(`Sent to ${m.connection}`); void refresh(); }} onError={failed} />
           {edited && <button className="btn btn-sm" disabled={busy || !body.trim()} onClick={() => void run("save")}>Save edit</button>}
           {edited && <button className="btn btn-sm" disabled={busy} onClick={() => { setBody(m.body); setTitle(m.title ?? ""); }}>Cancel edit</button>}
         </>}

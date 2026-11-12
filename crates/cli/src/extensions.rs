@@ -7,7 +7,7 @@ pub struct Extensions;
 
 #[async_trait::async_trait]
 impl launchpad_core::ext::Extensions for Extensions {
-    fn notify_channels(&self, app: &App, session: &Session, event: &'static str) {
+    fn notify_connections(&self, app: &App, session: &Session, event: &'static str) {
         launchpad_channels::telegram::notify(app, session, event);
     }
     fn turn_ended(&self, app: &App, session: &Session) {
@@ -18,8 +18,8 @@ impl launchpad_core::ext::Extensions for Extensions {
     }
     fn suggestion_instruction(&self, app: &App, session_id: &str) -> Option<String> {
         let text = launchpad_github::suggestions::instruction(app, session_id);
-        Some(match launchpad_channels::channels::instruction(app, session_id) {
-            Some(channels) => format!("{text}\n\n{channels}"),
+        Some(match launchpad_channels::connections::instruction(app, session_id) {
+            Some(connections) => format!("{text}\n\n{connections}"),
             None => text,
         })
     }

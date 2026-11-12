@@ -37,9 +37,9 @@ export const settings: Chapter = {
       tryIt: { text: "create a pairing link.", done: qrShown, doIt: () => clickAnchor("devices.pair") },
     },
     {
-      id: "settings.channels", route: "/settings/channels", anchor: "settings.channels",
-      title: "Channels",
-      body: "Add Slack, Discord or webhook channels for agents' messages to other people: those wait in Today, under Send. Incoming hooks let CI and scripts message a bot.",
+      id: "settings.connections", route: "/settings/connections", anchor: "settings.connections",
+      title: "Connections",
+      body: "Add Slack, Discord or webhook connections for agents' messages to other people: those wait in Today, under Send. Incoming hooks let CI and scripts message a bot.",
     },
     {
       id: "settings.telegram", route: "/settings/workspace", anchor: "settings.telegram",

@@ -232,7 +232,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/bots" || path.starts_with("/api/bots/") || path.starts_with("/api/context/") || path == "/api/launch/start-preview"
         || (path.starts_with("/api/sessions/") && (path.ends_with("/access") || path.ends_with("/machines")))
         || path == "/api/suggestions" || path.starts_with("/api/suggestions/")
-        || path == "/api/channels" || path.starts_with("/api/channels/") || path == "/api/outbox" || path.starts_with("/api/outbox/")
+        || path == "/api/connections" || path.starts_with("/api/connections/") || path == "/api/outbox" || path.starts_with("/api/outbox/")
         || path == "/api/today" || path == "/api/inbox/agent-done"
         || path == "/api/activity" || path.starts_with("/api/activity/") || path == "/api/settings/shared"
         || path == "/api/review-state"

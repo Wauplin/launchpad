@@ -191,6 +191,11 @@ pub fn open_state(path: &Path) -> Result<Db> {
         tx.commit()?;
         tracing::info!("state.db: applied migration {}", i + 1);
     }
+    // Outgoing webhooks were kept in `channel` before the rename to Connections; that name is now bot channels'.
+    let table = |name: &str| conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?1", [name], |r| r.get::<_, i64>(0)).map(|n| n > 0);
+    if !table("connection")? && table("channel")? && !table("channel_member")? {
+        conn.execute_batch("ALTER TABLE channel RENAME TO connection;")?;
+    }
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS browser_action (id TEXT PRIMARY KEY, grant_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS browser_grant (id TEXT PRIMARY KEY, json TEXT NOT NULL);
@@ -235,7 +240,7 @@ CREATE TABLE IF NOT EXISTS profile_cost (profile TEXT NOT NULL, at INTEGER NOT N
 CREATE TABLE IF NOT EXISTS onboarding (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS home_update (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cli_update (id TEXT PRIMARY KEY, json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS channel (id TEXT PRIMARY KEY, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS connection (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS outbox_message (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS telegram_chat (workspace_id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS telegram_answer (session_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, after_seq INTEGER NOT NULL, at INTEGER NOT NULL);
@@ -411,6 +416,24 @@ mod tests {
             }).await.unwrap();
         }
         // Windows keeps the file locked until the connection thread exits.
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn outgoing_webhooks_move_from_channel_to_connection() {
+        let path = std::env::temp_dir().join(format!("launchpad-connections-{}.db", uuid::Uuid::new_v4()));
+        let db = super::open_state(&path).unwrap();
+        db.call(|c| Ok(c.execute_batch("DROP TABLE connection; CREATE TABLE channel (id TEXT PRIMARY KEY, json TEXT NOT NULL); INSERT INTO channel VALUES ('c1', '{}');")?)).await.unwrap();
+        drop(db);
+        for _ in 0..2 {
+            let db = super::open_state(&path).unwrap();
+            db.call(|c| {
+                let n: i64 = c.query_row("SELECT count(*) FROM connection WHERE id = 'c1'", [], |r| r.get(0))?;
+                let old: i64 = c.query_row("SELECT count(*) FROM sqlite_master WHERE name = 'channel'", [], |r| r.get(0))?;
+                assert_eq!((n, old), (1, 0));
+                Ok(())
+            }).await.unwrap();
+        }
         let _ = std::fs::remove_file(path);
     }
 

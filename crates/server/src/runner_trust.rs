@@ -4,7 +4,7 @@
 //! (`FromRunner::Req` without a session), each scoped to its sessions here. An agent's CLI call the runner
 //! forwards names its session and is checked on Home with that session's own access
 //! (`launchpad_http::agent_auth`, through `runners::serve`). Nothing a runner sends runs as the owner: it never
-//! reaches the vault, MCP settings, channels, the Outbox, Suggestions, Local PR publication, Home updates or the
+//! reaches the vault, MCP settings, connections, the Outbox, Suggestions, Local PR publication, Home updates or the
 //! owner's actions.
 
 use anyhow::{Context, Result, bail, ensure};
@@ -28,8 +28,8 @@ pub(crate) fn may(method: &str, path: &str) -> bool {
             | ("GET", ["api", "home-git", _, "branches" | "follow"])
             | ("POST", ["api", "plain", "assets", _])
             | ("GET", ["api", "sessions", _] | ["api", "sessions", _, "trace"])
-            | ("GET", ["api", "context", "presets"] | ["api", "channels", "names"])
-            | ("POST", ["api", "channels", "telegram", "notify"])
+            | ("GET", ["api", "context", "presets"] | ["api", "connections", "names"])
+            | ("POST", ["api", "connections", "telegram", "notify"])
     )
 }
 
@@ -132,7 +132,7 @@ pub(crate) async fn check(app: &App, runner: &str, method: &str, path: &str, bod
                 || app.sessions.list().iter().any(|s| s.runner_id.as_deref() == Some(runner) && s.launch_spec.agent_traces.iter().any(|t| t.session_id == *id));
             ensure!(placed(app, runner, id) || context, "Home did not place this session on this runner, nor send it as context");
         }
-        ("POST", ["api", "channels", "telegram", "notify"]) => {
+        ("POST", ["api", "connections", "telegram", "notify"]) => {
             session(&v)?;
         }
         // Asset folders: of a Git folder of a workspace the runner works in.
@@ -190,8 +190,8 @@ mod tests {
             ("GET", "/api/vault"),
             ("PUT", "/api/vault/tools/x"),
             ("PUT", "/api/mcp/m/tools/t"),
-            ("GET", "/api/channels"),
-            ("POST", "/api/channels/send"),
+            ("GET", "/api/connections"),
+            ("POST", "/api/connections/send"),
             ("POST", "/api/outbox/o/send"),
             ("POST", "/api/suggestions"),
             ("POST", "/api/suggestions/s/post"),

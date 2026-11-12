@@ -3,15 +3,16 @@ import type { SenderKind } from "./SenderKind";
 
 /**
  * Who sent a message that is not the owner's, stamped by Home from its own record of the sender (`senders`): another
- * bot or agent (its text arrives under a header naming it, fenced), or a routine run (its own first line says so).
+ * bot or agent (its text arrives under a header naming it, fenced), a routine run or an incoming hook (their own first
+ * line says so).
  */
 export type MessageFrom = { kind: SenderKind, 
 /**
- * The bot, session or routine ID.
+ * The bot, session, routine or hook ID.
  */
 id: string, 
 /**
- * The bot's name, the session's title or the routine's title.
+ * The bot's name, the session's title, the routine's title or the hook's name.
  */
 name: string, 
 /**

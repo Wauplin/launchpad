@@ -8,6 +8,6 @@ import "./settings";
 import "./terminals";
 import "./knowledge";
 import "./bots";
-import "./channels";
+import "./connections";
 import "./today";
 import "./ask";
