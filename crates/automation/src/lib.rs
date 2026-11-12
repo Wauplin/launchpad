@@ -2,6 +2,7 @@
 //! admin actions.
 
 pub mod activity;
+pub mod channel_trigger;
 pub mod crons;
 pub mod failures;
 pub mod proposals;

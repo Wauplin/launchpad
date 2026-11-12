@@ -23,6 +23,7 @@ import type { Session } from "@/gen/Session";
 import type { Trigger } from "@/gen/Trigger";
 import { api } from "@/lib/api";
 import { ago, when } from "@/lib/format";
+import { useChannelName, useChannels } from "@/lib/channels";
 import { useProjects } from "@/lib/queries";
 import { EVENT_RUNS_PER_HOUR, FAILURE_EVENTS, GITHUB_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, cronTitle, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
 
@@ -49,16 +50,20 @@ function repositories(projects: Project[], workspaceId: string | null): string[]
   return [...new Set(projects.filter((p) => p.workspace_id === workspaceId).flatMap((p) => [p.gh_repo, p.gh_upstream]).filter((r): r is string => !!r))].sort();
 }
 
-/** When a routine runs: a schedule, GitHub activity or another agent's turn, and its conditions. */
-export function TriggerFields({ draft, harness, workspaceId, inThread, onChange, onValidityChange }: { draft: RoutineDraft; harness: HarnessKind | null; workspaceId: string | null; inThread: boolean; onChange: (d: RoutineDraft) => void; onValidityChange: (valid: boolean) => void }) {
+/** When a routine runs: a schedule, GitHub activity, another agent's turn, a failure or (a bot's routine) a channel
+ * message, and its conditions. */
+export function TriggerFields({ draft, harness, workspaceId, inThread, botId, onChange, onValidityChange }: { draft: RoutineDraft; harness: HarnessKind | null; workspaceId: string | null; inThread: boolean; botId?: string | null; onChange: (d: RoutineDraft) => void; onValidityChange: (valid: boolean) => void }) {
   const projects = useProjects().data ?? [];
+  // The bot's channels and DMs: a channel routine reads them, so the bot is a member.
+  const channels = (useChannels().data ?? []).filter((c) => c.workspace_id === workspaceId && !c.archived && !!botId && c.members.some((m) => m.bot_id === botId)).sort((a, b) => a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title));
+  const channelName = useChannelName();
   const repos = repositories(projects, workspaceId);
   const folders = projects.filter((p) => p.workspace_id === workspaceId && !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const [fieldsValid, setFieldsValid] = useState(true);
   const t = draft.trigger;
-  const valid = fieldsValid && ((t.kind !== "github" && t.kind !== "failure") || t.events.length > 0);
+  const valid = fieldsValid && ((t.kind !== "github" && t.kind !== "failure") || t.events.length > 0) && (t.kind !== "channel" || !!t.channel);
   useEffect(() => onValidityChange(valid), [valid, onValidityChange]);
-  const kind = (k: Trigger["kind"]) => onChange({ ...draft, trigger: k === "schedule" ? { kind: "schedule" } : k === "github" ? { kind: "github", repo: null, events: ["review_requested"] } : k === "failure" ? { kind: "failure", events: ["any"] } : { kind: "session_done", folder: null, include_bots: false }, schedule: draft.schedule || DEFAULT_CRON.schedule });
+  const kind = (k: Trigger["kind"]) => onChange({ ...draft, trigger: k === "schedule" ? { kind: "schedule" } : k === "github" ? { kind: "github", repo: null, events: ["review_requested"] } : k === "failure" ? { kind: "failure", events: ["any"] } : k === "channel" ? { kind: "channel", channel: channels[0]?.id ?? "", mentions_only: false } : { kind: "session_done", folder: null, include_bots: false }, schedule: draft.schedule || DEFAULT_CRON.schedule });
   const toggleFailure = (e: FailureKind) => t.kind === "failure" && onChange({ ...draft, trigger: { ...t, events: t.events.includes(e) ? t.events.filter((x) => x !== e) : [...t.events, e] } });
   const toggle = (e: GithubEvent) => t.kind === "github" && onChange({ ...draft, trigger: { ...t, events: t.events.includes(e) ? t.events.filter((x) => x !== e) : [...t.events, e] } });
   // In a thread (a bot, Ask Launchpad), a run waits for the thread anyway: no "previous run" condition.
@@ -69,7 +74,22 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, onChange,
       <Choice active={t.kind === "github"} onClick={() => kind("github")}>GitHub activity</Choice>
       <Choice active={t.kind === "session_done"} onClick={() => kind("session_done")}>When an agent is done</Choice>
       <Choice active={t.kind === "failure"} onClick={() => kind("failure")}>When Launchpad fails</Choice>
+      {(!!botId || t.kind === "channel") && <Choice active={t.kind === "channel"} onClick={() => kind("channel")}>New message in a channel</Choice>}
     </Choices>
+    {t.kind === "channel" && <div className="grid gap-2">
+      <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Channel
+        <select className="field-input font-normal" value={t.channel} onChange={(e) => onChange({ ...draft, trigger: { ...t, channel: e.target.value } })}>
+          {!t.channel && <option value="">Pick a channel</option>}
+          {channels.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+          {t.channel && !channels.some((c) => c.id === t.channel) && <option value={t.channel}>{channelName(t.channel)}</option>}
+        </select>
+      </label>
+      {!channels.length && <p role="alert" className="m-0 text-[12px] text-gh-closed">This bot is a member of no channel yet: add it in a channel's Members first.</p>}
+      <label className="flex min-h-7 w-fit cursor-pointer items-center gap-1.5 text-[13px] text-ink-2 select-none" title="Off: every new message of the others starts a run">
+        <input type="checkbox" checked={!!t.mentions_only} onChange={(e) => onChange({ ...draft, trigger: { ...t, mentions_only: e.target.checked } })} className="accent-teal" />Only when it mentions the bot
+      </label>
+      <p className="m-0 text-[12px] text-ink-3">Launchpad checks every 30 seconds. New messages found in one check start one run that names them; the bot's own messages never start it, and a routine started by events runs at most {EVENT_RUNS_PER_HOUR} times an hour.</p>
+    </div>}
     {t.kind === "failure" && <div className="grid gap-2">
       <div className="grid gap-1"><span className="text-[12px] font-semibold text-ink-2">Failures</span>
         <Choices label="Failures">{FAILURE_EVENTS.map((e) => <Choice key={e.id} active={t.events.includes(e.id)} onClick={() => toggleFailure(e.id)}>{e.label}</Choice>)}</Choices>
@@ -116,6 +136,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
   const [edit, setEdit] = useState<(RoutineDraft & { title: string; instructions: string }) | null>(null);
   const [editValid, setEditValid] = useState(true);
   const inThread = !!cron.bot_id;
+  const channelName = useChannelName();
   const preview = useQuery({ queryKey: ["cron-preview", cron.id], queryFn: () => api.post<Preview>("/api/launch/preview", cron.spec), enabled: !inThread });
   const projectId = cron.spec.target.kind === "project" || cron.spec.target.kind === "predraft" ? cron.spec.target.project_id : null;
   const folder = projects.find((p) => p.id === projectId)?.name;
@@ -136,7 +157,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
       {edit ? <>
         <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input font-normal" value={edit.title} maxLength={80} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></label>
         {cron.bot_id && <label className="grid gap-1 text-[12px] font-semibold text-ink-2">What it does at each run<textarea className="field-input min-h-[90px] py-1.5 font-normal leading-5" value={edit.instructions} onChange={(e) => setEdit({ ...edit, instructions: e.target.value })} /></label>}
-        <TriggerFields draft={edit} harness={cron.spec.harness} workspaceId={cron.spec.workspace_id} inThread={inThread} onChange={(d) => setEdit({ ...edit, ...d })} onValidityChange={setEditValid} />
+        <TriggerFields draft={edit} harness={cron.spec.harness} workspaceId={cron.spec.workspace_id} inThread={inThread} botId={cron.bot_id} onChange={(d) => setEdit({ ...edit, ...d })} onValidityChange={setEditValid} />
         <div className="flex justify-end gap-2">
           <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => setEdit(null)}>Cancel</button>
           <button className="btn btn-sm btn-primary" disabled={busy || !editValid || !edit.title.trim() || (!!cron.bot_id && !edit.instructions.trim())} onClick={() => void save()}>Save</button>
@@ -147,7 +168,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
           <span className="ml-auto"><RunStrip history={cron.history} /></span>
         </div>
         {cron.file_error && <p className="m-0 rounded-control bg-attn-soft px-2 py-1 text-[12px] text-attn">{cron.file} cannot be used: {cron.file_error}. The routine keeps its last good definition{onEditFile ? "; fix it with Edit as file" : ""}.</p>}
-        <p className="m-0 text-ink-2" title={cronTitle(cron)}>{triggerSummary(cron, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder")}</p>
+        <p className="m-0 text-ink-2" title={cronTitle(cron)}>{triggerSummary(cron, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder", channelName, bot?.settings.name)}</p>
         <p className="m-0 text-[12px] text-ink-3">{where}</p>
         {cron.conditions.length > 0 && <ul className="m-0 list-disc pl-5 text-[12px] text-ink-2">{cron.conditions.map((c, i) => <li key={i}>{conditionSummary(c, cron.spec.harness, harnessName)}</li>)}</ul>}
         <p className="m-0 text-[12px] text-ink-3">{success ? `Last successful run ${ago(success.at)} (${success.outcome === "report" ? "report" : "nothing to report"}).` : "No successful run yet."}{cron.last_outcome && !cron.last_outcome.startsWith("Report") && !cron.last_outcome.startsWith("No update") ? ` Last: ${cron.last_outcome}.` : ""}{cron.waiting ? ` Due, waiting: ${cron.waiting}.` : ""}</p>
@@ -220,7 +241,7 @@ export function NewRoutine({ bot, repo, harness, onDone }: { bot: Bot; repo: str
       <textarea className="field-input min-h-[76px] py-1.5 font-normal leading-5" value={instructions} placeholder="For example: “Check the open issues labeled bug and tell me about new ones.”" onChange={(e) => setInstructions(e.target.value)} />
       <span className="font-normal text-ink-3">Sent to {name}'s thread at each run. It reports, or replies no_update when there is nothing to say: then you get no notification.</span>
     </label>
-    <TriggerFields draft={draft} harness={harness} workspaceId={ws} inThread onChange={setDraft} onValidityChange={setValid} />
+    <TriggerFields draft={draft} harness={harness} workspaceId={ws} inThread botId={bot.id} onChange={setDraft} onValidityChange={setValid} />
     <div className="flex justify-end gap-2">
       <button className="btn btn-sm btn-ghost" onClick={onDone}>Cancel</button>
       <button className="btn btn-sm btn-primary" disabled={busy || !valid || !title.trim() || !instructions.trim()} onClick={() => void add()}><Icon name="plus" size={12} />Add routine</button>

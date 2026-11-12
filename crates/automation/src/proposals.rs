@@ -322,7 +322,14 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     match &body {
         ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions } => {
             ensure!(!title.trim().is_empty(), "give the routine a name");
-            let f = crate::crons::RoutineFile { title: title.trim().into(), paused: false, schedule: schedule.clone(), time_zone: None, instructions: instructions.clone(), trigger: trigger.clone(), conditions: conditions.clone() };
+            // A channel trigger may name the channel (`#name`, `@bot` for a DM): the file keeps its ID.
+            let mut trigger = trigger.clone();
+            if let Ok(bot) = launchpad_core::bots::get(app, bot_id).await
+                && same_workspace(&bot)
+            {
+                crate::channel_trigger::resolve_trigger(app, &bot, &mut trigger).await?;
+            }
+            let f = crate::crons::RoutineFile { title: title.trim().into(), paused: false, schedule: schedule.clone(), time_zone: None, instructions: instructions.clone(), trigger, conditions: conditions.clone() };
             let taken: Vec<String> = launchpad_core::bots::routine_files(app, bot_id).await.with_context(|| format!("no bot {bot_id} (see `bots list`)"))?.into_iter().map(|(p, _)| p).collect();
             let path = crate::crons::file_path_for(&f.title, &taken);
             body = ProposalBody::BotFiles { bot_id: bot_id.clone(), files: [(path, Some(crate::crons::render_file(&f)?))].into(), before: Default::default(), patches: Default::default() };

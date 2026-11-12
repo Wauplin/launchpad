@@ -5,4 +5,4 @@ import type { GithubEvent } from "./GithubEvent";
 /**
  * What starts a run.
  */
-export type Trigger = { "kind": "schedule" } | { "kind": "github", repo: string | null, events: Array<GithubEvent>, } | { "kind": "session_done", folder: string | null, include_bots?: boolean, } | { "kind": "failure", events: Array<FailureKind>, };
+export type Trigger = { "kind": "schedule" } | { "kind": "github", repo: string | null, events: Array<GithubEvent>, } | { "kind": "session_done", folder: string | null, include_bots?: boolean, } | { "kind": "failure", events: Array<FailureKind>, } | { "kind": "channel", channel: string, mentions_only?: boolean, };

@@ -20,6 +20,7 @@ import { askTarget, useBots } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
 import { clockAt, when } from "@/lib/format";
 import { useCrons, useProjects, useSchedules, useSessions } from "@/lib/queries";
+import { useChannelName } from "@/lib/channels";
 import { browserZone, cronTitle, routineState, triggerSummary } from "@/lib/routines";
 import { useScope } from "@/lib/workspace";
 import { PhoneBar, PhoneHeader } from "@/mobile/PhoneHeader";
@@ -133,12 +134,13 @@ function Idea({ icon, title, body, action }: { icon: "spark"; title: string; bod
 
 const RoutineRow = memo(function RoutineRow({ r, bot, selected, onClick }: { r: CronAgent; bot?: Bot; selected: boolean; onClick: () => void }) {
   const projects = useProjects().data ?? [];
+  const channelName = useChannelName();
   const owner = bot ? bot.settings.name : null;
   return <button onClick={onClick} className={`grid min-h-[60px] w-full grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-3 border-b border-line px-3 py-2 text-left last:border-b-0 hover:bg-sunk ${selected ? "bg-select" : "bg-paper"}`}>
     {bot ? <BotAvatar name={bot.settings.name} size={28} /> : <span className="grid size-[28px] place-items-center rounded-card bg-teal-soft text-teal-ink"><Icon name="refresh" size={14} /></span>}
     <span className="min-w-0">
       <span className="block truncate text-[13px] font-semibold">{r.title}{owner && <span className="font-normal text-ink-3"> · {owner}</span>}</span>
-      <span className="block truncate text-[12px] text-ink-3" title={cronTitle(r)}>{triggerSummary(r, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder")} · {routineState(r, bot?.settings.name)}</span>
+      <span className="block truncate text-[12px] text-ink-3" title={cronTitle(r)}>{triggerSummary(r, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder", channelName, bot?.settings.name)} · {routineState(r, bot?.settings.name)}</span>
     </span>
     <RunStrip history={r.history} />
   </button>;

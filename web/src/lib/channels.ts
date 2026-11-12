@@ -9,4 +9,10 @@ import { api } from "./api";
 
 export const useChannels = () => useQuery({ queryKey: ["channels"], queryFn: () => api.get<Channel[]>("/api/channels"), staleTime: 30_000, refetchInterval: 60_000, retry: false });
 
+/** A channel's name for lists ("#release-train", "Maintainer ↔ Release"), by its ID. */
+export function useChannelName(): (id: string) => string {
+  const channels = useChannels().data ?? [];
+  return (id) => channels.find((c) => c.id === id)?.title ?? "a removed channel";
+}
+
 export * from "./channelRows";

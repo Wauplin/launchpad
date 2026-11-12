@@ -46,6 +46,10 @@ github_seen: string | null,
  */
 failure_seen: number | null, 
 /**
+ * Channel trigger: the newest channel message (its ID) already handled.
+ */
+channel_seen: number | null, 
+/**
  * A bot routine: its file in the bot's store (`routines/<name>.toml`), the definition this record follows.
  * None for other routines.
  */

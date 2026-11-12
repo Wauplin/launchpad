@@ -17,7 +17,8 @@ import { useComposer } from "@/stores/composer";
 import { useWorkspace } from "@/stores/workspace";
 import { useBots } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
-import { browserZone, cronTitle, describeCron, triggerSummary } from "@/lib/routines";
+import { useChannelName } from "@/lib/channels";
+import { browserZone, channelTriggerOf, cronTitle, describeCron, triggerSummary } from "@/lib/routines";
 import { PatchView } from "@/features/github/DiffReview";
 import { useLayout } from "@/stores/layout";
 import { SessionStatus } from "@/features/agents/SessionBits";
@@ -93,10 +94,16 @@ function BotInstructionsBody({ body }: { body: Extract<Proposal["body"], { kind:
  * fails when one changed since. */
 function BotFilesBody({ body }: { body: Extract<Proposal["body"], { kind: "bot_files" }> }) {
   const bots = useBots().data ?? [];
+  const channelName = useChannelName();
   const paths = Object.keys(body.files).sort((a, b) => (a === "BOT.md" ? -1 : b === "BOT.md" ? 1 : a.localeCompare(b)));
+  const botName = bots.find((b) => b.id === body.bot_id)?.settings.name;
+  // A channel trigger's file names the channel by its ID: say which one.
+  const channelTriggers = paths.flatMap((path) => { const t = channelTriggerOf(body.files[path]); return t ? [{ path, t }] : []; });
   return (
     <>
-      <span className="flex flex-wrap gap-1"><Token icon="file">Files of {bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"} · {paths.length}</Token></span>
+      <span className="flex flex-wrap gap-1"><Token icon="file">Files of {botName ?? "a bot"} · {paths.length}</Token>
+        {channelTriggers.map(({ path, t }) => <Token key={path} icon="comment" title={path}>{triggerSummary({ trigger: t, schedule: "" }, undefined, channelName, botName)}</Token>)}
+      </span>
       {paths.map((path) => <div key={path} className="grid gap-1">
         <span className="flex items-center gap-1.5 font-mono text-[12px] text-ink-2">{path}<span className="font-sans text-ink-3">{body.files[path] == null ? "· deleted" : body.before[path] == null ? "· new" : ""}</span></span>
         <div className="max-h-[320px] overflow-auto rounded-control border border-line"><PatchView patch={body.patches[path] ?? ""} path={path} language={path.endsWith(".toml") ? "toml" : "markdown"} split={false} wrap /></div>
@@ -108,12 +115,13 @@ function BotFilesBody({ body }: { body: Extract<Proposal["body"], { kind: "bot_f
 /** A routine card: the bot, when it runs and what it does at each run. Adding it starts nothing now. */
 function RoutineBody({ body }: { body: Extract<Proposal["body"], { kind: "routine" }> }) {
   const bots = useBots().data ?? [];
+  const channelName = useChannelName();
   const projects = useProjects().data ?? [];
   return (
     <>
       <span className="flex flex-wrap gap-1">
         <Token icon="refresh">Routine of {bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"}</Token>
-        <Token title={cronTitle(body)}>{triggerSummary({ ...body, time_zone: browserZone() }, (id) => projects.find((p) => p.id === id)?.name ?? "a folder")}</Token>
+        <Token title={cronTitle(body)}>{triggerSummary({ ...body, time_zone: browserZone() }, (id) => projects.find((p) => p.id === id)?.name ?? "a folder", channelName, bots.find((b) => b.id === body.bot_id)?.settings.name)}</Token>
       </span>
       <p className="m-0 line-clamp-4 text-[12px] whitespace-pre-wrap text-ink-2">{body.instructions}</p>
     </>

@@ -5,7 +5,7 @@
 
 import type { CronAgent } from "@/gen/CronAgent";
 import type { RoutineRun } from "@/gen/RoutineRun";
-import { botVersion, CI, DAILY, MAINTAINER_BOT_MD_NEXT, MAINTAINER_BOT_MD_PATCH, MAINTAINER_BOT_MD_PREV, REVIEW_ROUTINE, routineText } from "../routine";
+import { botVersion, CI, DAILY, TRAIN_ROUTINE, MAINTAINER_BOT_MD_NEXT, MAINTAINER_BOT_MD_PATCH, MAINTAINER_BOT_MD_PREV, REVIEW_ROUTINE, routineText } from "../routine";
 import { ASK_DEFAULT, LIBRARIAN_BOT, LIBRARIAN_TIDY } from "./bots";
 import type { EventBody } from "@/gen/EventBody";
 import type { FileAttachment } from "@/gen/FileAttachment";
@@ -392,25 +392,32 @@ export function agentsWorld() {
     id: "demo-cron-audit", title: "Nightly dependency audit", schedule: "0 3 * * *", trigger: { kind: "schedule" }, bot_id: null, bot_paused: false, paused: false, created_at: clock.ago(day * 12),
     spec: defaultSpec({ harness: "codex", profile: "codex-plus", target: { kind: "project", project_id: P.billing }, text: "Run cargo audit and pnpm audit. Report new advisories only, with the fix for each.", workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "weekly", min_left_percent: 30 }, { kind: "previous_run_finished" }],
-    next_run_at: nextAt(3, 0), last_check_at: clock.ago(60 * 9), last_outcome: "Report", runs: ["demo-s-audit"], github_seen: null, failure_seen: null, file: null, file_error: null, waiting: null,
+    next_run_at: nextAt(3, 0), last_check_at: clock.ago(60 * 9), last_outcome: "Report", runs: ["demo-s-audit"], github_seen: null, failure_seen: null, channel_seen: null, file: null, file_error: null, waiting: null,
     history: [run(day * 4 + 540, "no_update", null), run(day * 3 + 540, "no_update", null), run(day * 2 + 540, "skipped", null, "Scheduled", "28% of the weekly quota left, below 30%"), run(day + 540, "no_update", null), run(540, "report", "demo-s-audit")],
   }, {
     id: "demo-routine-daily", title: "Daily check", schedule: "0 9 * * 1-5", trigger: { kind: "schedule" }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 6),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: DAILY, workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
-    next_run_at: nextAt(9, 0), last_check_at: clock.ago(50), last_outcome: "No update", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, file: "routines/daily-check.toml", file_error: null, waiting: null,
+    next_run_at: nextAt(9, 0), last_check_at: clock.ago(50), last_outcome: "No update", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, channel_seen: null, file: "routines/daily-check.toml", file_error: null, waiting: null,
     history: [run(day * 5 + 50, "report", "demo-s-bot-maintainer"), run(day * 4 + 50, "no_update", "demo-s-bot-maintainer"), run(day * 3 + 50, "no_update", "demo-s-bot-maintainer"), run(day + 50, "report", "demo-s-bot-maintainer"), run(50, "no_update", "demo-s-bot-maintainer")],
   }, {
     id: "demo-routine-ci", title: "CI failures", schedule: "", trigger: { kind: "github", repo: "acme-labs/storefront", events: ["ci_activity"] }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 6),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: CI, workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
-    next_run_at: null, last_check_at: clock.ago(40), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, file: "routines/ci-failures.toml", file_error: null, waiting: null,
+    next_run_at: null, last_check_at: clock.ago(40), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, channel_seen: null, file: "routines/ci-failures.toml", file_error: null, waiting: null,
     history: [run(day * 2 + 300, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#112"), run(day + 200, "skipped", null, "GitHub, CI activity: acme-labs/storefront#115", "Maintainer was working"), run(40, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#118")],
+  }, {
+    // The Maintainer answers in #release-train when it is mentioned there (a channel trigger: the file keeps the channel's ID).
+    id: "demo-routine-train", title: "Release questions", schedule: "", trigger: { kind: "channel", channel: "demo-chan-release-train", mentions_only: true }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 4),
+    spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: TRAIN_ROUTINE, workspace_id: WS.acme }),
+    conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
+    next_run_at: null, last_check_at: clock.ago(1), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, channel_seen: 46, file: "routines/release-questions.toml", file_error: null, waiting: null,
+    history: [run(day + 120, "report", "demo-s-bot-maintainer", "#release-train, Release (message 31)"), run(180, "no_update", "demo-s-bot-maintainer", "#release-train: 2 new messages")],
   }, {
     // The Librarian's weekly tidy, created paused with the bot (`librarian::ROUTINE`): Sunday 03:00 in Home's time zone.
     id: "demo-routine-tidy", title: "Weekly tidy", schedule: "0 3 * * 0", trigger: { kind: "schedule" }, bot_id: LIBRARIAN_BOT, bot_paused: false, paused: true, created_at: clock.ago(day * 30),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "temp" }, text: LIBRARIAN_TIDY, workspace_id: WS.acme }),
-    conditions: [], next_run_at: null, last_check_at: null, last_outcome: null, runs: [], github_seen: null, failure_seen: null, file: "routines/weekly-tidy.toml", file_error: null, waiting: null, history: [],
+    conditions: [], next_run_at: null, last_check_at: null, last_outcome: null, runs: [], github_seen: null, failure_seen: null, channel_seen: null, file: "routines/weekly-tidy.toml", file_error: null, waiting: null, history: [],
   }];
 
   return {

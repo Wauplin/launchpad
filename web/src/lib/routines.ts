@@ -110,12 +110,20 @@ export function describeCron(expr: string): string {
 export const EVENT_RUNS_PER_HOUR = 6;
 
 /** `time_zone` absent: a record saved before schedules kept a zone runs in the server's time. */
-export function triggerSummary(r: Pick<CronAgent, "trigger" | "schedule" | "time_zone">, folderName?: (id: string) => string): string {
+export function triggerSummary(r: Pick<CronAgent, "trigger" | "schedule" | "time_zone">, folderName?: (id: string) => string, channelName?: (id: string) => string, botName?: string): string {
   const t: Trigger = r.trigger;
+  if (t.kind === "channel") return `New message in ${channelName?.(t.channel) ?? "a channel"}${t.mentions_only ? ` mentioning ${botName ?? "the bot"}` : ""}`;
   if (t.kind === "schedule") return `${describeCron(r.schedule)} (${r.time_zone ?? "server time"})`;
   if (t.kind === "github") return `GitHub · ${t.events.map((e) => GITHUB_EVENTS.find((x) => x.id === e)?.label.toLowerCase() ?? e).join(", ")} · ${t.repo ?? "the workspace's repositories"}`;
   if (t.kind === "failure") return `When Launchpad fails · ${t.events.map((e) => FAILURE_EVENTS.find((x) => x.id === e)?.label.toLowerCase() ?? e).join(", ")}`;
   return `When an agent is done · ${t.folder ? folderName?.(t.folder) ?? "a folder" : "any folder of the workspace"}${t.include_bots ? " · bots too" : ""}`;
+}
+
+/** The channel trigger a routine file's text holds (`kind = "channel"`), for cards that show the file as a diff. */
+export function channelTriggerOf(text: string | null | undefined): Extract<Trigger, { kind: "channel" }> | null {
+  if (!text || !/\bkind\s*=\s*"channel"/.test(text)) return null;
+  const id = text.match(/\bchannel\s*=\s*"([^"]+)"/)?.[1];
+  return id ? { kind: "channel", channel: id, mentions_only: /\bmentions_only\s*=\s*true\b/.test(text) } : null;
 }
 
 /** Tooltip with the raw cron expression of a schedule trigger. */
@@ -127,6 +135,7 @@ export function routineState(r: CronAgent, botName?: string): string {
   if (r.paused) return "Paused";
   if (r.trigger.kind === "schedule") return r.next_run_at ? `Next run ${when(r.next_run_at)}` : "No run planned";
   if (r.trigger.kind === "failure") return "Waits for a failure";
+  if (r.trigger.kind === "channel") return "Waits for a message";
   return r.trigger.kind === "github" ? "Waits for GitHub activity" : "Waits for an agent to finish";
 }
 

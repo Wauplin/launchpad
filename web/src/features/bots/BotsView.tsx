@@ -20,7 +20,7 @@ import { useNextSession } from "@/features/chat/nextSession";
 import { BotConversationRow } from "./BotConversationRow";
 import { ArchivedChannelRow, ChannelConversationRow } from "@/features/channels/ChannelRows";
 import { NewChannel } from "@/features/channels/NewChannel";
-import { archivedOf, channelsOf, useChannels } from "@/lib/channels";
+import { archivedOf, channelsOf, useChannelName, useChannels } from "@/lib/channels";
 import type { ConnectionsOverview } from "@/features/settings/ConnectionsView";
 import { useTelegram } from "@/features/settings/TelegramSettings";
 import { BotAvatar } from "@/components/BotAvatar";
@@ -497,7 +497,7 @@ function InstructionsEditor({ bot, older, onSave }: { bot: Bot; older: boolean; 
 
 // ---------------------------------------------------------------- triggers
 
-const TRIGGER_ICON: Record<CronAgent["trigger"]["kind"], IconName> = { schedule: "clock", github: "pr", session_done: "agents", failure: "alert" };
+const TRIGGER_ICON: Record<CronAgent["trigger"]["kind"], IconName> = { schedule: "clock", github: "pr", session_done: "agents", failure: "alert", channel: "comment" };
 
 /** Every way the bot starts on its own, in one list: its routines (with their last runs), incoming hooks that message
  * it and its Telegram command, with one Pause for all of them. */
@@ -517,6 +517,7 @@ function TriggersSection({ bot, routines, onEditFile }: { bot: Bot; routines: Cr
   const repo = folder && !folder.plain ? folder.gh_repo ?? folder.gh_upstream ?? null : null;
   const harness = profiles.find((p) => p.id === bot.settings.profile)?.harness ?? null;
   const folderName = (fid: string) => projects.find((p) => p.id === fid)?.name ?? "a removed folder";
+  const channelName = useChannelName();
   const pause = <ActionButton name="bot.pause" params={{ id: bot.id }} body={{ paused: !bot.paused }} icon={bot.paused ? "play" : "stop"}
     title={bot.paused ? "Routines and incoming hooks start runs again" : "Routines and incoming hooks start nothing until you resume. Your own messages still go through."}
     onDone={() => Promise.all([qc.invalidateQueries({ queryKey: ["bots"] }), qc.invalidateQueries({ queryKey: ["crons"] })]).then(() => toast(bot.paused ? `${bot.settings.name} resumed` : `${bot.settings.name} paused: no trigger starts it`))}>
@@ -530,7 +531,7 @@ function TriggersSection({ bot, routines, onEditFile }: { bot: Bot; routines: Cr
       {routines.map((r) => <div key={r.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1">
         <button className={row} aria-expanded={open === r.id} title={cronTitle(r)} onClick={() => setOpen(open === r.id ? null : r.id)}>
           <Icon name={TRIGGER_ICON[r.trigger.kind]} size={12} className="flex-none text-ink-3" />
-          <span className="min-w-0 flex-1"><span className="block truncate">{r.title}</span><span className="block truncate text-[12px] text-ink-3">{r.file_error ? <span className="text-attn">File error · </span> : null}{triggerSummary(r, folderName)} · {routineState(r, bot.settings.name)}</span></span>
+          <span className="min-w-0 flex-1"><span className="block truncate">{r.title}</span><span className="block truncate text-[12px] text-ink-3">{r.file_error ? <span className="text-attn">File error · </span> : null}{triggerSummary(r, folderName, channelName, bot.settings.name)} · {routineState(r, bot.settings.name)}</span></span>
           <RunStrip history={r.history} count={5} />
         </button>
         {open === r.id && <RoutineDetails cron={r} bot={bot} onOpen={(sid) => void navigate({ to: "/agents", search: { session: sid } as never })} onDeleted={() => setOpen(null)} onEditFile={r.file ? () => onEditFile(r.file!) : undefined} />}
@@ -546,7 +547,7 @@ function TriggersSection({ bot, routines, onEditFile }: { bot: Bot; routines: Cr
       {!routines.length && !hooks.length && !telegram && !adding && <p className="m-0 text-[12px] text-ink-3">No trigger yet: {bot.settings.name} runs only when you message it.</p>}
     </div>
     {adding ? <NewRoutine bot={bot} repo={repo} harness={harness} onDone={() => setAdding(false)} />
-      : <button className="btn btn-sm w-fit" data-tour="bots.routine-new" title="A routine: on a schedule, on GitHub activity, when another agent is done or on a Launchpad failure. Incoming hooks are created in Settings → Connections." onClick={() => setAdding(true)}><Icon name="plus" size={12} />New trigger</button>}
+      : <button className="btn btn-sm w-fit" data-tour="bots.routine-new" title="A routine: on a schedule, on GitHub activity, when another agent is done, on a Launchpad failure or on a new message in a channel. Incoming hooks are created in Settings → Connections." onClick={() => setAdding(true)}><Icon name="plus" size={12} />New trigger</button>}
   </Section>;
 }
 

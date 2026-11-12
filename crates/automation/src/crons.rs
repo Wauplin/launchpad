@@ -1,5 +1,6 @@
 //! Routines (code: crons): runs that start on their own. A trigger starts a run: a 5-field cron schedule (local
-//! time), new GitHub activity in the Inbox, or another agent's turn ending Done. A routine of a bot sends its
+//! time), new GitHub activity in the Inbox, another agent's turn ending Done, a Launchpad failure, or new messages
+//! in a bot channel (`channel_trigger`). A routine of a bot sends its
 //! instructions to the bot's thread; any other routine launches the same spec as a new session.
 //!
 //! A bot's routines are defined by files of its store, `routines/<name>.toml` (`RoutineFile`): saving one here
@@ -18,7 +19,7 @@ use crate::schedules::QuotaKind;
 use launchpad_core::{App, model::{LaunchSpec, RoutineLaunch, Session, SessionStatus, Target}, util::now_ms};
 
 /// Runs later than this (daemon stopped, old GitHub activity) are skipped instead of started.
-const MISSED_GRACE_MS: i64 = 60 * 60_000;
+pub(crate) const MISSED_GRACE_MS: i64 = 60 * 60_000;
 const RUNS_KEPT: usize = 50;
 /// Runs a routine started by events (GitHub, another agent's turn, failures) may start in an hour; a later event is
 /// skipped. Schedules are not limited: their cron sets their pace.
@@ -54,6 +55,14 @@ pub enum Trigger {
     /// Launchpad failures of these kinds (`failures::FailureKind`) in the workspace, plus failures shared by
     /// every workspace (runners, Home, Burst jobs without a session). One run for all new failures.
     Failure { events: Vec<crate::failures::FailureKind> },
+    /// New messages in this bot channel or DM (its ID), never the routine's own bot's (bot routines only). With
+    /// `mentions_only`, only messages that mention the bot. One run for all new messages of a check.
+    Channel {
+        channel: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        mentions_only: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -169,6 +178,10 @@ pub struct CronAgent {
     #[serde(default)]
     #[ts(type = "number | null")]
     pub failure_seen: Option<i64>,
+    /// Channel trigger: the newest channel message (its ID) already handled.
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub channel_seen: Option<i64>,
     /// A bot routine: its file in the bot's store (`routines/<name>.toml`), the definition this record follows.
     /// None for other routines.
     #[serde(default)]
@@ -182,7 +195,7 @@ pub struct CronAgent {
 }
 
 impl CronAgent {
-    fn active(&self) -> bool {
+    pub(crate) fn active(&self) -> bool {
         !self.paused && !self.bot_paused
     }
 }
@@ -347,7 +360,7 @@ pub async fn get(app: &App, id: &str) -> Result<CronAgent> {
 }
 
 /// Read-modify-write in the DB actor, which serializes the scheduler and UI requests.
-async fn modify<T: Send + 'static>(
+pub(crate) async fn modify<T: Send + 'static>(
     app: &App,
     id: &str,
     f: impl FnOnce(&mut CronAgent) -> Result<T> + Send + 'static,
@@ -385,6 +398,10 @@ pub(crate) fn validate_trigger(trigger: &Trigger, schedule: &str, zone: Option<&
         Trigger::SessionDone { .. } => Ok(()),
         Trigger::Failure { events } => {
             ensure!(!events.is_empty(), "pick at least one kind of failure");
+            Ok(())
+        }
+        Trigger::Channel { channel, .. } => {
+            ensure!(!channel.trim().is_empty(), "pick a channel");
             Ok(())
         }
     }
@@ -432,6 +449,7 @@ pub async fn create(
     validate_harness_conditions(harness, &conditions)?;
     let schedule = normalize(&schedule);
     let time_zone = zone_for(app, time_zone)?;
+    ensure!(!matches!(trigger, Trigger::Channel { .. }), "a channel trigger is for a bot's routines: add it on the bot's page");
     validate_trigger(&trigger, &schedule, time_zone.as_deref())?;
     let now = now_ms();
     let mut record = CronAgent {
@@ -453,6 +471,7 @@ pub async fn create(
         history: vec![],
         github_seen: None,
         failure_seen: None,
+        channel_seen: None,
         file: None,
         file_error: None,
         waiting: None,
@@ -494,6 +513,8 @@ fn in_thread(r: &CronAgent) -> bool {
 pub async fn create_for_bot(app: &App, bot_id: &str, r: BotRoutine) -> Result<CronAgent> {
     let _edit = EDIT.lock().await;
     let bot = launchpad_core::bots::get(app, bot_id).await?;
+    let mut r = r;
+    crate::channel_trigger::resolve_trigger(app, &bot, &mut r.trigger).await?;
     let file = RoutineFile {
         title: r.title.trim().to_string(),
         paused: false,
@@ -545,6 +566,7 @@ pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> 
             r.time_zone = z;
         }
         if let Some(t) = patch.trigger {
+            ensure!(!matches!(t, Trigger::Channel { .. }), "a channel trigger is for a bot's routines: add it on the bot's page");
             if t != r.trigger {
                 // A new trigger starts from now: never runs for activity or failures from before the change.
                 r.github_seen = Some(rfc3339(now));
@@ -600,6 +622,7 @@ async fn update_file(app: &App, current: &CronAgent, bot_id: &str, path: &str, p
         f.instructions = i.trim().to_string();
     }
     let bot = launchpad_core::bots::get(app, bot_id).await?;
+    crate::channel_trigger::resolve_trigger(app, &bot, &mut f.trigger).await?;
     let text = render_file(&f)?;
     check_file(app, &bot, &text).await?;
     launchpad_core::bots::write_files(app, bot_id, vec![(path.to_string(), Some(text))]).await?;
@@ -676,7 +699,7 @@ pub struct RoutineFile {
     pub conditions: Vec<CronCondition>,
 }
 
-const FILE_HEADER: &str = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), github, session_done or failure.\n";
+const FILE_HEADER: &str = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), github, session_done, failure or channel.\n";
 
 pub fn render_file(f: &RoutineFile) -> Result<String> {
     Ok(format!("{FILE_HEADER}{}", toml::to_string(f)?))
@@ -706,6 +729,9 @@ pub async fn check_file(app: &App, bot: &launchpad_core::bots::Bot, text: &str) 
         && let Some(h) = spec.harness
     {
         validate_harness_conditions(h, &f.conditions)?;
+    }
+    if let Trigger::Channel { channel, .. } = &f.trigger {
+        crate::channel_trigger::check(app, bot, channel).await?;
     }
     Ok(f)
 }
@@ -739,6 +765,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
     let files = launchpad_core::bots::routine_files(app, bot_id).await?;
     let records: Vec<CronAgent> = list(app).await?.into_iter().filter(|r| r.bot_id.as_deref() == Some(bot_id)).collect();
     let now = now_ms();
+    let head = crate::channel_trigger::head(app).await?;
     for (path, text) in &files {
         let parsed = check_file(app, &bot, text).await.map_err(|e| format!("{e:#}"));
         match (records.iter().find(|r| r.file.as_deref() == Some(path.as_str())), parsed) {
@@ -753,6 +780,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                     if r.trigger != f.trigger {
                         r.github_seen = Some(rfc3339(now));
                         r.failure_seen = Some(now);
+                        r.channel_seen = Some(head);
                     }
                     r.title = f.title;
                     r.paused = f.paused;
@@ -807,6 +835,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                     history: vec![],
                     github_seen: None,
                     failure_seen: None,
+                    channel_seen: Some(head),
                     file: Some(path.clone()),
                     file_error: error,
                     waiting: None,
@@ -894,12 +923,12 @@ fn push_run(r: &mut CronAgent, run: RoutineRun) {
     r.history.drain(..extra);
 }
 
-async fn skip(app: &App, id: &str, cause: String, reason: String) -> Result<()> {
+pub(crate) async fn skip(app: &App, id: &str, cause: String, reason: String) -> Result<()> {
     skip_run(app, id, cause, reason, false).await
 }
 
 /// `skip`, marked as a failure when `missed`.
-async fn skip_run(app: &App, id: &str, cause: String, reason: String, missed: bool) -> Result<()> {
+pub(crate) async fn skip_run(app: &App, id: &str, cause: String, reason: String, missed: bool) -> Result<()> {
     modify(app, id, move |r| {
         push_run(r, RoutineRun { at: now_ms(), cause, session_id: None, outcome: RunOutcome::Skipped, detail: Some(reason), quiet_ok: false, missed });
         Ok(())
@@ -951,7 +980,7 @@ fn thread_busy(app: &App, r: &CronAgent) -> Option<String> {
 }
 
 /// Why the routine's conditions block a run now, or None when it may start.
-async fn why_blocked(app: &App, r: &CronAgent) -> Result<Option<String>> {
+pub(crate) async fn why_blocked(app: &App, r: &CronAgent) -> Result<Option<String>> {
     if let Some(why) = thread_busy(app, r) {
         return Ok(Some(why));
     }
@@ -1033,7 +1062,7 @@ pub async fn run_now(app: &App, id: &str) -> Result<Session> {
 
 /// Starts an event run when the routine allows it; otherwise records why it was skipped. `hops`: the automatic
 /// messages in the chain of its message, itself included (1 for a schedule, GitHub or a failure).
-async fn on_event(app: &App, r: &CronAgent, cause: String, context: String, hops: u32) -> Result<()> {
+pub(crate) async fn on_event(app: &App, r: &CronAgent, cause: String, context: String, hops: u32) -> Result<()> {
     if let Some(why) = limit_reason(r, hops, now_ms()) {
         return skip(app, &r.id, cause, why).await;
     }
@@ -1050,7 +1079,7 @@ async fn on_event(app: &App, r: &CronAgent, cause: String, context: String, hops
 
 /// Why the routine's automatic run waits for its quota now (`quota::hold_reason`): of the bot's thread
 /// (`bots::quota_hold`), else of the session it would start. Every trigger checks it before it starts a run.
-async fn quota_hold(app: &App, r: &CronAgent) -> Result<Option<String>> {
+pub(crate) async fn quota_hold(app: &App, r: &CronAgent) -> Result<Option<String>> {
     if let Some(b) = &r.bot_id {
         return Ok(launchpad_core::bots::quota_hold(app, &launchpad_core::bots::get(app, b).await?));
     }
@@ -1379,6 +1408,9 @@ pub fn spawn(app: &App) {
                 tokio::spawn(async move {
                     if let Err(e) = failures_noticed(&app).await {
                         tracing::warn!("failure routines: {e:#}");
+                    }
+                    if let Err(e) = crate::channel_trigger::check_all(&app).await {
+                        tracing::warn!("channel routines: {e:#}");
                     }
                 });
             }

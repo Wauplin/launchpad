@@ -10,6 +10,7 @@ export function routineText(title: string, cause: string, instructions: string, 
 }
 
 export const DAILY = "Look at what changed in your folder and in the knowledge base since your last run. Report only what needs my attention, in a few lines.";
+export const TRAIN_ROUTINE = "Read the new messages of the channel. When Release asks you what goes into the release, answer there with the merged pull requests and the open risks. Otherwise reply no_update.";
 export const CI = "Read the failing logs below. If the change itself causes the failure, prepare a fix in a new worktree as a Local PR and report. If it is flaky or unrelated, reply no_update.";
 
 // ---------------------------------------------------------------- routine files
@@ -17,7 +18,7 @@ export const CI = "Read the failing logs below. If the change itself causes the 
 /** What a routine file holds (Home's `crons::RoutineFile`). */
 export type RoutineDef = { title: string; paused: boolean; schedule: string; time_zone?: string; instructions: string; trigger: CronAgent["trigger"]; conditions: CronCondition[] };
 
-const HEADER = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), github, session_done or failure.\n";
+const HEADER = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), github, session_done, failure or channel.\n";
 const str = (v: string) => JSON.stringify(v);
 const value = (v: unknown): string => Array.isArray(v) ? `[${v.map(value).join(", ")}]` : typeof v === "string" ? str(v) : String(v);
 const table = (o: Record<string, unknown>) => Object.entries(o).filter(([, v]) => v != null).map(([k, v]) => `${k} = ${value(v)}`).join("\n");
