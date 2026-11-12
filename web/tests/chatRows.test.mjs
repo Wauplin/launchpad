@@ -87,6 +87,12 @@ test("a message from another bot shows its sender, without Home's header and fen
   assert.equal(withoutSender("Message from me\n\nhello"), "Message from me\n\nhello");
   const own = chatRows([session("b", [{ ...user("hello"), from: null }, answer("hi"), end(5)])]);
   assert.equal(own[1].t, "user");
+  // An incoming hook's message: on the left under the hook, its text unchanged (Home adds no header).
+  const hook = { kind: "hook", id: "h1", name: "Nightly CI", hops: 1 };
+  const hooked = chatRows([session("c", [{ ...user("The incoming hook \"Nightly CI\" received a request: failed"), from: hook }, answer("Looking."), end(5)])]);
+  assert.equal(hooked[1].t, "from");
+  assert.equal(hooked[1].text, "The incoming hook \"Nightly CI\" received a request: failed");
+  assert.equal(senderLine(hook), "From hook Nightly CI · not from you");
 });
 
 test("a turn's changes become receipts on its steps line; a turn without one keeps them as rows", () => {

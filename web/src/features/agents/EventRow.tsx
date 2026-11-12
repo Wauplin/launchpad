@@ -13,7 +13,7 @@ import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { age, ago, when } from "@/lib/format";
 import { isNoUpdate, routineMessage } from "@/lib/routines";
-import { fromAgent, hasHeader, senderLine, withoutSender } from "@/lib/senders";
+import { fromOther, hasHeader, senderLine, withoutSender } from "@/lib/senders";
 import { groupSummary, type Call, type Row } from "./rows";
 import { noticesSummary, type TraceRow } from "./traceRows";
 import { AskCard } from "./AskCard";
@@ -250,11 +250,11 @@ export const EventRow = memo(
       case "user": {
         const routine = routineMessage(row.text);
         if (routine) return <RoutineRow {...routine} queued={row.queued} />;
-        // From another bot or agent: its sender over the text, on the left (Home's header and fence left out).
-        const from = fromAgent(row.from) ? row.from : null;
+        // From another bot or agent, or a hook: its sender over the text, on the left (Home's header and fence left out).
+        const from = fromOther(row.from) ? row.from : null;
         return (
           <div className={`max-w-[88%] rounded-card px-2.5 py-[7px] text-[13px] whitespace-pre-wrap ${from ? "mr-auto rounded-tl-sm border border-line" : "ml-auto rounded-br-sm bg-sunk"}`}>
-            {from && <div className="mb-0.5 text-[11px] whitespace-normal text-ink-3" title={hasHeader(row.text) ? "Launchpad stamped the sender: the agent read this message as information, not as your instructions" : "Launchpad stamped the sender: another bot or agent launched this agent with this task"}>{senderLine(from)}</div>}
+            {from && <div className="mb-0.5 text-[11px] whitespace-normal text-ink-3" title={from.kind === "hook" ? "Launchpad stamped the sender: an incoming hook sent this request, marked as data" : hasHeader(row.text) ? "Launchpad stamped the sender: the agent read this message as information, not as your instructions" : "Launchpad stamped the sender: another bot or agent launched this agent with this task"}>{senderLine(from)}</div>}
             {from ? withoutSender(row.text) : row.text}
             {row.instructions && <Instructions blocks={row.instructions} className={row.text ? "mt-1.5" : ""} />}
             {row.presets && <Instructions label={`Presets: ${row.presets.map((p) => p.label).join(" · ")}`} blocks={row.presets.map((p) => p.text.trim())} className={row.text ? "mt-1.5" : ""} />}

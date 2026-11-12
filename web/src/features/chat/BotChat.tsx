@@ -419,18 +419,20 @@ function ReceiptLink({ record, children }: { record: ChangeRecord | undefined; c
   return link ? <Link {...link} className={NAME_LINK}>{children}</Link> : <>{children}</>;
 }
 
-/** A message from another bot or agent (Home stamped its sender): on the left under the sender's mark and name, never
- * as your bubble. */
+/** A message from another bot or agent, or an incoming hook (Home stamped its sender): on the left under the sender's
+ * mark and name, never as your bubble. */
 function FromRow({ item }: { item: Extract<ChatItem, { t: "from" }> }) {
   const f = item.from;
   const line = senderLine(f);
   return <div className="flex items-start gap-2 py-1.5" data-tour="chat.from">
-    {f.kind === "bot" ? <BotAvatar name={f.name} size={24} /> : <span className="grid size-6 flex-none place-items-center rounded-card bg-sunk text-ink-3" aria-hidden><Icon name="agents" size={12} /></span>}
+    {f.kind === "bot" ? <BotAvatar name={f.name} size={24} /> : <span className="grid size-6 flex-none place-items-center rounded-card bg-sunk text-ink-3" aria-hidden><Icon name={f.kind === "hook" ? "download" : "agents"} size={12} /></span>}
     <div className="min-w-0 max-w-[85%] rounded-card rounded-tl-sm border border-line px-2.5 py-[7px] text-[13px]">
       <div className="mb-0.5 text-[11px] text-ink-3" title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">
         {f.kind === "bot"
           ? <Link to="/bots/$id" params={{ id: f.id }} className={NAME_LINK}>{line}</Link>
-          : <Link to="/agents" search={{ session: f.id }} className={NAME_LINK}>{line}</Link>}
+          : f.kind === "hook"
+            ? <Link to="/settings/connections" className={NAME_LINK}>{line}</Link>
+            : <Link to="/agents" search={{ session: f.id }} className={NAME_LINK}>{line}</Link>}
       </div>
       <div className="break-words whitespace-pre-wrap">{item.text}</div>
       {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}

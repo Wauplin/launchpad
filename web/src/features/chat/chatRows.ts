@@ -8,7 +8,7 @@ import type { Row } from "../agents/rows.ts";
 import type { TraceRow } from "../agents/traceRows.ts";
 import type { MessageFrom } from "@/gen/MessageFrom";
 import { isNoUpdate, routineMessage } from "../../lib/routines.ts";
-import { fromAgent, withoutSender } from "../../lib/senders.ts";
+import { fromOther, withoutSender } from "../../lib/senders.ts";
 
 type AskRow = Extract<Row, { t: "ask" }>;
 
@@ -179,7 +179,7 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
         out.push({ key: k(`q:${t.key}`), v: "", t: "quiet", title: routine.title, cause: routine.cause, at: t.end.ts });
       } else {
         if (routine) out.push({ key: k(`r:${t.key}`), v: t.user!.queued ? "q" : "", t: "routine", title: routine.title, cause: routine.cause });
-        else if (t.user && fromAgent(t.user.from)) { const m = withoutInstructions(withoutSender(t.user.text)); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "from", text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions, from: t.user.from }); }
+        else if (t.user && fromOther(t.user.from)) { const m = withoutInstructions(withoutSender(t.user.text)); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "from", text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions, from: t.user.from }); }
         else if (t.user) { const m = withoutInstructions(t.user.text); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "user", text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions }); }
         if (answer) out.push({ key: k(answer.key), v: `${answer.text.length}${answer.streaming ? "s" : ""}`, t: "answer", text: answer.text, streaming: answer.streaming });
         if (steps.length && !working) {
