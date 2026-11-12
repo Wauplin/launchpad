@@ -1629,7 +1629,7 @@ mod attribution_tests {
         let line = launchpad_core::attribution::text(Some("HFJS Bot"), "Claude Code");
         Adapter.contained_attribution(&tmp.0, &line).unwrap();
         let v: Value = serde_json::from_str(&std::fs::read_to_string(tmp.0.join(".claude/settings.json")).unwrap()).unwrap();
-        assert_eq!(v["attribution"]["pr"], "_Done by HFJS Bot using [Launchpad](https://github.com/Wauplin/launchpad)_");
+        assert_eq!(v["attribution"]["pr"], "_Written by HFJS Bot via [Launchpad](https://github.com/Wauplin/launchpad)_");
         assert_eq!(v["attribution"]["commit"], "x");
         assert_eq!(v["autoMemoryEnabled"], false);
         let fresh: Value = serde_json::from_str(&with_attribution("", "L").unwrap()).unwrap();

@@ -1,7 +1,7 @@
 //! The attribution line Launchpad adds to what agents publish: pull request and issue bodies, GitHub comments
 //! and reviews, Local PRs, Suggestions and Outbox messages. One line, in italics, always last:
-//! `_Done with <harness> using [Launchpad](…)_` for a one-time agent, `_Done by <bot> using [Launchpad](…)_` for a
-//! bot's session. Bots find their own past comments by it, so the wording stays stable.
+//! `_Written by <name> via [Launchpad](…)_`, naming the harness for a one-time agent or the bot for a bot's
+//! session. Bots find their own past comments by it.
 //!
 //! Signing is idempotent: a body that already ends with an attribution line (italic or plain, or Claude Code's
 //! default line) gets it replaced, never doubled.
@@ -19,8 +19,8 @@ const CLAUDE_DEFAULT: &str = "🤖 Generated with [Claude Code](https://claude.c
 /// The line in Markdown: `bot` for a bot's session, else the harness's display name.
 pub fn text(bot: Option<&str>, harness: &str) -> String {
     match bot.map(str::trim).filter(|b| !b.is_empty()) {
-        Some(b) => format!("_Done by {b} using {LINK}_"),
-        None => format!("_Done with {harness} using {LINK}_"),
+        Some(b) => format!("_Written by {b} via {LINK}_"),
+        None => format!("_Written by {harness} via {LINK}_"),
     }
 }
 
@@ -68,7 +68,14 @@ fn is_attribution(l: &str) -> bool {
         return true;
     }
     let inner = l.strip_prefix('_').and_then(|x| x.strip_suffix('_')).unwrap_or(l);
-    (inner.starts_with("Done with ") || inner.starts_with("Done by ")) && (inner.ends_with(&format!(" using {LINK}")) || inner.ends_with(&format!(" using <{URL}|Launchpad>")))
+    let connector = if inner.starts_with("Written by ") {
+        "via"
+    } else if inner.starts_with("Done with ") || inner.starts_with("Done by ") {
+        "using"
+    } else {
+        return false;
+    };
+    inner.ends_with(&format!(" {connector} {LINK}")) || inner.ends_with(&format!(" {connector} <{URL}|Launchpad>"))
 }
 
 /// `body` without a trailing attribution line and the separator before it.
@@ -174,17 +181,17 @@ pub fn instruction(line: &str) -> String {
 mod tests {
     use super::*;
 
-    const CLAUDE: &str = "_Done with Claude Code using [Launchpad](https://github.com/Wauplin/launchpad)_";
+    const CLAUDE: &str = "_Written by Claude Code via [Launchpad](https://github.com/Wauplin/launchpad)_";
 
     #[test]
     fn wording_names_the_bot_or_the_harness() {
         assert_eq!(text(None, "Claude Code"), CLAUDE);
-        assert_eq!(text(None, "Codex"), "_Done with Codex using [Launchpad](https://github.com/Wauplin/launchpad)_");
-        assert_eq!(text(None, "OpenCode"), "_Done with OpenCode using [Launchpad](https://github.com/Wauplin/launchpad)_");
-        assert_eq!(text(Some("HFJS Bot"), "Claude Code"), "_Done by HFJS Bot using [Launchpad](https://github.com/Wauplin/launchpad)_");
-        assert_eq!(text(Some("HFJS Bot"), "Codex"), "_Done by HFJS Bot using [Launchpad](https://github.com/Wauplin/launchpad)_");
-        assert_eq!(text(Some(" "), "Codex"), "_Done with Codex using [Launchpad](https://github.com/Wauplin/launchpad)_");
-        assert_eq!(slack(CLAUDE), "_Done with Claude Code using <https://github.com/Wauplin/launchpad|Launchpad>_");
+        assert_eq!(text(None, "Codex"), "_Written by Codex via [Launchpad](https://github.com/Wauplin/launchpad)_");
+        assert_eq!(text(None, "OpenCode"), "_Written by OpenCode via [Launchpad](https://github.com/Wauplin/launchpad)_");
+        assert_eq!(text(Some("HFJS Bot"), "Claude Code"), "_Written by HFJS Bot via [Launchpad](https://github.com/Wauplin/launchpad)_");
+        assert_eq!(text(Some("HFJS Bot"), "Codex"), "_Written by HFJS Bot via [Launchpad](https://github.com/Wauplin/launchpad)_");
+        assert_eq!(text(Some(" "), "Codex"), "_Written by Codex via [Launchpad](https://github.com/Wauplin/launchpad)_");
+        assert_eq!(slack(CLAUDE), "_Written by Claude Code via <https://github.com/Wauplin/launchpad|Launchpad>_");
     }
 
     #[test]
@@ -198,7 +205,15 @@ mod tests {
         assert_eq!(sign(&pr, CLAUDE, Separator::Blank), pr);
         // Claude Code's default line, a plain line or another session's line is replaced.
         assert_eq!(sign("Body\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)", CLAUDE, Separator::Blank), pr);
-        assert_eq!(sign("Body\n\nDone with Codex using [Launchpad](https://github.com/Wauplin/launchpad)", CLAUDE, Separator::Blank), pr);
+        assert_eq!(sign("Body\n\nWritten by Codex via [Launchpad](https://github.com/Wauplin/launchpad)", CLAUDE, Separator::Blank), pr);
+        // Old Launchpad footers on saved drafts are replaced too, in Markdown and Slack.
+        for name in ["Done with Claude Code", "Done by Hubert.js Bot"] {
+            for link in [LINK.to_string(), format!("<{URL}|Launchpad>")] {
+                for footer in [format!("{name} using {link}"), format!("_{name} using {link}_")] {
+                    assert_eq!(sign(&format!("Body\n\n---\n\n{footer}"), CLAUDE, Separator::Blank), pr);
+                }
+            }
+        }
         let bot = text(Some("HFJS Bot"), "Claude Code");
         assert_eq!(sign(&once, &bot, Separator::Rule), format!("Fixes it.\n\n---\n\n{bot}"));
         // A rule that is not before the line stays; an empty body gets the line alone.

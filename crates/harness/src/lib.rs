@@ -51,7 +51,7 @@ mod attribution_tests {
     #[test]
     fn one_time_agents_are_named_by_harness() {
         let names: Vec<String> = super::REGISTRATIONS.iter().map(|r| launchpad_core::attribution::text(None, r.descriptor.name)).collect();
-        let link = "using [Launchpad](https://github.com/Wauplin/launchpad)_";
-        assert_eq!(names, [format!("_Done with Claude Code {link}"), format!("_Done with Codex {link}"), format!("_Done with OpenCode {link}")]);
+        let link = "via [Launchpad](https://github.com/Wauplin/launchpad)_";
+        assert_eq!(names, [format!("_Written by Claude Code {link}"), format!("_Written by Codex {link}"), format!("_Written by OpenCode {link}")]);
     }
 }

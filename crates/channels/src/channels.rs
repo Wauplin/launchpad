@@ -475,7 +475,7 @@ mod tests {
     fn messages_end_with_the_attribution_line_once() {
         let line = launchpad_core::attribution::text(Some("HFJS Bot"), "Claude Code");
         let slack = signed(ChannelKind::Slack, "Released.", &line);
-        assert_eq!(slack, "Released.\n\n_Done by HFJS Bot using <https://github.com/Wauplin/launchpad|Launchpad>_");
+        assert_eq!(slack, "Released.\n\n_Written by HFJS Bot via <https://github.com/Wauplin/launchpad|Launchpad>_");
         assert_eq!(signed(ChannelKind::Slack, &slack, &line), slack);
         assert_eq!(signed(ChannelKind::Discord, "Released.", &line), format!("Released.\n\n{line}"));
     }

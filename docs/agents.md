@@ -140,8 +140,8 @@ Sessions that fail because the model is at capacity or overloaded resume automat
 
 What an agent publishes through Launchpad ends with one line in italics, so readers (and bots reading a thread later) know who wrote it:
 
-- a one-time agent: `_Done with Claude Code using [Launchpad](https://github.com/Wauplin/launchpad)_` (the harness's name: Claude Code, Codex, OpenCode);
-- a bot's session: `_Done by HFJS Bot using [Launchpad](https://github.com/Wauplin/launchpad)_` (the bot's name).
+- a one-time agent: `_Written by Claude Code via [Launchpad](https://github.com/Wauplin/launchpad)_` (the harness's name: Claude Code, Codex, OpenCode);
+- a bot's session: `_Written by HFJS Bot via [Launchpad](https://github.com/Wauplin/launchpad)_` (the bot's name).
 
 Launchpad adds it itself, so no bot or prompt has to:
 
