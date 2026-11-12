@@ -108,13 +108,14 @@ export function MobileShell() {
   // Chats: the bots, channels and DMs of the workspace; its count is the bots that need you and the channels whose
   // unread messages mention or ask you. A second tap opens the last chat.
   const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
-  const channelsNeed = channelsNeedingYou(useChannels().data, scope.workspace.id);
+  const channels = useChannels().data;
+  const channelsNeed = channelsNeedingYou(channels, scope.workspace.id);
   const chatsNeed = bots.filter((b) => botState(botThread(sessions, b.id)) === "needs").length + channelsNeed;
   const onChats = path === "/chats" || path.startsWith("/bots") || path.startsWith("/channels");
   const lastChat = useRef<string | null>(null);
   if (path.startsWith("/bots/") || path.startsWith("/channels/")) lastChat.current = path;
   const openLastChat = () => {
-    if (path !== "/chats" || !lastChat.current || !(lastChat.current.startsWith("/channels/") || bots.some((b) => lastChat.current === `/bots/${b.id}`))) return false;
+    if (path !== "/chats" || !lastChat.current || !(bots.some((b) => lastChat.current === `/bots/${b.id}`) || (channels ?? []).some((c) => c.workspace_id === scope.workspace.id && lastChat.current === `/channels/${c.id}`))) return false;
     router.history.push(lastChat.current);
     return true;
   };

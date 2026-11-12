@@ -10,6 +10,7 @@ import { CommandField } from "./CommandField";
 import { useProjects } from "@/lib/queries";
 import { useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
+import type { Channel } from "@/gen/Channel";
 import { isDemo } from "@/demo/mode";
 import { DemoChip } from "@/onboarding/DemoChip";
 import { SETTINGS_NAV, WORKSPACE_NAV } from "@/features/settings/nav";
@@ -23,7 +24,7 @@ const SETTINGS: Record<string, string> = {
 
 /** The breadcrumb of a route: every segment but the last is a link. A top-level page (Today, Inbox, Agents, Folders,
  * Setup) names itself in its page header, so it has no crumb; a detail page shows its parents. */
-function routeCrumbs(path: string, projects: Project[], bots: Bot[]): Crumb[] | "item" | "predraft" {
+function routeCrumbs(path: string, projects: Project[], bots: Bot[], channels: Channel[]): Crumb[] | "item" | "predraft" {
   if (/^\/github\/[^/]+\/[^/]+\/\d+/.test(path)) return "item";
   if (/^\/predrafts\/[^/]+/.test(path)) return "predraft";
   const settings = path.match(/^\/settings\/?([^/]*)/);
@@ -36,6 +37,9 @@ function routeCrumbs(path: string, projects: Project[], bots: Bot[]): Crumb[] | 
   }
   const bot = path.match(/^\/bots\/([^/]+)/);
   if (bot) return [{ label: "Bots", to: "/bots" }, { label: bots.find((b) => b.id === bot[1])?.settings.name ?? "…" }];
+  // A bot channel or DM lives in the Bots area.
+  const channel = path.match(/^\/channels\/([^/]+)/);
+  if (channel) return [{ label: "Bots", to: "/bots" }, { label: channels.find((c) => c.id === channel[1])?.title ?? "…" }];
   if (path.startsWith("/terminals")) return [{ label: "Terminals" }];
   return [];
 }
@@ -64,7 +68,12 @@ export function TopBar() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const projects = useProjects().data ?? [];
   const bots = useBots().data ?? [];
-  const crumbs = routeCrumbs(path, projects, bots);
+  // A channel's title from the open channel page or the sidebar's list (read from the cache, never fetched here).
+  const channelId = path.match(/^\/channels\/([^/]+)/)?.[1] ?? "";
+  const listed = useQuery<Channel[]>({ queryKey: ["channels"], enabled: false }).data ?? [];
+  const opened = useQuery<{ channel: Channel }>({ queryKey: ["channel", channelId], enabled: false }).data?.channel;
+  const channels = opened ? [opened] : listed;
+  const crumbs = routeCrumbs(path, projects, bots, channels);
   const gh = path.match(/^\/github\/([^/]+)\/([^/]+)\/(\d+)/);
   const predraftId = path.match(/^\/predrafts\/([^/]+)/)?.[1];
   return (

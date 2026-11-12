@@ -121,9 +121,12 @@ function MessageList({ channel, messages, lines, byId, more, loadingMore, onOlde
   const atBottom = useRef(true);
   const v = useVirtualizer({ count: messages.length, getItemKey: (i) => messages[i].id, getScrollElement: () => scrollRef.current, estimateSize: () => 72, overscan: 6, useFlushSync: false });
   const total = v.getTotalSize();
+  // Follow the newest message while at the bottom. The real bottom, not the last item's offset: "Load earlier
+  // messages" sits above the virtual rows, so item offsets are shorter than the scroll height.
   useLayoutEffect(() => {
-    if (atBottom.current && messages.length) v.scrollToIndex(messages.length - 1, { align: "end" });
-  }, [messages.length, total, v]);
+    const el = scrollRef.current;
+    if (el && atBottom.current && messages.length) el.scrollTop = el.scrollHeight;
+  }, [messages.length, total]);
   // Loading above keeps the message that was on top in view.
   const anchor = useRef<{ id: number; index: number } | null>(null);
   useLayoutEffect(() => {
@@ -229,6 +232,7 @@ function RenameForm({ channel, onClose, onDone }: { channel: Channel; onClose: (
 
 /** Your message: Enter sends, Shift+Enter adds a line; `@` suggests the member bots (Enter or Tab picks the first). */
 function ChannelComposer({ channel, onSent }: { channel: Channel; onSent: () => unknown }) {
+  const phone = usePhone();
   const { text, setText, clear } = useKeptDraft(`channel.${channel.id}`, "");
   const [busy, setBusy] = useState(false);
   const [caret, setCaret] = useState(0);
@@ -265,7 +269,7 @@ function ChannelComposer({ channel, onSent }: { channel: Channel; onSent: () => 
         {dm && !closed && <div className="mb-1.5 text-[12px] text-ink-3">Both bots will see your message</div>}
         {closed && <div className="mb-1.5 text-[12px] text-ink-3">Archived: nobody posts here. ⋯ → Bring back to post again.</div>}
         {suggestions.length > 0 && <div role="listbox" aria-label="Mention a bot" className="absolute bottom-full left-0 z-10 mb-1 grid min-w-[220px] gap-px rounded-card border border-line bg-paper p-1 shadow-[0_8px_24px_-12px_rgba(23,32,43,.5)]">
-          {suggestions.map((m, i) => <button key={m.bot_id} role="option" aria-selected={i === 0} className={`flex min-h-8 items-center gap-2 rounded-control px-2 text-left text-[13px] hover:bg-sunk ${i === 0 ? "bg-sunk" : ""}`} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(m.slug)}>
+          {suggestions.map((m, i) => <button key={m.bot_id} role="option" aria-selected={i === 0} className={`flex ${phone ? "min-h-11" : "min-h-8"} items-center gap-2 rounded-control px-2 text-left text-[13px] hover:bg-sunk ${i === 0 ? "bg-sunk" : ""}`} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(m.slug)}>
             <BotAvatar name={m.name} size={18} /><span className="min-w-0 flex-1 truncate">{m.name}</span><span className="text-[12px] text-ink-3">@{m.slug}</span>
           </button>)}
         </div>}
@@ -275,7 +279,7 @@ function ChannelComposer({ channel, onSent }: { channel: Channel; onSent: () => 
             onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart); setDismissed(null); }}
             onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
             onKeyDown={(e) => {
-              if (suggestions.length && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) { e.preventDefault(); pick(suggestions[0].slug); return; }
+              if (suggestions.length && !e.nativeEvent.isComposing && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) { e.preventDefault(); pick(suggestions[0].slug); return; }
               if (suggestions.length && e.key === "Escape") { e.preventDefault(); setDismissed(at?.start ?? null); return; }
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
             }}
