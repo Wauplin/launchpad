@@ -116,6 +116,7 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad work finish\|add-project` | Request a worktree merge (only when the launch chose Merge) or open a Local PR, or add another Git folder of the workspace to a task (used by agents) |
 | `launchpad trace <session> [--through <seq>]` | Print the stored trace of a session |
 | `launchpad folders\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list` | Read Launchpad state as JSON (an agent reads only its own workspace) |
+| `launchpad channel list\|read\|post`, `launchpad dm <bot>` | Bot channels for bots: list the workspace's channels and the bot's DMs, read messages, post in a channel or a DM ([Commands for bots](channels.md#cli-commands-for-bots)). `launchpad channel create\|add-member\|remove-member` need admin access |
 | `launchpad today` | Print what waits for the owner (the [Today](today.md) list) as JSON |
 | `launchpad activity list` | List what sessions with admin access changed directly, with the values before |
 | `launchpad propose launch\|message\|schedule\|cron\|status\|preset\|tool\|bot\|routine\|bot-files\|bot-instructions\|ready` | Store a proposal (sessions with propose or admin access to the Launchpad CLI tool); the owner starts it, except one-time starts of a bot in auto mode. `bot-files` proposes a bot's `BOT.md` and routine files in one card (`routine` and `bot-instructions` become such cards). `ready` prepares an owner click (merge, publish, post, send, run CI, Inbox done) |
