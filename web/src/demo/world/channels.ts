@@ -75,7 +75,7 @@ export function channelsWorld() {
     d(42, RELEASE_TRAIN, RELEASE_BOT, "sent", 55),
   ];
   // Docs works on another task: the changelog request waits in its queue, and the next message joins it.
-  const first = d(43, RELEASE_TRAIN, DOCS_BOT, "queued", 54, { reason: "waits for the bot: its turn runs, or its quota is not confirmed" });
+  const first = d(43, RELEASE_TRAIN, DOCS_BOT, "queued", 54, { reason: "waits for the end of the bot's turn" });
   channelDeliveries.push(first, d(44, RELEASE_TRAIN, DOCS_BOT, "combined", 53, { joined: first.id }));
   channelDeliveries.push(d(45, RELEASE_TRAIN, RELEASE_BOT, "skipped", 9, { reason: "hop limit: hop 4, the channel allows 3" }));
   channelDeliveries.push(d(46, RELEASE_TRAIN, BOT, "skipped", 7, { reason: "hop limit: hop 5, the channel allows 3" }));

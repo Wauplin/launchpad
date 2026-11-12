@@ -245,7 +245,7 @@ async fn send(app: &App, ch: &Row, msg: &ChannelMessage, bot: &str, id: i64, mem
     match hooks::deliver_channel(app, bot, text, !owner, sender(ch, msg, title), part, combine).await {
         Ok(Outcome::Sent(s)) => update(app, vec![id], "sent", None, Some(s.id), None).await,
         // The queue may already have sent the entry (`left_queue`): these only add to a row it has not changed.
-        Ok(Outcome::Queued) => after_enqueue(app, "UPDATE channel_delivery SET reason = ?2 WHERE id = ?1 AND state = 'queued' AND session_id IS NULL", id, "waits for the bot: its turn runs, or its quota is not confirmed".to_string().into()).await,
+        Ok(Outcome::Queued(why)) => after_enqueue(app, "UPDATE channel_delivery SET reason = ?2 WHERE id = ?1 AND state = 'queued' AND session_id IS NULL", id, why.into()).await,
         Ok(Outcome::Joined(first)) => after_enqueue(app, "UPDATE channel_delivery SET state = CASE state WHEN 'queued' THEN 'combined' ELSE state END, joined = ?2 WHERE id = ?1", id, first.into()).await,
         Err(e) => update(app, vec![id], "skipped", Some(format!("send failed: {e:#}")), None, None).await,
     }

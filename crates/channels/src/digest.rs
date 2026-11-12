@@ -255,7 +255,7 @@ async fn one(app: &App, ch: &Row, member: &MemberRow, members: &[MemberRow], bot
     let part = ChannelPart { channel: ch.id.clone(), first, last: newest.id, deliveries: vec![id], digest: true };
     match hooks::deliver_channel(app, &member.bot_id, body, automatic, from, part, |_| String::new()).await {
         Ok(Outcome::Sent(s)) => delivery::update(app, vec![id], "sent", None, Some(s.id), None).await,
-        Ok(Outcome::Queued) => delivery::after_enqueue(app, "UPDATE channel_delivery SET reason = ?2 WHERE id = ?1 AND state = 'queued' AND session_id IS NULL", id, "waits for the bot: its turn runs, or its quota is not confirmed".to_string().into()).await,
+        Ok(Outcome::Queued(why)) => delivery::after_enqueue(app, "UPDATE channel_delivery SET reason = ?2 WHERE id = ?1 AND state = 'queued' AND session_id IS NULL", id, why.into()).await,
         Ok(Outcome::Joined(_)) => {}
         Err(e) => delivery::update(app, vec![id], "skipped", Some(format!("send failed: {e:#}")), None, None).await,
     }

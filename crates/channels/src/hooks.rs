@@ -236,12 +236,17 @@ pub struct ChannelPart {
     pub digest: bool,
 }
 
+/// Why a channel delivery waits in the queue (its row's reason; the channel page words its line from it).
+pub const QUEUED_BUSY: &str = "waits for the end of the bot's turn";
+pub const QUEUED_QUOTA: &str = "waits for confirmed quota (automatic messages need it)";
+pub const QUEUED_BEHIND: &str = "waits behind earlier messages to the bot";
+
 /// What became of a bot channel's delivery (`deliver_channel`).
 pub enum Outcome {
     /// Sent to this session.
     Sent(Box<Session>),
-    /// Waits in the queue for the end of the bot's turn (or its quota).
-    Queued,
+    /// Waits in the queue, with why: the end of the bot's turn, confirmed quota or earlier messages (`QUEUED_*`).
+    Queued(String),
     /// Joined the waiting entry of an earlier delivery of the same channel (its first delivery row).
     Joined(i64),
 }
@@ -356,10 +361,17 @@ async fn enqueue(app: &App, q: Queued, combine: Option<Combine<'_>>) -> Result<(
         last.insert(key, (s.id.clone(), s.status_since, now_ms()));
         return Ok((Outcome::Sent(Box::new(s)), cur));
     }
+    let why = if held {
+        QUEUED_QUOTA
+    } else if waiting {
+        QUEUED_BEHIND
+    } else {
+        QUEUED_BUSY
+    };
     let json = serde_json::to_string(&q)?;
     app.state_db.call(move |c| Ok(c.execute("INSERT INTO queued_message (target, at, json) VALUES (?1, ?2, ?3)", rusqlite::params![key, now_ms(), json])?)).await?;
     changed(app, &q.target);
-    Ok((Outcome::Queued, cur))
+    Ok((Outcome::Queued(why.to_string()), cur))
 }
 
 /// Pure: a later message `q` of the same channel joins the waiting entry `w` (one combined delivery): the range grows,

@@ -222,6 +222,13 @@ const MessageRow = memo(function MessageRow({ m, lines, reply, quoted }: { m: Ch
   </div>;
 }, (a, b) => a.m === b.m && a.reply === b.reply && a.quoted === b.quoted && JSON.stringify(a.lines) === JSON.stringify(b.lines));
 
+/** Why a delivery waits, from its row's reason (`hooks::QUEUED_*` on Home): "Docs is busy · message queued (1)". */
+function queuedLine(bot: string, reason: string | null | undefined, what: string): string {
+  if (reason?.startsWith("waits for confirmed quota")) return `${bot} waits for confirmed quota · ${what}`;
+  if (reason?.startsWith("waits behind")) return `${bot} has earlier messages waiting · ${what}`;
+  return `${bot} is busy · ${what}`;
+}
+
 /** A delivery as one muted line: "Maintainer woke up (mention) · open its chat", "Docs is busy · message queued (1)". */
 function Delivery({ l }: { l: DeliveryLine }) {
   const chat = <Link to="/bots/$id" params={{ id: l.botId }} className="text-teal-ink no-underline hover:underline" title="Its own chat, where it answers and works">open its chat</Link>;
@@ -230,13 +237,13 @@ function Delivery({ l }: { l: DeliveryLine }) {
     case "woke":
       return <div className={`${row} text-ink-3`} data-tour="channel.delivery"><Icon name="play" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} woke up ({l.why}) · {chat}</span></div>;
     case "queued":
-      return <div className={`${row} text-ink-3`} title={l.reason ?? undefined}><Icon name="clock" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} is busy · message queued ({l.waiting})</span></div>;
+      return <div className={`${row} text-ink-3`} title={l.reason ?? undefined}><Icon name="clock" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{queuedLine(l.bot, l.reason, `message queued (${l.waiting})`)}</span></div>;
     case "combined":
       return <div className={`${row} text-ink-3`}><Icon name="collapse" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot}: combined with {l.with != null ? `message ${l.with}` : "an earlier message"}{l.session ? <> · {chat}</> : null}</span></div>;
     case "digest": {
       const n = `${l.count} message${l.count === 1 ? "" : "s"}`;
       if (l.state === "skipped") return <div className={`${row} ${loopSkip(l.reason) ? "text-attn" : "text-ink-3"}`} title={l.reason ?? undefined}><Icon name="x" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} · daily digest ({n}) skipped: {l.reason ?? "no reason recorded"}</span></div>;
-      if (l.state === "queued") return <div className={`${row} text-ink-3`} title={l.reason ?? undefined}><Icon name="clock" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} is busy · daily digest ({n}) queued</span></div>;
+      if (l.state === "queued") return <div className={`${row} text-ink-3`} title={l.reason ?? undefined}><Icon name="clock" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{queuedLine(l.bot, l.reason, `daily digest (${n}) queued`)}</span></div>;
       return <div className={`${row} text-ink-3`} data-tour="channel.digest"><Icon name="book" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} got the daily digest ({n}) · {chat}</span></div>;
     }
     case "skipped":
