@@ -172,6 +172,15 @@ function MessageList({ channel, messages, lines, byId, more, loadingMore, onOlde
     atBottom.current = false;
     onOlder();
   };
+  // Scrolling up loads older messages. A wheel or swipe at the very top fires no scroll event, so check again
+  // once a load ended: still near the top (or the messages do not fill the view) loads the next page.
+  const olderRef = useRef(older);
+  olderRef.current = older;
+  useEffect(() => {
+    if (!more || loadingMore) return;
+    const frame = requestAnimationFrame(() => { if ((scrollRef.current?.scrollTop ?? Infinity) < 150) olderRef.current(); });
+    return () => cancelAnimationFrame(frame);
+  }, [more, loadingMore, messages.length]);
   return <div ref={scrollRef} className="lp-quiet-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-5 [overflow-wrap:anywhere]" data-tour="channel.messages"
     onScroll={(e) => {
       const el = e.currentTarget;

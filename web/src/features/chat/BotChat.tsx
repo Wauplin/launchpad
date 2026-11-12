@@ -258,6 +258,16 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
       void loadEarlier(first.id).catch(toastError).finally(() => setLoadingMore(false));
     } else setShown((n) => n + 1);
   };
+  // Scrolling up loads earlier messages. A wheel or swipe at the very top fires no scroll event, so check again
+  // once a load ended or rows changed: still near the top (or the rows do not fill the view) loads the next part.
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
+  const settled = more && !loadingMore && ready.length === visible.length;
+  useEffect(() => {
+    if (!settled) return;
+    const frame = requestAnimationFrame(() => { if ((scrollRef.current?.scrollTop ?? Infinity) < 150) loadMoreRef.current(); });
+    return () => cancelAnimationFrame(frame);
+  }, [settled, items.length]);
 
   return (
     <ReplyContext.Provider value={onReply}>
