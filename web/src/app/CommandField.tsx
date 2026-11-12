@@ -1,6 +1,7 @@
 // The one field of the top bar: Ask (a message to a bot of the workspace, shown in the Ask panel) and Launch (an agent
 // at once, with the page as context and the folder's defaults; its menu opens the full composer with the text).
 // The page you are on is the context: a folder, a GitHub item, a session's trace, a Local PR or a settings page.
+// Pasted screenshots go with the message (Ask) or the launch, as small thumbnails in the field; no file picker.
 // Ask is the primary button (and Enter) on every page; Launch is an outline button. Without a bot, Launch is the
 // only button, so it is the primary one.
 
@@ -18,6 +19,9 @@ import { itemKey } from "@/features/github/lib";
 import type { Item } from "@/features/github/types";
 import { runAction } from "@/lib/actions";
 import { askTarget, useBots } from "@/lib/bots";
+import { attachmentSrc, pastedImages } from "@/lib/attachments";
+import { ImageThumb } from "@/components/ImageViewer";
+import { ATTACH_LIMITS, useMessageAttachments } from "@/features/agents/MessageAttachments";
 import { SETTINGS_NAV, WORKSPACE_NAV } from "@/features/settings/nav";
 import { useProjects, useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
@@ -103,27 +107,38 @@ export function CommandField() {
   const ref = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 96)}px`; }, [text]);
   const panel = useAskPanel();
+  const shots = useMessageAttachments(true);
+  const { files, reading } = shots;
 
   const ask = async () => {
     if (!bot || busy) return;
     const t = text.trim();
     // An empty Ask opens the chat.
-    if (!t) { if (!ctx.botId) panel.show(bot.id); return; }
+    if (!t && !files.length) { if (!ctx.botId) panel.show(bot.id); return; }
+    if (reading) return;
     setBusy(true);
     try {
-      await runAction("bot.message", { id: bot.id }, { text: ctx.line ? `${t}\n\n(I am looking at ${ctx.line}.)` : t });
+      await runAction("bot.message", { id: bot.id }, { text: ctx.line ? `${t}\n\n(I am looking at ${ctx.line}.)` : t, attachments: files });
       setText("");
+      shots.clear();
       await qc.invalidateQueries({ queryKey: ["sessions"] });
       // On the bot's own page, its chat is already there.
       if (!ctx.botId) panel.show(bot.id);
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
+  // Pasted screenshots join the launch's attachments.
+  const withShots = () => {
+    if (files.length) useComposer.getState().update((s) => ({ ...s, attachments: [...s.attachments, ...files] }));
+    shots.clear();
+  };
   const launch = () => {
+    if (reading) return;
     const c = useComposer.getState();
     const t = text.trim();
     // A kept draft, or nothing to launch: open the composer instead.
-    if (!t || c.open || c.spec.text.trim()) { openOptions(ctx.launch, t); setText(""); return; }
+    if (!t || c.open || c.spec.text.trim()) { openOptions(ctx.launch, t); withShots(); setText(""); return; }
     c.launchNow(ctx.launch, t);
+    withShots();
     setText("");
     // Still not launched (no profile, no folder, a busy worktree): show the composer and what it needs.
     setTimeout(() => {
@@ -145,14 +160,22 @@ export function CommandField() {
           <span className="truncate">{ctx.label}</span>
           <button className="flex-none text-ink-3 hover:text-ink" aria-label="Leave out the page" title="Leave out the page" onClick={() => setWithContext(false)}><Icon name="x" size={12} /></button>
         </span>}
+        {files.map((file, i) => (
+          <span key={i} className="relative flex-none">
+            <ImageThumb src={attachmentSrc(file.data_url)} name={file.name} className="h-6 max-w-12 rounded border border-line object-cover" />
+            <button className="absolute -top-1 -right-1 grid size-3.5 place-items-center rounded-full bg-ink text-paper" aria-label={`Remove ${file.name}`} title={`Remove ${file.name}`} disabled={busy} onClick={() => shots.remove(i)}><Icon name="x" size={12} /></button>
+          </span>
+        ))}
         <textarea ref={ref} rows={1} value={text} disabled={busy} aria-label={bot ? "Message to a bot, or prompt for a new agent" : "Prompt for a new agent"}
           placeholder={bot ? "Ask, or launch an agent…" : "Launch an agent…"}
+          title={`Paste a screenshot to attach it. ${ATTACH_LIMITS}`}
           onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => { if (busy) return; const pasted = pastedImages(e); if (pasted) void shots.add(pasted); }}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); primary(); } }}
           className="min-h-6 min-w-[48px] flex-1 resize-none bg-transparent placeholder-shown:overflow-hidden placeholder-shown:whitespace-nowrap py-0.5 text-[13px] leading-5 outline-none" />
       </div>
-      {bot && <button className="btn btn-primary" data-tour="topbar.ask" title={`${askLabel}: the answer opens in the Ask panel${ctx.line ? ", with the page as context" : ""}`} disabled={busy} onClick={() => void ask()}><Icon name="send" size={12} />Ask</button>}
-      <LaunchSplitButton ctx={ctx.launch} text={text} onLaunch={launch} onUsed={() => setText("")} primary={!bot}
+      {bot && <button className="btn btn-primary" data-tour="topbar.ask" title={`${askLabel}: the answer opens in the Ask panel${ctx.line ? ", with the page as context" : ""}`} disabled={busy || reading} onClick={() => void ask()}><Icon name="send" size={12} />Ask</button>}
+      <LaunchSplitButton ctx={ctx.launch} text={text} onLaunch={launch} onUsed={() => { withShots(); setText(""); }} primary={!bot}
         title={text.trim() ? `Launch an agent at once${ctx.launch ? " with the page as context" : ""}, with the folder's defaults` : "Open the composer"} />
     </div>
   );
