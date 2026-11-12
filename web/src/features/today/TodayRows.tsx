@@ -4,17 +4,21 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { memo, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Proposal } from "@/gen/Proposal";
+import type { Session } from "@/gen/Session";
 import type { SessionEventPage } from "@/gen/SessionEventPage";
+import type { Today } from "@/gen/Today";
 import type { Suggestion } from "@/gen/Suggestion";
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
+import { useHarnessInfo } from "@/components/HarnessMark";
 import { Markdown } from "@/components/Markdown";
 import { Icon, type IconName } from "@/components/Icon";
-import { toastError } from "@/components/Toast";
+import { toast, toastError } from "@/components/Toast";
 import { MenuItem } from "@/components/Popover";
 import { Loading, RowActions } from "@/components/ui";
 import { AskCard } from "@/features/agents/AskCard";
+import { MessageBox } from "@/features/agents/MessageBox";
 import { useSessionWorktrees } from "@/features/agents/Worktrees";
 import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
 import { ProposalCard, proposalIcon, runProposalAction, START } from "@/features/proposals/ProposalCard";
@@ -141,7 +145,8 @@ const OpenChat = ({ bot, close }: { bot: { id: string; name: string }; close?: (
 
 /** Open agent (unless it is the row's main button), Archive (unless it is the row's second button) and Mark seen: the
  * ⋯ of a finished or failed agent. */
-const SessionMenu = ({ id, open = true, archive = true }: { id: string; open?: boolean; archive?: boolean }) => (close: () => void) => <>
+const SessionMenu = ({ id, open = true, archive = true, reply }: { id: string; open?: boolean; archive?: boolean; reply?: () => void }) => (close: () => void) => <>
+  {reply && <MenuItem icon={<Icon name="send" size={14} />} label="Reply" detail="Message the agent from here: it leaves Today until it finishes again" onClick={() => { close(); reply(); }} />}
   {open && <OpenAgent id={id} close={close} />}
   {archive && <ActionMenuItem name="session.archive" params={{ id }} close={close} detail="It stays resumable" />}
   <ActionMenuItem name="session.seen" params={{ id }} close={close} detail="Keep the agent and remove it from Today" />
@@ -175,6 +180,44 @@ function Last({ text, id, seq }: { text: string | null | undefined; id?: string;
   return <p className="m-0 text-[13px] whitespace-pre-wrap text-ink-2">{text}{cut && arrow(false)}{full && q.isError && <span className="ml-1 text-[12px] text-gh-closed">Could not load the full message.</span>}</p>;
 }
 
+/** Steer a finished or failed agent from Today: the session's message box (same draft as its page). Once a message is
+ * sent the row leaves Today at once (the agent works again); it comes back when the agent needs you again. Not for a
+ * bot's session: bots are messaged in their chat. */
+function ReplyBox({ s, item, expanded, toggle, focus, focused }: Pick<RowProps, "item" | "expanded" | "toggle"> & { s: Session; focus: boolean; focused: () => void }) {
+  const qc = useQueryClient();
+  const harness = useHarnessInfo(s.harness);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const dropImages = useRef<((files: File[]) => void) | null>(null);
+  useEffect(() => {
+    if (!focus) return;
+    inputRef.current?.focus();
+    focused();
+  }, [focus, focused]);
+  const sent = () => {
+    toast("Sent to the agent");
+    if (expanded) toggle(item.id);
+    qc.setQueryData<Today>(["today"], (old) => old && { ...old, items: old.items.filter((i) => i.id !== item.id) });
+    void qc.invalidateQueries({ queryKey: ["today"] });
+    void qc.invalidateQueries({ queryKey: ["sessions"] });
+  };
+  return <MessageBox className="pt-1" sessionId={s.id} acceptsImages={!!harness?.capabilities.images} dropImages={dropImages} inputRef={inputRef} ask={null} onSent={sent}
+    disabled={s.status === "in_terminal" || !!s.quota_pause} placeholder={s.status === "in_terminal" ? "The agent runs in a terminal" : s.quota_pause ? "Paused for quota: open the agent to queue a message" : "Message the agent: it continues from here"} />;
+}
+
+/** The message box of a finished or failed agent's details, and the Reply entry of its ⋯ (laptop) that opens the row
+ * and focuses the box. */
+function useReply({ item, expanded, toggle }: Pick<RowProps, "item" | "expanded" | "toggle">, s: Session | null) {
+  const [focus, setFocus] = useState(false);
+  const focused = useRef(() => setFocus(false)).current;
+  const phone = usePhone();
+  if (!s || s.launch_spec.bot) return { open: undefined, box: null };
+  return {
+    // The phone's opened row already shows the box above its menu.
+    open: phone ? undefined : () => { if (!expanded) toggle(item.id); setFocus(true); },
+    box: <ReplyBox s={s} item={item} expanded={expanded} toggle={toggle} focus={focus} focused={focused} />,
+  };
+}
+
 function QuestionRow(p: RowProps) {
   const { item } = p;
   const s = useSession(item.record);
@@ -202,6 +245,7 @@ function FinishedRow(p: RowProps) {
   const branch = useBranch(item.record, s);
   const { t, safe, facts, work, stopped } = branch;
   const phone = usePhone();
+  const reply = useReply(p, s);
   return <Row {...p} age={!s} meta={<><SessionMeta s={s} item={item} />{stopped && <span className="flex-none font-semibold whitespace-nowrap text-attn">· Not merged</span>}</>}
     main={stopped ? <FixMergeButton sessionId={item.record} branch={branch} label={phone ? "Fix" : undefined} primary={false} />
       : pr ? <ReviewLocalPr id={pr.record} />
@@ -209,11 +253,12 @@ function FinishedRow(p: RowProps) {
       : work ? <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record, view: "changes" }} title="Review the changes of the agent">Changes</Link>
       : !loading && (s?.launch_spec.bot ? <OpenChat bot={s.launch_spec.bot} /> : <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record }} title="Open the agent at its last message">Read</Link>)}
     second={!phone && <Archive id={item.record} />}
-    menu={SessionMenu({ id: item.record, open: !!stopped || !!pr || safe || work || loading || !!s?.launch_spec.bot, archive: phone })}
-    details={(s?.last_message || facts || stopped) && <>
+    menu={SessionMenu({ id: item.record, open: !!stopped || !!pr || safe || work || loading || !!s?.launch_spec.bot, archive: phone, reply: reply.open })}
+    details={(s?.last_message || facts || stopped || reply.box) && <>
       <NotMerged branch={branch} />
       <Last text={s?.last_message} id={item.record} seq={s?.last_seq} />
       {facts && <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2"><Icon name="branch" size={12} className="flex-none text-ink-3" /><span className="truncate font-mono">{t!.branch}</span><span className="truncate">· {facts}</span></div>}
+      {reply.box}
     </>} />;
 }
 
@@ -221,11 +266,12 @@ function FailedRow(p: RowProps) {
   const { item } = p;
   const s = useSession(item.record);
   const phone = usePhone();
+  const reply = useReply(p, s);
   return <Row {...p} age={!s} meta={<SessionMeta s={s} item={item} />}
     main={<ActionButton name="session.resume" params={{ id: item.record }} body={{ continue_turn: true }} />}
     second={!phone && <Archive id={item.record} />}
-    menu={SessionMenu({ id: item.record, archive: phone })}
-    details={s?.last_message && <Last text={s.last_message} id={item.record} seq={s.last_seq} />} />;
+    menu={SessionMenu({ id: item.record, archive: phone, reply: reply.open })}
+    details={(s?.last_message || reply.box) && <><Last text={s?.last_message} id={item.record} seq={s?.last_seq} />{reply.box}</>} />;
 }
 
 function LocalPrRow(p: RowProps) {
