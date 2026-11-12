@@ -5,6 +5,7 @@ import type { Preset } from "./Preset";
 import type { Profile } from "./Profile";
 import type { RunnerConfig } from "./RunnerConfig";
 import type { ServerConfig } from "./ServerConfig";
+import type { VoiceConfig } from "./VoiceConfig";
 import type { Worktrees } from "./Worktrees";
 
 /**
@@ -15,4 +16,4 @@ export type Config = { server: ServerConfig, github: GitHub, worktrees: Worktree
 /**
  * Named harness settings, selectable in the composer beside the base harnesses.
  */
-profiles: Array<Profile>, home: HomeConfig, runner: RunnerConfig, };
+profiles: Array<Profile>, home: HomeConfig, runner: RunnerConfig, voice: VoiceConfig, };

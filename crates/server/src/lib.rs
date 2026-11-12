@@ -17,6 +17,7 @@ mod terminals;
 mod tailnet;
 mod worktrees;
 mod ui;
+pub mod voice;
 mod wire;
 mod ws;
 
@@ -88,6 +89,7 @@ pub(crate) fn router(server: Server, api: Router<Ctx>) -> Router {
         .merge(api.with_state(ctx))
         .merge(browser::router())
         .merge(terminals::router())
+        .merge(voice::router())
         .merge(worktrees::router())
         .merge(runners::router())
         .merge(burst::router())

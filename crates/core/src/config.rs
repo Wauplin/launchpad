@@ -27,6 +27,27 @@ pub struct Config {
     pub profiles: Vec<Profile>,
     pub home: HomeConfig,
     pub runner: RunnerConfig,
+    pub voice: VoiceConfig,
+}
+
+/// Dictation in the message boxes (Settings → Voice). Device choices (microphone, sounds) stay in the browser.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+#[serde(default)]
+pub struct VoiceConfig {
+    pub enabled: bool,
+    /// Profile IDs in fallback order; only subscription profiles of a harness with voice count. Empty: every such
+    /// profile, in the order of Profiles.
+    pub profiles: Vec<String>,
+    /// Language code of the speech (`en`, `fr`…).
+    pub language: String,
+    /// Stop after this many seconds of silence; 0: never (5 minutes at most anyway).
+    pub silence_stop_s: u32,
+}
+
+impl Default for VoiceConfig {
+    fn default() -> Self {
+        VoiceConfig { enabled: true, profiles: vec![], language: "en".into(), silence_stop_s: 8 }
+    }
 }
 
 /// Runner role settings.

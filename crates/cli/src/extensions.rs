@@ -70,5 +70,6 @@ pub fn gen_types(out: &std::path::Path) -> Result<()> {
     launchpad_github::gen_types(&cfg)?;
     launchpad_automation::gen_types(&cfg)?;
     launchpad_setup::gen_types(&cfg)?;
+    launchpad_server::voice::gen_types(&cfg)?;
     Ok(())
 }

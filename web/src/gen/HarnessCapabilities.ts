@@ -12,4 +12,8 @@ quota: boolean,
 /**
  * Reports the cumulative USD cost of a session, so cost limits can apply.
  */
-cost: boolean, };
+cost: boolean, 
+/**
+ * Dictation on a subscription login of Home's vault (`Harness::open_voice`): Settings → Voice offers its profiles.
+ */
+voice: boolean, };
