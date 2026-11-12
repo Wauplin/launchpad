@@ -12,6 +12,7 @@ import { Link, Outlet, useRouter, useRouterState } from "@tanstack/react-router"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconSprite, Icon, type IconName } from "@/components/Icon";
 import { Count } from "@/components/ui";
+import { channelsNeedingYou, useChannels } from "@/lib/channels";
 import { Toasts } from "@/components/Toast";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
@@ -104,14 +105,16 @@ export function MobileShell() {
   // What waits in the other workspaces, shown on the button that opens the sheet.
   const counts = useWorkspaceCounts();
   const inMenu = Object.entries(counts).reduce((n, [id, c]) => n + (id === scope.workspace.id ? 0 : c.total), 0);
-  // Chats: the bots of the workspace; its count is the bots that need you. A second tap opens the last chat.
+  // Chats: the bots, channels and DMs of the workspace; its count is the bots that need you and the channels whose
+  // unread messages mention or ask you. A second tap opens the last chat.
   const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
-  const chatsNeed = bots.filter((b) => botState(botThread(sessions, b.id)) === "needs").length;
-  const onChats = path === "/chats" || path.startsWith("/bots");
+  const channelsNeed = channelsNeedingYou(useChannels().data, scope.workspace.id);
+  const chatsNeed = bots.filter((b) => botState(botThread(sessions, b.id)) === "needs").length + channelsNeed;
+  const onChats = path === "/chats" || path.startsWith("/bots") || path.startsWith("/channels");
   const lastChat = useRef<string | null>(null);
-  if (path.startsWith("/bots/")) lastChat.current = path;
+  if (path.startsWith("/bots/") || path.startsWith("/channels/")) lastChat.current = path;
   const openLastChat = () => {
-    if (path !== "/chats" || !lastChat.current || !bots.some((b) => lastChat.current === `/bots/${b.id}`)) return false;
+    if (path !== "/chats" || !lastChat.current || !(lastChat.current.startsWith("/channels/") || bots.some((b) => lastChat.current === `/bots/${b.id}`))) return false;
     router.history.push(lastChat.current);
     return true;
   };

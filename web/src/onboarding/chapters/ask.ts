@@ -8,6 +8,7 @@ import { WS } from "@/demo/world/ids";
 import { TODAY_PROPOSAL } from "@/demo/scenarios/askToday";
 import { meta } from "./meta";
 import { ASK_BOT, BOT } from "@/demo/world/bots";
+import { RELEASE_TRAIN } from "@/demo/world/channels";
 import { useAskPanel } from "@/stores/ask";
 
 const THREAD = "demo-s-ask-acme";
@@ -15,13 +16,14 @@ const READY = "demo-prop-ready-done";
 const proposal = () => world.proposals.find((p) => p.id === TODAY_PROPOSAL);
 const ASK_ROUTE = `/bots/${ASK_BOT}`;
 const BOT_ROUTE = `/bots/${BOT}`;
+const CHANNEL_ROUTE = `/channels/${RELEASE_TRAIN}`;
 const DAILY = "demo-routine-daily";
 let dailyRuns = 0;
 const botSessions = () => world.sessions.filter((s) => s.launch_spec.bot?.id === BOT);
 
 export const ask: Chapter = {
   ...meta("ask"),
-  learned: ["Ask from the top-bar field on any page: the bot's chat opens as a panel, with the page as context", "Ask Launchpad is a bot like the others, created in every workspace, with its own memory", "It reads Launchpad state and answers with proposals through the Launchpad CLI tool", "Manual mode waits for your click; auto mode (bot.toml) starts one-time proposals; Edit sends a proposal to the composer", "Its BOT.md and bot.toml have versions; edit them, or replace it with your own bot", "A bot is an agent that stays: one thread shown as a chat, its instructions in BOT.md, its notes in its own memory; the trace stays in Agents", "In a bot's chat, proposals are one line with Details, handled ones fold into a receipt, and the message box answers its questions", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent"],
+  learned: ["Ask from the top-bar field on any page: the bot's chat opens as a panel, with the page as context", "Ask Launchpad is a bot like the others, created in every workspace, with its own memory", "It reads Launchpad state and answers with proposals through the Launchpad CLI tool", "Manual mode waits for your click; auto mode (bot.toml) starts one-time proposals; Edit sends a proposal to the composer", "Its BOT.md and bot.toml have versions; edit them, or replace it with your own bot", "A bot is an agent that stays: one thread shown as a chat, its instructions in BOT.md, its notes in its own memory; the trace stays in Agents", "In a bot's chat, proposals are one line with Details, handled ones fold into a receipt, and the message box answers its questions", "Routines run a bot on their own: on a schedule, on GitHub activity or when another agent is done; quiet runs stay silent", "Bots talk to each other in channels and DMs you can read and join; the loop guard stops ping-pong and Allow 10 more lets it go on"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
@@ -78,6 +80,21 @@ export const ask: Chapter = {
       id: "ask.bots", route: "/bots", anchor: "sidebar.bots",
       title: "Bots: agents that stay",
       body: "Your other bots each have a job, one thread you come back to, and their own memory: notes they keep between sessions. Ask Launchpad can propose one for you.",
+    },
+    {
+      id: "ask.channels", route: "/bots", anchor: "sidebar.channels",
+      title: "Channels and bot DMs",
+      body: "Under the bots, Channels and Bot DMs list where bots talk to each other. A bot writes there only with launchpad channel post or launchpad dm; its own answers stay in its chat. A dot means new messages; an amber count means a message mentions you or asks you something. Channel messages never go into Today on their own.",
+    },
+    {
+      id: "ask.channel", route: CHANNEL_ROUTE, anchor: "channel.messages",
+      title: "A channel page",
+      body: "Every message shows who woke up and why under it (a mention, a subscription, a DM), with a link to that bot's chat, and who was busy or skipped. Your own message wakes the bots you mention with @ (and in a DM, both bots), and Pause in the header stops every delivery at once.",
+    },
+    {
+      id: "ask.channel-guard", route: CHANNEL_ROUTE, anchor: "channel.guard",
+      title: "The loop guard",
+      body: "Each bot message counts one hop more than the message that woke its author. Past the channel's hop limit (3) or 30 bot messages in an hour, deliveries are skipped and this line turns amber with the limit that stopped them. Allow 10 more lets the conversation go on; your next message resets both counts.",
     },
     {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",

@@ -108,6 +108,9 @@ pub struct Channel {
     pub last_message: Option<i64>,
     #[ts(type = "number | null")]
     pub last_at: Option<i64>,
+    /// The newest message for lists: its author ("you" for the owner) and its first line, cut to 160 characters.
+    pub last_by: Option<String>,
+    pub last_text: Option<String>,
     /// Messages after `owner_read`, and those of them that mention the owner or ask the owner (an amber count).
     pub unread: u32,
     pub attention: u32,
@@ -388,10 +391,13 @@ async fn view(app: &App, r: Row, bots: &HashMap<String, BotInfo>) -> Result<Chan
         })
         .collect();
     let (id, read, since) = (r.id.clone(), r.owner_read, window_start(now_ms(), r.reset_at));
-    let (last, unread, attention, hour, hops): (Option<(i64, i64)>, u32, u32, u32, u32) = app
+    type Last = (i64, i64, String, String, String);
+    let (last, unread, attention, hour, hops): (Option<Last>, u32, u32, u32, u32) = app
         .state_db
         .call(move |c| {
-            let last = c.query_row("SELECT id, created_at FROM channel_message WHERE channel_id = ?1 ORDER BY id DESC LIMIT 1", [&id], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+            let last = c
+                .query_row("SELECT id, created_at, author_kind, author_name, text FROM channel_message WHERE channel_id = ?1 ORDER BY id DESC LIMIT 1", [&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+                .optional()?;
             let unread = c.query_row("SELECT count(*) FROM channel_message WHERE channel_id = ?1 AND id > ?2", params![id, read], |r| r.get(0))?;
             let attention = c.query_row(
                 "SELECT count(*) FROM channel_message WHERE channel_id = ?1 AND id > ?2 AND author_kind != 'owner' AND (ask_owner = 1 OR EXISTS (SELECT 1 FROM json_each(mentions) WHERE value = 'owner'))",
@@ -421,13 +427,21 @@ async fn view(app: &App, r: Row, bots: &HashMap<String, BotInfo>) -> Result<Chan
         created_at: r.created_at,
         owner_read: r.owner_read,
         members,
-        last_message: last.map(|l| l.0),
-        last_at: last.map(|l| l.1),
+        last_message: last.as_ref().map(|l| l.0),
+        last_at: last.as_ref().map(|l| l.1),
+        last_by: last.as_ref().map(|l| if l.2 == "owner" { "you".to_string() } else { l.3.clone() }),
+        last_text: last.as_ref().map(|l| preview(&l.4)),
         unread,
         attention,
         hour_count: hour,
         last_hops: hops,
     })
+}
+
+/// A message's first non-empty line, cut to 160 characters: what a list row shows.
+pub fn preview(text: &str) -> String {
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    if line.chars().count() > 160 { format!("{}…", line.chars().take(159).collect::<String>()) } else { line.to_string() }
 }
 
 /// The channels and DMs of a workspace (every workspace when None), newest activity first.

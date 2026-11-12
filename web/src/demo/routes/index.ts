@@ -9,5 +9,6 @@ import "./terminals";
 import "./knowledge";
 import "./bots";
 import "./connections";
+import "./channels";
 import "./today";
 import "./ask";

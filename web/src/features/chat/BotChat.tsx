@@ -433,7 +433,7 @@ function FromRow({ item }: { item: Extract<ChatItem, { t: "from" }> }) {
           : f.kind === "hook"
             ? <Link to="/settings/connections" className={NAME_LINK}>{line}</Link>
             : f.kind === "channel"
-              ? <span>{line}</span>
+              ? <Link to="/channels/$id" params={{ id: f.id }} className={NAME_LINK}>{line}</Link>
               : <Link to="/agents" search={{ session: f.id }} className={NAME_LINK}>{line}</Link>}
       </div>
       <div className="break-words whitespace-pre-wrap">{item.text}</div>

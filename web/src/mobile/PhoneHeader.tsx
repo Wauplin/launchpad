@@ -66,7 +66,7 @@ export function pageTitle(path: string): string {
   if (path.startsWith("/setup")) return "Setup";
   if (path.startsWith("/knowledge")) return "Knowledge";
   if (path.startsWith("/schedules")) return "Schedules";
-  if (path.startsWith("/bots")) return "Chats";
+  if (path.startsWith("/bots") || path.startsWith("/channels")) return "Chats";
   if (path.startsWith("/projects")) return path.endsWith("/code") ? "Files" : "Folders";
   return "Launchpad";
 }
@@ -89,7 +89,7 @@ export function PhoneActions({ label = "Actions & details", children, details, c
 /** A page's header on the phone. With `onBack` (a detail page), the ‹, title and ⋯ go in the shell's bar and only
  * the subtitle and primary button stay in the page. On a tab page the bar keeps the section title and takes the
  * primary button and ⋯ (`PhoneBarEnd`); the page shows a line only for its own name (when it differs) or a subtitle. */
-export function PhoneHeader({ title, subtitle, onBack, backLabel = "Back", primary, actions, details }: { title: ReactNode; subtitle?: ReactNode; onBack?: () => void; backLabel?: string; primary?: ReactNode; actions?: ReactNode; details?: ReactNode }) {
+export function PhoneHeader({ title, subtitle, onBack, backLabel = "Back", primary, actions, details }: { title: ReactNode; subtitle?: ReactNode; onBack?: () => void; backLabel?: string; primary?: ReactNode; actions?: ReactNode | ((close: () => void) => ReactNode); details?: ReactNode }) {
   const shellTitle = useRouterState({ select: (s) => pageTitle(s.location.pathname) });
   const menu = (actions || details) && <PhoneActions children={actions} details={onBack ? <><p className="break-words font-semibold">{title}</p>{details}</> : details} />;
   const line = (lead: ReactNode, end: ReactNode) => <header className="phone-page-header flex min-w-0 shrink-0 items-center gap-2 border-b border-line px-3 py-1.5">

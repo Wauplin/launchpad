@@ -4,6 +4,8 @@ import { useTodayCount } from "@/features/today/data";
 import { botInitial, botState, botThread, useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
 import { useScope } from "@/lib/workspace";
+import { channelsOf, useChannels } from "@/lib/channels";
+import { ChannelLink } from "@/features/channels/ChannelRows";
 import { WorkspaceMenu } from "@/features/workspaces/WorkspaceMenu";
 import { Link } from "@tanstack/react-router";
 import { memo, type ReactNode } from "react";
@@ -133,10 +135,15 @@ const BotLink = memo(function BotLink({ bot, thread, narrow }: { bot: Bot; threa
   );
 });
 
-/** Bots of the workspace (Ask Launchpad among them). Collapsed: one state dot; their proposals wait in Today. */
+/** A small label over a part of the Bots group (Channels, Bot DMs). */
+const SubLabel = ({ children }: { children: ReactNode }) => <div className="mt-1.5 px-[9px] pb-0.5 text-[11px] font-semibold text-ink-3">{children}</div>;
+
+/** Bots of the workspace (Ask Launchpad among them), then its channels and bot DMs. Collapsed: one state dot (and the
+ * amber dot of a channel that asks you); their proposals wait in Today, channel messages never do. */
 function BotList({ sessions, narrow }: { sessions: Session[]; narrow: boolean }) {
   const scope = useScope();
   const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
+  const { channels, dms } = channelsOf(useChannels().data, scope.workspace.id);
   if (narrow) return (
     <div className="flex flex-none flex-col gap-px" data-tour="sidebar.bots">
       {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} narrow />)}
@@ -148,11 +155,14 @@ function BotList({ sessions, narrow }: { sessions: Session[]; narrow: boolean })
     {states.includes("needs") && <span className="size-[7px] rounded-full bg-attn" title="A bot needs you" />}
     {states.includes("paused") && <span className="size-[7px] rounded-full border border-attn" title="A bot is quota paused" />}
     {states.includes("running") && <span className="lp-spin" title="A bot works" />}
+    {[...channels, ...dms].some((c) => c.attention > 0) && <span className="size-[7px] rounded-full bg-attn" title="A channel message asks you" />}
   </span>;
   return (
     <Group id="bots" to="/bots" label="Bots" tour="sidebar.bots" end={summary} actions={<Link to="/bots" search={{ new: true } as never} className="iconbtn" title="New bot" aria-label="New bot"><Icon name="plus" size={14} /></Link>}>
       {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} />)}
       {bots.length === 0 && <Link to="/bots" search={{ new: true } as never} className="mx-[9px] my-1 text-[12px] text-teal-ink no-underline hover:underline">+ New bot</Link>}
+      {channels.length > 0 && <div className="flex flex-col gap-px" data-tour="sidebar.channels"><SubLabel>Channels</SubLabel>{channels.map((c) => <ChannelLink key={c.id} c={c} />)}</div>}
+      {dms.length > 0 && <div className="flex flex-col gap-px" data-tour={channels.length ? undefined : "sidebar.channels"}><SubLabel>Bot DMs</SubLabel>{dms.map((c) => <ChannelLink key={c.id} c={c} />)}</div>}
     </Group>
   );
 }

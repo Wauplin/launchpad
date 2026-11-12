@@ -171,6 +171,10 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["outbox"] });
     } else if (topic === "connections") {
       void queryClient.invalidateQueries({ queryKey: ["connections"] });
+    } else if (topic === "channels") {
+      // Bot channels: the lists and the open channel page (a post, a delivery, a read mark).
+      void queryClient.invalidateQueries({ queryKey: ["channels"] });
+      void queryClient.invalidateQueries({ queryKey: ["channel"] });
     } else if (topic === "terminals") {
       void queryClient.invalidateQueries({ queryKey: ["terminals"] });
     } else if (topic === "crons") {

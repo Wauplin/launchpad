@@ -18,6 +18,8 @@ import { PatchView } from "@/features/github/DiffReview";
 import { BotChat } from "@/features/chat/BotChat";
 import { useNextSession } from "@/features/chat/nextSession";
 import { BotConversationRow } from "./BotConversationRow";
+import { ChannelConversationRow } from "@/features/channels/ChannelRows";
+import { channelsOf, useChannels } from "@/lib/channels";
 import type { ConnectionsOverview } from "@/features/settings/ConnectionsView";
 import { useTelegram } from "@/features/settings/TelegramSettings";
 import { BotAvatar } from "@/components/BotAvatar";
@@ -83,11 +85,12 @@ export function BotsView() {
   const search = useSearch({ strict: false }) as { new?: boolean };
   const navigate = useNavigate();
   const mine = (bots.data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
+  const { channels, dms } = channelsOf(useChannels().data, scope.workspace.id);
   const creating = !!search.new || (bots.isSuccess && mine.length === 0);
   const close = () => void navigate({ to: "/bots", search: {} as never });
   const header = phone
     ? <PhoneHeader title="Bots" primary={!creating ? <Link to="/bots" search={{ new: true } as never} className="btn btn-sm"><Icon name="plus" size={12} />New bot</Link> : undefined} />
-    : <PageHeader title="Bots" meta={mine.length ? `${mine.length} bot${mine.length === 1 ? "" : "s"}` : undefined} intro="Persistent agents with one thread, memory in the knowledge base and files on Home." actions={!creating && <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary" data-tour="bots.new"><Icon name="plus" size={12} />New bot</Link>} />;
+    : <PageHeader title="Bots" meta={mine.length ? [`${mine.length} bot${mine.length === 1 ? "" : "s"}`, channels.length && `${channels.length} channel${channels.length === 1 ? "" : "s"}`, dms.length && `${dms.length} DM${dms.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ") : undefined} intro="Persistent agents with one thread, memory in the knowledge base and files on Home." actions={!creating && <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary" data-tour="bots.new"><Icon name="plus" size={12} />New bot</Link>} />;
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.page">
       {header}
@@ -98,6 +101,8 @@ export function BotsView() {
             <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
               {conversationOrder(mine, sessions, scope.workspace.id).map(({ bot, thread, pinned }) => <BotConversationRow key={bot.id} bot={bot} thread={thread} pinned={pinned} className="rounded-card border border-line bg-paper" />)}
             </div>
+            {channels.length > 0 && <section className="grid grid-cols-[minmax(0,1fr)] gap-2" data-tour="bots.channels"><h2 className="seclabel m-0">Channels</h2>{channels.map((c) => <ChannelConversationRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}</section>}
+            {dms.length > 0 && <section className="grid grid-cols-[minmax(0,1fr)] gap-2"><h2 className="seclabel m-0">Bot DMs</h2>{dms.map((c) => <ChannelConversationRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}</section>}
           </>}
         </div>
       </div>

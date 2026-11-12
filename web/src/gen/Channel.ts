@@ -36,6 +36,10 @@ created_by: string, created_at: number,
  */
 owner_read: number, members: Array<ChannelMember>, last_message: number | null, last_at: number | null, 
 /**
+ * The newest message for lists: its author ("you" for the owner) and its first line, cut to 160 characters.
+ */
+last_by: string | null, last_text: string | null, 
+/**
  * Messages after `owner_read`, and those of them that mention the owner or ask the owner (an amber count).
  */
 unread: number, attention: number, 

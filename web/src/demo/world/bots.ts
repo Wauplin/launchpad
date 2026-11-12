@@ -13,6 +13,11 @@ import { botVersion, DAILY, MAINTAINER_BOT_MD, MAINTAINER_BOT_MD_PREV } from "..
 export const BOT = "demo-bot-maintainer";
 export const ASK_BOT = "demo-bot-ask-acme";
 export const LIBRARIAN_BOT = "demo-bot-librarian-acme";
+/** Two more bots of Acme that talk with the Maintainer in its channels (world/channels.ts); they never ran here. */
+export const RELEASE_BOT = "demo-bot-release";
+export const DOCS_BOT = "demo-bot-docs";
+const RELEASE_MD = "# Release\n\nShip storefront's weekly release: cut the branch on Monday, check with the Maintainer what goes in, tag once the owner agrees, and ask Docs for the changelog in #release-train.\n";
+const DOCS_MD = "# Docs\n\nKeep the docs folder current: draft changelogs and how-tos when another bot asks in a channel, as Local PRs for the owner's review.\n";
 
 export const ASK_DEFAULT = "# Ask Launchpad\n\nYou help the owner run their day in Launchpad: answer questions about their agents, folders, Inbox and quotas, and turn requests into proposals they start with one click.\n\n## How you work\n\n- Read the state you need with the Launchpad CLI before you answer or propose. Check facts instead of guessing.\n- You do not do the work yourself: you propose it. One proposal per independent task.\n- When the owner asks you to change Launchpad itself (a bot, its instructions or settings, a routine, a schedule, a workspace), make the change directly with your admin access, then say what you changed. Starting agents and messaging them stay proposals unless the owner says otherwise. To steer an agent that already works on it, propose a message to its session. To answer \"what needs me\", propose a status card.\n- Work that should wait for quota: a schedule with a quota condition.\n- A recurring helper with its own memory: propose a bot. A task for an existing bot: a message to its current session. Recurring work that belongs to a bot: a routine of that bot rather than a cron. A bot's BOT.md and routines are files of its folder (`routines/<name>.toml`): to change several of them, propose one `bot-files` card (one diff per file).\n- To refine a card that still waits, replace it instead of adding a second one, and say which card you replaced.\n- Note only durable things about the owner (their habits, how they like proposals) or what they ask you to remember, in a few short lines of your memory (`launchpad bot memory write`). Facts other agents need go in the knowledge base. Never log your answers, proposals or runs.\n\n## How you answer\n\n- Short sentences, plain words. Lead with the answer.\n- After proposing, say what each card does and check its returned state.\n";
 
@@ -33,6 +38,8 @@ export function botsWorld() {
   const settings: Bot["settings"] = { name: "Maintainer", profile: "claude-max", folder: P.storefront, permission_mode: "yolo", proposals: "manual", launchpad: "propose" };
   const ask: Bot["settings"] = { name: "Ask Launchpad", permission_mode: "yolo", proposals: "manual", launchpad: "admin", starters: [...ASK_STARTERS] };
   const librarian: Bot["settings"] = { name: "Librarian", permission_mode: "yolo", proposals: "manual", launchpad: "propose", starters: [...LIBRARIAN_STARTERS] };
+  const release: Bot["settings"] = { name: "Release", profile: "claude-max", permission_mode: "yolo", proposals: "manual", launchpad: "propose" };
+  const docs: Bot["settings"] = { name: "Docs", profile: "codex-plus", folder: P.docs, permission_mode: "yolo", proposals: "manual", launchpad: "propose" };
   const bots: Bot[] = [{
     id: ASK_BOT, workspace_id: WS.acme, slug: "ask-launchpad", created_at: clock.ago(60 * 24 * 30), settings: ask, instructions: ASK_DEFAULT,
     settings_text: settingsText(ask), settings_error: null, own_folder: true, paused: false, version: 2, memory: [], routines: {},
@@ -47,6 +54,14 @@ export function botsWorld() {
     instructions: MAINTAINER_BOT_MD,
     settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 4, memory: [], routines: {},
     instructions_version: botVersion(MAINTAINER_BOT_MD), memory_loaded: { loaded: 0, total: 0 },
+  }, {
+    id: RELEASE_BOT, workspace_id: WS.acme, slug: "release", created_at: clock.ago(60 * 24 * 6), settings: release, instructions: RELEASE_MD,
+    settings_text: settingsText(release), settings_error: null, own_folder: false, paused: false, version: 1, memory: [], routines: {},
+    instructions_version: botVersion(RELEASE_MD), memory_loaded: { loaded: 0, total: 0 },
+  }, {
+    id: DOCS_BOT, workspace_id: WS.acme, slug: "docs", created_at: clock.ago(60 * 24 * 6), settings: docs, instructions: DOCS_MD,
+    settings_text: settingsText(docs), settings_error: null, own_folder: false, paused: false, version: 1, memory: [], routines: {},
+    instructions_version: botVersion(DOCS_MD), memory_loaded: { loaded: 0, total: 0 },
   }];
   // Each bot's memory/ notes: path (in its folder) → content.
   const botMemory: Record<string, Record<string, string>> = {

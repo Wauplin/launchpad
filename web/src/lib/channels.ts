@@ -1,0 +1,12 @@
+// Bot channels and DMs (`launchpad_channels::channel`, Home's records): named conversations of a workspace's bots, and
+// DMs of two bots. The owner is a member of every one. A channel shows a plain unread dot for new messages and an
+// amber count only for messages that mention the owner or ask the owner (`attention`); they never go into Today here.
+// The pure helpers are in channelRows.ts (tested), re-exported here.
+
+import { useQuery } from "@tanstack/react-query";
+import type { Channel } from "@/gen/Channel";
+import { api } from "./api";
+
+export const useChannels = () => useQuery({ queryKey: ["channels"], queryFn: () => api.get<Channel[]>("/api/channels"), staleTime: 30_000, refetchInterval: 60_000, retry: false });
+
+export * from "./channelRows";

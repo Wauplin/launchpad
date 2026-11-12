@@ -33,6 +33,7 @@ function parentOf(path: string, search: URLSearchParams): string | null {
   if (path.startsWith("/agents")) return search.has("session") ? "/agents" : null;
   // A bot's About page (`?panel=`) has the bot's chat under it.
   if (path.startsWith("/bots/")) return search.has("panel") ? path : "/chats";
+  if (path.startsWith("/channels/")) return "/chats";
   if (path.startsWith("/github/")) return "/inbox";
   if (path.startsWith("/inbox")) return search.has("thread") ? "/inbox" : null;
   if (path.startsWith("/knowledge")) return search.has("note") ? "/knowledge" : "/more";
