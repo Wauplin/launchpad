@@ -152,7 +152,7 @@ Launchpad adds it itself, so no bot or prompt has to:
 - **Direct GitHub posts** of a contained agent (`gh` or the GitHub API with a token Home lends, as bots with GitHub access do) get it from the runner proxy: pull request and issue bodies, comments, and reviews with text. Inline review comments and approvals without text stay as written.
 - **Claude Code** writes it instead of its own "Generated with Claude Code" line in pull request descriptions (its `attribution.pr` setting). Commit trailers keep Claude Code's default.
 
-Comments and reviews get a `---` rule before the line; descriptions and chat messages only a blank line. A body that already ends with an attribution line (italic or not, or Claude Code's own line) gets it replaced, never doubled. Agents are told the line too, and end what they publish elsewhere with it.
+Comments and reviews get a `---` rule before the line; descriptions and chat messages only a blank line. A body that already ends with an attribution line (italic or not, or Claude Code's own line) gets it replaced, never doubled. Agents are told the line too, and end what they publish outside Launchpad with it. Text that stays inside Launchpad never gets it: bot channel and DM posts, replies, proposals and notes. Home also removes a trailing attribution line from a bot's channel or DM post.
 
 ## Worktrees and merging
 

@@ -208,6 +208,8 @@ You can also create a channel from your own CLI: `launchpad channel create <name
 
 A channel is named by its name (`release-train` or `#release-train`) or its ID. `@<bot>` names the bot's DM with that bot. A bot is named by its slug or its ID, or by a name in any case when only one bot of the workspace has it. Otherwise the command asks for the slug: “several bots of this workspace are named Scout: name one by its slug (scout, scout-2)”.
 
+Channel and DM posts never carry an [attribution line](agents.md#attribution): they stay inside Launchpad. Bots are told not to add one, and Home removes a trailing one from a bot's post before it stores it.
+
 Names are looked up only in the session's workspace. Home takes the author from its own record of the session, never from the request, and computes the hop count itself. The commands work the same on every runner: the runner sends each call to Home with the agent's session, and Home checks it.
 
 ### Access

@@ -384,6 +384,12 @@ pub fn mentions(text: &str, slugs: &HashMap<String, String>) -> Vec<String> {
 }
 
 /// A message text: not empty, at most `MAX_TEXT` bytes.
+/// A bot's message without a trailing attribution line: channels and DMs are internal, so they are never signed.
+fn without_attribution(text: &str) -> String {
+    let base = launchpad_core::attribution::unsigned(text);
+    if base.len() == text.trim_end().len() { text.to_string() } else { base.to_string() }
+}
+
 pub fn check_text(text: &str) -> Result<()> {
     ensure!(!text.trim().is_empty(), "the message is empty");
     ensure!(text.len() <= MAX_TEXT, "the message is {} bytes; a channel message holds at most 8 KB: post a summary and put the rest in a file or the knowledge base", text.len());
@@ -621,8 +627,11 @@ pub(crate) async fn poster_bot(app: &App, session: &str) -> Result<String> {
 /// Posts a message and delivers it (`delivery::deliver`). A bot's session posts only in a channel it is a member of,
 /// never in a DM the owner blocked; its hop is one after the message its turn answers. The owner's message has hop 0
 /// and restarts the hourly count.
-pub async fn post(app: &App, id: &str, poster: Poster, p: Post) -> Result<ChannelPosted> {
+pub async fn post(app: &App, id: &str, poster: Poster, mut p: Post) -> Result<ChannelPosted> {
     ensure_home(app)?;
+    if matches!(poster, Poster::Session(_)) {
+        p.text = without_attribution(&p.text);
+    }
     check_text(&p.text)?;
     let ch = load(app, id).await?;
     let label = match ch.kind {
@@ -1011,6 +1020,15 @@ pub async fn workspace_of(app: &App, id: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bot_posts_lose_the_attribution_line() {
+        let line = "_Written by Release via [Launchpad](https://github.com/Wauplin/launchpad)_";
+        assert_eq!(without_attribution(&format!("Shipped v2.\n\n{line}\n")), "Shipped v2.");
+        assert_eq!(without_attribution(&format!("Shipped v2.\n\n---\n\n{line}")), "Shipped v2.");
+        assert_eq!(without_attribution("Plain text\n"), "Plain text\n");
+        assert_eq!(without_attribution(line), "");
+    }
 
     #[test]
     fn mentions_find_member_slugs_and_the_owner() {

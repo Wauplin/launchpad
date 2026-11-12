@@ -173,7 +173,7 @@ pub fn sign_request(app: &App, session_id: &str, host: &str, method: &str, path:
 /// The sentence of the contained instructions: what Launchpad signs, and what the agent signs itself.
 pub fn instruction(line: &str) -> String {
     format!(
-        "Attribution: Launchpad ends what you publish through it with the line `{line}`: pull request and issue bodies, comments and reviews you post with `gh` or the GitHub API, Local PRs, Suggestions and Outbox messages. Do not add that line or another attribution line (such as \"Generated with …\") to them yourself. When you publish text anywhere else yourself, end it with that line after a blank line.\n"
+        "Attribution: Launchpad ends what you publish through it with the line `{line}`: pull request and issue bodies, comments and reviews you post with `gh` or the GitHub API, Local PRs, Suggestions and Outbox messages. Do not add that line or another attribution line (such as \"Generated with …\") to them yourself. Bot channel and DM posts (`launchpad channel post`, `launchpad dm`), your replies and everything else you write inside Launchpad itself (proposals, reports, the knowledge base, bot memory) never get an attribution line. When you publish text outside Launchpad yourself, end it with that line after a blank line.\n"
     )
 }
 
@@ -182,6 +182,13 @@ mod tests {
     use super::*;
 
     const CLAUDE: &str = "_Written by Claude Code via [Launchpad](https://github.com/Wauplin/launchpad)_";
+
+    #[test]
+    fn instruction_keeps_channel_posts_unsigned() {
+        let t = instruction(CLAUDE);
+        assert!(t.contains("`launchpad channel post`, `launchpad dm`), your replies and everything else you write inside Launchpad itself"), "{t}");
+        assert!(t.contains("When you publish text outside Launchpad yourself, end it with that line"), "{t}");
+    }
 
     #[test]
     fn wording_names_the_bot_or_the_harness() {

@@ -118,7 +118,7 @@ export function startPreview(spec: LaunchSpec): StartPreview {
   const instructions: StartPart[] = [{ key: "kb", label: "Knowledge base and its INDEX.md", text: kb }];
   if (memory.text) instructions.push({ key: "memory", label: "Bot memory", text: memory.text });
   instructions.push({ key: "cli", label: "Launchpad CLI reference", text: `# Launchpad CLI\n\nYour access to the owner's Launchpad through \`launchpad\` (JSON output) is **${access}**. Read: \`launchpad folders list\`, \`launchpad sessions list\`, \`launchpad today\`…${access === "read" ? "" : " Propose with \`launchpad propose <launch|message|schedule|…> --title \"…\" --spec-file <file.json>\`: proposals are inert cards the owner starts with a click."}\n` });
-  instructions.push({ key: "attribution", label: "Attribution", text: "Attribution: Launchpad ends what you publish through it with the line `_Written by Claude Code via [Launchpad](https://github.com/Wauplin/launchpad)_`. Do not add that line or another attribution line yourself.\n" });
+  instructions.push({ key: "attribution", label: "Attribution", text: "Attribution: Launchpad ends what you publish through it with the line `_Written by Claude Code via [Launchpad](https://github.com/Wauplin/launchpad)_`. Do not add that line or another attribution line yourself. Bot channel and DM posts and other text inside Launchpad never get an attribution line.\n" });
   if (memory.cut) instructions.push({ key: "memory-cut", label: "Memory cut", text: memory.cut });
   // What a launch adds once the session has its id and folder (`Sessions::launch`), shortened for the demo.
   const prompt = promptParts(s, "");
