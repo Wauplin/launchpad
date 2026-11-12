@@ -606,6 +606,8 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
   const presets = answering ? [] : selectedPresets.filter((id) => botPresets.some((p) => p.id === id));
   const withContext = hasMessageContext(context);
   const dictation = useDictation({ inputRef: ref, onSend: () => void send(), keep: { read: () => readDraft(`chat.${bot.id}`) ?? "", write: (t) => writeDraft(`chat.${bot.id}`, t) } });
+  // On the phone, a dictation leaves the row to the field, the mic and Stop & send.
+  const narrow = usePhone() && dictation.active;
   const send = async (typed = text) => {
     const t = answering ? typed.trim() : withPresets(typed, presets, botPresets);
     if ((!t && !files.length && !withContext) || busy || reading || blocked) return;
@@ -670,9 +672,9 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
             onPaste={(e) => { if (!acceptsImages || busy) return; const pasted = pastedImages(e); if (pasted) void attachments.add(pasted); }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}
             className="min-h-6 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
-          {!answering && <MessageContextButton sessionId={current?.id ?? null} value={context} onChange={setContext} presets={{ presets: botPresets, selected: presets, onChange: setPresets }} disabled={busy || reading || blocked} />}
-          <button className="iconbtn" title={`Attach files${acceptsImages ? " or images" : ""}. ${ATTACH_LIMITS}`} aria-label="Attach files" disabled={busy || reading || blocked} onClick={() => fileRef.current?.click()}><Icon name="clip" size={14} /></button>
-          {!blocked && <VoiceButton dictation={dictation} />}
+          {!answering && !narrow && <MessageContextButton sessionId={current?.id ?? null} value={context} onChange={setContext} presets={{ presets: botPresets, selected: presets, onChange: setPresets }} disabled={busy || reading || blocked} />}
+          {!narrow && <button className="iconbtn" title={`Attach files${acceptsImages ? " or images" : ""}. ${ATTACH_LIMITS}`} aria-label="Attach files" disabled={busy || reading || blocked} onClick={() => fileRef.current?.click()}><Icon name="clip" size={14} /></button>}
+          {!blocked && <VoiceButton dictation={dictation} tour="chat.mic" />}
           {dictation.active ? <button className="btn btn-sm flex-none" title="Finish the dictation, then send" disabled={busy || reading || dictation.phase === "finishing"} onClick={dictation.stopAndSend}>Stop &amp; send</button>
             : <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || reading || blocked || (!text.trim() && !files.length && !withContext && !presets.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>}
         </div>

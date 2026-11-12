@@ -39,7 +39,13 @@ export function micError(e: unknown): string {
   return `The microphone did not start${e instanceof Error && e.message ? `: ${e.message}` : ""}.`;
 }
 
+export type CaptureSource = (deviceId: string | null, onFrame: (pcm: ArrayBuffer, level: number) => void) => Promise<Capture>;
+let replaced: CaptureSource | null = null;
+/** The demo plays a scripted voice: its frames come from here instead of a microphone (no permission prompt). */
+export function replaceCapture(source: CaptureSource) { replaced = source; }
+
 export async function startCapture(deviceId: string | null, onFrame: (pcm: ArrayBuffer, level: number) => void): Promise<Capture> {
+  if (replaced) return replaced(deviceId, onFrame);
   const constraints = (id: string | null): MediaStreamConstraints => ({ audio: { ...(id ? { deviceId: { exact: id } } : {}), channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
   // Created before the first await, while the click still counts as a user gesture (Safari keeps it suspended otherwise).
   const ctx = new AudioContext();

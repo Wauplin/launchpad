@@ -95,7 +95,7 @@ route("PUT", "/api/config", ({ body }) => {
 });
 
 type GeneralPatch = Partial<{
-  presets: Config["presets"]; github_poll_interval_seconds: number; worktrees_keep: number;
+  presets: Config["presets"]; github_poll_interval_seconds: number; worktrees_keep: number; voice: Config["voice"];
 }>;
 
 route("PATCH", "/api/config", ({ body }) => {
@@ -104,6 +104,7 @@ route("PATCH", "/api/config", ({ body }) => {
   if (p.presets !== undefined) c.presets = p.presets;
   if (p.github_poll_interval_seconds !== undefined) c.github.poll_interval_seconds = Math.max(15, p.github_poll_interval_seconds);
   if (p.worktrees_keep !== undefined) c.worktrees.keep = p.worktrees_keep;
+  if (p.voice !== undefined) c.voice = p.voice;
   return saveConfig(c);
 });
 
@@ -181,6 +182,7 @@ const slackSteps = ["Open Slack: the app and its permissions are already filled 
 route("GET", "/api/vault", () => ({
   entries: [
     { id: "claude-max", kind: "claude_login", name: "Claude Max", detail: "…k3Qa", updated_at: clock.now() - 86_400_000 },
+    { id: "claude-pro", kind: "claude_login", name: "Claude Pro", detail: "…7vWm", updated_at: clock.now() - 5 * 86_400_000 },
     // The demo's Codex profile shows quota: its login is in the vault too.
     { id: "codex-chatgpt", kind: "codex_login", name: "ChatGPT Pro", detail: "demo-user@example.com", updated_at: clock.now() - 2 * 86_400_000 },
     { id: "github", kind: "token", name: "GitHub fine-grained", detail: "…9fZ2", updated_at: clock.now() - 3 * 86_400_000 },

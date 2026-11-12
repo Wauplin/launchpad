@@ -137,7 +137,7 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
         <button className="iconbtn" title={`Attach files or images (you can also drop files${acceptsImages ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
           <Icon name="clip" size={14} />
         </button>
-        <VoiceButton dictation={dictation} className={bigStop ? "hidden" : ""} />
+        <VoiceButton dictation={dictation} className={bigStop ? "hidden" : ""} tour="session.mic" />
         {dictation.active && !bigStop ? <button className="btn btn-sm flex-none" title="Finish the dictation, then send" disabled={disabled || busy || reading || dictation.phase === "finishing"} onClick={dictation.stopAndSend}>Stop &amp; send</button> : <button className="session-send iconbtn border-line! bg-paper" aria-label="Send" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : promptSession?.quota_pause ? "Queue for resume" : "Send"} disabled={disabled || busy || reading || (!message && !files.length && !hasMessageContext(context))} onClick={() => void send()}>
           <Icon name="send" size={14} />
         </button>}

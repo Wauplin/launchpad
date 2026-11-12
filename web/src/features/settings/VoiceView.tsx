@@ -100,15 +100,15 @@ export function VoiceView() {
   return (
     <SettingsPage title="Voice" meta={meta} intro="Dictate in every message box: tap the mic left of Send, or hold Ctrl+Space. Your words are transcribed with your Claude subscription logins on Home; nothing is sent until you send it.">
       <ConfigError />
-      {isDemo && <div className="rounded-card bg-attn-soft px-3 py-2 text-[12px] text-attn">The demo shows the settings only: voice needs your own Home and a Claude login.</div>}
+      {isDemo && <div className="rounded-card bg-attn-soft px-3 py-2 text-[12px] text-attn">In the demo, the mic plays a scripted voice: nothing is recorded. On your own Home, voice needs a Claude subscription login.</div>}
       <Card title="Voice input">
         <SettingRow label="Voice input" hint="Adds a mic to every message box." scope="all" state={save.state} error={save.error}>
           <Choices label="Voice input"><Choice active={voice.enabled} onClick={() => update({ enabled: true })}>On</Choice><Choice active={!voice.enabled} onClick={() => update({ enabled: false })}>Off</Choice></Choices>
           {voice.enabled && reason && <span className="basis-full text-[12px] text-attn">{reason}</span>}
         </SettingRow>
       </Card>
-      <Card title="Sources, in order" end={<button className="btn btn-sm" disabled={isDemo || testing || !voice.enabled || !used.some((s) => s.state === "ready")} title="Records 3 s with each ready source in order" onClick={() => void runTest()}><Icon name="mic" size={12} />{testing ? "Testing…" : "Test voice"}</button>}>
-        {status.isLoading && !isDemo ? <Loading what="sources" /> : <div>
+      <Card title="Sources, in order" tour="settings.voice-sources" end={<button className="btn btn-sm" disabled={testing || !voice.enabled || !used.some((s) => s.state === "ready")} title="Records 3 s with each ready source in order" onClick={() => void runTest()}><Icon name="mic" size={12} />{testing ? "Testing…" : "Test voice"}</button>}>
+        {status.isLoading ? <Loading what="sources" /> : <div>
           {used.map((s, i) => <SourceRow key={s.profile} s={s} index={i} count={used.length} onMove={(to) => move(i, to)} onRemove={() => order(used.filter((x) => x.profile !== s.profile).map((x) => x.profile))} />)}
           {!used.length && <div className="py-2 text-[12px] text-ink-3">No source: voice uses Claude subscription profiles.</div>}
           {addable.map((s) => <div key={s.profile} className="flex min-h-12 items-center gap-3 border-b border-line-2 py-2 last:border-b-0">

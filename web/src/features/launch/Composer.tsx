@@ -630,7 +630,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               presets={{ presets: agentPresets, selected: spec.presets, onChange: (ids) => set((s) => ({ ...s, presets: ids })) }}
             />
             <button className={`${isPhone ? "btn btn-ghost text-[13px]" : "btn btn-sm btn-ghost"} ml-auto`} disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. ${ATTACH_LIMITS}`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} />{isPhone ? "Attach files or images" : "Attach"}</button>
-            <VoiceButton dictation={dictation} />
+            <VoiceButton dictation={dictation} tour="composer.mic" />
           </div>
         </div>
         {(readingAttachments || (spec.attachments ?? []).length > 0 || unsupportedImages) && <div>

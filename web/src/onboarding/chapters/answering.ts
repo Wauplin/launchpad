@@ -2,6 +2,7 @@
 
 import type { Chapter } from "../tour/types";
 import { world } from "@/demo/world";
+import { useVoice } from "@/lib/voice/dictation";
 import { anchor, clickAnchor, waitFor } from "./helpers";
 import { meta } from "./meta";
 
@@ -12,7 +13,7 @@ const firstButton = async (name: string) => { (await waitFor(() => anchor(name)?
 
 export const answering: Chapter = {
   ...meta("answering"),
-  learned: ["Agents groups your runs: Running, Quota paused, Done and more; questions and unseen results also wait in Today", "Agents ask questions; you answer with a click", "In Ask for approval mode, commands wait for your decision", "One primary button follows the state: Stop, Answer, Archive or Resume"],
+  learned: ["Agents groups your runs: Running, Quota paused, Done and more; questions and unseen results also wait in Today", "Agents ask questions; you answer with a click", "In Ask for approval mode, commands wait for your decision", "One primary button follows the state: Stop, Answer, Archive or Resume", "Dictate in any message box with the mic: words land at the caret, and nothing is sent until you send it"],
   setup: () => { start = answers(); },
   steps: [
     {
@@ -37,6 +38,12 @@ export const answering: Chapter = {
       title: "Reply",
       body: "Send the next message here once the agent is Done. @, / and # work as in the composer; the + icon attaches folders, GitHub links, traces or presets (your usual instructions). Enter sends; Shift+Enter adds a line.",
       enter: () => clickAnchor("session.views", "trace"),
+    },
+    {
+      id: "answering.voice", anchor: "session.mic",
+      title: "Dictate",
+      body: "Tap the mic and speak: your words show live, then land at the caret. Tap again, or stay quiet, to stop; Stop & send sends at once. Ctrl+Space works in every message box. In the demo, a scripted voice speaks.",
+      tryIt: { text: "click the mic.", done: () => useVoice.getState().phase === "listening", doIt: () => clickAnchor("session.mic") },
     },
     {
       id: "answering.primary", anchor: "session.primary",

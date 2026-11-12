@@ -1,7 +1,9 @@
 // One dictation at a time in this window, whichever box started it. States: idle → starting (recording, "Connecting…")
 // → listening (words arrive) → finishing (after Stop, the last words) → idle. The audio goes to Home over one
 // WebSocket (`/api/voice/ws`), and Home sends it to the voice source; frames recorded before the socket or the
-// source is ready wait in order (here, then on Home), so nothing said after the click is lost.
+// source is ready wait in order (here, then on Home), so nothing said after the click is lost. In the demo the same
+// code runs against a scripted voice: the demo's socket answers like Home and its capture plays levels without a
+// microphone (`demo/routes/voice.ts`).
 
 import { create } from "zustand";
 import { useQuery } from "@tanstack/react-query";
@@ -38,19 +40,19 @@ export const useVoice = create<VoiceState>(() => ({ owner: null, phase: "idle", 
 export const MAX_MS = 5 * 60_000;
 const COUNTDOWN_MS = 2_000;
 
-/** Settings and sources, from Home; null in the demo and while loading. */
+/** Settings and sources, from Home (the demo answers with its profiles); null while loading. */
 export function useVoiceStatus() {
-  return useQuery({ queryKey: ["voice"], queryFn: ({ signal }) => api.get<VoiceStatus>("/api/voice", signal), enabled: !isDemo && !isExtension, staleTime: 30_000, refetchInterval: 60_000 });
+  return useQuery({ queryKey: ["voice"], queryFn: ({ signal }) => api.get<VoiceStatus>("/api/voice", signal), enabled: !isExtension, staleTime: 30_000, refetchInterval: 60_000 });
 }
 
 /** Whether the mic shows (voice is on), and why it is disabled (null: ready). */
 export function useVoiceAvailability(): { shown: boolean; reason: string | null; status: VoiceStatus | null } {
   const status = useVoiceStatus().data ?? null;
-  if (isDemo) return { shown: true, reason: "Voice input is not available in the demo", status };
   if (isExtension) return { shown: false, reason: null, status };
   if (!status) return { shown: false, reason: null, status };
   if (!status.enabled) return { shown: false, reason: status.unavailable, status };
-  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return { shown: true, reason: "Voice needs HTTPS. Open Launchpad through its Tailscale or Space address.", status };
+  // The demo plays a scripted voice without a microphone (`demo/routes/voice.ts`).
+  if (!isDemo && (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia)) return { shown: true, reason: "Voice needs HTTPS. Open Launchpad through its Tailscale or Space address.", status };
   if (status.unavailable) return { shown: true, reason: status.resets_at ? `${status.unavailable} until ${when(status.resets_at * 1000)}` : status.unavailable, status };
   return { shown: true, reason: null, status };
 }
@@ -145,7 +147,6 @@ function onFrame(pcm: ArrayBuffer, level: number) {
 
 /** Starts dictating into a box. A dictation in another box stops first (its text stays there). */
 export async function startDictation(t: Omit<Target, "silenceMs">, opts: { held?: boolean; silenceS?: number } = {}) {
-  if (isDemo) return;
   const s = useVoice.getState();
   if (s.phase !== "idle") await stopDictation();
   const id = ++current;

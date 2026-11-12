@@ -9,7 +9,8 @@ import type { Dictation } from "@/lib/voice/useDictation";
 
 const LONG_PRESS_MS = 350;
 
-export function VoiceButton({ dictation: d, className = "", large }: { dictation: Dictation; className?: string; large?: boolean }) {
+/** `tour`: its `data-tour` anchor. */
+export function VoiceButton({ dictation: d, className = "", large, tour }: { dictation: Dictation; className?: string; large?: boolean; tour?: string }) {
   const countdown = useVoice((s) => (s.owner === d.id ? s.countdown : null));
   const press = useRef<{ timer: ReturnType<typeof setTimeout> | null; held: boolean }>({ timer: null, held: false });
   if (!d.shown) return null;
@@ -18,7 +19,7 @@ export function VoiceButton({ dictation: d, className = "", large }: { dictation
     <circle cx="10" cy="10" r="9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray={`${(1 - countdown) * 56.5} 56.5`} />
   </svg>;
   return (
-    <button type="button" title={label} aria-label={d.active ? "Stop dictation" : "Dictate"} aria-pressed={d.active}
+    <button type="button" data-tour={tour} title={label} aria-label={d.active ? "Stop dictation" : "Dictate"} aria-pressed={d.active}
       disabled={!d.active && !!d.reason}
       className={`${large ? "btn relative h-[52px] flex-1 justify-center text-[15px]" : "iconbtn relative"} touch-manipulation select-none disabled:opacity-40 ${d.active ? "border-danger! bg-danger-ink text-paper hover:bg-danger! hover:text-paper!" : ""} ${className}`}
       onPointerEnter={d.warm} onFocus={d.warm}
