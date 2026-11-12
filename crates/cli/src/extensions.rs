@@ -33,6 +33,9 @@ impl launchpad_core::ext::Extensions for Extensions {
         crons::delete_for_bot(app, bot_id).await?;
         launchpad_channels::channel::bot_deleted(app, bot_id).await
     }
+    async fn channel_card(&self, app: &App, workspace: &str, card: serde_json::Value, bot: Option<&str>, apply: bool, by: &str) -> Result<serde_json::Value> {
+        launchpad_channels::cards::card(app, workspace, card, bot, apply, by).await
+    }
     async fn inbox_synced(&self, app: &App) {
         crons::inbox_synced(app).await;
     }

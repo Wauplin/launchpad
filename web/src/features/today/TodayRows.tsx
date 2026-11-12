@@ -282,7 +282,7 @@ function LocalPrRow(p: RowProps) {
 }
 
 /** One-word Start labels for the phone's button column (the full label is the tooltip and the card's button). */
-const SHORT: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create", status: "", preset: "Save", tool: "Add", bot: "Create", routine: "Add", bot_instructions: "Apply", bot_files: "Apply", ready: "", report: "" };
+const SHORT: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create", status: "", preset: "Save", tool: "Add", bot: "Create", routine: "Add", bot_instructions: "Apply", bot_files: "Apply", channel: "Create", channel_join: "Add", ready: "", report: "" };
 
 /** Start in one click when it is a plain start; ready, status and uncertain cards open first. */
 function ProposalRow({ p: proposal, ...p }: RowProps & { p: Proposal | undefined }) {

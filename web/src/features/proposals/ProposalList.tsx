@@ -12,7 +12,7 @@ import type { Proposal } from "@/gen/Proposal";
 
 const KIND: Record<Proposal["body"]["kind"], [string, string]> = {
   launch: ["launch", "launches"], message: ["message", "messages"], schedule: ["scheduled launch", "scheduled launches"], cron: ["routine", "routines"], status: ["status list", "status lists"],
-  preset: ["preset", "presets"], tool: ["tool", "tools"], bot: ["bot", "bots"], routine: ["routine", "routines"], bot_instructions: ["BOT.md change", "BOT.md changes"], bot_files: ["bot file change", "bot file changes"], ready: ["ready click", "ready clicks"], report: ["report", "reports"],
+  preset: ["preset", "presets"], tool: ["tool", "tools"], bot: ["bot", "bots"], routine: ["routine", "routines"], bot_instructions: ["BOT.md change", "BOT.md changes"], bot_files: ["bot file change", "bot file changes"], channel: ["channel", "channels"], channel_join: ["join request", "join requests"], ready: ["ready click", "ready clicks"], report: ["report", "reports"],
 };
 
 /** "2 launches, 1 tool": what a group action covers. */

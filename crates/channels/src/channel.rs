@@ -585,6 +585,14 @@ async fn turn_of(app: &App, session: &str) -> Option<i64> {
         .flatten()
 }
 
+/// The refusal for a bot that is not a member: a named channel points to the join card.
+pub(crate) fn not_member(ch: &Row) -> String {
+    match ch.kind {
+        Kind::Channel => format!("not a member of #{}: propose joining with `launchpad channel join {}` (a card the owner accepts)", ch.name, ch.name),
+        Kind::Dm => "not a member of this DM".into(),
+    }
+}
+
 /// The bot a session posts as: its bot (`LaunchSpec.bot`, Home's record), a member of the channel, of its workspace.
 pub(crate) async fn poster_bot(app: &App, session: &str) -> Result<String> {
     let s = app.sessions.get(session).context("no such session")?;
@@ -613,7 +621,7 @@ pub async fn post(app: &App, id: &str, poster: Poster, p: Post) -> Result<Channe
             let bot = poster_bot(app, s).await?;
             let info = bots.get(&bot).context("the session's bot no longer exists")?;
             ensure!(info.workspace_id == ch.workspace_id, "{label} is in another workspace");
-            ensure!(members.iter().any(|m| m.bot_id == bot), "not a member of {label}: ask the owner to add you");
+            ensure!(members.iter().any(|m| m.bot_id == bot), "{}", not_member(&ch));
             ensure!(!ch.blocked, "the owner blocked this DM");
             let hops = launchpad_core::senders::hops_of(app, s).await + 1;
             (Author { kind: AuthorKind::Bot, id: bot, name: info.name.clone() }, Some(s.clone()), turn_of(app, s).await, hops)
@@ -703,25 +711,66 @@ pub struct NewChannel {
     pub name: String,
     #[serde(default)]
     pub purpose: String,
-    /// Member bots (IDs or slugs of the workspace's bots), in mode `mentions`.
-    #[serde(default)]
-    pub members: Vec<String>,
+    /// Member bots of the workspace: a slug or ID (mode `mentions`), or `{"bot": "release", "mode": "all"}`.
+    #[serde(default, deserialize_with = "new_members")]
+    pub members: Vec<NewMember>,
 }
 
-/// A named channel of a workspace. Its members are woken only when mentioned (mode `mentions`) until changed.
-pub async fn create(app: &App, n: NewChannel, by: &str) -> Result<Channel> {
-    ensure_home(app)?;
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct NewMember {
+    pub bot: String,
+    #[serde(default = "mentions_mode")]
+    pub mode: Mode,
+}
+
+fn mentions_mode() -> Mode {
+    Mode::Mentions
+}
+
+/// `["release", {"bot": "docs", "mode": "all"}]`.
+fn new_members<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Vec<NewMember>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum One {
+        Key(String),
+        Full(NewMember),
+    }
+    Ok(Vec::<One>::deserialize(d)?.into_iter().map(|o| match o { One::Key(bot) => NewMember { bot, mode: Mode::Mentions }, One::Full(m) => m }).collect())
+}
+
+/// Why a new channel cannot have this name in the workspace (taken by a live or an archived channel), checked
+/// before the insert for a clear message; the unique index decides.
+pub(crate) async fn name_taken(app: &App, workspace: &str, name: &str, except: Option<&str>) -> Result<Option<String>> {
+    let (ws, n, ex) = (workspace.to_string(), name.to_string(), except.unwrap_or_default().to_string());
+    let archived: Option<bool> = app.state_db.call(move |c| Ok(c.query_row("SELECT archived FROM channel WHERE workspace_id = ?1 AND name = ?2 AND id != ?3", params![ws, n, ex], |r| r.get(0)).optional()?)).await?;
+    Ok(archived.map(|a| if a { format!("#{name} already exists in this workspace, archived: bring it back (Bots → Archived channels) or delete it first") } else { format!("#{name} already exists in this workspace") }))
+}
+
+/// Checks a new channel: its name (valid, free in the workspace), workspace and member bots (each once, of the
+/// workspace). Returns the trimmed name and the members by bot ID.
+pub(crate) async fn check_new(app: &App, n: &NewChannel) -> Result<(String, Vec<(String, Mode)>)> {
     let name = n.name.trim().trim_start_matches('#').to_string();
     ensure!(valid_name(&name), "a channel name has lowercase letters, digits and dashes (at most 40), like release-train");
     launchpad_core::workspace::get(app, &n.workspace_id).await?;
+    if let Some(why) = name_taken(app, &n.workspace_id, &name, None).await? {
+        anyhow::bail!(why);
+    }
     let bots = bots(app).await?;
-    let mut members = vec![];
+    let mut members: Vec<(String, Mode)> = vec![];
     for m in &n.members {
-        let id = resolve_bot(&bots, &n.workspace_id, m)?;
-        if !members.contains(&id) {
-            members.push(id);
+        let id = resolve_bot(&bots, &n.workspace_id, &m.bot)?;
+        if !members.iter().any(|(b, _)| *b == id) {
+            members.push((id, m.mode));
         }
     }
+    Ok((name, members))
+}
+
+/// A named channel of a workspace. Members are woken only when mentioned (mode `mentions`) unless the request names
+/// another mode.
+pub async fn create(app: &App, n: NewChannel, by: &str) -> Result<Channel> {
+    ensure_home(app)?;
+    let (name, members) = check_new(app, &n).await?;
     let purpose = one_line(&n.purpose, 200);
     let (id, ws, by, now) = (uuid::Uuid::new_v4().to_string(), n.workspace_id.clone(), by.to_string(), now_ms());
     let (i, nm) = (id.clone(), name.clone());
@@ -733,8 +782,10 @@ pub async fn create(app: &App, n: NewChannel, by: &str) -> Result<Channel> {
                 "INSERT OR IGNORE INTO channel (id, workspace_id, kind, name, purpose, created_by, created_at, hop_limit, hourly_limit) VALUES (?1, ?2, 'channel', ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![i, ws, nm, purpose, by, now, DEFAULT_HOP_LIMIT, DEFAULT_HOURLY_LIMIT],
             )?;
-            for bot in &members {
-                tx.execute("INSERT OR IGNORE INTO channel_member (channel_id, bot_id, mode) VALUES (?1, ?2, 'mentions')", params![i, bot])?;
+            if n > 0 {
+                for (bot, mode) in &members {
+                    tx.execute("INSERT OR IGNORE INTO channel_member (channel_id, bot_id, mode) VALUES (?1, ?2, ?3)", params![i, bot, text_of(*mode)])?;
+                }
             }
             tx.commit()?;
             Ok(n > 0)
@@ -788,6 +839,15 @@ pub async fn set_member(app: &App, id: &str, bot: &str, mode: Option<Mode>) -> R
     }
     changed(app, id, &ch.workspace_id);
     get(app, id).await
+}
+
+/// Changes the mode of a bot that is already a member of a named channel (`channel.set-mode`).
+pub async fn set_mode(app: &App, id: &str, bot: &str, mode: Mode) -> Result<Channel> {
+    ensure_home(app)?;
+    let ch = load(app, id).await?;
+    ensure!(ch.kind == Kind::Channel, "a DM's bots are always in mode all");
+    ensure!(members_of(app, id).await?.iter().any(|m| m.bot_id == bot), "this bot is not a member of #{}: add it first", ch.name);
+    set_member(app, id, bot, Some(mode)).await
 }
 
 /// A bot's session read the channel up to `through`.
@@ -858,6 +918,9 @@ pub async fn edit(app: &App, id: &str, e: Edit) -> Result<Channel> {
         None => ch.name.clone(),
     };
     let purpose = e.purpose.map_or(ch.purpose.clone(), |p| one_line(&p, 200));
+    if let Some(why) = name_taken(app, &ch.workspace_id, &name, Some(id)).await? {
+        anyhow::bail!(why);
+    }
     let (cid, ws, n2) = (id.to_string(), ch.workspace_id.clone(), name.clone());
     let ok = app
         .state_db
@@ -948,6 +1011,13 @@ mod tests {
         assert_eq!(dm_key("a", "b"), "dm:a:b");
         assert!(valid_name("release-train") && valid_name("2024"));
         assert!(!valid_name("") && !valid_name("-x") && !valid_name("Release") && !valid_name("dm:a:b") && !valid_name(&"a".repeat(41)));
+    }
+
+    #[test]
+    fn new_channel_members_are_slugs_or_bots_with_a_mode() {
+        let n: NewChannel = serde_json::from_value(json!({"workspace_id": "w", "name": "x", "members": ["release", {"bot": "docs", "mode": "all"}, {"bot": "qa"}]})).unwrap();
+        assert_eq!(n.members, [NewMember { bot: "release".into(), mode: Mode::Mentions }, NewMember { bot: "docs".into(), mode: Mode::All }, NewMember { bot: "qa".into(), mode: Mode::Mentions }]);
+        assert!(serde_json::from_value::<NewChannel>(json!({"workspace_id": "w", "name": "x", "members": [{"bot": "docs", "mode": "loud"}]})).is_err());
     }
 
     #[test]

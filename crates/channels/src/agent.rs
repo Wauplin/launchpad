@@ -113,13 +113,6 @@ fn handle(r: &Row, members: &[MemberRow], bots: &HashMap<String, BotInfo>, bot: 
     }
 }
 
-fn label(r: &Row) -> String {
-    match r.kind {
-        Kind::Channel => format!("#{}", r.name),
-        Kind::Dm => "this DM".into(),
-    }
-}
-
 /// The messages after `since` that the caller's bot did not write.
 async fn unread(app: &App, id: &str, bot: &str, since: i64) -> Result<u32> {
     let (id, bot) = (id.to_string(), bot.to_string());
@@ -186,7 +179,7 @@ pub async fn read(app: &App, session: &str, key: &str, since: Option<i64>, limit
     if mine.is_none() && !me.admin {
         match me.bot {
             None => bail!("only member bots read channels: this agent is not a bot's session"),
-            Some(_) => bail!("not a member of {}: ask the owner to add you", label(&r)),
+            Some(_) => bail!("{}", channel::not_member(&r)),
         }
     }
     let (messages, more) = channel::messages(app, &r.id, since, None, limit).await?;

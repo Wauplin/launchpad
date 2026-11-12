@@ -32,6 +32,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/channels/{id}/allow-more", post(allow_more))
         .route("/api/channels/{id}/members/{bot}", get(member).put(set_member))
         .route("/api/channels/{id}/members/{bot}/remove", post(remove_member))
+        .route("/api/channels/{id}/members/{bot}/mode", axum::routing::put(set_mode))
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -208,4 +209,14 @@ async fn set_member(State(s): State<Ctx>, Path((id, bot)): Path<(String, String)
 
 async fn remove_member(State(s): State<Ctx>, Path((id, bot)): Path<(String, String)>) -> ApiResult<Channel> {
     Ok(Json(channel::set_member(&s.app, &id, &bot, None).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct SetMode {
+    mode: Mode,
+}
+
+/// A member bot's new mode (it must be a member already).
+async fn set_mode(State(s): State<Ctx>, Path((id, bot)): Path<(String, String)>, Json(m): Json<SetMode>) -> ApiResult<Channel> {
+    Ok(Json(channel::set_mode(&s.app, &id, &bot, m.mode).await.map_err(bad)?))
 }

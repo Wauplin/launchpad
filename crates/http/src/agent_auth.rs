@@ -50,8 +50,10 @@ fn channel_refusal(method: &Method, path: &str) -> Option<&'static str> {
     }
     Some(if *method == Method::GET {
         "agents read channels with `launchpad channel list` and `launchpad channel read <name>`"
-    } else if path == "/api/channels" || path.contains("/members/") {
-        "creating a channel and changing its members need admin Launchpad CLI access (`launchpad = \"admin\"` in the bot's bot.toml): ask the owner"
+    } else if path == "/api/channels" {
+        "creating a channel needs admin Launchpad CLI access: propose it with `launchpad propose channel --title \"…\" --spec-file c.json` ({\"name\": \"release-train\", \"purpose\": \"…\", \"members\": [\"release\", {\"bot\": \"docs\", \"mode\": \"all\"}]}), a card the owner accepts"
+    } else if path.contains("/members/") {
+        "changing a channel's members needs admin Launchpad CLI access: to join a channel yourself, `launchpad channel join <name>` files a card the owner accepts; ask the owner for other changes"
     } else if path.ends_with("/messages") || path == "/api/channels/dm" {
         "bots post with `launchpad channel post <name> --body-file <file>` and `launchpad dm <bot> --body-file <file>`"
     } else {
@@ -638,8 +640,8 @@ mod tests {
             assert!(!admin_allows(&m, p), "{m} {p}");
         }
         let why = |m: Method, p: &str| channel_refusal(&m, p).unwrap_or_default();
-        assert!(why(Method::POST, "/api/channels").contains("need admin"));
-        assert!(why(Method::PUT, "/api/channels/c1/members/b1").contains("need admin"));
+        assert!(why(Method::POST, "/api/channels").contains("launchpad propose channel"));
+        assert!(why(Method::PUT, "/api/channels/c1/members/b1").contains("launchpad channel join"));
         assert!(why(Method::POST, "/api/channels/c1/messages").starts_with("bots post with `launchpad channel post"));
         assert!(why(Method::POST, "/api/channels/c1/pause").starts_with("only the owner"));
         assert!(why(Method::GET, "/api/channels/c1/messages").contains("launchpad channel read"));

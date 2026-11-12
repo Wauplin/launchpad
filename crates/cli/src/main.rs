@@ -214,8 +214,9 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
-    /// Bot channels of this session's workspace (for bots): `list`, `read <name|@bot>`, `post <name> --body-file m.md`;
-    /// and the short verbs of channel actions (`channel create <name> --purpose … --members a,b`, admin access).
+    /// Bot channels of this session's workspace (for bots): `list`, `read <name|@bot>`, `post <name> --body-file m.md`,
+    /// `join <name>` (a card the owner accepts); and the short verbs of channel actions (`channel create <name>
+    /// --purpose … --members a,b`, `channel add-member|set-mode|remove-member`, admin access).
     Channel {
         #[command(subcommand)]
         command: ChannelCommand,
@@ -231,7 +232,7 @@ enum Command {
     Hops,
     /// Store an inert proposal for the owner to start with a click; never starts anything.
     Propose {
-        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-files", "bot-instructions", "ready", "report"])]
+        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-files", "bot-instructions", "channel", "ready", "report"])]
         kind: String,
         #[arg(long)]
         title: String,
@@ -560,6 +561,19 @@ enum ChannelCommand {
         channel: String,
         #[command(flatten)]
         post: ChannelPostArgs,
+    },
+    /// Ask to join a named channel of this workspace: files a card "<your bot> asks to join #<name>" that the owner
+    /// accepts (only member bots read and post).
+    Join {
+        channel: String,
+        /// When your bot is woken: all (every message), mentions (the default), digest or muted.
+        #[arg(long)]
+        mode: Option<String>,
+        /// Why your bot wants to join, one or two sentences.
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
     },
     #[command(external_subcommand)]
     Verb(Vec<String>),
@@ -952,6 +966,12 @@ async fn run() -> Result<()> {
         Command::Channel { command: ChannelCommand::List } => list_command(&paths, "/api/channels/agent", None).await,
         Command::Channel { command: ChannelCommand::Read { channel, since, limit } } => channel_read(&paths, channel, since, limit).await,
         Command::Channel { command: ChannelCommand::Post { channel, post } } => channel_post(&paths, channel, post).await,
+        Command::Channel { command: ChannelCommand::Join { channel, mode, note, session_id } } => {
+            let body = serde_json::json!({"kind": "channel_join", "channel": channel, "mode": mode});
+            let created = Client::new(&paths)?.json("POST", "/api/proposals", Some(serde_json::json!({"title": format!("Join #{}", channel.trim_start_matches('#')), "note": note, "body": body, "session_id": session_id}))).await?;
+            println!("Card {} saved: {} (state: {}). The owner accepts it.", created["id"].as_str().unwrap_or("?"), created["title"].as_str().unwrap_or(""), created["state"].as_str().unwrap_or("unknown"));
+            Ok(())
+        }
         Command::Channel { command: ChannelCommand::Verb(words) } => {
             let [verb, args @ ..] = words.as_slice() else { anyhow::bail!("name a channel command: see `launchpad channel --help`") };
             let args = if verb == "create" { channel_create_args(args) } else { args.to_vec() };
@@ -1191,6 +1211,8 @@ mod proposal_tests {
         let cli = Cli::try_parse_from(["launchpad", "channel", "post", "release-train", "--body-file", "m.md", "--reply-to", "4", "--ask-owner", "--session-id", "s1"]).unwrap();
         assert!(matches!(cli.command, Command::Channel { command: ChannelCommand::Post { post: ChannelPostArgs { reply_to: Some(4), ask_owner: true, .. }, .. } }));
         assert!(matches!(Cli::try_parse_from(["launchpad", "channel", "add-member", "c1", "b1", "--mode", "all"]).unwrap().command, Command::Channel { command: ChannelCommand::Verb(_) }));
+        assert!(matches!(Cli::try_parse_from(["launchpad", "channel", "join", "#release-train", "--mode", "all", "--session-id", "s1"]).unwrap().command, Command::Channel { command: ChannelCommand::Join { channel, mode: Some(m), .. } } if channel == "#release-train" && m == "all"));
+        assert!(matches!(Cli::try_parse_from(["launchpad", "propose", "channel", "--title", "New channel", "--spec-file", "c.json"]).unwrap().command, Command::Propose { kind, .. } if kind == "channel"));
         let args = |a: &[&str]| channel_create_args(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         assert_eq!(args(&["triage", "--purpose", "Sort issues", "--members", "a, @b"]), ["--name", "triage", "--purpose", "Sort issues", "--members", r#"["a","b"]"#]);
         assert_eq!(args(&["--name", "x", "--members", r#"["a"]"#]), ["--name", "x", "--members", r#"["a"]"#]);

@@ -3,6 +3,7 @@
 //! bots talk to each other. Home owns them; runners forward the API.
 
 pub mod agent;
+pub mod cards;
 pub mod channel;
 pub mod connections;
 pub mod delivery;

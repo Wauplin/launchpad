@@ -64,6 +64,8 @@ export function proposalPurpose(p: Pick<Proposal, "body">, n: CardNames = {}): s
       const text = `${list(parts)} of ${n.bot?.(b.bot_id) ?? "a bot"}`;
       return text.charAt(0).toUpperCase() + text.slice(1);
     }
+    case "channel": return `Creates the channel #${b.name}${b.members.length ? ` with ${list(b.members.map((m) => m.name || "a bot"))}` : ""}; it starts nothing`;
+    case "channel_join": return `Adds ${b.bot_name || "a bot"} to #${b.channel_name} (mode ${b.mode})`;
     case "ready": return `Your click: ${n.action?.(b.action) ?? b.action}`;
     case "report": return `${REPORT_OUTCOME[b.outcome]}${b.github ? ` · ${b.github}` : ""}`;
     case "status": return `Lists ${plural(b.session_ids.length, "agent")} to look at`;
@@ -90,6 +92,8 @@ export function proposalReceipt(p: Pick<Proposal, "body" | "state" | "title" | "
     case "bot": return `Created bot ${t}`;
     case "bot_instructions": return `Applied to BOT.md: ${t}`;
     case "bot_files": return `Applied ${t}`;
+    case "channel": return `Created channel ${t}`;
+    case "channel_join": return `Accepted: ${t}`;
     case "ready": return `Done: ${t}`;
     case "report": return `Replied: ${t}`;
     case "status": return `Seen: ${t}`;

@@ -123,6 +123,32 @@ pub enum ProposalBody {
         /// Markdown: what was done and why, or the question and the text the agent would post.
         body: String,
     },
+    /// A new named bot channel of the proposal's workspace with its member bots (`launchpad propose channel`).
+    /// Accepting creates it, like `channel.create`; it starts nothing.
+    Channel {
+        /// Lowercase letters, digits and dashes (`release-train`).
+        name: String,
+        #[serde(default)]
+        purpose: String,
+        /// Member bots: a slug or `{"bot": "release", "mode": "all"}` when filed; Home stores the bot IDs and names.
+        #[serde(default, deserialize_with = "card_members")]
+        members: Vec<ChannelCardMember>,
+    },
+    /// A bot asks to join a named channel of its workspace (`launchpad channel join <name>`). Accepting adds it, like
+    /// `channel.add-member`. Home fills in the channel ID and names, and the bot: always the author's.
+    ChannelJoin {
+        /// The channel's name when filed; its ID once stored.
+        channel: String,
+        #[serde(default)]
+        channel_name: String,
+        #[serde(default)]
+        bot_id: String,
+        #[serde(default)]
+        bot_name: String,
+        #[serde(default = "mentions")]
+        #[ts(type = "\"all\" | \"mentions\" | \"digest\" | \"muted\"")]
+        mode: String,
+    },
     /// A new tool in Home's registry. Adding it asks for nothing secret; the owner pastes the token after.
     /// Its token is always a new vault entry named like the tool, never an existing one.
     Tool {
@@ -133,6 +159,32 @@ pub enum ProposalBody {
         #[serde(skip_serializing_if = "Option::is_none")]
         token_url: Option<String>,
     },
+}
+
+/// A member of a proposed channel: the bot (its ID once stored), its name and its mode.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct ChannelCardMember {
+    pub bot: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default = "mentions")]
+    #[ts(type = "\"all\" | \"mentions\" | \"digest\" | \"muted\"")]
+    pub mode: String,
+}
+
+fn mentions() -> String {
+    "mentions".into()
+}
+
+/// `["release", {"bot": "docs", "mode": "all"}]`.
+fn card_members<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Vec<ChannelCardMember>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum One {
+        Key(String),
+        Full(ChannelCardMember),
+    }
+    Ok(Vec::<One>::deserialize(d)?.into_iter().map(|o| match o { One::Key(bot) => ChannelCardMember { bot, name: String::new(), mode: mentions() }, One::Full(m) => m }).collect())
 }
 
 /// What a report says happened. `NeedsYou` waits for an answer; the others are for the owner to read.
@@ -406,6 +458,13 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
                 bail!("{} takes no input.{k}", a.name);
             }
         }
+        ProposalBody::Channel { .. } | ProposalBody::ChannelJoin { .. } => {
+            let ws = workspace_id.as_deref().context("channels belong to a workspace: propose from a session of that workspace")?;
+            let bot = author.as_ref().and_then(|s| s.launch_spec.bot.as_ref()).map(|b| b.id.clone());
+            ensure!(author.is_none() || bot.is_some() || matches!(body, ProposalBody::Channel { .. }), "only a bot joins a channel: this agent is not a bot's session");
+            let checked = launchpad_core::ext::extensions().channel_card(app, ws, serde_json::to_value(&body)?, bot.as_deref(), false, "").await?;
+            body = serde_json::from_value(checked)?;
+        }
         ProposalBody::Preset { preset_id, label, text, .. } => {
             ensure!(!label.trim().is_empty(), "give the preset a label");
             ensure!(!text.trim().is_empty(), "write the preset text");
@@ -440,12 +499,18 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
         let line = format!("Not sent automatically: automatic work needs confirmed quota ({why}). Start sends it now.");
         note = Some(note.map_or_else(|| line.clone(), |n| format!("{n}\n\n{line}")));
     }
+    // A join card always says who asks and for what.
+    let title = match &body {
+        ProposalBody::ChannelJoin { channel_name, bot_name, .. } => format!("{bot_name} asks to join #{channel_name}"),
+        _ => c.title.trim().to_string(),
+    };
     let now = now_ms();
-    let p = Proposal { id: uuid::Uuid::new_v4().to_string(), workspace_id, session_id: c.session_id, title: c.title.trim().to_string(), note, body, state: ProposalState::Proposed, result_id, replaced_by: None, error: None, created_at: now, updated_at: now };
+    let p = Proposal { id: uuid::Uuid::new_v4().to_string(), workspace_id, session_id: c.session_id, title, note, body, state: ProposalState::Proposed, result_id, replaced_by: None, error: None, created_at: now, updated_at: now };
     // Share the claim lock with accept/dismiss: a replacement cannot race an owner click.
     let _lock = ACCEPT.lock().await;
     let replaces = match (&c.replaces, &p.body) {
         (None, ProposalBody::Report { github: Some(g), .. }) => waiting_report(app, &p, g).await?,
+        (None, ProposalBody::ChannelJoin { channel, bot_id, .. }) => waiting_join(app, &p, channel, bot_id).await?,
         _ => c.replaces.clone(),
     };
     let stored = p.clone();
@@ -515,6 +580,13 @@ async fn waiting_report(app: &App, new: &Proposal, github: &str) -> Result<Optio
             && p.workspace_id == new.workspace_id
             && matches!(&p.body, ProposalBody::Report { github: Some(g), .. } if g == github)
             && author_key(app, p.session_id.as_deref()).as_deref() == Some(author.as_str())
+    }).map(|p| p.id))
+}
+
+/// The waiting join card of the same bot for the same channel, which a new one replaces.
+async fn waiting_join(app: &App, new: &Proposal, channel: &str, bot: &str) -> Result<Option<String>> {
+    Ok(list(app).await?.into_iter().find(|p| {
+        matches!(p.state, ProposalState::Proposed | ProposalState::Failed) && p.workspace_id == new.workspace_id && matches!(&p.body, ProposalBody::ChannelJoin { channel: c, bot_id: b, .. } if c == channel && b == bot)
     }).map(|p| p.id))
 }
 
@@ -662,6 +734,13 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 }
                 launchpad_core::bots::write_files(app, &bot_id, writes).await?;
                 Ok(bot_id)
+            }
+            ProposalBody::Channel { .. } | ProposalBody::ChannelJoin { .. } => {
+                let ws = p.workspace_id.clone().context("this proposal has no workspace")?;
+                let bot = match &p.body { ProposalBody::ChannelJoin { bot_id, .. } => Some(bot_id.clone()), _ => None };
+                let by = p.session_id.as_deref().map_or("owner".to_string(), |s| format!("session:{s}"));
+                let done = launchpad_core::ext::extensions().channel_card(app, &ws, serde_json::to_value(&p.body)?, bot.as_deref(), true, &by).await?;
+                Ok(done["id"].as_str().context("no channel")?.to_string())
             }
             ProposalBody::Status { .. } => bail!("a status card has nothing to start"),
             ProposalBody::Report { .. } => bail!("a report has nothing to start: mark it read or reply"),

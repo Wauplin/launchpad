@@ -30,9 +30,9 @@ import { proposalPurpose, proposalReceipt, REPORT_OUTCOME } from "./proposalStat
 export const useProposalList = (enabled = true) => useQuery({ enabled, queryKey: ["proposals"], queryFn: () => api.get<Proposal[]>("/api/proposals"), staleTime: 30_000 });
 
 /** The icon of a proposal's kind: the card's and Today's row. */
-export const proposalIcon = (p: Proposal): IconName => p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : p.body.kind === "bot_instructions" || p.body.kind === "bot_files" ? "file" : p.body.kind === "ready" ? "check" : p.body.kind === "report" ? (p.body.outcome === "needs_you" ? "alert" : "comment") : "play";
+export const proposalIcon = (p: Proposal): IconName => p.body.kind === "message" ? "send" : p.body.kind === "schedule" ? "clock" : p.body.kind === "cron" || p.body.kind === "routine" ? "refresh" : p.body.kind === "status" ? "agents" : p.body.kind === "preset" ? "preset" : p.body.kind === "tool" ? "term" : p.body.kind === "bot" ? "spark" : p.body.kind === "bot_instructions" || p.body.kind === "bot_files" ? "file" : p.body.kind === "ready" ? "check" : p.body.kind === "report" ? (p.body.outcome === "needs_you" ? "alert" : "comment") : p.body.kind === "channel" || p.body.kind === "channel_join" ? "comment" : "play";
 
-export const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine", bot_instructions: "Apply to BOT.md", bot_files: "Apply", ready: "", report: "" };
+export const START: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create routine", status: "", preset: "Save preset", tool: "Add tool", bot: "Create bot", routine: "Add routine", bot_instructions: "Apply to BOT.md", bot_files: "Apply", channel: "Create channel", channel_join: "Add to channel", ready: "", report: "" };
 
 type Report = Extract<Proposal["body"], { kind: "report" }>;
 const TONE: Record<Report["outcome"], BadgeTone> = { needs_you: "attn", merged: "ok", approved: "ok", commented: "neutral", waiting: "neutral", closed: "danger", info: "neutral" };
@@ -160,6 +160,31 @@ function ToolBody({ body }: { body: Extract<Proposal["body"], { kind: "tool" }> 
       {Object.keys(t.vars ?? {}).length > 0 && <Token>settings {Object.entries(t.vars).map(([k, v]) => `${k}=${v}`).join(", ")}</Token>}
       {t.hosts.length > 0 && <Token tone="warn">token sent to {t.hosts.map((h) => h.host).join(", ")}</Token>}
       {body.token_url && <a className="text-[12px] text-teal-ink hover:underline" href={body.token_url} target="_blank" rel="noreferrer">Create the token</a>}
+    </span>
+  );
+}
+
+/** A new channel: its name, purpose and member bots with their modes. Creating it starts nothing. */
+function ChannelBody({ body }: { body: Extract<Proposal["body"], { kind: "channel" }> }) {
+  return (
+    <>
+      <span className="flex flex-wrap gap-1">
+        <Token icon="comment">New channel · #{body.name}</Token>
+        {body.members.map((m) => <Token key={m.bot}>{m.name || "a bot"} · {m.mode}</Token>)}
+        {body.members.length === 0 && <Token>no bots yet</Token>}
+      </span>
+      {body.purpose && <p className="m-0 line-clamp-2 text-[12px] text-ink-2">{body.purpose}</p>}
+    </>
+  );
+}
+
+/** A bot asks to join a channel: the bot, the channel and the mode it asks for. */
+function ChannelJoinBody({ body }: { body: Extract<Proposal["body"], { kind: "channel_join" }> }) {
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      <Token icon="spark">{body.bot_name || "a bot"}</Token>
+      <Link to="/channels/$id" params={{ id: body.channel }} className="text-[12px] text-teal-ink no-underline hover:underline">#{body.channel_name}</Link>
+      <Token>mode {body.mode}</Token>
     </span>
   );
 }
@@ -344,11 +369,13 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       {p.body.kind === "routine" && <RoutineBody body={p.body} />}
       {p.body.kind === "bot_instructions" && <BotInstructionsBody body={p.body} />}
       {p.body.kind === "bot_files" && <BotFilesBody body={p.body} />}
+      {p.body.kind === "channel" && <ChannelBody body={p.body} />}
+      {p.body.kind === "channel_join" && <ChannelJoinBody body={p.body} />}
       {p.body.kind === "ready" && <ReadyBody p={p} body={p.body} dismiss={() => void act("dismiss")} />}
       {p.body.kind === "report" && <ReportBody p={p} body={p.body} busy={busy} dismiss={() => void act("dismiss")} />}
       {statusSessions.length > 0 && <div className="grid">{statusSessions.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
       {session && <SessionRow s={session} />}
-      {started && !session && p.body.kind !== "status" && p.body.kind !== "report" && <span className="text-[12px] text-gh-open"><Icon name="check" size={12} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "about" }}>About</Link></> : p.body.kind === "bot_files" ? <>Applied: see <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "about" }}>the bot</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : p.body.kind === "ready" ? "Done" : "Started"}</span>}
+      {started && !session && p.body.kind !== "status" && p.body.kind !== "report" && <span className="text-[12px] text-gh-open"><Icon name="check" size={12} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "about" }}>About</Link></> : p.body.kind === "bot_files" ? <>Applied: see <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "about" }}>the bot</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : p.body.kind === "channel" || p.body.kind === "channel_join" ? <>{p.body.kind === "channel" ? "Channel created" : "Added"}: <Link className="underline" to="/channels/$id" params={{ id: p.result_id ?? "" }}>open the channel</Link></> : p.body.kind === "ready" ? "Done" : "Started"}</span>}
       {p.state === "replaced" && <span className="text-[12px] text-ink-3">{p.replaced_by ? "Replaced" : "Edited in the composer"}{p.replaced_by && <> · <Link to="/" search={{ card: `proposal:${p.replaced_by}` }} onClick={() => { if (p.workspace_id) useWorkspace.getState().switchTo(p.workspace_id); }} className="underline">View replacement</Link></>}</span>}
       {p.state === "dismissed" && p.body.kind !== "report" && <span className="text-[12px] text-ink-3">Dismissed</span>}
       {p.state === "failed" && p.error && <ErrorState error={p.error} />}
@@ -378,6 +405,7 @@ function receiptLink(p: Proposal): { to: string; params?: Record<string, string>
     case "schedule": return { to: "/schedules", search: { tab: "launches" } };
     case "cron": case "routine": return id ? { to: "/schedules", search: { routine: id } } : null;
     case "bot": return id ? { to: "/bots/$id", params: { id } } : null;
+    case "channel": case "channel_join": return id ? { to: "/channels/$id", params: { id } } : null;
     case "bot_instructions": case "bot_files": return id ? { to: "/bots/$id", params: { id }, search: { panel: "about" } } : null;
     case "tool": return id ? { to: "/settings/credentials", search: { tool: id } } : null;
     default: return null;

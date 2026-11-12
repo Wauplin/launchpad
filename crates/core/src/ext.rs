@@ -36,6 +36,13 @@ pub trait Extensions: Send + Sync {
     async fn bot_deleted(&self, _app: &App, _bot_id: &str) -> Result<()> {
         Ok(())
     }
+    /// A bot channel card (`ProposalBody::Channel` or `ChannelJoin` as JSON, with its `kind`) of `workspace`: checked
+    /// when it is filed (`apply` false: the card with IDs and names filled in) or applied when it is accepted
+    /// (creates the channel or adds the member: `{"id": <channel ID>}`). `bot`: the author's bot, which a join card
+    /// always names. `by`: who created it (`channel.created_by`).
+    async fn channel_card(&self, _app: &App, _workspace: &str, _card: serde_json::Value, _bot: Option<&str>, _apply: bool, _by: &str) -> Result<serde_json::Value> {
+        anyhow::bail!("bot channels are not available here")
+    }
     /// The Inbox finished a synchronization: routines with a GitHub trigger check for new activity.
     async fn inbox_synced(&self, _app: &App) {}
     /// The Inbox threads, as shown in the Inbox.
