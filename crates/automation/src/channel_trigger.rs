@@ -198,7 +198,10 @@ async fn check_one(app: &App, r: &CronAgent, bots: &[launchpad_core::bots::Bot],
     let after = match r.channel_seen {
         Some(s) => s,
         // No watermark yet: messages after the routine's creation (their IDs follow from the time).
-        None => messages_after(app, &ch.id, 0).await?.iter().filter(|m| m.created_at <= r.created_at).map(|m| m.id).max().unwrap_or(0),
+        None => {
+            let (channel, created) = (ch.id.clone(), r.created_at);
+            app.state_db.call(move |c| Ok(c.query_row("SELECT COALESCE(MAX(id), 0) FROM channel_message WHERE channel_id = ?1 AND created_at <= ?2", rusqlite::params![channel, created], |r| r.get(0))?)).await?
+        }
     };
     let all = messages_after(app, &ch.id, after).await?;
     let Some(newest_id) = all.iter().map(|m| m.id).max() else { return Ok(()) };

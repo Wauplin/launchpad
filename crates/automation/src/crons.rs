@@ -1339,40 +1339,47 @@ async fn failures_noticed(app: &App) -> Result<()> {
     let records: Vec<CronAgent> = list(app).await?.into_iter().filter(|r| r.active() && matches!(r.trigger, Trigger::Failure { .. })).collect();
     let now = now_ms();
     for r in records {
-        let Trigger::Failure { events } = &r.trigger else { continue };
-        let seen = r.failure_seen.unwrap_or(r.created_at);
-        let new: Vec<crate::failures::Failure> = crate::failures::recent(seen)
-            .into_iter()
-            .filter(|f| crate::failures::routine_takes(events, r.spec.workspace_id.as_deref(), &r.id, r.bot_id.as_deref(), &r.runs, f))
-            .collect();
-        let Some(newest) = new.iter().map(|f| f.seen_at).max() else { continue };
-        let fresh: Vec<&crate::failures::Failure> = new.iter().filter(|f| now - f.seen_at <= MISSED_GRACE_MS).collect();
-        if !fresh.is_empty() && (why_blocked(app, &r).await?.is_some() || quota_hold(app, &r).await?.is_some()) {
-            continue;
+        // One routine's error (its bot has no profile) never holds up the others.
+        if let Err(e) = failure_one(app, &r, now).await {
+            tracing::debug!("failure routine {}: {e:#}", r.id);
         }
-        let (record, ()) = modify(app, &r.id, move |r| {
-            ensure!(r.failure_seen.is_none_or(|s| s < newest), "already handled");
-            r.failure_seen = Some(newest);
-            r.last_check_at = Some(now);
-            Ok(())
-        })
-        .await?;
-        let cause = match fresh.as_slice() {
-            [f] => format!("Failure: {}", f.title.chars().take(100).collect::<String>()),
-            many => format!("Failures ({})", many.len().max(new.len())),
-        };
-        if fresh.is_empty() {
-            match quota_hold(app, &record).await? {
-                Some(held) => skip_run(app, &record.id, cause, format!("the failures are more than 1 hour old; they waited for the quota: {held}"), true).await?,
-                None => skip(app, &record.id, cause, "the failures are more than 1 hour old".into()).await?,
-            }
-            continue;
-        }
-        let lines = fresh.iter().map(|f| crate::failures::describe(f)).collect::<Vec<_>>().join("\n");
-        let context = format!("{lines}\n\nInvestigate with the Launchpad CLI (the command given in your first instructions): `health`, `sessions show <id>`, `logs --session <id>` (or `--runner <id>`), `burst runs`, `burst job <runner id>`, `runners list`, `home`, `failures`.");
-        on_event(app, &record, cause, context, 1).await?;
     }
     Ok(())
+}
+
+async fn failure_one(app: &App, r: &CronAgent, now: i64) -> Result<()> {
+    let Trigger::Failure { events } = &r.trigger else { return Ok(()) };
+    let seen = r.failure_seen.unwrap_or(r.created_at);
+    let new: Vec<crate::failures::Failure> = crate::failures::recent(seen)
+        .into_iter()
+        .filter(|f| crate::failures::routine_takes(events, r.spec.workspace_id.as_deref(), &r.id, r.bot_id.as_deref(), &r.runs, f))
+        .collect();
+    let Some(newest) = new.iter().map(|f| f.seen_at).max() else { return Ok(()) };
+    let fresh: Vec<&crate::failures::Failure> = new.iter().filter(|f| now - f.seen_at <= MISSED_GRACE_MS).collect();
+    if !fresh.is_empty() && (why_blocked(app, r).await?.is_some() || quota_hold(app, r).await?.is_some()) {
+        return Ok(());
+    }
+    let (record, ()) = modify(app, &r.id, move |r| {
+        ensure!(r.failure_seen.is_none_or(|s| s < newest), "already handled");
+        r.failure_seen = Some(newest);
+        r.last_check_at = Some(now);
+        Ok(())
+    })
+    .await?;
+    let cause = match fresh.as_slice() {
+        [f] => format!("Failure: {}", f.title.chars().take(100).collect::<String>()),
+        many => format!("Failures ({})", many.len().max(new.len())),
+    };
+    if fresh.is_empty() {
+        match quota_hold(app, &record).await? {
+            Some(held) => skip_run(app, &record.id, cause, format!("the failures are more than 1 hour old; they waited for the quota: {held}"), true).await?,
+            None => skip(app, &record.id, cause, "the failures are more than 1 hour old".into()).await?,
+        }
+        return Ok(());
+    }
+    let lines = fresh.iter().map(|f| crate::failures::describe(f)).collect::<Vec<_>>().join("\n");
+    let context = format!("{lines}\n\nInvestigate with the Launchpad CLI (the command given in your first instructions): `health`, `sessions show <id>`, `logs --session <id>` (or `--runner <id>`), `burst runs`, `burst job <runner id>`, `runners list`, `home`, `failures`.");
+    on_event(app, &record, cause, context, 1).await
 }
 
 /// At start: a run claimed but never started (Launchpad stopped in between) is uncertain, never retried.

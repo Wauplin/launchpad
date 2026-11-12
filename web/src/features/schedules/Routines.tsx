@@ -61,6 +61,10 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, botId, on
   const folders = projects.filter((p) => p.workspace_id === workspaceId && !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const [fieldsValid, setFieldsValid] = useState(true);
   const t = draft.trigger;
+  // A member woken by the channel itself would get the same message twice: once delivered, once from the routine.
+  const picked = t.kind === "channel" ? channels.find((c) => c.id === t.channel) : undefined;
+  const member = picked?.members.find((m) => m.bot_id === botId);
+  const direct = member?.mode === "all" ? "every message" : member?.mode === "mentions" ? "when mentioned" : null;
   const valid = fieldsValid && ((t.kind !== "github" && t.kind !== "failure") || t.events.length > 0) && (t.kind !== "channel" || !!t.channel);
   useEffect(() => onValidityChange(valid), [valid, onValidityChange]);
   const kind = (k: Trigger["kind"]) => onChange({ ...draft, trigger: k === "schedule" ? { kind: "schedule" } : k === "github" ? { kind: "github", repo: null, events: ["review_requested"] } : k === "failure" ? { kind: "failure", events: ["any"] } : k === "channel" ? { kind: "channel", channel: channels[0]?.id ?? "", mentions_only: false } : { kind: "session_done", folder: null, include_bots: false }, schedule: draft.schedule || DEFAULT_CRON.schedule });
@@ -86,8 +90,9 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, botId, on
       </label>
       {!channels.length && <p role="alert" className="m-0 text-[12px] text-gh-closed">This bot is a member of no channel yet: add it in a channel's Members first.</p>}
       <label className="flex min-h-7 w-fit cursor-pointer items-center gap-1.5 text-[13px] text-ink-2 select-none" title="Off: every new message of the others starts a run">
-        <input type="checkbox" checked={!!t.mentions_only} onChange={(e) => onChange({ ...draft, trigger: { ...t, mentions_only: e.target.checked } })} className="accent-teal" />Only when it mentions the bot
+        <input type="checkbox" checked={!!t.mentions_only} onChange={(e) => onChange({ ...draft, trigger: { ...t, mentions_only: e.target.checked } })} className="accent-teal" />Only when a message mentions {member?.name ?? "the bot"}
       </label>
+      {picked && member && direct && <p className="m-0 text-[12px] text-attn">{member.name} is also woken by {picked.title} itself ({direct}), so a message can wake it twice. Set it to Muted in the channel's Members to wake it only through this routine.</p>}
       <p className="m-0 text-[12px] text-ink-3">Launchpad checks every 30 seconds. New messages found in one check start one run that names them; the bot's own messages never start it, and a routine started by events runs at most {EVENT_RUNS_PER_HOUR} times an hour.</p>
     </div>}
     {t.kind === "failure" && <div className="grid gap-2">

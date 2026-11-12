@@ -235,7 +235,7 @@ function Delivery({ l }: { l: DeliveryLine }) {
       return <div className={`${row} text-ink-3`}><Icon name="collapse" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot}: combined with {l.with != null ? `message ${l.with}` : "an earlier message"}{l.session ? <> · {chat}</> : null}</span></div>;
     case "digest": {
       const n = `${l.count} message${l.count === 1 ? "" : "s"}`;
-      if (l.state === "skipped") return <div className={`${row} ${loopSkip(l.reason) ? "text-attn" : "text-ink-3"}`} title={l.reason ?? undefined}><Icon name="x" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot}'s daily digest ({n}) skipped: {l.reason ?? "no reason recorded"}</span></div>;
+      if (l.state === "skipped") return <div className={`${row} ${loopSkip(l.reason) ? "text-attn" : "text-ink-3"}`} title={l.reason ?? undefined}><Icon name="x" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} · daily digest ({n}) skipped: {l.reason ?? "no reason recorded"}</span></div>;
       if (l.state === "queued") return <div className={`${row} text-ink-3`} title={l.reason ?? undefined}><Icon name="clock" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} is busy · daily digest ({n}) queued</span></div>;
       return <div className={`${row} text-ink-3`} data-tour="channel.digest"><Icon name="book" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} got the daily digest ({n}) · {chat}</span></div>;
     }
