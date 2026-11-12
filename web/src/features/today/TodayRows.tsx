@@ -17,7 +17,7 @@ import { Markdown } from "@/components/Markdown";
 import { Icon, type IconName } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { MenuItem } from "@/components/Popover";
-import { Loading, RowActions } from "@/components/ui";
+import { ErrorState, Loading, RowActions } from "@/components/ui";
 import { AskCard } from "@/features/agents/AskCard";
 import { ChannelComposer } from "@/features/channels/ChannelComposer";
 import { MessageBox } from "@/features/agents/MessageBox";
@@ -378,6 +378,7 @@ function CliUpdateRow(p: RowProps) {
 function ChannelAskRow(p: RowProps) {
   const { item, expanded, toggle } = p;
   const qc = useQueryClient();
+  const phone = usePhone();
   const page = useQuery({ queryKey: ["channel", item.record], queryFn: () => api.get<ChannelPage>(`/api/channels/${item.record}`), enabled: expanded, retry: false });
   const ask = page.data?.messages.find((m) => m.id === item.message);
   const sent = async () => {
@@ -394,7 +395,9 @@ function ChannelAskRow(p: RowProps) {
     </>}
     details={page.isLoading ? <Loading what="the message" /> : <>
       {ask ? <div className="min-w-0 text-[13px] text-ink-2"><Markdown text={ask.text} /></div> : <p className="m-0 text-[13px] text-ink-2">{item.detail}</p>}
-      {page.data && <ChannelComposer channel={page.data.channel} replyTo={item.message ?? undefined} className="pt-1" autoFocus onSent={sent} />}
+      {page.isError && <ErrorState error={page.error} onRetry={() => void page.refetch()} />}
+      {/* The phone's keyboard would cover the ask: there the box takes focus on a tap. */}
+      {page.data && <ChannelComposer channel={page.data.channel} replyTo={item.message ?? undefined} className="pt-1" autoFocus={!phone} onSent={sent} />}
     </>} />;
 }
 

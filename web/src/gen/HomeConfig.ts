@@ -20,7 +20,7 @@ git_name: string, git_email: string, burst: BurstConfig,
  */
 cli_updates: { [key in string]: boolean }, 
 /**
- * IANA time zone (for example `Europe/Paris`) of schedules created without a browser's zone. Empty: the
- * host's time zone.
+ * IANA time zone (for example `Europe/Paris`) of schedules created without a browser's zone and of the daily
+ * channel digests (`launchpad_channels::digest`). Empty: the host's time zone.
  */
 time_zone: string, };

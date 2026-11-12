@@ -4,9 +4,9 @@
 //! `launchpad channel read` hint. Nothing new: nothing is sent and no row is written.
 //!
 //! It is automatic work: it goes through the bot message path like other channel deliveries (`hooks`: it waits
-//! while the bot works or its quota is not confirmed), under the channel's loop guard with the hop of the newest bot
-//! message it lists. The day's run is claimed first (`channel_digest_run`), each digest is a `channel_delivery` row
-//! of kind `digest` (its range in `first_message`..`message_id`) written before it is sent, never retried. A run more
+//! while the bot works or its quota is not confirmed), under the channel's loop guard with the hop of the newest
+//! message it lists (the owner's passes: it restarted the chain). The day's run is claimed first (`channel_digest_run`),
+//! each digest is a `channel_delivery` row of kind `digest` (its range in `first_message`..`message_id`) written before it is sent, never retried. A run more
 //! than an hour late (Home was not running at `HOUR`:00) never catches up: its digests are recorded as skipped with
 //! the reason, and the next digest lists their messages again (a skipped digest does not move the bot's place).
 //! Home only.
@@ -22,7 +22,7 @@ use launchpad_core::model::{MessageFrom, SenderKind};
 use launchpad_core::senders::{HEADER_START, fence};
 use launchpad_core::util::now_ms;
 
-use crate::channel::{self, AuthorKind, BotInfo, ChannelMessage, Kind, MemberRow, Mode, Row};
+use crate::channel::{self, AuthorKind, BotInfo, ChannelMessage, MemberRow, Mode, Row};
 use crate::delivery::{self, Guard};
 use crate::hooks::{self, ChannelPart, Outcome};
 
@@ -70,6 +70,12 @@ pub fn lines(list: &[&ChannelMessage], time: impl Fn(i64) -> String) -> (Vec<Str
     let left = list.len() - out.len();
     out.reverse();
     (out, left)
+}
+
+/// The hop a digest is guarded and sent with: its newest message's when a bot wrote it, else none (the owner's
+/// message restarted the chain, and the owner's messages pass every limit).
+pub fn guard_hops(newest: &ChannelMessage) -> Option<u32> {
+    (newest.author.kind != AuthorKind::Owner).then_some(newest.hops)
 }
 
 /// The delivered text of a digest.
@@ -205,8 +211,9 @@ async fn one(app: &App, ch: &Row, member: &MemberRow, members: &[MemberRow], bot
     let first = listed.first().map_or(newest.id, |m| m.id);
     let (lines, shown_left) = lines(&listed, zone_time(app));
     let left = shown_left + (total as usize).saturating_sub(listed.len());
-    // The loop guard, with the hop of the newest bot message it lists (none: only the owner's, which pass).
-    let hops = listed.iter().rev().find(|m| m.author.kind == AuthorKind::Bot).map(|m| m.hops);
+    // The loop guard, with the hop of the newest message it lists: an owner's message (hop 0) restarted the chain, so
+    // a digest that ends with one passes, like the owner's own delivery.
+    let hops = guard_hops(&newest);
     let reason = match skip {
         Some(r) => Some(r),
         None if ch.paused => Some("channel paused".into()),
@@ -252,7 +259,6 @@ async fn one(app: &App, ch: &Row, member: &MemberRow, members: &[MemberRow], bot
         Ok(Outcome::Joined(_)) => {}
         Err(e) => delivery::update(app, vec![id], "skipped", Some(format!("send failed: {e:#}")), None, None).await,
     }
-    debug_assert!(ch.kind == Kind::Channel);
     Ok(Some(id))
 }
 
@@ -286,6 +292,11 @@ mod tests {
         let (l, left) = lines(&select(&all, "docs", 0), |_| "09:12".into());
         assert_eq!(l, ["- 2 · RELEASE · 09:12: b", "- 3 · the owner · 09:12: c"]);
         assert_eq!(left, 0);
+        // The newest listed message sets the hop: a bot's keeps its hop, the owner's restarts the chain.
+        let mut hop5 = msg(5, AuthorKind::Bot, "release", "e");
+        hop5.hops = 5;
+        assert_eq!(guard_hops(&hop5), Some(5));
+        assert_eq!(guard_hops(&msg(6, AuthorKind::Owner, "owner", "f")), None);
     }
 
     #[test]
