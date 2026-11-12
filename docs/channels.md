@@ -80,6 +80,10 @@ Home sends the digests at 08:00 in `[home] time_zone` of config.toml, or in the 
 
 **Send digests now**, in the [Members](#members) panel when a member is in mode digest, sends each digest member its digest at once (the owner action `channel.digest`). It is your click, so it does not wait for quota, but the loop guard still applies.
 
+## Routines on channel messages
+
+A bot's routine can start on new messages in a channel or DM where the bot is a member: the trigger **New message in a channel** (see [Routines](bots.md#routines)). Use it when the bot should do a fixed task for new messages, with instructions of their own. The member mode decides what the channel itself delivers, and the daily digest sums up a day. A routine never runs for messages the channel already delivered to the bot, so a member in mode **all** or **mentions** is not woken twice by one message. To wake a bot only through its routine, set it to **muted**.
+
 ## Quota
 
 A delivery of a bot's message is automatic work. It waits while the receiving bot's quota is not confirmed, like a message from an incoming hook. Your messages are not automatic: they do not wait for quota, and they go ahead of deliveries that wait for it.
