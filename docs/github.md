@@ -35,7 +35,7 @@ An item page has **Conversation**, **Changes** and **Review threads** tabs, and 
 
 ## Continue a pull request
 
-Paste a link to a pull request, or to one of its comments, in the composer prompt (or add it as context) and say what to change. When the folder's `origin` or `upstream` is the PR's repository and **Run in** is a new worktree, **Push to PR #N** is checked by default:
+Paste a link to a pull request, or to one of its comments, in the composer prompt (or add it as context) and say what to change. When the folder's `origin` or `upstream` is the PR's repository and **From** is a new worktree, **Push to PR #N** is checked by default:
 
 - Home reads the PR on GitHub with its own login (runners need no GitHub credential), fetches its head (`pull/N/head`) into the session's branch, and the runner creates the worktree from it.
 - The agent commits; its branch goes to Home at the end of every turn, and Home pushes it to the PR branch (`origin`, or the fork's URL derived from it). Home never force-pushes; if the PR branch moved, the session shows it and the agent rebases on it.
@@ -68,7 +68,7 @@ A Local PR is a pull request that exists only in Launchpad: a branch on Home Git
 
 ```mermaid
 flowchart LR
-    A["Launch with<br/>When done: Open a Local PR"] --> B[Agent commits on lp/branch]
+    A["Launch with<br/>When done: Local PR"] --> B[Agent commits on lp/branch]
     C["launchpad pr create<br/>(from an agent)"] --> B
     B --> D[Review: Description, Changes, Commits]
     D -->|Notes| E[Agent updates the branch]
@@ -78,7 +78,7 @@ flowchart LR
     D --> H[Discard]
 ```
 
-- **Create**: choose **When done → Open a Local PR** in the composer's options, or let an agent run `launchpad pr create` in its worktree. Local PRs opened by one agent form a **change set**: their pages link to each other, and **Publish all** publishes them together and links the pull requests to each other. Publish all first checks that every branch is still at the commit you reviewed, and publishes nothing when one moved.
+- **Create**: choose **When done → Local PR** in the composer's options, or let an agent run `launchpad pr create` in its worktree. **When done → Draft PR** or **Open PR** also publishes it on GitHub once the agent's turn is saved (your own launches only; see [Worktrees and merging](agents.md#worktrees-and-merging)). Local PRs opened by one agent form a **change set**: their pages link to each other, and **Publish all** publishes them together and links the pull requests to each other. Publish all first checks that every branch is still at the commit you reviewed, and publishes nothing when one moved.
 - **Review**: line notes store their path, line and side separately from editable text. Notes save on Home without a Save notes button. **Publish…** opens branch, draft and fork options; the bar also has **Merge** and **⋯ → Discard**. The agent keeps the title and description up to date with `launchpad pr update`. **Notes** (general or per file) go back to the agent as one message. While notes wait, **Send notes to agent** is the primary button; otherwise **Publish** is.
 - **Publish**: choose a remote branch name and GitHub draft or ready, then confirm. Home pushes exactly the commit you reviewed (a newer push asks you to review again) and creates the PR, its description ending with the agent's [attribution line](agents.md#attribution). Check **From my fork** when you cannot push to `origin`: Home pushes to your existing GitHub fork and opens the PR from it. After publication, the Local PR stays open to agents: new commits on its branch reach the published branch through Home, never forced. Its page then shows **PR #N** with the pull request's state instead of Publish and Merge: review and merge it on the pull request's page, or **Open on GitHub**. Until GitHub has the newest commit, the Local PR and the agent's branch show **Not on GitHub yet**, with the last push error; **Refresh** retries. If the push fails and the remote shows that nothing arrived, the Local PR unlocks itself. Otherwise a banner offers **Unlock**, and a branch that was already pushed keeps its name for the next Publish.
 - **Merge**: Home pushes the reviewed commit to the base branch on the folder's remote, then fast-forwards the base branch on Home. When the remote refuses the push (a protected branch, for example), nothing is merged and the Local PR shows why; publish it instead. It never forces or retries automatically. If the base branch moved, send a note asking the agent to rebase.

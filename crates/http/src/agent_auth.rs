@@ -238,6 +238,12 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
         {
             return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("{} takes no field {key:?}: {}", a.name, actions::usage("launchpad", a))));
         }
+        // A folder's When done may open pull requests on GitHub in the owner's launches: only the owner chooses that.
+        if action.is_some_and(|a| a.name == "folder.set")
+            && value.as_ref().and_then(|v| v["when_done"].as_str()).is_some_and(|w| launchpad_core::model::WhenDone::parse(w).publishes().is_some())
+        {
+            return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "only the owner makes a folder open pull requests on GitHub when done (draft_pr, open_pr)".to_string()));
+        }
         if let Some(a) = action
             && let Some(target) = path.strip_prefix("/api/sessions/").and_then(|r| r.split('/').next())
         {

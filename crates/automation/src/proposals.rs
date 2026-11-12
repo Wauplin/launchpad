@@ -692,7 +692,14 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
             launchpad_core::scope::ensure_inside(&own, p.workspace_id.as_deref(), "this card")?;
             check_scope(app, &own, &mut p.body.clone()).await?;
         }
-        match p.body.clone() {
+        let mut body = p.body.clone();
+        // A card is an agent's text: its launch may open a Local PR, never a pull request on GitHub by itself.
+        if let ProposalBody::Launch { spec } | ProposalBody::Schedule { spec, .. } | ProposalBody::Cron { spec, .. } = &mut body
+            && let Some(w) = spec.worktree.as_mut()
+        {
+            w.when_done = w.when_done.without_github();
+        }
+        match body {
             ProposalBody::Launch { mut spec } => {
                 let id = p.result_id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                 if app.sessions.get(&id).is_some() {

@@ -3,4 +3,4 @@
 /**
  * How a task worktree ends when the agent is done.
  */
-export type WhenDone = "keep" | "merge" | "local_pr" | "read_only";
+export type WhenDone = "keep" | "merge" | "local_pr" | "draft_pr" | "open_pr" | "read_only";

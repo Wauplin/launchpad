@@ -579,6 +579,19 @@ pub struct LaunchSpec {
     pub from: Option<MessageFrom>,
 }
 
+impl LaunchSpec {
+    /// The owner's own launch (not an agent's, a bot's or a routine run): only it may end in a pull request on
+    /// GitHub (`WhenDone::publishes`), since that choice is the owner's click.
+    pub fn owner_launch(&self) -> bool {
+        self.from.is_none() && self.bot.is_none() && self.routine.is_none()
+    }
+    /// The launch's When done, as it may run: other launches open a Local PR instead of a pull request.
+    pub fn when_done(&self) -> WhenDone {
+        let w = self.worktree.as_ref().map(|o| o.when_done).unwrap_or_default();
+        if self.owner_launch() { w } else { w.without_github() }
+    }
+}
+
 /// What a routine's run tells the agent: the routine, what started this run and the related items.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
 #[serde(default)]
@@ -703,6 +716,11 @@ pub struct ContextProject {
 pub struct WorktreeOptions {
     /// Branch to start from. None: the folder's default branch on Home.
     pub base: Option<String>,
+    /// Branch the work goes into (merge target, Local PR and pull request base). None: the branch it starts from
+    /// (`base`), or, for a launch in another agent's worktree, that worktree's own base branch.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub into: Option<String>,
     /// What happens when the agent runs `launchpad work finish`.
     pub when_done: WhenDone,
     /// Continue this pull request: start from its head; Home pushes the agent's commits to its branch.
@@ -723,6 +741,11 @@ pub enum WhenDone {
     Merge,
     /// `work finish` turns the worktree into a Local PR.
     LocalPr,
+    /// `work finish` opens a Local PR; Home publishes it as a draft pull request on GitHub once the turn ended
+    /// Done and its work is on Home (`pr_when_done`). Only for the owner's own launches.
+    DraftPr,
+    /// Like `DraftPr`, as a pull request ready for review.
+    OpenPr,
     /// Questions and audits: the agent changes nothing, and archiving it deletes an unchanged worktree and
     /// its branch. Chosen per launch, never a folder default.
     ReadOnly,
@@ -730,10 +753,23 @@ pub enum WhenDone {
 
 impl WhenDone {
     pub fn as_str(self) -> &'static str {
-        match self { Self::Keep => "keep", Self::Merge => "merge", Self::LocalPr => "local_pr", Self::ReadOnly => "read_only" }
+        match self { Self::Keep => "keep", Self::Merge => "merge", Self::LocalPr => "local_pr", Self::DraftPr => "draft_pr", Self::OpenPr => "open_pr", Self::ReadOnly => "read_only" }
     }
     pub fn parse(s: &str) -> Self {
-        match s { "merge" => Self::Merge, "local_pr" => Self::LocalPr, "read_only" => Self::ReadOnly, _ => Self::Keep }
+        match s { "merge" => Self::Merge, "local_pr" => Self::LocalPr, "draft_pr" => Self::DraftPr, "open_pr" => Self::OpenPr, "read_only" => Self::ReadOnly, _ => Self::Keep }
+    }
+    /// `work finish` opens a Local PR (and Home may publish it).
+    pub fn opens_local_pr(self) -> bool {
+        matches!(self, Self::LocalPr | Self::DraftPr | Self::OpenPr)
+    }
+    /// Home publishes the Local PR to GitHub after the turn: `Some(draft)`.
+    pub fn publishes(self) -> Option<bool> {
+        match self { Self::DraftPr => Some(true), Self::OpenPr => Some(false), _ => None }
+    }
+    /// What an agent or a bot may run with: a pull request on GitHub needs the owner's own launch, so it becomes a
+    /// Local PR the owner publishes.
+    pub fn without_github(self) -> Self {
+        if self.publishes().is_some() { Self::LocalPr } else { self }
     }
 }
 
@@ -869,4 +905,25 @@ pub struct QuotaBlock {
     pub window: String,
     #[ts(type = "number | null")]
     pub resets_at: Option<i64>,
+}
+
+#[cfg(test)]
+mod when_done_tests {
+    use super::*;
+
+    #[test]
+    fn pull_requests_only_for_the_owners_launches() {
+        let mut spec = LaunchSpec { worktree: Some(WorktreeOptions { when_done: WhenDone::DraftPr, ..Default::default() }), ..Default::default() };
+        assert_eq!(spec.when_done(), WhenDone::DraftPr);
+        assert_eq!(spec.when_done().publishes(), Some(true));
+        spec.routine = Some(RoutineLaunch::default());
+        assert_eq!(spec.when_done(), WhenDone::LocalPr);
+        spec.routine = None;
+        spec.worktree.as_mut().unwrap().when_done = WhenDone::Merge;
+        spec.from = Some(Default::default());
+        assert_eq!(spec.when_done(), WhenDone::Merge);
+        for w in [WhenDone::Keep, WhenDone::Merge, WhenDone::LocalPr, WhenDone::DraftPr, WhenDone::OpenPr, WhenDone::ReadOnly] {
+            assert_eq!(WhenDone::parse(w.as_str()), w);
+        }
+    }
 }

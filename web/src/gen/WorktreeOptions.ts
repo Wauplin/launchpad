@@ -11,6 +11,11 @@ export type WorktreeOptions = {
  */
 base: string | null, 
 /**
+ * Branch the work goes into (merge target, Local PR and pull request base). None: the branch it starts from
+ * (`base`), or, for a launch in another agent's worktree, that worktree's own base branch.
+ */
+into?: string, 
+/**
  * What happens when the agent runs `launchpad work finish`.
  */
 when_done: WhenDone, 

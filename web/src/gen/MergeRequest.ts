@@ -15,11 +15,6 @@ by_agent: boolean,
  */
 head?: string, 
 /**
- * Conflict messages already sent to the agent for this request.
+ * Conflicts and failures already sent back to the agent for its merge (at most `MAX_AGENT_RETRIES`).
  */
-agent_retries: number, 
-/**
- * A failed merge was already sent back to the agent once (automatic Fix merge): a second failure waits for
- * the owner.
- */
-auto_fixed: boolean, requested_at: number, };
+agent_retries: number, requested_at: number, };

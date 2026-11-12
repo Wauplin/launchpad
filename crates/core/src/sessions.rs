@@ -673,6 +673,8 @@ impl Sessions {
                     // A merge the owner asked for waits for this turn's rebase on Home (`rebase_merge`).
                     if ended || current.as_ref().is_some_and(|c| c.unsaved.is_some()) {
                         crate::rebase_merge::after_turn(app, &s);
+                        // When done = Draft PR or Open PR: the agent's Local PR goes to GitHub now.
+                        crate::pr_when_done::after_turn(app, &s);
                     }
                     // The runner saved the last turn's work on Home: routines that wait for it start now.
                     if current.as_ref().is_some_and(|c| c.unsaved.is_some()) && s.unsaved.is_none() && !s.status.is_running() {
@@ -1049,7 +1051,13 @@ impl Sessions {
         if !for_launch && !prompt.trim().is_empty() && (worktree_launch || context.iter().any(|c| c.own_worktree)) {
             let base = match spec.worktree.as_ref() {
                 Some(WorktreeOptions { pull_request: Some(pr), .. }) => format!("the head of pull request {}#{}", pr.repo, pr.number),
-                w => w.and_then(|w| w.base.clone()).map(|b| format!("`{b}`")).unwrap_or_else(|| "the default branch".into()),
+                w => {
+                    let from = w.and_then(|w| w.base.clone()).map(|b| format!("`{b}`")).unwrap_or_else(|| "the default branch".into());
+                    match w.and_then(|w| w.into.clone()).filter(|i| w.and_then(|w| w.base.as_ref()) != Some(i)) {
+                        Some(into) => format!("{from}, for `{into}`"),
+                        None => from,
+                    }
+                }
             };
             prompt.push_str(&format!("\n\nLaunchpad worktree: Launchpad creates dedicated Git worktrees for this task at launch{}, and lists their exact folders and branches here.", if worktree_launch { format!(", starting from {base}") } else { String::new() }));
         }
@@ -1106,6 +1114,9 @@ impl Sessions {
         let _action = self.action_locks(&locked).await;
         anyhow::ensure!(self.get(&id).is_none(), "a session with this id already exists");
         let mut spec = spec;
+        // A pull request on GitHub needs the owner's own launch: others open a Local PR the owner publishes.
+        let when_done = spec.when_done();
+        if let Some(w) = spec.worktree.as_mut() { w.when_done = when_done; }
         if let Target::SessionFolder { session_id } = &spec.target {
             let source = self.get(session_id).context("source session no longer exists")?;
             anyhow::ensure!(!self.is_busy(&source) && source.status != SessionStatus::InTerminal, "stop the source agent or re-attach its terminal before continuing with another agent");
@@ -1189,7 +1200,8 @@ impl Sessions {
                 }
                 Target::SessionFolder { session_id } => {
                     let source = self.get(session_id).context("source session no longer exists")?;
-                    let joined = crate::worktrees::join(app, session_id, &id).await?;
+                    let into = spec.worktree.as_ref().and_then(|w| w.into.clone()).filter(|b| !b.is_empty());
+                    let joined = crate::worktrees::join(app, session_id, &id, into.as_deref()).await?;
                     // Removed folders are cloned again in the background.
                     created.extend(joined.iter().filter(|w| w.state != crate::worktrees::WorktreeState::Active).map(|w| w.id.clone()));
                     worktrees.extend(joined.into_iter().filter(|w| w.state != crate::worktrees::WorktreeState::Discarded).map(|w| {

@@ -557,10 +557,18 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   // Only values that differ from the defaults show in the option line; a new worktree is the default for Git folders.
   const runIn = spec.target.kind === "session_folder" ? (selectedWorktree ? `worktree · ${selectedWorktree.branch}` : "previous agent’s folder") : spec.target.kind === "existing_predraft" ? "existing Local PR" : worktreeMode ? (pushToPr ? `PR #${pushToPr.number}` : null) : null;
   const baseLabel = spec.worktree?.base ?? targetBranches.data?.current ?? "current branch";
+  // In another agent's worktree, When done and Into apply to that worktree.
+  const worktreeReuse = spec.target.kind === "session_folder" && !!selectedWorktree && gitTarget;
+  const whenDone: WhenDone = spec.worktree?.when_done ?? "keep";
+  // Into: where the merge, Local PR or pull request goes. By default the branch it starts from (or the reused
+  // worktree's own base), else the default branch.
+  const defaultInto = worktreeReuse ? (selectedWorktree.base ?? targetBranches.data?.current ?? "main") : baseLabel;
+  const intoLabel = spec.worktree?.into ?? defaultInto;
+  const hasGitHub = !!(target?.gh_repo ?? target?.gh_upstream);
   const billingText = !supportsCost && harness?.capabilities.cost ? costUnavailableMessage : payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
-  // Where it runs and what happens when done, first on the options line ("New worktree from main · keep branch").
-  const whenDoneText = spec.worktree?.when_done === "merge" ? `merge into ${baseLabel}` : spec.worktree?.when_done === "local_pr" ? "Local PR when done" : spec.worktree?.when_done === "read_only" ? "read only" : "keep branch";
-  const whereLine = browserOnly ? null : worktreeMode ? (pushToPr ? `PR #${pushToPr.number} · pushes to the PR` : `New worktree from ${baseLabel} · ${whenDoneText}`) : spec.target.kind === "temp" ? "Temporary folder" : runIn ? runIn.charAt(0).toUpperCase() + runIn.slice(1) : null;
+  // Where it runs and what happens when done, first on the options line ("New worktree from main · keep for review").
+  const whenDoneText = whenDone === "merge" ? `merge into ${intoLabel}` : whenDone === "local_pr" ? `Local PR into ${intoLabel}` : whenDone === "draft_pr" ? `draft PR into ${intoLabel}` : whenDone === "open_pr" ? `PR into ${intoLabel}` : whenDone === "read_only" ? "read only" : intoLabel !== baseLabel ? `keep for review · into ${intoLabel}` : "keep for review";
+  const whereLine = browserOnly ? null : worktreeMode ? (pushToPr ? `PR #${pushToPr.number} · pushes to the PR` : `New worktree from ${baseLabel} · ${whenDoneText}`) : spec.target.kind === "temp" ? "Temporary folder" : worktreeReuse && runIn ? `Worktree · ${selectedWorktree.branch} · ${whenDoneText}` : runIn ? runIn.charAt(0).toUpperCase() + runIn.slice(1) : null;
   const hasChips = (spec.agent_traces ?? []).length > 0 || spec.github_refs.length > 0 || (spec.skills ?? []).length > 0 || (spec.files ?? []).length > 0 || spec.context_projects.length > 0;
 
   return (
@@ -743,7 +751,24 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         </button>
 
         {showOptions && <OptionsFrame onClose={() => setShowOptions(false)}>
-          {!browserOnly && <OptionRow label="Run in">
+          {target && gitTarget && !pushToPr && (worktreeMode || worktreeReuse) && <OptionRow label="When done">
+            <span className="grid min-w-0 grid-cols-1" title="Keep for review: the branch waits for you in Launchpad. Local PR: the agent opens a Local PR on Home for you to review and publish. Draft PR and Open PR: the agent opens a Local PR, and Launchpad publishes it on GitHub once the agent's turn is saved. Merge: the agent asks Launchpad to merge; Home merges into Into, and a base that moved goes back to the agent (at most 4 times). Read-only: for questions and audits; the agent changes nothing.">
+              <select className="field-input min-w-0 w-full" aria-label="When done" value={whenDone} disabled={completionDefault.isPending} title="Remembered for your new agents in this folder, except Read-only" onChange={(e) => {
+                const value = e.target.value as WhenDone;
+                set((s) => ({ ...s, worktree: { ...(s.worktree ?? { base: null }), when_done: value } }));
+                if (value !== "read_only") completionDefault.mutate({ projectId: target.id, whenDone: value });
+              }}>
+                <option value="read_only">Read-only (questions, audits)</option>
+                <option value="keep">Keep for review</option>
+                <option value="local_pr">Local PR</option>
+                <option value="draft_pr" disabled={!hasGitHub}>Draft PR on GitHub{hasGitHub ? "" : " (needs a GitHub remote)"}</option>
+                <option value="open_pr" disabled={!hasGitHub}>Open PR on GitHub{hasGitHub ? "" : " (needs a GitHub remote)"}</option>
+                <option value="merge">Merge</option>
+              </select>
+            </span>
+          </OptionRow>}
+          {target && gitTarget && existing && <OptionRow label="When done"><div className="pt-1.5 text-[12px] text-ink-3">The agent updates the Local PR; you publish or merge it from its page.</div></OptionRow>}
+          {!browserOnly && <OptionRow label={target && gitTarget ? "From" : "Run in"}>
             <div className="grid min-w-0 grid-cols-1 gap-1.5">
               {target && gitTarget ? <RunIn
                 projectId={target.id}
@@ -753,8 +778,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                 selectedWorktree={selectedWorktree?.id}
                 localPrs={existingPrChoices}
                 selectedLocalPr={existing?.id}
-                onBranch={(base) => set((s) => ({ ...s, target: { kind: "project", project_id: target.id }, worktree: { ...(s.worktree ?? { when_done: target.when_done }), base } }))}
-                onWorktree={(w) => set((s) => ({ ...s, target: { kind: "session_folder", session_id: w.source.id }, worktree: null }))}
+                onBranch={(base) => set((s) => ({ ...s, target: { kind: "project", project_id: target.id }, worktree: { ...(s.worktree ?? { when_done: target.when_done }), base, into: undefined } }))}
+                onWorktree={(w) => set((s) => ({ ...s, target: { kind: "session_folder", session_id: w.source.id }, worktree: { base: null, when_done: s.worktree?.when_done ?? target.when_done } }))}
                 onLocalPr={(p) => set((s) => ({ ...s, target: { kind: "existing_predraft", predraft_id: p.id }, worktree: null }))}
               /> : target ? <select className="field-input w-full" aria-label="Run in" value={spec.target.kind} onChange={(e) => {
                 if (e.target.value === "project") set((s) => ({ ...s, target: { kind: "project", project_id: target.id }, worktree: null }));
@@ -774,17 +799,14 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               </label>}
             </div>
           </OptionRow>}
-          {worktreeMode && target && !pushToPr && <OptionRow label="When done">
-            <span className="grid min-w-0 grid-cols-1" title="Merge: the agent asks Launchpad to merge when it is done; Home fast-forwards the base branch, and a base that moved goes back to the agent for a rebase. Open a Local PR: the agent opens a Local PR of its branch on Home, with a title and description for you to review and publish. Read only: for questions and audits; the agent changes nothing, and Archive deletes the unchanged worktree and branch.">
-              <select className="field-input min-w-0 w-full" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project, except Read only" onChange={(e) => {
-                const whenDone = e.target.value as WhenDone;
-                set((s) => ({ ...s, worktree: { ...s.worktree!, when_done: whenDone } }));
-                if (whenDone !== "read_only") completionDefault.mutate({ projectId: target.id, whenDone });
+          {target && gitTarget && !pushToPr && (worktreeMode || worktreeReuse) && whenDone !== "read_only" && <OptionRow label="Into">
+            <span className="grid min-w-0 grid-cols-1" title="Where the merge, the Local PR or the pull request goes, and what Changes compare with">
+              <select className="field-input min-w-0 w-full" aria-label="Into" value={spec.worktree?.into ?? ""} onChange={(e) => {
+                const into = e.target.value || undefined;
+                set((s) => ({ ...s, worktree: { ...(s.worktree ?? { base: null, when_done: whenDone }), into } }));
               }}>
-                <option value="keep">Keep branch for review</option>
-                <option value="local_pr">Open a Local PR</option>
-                <option value="merge">Merge into {baseLabel}</option>
-                <option value="read_only">Read only (questions, audits)</option>
+                <option value="">{worktreeReuse ? `Its base branch (${defaultInto})` : `Same as From (${defaultInto})`}</option>
+                {[...new Set([...(targetBranches.data?.branches ?? []).filter((b) => !b.startsWith("lp/")), ...(spec.worktree?.into ? [spec.worktree.into] : [])])].map((b) => <option key={b} value={b}>{b}</option>)}
               </select>
             </span>
           </OptionRow>}

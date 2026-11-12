@@ -9,6 +9,6 @@ export function reusableWorktrees(worktrees: WorktreeInfo[], sessions: Session[]
     const source = sessions.find((s) => w.sessions.includes(s.id) && s.cwd === path && s.launch_spec.target.kind !== "browser");
     if (!source) return [];
     const busy = sessions.some((s) => w.sessions.includes(s.id) && (isRunning(s) || s.status === "in_terminal" || s.status === "quota_paused"));
-    return [{ id: w.id, branch: w.branch, path, source, busy }];
+    return [{ id: w.id, branch: w.branch, base: w.base_branch, path, source, busy }];
   });
 }

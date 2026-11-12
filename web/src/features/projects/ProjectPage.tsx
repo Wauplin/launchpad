@@ -171,9 +171,9 @@ function FolderSettings({ p }: { p: Project }) {
         </SettingRow>
       )}
       {!p.is_temp && (
-        <SettingRow label="When done" hint="Default for new agents of this folder; the composer can change it per launch." state={done.state} error={done.error}>
+        <SettingRow label="When done" hint="Default for your new agents of this folder: the composer remembers your last choice here. Draft PR and Open PR publish on GitHub only for your own launches; bots and agents open a Local PR instead." state={done.state} error={done.error}>
           <Choices label="When done">
-            {([["keep", "Keep the branch for review"], ["local_pr", "Open a Local PR"], ["merge", "Merge when done"]] as const).map(([value, label]) => (
+            {([["keep", "Keep for review"], ["local_pr", "Local PR"], ["draft_pr", "Draft PR"], ["open_pr", "Open PR"], ["merge", "Merge"]] as const).filter(([value]) => (value !== "draft_pr" && value !== "open_pr") || !!(p.gh_repo ?? p.gh_upstream) || p.when_done === value).map(([value, label]) => (
               <Choice key={value} active={p.when_done === value} onClick={() => p.when_done !== value && void done.run(() => patch({ when_done: value }))}>{label}</Choice>
             ))}
           </Choices>

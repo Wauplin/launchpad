@@ -15,7 +15,7 @@ use crate::util::now_ms;
 use crate::worktrees::{MergePhase, MergeRequest, TaskWorktree};
 
 /// Rebases asked for one owner's Merge (the base may move again meanwhile).
-const MAX_REBASES: u32 = 3;
+const MAX_REBASES: u32 = 4;
 /// A request older than this is dropped (the agent never ended its turn).
 const KEEP_MS: i64 = 24 * 3_600_000;
 
@@ -83,7 +83,6 @@ pub fn waiting(worktree_id: &str) -> Option<MergeRequest> {
         by_agent: false,
         head: None,
         agent_retries: p.rebases,
-        auto_fixed: false,
         requested_at: p.at,
     })
 }

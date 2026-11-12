@@ -59,6 +59,7 @@ pub mod prompt_context;
 pub mod session_git;
 pub mod workspace;
 pub mod worktrees;
+pub mod pr_when_done;
 pub mod rebase_merge;
 pub mod turn_sync;
 pub mod vault;

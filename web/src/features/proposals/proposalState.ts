@@ -44,7 +44,7 @@ export function proposalPurpose(p: Pick<Proposal, "body">, n: CardNames = {}): s
   switch (b.kind) {
     case "launch": {
       const done = b.spec.worktree?.when_done;
-      return `Starts an agent in ${where(b.spec)}${done === "merge" ? "; it merges when done" : done === "local_pr" ? "; it opens a Local PR when done" : done === "read_only" ? ", read only" : ""}`;
+      return `Starts an agent in ${where(b.spec)}${done === "merge" ? "; it merges when done" : done === "local_pr" || done === "draft_pr" || done === "open_pr" ? "; it opens a Local PR when done" : done === "read_only" ? ", read only" : ""}`;
     }
     case "message": return `Sends a message to the agent “${n.session?.(b.session_id) ?? "an agent"}”`;
     case "schedule": return `Starts an agent in ${where(b.spec)} later, once ${b.conditions.length === 1 ? "its start condition holds" : `its ${plural(b.conditions.length, "start condition")} hold`}`;

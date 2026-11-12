@@ -30,8 +30,14 @@ pub struct TaskWorktree {
     pub repo: String,
     pub root: String,
     pub branch: String,
-    /// The branch it started from, where merges go. None: a pull request worktree.
+    /// Where merges, Local PRs and pull requests go (the launch's Into, else the branch it started from). None: a
+    /// pull request worktree.
     pub base_branch: Option<String>,
+    /// The branch a new worktree starts from when it differs from `base_branch` (the owner chose another Into);
+    /// empty: the folder's default branch. None: it starts from `base_branch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub start_branch: Option<String>,
     /// Empty until the worktree is prepared.
     pub base_commit: String,
     /// The session's working directory, rather than an editable context folder.
@@ -117,12 +123,8 @@ pub struct MergeRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub head: Option<String>,
-    /// Conflict messages already sent to the agent for this request.
+    /// Conflicts and failures already sent back to the agent for its merge (at most `MAX_AGENT_RETRIES`).
     pub agent_retries: u32,
-    /// A failed merge was already sent back to the agent once (automatic Fix merge): a second failure waits for
-    /// the owner.
-    #[serde(default)]
-    pub auto_fixed: bool,
     #[ts(type = "number")]
     pub requested_at: i64,
 }
@@ -178,7 +180,7 @@ pub struct WorktreeInfo {
     pub on_home: bool,
 }
 
-const MAX_AGENT_RETRIES: u32 = 3;
+const MAX_AGENT_RETRIES: u32 = 4;
 
 async fn git(app: &App, dir: &str, args: &[&str]) -> Result<String> {
     crate::home_git::git_in(app, Path::new(dir), args, 120).await
@@ -282,10 +284,17 @@ pub async fn plan(app: &App, session_id: &str, project: &Project, opts: &Worktre
         return Ok((w.clone(), w.root.clone()));
     }
     let pr = opts.pull_request.as_ref().filter(|_| primary);
-    let base_branch = if pr.is_some() { None } else { opts.base.clone().filter(|b| !b.is_empty()) };
-    if let Some(b) = &base_branch {
-        ensure!(!b.starts_with('-') && !b.starts_with("lp/"), "invalid base branch {b}");
+    let start = if pr.is_some() { None } else { opts.base.clone().filter(|b| !b.is_empty()) };
+    let into = if pr.is_some() || branch.is_some() { None } else { opts.into.clone().filter(|b| !b.is_empty()) };
+    for b in start.iter().chain(into.iter()) {
+        ensure!(!b.starts_with('-') && !b.starts_with("lp/"), "invalid branch {b}");
     }
+    // Into another branch than the start: the start is kept apart (empty for the default branch).
+    let (base_branch, start_branch) = match into {
+        Some(into) if Some(&into) != start.as_ref() => (Some(into), Some(start.unwrap_or_default())),
+        Some(into) => (Some(into), None),
+        None => (start, None),
+    };
     let slug = slug_for(session_id, project, title, primary);
     let branch_name = match branch {
         Some(b) => {
@@ -304,6 +313,7 @@ pub async fn plan(app: &App, session_id: &str, project: &Project, opts: &Worktre
         root: root.to_string_lossy().into_owned(),
         branch: branch_name,
         base_branch,
+        start_branch,
         base_commit: String::new(),
         primary,
         state: WorktreeState::Preparing,
@@ -346,11 +356,20 @@ pub async fn prepare(app: &App, id: &str) -> Result<TaskWorktree> {
         }
         None => String::new(),
     };
+    // Another start than the base (the owner's Into): the branch starts there, and the base must exist too.
+    let from = match w.start_branch.as_deref() {
+        Some("") => git(app, &cache_s, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).await.context("Home has no default branch for this folder")?.trim_start_matches("origin/").to_string(),
+        Some(b) => b.to_string(),
+        None => base.clone(),
+    };
+    if from != base && !base.is_empty() {
+        git(app, &cache_s, &["rev-parse", "--verify", &format!("refs/remotes/origin/{base}^{{commit}}")]).await.with_context(|| format!("branch {base} not found on Home"))?;
+    }
     let existing = git(app, &cache_s, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{}^{{commit}}", w.branch)]).await.ok().filter(|s| !s.is_empty());
     let start = match (&existing, w.from_branch || w.pull_request.is_some()) {
         (Some(head), _) => head.clone(),
         (None, true) => bail!("{} is not on Home", w.branch),
-        (None, false) => git(app, &cache_s, &["rev-parse", "--verify", &format!("refs/remotes/origin/{base}^{{commit}}")]).await.with_context(|| format!("branch {base} not found on Home"))?,
+        (None, false) => git(app, &cache_s, &["rev-parse", "--verify", &format!("refs/remotes/origin/{from}^{{commit}}")]).await.with_context(|| format!("branch {from} not found on Home"))?,
     };
     let _lock = app.worktree_lock.lock().await;
     if let Some(parent) = Path::new(&w.root).parent() {
@@ -359,7 +378,7 @@ pub async fn prepare(app: &App, id: &str) -> Result<TaskWorktree> {
     let _ = git(app, &cache_s, &["worktree", "prune"]).await;
     add_worktree(app, &cache_s, &w, &start).await?;
     configure(app, &w, w.sessions.last().map(String::as_str).unwrap_or_default()).await?;
-    w.base_commit = if w.pull_request.is_some() || w.from_branch {
+    w.base_commit = if w.pull_request.is_some() || w.from_branch || from != base {
         git(app, &cache_s, &["merge-base", &start, &format!("refs/remotes/origin/{base}")]).await.unwrap_or_else(|_| start.clone())
     } else {
         start.clone()
@@ -689,8 +708,12 @@ pub(crate) async fn leave(app: &App, session_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// A continuation with another agent works in the same worktrees; its pushes name it.
-pub async fn join(app: &App, source_session: &str, session_id: &str) -> Result<Vec<TaskWorktree>> {
+/// A continuation with another agent works in the same worktrees; its pushes name it. `into`: the launch's Into,
+/// which becomes the base branch of the primary worktree (where its merge, Local PR or pull request goes).
+pub async fn join(app: &App, source_session: &str, session_id: &str, into: Option<&str>) -> Result<Vec<TaskWorktree>> {
+    if let Some(b) = into {
+        ensure!(!b.starts_with('-') && !b.starts_with("lp/"), "invalid branch {b}");
+    }
     let _lock = app.worktree_lock.lock().await;
     let worktrees = for_session(app, source_session).await?;
     for w in &worktrees {
@@ -700,8 +723,13 @@ pub async fn join(app: &App, source_session: &str, session_id: &str) -> Result<V
     }
     let mut joined = vec![];
     for mut w in worktrees {
-        if !w.sessions.iter().any(|s| s == session_id) {
-            w.sessions.push(session_id.to_string());
+        let retarget = into.filter(|b| w.primary && w.pull_request.is_none() && w.base_branch.as_deref() != Some(*b));
+        if let Some(b) = retarget {
+            w.base_branch = Some(b.to_string());
+            w.merge = None;
+        }
+        if !w.sessions.iter().any(|s| s == session_id) || retarget.is_some() {
+            if !w.sessions.iter().any(|s| s == session_id) { w.sessions.push(session_id.to_string()); }
             save(app, &w).await?;
         }
         if w.state == WorktreeState::Active {
@@ -728,11 +756,14 @@ pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, Stri
             name(&w.project_id),
             if w.primary { " (your working directory)" } else { " (editable)" },
             w.branch,
-            match (&w.pull_request, w.base_branch.as_deref(), w.from_branch) {
-                (Some(pr), _, _) => format!("which continues pull request #{} of {}", pr.number, pr.repo),
-                (None, _, true) => "which continues earlier work".into(),
-                (None, Some(b), false) => format!("created from `{b}`"),
-                (None, None, false) => "created from the default branch".into(),
+            match (&w.pull_request, w.base_branch.as_deref(), w.from_branch, w.start_branch.as_deref()) {
+                (Some(pr), ..) => format!("which continues pull request #{} of {}", pr.number, pr.repo),
+                (None, Some(b), true, _) => format!("which continues earlier work for `{b}`"),
+                (None, None, true, _) => "which continues earlier work".into(),
+                (None, Some(b), false, Some("")) => format!("created from the default branch, for `{b}`"),
+                (None, Some(b), false, Some(start)) => format!("created from `{start}`, for `{b}`"),
+                (None, Some(b), false, None) => format!("created from `{b}`"),
+                (None, None, false, _) => "created from the default branch".into(),
             },
         ));
     }
@@ -750,6 +781,11 @@ pub fn instruction(app: &App, session_id: &str, worktrees: &[(TaskWorktree, Stri
     let bases: Vec<String> = worktrees.iter().filter_map(|(w, _)| w.base_branch.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().map(|b| format!("`{b}`")).collect();
     let base = if bases.is_empty() { "its base branch".to_string() } else { bases.join(", ") };
     if worktrees.iter().any(|(w, _)| w.pull_request.is_some()) {
+    } else if let Some(draft) = when_done.publishes() {
+        let kind = if draft { "a draft pull request" } else { "a pull request" };
+        text.push_str(&format!(
+            "\nWhen the task is done and checked, commit everything, then run `{cli} work finish --session-id {session_id}`. Launchpad opens a Local PR of your branch on Home; then set its title and description as the command output explains: they become the pull request's. After your turn ends, Launchpad publishes it on GitHub as {kind} into {base}. Do not merge into {base}, push to GitHub or open a pull request yourself, and report the pull request as requested, not as opened."
+        ));
     } else if when_done == crate::model::WhenDone::LocalPr {
         text.push_str(&format!(
             "\nWhen the task is done and checked, commit everything, then run `{cli} work finish --session-id {session_id}`. Launchpad opens a Local PR of your branch on Home for the owner to review; then set its title and description as the command output explains. Do not merge into {base} or open a pull request on GitHub yourself."
@@ -1246,8 +1282,8 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool, head: Option<Str
             ensure!(&tip == head, "{} changed since review; review again", w.branch);
         }
         let before = w.merge.as_ref().filter(|m| m.by_agent && by_agent);
-        let (retries, auto_fixed) = before.map(|m| (m.agent_retries, m.auto_fixed)).unwrap_or_default();
-        w.merge = Some(MergeRequest { phase: MergePhase::Waiting, reason: format!("Waiting to merge into {base}"), by_agent, head, agent_retries: retries, auto_fixed, requested_at: now_ms() });
+        let retries = before.map(|m| m.agent_retries).unwrap_or_default();
+        w.merge = Some(MergeRequest { phase: MergePhase::Waiting, reason: format!("Waiting to merge into {base}"), by_agent, head, agent_retries: retries, requested_at: now_ms() });
         save(app, &w).await?;
         w
     };
@@ -1267,10 +1303,10 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool, head: Option<Str
 /// `launchpad work finish`: requests the merge of every worktree of the session when the launch chose Merge, or
 /// opens a Local PR of the primary worktree's branch when it chose Local PR; Keep changes nothing.
 pub async fn finish(app: &App, session_id: &str) -> Result<String> {
-    let when_done = app.sessions.get(session_id).and_then(|s| s.launch_spec.worktree).map(|o| o.when_done).unwrap_or_default();
+    let when_done = app.sessions.get(session_id).map(|s| s.launch_spec.when_done()).unwrap_or_default();
     ensure!(when_done != crate::model::WhenDone::ReadOnly, "this session is read only: there is nothing to finish. Undo your changes and give your answer in your final message");
-    if when_done == crate::model::WhenDone::LocalPr {
-        return finish_local_pr(app, session_id).await;
+    if when_done.opens_local_pr() {
+        return finish_local_pr(app, session_id, when_done.publishes()).await;
     }
     // Only a launch that chose Merge lets the agent request one; Keep leaves the branch to the owner.
     if when_done != crate::model::WhenDone::Merge {
@@ -1304,7 +1340,7 @@ async fn ready_to_finish(app: &App, w: &TaskWorktree) -> Result<()> {
 
 /// Opens a Local PR of the session's primary branch on Home. Idempotent: a second call returns the same
 /// Local PR. The session's other branches join the same change set when they become Local PRs.
-async fn finish_local_pr(app: &App, session_id: &str) -> Result<String> {
+async fn finish_local_pr(app: &App, session_id: &str, publish: Option<bool>) -> Result<String> {
     let all = for_session(app, session_id).await?;
     let mut w = all.iter().find(|w| w.primary && w.state == WorktreeState::Active).cloned().context("this session has no Launchpad worktree to turn into a Local PR")?;
     ensure!(w.pull_request.is_none(), "this branch continues a pull request: push your commits instead of opening a Local PR");
@@ -1314,8 +1350,16 @@ async fn finish_local_pr(app: &App, session_id: &str) -> Result<String> {
     let p = crate::predrafts::open_for_branch(app, &w.project_id, &w.branch, w.base_branch.as_deref(), Some(session_id), title).await?;
     mark_predraft(app, &w.id, &p.id).await?;
     let others: Vec<String> = all.iter().filter(|o| !o.primary && o.state == WorktreeState::Active).map(|o| format!("`{}`", o.branch)).collect();
+    let then = match publish {
+        Some(draft) => format!(
+            "Then end your turn: Launchpad publishes it on GitHub as {} into `{}` once your turn is saved. Report the pull request as requested, not as opened. Do not push to GitHub or open a pull request yourself.",
+            if draft { "a draft pull request" } else { "a pull request" },
+            p.base_branch
+        ),
+        None => "Then end your turn and report the Local PR as opened for review. Do not open a pull request on GitHub.".into(),
+    };
     let mut text = format!(
-        "Local PR opened on Home from branch `{}` (id {}), based on `{}`. Now set its title and description: write the description to a file, then run `{} pr update --title \"…\" --body-file <file>` in `{}`. Then end your turn and report the Local PR as opened for review. Do not open a pull request on GitHub.",
+        "Local PR opened on Home from branch `{}` (id {}), based on `{}`. Now set its title and description: write the description to a file, then run `{} pr update --title \"…\" --body-file <file>` in `{}`. {then}",
         p.branch, p.id, p.base_branch, app.paths.cli_command(), w.root
     );
     if !others.is_empty() {
@@ -1423,7 +1467,8 @@ async fn attempt(app: &App, id: &str) {
             Ok(Step::Conflict(reason)) => {
                 let send = m.by_agent && m.agent_retries < MAX_AGENT_RETRIES;
                 w.merge = Some(MergeRequest { phase: MergePhase::Conflict, reason: reason.clone(), agent_retries: m.agent_retries + send as u32, ..m });
-                notice(app, &w, &format!("Merge of {} stopped: {reason}", w.branch)).await;
+                let then = retry_note(m.by_agent, send, m.agent_retries);
+                notice(app, &w, &format!("Merge of {} stopped: {reason}{then}", w.branch)).await;
                 send.then(|| (w.sessions.last().cloned(), reason))
             }
             Ok(Step::Rebasing(reason)) => {
@@ -1438,11 +1483,11 @@ async fn attempt(app: &App, id: &str) {
                 None
             }
             Err(e) => {
-                // Usually a race on the base branch: the agent gets it once (automatic Fix merge), never twice.
+                // Usually a race on the base branch: it goes back to the agent like a conflict, within the same limit.
                 let reason = format!("{e:#}");
-                let send = m.by_agent && !m.auto_fixed;
-                w.merge = Some(MergeRequest { phase: MergePhase::Failed, reason: reason.clone(), auto_fixed: m.auto_fixed || send, ..m });
-                let then = if send { " Sent back to the agent once." } else { "" };
+                let send = m.by_agent && m.agent_retries < MAX_AGENT_RETRIES;
+                w.merge = Some(MergeRequest { phase: MergePhase::Failed, reason: reason.clone(), agent_retries: m.agent_retries + send as u32, ..m });
+                let then = retry_note(m.by_agent, send, m.agent_retries);
                 notice(app, &w, &format!("Merge of {} failed: {reason}{then}", w.branch)).await;
                 send.then(|| (w.sessions.last().cloned(), reason))
             }
@@ -1459,6 +1504,15 @@ async fn attempt(app: &App, id: &str) {
     {
         tracing::warn!("worktree conflict message {session}: {e:#}");
         notice(app, &w, &format!("Not sent to the agent: {e:#} Fix merge sends it.")).await;
+    }
+}
+
+/// What a stopped agent's merge does next, for its notice.
+fn retry_note(by_agent: bool, send: bool, retries: u32) -> String {
+    match (by_agent, send) {
+        (true, true) => format!(" Sent back to the agent (retry {} of {MAX_AGENT_RETRIES}).", retries + 1),
+        (true, false) => format!(" The agent already retried {MAX_AGENT_RETRIES} times: Fix merge sends it again."),
+        (false, _) => String::new(),
     }
 }
 

@@ -15,7 +15,8 @@ sessions: Array<string>, project_id: string,
  */
 repo: string, root: string, branch: string, 
 /**
- * The branch it started from, where merges go. None: a pull request worktree.
+ * Where merges, Local PRs and pull requests go (the launch's Into, else the branch it started from). None: a
+ * pull request worktree.
  */
 base_branch: string | null, 
 /**

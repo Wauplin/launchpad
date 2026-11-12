@@ -785,7 +785,7 @@ pub async fn next_spec(app: &App, bot: &Bot, thread: &[Session], text: String, a
         permission_mode: s.permission_mode,
         target: folder.as_ref().map_or(Target::Temp, |f| Target::Project { project_id: f.id.clone() }),
         // Git folders: a fresh worktree per session, never the owner's checkout.
-        worktree: folder.as_ref().filter(|f| !f.plain).map(|f| WorktreeOptions { when_done: f.when_done, ..Default::default() }),
+        worktree: folder.as_ref().filter(|f| !f.plain).map(|f| WorktreeOptions { when_done: f.when_done.without_github(), ..Default::default() }),
         workspace_id: Some(bot.workspace_id.clone()),
         bot: Some(BotLaunch {
             id: bot.id.clone(),

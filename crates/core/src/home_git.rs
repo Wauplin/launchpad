@@ -654,6 +654,10 @@ pub async fn merge(app: &App, p: &Project, branch: &str, head: &str, base: &str)
     if base_tip == head || git(app, &dir, &["merge-base", "--is-ancestor", head, &base_tip]).await.is_ok() {
         return Ok(MergeOutcome::Merged { head: base_tip, note: format!("{branch} is already part of {base}.") });
     }
+    // Someone applied the same changes to the base on the side (a cherry-pick, a squash merge): nothing to merge.
+    if already_applied(app, &dir, &base_tip, head).await {
+        return Ok(MergeOutcome::Merged { head: base_tip, note: format!("The changes of {branch} are already in {base}: nothing to merge.") });
+    }
     if git(app, &dir, &["merge-base", "--is-ancestor", &base_tip, head]).await.is_err() {
         return Ok(MergeOutcome::NeedsRebase { base: base.into(), reason: format!("{base} moved on Home ({}); {branch} must be rebased onto it", &base_tip[..12.min(base_tip.len())]) });
     }
@@ -677,6 +681,28 @@ pub async fn merge(app: &App, p: &Project, branch: &str, head: &str, base: &str)
     browse_stale(&p.id);
     app.bus.publish("home_git", "merged", serde_json::json!({"project_id": p.id, "branch": branch, "base": base}));
     Ok(MergeOutcome::Merged { head: head.into(), note })
+}
+
+/// The changes of `head` are already in `base_tip` although `head` is not part of its history: every commit has a
+/// patch-equivalent commit there (`git cherry`), or every file the branch changed is the same in `base_tip` (a
+/// squash merge), so merging it would change nothing.
+async fn already_applied(app: &App, dir: &Path, base_tip: &str, head: &str) -> bool {
+    if let Ok(out) = git(app, dir, &["cherry", base_tip, head]).await
+        && !out.trim().is_empty()
+        && out.lines().all(|l| l.starts_with('-'))
+    {
+        return true;
+    }
+    let Ok(fork) = git(app, dir, &["merge-base", base_tip, head]).await else { return false };
+    let Ok(files) = git(app, dir, &["diff", "--name-only", "--no-renames", "-z", &fork, head]).await else { return false };
+    let files: Vec<&str> = files.split('\0').filter(|f| !f.is_empty()).collect();
+    if files.is_empty() || files.len() > 2000 {
+        return false;
+    }
+    let mut args = vec!["diff", "--quiet", "--no-renames", base_tip, head, "--"];
+    args.extend(files.iter().copied());
+    // Exits non-zero when one of these files differs.
+    git(app, dir, &args).await.is_ok()
 }
 
 /// Fetches an open pull request's head into a new Launchpad branch, for a session that continues it.
