@@ -43,7 +43,7 @@ When a session continues (your message, **Resume**, an answer to a question, a b
 3. Burst, on a Home in a Space.
 4. Otherwise, a clear error, and nothing is sent.
 
-**Launch here** and **Run in** an existing worktree, and a new agent in an existing temporary folder, follow the same order: when the runner of that session is away, its sessions move first. Accepted proposals, routines, scheduled launches, bot messages and Ask Launchpad use the same order. Each is sent once and never retried after a failure.
+**Launch here** and **Run in** an existing worktree, and a new agent in an existing temporary folder, follow the same order: when the runner of that session is away, paused or needs an update, its sessions move first to another runner, else to a Burst job, which then starts the new agent. Accepted proposals, routines, scheduled launches, bot messages and Ask Launchpad use the same order. Each is sent once and never retried after a failure.
 
 While a session runs, Stop, answers and the other session actions go to its runner. Home serves the record, the events and the trace itself. Worktree actions (Merge, Discard, Create Local PR, Restore folder, Fix merge) go to the runner of the worktree's session too. The merge itself runs on Home: when it takes more than about 40 seconds, the runner shows it as waiting and asks again, so a slow merge is never reported as failed.
 

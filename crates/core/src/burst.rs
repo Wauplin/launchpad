@@ -474,6 +474,8 @@ async fn drive(app: &App, runner_id: &str) {
     let Ok(Some(run)) = get(app, runner_id).await else { return };
     let result = match run.pending.clone() {
         Some(Pending::Launch { spec, session_id, .. }) => async {
+            // A launch that continues in another session's folder or a temporary folder: that folder comes first.
+            crate::runners::move_pinned_to(app, &spec, runner_id).await?;
             let (status, body) = app.runners.request_with(runner_id, "POST", "/api/sessions", Some(serde_json::to_string(&spec)?), vec![("idempotency-key".into(), session_id)]).await?;
             ensure!((200..300).contains(&status), "{}", error_of(&body));
             Ok(())
@@ -526,7 +528,7 @@ pub async fn launch(app: &App, spec: LaunchSpec, id: String, automatic: bool) ->
     ensure!(app.sessions.get(&id).is_none(), "a session with this id already exists");
     if let crate::model::Target::Project { project_id } | crate::model::Target::Predraft { project_id } = &spec.target {
         let p = crate::projects::get(app, project_id).await?.context("no such folder")?;
-        ensure!(p.home_git || p.plain, "{} is not stored on Home: Burst cannot open it", p.name);
+        ensure!(p.home_git || p.plain || p.is_temp, "{} is not stored on Home: Burst cannot open it", p.name);
     }
     let pending = Pending::Launch { spec: Box::new(spec.clone()), session_id: id.clone(), automatic };
     let run = start(app, Some(id.clone()), pending).await?;

@@ -1014,46 +1014,71 @@ async fn pinned_runner(app: &App, spec: &crate::model::LaunchSpec) -> Result<Opt
     })
 }
 
-/// Home: a launch pinned to a runner that is away (offline, or a stopped Burst job): the sessions it
-/// continues from move first to the chosen runner, else the least busy one (their worktrees come back from
-/// Home Git, a temporary folder from its files on Home).
-async fn move_pinned(app: &App, spec: &crate::model::LaunchSpec) -> Result<()> {
+/// The sessions a launch pinned to `from` continues from: the session whose folder it continues in, or the open
+/// sessions of its temporary folder there.
+fn pinned_sessions(app: &App, spec: &crate::model::LaunchSpec, from: &str) -> Vec<crate::model::Session> {
     use crate::model::Target;
-    let Some(from) = pinned_runner(app, spec).await? else { return Ok(()) };
-    let sessions: Vec<crate::model::Session> = match &spec.target {
+    match &spec.target {
         Target::SessionFolder { session_id } => app.sessions.get(session_id).into_iter().collect(),
         Target::Project { project_id } | Target::Predraft { project_id } => app
             .sessions
             .list()
             .into_iter()
-            .filter(|s| s.project_id.as_deref() == Some(project_id.as_str()) && s.runner_id.as_deref() == Some(from.as_str()) && s.status != crate::model::SessionStatus::Closed)
+            .filter(|s| s.project_id.as_deref() == Some(project_id.as_str()) && s.runner_id.as_deref() == Some(from) && s.status != crate::model::SessionStatus::Closed)
             .collect(),
         _ => vec![],
-    };
+    }
+}
+
+/// Home: a launch pinned to a runner that does not take it (offline, a stopped Burst job, or connected but
+/// paused, outdated or refusing launches from other devices): the sessions it continues from move first to the
+/// chosen runner, else the least busy one (their worktrees come back from Home Git, a temporary folder from its
+/// files on Home). Ok(true): no runner takes it and the launch goes to Burst, whose job takes the folder first
+/// (`move_pinned_to`).
+async fn move_pinned(app: &App, spec: &crate::model::LaunchSpec) -> Result<bool> {
+    let Some(from) = pinned_runner(app, spec).await? else { return Ok(false) };
+    let sessions = pinned_sessions(app, spec, &from);
     let away = match sessions.first() {
         Some(s) => !holds(app, s).await,
         None => !app.runners.connected(&from),
     };
-    if !away {
-        return Ok(());
+    if !away && app.runners.available().contains(&from) {
+        return Ok(false);
     }
     let name = runner_name(app, &from).await;
+    // None: no runner takes it, Burst does.
     let to = match &spec.runner_id {
-        Some(c) => Some(c.clone()).filter(|c| app.runners.available().contains(c)).context("The chosen runner does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update")?,
-        None => pick(app, None).with_context(|| format!("{name} has this folder and is offline, and no other runner takes launches now: connect a runner, or send its agent a message to continue it on Burst"))?,
+        Some(c) => Some(Some(c.clone()).filter(|c| c != &from && app.runners.available().contains(c)).context("The chosen runner does not take this launch now: it is offline, paused, refuses launches from other devices or needs an update")?),
+        None => pick(app, None),
     };
+    if to.is_none()
+        && let Some(why) = crate::burst::unavailable(app).await
+    {
+        bail!("{name} has this folder and does not take launches now (offline, paused, refusing launches from other devices or needing an update), no other runner does, and Burst cannot: {why}");
+    }
     // All or none: a temporary folder never ends up split between two runners by a refused move.
     if let Some(reason) = sessions.iter().find_map(crate::handoff::blocked) {
-        bail!("{name} has this folder and is offline, and its agent cannot move: {reason}");
+        bail!("{name} has this folder and does not take launches now, and its agent cannot move: {reason}");
     }
+    let Some(to) = to else { return Ok(true) };
+    move_pinned_to(app, spec, &to).await?;
+    Ok(false)
+}
+
+/// Home: moves what a pinned launch continues from (`pinned_sessions`, or a temporary folder without an open
+/// agent) to `to`. Also called by a Burst job once it is up, before it starts the launch.
+pub(crate) async fn move_pinned_to(app: &App, spec: &crate::model::LaunchSpec, to: &str) -> Result<()> {
+    use crate::model::Target;
+    let Some(from) = pinned_runner(app, spec).await?.filter(|f| f != to) else { return Ok(()) };
+    let sessions = pinned_sessions(app, spec, &from);
     for s in &sessions {
-        crate::handoff::move_to(app, &s.id, &to).await?;
+        crate::handoff::move_to(app, &s.id, to).await?;
     }
     // A temporary folder without an open agent follows the launch.
     if sessions.is_empty()
         && let Target::Project { project_id } | Target::Predraft { project_id } = &spec.target
     {
-        crate::projects::move_temp(app, project_id, &to).await?;
+        crate::projects::move_temp(app, project_id, to).await?;
     }
     Ok(())
 }
@@ -1093,8 +1118,8 @@ fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> 
 }
 
 /// Home: starts a session on a runner (sent once, never retried). Home places it like a message (`place`): the
-/// chosen runner (no fallback), else the runner it is pinned to (its sessions move first when that runner is away),
-/// else another runner, else Burst. Runners never pick their own launches: they start only what Home places.
+/// chosen runner (no fallback), else the runner it is pinned to (its sessions move first to another runner, else to
+/// Burst, when that runner does not take launches), else another runner, else Burst. Runners never pick their own launches: they start only what Home places.
 pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
     anyhow::ensure!(app.paths.role == crate::role::Role::Home, "only Home launches sessions: a runner starts the ones Home places on it");
     // Uploads are stored on Home: the runner or Burst job receives references and fetches the bytes.
@@ -1102,7 +1127,10 @@ pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: 
     if spec.runner_id.as_deref() == Some(crate::burst::CHOICE) {
         return crate::burst::launch(app, spec, id, automatic).await;
     }
-    move_pinned(app, &spec).await?;
+    // A pinned launch whose runner does not take it, and no other runner does: Burst takes the folder, then the launch.
+    if move_pinned(app, &spec).await? {
+        return crate::burst::launch(app, spec, id, automatic).await;
+    }
     let pinned = pinned_runner(app, &spec).await?.is_some();
     let runner = match launch_runner(app, &spec).await {
         Ok(r) => r,
