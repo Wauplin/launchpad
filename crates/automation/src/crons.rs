@@ -940,7 +940,7 @@ pub(crate) async fn skip_run(app: &App, id: &str, cause: String, reason: String,
 /// Why an event may not start a run of the routine now: the run's message would pass the loop guard (`hops`, the
 /// automatic messages in its chain, itself included: `senders::guard`), or the routine already started
 /// `EVENT_RUNS_PER_HOUR` runs in the last hour (event triggers only).
-fn limit_reason(r: &CronAgent, hops: u32, now: i64) -> Option<String> {
+pub(crate) fn limit_reason(r: &CronAgent, hops: u32, now: i64) -> Option<String> {
     if let Err(e) = launchpad_core::senders::guard(hops) {
         return Some(format!("{e:#}"));
     }

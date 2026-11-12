@@ -204,7 +204,8 @@ async fn check_one(app: &App, r: &CronAgent, bots: &[launchpad_core::bots::Bot],
     let Some(newest_id) = all.iter().map(|m| m.id).max() else { return Ok(()) };
     let new = select(&all, Some(after), r.created_at, &bot, *mentions_only);
     let fresh: Vec<Message> = new.iter().filter(|m| now - m.created_at <= MISSED_GRACE_MS).cloned().collect();
-    if !fresh.is_empty() && (crate::crons::why_blocked(app, r).await?.is_some() || crate::crons::quota_hold(app, r).await?.is_some()) {
+    // A routine that cannot run at all (its bot has no profile) still claims its messages and records why below.
+    if !fresh.is_empty() && (crate::crons::why_blocked(app, r).await.is_ok_and(|w| w.is_some()) || crate::crons::quota_hold(app, r).await.is_ok_and(|h| h.is_some())) {
         return Ok(());
     }
     // Claim every message read (also those the routine does not take), so the next check starts after them.
@@ -228,10 +229,17 @@ async fn check_one(app: &App, r: &CronAgent, bots: &[launchpad_core::bots::Bot],
         return crate::crons::skip(app, &record.id, cause, "its bot is no longer a member of the channel".into()).await;
     }
     if fresh.is_empty() {
-        return match crate::crons::quota_hold(app, &record).await? {
+        return match crate::crons::quota_hold(app, &record).await.ok().flatten() {
             Some(held) => crate::crons::skip_run(app, &record.id, cause, format!("the messages are more than 1 hour old; they waited for the quota: {held}"), true).await,
             None => crate::crons::skip(app, &record.id, cause, "the messages are more than 1 hour old".into()).await,
         };
+    }
+    // `on_event` checks the loop guard and the rate limit first too; here they come before a bot that cannot run.
+    if let Some(why) = crate::crons::limit_reason(&record, hops(&fresh), now) {
+        return crate::crons::skip(app, &record.id, cause, why).await;
+    }
+    if let Err(e) = crate::crons::why_blocked(app, &record).await {
+        return crate::crons::skip(app, &record.id, cause, format!("{e:#}")).await;
     }
     crate::crons::on_event(app, &record, cause, context, hops(&fresh)).await
 }
@@ -266,6 +274,16 @@ mod tests {
         assert!(takes(&list[0], "b1", false) && !takes(&list[1], "b1", false));
         // An external author with the bot's ID is not the bot.
         assert!(takes(&msg(6, "external", "b1", &[], 0, 60), "b1", false));
+    }
+
+    #[test]
+    fn a_run_names_the_messages_and_how_to_read_them() {
+        let ch = Channel { id: "c1".into(), workspace_id: "w".into(), kind: "channel".into(), name: "triage".into(), paused: false, archived: false, members: vec!["b1".into()] };
+        let new = [msg(4, "owner", "owner", &[], 0, 0), msg(5, "bot", "Poster", &[], 1, 0)];
+        let (cause, context) = describe(&ch, "b1", &[], &new, 3);
+        assert_eq!(cause, "#triage: 2 new messages");
+        assert!(context.starts_with("- New messages in #triage: 4 (the owner), 5 (Poster). Read them with `launchpad channel read triage --since 3`."), "{context}");
+        assert_eq!(describe(&ch, "b1", &[], &new[1..], 4).0, "#triage, Poster (message 5)");
     }
 
     #[test]
