@@ -407,12 +407,13 @@ export function agentsWorld() {
     next_run_at: null, last_check_at: clock.ago(40), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, channel_seen: null, file: "routines/ci-failures.toml", file_error: null, waiting: null,
     history: [run(day * 2 + 300, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#112"), run(day + 200, "skipped", null, "GitHub, CI activity: acme-labs/storefront#115", "Maintainer was working"), run(40, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#118")],
   }, {
-    // The Maintainer answers in #release-train when it is mentioned there (a channel trigger: the file keeps the channel's ID).
-    id: "demo-routine-train", title: "Release questions", schedule: "", trigger: { kind: "channel", channel: "demo-chan-release-train", mentions_only: true }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 4),
+    // The Maintainer follows #release-train: the channel wakes it when it is mentioned, and this routine (a channel
+    // trigger: the file keeps the channel's ID) reads the other messages, never those the channel delivered to it.
+    id: "demo-routine-train", title: "Release questions", schedule: "", trigger: { kind: "channel", channel: "demo-chan-release-train", mentions_only: false }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 4),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: TRAIN_ROUTINE, workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
     next_run_at: null, last_check_at: clock.ago(1), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, channel_seen: 46, file: "routines/release-questions.toml", file_error: null, waiting: null,
-    history: [run(day + 120, "report", "demo-s-bot-maintainer", "#release-train, Release (message 31)"), run(180, "no_update", "demo-s-bot-maintainer", "#release-train: 2 new messages")],
+    history: [run(179, "no_update", "demo-s-bot-maintainer", "#release-train, the owner (message 40)"), run(52, "report", "demo-s-bot-maintainer", "#release-train: 2 new messages")],
   }, {
     // The Librarian's weekly tidy, created paused with the bot (`librarian::ROUTINE`): Sunday 03:00 in Home's time zone.
     id: "demo-routine-tidy", title: "Weekly tidy", schedule: "0 3 * * 0", trigger: { kind: "schedule" }, bot_id: LIBRARIAN_BOT, bot_paused: false, paused: true, created_at: clock.ago(day * 30),

@@ -175,11 +175,12 @@ fn read_arg(ch: &Channel, bot: &str, bots: &[launchpad_core::bots::Bot]) -> Stri
 /// The cause and context of a run for `new` (oldest first, not empty).
 fn describe(ch: &Channel, bot: &str, bots: &[launchpad_core::bots::Bot], new: &[Message], since: i64) -> (String, String) {
     let place = place(ch, bot, bots);
+    let author = |m: &Message| if m.author_kind == "owner" { "the owner".to_string() } else { m.author_name.clone() };
     let cause = match new {
-        [m] => format!("{place}, {} (message {})", m.author_name, m.id),
+        [m] => format!("{place}, {} (message {})", author(m), m.id),
         many => format!("{place}: {} new messages", many.len()),
     };
-    let ids = new.iter().map(|m| format!("{} ({})", m.id, if m.author_kind == "owner" { "the owner".to_string() } else { m.author_name.clone() })).collect::<Vec<_>>().join(", ");
+    let ids = new.iter().map(|m| format!("{} ({})", m.id, author(m))).collect::<Vec<_>>().join(", ");
     let read = read_arg(ch, bot, bots);
     let post = if ch.kind == "dm" { format!("launchpad dm {} --body-file <file>", read.trim_start_matches('@')) } else { format!("launchpad channel post {read} --body-file <file>") };
     let context = format!(
@@ -307,6 +308,7 @@ mod tests {
         assert_eq!(cause, "#triage: 2 new messages");
         assert!(context.starts_with("- New messages in #triage: 4 (the owner), 5 (Poster). Read them with `launchpad channel read triage --since 3`."), "{context}");
         assert_eq!(describe(&ch, "b1", &[], &new[1..], 4).0, "#triage, Poster (message 5)");
+        assert_eq!(describe(&ch, "b1", &[], &new[..1], 3).0, "#triage, the owner (message 4)");
     }
 
     #[test]
