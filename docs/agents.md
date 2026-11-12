@@ -116,6 +116,8 @@ Next to the status, **Saving** means the runner is saving the turn's work on Hom
 
 On a phone, a bar at the bottom holds **Reply** and the main action. **Reply** opens the message box in place of that bar, so only **Send** sits above the keyboard; **Hide** closes it and keeps your draft. A session with a draft opens with its message box.
 
+Every message box has a mic: dictate instead of typing, and the words land at the caret. While you dictate, **Send** becomes **Stop & send**. See [Voice](voice.md).
+
 After **Archive**, a message offers **Undo** for 8 seconds. The agent comes back Done (or Stopped, when it was not Done), without starting its process; your next message resumes it as usual. Agents with admin access can do the same with `launchpad session unarchive <id>`.
 
 A state band above the trace shows only an open question or a turn you stopped. To answer a question in the message box, type the answer; when the agent asked several questions, type one answer per line, in order (or pick the options in the question card).

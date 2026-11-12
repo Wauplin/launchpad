@@ -6,6 +6,7 @@
 - [Today](today.md): every decision that waits for you, one compact row each, with its buttons.
 - [Agents](agents.md): profiles, launching, sessions, worktrees, scheduling, quotas, Ask Launchpad and files.
 - [GitHub](github.md): inbox, issues and pull requests, suggestions and Local PRs.
+- [Voice](voice.md): dictate in every message box, with your Claude subscription logins, through Home.
 - [Remote access and phones](remote-access.md): pairing, Tailscale, the phone layout, notifications and a self-hosted Home.
 - [Hugging Face](hugging-face.md): open models, trace copies in the Home bucket and Home in a Space.
 - [Home and runners](home-and-runners.md): one Home that keeps records, runners and Burst that run agents, how sessions move and how work is saved.

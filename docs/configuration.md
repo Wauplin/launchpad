@@ -53,6 +53,12 @@ git_name = ""                       # Home only: the author of agents' commits o
 git_email = ""
 time_zone = ""                      # IANA zone (Europe/Paris) of routines saved without a browser and of the 08:00 channel digests; empty: the server's (UTC on a Space)
 
+[voice]
+enabled = true                      # Home only: the mic in every message box (Settings → Voice)
+profiles = []                       # voice sources in order (Claude subscription profile IDs); empty: every one, in the order of Profiles
+language = "en"                     # the language you speak
+silence_stop_s = 8                  # stop after this many seconds of silence; 0: never (5 minutes at most)
+
 [runner]
 boundary = "jail"                   # runner only: jail (bubblewrap), or vm inside a dedicated Local VM, where agents may use Docker
 ```
