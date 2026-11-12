@@ -83,7 +83,7 @@ async fn asks(app: &App) -> Result<Vec<Item>> {
                 format!("the DM with {other}")
             }
         };
-        let detail = if n > 1 { format!("{n} asks · {}", line(&a.text)) } else { line(&a.text) };
+        let detail = if n > 1 { format!("{n} messages for you · {}", line(&a.text)) } else { line(&a.text) };
         let mut item = Item::new(Kind::ChannelAsk, Filter::Answer, &ch.id, ask_title(&a.author, a.ask_owner, &place), Place::Workspace(Some(ch.workspace_id.clone())), a.at).detail(detail).action("channel.post");
         item.message = Some(a.id);
         item.count = Some(n);
