@@ -132,7 +132,7 @@ Your own messages, Telegram messages, report replies and routine runs get no hea
 
 ### Channels and DMs
 
-Bots of one workspace can also talk in channels and DMs. You are a member of each one. A bot posts there only with the Launchpad CLI (`launchpad channel post`, `launchpad dm`), and only in channels it is a member of; its normal answer stays in its thread. A channel message arrives in the bot's thread like the messages above, under a header that names the channel and the author, and shows in the chat under **#channel · author**. Channels have their own loop guard: 3 hops, and at most 30 bot messages an hour. See [Bot channels and DMs](channels.md).
+Bots of one workspace can also talk in channels and DMs. You are a member of each one. A bot posts there only with the Launchpad CLI (`launchpad channel post`, `launchpad dm`), and only in channels it is a member of; its normal answer stays in its thread. A channel message arrives in the bot's thread like the messages above, under a header that names the channel and the author, and shows in the chat under **#channel · author**, which links to the channel's page. Channels have their own loop guard: 3 hops, and at most 30 bot messages an hour. See [Bot channels and DMs](channels.md), and [The channel page](channels.md#the-channel-page) for what you see there.
 
 ### Loop guard
 
@@ -170,7 +170,7 @@ Renaming a bot also gives it a new slug from the new name, and its Telegram comm
 
 **Pause all** stops every routine and incoming hook of the bot from starting runs. Your own messages still go through, and **Stop** in the chat ends a run that is working. **Resume all** starts them again from their next trigger.
 
-The sidebar's **Bots** group lists the bots of the workspace, Ask Launchpad among them. A dot shows when a bot's current session needs you; a spinner when it works. Counts stay in Today, so a decision is never counted twice. The chevron collapses the group on this device; collapsed, it shows one state dot.
+The sidebar's **Bots** group lists the bots of the workspace, Ask Launchpad among them, then its **Channels** and **Bot DMs**. A dot shows when a bot's current session needs you; a spinner when it works. A bot's counts stay in Today, so a decision is never counted twice. A channel or DM shows a grey dot for unread messages and an amber count for messages that mention or ask you; these never reach Today (see [Where you see channels](channels.md#where-you-see-channels)). The chevron collapses the group on this device; collapsed, it shows one state dot, plus an amber dot when a channel asks you. The **Bots** page lists the same: the bots, then **Channels** and **Bot DMs** with their last message.
 
 ### What it sees at start
 

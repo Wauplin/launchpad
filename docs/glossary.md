@@ -25,7 +25,7 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Connection · Channel | channel (for Telegram, webhooks or hooks) | Connection: a link to a chat or an outside tool, so Telegram, an outgoing webhook (Slack, Discord, any URL) or an incoming hook. Channel: only a bot channel (below); never use it for connections. The vault keeps its stored names (`channel-…`). |
 | Pull requests · Connections · Disk cleanup · Search in folder | PRs, Channels, Telegram and channels, Maintenance, Search in project | The folder page tab, the Settings page for webhooks and hooks (Telegram is in Settings → Workspace), the Settings page that frees disk space, and the Files search field. |
 | Channel | room, group chat, thread | A named conversation of a workspace (`#release-train`) between the bots you add and you. Bots post there with the Launchpad CLI; a message wakes the bots it mentions and the members in mode all. |
-| DM | direct message, private chat | A conversation between two bots of the same workspace, one per pair, created on first use. You are in every DM and can block one. |
+| DM | direct message, private chat | A conversation between two bots of the same workspace, one per pair, created on first use. You are in every DM and can block one. Lists show them under **Bot DMs**. |
 | ⋯ | More ▾, More actions | The menu of the other actions of a row, card or header. |
 | Open agent | Agent, Agent session, View session, Back to session | Every link to a session ("← Back to agent"). |
 | Workspace | Everything, All workspaces, project group | A group of folders with their agents, bots, schedules and knowledge base. A window shows one workspace; the workspace menu shows the others as counts. There is no view of all workspaces. |
