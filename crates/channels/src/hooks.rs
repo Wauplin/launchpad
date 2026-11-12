@@ -236,7 +236,7 @@ pub struct ChannelPart {
 /// What became of a bot channel's delivery (`deliver_channel`).
 pub enum Outcome {
     /// Sent to this session.
-    Sent(Session),
+    Sent(Box<Session>),
     /// Waits in the queue for the end of the bot's turn (or its quota).
     Queued,
     /// Joined the waiting entry of an earlier delivery of the same channel (its first delivery row).
@@ -296,7 +296,7 @@ pub async fn deliver(app: &App, target: Target, text: String, automatic: bool, t
 pub async fn deliver_from(app: &App, target: Target, text: String, automatic: bool, telegram: bool, from: Option<MessageFrom>) -> Result<Delivered> {
     let q = Queued { target, text, automatic, telegram, from, channel: None };
     match enqueue(app, q, None).await? {
-        (Outcome::Sent(s), _) => Ok(Delivered { session: Some(s), queued: false }),
+        (Outcome::Sent(s), _) => Ok(Delivered { session: Some(*s), queued: false }),
         (_, cur) => Ok(Delivered { session: cur, queued: true }),
     }
 }
@@ -351,7 +351,7 @@ async fn enqueue(app: &App, q: Queued, combine: Option<Combine<'_>>) -> Result<(
     if !waiting && !held && cur.as_ref().is_none_or(|s| !busy(s)) {
         let s = send(app, &q).await?;
         last.insert(key, (s.id.clone(), s.status_since, now_ms()));
-        return Ok((Outcome::Sent(s), cur));
+        return Ok((Outcome::Sent(Box::new(s)), cur));
     }
     let json = serde_json::to_string(&q)?;
     app.state_db.call(move |c| Ok(c.execute("INSERT INTO queued_message (target, at, json) VALUES (?1, ?2, ?3)", rusqlite::params![key, now_ms(), json])?)).await?;
