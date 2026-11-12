@@ -663,7 +663,11 @@ pub async fn merge(app: &App, p: &Project, branch: &str, head: &str, base: &str)
             .await
             .with_context(|| format!("the folder's remote refused {base}, so nothing was merged (a protected branch needs a pull request: publish a Local PR instead)"))?;
     }
-    git(app, &dir, &["update-ref", &format!("refs/heads/{base}"), head, &base_tip]).await?;
+    // The mirror's fetch refspec maps the remote's branches onto its own, so a successful push already moved
+    // `base` on Home (Git updates the matching tracking ref): fast-forward only when it did not.
+    if tip(app, &p.id, &format!("refs/heads/{base}")).await?.as_deref() != Some(head) {
+        git(app, &dir, &["update-ref", &format!("refs/heads/{base}"), head, &base_tip]).await?;
+    }
     crate::home_backup::changed();
     let note = if remote { format!("Merged into {base} and pushed to the remote.") } else { format!("Merged into {base} on Home (this folder has no remote).") };
     browse_stale(&p.id);
