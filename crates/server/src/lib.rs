@@ -73,7 +73,7 @@ pub async fn serve(app: App, api: Router<Ctx>) -> Result<()> {
     }
     // A planned stop (update, restart) takes a final backup first.
     if app.paths.role == launchpad_core::role::Role::Home
-        && let Err(e) = launchpad_core::home_backup::run(&app, false).await
+        && let Err(e) = launchpad_core::home_backup::run(&app, launchpad_core::home_backup::When::Changed).await
     {
         tracing::warn!("final home backup: {e:#}");
     }

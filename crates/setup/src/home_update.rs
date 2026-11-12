@@ -424,7 +424,7 @@ pub async fn start(app: &App, b: Start) -> Result<HomeUpdate> {
     save_pending(app, Some(&pending)).await?;
     // The Space restores its newest complete backup when it restarts: without a backup now, the update would lose
     // everything since the last one, so it is refused.
-    if let Err(e) = launchpad_core::home_backup::run(app, true).await {
+    if let Err(e) = launchpad_core::home_backup::run(app, launchpad_core::home_backup::When::Always).await {
         tracing::warn!("Home update: backup before the update: {e:#}");
         let _ = save_pending(app, None).await;
         check(app).await;

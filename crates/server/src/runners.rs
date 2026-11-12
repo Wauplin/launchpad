@@ -49,7 +49,7 @@ async fn backup_now(State(s): State<Server>) -> ApiResult<launchpad_core::home_b
     if s.app.paths.role != role::Role::Home {
         return Err(ApiError::bad_request("only Home backs up its database"));
     }
-    launchpad_core::home_backup::run(&s.app, true).await.map_err(bad)?;
+    launchpad_core::home_backup::run(&s.app, launchpad_core::home_backup::When::Always).await.map_err(bad)?;
     Ok(backup_info(State(s)).await)
 }
 

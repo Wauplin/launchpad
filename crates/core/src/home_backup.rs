@@ -1,5 +1,7 @@
-//! Home's backups: a consistent copy of `state.db` (and `config.toml`) every minute when something changed,
-//! and before a planned restart. An empty data folder restores the newest complete backup on boot.
+//! Home's backups: a consistent copy of `state.db` (and `config.toml`) when something changed, and before a
+//! planned restart. The minute timer copies `state.db` at most every 10 minutes (`DB_EVERY_MS`: each copy is a full
+//! database); new Home Git refs and uploads are backed up every minute, listing the last copy of `state.db` again
+//! with the plain blobs and uploads it needs. An empty data folder restores the newest complete backup on boot.
 //!
 //! Layout under the destination (an HF bucket or a local folder):
 //! - `home/blobs/sha256/<hash>`: content-addressed objects, never overwritten.
@@ -14,7 +16,8 @@
 //!
 //! Retention (`prune`, after each complete backup, one at a time with backups): keep the newest backup, the one
 //! before it, the newest one at least an hour old, and the newest one at least 1, 2, …, 7 days old (`retained`);
-//! delete the other manifests, then the objects no remaining manifest lists (never one uploaded in the last day).
+//! delete the other manifests, then the objects no remaining manifest lists (never one uploaded in the last hour).
+//! So the destination holds at most about 10 kept copies of `state.db` plus the copies of the last hour.
 //! A failed listing or download is an error, never an empty answer: it stops pruning before it deletes anything,
 //! and a boot restore retries, then fails. Pruning also deletes nothing while the listing misses the backup just
 //! written or a manifest of the last day does not parse (`check_readable`).
@@ -253,6 +256,8 @@ pub struct Backups {
     info: Arc<Mutex<BackupInfo>>,
     /// `total_changes()` of the state database at the last backup.
     changes: Arc<Mutex<Option<i64>>>,
+    /// The last copy of `state.db` and the objects it needs (`run`).
+    base: Arc<Mutex<Option<Base>>>,
     running: Arc<tokio::sync::Mutex<()>>,
     /// Per mirror: the hash of its refs and the bundle object saved for them.
     bundles: Arc<Mutex<std::collections::HashMap<String, (String, Object)>>>,
@@ -260,6 +265,14 @@ pub struct Backups {
     prune_queued: Arc<std::sync::atomic::AtomicBool>,
     /// Manifests read by pruning, by key (they never change).
     manifests: Arc<Mutex<std::collections::HashMap<String, Vec<u8>>>>,
+}
+
+/// A copy of `state.db` in the destination: when it was taken, and its object with the plain blobs and uploads
+/// listed next to it.
+#[derive(Clone)]
+struct Base {
+    at: i64,
+    objects: Vec<Object>,
 }
 
 static GIT_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -405,31 +418,100 @@ fn map_secrets(db: &Path, f: impl Fn(&str) -> Result<String>) -> Result<()> {
     Ok(())
 }
 
-/// Takes one backup now if the database changed since the last one (or always with `force`).
-pub async fn run(app: &App, force: bool) -> Result<bool> {
+/// What starts a backup (`run`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum When {
+    /// The minute timer: a new copy of `state.db` at most every `DB_EVERY_MS`; Home Git and uploads every minute.
+    Due,
+    /// A planned stop: a backup with a new copy of `state.db` when anything changed.
+    Changed,
+    /// Back up now, Update Home: always, with a new copy of `state.db`.
+    Always,
+}
+
+/// The shortest time between two copies of `state.db` on the minute timer: each is a full copy (~100 MB), and a
+/// busy Home changes its database almost every minute.
+const DB_EVERY_MS: i64 = 10 * 60 * 1000;
+
+/// Whether a backup takes a new copy of `state.db`, given whether the database changed since the last copy and
+/// when that copy was taken (None: no copy since Home started).
+fn new_db_copy(when: When, db_changed: bool, last: Option<i64>, now: i64) -> bool {
+    match (when, last) {
+        (When::Always, _) | (_, None) => true,
+        (When::Changed, Some(_)) => db_changed,
+        (When::Due, Some(t)) => db_changed && now - t >= DB_EVERY_MS,
+    }
+}
+
+/// Takes one backup now if something changed (see `When`). Between two copies of `state.db`, a backup of new Home Git
+/// refs or uploads lists the last copy again, with the plain blobs and uploads that copy needs.
+pub async fn run(app: &App, when: When) -> Result<bool> {
     let Some(store) = Store::parse(&app.config.get().home.backup) else { return Ok(false) };
     // Before the lock: applying a bundle may first fetch the folder's remote.
     retry_restores(app).await;
     let backups = app.home_backups.clone();
     let _one = backups.running.lock().await;
     let current = app.state_db.call(|c| Ok(c.query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))?)).await?;
+    let db_changed = *backups.changes.lock().unwrap() != Some(current);
+    let base = backups.base.lock().unwrap().clone();
+    let fresh = new_db_copy(when, db_changed, base.as_ref().map(|b| b.at), now_ms());
     let git_changed = GIT_CHANGED.swap(false, std::sync::atomic::Ordering::Relaxed);
-    if !force && !git_changed && *backups.changes.lock().unwrap() == Some(current) {
+    if when != When::Always && !fresh && !git_changed {
         return Ok(false);
     }
-    let (db, changes) = snapshot(app).await?;
-    let config = tokio::fs::read(app.paths.config_file()).await.unwrap_or_default();
-    let existing: std::collections::HashSet<String> = store.list(&app.env, &format!("{ROOT}/blobs/sha256")).await?.into_iter().collect();
-    let mut objects = vec![];
-    for (name, data) in [("state.db", db), ("config.toml", config)] {
-        let hash = hex::encode(Sha256::digest(&data));
-        let size = data.len() as u64;
-        if !existing.contains(&blob_key(&hash)) {
-            store.put(&app.env, &blob_key(&hash), data).await?;
+    let written = backup(app, &store, fresh, base).await;
+    let written = match written {
+        Ok(w) => w,
+        Err(e) => {
+            // Not backed up yet: the next minute tries again.
+            if git_changed {
+                changed();
+            }
+            return Err(e);
         }
-        objects.push(Object { name: name.into(), sha256: hash, size });
+    };
+    spawn_prune(app, store.clone(), written);
+    if let Err(e) = readable(app, &store).await {
+        tracing::warn!("home backup: readable copies: {e:#}");
     }
-    match bundles(app, &store, &existing).await {
+    let traces = crate::trace_copies::run(app, &store).await;
+    if let Err(e) = &traces {
+        tracing::warn!("home backup: trace copies: {e:#}");
+    }
+    backups.info.lock().unwrap().traces_error = traces.err().map(|e| format!("{e:#}"));
+    Ok(true)
+}
+
+/// Writes one backup and returns its manifest key: a new copy of `state.db` when `fresh`, else `base` again.
+async fn backup(app: &App, store: &Store, mut fresh: bool, base: Option<Base>) -> Result<String> {
+    let backups = &app.home_backups;
+    let existing: std::collections::HashSet<String> = store.list(&app.env, &format!("{ROOT}/blobs/sha256")).await?.into_iter().collect();
+    // The last copy must still be in the destination to be listed again.
+    let base = base.filter(|b| b.objects.iter().all(|o| existing.contains(&blob_key(&o.sha256))));
+    fresh |= base.is_none();
+    let mut objects = vec![];
+    let mut copied = None;
+    if fresh {
+        let at = now_ms();
+        let (db, changes) = snapshot(app).await?;
+        let hash = hex::encode(Sha256::digest(&db));
+        let size = db.len() as u64;
+        if !existing.contains(&blob_key(&hash)) {
+            store.put(&app.env, &blob_key(&hash), db).await?;
+        }
+        objects.push(Object { name: "state.db".into(), sha256: hash, size });
+        copied = Some((at, changes));
+    } else if let Some(b) = &base {
+        objects.extend(b.objects.iter().filter(|o| o.name == "state.db").cloned());
+    }
+    let config = tokio::fs::read(app.paths.config_file()).await.unwrap_or_default();
+    let hash = hex::encode(Sha256::digest(&config));
+    let size = config.len() as u64;
+    if !existing.contains(&blob_key(&hash)) {
+        store.put(&app.env, &blob_key(&hash), config).await?;
+    }
+    objects.push(Object { name: "config.toml".into(), sha256: hash, size });
+    match bundles(app, store, &existing).await {
         Ok(mut b) => objects.append(&mut b),
         Err(e) => {
             changed();
@@ -444,7 +526,7 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
             let data = match tokio::fs::read(crate::plain::blob_path(app, &sha)?).await {
                 Ok(d) => d,
                 // A listing that lags behind an upload: carry it over from the destination.
-                Err(_) => match get_blob(&store, &app.env, &sha).await {
+                Err(_) => match get_blob(store, &app.env, &sha).await {
                     Ok(d) => d,
                     // Neither on Home's disk nor in the destination: it is gone. Listing it would make every
                     // backup incomplete (no restore), so it is left out and reported.
@@ -473,22 +555,24 @@ pub async fn run(app: &App, force: bool) -> Result<bool> {
         }
         objects.push(Object { name, sha256: hash, size });
     }
+    // An older copy of `state.db` may name plain blobs and uploads that are gone from Home since: they stay listed.
+    if !fresh && let Some(b) = &base {
+        let listed: std::collections::HashSet<String> = objects.iter().map(|o| o.sha256.clone()).collect();
+        objects.extend(b.objects.iter().filter(|o| o.name != "state.db" && !listed.contains(&o.sha256)).cloned());
+    }
     let now = now_ms();
     let manifest = Manifest { format: 1, created_at: now, commit: crate::commit().into(), objects };
     let written = manifest_key(now);
     store.put(&app.env, &written, serde_json::to_vec_pretty(&manifest)?).await?;
-    *backups.changes.lock().unwrap() = Some(changes);
-    backups.info.lock().unwrap().last_complete_at = Some(now);
-    spawn_prune(app, store.clone(), written);
-    if let Err(e) = readable(app, &store).await {
-        tracing::warn!("home backup: readable copies: {e:#}");
+    if let Some((at, changes)) = copied {
+        *backups.changes.lock().unwrap() = Some(changes);
+        let objects = manifest.objects.iter().filter(|o| o.name == "state.db" || o.name.starts_with("plain/") || o.name.starts_with("uploads/")).cloned().collect();
+        *backups.base.lock().unwrap() = Some(Base { at, objects });
     }
-    let traces = crate::trace_copies::run(app, &store).await;
-    if let Err(e) = &traces {
-        tracing::warn!("home backup: trace copies: {e:#}");
-    }
-    backups.info.lock().unwrap().traces_error = traces.err().map(|e| format!("{e:#}"));
-    Ok(true)
+    // What a restore brings back: the database as of its copy.
+    let at = backups.base.lock().unwrap().as_ref().map(|b| b.at);
+    backups.info.lock().unwrap().last_complete_at = at;
+    Ok(written)
 }
 
 /// Home's files outside `state.db` that a restore needs, by object name: uploads (`uploads/<sha256>`: the
@@ -876,9 +960,10 @@ async fn read_manifest(store: &Store, env: &UserEnv, key: &str, cache: &mut std:
     Ok(data)
 }
 
-/// The youngest an unused object may be to be deleted: one uploaded in the last day may belong to a backup whose
-/// manifest is not written or not listed yet.
-const OBJECT_MIN_AGE_MS: i64 = DAY_MS;
+/// The youngest an unused object may be to be deleted: one uploaded in the last hour may belong to a backup whose
+/// manifest is not written or not listed yet (a backup of this Home cannot be: pruning waits for `Backups.running`;
+/// another Home on the same destination, during a Space restart, or a listing that lags behind).
+const OBJECT_MIN_AGE_MS: i64 = HOUR_MS;
 
 /// Refuses to prune while a manifest of the last day, or of unknown time, does not parse: it may be a bad read of a
 /// backup a restore needs, and the hashes it lists cannot be trusted to protect its objects. Older ones count by
@@ -1083,7 +1168,7 @@ fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Home: a backup every minute when something changed.
+/// Home: a backup every minute when something changed (a new copy of `state.db` at most every `DB_EVERY_MS`).
 pub fn spawn(app: &App) {
     if app.paths.role != crate::role::Role::Home {
         return;
@@ -1095,7 +1180,7 @@ pub fn spawn(app: &App) {
         loop {
             tick.tick().await;
             let destination = app.config.get().home.backup;
-            let result = run(&app, false).await;
+            let result = run(&app, When::Due).await;
             let changed = {
                 let mut info = app.home_backups.info.lock().unwrap();
                 let before = (info.destination.clone(), info.error.clone(), info.last_complete_at);
@@ -1227,7 +1312,7 @@ mod tests {
         let times = [now - 2 * MIN, now - MIN, now - 3 * MIN, now - 4 * MIN, now - 2 * HOUR_MS, now - 3 * HOUR_MS];
         let (store, dir, env) = destination(&times, 2 * DAY_MS).await;
         // Not listed by any manifest: one old, one uploaded a minute ago (a backup in flight), one uploaded two hours
-        // ago (younger than a day).
+        // ago (an older copy of state.db: older than the grace hour).
         put_blob(&store, &env, &dir, &"0".repeat(64), b"old".to_vec(), 2 * DAY_MS).await;
         put_blob(&store, &env, &dir, &"1".repeat(64), b"new".to_vec(), MIN).await;
         put_blob(&store, &env, &dir, &"3".repeat(64), b"hours".to_vec(), 2 * HOUR_MS).await;
@@ -1242,11 +1327,11 @@ mod tests {
         let p = prune(&store, &env, &manifest_key(now - MIN), now, &mut cache).await.unwrap();
         // Newest, the one before it, the newest at least an hour old, the newest at least a day old.
         assert_eq!(p.kept, vec![manifest_key(now - 2 * HOUR_MS), manifest_key(now - 2 * MIN), manifest_key(now - MIN), odd].into_iter().collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>());
-        assert_eq!((p.manifests, p.blobs), (3, 4));
+        assert_eq!((p.manifests, p.blobs), (3, 5));
         assert_eq!(files(&dir, "home/backup"), 4);
-        // 3 state.db copies, the shared config, the two recent unused objects and the one the odd manifest names.
-        assert_eq!(files(&dir, "home/blobs"), 7);
-        assert!(["1", "2", "3"].iter().all(|h| dir.join(blob_key(&h.repeat(64))).exists()) && !dir.join(blob_key(&"0".repeat(64))).exists());
+        // 3 state.db copies, the shared config, the unused object of the last hour and the one the odd manifest names.
+        assert_eq!(files(&dir, "home/blobs"), 6);
+        assert!(["1", "2"].iter().all(|h| dir.join(blob_key(&h.repeat(64))).exists()) && ["0", "3"].iter().all(|h| !dir.join(blob_key(&h.repeat(64))).exists()));
         assert_eq!(files(&dir, "home/credentials") + files(&dir, "Work"), 2);
         // The backups' own folders went with their manifests.
         assert_eq!(std::fs::read_dir(dir.join("home/backup")).unwrap().count(), 4);
@@ -1302,16 +1387,30 @@ mod tests {
     #[test]
     fn pruning_deletes_only_old_unneeded_objects() {
         let entry = |hash: &str, at: Option<i64>| Entry { key: blob_key(hash), size: Some(1), uploaded_at: at };
-        let blobs = [entry("aa", Some(NOW - 5 * DAY_MS)), entry("bb", Some(NOW - 5 * DAY_MS)), entry("cc", Some(NOW - 2 * HOUR_MS)), entry("dd", None)];
+        let blobs = [entry("aa", Some(NOW - 5 * DAY_MS)), entry("bb", Some(NOW - 5 * DAY_MS)), entry("cc", Some(NOW - 30 * MIN)), entry("dd", None), entry("ee", Some(NOW - HOUR_MS))];
         let needed = std::collections::HashSet::from([blob_key("aa")]);
-        // An unneeded old object goes; a needed one, one younger than a day and one of unknown age stay.
-        assert_eq!(unused_objects(&blobs, &needed, NOW).iter().map(|e| e.key.clone()).collect::<Vec<_>>(), vec![blob_key("bb")]);
+        // Unneeded objects at least an hour old go; a needed one, one younger than an hour and one of unknown age stay.
+        assert_eq!(unused_objects(&blobs, &needed, NOW).iter().map(|e| e.key.clone()).collect::<Vec<_>>(), vec![blob_key("bb"), blob_key("ee")]);
         // An unreadable manifest of the last day (or of unknown time) holds pruning back; an older one does not.
         assert!(check_readable(&manifest_key(NOW - 2000), b"{\"objects\": [", NOW).is_err());
         assert!(check_readable("home/backup/x/manifest.json", b"{", NOW).is_err());
         assert!(check_readable(&manifest_key(NOW - 2 * DAY_MS), b"{", NOW).is_ok());
         let m = Manifest { format: 1, created_at: NOW, commit: String::new(), objects: vec![] };
         assert!(check_readable(&manifest_key(NOW - 2000), &serde_json::to_vec(&m).unwrap(), NOW).is_ok());
+    }
+
+    #[test]
+    fn state_db_is_copied_at_most_every_ten_minutes() {
+        // The first backup since Home started always copies it.
+        assert!(new_db_copy(When::Due, false, None, NOW));
+        // The timer: only a changed database, and only ten minutes after the last copy.
+        assert!(!new_db_copy(When::Due, false, Some(NOW - HOUR_MS), NOW));
+        assert!(!new_db_copy(When::Due, true, Some(NOW - 9 * MIN), NOW));
+        assert!(new_db_copy(When::Due, true, Some(NOW - 10 * MIN), NOW));
+        // A planned stop copies any change at once; Back up now and Update Home always copy.
+        assert!(new_db_copy(When::Changed, true, Some(NOW - MIN), NOW));
+        assert!(!new_db_copy(When::Changed, false, Some(NOW - MIN), NOW));
+        assert!(new_db_copy(When::Always, false, Some(NOW - MIN), NOW));
     }
 
     #[test]
