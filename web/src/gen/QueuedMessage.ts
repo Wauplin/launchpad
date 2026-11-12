@@ -5,7 +5,7 @@
  */
 export type QueuedMessage = { n: number, at: number, 
 /**
- * "telegram" or "hook".
+ * "telegram", "hook" or "channel".
  */
 source: string, 
 /**

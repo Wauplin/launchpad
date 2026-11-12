@@ -459,10 +459,15 @@ pub struct MessageContext {
 #[serde(default)]
 pub struct MessageFrom {
     pub kind: SenderKind,
-    /// The bot, session, routine or hook ID.
+    /// The bot, session, routine, hook or bot channel ID.
     pub id: String,
-    /// The bot's name, the session's title, the routine's title or the hook's name.
+    /// The bot's name, the session's title, the routine's title, the hook's name or the channel's ("#release-train",
+    /// "Maintainer ↔ Release").
     pub name: String,
+    /// A channel message: who wrote it (a bot's name, or "you" for the owner).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub by: Option<String>,
     /// Delivered by this message card (proposal ID).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -489,6 +494,9 @@ pub enum SenderKind {
     Routine,
     /// An incoming hook (`POST /hooks/<id>`); its hops come from `X-Launchpad-Hops`.
     Hook,
+    /// A message in a bot channel or DM (`launchpad_channels::channel`), delivered under the channel's own frame; the
+    /// channel's loop guard decided its delivery.
+    Channel,
 }
 
 impl MessageContext {

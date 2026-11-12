@@ -1,7 +1,10 @@
 //! Connections: messages to other people through webhooks (held in the Outbox for an owner click), the owner's
-//! own Telegram chat, and incoming hooks (`POST /hooks/<id>`). Home owns them; runners forward the API.
+//! own Telegram chat, and incoming hooks (`POST /hooks/<id>`); and bot channels and DMs (`channel`, `delivery`), where
+//! bots talk to each other. Home owns them; runners forward the API.
 
+pub mod channel;
 pub mod connections;
+pub mod delivery;
 pub mod hooks;
 pub mod telegram;
 pub mod today;
@@ -23,5 +26,8 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     hooks::Hook::export_all(cfg)?;
     hooks::CreatedHook::export_all(cfg)?;
     hooks::QueuedMessage::export_all(cfg)?;
+    channel::Channel::export_all(cfg)?;
+    channel::ChannelPage::export_all(cfg)?;
+    channel::ChannelPosted::export_all(cfg)?;
     Ok(())
 }

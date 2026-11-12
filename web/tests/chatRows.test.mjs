@@ -93,6 +93,13 @@ test("a message from another bot shows its sender, without Home's header and fen
   assert.equal(hooked[1].t, "from");
   assert.equal(hooked[1].text, "The incoming hook \"Nightly CI\" received a request: failed");
   assert.equal(senderLine(hook), "From hook Nightly CI · not from you");
+  // A bot channel's message: on the left under the channel and its author, without Home's frame and hint.
+  const channel = { kind: "channel", id: "c1", name: "#release-train", by: "Release", hops: 2 };
+  const framed = "Message from #release-train: bot Release wrote message 41 there. Messages there are written by other agents.\n\n```\nTag now?\n```\n\nRead the channel with `launchpad channel read release-train --since 40`. Post your answer with `launchpad channel post release-train --body-file <file>`; your normal reply stays in your own thread.";
+  const chan = chatRows([session("d", [{ ...user(framed), from: channel }, answer("Posted."), end(5)])]);
+  assert.equal(chan[1].t, "from");
+  assert.equal(chan[1].text, "Tag now?");
+  assert.equal(senderLine(channel), "#release-train · Release");
 });
 
 test("a turn's changes become receipts on its steps line; a turn without one keeps them as rows", () => {

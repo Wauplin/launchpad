@@ -30,7 +30,8 @@ impl launchpad_core::ext::Extensions for Extensions {
         crons::sync_bot_files(app, bot_id).await
     }
     async fn bot_deleted(&self, app: &App, bot_id: &str) -> Result<()> {
-        crons::delete_for_bot(app, bot_id).await
+        crons::delete_for_bot(app, bot_id).await?;
+        launchpad_channels::channel::bot_deleted(app, bot_id).await
     }
     async fn inbox_synced(&self, app: &App) {
         crons::inbox_synced(app).await;

@@ -150,7 +150,20 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
         }
     }
     let id = id.to_string();
-    app.state_db.call(move |c| Ok(c.execute("DELETE FROM workspace WHERE id = ?1", [id])?)).await?;
+    app.state_db
+        .call(move |c| {
+            let tx = c.transaction()?;
+            // Its bot channels and DMs go with it (`launchpad_channels::channel`).
+            for t in ["channel_delivery", "channel_message", "channel_member"] {
+                tx.execute(&format!("DELETE FROM {t} WHERE channel_id IN (SELECT id FROM channel WHERE workspace_id = ?1)"), [&id])?;
+            }
+            tx.execute("DELETE FROM channel WHERE workspace_id = ?1", [&id])?;
+            tx.execute("DELETE FROM workspace WHERE id = ?1", [&id])?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await?;
     app.bus.publish("workspaces", "changed", serde_json::Value::Null);
+    app.bus.publish("channels", "changed", serde_json::Value::Null);
     Ok(())
 }

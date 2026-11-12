@@ -8,13 +8,18 @@ import type { SenderKind } from "./SenderKind";
  */
 export type MessageFrom = { kind: SenderKind, 
 /**
- * The bot, session, routine or hook ID.
+ * The bot, session, routine, hook or bot channel ID.
  */
 id: string, 
 /**
- * The bot's name, the session's title, the routine's title or the hook's name.
+ * The bot's name, the session's title, the routine's title, the hook's name or the channel's ("#release-train",
+ * "Maintainer ↔ Release").
  */
 name: string, 
+/**
+ * A channel message: who wrote it (a bot's name, or "you" for the owner).
+ */
+by?: string, 
 /**
  * Delivered by this message card (proposal ID).
  */

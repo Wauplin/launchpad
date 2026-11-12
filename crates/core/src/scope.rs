@@ -25,6 +25,12 @@ pub async fn of_bot(app: &App, id: &str) -> Option<String> {
     crate::bots::get(app, id).await.ok().map(|b| b.workspace_id)
 }
 
+/// A bot channel's or DM's workspace (`launchpad_channels::channel`, table `channel`).
+pub async fn of_channel(app: &App, id: &str) -> Option<String> {
+    let id = id.to_string();
+    app.state_db.call(move |c| Ok(c.query_row("SELECT workspace_id FROM channel WHERE id = ?1", [id], |r| r.get(0)).ok())).await.ok().flatten()
+}
+
 /// A Local PR's workspace: its folder's.
 pub async fn of_predraft(app: &App, id: &str) -> Option<String> {
     let p = crate::predrafts::get(app, id).await.ok()?;

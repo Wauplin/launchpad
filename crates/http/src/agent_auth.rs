@@ -262,6 +262,7 @@ enum Names<'a> {
     Worktree(&'a str),
     Tools(&'a str, &'a str),
     Repo(&'a str, &'a str),
+    Channel(&'a str),
 }
 
 /// Pure: what a request names (routes matched exactly, like the router).
@@ -280,7 +281,9 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
         (false, ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["connections", "send"] | ["inbox", "agent-done"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
-        (true, ["context", "folders" | "bots" | "sessions" | "inbox" | "schedules"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"]) => Listed,
+        (true, ["context", "folders" | "bots" | "sessions" | "inbox" | "schedules"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
+        (false, ["channels"] | ["channels", "dm"]) => Body,
+        (_, ["channels", id, ..]) => Channel(id),
         (true, ["context", "sessions", id]) => Session(id),
         (false, ["sessions"] | ["bots"] | ["launch", "crons" | "schedules" | "preview" | "start-preview"]) => Body,
         (_, ["sessions", "search", ..]) => Unscoped,
@@ -403,6 +406,7 @@ pub async fn within_workspace(app: &App, id: &str, req: Request) -> Result<Reque
                 return Err(outside(&format!("{o}/{r}")));
             }
         }
+        Names::Channel(c) => check(scope::of_channel(app, c).await, format!("channel {c}"))?,
         Names::Body => {}
     }
     let mut req = req;
@@ -415,7 +419,7 @@ pub async fn within_workspace(app: &App, id: &str, req: Request) -> Result<Reque
     let method = req.method().clone();
     let reads_body = matches!(
         (&method, parts.as_slice()),
-        (&Method::POST, ["api", "sessions"] | ["api", "bots"] | ["api", "launch", _] | ["api", "bots", _, "message"])
+        (&Method::POST, ["api", "sessions"] | ["api", "bots"] | ["api", "launch", _] | ["api", "bots", _, "message"] | ["api", "channels"] | ["api", "channels", "dm"])
             | (&Method::PATCH, ["api", "bots", _] | ["api", "projects", _] | ["api", "launch", "schedules", _])
     );
     if !reads_body {
@@ -435,7 +439,12 @@ pub async fn within_workspace(app: &App, id: &str, req: Request) -> Result<Reque
                 check(scope::of_session(app, &s).await, format!("session {s}"))?;
             }
         }
-        (&Method::POST, ["api", "bots"]) => match v["workspace_id"].as_str() {
+        (&Method::POST, ["api", "channels", "dm"]) => {
+            for b in v["bots"].as_array().into_iter().flatten().filter_map(|b| b.as_str().map(str::to_string)) {
+                check(scope::of_bot(app, &b).await, format!("bot {b}"))?;
+            }
+        }
+        (&Method::POST, ["api", "bots"] | ["api", "channels"]) => match v["workspace_id"].as_str() {
             Some(w) => check(Some(w.to_string()), format!("workspace {w}"))?,
             None if v.is_object() => v["workspace_id"] = Value::from(own.as_str()),
             None => {}
@@ -509,6 +518,9 @@ mod tests {
         assert_eq!(names(&Method::POST, "/api/worktrees/w1/discard"), Worktree("w1"));
         assert_eq!(names(&Method::PUT, "/api/tool-defaults/folder/f1"), Tools("folder", "f1"));
         assert_eq!(names(&Method::GET, "/api/items/o/r/12"), Repo("o", "r"));
+        assert_eq!(names(&Method::PUT, "/api/channels/c1/members/b1"), Channel("c1"));
+        assert_eq!(names(&Method::POST, "/api/channels/dm"), Body);
+        assert_eq!(names(&Method::GET, "/api/channels"), Listed);
         for path in ["/api/context/sessions", "/api/context/folders", "/api/proposals", "/api/today", "/api/activity", "/api/predrafts"] {
             assert_eq!(names(&Method::GET, path), Listed, "{path}");
         }

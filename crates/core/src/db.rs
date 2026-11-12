@@ -191,10 +191,17 @@ pub fn open_state(path: &Path) -> Result<Db> {
         tx.commit()?;
         tracing::info!("state.db: applied migration {}", i + 1);
     }
-    // Outgoing webhooks were kept in `channel` before the rename to Connections; that name is now bot channels'.
+    // Outgoing webhooks were kept in `channel (id, json)` before the rename to Connections; that name is now bot
+    // channels'. The old layout (a `json` column) moves to `connection`, also when an older binary created it again
+    // next to `connection` (its rows join `connection`), before the bot channel tables are created.
     let table = |name: &str| conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?1", [name], |r| r.get::<_, i64>(0)).map(|n| n > 0);
-    if !table("connection")? && table("channel")? && !table("channel_member")? {
-        conn.execute_batch("ALTER TABLE channel RENAME TO connection;")?;
+    let old_channel = conn.prepare("PRAGMA table_info(channel)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?.iter().any(|c| c == "json");
+    if old_channel {
+        if table("connection")? {
+            conn.execute_batch("INSERT OR IGNORE INTO connection (id, json) SELECT id, json FROM channel; DROP TABLE channel;")?;
+        } else {
+            conn.execute_batch("ALTER TABLE channel RENAME TO connection;")?;
+        }
     }
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS browser_action (id TEXT PRIMARY KEY, grant_id TEXT NOT NULL);
@@ -248,7 +255,17 @@ CREATE TABLE IF NOT EXISTS incoming_hook (id TEXT PRIMARY KEY, secret_hash TEXT 
 CREATE TABLE IF NOT EXISTS queued_message (n INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL, at INTEGER NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS seeded (key TEXT PRIMARY KEY, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS activity (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, created_at INTEGER NOT NULL, json TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS daemon_start (at INTEGER PRIMARY KEY, commit_id TEXT NOT NULL, role TEXT NOT NULL, stopped_at INTEGER);",
+CREATE TABLE IF NOT EXISTS daemon_start (at INTEGER PRIMARY KEY, commit_id TEXT NOT NULL, role TEXT NOT NULL, stopped_at INTEGER);
+CREATE TABLE IF NOT EXISTS channel (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT '', paused INTEGER NOT NULL DEFAULT 0, blocked INTEGER NOT NULL DEFAULT 0, hop_limit INTEGER NOT NULL DEFAULT 3, hourly_limit INTEGER NOT NULL DEFAULT 30, allowance INTEGER NOT NULL DEFAULT 0, reset_at INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, owner_read INTEGER NOT NULL DEFAULT 0);
+CREATE UNIQUE INDEX IF NOT EXISTS channel_name ON channel (workspace_id, name);
+CREATE TABLE IF NOT EXISTS channel_member (channel_id TEXT NOT NULL, bot_id TEXT NOT NULL, mode TEXT NOT NULL, last_read INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (channel_id, bot_id));
+CREATE INDEX IF NOT EXISTS channel_member_bot ON channel_member (bot_id);
+CREATE TABLE IF NOT EXISTS channel_message (id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_id TEXT NOT NULL, author_name TEXT NOT NULL, session_id TEXT, turn INTEGER, text TEXT NOT NULL, mentions TEXT NOT NULL DEFAULT '[]', reply_to INTEGER, hops INTEGER NOT NULL DEFAULT 0, ask_owner INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS channel_message_channel ON channel_message (channel_id, id);
+CREATE INDEX IF NOT EXISTS channel_message_time ON channel_message (channel_id, created_at);
+CREATE TABLE IF NOT EXISTS channel_delivery (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL, channel_id TEXT NOT NULL, bot_id TEXT NOT NULL, state TEXT NOT NULL, reason TEXT, session_id TEXT, joined INTEGER, at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS channel_delivery_message ON channel_delivery (message_id);
+CREATE INDEX IF NOT EXISTS channel_delivery_channel ON channel_delivery (channel_id, bot_id, state);",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
     // additive columns directly, like the unversioned tables above.
@@ -423,17 +440,27 @@ mod tests {
     async fn outgoing_webhooks_move_from_channel_to_connection() {
         let path = std::env::temp_dir().join(format!("launchpad-connections-{}.db", uuid::Uuid::new_v4()));
         let db = super::open_state(&path).unwrap();
-        db.call(|c| Ok(c.execute_batch("DROP TABLE connection; CREATE TABLE channel (id TEXT PRIMARY KEY, json TEXT NOT NULL); INSERT INTO channel VALUES ('c1', '{}');")?)).await.unwrap();
+        db.call(|c| Ok(c.execute_batch("DROP TABLE connection; DROP TABLE channel; CREATE TABLE channel (id TEXT PRIMARY KEY, json TEXT NOT NULL); INSERT INTO channel VALUES ('c1', '{}');")?)).await.unwrap();
         drop(db);
-        for _ in 0..2 {
+        let check = |ids: i64| {
             let db = super::open_state(&path).unwrap();
-            db.call(|c| {
-                let n: i64 = c.query_row("SELECT count(*) FROM connection WHERE id = 'c1'", [], |r| r.get(0))?;
-                let old: i64 = c.query_row("SELECT count(*) FROM sqlite_master WHERE name = 'channel'", [], |r| r.get(0))?;
-                assert_eq!((n, old), (1, 0));
-                Ok(())
-            }).await.unwrap();
-        }
+            async move {
+                db.call(move |c| {
+                    let n: i64 = c.query_row("SELECT count(*) FROM connection", [], |r| r.get(0))?;
+                    let cols: i64 = c.query_row("SELECT count(*) FROM pragma_table_info('channel') WHERE name IN ('json', 'workspace_id')", [], |r| r.get(0))?;
+                    let json: i64 = c.query_row("SELECT count(*) FROM pragma_table_info('channel') WHERE name = 'json'", [], |r| r.get(0))?;
+                    assert_eq!((n, cols, json), (ids, 1, 0));
+                    Ok(())
+                }).await.unwrap();
+            }
+        };
+        check(1).await;
+        check(1).await;
+        // An older binary created the old table again next to `connection`: its rows join `connection`.
+        let db = super::open_state(&path).unwrap();
+        db.call(|c| Ok(c.execute_batch("DROP TABLE channel; CREATE TABLE channel (id TEXT PRIMARY KEY, json TEXT NOT NULL); INSERT INTO channel VALUES ('c2', '{}');")?)).await.unwrap();
+        drop(db);
+        check(2).await;
         let _ = std::fs::remove_file(path);
     }
 

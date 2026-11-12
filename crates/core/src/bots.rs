@@ -703,7 +703,7 @@ static MESSAGES: std::sync::LazyLock<crate::locks::Locks> = std::sync::LazyLock:
 pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: Option<String>, automatic: bool, key: Option<String>) -> Result<Session> {
     ensure!(!text.trim().is_empty() || !attachments.is_empty() || !context.is_empty(), "the message is empty");
     if let Some(f) = &context.from {
-        crate::senders::guard(f.hops)?;
+        crate::senders::guard_from(f)?;
     }
     let lock = MESSAGES.get(id);
     let held = lock.lock().await;
