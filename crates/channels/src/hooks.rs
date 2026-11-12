@@ -360,8 +360,8 @@ async fn enqueue(app: &App, q: Queued, combine: Option<Combine<'_>>) -> Result<(
 }
 
 /// Pure: a later message `q` of the same channel joins the waiting entry `w` (one combined delivery): the range grows,
-/// its delivery rows follow the entry's, the text names the range, and the newest message's sender (its hops) wins;
-/// an owner's message no longer waits for quota. Returns the entry's own delivery row.
+/// its delivery rows follow the entry's, the text names the range, the newest message's sender wins with the highest
+/// hop of the bots' messages (an owner's message restarts at 0); an owner's message no longer waits for quota. Returns the entry's own delivery row.
 fn join(w: &mut Queued, q: &Queued, combine: Combine<'_>) -> i64 {
     let (Some(c), Some(part)) = (w.channel.as_mut(), q.channel.as_ref()) else { return 0 };
     let first = c.deliveries[0];
@@ -369,7 +369,14 @@ fn join(w: &mut Queued, q: &Queued, combine: Combine<'_>) -> i64 {
     c.last = c.last.max(part.last);
     c.deliveries.extend(&part.deliveries);
     w.text = combine(c);
+    // The newest sender, with the highest hop of the bots' messages it carries (an owner's message restarts at 0).
+    let prev = w.from.as_ref().map_or(0, |f| f.hops);
     w.from = q.from.clone();
+    if q.automatic
+        && let Some(f) = w.from.as_mut()
+    {
+        f.hops = f.hops.max(prev);
+    }
     w.automatic &= q.automatic;
     first
 }
@@ -453,6 +460,9 @@ pub async fn cancel(app: &App, bot_id: &str, n: i64) -> Result<()> {
 /// Sends the oldest queued message of each idle thread; a hook message that waits for its quota lets the owner's
 /// messages after it go first. Claimed (deleted) before the send, never retried: a failure is a notice in the thread.
 async fn drain(app: &App) -> Result<()> {
+    // Read under the lock: a channel message joins a waiting entry under it (`enqueue`), so the entry sent is the
+    // one with every joined message.
+    let mut last = DELIVERY.lock().await;
     let rows: Vec<(i64, String, String)> = app
         .state_db
         .call(|c| {
@@ -462,7 +472,6 @@ async fn drain(app: &App) -> Result<()> {
         })
         .await?;
     let mut done = std::collections::HashSet::new();
-    let mut last = DELIVERY.lock().await;
     for (n, key, json) in rows {
         if done.contains(&key) {
             continue;
@@ -495,6 +504,17 @@ async fn drain(app: &App) -> Result<()> {
             && c.status_since <= *since
             && now_ms() - at < 120_000
         {
+            continue;
+        }
+        // A channel paused, archived or deleted since (or a DM blocked, for bots' messages) wakes nobody: the entry
+        // goes without a send, its rows skipped with the reason.
+        if let Some(part) = &q.channel
+            && let Some(why) = crate::delivery::not_now(app, part, q.automatic).await
+        {
+            if claim(app).await? {
+                crate::delivery::left_queue(app, part, Err(why)).await;
+                changed(app, &q.target);
+            }
             continue;
         }
         if !claim(app).await? {
@@ -590,6 +610,10 @@ mod tests {
         assert_eq!(join(&mut w, &q, Box::new(|c: &ChannelPart| format!("{}..{} x{}", c.first, c.last, c.deliveries.len()))), 7);
         assert_eq!(w.channel, Some(ChannelPart { channel: "c1".into(), first: 41, last: 42, deliveries: vec![7, 9] }));
         assert_eq!((w.text.as_str(), w.from.as_ref().unwrap().hops, w.automatic), ("41..42 x2", 3, true));
+        // A bot's message of a lower hop keeps the highest hop of the entry.
+        let low = Queued { from: from(1), channel: part(42, 10), ..serde_json::from_str(&serde_json::to_string(&q).unwrap()).unwrap() };
+        join(&mut w, &low, Box::new(|c: &ChannelPart| c.last.to_string()));
+        assert_eq!(w.from.as_ref().unwrap().hops, 3);
         // The owner's message joins too, and the entry no longer waits for quota.
         let owner = Queued { automatic: false, from: from(0), channel: part(43, 11), ..serde_json::from_str(&serde_json::to_string(&q).unwrap()).unwrap() };
         join(&mut w, &owner, Box::new(|c: &ChannelPart| c.last.to_string()));

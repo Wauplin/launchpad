@@ -450,7 +450,9 @@ pub fn spawn(app: &App) {
         });
         return;
     }
+    let started = now_ms();
     tokio::spawn(async move {
+        crate::delivery::after_restart(&app, started).await;
         if let Ok(all) = outbox(&app).await {
             for mut m in all.into_iter().filter(|m| m.status == OutboxStatus::Sending) {
                 m.status = OutboxStatus::Uncertain;

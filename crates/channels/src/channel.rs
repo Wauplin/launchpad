@@ -529,6 +529,12 @@ pub async fn deliveries(app: &App, message_ids: Vec<i64>) -> Result<Vec<ChannelD
         .await
 }
 
+/// Whether the message is one of the channel's.
+pub async fn has_message(app: &App, id: &str, message: i64) -> Result<bool> {
+    let cid = id.to_string();
+    app.state_db.call(move |c| Ok(c.query_row("SELECT 1 FROM channel_message WHERE id = ?1 AND channel_id = ?2", params![message, cid], |_| Ok(())).optional()?.is_some())).await
+}
+
 /// A channel page for the owner's window: the channel, a page of messages and their deliveries.
 pub async fn page(app: &App, id: &str, before: Option<i64>, limit: Option<u32>) -> Result<ChannelPage> {
     let channel = get(app, id).await?;
@@ -602,9 +608,7 @@ pub async fn post(app: &App, id: &str, poster: Poster, p: Post) -> Result<Channe
     let slugs: HashMap<String, String> = members.iter().filter_map(|m| bots.get(&m.bot_id).map(|b| (b.slug.clone(), m.bot_id.clone()))).collect();
     let found = mentions(&p.text, &slugs);
     if let Some(r) = p.reply_to {
-        let (cid, rid) = (id.to_string(), r);
-        let ok = app.state_db.call(move |c| Ok(c.query_row("SELECT 1 FROM channel_message WHERE id = ?1 AND channel_id = ?2", params![rid, cid], |_| Ok(())).optional()?.is_some())).await?;
-        ensure!(ok, "message {r} is not in {label}");
+        ensure!(has_message(app, id, r).await?, "message {r} is not in {label}");
     }
     let owner = author.kind == AuthorKind::Owner;
     let msg = ChannelMessage {

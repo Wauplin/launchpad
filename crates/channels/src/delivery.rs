@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use rusqlite::{OptionalExtension, params};
+use rusqlite::params;
 
 use launchpad_core::App;
 use launchpad_core::model::{MessageFrom, SenderKind};
@@ -165,6 +165,12 @@ async fn update(app: &App, ids: Vec<i64>, state: &'static str, reason: Option<St
     }
 }
 
+async fn after_enqueue(app: &App, sql: &'static str, id: i64, value: rusqlite::types::Value) {
+    if let Err(e) = app.state_db.call(move |db| Ok(db.execute(sql, params![id, value])?)).await {
+        tracing::warn!("channel delivery: {e:#}");
+    }
+}
+
 /// Takes one delivery of the channel's allowance; false when none is left.
 async fn take_allowance(app: &App, channel: &str) -> bool {
     let c = channel.to_string();
@@ -235,8 +241,9 @@ async fn send(app: &App, ch: &Row, msg: &ChannelMessage, bot: &str, id: i64, mem
     let combine = move |p: &ChannelPart| fr.text(p.first, p.last, p.deliveries.len(), &newest);
     match hooks::deliver_channel(app, bot, text, !owner, sender(ch, msg, title), part, combine).await {
         Ok(Outcome::Sent(s)) => update(app, vec![id], "sent", None, Some(s.id), None).await,
-        Ok(Outcome::Queued) => update(app, vec![id], "queued", Some("waits for the bot: its turn runs, or its quota is not confirmed".into()), None, None).await,
-        Ok(Outcome::Joined(first)) => update(app, vec![id], "combined", None, None, Some(first)).await,
+        // The queue may already have sent the entry (`left_queue`): these only add to a row it has not changed.
+        Ok(Outcome::Queued) => after_enqueue(app, "UPDATE channel_delivery SET reason = ?2 WHERE id = ?1 AND state = 'queued' AND session_id IS NULL", id, "waits for the bot: its turn runs, or its quota is not confirmed".to_string().into()).await,
+        Ok(Outcome::Joined(first)) => after_enqueue(app, "UPDATE channel_delivery SET state = CASE state WHEN 'queued' THEN 'combined' ELSE state END, joined = ?2 WHERE id = ?1", id, first.into()).await,
         Err(e) => update(app, vec![id], "skipped", Some(format!("send failed: {e:#}")), None, None).await,
     }
     channel::changed(app, &ch.id, &ch.workspace_id);
@@ -257,6 +264,41 @@ pub(crate) async fn left_queue(app: &App, part: &ChannelPart, result: Result<Str
     }
 }
 
+/// Why a waiting entry of this channel must not wake its bot now: the channel was deleted, archived or paused since,
+/// or the owner blocked the DM (bots' messages only).
+pub(crate) async fn not_now(app: &App, part: &ChannelPart, automatic: bool) -> Option<String> {
+    let Ok(ch) = channel::load(app, &part.channel).await else { return Some("channel deleted".into()) };
+    if ch.archived {
+        Some("channel archived".into())
+    } else if ch.paused {
+        Some("channel paused".into())
+    } else if automatic && ch.blocked {
+        Some("the owner blocked this DM".into())
+    } else {
+        None
+    }
+}
+
+/// Home start: a delivery that was being sent when Home stopped (claimed, not in the queue, no session) is uncertain:
+/// it may have arrived, so it is never sent again, and its row says so. Only rows written before `started`.
+pub(crate) async fn after_restart(app: &App, started: i64) {
+    let r = app
+        .state_db
+        .call(move |db| {
+            Ok(db.execute(
+                "UPDATE channel_delivery SET state = 'skipped', reason = ?2, at = ?1 WHERE state IN ('queued', 'combined') AND session_id IS NULL AND at < ?1
+                 AND id NOT IN (SELECT d.value FROM queued_message q, json_each(q.json, '$.channel.deliveries') d WHERE json_valid(q.json))",
+                params![started, "uncertain: Home stopped while this delivery was being sent; it may have arrived and is not sent again"],
+            )?)
+        })
+        .await;
+    match r {
+        Ok(n) if n > 0 => tracing::warn!("bot channels: {n} deliveries were being sent when Home stopped; marked uncertain"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!("bot channels: {e:#}"),
+    }
+}
+
 /// Allow more: the newest message's deliveries that the loop guard skipped go now, each taking one delivery of the
 /// allowance (they were never sent, so this is not a retry). Other skips stay.
 pub(crate) async fn redeliver_latest(app: &App, id: &str) -> Result<()> {
@@ -274,15 +316,28 @@ pub(crate) async fn redeliver_latest(app: &App, id: &str) -> Result<()> {
     let bots = channel::bots(app).await?;
     let title = channel_title(&ch, &members, &bots);
     for d in skipped {
-        if bots.get(&d.bot_id).is_none_or(|b| b.paused) || !take_allowance(app, id).await {
+        if bots.get(&d.bot_id).is_none_or(|b| b.paused) {
             continue;
         }
-        // Claimed again from its skip, once.
-        let did = d.id;
-        let claimed = app
+        // Claimed again from its skip, once, together with one delivery of the allowance (both or neither).
+        let (did, cid) = (d.id, id.to_string());
+        let (claimed, left) = app
             .state_db
-            .call(move |db| Ok(db.query_row("UPDATE channel_delivery SET state = 'queued', reason = NULL, at = ?2 WHERE id = ?1 AND state = 'skipped' RETURNING id", params![did, now_ms()], |_| Ok(())).optional()?.is_some()))
+            .call(move |db| {
+                let tx = db.transaction()?;
+                if tx.execute("UPDATE channel SET allowance = allowance - 1 WHERE id = ?1 AND allowance > 0", [&cid])? == 0 {
+                    return Ok((false, false));
+                }
+                let claimed = tx.execute("UPDATE channel_delivery SET state = 'queued', reason = NULL, at = ?2 WHERE id = ?1 AND state = 'skipped'", params![did, now_ms()])? > 0;
+                if claimed {
+                    tx.commit()?;
+                }
+                Ok((claimed, true))
+            })
             .await?;
+        if !left {
+            break;
+        }
         if claimed {
             send(app, &ch, &msg, &d.bot_id, d.id, &members, &bots, &title).await;
         }

@@ -86,7 +86,10 @@ async fn post_message(State(s): State<Ctx>, Path(id): Path<String>, agent: Optio
 }
 
 async fn deliveries(State(s): State<Ctx>, Path((id, message)): Path<(String, i64)>) -> ApiResult<Vec<ChannelDelivery>> {
-    channel::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    // Only a message of this channel (the agent boundary checked the channel, not the message).
+    if !channel::has_message(&s.app, &id, message).await.map_err(bad)? {
+        return Err(ApiError::not_found(format!("message {message} is not in this channel")));
+    }
     let list = channel::deliveries(&s.app, vec![message]).await.map_err(bad)?;
     Ok(Json(list))
 }
