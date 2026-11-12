@@ -51,7 +51,7 @@ keep = 15                           # clean task worktrees of idle agents kept o
 backup = ""                         # Home only: hf://buckets/<you>/launchpad or a folder; empty: no backup
 git_name = ""                       # Home only: the author of agents' commits on every runner
 git_email = ""
-time_zone = ""                      # IANA zone (Europe/Paris) of routines saved without a browser; empty: the server's
+time_zone = ""                      # IANA zone (Europe/Paris) of routines saved without a browser and of the 08:00 channel digests; empty: the server's (UTC on a Space)
 
 [runner]
 boundary = "jail"                   # runner only: jail (bubblewrap), or vm inside a dedicated Local VM, where agents may use Docker
