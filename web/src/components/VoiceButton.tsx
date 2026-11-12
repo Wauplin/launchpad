@@ -20,7 +20,7 @@ export function VoiceButton({ dictation: d, className = "", large }: { dictation
   return (
     <button type="button" title={label} aria-label={d.active ? "Stop dictation" : "Dictate"} aria-pressed={d.active}
       disabled={!d.active && !!d.reason}
-      className={`${large ? "btn relative h-[52px] flex-1 justify-center text-[15px]" : "iconbtn relative"} touch-manipulation select-none ${d.active ? "border-danger! bg-danger-ink text-paper hover:bg-danger! hover:text-paper!" : ""} ${className}`}
+      className={`${large ? "btn relative h-[52px] flex-1 justify-center text-[15px]" : "iconbtn relative"} touch-manipulation select-none disabled:opacity-40 ${d.active ? "border-danger! bg-danger-ink text-paper hover:bg-danger! hover:text-paper!" : ""} ${className}`}
       onPointerEnter={d.warm} onFocus={d.warm}
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
