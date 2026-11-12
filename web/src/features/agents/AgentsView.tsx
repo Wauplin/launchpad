@@ -9,8 +9,11 @@ import { BotChip, ConfirmButton, Empty, MoreMenu } from "@/components/ui";
 import { ActionMenuItem } from "@/components/ActionButton";
 import { MenuItem } from "@/components/Popover";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@/gen/Session";
+import type { Predraft } from "@/gen/Predraft";
+import type { WorktreeInfo } from "@/gen/WorktreeInfo";
+import { workTags, WorkTagPill, type WorkTag } from "./workTag";
 import { HarnessMark } from "@/components/HarnessMark";
 import { isRunning, isDone, isQuotaPaused, isStopped, isUnseen, needsYou, sessionPlace } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
@@ -46,7 +49,7 @@ function searchText(s: Session): string {
 }
 
 /** Rows take stable callbacks with the session id, so a bus update re-renders only the rows whose session changed. */
-const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onOpen, onMarkUnread }: { s: Session; project: string; selected: boolean; pinned: boolean; onOpen: (id: string) => void; onMarkUnread: (id: string) => void }) {
+const SessionRow = memo(function SessionRow({ s, project, selected, pinned, tag, onOpen, onMarkUnread }: { s: Session; project: string; selected: boolean; pinned: boolean; tag?: WorkTag; onOpen: (id: string) => void; onMarkUnread: (id: string) => void }) {
   const dim = s.status === "closed";
   const stop = isRunning(s) || isQuotaPaused(s);
   const canMarkUnread = !isUnseen(s) && (isDone(s) || s.status === "error" || s.status === "interrupted");
@@ -76,7 +79,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, onOp
           {informative(s) ? <SessionStatus s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{age(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
         </span>
         <span className="agent-row-line col-span-2 line-clamp-2 pr-8 text-[12px] leading-[1.3] text-ink-3" title={full ? `${project} · ${full}` : project}>
-          <span className="text-ink-2">{sessionPlace(s, project)}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
+          {tag && <WorkTagPill tag={tag} className="mr-1.5 align-[1px]" />}<span className="text-ink-2">{sessionPlace(s, project)}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
         </span>
       </button>
       {/* The row opens the session; Stop, Archive, Mark unread and Pin in ⋯. */}
@@ -127,6 +130,10 @@ export function AgentsView() {
   useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
   const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
   const projects = useProjects().data;
+  // Where each agent's work went (merged, in a Local PR or pull request, read-only): a tag in its row.
+  const worktrees = useQuery({ queryKey: ["worktrees", "all"], queryFn: () => api.get<WorktreeInfo[]>("/api/worktrees"), staleTime: 30_000 }).data;
+  const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<Predraft[]>("/api/predrafts") }).data;
+  const tags = useMemo(() => workTags(sessionsQuery.data ?? [], worktrees, localPrs), [sessionsQuery.data, worktrees, localPrs]);
   const { selectedSession, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
   const search = useSearch({ strict: false }) as { session?: string; view?: View };
   const navigate = useNavigate();
@@ -240,7 +247,7 @@ export function AgentsView() {
   const markUnreadRef = useRef<(id: string) => void>(() => {});
   markUnreadRef.current = (id) => { if (id === visibleSession) clearSession(id); };
   const markUnread = useCallback((id: string) => markUnreadRef.current(id), []);
-  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} selected={s.id === visibleSession} onOpen={open} onMarkUnread={markUnread} />;
+  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} tag={tags.get(s.id)} selected={s.id === visibleSession} onOpen={open} onMarkUnread={markUnread} />;
 
   const paneOpen = !!visibleSession;
   return (

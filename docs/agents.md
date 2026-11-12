@@ -76,6 +76,8 @@ Launchpad saves a temporary folder's files on Home at the end of every turn, exc
 
 Click a row to open its session, on its default view (a link that opened one session on Changes does not change the next ones); clicking the open session's row keeps it as it is. **Archive N seen, older than 3 d** under Done asks for a confirmation, then says how many it archived. The row's **⋯** holds **Stop** (while it runs) or **Archive**, **Mark unread** and **Pin** (pinned sessions show first). The filter field over the list matches the title, the prompt and the folder name, and also the messages sent to each agent and its answers. It does not search tool calls or reasoning. A quota-paused row shows when its quota resets; hover it for every window.
 
+A tag at the start of a row's second line says where the agent's work went, so you can tell what is safe to archive without opening it: **Merged** (merged into its base branch, from its worktree or its Local PR), **On main** (every commit of its branch is already in the base branch, named after it), **Local PR** (not published yet), **PR #N** (a published Local PR or a pull request the agent continues) or **Read-only** (launched with When done = Read-only). A row without a tag may hold work that is not merged or handed off yet. Hover the tag for details.
+
 A session **needs you** when it has an open question, or when it finished, failed or was interrupted and you have not seen it yet. Such sessions wait as cards in [Today](today.md) and in the **Needs you** group here; an unseen one has a small amber dot after its status. A session counts as seen after it was on screen for 1.5 seconds in a window you used recently. The sidebar shows only how many agents run or wait for quota.
 
 ```mermaid
