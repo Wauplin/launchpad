@@ -42,12 +42,12 @@ export function ChannelMembers({ channel }: { channel: Channel }) {
           <BotAvatar name={m.name} size={24} />
           <span className="grid min-w-0 flex-1">
             <Link to="/bots/$id" params={{ id: m.bot_id }} className="truncate text-[13px] font-semibold text-ink no-underline hover:underline" title={m.last_read ? `Read up to message ${m.last_read}` : "Has not read the channel yet"}>{m.name}</Link>
-            <span className="truncate text-[12px] text-ink-3" title={MODES.find((x) => x.id === m.mode)?.hint}>{MODES.find((x) => x.id === m.mode)?.hint}</span>
+            {m.mode === "digest" && <span className="truncate text-[12px] text-ink-3" title={MODES.find((x) => x.id === m.mode)?.hint}>Daily at 08:00</span>}
           </span>
           <RowActions label={`More actions for ${m.name}`} width={140}
-            main={<select className="field-input w-full" aria-label={`When ${m.name} is woken`} disabled={closed || busy === m.bot_id} value={m.mode}
+            main={<select className="field-input w-full" aria-label={`When ${m.name} is woken`} title={MODES.find((x) => x.id === m.mode)?.hint} disabled={closed || busy === m.bot_id} value={m.mode}
               onChange={(e) => { const next = e.target.value as ChannelMemberMode; void run(m.bot_id, () => runAction("channel.set-mode", { id: channel.id, bot: m.bot_id }, { mode: next })); }}>
-              {MODES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+              {MODES.map((x) => <option key={x.id} value={x.id} title={x.hint}>{x.label}</option>)}
             </select>}
             more={(close) => <>
               <MenuItem icon={<Icon name="comment" size={14} />} label={`Open ${m.name}'s chat`} onClick={() => { close(); void navigate({ to: "/bots/$id", params: { id: m.bot_id } }); }} />
@@ -55,9 +55,8 @@ export function ChannelMembers({ channel }: { channel: Channel }) {
             </>} />
         </div>
       ))}
-      {!closed && channel.members.some((m) => m.mode === "digest") && <div className="flex flex-wrap items-center gap-2 px-1 py-1">
-        <span className="min-w-0 flex-1 text-[12px] text-ink-3">Digests go every day at 08:00 (Home's time zone), only when something is new.</span>
-        <ActionButton name="channel.digest" params={{ id: channel.id }} onDone={refresh} />
+      {!closed && channel.members.some((m) => m.mode === "digest") && <div className="flex justify-end px-1 py-1">
+        <ActionButton name="channel.digest" params={{ id: channel.id }} title="Daily digests go at 08:00 (Home's time zone), only when something is new: send them now instead" onDone={refresh} />
       </div>}
       {channel.members.length === 0 && <p className="m-0 px-1 text-[12px] text-ink-3">No bot yet: only you post here.</p>}
       {!closed && <div className="mt-2 grid gap-1.5 border-t border-line-2 px-1 pt-3" data-tour="channel.add-member">

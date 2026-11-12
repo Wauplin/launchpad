@@ -56,7 +56,7 @@ export function ChannelComposer({ channel, onSent, replyTo, className = "border-
         </div>}
         <div className="session-message-input flex items-end gap-2 rounded-control border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
           <textarea ref={ref} rows={1} value={text} disabled={busy || closed} aria-label={`Message ${name}`} autoFocus={autoFocus}
-            placeholder={dm ? "Message both bots…" : `Message ${channel.title}… (@ to wake a bot)`}
+            placeholder={replyTo != null ? `Reply in ${dm ? "the DM" : channel.title}: your message answers this one` : dm ? "Message both bots…" : `Message ${channel.title}… (@ to wake a bot)`}
             onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart); setDismissed(null); }}
             onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
             onKeyDown={(e) => {
