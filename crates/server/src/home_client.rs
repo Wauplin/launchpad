@@ -235,7 +235,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/connections" || path.starts_with("/api/connections/") || path == "/api/outbox" || path.starts_with("/api/outbox/")
         || path == "/api/today" || path == "/api/inbox/agent-done"
         || path == "/api/activity" || path.starts_with("/api/activity/") || path == "/api/settings/shared"
-        || path == "/api/review-state"
+        || path == "/api/review-state" || path == "/api/channels" || path.starts_with("/api/channels/")
         || path == "/api/home/update" || path == "/api/home/update/check" || path.starts_with("/api/cli-updates")
 }
 
@@ -748,4 +748,16 @@ pub async fn connect(paths: &launchpad_core::paths::Paths, url: &str, name: Opti
         }
     }
     anyhow::bail!("not approved within ten minutes; run launchpad connect again")
+}
+
+#[cfg(test)]
+mod tests {
+    /// Runners hold no channel state: every channel call goes to Home (an agent's with its session).
+    #[test]
+    fn channel_calls_go_to_home() {
+        for p in ["/api/channels", "/api/channels/agent", "/api/channels/agent/read", "/api/channels/agent/post", "/api/channels/c1/messages"] {
+            assert!(super::home_owned(p), "{p}");
+        }
+        assert!(!super::home_owned("/api/channelsx"));
+    }
 }

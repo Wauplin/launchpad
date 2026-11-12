@@ -2,6 +2,7 @@
 //! own Telegram chat, and incoming hooks (`POST /hooks/<id>`); and bot channels and DMs (`channel`, `delivery`), where
 //! bots talk to each other. Home owns them; runners forward the API.
 
+pub mod agent;
 pub mod channel;
 pub mod connections;
 pub mod delivery;

@@ -217,9 +217,9 @@ pub(crate) struct Row {
     pub owner_read: i64,
 }
 
-const ROW: &str = "id, workspace_id, kind, name, purpose, paused, blocked, hop_limit, hourly_limit, allowance, reset_at, archived, created_by, created_at, owner_read";
+pub(crate) const ROW: &str = "id, workspace_id, kind, name, purpose, paused, blocked, hop_limit, hourly_limit, allowance, reset_at, archived, created_by, created_at, owner_read";
 
-fn row(r: &rusqlite::Row) -> rusqlite::Result<Row> {
+pub(crate) fn row(r: &rusqlite::Row) -> rusqlite::Result<Row> {
     Ok(Row {
         id: r.get(0)?,
         workspace_id: r.get(1)?,
@@ -574,7 +574,7 @@ async fn turn_of(app: &App, session: &str) -> Option<i64> {
 /// The bot a session posts as: its bot (`LaunchSpec.bot`, Home's record), a member of the channel, of its workspace.
 pub(crate) async fn poster_bot(app: &App, session: &str) -> Result<String> {
     let s = app.sessions.get(session).context("no such session")?;
-    let bot = s.launch_spec.bot.as_ref().context("only a bot's session posts in bot channels and DMs; this agent is not a bot")?;
+    let bot = s.launch_spec.bot.as_ref().context("only bots post in channels: this agent is not a bot's session")?;
     Ok(bot.id.clone())
 }
 
@@ -599,7 +599,7 @@ pub async fn post(app: &App, id: &str, poster: Poster, p: Post) -> Result<Channe
             let bot = poster_bot(app, s).await?;
             let info = bots.get(&bot).context("the session's bot no longer exists")?;
             ensure!(info.workspace_id == ch.workspace_id, "{label} is in another workspace");
-            ensure!(members.iter().any(|m| m.bot_id == bot), "not a member of {label}");
+            ensure!(members.iter().any(|m| m.bot_id == bot), "not a member of {label}: ask the owner to add you");
             ensure!(!ch.blocked, "the owner blocked this DM");
             let hops = launchpad_core::senders::hops_of(app, s).await + 1;
             (Author { kind: AuthorKind::Bot, id: bot, name: info.name.clone() }, Some(s.clone()), turn_of(app, s).await, hops)

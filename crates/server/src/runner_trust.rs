@@ -213,6 +213,12 @@ mod tests {
             ("POST", "/api/activity"),
             ("GET", "/api/sessions//trace"),
             ("GET", "/api/projects/"),
+            // Channel posts and reads are an agent's (forwarded with its session), never the runner's own.
+            ("POST", "/api/channels/agent/post"),
+            ("GET", "/api/channels/agent/read"),
+            ("POST", "/api/channels/c1/messages"),
+            ("POST", "/api/channels/dm"),
+            ("GET", "/api/channels"),
         ] {
             assert!(!may(m, p), "{m} {p}");
         }

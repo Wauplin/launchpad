@@ -214,6 +214,19 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
+    /// Bot channels of this session's workspace (for bots): `list`, `read <name|@bot>`, `post <name> --body-file m.md`;
+    /// and the short verbs of channel actions (`channel create <name> --purpose … --members a,b`, admin access).
+    Channel {
+        #[command(subcommand)]
+        command: ChannelCommand,
+    },
+    /// Write to another bot of this workspace in your DM with it (created on first use; for bots).
+    Dm {
+        /// The other bot: its slug or name, with or without `@`.
+        bot: String,
+        #[command(flatten)]
+        post: ChannelPostArgs,
+    },
     /// The hop count to send with `X-Launchpad-Hops` when this session calls an incoming hook of Launchpad (for agents).
     Hops,
     /// Store an inert proposal for the owner to start with a click; never starts anything.
@@ -526,6 +539,96 @@ enum Kb {
         #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
         session_id: String,
     },
+}
+
+#[derive(Subcommand)]
+enum ChannelCommand {
+    /// The channels of this workspace and your bot's DMs, with its membership, mode and unread messages (JSON).
+    List,
+    /// Messages of a channel (`release-train`) or of your DM with a bot (`@release`), oldest first (JSON): after
+    /// `--since`, else the newest. Moves your bot's last-read mark.
+    Read {
+        channel: String,
+        #[arg(long)]
+        since: Option<i64>,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
+    /// Post your bot's message (Markdown, at most 8 KB; `@<bot slug>` wakes a bot, `@owner` asks the owner).
+    Post {
+        /// The channel's name, or `@<bot>` for your DM with it.
+        channel: String,
+        #[command(flatten)]
+        post: ChannelPostArgs,
+    },
+    #[command(external_subcommand)]
+    Verb(Vec<String>),
+}
+
+#[derive(clap::Args)]
+struct ChannelPostArgs {
+    /// The message file (`-` reads stdin).
+    #[arg(long)]
+    body_file: std::path::PathBuf,
+    /// The message this one answers.
+    #[arg(long)]
+    reply_to: Option<i64>,
+    /// Ask the owner: the message waits for them in Today.
+    #[arg(long)]
+    ask_owner: bool,
+    #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+    session_id: String,
+}
+
+/// `launchpad channel post` and `launchpad dm`: Home posts as this session's bot.
+async fn channel_post(paths: &Paths, channel: String, a: ChannelPostArgs) -> Result<()> {
+    let file = (a.body_file.as_os_str() != "-").then_some(a.body_file.as_path());
+    let text = String::from_utf8(read_input(file)?).context("the message is not UTF-8 text")?;
+    let body = serde_json::json!({"session_id": a.session_id, "channel": channel, "text": text, "reply_to": a.reply_to, "ask_owner": a.ask_owner});
+    let v = Client::new(paths)?.json("POST", "/api/channels/agent/post", Some(body)).await?;
+    println!("{}", serde_json::to_string_pretty(&v)?);
+    Ok(())
+}
+
+/// Pure: `channel create <name> [--purpose …] [--members a,b]` as the `channel.create` action's options (a
+/// positional name becomes `--name`, a comma list of members a JSON list).
+fn channel_create_args(args: &[String]) -> Vec<String> {
+    let mut out = vec![];
+    let mut it = args.iter().peekable();
+    if let Some(first) = it.peek()
+        && !first.starts_with("--")
+    {
+        out.extend(["--name".to_string(), it.next().unwrap().clone()]);
+    }
+    while let Some(a) = it.next() {
+        out.push(a.clone());
+        if a == "--members"
+            && let Some(v) = it.next()
+        {
+            let list: Vec<&str> = v.split(',').map(|m| m.trim().trim_start_matches('@')).filter(|m| !m.is_empty()).collect();
+            out.push(if serde_json::from_str::<Vec<String>>(v).is_ok() { v.clone() } else { serde_json::to_string(&list).unwrap_or_default() });
+        }
+    }
+    out
+}
+
+/// `launchpad channel read`: messages with readable times.
+async fn channel_read(paths: &Paths, channel: String, since: Option<i64>, limit: u32) -> Result<()> {
+    let (since, limit) = (since.map(|s| s.to_string()), limit.to_string());
+    let mut pairs = vec![("channel", channel.as_str()), ("limit", limit.as_str())];
+    if let Some(s) = &since {
+        pairs.push(("since", s.as_str()));
+    }
+    let mut v = Client::new(paths)?.json("GET", &query("/api/channels/agent/read", &pairs), None).await?;
+    for m in v["messages"].as_array_mut().into_iter().flatten() {
+        if let Some(obj) = m.as_object_mut()
+            && let Some(ms) = obj.remove("created_at").and_then(|t| t.as_i64())
+        {
+            obj.insert("at".into(), serde_json::Value::String(utc(ms)));
+        }
+    }
+    println!("{}", serde_json::to_string_pretty(&v)?);
+    Ok(())
 }
 
 #[derive(Subcommand)]
@@ -846,6 +949,15 @@ async fn run() -> Result<()> {
         Command::Home => list_command(&paths, "/api/context/home", None).await,
         Command::Tools { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/tools", None).await,
         Command::Connections { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/connections", None).await,
+        Command::Channel { command: ChannelCommand::List } => list_command(&paths, "/api/channels/agent", None).await,
+        Command::Channel { command: ChannelCommand::Read { channel, since, limit } } => channel_read(&paths, channel, since, limit).await,
+        Command::Channel { command: ChannelCommand::Post { channel, post } } => channel_post(&paths, channel, post).await,
+        Command::Channel { command: ChannelCommand::Verb(words) } => {
+            let [verb, args @ ..] = words.as_slice() else { anyhow::bail!("name a channel command: see `launchpad channel --help`") };
+            let args = if verb == "create" { channel_create_args(args) } else { args.to_vec() };
+            do_action(&paths, &format!("channel.{verb}"), &args).await
+        }
+        Command::Dm { bot, post } => channel_post(&paths, format!("@{}", bot.trim_start_matches('@')), post).await,
         Command::Hops => {
             let v = Client::new(&paths)?.json("GET", "/api/context/hops", None).await?;
             println!("{}", v["hops"].as_u64().context("Home did not return a hop count")?);
@@ -1071,6 +1183,17 @@ mod proposal_tests {
         // `bot memory` is a command; other `bot` words stay the short verbs of bot actions.
         assert!(matches!(Cli::try_parse_from(["launchpad", "bot", "memory", "write", "notes.md", "--session-id", "s1"]).unwrap().command, Command::Bot { command: BotCommand::Memory { command: BotMemory::Write { .. } } }));
         assert!(matches!(Cli::try_parse_from(["launchpad", "bot", "pause", "b1", "--paused", "true"]).unwrap().command, Command::Bot { command: BotCommand::Verb(w) } if w == ["pause", "b1", "--paused", "true"]));
+        // The commands a delivered channel message names work as written.
+        let cli = Cli::try_parse_from(["launchpad", "channel", "read", "@release", "--since", "38"]).unwrap();
+        assert!(matches!(cli.command, Command::Channel { command: ChannelCommand::Read { channel, since: Some(38), limit: 50 } } if channel == "@release"));
+        let cli = Cli::try_parse_from(["launchpad", "dm", "release", "--body-file", "m.md", "--session-id", "s1"]).unwrap();
+        assert!(matches!(cli.command, Command::Dm { bot, post: ChannelPostArgs { ask_owner: false, .. } } if bot == "release"));
+        let cli = Cli::try_parse_from(["launchpad", "channel", "post", "release-train", "--body-file", "m.md", "--reply-to", "4", "--ask-owner", "--session-id", "s1"]).unwrap();
+        assert!(matches!(cli.command, Command::Channel { command: ChannelCommand::Post { post: ChannelPostArgs { reply_to: Some(4), ask_owner: true, .. }, .. } }));
+        assert!(matches!(Cli::try_parse_from(["launchpad", "channel", "add-member", "c1", "b1", "--mode", "all"]).unwrap().command, Command::Channel { command: ChannelCommand::Verb(_) }));
+        let args = |a: &[&str]| channel_create_args(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(args(&["triage", "--purpose", "Sort issues", "--members", "a, @b"]), ["--name", "triage", "--purpose", "Sort issues", "--members", r#"["a","b"]"#]);
+        assert_eq!(args(&["--name", "x", "--members", r#"["a"]"#]), ["--name", "x", "--members", r#"["a"]"#]);
         let cli = Cli::try_parse_from(["launchpad", "proposals", "list", "--workspace", "Work"]).unwrap();
         assert!(matches!(cli.command, Command::Proposals { command: ListOnly::List { workspace: Some(w) } } if w == "Work"));
     }

@@ -1,9 +1,12 @@
-//! Bot channels and DMs on Home (`launchpad_channels::{channel, delivery}`). The owner's window reads and posts here;
-//! a post from an agent's CLI token posts as that session's bot (Home's record), never as the owner.
+//! Bot channels and DMs on Home (`launchpad_channels::{channel, delivery}`). The owner's window reads and posts here.
+//! Agents use `/api/channels/agent…` (`launchpad channel list|read|post`, `launchpad dm`, `launchpad_channels::agent`):
+//! Home takes the caller from its own record of the CLI token's session (`AgentSession`), never from the body, and
+//! its bot posts; runners forward every channel call to Home (`home_client::home_owned`).
 
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
+use launchpad_channels::agent;
 use launchpad_channels::channel::{self, Channel, ChannelDelivery, ChannelPage, ChannelPosted, Edit, Mode, NewChannel, Post, Poster};
 use launchpad_http::AgentSession;
 use serde::Deserialize;
@@ -16,6 +19,9 @@ pub fn router() -> Router<Ctx> {
     Router::new()
         .route("/api/channels", get(list).post(create))
         .route("/api/channels/dm", post(dm))
+        .route("/api/channels/agent", get(agent_list))
+        .route("/api/channels/agent/read", get(agent_read))
+        .route("/api/channels/agent/post", post(agent_post))
         .route("/api/channels/{id}", get(one).patch(edit).delete(remove))
         .route("/api/channels/{id}/messages", get(messages).post(post_message))
         .route("/api/channels/{id}/messages/{message}/deliveries", get(deliveries))
@@ -79,10 +85,51 @@ async fn messages(State(s): State<Ctx>, Path(id): Path<String>, Query(q): Query<
     Ok(Json(json!({"messages": list, "more": more})))
 }
 
-/// The owner's message, or a bot session's (`launchpad channel post`): Home stamps the author from its own record.
+/// The owner's message (agents post with `launchpad channel post`, `/api/channels/agent/post`).
 async fn post_message(State(s): State<Ctx>, Path(id): Path<String>, agent: Option<Extension<AgentSession>>, Json(p): Json<Post>) -> ApiResult<ChannelPosted> {
-    let poster = agent.map_or(Poster::Owner, |a| Poster::Session(a.0.0));
-    Ok(Json(channel::post(&s.app, &id, poster, p).await.map_err(bad)?))
+    if agent.is_some() {
+        return Err(ApiError::bad_request("bots post with `launchpad channel post <name> --body-file <file>`"));
+    }
+    Ok(Json(channel::post(&s.app, &id, Poster::Owner, p).await.map_err(bad)?))
+}
+
+/// The session of an agent's CLI call (Home's record), or a refusal for the owner's window.
+fn agent_of(agent: Option<Extension<AgentSession>>) -> Result<String, ApiError> {
+    agent.map(|a| a.0.0).ok_or_else(|| ApiError::bad_request("these routes are an agent's (`launchpad channel …`); the owner's window uses /api/channels/{id}"))
+}
+
+async fn agent_list(State(s): State<Ctx>, agent: Option<Extension<AgentSession>>) -> ApiResult<Value> {
+    let session = agent_of(agent)?;
+    Ok(Json(agent::list(&s.app, &session).await.map_err(forbidden)?))
+}
+
+#[derive(Deserialize)]
+struct AgentRead {
+    channel: String,
+    since: Option<i64>,
+    limit: Option<u32>,
+}
+
+async fn agent_read(State(s): State<Ctx>, agent: Option<Extension<AgentSession>>, Query(q): Query<AgentRead>) -> ApiResult<Value> {
+    let session = agent_of(agent)?;
+    Ok(Json(agent::read(&s.app, &session, &q.channel, q.since, q.limit).await.map_err(forbidden)?))
+}
+
+#[derive(Deserialize)]
+struct AgentPost {
+    channel: String,
+    #[serde(flatten)]
+    post: Post,
+}
+
+async fn agent_post(State(s): State<Ctx>, agent: Option<Extension<AgentSession>>, Json(p): Json<AgentPost>) -> ApiResult<Value> {
+    let session = agent_of(agent)?;
+    Ok(Json(agent::post(&s.app, &session, &p.channel, p.post).await.map_err(forbidden)?))
+}
+
+/// An agent's refusal (not a bot, not a member, another workspace, blocked) or a bad request.
+fn forbidden(e: anyhow::Error) -> ApiError {
+    ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("{e:#}"))
 }
 
 async fn deliveries(State(s): State<Ctx>, Path((id, message)): Path<(String, i64)>) -> ApiResult<Vec<ChannelDelivery>> {
