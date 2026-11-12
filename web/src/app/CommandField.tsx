@@ -181,7 +181,7 @@ export function CommandField() {
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); primary(); } }}
           className="min-h-6 min-w-[48px] flex-1 resize-none bg-transparent placeholder-shown:overflow-hidden placeholder-shown:whitespace-nowrap py-0.5 text-[13px] leading-5 outline-none" />
         {dictation.active && <span className="min-w-0 max-w-[45%] flex-none truncate text-[13px] italic text-ink-3" title={interim}>{interim || <VoiceCaption dictation={dictation} inline className="" />}</span>}
-        {!dictation.active && <VoiceCaption dictation={dictation} inline className="min-w-0 max-w-[45%] flex-none truncate" />}
+        {!dictation.active && <VoiceCaption dictation={dictation} inline className="min-w-0 max-w-[45%] flex-none" />}
         <VoiceButton dictation={dictation} className="-my-0.5" />
       </div>
       {bot && <button className="btn btn-primary" data-tour="topbar.ask" title={`${askLabel}: the answer opens in the Ask panel${ctx.line ? ", with the page as context" : ""}`} disabled={busy || reading || dictation.phase === "finishing"} onClick={() => (dictation.active ? dictation.stopAndSend() : void ask())}><Icon name="send" size={12} />Ask</button>}

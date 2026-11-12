@@ -33,7 +33,7 @@ export function VoiceCaption({ dictation: d, className = "mb-1.5", inline }: { d
   const startedAt = useVoice((s) => s.startedAt);
   if (!mine) return null;
   if (phase === "idle") {
-    if (error) return <div role="alert" className={`flex items-center gap-1.5 text-[12px] text-danger-ink ${className}`}><Icon name="alert" size={12} className="flex-none" /><span className="min-w-0 flex-1">{error}</span><IconButton icon="x" label="Dismiss" className="flex-none" onClick={() => clearVoiceError(d.id)} /></div>;
+    if (error) return <div role="alert" className={`flex items-center gap-1.5 text-[12px] text-danger-ink ${className}`}><Icon name="alert" size={12} className="flex-none" /><span className={`min-w-0 flex-1 ${inline ? "truncate" : ""}`} title={inline ? error : undefined}>{error}</span><IconButton icon="x" label="Dismiss" className="-my-1.5 flex-none" onClick={() => clearVoiceError(d.id)} /></div>;
     return null;
   }
   const state = phase === "starting" ? "Connecting…" : phase === "finishing" ? "Finishing…" : "Listening";
