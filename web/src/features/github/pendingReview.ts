@@ -3,7 +3,7 @@ import { useReviewState } from "@/lib/reviewState";
 import type { LineNote } from "./DiffReview";
 import type { ReviewEvent } from "./ReplyBox";
 
-export type ReviewPayload = { body: string; event: ReviewEvent; commit_id: string; comments: { path: string; line: number | null; side: string; body: string }[]; source: string | null; merge: boolean; run_ci: boolean };
+export type ReviewPayload = { body: string; event: ReviewEvent; commit_id: string; comments: { path: string; line: number | null; side: string; body: string; start_line?: number }[]; source: string | null; merge: boolean; run_ci: boolean };
 export type PendingReview = { summary: string; event: ReviewEvent | null; merge: boolean; runCi: boolean; comments: LineNote[]; source: string | null; head: string | null; attempt: ReviewPayload | null };
 export const emptyReview: PendingReview = { summary: "", event: null, merge: false, runCi: false, comments: [], source: null, head: null, attempt: null };
 export const pendingReviewKey = (repo: string, number: number) => `pending-review:${repo.toLowerCase()}#${number}`;

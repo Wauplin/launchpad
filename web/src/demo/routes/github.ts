@@ -356,7 +356,7 @@ route("POST", "/api/suggestions", ({ body }) => {
   const s: Suggestion = {
     id: `demo-sg-${clock.now().toString(36)}`, target: body.target, kind: body.kind, body: String(body.body ?? ""), event: body.event ?? "COMMENT", head: body.head ?? null,
     author: "Agent", session_id: body.session_id ?? null, created_at: clock.now(), status: "draft", url: null,
-    merge: body.merge ?? null, run_ci: !!body.run_ci, followup_error: null,
+    merge: body.merge ?? null, run_ci: !!body.run_ci, followup_error: null, comments: Array.isArray(body.comments) ? body.comments : [],
   };
   world.suggestions = [...world.suggestions, s];
   return saveSuggestion(s);
@@ -366,6 +366,7 @@ route("PATCH", "/api/suggestions/:id", ({ params, body }) => {
   if (s.status !== "draft") throw new DemoError(400, "only unposted drafts can be edited");
   if (!String(body?.body ?? "").trim()) throw new DemoError(400, "suggestion must contain 1–65536 bytes of text");
   s.body = body.body;
+  if (Array.isArray(body.comments)) s.comments = body.comments;
   s.event = body.event ?? s.event;
   s.merge = s.event === "APPROVE" ? body.merge ?? null : null;
   s.run_ci = !!body.run_ci && !s.merge;
@@ -383,12 +384,12 @@ route("POST", "/api/suggestions/:id/post", ({ params }) => {
   if (s.status === "posted") throw new DemoError(400, "publication already attempted; check GitHub before discarding or creating another suggestion");
   if (s.target.kind === "predraft") {
     const p = predraftOf(s.target.id);
-    p.notes = [...p.notes, { path: null, text: s.body }];
+    p.notes = [...p.notes, { path: null, text: s.body }, ...s.comments.map((c) => ({ path: c.path, line: c.line, side: c.side === "LEFT" ? "old" : "new", text: c.body }))];
     savePredraft(p);
   } else {
     const item = world.ghItems[`${s.target.repo}#${s.target.number}`];
     if (!item) throw new DemoError(400, "This item is not part of the demo.");
-    if (s.kind === "review") postReview(item, REVIEW[s.event] ?? "COMMENTED", s.body, []);
+    if (s.kind === "review") postReview(item, REVIEW[s.event] ?? "COMMENTED", s.body, s.comments);
     else comment(item, s.body);
     s.url = item.url;
     githubDemo(`posted the agent's ${s.kind} on #${item.number}`);

@@ -18,12 +18,32 @@ pub enum SuggestionKind {
     Comment,
     Review,
 }
+/// A line comment of a suggested review: GitHub's review comment fields. `side` is `RIGHT` (the new file) or `LEFT`
+/// (a removed line); `start_line` makes it span lines `start_line..=line` on the same side (for a multi-line
+/// ```suggestion block).
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct LineComment {
+    pub path: String,
+    pub line: u64,
+    #[serde(default = "right_side")]
+    pub side: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub start_line: Option<u64>,
+    pub body: String,
+}
+fn right_side() -> String {
+    "RIGHT".into()
+}
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct Suggestion {
     pub id: String,
     pub target: SuggestionTarget,
     pub kind: SuggestionKind,
     pub body: String,
+    /// Line comments of a review, posted with it in one GitHub review (on a Local PR: notes on those lines).
+    #[serde(default)]
+    pub comments: Vec<LineComment>,
     pub event: String,
     pub head: Option<String>,
     pub author: String,
@@ -48,6 +68,8 @@ pub struct Create {
     pub target: SuggestionTarget,
     pub kind: SuggestionKind,
     pub body: String,
+    #[serde(default)]
+    pub comments: Vec<LineComment>,
     #[serde(default = "comment_event")]
     pub event: String,
     pub head: Option<String>,
@@ -63,6 +85,9 @@ fn comment_event() -> String {
 #[derive(Deserialize)]
 pub struct Edit {
     pub body: String,
+    /// The line comments to keep (the owner removes some); absent keeps them all.
+    #[serde(default)]
+    pub comments: Option<Vec<LineComment>>,
     pub event: String,
     #[serde(default)]
     pub merge: Option<String>,
@@ -96,6 +121,23 @@ fn validate(body: &str, event: &str, kind: &SuggestionKind) -> Result<()> {
         *kind == SuggestionKind::Review || event == "COMMENT",
         "comments cannot approve or request changes"
     );
+    Ok(())
+}
+/// At most 100 line comments, only on a review, each on a relative path with a valid range and 1–65536 bytes of text.
+fn validate_comments(kind: &SuggestionKind, comments: &[LineComment]) -> Result<()> {
+    if comments.is_empty() {
+        return Ok(());
+    }
+    ensure!(*kind == SuggestionKind::Review, "only reviews have line comments");
+    ensure!(comments.len() <= 100, "at most 100 line comments");
+    for c in comments {
+        let at = format!("{}:{}", c.path, c.line);
+        ensure!(!c.path.is_empty() && !c.path.starts_with('/') && !c.path.split('/').any(|p| p.is_empty() || p == "." || p == ".."), "line comment {at}: the path must be relative to the repository root");
+        ensure!(c.line > 0, "line comment {at}: lines start at 1");
+        ensure!(c.side == "RIGHT" || c.side == "LEFT", "line comment {at}: side is RIGHT or LEFT");
+        ensure!(c.start_line.is_none_or(|s| s > 0 && s < c.line), "line comment {at}: start_line must be before line");
+        ensure!(!c.body.trim().is_empty() && c.body.len() <= 65_536, "line comment {at}: 1–65536 bytes of text");
+    }
     Ok(())
 }
 pub async fn list(app: &App) -> Result<Vec<Suggestion>> {
@@ -135,6 +177,7 @@ async fn save(app: &App, s: &Suggestion) -> Result<()> {
 }
 pub async fn create(app: &App, q: Create) -> Result<Suggestion> {
     validate(&q.body, &q.event, &q.kind)?;
+    validate_comments(&q.kind, &q.comments)?;
     validate_followups(&q.kind, &q.event, &q.target, q.merge.as_deref(), q.run_ci)?;
     match &q.target {
         SuggestionTarget::GitHub { repo, number } => {
@@ -173,6 +216,7 @@ pub async fn create(app: &App, q: Create) -> Result<Suggestion> {
         target: q.target,
         kind: q.kind,
         body: q.body,
+        comments: q.comments,
         event: q.event,
         head: q.head.map(|h| h.to_ascii_lowercase()),
         author,
@@ -194,6 +238,11 @@ pub async fn edit(app: &App, id: &str, q: Edit) -> Result<Suggestion> {
     ensure!(s.status == "draft", "only unposted drafts can be edited");
     validate(&q.body, &q.event, &s.kind)?;
     validate_followups(&s.kind, &q.event, &s.target, q.merge.as_deref(), q.run_ci)?;
+    if let Some(comments) = q.comments {
+        // The owner removes line comments; the agent's text and places stay as written.
+        ensure!(comments.iter().all(|c| s.comments.contains(c)), "line comments can only be removed");
+        s.comments = comments;
+    }
     s.body = q.body;
     s.event = q.event;
     s.merge = q.merge;
@@ -247,6 +296,15 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
                     s.body
                 ),
             });
+            for c in &s.comments {
+                let lines = c.start_line.map(|from| format!("Lines {from}–{}: ", c.line)).unwrap_or_default();
+                p.notes.push(predrafts::Note {
+                    path: Some(c.path.clone()),
+                    line: Some(c.line),
+                    side: Some(if c.side == "LEFT" { "old" } else { "new" }.into()),
+                    text: format!("{lines}{}", c.body),
+                });
+            }
             s.status = "posted".into();
             // On a runner, the Local PR is Home's: the note goes there, then the suggestion is marked here.
             if !launchpad_core::home_git::here(app) {
@@ -310,7 +368,7 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
                 repo,
                 *number,
                 action,
-                json!({"body":body,"event":s.event,"commit_id":s.head}),
+                json!({"body":body,"event":s.event,"commit_id":s.head,"comments":s.comments}),
             )
             .await;
             match result {
@@ -352,7 +410,7 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
 /// instruction, when the owner has some).
 pub fn instruction(app: &App, session: &str) -> String {
     format!(
-        "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes; an approving review may add --merge squash|merge|rebase (the owner's Post click then merges at that head), and a review may add --run-ci (Post also approves the head's GitHub Actions runs that wait for a maintainer). For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
+        "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes, and may add --comments-file <file.json> with inline line comments posted in the same review (a JSON array of {{path, line, side: RIGHT or LEFT for a removed line, start_line (optional, for a range), body}}; a body may hold a ```suggestion block); put each finding about specific lines in a line comment and keep the --body-file for the overall summary; an approving review may add --merge squash|merge|rebase (the owner's Post click then merges at that head), and a review may add --run-ci (Post also approves the head's GitHub Actions runs that wait for a maintainer). For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
         app.paths.cli_command()
     )
 }
@@ -439,5 +497,17 @@ mod tests {
         assert!(validate_followups(&review, "COMMENT", &gh, None, true).is_ok());
         assert!(validate_followups(&comment, "COMMENT", &gh, None, true).is_err());
         assert!(validate_followups(&review, "APPROVE", &gh, Some("merge"), true).is_err());
+    }
+
+    #[test]
+    fn line_comments_need_a_review_and_a_valid_place() {
+        let c = |path: &str, line, side: &str, start_line| LineComment { path: path.into(), line, side: side.into(), start_line, body: "Use `?`.".into() };
+        let review = SuggestionKind::Review;
+        assert!(validate_comments(&review, &[c("src/a.rs", 3, "RIGHT", None), c("b.ts", 9, "LEFT", Some(7))]).is_ok());
+        assert!(validate_comments(&SuggestionKind::Comment, &[c("a.rs", 1, "RIGHT", None)]).is_err());
+        for bad in [c("/etc/a", 1, "RIGHT", None), c("a/../b", 1, "RIGHT", None), c("a//b", 1, "RIGHT", None), c("a", 0, "RIGHT", None), c("a", 2, "BOTH", None), c("a", 2, "RIGHT", Some(2)), c("a", 2, "RIGHT", Some(0))] {
+            assert!(validate_comments(&review, &[bad]).is_err());
+        }
+        assert!(validate_comments(&review, &[LineComment { body: " ".into(), ..c("a", 1, "RIGHT", None) }]).is_err());
     }
 }

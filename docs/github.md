@@ -49,10 +49,12 @@ Pushing to a fork's branch needs write access to it ("Allow edits by maintainers
 Agents write comments and reviews with the `launchpad suggest` CLI. They are saved as suggestions, never posted:
 
 ```sh
-launchpad suggest review --repo owner/repo --number 123 --head <commit> --body-file review.md --event approve
+launchpad suggest review --repo owner/repo --number 123 --head <commit> --body-file review.md --event approve --comments-file comments.json
 ```
 
-A suggested review appears in **Your review**, with **Use** to copy its summary, event and follow-up into the pending review, and **Drop** to discard it. Today, Inbox, the PR banner and the session's next steps show **Review ready · n comments**, which opens the panel. Agent reviews currently have no line comments. Posting the combined review claims the source suggestion, so it cannot be posted again separately. Suggested plain comments keep their Conversation card. Agent text published from a source suggestion ends with its [attribution line](agents.md#attribution).
+`--comments-file` (reviews only) holds the review's line comments, a JSON array of `{"path", "line", "side", "start_line", "body"}` (`side` is `RIGHT` by default or `LEFT` for a removed line; `start_line` is optional, for a range). A comment body may hold a ```` ```suggestion ```` block. On a Local PR, the line comments become notes on those lines.
+
+A suggested review is a Today card (and a line in its bot's chat): **Review** shows its summary and line comments, **Edit** changes the summary and event or removes line comments, and **Post review** sends the summary and every line comment to GitHub as one review at the commit the agent reviewed. **Edit in pull request** opens it on the PR page instead. There, it appears in **Your review**, with **Use** to copy its summary, event, follow-up and line comments into the pending review (where you edit them like your own), and **Drop** to discard it. The Inbox, the PR banner and the session's next steps show **Review ready · n comments**, which opens the panel. Posting a suggestion claims it, so it cannot be posted again from the other place. Suggested plain comments keep their Conversation card. Agent text published from a source suggestion ends with its [attribution line](agents.md#attribution).
 
 A suggested follow-up enters the panel with **Use**. Approvals can **then squash and merge**; `--run-ci` suggests approving the waiting CI runs instead. Uncheck the follow-up to post only the review. Follow-ups run after the review is recorded as posted. A failure reports that the review was posted and never retries the follow-up.
 

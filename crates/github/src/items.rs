@@ -259,7 +259,8 @@ pub async fn mutate(app: &App, repo: &str, n: u64, action: &str, body: Value) ->
                 body["commit_id"].as_str().is_some(),
                 "missing reviewed commit"
             );
-            // Optional line comments from the Changes view: path, line, side (LEFT/RIGHT) and body each.
+            // Optional line comments (the Changes view, an agent's suggested review): path, line, side (LEFT/RIGHT),
+            // body and an optional start_line on the same side for a range.
             let mut review = json!({"event":body["event"],"body":body["body"],"commit_id":body["commit_id"]});
             if let Some(comments) = body["comments"].as_array().filter(|c| !c.is_empty()) {
                 ensure!(comments.len() <= 100, "too many line comments");
@@ -269,7 +270,13 @@ pub async fn mutate(app: &App, repo: &str, n: u64, action: &str, body: Value) ->
                     let side = c["side"].as_str().unwrap_or("RIGHT");
                     ensure!(side == "LEFT" || side == "RIGHT", "invalid line comment side");
                     ensure!(!text.trim().is_empty(), "empty line comment");
-                    out.push(json!({"path":path,"line":line,"side":side,"body":text}));
+                    let mut comment = json!({"path":path,"line":line,"side":side,"body":text});
+                    if let Some(start) = c["start_line"].as_u64() {
+                        ensure!(start > 0 && start < line, "invalid line comment range");
+                        comment["start_line"] = json!(start);
+                        comment["start_side"] = json!(side);
+                    }
+                    out.push(comment);
                 }
                 review["comments"] = Value::Array(out);
             }

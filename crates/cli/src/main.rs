@@ -431,6 +431,11 @@ struct SuggestArgs {
     predraft: Option<String>,
     #[arg(long)]
     body_file: std::path::PathBuf,
+    /// Reviews only: a JSON array of line comments posted with the review, each
+    /// `{"path": "src/a.rs", "line": 12, "side": "RIGHT", "start_line": 10, "body": "…"}` (`side` LEFT for a removed
+    /// line, RIGHT by default; `start_line` optional, for a range such as a multi-line ```suggestion block).
+    #[arg(long)]
+    comments_file: Option<std::path::PathBuf>,
     #[arg(long, default_value = "comment", value_parser = ["comment", "approve", "request-changes"])]
     event: String,
     #[arg(long)]
@@ -449,12 +454,18 @@ async fn suggest_command(paths: &Paths, command: Suggest) -> Result<()> {
         Suggest::Comment(q) => ("comment", q),
         Suggest::Review(q) => ("review", q),
     };
+    let comments: serde_json::Value = match &q.comments_file {
+        Some(file) => serde_json::from_str(&std::fs::read_to_string(file)?).with_context(|| format!("{} is not a JSON array of line comments", file.display()))?,
+        None => serde_json::json!([]),
+    };
+    anyhow::ensure!(comments.is_array(), "--comments-file must hold a JSON array of line comments");
+    anyhow::ensure!(kind == "review" || comments.as_array().is_some_and(|c| c.is_empty()), "only reviews have line comments");
     let target = match q.predraft {
         Some(id) => serde_json::json!({"kind":"predraft","id":id}),
         None => serde_json::json!({"kind":"git_hub","repo":q.repo,"number":q.number}),
     };
     let body = Client::new(paths)?
-        .json("POST", "/api/suggestions", Some(serde_json::json!({"target":target,"kind":kind,"body":std::fs::read_to_string(q.body_file)?,"event":q.event.replace('-', "_").to_uppercase(),"head":q.head,"merge":q.merge,"run_ci":q.run_ci,"session_id":q.session_id})))
+        .json("POST", "/api/suggestions", Some(serde_json::json!({"target":target,"kind":kind,"body":std::fs::read_to_string(q.body_file)?,"comments":comments,"event":q.event.replace('-', "_").to_uppercase(),"head":q.head,"merge":q.merge,"run_ci":q.run_ci,"session_id":q.session_id})))
         .await?;
     println!("{}", serde_json::to_string_pretty(&body)?);
     Ok(())

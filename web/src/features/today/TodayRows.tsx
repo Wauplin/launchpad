@@ -1,4 +1,3 @@
-import { ReviewReady } from "@/features/github/ReviewReady";
 // Today's rows: one compact line per decision (icon of its kind, title, one meta line, its buttons). Rows whose
 // decision needs reading (a question, a proposal, a message, a suggestion, an agent's last message) open their
 // full card below the line with the title or the arrow button. The bot chat keeps the cards (TodayCards.tsx).
@@ -276,12 +275,12 @@ function OutboxRow(p: RowProps) {
 function SuggestionRow({ s, ...p }: RowProps & { s: Suggestion | undefined }) {
   const ref = githubRef(p.item);
   return <Row {...p}
-    main={ref && s?.kind === "review" ? <ReviewReady repo={ref.repo} number={ref.number} /> : <Expand {...p}>Read</Expand>}
+    main={<Expand {...p}>{s?.kind === "review" ? "Review" : "Read"}</Expand>}
     menu={(!!ref || !!s?.session_id) && ((close) => <>
       {ref && <Go close={close} icon="pr" label="Open pull request" go={(n) => n({ to: "/github/$owner/$repo/$number", params: ghParams(ref.repo, ref.number), search: s ? { draft: s.id } : undefined })} />}
       {s?.session_id && <OpenAgent id={s.session_id} close={close} />}
     </>)}
-    details={s?.kind === "review" ? undefined : s && s.target.kind === "git_hub" ? <SuggestionCard suggestion={s} /> : <Loading what="the suggestion" />} card />;
+    details={s && s.target.kind === "git_hub" ? <SuggestionCard suggestion={s} /> : <Loading what="the suggestion" />} card />;
 }
 
 /** Review with agent; Open (the PR page) and Done (removes the notification here and on GitHub) in ⋯. */

@@ -17,7 +17,7 @@ import { useTheme } from "@/stores/theme";
 
 export type DiffEntry = { path: string; previous?: string | null; status: string; additions?: number | null; deletions?: number | null };
 /** A note on one diff line. `side`: the old (deleted) or new file line. `head`: the PR head the note was written on. */
-export type LineNote = { path: string; line: number | null; side?: "old" | "new"; code: string; text: string; head?: string };
+export type LineNote = { path: string; line: number | null; side?: "old" | "new"; code: string; text: string; head?: string; startLine?: number };
 
 type Line = { text: string; kind: "hunk" | "add" | "del" | "context" | "note" | "meta"; old: number | null; next: number | null; index: number };
 

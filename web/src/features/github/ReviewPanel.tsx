@@ -1,5 +1,7 @@
 import type { Suggestion } from "@/gen/Suggestion";
 import type { PendingReview } from "./pendingReview";
+import type { LineNote } from "./DiffReview";
+import { LineComments, asLineNote } from "@/features/suggestions/LineComments";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "@/lib/api";
@@ -50,11 +52,11 @@ export function ReviewPanel({ repo, number, head, onPosted, onComment }: { repo:
     <textarea aria-label="Review summary" className="field-input min-h-24" placeholder="Review summary…" disabled={busy} value={d.summary} onChange={(e) => draft.set((v) => ({ ...v, summary: e.target.value, event }))} />
     <span className="text-[12px] text-ink-3">{current.length} comments · Draft shared across devices</span>
     {d.comments.map((n, i) => <div key={i} className="grid gap-1 border-l border-line pl-2 text-[12px]">
-      <button className="text-left font-mono text-teal-ink" onClick={() => onComment(n.path, n.line)}>{n.path}:{n.line}{n.head && n.head !== head ? " · older commit, excluded" : ""}</button>
+      <button className="text-left font-mono text-teal-ink" onClick={() => onComment(n.path, n.line)}>{n.path}:{n.startLine ? `${n.startLine}–` : ""}{n.line}{n.head && n.head !== head ? " · older commit, excluded" : ""}</button>
       <span className="whitespace-pre-wrap">{n.text}</span>
       <button className="btn btn-sm w-fit" disabled={busy} onClick={() => draft.set((v) => ({ ...v, comments: v.comments.filter((_, j) => j !== i) }))}>Delete</button>
     </div>)}
-    {suggestions.map((s) => <AgentDraft key={s.id} suggestion={s} head={head} busy={busy || !!attempt} selected={d.source === s.id} onUse={(v) => draft.set((old) => ({ ...old, ...v, source: s.id, head: s.head }))} onDrop={async () => { await api.delete(`/api/suggestions/${s.id}`); if (d.source === s.id) draft.set((v) => ({ ...v, source: null, head: null })); await qc.invalidateQueries({ queryKey: ["suggestions"] }); }} onError={setError} />)}
+    {suggestions.map((s) => <AgentDraft key={s.id} suggestion={s} head={head} busy={busy || !!attempt} selected={d.source === s.id} onUse={(v, notes) => draft.set((old) => ({ ...old, ...v, comments: [...old.comments, ...notes.filter((n) => !old.comments.some((o) => o.path === n.path && o.line === n.line && o.side === n.side && o.text === n.text))], source: s.id, head: s.head }))} onDrop={async () => { await api.delete(`/api/suggestions/${s.id}`); if (d.source === s.id) draft.set((v) => ({ ...v, source: null, head: null })); await qc.invalidateQueries({ queryKey: ["suggestions"] }); }} onError={setError} />)}
     {sourceUnavailable && <span className="text-attn text-[12px]">The source suggestion was posted or dropped. Check GitHub before continuing.</span>}
     {stale && <span className="text-attn text-[12px]">The reviewed commit changed. Load a fresh agent review before posting.</span>}
     {event === "APPROVE" && <label className="flex items-center gap-2 text-[12px]"><input type="checkbox" checked={d.merge} disabled={busy} onChange={(e) => draft.set((v) => ({ ...v, merge: e.target.checked, runCi: false }))} />then squash and merge</label>}
@@ -72,15 +74,17 @@ export function ReviewPanel({ repo, number, head, onPosted, onComment }: { repo:
   </section>;
 }
 
-function AgentDraft({ suggestion: s, head, busy, selected, onUse, onDrop, onError }: { suggestion: Suggestion; head: string; busy: boolean; selected: boolean; onUse: (v: Partial<PendingReview>) => void; onDrop: () => Promise<void>; onError: (e: unknown) => void }) {
-  const edit = useReviewState<{ body?: string; event?: ReviewEvent; merge?: string | null; run_ci?: boolean }>(`suggestion:${s.id}`, {});
+function AgentDraft({ suggestion: s, head, busy, selected, onUse, onDrop, onError }: { suggestion: Suggestion; head: string; busy: boolean; selected: boolean; onUse: (v: Partial<PendingReview>, notes: LineNote[]) => void; onDrop: () => Promise<void>; onError: (e: unknown) => void }) {
+  const edit = useReviewState<{ body?: string; event?: ReviewEvent; merge?: string | null; run_ci?: boolean; comments?: Suggestion["comments"] }>(`suggestion:${s.id}`, {});
   const body = edit.value.body ?? s.body;
+  const comments = edit.value.comments ?? s.comments;
   const event = edit.value.event ?? s.event as ReviewEvent;
   return <div className="grid gap-2 rounded-card border border-line p-3 text-[12px]">
     <b>Agent draft · {s.author}</b><Markdown text={body} />
+    <LineComments comments={comments} />
     {s.head !== head && <span className="text-attn">PR changed since this review.</span>}
     {s.status !== "draft" ? <span className="text-attn">Publication attempted. Check GitHub.</span> : <div className="flex gap-2">
-      <button className="btn btn-sm" disabled={busy || s.head !== head || selected || !edit.loaded} onClick={() => onUse({ summary: body, event, merge: !!(edit.value.merge !== undefined ? edit.value.merge : s.merge), runCi: edit.value.run_ci ?? s.run_ci })}>{selected ? "In your review" : "Use"}</button>
+      <button className="btn btn-sm" disabled={busy || s.head !== head || selected || !edit.loaded} onClick={() => onUse({ summary: body, event, merge: !!(edit.value.merge !== undefined ? edit.value.merge : s.merge), runCi: edit.value.run_ci ?? s.run_ci }, comments.map((c) => asLineNote(c, s.head)))}>{selected ? "In your review" : "Use"}</button>
       <button className="btn btn-sm" disabled={busy} onClick={() => void onDrop().catch(onError)}>Drop</button>
     </div>}
   </div>;

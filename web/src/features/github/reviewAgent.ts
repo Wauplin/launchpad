@@ -12,7 +12,7 @@ export function projectForRepo(projects: Project[], repo: string) {
 export function reviewPrompt(repo: string, number: number, head?: string | null) {
   const at = head ? ` at commit ${head}` : "";
   const flag = head ? `--head ${head}` : "--head <the commit you inspected>";
-  return `Review ${repo}#${number}${at}. Inspect the changes and relevant context, summarize concrete findings, and save a local suggested review using launchpad suggest review --repo ${repo} --number ${number} ${flag} --body-file <file> with your session id. Use --event request-changes for blocking findings, otherwise a comment review. Do not post to GitHub or change the code.`;
+  return `Review ${repo}#${number}${at}. Inspect the changes and relevant context, summarize concrete findings, and save a local suggested review using launchpad suggest review --repo ${repo} --number ${number} ${flag} --body-file <file> with your session id. Put findings about specific changed lines in line comments with --comments-file <file.json> (a JSON array of {path, line, side, start_line, body}; a body may hold a \`\`\`suggestion block) and keep the body for the summary. Use --event request-changes for blocking findings, otherwise a comment review. Do not post to GitHub or change the code.`;
 }
 
 /** Opens the composer with the review prompt and the PR as context. The owner still clicks Launch. */

@@ -24,7 +24,11 @@ pub async fn items(app: &App) -> Vec<Item> {
                 let item = Item::new(Kind::Suggestion, Filter::Github, &s.id, format!("{what} on {repo}#{number}"), Place::Repo(repo.clone()), s.created_at)
                     .session(s.session_id.clone())
                     .github(repo, number)
-                    .detail(format!("Suggestion by {} · {}", s.author, line(&s.body)));
+                    .detail(match s.comments.len() {
+                        0 => format!("Suggestion by {} · {}", s.author, line(&s.body)),
+                        1 => format!("Suggestion by {} · 1 line comment · {}", s.author, line(&s.body)),
+                        n => format!("Suggestion by {} · {n} line comments · {}", s.author, line(&s.body)),
+                    });
                 out.push(match s.status.as_str() {
                     "posted" => item.handled(match &s.followup_error {
                         Some(e) => format!("Posted to {repo}#{number}; {}", line(e)),

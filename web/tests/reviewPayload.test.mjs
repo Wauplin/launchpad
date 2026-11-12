@@ -19,3 +19,8 @@ test("one review includes current line comments with GitHub sides, and approval-
   assert.equal(payload.merge, true);
   assert.equal(reviewPayload(draft, "current", "REQUEST_CHANGES").merge, false);
 });
+
+test("a line comment over a range keeps its first line", () => {
+  const draft = { summary: "", source: null, merge: false, runCi: false, comments: [{ path: "a.ts", line: 9, startLine: 7, side: "new", text: "```suggestion\nx\n```" }] };
+  assert.deepEqual(reviewPayload(draft, "h", "COMMENT").comments, [{ path: "a.ts", line: 9, side: "RIGHT", body: "```suggestion\nx\n```", start_line: 7 }]);
+});
