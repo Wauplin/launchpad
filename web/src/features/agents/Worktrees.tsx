@@ -15,6 +15,7 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { isPhone } from "@/lib/phone";
 import { ActionButton } from "@/components/ActionButton";
+import { canMergeWorktree } from "./worktreeMerge";
 
 /** Git views of a session poll only while it runs (a Done, archived or away session does not change); the turn end
  * refreshes them once (`useGitRefreshAtTurnEnd`). */
@@ -156,7 +157,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
   const onHome = w.state === "active" || (w.state === "removed" && i.on_home);
   // Merged (by the worktree or its Local PR): no Local PR to create or open, nothing to discard.
   const merged = isMergedWorktree(i, localPrs);
-  const canMerge = merge && onHome && !w.merge && !!base && i.ahead > 0 && !w.pull_request && !w.predraft_id && !!i.head;
+  const canMerge = merge && canMergeWorktree(i, localPrs);
   // Away with commits Home lacks: Merge takes only the commit Home holds, and says so.
   const partial = !!away && i.unpushed && !!i.head ? `Home pushes ${i.head.slice(0, 12)}, the commit saved on Home, to ${base} on the folder's remote, then fast-forwards ${base} on Home. Its runner has newer commits that are not on Home: they stay out of this merge.` : undefined;
   return (
