@@ -287,7 +287,7 @@ pub(crate) async fn after_restart(app: &App, started: i64) {
         .call(move |db| {
             Ok(db.execute(
                 "UPDATE channel_delivery SET state = 'skipped', reason = ?2, at = ?1 WHERE state IN ('queued', 'combined') AND session_id IS NULL AND at < ?1
-                 AND id NOT IN (SELECT d.value FROM queued_message q, json_each(q.json, '$.channel.deliveries') d WHERE json_valid(q.json))",
+                 AND id NOT IN (SELECT d.value FROM queued_message q, json_each(CASE WHEN json_valid(q.json) THEN q.json ELSE '{}' END, '$.channel.deliveries') d)",
                 params![started, "uncertain: Home stopped while this delivery was being sent; it may have arrived and is not sent again"],
             )?)
         })
