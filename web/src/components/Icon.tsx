@@ -55,7 +55,8 @@ export type IconName =
   | "spark"
   | "hide"
   | "expand"
-  | "collapse";
+  | "collapse"
+  | "sidebar";
 
 export function IconSprite() {
   return (
@@ -115,6 +116,7 @@ export function IconSprite() {
     <symbol id="i-spark" viewBox="0 0 16 16"><path d="M8 1.75 9.4 6.6 14.25 8 9.4 9.4 8 14.25 6.6 9.4 1.75 8 6.6 6.6z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/></symbol>
     <symbol id="i-hide" viewBox="0 0 16 16"><path d="M4.5 6.5 8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></symbol>
     <symbol id="i-expand" viewBox="0 0 16 16"><path d="M6 2H2v4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></symbol>
+    <symbol id="i-sidebar" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5"/><path d="M6 2.75v10.5"/></g></symbol>
     <symbol id="i-collapse" viewBox="0 0 16 16"><path d="M2 6h4V2M10 2v4h4M14 10h-4v4M6 14v-4H2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></symbol>
       </defs>
     </svg>

@@ -80,12 +80,12 @@ See [Profiles](agents.md#profiles) for the details.
 
 ### Add a folder
 
-Launchpad starts with no workspace: create one in the **Workspace** step of **Finish setup**, or in the **Add folder** dialog, which offers it when there is none. The rail at the left edge shows your workspaces (see [Workspaces](agents.md#workspaces)). Open **Folders** in the sidebar and click **Add folder**. It has two tabs:
+Launchpad starts with no workspace: create one in the **Workspace** step of **Finish setup**, or in the **Add folder** dialog, which offers it when there is none. The menu at the top of the sidebar lists your workspaces (see [Workspaces](agents.md#workspaces)). Open **Folders** in the sidebar and click **Add folder**. It has two tabs:
 
 - **Clone from GitHub**: Home keeps a mirror of the repository, and runners clone it on first use. Suggestions list repositories with recent GitHub notifications first, then your recently pushed repositories.
 - **New plain folder**: a folder without Git, whose files Home stores.
 
-Every folder is stored by Home, so agents run in it on any runner. The sidebar lists **Bots** first (its chevron collapses the group on this device), then Today, Agents, Inbox, Schedules, Knowledge and Folders. The Folders page lists the folders of the workspace and its temporary folders.
+Every folder is stored by Home, so agents run in it on any runner. The sidebar lists **Bots** first (its chevron collapses the group on this device), then Today, Agents, Inbox, Schedules, Knowledge and Folders. The sidebar button next to Settings collapses the sidebar to icons on this device (counts become badges on the icons, and names show on hover); click it again to expand it. The Folders page lists the folders of the workspace and its temporary folders.
 
 ### Launch your first agent
 

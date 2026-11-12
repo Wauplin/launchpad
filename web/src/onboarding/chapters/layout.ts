@@ -3,14 +3,14 @@
 import type { Chapter } from "../tour/types";
 import { useWorkspace } from "@/stores/workspace";
 import { WS } from "@/demo/world/ids";
-import { clickButton } from "./helpers";
+import { clickAnchor, clickButton } from "./helpers";
 import { meta } from "./meta";
 
 let sawPersonal = false;
 
 export const layout: Chapter = {
   ...meta("layout"),
-  learned: ["Demo mode and how to leave it", "Today lists every decision; Agents, Inbox and Folders are one click away", "Each window shows one workspace; the rail switches and counts what waits in the others", "Quota meters show what your subscriptions have left"],
+  learned: ["Demo mode and how to leave it", "Today lists every decision; Agents, Inbox and Folders are one click away", "Each window shows one workspace; the menu at the top of the sidebar switches and counts what waits in the others", "Quota meters show what your subscriptions have left"],
   setup: () => { sawPersonal = false; useWorkspace.getState().switchTo(WS.acme); },
   steps: [
     {
@@ -29,13 +29,13 @@ export const layout: Chapter = {
       body: "Today carries the one count that needs you. Agents shows what runs and what ran. Inbox holds your GitHub notifications. Bots sit above, Schedules, Knowledge and Folders below; Ask Launchpad is the first bot.",
     },
     {
-      id: "layout.workspaces", route: "/", anchor: "rail.workspaces",
+      id: "layout.workspaces", route: "/", anchor: "sidebar.workspaces",
       title: "Workspaces",
-      body: "Each window shows one workspace: its folders, agents, bots, Inbox and notes. The rail lists your workspaces. A badge shows the Today count of another workspace, never its content. Click a square to switch; open a second window to see two side by side.",
+      body: "Each window shows one workspace: its folders, agents, bots, Inbox and notes. The menu at the top of the sidebar lists your workspaces. A count shows the Today decisions of another workspace, never its content. Click one to switch; open a second tab to see two side by side.",
       tryIt: {
         text: "switch to the Personal workspace, then back to Acme.",
         done: () => { const ws = useWorkspace.getState().current; if (ws === WS.personal) sawPersonal = true; return sawPersonal && ws !== WS.personal; },
-        doIt: async () => { await clickButton("Personal", "rail.workspaces"); await new Promise((r) => setTimeout(r, 700)); await clickButton("Acme", "rail.workspaces"); },
+        doIt: async () => { await clickAnchor("sidebar.workspace-menu"); await clickButton("Personal", "sidebar.workspaces"); await new Promise((r) => setTimeout(r, 700)); await clickAnchor("sidebar.workspace-menu"); await clickButton("Acme", "sidebar.workspaces"); },
       },
     },
     {

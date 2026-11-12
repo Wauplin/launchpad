@@ -25,9 +25,9 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Pull requests · Channels · Disk cleanup · Search in folder | PRs, Telegram and channels, Maintenance, Search in project | The folder page tab, the Settings page for webhooks and hooks (Telegram is in Settings → Workspace), the Settings page that frees disk space, and the Files search field. |
 | ⋯ | More ▾, More actions | The menu of the other actions of a row, card or header. |
 | Open agent | Agent, Agent session, View session, Back to session | Every link to a session ("← Back to agent"). |
-| Workspace | Everything, All workspaces, project group | A group of folders with their agents, bots, schedules and knowledge base. A window shows one workspace; the rail shows the others as counts. There is no view of all workspaces. |
+| Workspace | Everything, All workspaces, project group | A group of folders with their agents, bots, schedules and knowledge base. A window shows one workspace; the workspace menu shows the others as counts. There is no view of all workspaces. |
 | Today | Now, Needs you page, Proposals page, Outbox page, Review page, dashboard | The first page (`/`) and phone tab: every decision that waits for you in the workspace, one row each, with filters Answer · Review · Approve · Send · GitHub · Fix and Done. |
-| Decision list | attention list, needs-you list | What Today shows, computed by Home. Every attention count (sidebar, rail, phone, window title, app badge) is its length. "Needs you" stays the rule for agents: an open question, or finished, failed or interrupted and unseen. |
+| Decision list | attention list, needs-you list | What Today shows, computed by Home. Every attention count (sidebar, workspace menu, phone, window title, app badge) is its length. "Needs you" stays the rule for agents: an open question, or finished, failed or interrupted and unseen. |
 | Outbox | outgoing queue | Messages to other people that wait for your Send. A concept and code name, not a page: drafts show in Today → Send. |
 | Tour | walkthrough, guide, onboarding (for the steps) | The guided steps on demo data (Essentials or Full, chapters). Settings → Onboarding holds the tours and the setup. |
 | Demo | sandbox, playground | The fake world the tour runs on. Nothing in it is real or saved; Exit demo reloads the real app. |

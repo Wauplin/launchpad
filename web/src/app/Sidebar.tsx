@@ -19,7 +19,31 @@ import { useSetupSummary } from "@/features/setup/summary";
 import { useOnboarding, usePatchOnboarding } from "@/onboarding/data";
 import { useSidebar, type SidebarGroup } from "@/stores/sidebar";
 
-function NavItem({ to, icon, children, end, tour }: { to: string; icon: IconName; children: ReactNode; end?: ReactNode; tour?: string }) {
+/** A corner mark of an icon in the narrow sidebar: an amber count, or a state dot. */
+type Mark = { count: number } | "needs" | "paused" | "running" | "new" | null;
+
+function Corner({ mark }: { mark: Mark }) {
+  if (!mark) return null;
+  if (typeof mark === "object") return mark.count > 0 ? <span className="absolute -top-2 -right-2.5 min-w-[17px] rounded-full border-2 border-chrome bg-attn px-[3px] text-center text-[11px] leading-[13px] font-bold text-white tabular-nums" aria-hidden>{mark.count}</span> : null;
+  const tone = mark === "needs" ? "bg-attn" : mark === "paused" ? "border border-attn bg-chrome" : mark === "running" ? "bg-work" : "bg-ink-3";
+  return <span className={`absolute -top-0.5 -right-1 size-[7px] rounded-full ${tone}`} aria-hidden />;
+}
+
+/** A place of the sidebar. Narrow: its icon alone, the label in the tooltip and a corner mark instead of `end`. */
+function NavItem({ to, icon, children, end, tour, narrow, mark = null, title }: { to: string; icon: IconName; children: ReactNode; end?: ReactNode; tour?: string; narrow?: boolean; mark?: Mark; title?: string }) {
+  if (narrow) return (
+    <Link
+      to={to}
+      data-tour={tour}
+      title={title}
+      aria-label={title}
+      className="mx-auto grid size-[31px] flex-none place-items-center rounded-control text-ink-2 no-underline hover:bg-sunk"
+      activeProps={{ className: "!bg-paper !text-ink shadow-[inset_0_0_0_1px_var(--color-line)]" }}
+      activeOptions={{ exact: to === "/", includeSearch: false }}
+    >
+      <span className="relative grid place-items-center"><Icon name={icon} /><Corner mark={mark} /></span>
+    </Link>
+  );
   return (
     <Link
       to={to}
@@ -70,12 +94,16 @@ function RunDots({ sessions }: { sessions: Session[] }) {
   </span>;
 }
 
+/** The one state dot of a set of sessions in the narrow sidebar, in the order of RunDots. */
+const runMark = (sessions: Session[]): Mark => sessions.some(needsYou) ? "needs" : sessions.some(isQuotaPaused) ? "paused" : sessions.some(isRunning) ? "running" : null;
+
 /** "Finish setup · N left" until the required setup items pass or the owner dismisses it. */
-function FinishSetup() {
+function FinishSetup({ narrow }: { narrow: boolean }) {
   const left = useSetupSummary().data?.required_left ?? 0;
   const onboarding = useOnboarding().data;
   const patch = usePatchOnboarding();
   if (!onboarding || left === 0 || onboarding.dismissed.includes("setup")) return null;
+  if (narrow) return <NavItem narrow to="/setup" icon="check" mark={{ count: left }} title={`Finish setup · ${left} left`}>Finish setup</NavItem>;
   return (
     <div className="flex items-center gap-0.5">
       <div className="min-w-0 flex-1">
@@ -87,8 +115,13 @@ function FinishSetup() {
 }
 
 /** A bot's row: its initial, its name and the state of its current session (a dot, never a count). */
-const BotLink = memo(function BotLink({ bot, thread }: { bot: Bot; thread: Session[] }) {
+const BotLink = memo(function BotLink({ bot, thread, narrow }: { bot: Bot; thread: Session[]; narrow?: boolean }) {
   const state = botState(thread);
+  if (narrow) return (
+    <Link to="/bots/$id" params={{ id: bot.id }} title={bot.settings.name} aria-label={bot.settings.name} className="mx-auto grid size-[31px] flex-none place-items-center rounded-control no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)]" }}>
+      <span className="relative grid size-[18px] place-items-center rounded-sm bg-teal-soft text-[11px] font-semibold text-teal-ink">{botInitial(bot.settings.name)}<Corner mark={state === "needs" || state === "paused" || state === "running" ? state : null} /></span>
+    </Link>
+  );
   return (
     <Link to="/bots/$id" params={{ id: bot.id }} className="flex h-[28px] items-center gap-2 rounded-control px-[9px] text-[13px] text-ink no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)] font-semibold" }}>
       <span className="grid size-[16px] flex-none place-items-center rounded-sm bg-teal-soft text-[11px] font-semibold text-teal-ink" aria-hidden>{botInitial(bot.settings.name)}</span>
@@ -101,9 +134,15 @@ const BotLink = memo(function BotLink({ bot, thread }: { bot: Bot; thread: Sessi
 });
 
 /** Bots of the workspace (Ask Launchpad among them). Collapsed: one state dot; their proposals wait in Today. */
-function BotList({ sessions }: { sessions: Session[] }) {
+function BotList({ sessions, narrow }: { sessions: Session[]; narrow: boolean }) {
   const scope = useScope();
   const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
+  if (narrow) return (
+    <div className="flex flex-none flex-col gap-px" data-tour="sidebar.bots">
+      {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} narrow />)}
+      {bots.length === 0 && <Link to="/bots" search={{ new: true } as never} className="mx-auto grid size-[31px] place-items-center rounded-control text-ink-3 no-underline hover:bg-sunk hover:text-ink" title="New bot" aria-label="New bot"><Icon name="plus" size={14} /></Link>}
+    </div>
+  );
   const states = bots.map((b) => botState(botThread(sessions, b.id)));
   const summary = <span className="flex items-center gap-1.5">
     {states.includes("needs") && <span className="size-[7px] rounded-full bg-attn" title="A bot needs you" />}
@@ -129,6 +168,8 @@ function AgentCounts({ quotaPaused, running }: { quotaPaused: number; running: n
 
 export function Sidebar() {
   const { theme, toggle } = useTheme();
+  const narrow = !!useSidebar((s) => s.collapsed.sidebar);
+  const toggleGroup = useSidebar((s) => s.toggle);
   const needs = useInboxNeeds();
   const today = useTodayCount();
   const knowledgeNew = useKnowledgeUnseen();
@@ -137,36 +178,49 @@ export function Sidebar() {
   const sessions = (useSessions().data ?? []).filter(scope.hasSession);
   const running = sessions.filter(isRunning).length;
   const quotaPaused = sessions.filter(isQuotaPaused).length;
+  const folderSessions = sessions.filter((s) => projects.some((p) => inProject(p, s)));
+  const todayTitle = `${today} decisions wait: questions, finished agents, proposals, drafts to send and reviews`;
+  const inboxTitle = `${needs} for you: unread review requests, mentions and assignments. The Inbox "For you" filter lists them.`;
+  const knowledgeTitle = `${knowledgeNew} changes by agents since your last look`;
+  const label = (name: string, detail: string | false) => detail ? `${name} · ${detail}` : name;
+  const collapse = (
+    <button type="button" className={`grid size-[31px] flex-none place-items-center rounded-control text-ink-2 hover:bg-sunk hover:text-ink ${narrow ? "mx-auto" : ""}`} aria-label={narrow ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!narrow} title={narrow ? "Expand the sidebar on this device" : "Collapse the sidebar to icons on this device"} onClick={() => toggleGroup("sidebar")}>
+      <Icon name="sidebar" size={16} />
+    </button>
+  );
   return (
-    <aside className="flex w-[200px] flex-none flex-col border-r border-line bg-chrome">
+    <aside className={`flex flex-none flex-col border-r border-line bg-chrome ${narrow ? "w-[46px]" : "w-[200px]"}`}>
+      <WorkspaceMenu narrow={narrow} />
       {/* One scroll area for the groups; Settings stays at the bottom. */}
-      <WorkspaceMenu />
-      <div className="relative flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 pt-2.5 pb-2">
-      <BotList sessions={sessions} />
+      <div className={`relative flex min-h-0 flex-1 flex-col gap-px overflow-y-auto pt-2.5 pb-2 ${narrow ? "overflow-x-hidden px-1 [scrollbar-width:none]" : "px-2"}`}>
+      <BotList sessions={sessions} narrow={narrow} />
       <nav aria-label="Places" data-tour="sidebar.nav" className="mt-2 flex flex-none flex-col gap-px border-t border-line-2 pt-2">
-      <NavItem tour="sidebar.today" to="/" icon="okcircle" end={<Count n={today} needs title={`${today} decisions wait: questions, finished agents, proposals, drafts to send and reviews`} />}>
+      <NavItem narrow={narrow} tour="sidebar.today" to="/" icon="okcircle" mark={{ count: today }} title={label("Today", today > 0 && todayTitle)} end={<Count n={today} needs title={todayTitle} />}>
         Today
       </NavItem>
-      <NavItem tour="sidebar.agents" to="/agents" icon="agents" end={<AgentCounts quotaPaused={quotaPaused} running={running} />}>
+      <NavItem narrow={narrow} tour="sidebar.agents" to="/agents" icon="agents" mark={quotaPaused ? "paused" : running ? "running" : null} title={label("Agents", [quotaPaused && `${quotaPaused} quota paused`, running && `${running} running`].filter(Boolean).join(", "))} end={<AgentCounts quotaPaused={quotaPaused} running={running} />}>
         Agents
       </NavItem>
-      <NavItem tour="sidebar.inbox" to="/inbox" icon="inbox" end={<Count n={needs} needs title={`${needs} for you: unread review requests, mentions and assignments. The Inbox "For you" filter lists them.`} />}>
+      <NavItem narrow={narrow} tour="sidebar.inbox" to="/inbox" icon="inbox" mark={{ count: needs }} title={label("Inbox", needs > 0 && inboxTitle)} end={<Count n={needs} needs title={inboxTitle} />}>
         Inbox
       </NavItem>
-      <NavItem tour="sidebar.schedules" to="/schedules" icon="clock">
+      <NavItem narrow={narrow} tour="sidebar.schedules" to="/schedules" icon="clock" title="Schedules">
         Schedules
       </NavItem>
-      <NavItem tour="sidebar.knowledge" to="/knowledge" icon="book" end={<Count n={knowledgeNew} title={`${knowledgeNew} changes by agents since your last look`} />}>
+      <NavItem narrow={narrow} tour="sidebar.knowledge" to="/knowledge" icon="book" mark={knowledgeNew ? "new" : null} title={label("Knowledge", knowledgeNew > 0 && knowledgeTitle)} end={<Count n={knowledgeNew} title={knowledgeTitle} />}>
         Knowledge
       </NavItem>
-      <NavItem tour="sidebar.folders" to="/projects" icon="folder" end={<RunDots sessions={sessions.filter((s) => projects.some((p) => inProject(p, s)))} />}>
+      <NavItem narrow={narrow} tour="sidebar.folders" to="/projects" icon="folder" mark={runMark(folderSessions)} title="Folders" end={<RunDots sessions={folderSessions} />}>
         Folders
       </NavItem>
       </nav>
       </div>
-      <div className="flex-none border-t border-line-2 px-2 pt-1.5 pb-2.5">
-      <FinishSetup />
-      <div className="flex items-center gap-1">
+      <div className={`flex flex-none flex-col gap-px border-t border-line-2 pt-1.5 pb-2.5 ${narrow ? "px-1.5" : "px-2"}`}>
+      <FinishSetup narrow={narrow} />
+      {narrow ? <>
+        <NavItem narrow to="/settings" icon="sliders" title="Settings">Settings</NavItem>
+        {collapse}
+      </> : <div className="flex items-center gap-1">
         <div className="min-w-0 flex-1">
           <NavItem to="/settings" icon="sliders">
             Settings
@@ -175,7 +229,8 @@ export function Sidebar() {
         <button type="button" className="flex size-[31px] flex-none items-center justify-center rounded-control text-ink-2 hover:bg-sunk" aria-label="Dark theme" aria-pressed={theme === "dark"} title={`Switch to ${theme === "light" ? "dark" : "light"} theme on this device`} onClick={toggle}>
           <Icon name={theme === "dark" ? "moon" : "sun"} size={16} />
         </button>
-      </div>
+        {collapse}
+      </div>}
       </div>
     </aside>
   );

@@ -1,5 +1,5 @@
 // Today's data: the decision list Home computes (GET /api/today, crates/core/src/today.rs), shared by the page, the
-// sidebar count, the rail and phone sheet badges, the phone tab and the window title. Kept apart from the page so
+// sidebar count, the workspace menu and phone sheet badges, the phone tab and the window title. Kept apart from the page so
 // those do not load it. The `today` bus topic refreshes it.
 
 import { useQuery } from "@tanstack/react-query";

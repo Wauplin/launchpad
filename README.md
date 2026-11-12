@@ -37,7 +37,7 @@ The script checks your tools and sign-in, creates a private backup bucket and a 
 
 | | |
 | --- | --- |
-| **Today** | Every decision of the workspace in one list, with filters and a 30-day Done history. The sidebar, the workspace rail and the phone count only this list. [Read more](docs/today.md) |
+| **Today** | Every decision of the workspace in one list, with filters and a 30-day Done history. The sidebar, the workspace menu and the phone count only this list. [Read more](docs/today.md) |
 | **Agents** | Claude Code, Codex and OpenCode behind one session model. Live trace, Summary and Changes views, questions and approval cards, model and permission controls. Temporary folders for work that needs no folder, saved on Home and deleted 30 days after Archive unless you keep them. [Read more](docs/agents.md) |
 | **Profiles** | Run each harness with a subscription login, an API key or another provider (for example the Hugging Face router). A provider profile offers only its own models. Several accounts work side by side. [Read more](docs/agents.md#profiles) |
 | **Worktrees** | Each agent runs in its own worktree and branch. Launchpad tries to update the base from its remote before launch, merges when you ask, and tries to push the merged base. Remote failures stay visible without blocking the task. A slow merge on Home shows as waiting, never as failed, and an outcome Home lost is shown as uncertain, never retried. [Read more](docs/agents.md#worktrees-and-merging) |

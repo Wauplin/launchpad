@@ -39,7 +39,7 @@ export function WorkspaceSettings() {
   return (
     <SettingsPage title="Workspace" meta={`${w.name} · ${plural(folders, "folder")} · ${plural(bots.length, "bot")}`} intro="Settings of the workspace shown in this window. The other Settings pages are shared by every workspace.">
       <Card title="Name and window">
-        <SettingRow label="Name" hint="Names the window and the rail square.">
+        <SettingRow label="Name" hint="Names the window and the workspace menu.">
           <SavedInput label="Workspace name" value={w.name} onSave={async (name) => { await api.patch(`/api/workspaces/${w.id}`, { name }); await qc.invalidateQueries({ queryKey: ["workspaces"] }); }} />
         </SettingRow>
         <SettingRow label="Folders" hint="Every folder belongs to one workspace.">

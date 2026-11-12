@@ -10,7 +10,6 @@ import { useZoomScale } from "@/lib/zoom";
 import { useWorkspaceSync } from "@/lib/workspace";
 import { Sidebar } from "./Sidebar";
 import { inSettings, SettingsSidebar, useRememberPlace } from "./SettingsSidebar";
-import { WorkspaceRail } from "@/features/workspaces/Rail";
 import { NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
@@ -69,7 +68,6 @@ export function Shell() {
       <TopBar />
       {/* relative: the composer overlay (narrow windows) and the draft pill are positioned here. */}
       <div className="relative flex min-h-0 flex-1">
-        <WorkspaceRail />
         {settings ? <SettingsSidebar /> : <Sidebar />}
         <div className="flex min-w-0 flex-1 flex-col">
           {!isDemo && <WelcomeGate />}

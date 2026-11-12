@@ -1,4 +1,4 @@
-// What waits in each workspace, for the rail (laptop) and the workspace sheet (phone): Today's count of each
+// What waits in each workspace, for the workspace menu (laptop sidebar) and the workspace sheet (phone): Today's count of each
 // workspace, from the decision list Home computes. Other workspaces show these counts only, never their content.
 
 import { useMemo } from "react";

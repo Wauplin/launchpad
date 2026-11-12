@@ -1,10 +1,12 @@
-// Sidebar groups (Bots) open or collapsed on this device. The demo never writes browser storage.
+// Sidebar groups (Bots) open or collapsed, and the laptop sidebar narrowed to icons, on this device. The demo never writes browser storage.
 
 import { create } from "zustand";
 import { isDemo } from "../demo/mode";
 
 export type SidebarGroup = "bots";
-type Collapsed = Partial<Record<SidebarGroup, boolean>>;
+/** `sidebar`: the whole laptop sidebar shows icons only. */
+type Key = SidebarGroup | "sidebar";
+type Collapsed = Partial<Record<Key, boolean>>;
 const key = "launchpad.sidebar";
 
 function read(): Collapsed {
@@ -12,7 +14,7 @@ function read(): Collapsed {
   try { return JSON.parse(localStorage.getItem(key) ?? "{}") as Collapsed; } catch { return {}; }
 }
 
-export const useSidebar = create<{ collapsed: Collapsed; toggle: (group: SidebarGroup) => void }>((set, get) => ({
+export const useSidebar = create<{ collapsed: Collapsed; toggle: (group: Key) => void }>((set, get) => ({
   collapsed: read(),
   toggle: (group) => {
     const collapsed = { ...get().collapsed, [group]: !get().collapsed[group] };
