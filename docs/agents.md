@@ -253,4 +253,4 @@ Folders without a workspace appear in the **Unassigned folders** card on the Fol
 
 ## Notifications
 
-Notifications come only through Telegram, to the chat of the session's workspace (see [Channels](channels.md#telegram)). A workspace without a Telegram bot gets none. They tell you when a turn ends, fails or is cut off, and when quota stops or resumes an agent. Questions, manual stops and archives are silent. A window that you are actively using suppresses notifications for the session it shows.
+Notifications come only through Telegram, to the chat of the session's workspace (see [Connections](connections.md#telegram)). A workspace without a Telegram bot gets none. They tell you when a turn ends, fails or is cut off, and when quota stops or resumes an agent. Questions, manual stops and archives are silent. A window that you are actively using suppresses notifications for the session it shows.

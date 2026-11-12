@@ -111,7 +111,8 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad pair` | Print a five-minute pairing link and QR code |
 | `launchpad pr create\|update\|show\|list` | Manage Local PRs (used by agents; an agent updates only its own) |
 | `launchpad suggest comment\|review` | Save an agent-written comment or review as a suggestion; never posts |
-| `launchpad send <channel>\|telegram --body-file <file> --session-id <id>` | Draft a message for an outgoing channel (it waits in the Outbox), or send one to the Telegram chat of the session's workspace ([Channels](channels.md#telegram)) |
+| `launchpad send <connection>\|telegram --body-file <file> --session-id <id>` | Draft a message for an outgoing connection (it waits in the Outbox), or send one to the Telegram chat of the session's workspace ([Connections](connections.md#telegram)) |
+| `launchpad hops` | Print the hop count an agent sends to an incoming hook in `X-Launchpad-Hops` ([Loops between bots](connections.md#loops-between-bots)) |
 | `launchpad work finish\|add-project` | Request a worktree merge (only when the launch chose Merge) or open a Local PR, or add another Git folder of the workspace to a task (used by agents) |
 | `launchpad trace <session> [--through <seq>]` | Print the stored trace of a session |
 | `launchpad folders\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list` | Read Launchpad state as JSON (an agent reads only its own workspace) |

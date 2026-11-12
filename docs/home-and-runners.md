@@ -242,7 +242,7 @@ Burst jobs and Home's Space do not update their CLIs: they use the versions pinn
 
 ## What runners and agents may do
 
-A runner is a low-trust worker. Its link to Home reaches Home Git, plain folders, handoffs, leases and replication for the sessions Home placed on it, plus a short list of requests its own work needs, each checked against Home's records. It reads knowledge bases, bot files, plain folders and Local PRs only of the workspaces of its sessions. Nothing a runner sends runs as you: it never reaches the vault, MCP settings, channels, the Outbox, Suggestions, Local PR publication, Home updates or the sessions of another runner. So a runner you lose, or one whose agents read its files, reaches only its own sessions.
+A runner is a low-trust worker. Its link to Home reaches Home Git, plain folders, handoffs, leases and replication for the sessions Home placed on it, plus a short list of requests its own work needs, each checked against Home's records. It reads knowledge bases, bot files, plain folders and Local PRs only of the workspaces of its sessions. Nothing a runner sends runs as you: it never reaches the vault, MCP settings, connections, the Outbox, Suggestions, Local PR publication, Home updates or the sessions of another runner. So a runner you lose, or one whose agents read its files, reaches only its own sessions.
 
 Contained sessions receive a session CLI credential bound to their ID and generation, not the runner's token. The runner forwards an agent's Launchpad CLI calls to Home, and Home checks them with that agent's access from its own records. Host settings, terminals, file APIs and publication still require your window.
 

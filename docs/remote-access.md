@@ -80,7 +80,7 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 - Session pages have Summary, Trace and Changes. **⋯ → Rename** renames the agent. A bottom bar holds **Reply** and the session's main action, or **Merge into** the base branch when merging is safe and no question is open; the next steps in Summary then do not repeat Merge. **Reply** opens the message box; it stays open while it holds a draft, and opens by itself when you answer a question. In Summary or Trace, tap the expand icon beside the view tabs to fill the screen with a compact header. Tap collapse to restore the layout and your draft. **Stop** of an agent that asks a question is in **⋯**.
 - The Local PR bar holds one button: **Publish** (its branch name and draft options are in its sheet) for a folder on GitHub, else **Merge**; the others are in **⋯**. Today's **Start all** shows in the Approve filter.
 - Tap an image in a trace or chat to view it full screen (pinch to zoom, **Download**, **✕** or back to close).
-- **Settings** is a list in three groups: **This device** (theme, layout, devices), **On the phone** (Channels, Workspace, presets, GitHub, usage) and **On a computer** (profiles, Home and runners, credentials, Hugging Face, Disk cleanup, the setup checklist). The last group shows only a status: open Launchpad on a computer to change these. On a Settings page, **‹** goes back to Settings.
+- **Settings** is a list in three groups: **This device** (theme, layout, devices), **On the phone** (Connections, Workspace, presets, GitHub, usage) and **On a computer** (profiles, Home and runners, credentials, Hugging Face, Disk cleanup, the setup checklist). The last group shows only a status: open Launchpad on a computer to change these. On a Settings page, **‹** goes back to Settings.
 
 <table>
   <tr>
@@ -95,7 +95,7 @@ Open the paired HTTPS origin in the phone's browser and use **Install** or **Add
 
 On Android, open Home in Chrome and use the menu → **Install app**. A long press on the app icon shows the shortcuts **Ask**, **Today** and **New agent**, and other apps can share a link or text to Launchpad: it opens the composer with the shared text as the prompt. The installed app keeps its page and assets, so it still opens when the phone is offline and shows the lists it saved last. On a private Hugging Face Space, the page fetches the manifest with your Hub sign-in. If Chrome still offers only **Add to Home Screen**, open `chrome://inspect` on a computer with the phone plugged in, inspect the page and read the reason under **Application → Manifest**.
 
-Notifications come only through Telegram: bind a chat in **Settings → Workspace → Telegram** of each workspace ([Channels](channels.md#telegram)) to get its finished, failed and interrupted agents and routine reports on your phone. Launchpad shows no desktop or Web Push notifications.
+Notifications come only through Telegram: bind a chat in **Settings → Workspace → Telegram** of each workspace ([Connections](connections.md#telegram)) to get its finished, failed and interrupted agents and routine reports on your phone. Launchpad shows no desktop or Web Push notifications.
 
 ## Run Home on your own server
 
