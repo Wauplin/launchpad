@@ -1426,6 +1426,12 @@ async fn attempt(app: &App, id: &str) {
                 notice(app, &w, &format!("Merge of {} stopped: {reason}", w.branch)).await;
                 send.then(|| (w.sessions.last().cloned(), reason))
             }
+            Ok(Step::Rebasing(reason)) => {
+                w.merge = None;
+                let base = w.base_branch.clone().unwrap_or_default();
+                notice(app, &w, &format!("{reason}: the agent rebases it, then Launchpad merges it into {base}.")).await;
+                None
+            }
             Ok(Step::Uncertain(reason)) => {
                 w.merge = Some(MergeRequest { phase: MergePhase::Failed, reason: reason.clone(), ..m });
                 notice(app, &w, &format!("Merge of {} uncertain: {reason}", w.branch)).await;
@@ -1460,6 +1466,8 @@ enum Step {
     Merged(String, String),
     Wait(String),
     Conflict(String),
+    /// The owner's merge needed a rebase: Home asked the agent for it and merges after its turn.
+    Rebasing(String),
     /// Nobody knows whether the merge happened: it stops for the owner, never retried or sent to the agent.
     Uncertain(String),
 }
@@ -1472,7 +1480,13 @@ static ASKED: std::sync::LazyLock<std::sync::Mutex<HashMap<String, String>>> = s
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum HomeMerge {
-    Done { outcome: crate::home_git::MergeOutcome },
+    Done {
+        outcome: crate::home_git::MergeOutcome,
+        /// The owner's merge needed a rebase and Home asked the agent for it (`rebase_merge`): Home merges after
+        /// the agent's turn, so the runner's merge request ends.
+        #[serde(default)]
+        agent_rebases: bool,
+    },
     /// Still running on Home: ask again for the outcome.
     Pending,
     /// Home has no outcome for a merge asked before (it restarted meanwhile).
@@ -1515,7 +1529,7 @@ pub async fn merge_for_runner(app: &App, project: &Project, branch: &str, head: 
     };
     let Some(mut rx) = job else {
         if let Some(m) = merged_on_home(app, &project.id, branch).await.filter(|m| m.head == head && m.into == base) {
-            return Ok(HomeMerge::Done { outcome: crate::home_git::MergeOutcome::Merged { head: head.into(), note: m.note } });
+            return Ok(HomeMerge::Done { outcome: crate::home_git::MergeOutcome::Merged { head: head.into(), note: m.note }, agent_rebases: false });
         }
         return Ok(HomeMerge::Uncertain { reason: format!("Home lost the outcome of this merge (it restarted while merging?): check {base} on the remote, then merge again") });
     };
@@ -1527,7 +1541,7 @@ pub async fn merge_for_runner(app: &App, project: &Project, branch: &str, head: 
             Ok(HomeMerge::Uncertain { reason: format!("the merge stopped on Home without an outcome: check {base} on the remote, then merge again") })
         }
         Ok(Ok(r)) => match r.clone() {
-            Some(Ok(outcome)) => Ok(HomeMerge::Done { outcome }),
+            Some(Ok(outcome)) => Ok(HomeMerge::Done { outcome, agent_rebases: false }),
             Some(Err(e)) => bail!("{e}"),
             None => Ok(HomeMerge::Pending),
         },
@@ -1595,7 +1609,8 @@ async fn merge_remote(app: &App, w: &mut TaskWorktree, tip: &str) -> Result<Step
         }
         ASKED.lock().unwrap().remove(&w.id);
         match answer? {
-            HomeMerge::Done { outcome } => outcome,
+            HomeMerge::Done { outcome: crate::home_git::MergeOutcome::NeedsRebase { reason, .. }, agent_rebases: true } => return Ok(Step::Rebasing(reason)),
+            HomeMerge::Done { outcome, .. } => outcome,
             HomeMerge::Uncertain { reason } => return Ok(Step::Uncertain(reason)),
             HomeMerge::Pending => unreachable!(),
         }

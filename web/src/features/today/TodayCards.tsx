@@ -147,6 +147,8 @@ export function MergeButton({ sessionId, branch: { w, t, base }, head, onMerged,
   const merged = async (r: WorktreeInfo) => {
     void qc.invalidateQueries({ queryKey: ["worktrees"] });
     if (r.worktree.merged) await onMerged?.();
+    // The base moved: the agent rebases, then Launchpad merges.
+    else if (r.worktree.merge?.phase === "waiting") toast(r.worktree.merge.reason);
   };
   return <ActionButton name="worktree.merge" params={{ id: t!.id }} vars={{ branch: t!.branch, base: base! }} body={{ head: head ?? w!.head }} query={{ session: worktreeSession(t!) ?? sessionId }} primary={primary} title={`Merge ${t!.branch} into ${base}`} className={className} onDone={merged}>{label ?? `Merge into ${base}`}</ActionButton>;
 }

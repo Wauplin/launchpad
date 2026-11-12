@@ -666,8 +666,13 @@ impl Sessions {
                     }
                     app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
                     self.publish_counts(app);
-                    if current.as_ref().is_some_and(|c| c.status.is_running() && !s.status.is_running()) {
+                    let ended = current.as_ref().is_some_and(|c| c.status.is_running() && !s.status.is_running());
+                    if ended {
                         self.replica_turn_ended(app, &s);
+                    }
+                    // A merge the owner asked for waits for this turn's rebase on Home (`rebase_merge`).
+                    if ended || current.as_ref().is_some_and(|c| c.unsaved.is_some()) {
+                        crate::rebase_merge::after_turn(app, &s);
                     }
                     // The runner saved the last turn's work on Home: routines that wait for it start now.
                     if current.as_ref().is_some_and(|c| c.unsaved.is_some()) && s.unsaved.is_none() && !s.status.is_running() {

@@ -613,6 +613,10 @@ pub async fn relay(State(s): State<Server>, req: axum::extract::Request, next: a
                 }
             }
             ["api", "projects", id, "promote"] => s.app.runners.grant(&runner, &format!("keep:{id}")),
+            // Also stops a merge that waits on Home for the agent's rebase (`rebase_merge`).
+            ["api", "worktrees", id, "cancel-merge"] => {
+                launchpad_core::rebase_merge::cancel(id);
+            }
             _ => {}
         }
     }

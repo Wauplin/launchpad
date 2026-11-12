@@ -74,6 +74,10 @@ async fn from_home(app: &App, w: &mut TaskWorktree, predrafts: Option<&[Predraft
     if let Some(m) = crate::worktrees::merged_on_home(app, &w.project_id, &w.branch).await {
         w.merged = Some(m);
     }
+    // The owner's Merge waits while the agent rebases the branch (`rebase_merge`).
+    if w.merge.is_none() && w.merged.is_none() {
+        w.merge = crate::rebase_merge::waiting(&w.id);
+    }
     if let Some(list) = predrafts {
         let found = list.iter().find(|p| p.project_id == w.project_id && p.branch == w.branch && !p.archived);
         w.predraft_id = match found.and_then(|p| p.merged.as_ref().map(|m| (p, m))) {
@@ -414,9 +418,16 @@ pub async fn worktree_action(app: &App, s: &Session, worktree_id: &str, action: 
             let head = head(app, &w).await.with_context(|| format!("{} is not on Home", w.branch))?;
             let reviewed = reviewed.context("Merge needs the reviewed commit (head); reload the page and review again")?;
             ensure!(head == reviewed, "{} changed on Home since review; review again", w.branch);
+            // The base moved: the agent rebases (its session continues elsewhere), then Home merges after its turn.
             if let crate::home_git::MergeOutcome::NeedsRebase { reason, .. } = crate::worktrees::merge_on_home(app, &p, &w.branch, &head, &base).await? {
-                bail!("{reason}. {away}: send the agent a message to rebase it, then merge again.");
+                crate::rebase_merge::start(app, &s.id, &w, &head, &reason).await.with_context(|| format!("{reason}. {away}"))?;
             }
+            let mut w = w;
+            from_home(app, &mut w, None, None).await;
+            Ok(info(app, w, away_reason(app, s).await.as_deref()).await)
+        }
+        "cancel-merge" => {
+            crate::rebase_merge::cancel(&w.id);
             let mut w = w;
             from_home(app, &mut w, None, None).await;
             Ok(info(app, w, away_reason(app, s).await.as_deref()).await)

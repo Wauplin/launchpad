@@ -317,7 +317,19 @@ fn yes() -> bool {
 async fn merge(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<Merge>) -> ApiResult<launchpad_core::worktrees::HomeMerge> {
     let p = home_folder(&s, &id).await?;
     launchpad_core::worktrees::check_merge_request(&s.app, &p, b.session_id.as_deref(), &b.branch, &b.base, b.by_agent).await.map_err(|e| ApiError::new(StatusCode::FORBIDDEN, format!("{e:#}")))?;
-    Ok(Json(launchpad_core::worktrees::merge_for_runner(&s.app, &p, &b.branch, &b.head, &b.base, b.again).await.map_err(bad)?))
+    let mut answer = launchpad_core::worktrees::merge_for_runner(&s.app, &p, &b.branch, &b.head, &b.base, b.again).await.map_err(bad)?;
+    // The owner's merge of a branch whose base moved: its agent rebases, then Home merges (`rebase_merge`).
+    if let launchpad_core::worktrees::HomeMerge::Done { outcome: launchpad_core::home_git::MergeOutcome::NeedsRebase { reason, .. }, agent_rebases } = &mut answer
+        && !b.by_agent
+        && let Some(sid) = b.session_id.as_deref()
+        && let Ok(Some(w)) = launchpad_core::away::session_branch(&s.app, sid, &p.id, &b.branch).await
+    {
+        match launchpad_core::rebase_merge::start(&s.app, sid, &w, &b.head, reason).await {
+            Ok(()) => *agent_rebases = true,
+            Err(e) => tracing::warn!("merge of {}: {e:#}", b.branch),
+        }
+    }
+    Ok(Json(answer))
 }
 
 #[derive(Deserialize)]
