@@ -208,7 +208,7 @@ function OptionsFrame({ onClose, children }: { onClose: () => void; children: Re
 
 function OptionRow({ label, end, children }: { label: string; end?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[76px_1fr] items-start gap-2">
+    <div className="grid grid-cols-[76px_minmax(0,1fr)] items-start gap-2">
       <span className="flex items-center gap-1 pt-1.5 text-[12px] font-[650] text-ink-2">{label}{end}</span>
       <div className="min-w-0">{children}</div>
     </div>
@@ -735,7 +735,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
 
         {showOptions && <OptionsFrame onClose={() => setShowOptions(false)}>
           {!browserOnly && <OptionRow label="Run in">
-            <div className="grid gap-1.5">
+            <div className="grid min-w-0 grid-cols-1 gap-1.5">
               {target && gitTarget ? <RunIn
                 projectId={target.id}
                 label={pushToPr ? `PR #${pushToPr.number}` : selectedWorktree ? selectedWorktree.branch : existing ? `Local PR: ${existing.title}` : spec.target.kind === "session_folder" ? "Previous agent’s folder" : `New worktree from ${spec.worktree?.base ?? `default branch${targetBranches.data?.current ? ` (${targetBranches.data.current})` : ""}`}`}
@@ -766,8 +766,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             </div>
           </OptionRow>}
           {worktreeMode && target && !pushToPr && <OptionRow label="When done">
-            <span className="grid" title="Merge: the agent asks Launchpad to merge when it is done; Home fast-forwards the base branch, and a base that moved goes back to the agent for a rebase. Open a Local PR: the agent opens a Local PR of its branch on Home, with a title and description for you to review and publish. Read only: for questions and audits; the agent changes nothing, and Archive deletes the unchanged worktree and branch.">
-              <select className="field-input w-auto" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project, except Read only" onChange={(e) => {
+            <span className="grid min-w-0 grid-cols-1" title="Merge: the agent asks Launchpad to merge when it is done; Home fast-forwards the base branch, and a base that moved goes back to the agent for a rebase. Open a Local PR: the agent opens a Local PR of its branch on Home, with a title and description for you to review and publish. Read only: for questions and audits; the agent changes nothing, and Archive deletes the unchanged worktree and branch.">
+              <select className="field-input min-w-0 w-full" aria-label="When done" value={spec.worktree?.when_done ?? "keep"} disabled={completionDefault.isPending} title="Remembered for new agents in this project, except Read only" onChange={(e) => {
                 const whenDone = e.target.value as WhenDone;
                 set((s) => ({ ...s, worktree: { ...s.worktree!, when_done: whenDone } }));
                 if (whenDone !== "read_only") completionDefault.mutate({ projectId: target.id, whenDone });
