@@ -52,7 +52,8 @@ test("a new channel's name is a free slug; archived channels are listed apart", 
   assert.ok(channelNameError("Release", []));
   assert.ok(channelNameError("-x", []));
   assert.ok(channelNameError("a".repeat(41), []));
-  assert.match(channelNameError("triage", ["triage"]), /already exists/);
+  assert.match(channelNameError("triage", [{ name: "triage", archived: false }]), /already exists/);
+  assert.match(channelNameError("spring-sale", [{ name: "spring-sale", archived: true }]), /archived channel: bring it back or delete it/);
   const all = [{ id: "a", workspace_id: "w", archived: true }, { id: "b", workspace_id: "w", archived: false }, { id: "c", workspace_id: "x", archived: true }];
   assert.deepEqual(archivedOf(all, "w").map((c) => c.id), ["a"]);
 });

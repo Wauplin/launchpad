@@ -26,10 +26,13 @@ export const MODES: { id: ChannelMemberMode; label: string }[] = [
 ];
 
 /** Why a new channel cannot have this name (Home checks again): lowercase letters, digits and dashes, starting with
- * a letter or digit, at most 40, and not taken in the workspace (archived channels included). */
-export function channelNameError(name: string, taken: string[]): string | null {
+ * a letter or digit, at most 40, and not taken by a named channel of the workspace. An archived channel keeps its
+ * name until it is deleted, so the message says where to find it. */
+export function channelNameError(name: string, taken: Pick<Channel, "name" | "archived">[]): string | null {
   if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)) return "Lowercase letters, digits and dashes, starting with a letter or digit";
-  if (taken.includes(name)) return `#${name} already exists in this workspace`;
+  const t = taken.find((c) => c.name === name);
+  if (t?.archived) return `#${name} is an archived channel: bring it back or delete it under Archived channels to use its name`;
+  if (t) return `#${name} already exists in this workspace`;
   return null;
 }
 

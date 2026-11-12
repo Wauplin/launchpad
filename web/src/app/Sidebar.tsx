@@ -165,7 +165,7 @@ function BotList({ sessions, narrow }: { sessions: Session[]; narrow: boolean })
       {bots.length === 0 && <Link to="/bots" search={{ new: true } as never} className="mx-[9px] my-1 text-[12px] text-teal-ink no-underline hover:underline">+ New bot</Link>}
       {channels.length > 0 && <div className="flex flex-col gap-px" data-tour="sidebar.channels"><SubLabel>Channels</SubLabel>{channels.map((c) => <ChannelLink key={c.id} c={c} />)}</div>}
       {dms.length > 0 && <div className="flex flex-col gap-px" data-tour={channels.length ? undefined : "sidebar.channels"}><SubLabel>Bot DMs</SubLabel>{dms.map((c) => <ChannelLink key={c.id} c={c} />)}</div>}
-      {archived > 0 && <Link to="/bots" search={{ archived: true } as never} className="mx-[9px] mt-1 text-[12px] text-ink-3 no-underline hover:text-ink hover:underline" data-tour="sidebar.archived">Archived channels · {archived}</Link>}
+      {archived > 0 && <Link to="/bots" search={{ archived: true } as never} className="mt-1 flex h-[28px] items-center gap-2 rounded-control px-[9px] text-[12px] text-ink-3 no-underline hover:bg-sunk hover:text-ink" data-tour="sidebar.archived"><span className="min-w-0 flex-1 truncate">Archived channels</span><Count n={archived} /></Link>}
     </Group>
   );
 }

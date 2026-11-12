@@ -6,7 +6,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
-import { Empty, ErrorState, Loading } from "@/components/ui";
+import { Count, Empty, ErrorState, Loading } from "@/components/ui";
 import { BotConversationRow } from "@/features/bots/BotConversationRow";
 import { ChannelConversationRow } from "@/features/channels/ChannelRows";
 import { conversationOrder, useBots } from "@/lib/bots";
@@ -40,7 +40,7 @@ export function ChatsView() {
         {rows.map(({ bot, thread, pinned }) => <BotConversationRow key={bot.id} bot={bot} thread={thread} pinned={pinned} className="border-b border-line-2" />)}
         {channels.length > 0 && <><h2 className={label} data-tour="phone.channels">Channels</h2>{channels.map((c) => <ChannelConversationRow key={c.id} c={c} className="border-b border-line-2" />)}</>}
         {dms.length > 0 && <><h2 className={label}>Bot DMs</h2>{dms.map((c) => <ChannelConversationRow key={c.id} c={c} className="border-b border-line-2" />)}</>}
-        {archived > 0 && <Link to="/bots" search={{ archived: true } as never} className="flex min-h-11 items-center gap-2 px-3 text-[13px] text-ink-3 no-underline" data-tour="phone.archived"><Icon name="archive" size={14} /><span className="flex-1">Archived channels</span><span>{archived}</span></Link>}
+        {archived > 0 && <Link to="/bots" search={{ archived: true } as never} className="flex min-h-11 items-center gap-2 px-3 text-[13px] text-ink-3 no-underline" data-tour="phone.archived"><Icon name="archive" size={14} /><span className="flex-1">Archived channels</span><Count n={archived} /></Link>}
       </nav>}
   </div>;
 }

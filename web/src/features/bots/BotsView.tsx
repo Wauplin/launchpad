@@ -92,11 +92,13 @@ export function BotsView() {
   const newChannel = search.new === "channel" && mine.length > 0;
   const creating = !newChannel && (search.new === true || (bots.isSuccess && mine.length === 0));
   const showArchived = !!search.archived && !creating;
-  const close = () => void navigate({ to: "/bots", search: {} as never });
+  // On the phone the forms and the archived list are pages over Chats (`back.ts`): ‹ and Cancel go back there.
+  const overChats = phone && (showArchived || newChannel || search.new === true);
+  const close = () => { if (overChats) phoneBack("/chats"); else void navigate({ to: "/bots", search: {} as never }); };
   const newBotLink = <Link to="/bots" search={{ new: true } as never} className={`btn btn-sm ${phone ? "" : "btn-primary"}`} data-tour="bots.new"><Icon name="plus" size={12} />New bot</Link>;
   const newChannelLink = mine.length > 0 && <Link to="/bots" search={{ new: "channel" } as never} className="btn btn-sm" data-tour="channels.new"><Icon name="plus" size={12} />New channel</Link>;
   const header = phone
-    ? <PhoneHeader title={showArchived ? "Archived channels" : "Bots"} onBack={showArchived ? () => phoneBack("/chats") : undefined} primary={!creating && !newChannel && !showArchived ? newBotLink : undefined} />
+    ? <PhoneHeader title={showArchived ? "Archived channels" : newChannel ? "New channel" : search.new === true && creating ? "New bot" : "Bots"} onBack={overChats ? () => phoneBack("/chats") : undefined} primary={!creating && !newChannel && !showArchived ? newBotLink : undefined} />
     : <PageHeader title="Bots" meta={mine.length ? [`${mine.length} bot${mine.length === 1 ? "" : "s"}`, channels.length && `${channels.length} channel${channels.length === 1 ? "" : "s"}`, dms.length && `${dms.length} DM${dms.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ") : undefined} intro="Persistent agents with one thread, memory in the knowledge base and files on Home." actions={!creating && !newChannel && <>{newChannelLink}{newBotLink}</>} />;
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.page">
