@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
-    "test:sessions": "node --experimental-strip-types --test tests/sessionStore.test.mjs tests/worktreeMerge.test.mjs",
+    "test:sessions": "node --experimental-strip-types --test tests/sessionStore.test.mjs tests/worktreeMerge.test.mjs tests/localPr.test.mjs",
     "test:composer": "node --experimental-strip-types --test tests/composer.test.mjs tests/promptDocument.test.mjs tests/pullRequest.test.mjs",
     "test:operations": "node --experimental-strip-types --test tests/operations.test.mjs",
     "test:attachments": "node --experimental-strip-types --test tests/attachments.test.mjs",

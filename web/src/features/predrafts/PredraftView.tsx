@@ -2,6 +2,7 @@
 // Local PRs opened by one agent form a change set, published together.
 // Description · Changes · Commits. Line notes from Changes and general notes go to the agent as feedback.
 
+import { LocalPrChip } from "./LocalPrLink";
 import { usePhone } from "@/lib/phone";
 import { Popover } from "@/components/Popover";
 import { Icon } from "@/components/Icon";
@@ -151,7 +152,8 @@ function Review({ id }: { id: string }) {
   return <div className="flex h-full min-h-0 flex-col">
     {phone ? <><PhoneHeader title={p.title} subtitle={`Local PR · ${state}`} onBack={() => phoneBack("/?filter=review")} backLabel="Back" actions={<>{headerActions}<button className="btn btn-sm" disabled={busy} onClick={refresh}>Refresh</button></>} details={<p className="break-all font-mono text-[12px] text-ink-3">{p.branch} → {p.base_branch}</p>} /><div className="px-3">{tabs}</div></>
       : <PageHeader title={p.title} meta={meta} actions={headerActions} tabs={tabs} />}
-    {p.published_url && <div className="border-b border-line-2 px-5 py-2 text-[12px]"><button className="text-teal-ink hover:underline" onClick={() => openGitHub(p.published_url!)}>Published on GitHub as #{p.published_number}</button><span className="text-ink-3"> · New commits of agents on this branch reach the PR through Home.</span><GitHubSyncNote status={d.github} className="mt-1" /></div>}
+    {/* Published: the pull request is reviewed and merged on its page; there is nothing left to publish or merge here. */}
+    {p.published_url && <div className="border-b border-line-2 px-5 py-2 text-[12px]"><div className="flex flex-wrap items-center gap-2"><LocalPrChip pr={p} /><span className="min-w-0 flex-1 text-ink-3">New commits of agents on this branch reach the pull request through Home. Review and merge it on its page.</span><button className="btn btn-sm" onClick={() => openGitHub(p.published_url!)}><Icon name="ext" size={12} />Open on GitHub</button></div><GitHubSyncNote status={d.github} className="mt-1" /></div>}
     {p.merged && <div className="border-b border-line-2 px-5 py-2 text-[12px] text-ink-2">Merged into <span className="font-mono">{p.base_branch}</span> on Home at <span className="font-mono">{p.merged.head.slice(0, 8)}</span>.</div>}
     {active && d.base_ahead > 0 && <div className="grid gap-1 border-b border-attn-line bg-attn-soft px-5 py-2 text-[12px] text-attn">
       <span className="flex items-center gap-1.5"><Icon name="alert" size={12} />Base moved: {p.base_branch} is {d.base_ahead} commits ahead of this branch. Review against the refreshed base before publishing.</span>

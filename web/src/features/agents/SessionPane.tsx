@@ -48,6 +48,7 @@ import { useBackClose } from "@/mobile/back";
 import { PhoneBar } from "@/mobile/PhoneHeader";
 import { usePresets } from "./MessagePresets";
 import { MessageBox, type PendingAsk } from "./MessageBox";
+import { LocalPrButtons, LocalPrChip } from "@/features/predrafts/LocalPrLink";
 import { runAction } from "@/lib/actions";
 import { FixMergeButton, MergeButton, mergeIsMain, NotMerged, useBranch } from "@/features/today/TodayCards";
 
@@ -165,7 +166,10 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   const processesOpen = current === "processes";
   // The Local PR this window created for the session (remembered at creation), read once per render, not per row.
   const rememberedPr = localStorage.getItem(`launchpad.session-predraft.${sessionId}`);
-  const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => (p.session_id === sessionId && !p.archived) || p.id === rememberedPr);
+  const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => !p.archived && (p.session_id === sessionId || p.id === rememberedPr));
+  // A worktree card (branch popover, details sheet, Next steps) already opens the Local PR of its branch.
+  const sessionWorktrees = useSessionWorktrees(sessionId).data;
+  const prInCard = !!localPr && !!sessionWorktrees?.some((i) => i.worktree.branch === localPr.branch && i.worktree.state !== "discarded");
   const projects = useProjects().data;
   const branch = useBranch(sessionId, s ?? null);
   const profileName = useProfile(s?.launch_spec.profile)?.name;
@@ -374,6 +378,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
         <span className="session-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3 tabular-nums">
           <SessionStatus s={s} />
           {s.launch_spec.bot && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} className="flex min-w-0 max-w-[40%] shrink-0 no-underline" aria-label={`Open the chat of ${s.launch_spec.bot.name}`}><BotChip name={s.launch_spec.bot.name} className="max-w-full" /></Link>}
+          {localPr && <LocalPrChip pr={localPr} />}
           <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{place} <Icon name="chev" size={12} /></button>
           {stateChips}
         </span>
@@ -407,7 +412,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
           <span className="session-meta flex min-w-0 flex-1 items-center gap-x-1.5 overflow-hidden text-[12px] whitespace-nowrap text-ink-3 tabular-nums">
             <span className="max-w-[40%] shrink-0 truncate" title={s.cwd}>{place}</span>
             <span className="flex min-w-0 [&>div]:min-w-0 [&_button]:max-w-full"><WorktreeChip session={s} /></span>
-            {localPr && <button className="shrink-0 text-teal-ink hover:underline" onClick={() => void navigate({ to: "/predrafts/$id", params: { id: localPr.id } })}>Local PR</button>}
+            {localPr && <LocalPrChip pr={localPr} />}
             {(profileLabel || contextShare) && <span className="min-w-0 truncate">{[profileLabel, contextShare].filter(Boolean).join(" · ")}</span>}
             </span>
           {/* Outside the clipped meta line (and portaled), so ⓘ and its panel stay visible when the line is cut. */}
@@ -430,7 +435,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
             {usageLine(s) && <div><dt className="text-[12px] text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
             <div><dt className="text-[12px] text-ink-3">Started</dt><dd>{when(s.started_at)}</dd></div>
           </dl>
-          {localPr && <button className="btn" onClick={() => { setDetailsOpen(false); void navigate({ to: "/predrafts/$id", params: { id: localPr.id } }); }}>Local PR</button>}
+          {localPr && !prInCard && <div className="flex flex-wrap gap-2"><LocalPrButtons pr={localPr} /></div>}
           <SessionWorktreeDetails session={s} />
           <FollowUpAgent session={s} onPrepared={() => setDetailsOpen(false)} />
         </div>

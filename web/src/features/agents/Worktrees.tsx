@@ -16,6 +16,7 @@ import { api } from "@/lib/api";
 import { isPhone } from "@/lib/phone";
 import { ActionButton } from "@/components/ActionButton";
 import { canMergeWorktree } from "./worktreeMerge";
+import { LocalPrButtons, localPrOf, localPrText, useGitHubPrState } from "@/features/predrafts/LocalPrLink";
 
 /** Git views of a session poll only while it runs (a Done, archived or away session does not change); the turn end
  * refreshes them once (`useGitRefreshAtTurnEnd`). */
@@ -55,7 +56,7 @@ function GitHubSync({ projectId, branch }: { projectId: string; branch: string }
 export const worktreeSession = (w: WorktreeInfo["worktree"]): string | undefined => w.sessions[w.sessions.length - 1];
 
 /** One line describing the branch, for chips and settings rows. */
-export function worktreeState(i: WorktreeInfo, localPrs?: Predraft[]): string {
+export function worktreeState(i: WorktreeInfo, localPrs?: Predraft[], { localPr = true }: { localPr?: boolean } = {}): string {
   const w = i.worktree;
   const base = w.base_branch ?? "base";
   if (w.state === "discarded") return "discarded";
@@ -65,7 +66,7 @@ export function worktreeState(i: WorktreeInfo, localPrs?: Predraft[]): string {
   if (i.dirty_files) return `${i.dirty_files} uncommitted`;
   if (w.push_note) return "not on Home";
   if (isMergedWorktree(i, localPrs)) return `merged into ${w.merged?.into ?? base}`;
-  if (w.predraft_id) return "Local PR";
+  if (w.predraft_id && localPr) return "Local PR";
   if (i.ahead) return `${i.ahead} ahead of ${base}`;
   return `same as ${base}`;
 }
@@ -94,7 +95,7 @@ export function WorktreeChip({ session }: { session: Session }) {
       <button className={`inline-flex max-w-[260px] items-center gap-1 truncate rounded-control border px-1.5 font-mono text-[11px] ${warn(primary) ? "border-attn-line bg-attn-soft text-attn" : "border-line bg-paper text-ink-2 hover:text-ink"}`} title={`Worktree ${primary.path}`} onClick={toggle}>
         <Icon name="branch" size={12} />
         <span className="truncate">{primary.worktree.branch}</span>
-        <span className="font-sans text-ink-3">· {worktreeState(primary, localPrs)}{list.length > 1 ? ` · +${list.length - 1}` : ""}</span>
+        <span className="font-sans text-ink-3">· {worktreeState(primary, localPrs, { localPr: !localPrOf(primary.worktree, localPrs) })}{list.length > 1 ? ` · +${list.length - 1}` : ""}</span>
       </button>
     )}>
       {() => <div className="grid gap-2 p-1">{list.map((i) => <WorktreeCard key={i.worktree.id} info={i} session={session} />)}</div>}
@@ -157,6 +158,9 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
   const onHome = w.state === "active" || (w.state === "removed" && i.on_home);
   // Merged (by the worktree or its Local PR): no Local PR to create or open, nothing to discard.
   const merged = isMergedWorktree(i, localPrs);
+  // The branch's Local PR: opening it replaces Create Local PR, whatever its state.
+  const localPr = localPrOf(w, localPrs);
+  const gh = useGitHubPrState(localPr);
   const canMerge = merge && canMergeWorktree(i, localPrs);
   // Away with commits Home lacks: Merge takes only the commit Home holds, and says so.
   const partial = !!away && i.unpushed && !!i.head ? `Home pushes ${i.head.slice(0, 12)}, the commit saved on Home, to ${base} on the folder's remote, then fast-forwards ${base} on Home. Its runner has newer commits that are not on Home: they stay out of this merge.` : undefined;
@@ -172,15 +176,17 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
       {away && <div className="text-[12px] text-attn">{away}: this is the branch saved on Home. Merge and Create Local PR run on Home.</div>}
       {w.push_note && <div className="text-[12px] text-attn">{w.push_note}</div>}
       {w.merged?.note && <div className="text-[12px] text-ink-2">{w.merged.note}</div>}
+      {localPr && <div className="text-[12px] text-ink-2">{localPrText(localPr, gh)}</div>}
       {w.pull_request && <div className="text-[12px] text-ink-2">Continues <a href={w.pull_request.url} target="_blank" rel="noreferrer">#{w.pull_request.number}</a>: Home pushes each new commit to {w.pull_request.head_branch}.</div>}
       {w.pull_request && <GitHubSync projectId={w.project_id} branch={w.branch} />}
       {w.cleanup_note && w.state === "active" && !i.ahead && <div className="text-[11px] text-ink-3">Cleanup: {w.cleanup_note}</div>}
       <div className="flex flex-wrap gap-1.5">
-        {canMerge && <ActionButton name="worktree.merge" params={{ id: w.id }} vars={{ branch: w.branch, base: base! }} body={{ head: i.head }} consequence={partial} query={{ session: decodeURIComponent(owner) }} disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : undefined}>Merge into {base}</ActionButton>}
+        {localPr && <LocalPrButtons pr={localPr} />}
+        {canMerge && <ActionButton name="worktree.merge" params={{ id: w.id }} vars={{ branch: w.branch, base: base! }} body={{ head: i.head }} consequence={partial} query={{ session: decodeURIComponent(owner) }} disabled={busy || running || i.dirty_files > 0} title={i.dirty_files ? "Commit or discard the uncommitted files first" : running ? "Wait for the agent to finish" : localPr ? "Same as Merge on the Local PR page: it marks the Local PR merged" : undefined}>Merge into {base}</ActionButton>}
         {w.merge && w.merge.phase !== "waiting" && session && <ActionButton name="worktree.fix-merge" params={{ id: w.id }} query={{ session: decodeURIComponent(owner) }} disabled={busy || running} onDone={() => toast("Sent to the agent")} />}
         <TerminalMenu cwd={i.path} runner={session?.runner_id} small phone={isPhone} align="left" />
         {w.merge && <button className="btn btn-sm" disabled={busy} onClick={() => void act("cancel-merge")}>Cancel merge</button>}
-        {!merged && onHome && w.primary && !w.merge && !w.pull_request && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}
+        {!merged && !localPr && onHome && w.primary && !w.merge && !w.pull_request && <button className="btn btn-sm" disabled={busy} title="Turn this branch into a Local PR, published to GitHub only with your click" onClick={() => void predraft()}>Create Local PR</button>}
         {w.state === "removed" && !away && <button className="btn btn-sm" disabled={busy} onClick={() => void act("restore", "Worktree restored")}>Restore folder</button>}
         {!merged && (w.state === "active" || w.state === "removed") && !away && <ActionButton name="worktree.discard" params={{ id: w.id }} query={{ session: decodeURIComponent(owner) }} vars={{ what: `${i.ahead ? `${i.ahead} unmerged commit${i.ahead === 1 ? "" : "s"}, ` : ""}${i.dirty_files ? `${i.dirty_files} uncommitted file${i.dirty_files === 1 ? "" : "s"}, ` : ""}the folder and the branch ${w.branch}${w.primary ? ", and archives its agents" : ""}` }} disabled={busy || running} icon={null} onDone={() => { toast("Worktree discarded"); void qc.invalidateQueries({ queryKey: ["worktrees"] }); }} />}
       </div>

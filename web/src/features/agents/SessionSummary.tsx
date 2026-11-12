@@ -1,4 +1,5 @@
 import { ReviewReady } from "@/features/github/ReviewReady";
+import { LocalPrButtons, localPrText, useGitHubPrState } from "@/features/predrafts/LocalPrLink";
 import { SessionAccess } from "./SessionAccess";
 import { openExternal } from "@/lib/platform";
 import { gitPoll, WorktreeSteps, isMergedWorktree, useSessionWorktrees } from "./Worktrees";
@@ -170,8 +171,8 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   if (context.length) metadata.push(["Context", context.join(" · ")]);
   if (lastCommand) metadata.push([lastCommand.result ? "Last command" : s.status === "stopped" ? "Cut off" : "Last command", `${lastCommand.summary}${lastCommand.result?.exit_code != null ? ` · exit ${lastCommand.result.exit_code}` : ""}`]);
   const run = async (action: () => Promise<unknown>) => { setBusy(true); try { await action(); } catch (e) { toastError(e); } finally { setBusy(false); } };
-  const openPr = () => void run(async () => {
-    const p = localPr ?? await api.post<Predraft>(`/api/predrafts?session=${encodeURIComponent(s.id)}`, { cwd: s.cwd, title: s.title });
+  const createPr = () => void run(async () => {
+    const p = await api.post<Predraft>(`/api/predrafts?session=${encodeURIComponent(s.id)}`, { cwd: s.cwd, title: s.title });
     localStorage.setItem(`launchpad.session-predraft.${s.id}`, p.id);
     await navigate({ to: "/predrafts/$id", params: { id: p.id } });
   });
@@ -183,7 +184,11 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   const tempFolder = temporary ? projects.find((p) => p.id === s.project_id && p.is_temp) : undefined;
   // Merged already (its Local PR, or its primary worktree with nothing new): nothing left to open or publish.
   const mergedWork = !!localPr?.merged || worktrees.some((i) => i.worktree.primary && isMergedWorktree(i));
-  const prStep = !mergedWork && !(worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && !localPr) && (localPr && !localPr.published_url && !localPr.merged || (git.data?.unpushed_commits ?? 0) > 0 || git.data && git.data.branch !== (branch.base ?? "main") && !refs.some((r) => r.kind === "pr")) && !!s.project_id;
+  // A Local PR shows in its worktree's card (Open Local PR, Open PR #n); a step of its own only when no card holds
+  // its branch (a session in a checkout). Without one, Create Local PR is offered by the primary worktree's card.
+  const prInCard = !!localPr && worktrees.some((i) => i.worktree.state !== "discarded" && i.worktree.branch === localPr.branch);
+  const prStep = !!s.project_id && (localPr ? !prInCard : !mergedWork && !worktrees.some((i) => i.worktree.state === "active" && i.worktree.primary) && ((git.data?.unpushed_commits ?? 0) > 0 || !!git.data && git.data.branch !== (branch.base ?? "main") && !refs.some((r) => r.kind === "pr")));
+  const prGh = useGitHubPrState(localPr);
   // Review & publish shows the same committed diff on the Local PR page: Review diff stays only for uncommitted files.
   const uncommitted = git.data?.files.length ?? 0;
   return <div className="min-h-0 flex-1 overflow-y-auto bg-paper">
@@ -200,9 +205,11 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
         <span className="text-[12px]"><span className="mr-2 text-[11px] font-semibold text-ink-3 uppercase">Folder</span>{s.status === "closed" ? "This archived agent's temporary folder is still used by another agent." : "This agent works in a temporary folder. Home keeps its files 30 days after you archive it, for a resume; keep it as a folder to keep them for good."}</span>
         <KeepFolder p={tempFolder} disabled={working} title={working ? "Wait for the turn to end" : undefined} />
       </div>}
-      {prStep && <NextStep source="Git" text={localPr ? `This agent prepared a Local PR${localPr.title ? `: ${localPr.title}` : ""}.` : (git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button={localPr ? "Review & publish" : "Open Local PR"} onClick={openPr} disabled={busy} />}
+      {prStep && (localPr
+        ? <NextStep source="Git" text={localPrText(localPr, prGh)} action={<span className="flex flex-wrap gap-1.5"><LocalPrButtons pr={localPr} /></span>} />
+        : <NextStep source="Git" text={(git.data?.unpushed_commits ?? 0) > 0 ? `${git.data!.unpushed_commits} commits are absent from cached remote refs.` : "No PR is linked to this session."} button="Create Local PR" onClick={createPr} disabled={busy} />)}
       {drafts.map((d) => <NextStep key={d.id} source={d.target.kind === "predraft" ? "Local" : "GitHub"} text={`This agent drafted a ${d.kind} ${d.target.kind === "predraft" ? "on its Local PR" : `on ${d.target.repo} #${d.target.number}`}${d.status === "draft" ? "" : ": publication was attempted, check GitHub"}.`} action={d.kind === "review" && d.target.kind === "git_hub" ? <ReviewReady repo={d.target.repo} number={d.target.number} /> : undefined} button={d.kind === "review" && d.target.kind === "git_hub" ? undefined : "Read"} onClick={() => { const t = d.target; if (t.kind === "predraft") void navigate({ to: "/predrafts/$id", params: { id: t.id } }); else { const [owner, repo] = t.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(t.number) }, search: d.kind === "review" ? { tab: "files", draft: d.id } : {} }); } }} />)}
-      {(uncommitted > 0 || (changes?.files ?? 0) > 0 && !(prStep && localPr)) && <NextStep source="Git" text={`${uncommitted} uncommitted files${changes ? `; ${changes.files} tracked files differ from ${baseName}` : ""}.`} button="Review diff" onClick={() => reviewDiff((changes?.files ?? 0) > 0)} />}
+      {(uncommitted > 0 || (changes?.files ?? 0) > 0 && !localPr) && <NextStep source="Git" text={`${uncommitted} uncommitted files${changes ? `; ${changes.files} tracked files differ from ${baseName}` : ""}.`} button="Review diff" onClick={() => reviewDiff((changes?.files ?? 0) > 0)} />}
       {(unfinished || s.status === "closed") && <NextStep source="Session" text={s.status === "closed" ? temporary ? "This archived session is resumable: Home keeps its temporary folder 30 days after Archive." : "This archived session is still resumable." : "The last turn did not finish successfully."} button="Resume" disabled={busy} onClick={() => void run(async () => { if (unfinished) await api.post(`/api/sessions/${s.id}/resume`, { continue_turn: true }); else await api.post(`/api/sessions/${s.id}/resume`); showTrace(); })} />}
       {!working && s.status !== "in_terminal" && <NextStep source="Session" text="A separate agent in the same folder, with this trace as context." button="Launch here" onClick={() => useComposer.getState().followUpFrom(s)} />}
       <NextStep source="Session" text="Reference this trace in a new agent's prompt, in any folder." button="Use trace as context" disabled={s.last_seq === 0} onClick={() => useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] })} />

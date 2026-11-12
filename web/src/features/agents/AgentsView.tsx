@@ -50,6 +50,7 @@ function searchText(s: Session): string {
 
 /** Rows take stable callbacks with the session id, so a bus update re-renders only the rows whose session changed. */
 const SessionRow = memo(function SessionRow({ s, project, selected, pinned, tag, onOpen, onMarkUnread }: { s: Session; project: string; selected: boolean; pinned: boolean; tag?: WorkTag; onOpen: (id: string) => void; onMarkUnread: (id: string) => void }) {
+  const navigate = useNavigate();
   const dim = s.status === "closed";
   const stop = isRunning(s) || isQuotaPaused(s);
   const canMarkUnread = !isUnseen(s) && (isDone(s) || s.status === "error" || s.status === "interrupted");
@@ -87,6 +88,8 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, tag,
         <MoreMenu label={`More actions for ${s.title}`}>{(close) => <>
           {stop && <ActionMenuItem name="session.stop" params={{ id: s.id }} close={close} />}
           {!stop && !dim && <ActionMenuItem name="session.archive" params={{ id: s.id }} close={close} detail="It stays resumable" />}
+          {tag?.pr && <MenuItem icon={<Icon name="pr" size={14} />} label={`Open PR #${tag.pr.number}`} detail={tag.pr.repo} onClick={() => { close(); const [owner, repo] = tag.pr!.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(tag.pr!.number) } }); }} />}
+          {tag?.localPr && <MenuItem icon={<Icon name="pr-local" size={14} />} label="Open Local PR" detail={tag.localPr.title} onClick={() => { close(); void navigate({ to: "/predrafts/$id", params: { id: tag.localPr!.id } }); }} />}
           {canMarkUnread && <ActionMenuItem name="session.unread" params={{ id: s.id }} close={() => { close(); onMarkUnread(s.id); }} label="Mark unread" detail="Return to Today for later" icon="mail" />}
           <MenuItem icon={<span className="text-teal-ink">{pinned ? "★" : "☆"}</span>} label={pinned ? "Unpin" : "Pin"} detail="Pinned sessions show first" onClick={() => { close(); useLayout.getState().togglePin(s.id); }} />
         </>}</MoreMenu>
