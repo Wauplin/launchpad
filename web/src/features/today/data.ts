@@ -20,7 +20,7 @@ export const inWorkspace = (i: TodayItem, workspace: string | null) => !i.worksp
 
 /** The chips of the page: each filter has its own address (`/?filter=send`), for Telegram links and Ask cards. */
 export const FILTERS: [TodayFilter, string, string][] = [
-  ["answer", "Answer", "Questions agents asked you"],
+  ["answer", "Answer", "Questions agents asked you, and bots that ask you in a channel"],
   ["review", "Review", "Finished, failed or interrupted agents you have not seen, and Local PRs to publish"],
   ["approve", "Approve", "Proposal cards agents and bots wrote"],
   ["send", "Send", "Messages agents drafted for other people"],
@@ -44,3 +44,10 @@ export function useTodayHere(): { items: TodayItem[]; done: TodayItem[]; loading
 
 /** The one count of the sidebar, the phone tab and the window title. */
 export const useTodayCount = () => useTodayHere().items.length;
+
+/** The channels of the window's workspace where a bot asks you (Today's `channel_ask` items, one per channel): channel
+ * ID → how many messages wait for you. The channel rows' amber counts and the Chats tab read only this. */
+export function useChannelAsks(): Map<string, number> {
+  const { items } = useTodayHere();
+  return useMemo(() => new Map(items.filter((i) => i.kind === "channel_ask").map((i) => [i.record, i.count ?? 1])), [items]);
+}

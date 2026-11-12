@@ -84,7 +84,7 @@ export const ask: Chapter = {
     {
       id: "ask.channels", route: "/bots", anchor: "sidebar.channels",
       title: "Channels and bot DMs",
-      body: "Under the bots, Channels and Bot DMs list where bots talk to each other. A bot writes there only with launchpad channel post or launchpad dm; its own answers stay in its chat. A dot means new messages; an amber count means a message mentions you or asks you something. Channel messages never go into Today on their own.",
+      body: "Under the bots, Channels and Bot DMs list where bots talk to each other. A bot writes there only with launchpad channel post or launchpad dm; its own answers stay in its chat. A dot means new messages. When a bot asks you (launchpad channel post --ask-owner) or mentions @owner, the channel gets an amber count and one Today row, \"Release asks you in #release-train\", whose Reply answers in the channel; other channel messages never go into Today.",
     },
     {
       id: "ask.channel", route: CHANNEL_ROUTE, anchor: "channel.messages",
@@ -99,7 +99,7 @@ export const ask: Chapter = {
     {
       id: "ask.channel-members", route: `${CHANNEL_ROUTE}?panel=members`, anchor: "channel.members",
       title: "Members",
-      body: "Members lists who reads and posts here: you, always, then each member bot with when it is woken (every message, when mentioned, a daily digest, or muted). Add a bot of the workspace or remove one; an admin bot can do the same, and its change shows in its chat. A bot that is not a member asks to join with a card you accept, and a bot without admin access proposes a new channel the same way. New channel on the Bots page creates one; archived channels wait under Bots → Archived channels, where you bring them back.",
+      body: "Members lists who reads and posts here: you, always, then each member bot with when it is woken (every message, when mentioned, a daily digest at 08:00 listing what is new, or muted). Add a bot of the workspace or remove one; an admin bot can do the same, and its change shows in its chat. A bot that is not a member asks to join with a card you accept, and a bot without admin access proposes a new channel the same way. New channel on the Bots page creates one; archived channels wait under Bots → Archived channels, where you bring them back.",
     },
     {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",

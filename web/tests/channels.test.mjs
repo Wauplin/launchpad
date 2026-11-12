@@ -57,3 +57,15 @@ test("a new channel's name is a free slug; archived channels are listed apart", 
   const all = [{ id: "a", workspace_id: "w", archived: true }, { id: "b", workspace_id: "w", archived: false }, { id: "c", workspace_id: "x", archived: true }];
   assert.deepEqual(archivedOf(all, "w").map((c) => c.id), ["a"]);
 });
+
+test("a daily digest is one line under the newest message it lists, and never counts as a queued message or a loop stop", () => {
+  const lines = deliveryLines("channel", [msg(1), msg(2)], [
+    del(1, 2, "d", "sent", { kind: "digest", first_message: 1, count: 2, session_id: "s" }),
+    del(2, 2, "r", "queued", { kind: "digest", count: 1 }),
+    del(3, 2, "m", "skipped", { kind: "digest", count: 2, reason: "hourly limit: 31 bot messages" }),
+    del(4, 2, "m", "queued"),
+  ], names);
+  assert.deepEqual(lines.get(2).map((l) => [l.kind, l.state, l.count]), [["digest", "sent", 2], ["digest", "queued", 1], ["digest", "skipped", 2], ["queued", undefined, undefined]]);
+  assert.equal(lines.get(2)[3].waiting, 1);
+  assert.equal(loopFooter(channel(), msg(2), [del(3, 2, "m", "skipped", { kind: "digest", reason: "hop limit: hop 4" })]), null);
+});

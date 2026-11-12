@@ -1,8 +1,8 @@
 // A bot channel or DM (one page for both): the header (name, purpose and members, Pause, ⋯), the messages (newest at
 // the bottom, opened tail-first, older pages as you scroll up), each with its deliveries as muted lines (who woke up
 // and why, who is busy, who was skipped and why), the loop-guard footer once bots answer each other (Allow 10 more
-// when a limit stopped a delivery) and your message box with @ suggestions of the member bots. Channel messages
-// never go into Today here; the page marks the channel read once a used, focused window showed it.
+// when a limit stopped a delivery) and your message box with @ suggestions of the member bots. Only a bot that asks
+// you (or mentions you) adds a Today row; the page marks the channel read once a used, focused window showed it.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
@@ -16,6 +16,7 @@ import { MenuItem } from "@/components/Popover";
 import { toastError } from "@/components/Toast";
 import { Badge, Empty, ErrorState, IconButton, Loading, MoreMenu, PageHeader } from "@/components/ui";
 import { SplitView } from "@/components/SplitView";
+import { ChannelComposer } from "./ChannelComposer";
 import { ChannelMembers } from "./ChannelMembers";
 import { useWindowFocused } from "@/features/agents/useSeen";
 import type { Channel } from "@/gen/Channel";
@@ -24,9 +25,8 @@ import type { ChannelPage as Page } from "@/gen/ChannelPage";
 import { runAction } from "@/lib/actions";
 import { useUserActive } from "@/lib/activity";
 import { api } from "@/lib/api";
-import { deliveryLines, loopFooter, mentionAt, type DeliveryLine } from "@/lib/channels";
+import { deliveryLines, loopFooter, loopSkip, type DeliveryLine } from "@/lib/channels";
 import { ago, time, when } from "@/lib/format";
-import { useKeptDraft } from "@/lib/keptDraft";
 import { usePhone } from "@/lib/phone";
 import { PhoneBar, PhoneHeader } from "@/mobile/PhoneHeader";
 import { phoneBack } from "@/mobile/back";
@@ -233,6 +233,12 @@ function Delivery({ l }: { l: DeliveryLine }) {
       return <div className={`${row} text-ink-3`} title={l.reason ?? undefined}><Icon name="clock" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} is busy · message queued ({l.waiting})</span></div>;
     case "combined":
       return <div className={`${row} text-ink-3`}><Icon name="collapse" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot}: combined with {l.with != null ? `message ${l.with}` : "an earlier message"}{l.session ? <> · {chat}</> : null}</span></div>;
+    case "digest": {
+      const n = `${l.count} message${l.count === 1 ? "" : "s"}`;
+      if (l.state === "skipped") return <div className={`${row} ${loopSkip(l.reason) ? "text-attn" : "text-ink-3"}`} title={l.reason ?? undefined}><Icon name="x" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot}'s daily digest ({n}) skipped: {l.reason ?? "no reason recorded"}</span></div>;
+      if (l.state === "queued") return <div className={`${row} text-ink-3`} title={l.reason ?? undefined}><Icon name="clock" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} is busy · daily digest ({n}) queued</span></div>;
+      return <div className={`${row} text-ink-3`} data-tour="channel.digest"><Icon name="book" size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} got the daily digest ({n}) · {chat}</span></div>;
+    }
     case "skipped":
       return <div className={`${row} ${l.loop ? "text-attn" : "text-ink-3"}`} title={l.reason}><Icon name={l.loop ? "alert" : "x"} size={12} className="mt-0.5 flex-none" /><span className="min-w-0 break-words">{l.bot} skipped: {l.reason}</span></div>;
   }
@@ -254,67 +260,4 @@ function RenameForm({ channel, onClose, onDone }: { channel: Channel; onClose: (
     <button className="btn btn-sm btn-ghost" onClick={onClose}>Cancel</button>
     <button className="btn btn-sm btn-primary" disabled={busy || !name.trim()} onClick={() => void save()}>Save</button>
   </div>;
-}
-
-// ---------------------------------------------------------------- the message box
-
-/** Your message: Enter sends, Shift+Enter adds a line; `@` suggests the member bots (Enter or Tab picks the first). */
-function ChannelComposer({ channel, onSent }: { channel: Channel; onSent: () => unknown }) {
-  const phone = usePhone();
-  const { text, setText, clear } = useKeptDraft(`channel.${channel.id}`, "");
-  const [busy, setBusy] = useState(false);
-  const [caret, setCaret] = useState(0);
-  const [dismissed, setDismissed] = useState<number | null>(null);
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 220)}px`; }, [text]);
-  const at = mentionAt(text, caret);
-  const suggestions = at && at.start !== dismissed ? channel.members.filter((m) => m.slug && (m.slug.startsWith(at.query) || m.name.toLowerCase().startsWith(at.query))).slice(0, 6) : [];
-  const pick = (slug: string) => {
-    if (!at) return;
-    const next = `${text.slice(0, at.start)}@${slug} ${text.slice(caret)}`;
-    const pos = at.start + slug.length + 2;
-    setText(next);
-    setCaret(pos);
-    requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(pos, pos); } });
-  };
-  const send = async () => {
-    const t = text.trim();
-    if (!t || busy) return;
-    setBusy(true);
-    try {
-      await runAction("channel.post", { id: channel.id }, { text: t });
-      setText("");
-      clear();
-      await onSent();
-    } catch (e) { toastError(e); } finally { setBusy(false); }
-  };
-  const dm = channel.kind === "dm";
-  const closed = channel.archived;
-  const name = dm ? "both bots" : channel.title;
-  return (
-    <div className="border-t border-line-2 px-5 pt-2 pb-2.5" data-tour="channel.reply">
-      <div className="relative w-full max-w-text">
-        {dm && !closed && <div className="mb-1.5 text-[12px] text-ink-3">Both bots will see your message</div>}
-        {closed && <div className="mb-1.5 text-[12px] text-ink-3">Archived: nobody posts here. ⋯ → Bring back to post again.</div>}
-        {suggestions.length > 0 && <div role="listbox" aria-label="Mention a bot" className="absolute bottom-full left-0 z-10 mb-1 grid min-w-[220px] gap-px rounded-card border border-line bg-paper p-1 shadow-[0_8px_24px_-12px_rgba(23,32,43,.5)]">
-          {suggestions.map((m, i) => <button key={m.bot_id} role="option" aria-selected={i === 0} className={`flex ${phone ? "min-h-11" : "min-h-8"} items-center gap-2 rounded-control px-2 text-left text-[13px] hover:bg-sunk ${i === 0 ? "bg-sunk" : ""}`} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(m.slug)}>
-            <BotAvatar name={m.name} size={18} /><span className="min-w-0 flex-1 truncate">{m.name}</span><span className="text-[12px] text-ink-3">@{m.slug}</span>
-          </button>)}
-        </div>}
-        <div className="session-message-input flex items-end gap-2 rounded-control border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
-          <textarea ref={ref} rows={1} value={text} disabled={busy || closed} aria-label={`Message ${name}`}
-            placeholder={dm ? "Message both bots…" : `Message ${channel.title}… (@ to wake a bot)`}
-            onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart); setDismissed(null); }}
-            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
-            onKeyDown={(e) => {
-              if (suggestions.length && !e.nativeEvent.isComposing && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) { e.preventDefault(); pick(suggestions[0].slug); return; }
-              if (suggestions.length && e.key === "Escape") { e.preventDefault(); setDismissed(at?.start ?? null); return; }
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
-            }}
-            className="min-h-6 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
-          <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || closed || !text.trim()} onClick={() => void send()}><Icon name="send" size={14} /></button>
-        </div>
-      </div>
-    </div>
-  );
 }

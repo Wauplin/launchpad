@@ -5,6 +5,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import type { ChannelPage } from "@/gen/ChannelPage";
 import type { Proposal } from "@/gen/Proposal";
 import type { Session } from "@/gen/Session";
 import type { SessionEventPage } from "@/gen/SessionEventPage";
@@ -18,6 +19,7 @@ import { toast, toastError } from "@/components/Toast";
 import { MenuItem } from "@/components/Popover";
 import { Loading, RowActions } from "@/components/ui";
 import { AskCard } from "@/features/agents/AskCard";
+import { ChannelComposer } from "@/features/channels/ChannelComposer";
 import { MessageBox } from "@/features/agents/MessageBox";
 import { useSessionWorktrees } from "@/features/agents/Worktrees";
 import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
@@ -46,6 +48,7 @@ export const LOOK: Record<TodayItem["kind"], { icon: IconName; color: string; na
   runner: { icon: "window", color: "text-attn", name: "Runner to update" },
   home_update: { icon: "download", color: "text-attn", name: "Update for Home" },
   cli_update: { icon: "download", color: "text-teal", name: "Agent CLI update" },
+  channel_ask: { icon: "comment", color: "text-attn", name: "A bot asks you in a channel" },
 };
 
 type RowProps = { item: TodayItem; expanded: boolean; toggle: (id: string) => void; highlight: boolean };
@@ -369,6 +372,32 @@ function CliUpdateRow(p: RowProps) {
     details={<CliUpdateDetails id={item.record} />} />;
 }
 
+/** A bot asks you in a channel or DM (CHN-07): Reply opens the ask and the channel's message box in the row (the
+ * same draft as the channel page); your message answers the ask and the row leaves Today. Open channel and Mark read
+ * (it leaves Today without an answer) in ⋯. */
+function ChannelAskRow(p: RowProps) {
+  const { item, expanded, toggle } = p;
+  const qc = useQueryClient();
+  const page = useQuery({ queryKey: ["channel", item.record], queryFn: () => api.get<ChannelPage>(`/api/channels/${item.record}`), enabled: expanded, retry: false });
+  const ask = page.data?.messages.find((m) => m.id === item.message);
+  const sent = async () => {
+    toast("Sent to the channel");
+    if (expanded) toggle(item.id);
+    qc.setQueryData<Today>(["today"], (old) => old && { ...old, items: old.items.filter((i) => i.id !== item.id) });
+    await Promise.all([qc.invalidateQueries({ queryKey: ["today"] }), qc.invalidateQueries({ queryKey: ["channels"] }), qc.invalidateQueries({ queryKey: ["channel", item.record] })]);
+  };
+  return <Row {...p}
+    main={<Expand {...p}>Reply</Expand>}
+    menu={(close) => <>
+      <Go close={close} icon="comment" label="Open channel" detail="Every message and who woke up" go={(n) => n({ to: "/channels/$id", params: { id: item.record } })} />
+      <ActionMenuItem name="channel.read" params={{ id: item.record }} body={{ through: item.message }} close={close} detail="Remove it from Today without an answer" onDone={() => qc.invalidateQueries({ queryKey: ["today"] })} />
+    </>}
+    details={page.isLoading ? <Loading what="the message" /> : <>
+      {ask ? <div className="min-w-0 text-[13px] text-ink-2"><Markdown text={ask.text} /></div> : <p className="m-0 text-[13px] text-ink-2">{item.detail}</p>}
+      {page.data && <ChannelComposer channel={page.data.channel} replyTo={item.message ?? undefined} className="pt-1" autoFocus onSent={sent} />}
+    </>} />;
+}
+
 export const ItemRow = memo(function ItemRow({ proposal, suggestion, ...p }: RowProps & { proposal: Proposal | undefined; suggestion: Suggestion | undefined }) {
   switch (p.item.kind) {
     case "question": return <QuestionRow {...p} />;
@@ -383,5 +412,6 @@ export const ItemRow = memo(function ItemRow({ proposal, suggestion, ...p }: Row
     case "runner": return <RunnerRow {...p} />;
     case "home_update": return <RunnerRow {...p} />; // Opens Settings → Home and runners, where Update Home is.
     case "cli_update": return <CliUpdateRow {...p} />;
+    case "channel_ask": return <ChannelAskRow {...p} />;
   }
 });

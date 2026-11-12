@@ -1,6 +1,6 @@
 import { useKnowledgeUnseen } from "@/lib/knowledge";
 import { useInboxNeeds } from "@/features/inbox/data";
-import { useTodayCount } from "@/features/today/data";
+import { useChannelAsks, useTodayCount } from "@/features/today/data";
 import { botInitial, botState, botThread, useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
 import { useScope } from "@/lib/workspace";
@@ -139,13 +139,14 @@ const BotLink = memo(function BotLink({ bot, thread, narrow }: { bot: Bot; threa
 const SubLabel = ({ children }: { children: ReactNode }) => <div className="mt-1.5 px-[9px] pb-0.5 text-[11px] font-semibold text-ink-3">{children}</div>;
 
 /** Bots of the workspace (Ask Launchpad among them), then its channels and bot DMs. Collapsed: one state dot (and the
- * amber dot of a channel that asks you); their proposals wait in Today, channel messages never do. */
+ * amber dot of a channel that asks you); their proposals wait in Today, and a channel only when a bot asks you there. */
 function BotList({ sessions, narrow }: { sessions: Session[]; narrow: boolean }) {
   const scope = useScope();
   const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
   const allChannels = useChannels().data;
   const { channels, dms } = channelsOf(allChannels, scope.workspace.id);
   const archived = archivedOf(allChannels, scope.workspace.id).length;
+  const asks = useChannelAsks();
   if (narrow) return (
     <div className="flex flex-none flex-col gap-px" data-tour="sidebar.bots">
       {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} narrow />)}
@@ -157,7 +158,7 @@ function BotList({ sessions, narrow }: { sessions: Session[]; narrow: boolean })
     {states.includes("needs") && <span className="size-[7px] rounded-full bg-attn" title="A bot needs you" />}
     {states.includes("paused") && <span className="size-[7px] rounded-full border border-attn" title="A bot is quota paused" />}
     {states.includes("running") && <span className="lp-spin" title="A bot works" />}
-    {[...channels, ...dms].some((c) => c.attention > 0) && <span className="size-[7px] rounded-full bg-attn" title="A channel message asks you" />}
+    {asks.size > 0 && <span className="size-[7px] rounded-full bg-attn" title="A channel message asks you" />}
   </span>;
   return (
     <Group id="bots" to="/bots" label="Bots" tour="sidebar.bots" end={summary} actions={<Link to="/bots" search={{ new: true } as never} className="iconbtn" title="New bot" aria-label="New bot"><Icon name="plus" size={14} /></Link>}>

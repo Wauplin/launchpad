@@ -13,11 +13,11 @@ import { world } from "../world";
 type Place = { everywhere: true } | { workspace: string | null } | { project: string } | { session: string } | { repo: string };
 type Draft = Omit<TodayItem, "workspaces"> & { place: Place };
 
-const PREFIX: Record<TodayKind, string> = { question: "session", finished: "session", failed: "session", local_pr: "local-pr", proposal: "proposal", outbox: "outbox", suggestion: "suggestion", review_request: "review-request", routine: "routine", runner: "runner", home_update: "home-update", cli_update: "cli-update" };
+const PREFIX: Record<TodayKind, string> = { question: "session", finished: "session", failed: "session", local_pr: "local-pr", proposal: "proposal", outbox: "outbox", suggestion: "suggestion", review_request: "review-request", routine: "routine", runner: "runner", home_update: "home-update", cli_update: "cli-update", channel_ask: "channel" };
 const ORDER: TodayFilter[] = ["answer", "review", "approve", "send", "github", "fix"];
 
 function item(kind: TodayKind, filter: TodayFilter, record: string, title: string, place: Place, at: number, more: Partial<Draft> = {}): Draft {
-  return { id: `${PREFIX[kind]}:${record}`, kind, filter, title, detail: "", record, session_id: null, action: null, github: null, at, outcome: null, grouped: [], place, ...more };
+  return { id: `${PREFIX[kind]}:${record}`, kind, filter, title, detail: "", record, session_id: null, action: null, github: null, at, outcome: null, grouped: [], message: null, count: null, place, ...more };
 }
 const line = (text: string) => (text.split("\n").map((l) => l.trim()).find(Boolean) ?? "").slice(0, 160);
 const specPlace = (spec: LaunchSpec): Place => spec.target.kind === "project" || spec.target.kind === "predraft" ? { project: spec.target.project_id } : { workspace: spec.workspace_id };
@@ -113,6 +113,16 @@ function drafts(): Draft[] {
     const at = u.dismissed_at ?? e.at;
     if (e.state === "approval") out.push(item("cli_update", "approve", u.id, u.dismissed_at ? `${name} ${u.version}: skipped` : `Update ${name} to ${u.version}: new major version`, { everywhere: true }, u.dismissed_at ? at : u.created_at, u.dismissed_at ? { outcome: "Skipped" } : { detail: `${e.runner} ${e.from} · read the release notes, then approve`, action: "cli-update.approve" }));
     else if (e.state === "done") out.push(item("cli_update", "review", u.id, `${name} updated to ${u.version}`, { everywhere: true }, at, { detail: `${e.runner} ${e.from} → ${u.version}`, ...(u.dismissed_at ? { outcome: `Updated on ${e.runner}` } : { action: "cli-update.dismiss" }) }));
+  }
+  // Bot channels where a bot asks you (launchpad_channels::today): one row per channel, the newest ask and the count.
+  for (const c of world.botChannels) {
+    if (c.archived) continue;
+    const asks = world.channelMessages.filter((m) => m.channel_id === c.id && m.id > c.owner_read && m.author.kind !== "owner" && (m.ask_owner || m.mentions.includes("owner"))).sort((a, b) => a.id - b.id);
+    const a = asks.at(-1);
+    if (!a) continue;
+    const other = world.bots.find((b) => c.members.some((m) => m.bot_id === b.id) && b.settings.name !== a.author.name)?.settings.name ?? "another bot";
+    const place = c.kind === "dm" ? `the DM with ${other}` : `#${c.name}`;
+    out.push(item("channel_ask", "answer", c.id, `${a.author.name} ${a.ask_owner ? "asks" : "mentions"} you in ${place}`, { workspace: c.workspace_id }, a.created_at, { detail: asks.length > 1 ? `${asks.length} messages for you · ${line(a.text)}` : line(a.text), action: "channel.post", message: a.id, count: asks.length }));
   }
   for (const r of world.runners) {
     if (r.compat !== "outdated" && r.compat !== "incompatible") continue;

@@ -32,7 +32,7 @@ import { isDone } from "@/lib/sessionStatus";
 import type { TodayItem } from "./data";
 
 export const ICON: Record<TodayItem["kind"], IconName> = {
-  question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", review_request: "pr", routine: "refresh", runner: "window", home_update: "download", cli_update: "download",
+  question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", review_request: "pr", routine: "refresh", runner: "window", home_update: "download", cli_update: "download", channel_ask: "comment",
 };
 
 export const ghParams = (repo: string, number: number) => ({ owner: repo.split("/")[0], repo: repo.split("/")[1], number: String(number) });
@@ -284,6 +284,11 @@ function CliUpdateCard({ item }: { item: TodayItem }) {
   </Card>;
 }
 
+/** A bot asks you in a channel, in the bot chat: open the channel to answer. */
+function ChannelAskCard({ item }: { item: TodayItem }) {
+  return <Card item={item}><div><Link className="btn btn-sm btn-primary no-underline" to="/channels/$id" params={{ id: item.record }}>Open channel</Link></div></Card>;
+}
+
 export const ItemCard = memo(function ItemCard({ item, proposal, suggestion }: { item: TodayItem; proposal: Proposal | undefined; suggestion: Suggestion | undefined }) {
   switch (item.kind) {
     case "question": return <QuestionCard item={item} />;
@@ -298,5 +303,6 @@ export const ItemCard = memo(function ItemCard({ item, proposal, suggestion }: {
     case "runner": return <RunnerCard item={item} />;
     case "home_update": return <HomeUpdateItemCard item={item} />;
     case "cli_update": return <CliUpdateCard item={item} />;
+    case "channel_ask": return <ChannelAskCard item={item} />;
   }
 });

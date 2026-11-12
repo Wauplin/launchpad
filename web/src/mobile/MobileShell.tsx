@@ -12,7 +12,7 @@ import { Link, Outlet, useRouter, useRouterState } from "@tanstack/react-router"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconSprite, Icon, type IconName } from "@/components/Icon";
 import { Count } from "@/components/ui";
-import { channelsNeedingYou, useChannels } from "@/lib/channels";
+import { useChannels } from "@/lib/channels";
 import { Toasts } from "@/components/Toast";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
@@ -23,7 +23,7 @@ import { useSessions } from "@/lib/queries";
 import { useWorkspaceCounts } from "@/features/workspaces/counts";
 import { NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
 import { botState, botThread, useBots } from "@/lib/bots";
-import { useTodayHere } from "@/features/today/data";
+import { useChannelAsks, useTodayHere } from "@/features/today/data";
 import { isRunning } from "@/lib/sessionStatus";
 import { ServerStatus } from "./ServerStatus";
 import { MORE_PLACES, PhoneBarContext, pageTitle } from "./PhoneHeader";
@@ -105,11 +105,11 @@ export function MobileShell() {
   // What waits in the other workspaces, shown on the button that opens the sheet.
   const counts = useWorkspaceCounts();
   const inMenu = Object.entries(counts).reduce((n, [id, c]) => n + (id === scope.workspace.id ? 0 : c.total), 0);
-  // Chats: the bots, channels and DMs of the workspace; its count is the bots that need you and the channels whose
-  // unread messages mention or ask you. A second tap opens the last chat.
+  // Chats: the bots, channels and DMs of the workspace; its count is the bots that need you and the channels where a
+  // bot asks you (Today's channel rows). A second tap opens the last chat.
   const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
   const channels = useChannels().data;
-  const channelsNeed = channelsNeedingYou(channels, scope.workspace.id);
+  const channelsNeed = useChannelAsks().size;
   const chatsNeed = bots.filter((b) => botState(botThread(sessions, b.id)) === "needs").length + channelsNeed;
   const onChats = path === "/chats" || path.startsWith("/bots") || path.startsWith("/channels");
   const lastChat = useRef<string | null>(null);

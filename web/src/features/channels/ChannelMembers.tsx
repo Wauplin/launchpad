@@ -6,7 +6,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { ActionMenuItem } from "@/components/ActionButton";
+import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
 import { BotAvatar } from "@/components/BotAvatar";
 import { Icon } from "@/components/Icon";
 import { MenuItem } from "@/components/Popover";
@@ -40,7 +40,10 @@ export function ChannelMembers({ channel }: { channel: Channel }) {
       {channel.members.map((m) => (
         <div key={m.bot_id} className="flex min-h-11 items-center gap-2 px-1">
           <BotAvatar name={m.name} size={24} />
-          <Link to="/bots/$id" params={{ id: m.bot_id }} className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink no-underline hover:underline" title={m.last_read ? `Read up to message ${m.last_read}` : "Has not read the channel yet"}>{m.name}</Link>
+          <span className="grid min-w-0 flex-1">
+            <Link to="/bots/$id" params={{ id: m.bot_id }} className="truncate text-[13px] font-semibold text-ink no-underline hover:underline" title={m.last_read ? `Read up to message ${m.last_read}` : "Has not read the channel yet"}>{m.name}</Link>
+            <span className="truncate text-[12px] text-ink-3" title={MODES.find((x) => x.id === m.mode)?.hint}>{MODES.find((x) => x.id === m.mode)?.hint}</span>
+          </span>
           <RowActions label={`More actions for ${m.name}`} width={140}
             main={<select className="field-input w-full" aria-label={`When ${m.name} is woken`} disabled={closed || busy === m.bot_id} value={m.mode}
               onChange={(e) => { const next = e.target.value as ChannelMemberMode; void run(m.bot_id, () => runAction("channel.set-mode", { id: channel.id, bot: m.bot_id }, { mode: next })); }}>
@@ -52,6 +55,10 @@ export function ChannelMembers({ channel }: { channel: Channel }) {
             </>} />
         </div>
       ))}
+      {!closed && channel.members.some((m) => m.mode === "digest") && <div className="flex flex-wrap items-center gap-2 px-1 py-1">
+        <span className="min-w-0 flex-1 text-[12px] text-ink-3">Digests go every day at 08:00 (Home's time zone), only when something is new.</span>
+        <ActionButton name="channel.digest" params={{ id: channel.id }} onDone={refresh} />
+      </div>}
       {channel.members.length === 0 && <p className="m-0 px-1 text-[12px] text-ink-3">No bot yet: only you post here.</p>}
       {!closed && <div className="mt-2 grid gap-1.5 border-t border-line-2 px-1 pt-3" data-tour="channel.add-member">
         <span className="text-[12px] font-semibold text-ink-2">Add a member</span>

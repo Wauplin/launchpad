@@ -70,7 +70,7 @@ route("POST", "/api/channels/:id/messages", ({ params, body }) => {
   c.owner_read = id;
   let next = Math.max(0, ...world.channelDeliveries.map((d) => d.id));
   const deliveries: ChannelDelivery[] = c.members.filter((x) => (c.kind === "dm" || x.mode === "all" || mentions.includes(x.bot_id)) && x.mode !== "muted").map((x) => ({
-    id: ++next, message_id: id, bot_id: x.bot_id, at: now, joined: null,
+    id: ++next, message_id: id, bot_id: x.bot_id, at: now, joined: null, kind: "message" as const, first_message: null, count: null,
     ...(c.paused ? { state: "skipped" as const, reason: "channel paused", session_id: null } : { state: "sent" as const, reason: null, session_id: world.sessions.filter((s) => s.launch_spec.bot?.id === x.bot_id).at(-1)?.id ?? null }),
   }));
   world.channelDeliveries.push(...deliveries);
@@ -102,6 +102,20 @@ route("POST", "/api/channels/:id/allow-more", ({ params }) => {
     if (d.message_id !== newest?.id || d.state !== "skipped" || !/^(hop|hourly) limit/.test(d.reason ?? "") || c.allowance <= 0) continue;
     c.allowance -= 1;
     Object.assign(d, { state: "sent", reason: null, at: clock.now() });
+  }
+  changed(c);
+  return page(c, null, 50);
+});
+/** Send digests now: each member in mode digest gets the messages since its last read (or its last digest), not its
+ * own; nothing new, nothing sent. */
+route("POST", "/api/channels/:id/digest", ({ params }) => {
+  const c = recordOf(params.id);
+  let next = Math.max(0, ...world.channelDeliveries.map((d) => d.id));
+  for (const m of c.members.filter((x) => x.mode === "digest")) {
+    const since = Math.max(m.last_read, ...world.channelDeliveries.filter((d) => d.kind === "digest" && d.bot_id === m.bot_id && d.state !== "skipped" && messagesOf(c.id).some((x) => x.id === d.message_id)).map((d) => d.message_id));
+    const listed = messagesOf(c.id).filter((x) => x.id > since && !(x.author.kind === "bot" && x.author.id === m.bot_id));
+    if (!listed.length) continue;
+    world.channelDeliveries.push({ id: ++next, message_id: listed.at(-1)!.id, bot_id: m.bot_id, state: c.paused ? "skipped" : "sent", reason: c.paused ? "channel paused" : null, session_id: null, joined: null, at: clock.now(), kind: "digest", first_message: listed[0].id, count: listed.length });
   }
   changed(c);
   return page(c, null, 50);

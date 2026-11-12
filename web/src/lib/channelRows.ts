@@ -18,11 +18,11 @@ export function archivedOf(all: Channel[] | undefined, workspaceId: string | nul
 }
 
 /** When a member bot is woken, in words (the Members panel and the New channel form). */
-export const MODES: { id: ChannelMemberMode; label: string }[] = [
-  { id: "all", label: "Every message" },
-  { id: "mentions", label: "When mentioned" },
-  { id: "digest", label: "Daily digest" },
-  { id: "muted", label: "Muted" },
+export const MODES: { id: ChannelMemberMode; label: string; hint: string }[] = [
+  { id: "all", label: "Every message", hint: "Woken by every message" },
+  { id: "mentions", label: "When mentioned", hint: "Woken only when a message mentions it" },
+  { id: "digest", label: "Daily digest", hint: "One message a day at 08:00 listing what is new, and woken when mentioned" },
+  { id: "muted", label: "Muted", hint: "Never woken; it can still read and post" },
 ];
 
 /** Why a new channel cannot have this name (Home checks again): lowercase letters, digits and dashes, starting with
@@ -34,11 +34,6 @@ export function channelNameError(name: string, taken: Pick<Channel, "name" | "ar
   if (t?.archived) return `#${name} is an archived channel: bring it back or delete it under Archived channels to use its name`;
   if (t) return `#${name} already exists in this workspace`;
   return null;
-}
-
-/** Channels of the workspace with a message that mentions or asks the owner, unread: the amber part of a Chats count. */
-export function channelsNeedingYou(all: Channel[] | undefined, workspaceId: string | null | undefined): number {
-  return (all ?? []).filter((c) => c.workspace_id === workspaceId && !c.archived && c.attention > 0).length;
 }
 
 /** The mark of a channel row: "#" for a named channel, "↔" for a DM. */
@@ -65,13 +60,14 @@ export type DeliveryLine =
   | { kind: "woke"; bot: string; botId: string; why: "mention" | "DM" | "subscription"; session: string | null }
   | { kind: "queued"; bot: string; botId: string; waiting: number; reason: string | null }
   | { kind: "skipped"; bot: string; botId: string; reason: string; loop: boolean }
-  | { kind: "combined"; bot: string; botId: string; with: number | null; session: string | null };
+  | { kind: "combined"; bot: string; botId: string; with: number | null; session: string | null }
+  | { kind: "digest"; bot: string; botId: string; count: number; state: "sent" | "queued" | "skipped"; reason: string | null; session: string | null };
 
 /** The delivery lines of each message, in delivery order. `waiting` counts the bot's deliveries of this channel that
  * still wait in its queue (the message and those combined with it). */
 export function deliveryLines(kind: Channel["kind"], messages: ChannelMessage[], deliveries: ChannelDelivery[], nameOf: (botId: string) => string): Map<number, DeliveryLine[]> {
   const byId = new Map(deliveries.map((d) => [d.id, d]));
-  const waits = (d: ChannelDelivery) => (d.state === "queued" || d.state === "combined") && !d.session_id;
+  const waits = (d: ChannelDelivery) => d.kind !== "digest" && (d.state === "queued" || d.state === "combined") && !d.session_id;
   const waiting = new Map<string, number>();
   for (const d of deliveries) if (waits(d)) waiting.set(d.bot_id, (waiting.get(d.bot_id) ?? 0) + 1);
   const msg = new Map(messages.map((m) => [m.id, m]));
@@ -80,7 +76,10 @@ export function deliveryLines(kind: Channel["kind"], messages: ChannelMessage[],
     const m = msg.get(d.message_id);
     if (!m) continue;
     const bot = nameOf(d.bot_id);
-    const line: DeliveryLine = d.state === "sent"
+    // A daily digest shows under the newest message it lists.
+    const line: DeliveryLine = d.kind === "digest"
+      ? { kind: "digest", bot, botId: d.bot_id, count: d.count ?? 1, state: d.state === "skipped" ? "skipped" : d.state === "sent" || d.session_id ? "sent" : "queued", reason: d.reason, session: d.session_id }
+      : d.state === "sent"
       ? { kind: "woke", bot, botId: d.bot_id, why: wakeReason(kind, m, d.bot_id), session: d.session_id }
       : d.state === "skipped"
         ? { kind: "skipped", bot, botId: d.bot_id, reason: d.reason ?? "no reason recorded", loop: loopSkip(d.reason) }
@@ -97,7 +96,7 @@ export function deliveryLines(kind: Channel["kind"], messages: ChannelMessage[],
 /** The loop-guard footer: shown once bots answer each other (the newest message's hop is 2 or more) or a limit stopped
  * a delivery of the newest message. `stopped` names the limit. */
 export function loopFooter(c: Channel, newest: ChannelMessage | undefined, deliveries: ChannelDelivery[]): { text: string; stopped: string | null } | null {
-  const skip = newest ? deliveries.find((d) => d.message_id === newest.id && d.state === "skipped" && loopSkip(d.reason)) : undefined;
+  const skip = newest ? deliveries.find((d) => d.message_id === newest.id && d.kind !== "digest" && d.state === "skipped" && loopSkip(d.reason)) : undefined;
   if (!skip && c.last_hops < 2) return null;
   const base = `Hop ${c.last_hops} of ${c.hop_limit} · ${c.hour_count} bot message${c.hour_count === 1 ? "" : "s"} this hour (limit ${c.hourly_limit})`;
   const allowance = c.allowance > 0 ? ` · ${c.allowance} more allowed` : "";
