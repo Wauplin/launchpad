@@ -38,6 +38,8 @@ The top bar has one field with two buttons:
 - **Launch** starts an agent at once with the text, the page as context and the folder's defaults (on a folder page, that folder). While it waits for the folder's defaults it reads **Launching…**; when something blocks the launch (no profile, no folder, a busy worktree), the composer opens at once and says what is missing. With an empty field or a kept draft, it opens the composer. Its **▾** menu has **Launch with options…**, which opens the full composer with the text.
 - **Ask** sends the text to a bot of the workspace and opens its chat in the Ask panel (see [Ask Launchpad](#ask-launchpad)).
 
+The page as context is the folder, GitHub item, Local PR or settings page you are on, or the agent open in **Agents** (Ask names its session, Launch adds its trace). It shows as a chip in the field; **×** leaves it out.
+
 The page you look at is the context: a folder, a GitHub item, an agent's trace, a Local PR or a settings page. A chip in the field names it; **✕** removes it. **Ask** is the primary button on every page, and **Enter** sends to Ask. In a workspace without a bot, Launch is the primary button and **Enter** launches. **Shift+Enter** adds a line.
 
 Folder pages, inbox rows and every **▶** button open the composer too. The composer opens as a side drawer:

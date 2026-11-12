@@ -22,6 +22,7 @@ import { SETTINGS_NAV, WORKSPACE_NAV } from "@/features/settings/nav";
 import { useProjects, useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
 import { useAskPanel } from "@/stores/ask";
+import { useLayout } from "@/stores/layout";
 import { useComposer, type LaunchContext } from "@/stores/composer";
 
 type PageContext = {
@@ -34,7 +35,7 @@ type PageContext = {
   botId?: string;
 };
 
-function pageContext(path: string, search: Record<string, unknown>, projects: Project[], sessions: Session[], bots: Bot[], item: Item | undefined, predraft: Predraft | undefined): PageContext {
+function pageContext(path: string, sessionId: string | null, projects: Project[], sessions: Session[], bots: Bot[], item: Item | undefined, predraft: Predraft | undefined): PageContext {
   const project = path.match(/^\/projects\/([^/]+)/);
   if (project) {
     const p = projects.find((x) => x.id === project[1]);
@@ -53,7 +54,7 @@ function pageContext(path: string, search: Record<string, unknown>, projects: Pr
       launch: { projectId: p?.id ?? null, githubRefs: [{ url, kind: pr ? "pr" : "issue", repo, number, title: item?.title ?? null }] },
     };
   }
-  const session = path.startsWith("/agents") && typeof search.session === "string" ? sessions.find((s) => s.id === search.session) : undefined;
+  const session = sessionId ? sessions.find((s) => s.id === sessionId) : undefined;
   if (session) {
     return {
       label: `Agent ${session.title}`, line: `the agent session “${session.title}” (session id ${session.id})`,
@@ -86,9 +87,13 @@ export function CommandField() {
   const item = useQuery<Item>({ queryKey: gh ? itemKey(`${gh[1]}/${gh[2]}`, Number(gh[3])) : ["none"], enabled: false }).data;
   const predraftId = path.match(/^\/predrafts\/([^/]+)/)?.[1];
   const predraft = useQuery<{ predraft: Predraft }>({ queryKey: ["predrafts", predraftId ?? ""], enabled: false }).data?.predraft;
-  const page = pageContext(path, search, projects, sessions, allBots, item, predraft);
+  // The agent shown in Agents: the address on the phone (and from links), the selected session on a laptop, which
+  // clears the address once it opened the session.
+  const selectedSession = useLayout((s) => s.selectedSession);
+  const sessionId = path.startsWith("/agents") ? (typeof search.session === "string" ? search.session : selectedSession) : null;
+  const page = pageContext(path, sessionId, projects, sessions, allBots, item, predraft);
   const [withContext, setWithContext] = useState(true);
-  const pageKey = `${path}:${String(search.session ?? "")}`;
+  const pageKey = `${path}:${sessionId ?? ""}`;
   useEffect(() => setWithContext(true), [pageKey]);
   const ctx = withContext ? page : { label: null, line: null, launch: undefined, botId: page.botId };
   const [picked, setPicked] = useState<string | null>(null);
