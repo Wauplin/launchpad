@@ -23,6 +23,7 @@ import { demoSession, FOLDER, MODELS, PROFILE, SUMMARY_INSTRUCTION, taskWorktree
 import { P, ROOT, TMP } from "../world/ids";
 import { defOf, parseRoutineToml, routinePath, routineText, routineToml } from "../routine";
 import { found, quotaReset, ready, sendMessage } from "./agents";
+import { createChannel, setMember } from "./channels";
 
 // ---------------------------------------------------------------- launch
 
@@ -443,6 +444,14 @@ route("POST", "/api/proposals/:id/accept", (r) => {
     else if (b.kind === "cron") p.result_id = createCron(spec!, b.schedule, b.conditions).id;
     else if (b.kind === "message") { sendMessage(found(b.session_id), b.text, `${p.id}-msg`); p.result_id = b.session_id; }
     else if (b.kind === "tool") p.result_id = b.tool.id;
+    else if (b.kind === "channel") p.result_id = createChannel(p.workspace_id ?? "", b.name, b.purpose, b.members).id;
+    else if (b.kind === "channel_join") {
+      const c = world.botChannels.find((x) => x.id === b.channel);
+      if (!c) throw new DemoError(400, "this channel no longer exists");
+      if (c.archived) throw new DemoError(400, `#${c.name} is archived: bring it back first`);
+      if (!c.members.some((m) => m.bot_id === b.bot_id)) setMember(c.id, b.bot_id, b.mode);
+      p.result_id = c.id;
+    }
     else if (b.kind === "bot_instructions") {
       const bot = world.bots.find((x) => x.id === b.bot_id);
       if (!bot) throw new DemoError(400, "this bot no longer exists");

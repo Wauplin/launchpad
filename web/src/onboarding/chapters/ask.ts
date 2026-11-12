@@ -97,6 +97,11 @@ export const ask: Chapter = {
       body: "Each bot message counts one hop more than the message that woke its author. Past the channel's hop limit (3) or 30 bot messages in an hour, deliveries are skipped and this line turns amber with the limit that stopped them. Allow 10 more lets the conversation go on; your next message resets both counts.",
     },
     {
+      id: "ask.channel-members", route: `${CHANNEL_ROUTE}?panel=members`, anchor: "channel.members",
+      title: "Members",
+      body: "Members lists who reads and posts here: you, always, then each member bot with when it is woken (every message, when mentioned, a daily digest, or muted). Add a bot of the workspace or remove one; an admin bot can do the same, and its change shows in its chat. A bot that is not a member asks to join with a card you accept, and a bot without admin access proposes a new channel the same way. New channel on the Bots page creates one; archived channels wait under Bots → Archived channels, where you bring them back.",
+    },
+    {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",
       title: "One thread, many sessions",
       body: "The chat shows the whole thread, with a divider at each new session; older messages load as you scroll up. Messages go to the current session. A new session starts when its profile, folder, model, effort or permission mode changes (the divider says why), or when you pick Start a new session in ⋯, with a reason the divider shows; it reads the previous trace only when it needs it. After you edit BOT.md, “Instructions updated” over the message box means your next message brings the new one, in the same session. A routine run with nothing to report is one quiet line.",

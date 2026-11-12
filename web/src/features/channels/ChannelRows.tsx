@@ -2,9 +2,11 @@
 // (ChannelConversationRow, with its last message and time). A plain dot shows unread messages; an amber count only
 // the unread ones that mention you or ask you (`--ask-owner`).
 
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { memo } from "react";
-import { Count } from "@/components/ui";
+import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
+import { Count, RowActions } from "@/components/ui";
 import type { Channel } from "@/gen/Channel";
 import { channelLastLine, channelMark } from "@/lib/channels";
 import { age } from "@/lib/format";
@@ -45,4 +47,20 @@ export const ChannelConversationRow = memo(function ChannelConversationRow({ c, 
       <Unread c={c} />
     </span>
   </Link>;
+});
+
+/** An archived channel or DM (Bots → Archived channels): its last message, Bring back, and Delete in ⋯. */
+export const ArchivedChannelRow = memo(function ArchivedChannelRow({ c, className = "" }: { c: Channel; className?: string }) {
+  const qc = useQueryClient();
+  const refresh = () => qc.invalidateQueries({ queryKey: ["channels"] });
+  return <div className={`grid min-h-[60px] grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-x-3 px-3 py-2 ${className}`}>
+    <span className="grid size-9 place-items-center rounded-card bg-sunk text-[15px] font-semibold text-ink-3" aria-hidden>{channelMark(c)}</span>
+    <Link to="/channels/$id" params={{ id: c.id }} className="grid min-w-0 gap-0.5 no-underline">
+      <span className="truncate text-[13px] font-medium text-ink">{c.kind === "dm" ? c.title : c.name}</span>
+      <span className="truncate text-[12px] text-ink-3">{c.last_at ? `Last message ${age(c.last_at)} · ` : ""}{channelLastLine(c)}</span>
+    </Link>
+    <RowActions label={`More actions for ${c.title}`}
+      main={<ActionButton name="channel.archive" params={{ id: c.id }} body={{ archived: false }} icon="refresh" title="Its bots can read and post again" onDone={refresh}>Bring back</ActionButton>}
+      more={(close) => <ActionMenuItem name="channel.delete" params={{ id: c.id }} vars={{ name: c.title }} close={close} onDone={refresh} />} />
+  </div>;
 });

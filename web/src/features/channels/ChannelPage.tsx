@@ -5,7 +5,7 @@
 // never go into Today here; the page marks the channel read once a used, focused window showed it.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
@@ -14,7 +14,9 @@ import { Icon } from "@/components/Icon";
 import { Markdown } from "@/components/Markdown";
 import { MenuItem } from "@/components/Popover";
 import { toastError } from "@/components/Toast";
-import { Badge, Empty, ErrorState, Loading, MoreMenu, PageHeader } from "@/components/ui";
+import { Badge, Empty, ErrorState, IconButton, Loading, MoreMenu, PageHeader } from "@/components/ui";
+import { SplitView } from "@/components/SplitView";
+import { ChannelMembers } from "./ChannelMembers";
 import { useWindowFocused } from "@/features/agents/useSeen";
 import type { Channel } from "@/gen/Channel";
 import type { ChannelMessage } from "@/gen/ChannelMessage";
@@ -26,7 +28,7 @@ import { deliveryLines, loopFooter, mentionAt, type DeliveryLine } from "@/lib/c
 import { ago, time, when } from "@/lib/format";
 import { useKeptDraft } from "@/lib/keptDraft";
 import { usePhone } from "@/lib/phone";
-import { PhoneHeader } from "@/mobile/PhoneHeader";
+import { PhoneBar, PhoneHeader } from "@/mobile/PhoneHeader";
 import { phoneBack } from "@/mobile/back";
 
 export function ChannelPage() {
@@ -46,6 +48,17 @@ function ChannelPageOf({ id }: { id: string }) {
   const [older, setOlder] = useState<Older>({ messages: [], deliveries: [], more: null });
   const [renaming, setRenaming] = useState(false);
   const channel = page.data?.channel;
+  // The address holds the open Members panel (`?panel=members`): a drawer on the laptop, a page on the phone that
+  // is one history entry over the channel, so ‹ and Android back return to it.
+  const members = (useSearch({ strict: false }) as { panel?: string }).panel === "members";
+  const setMembers = (open: boolean) => {
+    if (phone) {
+      if (open && !members) void navigate({ to: "/channels/$id", params: { id }, search: { panel: "members" } as never });
+      else if (!open && members) phoneBack(`/channels/${id}`);
+      return;
+    }
+    void navigate({ to: "/channels/$id", params: { id }, search: (open ? { panel: "members" } : {}) as never, replace: true });
+  };
   const { messages, deliveries, more } = useMemo(() => {
     const p = page.data;
     if (!p) return { messages: [], deliveries: [], more: false };
@@ -88,7 +101,10 @@ function ChannelPageOf({ id }: { id: string }) {
   const meta = <span className="min-w-0 truncate" data-tour="channel.meta">{[state, channel.kind === "dm" ? null : channel.purpose || null, `${memberNames.join(", ") || "No bot"} · you`].filter(Boolean).join(" · ")}</span>;
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["channel", id] }), qc.invalidateQueries({ queryKey: ["channels"] })]);
   const pause = <ActionButton name="channel.pause" params={{ id }} body={{ paused: !channel.paused }} icon={channel.paused ? "play" : "stop"} title={channel.paused ? "Deliveries start again" : "Stop every delivery in this channel: messages still post, nobody wakes up"} onDone={refresh}><span data-tour="channel.pause">{channel.paused ? "Resume" : "Pause"}</span></ActionButton>;
+  const named = channel.kind === "channel";
+  const membersButton = named && <button className={`btn btn-sm ${members ? "border-teal/40 bg-teal-soft text-teal-ink" : ""}`} aria-pressed={members} data-tour="channel.members-button" title="Who reads and posts here, and when each bot is woken" onClick={() => setMembers(!members)}><Icon name="agents" size={12} />Members · {channel.members.length + 1}</button>;
   const menu = (close: () => void) => <>
+    {phone && named && <MenuItem icon={<Icon name="agents" size={14} />} label="Members" detail={`${channel.members.length + 1}: you and ${channel.members.length} bot${channel.members.length === 1 ? "" : "s"}`} onClick={() => { close(); setMembers(true); }} />}
     {phone && <ActionMenuItem name="channel.pause" params={{ id }} body={{ paused: !channel.paused }} close={close} icon={channel.paused ? "play" : "stop"} label={channel.paused ? "Resume" : "Pause"} detail={channel.paused ? "Deliveries start again" : "Messages still post, nobody wakes up"} onDone={refresh} />}
     {channel.kind === "dm" && <ActionMenuItem name="channel.block" params={{ id }} body={{ blocked: !channel.blocked }} close={close} icon={channel.blocked ? "play" : "x"} label={channel.blocked ? "Unblock this DM" : "Block this DM"} detail={channel.blocked ? "Its bots can post again" : "Its bots can no longer post; you still can"} onDone={refresh} />}
     {channel.members.map((m) => <MenuItem key={m.bot_id} icon={<Icon name="comment" size={14} />} label={`Open ${m.name}'s chat`} detail="Its own thread, where it works on what it reads here" onClick={() => { close(); void navigate({ to: "/bots/$id", params: { id: m.bot_id } }); }} />)}
@@ -98,10 +114,12 @@ function ChannelPageOf({ id }: { id: string }) {
   </>;
   const header = phone
     ? <PhoneHeader title={channel.title} onBack={() => phoneBack("/chats")} backLabel="All chats" subtitle={state ?? undefined} actions={menu} details={<p className="m-0 text-[12px] text-ink-3">{meta}</p>} />
-    : <PageHeader title={channel.title} meta={meta} actions={<>{pause}<MoreMenu label={`More actions for ${channel.title}`} width={300}>{menu}</MoreMenu></>} />;
-  return (
-    <div className="flex h-full min-h-0 flex-col" data-tour="channel.page">
-      {header}
+    : <PageHeader title={channel.title} meta={meta} actions={<>{membersButton}{pause}<MoreMenu label={`More actions for ${channel.title}`} width={300}>{menu}</MoreMenu></>} />;
+  if (phone && members && named) return <div className="flex h-full min-h-0 flex-col" data-tour="channel.page">
+    <PhoneBar title={`Members of ${channel.title}`} onBack={() => setMembers(false)} backLabel="Back to the channel" />
+    <div className="min-h-0 flex-1 overflow-y-auto">{named && <ChannelMembers channel={channel} />}</div>
+  </div>;
+  const body = <div className="flex h-full min-h-0 flex-col">
       {renaming && <RenameForm channel={channel} onClose={() => setRenaming(false)} onDone={refresh} />}
       <MessageList channel={channel} messages={messages} lines={lines} byId={byId} more={more} loadingMore={loadingMore} onOlder={() => void loadOlder()} />
       {footer && <div className={`flex flex-wrap items-center gap-2 border-t border-line-2 px-5 py-1.5 text-[12px] ${footer.stopped ? "bg-attn-soft text-attn" : "text-ink-3"}`} data-tour="channel.guard" title="The loop guard: a bot's message counts one hop more than the message that woke it; your own messages reset the hop and the hourly count">
@@ -110,6 +128,16 @@ function ChannelPageOf({ id }: { id: string }) {
         {footer.stopped && <ActionButton name="channel.allow-more" params={{ id }} onDone={refresh} />}
       </div>}
       <ChannelComposer channel={channel} onSent={refresh} />
+    </div>;
+  const drawer = <div className="flex h-full min-h-0 flex-col" data-tour="channel.members-panel">
+    <div className="flex min-h-11 flex-none items-center gap-2 border-b border-line-2 px-3"><b className="min-w-0 flex-1 truncate text-[13px]">Members</b><IconButton icon="x" label="Close Members" onClick={() => setMembers(false)} /></div>
+    <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"><ChannelMembers channel={channel} /></div>
+  </div>;
+  return (
+    <div className="flex h-full min-h-0 flex-col" data-tour="channel.page">
+      {header}
+      {/* Always the split view, so the message list (and a draft in its box) stays mounted when Members opens. */}
+      {phone ? body : <SplitView storageKey="launchpad.channel-members-width" sideLabel="Members" initial={340} min={300} maxRatio={0.5} main={body} side={members && named ? drawer : null} />}
     </div>
   );
 }

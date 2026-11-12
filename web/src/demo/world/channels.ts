@@ -1,6 +1,7 @@
 // Bot channels part of the demo world (Home's `channel`, `channel_member`, `channel_message` and `channel_delivery`
 // tables): #release-train, where the Release bot, the Maintainer and Docs plan the weekly release until the hop limit
-// stops a delivery; #triage, where the Maintainer asks you twice; and the DM Maintainer ↔ Release, which you joined.
+// stops a delivery; #triage, where the Maintainer asks you twice; the DM Maintainer ↔ Release, which you joined; and
+// #spring-sale, archived after the sale (Bots → Archived channels).
 // The routes (routes/channels.ts) compute the counts Home adds (unread, attention, hourly count, last message).
 
 import type { Channel } from "@/gen/Channel";
@@ -19,6 +20,7 @@ export type ChannelRecord = Pick<Channel, "id" | "workspace_id" | "kind" | "name
 export const RELEASE_TRAIN = "demo-chan-release-train";
 export const TRIAGE = "demo-chan-triage";
 export const DM_MAINTAINER_RELEASE = "demo-chan-dm-maintainer-release";
+export const SPRING_SALE = "demo-chan-spring-sale";
 
 export function channelsWorld() {
   const base = { workspace_id: WS.acme, paused: false, blocked: false, hop_limit: 3, hourly_limit: 30, allowance: 0, archived: false, created_by: "owner" };
@@ -29,6 +31,8 @@ export function channelsWorld() {
       members: [{ bot_id: BOT, mode: "all", last_read: 22 }] },
     { ...base, id: DM_MAINTAINER_RELEASE, kind: "dm", name: `dm:${BOT}:${RELEASE_BOT}`, purpose: "", reset_at: clock.ago(25), created_at: clock.ago(60 * 24 * 2), owner_read: 33, created_by: `bot:${RELEASE_BOT}`,
       members: [{ bot_id: BOT, mode: "all", last_read: 34 }, { bot_id: RELEASE_BOT, mode: "all", last_read: 34 }] },
+    { ...base, id: SPRING_SALE, kind: "channel", name: "spring-sale", purpose: "Prices and banners of the spring sale", archived: true, reset_at: clock.ago(60 * 24 * 40), created_at: clock.ago(60 * 24 * 50), owner_read: 11,
+      members: [{ bot_id: BOT, mode: "mentions", last_read: 11 }, { bot_id: DOCS_BOT, mode: "all", last_read: 11 }] },
   ];
   const owner = { kind: "owner" as const, id: "owner", name: "You" };
   const release = { kind: "bot" as const, id: RELEASE_BOT, name: "Release" };
@@ -37,6 +41,8 @@ export function channelsWorld() {
     id, channel_id, author, session_id: null, turn: null, text, mentions: [], reply_to: null, hops: author.kind === "owner" ? 0 : 1, ask_owner: false, created_at: clock.ago(minutesAgo), ...extra,
   });
   const channelMessages: ChannelMessage[] = [
+    msg(10, SPRING_SALE, owner, 60 * 24 * 41, "@docs the sale ends tonight: take the banner down tomorrow morning.", { mentions: [DOCS_BOT] }),
+    msg(11, SPRING_SALE, { kind: "bot", id: DOCS_BOT, name: "Docs" }, 60 * 24 * 40, "Done: the banner is gone and the sale page redirects to the catalog."),
     msg(20, TRIAGE, maintainer, 60 * 26, "Sorted the 6 issues opened since Monday: 4 labeled, 2 duplicates closed as proposals for you."),
     msg(21, TRIAGE, maintainer, 60 * 5, "@owner #131 asks for PayPal in the checkout. Do we want it on the roadmap, or should I close it as out of scope?", { mentions: ["owner"], ask_owner: true }),
     msg(22, TRIAGE, maintainer, 60 * 4, "@owner #133 reports a crash on Safari 17 that I cannot reproduce. Ask the reporter for a recording?", { mentions: ["owner"] }),

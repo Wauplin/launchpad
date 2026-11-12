@@ -13,13 +13,14 @@ import { Icon, type IconName } from "@/components/Icon";
 import { MenuItem } from "@/components/Popover";
 import { Markdown } from "@/components/Markdown";
 import { toast, toastError } from "@/components/Toast";
-import { ConfirmButton, Empty, ErrorState, IconButton, Loading, MoreMenu, PageHeader, Tabs } from "@/components/ui";
+import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, IconButton, Loading, MoreMenu, PageHeader, Tabs } from "@/components/ui";
 import { PatchView } from "@/features/github/DiffReview";
 import { BotChat } from "@/features/chat/BotChat";
 import { useNextSession } from "@/features/chat/nextSession";
 import { BotConversationRow } from "./BotConversationRow";
-import { ChannelConversationRow } from "@/features/channels/ChannelRows";
-import { channelsOf, useChannels } from "@/lib/channels";
+import { ArchivedChannelRow, ChannelConversationRow } from "@/features/channels/ChannelRows";
+import { NewChannel } from "@/features/channels/NewChannel";
+import { archivedOf, channelsOf, useChannels } from "@/lib/channels";
 import type { ConnectionsOverview } from "@/features/settings/ConnectionsView";
 import { useTelegram } from "@/features/settings/TelegramSettings";
 import { BotAvatar } from "@/components/BotAvatar";
@@ -82,15 +83,21 @@ export function BotsView() {
   const bots = useBots();
   const scope = useScope();
   const sessions = useBotSessions();
-  const search = useSearch({ strict: false }) as { new?: boolean };
+  const search = useSearch({ strict: false }) as { new?: true | "channel"; archived?: true };
   const navigate = useNavigate();
   const mine = (bots.data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
-  const { channels, dms } = channelsOf(useChannels().data, scope.workspace.id);
-  const creating = !!search.new || (bots.isSuccess && mine.length === 0);
+  const all = useChannels().data;
+  const { channels, dms } = channelsOf(all, scope.workspace.id);
+  const archived = archivedOf(all, scope.workspace.id);
+  const newChannel = search.new === "channel" && mine.length > 0;
+  const creating = !newChannel && (search.new === true || (bots.isSuccess && mine.length === 0));
+  const showArchived = !!search.archived && !creating;
   const close = () => void navigate({ to: "/bots", search: {} as never });
+  const newBotLink = <Link to="/bots" search={{ new: true } as never} className={`btn btn-sm ${phone ? "" : "btn-primary"}`} data-tour="bots.new"><Icon name="plus" size={12} />New bot</Link>;
+  const newChannelLink = mine.length > 0 && <Link to="/bots" search={{ new: "channel" } as never} className="btn btn-sm" data-tour="channels.new"><Icon name="plus" size={12} />New channel</Link>;
   const header = phone
-    ? <PhoneHeader title="Bots" primary={!creating ? <Link to="/bots" search={{ new: true } as never} className="btn btn-sm"><Icon name="plus" size={12} />New bot</Link> : undefined} />
-    : <PageHeader title="Bots" meta={mine.length ? [`${mine.length} bot${mine.length === 1 ? "" : "s"}`, channels.length && `${channels.length} channel${channels.length === 1 ? "" : "s"}`, dms.length && `${dms.length} DM${dms.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ") : undefined} intro="Persistent agents with one thread, memory in the knowledge base and files on Home." actions={!creating && <Link to="/bots" search={{ new: true } as never} className="btn btn-sm btn-primary" data-tour="bots.new"><Icon name="plus" size={12} />New bot</Link>} />;
+    ? <PhoneHeader title={showArchived ? "Archived channels" : "Bots"} onBack={showArchived ? () => phoneBack("/chats") : undefined} primary={!creating && !newChannel && !showArchived ? newBotLink : undefined} />
+    : <PageHeader title="Bots" meta={mine.length ? [`${mine.length} bot${mine.length === 1 ? "" : "s"}`, channels.length && `${channels.length} channel${channels.length === 1 ? "" : "s"}`, dms.length && `${dms.length} DM${dms.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ") : undefined} intro="Persistent agents with one thread, memory in the knowledge base and files on Home." actions={!creating && !newChannel && <>{newChannelLink}{newBotLink}</>} />;
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.page">
       {header}
@@ -98,11 +105,21 @@ export function BotsView() {
         <div className="grid w-full max-w-page grid-cols-[minmax(0,1fr)] gap-4 px-5 py-4">
           {bots.isLoading ? <Loading what="bots" /> : bots.error ? <ErrorState error={bots.error} onRetry={() => void bots.refetch()} /> : <>
             {creating && <NewBot first={mine.length === 0} onCancel={mine.length ? close : undefined} />}
-            <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
-              {conversationOrder(mine, sessions, scope.workspace.id).map(({ bot, thread, pinned }) => <BotConversationRow key={bot.id} bot={bot} thread={thread} pinned={pinned} className="rounded-card border border-line bg-paper" />)}
-            </div>
-            {channels.length > 0 && <section className="grid grid-cols-[minmax(0,1fr)] gap-2" data-tour="bots.channels"><h2 className="seclabel m-0">Channels</h2>{channels.map((c) => <ChannelConversationRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}</section>}
-            {dms.length > 0 && <section className="grid grid-cols-[minmax(0,1fr)] gap-2"><h2 className="seclabel m-0">Bot DMs</h2>{dms.map((c) => <ChannelConversationRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}</section>}
+            {newChannel && <NewChannel onCancel={close} />}
+            {(archived.length > 0 || showArchived) && !creating && !newChannel && <FilterChips label="Show">
+              <FilterChip active={!showArchived} onClick={() => void navigate({ to: "/bots", search: {} as never, replace: true })}>Bots and channels</FilterChip>
+              <FilterChip active={showArchived} count={archived.length} onClick={() => void navigate({ to: "/bots", search: { archived: true } as never, replace: true })}>Archived channels</FilterChip>
+            </FilterChips>}
+            {showArchived ? <section className="grid grid-cols-[minmax(0,1fr)] gap-2" data-tour="channels.archived">
+              {archived.length === 0 ? <Empty icon="archive">No archived channel in {scope.workspace.name}.</Empty>
+                : archived.map((c) => <ArchivedChannelRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}
+            </section> : <>
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
+                {conversationOrder(mine, sessions, scope.workspace.id).map(({ bot, thread, pinned }) => <BotConversationRow key={bot.id} bot={bot} thread={thread} pinned={pinned} className="rounded-card border border-line bg-paper" />)}
+              </div>
+              {channels.length > 0 && <section className="grid grid-cols-[minmax(0,1fr)] gap-2" data-tour="bots.channels"><h2 className="seclabel m-0">Channels</h2>{channels.map((c) => <ChannelConversationRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}</section>}
+              {dms.length > 0 && <section className="grid grid-cols-[minmax(0,1fr)] gap-2"><h2 className="seclabel m-0">Bot DMs</h2>{dms.map((c) => <ChannelConversationRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}</section>}
+            </>}
           </>}
         </div>
       </div>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deliveryLines, loopFooter, mentionAt, channelLastLine } from "../src/lib/channelRows.ts";
+import { deliveryLines, loopFooter, mentionAt, channelLastLine, channelNameError, archivedOf } from "../src/lib/channelRows.ts";
 
 const msg = (id, extra = {}) => ({ id, channel_id: "c", author: { kind: "bot", id: "r", name: "Release" }, session_id: null, turn: null, text: "hi", mentions: [], reply_to: null, hops: 1, ask_owner: false, created_at: 0, ...extra });
 const del = (id, message_id, bot_id, state, extra = {}) => ({ id, message_id, bot_id, state, reason: null, session_id: null, joined: null, at: 0, ...extra });
@@ -45,4 +45,14 @@ test("a row's last line names its author", () => {
   assert.equal(channelLastLine(channel({ last_by: "you", last_text: "Wait" })), "You: Wait");
   assert.equal(channelLastLine(channel({ last_by: "Maintainer", last_text: "Confirmed" })), "Maintainer: Confirmed");
   assert.equal(channelLastLine(channel({ purpose: "Ship it" })), "Ship it");
+});
+
+test("a new channel's name is a free slug; archived channels are listed apart", () => {
+  assert.equal(channelNameError("release-train", []), null);
+  assert.ok(channelNameError("Release", []));
+  assert.ok(channelNameError("-x", []));
+  assert.ok(channelNameError("a".repeat(41), []));
+  assert.match(channelNameError("triage", ["triage"]), /already exists/);
+  const all = [{ id: "a", workspace_id: "w", archived: true }, { id: "b", workspace_id: "w", archived: false }, { id: "c", workspace_id: "x", archived: true }];
+  assert.deepEqual(archivedOf(all, "w").map((c) => c.id), ["a"]);
 });

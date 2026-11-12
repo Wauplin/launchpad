@@ -343,6 +343,16 @@ export function agentsWorld() {
         before: { "BOT.md": "b2", "routines/review-requests.toml": null },
         patches: { "BOT.md": MAINTAINER_BOT_MD_PATCH, "routines/review-requests.toml": `@@ -0,0 +1,${REVIEW_ROUTINE.trimEnd().split("\n").length} @@\n${REVIEW_ROUTINE.trimEnd().split("\n").map((l) => `+${l}`).join("\n")}\n` } },
       state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(12), updated_at: clock.ago(12) },
+    // The Maintainer proposes a channel (it has propose access, so creating one is your click), and Docs asks to join
+    // #triage after its post there was refused ("not a member of #triage").
+    { id: "demo-prop-channel-checkout", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "A channel for checkout work",
+      note: "Release and I both touch checkout every week; one channel keeps our questions about it in one place.",
+      body: { kind: "channel", name: "checkout", purpose: "Checkout changes, their tests and their release", members: [{ bot: "demo-bot-maintainer", name: "Maintainer", mode: "all" }, { bot: "demo-bot-release", name: "Release", mode: "mentions" }] },
+      state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(11), updated_at: clock.ago(11) },
+    { id: "demo-prop-join-triage", workspace_id: WS.acme, session_id: null, title: "Docs asks to join #triage",
+      note: "Issues about the docs land in #triage; I would answer the ones that only need a docs link.",
+      body: { kind: "channel_join", channel: "demo-chan-triage", channel_name: "triage", bot_id: "demo-bot-docs", bot_name: "Docs", mode: "mentions" },
+      state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(16), updated_at: clock.ago(16) },
     // A card the owner already handled: one receipt line in the Maintainer's chat.
     { id: "demo-prop-weekly-summary", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "Weekly checkout summary",
       note: "A short summary of checkout changes every Monday, so nothing slips through.",

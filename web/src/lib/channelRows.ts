@@ -4,11 +4,33 @@
 import type { Channel } from "@/gen/Channel";
 import type { ChannelDelivery } from "@/gen/ChannelDelivery";
 import type { ChannelMessage } from "@/gen/ChannelMessage";
+import type { ChannelMemberMode } from "@/gen/ChannelMemberMode";
 
 /** The workspace's channels and DMs that are not archived, newest activity first (Home's order), split by kind. */
 export function channelsOf(all: Channel[] | undefined, workspaceId: string | null | undefined): { channels: Channel[]; dms: Channel[] } {
   const mine = (all ?? []).filter((c) => c.workspace_id === workspaceId && !c.archived);
   return { channels: mine.filter((c) => c.kind === "channel"), dms: mine.filter((c) => c.kind === "dm") };
+}
+
+/** The workspace's archived channels and DMs: the Archived list, where they come back or go for good. */
+export function archivedOf(all: Channel[] | undefined, workspaceId: string | null | undefined): Channel[] {
+  return (all ?? []).filter((c) => c.workspace_id === workspaceId && c.archived);
+}
+
+/** When a member bot is woken, in words (the Members panel and the New channel form). */
+export const MODES: { id: ChannelMemberMode; label: string }[] = [
+  { id: "all", label: "Every message" },
+  { id: "mentions", label: "When mentioned" },
+  { id: "digest", label: "Daily digest" },
+  { id: "muted", label: "Muted" },
+];
+
+/** Why a new channel cannot have this name (Home checks again): lowercase letters, digits and dashes, starting with
+ * a letter or digit, at most 40, and not taken in the workspace (archived channels included). */
+export function channelNameError(name: string, taken: string[]): string | null {
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)) return "Lowercase letters, digits and dashes, starting with a letter or digit";
+  if (taken.includes(name)) return `#${name} already exists in this workspace`;
+  return null;
 }
 
 /** Channels of the workspace with a message that mentions or asks the owner, unread: the amber part of a Chats count. */

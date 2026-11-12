@@ -21,7 +21,8 @@ export type ActivityLink =
   | { to: "/schedules"; search: { routine: string } | { launch: string } }
   | { to: "/agents"; search: { session: string } }
   | { to: "/projects/$id"; params: { id: string } }
-  | { to: "/settings/credentials"; search: { tool: string } };
+  | { to: "/settings/credentials"; search: { tool: string } }
+  | { to: "/channels/$id"; params: { id: string } };
 
 /** The record an activity changed: its route parameter, or for a create the ID its undo (a delete) names. */
 export function activityLink(a: Activity): ActivityLink | null {
@@ -38,6 +39,7 @@ export function activityLink(a: Activity): ActivityLink | null {
     case "session": return { to: "/agents", search: { session: id } };
     case "folder": return { to: "/projects/$id", params: { id } };
     case "tool": return { to: "/settings/credentials", search: { tool: id } };
+    case "channel": return { to: "/channels/$id", params: { id } };
     default: return null;
   }
 }
@@ -58,12 +60,13 @@ export function activityParts(a: Activity): { before: string; target: string | n
 export const activityLine = (a: Activity): string => { const p = activityParts(a); return `${p.before}${p.target ?? ""}${p.after}`; };
 
 /** The record kind of an action group, for receipts. */
-const NOUN: Record<string, string> = { bot: "bot", routine: "routine", schedule: "scheduled launch", session: "agent", folder: "folder", tool: "tool", tools: "default tools", mcp: "MCP tool", workspace: "workspace", settings: "settings", proposal: "card", home: "Home" };
+const NOUN: Record<string, string> = { bot: "bot", routine: "routine", schedule: "scheduled launch", session: "agent", folder: "folder", tool: "tool", tools: "default tools", channel: "channel", mcp: "MCP tool", workspace: "workspace", settings: "settings", proposal: "card", home: "Home" };
 
 /** A short receipt of a direct change: "changed routine Daily check", "added routine Review requests". */
 export function activityReceipt(a: Pick<Activity, "action" | "target" | "body">): string {
   const [group, verb = ""] = a.action.split(".");
   if (a.action === "bot.add-routine") return `added a routine${a.target ? ` to ${a.target}` : ""}`;
+  if (group === "channel" && (verb.endsWith("member") || verb === "set-mode")) return `changed the members of ${a.target ?? "a channel"}`;
   const did = verb === "create" || verb.startsWith("add") ? "added" : verb === "delete" ? "deleted" : verb === "cancel" ? "cancelled" : verb === "pause" ? ((a.body as { paused?: boolean } | null)?.paused === false ? "resumed" : "paused") : verb === "run" || verb === "start" ? "started" : verb === "message" ? "messaged" : verb === "launch" ? "launched" : "changed";
   const noun = NOUN[group] ?? group;
   return `${did} ${noun}${a.target ? ` ${a.target}` : ""}`;

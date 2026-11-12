@@ -4,7 +4,7 @@ import { useTodayCount } from "@/features/today/data";
 import { botInitial, botState, botThread, useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
 import { useScope } from "@/lib/workspace";
-import { channelsOf, useChannels } from "@/lib/channels";
+import { archivedOf, channelsOf, useChannels } from "@/lib/channels";
 import { ChannelLink } from "@/features/channels/ChannelRows";
 import { WorkspaceMenu } from "@/features/workspaces/WorkspaceMenu";
 import { Link } from "@tanstack/react-router";
@@ -143,7 +143,9 @@ const SubLabel = ({ children }: { children: ReactNode }) => <div className="mt-1
 function BotList({ sessions, narrow }: { sessions: Session[]; narrow: boolean }) {
   const scope = useScope();
   const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
-  const { channels, dms } = channelsOf(useChannels().data, scope.workspace.id);
+  const allChannels = useChannels().data;
+  const { channels, dms } = channelsOf(allChannels, scope.workspace.id);
+  const archived = archivedOf(allChannels, scope.workspace.id).length;
   if (narrow) return (
     <div className="flex flex-none flex-col gap-px" data-tour="sidebar.bots">
       {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} narrow />)}
@@ -163,6 +165,7 @@ function BotList({ sessions, narrow }: { sessions: Session[]; narrow: boolean })
       {bots.length === 0 && <Link to="/bots" search={{ new: true } as never} className="mx-[9px] my-1 text-[12px] text-teal-ink no-underline hover:underline">+ New bot</Link>}
       {channels.length > 0 && <div className="flex flex-col gap-px" data-tour="sidebar.channels"><SubLabel>Channels</SubLabel>{channels.map((c) => <ChannelLink key={c.id} c={c} />)}</div>}
       {dms.length > 0 && <div className="flex flex-col gap-px" data-tour={channels.length ? undefined : "sidebar.channels"}><SubLabel>Bot DMs</SubLabel>{dms.map((c) => <ChannelLink key={c.id} c={c} />)}</div>}
+      {archived > 0 && <Link to="/bots" search={{ archived: true } as never} className="mx-[9px] mt-1 text-[12px] text-ink-3 no-underline hover:text-ink hover:underline" data-tour="sidebar.archived">Archived channels · {archived}</Link>}
     </Group>
   );
 }
