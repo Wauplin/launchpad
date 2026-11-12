@@ -98,7 +98,10 @@ async fn stream_to_home(target: launchpad_core::runners::proto::HttpTarget, meth
     let Some(bulk) = bulk.filter(|_| control(FromRunner::HttpOpen { id, target, method, path, headers })) else {
         anyhow::bail!("Home is unreachable");
     };
+    // Dropped when the request body is sent (or its upload stopped).
+    let (sent_tx, sent_rx) = tokio::sync::oneshot::channel::<()>();
     tokio::spawn(async move {
+        let _sent = sent_tx;
         while let Some(part) = body.next().await {
             let Ok(part) = part else { break };
             for c in part.chunks(crate::wire::CHUNK) {
@@ -110,10 +113,20 @@ async fn stream_to_home(target: launchpad_core::runners::proto::HttpTarget, meth
         let _ = bulk.send(FromRunner::HttpBody { id, data: String::new(), end: true }).await;
         HOME.uploads.lock().unwrap().remove(&id);
     });
-    let (status, headers) = match tokio::time::timeout(Duration::from_secs(120), head_rx).await {
-        Ok(Ok(h)) => h,
-        Ok(Err(_)) => anyhow::bail!("Home disconnected before answering"),
-        Err(_) => anyhow::bail!("Home did not answer within two minutes"),
+    // Two minutes for Home's answer once the request body is sent, so a large upload (a first handoff, a push)
+    // on a slow link is not cut while it still goes; at most half an hour in all.
+    let answered = async {
+        tokio::select! {
+            h = head_rx => h.map_err(|_| anyhow::anyhow!("Home disconnected before answering")),
+            _ = async {
+                let _ = sent_rx.await;
+                tokio::time::sleep(Duration::from_secs(120)).await;
+            } => anyhow::bail!("Home did not answer within two minutes"),
+        }
+    };
+    let (status, headers) = match tokio::time::timeout(Duration::from_secs(30 * 60), answered).await {
+        Ok(h) => h?,
+        Err(_) => anyhow::bail!("Home did not answer within half an hour"),
     };
     Ok(home_link::HttpReply { status, headers, body: Box::pin(reply_body) })
 }

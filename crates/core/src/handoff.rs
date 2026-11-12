@@ -176,32 +176,43 @@ async fn write_attachments(app: &App, id: &str, files: &[HandoffFile]) -> Result
     Ok(())
 }
 
-fn client() -> Result<reqwest::Client> {
-    Ok(reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(30)).timeout(std::time::Duration::from_secs(600)).build()?)
-}
-
-fn to_home(app: &App, method: reqwest::Method, path: &str) -> Result<reqwest::RequestBuilder> {
+/// Sends a handoff request to Home through this runner's tunnel (`exchange::home` on Home), with the runner
+/// credential: never by HTTPS to Home's address, where a front proxy (a Space's gateway) may refuse a request
+/// that is not a browser's. Ok(Err(reason)): Home answered and refused.
+async fn to_home(app: &App, method: &str, path: &str, body: Option<Vec<u8>>) -> Result<std::result::Result<serde_json::Value, String>> {
+    use futures_util::StreamExt;
     let link = crate::home_link::load(&app.paths).context("this runner is not connected to a Home")?;
-    let mut r = client()?.request(method, format!("{}{path}", link.url.trim_end_matches('/'))).header("x-launchpad-runner", link.credential());
-    if let Some(t) = crate::home_link::space_token(&link.url) {
-        r = r.bearer_auth(t);
+    let mut headers = vec![("x-launchpad-runner".to_string(), link.credential())];
+    let stream: crate::home_link::ByteStream = match body {
+        Some(b) => {
+            headers.push(("content-type".to_string(), "application/json".to_string()));
+            Box::pin(futures_util::stream::once(async move { Ok(bytes::Bytes::from(b)) }))
+        }
+        None => Box::pin(futures_util::stream::empty()),
+    };
+    let reply = crate::home_link::http(crate::runners::proto::HttpTarget::Home, method, path, headers, stream).await?;
+    let mut text = Vec::new();
+    let mut body = reply.body;
+    while let Some(part) = body.next().await {
+        text.extend_from_slice(&part.context("Home's answer was cut")?);
     }
-    Ok(r)
+    if !(200..300).contains(&reply.status) {
+        return Ok(Err(refusal(reply.status, &text)));
+    }
+    Ok(Ok(serde_json::from_slice(&text).context("Home's answer is not JSON")?))
 }
 
-async fn answer(r: reqwest::RequestBuilder) -> Result<serde_json::Value> {
-    answer_or_refusal(r).await?.map_err(|e| anyhow::anyhow!("Home: {e}"))
+/// The reason of a refusal: the `error` of a JSON answer, else the start of a text answer, with its status.
+fn refusal(status: u16, body: &[u8]) -> String {
+    if let Some(e) = serde_json::from_slice::<serde_json::Value>(body).ok().and_then(|v| v["error"].as_str().map(str::to_string)) {
+        return e;
+    }
+    let text: String = String::from_utf8_lossy(body).trim().chars().take(200).collect();
+    if text.is_empty() { format!("HTTP {status}") } else { format!("HTTP {status}: {text}") }
 }
 
-/// Ok(Err(reason)): Home answered and refused.
-async fn answer_or_refusal(r: reqwest::RequestBuilder) -> Result<std::result::Result<serde_json::Value, String>> {
-    let res = r.send().await?;
-    let status = res.status();
-    let v: serde_json::Value = res.json().await.unwrap_or_default();
-    if !status.is_success() {
-        return Ok(Err(v["error"].as_str().unwrap_or(status.as_str()).to_string()));
-    }
-    Ok(Ok(v))
+async fn answer(app: &App, method: &str, path: &str) -> Result<serde_json::Value> {
+    to_home(app, method, path, None).await?.map_err(|e| anyhow::anyhow!("Home: {e}"))
 }
 
 /// Attached files Home confirmed, by session: a later handoff names them by hash only (`send`).
@@ -294,11 +305,11 @@ async fn send(app: &App, id: &str, h: &Handoff) -> Result<()> {
         }
         files.insert(f.name.clone(), (data.len(), sha));
     }
-    let post = |path: &str, h: &Handoff| -> Result<reqwest::RequestBuilder> { Ok(to_home(app, reqwest::Method::POST, path)?.json(h)) };
+    let post = async |path: &str, h: &Handoff| to_home(app, "POST", path, Some(serde_json::to_vec(h)?)).await;
     let full = format!("/api/handoff/{id}");
-    let mut result = if shortened { answer_or_refusal(post(&format!("{full}/parts"), &short)?).await } else { answer_or_refusal(post(&full, h)?).await };
+    let mut result = if shortened { post(&format!("{full}/parts"), &short).await } else { post(&full, h).await };
     if shortened && matches!(result, Ok(Err(_))) {
-        result = answer_or_refusal(post(&full, h)?).await;
+        result = post(&full, h).await;
     }
     let result = result.and_then(|r| r.map_err(|e| anyhow::anyhow!("Home: {e}")));
     match result {
@@ -460,7 +471,7 @@ pub async fn clean_archived(app: &App, id: &str) -> Result<bool> {
 /// Runner: puts back the native conversation of a session whose folder `clean_archived` removed, from Home's
 /// copy, before its harness starts again.
 pub async fn restore(app: &App, s: &Session) -> Result<()> {
-    let a: Adoption = serde_json::from_value(answer(to_home(app, reqwest::Method::GET, &format!("/api/handoff/{}", s.id))?).await?)?;
+    let a: Adoption = serde_json::from_value(answer(app, "GET", &format!("/api/handoff/{}", s.id)).await?)?;
     let h = a.handoff.filter(|h| h.generation == s.generation && h.harness_session_id == s.harness_session_id && !h.files.is_empty());
     let h = h.context("Home has no copy of this agent's conversation")?;
     remember(&s.id, &h.files, &h.attachments);
@@ -574,7 +585,7 @@ async fn adopt_with(app: &App, id: &str, moved_only: bool) -> Result<()> {
     // Home's adopt request, a relayed request that adopts lazily (`home_client::local`) and `release` take turns.
     let lock = app.suggestion_locks.get(&format!("adopt:{id}"));
     let _lock = lock.lock().await;
-    let a: Adoption = serde_json::from_value(answer(to_home(app, reqwest::Method::GET, &format!("/api/handoff/{id}"))?).await?)?;
+    let a: Adoption = serde_json::from_value(answer(app, "GET", &format!("/api/handoff/{id}")).await?)?;
     let mut s = a.session;
     ensure!(!moved_only || s.generation > 0, "no such session on this runner");
     if app.sessions.get(id).is_some_and(|local| local.generation >= s.generation) {
@@ -860,8 +871,15 @@ pub(crate) async fn move_locked(app: &App, id: &str, to: &str) -> Result<Session
 
 #[cfg(test)]
 mod tests {
-    use super::{FinalStep, Part, final_step, part};
+    use super::{FinalStep, Part, final_step, part, refusal};
     use sha2::{Digest, Sha256};
+
+    #[test]
+    fn a_refusal_names_its_reason() {
+        assert_eq!(refusal(400, br#"{"error":"this session runs elsewhere now"}"#), "this session runs elsewhere now");
+        assert_eq!(refusal(403, b"Use the Space origin\n"), "HTTP 403: Use the Space origin");
+        assert_eq!(refusal(502, b""), "HTTP 502");
+    }
 
     #[test]
     fn only_the_appended_tail_of_a_file_home_holds_is_sent() {
