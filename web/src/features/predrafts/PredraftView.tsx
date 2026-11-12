@@ -194,11 +194,11 @@ function Review({ id }: { id: string }) {
       <PhoneActions label="Local PR actions" closeOnAction={false}>{github ? <>{mergeButton("")}{discardButton}</> : discardButton}</PhoneActions>
       {publishing && <Sheet title="Publish on GitHub" onClose={() => setPublishing(false)}><div className="grid gap-3 p-4">{publishFields}{publishButton("")}</div></Sheet>}
     </div> : <div data-tour="predraft.actions" className="phone-publish-bar flex flex-wrap items-center gap-2 border-t border-line p-3">
-      {github && <Popover label="Publish on GitHub" align="left" width={360} trigger={({ toggle }) => <button className={`btn ${all.length ? "" : "btn-primary"}`} disabled={busy || running || !d.head} onClick={toggle}>Publish…</button>}>
+      {github && <Popover viewport label="Publish on GitHub" align="left" width={360} trigger={({ toggle }) => <button className={`btn ${all.length ? "" : "btn-primary"}`} disabled={busy || running || !d.head} onClick={toggle}>Publish…</button>}>
         {() => <div className="grid gap-3 p-3"><b className="text-[12px]">Branch and publication options</b>{publishFields}{publishButton("")}</div>}
       </Popover>}
       {mergeButton("")}
-      <Popover label="Local PR actions" align="right" trigger={({ toggle }) => <button className="iconbtn" aria-label="Local PR actions" onClick={toggle}><Icon name="more" size={16} /></button>}>{() => discardButton}</Popover>
+      <Popover viewport label="Local PR actions" align="right" width={300} trigger={({ toggle }) => <button className="iconbtn" aria-label="Local PR actions" onClick={toggle}><Icon name="more" size={16} /></button>}>{() => discardButton}</Popover>
     </div>)}
   </div>;
 }

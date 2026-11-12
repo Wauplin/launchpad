@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { createPortal } from "react-dom";
 import { useZoomScale } from "@/lib/zoom";
 import { useBackClose } from "@/mobile/back";
+import { placePanel } from "./popoverPlace";
 
 export function Popover({
   trigger,
@@ -41,24 +42,9 @@ export function Popover({
       const panel = panelRef.current;
       if (!anchor || !panel) return;
       const view = window.visualViewport;
-      const x = view?.offsetLeft ?? 0;
-      const y = view?.offsetTop ?? 0;
-      const w = view?.width ?? window.innerWidth;
-      const h = view?.height ?? window.innerHeight;
-      if (anchor.bottom < y || anchor.top > y + h) { setOpen(false); return; }
-      const below = Math.max(0, y + h - anchor.bottom - 12);
-      const above = Math.max(0, anchor.top - y - 12);
-      const height = Math.min(panel.scrollHeight, 480) * scale;
-      const upwards = below < height && above > below;
-      const maxHeight = Math.min(480 * scale, upwards ? above : below);
-      const panelWidth = panel.getBoundingClientRect().width;
-      setPosition({
-        // DOM rectangles use viewport pixels; fixed CSS offsets inherit the root zoom.
-        left: Math.max(x + 8, Math.min(anchor.right - panelWidth, x + w - panelWidth - 8)) / scale,
-        top: (upwards ? Math.max(y + 8, anchor.top - 4 - Math.min(height, maxHeight)) : anchor.bottom + 4) / scale,
-        maxHeight: maxHeight / scale,
-        maxWidth: Math.max(0, w - 16) / scale,
-      });
+      const next = placePanel(anchor, { x: view?.offsetLeft ?? 0, y: view?.offsetTop ?? 0, w: view?.width ?? window.innerWidth, h: view?.height ?? window.innerHeight }, { width: panel.getBoundingClientRect().width, scrollHeight: panel.scrollHeight }, align, scale);
+      if (next) setPosition(next);
+      else setOpen(false);
     };
     place();
     const observer = new ResizeObserver(place);
@@ -74,7 +60,7 @@ export function Popover({
       window.visualViewport?.removeEventListener("resize", place);
       window.visualViewport?.removeEventListener("scroll", place);
     };
-  }, [open, viewport, scale]);
+  }, [open, viewport, scale, align]);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: Event) => {

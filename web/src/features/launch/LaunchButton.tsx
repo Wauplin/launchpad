@@ -101,7 +101,7 @@ export function LaunchSplitButton({ ctx, text, onLaunch, onUsed, primary = false
         {autoLaunchUntil ? "Launching…" : "Launch"}
         {draft && <span className={`rounded-full px-1.5 text-[11px] leading-4 font-semibold ${stale ? "bg-attn-soft text-attn" : "bg-sunk text-ink-2"}`}>draft{items ? ` · ${items}` : ""}</span>}
       </button>
-      <Popover align="right" width={280} trigger={({ open: menu, toggle }) => (
+      <Popover viewport align="right" width={280} trigger={({ open: menu, toggle }) => (
         <button className={`btn ${cls} rounded-l-none ${primary ? "border-l-white/30" : "border-l-0"} px-1.5!`} aria-label="Launch options" title="Launch options" aria-expanded={menu} onClick={toggle}><Icon name="chev" size={12} /></button>
       )}>
         {(close) => (
