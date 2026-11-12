@@ -43,4 +43,8 @@ outcome: string | null,
  * Items shown inside this card instead of on their own: the Local PRs of an agent that needs you. One card
  * per session, so each counts once.
  */
-grouped: Array<TodayItem>, };
+grouped: Array<TodayItem>, 
+/**
+ * A channel ask: the newest unanswered message (what Reply answers) and how many wait.
+ */
+message: number | null, count: number | null, };

@@ -179,6 +179,21 @@ pub struct ChannelDelivery {
     pub joined: Option<i64>,
     #[ts(type = "number")]
     pub at: i64,
+    /// A delivery of one message (and the ones that joined it), or a member's daily digest (`digest`), shown under
+    /// the newest message it lists (`message_id`).
+    pub kind: DeliveryKind,
+    /// A digest's first listed message and how many it lists.
+    #[ts(type = "number | null")]
+    pub first_message: Option<i64>,
+    pub count: Option<u32>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "ChannelDeliveryKind")]
+pub enum DeliveryKind {
+    Message,
+    Digest,
 }
 
 /// A channel with a page of its messages (oldest first) and their deliveries.
@@ -471,7 +486,7 @@ pub async fn get(app: &App, id: &str) -> Result<Channel> {
     view(app, r, &bots(app).await?).await
 }
 
-fn message_row(r: &rusqlite::Row) -> rusqlite::Result<ChannelMessage> {
+pub(crate) fn message_row(r: &rusqlite::Row) -> rusqlite::Result<ChannelMessage> {
     Ok(ChannelMessage {
         id: r.get(0)?,
         channel_id: r.get(1)?,
@@ -486,7 +501,7 @@ fn message_row(r: &rusqlite::Row) -> rusqlite::Result<ChannelMessage> {
         created_at: r.get(12)?,
     })
 }
-const MESSAGE: &str = "id, channel_id, author_kind, author_id, author_name, session_id, turn, text, mentions, reply_to, hops, ask_owner, created_at";
+pub(crate) const MESSAGE: &str = "id, channel_id, author_kind, author_id, author_name, session_id, turn, text, mentions, reply_to, hops, ask_owner, created_at";
 
 /// Messages of a channel, oldest first: after `since` (the oldest first), or else the newest ones before `before`;
 /// at most `limit` (1 to 200, 50 by default). Also says whether older ones exist.
@@ -523,7 +538,7 @@ pub async fn deliveries(app: &App, message_ids: Vec<i64>) -> Result<Vec<ChannelD
     app.state_db
         .call(move |c| {
             let ids = serde_json::to_string(&message_ids).unwrap_or_default();
-            let mut st = c.prepare("SELECT id, message_id, bot_id, state, reason, session_id, joined, at FROM channel_delivery WHERE message_id IN (SELECT value FROM json_each(?1)) ORDER BY id")?;
+            let mut st = c.prepare("SELECT id, message_id, bot_id, state, reason, session_id, joined, at, kind, first_message, count FROM channel_delivery WHERE message_id IN (SELECT value FROM json_each(?1)) ORDER BY id")?;
             let rows = st
                 .query_map([ids], |r| {
                     Ok(ChannelDelivery {
@@ -535,6 +550,9 @@ pub async fn deliveries(app: &App, message_ids: Vec<i64>) -> Result<Vec<ChannelD
                         session_id: r.get(5)?,
                         joined: r.get(6)?,
                         at: r.get(7)?,
+                        kind: parse(&r.get::<_, String>(8)?).unwrap_or(DeliveryKind::Message),
+                        first_message: r.get(9)?,
+                        count: r.get(10)?,
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;

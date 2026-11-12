@@ -636,7 +636,7 @@ mod tests {
         }
         // Admin creates channels and changes members; posting and the rest are the owner's (bots post as bots).
         assert!(admin_allows(&Method::POST, "/api/channels") && admin_allows(&Method::PUT, "/api/channels/c1/members/b1") && admin_allows(&Method::GET, "/api/channels/c1"));
-        for (m, p) in [(Method::POST, "/api/channels/c1/messages"), (Method::POST, "/api/channels/dm"), (Method::POST, "/api/channels/c1/pause"), (Method::POST, "/api/channels/c1/read"), (Method::POST, "/api/channels/c1/allow-more"), (Method::DELETE, "/api/channels/c1")] {
+        for (m, p) in [(Method::POST, "/api/channels/c1/messages"), (Method::POST, "/api/channels/dm"), (Method::POST, "/api/channels/c1/pause"), (Method::POST, "/api/channels/c1/read"), (Method::POST, "/api/channels/c1/allow-more"), (Method::POST, "/api/channels/c1/digest"), (Method::DELETE, "/api/channels/c1")] {
             assert!(!admin_allows(&m, p), "{m} {p}");
         }
         let why = |m: Method, p: &str| channel_refusal(&m, p).unwrap_or_default();

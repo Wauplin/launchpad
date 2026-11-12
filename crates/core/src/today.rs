@@ -56,6 +56,9 @@ pub enum Kind {
     /// An agent CLI update on the runners (`launchpad_setup::cli_update`): a major version to approve, an update
     /// that completed, or one that did not install.
     CliUpdate,
+    /// A bot channel or DM where a bot asks the owner (`--ask-owner`) or mentions the owner (`@owner`): one per
+    /// channel, until the owner posts there or reads past the newest ask (`launchpad_channels::today`).
+    ChannelAsk,
 }
 
 /// Where an item belongs, resolved by `compute` into `Item::workspaces`. A window shows only its workspace: an
@@ -116,6 +119,12 @@ pub struct Item {
     /// per session, so each counts once.
     #[serde(default)]
     pub grouped: Vec<Item>,
+    /// A channel ask: the newest unanswered message (what Reply answers) and how many wait.
+    #[ts(type = "number | null")]
+    #[serde(default)]
+    pub message: Option<i64>,
+    #[serde(default)]
+    pub count: Option<u32>,
     #[serde(skip)]
     #[ts(skip)]
     pub place: Place,
@@ -134,8 +143,9 @@ impl Item {
             Kind::Runner => "runner",
             Kind::HomeUpdate => "home-update",
             Kind::CliUpdate => "cli-update",
+            Kind::ChannelAsk => "channel",
         };
-        Item { id: format!("{prefix}:{record}"), kind, filter, title: title.into(), detail: String::new(), workspaces: vec![], record: record.into(), session_id: None, action: None, github: None, at, outcome: None, grouped: vec![], place }
+        Item { id: format!("{prefix}:{record}"), kind, filter, title: title.into(), detail: String::new(), workspaces: vec![], record: record.into(), session_id: None, action: None, github: None, at, outcome: None, grouped: vec![], message: None, count: None, place }
     }
     pub fn detail(mut self, detail: impl Into<String>) -> Item {
         self.detail = detail.into();
@@ -321,10 +331,10 @@ pub async fn compute(app: &App) -> Result<Today> {
 }
 
 /// Bus topics whose changes can change the list.
-const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons", "home_update", "cli_updates"];
+const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons", "home_update", "cli_updates", "channels"];
 
 /// What windows show of a waiting item: when it changes, they refetch.
-type ItemKey = (String, Vec<String>, Option<String>, String, Vec<String>);
+type ItemKey = (String, Vec<String>, Option<String>, String, String, Vec<String>);
 
 /// What of the sessions can change the list: the ones that need you, with their title, question and status.
 fn sessions_key(app: &App) -> Vec<(String, String, bool, i64, Option<String>)> {
@@ -379,7 +389,7 @@ pub fn spawn(app: &App) {
                 }
             };
             last_sessions = Some(sessions);
-            let key: Vec<_> = today.items.iter().map(|i| (i.id.clone(), i.workspaces.clone(), i.action.clone(), i.title.clone(), i.grouped.iter().map(|g| g.id.clone()).collect())).collect();
+            let key: Vec<_> = today.items.iter().map(|i| (i.id.clone(), i.workspaces.clone(), i.action.clone(), i.title.clone(), i.detail.clone(), i.grouped.iter().map(|g| g.id.clone()).collect())).collect();
             if last.as_ref() != Some(&key) {
                 last = Some(key);
                 app.bus.publish("today", "changed", serde_json::json!({ "count": today.items.len() }));

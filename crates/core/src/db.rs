@@ -263,7 +263,8 @@ CREATE INDEX IF NOT EXISTS channel_member_bot ON channel_member (bot_id);
 CREATE TABLE IF NOT EXISTS channel_message (id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_id TEXT NOT NULL, author_name TEXT NOT NULL, session_id TEXT, turn INTEGER, text TEXT NOT NULL, mentions TEXT NOT NULL DEFAULT '[]', reply_to INTEGER, hops INTEGER NOT NULL DEFAULT 0, ask_owner INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS channel_message_channel ON channel_message (channel_id, id);
 CREATE INDEX IF NOT EXISTS channel_message_time ON channel_message (channel_id, created_at);
-CREATE TABLE IF NOT EXISTS channel_delivery (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL, channel_id TEXT NOT NULL, bot_id TEXT NOT NULL, state TEXT NOT NULL, reason TEXT, session_id TEXT, joined INTEGER, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS channel_delivery (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL, channel_id TEXT NOT NULL, bot_id TEXT NOT NULL, state TEXT NOT NULL, reason TEXT, session_id TEXT, joined INTEGER, at INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'message', first_message INTEGER, count INTEGER);
+CREATE TABLE IF NOT EXISTS channel_digest_run (day TEXT PRIMARY KEY, at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS channel_delivery_message ON channel_delivery (message_id);
 CREATE INDEX IF NOT EXISTS channel_delivery_channel ON channel_delivery (channel_id, bot_id, state);",
     )?;
@@ -301,6 +302,9 @@ CREATE INDEX IF NOT EXISTS channel_delivery_channel ON channel_delivery (channel
     let cost_columns = conn.prepare("PRAGMA table_info(profile_cost)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !cost_columns.iter().any(|c| c == "id") { conn.execute_batch("ALTER TABLE profile_cost ADD COLUMN id TEXT;")?; }
     conn.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS profile_cost_id ON profile_cost (id);")?;
+    // Digest deliveries (`launchpad_channels::digest`): a kind and the message range they list.
+    let delivery_columns = conn.prepare("PRAGMA table_info(channel_delivery)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !delivery_columns.iter().any(|c| c == "kind") { conn.execute_batch("ALTER TABLE channel_delivery ADD COLUMN kind TEXT NOT NULL DEFAULT 'message'; ALTER TABLE channel_delivery ADD COLUMN first_message INTEGER; ALTER TABLE channel_delivery ADD COLUMN count INTEGER;")?; }
     if !bot_columns.iter().any(|c| c == "paused") { conn.execute_batch("ALTER TABLE bot ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;")?; }
     if !device_columns.iter().any(|c| c == "last_seen_at") { conn.execute_batch("ALTER TABLE browser_device ADD COLUMN last_seen_at INTEGER;")?; }
     // When a browser operation completed, so completed claims can be pruned (`operations::prune`).

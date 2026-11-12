@@ -1545,6 +1545,8 @@ name = "launchpad-channels"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "chrono-tz",
  "hex",
  "launchpad-core",
  "rand 0.10.3",

@@ -231,6 +231,9 @@ pub struct ChannelPart {
     pub last: i64,
     /// Its delivery rows: the entry's own first, then the ones that joined it.
     pub deliveries: Vec<i64>,
+    /// A daily digest (`digest`): it lists its range itself, so nothing joins it and it joins nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub digest: bool,
 }
 
 /// What became of a bot channel's delivery (`deliver_channel`).
@@ -334,7 +337,7 @@ async fn enqueue(app: &App, q: Queued, combine: Option<Combine<'_>>) -> Result<(
     if let (Some(part), Some(combine)) = (&q.channel, combine) {
         let joined = rows.iter().find_map(|(n, j)| {
             let w = serde_json::from_str::<Queued>(j).ok()?;
-            w.channel.as_ref().is_some_and(|c| c.channel == part.channel).then_some((*n, w))
+            w.channel.as_ref().is_some_and(|c| c.channel == part.channel && !c.digest && !part.digest).then_some((*n, w))
         });
         if let Some((n, mut w)) = joined {
             let first = join(&mut w, &q, combine);
@@ -604,11 +607,11 @@ mod tests {
     #[test]
     fn a_later_channel_message_joins_the_waiting_one() {
         let from = |hops| Some(MessageFrom { kind: SenderKind::Channel, id: "c1".into(), hops, ..Default::default() });
-        let part = |m: i64, d: i64| Some(ChannelPart { channel: "c1".into(), first: m, last: m, deliveries: vec![d] });
+        let part = |m: i64, d: i64| Some(ChannelPart { channel: "c1".into(), first: m, last: m, deliveries: vec![d], digest: false });
         let mut w = Queued { target: Target::Bot { id: "b".into() }, text: "41".into(), automatic: true, telegram: false, from: from(2), channel: part(41, 7) };
         let q = Queued { text: "42".into(), from: from(3), channel: part(42, 9), ..serde_json::from_str(&serde_json::to_string(&w).unwrap()).unwrap() };
         assert_eq!(join(&mut w, &q, Box::new(|c: &ChannelPart| format!("{}..{} x{}", c.first, c.last, c.deliveries.len()))), 7);
-        assert_eq!(w.channel, Some(ChannelPart { channel: "c1".into(), first: 41, last: 42, deliveries: vec![7, 9] }));
+        assert_eq!(w.channel, Some(ChannelPart { channel: "c1".into(), first: 41, last: 42, deliveries: vec![7, 9], digest: false }));
         assert_eq!((w.text.as_str(), w.from.as_ref().unwrap().hops, w.automatic), ("41..42 x2", 3, true));
         // A bot's message of a lower hop keeps the highest hop of the entry.
         let low = Queued { from: from(1), channel: part(42, 10), ..serde_json::from_str(&serde_json::to_string(&q).unwrap()).unwrap() };

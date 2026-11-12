@@ -7,6 +7,7 @@ pub mod cards;
 pub mod channel;
 pub mod connections;
 pub mod delivery;
+pub mod digest;
 pub mod hooks;
 pub mod telegram;
 pub mod today;
@@ -17,6 +18,10 @@ use launchpad_core::App;
 /// Starts the background services. Called once after `App::start`.
 pub fn spawn(app: &App) {
     connections::spawn(app);
+    // Daily digests of bot channels: Home only, never on runners.
+    if launchpad_core::vault::here(app) {
+        digest::spawn(app);
+    }
 }
 
 /// Writes the TypeScript versions of this crate's types shared with the UI (ts-rs).

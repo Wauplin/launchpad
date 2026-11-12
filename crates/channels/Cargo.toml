@@ -9,6 +9,8 @@ doctest = false
 
 [dependencies]
 anyhow = "1.0.104"
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+chrono-tz = "0.10.4"
 hex = "0.4.3"
 launchpad-core = { version = "0.1.0", path = "../core" }
 rand = "0.10.3"

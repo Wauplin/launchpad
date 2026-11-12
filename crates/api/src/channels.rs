@@ -30,6 +30,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/channels/{id}/block", post(block))
         .route("/api/channels/{id}/archive", post(archive))
         .route("/api/channels/{id}/allow-more", post(allow_more))
+        .route("/api/channels/{id}/digest", post(digest))
         .route("/api/channels/{id}/members/{bot}", get(member).put(set_member))
         .route("/api/channels/{id}/members/{bot}/remove", post(remove_member))
         .route("/api/channels/{id}/members/{bot}/mode", axum::routing::put(set_mode))
@@ -180,6 +181,10 @@ async fn archive(State(s): State<Ctx>, Path(id): Path<String>, Json(a): Json<Arc
 
 async fn allow_more(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<ChannelPage> {
     Ok(Json(channel::allow_more(&s.app, &id).await.map_err(bad)?))
+}
+
+async fn digest(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<ChannelPage> {
+    Ok(Json(launchpad_channels::digest::now(&s.app, &id).await.map_err(bad)?))
 }
 
 async fn edit(State(s): State<Ctx>, Path(id): Path<String>, Json(e): Json<Edit>) -> ApiResult<Channel> {

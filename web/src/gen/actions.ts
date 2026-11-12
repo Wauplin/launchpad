@@ -58,6 +58,7 @@ export type ActionName =
   | "channel.pause"
   | "channel.block"
   | "channel.allow-more"
+  | "channel.digest"
   | "channel.rename"
   | "channel.archive"
   | "channel.delete"
@@ -146,6 +147,7 @@ export const ACTIONS: Record<ActionName, Action> = {
   "channel.pause": {"name":"channel.pause","method":"POST","route":"/api/channels/{id}/pause","label":"Pause","icon":"stop","help":"Pause or resume a channel's deliveries: while paused, messages still post and no bot is woken","input":[{"name":"paused","kind":"bool","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"owner","card":null,"undo":null,"before":null,"ready":false},
   "channel.block": {"name":"channel.block","method":"POST","route":"/api/channels/{id}/block","label":"Block","icon":null,"help":"Block or unblock a DM: its bots can no longer post in it; you still can","input":[{"name":"blocked","kind":"bool","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"owner","card":null,"undo":null,"before":null,"ready":false},
   "channel.allow-more": {"name":"channel.allow-more","method":"POST","route":"/api/channels/{id}/allow-more","label":"Allow 10 more","icon":"play","help":"Let 10 more deliveries pass the channel's loop guard (hop and hourly limits); the newest message's skipped deliveries go now","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"owner","card":null,"undo":null,"before":null,"ready":false},
+  "channel.digest": {"name":"channel.digest","method":"POST","route":"/api/channels/{id}/digest","label":"Send digests now","icon":"send","help":"Send this channel's members in mode digest their digest now (the messages since they last read), instead of waiting for the daily one at 08:00","input":[],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"owner","card":null,"undo":null,"before":null,"ready":false},
   "channel.rename": {"name":"channel.rename","method":"PATCH","route":"/api/channels/{id}","label":"Rename","icon":"pencil","help":"Rename a named channel or change its purpose","input":[{"name":"name","kind":"text","optional":true},{"name":"purpose","kind":"text","optional":true}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"owner","card":null,"undo":null,"before":null,"ready":false},
   "channel.archive": {"name":"channel.archive","method":"POST","route":"/api/channels/{id}/archive","label":"Archive","icon":"archive","help":"Archive or bring back a channel or DM: archived, nobody posts and its history stays","input":[{"name":"archived","kind":"bool","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"owner","card":null,"undo":null,"before":null,"ready":false},
   "channel.delete": {"name":"channel.delete","method":"DELETE","route":"/api/channels/{id}","label":"Delete","icon":"trash","help":"Delete a channel or DM with its messages","input":[],"body_file":null,"fixed":null,"confirm":"Deletes {name} and all its messages.","effect":"record","access":"owner","card":null,"undo":null,"before":null,"ready":false},
