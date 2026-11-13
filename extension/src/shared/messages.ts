@@ -56,8 +56,11 @@ export type FoundHome = {
   origin: string;
   /** The Hub's runtime stage (RUNNING, SLEEPING, BUILDING…), when known. */
   stage: string | null;
-  /** /_home/status answered as Launchpad (only checked for running Spaces). */
+  /** /_home/status answered as Launchpad (only checked for running Spaces of the account itself). */
   answers: boolean;
+  /** A Space of the signed-in account (not of an organization): only these are asked before the owner chooses one,
+   * since every request to a Space carries the owner's Hugging Face token. */
+  own: boolean;
 };
 
 /** One anchor of the GitHub layer (content/github/anchors.ts) as last checked on a page where it is expected. */
@@ -168,8 +171,6 @@ export type Requests = {
   /** The selection the context menu sent, once (the panel takes it when it opens). There is no request that posts to
    * GitHub: Launchpad's Post stays a click in Launchpad. */
   "quote.take": Req<void, Quote | null>;
-  "home.get": Req<{ path: string }, unknown>;
-  "home.post": Req<{ path: string; body?: unknown; idempotency_key?: string }, unknown>;
 };
 export type Kind = keyof Requests;
 export type Args<K extends Kind> = Requests[K]["args"];

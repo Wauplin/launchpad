@@ -84,10 +84,11 @@ function navigated() {
   if (!page.repo) { generation++; unmountAll(); return; }
   render();
   observePage(render);
+  void load();
+  // `load` took its generation synchronously: the peek counts only until another navigation or load starts.
   const mine = generation;
   // A fresh tab: the worker's context of another page of this repository, until Home answers for this one.
   if (!context) void request("context.peek", { url: page.url }).then((c) => { if (c && mine === generation && !context) { context = c; render(); } }).catch(() => undefined);
-  void load();
 }
 
 /** The script starts while GitHub's HTML still loads (`document_start`): Home's context loads meanwhile, and the

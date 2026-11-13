@@ -1,6 +1,6 @@
 // Answers the runtime messages of shared/messages.ts. Sign-in, connection and settings requests come only from the
-// extension's own pages (the side panel); content scripts reach Home only through `home.get` and `home.post`, never its
-// credentials or device routes.
+// extension's own pages (the side panel); content scripts reach Home only through the dedicated requests below, each
+// with its own route and checks (there is no generic Home call), never its credentials or device routes.
 
 import { PAGE_ONLY, RequestError, type Answer, type Args, type Kind, type Message, type Result } from "../shared/messages";
 import { botMessage, bots, events, ledger, sessions, stop, takeQuote } from "./agents";
@@ -8,14 +8,8 @@ import { clone, doneHandled, localPr, notifications, observed, publish, reviewCh
 import { anchorHealth, follow, pageContext, pageRows, peekContext, reportAnchors } from "./context";
 import { startEvents, stopEvents } from "./events";
 import { clientId, discover, signIn } from "./hf";
-import { connectSpace, current, disconnect, homeJson, pollPairing, setWorkspace, signedIn, startPairing, update } from "./home";
+import { connectSpace, current, disconnect, pollPairing, setWorkspace, signedIn, startPairing, update } from "./home";
 import { removeLocal, setLocal } from "./store";
-
-/** Home paths a client may call: under /api/, without dot segments, never this browser's device routes. */
-function homePath(path: unknown): string {
-  if (typeof path !== "string" || !path.startsWith("/api/") || /(^|\/)\.\.?(\/|$|\?)|%2e/i.test(path) || /^\/api\/(devices|extension)(\/|$|\?)/.test(path)) throw new RequestError("Not a Home path this extension may call");
-  return path;
-}
 
 /** A path of Home's web app to open in a tab: absolute, no scheme or host, no dot segments. */
 function appPath(path: unknown): string {
@@ -71,12 +65,6 @@ const handlers: { [K in Kind]: Handler<K> } = {
   "localpr.detail": (args) => localPr(args),
   "localpr.publish": (args) => publish(args),
   "quote.take": async () => takeQuote(),
-  "home.get": ({ path }) => homeJson(homePath(path)),
-  "home.post": ({ path, body, idempotency_key }) => {
-    // GitHub writes stay Launchpad's own buttons: no client of the extension posts, publishes, merges or sends.
-    if (/\/(post|publish|publish-set|merge|merge-local|send|run-ci|reply|review|comment|labels|reviewers|state)(\?|$)/.test(homePath(path))) throw new RequestError("The extension never publishes: use Launchpad's own button");
-    return homeJson(homePath(path), { method: "POST", body: body ?? {}, idempotency_key });
-  },
 };
 
 /** The extension's own pages (the side panel, also when opened in a tab); a content script's URL is its page's. */

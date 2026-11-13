@@ -39,7 +39,7 @@ export function Welcome({ state, open }: { state: ConnectionState; open: (s: Scr
 function stageText(h: FoundHome) {
   if (h.answers) return "Running · Home answers ✓";
   switch (h.stage) {
-    case "RUNNING": return "Running · Home does not answer";
+    case "RUNNING": return h.own ? "Running · Home does not answer" : "Running · an organization's Space";
     case "SLEEPING": case "PAUSED": return "Sleeping · starts when chosen";
     case "BUILDING": case "APP_STARTING": case "RUNNING_BUILDING": case "RUNNING_APP_STARTING": return "Starting";
     case null: return "State unknown";
@@ -47,7 +47,7 @@ function stageText(h: FoundHome) {
   }
 }
 
-/** After sign-in: the Launchpad Spaces of the account and its organizations. One Home connects at once. */
+/** After sign-in: the Launchpad Spaces of the account and its organizations. One Home of the account connects at once. */
 export function FindHome({ state, open }: { state: ConnectionState; open: (s: Screen) => void }) {
   const [homes, setHomes] = useState<FoundHome[] | null>(null);
   const [chosen, setChosen] = useState<FoundHome | null>(null);
@@ -77,7 +77,8 @@ export function FindHome({ state, open }: { state: ConnectionState; open: (s: Sc
       const found = await request("discover");
       setHomes(found);
       setChosen(found.find((h) => h.answers) ?? found[0] ?? null);
-      if (found.length === 1) void connect(found[0]);
+      // Only a Space of your own account connects without a choice (connecting sends it your Hugging Face token).
+      if (found.length === 1 && found[0].own) void connect(found[0]);
     } catch (e) { setError(message(e)); setHomes([]); }
   };
   useEffect(() => { void find(); }, []);

@@ -128,10 +128,13 @@ export async function discover(): Promise<FoundHome[]> {
       const info = await hub<SpaceInfo>(`/api/spaces/${id}`).catch(() => null);
       const origin = info?.host ?? (info?.subdomain ? `https://${info.subdomain}.hf.space` : null);
       if (!info || !origin) continue;
+      if (!SPACE_ORIGIN.test(origin)) continue;
       const stage = info.runtime?.stage ?? null;
-      // Only running Spaces are asked: a request would wake a sleeping one.
-      const answers = stage === "RUNNING" && (await homeStatus(origin)).kind === "home";
-      found.push({ space: id, origin, stage, answers });
+      // Only running Spaces of the account itself are asked (a request would wake a sleeping one): a request carries
+      // the owner's Hugging Face token, and an organization's Space runs code other members may change.
+      const own = author === me.name;
+      const answers = own && stage === "RUNNING" && (await homeStatus(origin)).kind === "home";
+      found.push({ space: id, origin, stage, answers, own });
     }
   }
   return found;
@@ -139,8 +142,12 @@ export async function discover(): Promise<FoundHome[]> {
 
 export type HomeStatus = { kind: "home"; complete: boolean; space: string } | { kind: "starting" } | { kind: "unreachable"; error: string };
 
+/** A Space's own address (`https://<subdomain>.hf.space`): the only place the Hugging Face token is sent besides the Hub. */
+export const SPACE_ORIGIN = /^https:\/\/[a-z0-9-]+\.hf\.space$/;
+
 /** `/_home/status` of a Space: Launchpad's answer, the Hub's page while the Space starts, or no answer. */
 export async function homeStatus(origin: string): Promise<HomeStatus> {
+  if (!SPACE_ORIGIN.test(origin)) return { kind: "unreachable", error: "Not a Hugging Face Space address" };
   try {
     const bearer = await accessToken();
     const response = await fetch(`${origin}/_home/status`, { headers: bearer ? { Authorization: `Bearer ${bearer}` } : {}, cache: "no-store" });

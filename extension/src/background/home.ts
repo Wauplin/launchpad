@@ -6,7 +6,7 @@ import type { Today } from "@/gen/Today";
 import type { Workspace } from "@/gen/Workspace";
 import { RequestError, type ConnectionState, type HomeInfo } from "../shared/messages";
 import { renderBadge } from "./badge";
-import { accessToken, clientId, homeStatus, refresh, signOut } from "./hf";
+import { SPACE_ORIGIN, accessToken, clientId, homeStatus, refresh, signOut } from "./hf";
 import { pushState } from "./ports";
 import { local, removeLocal, removeSession, session, setLocal, setSession } from "./store";
 
@@ -107,8 +107,6 @@ export function todayChanged() {
 }
 
 // Connecting.
-
-const SPACE_ORIGIN = /^https:\/\/[a-z0-9-]+\.hf\.space$/;
 
 /** After a new device secret: workspaces, Today, then the event stream (started by the caller through `onConnected`). */
 let onConnected: () => void = () => {};
