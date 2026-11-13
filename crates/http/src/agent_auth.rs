@@ -181,7 +181,7 @@ fn read_allowed(path: &str) -> bool {
 pub const KB_BODY_MAX: usize = 128 << 20;
 
 fn own_write(path: &str) -> bool {
-    matches!(path, "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/inbox/agent-done" | CHANNEL_POST)
+    matches!(path, "/api/link" | "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/inbox/agent-done" | CHANNEL_POST)
 }
 
 async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
@@ -316,7 +316,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
     match (get, &p[1..]) {
         (true, ["status"] | ["context", "profiles" | "presets" | "hops"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
-        (false, ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["connections", "send"] | ["inbox", "agent-done"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
+        (false, ["link"] | ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["connections", "send"] | ["inbox", "agent-done"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
         (true, ["context", "folders" | "bots" | "sessions" | "inbox" | "schedules" | "topics"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
         (false, ["channels"] | ["channels", "dm"]) => Body,
@@ -560,6 +560,9 @@ mod tests {
         assert_eq!(names(&Method::GET, "/api/items/o/r/12"), Repo("o", "r"));
         assert_eq!(names(&Method::PUT, "/api/channels/c1/members/b1"), Channel("c1"));
         assert_eq!(names(&Method::POST, "/api/channels/dm"), Body);
+        assert_eq!(names(&Method::POST, "/api/link"), Shared);
+        assert!(own_write("/api/link"));
+        assert!(!own_write("/api/topics/t/members"));
         assert_eq!(names(&Method::GET, "/api/channels"), Listed);
         assert_eq!(names(&Method::GET, "/api/channels/agent/messages"), Unscoped);
         assert_eq!(names(&Method::GET, "/api/channels/agent/post"), Unscoped);

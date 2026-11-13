@@ -224,6 +224,16 @@ pub async fn save(app: &App, p: &Predraft) -> Result<()> {
     let id = p.id.clone();
     let text = serde_json::to_string(p)?;
     app.state_db.call(move |c| { c.execute("INSERT INTO predraft (id,json) VALUES (?1,?2) ON CONFLICT(id) DO UPDATE SET json=excluded.json", rusqlite::params![id,text])?; Ok(()) }).await?;
+    if let Some(session) = p.session_id.as_deref()
+        && let Some(project) = crate::projects::get(app, &p.project_id).await?
+        && let Some(repo) = project.gh_repo.as_deref()
+    {
+        for number in fixed_issues(&p.body) {
+            if let Err(e) = crate::ref_use::link(app, session, repo, number, None).await {
+                tracing::warn!("Local PR issue link: {e:#}");
+            }
+        }
+    }
     app.bus.publish("predrafts", "updated", json!(p));
     Ok(())
 }
@@ -725,3 +735,49 @@ pub async fn unlock(app: &App, id: &str) -> Result<Predraft> {
 #[cfg(test)]
 #[path = "predrafts_tests.rs"]
 mod tests;
+
+/// Closing references to issues in the folder's repository. The body is the stored association.
+pub fn fixed_issues(body: &str) -> Vec<u64> {
+    let words: Vec<&str> = body.split_whitespace().collect();
+    let mut out = Vec::new();
+    for pair in words.windows(2) {
+        if !matches!(
+            pair[0].to_ascii_lowercase().as_str(),
+            "fix"
+                | "fixes"
+                | "fixed"
+                | "close"
+                | "closes"
+                | "closed"
+                | "resolve"
+                | "resolves"
+                | "resolved"
+        ) {
+            continue;
+        }
+        let Some(raw) = pair[1].strip_prefix('#') else {
+            continue;
+        };
+        let digits = raw.trim_end_matches(['.', ',', ';', ':', ')']);
+        if let Ok(n) = digits.parse::<u64>()
+            && n > 0
+            && !out.contains(&n)
+        {
+            out.push(n);
+        }
+    }
+    out
+}
+#[cfg(test)]
+mod issue_links_tests {
+    #[test]
+    fn closing_references_are_local_positive_and_unique() {
+        assert_eq!(
+            super::fixed_issues("Fixes #12. Closes #34; resolves #12"),
+            vec![12, 34]
+        );
+        assert!(
+            super::fixed_issues("See #12 fixes other/repo#2 closes #0 fixes #2oops").is_empty()
+        );
+    }
+}

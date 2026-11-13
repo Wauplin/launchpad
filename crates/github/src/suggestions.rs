@@ -368,6 +368,12 @@ pub async fn create(app: &App, mut q: Create) -> Result<Suggestion> {
         followup_error: None,
     };
     save(app, &s).await?;
+    if let (Some(session), SuggestionTarget::GitHub { repo, number, .. }) =
+        (s.session_id.as_deref(), &s.target)
+        && let Err(e) = launchpad_core::ref_use::link(app, session, repo, *number, None).await
+    {
+        tracing::warn!("Suggestion item link: {e:#}");
+    }
     crate::ledger::drafted(app, &s).await;
     Ok(s)
 }
@@ -552,7 +558,7 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
 /// instruction, when the owner has some).
 pub fn instruction(app: &App, session: &str) -> String {
     format!(
-        "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes, and may add --comments-file <file.json> with inline line comments posted in the same review (a JSON array of {{path, line, side: RIGHT or LEFT for a removed line, start_line (optional, for a range), body}}; a body may hold a ```suggestion block); put each finding about specific lines in a line comment and keep the --body-file for the overall summary; an approving review may add --merge squash|merge|rebase (the owner's Post click then merges at that head), and a review may add --run-ci (Post also approves the head's GitHub Actions runs that wait for a maintainer). A comment that answers one comment adds --reply-to <issuecomment-<id>, discussion_r<id> or the comment's URL> (a review thread's comment gets its reply in that thread). For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
+        "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes, and may add --comments-file <file.json> with inline line comments posted in the same review (a JSON array of {{path, line, side: RIGHT or LEFT for a removed line, start_line (optional, for a range), body}}; a body may hold a ```suggestion block); put each finding about specific lines in a line comment and keep the --body-file for the overall summary; an approving review may add --merge squash|merge|rebase (the owner's Post click then merges at that head), and a review may add --run-ci (Post also approves the head's GitHub Actions runs that wait for a maintainer). A comment that answers one comment adds --reply-to <issuecomment-<id>, discussion_r<id> or the comment's URL> (a review thread's comment gets its reply in that thread). Saving a suggestion links this session to the item and its repository#number workspace topic. Use `launchpad link --repo <owner/repo> --number <n> --session-id <id>` to link without a suggestion (optional --comment-url). Local PR bodies with Fixes #N or Closes #N link their session and show the Local PR on the issue in the extension. For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
         app.paths.cli_command()
     )
 }

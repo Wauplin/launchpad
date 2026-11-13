@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 pub fn router() -> Router<Ctx> {
     Router::new()
+        .route("/api/link", axum::routing::post(link))
         .route("/api/context/topics", get(context_topics))
         .route("/api/topics", get(list).post(create))
         .route("/api/topics/{id}", get(read).patch(rename).delete(delete))
@@ -105,4 +106,16 @@ async fn context_topics(State(s): State<Ctx>, Query(q): Query<ContextQuery>) -> 
         return Ok(Json(json!({"topic":topic,"runs":runs})));
     }
     Ok(Json(json!(topics)))
+}
+
+#[derive(Deserialize)]
+struct Link {
+    session_id: String,
+    repo: String,
+    number: u64,
+    comment_url: Option<String>,
+}
+async fn link(State(s): State<Ctx>, Json(q): Json<Link>) -> ApiResult<Value> {
+    launchpad_core::ref_use::link(&s.app, &q.session_id, &q.repo, q.number, q.comment_url).await?;
+    Ok(Json(json!({"ok": true})))
 }

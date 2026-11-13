@@ -9,7 +9,16 @@ use crate::util::now_ms;
 
 /// Records the items a launch or message names (best effort: a failure only logs).
 pub async fn record(app: &App, session_id: &str, bot_id: Option<&str>, refs: &[GitHubRef]) {
-    let rows: Vec<(String, i64, Option<String>)> = refs.iter().filter(|r| crate::github::valid_repo(&r.repo)).map(|r| (r.repo.to_lowercase(), r.number.unwrap_or(0) as i64, comment_anchor(r))).collect();
+    for r in refs.iter().filter(|r| crate::github::valid_repo(&r.repo)) {
+        if let Some(n) = r.number.filter(|n| *n > 0)
+            && let Err(e) = crate::topics::item(app, session_id, &r.repo, n).await
+        {
+            tracing::warn!("GitHub item topic of {session_id}: {e:#}");
+        }
+    }
+    let rows: Vec<(String, i64, Option<String>)> = refs.iter().filter(|r| crate::github::valid_repo(&r.repo)).map(|r| {
+            (r.repo.to_lowercase(), r.number.unwrap_or(0) as i64, comment_anchor(r))
+        }).collect();
     if rows.is_empty() {
         return;
     }
@@ -28,13 +37,19 @@ pub async fn record(app: &App, session_id: &str, bot_id: Option<&str>, refs: &[G
         .await;
     if let Err(e) = done {
         tracing::warn!("GitHub item use of {session_id}: {e:#}");
+    } else {
+        app.bus.publish("sessions", "changed", serde_json::json!({}));
     }
 }
 
 /// The anchor of the comment a reference names (`issuecomment-123`, `discussion_r45`), from its URL's fragment.
 fn comment_anchor(r: &GitHubRef) -> Option<String> {
     let (_, f) = r.url.rsplit_once('#')?;
-    let ok = ["issuecomment-", "discussion_r", "pullrequestreview-"].iter().any(|p| f.strip_prefix(p).is_some_and(|n| !n.is_empty() && n.len() <= 20 && n.bytes().all(|b| b.is_ascii_digit())));
+    let ok = ["issuecomment-", "discussion_r", "pullrequestreview-"].iter().any(|p| {
+            f.strip_prefix(p).is_some_and(|n| {
+                !n.is_empty() && n.len() <= 20 && n.bytes().all(|b| b.is_ascii_digit())
+            })
+        });
     ok.then(|| f.to_string())
 }
 
@@ -78,4 +93,51 @@ pub async fn bots(app: &App, repo: &str) -> anyhow::Result<Vec<String>> {
 /// Drops the records of sessions that ended long ago (`retention`).
 pub async fn prune(app: &App, before: i64) -> anyhow::Result<usize> {
     app.state_db.call(move |c| Ok(c.execute("DELETE FROM github_ref_use WHERE at < ?1", [before])?)).await
+}
+
+/// Link an existing session, preserving its bot identity.
+pub async fn link(
+    app: &App,
+    session: &str,
+    repo: &str,
+    number: u64,
+    url: Option<String>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        crate::github::valid_repo(repo) && number > 0,
+        "Use owner/repo and a positive item number"
+    );
+    let s = app
+        .sessions
+        .get(session)
+        .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+    anyhow::ensure!(
+        crate::scope::of_session(app, session).await.is_some(),
+        "Session has no workspace"
+    );
+    record(
+        app,
+        session,
+        s.launch_spec.bot.as_ref().map(|b| b.id.as_str()),
+        &[GitHubRef {
+            kind: "issue".into(),
+            title: None,
+            repo: repo.into(),
+            number: Some(number),
+            url: url.unwrap_or_else(|| format!("https://github.com/{repo}/issues/{number}")),
+        }],
+    )
+    .await;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn comment_urls_keep_only_supported_numeric_anchors() {
+        for (fragment, expected) in [("issuecomment-123", Some("issuecomment-123")), ("discussion_r45", Some("discussion_r45")), ("pullrequestreview-6", Some("pullrequestreview-6")), ("issuecomment-no", None), ("other-123", None)] {
+            let r = crate::model::GitHubRef { repo: "o/r".into(), number: Some(12), kind: "comment".into(), title: None, url: format!("https://github.com/o/r/issues/12#{fragment}") };
+            assert_eq!(super::comment_anchor(&r).as_deref(), expected);
+        }
+    }
 }

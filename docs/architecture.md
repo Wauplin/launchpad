@@ -299,3 +299,5 @@ After `App::start`, `extensions::start` starts the services of the feature crate
 ### Build impact
 
 A change rebuilds its crate and every crate that depends on it, then relinks the binary. A change in a feature crate, `api` or `server` rebuilds one or two crates. A change in the core rebuilds every crate. Keep code out of the core when nothing in the core needs it.
+
+GitHub item links live on Home in `github_ref_use`. Recording an item also adds its session to the workspace topic `repo#number`, creating that topic by its unique workspace/name key. Launches record links after session placement so workspace checks can resolve the session. Agents can write links only for their own session through `POST /api/link`; topic rename, delete and general membership routes remain owner-only. Suggested comments and reviews record the same link. Local PR issue associations live in their stored Markdown body as closing references to the folder repository (`Fixes #N`, `Closes #N`, `Resolves #N`); saving links the session, and extension context reads these references to match issue pages.

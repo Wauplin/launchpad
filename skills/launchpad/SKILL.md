@@ -68,3 +68,5 @@ A message that starts with `Message from bot <name>` or `Message from agent “<
 ## Platform shell syntax
 
 Use the exact environment and CLI invocation in the session prompt. Unix prompts use `LAUNCHPAD_ENV=dev '/path/to/launchpad'`; Windows prompts use PowerShell syntax, `$env:LAUNCHPAD_ENV = 'dev'; & 'C:\path\launchpad.exe'`. Append the requested `pr`, `suggest`, `work` or `trace` arguments to that invocation. The publication rules are identical on every platform: suggestions stay local until the owner clicks Post.
+
+Link the current session to a handled GitHub item with `launchpad link --repo owner/repo --number 123 --session-id <session-id>` (optional `--comment-url <url>`). This creates or joins its workspace topic `repo#123`. Suggestions link their session automatically. In a Local PR body, `Fixes #123` or `Closes #123` associates the Local PR with an issue in its folder repository and links the session; use `pr create|update --body-file` to set it. Agents can only link their own session and cannot rename or delete topics.

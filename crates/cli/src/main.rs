@@ -74,7 +74,18 @@ enum Command {
         #[command(subcommand)]
         command: Pr,
     },
-    /// Save an agent-written suggestion locally; never posts to GitHub.
+    /// Link this session to a GitHub item and its workspace topic.
+    Link {
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        number: u64,
+        #[arg(long)]
+        comment_url: Option<String>,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
+    },
+    /// Save a suggestion locally and link its session to the GitHub item and topic; never posts.
     Suggest {
         #[command(subcommand)]
         command: Suggest,
@@ -861,6 +872,7 @@ enum Pr {
     Create {
         #[arg(long)]
         title: Option<String>,
+        /// Markdown body; Fixes #N, Closes #N or Resolves #N links issues in the folder repository.
         #[arg(long)]
         body_file: Option<std::path::PathBuf>,
     },
@@ -868,6 +880,7 @@ enum Pr {
     Update {
         #[arg(long)]
         title: Option<String>,
+        /// Markdown body; Fixes #N, Closes #N or Resolves #N links issues in the folder repository.
         #[arg(long)]
         body_file: Option<std::path::PathBuf>,
     },
@@ -918,6 +931,16 @@ async fn run() -> Result<()> {
     let paths = Paths::from_env();
     let cli = Cli::parse();
     match cli.command {
+        Command::Link {
+            repo,
+            number,
+            comment_url,
+            session_id,
+        } => {
+            let value = Client::new(&paths)?.json("POST", "/api/link", Some(serde_json::json!({"repo":repo,"number":number,"comment_url":comment_url,"session_id":session_id}))).await?;
+            println!("{value}");
+            Ok(())
+        }
         Command::Suggest { command } => suggest_command(&paths, command).await,
         Command::Send { connection, body_file, title, session_id } => {
             let body = std::fs::read_to_string(&body_file).with_context(|| format!("read {}", body_file.display()))?;
@@ -1239,5 +1262,29 @@ mod proposal_tests {
         assert_eq!(args(&["--name", "x", "--members", r#"["a"]"#]), ["--name", "x", "--members", r#"["a"]"#]);
         let cli = Cli::try_parse_from(["launchpad", "proposals", "list", "--workspace", "Work"]).unwrap();
         assert!(matches!(cli.command, Command::Proposals { command: ListOnly::List { workspace: Some(w) } } if w == "Work"));
+    }
+}
+
+#[cfg(test)]
+mod link_cli_tests {
+    use super::*;
+    #[test]
+    fn link_requires_item_and_session() {
+        assert!(
+            Cli::try_parse_from([
+                "launchpad",
+                "link",
+                "--repo",
+                "o/r",
+                "--number",
+                "12",
+                "--session-id",
+                "s",
+                "--comment-url",
+                "https://github.com/o/r/issues/12#issuecomment-1"
+            ])
+            .is_ok()
+        );
+        assert!(Cli::try_parse_from(["launchpad", "link", "--repo", "o/r"]).is_err());
     }
 }

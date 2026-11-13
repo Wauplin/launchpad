@@ -1177,7 +1177,6 @@ pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: 
         let inherited = crate::topics::resolve(app, &ws, &mut spec.topics, &mut spec.agent_traces).await?;
         spec.inherited_topics = inherited;
     }
-    crate::ref_use::record(app, &id, spec.bot.as_ref().map(|b| b.id.as_str()), &spec.github_refs).await;
     let agent = match spec.from.is_some() {
         true => Some(crate::scope::of_spec(app, &spec).await),
         false => None,
@@ -1278,6 +1277,7 @@ pub(crate) async fn record_placement(app: &App, spec: &crate::model::LaunchSpec,
         Some(s) => anyhow::ensure!(is_placeholder(&s, runner_id), "a session with this id already exists"),
         None => app.sessions.placeholder(app, placed_record(spec, id, runner_id)?).await?,
     }
+    crate::ref_use::record(app, id, spec.bot.as_ref().map(|b| b.id.as_str()), &spec.github_refs).await;
     if let Some(ws) = crate::scope::of_spec(app, spec).await {
         crate::topics::inherit(app, id, &ws, spec.inherited_topics.clone()).await?;
     }

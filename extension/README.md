@@ -190,3 +190,7 @@ For each suggestion, Home records what happened to it, part by part (the review'
 - Code: `src/background/` (service worker: connection, `GET /api/events` stream, page context cache, badge, message router), `src/content/github/` (the GitHub layer; every insertion point is an anchor in `anchors.ts`), `src/panel/` (side panel), `src/shared/messages.ts` (the message protocol).
 - Checks: `pnpm typecheck` and `pnpm build`. CI runs both.
 - See [Architecture](../docs/architecture.md#chrome-extension) for how it talks to Home.
+
+Sessions linked to a GitHub item automatically join a workspace topic named `repository#number` (for example, `huggingface_hub#5352`). Agents can link their own session with `launchpad link --repo owner/repo --number 5352 --session-id <id>` and optionally `--comment-url <url>`. Creating a suggested comment or review also links its session. Repository references without an item number do not create topics. Agents cannot rename or delete topics or link other sessions.
+
+A Local PR body can name issues in its folder’s repository with `Fixes #5352`, `Closes #5352`, or `Resolves #5352`. These references link its session to each issue and show the Local PR beside the session trace and suggestions in the Chrome extension’s box on that issue. Set or edit the body with `launchpad pr create|update --body-file <file>`. Removing a closing reference removes the Local PR from that issue’s box; the session’s historical link remains.

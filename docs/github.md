@@ -114,3 +114,7 @@ Home keeps a ledger of what happened to each suggestion, part by part (a review'
 - **Review**: finished agents with their branch (**Merge** when it is safe) or their Local PR (**Local PR** opens it), and Local PRs not yet published whose agent does not need you.
 
 The **Branches** tab of a folder page lists the agent branches with work to look at: commits ahead of their base, uncommitted files or a merge request. Each row has **Changes**, which opens the agent's Changes, and **⋯ → Open agent**.
+
+Sessions linked to a GitHub item automatically join a workspace topic named `repository#number` (for example, `huggingface_hub#5352`). Agents can link their own session with `launchpad link --repo owner/repo --number 5352 --session-id <id>` and optionally `--comment-url <url>`. Creating a suggested comment or review also links its session. Repository references without an item number do not create topics. Agents cannot rename or delete topics or link other sessions.
+
+A Local PR body can name issues in its folder’s repository with `Fixes #5352`, `Closes #5352`, or `Resolves #5352`. These references link its session to each issue and show the Local PR beside the session trace and suggestions in the Chrome extension’s box on that issue. Set or edit the body with `launchpad pr create|update --body-file <file>`. Removing a closing reference removes the Local PR from that issue’s box; the session’s historical link remains.

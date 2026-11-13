@@ -660,10 +660,7 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
             .predrafts
             .iter()
             .filter(|p| p.project_id == f.id && !p.archived)
-            .filter(|p| match it.number {
-                Some(n) => p.published_number == Some(n) || it.head_branch.is_some_and(|b| p.remote_branch.as_deref() == Some(b) || p.branch == b),
-                None => p.is_open(),
-            })
+            .filter(|p| local_pr_matches(p, it.number, it.head_branch))
             .map(|p| local_pr(d, p))
             .collect(),
         None => vec![],
@@ -1199,4 +1196,30 @@ pub async fn notifications(app: &App, ws: Option<&str>) -> Result<ExtNotificatio
         }
     }
     Ok(ExtNotifications { workspace: ws.and_then(|w| d.workspace(w)), counts: counts(&d.today, ws), handled: handled_threads, observed: snapshot.observed.len() as u32 })
+}
+
+fn local_pr_matches(p: &Predraft, number: Option<u64>, head_branch: Option<&str>) -> bool {
+    match number {
+        Some(n) => launchpad_core::predrafts::fixed_issues(&p.body).contains(&n)
+            || p.published_number == Some(n)
+            || head_branch.is_some_and(|b| p.remote_branch.as_deref() == Some(b) || p.branch == b),
+        None => p.is_open(),
+    }
+}
+#[cfg(test)]
+mod item_link_tests {
+    #[test]
+    fn unpublished_local_pr_matches_fixed_issue_and_pr_branch() {
+        let mut p: super::Predraft = serde_json::from_value(serde_json::json!({
+            "id":"p", "project_id":"f", "branch":"lp/fix", "base_branch":"main",
+            "initial_base":"abc", "title":"Fix", "body":"Fixes #12. Closes #34",
+            "notes":[], "archived":false, "default_remote_branch":"fix", "created_at":0
+        })).unwrap();
+        assert!(super::local_pr_matches(&p, Some(12), None));
+        assert!(super::local_pr_matches(&p, Some(34), None));
+        assert!(!super::local_pr_matches(&p, Some(56), None));
+        assert!(super::local_pr_matches(&p, Some(56), Some("lp/fix")));
+        p.body.clear();
+        assert!(!super::local_pr_matches(&p, Some(12), None));
+    }
 }

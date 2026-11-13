@@ -75,6 +75,38 @@ pub async fn create(app: &App, workspace: &str, value: &str) -> Result<Topic> {
     changed(app);
     Ok(topic)
 }
+/// Attach an item topic within the session's workspace. The unique name makes concurrent links idempotent.
+pub async fn item(app: &App, session: &str, repo: &str, number: u64) -> Result<()> {
+    let workspace = crate::scope::of_session(app, session)
+        .await
+        .context("Session has no workspace")?;
+    crate::workspace::get(app, &workspace).await?;
+    let value = name(&format!(
+        "{}#{number}",
+        repo.rsplit('/').next().unwrap_or(repo)
+    ))?;
+    let session = session.to_owned();
+    app.state_db
+        .call(move |c| attach_item(c, &workspace, &value, &session))
+        .await?;
+    changed(app);
+    Ok(())
+}
+fn attach_item(
+    c: &mut rusqlite::Connection,
+    workspace: &str,
+    value: &str,
+    session: &str,
+) -> Result<()> {
+    let tx = c.transaction()?;
+    tx.execute(
+        "INSERT OR IGNORE INTO topic (id, workspace_id, name) VALUES (?1, ?2, ?3)",
+        params![uuid::Uuid::new_v4().to_string(), workspace, value],
+    )?;
+    tx.execute("INSERT OR IGNORE INTO topic_session (topic_id, session_id) SELECT id, ?3 FROM topic WHERE workspace_id = ?1 AND name = ?2", params![workspace, value, session])?;
+    tx.commit()?;
+    Ok(())
+}
 pub async fn rename(app: &App, id: &str, value: &str) -> Result<Topic> {
     let t = get(app, id).await?;
     let id = t.id;
@@ -129,6 +161,30 @@ pub async fn membership(app: &App, id: &str, sessions: &[String], present: bool)
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn item_topics_are_idempotent_and_workspace_scoped() {
+        let mut c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE topic (id TEXT PRIMARY KEY, workspace_id TEXT, name TEXT COLLATE NOCASE, UNIQUE(workspace_id, name)); CREATE TABLE topic_session (topic_id TEXT, session_id TEXT, PRIMARY KEY(topic_id, session_id));").unwrap();
+        for (w, n, s) in [
+            ("w1", "repo#12", "s1"),
+            ("w1", "Repo#12", "s1"),
+            ("w1", "repo#12", "s2"),
+            ("w2", "repo#12", "s3"),
+        ] {
+            super::attach_item(&mut c, w, n, s).unwrap();
+        }
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM topic", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM topic_session", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+    }
     #[test]
     fn names_are_short_and_visible() {
         assert_eq!(super::name("  roadmap  ").unwrap(), "roadmap");
