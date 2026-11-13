@@ -11,11 +11,11 @@ export type BotSettings = { name: string,
  * A profile ID from Settings → Profiles. None: the first subscription profile (else the first profile).
  * A removed profile: the bot asks you to choose one.
  */
-profile?: string | null,
+profile?: string | null, 
 /**
  * Ordered automatic fallback profiles. An explicit profile overrides this list.
  */
-profiles?: Array<string>, model?: string | null, effort?: string | null,
+profiles?: Array<string>, model?: string | null, effort?: string | null, 
 /**
  * The folder it starts in: a Git folder (a fresh worktree per session). None: each session starts in a
  * temporary folder and adds worktrees of the folders it needs with the CLI. Bots no longer use plain folders: a
