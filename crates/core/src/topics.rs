@@ -184,6 +184,9 @@ pub async fn resolve(
                             | crate::model::SessionStatus::Background
                             | crate::model::SessionStatus::Stopped
                             | crate::model::SessionStatus::Interrupted
+                            | crate::model::SessionStatus::QuotaPaused
+                            | crate::model::SessionStatus::InTerminal
+                            | crate::model::SessionStatus::Error
                     ) {
                         selected.notes.push(format!(
                             "{} is unfinished; only stored events are included",

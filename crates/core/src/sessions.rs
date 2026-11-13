@@ -850,12 +850,14 @@ impl Sessions {
                 let tx = c.transaction()?;
                 tx.execute("DELETE FROM session_event WHERE session_id = ?1", [&key])?;
                 tx.execute("DELETE FROM session WHERE id = ?1", [&key])?;
+                tx.execute("DELETE FROM topic_session WHERE session_id = ?1", [&key])?;
                 tx.commit()?;
                 Ok(())
             })
             .await?;
         self.publish_counts(app);
         app.bus.publish("sessions", "changed", Value::Null);
+        app.bus.publish("topics", "changed", Value::Null);
         Ok(())
     }
 
@@ -967,7 +969,12 @@ impl Sessions {
 
     /// Resolves a launch spec: cwd, prompt, title and context directories. No side effect.
     pub async fn preview(&self, app: &App, spec: &LaunchSpec) -> Result<Preview> {
-        self.resolve(app, spec, false).await
+        let mut spec = spec.clone();
+        if app.paths.role == crate::role::Role::Home && (!spec.topics.is_empty() || !spec.agent_traces.is_empty()) {
+            let ws = crate::scope::of_spec(app, &spec).await.context("Context needs a workspace")?;
+            crate::topics::resolve(app, &ws, &mut spec.topics, &mut spec.agent_traces).await?;
+        }
+        self.resolve(app, &spec, false).await
     }
 
     /// At launch, worktree folders are not known yet: the launch appends their exact instructions.
