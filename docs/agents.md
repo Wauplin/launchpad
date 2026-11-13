@@ -45,7 +45,7 @@ The page you look at is the context: a folder, a GitHub item, an agent's trace, 
 Folder pages, inbox rows and every **▶** button open the composer too. The composer opens as a side drawer:
 
 - **Prompt.** Type `@` for files and folders, `/` for skills and `#` for folders, agent traces and GitHub items. Paste or drop images and files (up to eight files, 5 MB each).
-- **Attach** and **+ Add context**, under the prompt. **+ Add context** attaches issues, pull requests, file selections, other folders, the trace of another agent and presets; the chips show only when there are some. Traces are referenced by a `launchpad trace` command, not copied into the prompt.
+- **Attach** and **+ Add context**, under the prompt. **+ Add context** attaches issues, pull requests, file selections, other folders, the trace of another agent, topics and presets; the chips show only when there are some. Traces are referenced by a `launchpad trace` command, not copied into the prompt.
 - **Folder.** A folder of the workspace, or **Temporary folder** for a question or a task that needs no folder (see [Temporary folders](#temporary-folders)).
 - **Options.** One line sums up the launch: where the agent runs and what happens when it is done (for example "New worktree from main · keep for review"), then the profile and only the values that differ from the defaults, and warnings. Click it to open the options. In a Git folder they start with **When done** (Read-only, Keep for review, Local PR, Draft PR, Open PR or Merge; see [Worktrees and merging](#worktrees-and-merging)), then **From** (one menu: a new worktree from a branch, by default the default branch, or an existing worktree or Local PR to continue there; see [Local PRs](github.md#local-prs)) and **Into** (where the merge, Local PR or pull request goes: by default the branch it starts from, or for an existing worktree the branch that worktree was created for). In other folders the first option is **Run in**. Then come the profile, model, effort, permission mode, paid usage, cost limit and start conditions. When the prompt or the context names one pull request of the folder's repository (for example a pasted link to a review comment), **Push to PR #N** is checked under From: the worktree starts from the PR head and the agent pushes its commits to the PR branch (see [GitHub](github.md#continue-a-pull-request)).
 - **Preview prompt** shows exactly what the agent will receive.
@@ -68,6 +68,20 @@ Open **Topics** from the laptop sidebar or the phone's **More** tab. Create a to
 In a session, **Add topic…** opens a searchable picker. Choose an existing topic or type a name to create one inline. The same picker opens in a sheet on the phone. A chip's name opens its topic page; its separate **×** removes the session from that topic at once, with **Undo** in the toast.
 
 In **Agents**, combine the topic filter with text search to find related work. To group older runs, click **Select sessions**, check the sessions, then **Add N to topic…**. Choose or create the topic in the picker.
+
+### Continue with topic history
+
+Choose **Add context → Topic…** in a launch or message box to attach a topic’s history as one chip. Expand it to see the source sessions, their states and event cutoffs. On a phone, the picker opens in a sheet. A topic page’s **Launch** opens the composer with that topic attached. **⋯ → Summarize…** also fills a prompt asking the agent to read every included trace, summarize the work, cite its sources and report gaps. Review the prompt and launch as usual.
+
+Attaching a topic adds the receiving session to it. Attaching an individual trace adds the receiving session to the source’s topics, but includes only that trace as context. This works for new agents and follow-up messages, including bots: membership belongs to the session receiving the message, not the bot’s whole thread. Several sources combine without duplicate memberships. Later membership changes do not propagate to earlier recipients.
+
+Context and membership are separate. Removing a session’s topic chip leaves its delivered context intact. Removing an unsent context chip does not remove existing topic membership.
+
+Home captures the included sessions and their event cutoffs when it sends the context. Agents receive commands to read those traces, rather than whole conversations in their prompts. Overlapping traces appear once; Launchpad does not also expand the context those sources received. The preview identifies unfinished or unavailable history. **What it sees at start** resolves topic history without launching anything; a later launch captures the history available when it is sent.
+
+New launches receive updated topic history. Delivered context keeps its original cutoffs even if the topic is renamed or deleted. Deleting a source session can make its trace unavailable; the agent must report that gap.
+
+Agents can discover topics with `launchpad topics list` and inspect one with `launchpad topics show <id-or-name>`. The result lists source sessions, statuses, event cutoffs and `launchpad trace <session-id> --through <cutoff>` commands. Reads stay within the agent’s workspace. Ask an agent to read all traces from a named topic and summarize them with source links, or use **Summarize…** on the topic page.
 
 ## Temporary folders
 

@@ -140,6 +140,12 @@ Home owns workspace topics in `crates/core/src/topics.rs`: `topic` stores each n
 
 The owner routes `/api/topics…` are Home-owned and forwarded by runners. Topic writes use the action list and publish `topics` / `changed`. The shared React feature (`web/src/features/topics/`) provides list and detail pages, chips and a searchable picker: a laptop popover or phone sheet. Agents combines a topic filter with text search and supports bulk assignment.
 
+`TopicContext` in launch and message context starts as a live topic selection. Home resolves it at dispatch into a saved name, source session IDs, event cutoffs and history warnings. It checks every source’s workspace, including members whose folder moved. Overlapping sources keep one reference with the highest selected cutoff; resolution never follows a source’s own context. The prompt contains trace read commands and warnings, not trace bodies. Saved snapshots survive topic rename or deletion; missing source traces fail visibly. Start previews resolve a cloned spec through the same resolver without changing membership.
+
+Home saves launch snapshots and inherited topic IDs before runner or Burst placement, and adds membership after recording the receiving session. Follow-up messages add membership after an accepted runner response; quota-held messages retain their rendered trace references. Direct trace selections inherit the source’s current topics; whole-topic selections inherit the selected topics. Later membership edits do not change earlier recipients. Membership changes never remove attached context, and rejected launch cleanup removes the receiving session’s memberships.
+
+Scoped agent reads use Home’s `/api/context/topics` through `launchpad topics list|show`. They expose source indexes and cutoff trace commands only in the caller’s workspace; owner topic routes remain closed to agents. The shared UI offers expandable source previews, topic Launch and a Summarize prompt that asks an agent to read the traces and cite its sources.
+
 ## Storage
 
 | Store | Content | Lifetime |
