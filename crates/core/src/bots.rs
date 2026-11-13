@@ -58,6 +58,10 @@ pub struct BotSettings {
     /// A removed profile: the bot asks you to choose one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// Ordered automatic fallback profiles. An explicit profile overrides this list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<String>>")]
+    pub profiles: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -94,8 +98,27 @@ pub struct BotSettings {
 pub fn profile_of<'a>(config: &'a crate::config::Config, s: &BotSettings) -> Option<&'a crate::config::Profile> {
     match &s.profile {
         Some(p) => config.profiles.iter().find(|x| &x.id == p),
+        None if !s.profiles.is_empty() => s.profiles.iter().find_map(|id| config.profiles.iter().find(|p| &p.id == id)),
         None => config.profiles.iter().find(|p| p.billing == crate::config::Billing::Subscription).or(config.profiles.first()),
     }
+}
+
+/// Choose only at launch; unknown readings are best effort and never imply exhaustion.
+pub fn launch_profile<'a>(app: &App, config: &'a crate::config::Config, s: &BotSettings) -> Option<&'a crate::config::Profile> {
+    if s.profile.is_some() || s.profiles.is_empty() {
+        return profile_of(config, s);
+    }
+    let candidates: Vec<_> = s.profiles.iter().filter_map(|id| config.profiles.iter().find(|p| &p.id == id)).collect();
+    let usage = |p: &&crate::config::Profile| {
+        let spec = LaunchSpec { profile: Some(p.id.clone()), ..Default::default() };
+        let q = crate::quota::reading_for(app, p.harness, &spec);
+        [q.five_hour, q.weekly].into_iter().flatten().map(|w| w.used_percent).filter(|v| v.is_finite()).fold(0.0_f64, f64::max)
+    };
+    candidates.iter().enumerate().min_by_key(|(i, p)| (profile_rank(p.billing == crate::config::Billing::Subscription, usage(p)), *i)).map(|(_, p)| *p)
+}
+
+fn profile_rank(subscription: bool, usage: f64) -> u8 {
+    if !subscription { 2 } else if usage <= 95.0 { 0 } else if usage < 100.0 { 1 } else { 3 }
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -186,7 +209,7 @@ pub fn agent_refusal(current: Option<&BotSettings>, new: &BotSettings) -> Option
 }
 
 /// The fields of `bot.toml`, as `Patch::set` names them.
-pub const SETTING_FIELDS: &[&str] = &["name", "profile", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "inbox_done", "tools", "starters"];
+pub const SETTING_FIELDS: &[&str] = &["name", "profile", "profiles", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "inbox_done", "tools", "starters"];
 
 /// Every field of the settings with its value, defaults included (bot.toml leaves defaults out): the values a
 /// `set` puts back.
@@ -199,7 +222,7 @@ pub fn setting_values(s: &BotSettings) -> serde_json::Map<String, serde_json::Va
         v.entry(k.to_string()).or_insert_with(|| match *k {
             "inbox_done" => serde_json::Value::Bool(false),
             "tools" => serde_json::json!({}),
-            "starters" => serde_json::json!([]),
+            "starters" | "profiles" => serde_json::json!([]),
             _ => serde_json::Value::Null,
         });
     }
@@ -416,7 +439,7 @@ async fn check_settings(app: &App, workspace_id: &str, s: &BotSettings) -> Resul
         ensure!(folder.workspace_id.as_deref() == Some(workspace_id), "{} belongs to another workspace", folder.name);
         ensure!(!folder.is_temp, "{} is a temporary folder: choose a registered folder, or none", folder.name);
     }
-    if let Some(p) = &s.profile {
+    for p in s.profile.iter().chain(s.profiles.iter()) {
         ensure!(app.config.get().profiles.iter().any(|x| &x.id == p), "no profile {p}: choose one on the bot's page (About → Access)");
     }
     crate::tool_defaults::check(&s.tools)?;
@@ -434,7 +457,7 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
     let profile = c.profile.filter(|p| !p.is_empty());
     let folder = c.folder.filter(|f| !f.is_empty());
     let own: Option<String> = None;
-    let settings = BotSettings { name: name.clone(), profile, model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, inbox_done: false, tools: Default::default(), starters: c.starters };
+    let settings = BotSettings { name: name.clone(), profile, profiles: vec![], model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, inbox_done: false, tools: Default::default(), starters: c.starters };
     check_settings(app, &c.workspace_id, &settings).await?;
     let instructions = if c.instructions.trim().is_empty() { format!("# {name}\n") } else { format!("{}\n", c.instructions.trim_end()) };
     let (id2, ws, slug2, at) = (id.clone(), c.workspace_id.clone(), slug.clone(), now_ms());
@@ -708,9 +731,9 @@ pub async fn record_instructions(app: &App, session_id: &str, (version, instruct
 /// when it runs on the bot's profile, else of a new session with that profile), or None when it may go.
 pub fn quota_hold(app: &App, bot: &Bot) -> Option<String> {
     let config = app.config.get();
-    let profile = profile_of(&config, &bot.settings)?;
+    let profile = launch_profile(app, &config, &bot.settings)?;
     if let Some(c) = thread(app, &bot.id).into_iter().rev().find(|x| x.status != SessionStatus::Closed)
-        && c.launch_spec.profile.as_deref() == Some(profile.id.as_str())
+        && (c.launch_spec.profile.as_deref() == Some(profile.id.as_str()) || (bot.settings.profile.is_none() && c.launch_spec.profile.as_ref().is_some_and(|id| bot.settings.profiles.contains(id))))
     {
         return crate::quota::hold_reason(app, c.harness, &c.launch_spec);
     }
@@ -750,9 +773,12 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
     }
     let s = &bot.settings;
     let config = app.config.get();
-    let profile = profile_of(&config, s).context("choose a profile for this bot on its page (About → Access)")?;
+    let profile = launch_profile(app, &config, s).context("choose a profile for this bot on its page (About → Access)")?;
     let sessions = thread(app, id);
     let current = sessions.iter().rev().find(|x| x.status != SessionStatus::Closed);
+    let profile = if s.profile.is_none() && !s.profiles.is_empty() {
+        current.and_then(|c| config.profiles.iter().find(|p| Some(&p.id) == c.launch_spec.profile.as_ref() && s.profiles.contains(&p.id))).unwrap_or(profile)
+    } else { profile };
     let resolved = BotSettings { profile: Some(profile.id.clone()), model: s.model.clone().or_else(|| profile.model.clone()), effort: s.effort.clone().or_else(|| profile.effort.clone()), ..s.clone() };
     let reason = match current {
         None if !sessions.is_empty() => Some("archived"),
@@ -807,7 +833,7 @@ fn note_of(note: Option<String>) -> Option<String> {
 pub async fn next_spec(app: &App, bot: &Bot, thread: &[Session], text: String, attachments: Vec<FileAttachment>, context: MessageContext) -> Result<LaunchSpec> {
     let s = &bot.settings;
     let config = app.config.get();
-    let profile = profile_of(&config, s).context("choose a profile for this bot on its page (About → Access)")?;
+    let profile = launch_profile(app, &config, s).context("choose a profile for this bot on its page (About → Access)")?;
     let folder = match &s.folder {
         Some(f) => Some(crate::projects::get(app, f).await?.context("the bot's folder no longer exists: choose another one on its page (About → Access)")?),
         None => None,
@@ -877,6 +903,17 @@ Routines: when the owner wants you to do something on your own later or again (e
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ordered_profile_fallback() {
+        let pick = |values: &[(bool, f64)]| values.iter().enumerate().min_by_key(|(i, (sub, used))| (profile_rank(*sub, *used), *i)).map(|(i, _)| i);
+        assert_eq!(pick(&[(true, 95.0), (true, 20.0)]), Some(0));
+        assert_eq!(pick(&[(true, 95.1), (true, 20.0)]), Some(1));
+        assert_eq!(pick(&[(true, 99.0), (true, 96.0), (false, 0.0)]), Some(0));
+        assert_eq!(pick(&[(true, 100.0), (false, 0.0)]), Some(1));
+        assert_eq!(pick(&[(true, 100.0), (true, 100.0)]), Some(0));
+        assert_eq!(pick(&[(false, 0.0), (true, 10.0)]), Some(1));
+    }
 
     #[test]
     fn agents_only_lower_a_bots_access_and_tighten_its_mode() {

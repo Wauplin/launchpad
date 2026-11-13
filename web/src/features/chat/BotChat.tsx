@@ -6,6 +6,7 @@
 // works as a page, a panel and the phone's full screen. The one message box sends to the bot's thread, or answers
 // its open question or a question report ("Answering: …", with Cancel to send a normal message instead).
 
+import { useProfiles, useProfileModels } from "@/lib/profiles";
 import { VoiceButton } from "@/components/VoiceButton";
 import { VoiceCaption } from "@/components/VoiceCaption";
 import { useDictation } from "@/lib/voice/useDictation";
@@ -56,7 +57,7 @@ import { attachmentSrc, pastedImages } from "@/lib/attachments";
 import { age, ago, when } from "@/lib/format";
 import { readDraft, useKeptDraft, writeDraft } from "@/lib/keptDraft";
 import { useArmedSession, useNextSession } from "./nextSession";
-import { useCrons, useSession } from "@/lib/queries";
+import { useCrons, useSession, useHarnessDefaults } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
 import { isRunning } from "@/lib/sessionStatus";
 import { sendPresence } from "@/lib/ws";
@@ -275,6 +276,7 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
   return (
     <ReplyContext.Provider value={onReply}>
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-paper" data-tour="bots.thread">
+      <BotModelChoice bot={bot} current={current} />
       {failedLog && <div role="alert" className="flex flex-wrap items-center gap-3 px-4 py-2 text-[12px] text-ink-3">
         <span className="min-w-0 flex-1 break-words">Could not load the thread: {failedLog.error}</span>
         <button className="btn btn-sm" onClick={() => visible.forEach((s) => void load(s.id))}>Retry</button>
@@ -681,4 +683,32 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
       </div>
     </div>
   );
+}
+
+
+function BotModelChoice({ bot, current }: { bot: Bot; current: Session | null }) {
+  const profiles = useProfiles();
+  const qc = useQueryClient();
+  const profile = profiles.find((p) => p.id === (bot.settings.profile ?? current?.launch_spec.profile ?? bot.settings.profiles?.[0]));
+  const defaults = useHarnessDefaults(profile && !profile.models_url ? profile.harness : null).data?.models ?? [];
+  const remote = useProfileModels(profile?.models_url);
+  const models = profile?.models_url ? remote.data ?? [] : defaults;
+  const save = async (model: string, chosen = bot.settings.profile) => {
+    try {
+      await runAction("bot.update", { id: bot.id }, { settings: { ...bot.settings, profile: chosen || (model ? profile?.id : null), model: model || null } });
+      await qc.invalidateQueries({ queryKey: ["bots"] });
+    } catch (e) { toastError(e); }
+  };
+  return <div className="flex items-center justify-end flex-wrap gap-2 px-3 py-1 text-[12px] text-ink-3">
+    <select className="field-input w-auto max-w-full" aria-label="Bot profile" disabled={!!current && isRunning(current)} value={bot.settings.profile ?? ""} onChange={(e) => void save("", e.target.value)}>
+      <option value="">Automatic profile</option>
+      {profiles.filter((p) => !bot.settings.profiles?.length || bot.settings.profiles.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+    </select>
+    Model
+    <select className="field-input w-auto max-w-full" aria-label="Bot model" title="Changing model starts a new session on the next message" disabled={!!current && isRunning(current)} value={bot.settings.model ?? ""} onChange={(e) => void save(e.target.value)}>
+      <option value="">Automatic · profile default</option>
+      {models.map((m) => <option key={m.id} value={m.id}>{m.display_name || m.id}</option>)}
+      {bot.settings.model && !models.some((m) => m.id === bot.settings.model) && <option value={bot.settings.model}>{bot.settings.model}</option>}
+    </select>
+  </div>;
 }

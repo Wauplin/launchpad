@@ -638,15 +638,21 @@ function SettingsForm({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   const field = "grid gap-1 text-[12px] font-semibold text-ink-2";
   return <div className="grid gap-2.5">
     <label className={field}>Name<input className="field-input font-normal" maxLength={40} value={s.name} onChange={(e) => setS({ ...s, name: e.target.value })} /></label>
-    <label className={field}>Profile
-      <select className="field-input font-normal" value={s.profile ?? ""} onChange={(e) => setS({ ...s, profile: e.target.value || undefined, model: undefined, effort: undefined })}>
-        <option value="">Default{fallback ? `: ${fallback.name}` : ""}</option>
-        {s.profile && !profiles.some((p) => p.id === s.profile) && <option value={s.profile}>A removed profile</option>}
-        {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
-    </label>
+    <div className="grid gap-1">
+      <span className={field}>Profiles · first choice first</span>
+      {(s.profiles?.length ? s.profiles : s.profile ? [s.profile] : []).map((id, i, list) => <div key={i} className="flex items-center gap-1">
+        <select aria-label={`Profile ${i + 1}`} className="field-input min-w-0 flex-1" value={id} onChange={(e) => setS({ ...s, profile: undefined, profiles: list.map((v, n) => n === i ? e.target.value : v), model: undefined, effort: undefined })}>
+          {!profiles.some((p) => p.id === id) && <option value={id}>Removed profile</option>}
+          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <button className="btn btn-sm" aria-label="Move profile up" disabled={!i} onClick={() => { const next = [...list]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; setS({ ...s, profile: undefined, model: undefined, effort: undefined, profiles: next }); }}>↑</button>
+        <button className="btn btn-sm" aria-label="Remove profile" onClick={() => setS({ ...s, profile: undefined, model: undefined, effort: undefined, profiles: list.filter((_, n) => n !== i) })}>×</button>
+      </div>)}
+      <button className="btn btn-sm w-fit" disabled={!fallback} onClick={() => setS({ ...s, profile: undefined, model: undefined, effort: undefined, profiles: [...(s.profiles?.length ? s.profiles : s.profile ? [s.profile] : []), fallback?.id ?? ""] })}>Add profile</button>
+      <span className="text-[12px] text-ink-3">Uses the first subscription at 95% or less, then one below 100%, then pay as you go. With no profiles, uses the default.</span>
+    </div>
     <label className={field}>Model
-      <select className="field-input font-normal" value={s.model ?? ""} onChange={(e) => setS({ ...s, model: e.target.value || undefined })}>
+      <select className="field-input font-normal" value={s.model ?? ""} onChange={(e) => setS({ ...s, profile: e.target.value ? profile?.id : s.profile, model: e.target.value || undefined })}>
         <option value="">Default of the profile{profile?.model ? ` (${profile.model})` : ""}</option>
         {models.map((m) => <option key={m.id} value={m.id}>{m.display_name || m.id}</option>)}
         {s.model && !models.some((m) => m.id === s.model) && <option value={s.model}>{s.model}</option>}

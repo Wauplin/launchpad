@@ -70,7 +70,9 @@ Open **Bots** in the sidebar and click **+** (or **New bot** on the Bots page). 
 
 - **Name**, for example "Scout".
 - **Its job**: what it does and how you like it done. This text becomes `BOT.md`, the bot's instructions.
-- **Profile**: the profile its sessions use. Without one, the bot uses your first subscription profile.
+- **Profiles**: add profiles in priority order in About → Access. A new session uses the first subscription profile at 95% usage or less in both quota windows. If none qualifies, it uses the first subscription below 100%, then the first pay-as-you-go profile. If all subscriptions are exhausted and no pay-as-you-go profile exists, it starts with the first profile and waits for quota. Missing readings are best effort; automatic work still needs confirmed quota. The chosen profile stays for the session. With no list, the bot uses your first subscription profile.
+
+The small profile and model selectors above the chat let you choose explicitly. Choose **Automatic profile** to return to the ordered list. A change takes effect on the next message in a new session; selectors are disabled while the bot works.
 - **Folder** (optional): **None** (the default), or a folder of the workspace for a bot that always works on one. Without a folder, each session starts in a temporary folder: the bot finds the workspace's folders with `launchpad folders list` and its notes, and adds a fresh worktree of a Git folder of the workspace with `launchpad work add-project` when a task needs it. To give a bot a folder of its own, create the folder first (Folders → Add folder), then choose it here.
 
 The form shows what the bot can reach: its folder, the knowledge base of its workspace, and the tools granted to the workspace. Bots run in YOLO mode by default; change it in the bot's About → Access. **Create bot** saves the bot and starts nothing. The bot's page then asks for its first task.

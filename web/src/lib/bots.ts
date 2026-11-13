@@ -15,6 +15,7 @@ export const useBotTemplates = () => useQuery({ queryKey: ["bot-templates"], que
 /** The profile a bot runs with: its own, or (none in bot.toml) the first subscription profile, else the first. */
 export function botProfile<P extends { id: string; billing: string }>(bot: Bot, profiles: P[]): P | null {
   if (bot.settings.profile) return profiles.find((p) => p.id === bot.settings.profile) ?? null;
+  if (bot.settings.profiles?.length) return profiles.find((p) => p.id === bot.settings.profiles?.[0]) ?? null;
   return profiles.find((p) => p.billing === "subscription") ?? profiles[0] ?? null;
 }
 
@@ -34,6 +35,10 @@ export const currentSession = (thread: Session[]) => [...thread].reverse().find(
  * the bot's profile: its model and effort apply when bot.toml names none. */
 export function rotationReason(bot: Bot, current: Session | null, profile: { id: string; model: string | null; effort: string | null } | null): string | null {
   if (!current) return null;
+  if (!bot.settings.profile && bot.settings.profiles?.includes(current.launch_spec.profile ?? "")) {
+    // Keep the selected fallback for this session, including its model defaults.
+    profile = { id: current.launch_spec.profile!, model: current.launch_spec.model ?? null, effort: current.launch_spec.effort ?? null };
+  }
   if (current.launch_spec.profile !== (profile?.id ?? null)) return "The bot's profile changed";
   // Without a folder, each session runs in its own temporary folder.
   const folder = current.launch_spec.target.kind === "temp" ? null : current.project_id;
