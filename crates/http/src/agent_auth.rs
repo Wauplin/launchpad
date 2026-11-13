@@ -84,7 +84,7 @@ async fn access_of(app: &App, id: &str) -> Option<LaunchpadAccess> {
 fn admin_allows(method: &Method, path: &str) -> bool {
     if *method == Method::GET {
         let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-        const CLOSED: &[&str] = &["config", "devices", "terminals", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "connections", "outbox", "review-state", "plain", "kb", "knowledge", "code", "browser", "ext"];
+        const CLOSED: &[&str] = &["config", "devices", "terminals", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "connections", "outbox", "review-state", "plain", "kb", "knowledge", "code", "ext"];
         return p.first() == Some(&"api") && p.get(1).is_some_and(|a| !CLOSED.contains(a));
     }
     actions::find(method.as_str(), path).is_some_and(|a| a.access == ActionAccess::Admin)

@@ -27,6 +27,6 @@ export async function signOut() {
         tx.oncomplete = tx.onerror = tx.onabort = () => { db.close(); resolve(); };
       };
     });
-  } finally { location.replace(location.protocol === "chrome-extension:" ? "/panel.html" : "/auth"); }
+  } finally { location.replace("/auth"); }
 }
 if (typeof window !== "undefined") window.addEventListener("storage", (ev) => { if (ev.key === "launchpad-sign-out" && ev.newValue && !signedOut) void signOut(); });

@@ -4,7 +4,6 @@
 // windows. A window that is being edited shows a conflict notice instead of losing either version.
 
 import { isDemo } from "../demo/mode.ts";
-import { isExtension } from "../lib/connection.ts";
 import { isPhone } from "../lib/phone.ts";
 import { storageAllowed } from "../lib/clientStorage.ts";
 import { useSaveStatus } from "../lib/saveStatus.ts";
@@ -113,8 +112,7 @@ const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(
 const OPEN_AFTER_LAUNCH = "launchpad-open-after-launch";
 const readOpenAfterLaunch = () => { try { return !isDemo && localStorage.getItem(OPEN_AFTER_LAUNCH) === "1"; } catch { return false; } };
 
-const draftScope = (workspace: string | null) => isExtension ? `chrome-extension:${localStorage.getItem("launchpad-extension-device") ?? "unpaired"}:${workspace ?? "default"}` : workspace;
-const draftPath = (workspace: string | null) => `/api/launch/draft${draftScope(workspace) ? `?workspace=${encodeURIComponent(draftScope(workspace)!)}` : ""}`;
+const draftPath = (workspace: string | null) => `/api/launch/draft${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`;
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 /** When this window last changed its draft: a newer remote draft does not replace it during editing. */
@@ -403,7 +401,7 @@ export const useComposer = create<Composer>((set, get) => ({
   },
   remoteChanged: (ev) => {
     if (ev.client === clientId || !get().loaded) return;
-    if ((ev.workspace ?? null) !== draftScope(useWorkspace.getState().current ?? null) || ev.revision <= get().revision) return;
+    if ((ev.workspace ?? null) !== (useWorkspace.getState().current ?? null) || ev.revision <= get().revision) return;
     // Being edited here (unsaved change, recent typing or an open conflict): ask; otherwise follow the other window.
     const editing = unsent.has(useWorkspace.getState().current ?? null) || saveTimer !== undefined || Date.now() - lastLocalEdit < EDITING_MS || !!get().conflict;
     if (editing && get().open) set({ conflict: true });

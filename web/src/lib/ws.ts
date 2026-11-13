@@ -6,7 +6,7 @@
 // daemon pings every 25 s; a socket silent for 60 s is replaced. Returning to the page, coming back
 // online or restoring it from the back/forward cache checks the socket at once instead of waiting.
 
-import { daemonSocket, isExtension } from "./connection.ts";
+import { daemonSocket } from "./connection.ts";
 import { api } from "./api";
 import { rememberSuccessfulSession, useComposer } from "@/stores/composer";
 import type { QueryClient } from "@tanstack/react-query";
@@ -219,9 +219,8 @@ export function connectEvents(queryClient: QueryClient) {
       clearTimeout(timer);
       timer = undefined;
       const query = position ? `?boot=${encodeURIComponent(position.boot)}&since=${position.bus}` : "";
-      const ticket = isExtension ? await api.post<{ ticket: string }>("/api/devices/socket-ticket") : null;
       if (attempt !== generation) return;
-      const ws = new WebSocket(daemonSocket(`/ws${query}${ticket ? `${query ? "&" : "?"}ticket=${encodeURIComponent(ticket.ticket)}` : ""}`));
+      const ws = new WebSocket(daemonSocket(`/ws${query}`));
       socket = ws;
       offered = null;
       openedAt = heardAt = Date.now();

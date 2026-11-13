@@ -12,7 +12,6 @@ import { logToDaemon } from "@/lib/api";
 import { connectEvents } from "@/lib/ws";
 import { useComposer } from "@/stores/composer";
 import { isDemo } from "@/demo/mode";
-import { isExtension } from "@/lib/connection";
 // Reads `?ws=` before anything else rewrites the address.
 import "@/stores/workspace";
 import "./styles.css";
@@ -37,8 +36,8 @@ const deployment = demo.then(() => loadDeployment());
 // A runner's own window has no composer (its daemon answers only its status).
 void deployment.then(() => { if (!runnerWindow()) void useComposer.getState().restore(); });
 // The installed app's offline shell (public/sw.js: the app page and its assets, never API answers). Only on the
-// daemon's own origin: not in demo mode, the Chrome extension or Vite's dev server. A failed registration changes nothing.
-if (!isDemo && !isExtension && import.meta.env.PROD && "serviceWorker" in navigator) {
+// daemon's own origin: not in demo mode or Vite's dev server. A failed registration changes nothing.
+if (!isDemo && import.meta.env.PROD && "serviceWorker" in navigator) {
   void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }
 

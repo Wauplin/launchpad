@@ -9,7 +9,7 @@ import { create } from "zustand";
 import { useQuery } from "@tanstack/react-query";
 import { isDemo } from "../../demo/mode";
 import { api } from "../api";
-import { daemonSocket, isExtension } from "../connection";
+import { daemonSocket } from "../connection";
 import { when } from "../format";
 import type { VoiceStatus } from "@/gen/VoiceStatus";
 import { micError, startCapture, type Capture } from "./capture";
@@ -42,13 +42,12 @@ const COUNTDOWN_MS = 2_000;
 
 /** Settings and sources, from Home (the demo answers with its profiles); null while loading. */
 export function useVoiceStatus() {
-  return useQuery({ queryKey: ["voice"], queryFn: ({ signal }) => api.get<VoiceStatus>("/api/voice", signal), enabled: !isExtension, staleTime: 30_000, refetchInterval: 60_000 });
+  return useQuery({ queryKey: ["voice"], queryFn: ({ signal }) => api.get<VoiceStatus>("/api/voice", signal), staleTime: 30_000, refetchInterval: 60_000 });
 }
 
 /** Whether the mic shows (voice is on), and why it is disabled (null: ready). */
 export function useVoiceAvailability(): { shown: boolean; reason: string | null; status: VoiceStatus | null } {
   const status = useVoiceStatus().data ?? null;
-  if (isExtension) return { shown: false, reason: null, status };
   if (!status) return { shown: false, reason: null, status };
   if (!status.enabled) return { shown: false, reason: status.unavailable, status };
   // The demo plays a scripted voice without a microphone (`demo/routes/voice.ts`).
@@ -86,7 +85,7 @@ function send(m: string | ArrayBuffer) {
 
 /** The pointer is on a mic or a message box has the focus: Home connects the first source now (kept 30 s). */
 export function warmVoice(keyterms: string[] = []) {
-  if (isDemo || isExtension || useVoice.getState().phase !== "idle" || Date.now() - warmedAt < 25_000) return;
+  if (isDemo || useVoice.getState().phase !== "idle" || Date.now() - warmedAt < 25_000) return;
   warmedAt = Date.now();
   send(JSON.stringify({ type: "warm", keyterms }));
 }

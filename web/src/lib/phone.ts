@@ -1,4 +1,3 @@
-import { isExtension } from "./connection.ts";
 
 // Phone layout: a separate shell (bottom tabs, one pane at a time, touch-sized controls) for narrow screens.
 // Chosen once per page load: automatic below 720 CSS px, or forced per device in local storage. Crossing the
@@ -16,7 +15,6 @@ export function layoutChoice(): LayoutChoice {
 }
 
 function decide(): boolean {
-  if (isExtension) return true;
   const choice = layoutChoice();
   if (choice !== "auto") return choice === "phone";
   return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;

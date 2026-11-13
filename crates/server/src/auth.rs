@@ -157,7 +157,6 @@ pub struct Auth {
     sessions: RwLock<HashMap<String, Session>>,
     pairs: RwLock<HashMap<String, i64>>,
     reverse: RwLock<ReversePairs>,
-    socket_tickets: RwLock<HashMap<String, (Access, i64)>>,
     changes: watch::Sender<u64>,
     db: Db,
 }
@@ -213,7 +212,6 @@ impl Auth {
             sessions: RwLock::new(sessions),
             pairs: RwLock::new(HashMap::new()),
             reverse: RwLock::new(ReversePairs::default()),
-            socket_tickets: Default::default(),
             changes,
             db,
         })
@@ -453,7 +451,6 @@ pub fn router() -> Router<Server> {
         .route("/api/devices/reverse/approve", post(reverse_approve))
         .route("/api/devices", get(devices))
         .route("/api/devices/pair", post(pair))
-        .route("/api/devices/socket-ticket", post(socket_ticket))
         .route("/api/devices/pairing-info", get(pairing_info))
         .route("/api/devices/https/run", post(run_https))
         .route("/api/devices/https/check", post(check_https))
@@ -554,12 +551,7 @@ async fn guard_inner(s: Server, mut req: Request, next: Next) -> Response {
             Err(e) => e.into_response(),
         };
     }
-    let ticket_access = if path == "/ws" && req.method() == Method::GET && req.headers().contains_key(header::UPGRADE)
-        && req.headers().get(header::ORIGIN).is_some_and(|v| v.as_bytes() == extension_origin().as_bytes()) {
-        let tickets: Vec<_> = req.uri().query().unwrap_or("").split('&').filter_map(|v| v.strip_prefix("ticket=")).collect();
-        if tickets.len() == 1 { s.auth.socket_tickets.write().unwrap().remove(&hash(tickets[0])).filter(|(access, expires)| *expires > now() && access.valid()).map(|(access, _)| access) } else { None }
-    } else { None };
-    if let Some(access) = s.auth.authenticate(req.headers()).or(ticket_access) {
+    if let Some(access) = s.auth.authenticate(req.headers()) {
         // A runner's own window shows its status only: launches, sessions and settings live on Home.
         if s.app.paths.role == launchpad_core::role::Role::Runner && access.device.is_some() && !runner_window_path(path) {
             return (StatusCode::FORBIDDEN, Json(json!({"error": "This runner's window shows its status only: open Home for everything else"}))).into_response();
@@ -592,20 +584,6 @@ fn private_response(mut response: Response, private: bool) -> Response {
             .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     }
     response
-}
-
-/// Chrome omits SameSite cookies on extension WebSocket handshakes. Keep the cookie policy
-/// and exchange an authenticated, origin-bound ticket valid for one upgrade within 30 seconds.
-async fn socket_ticket(State(s): State<Server>, Extension(access): Extension<Access>, headers: HeaderMap) -> ApiResult<Value> {
-    if access.device.is_none() || headers.get(header::ORIGIN).is_none_or(|v| v.as_bytes() != extension_origin().as_bytes()) {
-        return Err(ApiError::new(StatusCode::FORBIDDEN, "Socket tickets are only available to the paired Launchpad extension"));
-    }
-    let mut tickets = s.auth.socket_tickets.write().unwrap();
-    tickets.retain(|_, (access, expires)| *expires > now() && access.valid());
-    if tickets.len() >= 100 { return Err(ApiError::new(StatusCode::TOO_MANY_REQUESTS, "Too many pending socket connections")); }
-    let ticket = secret();
-    tickets.insert(hash(&ticket), (access, now() + 30));
-    Ok(Json(json!({"ticket":ticket})))
 }
 
 async fn pairing_info(State(s): State<Server>) -> ApiResult<Value> {
@@ -676,25 +654,8 @@ async fn check_https(State(s): State<Server>, Json(request): Json<HttpsPort>) ->
     ))
 }
 
-async fn pair(State(s): State<Server>, headers: HeaderMap) -> ApiResult<Value> {
-    // Only the Chrome extension's native host requests a local link; device pairing uses the remote origin.
-    let host = headers
-        .get(header::HOST)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let origin = if host == format!("127.0.0.1:{}", s.app.paths.port)
-        || host == format!("localhost:{}", s.app.paths.port)
-    {
-        // The native host's link must stay on loopback even when a remote origin is available.
-        if headers.get("x-launchpad-local-pair").is_some() {
-            format!("http://{host}")
-        } else {
-            s.auth.origin()
-        }
-    } else {
-        s.auth.origin()
-    };
-    Ok(Json(s.auth.pair(&origin)?))
+async fn pair(State(s): State<Server>) -> ApiResult<Value> {
+    Ok(Json(s.auth.pair(&s.auth.origin())?))
 }
 
 #[derive(Deserialize)]
