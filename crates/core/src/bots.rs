@@ -831,10 +831,11 @@ pub async fn message_with(app: &App, id: &str, m: Message) -> Result<Session> {
     let s = &bot.settings;
     let config = app.config.get();
     let profile = launch_profile(app, &config, s).context("choose a profile for this bot on its page (About → Access)")?;
-    let thread_id = crate::bot_threads::resolve(app, id, &to, text.lines().find(|l| !l.trim().is_empty()).unwrap_or_default()).await?;
-    if automatic && let Some(why) = crate::bot_threads::at_cap(app, &bot, Some(&thread_id)) {
+    // Checked before the thread is resolved: a message refused for its slot never leaves an empty new thread.
+    if automatic && let Some(why) = crate::bot_threads::at_cap(app, &bot, crate::bot_threads::peek(app, id, &to).await?.as_deref()) {
         bail!("{why}");
     }
+    let thread_id = crate::bot_threads::resolve(app, id, &to, text.lines().find(|l| !l.trim().is_empty()).unwrap_or_default()).await?;
     let sessions = crate::bot_threads::sessions(app, id, &thread_id);
     let current = sessions.iter().rev().find(|x| x.status != SessionStatus::Closed);
     let profile = if s.profile.is_none() && !s.profiles.is_empty() {

@@ -180,6 +180,18 @@ pub async fn resolve(app: &App, bot: &str, to: &To, fallback: &str) -> Result<St
     }
 }
 
+/// The existing thread a message to `to` would go to, without creating one (None: a new thread).
+pub async fn peek(app: &App, bot: &str, to: &To) -> Result<Option<String>> {
+    match to {
+        To::Thread(id) => Ok(Some(id.clone())),
+        To::Key { key, .. } => {
+            let (b, k) = (bot.to_string(), key.clone());
+            app.state_db.call(move |c| Ok(c.query_row("SELECT id FROM bot_thread WHERE bot_id = ?1 AND key = ?2 AND archived_at IS NULL ORDER BY created_at DESC LIMIT 1", params![b, k], |r| r.get(0)).optional()?)).await
+        }
+        To::New { .. } => Ok(None),
+    }
+}
+
 async fn insert(app: &App, bot: &str, key: Option<String>, title: &str) -> Result<String> {
     let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
     let title = match short(title) {

@@ -59,7 +59,7 @@ const CLI_ACCESS: { id: LaunchpadAccess; label: string; detail: string }[] = [
 ];
 import { useScope } from "@/lib/workspace";
 import { PhoneBar, PhoneHeader } from "@/mobile/PhoneHeader";
-import { phoneBack, phoneBackTo, replaceUnderOverlays } from "@/mobile/back";
+import { backInstalled, phoneBack, phoneBackTo, replaceUnderOverlays } from "@/mobile/back";
 import { useKeptDraft, versionOf } from "@/lib/keptDraft";
 import { Sheet } from "@/mobile/Sheet";
 import { StartPreviewDialog } from "@/features/launch/StartPreview";
@@ -263,13 +263,15 @@ function BotPageOf({ id }: { id: string }) {
   const current = currentSession(thread);
   const rows = useThreadRows(bot ?? ({ id } as Bot), sessions);
   const [threadsOpen, setThreadsOpen] = useState(false);
-  // A thread switch replaces the history entry, like tabs (on the phone also from the Threads sheet).
+  // A thread switch replaces the history entry, like tabs (on the phone also from the Threads sheet). On the phone,
+  // a switch from About (its ⋯, Open its thread) goes back to the chat and replaces it with the thread's.
   const selectThread = (t: string) => {
     setThreadsOpen(false);
     const q = new URLSearchParams();
-    if (search.panel) q.set("panel", search.panel);
+    if (search.panel && !phone) q.set("panel", search.panel);
     if (t !== MAIN_THREAD) q.set("thread", t);
     const to = `/bots/${id}${q.size ? `?${q}` : ""}`;
+    if (phone && search.panel && backInstalled()) { phoneBackTo((path, s) => path === `/bots/${id}` && !s.has("panel"), to, to); return; }
     if (phone && replaceUnderOverlays(to)) return;
     void navigate({ to: "/bots/$id", params: { id }, search: { ...(search.panel ? { panel: search.panel } : {}), ...(t !== MAIN_THREAD ? { thread: t } : {}) } as never, replace: true });
   };
@@ -311,7 +313,7 @@ function BotPageOf({ id }: { id: string }) {
   const chat = <BotChat key={threadId} bot={bot} threadId={threadId} thread={thread} rotation={rotation} needsProfile={!profile} openSettings={() => setAbout(true)} onStep={setStep}
     onStarted={(s) => { const t = s.launch_spec.bot?.thread; if (threadId === NEW_THREAD && t) { void threads.refetch(); selectThread(t); } }}
     intro={<p className="m-0 text-[13px] text-ink-2">{threadId === NEW_THREAD ? `Send ${bot.settings.name} the first message of this new thread: it runs next to its other threads.` : threadId === MAIN_THREAD ? `Send ${bot.settings.name} its first task.` : "This thread has no message yet."}</p>} />;
-  const sections = <AboutSections bot={bot} current={current} routines={routines} onEditFile={setFile} openThread={(key) => { const t = rows.find((r) => r.t.key === key); if (t) { if (phone) phoneBackTo((path, q) => path === `/bots/${bot.id}` && !q.has("panel"), `/bots/${bot.id}?thread=${t.t.id}`); selectThread(t.t.id); } else toast("No thread yet: it starts with the first message"); }} threadKeys={new Set(rows.map((r) => r.t.key).filter(Boolean) as string[])} />;
+  const sections = <AboutSections bot={bot} current={current} routines={routines} onEditFile={setFile} openThread={(key) => { const t = rows.find((r) => r.t.key === key); if (t) selectThread(t.t.id); else toast("No thread yet: it starts with the first message"); }} threadKeys={new Set(rows.map((r) => r.t.key).filter(Boolean) as string[])} />;
   const dialogs = <>
     {renaming && shownThread && <RenameThreadDialog bot={bot} thread={shownThread} onClose={() => setRenaming(false)} />}
     {threadsOpen && <Sheet title={`Threads of ${bot.settings.name}`} onClose={() => setThreadsOpen(false)}><ThreadList bot={bot} rows={rows} selected={threadId} onSelect={selectThread} /></Sheet>}

@@ -364,7 +364,7 @@ pub async fn latest(app: &App) -> Result<std::sync::Arc<Today>> {
 }
 
 /// Bus topics whose changes can change the list.
-const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons", "home_update", "cli_updates", "channels"];
+const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons", "home_update", "cli_updates", "channels", "bots"];
 
 /// What windows show of a waiting item: when it changes, they refetch.
 type ItemKey = (String, Vec<String>, Option<String>, String, String, Vec<String>);

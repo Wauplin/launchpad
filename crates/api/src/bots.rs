@@ -195,9 +195,13 @@ async fn message(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::ht
     };
     let to = bot_threads::route(source);
     if agent.is_some() {
+        // The loop guard refuses it now rather than once a slot is free.
+        if let Some(f) = &m.context.from {
+            launchpad_core::senders::guard_from(f).map_err(bad)?;
+        }
         let bot = bots::get(app, &id).await.map_err(bad)?;
-        let thread = bot_threads::resolve(app, &id, &to, m.text.lines().next().unwrap_or_default()).await.map_err(bad)?;
-        if !bot.paused && bot_threads::at_cap(app, &bot, Some(&thread)).is_some() {
+        if !bot.paused && bot_threads::at_cap(app, &bot, bot_threads::peek(app, &id, &to).await.map_err(bad)?.as_deref()).is_some() {
+            let thread = bot_threads::resolve(app, &id, &to, m.text.lines().next().unwrap_or_default()).await.map_err(bad)?;
             launchpad_channels::hooks::queue_for_slot(app, &id, thread.clone(), m.text, m.attachments, m.context).await.map_err(bad)?;
             return Ok(Json(json!({"queued": true, "thread": thread, "status": launchpad_channels::hooks::QUEUED_SLOT})));
         }

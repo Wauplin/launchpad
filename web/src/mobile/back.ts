@@ -22,7 +22,7 @@ let counter = 0;
 /** A tab tap waiting for its `go` to land on the entry above Today, which it then replaces. */
 let pendingTab: string | null = null;
 /** `phoneBackTo` going back until it reaches its page. */
-let pendingPage: { is: (path: string, search: URLSearchParams) => boolean; fallback: string } | null = null;
+let pendingPage: { is: (path: string, search: URLSearchParams) => boolean; fallback: string; then?: string } | null = null;
 /** `replaceUnderOverlays` going back past the overlays' entries, then replacing the page under them. */
 let pendingReplace: string | null = null;
 
@@ -86,7 +86,7 @@ export function installBack(h: RouterHistory): () => void {
       if (markerOf(h) || !pendingPage.is(url.pathname, url.searchParams)) {
         if (index > 0) { h.back(); return; }
         h.replace(pendingPage.fallback);
-      }
+      } else if (pendingPage.then) h.replace(pendingPage.then);
       pendingPage = null;
       return;
     }
@@ -140,15 +140,16 @@ export function phoneBack(parent: string) {
 /**
  * Leaves the overlays and pages above the nearest entry that `is` (for example the bot's chat under its About page,
  * with a menu and a sheet still open over it), going back one entry at a time; with none, replaces the page with
- * `fallback`. The open overlays close as their entries go.
+ * `fallback`. The open overlays close as their entries go. `then`: replaces the page reached (a sibling of it, such
+ * as another thread of a bot's chat), so back never returns to the one it replaced.
  */
-export function phoneBackTo(is: (path: string, search: URLSearchParams) => boolean, fallback: string) {
+export function phoneBackTo(is: (path: string, search: URLSearchParams) => boolean, fallback: string, then?: string) {
   const h = hist;
   if (!h) return;
   // Their entries go with this walk: closing them must not pop once more.
   for (const o of open.splice(0)) o.close();
-  if (indexOf(h) === 0) { h.replace(fallback); return; }
-  pendingPage = { is, fallback };
+  if (indexOf(h) === 0) { h.replace(then ?? fallback); return; }
+  pendingPage = { is, fallback, then };
   h.back();
 }
 

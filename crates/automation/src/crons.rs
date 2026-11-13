@@ -1167,9 +1167,16 @@ async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
             if let Some(runner) = s.runner_id.as_deref().filter(|r| app.runners.connected(r)) {
                 let _ = app.runners.request(runner, "POST", &format!("/api/sessions/{}/seen", s.id), None).await;
             }
-            // A bot routine's run had nothing to say: its thread leaves the bot's thread bar (archived, with Bring back).
+            // A bot routine's run had nothing to say: its thread leaves the bot's thread bar (archived, with Bring back),
+            // only while the thread is still just that run (a routine's own thread, one session, nothing asked or
+            // running), so a thread the owner continued is never archived.
             if let Some(b) = &s.launch_spec.bot
                 && b.thread_id() != launchpad_core::bot_threads::MAIN
+                && launchpad_core::bot_threads::get(app, &b.id, b.thread_id()).await.ok().flatten().is_some_and(|t| t.archived_at.is_none() && t.key.as_deref().is_some_and(|k| k.starts_with("routine:")))
+                && let [only] = launchpad_core::bot_threads::sessions(app, &b.id, b.thread_id()).as_slice()
+                && only.id == s.id
+                && only.status == SessionStatus::Waiting
+                && !only.open_question
                 && let Err(e) = launchpad_core::bot_threads::archive(app, &b.id, b.thread_id(), true).await
             {
                 tracing::warn!("archiving the thread of a quiet run of {}: {e:#}", r.title);
