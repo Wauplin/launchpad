@@ -2,6 +2,7 @@
 // panel and the content scripts. Clients never see a token or the device secret: they ask the worker, which adds the
 // credentials. Add a request by adding an entry to `Requests` and a case to the worker's router (background/router.ts).
 
+import type { DiffSelection } from "@/gen/DiffSelection";
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtNotifications } from "@/gen/ExtNotifications";
 import type { ExtReviewChoice } from "@/gen/ExtReviewChoice";
@@ -102,6 +103,13 @@ export type DoneResult = { id: string; error: string | null };
 /** `GET /api/predrafts/{id}`: what the Publish dialog needs (the commit shown is the one published). */
 export type LocalPrDetail = { predraft: Predraft; status: string | null; head?: string; default_remote_branch?: string; base_ahead: number; project_missing?: boolean; change_set?: { id: string; title: string; published_url: string | null; merged: boolean }[] };
 
+/** A profile of Home (an agent CLI with its login), for the launch popovers; never its environment. */
+export type ProfileBrief = { id: string; name: string; harness: string; subscription: boolean };
+/** What a launch of the GitHub layer does when its agent is done (`WhenDone`). */
+export type LaunchWhenDone = "read_only" | "local_pr";
+/** Push to this PR's answer. */
+export type PushResult = { ok: boolean; url: string; branch: string; head: string };
+
 type Req<A, R> = { args: A; result: R };
 
 /** Every request a client may send. `home.get` and `home.post` take Home paths under `/api/`. */
@@ -141,7 +149,16 @@ export type Requests = {
   "bots": Req<void, BotList>;
   /** A message to a bot's thread (`bot.message`); returns its session. `key` is the idempotency key (one per Send).
    * `github_refs` names the GitHub item or comment by reference; the bot reads the content itself. */
-  "bot.message": Req<{ bot: string; text: string; github_refs?: GitHubRef[]; attachments?: FileAttachment[]; new_session?: boolean; reason?: string; key: string }, Session>;
+  "bot.message": Req<{ bot: string; text: string; github_refs?: GitHubRef[]; attachments?: FileAttachment[]; new_session?: boolean; reason?: string; key: string; /** Lines of a pull request's diff (Ask about these lines): a reference, Home reads the lines. */ selection?: DiffSelection }, Session>;
+  /** Home's profiles (id, name, CLI), for a launch's picker. */
+  "profiles": Req<void, ProfileBrief[]>;
+  /** A one-time agent in a folder of the workspace (`session.launch`): read only (Investigate, Check with an agent) or
+   * ending in a Local PR (Fix in a Local PR). `key` is the idempotency key (one per Launch click). */
+  "launch": Req<{ folder: string; text: string; github_refs?: GitHubRef[]; when_done: LaunchWhenDone; profile: string; key: string }, Session>;
+  /** Push to this PR (`branch.push-to-pr`, a GitHub write): only from the confirm button of the extension's own
+   * dialog, with the branch commit the dialog showed; Home reads the pull request again and pushes only a
+   * fast-forward. */
+  "branch.push-to-pr": Req<{ repo: string; number: number; branch: string; head: string }, PushResult>;
   /** The sessions of the extension's workspace that are not archived (light records), newest first; `bot` narrows to a
    * bot's thread (oldest first). */
   "sessions": Req<{ bot?: string }, Session[]>;

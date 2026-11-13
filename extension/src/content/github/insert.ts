@@ -8,6 +8,7 @@
 
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtSuggestion } from "@/gen/ExtSuggestion";
+import { request } from "../../shared/messages";
 import { findAnchor } from "./anchors";
 import { askPopover } from "./askPopover";
 import { agentPath, ledger, open, type ItemPage } from "./item";
@@ -18,6 +19,8 @@ type Inserted = { box: HTMLTextAreaElement; at: number; posted: boolean; stop: (
 const inserted = new Map<string, Inserted>();
 const shown = new Set<string>();
 let onChange: () => void = () => undefined;
+/** What re-renders the page after an insert or a post (main.ts sets it). */
+export function onInserted(fn: () => void) { onChange = fn; }
 
 /** The comment anchor a suggestion answers (`discussion_r…` for a review thread). */
 const threadOf = (s: ExtSuggestion) => (s.reply_to?.kind === "review_comment" ? `discussion_r${s.reply_to.id}` : null);
@@ -37,7 +40,7 @@ function boxFor(page: ItemPage, s: ExtSuggestion): { box: HTMLTextAreaElement | 
 export class NeedsChoice extends Error {}
 
 /** Writes into a GitHub text field like typing: one undo step. `mode`: what to do with text already in the box. */
-function write(box: HTMLTextAreaElement, text: string, mode: "replace" | "append") {
+export function write(box: HTMLTextAreaElement, text: string, mode: "replace" | "append") {
   box.focus();
   if (mode === "replace") box.select();
   else {
@@ -73,15 +76,39 @@ export async function insertSuggestion(page: ItemPage, s: ExtSuggestion, mode?: 
   write(box, `${s.text.trimEnd()}\n\n${s.attribution}`, mode ?? "replace");
   inserted.get(s.id)?.stop();
   const entry: Inserted = { box, at: Date.now(), posted: false, stop: () => undefined };
-  entry.stop = watchSubmit(box, s, entry);
+  entry.stop = watchSubmit(box, entry, (text) => ledger("posted-by-hand", s.id, text));
   inserted.set(s.id, entry);
   onChange();
   await ledger("inserted", s.id, s.text);
 }
 
+/** Parts other than a comment's body filled into GitHub's fields (a line comment, a review's summary): `<id>|<part>`. */
+const filledParts = new Map<string, Inserted>();
+export const partState = (id: string, part: string): "in" | "posted" | null => {
+  const e = filledParts.get(`${id}|${part}`);
+  return e ? (e.posted ? "posted" : "in") : null;
+};
+
+/** Fills GitHub's `box` with one part of a suggestion (`line:…` or `body` of a review), plus the attribution line, and
+ * observes its form like Insert does. `suggestion` null: text that is no suggestion (a bot's answer), not recorded.
+ * Throws `NeedsChoice` when the box has text and no `mode` was chosen. */
+export async function fillPart(box: HTMLTextAreaElement, suggestion: string | null, part: string, text: string, attribution: string, mode?: "replace" | "append") {
+  if (box.value.trim() && !mode) throw new NeedsChoice("GitHub's box already has text.");
+  box.scrollIntoView({ block: "center" });
+  write(box, `${text.trimEnd()}\n\n${attribution}`, mode ?? "replace");
+  if (!suggestion) return;
+  const key = `${suggestion}|${part}`;
+  filledParts.get(key)?.stop();
+  const entry: Inserted = { box, at: Date.now(), posted: false, stop: () => undefined };
+  entry.stop = watchSubmit(box, entry, (posted) => request("suggestion.ledger", { action: "posted-by-hand", id: suggestion, part, text: posted }));
+  filledParts.set(key, entry);
+  onChange();
+  await request("suggestion.ledger", { action: "inserted", id: suggestion, part, text });
+}
+
 /** The form's submit, GitHub's own submit buttons and Ctrl/Cmd+Enter in the box: observed only (capture phase, so the
  * text is read before GitHub clears the box), never triggered. */
-function watchSubmit(box: HTMLTextAreaElement, s: ExtSuggestion, entry: Inserted) {
+function watchSubmit(box: HTMLTextAreaElement, entry: Inserted, record: (text: string) => Promise<unknown>) {
   const composer = () => box.closest("form") ?? box.closest('[class*="Composer"], [data-testid*="composer" i], .timeline-comment') ?? box.parentElement;
   const posted = () => {
     const text = box.value;
@@ -89,7 +116,7 @@ function watchSubmit(box: HTMLTextAreaElement, s: ExtSuggestion, entry: Inserted
     entry.posted = true;
     stop();
     onChange();
-    void ledger("posted-by-hand", s.id, text).catch((e) => console.warn("Launchpad: posted by hand", e));
+    void record(text).catch((e) => console.warn("Launchpad: posted by hand", e));
   };
   const onSubmit = (e: Event) => { if (e.target instanceof Element && e.target.contains(box)) posted(); };
   const onClick = (e: Event) => {
@@ -97,7 +124,7 @@ function watchSubmit(box: HTMLTextAreaElement, s: ExtSuggestion, entry: Inserted
     const root = composer();
     if (!b || !root || !root.contains(b) || b.disabled) return;
     const label = (b.textContent ?? "").trim();
-    if (b.type === "submit" ? !/^(cancel|close|preview|write)$/i.test(label) : /^(comment|reply|close with comment|add single comment|start a review|add review comment|update comment)$/i.test(label)) posted();
+    if (b.type === "submit" ? !/^(cancel|close|preview|write)$/i.test(label) : /^(comment|reply|close with comment|add single comment|start a review|add review comment|update comment|submit review)$/i.test(label)) posted();
   };
   const onKey = (e: KeyboardEvent) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.target === box) posted(); };
   document.addEventListener("submit", onSubmit, true);
@@ -114,18 +141,19 @@ function watchSubmit(box: HTMLTextAreaElement, s: ExtSuggestion, entry: Inserted
   return stop;
 }
 
-/** `suggestion.shown` once the banner was on screen for 1.5 s. */
-function watchShown(host: HTMLElement, id: string) {
-  if (shown.has(id)) return;
+/** `suggestion.shown` once the banner (or a ghost comment: its `part`) was on screen for 1.5 s. */
+export function watchShown(host: HTMLElement, id: string, part = "body") {
+  const key = `${id}|${part}`;
+  if (shown.has(key)) return;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const io = new IntersectionObserver(([e]) => {
     clearTimeout(timer);
     if (!e?.isIntersecting || document.visibilityState !== "visible") return;
     timer = setTimeout(() => {
-      if (!host.isConnected || shown.has(id)) return;
-      shown.add(id);
+      if (!host.isConnected || shown.has(key)) return;
+      shown.add(key);
       io.disconnect();
-      void ledger("shown", id).catch(() => shown.delete(id));
+      void request("suggestion.ledger", { action: "shown", id, part }).catch(() => shown.delete(key));
     }, 1_500);
   }, { threshold: 0.6 });
   io.observe(host);

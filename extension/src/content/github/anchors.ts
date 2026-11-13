@@ -7,7 +7,16 @@
 import type { ExtPageKind } from "@/gen/ExtPageKind";
 import { request } from "../../shared/messages";
 
-export type Params = { repo: string; number: number | null; /** A comment's anchor (`issuecomment-1`, `discussion_r2`). */ comment?: string };
+export type Params = {
+  repo: string;
+  number: number | null;
+  /** A comment's anchor (`issuecomment-1`, `discussion_r2`). */
+  comment?: string;
+  /** A line of a pull request's diff: its file, side and number (Files changed). */
+  path?: string;
+  side?: "LEFT" | "RIGHT";
+  line?: number;
+};
 type Via = "id" | "data" | "aria" | "text";
 /** `place` overrides the anchor's own, for a strategy that finds another kind of element. */
 type Strategy = { via: Via; find: (p: Params) => Element | null; place?: InsertPosition; /** Lists: every match. */ all?: (p: Params) => Element[] };
@@ -236,7 +245,142 @@ export const ANCHORS = {
       } },
     ],
   },
+  /** The files of a pull request's Files changed, each with its path (Ask about these lines D1, ghost comments D2). */
+  "diff-files": {
+    label: "Files changed: files",
+    kinds: ["pr_files"],
+    place: "afterend",
+    strategies: [
+      { via: "data", find: () => document.querySelector("[data-tagsearch-path]"), all: () => all("[data-tagsearch-path]") },
+      { via: "id", find: () => document.querySelector('copilot-diff-entry[data-file-path] [id^="diff-"]'), all: () => all('copilot-diff-entry[data-file-path] [id^="diff-"]') },
+      { via: "aria", find: () => document.querySelector('[data-file-path][id^="diff-"], [data-file-path] [id^="diff-"]'), all: () => all('[data-file-path][id^="diff-"], [data-file-path] [id^="diff-"]') },
+    ],
+  },
+  /** One line of a pull request's diff (`p.path`, `p.side`, `p.line`; without them, any line for the health check): its row,
+   * where an answer or a ghost comment goes. GitHub's line anchors are `diff-<sha256 of the path><L|R><line>`. */
+  "diff-line": {
+    label: "Files changed: diff lines",
+    kinds: ["pr_files"],
+    place: "afterend",
+    strategies: [
+      { via: "id", find: (p) => {
+        if (!p.path) return document.querySelector('td.blob-num[id^="diff-"][data-line-number]')?.closest("tr") ?? null;
+        const file = fileOf(p.path);
+        const cell = file ? document.getElementById(`${file.id}${p.side === "LEFT" ? "L" : "R"}${p.line}`) : null;
+        return cell?.closest("tr") ?? null;
+      } },
+      { via: "data", find: (p) => {
+        if (!p.path) return document.querySelector('[data-line-number][data-diff-anchor], [data-grid-cell-id]')?.closest('tr, [role="row"]') ?? null;
+        const hash = hashes.get(p.path);
+        const id = hash ? `diff-${hash}${p.side === "LEFT" ? "L" : "R"}${p.line}` : null;
+        const cell = id ? document.getElementById(id) ?? document.querySelector(`[data-line-anchor="${id}"], [data-grid-cell-id^="${id}"]`) : null;
+        return cell?.closest('tr, [role="row"]') ?? null;
+      } },
+    ],
+  },
+  /** GitHub's own line comment form of a diff line, once the owner opened it (Add to my review, Turn into line comment). */
+  "line-form": {
+    label: "Line comment form",
+    kinds: [],
+    place: "beforebegin",
+    strategies: [
+      // Classic: the inline comment row GitHub adds right after the line's row.
+      { via: "id", find: (p) => {
+        const row = p.path ? findLine(p) : null;
+        for (let r = row?.nextElementSibling ?? null, i = 0; r && i < 3; r = r.nextElementSibling, i++) {
+          if (r.hasAttribute("data-launchpad-row")) continue;
+          if (!r.matches(".inline-comments, .js-inline-comments-container")) break;
+          const t = visibleTextarea(r);
+          if (t) return t;
+        }
+        return null;
+      } },
+      // The form's own fields name the line.
+      { via: "data", find: (p) => all("form").find((f) => (f.querySelector('input[name="path"]') as HTMLInputElement | null)?.value === p.path
+        && (f.querySelector('input[name="line"]') as HTMLInputElement | null)?.value === String(p.line)
+        && ((f.querySelector('input[name="side"]') as HTMLInputElement | null)?.value ?? "RIGHT").toUpperCase() === p.side
+        && !!visibleTextarea(f))?.querySelector("textarea") ?? null },
+      // Newer layouts: the text field GitHub focused in this file's diff after the owner opened a line's form.
+      { via: "aria", find: (p) => {
+        const t = lastFocused && Date.now() - lastFocused.at < 120_000 && lastFocused.path === p.path ? lastFocused.box : null;
+        return t?.isConnected && t.getClientRects().length > 0 ? t : null;
+      } },
+    ],
+  },
+  /** The summary field of GitHub's Finish your review / Review changes dialog (Insert summary, D3). */
+  "review-dialog": {
+    label: "Review changes dialog",
+    kinds: [],
+    place: "beforebegin",
+    strategies: [
+      { via: "id", find: () => visible(document.querySelector("textarea#pull_request_review_body")) },
+      { via: "data", find: () => all('form[action$="/reviews"] textarea, .js-reviews-container textarea').map(visible).find(Boolean) ?? null },
+      { via: "aria", find: () => all('[role="dialog"]').filter((d) => /finish your review|review changes|submit review/i.test(d.querySelector("h1, h2, h3, [id$='title'], [class*='Title']")?.textContent ?? d.getAttribute("aria-label") ?? "")).map((d) => visibleTextarea(d)).find(Boolean) ?? null },
+    ],
+  },
+  /** GitHub's "Approve and run" of workflows waiting for a maintainer on a fork's pull request (CI note, I8). */
+  "ci-approval": {
+    label: "Approve and run workflows",
+    kinds: [],
+    place: "afterend",
+    strategies: [
+      { via: "data", find: () => all('form[action*="approve"] button, form[action*="approve"] input[type="submit"]').find((b) => /approve and run/i.test(b.textContent ?? (b as HTMLInputElement).value ?? ""))?.closest(".branch-action-item, .merge-pr, .mergeability-details, section, .Box, form") ?? null },
+      { via: "text", find: () => all("main button").find((b) => /^approve and run/i.test(b.textContent?.trim() ?? ""))?.closest(".branch-action-item, section, [class*='MergeBox'], .Box, div") ?? null },
+    ],
+  },
 } satisfies Record<string, Anchor>;
+
+/** sha256 of each diff path seen (GitHub's line anchors use it), filled by `hashPaths`. */
+const hashes = new Map<string, string>();
+export async function hashPaths(paths: string[]) {
+  for (const p of paths) {
+    if (hashes.has(p)) continue;
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(p));
+    hashes.set(p, Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join(""));
+  }
+}
+
+/** The diff container of a file of Files changed (its id is `diff-<sha256 of the path>`). */
+export function fileOf(path: string): Element | null {
+  const byData = all("[data-tagsearch-path]").find((f) => f.getAttribute("data-tagsearch-path") === path);
+  if (byData?.id.startsWith("diff-")) return byData;
+  const entry = all("copilot-diff-entry[data-file-path], [data-file-path]").find((f) => f.getAttribute("data-file-path") === path);
+  const inner = entry?.id.startsWith("diff-") ? entry : entry?.querySelector('[id^="diff-"]');
+  if (inner) return inner;
+  const hash = hashes.get(path);
+  return hash ? document.getElementById(`diff-${hash}`) : null;
+}
+
+/** The path of a diff file from its `diff-<hash>` anchor (a line selection's URL fragment). */
+export function pathOfHash(hash: string): string | null {
+  const el = document.getElementById(`diff-${hash}`);
+  const path = el?.getAttribute("data-tagsearch-path") ?? el?.closest("[data-file-path]")?.getAttribute("data-file-path") ?? null;
+  if (path) return path;
+  for (const [p, h] of hashes) if (h === hash) return p;
+  return null;
+}
+
+/** The row of a diff line, or null. */
+export function findLine(p: Params): Element | null {
+  return findAnchor("diff-line", p)?.el ?? null;
+}
+
+function visible(el: Element | null): HTMLTextAreaElement | null {
+  return el instanceof HTMLTextAreaElement && el.getClientRects().length > 0 ? el : null;
+}
+function visibleTextarea(root: Element): HTMLTextAreaElement | null {
+  return all("textarea", root).map(visible).find((t) => t && !t.closest("[data-launchpad]")) ?? null;
+}
+
+/** The last GitHub text field focused inside a diff file (newer layouts open a line's form there and focus it). */
+let lastFocused: { box: HTMLTextAreaElement; path: string; at: number } | null = null;
+document.addEventListener("focusin", (e) => {
+  const t = e.target;
+  if (!(t instanceof HTMLTextAreaElement)) return;
+  const file = t.closest("[data-tagsearch-path], [data-file-path]");
+  const path = file?.getAttribute("data-tagsearch-path") ?? file?.getAttribute("data-file-path");
+  if (path) lastFocused = { box: t, path, at: Date.now() };
+}, true);
 
 /** Rows of a list found by their links to the repository's pull requests or issues. */
 function listRows(p: Params): Element[] {

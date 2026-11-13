@@ -7,7 +7,8 @@ import type { ExtContext } from "@/gen/ExtContext";
 import { CONTEXT_TOPIC, request, subscribe, type Phase, type TabCommand } from "../../shared/messages";
 import { beginPage } from "./anchors";
 import { renderComments, watch } from "./comments";
-import { insertFromPanel, renderInsertBanners } from "./insert";
+import { clearFiles, isFiles, renderFiles } from "./files";
+import { insertFromPanel, onInserted, renderInsertBanners } from "./insert";
 import { isItem } from "./item";
 import { clearLists, listsStale, renderLists } from "./lists";
 import { clearNotifications, notificationsStale, renderNotifications, watchNotificationForms } from "./notifications";
@@ -38,15 +39,18 @@ function render() {
   renderRepoBadge(page, context, refresh);
   renderRepoStrip(page, context, refresh);
   if (connected()) renderLists(page, context, render, refresh); else clearLists();
+  const forPage = (p: { repo: string; number: number }) => (context && context.page.number === p.number && context.page.repo?.toLowerCase() === p.repo.toLowerCase() ? context : null);
+  if (isFiles(page) && connected()) renderFiles(page, forPage(page), refresh);
+  else clearFiles();
   if (isItem(page)) {
-    const ctx = context && context.page.number === page.number && context.page.repo?.toLowerCase() === page.repo.toLowerCase() ? context : null;
+    const ctx = forPage(page);
     if (ctx || (loading && phase !== "signed-out" && phase !== "revoked")) renderSidebarBox(page, ctx, refresh);
     else unmount("sidebar-box");
     watch(renderComments(page, ctx, refresh), render);
     renderInsertBanners(page, ctx, refresh);
   } else {
     unmount("sidebar-box");
-    watch([], render);
+    if (!isFiles(page)) watch([], render);
   }
 }
 
@@ -111,6 +115,7 @@ function commands() {
 
 export function start() {
   commands();
+  onInserted(() => render());
   watchNotificationForms(() => page.kind === "notifications");
   // GitHub's own list checkboxes change no markup on every layout: L4's selection bar follows them here.
   document.addEventListener("change", (e) => { if ((page.kind === "pulls" || page.kind === "issues") && e.target instanceof HTMLInputElement && e.target.type === "checkbox") render(); }, true);

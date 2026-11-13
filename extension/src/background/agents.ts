@@ -3,12 +3,15 @@
 // sends to the panel (P3). Every call goes to Home through `homeJson`, narrowed to the extension's workspace.
 
 import type { Bot } from "@/gen/Bot";
+import type { Config } from "@/gen/Config";
+import type { DiffSelection } from "@/gen/DiffSelection";
+import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { FileAttachment } from "@/gen/FileAttachment";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { SessionEventPage } from "@/gen/SessionEventPage";
-import { QUOTE_TOPIC, RequestError, type BotList, type LedgerAction, type Quote } from "../shared/messages";
+import { QUOTE_TOPIC, RequestError, type BotList, type LaunchWhenDone, type LedgerAction, type ProfileBrief, type Quote } from "../shared/messages";
 import { current, homeJson } from "./home";
 import { pushEvent } from "./ports";
 
@@ -45,11 +48,55 @@ const files = (v: unknown): FileAttachment[] => (Array.isArray(v) ? v.slice(0, 4
   !!f && typeof f.name === "string" && typeof f.data_url === "string" && f.data_url.startsWith("data:") && f.data_url.length < 2_000_000)
   .map((f) => ({ name: f.name.slice(0, 200), data_url: f.data_url }));
 
-export async function botMessage(a: { bot: string; text: string; github_refs?: GitHubRef[]; attachments?: FileAttachment[]; new_session?: boolean; reason?: string; key: string }): Promise<Session> {
+/** A diff selection as a reference only: Home reads the lines (`lines` is never sent). */
+function selection(v: unknown): DiffSelection | undefined {
+  const s = v as Partial<DiffSelection> | null | undefined;
+  if (!s || typeof s !== "object") return undefined;
+  const n = (x: unknown) => (typeof x === "number" && Number.isInteger(x) && x > 0 && x < 1e9 ? x : null);
+  const [number, start, end] = [n(s.number), n(s.start), n(s.end)];
+  if (typeof s.repo !== "string" || !REPO.test(s.repo) || !number || !start || !end || end < start || end - start >= 400) throw new RequestError("Not a selection of a pull request's diff");
+  if (typeof s.path !== "string" || !s.path || s.path.length > 1024 || s.path.startsWith("/") || s.path.split("/").some((x) => !x || x === "." || x === "..")) throw new RequestError("Not a file of the diff");
+  if (s.side !== "LEFT" && s.side !== "RIGHT") throw new RequestError("Not a side of the diff");
+  const head = typeof s.head === "string" && /^[0-9a-f]{7,64}$/.test(s.head) ? s.head : null;
+  return { repo: s.repo, number, path: s.path, side: s.side, start, end, head };
+}
+const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
+
+export async function botMessage(a: { bot: string; text: string; github_refs?: GitHubRef[]; attachments?: FileAttachment[]; new_session?: boolean; reason?: string; key: string; selection?: DiffSelection }): Promise<Session> {
   const bot = id(a.bot, "bot");
   const text = String(a.text ?? "").slice(0, 60_000);
-  const body = { text, attachments: files(a.attachments), context: { github_refs: refs(a.github_refs) }, new_session: !!a.new_session, reason: a.reason ? String(a.reason).slice(0, 120) : null };
+  const sel = selection(a.selection);
+  const body = { text, attachments: files(a.attachments), context: { github_refs: refs(a.github_refs), ...(sel ? { selection: sel } : {}) }, new_session: !!a.new_session, reason: a.reason ? String(a.reason).slice(0, 120) : null };
   return homeJson<Session>(`/api/bots/${bot}/message`, { method: "POST", body, idempotency_key: id(a.key, "message") });
+}
+
+/** Home's profiles without their environment (only what a picker shows). */
+export async function profiles(): Promise<ProfileBrief[]> {
+  const config = await homeJson<Config>("/api/config");
+  return config.profiles.map((p) => ({ id: p.id, name: p.name, harness: p.harness, subscription: p.billing === "subscription" }));
+}
+
+/** A one-time agent in a Git folder of the workspace, in its own worktree: read only, or ending in a Local PR. */
+export async function launch(a: { folder: string; text: string; github_refs?: GitHubRef[]; when_done: LaunchWhenDone; profile: string; key: string }): Promise<Session> {
+  const ws = workspace();
+  const folder = id(a.folder, "folder");
+  if (!(await projects()).some((p) => p.id === folder && p.workspace_id === ws)) throw new RequestError("This folder is not in the extension's workspace");
+  if (a.when_done !== "read_only" && a.when_done !== "local_pr") throw new RequestError("Not a launch the GitHub layer makes");
+  const profile = (await profiles()).find((p) => p.id === a.profile);
+  if (!profile) throw new RequestError("No such profile on this Home");
+  const text = String(a.text ?? "").trim().slice(0, 60_000);
+  if (!text) throw new RequestError("The task is empty");
+  const spec: Partial<LaunchSpec> = {
+    text,
+    harness: profile.harness as LaunchSpec["harness"],
+    profile: profile.id,
+    target: { kind: "project", project_id: folder },
+    worktree: { base: null, when_done: a.when_done },
+    github_refs: refs(a.github_refs),
+    workspace_id: ws,
+    permission_mode: "yolo",
+  };
+  return homeJson<Session>("/api/sessions", { method: "POST", body: spec, idempotency_key: id(a.key, "launch") });
 }
 
 /** The workspace of a session: its folder's, else the one its launch named. */

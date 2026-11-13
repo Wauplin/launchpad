@@ -7,7 +7,7 @@ import type { ExtNotifications } from "@/gen/ExtNotifications";
 import type { ExtReviewChoice } from "@/gen/ExtReviewChoice";
 import type { ObservedResult } from "@/gen/ObservedResult";
 import type { Project } from "@/gen/Project";
-import { RequestError, type DoneResult, type LocalPrDetail, type ObservedAction } from "../shared/messages";
+import { RequestError, type DoneResult, type LocalPrDetail, type ObservedAction, type PushResult } from "../shared/messages";
 import { current, homeJson } from "./home";
 
 const id = (v: unknown, what: string) => {
@@ -65,4 +65,17 @@ export function publish(a: { id: string; remote_branch: string; draft: boolean; 
   if (!remote || remote.length > 200 || /\s|\.\.|^[-/]|[~^:?*[\\]/.test(remote)) throw new RequestError("Not a branch name");
   if (typeof a.head !== "string" || !/^[0-9a-f]{40,64}$/.test(a.head)) throw new RequestError("No reviewed commit");
   return homeJson(`/api/predrafts/${id(a.id, "Local PR")}/publish`, { method: "POST", body: { remote_branch: remote, draft: !!a.draft, head: a.head, fork: !!a.fork }, idempotency_key: crypto.randomUUID() });
+}
+
+/** Push to this PR of the extension's push dialog, after its confirmation (`branch.push-to-pr`): the branch commit the
+ * dialog showed only; Home reads the pull request again and refuses anything but a fast-forward. */
+export function pushToPr(a: { repo: string; number: number; branch: string; head: string }): Promise<PushResult> {
+  if (typeof a.repo !== "string" || !REPO.test(a.repo)) throw new RequestError("Not a repository");
+  const n = Number(a.number);
+  if (!Number.isInteger(n) || n < 1) throw new RequestError("Not a pull request");
+  const branch = String(a.branch ?? "");
+  if (!/^lp\/[A-Za-z0-9._/-]{1,200}$/.test(branch) || branch.includes("..")) throw new RequestError("Not a Launchpad branch");
+  if (typeof a.head !== "string" || !/^[0-9a-f]{40}$/.test(a.head)) throw new RequestError("No branch commit");
+  const [owner, name] = a.repo.split("/");
+  return homeJson<PushResult>(`/api/items/${owner}/${name}/${n}/push-branch`, { method: "POST", body: { branch, head: a.head } });
 }
