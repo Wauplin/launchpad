@@ -1,3 +1,4 @@
+import { SessionTopics } from "@/features/topics/TopicPicker";
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
@@ -440,6 +441,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
         </div>
       </Sheet>}
 
+      <SessionTopics sessionId={s.id} />
       {branch.stopped && !running && <div className="grid gap-1 border-b border-attn-line bg-attn-soft px-4 py-2.5">
         <NotMerged branch={branch} />
         <span className="text-[12px] text-attn">{s.status === "waiting" ? "Fix merge sends the problem to the agent: it rebases, resolves and asks to merge again." : "Resume the agent, then use Fix merge."}</span>

@@ -50,7 +50,7 @@ export function PhoneBarEnd({ children }: { children: ReactNode }) {
 }
 
 /** Places of the More tab (the tab shows as current on them). */
-export const MORE_PLACES = ["/more", "/schedules", "/projects", "/knowledge", "/terminals", "/settings", "/setup"];
+export const MORE_PLACES = ["/more", "/schedules", "/projects", "/knowledge", "/topics", "/terminals", "/settings", "/setup"];
 
 /** The title the phone shell's top bar shows for a path. */
 export function pageTitle(path: string): string {
@@ -64,6 +64,7 @@ export function pageTitle(path: string): string {
   if (path.startsWith("/terminals")) return "Terminals";
   if (path.startsWith("/settings")) return "Settings";
   if (path.startsWith("/setup")) return "Setup";
+  if (path.startsWith("/topics")) return "Topics";
   if (path.startsWith("/knowledge")) return "Knowledge";
   if (path.startsWith("/schedules")) return "Schedules";
   if (path.startsWith("/bots") || path.startsWith("/channels")) return "Chats";

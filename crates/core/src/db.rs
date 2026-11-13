@@ -179,6 +179,9 @@ const STATE_MIGRATIONS: &[&str] = &[
     // 8: remove retired weekly reset analytics and its persisted baselines.
     "DROP TABLE quota_weekly_reset;
     DROP TABLE quota_weekly_reading;",
+    "CREATE TABLE topic (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, name TEXT NOT NULL COLLATE NOCASE, UNIQUE(workspace_id, name));
+    CREATE TABLE topic_session (topic_id TEXT NOT NULL, session_id TEXT NOT NULL, PRIMARY KEY(topic_id, session_id));
+    CREATE INDEX topic_session_session ON topic_session(session_id);",
 ];
 
 pub fn open_state(path: &Path) -> Result<Db> {

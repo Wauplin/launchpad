@@ -20,6 +20,8 @@ const root = createRootRoute({ component: Root });
 const routeTree = root.addChildren([
   // Today: the home page of both shells.
   createRoute({ getParentRoute: () => root, path: "/", component: TodayView, validateSearch: (s: Record<string, unknown>): TodaySearch => ({ ...(typeof s.filter === "string" && s.filter ? { filter: s.filter } : {}), ...(typeof s.card === "string" && s.card ? { card: s.card } : {}) }) }),
+  createRoute({ getParentRoute: () => root, path: "/topics", component: lazyRouteComponent(() => import("@/features/topics/TopicsView"), "TopicsView") }),
+  createRoute({ getParentRoute: () => root, path: "/topics/$id", component: lazyRouteComponent(() => import("@/features/topics/TopicsView"), "TopicDetail") }),
   // Phone pages.
   createRoute({ getParentRoute: () => root, path: "/terminals", component: lazyRouteComponent(() => import("@/mobile/TerminalsView"), "TerminalsView") }),
   createRoute({ getParentRoute: () => root, path: "/more", component: lazyRouteComponent(() => import("@/mobile/MoreView"), "MoreView") }),
@@ -50,7 +52,7 @@ const routeTree = root.addChildren([
     path: "/agents",
     component: AgentsView,
     // `view` opens one view of the session (`changes` from Review changes links; the phone keeps the current one).
-    validateSearch: (s: Record<string, unknown>): { session?: string; view?: SessionView } => ({ ...(typeof s.session === "string" ? { session: s.session } : {}), ...(typeof s.view === "string" && SESSION_VIEWS.includes(s.view as SessionView) ? { view: s.view as SessionView } : {}) }),
+    validateSearch: (s: Record<string, unknown>): { session?: string; view?: SessionView; topic?: string } => ({ ...(typeof s.topic === "string" ? { topic: s.topic } : {}), ...(typeof s.session === "string" ? { session: s.session } : {}), ...(typeof s.view === "string" && SESSION_VIEWS.includes(s.view as SessionView) ? { view: s.view as SessionView } : {}) }),
   }),
   createRoute({ getParentRoute: () => root, path: "/projects", component: lazyRouteComponent(() => import("@/features/projects/ProjectsView"), "ProjectsView") }),
   createRoute({ getParentRoute: () => root, path: "/projects/$id", component: lazyRouteComponent(() => import("@/features/projects/ProjectPage"), "ProjectPage") }),

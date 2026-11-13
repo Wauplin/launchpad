@@ -31,6 +31,7 @@ export function MoreView() {
       <nav aria-label="Places">
         <Place to="/schedules" icon="clock" label="Schedules" attn={failed > 0} state={failed ? `${failed} failed` : undefined} />
         <Place to="/projects" icon="folder" label="Folders" />
+        <Place to="/topics" icon="book" label="Topics" />
         <Place to="/knowledge" icon="book" label="Knowledge" state={knowledgeNew ? `${knowledgeNew} new` : undefined} />
         {terminalsHere && <Place to="/terminals" icon="term" label="Terminals" />}
         <Place to="/settings" icon="sliders" label="Settings" />

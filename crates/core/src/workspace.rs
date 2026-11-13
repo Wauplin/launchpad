@@ -158,6 +158,8 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
                 tx.execute(&format!("DELETE FROM {t} WHERE channel_id IN (SELECT id FROM channel WHERE workspace_id = ?1)"), [&id])?;
             }
             tx.execute("DELETE FROM channel WHERE workspace_id = ?1", [&id])?;
+            tx.execute("DELETE FROM topic_session WHERE topic_id IN (SELECT id FROM topic WHERE workspace_id = ?1)", [&id])?;
+            tx.execute("DELETE FROM topic WHERE workspace_id = ?1", [&id])?;
             tx.execute("DELETE FROM workspace WHERE id = ?1", [&id])?;
             tx.commit()?;
             Ok(())

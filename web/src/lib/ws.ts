@@ -149,6 +149,8 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["cli-updates"] });
     } else if (topic === "burst") {
       void queryClient.invalidateQueries({ queryKey: ["burst"] });
+    } else if (topic === "topics") {
+      void queryClient.invalidateQueries({ queryKey: ["topics"] });
     } else if (topic === "kb") {
       void queryClient.invalidateQueries({ queryKey: ["knowledge"] });
       void queryClient.invalidateQueries({ queryKey: ["knowledge-unseen"] });

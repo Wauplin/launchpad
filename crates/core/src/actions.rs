@@ -102,6 +102,11 @@ const A: Action = Action { name: "", method: "POST", route: "", label: "", icon:
 
 /// Every action. Keep the names stable: the UI and agents use them.
 pub const ACTIONS: &[Action] = &[
+    // Topics are workspace collections; membership changes never start agent work.
+    Action { name: "topic.create", route: "/api/topics", label: "Create topic", help: "Create a workspace topic", input: &[f("workspace_id", Text), f("name", Text)], access: Owner, undo: Some("topic.delete"), ..A },
+    Action { name: "topic.rename", method: "PATCH", route: "/api/topics/{id}", label: "Rename", help: "Rename a topic", input: &[f("name", Text)], access: Owner, undo: Some("topic.rename"), before: Some("/api/topics/{id}"), ..A },
+    Action { name: "topic.delete", method: "DELETE", route: "/api/topics/{id}", label: "Delete topic", help: "Delete a topic; its sessions stay", access: Owner, confirm: Some("Deletes this topic. Its sessions and previously attached context stay."), ..A },
+    Action { name: "topic.members", route: "/api/topics/{id}/members", label: "Update topics", help: "Add or remove session memberships", input: &[f("session_ids", Json), f("present", Bool)], access: Owner, ..A },
     // Sessions.
     Action { name: "session.launch", route: "/api/sessions", label: "Launch", icon: Some("play"), help: "Launch an agent", body_file: Some("a launch spec"), effect: Starts, card: Some("launch"), ..A },
     Action { name: "session.message", route: "/api/sessions/{id}/input", label: "Send", icon: Some("send"), help: "Send a message to an agent session", input: &[f("text", Text)], effect: Starts, card: Some("message"), ..A },

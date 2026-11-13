@@ -94,6 +94,10 @@ Run only what your change can break, and rebuild only what you changed; CI runs 
 - Allow paid usage defaults to false and is never remembered. Exhausted quota holds input or pauses into Quota paused; continuing needs fresh confirmed capacity in both windows, never a reset time alone (null reset = window not started). Owner messages during a pause wait in the durable pending continuation and are delivered in order with it; Stop and Archive discard them.
 - Cost and rolling spend limits apply only to harnesses reporting USD; reaching one refuses input, interrupts best effort and never resumes automatically. Home holds the spending ledger of every machine (`spend.rs`): runners, Burst jobs included, queue each cost increase for Home (`replica::Item::Spend`, counted once by its ID), Home sends its ledger to every runner (`ToRunner::Spend`: all on connect and after a config change, then each new entry), and runners check the rolling limits against it plus their own increases Home has not stored yet; Home starts no Burst job for a launch or message past a limit. Claude adds only increases of its per-process `total_cost_usd`. Terminal TUIs are outside quota protection.
 
+### Topics
+
+- Topics are workspace collections on Home (`topics.rs`, tables `topic` and `topic_session`), independent of runner-replicated session records. Membership edits never send input or change session status; archived sessions retain membership. Bulk edits validate every session against the topic's workspace before one transaction. Topic names link to `/topics/{id}`; a separate × removes membership with Undo. `/api/topics…` is Home-owned and owner-only; scoped agent reads are separate.
+
 ### Folders, worktrees and Local PRs
 
 The Git and storage design is in `docs/architecture.md`; these rules must hold.

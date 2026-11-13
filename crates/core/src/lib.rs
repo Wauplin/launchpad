@@ -79,6 +79,7 @@ pub mod routines;
 pub mod scope;
 pub mod senders;
 pub mod today;
+pub mod topics;
 pub mod ref_use;
 pub mod launchpad_cli;
 pub mod start;
@@ -253,6 +254,7 @@ pub fn types_config(out: &std::path::Path) -> Result<ts_rs::Config> {
 
 /// Writes the TypeScript versions of this crate's types shared with the UI (ts-rs).
 pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
+    topics::Topic::export_all(cfg)?;
     use ts_rs::TS;
     actions::Action::export_all(cfg)?;
     std::fs::write(cfg.out_dir().join("actions.ts"), actions::typescript())?;

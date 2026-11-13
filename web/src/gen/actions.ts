@@ -2,6 +2,10 @@
 import type { Action } from "./Action";
 
 export type ActionName =
+  | "topic.create"
+  | "topic.rename"
+  | "topic.delete"
+  | "topic.members"
   | "session.launch"
   | "session.message"
   | "session.answer"
@@ -100,6 +104,10 @@ export type ActionName =
   | "tool.save";
 
 export const ACTIONS: Record<ActionName, Action> = {
+  "topic.create": {"name":"topic.create","method":"POST","route":"/api/topics","label":"Create topic","icon":null,"help":"Create a workspace topic","input":[{"name":"workspace_id","kind":"text","optional":false},{"name":"name","kind":"text","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"owner","card":null,"undo":"topic.delete","before":null,"ready":false},
+  "topic.rename": {"name":"topic.rename","method":"PATCH","route":"/api/topics/{id}","label":"Rename","icon":null,"help":"Rename a topic","input":[{"name":"name","kind":"text","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"owner","card":null,"undo":"topic.rename","before":"/api/topics/{id}","ready":false},
+  "topic.delete": {"name":"topic.delete","method":"DELETE","route":"/api/topics/{id}","label":"Delete topic","icon":null,"help":"Delete a topic; its sessions stay","input":[],"body_file":null,"fixed":null,"confirm":"Deletes this topic. Its sessions and previously attached context stay.","effect":"record","access":"owner","card":null,"undo":null,"before":null,"ready":false},
+  "topic.members": {"name":"topic.members","method":"POST","route":"/api/topics/{id}/members","label":"Update topics","icon":null,"help":"Add or remove session memberships","input":[{"name":"session_ids","kind":"json","optional":false},{"name":"present","kind":"bool","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"record","access":"owner","card":null,"undo":null,"before":null,"ready":false},
   "session.launch": {"name":"session.launch","method":"POST","route":"/api/sessions","label":"Launch","icon":"play","help":"Launch an agent","input":[],"body_file":"a launch spec","fixed":null,"confirm":null,"effect":"starts","access":"admin","card":"launch","undo":null,"before":null,"ready":false},
   "session.message": {"name":"session.message","method":"POST","route":"/api/sessions/{id}/input","label":"Send","icon":"send","help":"Send a message to an agent session","input":[{"name":"text","kind":"text","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":"message","undo":null,"before":null,"ready":false},
   "session.answer": {"name":"session.answer","method":"POST","route":"/api/sessions/{id}/answer","label":"Answer","icon":null,"help":"Answer an agent's open question (request_id from `sessions show`); a permission request (Allow or Deny) is the owner's","input":[{"name":"request_id","kind":"text","optional":false},{"name":"answers","kind":"json","optional":false}],"body_file":null,"fixed":null,"confirm":null,"effect":"starts","access":"admin","card":null,"undo":null,"before":null,"ready":false},

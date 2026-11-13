@@ -19,6 +19,7 @@ mod review_state;
 mod setup;
 mod suggestions;
 mod today;
+mod topics;
 mod vault;
 
 use axum::Router;
@@ -43,6 +44,7 @@ pub fn router() -> Router<Ctx> {
         .merge(vault::router())
         .merge(kb_http::router())
         .merge(today::router())
+        .merge(topics::router())
         .merge(activity::router())
         .merge(diagnostics::router())
         .merge(ext::router())

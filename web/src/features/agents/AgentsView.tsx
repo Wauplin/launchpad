@@ -1,3 +1,5 @@
+import { useTopics, useTopicMutations } from "@/features/topics/data";
+import { TopicPicker } from "@/features/topics/TopicPicker";
 // Agents: a monitor of what runs and what ran, grouped by state, showing one session at a time. What needs you is
 // in Today; unseen sessions stay bold in their group. Clicking a session opens its conversation. The window's
 // workspace narrows every group.
@@ -128,6 +130,11 @@ export function AgentsView() {
   const [panelLoad, setPanelLoad] = useState(0);
   const [filter, setFilter] = useState("");
   const [debounced, setDebounced] = useState("");
+  const topicsQuery = useTopics();
+  const topics = topicsQuery.data ?? [];
+  const { add: addTopic } = useTopicMutations();
+  const [selection, setSelection] = useState<string[]>([]);
+  const [selecting, setSelecting] = useState(false);
   const [pinsOnly, setPinsOnly] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const pinned = useLayout((s) => s.pinned);
@@ -139,8 +146,14 @@ export function AgentsView() {
   const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<Predraft[]>("/api/predrafts") }).data;
   const tags = useMemo(() => workTags(sessionsQuery.data ?? [], worktrees, localPrs), [sessionsQuery.data, worktrees, localPrs]);
   const { selectedSession, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
-  const search = useSearch({ strict: false }) as { session?: string; view?: View };
+  const search = useSearch({ strict: false }) as { session?: string; view?: View; topic?: string };
   const navigate = useNavigate();
+  useEffect(() => {
+    setSelection([]); setSelecting(false);
+  }, [scope.workspace.id]);
+  useEffect(() => {
+    if (search.topic && topicsQuery.data && !topicsQuery.data.some((t) => t.id === search.topic)) void navigate({ to: "/agents", search: { ...search, topic: undefined }, replace: true });
+  }, [search.topic, topicsQuery.data, navigate]);
   // The phone shows the list or one session at a time; the address holds the session, so Back returns to the list.
   const phone = usePhone();
   const [archivedLimit, setArchivedLimit] = useState(30);
@@ -181,7 +194,7 @@ export function AgentsView() {
   };
 
   const needle = filter.trim().toLocaleLowerCase();
-  const filtered = sessions.filter((s) => (!pinsOnly || pinned.includes(s.id)) && (!needle || searchText(s).includes(needle) || projectName(projects, s.project_id, s.cwd).toLocaleLowerCase().includes(needle) || (debounced === filter.trim() && matches.data?.includes(s.id))));
+  const filtered = sessions.filter((s) => (!search.topic || topics.some((t) => t.id === search.topic && t.session_ids.includes(s.id))) && (!pinsOnly || pinned.includes(s.id)) && (!needle || searchText(s).includes(needle) || projectName(projects, s.project_id, s.cwd).toLocaleLowerCase().includes(needle) || (debounced === filter.trim() && matches.data?.includes(s.id))));
   const order = (a: Session, b: Session) => b.started_at - a.started_at;
   const newest = (a: Session, b: Session) => b.status_since - a.status_since;
   // What needs you (a question, an unseen Done, Failed or Interrupted) comes first, out of its state's group.
@@ -251,7 +264,7 @@ export function AgentsView() {
   const markUnreadRef = useRef<(id: string) => void>(() => {});
   markUnreadRef.current = (id) => { if (id === visibleSession) clearSession(id); };
   const markUnread = useCallback((id: string) => markUnreadRef.current(id), []);
-  const row = (s: Session) => <SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} tag={tags.get(s.id)} selected={s.id === visibleSession} onOpen={open} onMarkUnread={markUnread} />;
+  const row = (s: Session) => <div className="flex items-center">{selecting && <label className="flex shrink-0 items-center justify-center px-2" style={{ minHeight: ROW }}><input type="checkbox" aria-label={`Select ${s.title}`} checked={selection.includes(s.id)} onChange={(e) => setSelection((ids) => e.target.checked ? [...ids, s.id] : ids.filter((id) => id !== s.id))} /></label>}<div className="min-w-0 flex-1"><SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} tag={tags.get(s.id)} selected={s.id === visibleSession} onOpen={open} onMarkUnread={markUnread} /></div></div>;
 
   const paneOpen = !!visibleSession;
   return (
@@ -260,6 +273,8 @@ export function AgentsView() {
         <div className="grid gap-2 border-b border-line p-2">
           <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
           <div className="flex flex-wrap items-center gap-2"><button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button>{phone && <span className="ml-auto"><LaunchButton small title="Open the composer (the draft if one exists)" /></span>}</div>
+          <div className="flex flex-wrap items-center gap-2"><select className="field-input min-w-0 flex-1" aria-label="Filter by topic" value={search.topic ?? ""} onChange={(e) => void navigate({ to: "/agents", search: { ...search, topic: e.target.value || undefined }, replace: true })}><option value="">All topics</option>{topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select><Link to="/topics" className="btn btn-sm">Topics</Link></div>
+          <div className="flex flex-wrap items-center gap-2"><button className="btn btn-sm" onClick={() => { setSelecting(!selecting); setSelection([]); }}>{selecting ? "Cancel selection" : "Select sessions"}</button>{selecting && selection.length > 0 && <TopicPicker label={`Add ${selection.length} to topic…`} onPick={async (t) => { await addTopic(t.id, selection); setSelection([]); setSelecting(false); }} />}</div>
           {matches.isFetching && <span className="text-[12px] text-ink-3">Searching messages…</span>}
           {matches.error && <span className="text-[12px] text-danger-ink">{matches.error.message}</span>}
         </div>

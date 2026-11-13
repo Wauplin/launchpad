@@ -22,6 +22,11 @@ export const answering: Chapter = {
       body: "Agents shows what runs and what ran. Running: working now. Quota paused: waiting for subscription quota. Done: waiting for your next message. Runs you have not seen are bold; they also wait in Today until you open them.",
     },
     {
+      id: "answering.topics", route: `/agents?session=${ID}`, anchor: "session.topics",
+      title: "Keep related sessions together",
+      body: "Add a topic to collect related work across folders. Type to find or create one. A topic name opens its history; × removes this session, with Undo. Topics stay with archived sessions too.",
+    },
+    {
       id: "answering.question", route: `/agents?session=${ID}`, anchor: "session.question",
       title: "An agent asks you",
       body: "Agents can stop and ask. The question shows here and on its Today card, where one click answers it. You can also type another answer in the message box.",
