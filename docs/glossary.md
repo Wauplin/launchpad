@@ -11,6 +11,7 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Plain folder | non-Git folder | A folder without Git whose files Home stores, with versions and trash. |
 | Asset folder | assets | Large or generated files of a Git folder, stored by Home instead of Git. |
 | Bot | assistant, teammate, persona | A named agent that stays: one thread of sessions, `BOT.md` instructions, routine files in `routines/`, notes in its own memory. Every workspace starts with two: Ask Launchpad and the Librarian. Its page is a chat, with **About** (BOT.md · Triggers · Memory · Access · Versions) and **⋯** (Pause all triggers, Start a new session, Open current session in Agents, Edit as file, Delete). |
+| Topic | tag, label, project group | A named collection of related agent sessions in one workspace, across folders. A session can belong to several topics; archiving keeps its membership. |
 | Routine | cron, cron agent, repeating agent | Work that starts on its own again and again: on a schedule, on GitHub activity, when another agent is done, when Launchpad fails or on a new channel message. A bot's routine is a file of the bot (`routines/<name>.toml`). "Cron" stays in the code (`crons.rs`, `/api/launch/crons`) and names only the schedule format. |
 | Schedules | Cron group, Scheduled group | The one page with Routines · Scheduled launches. |
 | Knowledge | memory, notes, wiki | The knowledge base of a workspace: notes and media that are the memory agents share (bots also keep their own). The Librarian bot tends it. |

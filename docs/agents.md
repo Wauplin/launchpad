@@ -59,6 +59,16 @@ Session titles appear immediately from the prompt. Claude Code and Codex also ge
 
 New launches ask the agent to end its first task with a short, self-contained summary. In an agent's message box, and in a bot's message box (presets checked for **Bots** there), the **+** icon next to attachments adds the same context and presets to the next message; a message can carry context without text. On a phone, **+** opens a bottom sheet. Follow-up messages are sent unchanged, except the first message after a Local PR is published, which tells the agent to push to the published branch from now on.
 
+## Topics
+
+Collect related sessions across the folders of one workspace with topics. A session can belong to several topics, and archived sessions keep their membership. Adding or removing a topic works in any state and never messages or interrupts the agent.
+
+Open **Topics** from the laptop sidebar or the phone's **More** tab. Create a topic with just a name. Open one to search its sessions; **⋯** offers Rename and Delete. Deleting a topic keeps its sessions.
+
+In a session, **Add topic…** opens a searchable picker. Choose an existing topic or type a name to create one inline. The same picker opens in a sheet on the phone. A chip's name opens its topic page; its separate **×** removes the session from that topic at once, with **Undo** in the toast.
+
+In **Agents**, combine the topic filter with text search to find related work. To group older runs, click **Select sessions**, check the sessions, then **Add N to topic…**. Choose or create the topic in the picker.
+
 ## Temporary folders
 
 **Temporary folder** in the composer's folder menu starts the agent in a new, empty folder in the runner's data folder (`<data_dir>/tmp/`). The agent is told that the folder is temporary, and how to list the workspace's folders and add a worktree of one with `launchpad work add-project`. It adds only Git folders of the session's workspace. The Folders page lists them under **Temporary folders**, one row each with its open agents, **Launch**, and **⋯** with **Keep as folder** (name it there) and **Delete files**; **ⓘ** next to the title explains them.

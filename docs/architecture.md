@@ -134,6 +134,12 @@ Voice (`crates/server/src/voice.rs`, Home only; see [Voice](voice.md)): `GET /ap
 
 A launch only does local work in the request: it records the session (Starting) and its planned worktrees, then returns. A background task has Home refresh its mirror, clones or fetches the runner's repository cache, adds the worktrees, runs worktree setup and starts the harness; Stop cancels it between steps. A worktree that cannot be prepared fails the session visibly. Merges and publications run on Home and never touch a checkout of the owner.
 
+## Topics
+
+Home owns workspace topics in `crates/core/src/topics.rs`: `topic` stores each name and workspace, and `topic_session` stores its session memberships in `state.db`. Membership is separate from runner session records, so replication cannot overwrite it. Edits never send session input or change status; archiving keeps membership. Bulk edits check every session's workspace before one transaction. Deleting a topic removes its memberships and keeps the sessions; deleting a workspace removes its topics.
+
+The owner routes `/api/topics…` are Home-owned and forwarded by runners. Topic writes use the action list and publish `topics` / `changed`. The shared React feature (`web/src/features/topics/`) provides list and detail pages, chips and a searchable picker: a laptop popover or phone sheet. Agents combines a topic filter with text search and supports bulk assignment.
+
 ## Storage
 
 | Store | Content | Lifetime |
