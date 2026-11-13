@@ -225,8 +225,8 @@ pub fn rewrite(template: &str, channel: Channel, version: &str) -> Result<String
     Ok(out.join("\n"))
 }
 
-/// The Space card deploy.sh writes.
-/// The Space card. `tags: [launchpad-home]` lets the Chrome extension find Home after Sign in with Hugging Face.
+/// The Space card deploy.sh writes. `tags: [launchpad-home]` lets the Chrome extension find Home after Sign in with
+/// Hugging Face.
 fn card(channel: Channel, version: &str) -> String {
     let note = match channel {
         Channel::Release => "Built from the GitHub release named by `LAUNCHPAD_RELEASE` in the Dockerfile. Home updates it from Settings → Home and runners, or run the deploy script again.".to_string(),
