@@ -330,6 +330,29 @@ pub async fn compute(app: &App) -> Result<Today> {
     Ok(Today { items, done })
 }
 
+/// The last list Home computed (`spawn`), with when: `latest` serves it to quick readers such as the extension's
+/// page context.
+static LATEST: std::sync::Mutex<Option<(i64, std::sync::Arc<Today>)>> = std::sync::Mutex::new(None);
+
+/// How long `latest` trusts a list `spawn` did not replace (it recomputes after every relevant change).
+const LATEST_MS: i64 = 60_000;
+
+fn remember(today: &Today) -> std::sync::Arc<Today> {
+    let shared = std::sync::Arc::new(today.clone());
+    *LATEST.lock().unwrap() = Some((now_ms(), shared.clone()));
+    shared
+}
+
+/// The waiting items as Home last computed them, at most a minute old, else computed now.
+pub async fn latest(app: &App) -> Result<std::sync::Arc<Today>> {
+    if let Some((at, t)) = LATEST.lock().unwrap().as_ref()
+        && now_ms() - at < LATEST_MS
+    {
+        return Ok(t.clone());
+    }
+    Ok(remember(&compute(app).await?))
+}
+
 /// Bus topics whose changes can change the list.
 const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons", "home_update", "cli_updates", "channels"];
 
@@ -389,6 +412,7 @@ pub fn spawn(app: &App) {
                 }
             };
             last_sessions = Some(sessions);
+            remember(&today);
             let key: Vec<_> = today.items.iter().map(|i| (i.id.clone(), i.workspaces.clone(), i.action.clone(), i.title.clone(), i.detail.clone(), i.grouped.iter().map(|g| g.id.clone()).collect())).collect();
             if last.as_ref() != Some(&key) {
                 last = Some(key);

@@ -307,6 +307,42 @@ pub async fn get(app: &App, id: &str) -> Result<Bot> {
     load(app, row).await
 }
 
+/// The workspace of a bot, None when there is no such bot.
+pub async fn workspace_of(app: &App, id: &str) -> Result<Option<String>> {
+    let id = id.to_string();
+    app.state_db.call(move |c| Ok(c.query_row("SELECT workspace_id FROM bot WHERE id = ?1", [id], |r| r.get(0)).optional()?)).await
+}
+
+/// A bot's name and access, read from bot.toml only (no BOT.md, memory or routines): for quick lookups such as the
+/// extension's default bot.
+#[derive(Clone, Debug)]
+pub struct Brief {
+    pub id: String,
+    pub workspace_id: String,
+    pub slug: String,
+    pub name: String,
+    pub created_at: i64,
+    pub launchpad: crate::vault::LaunchpadAccess,
+}
+
+/// The bots of a workspace, oldest first.
+pub async fn briefs(app: &App, workspace_id: &str) -> Result<Vec<Brief>> {
+    ensure_home(app)?;
+    let mut out = vec![];
+    for (id, ws, slug, created_at, _, _) in rows(app).await?.into_iter().filter(|r| r.1 == workspace_id) {
+        let tree = plain::tree(app, &store(&id)).await?;
+        let settings = parse_settings(&text_of(app, &tree.files, SETTINGS).await).unwrap_or_else(|_| BotSettings { name: slug.clone(), ..Default::default() });
+        out.push(Brief { id, workspace_id: ws, slug, name: settings.name, created_at, launchpad: settings.launchpad });
+    }
+    Ok(out)
+}
+
+/// The bot the Ask field talks to by default (`askTarget` of the web app): the oldest bot with admin access, else
+/// the oldest bot.
+pub fn ask_target(bots: &[Brief]) -> Option<&Brief> {
+    bots.iter().find(|b| b.launchpad == crate::vault::LaunchpadAccess::Admin).or_else(|| bots.first())
+}
+
 pub(crate) async fn exists(app: &App, id: &str) -> Result<bool> {
     let id = id.to_string();
     app.state_db.call(move |c| Ok(c.query_row("SELECT 1 FROM bot WHERE id = ?1", [id], |_| Ok(true)).optional()?.unwrap_or(false))).await
@@ -731,7 +767,9 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
             }
             let c = c.id.clone();
             drop(held);
+            let refs = context.github_refs.clone();
             crate::runners::send_anywhere_with(app, &c, &text, attachments, context, key).await?;
+            crate::ref_use::record(app, &c, Some(id), &refs).await;
             return app.sessions.get(&c).context("the bot's session disappeared");
         }
         _ => {

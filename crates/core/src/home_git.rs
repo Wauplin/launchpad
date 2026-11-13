@@ -516,6 +516,20 @@ async fn forward(app: &App, project_id: &str, branch: &str) {
     }
 }
 
+/// The followed branches of a folder with their records.
+pub async fn follows(app: &App, project_id: &str) -> Result<Vec<(String, Follow)>> {
+    let p = project_id.to_string();
+    let rows: Vec<(String, String)> = app
+        .state_db
+        .call(move |c| {
+            let mut st = c.prepare("SELECT branch, json FROM git_follow WHERE project_id = ?1")?;
+            let rows = st.query_map([p], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await?;
+    Ok(rows.into_iter().filter_map(|(b, j)| serde_json::from_str(&j).ok().map(|f| (b, f))).collect())
+}
+
 /// Pushes again every followed branch of a folder whose commit GitHub does not have yet (pushes are never
 /// forced, so retrying is safe). Called after each refresh of the mirror.
 pub async fn retry_follows(app: &App, project_id: &str) {

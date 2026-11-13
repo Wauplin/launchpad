@@ -9,4 +9,9 @@ worktree_setup: string | null, when_done: WhenDone | null,
 /**
  * Moves the folder to another workspace (also assigns an Unassigned folder).
  */
-workspace_id: string | null, };
+workspace_id: string | null, 
+/**
+ * The default bot of the extension's Ask on this folder's GitHub pages: a bot of the folder's workspace; empty
+ * clears it, and so does null (the value an Undo puts back).
+ */
+bot?: string | null, };

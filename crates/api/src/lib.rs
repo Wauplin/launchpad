@@ -8,6 +8,7 @@ mod channels;
 mod code;
 mod connections;
 mod diagnostics;
+mod ext;
 mod items;
 mod kb_http;
 mod mcp;
@@ -44,4 +45,5 @@ pub fn router() -> Router<Ctx> {
         .merge(today::router())
         .merge(activity::router())
         .merge(diagnostics::router())
+        .merge(ext::router())
 }

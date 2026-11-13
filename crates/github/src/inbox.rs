@@ -118,6 +118,45 @@ impl Inbox {
             limits: app.github.limits.read().await.clone(),
         })
     }
+    /// The Inbox threads of one repository (lowercase `owner/name` match) and the threads `ids`, as the Inbox shows
+    /// them (Done ones left out), read from the cache only: for the extension's page context.
+    pub async fn threads_of(&self, app: &App, repo: Option<&str>, ids: &[String]) -> Result<Vec<Thread>> {
+        let repo = repo.map(str::to_lowercase);
+        let ids_json = serde_json::to_string(ids)?;
+        let mut threads: Vec<Thread> = app
+            .cache_db
+            .call(move |c| {
+                let mut q = c.prepare("SELECT t.json FROM inbox_thread t LEFT JOIN inbox_subscription s ON s.id=t.id WHERE COALESCE(s.ignored,0)=0 AND COALESCE(s.subscribed,1)=1 AND (lower(json_extract(t.json,'$.repo'))=?1 OR t.id IN (SELECT value FROM json_each(?2)))")?;
+                let rows = q.query_map(rusqlite::params![repo, ids_json], |r| r.get::<_, String>(0))?;
+                rows.map(|s| Ok(serde_json::from_str(&s?)?)).collect()
+            })
+            .await?;
+        if threads.is_empty() {
+            return Ok(threads);
+        }
+        let wanted = serde_json::to_string(&threads.iter().map(|t| t.id.clone()).collect::<Vec<_>>())?;
+        let (overrides, active): (HashMap<String, (String, String)>, HashSet<String>) = app
+            .state_db
+            .call(move |c| {
+                let mut q = c.prepare("SELECT id,updated_at,action FROM inbox_override WHERE id IN (SELECT value FROM json_each(?1))")?;
+                let overrides = q.query_map([&wanted], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, String>(1)?, r.get::<_, String>(2)?))))?.collect::<std::result::Result<_, _>>()?;
+                let mut q = c.prepare("SELECT id FROM inbox_active WHERE id IN (SELECT value FROM json_each(?1))")?;
+                let active = q.query_map([&wanted], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
+                Ok((overrides, active))
+            })
+            .await?;
+        threads.retain_mut(|t| {
+            if let Some((_, action)) = overrides.get(&t.id).filter(|(at, _)| at == &t.updated_at) {
+                if action == "done" {
+                    return false;
+                }
+                t.local_unread = action == "unread";
+                t.unread = t.local_unread;
+            }
+            active.contains(&t.id) || t.unread
+        });
+        Ok(threads)
+    }
     /// The REST history contains Done threads too. Only show known inbox members.
     pub async fn snapshot(&self, app: &App) -> Result<InboxSnapshot> {
         let mut snapshot=self.list(app).await?;

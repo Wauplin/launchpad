@@ -1122,6 +1122,7 @@ fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> 
 /// Burst, when that runner does not take launches), else another runner, else Burst. Runners never pick their own launches: they start only what Home places.
 pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
     anyhow::ensure!(app.paths.role == crate::role::Role::Home, "only Home launches sessions: a runner starts the ones Home places on it");
+    crate::ref_use::record(app, &id, spec.bot.as_ref().map(|b| b.id.as_str()), &spec.github_refs).await;
     // Uploads are stored on Home: the runner or Burst job receives references and fetches the bytes.
     crate::attachments::to_refs(&id, &mut spec.attachments).await?;
     if spec.runner_id.as_deref() == Some(crate::burst::CHOICE) {

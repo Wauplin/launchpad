@@ -266,7 +266,9 @@ CREATE INDEX IF NOT EXISTS channel_message_time ON channel_message (channel_id, 
 CREATE TABLE IF NOT EXISTS channel_delivery (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL, channel_id TEXT NOT NULL, bot_id TEXT NOT NULL, state TEXT NOT NULL, reason TEXT, session_id TEXT, joined INTEGER, at INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'message', first_message INTEGER, count INTEGER);
 CREATE TABLE IF NOT EXISTS channel_digest_run (day TEXT PRIMARY KEY, at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS channel_delivery_message ON channel_delivery (message_id);
-CREATE INDEX IF NOT EXISTS channel_delivery_channel ON channel_delivery (channel_id, bot_id, state);",
+CREATE INDEX IF NOT EXISTS channel_delivery_channel ON channel_delivery (channel_id, bot_id, state);
+CREATE TABLE IF NOT EXISTS github_ref_use (repo TEXT NOT NULL, number INTEGER NOT NULL, session_id TEXT NOT NULL, bot_id TEXT, at INTEGER NOT NULL, PRIMARY KEY (repo, number, session_id));
+CREATE INDEX IF NOT EXISTS github_ref_use_bot ON github_ref_use (repo, at) WHERE bot_id IS NOT NULL;",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
     // additive columns directly, like the unversioned tables above.
@@ -287,6 +289,7 @@ CREATE INDEX IF NOT EXISTS channel_delivery_channel ON channel_delivery (channel
     if !project_columns.iter().any(|c| c == "runner_id") { conn.execute_batch("ALTER TABLE project ADD COLUMN runner_id TEXT;")?; }
     if !project_columns.iter().any(|c| c == "home_git") { conn.execute_batch("ALTER TABLE project ADD COLUMN home_git INTEGER NOT NULL DEFAULT 0;")?; }
     if !project_columns.iter().any(|c| c == "plain") { conn.execute_batch("ALTER TABLE project ADD COLUMN plain INTEGER NOT NULL DEFAULT 0;")?; }
+    if !project_columns.iter().any(|c| c == "bot") { conn.execute_batch("ALTER TABLE project ADD COLUMN bot TEXT;")?; }
     if !project_columns.iter().any(|c| c == "workspace_id") {
         conn.execute_batch(
             "ALTER TABLE project ADD COLUMN workspace_id TEXT;

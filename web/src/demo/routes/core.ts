@@ -59,6 +59,7 @@ route("PATCH", "/api/projects/:id", ({ params, body }) => {
   for (const key of ["name", "description", "pinned", "worktree_setup", "when_done", "workspace_id"] as const) {
     if (body?.[key] !== null && body?.[key] !== undefined) (p as Record<string, unknown>)[key] = body[key];
   }
+  if (body?.bot !== undefined) p.bot = body.bot || null;
   projectsChanged();
   return p;
 });

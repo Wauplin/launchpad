@@ -1,6 +1,7 @@
 //! GitHub features: issue and pull request views (`items`), the Inbox and agent Suggestions. The API client
 //! is `launchpad_core::github`.
 
+pub mod ext;
 pub mod inbox;
 pub mod items;
 pub mod suggestions;
@@ -27,5 +28,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     suggestions::Suggestion::export_all(cfg)?;
     inbox::InboxSnapshot::export_all(cfg)?;
     inbox::ThreadPreview::export_all(cfg)?;
+    ext::ExtContext::export_all(cfg)?;
+    ext::ExtRows::export_all(cfg)?;
     Ok(())
 }

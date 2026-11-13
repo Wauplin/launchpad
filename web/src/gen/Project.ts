@@ -33,4 +33,9 @@ home_git: boolean,
 /**
  * A plain folder (no Git) stored by Home, with previous versions and trash; runners keep a synced copy.
  */
-plain: boolean, };
+plain: boolean, 
+/**
+ * The bot the extension's Ask uses on this folder's GitHub pages (a bot of its workspace). None: the last bot used
+ * on the repository, else the workspace's Ask bot. Home's record only (runners' copies leave it out).
+ */
+bot?: string | null, };

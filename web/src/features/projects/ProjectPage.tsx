@@ -29,6 +29,7 @@ import { SessionStatus } from "@/features/agents/SessionBits";
 import { useCodeSources } from "@/features/code/lib";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { api } from "@/lib/api";
+import { useBots } from "@/lib/bots";
 import { useProject, useSessions } from "@/lib/queries";
 import { useLayout } from "@/stores/layout";
 import { useNavigate } from "@tanstack/react-router";
@@ -130,6 +131,22 @@ export function ProjectPage() {
 }
 
 /** The folder page's Settings tab: everything about this folder, saved as it changes. */
+/** The bot the Chrome extension's Ask uses on this folder's GitHub pages (`bot` of `folder.set`). */
+function DefaultBot({ p, patch }: { p: Project; patch: (body: Record<string, unknown>) => Promise<unknown> }) {
+  const state = useSaveState();
+  const bots = (useBots().data ?? []).filter((b) => b.workspace_id === p.workspace_id);
+  const current = p.bot ?? null;
+  if (!bots.length) return null;
+  return (
+    <SettingRow label="Bot on GitHub" hint="The bot the Chrome extension asks on this repository's GitHub pages. Automatic: the last bot you used on it, else the workspace's Ask bot." state={state.state} error={state.error}>
+      <Choices label="Bot on GitHub">
+        <Choice active={!current} onClick={() => current && void state.run(() => patch({ bot: "" }))}>Automatic</Choice>
+        {bots.map((b) => <Choice key={b.id} active={current === b.id} onClick={() => current !== b.id && void state.run(() => patch({ bot: b.id }))}>{b.settings.name}</Choice>)}
+      </Choices>
+    </SettingRow>
+  );
+}
+
 function FolderSettings({ p }: { p: Project }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -179,6 +196,7 @@ function FolderSettings({ p }: { p: Project }) {
           </Choices>
         </SettingRow>
       )}
+      {!p.is_temp && !!(p.gh_repo ?? p.gh_upstream) && <DefaultBot p={p} patch={patch} />}
       {!p.is_temp && (
         <SettingRow label="Default tools" hint="What new agents of this folder get, over the workspace's defaults; the composer can change it per launch.">
           <FolderToolDefaults folderId={p.id} workspaceId={p.workspace_id} />

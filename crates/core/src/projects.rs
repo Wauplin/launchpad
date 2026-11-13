@@ -31,6 +31,7 @@ fn from_row(r: &Row) -> rusqlite::Result<Project> {
         runner_id: r.get(13)?,
         home_git: r.get::<_, i64>(14)? != 0,
         plain: r.get::<_, i64>(15)? != 0,
+        bot: r.get(16)?,
     })
 }
 
@@ -40,7 +41,7 @@ fn queue(c: &rusqlite::Connection, id: &str) -> Result<()> {
     if !crate::replica::enabled() {
         return Ok(());
     }
-    if let Some(project) = c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE id = ?1"), [id], from_row).optional()?.filter(|p| p.is_temp) {
+    if let Some(project) = c.query_row(&format!("SELECT {COLUMNS}, bot FROM project WHERE id = ?1"), [id], from_row).optional()?.filter(|p| p.is_temp) {
         crate::replica::queue(c, &crate::replica::Item::Project { project })?;
     }
     Ok(())
@@ -88,13 +89,23 @@ pub struct ProjectPatch {
     pub when_done: Option<crate::model::WhenDone>,
     /// Moves the folder to another workspace (also assigns an Unassigned folder).
     pub workspace_id: Option<String>,
+    /// The default bot of the extension's Ask on this folder's GitHub pages: a bot of the folder's workspace; empty
+    /// clears it, and so does null (the value an Undo puts back).
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+    #[ts(optional)]
+    pub bot: Option<Option<String>>,
+}
+
+/// A field that is present, null included (`Some(None)`); a missing one stays None through `default`.
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> std::result::Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
 }
 
 pub async fn list(app: &App) -> Result<Vec<Project>> {
     let projects = app
         .state_db
         .call(|c| {
-            let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM project ORDER BY is_temp, lower(name)"))?;
+            let mut st = c.prepare(&format!("SELECT {COLUMNS}, bot FROM project ORDER BY is_temp, lower(name)"))?;
             let rows = st.query_map([], from_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(rows)
         })
@@ -106,7 +117,7 @@ pub async fn get(app: &App, id: &str) -> Result<Option<Project>> {
     let id = id.to_string();
     let project = app
         .state_db
-        .call(move |c| Ok(c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE id = ?1"), [id], from_row).optional()?))
+        .call(move |c| Ok(c.query_row(&format!("SELECT {COLUMNS}, bot FROM project WHERE id = ?1"), [id], from_row).optional()?))
         .await?;
     Ok(refresh_metadata(app, project.into_iter().collect()).await?.pop())
 }
@@ -185,7 +196,7 @@ pub fn spawn(app: &App) {
         loop {
             tick.tick().await;
             let all = app.state_db.call(|c| {
-                let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM project"))?;
+                let mut st = c.prepare(&format!("SELECT {COLUMNS}, bot FROM project"))?;
                 let rows = st.query_map([], from_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
                 Ok(rows)
             }).await;
@@ -244,12 +255,13 @@ async fn register_temp(app: &App, path: &Path, workspace_id: &str, id: String) -
         runner_id: None,
         home_git: false,
         plain: false,
+        bot: None,
     };
     let saved = p.clone();
     let existing = app
         .state_db
         .call(move |c| {
-            if let Some(mut e) = c.query_row(&format!("SELECT {COLUMNS} FROM project WHERE path = ?1"), [&p.path], from_row).optional()? {
+            if let Some(mut e) = c.query_row(&format!("SELECT {COLUMNS}, bot FROM project WHERE path = ?1"), [&p.path], from_row).optional()? {
                 if e.workspace_id.is_none() {
                     c.execute("UPDATE project SET workspace_id = ?1 WHERE id = ?2", params![p.workspace_id, e.id])?;
                     queue(c, &e.id)?;
@@ -333,6 +345,7 @@ pub async fn register_remote(app: &App, name: &str, url: &str, workspace_id: &st
         runner_id: None,
         home_git: true,
         plain: false,
+        bot: None,
     };
     crate::home_git::ensure(app, &p).await?;
     let saved = p.clone();
@@ -500,6 +513,7 @@ pub async fn create_plain(app: &App, name: &str, workspace_id: &str) -> Result<P
         runner_id: None,
         home_git: false,
         plain: true,
+        bot: None,
     };
     let saved = p.clone();
     app.state_db
@@ -521,7 +535,7 @@ pub async fn create_plain(app: &App, name: &str, workspace_id: &str) -> Result<P
 /// are on Home.
 pub async fn forget_disk_folders(app: &App) -> Result<()> {
     let gone = app.state_db.call(|c| {
-        let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM project WHERE home_git = 0 AND plain = 0 AND is_temp = 0"))?;
+        let mut st = c.prepare(&format!("SELECT {COLUMNS}, bot FROM project WHERE home_git = 0 AND plain = 0 AND is_temp = 0"))?;
         let rows = st.query_map([], from_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
         drop(st);
         c.execute("DELETE FROM project WHERE home_git = 0 AND plain = 0 AND is_temp = 0", [])?;
@@ -542,6 +556,20 @@ pub async fn update(app: &App, id: &str, mut patch: ProjectPatch) -> Result<Proj
         None => None,
     };
     anyhow::ensure!(patch.when_done != Some(crate::model::WhenDone::ReadOnly), "Read only is chosen per launch, not as a folder's default");
+    // A default bot is a bot of the folder's workspace (after a move in the same patch, of the new one).
+    let bot = match patch.bot.take().map(|b| b.unwrap_or_default().trim().to_string()) {
+        Some(b) if b.is_empty() => Some(None),
+        Some(b) => {
+            let folder_ws = match &workspace {
+                Some(w) => Some(w.clone()),
+                None => get(app, id).await?.context("no such project")?.workspace_id,
+            };
+            let bot_ws = crate::bots::workspace_of(app, &b).await?.context("no such bot")?;
+            ensure!(folder_ws.as_deref() == Some(bot_ws.as_str()), "the default bot must be a bot of the folder's workspace");
+            Some(Some(b))
+        }
+        None => None,
+    };
     let id2 = id.to_string();
     app.state_db
         .call(move |c| {
@@ -561,7 +589,11 @@ pub async fn update(app: &App, id: &str, mut patch: ProjectPatch) -> Result<Proj
                 c.execute("UPDATE project SET worktree_setup = ?1 WHERE id = ?2", params![w.trim(), id2])?;
             }
             if let Some(w) = workspace {
-                c.execute("UPDATE project SET workspace_id = ?1 WHERE id = ?2", params![w, id2])?;
+                // A move leaves the old workspace's bot behind unless the patch names a new one.
+                c.execute("UPDATE project SET workspace_id = ?1, bot = CASE WHEN workspace_id = ?1 THEN bot END WHERE id = ?2", params![w, id2])?;
+            }
+            if let Some(b) = bot {
+                c.execute("UPDATE project SET bot = ?1 WHERE id = ?2", params![b, id2])?;
             }
             queue(c, &id2)?;
             Ok(())
