@@ -12,4 +12,13 @@ bot_id: string | null, bot: string | null,
 /**
  * The issue or pull request it is about (null: the repository or its folder).
  */
-number: number | null, since: number, };
+number: number | null, since: number, 
+/**
+ * The comment it was last asked about on this item (`issuecomment-123`, `discussion_r45`): its live card goes
+ * under that comment.
+ */
+comment: string | null, 
+/**
+ * Start of its last answer, one line.
+ */
+last_message: string | null, };

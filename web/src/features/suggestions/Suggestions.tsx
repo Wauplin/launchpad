@@ -36,6 +36,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const local = s.target.kind === "predraft";
+  const reply = s.target.kind === "git_hub" ? s.target.reply_to ?? null : null;
   const stale = !local && s.kind === "review" && head !== undefined && s.head !== head;
   function clear() { void edit.clear(); }
   const save = () => api.patch(`/api/suggestions/${s.id}`, { body, event, merge, run_ci: runCi, comments });
@@ -54,9 +55,11 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
   }
   return <article data-tour="suggestion.card" className="rounded-card border border-teal/40 bg-teal-soft p-4">
     <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px]">
-      <b className="text-teal-ink">Suggestion by {s.author}</b><span>{s.kind === "review" ? `Review · ${event === "APPROVE" ? "approve" : event === "REQUEST_CHANGES" ? "request changes" : "comment"}${followup && `, ${followup}`}` : local ? "Note" : "Comment"}</span>
+      <b className="text-teal-ink">Suggestion by {s.author}</b><span>{s.kind === "review" ? `Review · ${event === "APPROVE" ? "approve" : event === "REQUEST_CHANGES" ? "request changes" : "comment"}${followup && `, ${followup}`}` : local ? "Note" : reply ? <button className="text-teal-ink hover:underline" title={reply.url} onClick={() => openGitHub(reply.url)}>Reply to {reply.author ? `${reply.author}'s` : "a"} comment</button> : "Comment"}</span>
       {s.head && <span className="font-mono" title={s.head}>{s.head.slice(0, 7)}</span>}
       {s.status === "posted" && <Badge tone="ok" icon="check">{local ? "Saved to Local PR notes" : "Posted"}</Badge>}
+      {s.status === "inserted" && <Badge tone="teal" icon="comment">Inserted on GitHub</Badge>}
+      {s.status === "posted_by_hand" && <Badge tone="ok" icon="check">Posted by you on GitHub</Badge>}
     </div>
     {editing && s.status === "draft" ? <div className="grid gap-2">
       <textarea aria-label="Suggested text" className="field-input min-h-40" value={body} disabled={busy} onChange={(e) => { const v = e.target.value; edit.set((o) => ({ ...o, body: v })); }} />
@@ -78,7 +81,9 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
         {!local && s.kind === "review" && s.target.kind === "git_hub" && <Link className="btn btn-sm no-underline" to="/github/$owner/$repo/$number" params={{ owner: s.target.repo.split("/")[0], repo: s.target.repo.split("/")[1], number: String(s.target.number) }} search={{ tab: "files", draft: s.id }}>Edit in pull request</Link>}
         <span className="text-[12px] text-ink-3">{local ? "Stays in Launchpad." : "Posts to GitHub when you click."}</span>
       </>}
-      {s.status !== "posted" && <ActionButton name="suggestion.discard" params={{ id: s.id }} disabled={busy || s.status === "posting"} consequence={["posting", "uncertain"].includes(s.status) ? "Check GitHub first: it may already be posted." : undefined} onDone={() => { toast("Suggestion discarded"); settled(); }} onError={failed} />}
+      {/* Insert in the Chrome extension claimed it: GitHub's own button posts it, never Launchpad's Post. */}
+      {s.status === "inserted" && <span className="text-[12px] text-ink-3">In GitHub's comment box: post it there with GitHub's button.</span>}
+      {s.status !== "posted" && s.status !== "posted_by_hand" && <ActionButton name="suggestion.discard" params={{ id: s.id }} disabled={busy || s.status === "posting"} consequence={["posting", "uncertain"].includes(s.status) ? "Check GitHub first: it may already be posted." : undefined} onDone={() => { toast("Suggestion discarded"); settled(); }} onError={failed} />}
       {s.url && <button className="btn btn-sm" onClick={() => openGitHub(s.url!)}><Icon name="ext" size={12} />Open posted text</button>}
     </div>
   </article>;

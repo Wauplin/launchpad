@@ -13,7 +13,7 @@ export function useSuggestionsByItem() {
   return useMemo(() => {
     const out = new Map<string, Suggestion[]>();
     for (const s of all ?? []) {
-      if (s.status === "posted" || s.target.kind !== "git_hub") continue;
+      if (s.status === "posted" || s.status === "posted_by_hand" || s.target.kind !== "git_hub") continue;
       const k = `${s.target.repo.toLowerCase()}#${s.target.number}`;
       out.set(k, [...(out.get(k) ?? []), s].sort((a, b) => (a.kind === "review" ? 0 : 1) - (b.kind === "review" ? 0 : 1)));
     }

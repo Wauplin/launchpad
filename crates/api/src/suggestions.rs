@@ -4,6 +4,7 @@ use axum::{
     extract::{Path, State},
     routing::{get, post},
 };
+use launchpad_github::ledger;
 use launchpad_github::suggestions::{self, Create, Edit};
 use serde_json::{Value, json};
 pub fn router() -> Router<Ctx> {
@@ -14,6 +15,45 @@ pub fn router() -> Router<Ctx> {
             axum::routing::patch(edit).delete(discard),
         )
         .route("/api/suggestions/{id}/post", post(publish))
+        .route("/api/suggestions/ledger", get(ledger))
+        .route("/api/suggestions/{id}/shown", post(shown))
+        .route("/api/suggestions/{id}/inserted", post(inserted))
+        .route("/api/suggestions/{id}/posted-by-hand", post(posted_by_hand))
+        .route("/api/suggestions/{id}/dismiss-comment", post(dismiss_comment))
+}
+/// The part of a suggestion a ledger action is about: `body` (the default) or `line:<path>:<line>:<side>`.
+#[derive(serde::Deserialize)]
+struct Part {
+    #[serde(default = "body")]
+    part: String,
+    #[serde(default)]
+    text: Option<String>,
+}
+fn body() -> String {
+    "body".into()
+}
+#[derive(serde::Deserialize)]
+struct LedgerQuery {
+    suggestion: Option<String>,
+}
+async fn ledger(State(s): State<Ctx>, axum::extract::Query(q): axum::extract::Query<LedgerQuery>) -> ApiResult<Value> {
+    Ok(Json(json!(ledger::list(&s.app, q.suggestion.as_deref()).await?)))
+}
+async fn shown(State(s): State<Ctx>, Path(id): Path<String>, Json(q): Json<Part>) -> ApiResult<Value> {
+    ledger::shown(&s.app, &id, &q.part).await?;
+    Ok(Json(json!({"ok": true})))
+}
+async fn inserted(State(s): State<Ctx>, Path(id): Path<String>, Json(q): Json<Part>) -> ApiResult<Value> {
+    Ok(Json(json!(ledger::inserted(&s.app, &id, &q.part, q.text).await?)))
+}
+async fn posted_by_hand(State(s): State<Ctx>, Path(id): Path<String>, Json(q): Json<Part>) -> ApiResult<Value> {
+    let text = q.text.ok_or_else(|| crate::ApiError::bad_request("text: the final text that was posted"))?;
+    ledger::posted_by_hand(&s.app, &id, &q.part, text).await?;
+    Ok(Json(json!({"ok": true})))
+}
+async fn dismiss_comment(State(s): State<Ctx>, Path(id): Path<String>, Json(q): Json<Part>) -> ApiResult<Value> {
+    ledger::dismiss_comment(&s.app, &id, &q.part).await?;
+    Ok(Json(json!({"ok": true})))
 }
 async fn list(State(s): State<Ctx>) -> ApiResult<Value> {
     Ok(Json(json!(suggestions::list(&s.app).await?)))

@@ -32,4 +32,8 @@ today: Array<string>, inbox: ExtInbox | null,
 /**
  * Unread Inbox threads of the repository.
  */
-inbox_unread: number, defaults: ExtDefaults, };
+inbox_unread: number, defaults: ExtDefaults, 
+/**
+ * The GitHub login Home is signed in with (the owner's): comments that mention it are highlighted.
+ */
+login: string | null, };

@@ -133,7 +133,7 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   const task = firstUser == null ? rows.find((r) => r.t === "user") : { text: firstUser };
   const prompt = task?.text ?? s.prompt;
   const split = splitPrompt(prompt, s.launch_spec.text);
-  const drafts = (useQuery({ queryKey: ["suggestions"], queryFn: () => api.get<Suggestion[]>("/api/suggestions") }).data ?? []).filter((d) => d.session_id === s.id && d.status !== "posted");
+  const drafts = (useQuery({ queryKey: ["suggestions"], queryFn: () => api.get<Suggestion[]>("/api/suggestions") }).data ?? []).filter((d) => d.session_id === s.id && d.status !== "posted" && d.status !== "posted_by_hand");
   const loadedTurns = rows.filter((r) => r.t === "turn");
   const turns = { length: loadedTurns.length + (earlier?.turns ?? 0) };
   const earlierDuration = earlier && earlier.turns ? earlier.turns_duration_ms : 0;

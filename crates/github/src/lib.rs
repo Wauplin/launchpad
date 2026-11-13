@@ -4,6 +4,7 @@
 pub mod ext;
 pub mod inbox;
 pub mod items;
+pub mod ledger;
 pub mod suggestions;
 pub mod today;
 
@@ -26,6 +27,7 @@ pub fn spawn(app: &App) {
 pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     use ts_rs::TS;
     suggestions::Suggestion::export_all(cfg)?;
+    ledger::LedgerRecord::export_all(cfg)?;
     inbox::InboxSnapshot::export_all(cfg)?;
     inbox::ThreadPreview::export_all(cfg)?;
     ext::ExtContext::export_all(cfg)?;

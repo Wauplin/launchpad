@@ -9,12 +9,13 @@ use anyhow::Result;
 use launchpad_core::App;
 use launchpad_core::model::{Project, Session, SessionStatus};
 use launchpad_core::predrafts::Predraft;
+use launchpad_core::ref_use::Use;
 use launchpad_core::today::Today;
 use launchpad_core::workspace::Workspace;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::suggestions::{Suggestion, SuggestionKind, SuggestionTarget};
+use crate::suggestions::{ReplyTo, Suggestion, SuggestionKind, SuggestionTarget};
 
 /// The kinds of GitHub pages the extension recognizes, from the URL alone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -166,6 +167,11 @@ pub struct ExtAgent {
     pub number: Option<u64>,
     #[ts(type = "number")]
     pub since: i64,
+    /// The comment it was last asked about on this item (`issuecomment-123`, `discussion_r45`): its live card goes
+    /// under that comment.
+    pub comment: Option<String>,
+    /// Start of its last answer, one line.
+    pub last_message: Option<String>,
 }
 
 /// A suggestion (agent-written comment or review) waiting to be posted.
@@ -180,9 +186,17 @@ pub struct ExtSuggestion {
     pub comments: u32,
     /// Line comments written for another commit than the pull request's head in Home's cache.
     pub outdated: u32,
-    /// `draft`, `posting` or `uncertain`.
+    /// `draft`, `inserted` (Insert put it into GitHub's box; GitHub's button posts it), `posting` or `uncertain`.
     pub status: String,
     pub session_id: Option<String>,
+    /// The bot whose session wrote it.
+    pub bot: Option<String>,
+    /// The comment it answers (a thread reply goes into that comment's reply box).
+    pub reply_to: Option<ReplyTo>,
+    /// The text Insert puts into GitHub's box: the body, after the link line of an issue-comment reply.
+    pub text: String,
+    /// The attribution line Insert adds after a blank line (the session's, like Launchpad's own Post).
+    pub attribution: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -264,6 +278,8 @@ pub struct ExtContext {
     /// Unread Inbox threads of the repository.
     pub inbox_unread: u32,
     pub defaults: ExtDefaults,
+    /// The GitHub login Home is signed in with (the owner's): comments that mention it are highlighted.
+    pub login: Option<String>,
 }
 
 /// The state of one row of a list page (pull requests, issues, notifications).
@@ -295,6 +311,8 @@ struct Data {
     projects: Vec<Project>,
     workspaces: Vec<Workspace>,
     sessions: Vec<Session>,
+    /// Archived ones too: a suggestion's author may be archived.
+    all_sessions: Vec<Session>,
     suggestions: Vec<Suggestion>,
     predrafts: Vec<Predraft>,
     today: Arc<Today>,
@@ -308,7 +326,8 @@ impl Data {
             projects: launchpad_core::projects::list(app).await?,
             workspaces: launchpad_core::workspace::list(app).await?,
             sessions: app.sessions.list().into_iter().filter(|s| s.status != SessionStatus::Closed).collect(),
-            suggestions: crate::suggestions::list(app).await?.into_iter().filter(|s| s.status != "posted").collect(),
+            all_sessions: app.sessions.list(),
+            suggestions: crate::suggestions::list(app).await?.into_iter().filter(|s| s.status != "posted" && s.status != "posted_by_hand").collect(),
             predrafts: launchpad_core::predrafts::list(app).await?,
             today: launchpad_core::today::latest(app).await?,
             login,
@@ -401,15 +420,20 @@ struct Item<'a> {
     head_branch: Option<&'a str>,
 }
 
-fn state(d: &Data, uses: &[(u64, String)], it: &Item) -> State {
-    let named: HashMap<&str, u64> = uses.iter().filter(|(n, _)| it.number.is_none_or(|x| x == *n)).map(|(n, s)| (s.as_str(), *n)).collect();
+fn state(d: &Data, uses: &[Use], it: &Item) -> State {
+    // Newest first: the first record of a session is its last use (and the comment it was last asked about).
+    let mut named: HashMap<&str, (u64, Option<&str>)> = HashMap::new();
+    for u in uses.iter().filter(|u| it.number.is_none_or(|x| x == u.number)) {
+        named.entry(u.session_id.as_str()).or_insert((u.number, u.comment.as_deref()));
+    }
     let mut agents: Vec<ExtAgent> = d
         .sessions
         .iter()
         .filter(|s| it.workspace.is_some() && d.session_workspace(s) == it.workspace)
         .filter_map(|s| {
             let by_ref = s.launch_spec.github_refs.iter().find(|r| same(&r.repo, it.repo) && it.number.is_none_or(|n| r.number == Some(n))).map(|r| r.number.unwrap_or(0));
-            let number = by_ref.or_else(|| named.get(s.id.as_str()).copied());
+            let number = by_ref.or_else(|| named.get(s.id.as_str()).map(|u| u.0));
+            let comment = named.get(s.id.as_str()).and_then(|u| u.1).map(str::to_string);
             let in_folder = it.number.is_none() && it.folder.is_some_and(|f| s.project_id.as_deref() == Some(f.id.as_str()));
             if number.is_none() && !in_folder {
                 return None;
@@ -424,6 +448,8 @@ fn state(d: &Data, uses: &[(u64, String)], it: &Item) -> State {
                 bot: s.launch_spec.bot.as_ref().map(|b| b.name.clone()),
                 number: number.filter(|n| *n > 0),
                 since: s.status_since,
+                comment,
+                last_message: s.last_message.clone(),
             })
         })
         .collect();
@@ -433,7 +459,7 @@ fn state(d: &Data, uses: &[(u64, String)], it: &Item) -> State {
         .suggestions
         .iter()
         .filter_map(|s| {
-            let SuggestionTarget::GitHub { repo, number } = &s.target else { return None };
+            let SuggestionTarget::GitHub { repo, number, reply_to } = &s.target else { return None };
             if !same(repo, it.repo) || it.number.is_some_and(|n| n != *number) {
                 return None;
             }
@@ -442,7 +468,11 @@ fn state(d: &Data, uses: &[(u64, String)], it: &Item) -> State {
                 (Some(h), Some(head)) if it.number.is_some() && h != head => comments,
                 _ => 0,
             };
-            Some(ExtSuggestion { id: s.id.clone(), kind: s.kind.clone(), number: *number, head: s.head.clone(), comments, outdated, status: s.status.clone(), session_id: s.session_id.clone() })
+            let session = s.session_id.as_deref().and_then(|id| d.all_sessions.iter().find(|x| x.id == id));
+            let bot = session.and_then(|x| x.launch_spec.bot.as_ref().map(|b| b.name.clone()));
+            let attribution = session.map(launchpad_core::attribution::line).unwrap_or_else(|| launchpad_core::attribution::text(None, "Claude Code"));
+            let text = format!("{}{}", reply_to.as_ref().map(ReplyTo::prefix).unwrap_or_default(), s.body);
+            Some(ExtSuggestion { id: s.id.clone(), kind: s.kind.clone(), number: *number, head: s.head.clone(), comments, outdated, status: s.status.clone(), session_id: s.session_id.clone(), bot, reply_to: reply_to.clone(), text, attribution })
         })
         .collect();
     let local_prs: Vec<ExtLocalPr> = match it.folder {
@@ -548,10 +578,11 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
         inbox: None,
         inbox_unread: 0,
         defaults: ExtDefaults { bot: default_bot(app, project, page.repo.as_deref(), ws.as_deref()).await },
+        login: d.login.clone(),
         page: page.clone(),
     };
     let Some(repo) = page.repo.as_deref() else { return Ok(out) };
-    let uses = launchpad_core::ref_use::sessions(app, repo).await.unwrap_or_default();
+    let uses = launchpad_core::ref_use::uses(app, repo).await.unwrap_or_default();
     let item = Item { repo, number: page.number, folder: folder.as_ref(), workspace: ws.as_deref(), head: page.head.as_deref(), head_branch: page.head_branch.as_deref() };
     let s = state(&d, &uses, &item);
     (out.agents, out.suggestions, out.local_prs, out.today) = (s.agents, s.suggestions, s.local_prs, s.today);
@@ -582,14 +613,14 @@ pub async fn rows(app: &App, url: &str, items: &[String], workspace: Option<&str
         (None, _) => vec![],
     };
     // Per repository: its folder, the items its sessions named and its Inbox threads.
-    type PerRepo = (Option<ExtFolder>, Vec<(u64, String)>, Vec<crate::inbox::Thread>);
+    type PerRepo = (Option<ExtFolder>, Vec<Use>, Vec<crate::inbox::Thread>);
     let mut by_repo: HashMap<String, PerRepo> = HashMap::new();
     let mut rows = vec![];
     for (item, repo, number) in wanted {
         let key = repo.to_lowercase();
         if !by_repo.contains_key(&key) {
             let folder = folders(app, &d, &repo, asked).await.into_iter().next();
-            let uses = launchpad_core::ref_use::sessions(app, &repo).await.unwrap_or_default();
+            let uses = launchpad_core::ref_use::uses(app, &repo).await.unwrap_or_default();
             let threads = crate::inbox::of(app).threads_of(app, Some(&repo), &[]).await.unwrap_or_default();
             by_repo.insert(key.clone(), (folder, uses, threads));
         }

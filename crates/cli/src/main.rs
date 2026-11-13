@@ -465,6 +465,11 @@ struct SuggestArgs {
     /// The owner's Post click also approves the reviewed head's GitHub Actions runs that wait for a maintainer.
     #[arg(long, conflicts_with = "merge")]
     run_ci: bool,
+    /// Comments only: the comment this comment answers, `issuecomment-<id>` or `discussion_r<id>` (the anchor of the
+    /// comment's URL), the URL itself, or a review thread ID (`PRRT_…`). A review thread's comment gets its reply in
+    /// that thread; a conversation comment gets a new comment that links it.
+    #[arg(long, requires = "repo")]
+    reply_to: Option<String>,
     #[arg(long)]
     session_id: Option<String>,
 }
@@ -479,12 +484,13 @@ async fn suggest_command(paths: &Paths, command: Suggest) -> Result<()> {
     };
     anyhow::ensure!(comments.is_array(), "--comments-file must hold a JSON array of line comments");
     anyhow::ensure!(kind == "review" || comments.as_array().is_some_and(|c| c.is_empty()), "only reviews have line comments");
+    anyhow::ensure!(kind == "comment" || q.reply_to.is_none(), "--reply-to is for comments: `suggest comment --reply-to …`");
     let target = match q.predraft {
         Some(id) => serde_json::json!({"kind":"predraft","id":id}),
         None => serde_json::json!({"kind":"git_hub","repo":q.repo,"number":q.number}),
     };
     let body = Client::new(paths)?
-        .json("POST", "/api/suggestions", Some(serde_json::json!({"target":target,"kind":kind,"body":std::fs::read_to_string(q.body_file)?,"comments":comments,"event":q.event.replace('-', "_").to_uppercase(),"head":q.head,"merge":q.merge,"run_ci":q.run_ci,"session_id":q.session_id})))
+        .json("POST", "/api/suggestions", Some(serde_json::json!({"target":target,"kind":kind,"body":std::fs::read_to_string(q.body_file)?,"comments":comments,"event":q.event.replace('-', "_").to_uppercase(),"head":q.head,"merge":q.merge,"run_ci":q.run_ci,"reply_to":q.reply_to,"session_id":q.session_id})))
         .await?;
     println!("{}", serde_json::to_string_pretty(&body)?);
     Ok(())

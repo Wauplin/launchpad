@@ -209,6 +209,8 @@ DROP TABLE IF EXISTS browser_grant;
 DROP TABLE IF EXISTS browser_site;
 CREATE TABLE IF NOT EXISTS scheduled_launch (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS draft_comment (id TEXT PRIMARY KEY, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS suggestion_ledger (suggestion_id TEXT NOT NULL, part TEXT NOT NULL, repo TEXT, number INTEGER, pending INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, json TEXT NOT NULL, PRIMARY KEY (suggestion_id, part));
+CREATE INDEX IF NOT EXISTS suggestion_ledger_pending ON suggestion_ledger (repo, number) WHERE pending = 1;
 CREATE TABLE IF NOT EXISTS predraft (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cron_agent (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS workspace (id TEXT PRIMARY KEY, json TEXT NOT NULL);
@@ -290,6 +292,8 @@ CREATE INDEX IF NOT EXISTS github_ref_use_bot ON github_ref_use (repo, at) WHERE
     if !project_columns.iter().any(|c| c == "home_git") { conn.execute_batch("ALTER TABLE project ADD COLUMN home_git INTEGER NOT NULL DEFAULT 0;")?; }
     if !project_columns.iter().any(|c| c == "plain") { conn.execute_batch("ALTER TABLE project ADD COLUMN plain INTEGER NOT NULL DEFAULT 0;")?; }
     if !project_columns.iter().any(|c| c == "bot") { conn.execute_batch("ALTER TABLE project ADD COLUMN bot TEXT;")?; }
+    let ref_use_columns = conn.prepare("PRAGMA table_info(github_ref_use)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !ref_use_columns.iter().any(|c| c == "comment") { conn.execute_batch("ALTER TABLE github_ref_use ADD COLUMN comment TEXT;")?; }
     if !project_columns.iter().any(|c| c == "workspace_id") {
         conn.execute_batch(
             "ALTER TABLE project ADD COLUMN workspace_id TEXT;

@@ -415,7 +415,7 @@ export function ItemDetail({ repo, number }: { repo: string; number: number }) {
 function SuggestionBanner({ item, compact, onComment }: { item: Item; compact?: boolean; onComment: (id: string) => void }) {
   const all = useSuggestions({ kind: "git_hub", repo: item.repo, number: item.number }).data;
   const pending = usePendingReview(item.repo, item.number).value;
-  const waiting = all.filter((s) => s.status !== "posted");
+  const waiting = all.filter((s) => s.status !== "posted" && s.status !== "posted_by_hand");
   const review = waiting.some((s) => s.kind === "review") || !!pending.comments.length || !!pending.summary;
   if (!waiting.length && !pending.comments.length && !pending.summary) return null;
   return <div className={`flex flex-none items-center gap-2 border-b border-line px-3 ${compact ? "py-0.5" : "py-1.5"}`}>{review ? <ReviewReady repo={item.repo} number={item.number} /> : <button className="btn btn-sm" onClick={() => onComment(waiting[0].id)}>Post comment…</button>}</div>;

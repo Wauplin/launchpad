@@ -199,6 +199,8 @@ pub async fn detail(app: &App, repo: &str, n: u64, force: bool) -> Result<Value>
     item["repo"] = json!(repo);
     proxy_images(app, &mut item).await;
     store(app, key, &item).await?;
+    // The feedback ledger's proof: comments of the owner that match what the extension saw posted by hand.
+    crate::ledger::confirm(app, repo, n, &item).await;
     Ok(item)
 }
 pub async fn project_items(app: &App, repo: &str, force: bool) -> Result<Value> {
@@ -345,6 +347,14 @@ pub async fn mutate(app: &App, repo: &str, n: u64, action: &str, body: Value) ->
         ensure!(v["merged"] == true, "{}", v["message"]);
     }
     Ok(v)
+}
+
+/// Posts `body` as a reply in the review thread of review comment `comment` of pull request `n` (GitHub's
+/// review-comment reply API). Only the owner's Post of a suggestion calls it.
+pub async fn reply(app: &App, repo: &str, n: u64, comment: u64, body: &str) -> Result<Value> {
+    validate(repo)?;
+    ensure!(!body.trim().is_empty(), "empty comment");
+    Ok(app.github.request(Method::POST, &format!("/repos/{repo}/pulls/{n}/comments/{comment}/replies"), Some(json!({"body": body})), false).await?.value)
 }
 
 /// Approves the GitHub Actions runs of the PR's head that wait for a maintainer (pull requests from forks of
