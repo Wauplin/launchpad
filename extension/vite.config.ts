@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
+// The side panel and the service worker (an ES module worker). Content scripts are built apart, as classic scripts:
+// vite.content.config.ts.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -13,9 +15,8 @@ export default defineConfig({
     target: "es2022",
     chunkSizeWarningLimit: 2000,
     rolldownOptions: {
-      input: { panel: path.resolve(import.meta.dirname, "panel.html"), background: path.resolve(import.meta.dirname, "src/background.ts") },
+      input: { panel: path.resolve(import.meta.dirname, "panel.html"), background: path.resolve(import.meta.dirname, "src/background/index.ts") },
       output: { entryFileNames: (chunk) => chunk.name === "background" ? "background.js" : "assets/[name]-[hash].js" },
     },
   },
-  worker: { format: "es" },
 });

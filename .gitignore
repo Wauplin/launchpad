@@ -10,4 +10,5 @@
 /extension/node_modules
 /extension/dist
 /extension/tsconfig.tsbuildinfo
+/extension/.env.local
 __pycache__/

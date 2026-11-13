@@ -144,3 +144,22 @@
 .x-flip { transform: rotate(180deg); flex: none; }
 .x-sizes { display: flex; gap: 6px; padding: 10px 4px; border-bottom: 1px solid var(--color-line-2); }
 .x-sizes .x-btn { flex: 1 1 0; min-width: 0; padding: 5px 0; }
+
+/* Connection screens */
+.x-btn.x-hf { background: #1f2328; border-color: #1f2328; color: #fff; display: inline-flex; gap: 8px; align-items: center; justify-content: center; }
+:root[data-theme="dark"] .x-btn.x-hf { background: #f0f3f6; border-color: #f0f3f6; color: #1f2328; }
+.x-btn.x-danger { color: var(--color-danger); border-color: color-mix(in srgb, var(--color-danger) 45%, transparent); }
+.x-inline { all: unset; cursor: pointer; text-decoration: underline; color: var(--color-teal-ink); }
+.x-inline:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 1px; }
+.x-homes { display: grid; gap: 8px; }
+.x-home { all: unset; box-sizing: border-box; cursor: pointer; display: flex; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--color-line-2); color: var(--color-ink-2); }
+.x-home.x-on { border-color: var(--color-teal); background: var(--color-teal-soft); color: var(--color-ink); }
+.x-home:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 1px; }
+.x-home .x-d { display: grid; line-height: 1.35; min-width: 0; }
+.x-home .x-d b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.x-home .x-d small { font-size: 12px; color: var(--color-ink-2); }
+.x-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-line); flex: none; }
+.x-dot.x-dot-on { background: var(--color-gh-open); }
+.x-ws { max-width: 45%; border: 0; border-radius: 999px; padding: 3px 8px; font: inherit; font-size: 12px; font-weight: 600; color: var(--color-teal-ink); background: var(--color-teal-soft); cursor: pointer; }
+.x-ws:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 1px; }
+.x-count { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--color-attn-soft); color: var(--color-attn); border: 1px solid var(--color-attn-line); font-weight: 600; font-size: 12px; text-align: center; }
