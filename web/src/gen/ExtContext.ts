@@ -6,6 +6,7 @@ import type { ExtFolder } from "./ExtFolder";
 import type { ExtInbox } from "./ExtInbox";
 import type { ExtLocalPr } from "./ExtLocalPr";
 import type { ExtPage } from "./ExtPage";
+import type { ExtPreset } from "./ExtPreset";
 import type { ExtSuggestion } from "./ExtSuggestion";
 import type { ExtWorkspace } from "./ExtWorkspace";
 
@@ -36,4 +37,8 @@ inbox_unread: number, defaults: ExtDefaults,
 /**
  * The GitHub login Home is signed in with (the owner's): comments that mention it are highlighted.
  */
-login: string | null, };
+login: string | null, 
+/**
+ * Presets for messages to bots.
+ */
+presets: Array<ExtPreset>, };

@@ -32,5 +32,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     inbox::ThreadPreview::export_all(cfg)?;
     ext::ExtContext::export_all(cfg)?;
     ext::ExtRows::export_all(cfg)?;
+    ext::ExtNotifications::export_all(cfg)?;
+    inbox::ObservedResult::export_all(cfg)?;
     Ok(())
 }

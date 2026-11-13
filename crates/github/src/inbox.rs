@@ -45,6 +45,33 @@ pub struct InboxSnapshot {
     pub threads: Vec<Thread>,
     pub status: SyncStatus,
     pub limits: HashMap<String, RateLimit>,
+    /// Threads marked Done, read or unsubscribed on github.com in the last day, as the Chrome extension saw them
+    /// (`inbox.observed`): Launchpad recorded them at once, without a second GitHub write.
+    pub observed: Vec<Observed>,
+}
+
+/// A click on github.com's own Done, mark as read or Unsubscribe, recorded in Launchpad's Inbox (`inbox.observed`).
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct Observed {
+    pub id: String,
+    /// `done`, `read` or `unsubscribe`.
+    pub action: String,
+    #[ts(type = "number")]
+    pub at: i64,
+    pub repo: String,
+    #[ts(type = "number | null")]
+    pub number: Option<u64>,
+    pub title: String,
+}
+
+/// What `inbox.observed` did with one item it was given.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ObservedResult {
+    /// The item as given: a thread ID or `owner/repo#number`.
+    pub item: String,
+    /// The Inbox thread it matched (null: Launchpad's Inbox does not have it, so there is nothing to record).
+    pub thread: Option<String>,
+    pub recorded: bool,
 }
 #[derive(Clone)]
 pub struct Inbox {
@@ -111,11 +138,13 @@ impl Inbox {
             let mut q=c.prepare("SELECT id FROM inbox_active")?;
             Ok(q.query_map([],|r|r.get(0))?.collect::<std::result::Result<Vec<String>,_>>()?)
         }).await?;
+        let observed = observed_recently(app).await?;
         Ok(InboxSnapshot {
             active_ids,
             threads,
             status: self.status.read().await.clone(),
             limits: app.github.limits.read().await.clone(),
+            observed,
         })
     }
     /// The Inbox threads of one repository (lowercase `owner/name` match) and the threads `ids`, as the Inbox shows
@@ -592,6 +621,70 @@ impl Inbox {
         }
         result
     }
+    /// `inbox.observed`: the owner clicked Done, mark as read or Unsubscribe on github.com (the Chrome extension saw
+    /// it). GitHub already has it, so Launchpad only records it, like its own button would locally, and never writes
+    /// to GitHub again. `items` are thread IDs or `owner/repo#number` (the newest thread of that item). The cached
+    /// thread is marked read too, so the next poll finds it unchanged and keeps the record (a thread with newer
+    /// activity on GitHub comes back like any other).
+    pub async fn observed(&self, app: &App, items: &[String], action: &str) -> Result<Vec<ObservedResult>> {
+        ensure!(["read", "done", "unsubscribe"].contains(&action), "unknown observed action (done, read or unsubscribe)");
+        ensure!(!items.is_empty() && items.len() <= 100, "give 1 to 100 threads");
+        let _lock = self.lock.lock().await;
+        let all: Vec<Thread> = app.cache_db.call(|c| {
+            let mut q = c.prepare("SELECT json FROM inbox_thread")?;
+            q.query_map([], |r| r.get::<_, String>(0))?.map(|r| Ok(serde_json::from_str(&r?)?)).collect()
+        }).await?;
+        let mut out = vec![];
+        let mut found: Vec<Thread> = vec![];
+        for item in items {
+            let thread = match item.split_once('#') {
+                Some((repo, n)) => {
+                    let n = n.parse::<u64>().ok();
+                    all.iter().filter(|t| t.repo.eq_ignore_ascii_case(repo) && n.is_some() && t.number == n).max_by(|a, b| a.updated_at.cmp(&b.updated_at))
+                }
+                None => all.iter().find(|t| &t.id == item),
+            };
+            if let Some(t) = thread && !found.iter().any(|f| f.id == t.id) {
+                found.push(t.clone());
+            }
+            out.push(ObservedResult { item: item.clone(), thread: thread.map(|t| t.id.clone()), recorded: thread.is_some() });
+        }
+        if found.is_empty() {
+            return Ok(out);
+        }
+        let local = if action == "unsubscribe" { "done" } else { action }.to_string();
+        let action = action.to_string();
+        let rows: Vec<(String, String)> = found.iter().map(|t| (t.id.clone(), t.updated_at.clone())).collect();
+        {
+            let (rows, action) = (rows.clone(), action.clone());
+            app.state_db.call(move |c| {
+                let tx = c.transaction()?;
+                let now = now_ms();
+                for (id, at) in rows {
+                    if local == "done" { tx.execute("DELETE FROM inbox_active WHERE id=?1", [&id])?; } else { tx.execute("INSERT OR IGNORE INTO inbox_active VALUES (?1)", [&id])?; }
+                    tx.execute("INSERT OR REPLACE INTO inbox_override VALUES (?1,?2,?3)", rusqlite::params![id, at, local])?;
+                    tx.execute("INSERT OR REPLACE INTO inbox_observed (id, updated_at, action, at) VALUES (?1,?2,?3,?4)", rusqlite::params![id, at, action, now])?;
+                }
+                tx.execute("DELETE FROM inbox_observed WHERE at < ?1", [now - 7 * 86_400_000])?;
+                tx.commit()?;
+                Ok(())
+            }).await?;
+        }
+        app.cache_db.call(move |c| {
+            let tx = c.transaction()?;
+            for (id, at) in rows {
+                // GitHub has it read now: the mirror agrees, so the next poll sees the thread unchanged.
+                tx.execute("UPDATE inbox_thread SET json=json_set(json,'$.unread',json('false')) WHERE id=?1 AND updated_at=?2", rusqlite::params![id, at])?;
+                if action == "unsubscribe" {
+                    tx.execute("INSERT OR REPLACE INTO inbox_subscription VALUES (?1,NULL,1,?2,?3)", rusqlite::params![id, at, now_ms()])?;
+                }
+            }
+            tx.commit()?;
+            Ok(())
+        }).await?;
+        changed(app);
+        Ok(out)
+    }
     pub async fn reply(&self, app: &App, id: &str, body: &str) -> Result<()> {
         ensure!(!body.trim().is_empty(), "reply is empty");
         let t = self
@@ -624,6 +717,28 @@ impl Inbox {
         Ok(())
     }
 }
+/// The threads the extension saw marked Done, read or unsubscribed on github.com in the last day, newest first.
+async fn observed_recently(app: &App) -> Result<Vec<Observed>> {
+    let since = now_ms() - 86_400_000;
+    let rows: Vec<(String, String, i64)> = app.state_db.call(move |c| {
+        let mut q = c.prepare("SELECT id, action, at FROM inbox_observed WHERE at >= ?1 ORDER BY at DESC LIMIT 200")?;
+        Ok(q.query_map([since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<std::result::Result<_, _>>()?)
+    }).await?;
+    if rows.is_empty() {
+        return Ok(vec![]);
+    }
+    let ids = serde_json::to_string(&rows.iter().map(|r| r.0.clone()).collect::<Vec<_>>())?;
+    let threads: HashMap<String, Thread> = app.cache_db.call(move |c| {
+        let mut q = c.prepare("SELECT json FROM inbox_thread WHERE id IN (SELECT value FROM json_each(?1))")?;
+        let list: Vec<Thread> = q.query_map([ids], |r| r.get::<_, String>(0))?.map(|r| Ok(serde_json::from_str(&r?)?)).collect::<Result<_>>()?;
+        Ok(list.into_iter().map(|t| (t.id.clone(), t)).collect())
+    }).await?;
+    Ok(rows.into_iter().map(|(id, action, at)| {
+        let t = threads.get(&id);
+        Observed { repo: t.map(|t| t.repo.clone()).unwrap_or_default(), number: t.and_then(|t| t.number), title: t.map(|t| t.title.clone()).unwrap_or_default(), id, action, at }
+    }).collect())
+}
+
 /// Incremental polls read only the newest pages; this full pass re-reads the whole
 /// `all=true` history and replaces the mirror (threads that left GitHub's history, read
 /// state changed elsewhere on older pages).

@@ -4,4 +4,20 @@ export type ExtLocalPr = { id: string, title: string, branch: string, base_branc
 /**
  * `open` (to publish), `published`, `merged` or `discarded`.
  */
-state: string, published_number: number | null, published_url: string | null, };
+state: string, published_number: number | null, published_url: string | null, 
+/**
+ * Who wrote it: the bot of its session, else the session's title.
+ */
+author: string | null, 
+/**
+ * Review notes waiting for its agent.
+ */
+notes: number, 
+/**
+ * The other open Local PRs of its change set (published together with Publish all, in Launchpad).
+ */
+set: number, 
+/**
+ * A publication started at this commit and did not finish (Launchpad's page offers Retry or Unlock).
+ */
+pushed_head: string | null, };

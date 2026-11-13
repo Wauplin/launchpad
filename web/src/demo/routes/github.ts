@@ -28,6 +28,7 @@ route("GET", "/api/inbox", (): InboxSnapshot => ({
   threads: world.inboxThreads,
   status: { syncing: false, last_sync: clock.ago(1), error: null, poll_interval: 60 },
   limits: { core: { remaining: 4812, reset_at: Math.floor(clock.ago(-38) / 1000), retry_at: null }, graphql: { remaining: 4930, reset_at: Math.floor(clock.ago(-38) / 1000), retry_at: null } },
+  observed: [],
 }));
 
 route("POST", "/api/inbox/sync", () => { publish("inbox", "updated", {}); return { ok: true }; });

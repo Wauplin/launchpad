@@ -270,7 +270,9 @@ CREATE TABLE IF NOT EXISTS channel_digest_run (day TEXT PRIMARY KEY, at INTEGER 
 CREATE INDEX IF NOT EXISTS channel_delivery_message ON channel_delivery (message_id);
 CREATE INDEX IF NOT EXISTS channel_delivery_channel ON channel_delivery (channel_id, bot_id, state);
 CREATE TABLE IF NOT EXISTS github_ref_use (repo TEXT NOT NULL, number INTEGER NOT NULL, session_id TEXT NOT NULL, bot_id TEXT, at INTEGER NOT NULL, PRIMARY KEY (repo, number, session_id));
-CREATE INDEX IF NOT EXISTS github_ref_use_bot ON github_ref_use (repo, at) WHERE bot_id IS NOT NULL;",
+CREATE INDEX IF NOT EXISTS github_ref_use_bot ON github_ref_use (repo, at) WHERE bot_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS inbox_observed (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, action TEXT NOT NULL, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS repo_choice (repo TEXT NOT NULL, what TEXT NOT NULL, json TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (repo, what));",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
     // additive columns directly, like the unversioned tables above.

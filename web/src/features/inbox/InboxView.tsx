@@ -295,7 +295,10 @@ export function InboxView() {
   if (phone && selected) return <div className="flex h-full"><PreviewPane key={selected.id} t={selected} projects={projects} ready={readyOf(selected)} act={act} busy={pending.has(selected.id)} /></div>;
   const syncing = sync.isPending || !!data?.status.syncing;
   const synced = <Synced label={data?.status.syncing ? "Syncing…" : data?.status.last_sync ? `Synced ${ago(data.status.last_sync)}` : "Waiting for GitHub"} busy={syncing} title="Refresh the inbox from GitHub" onRefresh={() => sync.mutate()} />;
-  const counters = <><span title="Unread notifications in this list">{unread} unread</span><span>·</span><span title="Unread review requests, mentions and assignments: the sidebar count">{mine} for you</span><span>·</span>{synced}</>;
+  // Done, read or Unsubscribe clicked on github.com, seen by the Chrome extension: already recorded here.
+  const observed = data?.observed ?? [];
+  const doneOnGitHub = observed.length > 0 && <><span title={observed.slice(0, 12).map((o) => `${o.action === "done" ? "Done" : o.action === "read" ? "Read" : "Unsubscribed"} on GitHub ${ago(o.at)}: ${o.repo}${o.number !== null ? `#${o.number}` : ""} ${o.title}`).join("\n")}>{observed.length} done on GitHub today</span><span>·</span></>;
+  const counters = <><span title="Unread notifications in this list">{unread} unread</span><span>·</span><span title="Unread review requests, mentions and assignments: the sidebar count">{mine} for you</span><span>·</span>{doneOnGitHub}{synced}</>;
   return <div className="flex h-full flex-col">
     {/* Phone: the counts, sync and the other filters sit behind ⋯ in the shell's bar, so the list starts at the chips. */}
     {phone ? <PhoneBarEnd><PhoneActions label="Inbox filters" closeOnAction={false} details={<div className="grid gap-3">
