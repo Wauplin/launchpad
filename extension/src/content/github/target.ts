@@ -30,7 +30,7 @@ export function targetText(targets: Target[], kind: TargetKind, note: string, pr
   const t = targets[0];
   const where = t.number !== null ? `--repo ${t.repo} --number ${t.number}` : "";
   let text: string;
-  if (kind === "repo") text = `${note || `Look at the repository ${t.repo}: what is it, what is going on there, and what should I know?`}\n\nIt has no folder in Launchpad: you work in a temporary folder. Read the repository on GitHub (the gh CLI, the GitHub API) or clone what you need there; answer here.`;
+  if (kind === "repo") text = `${note || `Look at the repository ${t.repo}: what is it, what is going on there, and what should I know?`}\n\nIt has no folder in Launchpad: read it on GitHub (the gh CLI, the GitHub API), or clone what you need into your own working folder (a temporary one when you have no folder); answer here.`;
   else if (kind === "many") text = `${note || "Look at these items together and tell me what to do with each."}\n\n${targets.map((x) => `- ${name(x)}`).join("\n")}\n\nWhen something should be posted on one of them, draft it as a suggestion (\`launchpad suggest comment|review --repo <repo> --number <number> …\`) for me to post.`;
   else if (kind === "review") text = `${note || "Review this pull request."}\n\nPut your findings in a suggested review (\`launchpad suggest review ${where} --head <commit you reviewed>\`, line comments with --comments-file) for me to post.`;
   else if (kind === "reply") text = `${note || `Draft a reply to this ${t.kind === "issue" ? "issue" : "pull request"}.`}\n\nIf a reply helps, draft it as a suggested comment (\`launchpad suggest comment ${where} --body-file <file>\`); I insert it into GitHub's comment box and post it myself.`;
