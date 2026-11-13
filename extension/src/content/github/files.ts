@@ -88,10 +88,19 @@ function attempt(id: string, fill: (mode?: "replace" | "append") => Promise<void
 }
 
 let refreshPage: () => void = () => undefined;
+/** The pull request the state above belongs to: its questions, pending fills and choices name lines by path only. */
+let statePr = "";
 
 /** Renders every Files changed feature (idempotent). */
 export function renderFiles(page: FilesPage, ctx: ExtContext | null, refresh: () => void) {
   refreshPage = refresh;
+  const pr = `${page.repo.toLowerCase()}#${page.number}`;
+  if (pr !== statePr) {
+    // Another pull request (a soft navigation): never show or fill this one's lines there.
+    statePr = pr;
+    for (const m of [asked, pending, choices, errors]) m.clear();
+    confirmed.clear();
+  }
   const reviews = (ctx?.suggestions ?? []).filter((s) => s.kind === "review" && s.number === page.number && (s.status === "draft" || s.status === "inserted"));
   // GitHub's line anchors hash the path: known paths are hashed once (newer layouts carry no path attribute).
   const paths = [...reviews.flatMap((s) => s.lines.map((l) => l.path)), ...Array.from(asked.values(), (a) => a.lines.path)];

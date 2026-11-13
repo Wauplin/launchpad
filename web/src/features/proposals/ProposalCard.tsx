@@ -208,7 +208,7 @@ function readyLink(body: Ready): { to: string; params?: Record<string, string>; 
     case "suggestion.post": return { to: "/", search: { filter: "github" }, label: "Open in Today" };
     case "inbox.done": return { to: "/inbox", label: "Open the Inbox" };
     case "home.update": return { to: "/settings/runners", label: "Open Home and runners" };
-    case "github.run-ci": return { to: "/github/$owner/$repo/$number", params: { owner: body.args[0] ?? "", repo: body.args[1] ?? "", number: body.args[2] ?? "" }, label: "Open the pull request" };
+    case "github.run-ci": case "branch.push-to-pr": return { to: "/github/$owner/$repo/$number", params: { owner: body.args[0] ?? "", repo: body.args[1] ?? "", number: body.args[2] ?? "" }, label: "Open the pull request" };
     default: return body.session_id ? { to: "/agents", search: { session: body.session_id, view: "changes" }, label: "Review changes" } : null;
   }
 }

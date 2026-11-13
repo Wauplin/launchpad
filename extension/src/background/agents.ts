@@ -3,7 +3,6 @@
 // sends to the panel (P3). Every call goes to Home through `homeJson`, narrowed to the extension's workspace.
 
 import type { Bot } from "@/gen/Bot";
-import type { Config } from "@/gen/Config";
 import type { DiffSelection } from "@/gen/DiffSelection";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { FileAttachment } from "@/gen/FileAttachment";
@@ -70,10 +69,11 @@ export async function botMessage(a: { bot: string; text: string; github_refs?: G
   return homeJson<Session>(`/api/bots/${bot}/message`, { method: "POST", body, idempotency_key: id(a.key, "message") });
 }
 
-/** Home's profiles without their environment (only what a picker shows). */
+/** Home's profiles (`GET /api/context/profiles`: never their environment), only what a picker shows. */
 export async function profiles(): Promise<ProfileBrief[]> {
-  const { config } = await homeJson<{ config: Config }>("/api/config");
-  return (config?.profiles ?? []).map((p) => ({ id: p.id, name: p.name, harness: p.harness, subscription: p.billing === "subscription" }));
+  type Brief = { id: string; name: string; harness: string; billing: string };
+  const { profiles: list } = await homeJson<{ profiles: Brief[] }>("/api/context/profiles");
+  return (list ?? []).map((p) => ({ id: p.id, name: p.name, harness: p.harness, subscription: p.billing === "subscription" }));
 }
 
 /** A one-time agent in a Git folder of the workspace, in its own worktree: read only, or ending in a Local PR. */
