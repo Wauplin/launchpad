@@ -228,7 +228,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const schedules = useSchedules();
   const edited = editing ? schedules.data?.find((l) => l.id === editing && !l.resume_session_id) : undefined;
   const editGone = !!editing && !!schedules.data && (!edited || edited.status === "starting");
-  const browserOnly = spec.target.kind === "browser";
   const projects = useProjects().data ?? [];
   const completionDefault = useMutation({
     mutationFn: ({ projectId, whenDone }: { projectId: string; whenDone: WhenDone }) => api.patch<Project>(`/api/projects/${projectId}`, { when_done: whenDone }),
@@ -322,7 +321,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const items = (spec.attachments ?? []).length + spec.github_refs.length + (spec.files ?? []).length + spec.context_projects.length + (spec.agent_traces ?? []).length;
 
   const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts"), enabled: open });
-  const taskWorktrees = useQuery({ queryKey: ["worktrees"], queryFn: () => api.get<WorktreeInfo[]>("/api/worktrees"), enabled: open && !browserOnly });
+  const taskWorktrees = useQuery({ queryKey: ["worktrees"], queryFn: () => api.get<WorktreeInfo[]>("/api/worktrees"), enabled: open });
   const existing = spec.target.kind === "existing_predraft" ? localPrs.data?.find((p) => p.id === (spec.target as { predraft_id: string }).predraft_id) : undefined;
   const source = spec.target.kind === "session_folder" ? sessions?.find((s) => s.id === (spec.target as { session_id: string }).session_id) : undefined;
   const targetId = spec.target.kind === "project" || spec.target.kind === "predraft" ? spec.target.project_id : existing?.project_id ?? source?.project_id ?? null;
@@ -416,7 +415,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const missingProfile = !!spec.profile && !profile;
   // The daemon renders and checks the prompt at launch; Launch does not wait for a preview.
   const hasPrompt = !!spec.text.trim() || items > 0 || agentPresets.some((p) => spec.presets.includes(p.id) && p.text.trim());
-  const blocker = editGone ? "This scheduled agent already started or was cancelled" : editing && timing === "later" && !scheduled ? "Add a start condition, or choose Start now" : selectedWorktree?.busy ? "Stop the active agent before using this worktree" : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : browserOnly && spec.target.kind === "browser" && !spec.target.grants.length ? "Add a page explicitly in the Chrome extension" : spec.target.kind === "none" ? "Pick a folder" : !scope.workspace.id ? "Waiting for the workspace to load" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const blocker = editGone ? "This scheduled agent already started or was cancelled" : editing && timing === "later" && !scheduled ? "Add a start condition, or choose Start now" : selectedWorktree?.busy ? "Stop the active agent before using this worktree" : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : spec.target.kind === "none" ? "Pick a folder" : !scope.workspace.id ? "Waiting for the workspace to load" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -505,7 +504,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       setUnconfirmedLaunch(null);
       if (s.status !== "error") useComposer.getState().rememberLaunch(spec, s.started_at);
       discard();
-      const where = s.launch_spec.target.kind === "browser" ? "a browser session" : projects.find((p) => p.id === s.project_id)?.name ?? s.cwd.split("/").pop();
+      const where = projects.find((p) => p.id === s.project_id)?.name ?? s.cwd.split("/").pop();
       const openIt = () => {
         showSession(s.id);
         void navigate({ to: "/agents", search: { session: s.id } });
@@ -530,11 +529,11 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const launchLabel = launching ? (cron ? "Creating…" : editing && scheduled ? "Saving…" : scheduled ? "Scheduling…" : "Sending…") : cron ? "Create routine" : editing ? (timing === "later" ? "Save" : "Start now") : timing === "later" ? "Schedule" : "Launch";
   const launchButton = () => (
     <span className="inline-flex" data-tour="composer.launch">
-      <button className={`btn btn-primary ${browserOnly ? "" : "rounded-r-none"} ${isPhone ? "min-w-[120px] justify-center" : ""}`} disabled={!canLaunch || launching} title={dictation.active ? "Launch waits until dictation has finished" : unsupportedImages ? "This harness does not support attached images" : blocker ?? undefined} onClick={() => (dictation.active ? dictation.stopAndSend() : void launch())}>
+      <button className={`btn btn-primary rounded-r-none ${isPhone ? "min-w-[120px] justify-center" : ""}`} disabled={!canLaunch || launching} title={dictation.active ? "Launch waits until dictation has finished" : unsupportedImages ? "This harness does not support attached images" : blocker ?? undefined} onClick={() => (dictation.active ? dictation.stopAndSend() : void launch())}>
         <Icon name={timing === "repeat" ? "refresh" : timing === "later" ? (editing ? "check" : "clock") : "play"} size={14} />
         {launchLabel}
       </button>
-      {!browserOnly && <Popover up align="right" width={280} trigger={({ open: menu, toggle }) => <button className="btn btn-primary rounded-l-none border-l-white/30 px-1.5!" aria-label="When to start" aria-expanded={menu} disabled={launching} onClick={toggle}><Icon name="chev" size={12} /></button>}>
+      <Popover up align="right" width={280} trigger={({ open: menu, toggle }) => <button className="btn btn-primary rounded-l-none border-l-white/30 px-1.5!" aria-label="When to start" aria-expanded={menu} disabled={launching} onClick={toggle}><Icon name="chev" size={12} /></button>}>
         {(closeMenu) => (
           <>
             <MenuItem icon={<Icon name="play" size={12} />} label={editing ? "Start now" : "Launch now"} active={timing === "now"} onClick={() => { setTiming("now"); closeMenu(); }} />
@@ -542,7 +541,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             <MenuItem icon={<Icon name="refresh" size={12} />} label="Repeat on a schedule…" detail={editing ? "Creates a routine and cancels this scheduled launch" : "Creates a routine"} active={timing === "repeat"} onClick={() => { setTiming("repeat"); closeMenu(); }} />
           </>
         )}
-      </Popover>}
+      </Popover>
     </span>
   );
 
@@ -568,7 +567,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const billingText = !supportsCost && harness?.capabilities.cost ? costUnavailableMessage : payg ? `Pay as you go: Launchpad does not monitor subscription quotas for ${profile!.name}. ${spec.budget_usd != null ? `New turns stop once the reported cost reaches ${usd(spec.budget_usd)}.` : "No cost limit is set."}` : harness && !harness.capabilities.quota ? `This harness uses its native provider billing settings. Launchpad does not monitor its subscription quotas.${harness.capabilities.cost ? " A cost limit stops new turns at a reported cost." : ""}` : spec.allow_paid_usage ? "Additional credits may be used after included quota runs out." : "Pause at included quota limits and continue after reset. Best effort; some paid usage may occur before interruption.";
   // Where it runs and what happens when done, first on the options line ("New worktree from main · keep for review").
   const whenDoneText = whenDone === "merge" ? `merge into ${intoLabel}` : whenDone === "local_pr" ? `Local PR into ${intoLabel}` : whenDone === "draft_pr" ? `draft PR into ${intoLabel}` : whenDone === "open_pr" ? `PR into ${intoLabel}` : whenDone === "read_only" ? "read only" : intoLabel !== baseLabel ? `keep for review · into ${intoLabel}` : "keep for review";
-  const whereLine = browserOnly ? null : worktreeMode ? (pushToPr ? `PR #${pushToPr.number} · pushes to the PR` : `New worktree from ${baseLabel} · ${whenDoneText}`) : spec.target.kind === "temp" ? "Temporary folder" : worktreeReuse && runIn ? `Worktree · ${selectedWorktree.branch} · ${whenDoneText}` : runIn ? runIn.charAt(0).toUpperCase() + runIn.slice(1) : null;
+  const whereLine = worktreeMode ? (pushToPr ? `PR #${pushToPr.number} · pushes to the PR` : `New worktree from ${baseLabel} · ${whenDoneText}`) : spec.target.kind === "temp" ? "Temporary folder" : worktreeReuse && runIn ? `Worktree · ${selectedWorktree.branch} · ${whenDoneText}` : runIn ? runIn.charAt(0).toUpperCase() + runIn.slice(1) : null;
   const hasChips = (spec.agent_traces ?? []).length > 0 || spec.github_refs.length > 0 || (spec.skills ?? []).length > 0 || (spec.files ?? []).length > 0 || spec.context_projects.length > 0;
 
   return (
@@ -616,7 +615,6 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             repo={repo}
             projectId={target?.id}
             relativePaths={!spec.worktree}
-            noFolders={browserOnly}
 
           />
           <input ref={attachmentInput} type="file" multiple hidden onChange={(e) => { void addAttachments(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
@@ -625,7 +623,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             <AddContextMenu
               compact
               disabled={launching}
-              projects={(browserOnly ? [] : sorted).filter((p) => p.id !== target?.id && !spec.context_projects.some((c) => c.project_id === p.id))}
+              projects={sorted.filter((p) => p.id !== target?.id && !spec.context_projects.some((c) => c.project_id === p.id))}
               recent={recentContexts}
               sessions={recentSessions}
               selectedTraces={spec.agent_traces ?? []}
@@ -647,7 +645,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           {unsupportedImages && <div className="mt-1 text-[12px] text-danger-ink">This harness does not support attached images. Remove them or choose another harness.</div>}
         </div>}
 
-        {browserOnly ? <div className="rounded-card border border-line bg-chrome px-3 py-2 text-[12px]">Browser · explicit page grants · own folder, no worktree<div className="mt-1 text-ink-3">{harness?.browser_isolation}</div></div> : <div className="grid gap-2.5">
+        <div className="grid gap-2.5">
           <Field label="Folder" tour="composer.folder">
             <Popover
               width={300}
@@ -673,7 +671,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             </Popover>
             {recentFolders.filter((p) => p.id !== target?.id).length > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{recentFolders.filter((p) => p.id !== target?.id).slice(0, 3).map((p) => <button key={p.id} className="lp-chip h-[22px]! px-2! text-[11px]!" title={`Run in ${p.name}`} onClick={() => set((s) => withFolder(s, p))}>{p.name}</button>)}</div>}
           </Field>
-        </div>}
+        </div>
 
 
         {hasChips && <div className="flex flex-wrap items-center gap-1.5">
@@ -768,7 +766,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             </span>
           </OptionRow>}
           {target && gitTarget && existing && <OptionRow label="When done"><div className="pt-1.5 text-[12px] text-ink-3">The agent updates the Local PR; you publish or merge it from its page.</div></OptionRow>}
-          {!browserOnly && <OptionRow label={target && gitTarget ? "From" : "Run in"}>
+          <OptionRow label={target && gitTarget ? "From" : "Run in"}>
             <div className="grid min-w-0 grid-cols-1 gap-1.5">
               {target && gitTarget ? <RunIn
                 projectId={target.id}
@@ -798,7 +796,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                 Push to PR #{detectedPr.number}
               </label>}
             </div>
-          </OptionRow>}
+          </OptionRow>
           {target && gitTarget && !pushToPr && (worktreeMode || worktreeReuse) && whenDone !== "read_only" && <OptionRow label="Into">
             <span className="grid min-w-0 grid-cols-1" title="Where the merge, the Local PR or the pull request goes, and what Changes compare with">
               <select className="field-input min-w-0 w-full" aria-label="Into" value={spec.worktree?.into ?? ""} onChange={(e) => {
@@ -907,7 +905,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
           </OptionRow>}
         </OptionsFrame>}
 
-        {timing !== "now" && !browserOnly && <div className="grid gap-2 rounded-card border border-attn-line bg-attn-soft/40 p-2.5">
+        {timing !== "now" && <div className="grid gap-2 rounded-card border border-attn-line bg-attn-soft/40 p-2.5">
           <div className="flex items-center gap-2 text-[12px] font-semibold text-attn"><Icon name={timing === "repeat" ? "refresh" : "clock"} size={12} />{timing === "repeat" ? "Repeat on a schedule: creates a routine" : "Start later"}<button className="btn btn-sm btn-ghost ml-auto" onClick={() => setTiming("now")}>{editing ? "Start now instead" : "Launch now instead"}</button></div>
           {timing === "repeat" ? <CronSelector cron={cron} harness={spec.harness} onChange={(c) => { setCron(c); if (c) setConditions([]); else setTiming("now"); }} onValidityChange={setCronValid} /> : <DelaySelector conditions={conditions} harness={spec.harness} profile={spec.profile} exclude={editing} onChange={setConditions} onValidityChange={setDelayValid} />}
         </div>}

@@ -486,8 +486,6 @@ pub async fn auxiliary(app: &App, session: &Session, cwd: &Path) -> Result<Optio
         return Ok(None);
     }
     let spec = StartSpec {
-        browser: false,
-        browser_tools: false,
         permission_mode: session.launch_spec.permission_mode,
         session_id: session.id.clone(),
         harness_session_id: None,

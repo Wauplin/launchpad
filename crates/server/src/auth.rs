@@ -28,6 +28,10 @@ use std::sync::{
 };
 use tokio::sync::watch;
 
+/// The pinned ID of the Chrome extension (its `key` in `extension/public/manifest.json`): its origin may call the daemon.
+pub const EXTENSION_ID: &str = "bbefehapjjlbeodihifmpgidgjhmcklj";
+pub fn extension_origin() -> String { format!("chrome-extension://{EXTENSION_ID}") }
+
 const DEVICE_LIFETIME: i64 = 365 * 24 * 60 * 60;
 const PAIR_LIFETIME: i64 = 5 * 60;
 /// `browser_device.last_seen_at` is written at most this often per device (seconds).
@@ -332,7 +336,7 @@ impl Auth {
             if let Some(origin) = headers.get(header::ORIGIN)
                 && !origin
                     .to_str()
-                    .is_ok_and(|o| o == launchpad_core::browser::extension_origin() || network.origins.iter().any(|allowed| allowed == o))
+                    .is_ok_and(|o| o == extension_origin() || network.origins.iter().any(|allowed| allowed == o))
             {
                 return Err("foreign Origin");
             }
@@ -495,7 +499,7 @@ pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Res
         };
     }
     let ticket_access = if path == "/ws" && req.method() == Method::GET && req.headers().contains_key(header::UPGRADE)
-        && req.headers().get(header::ORIGIN).is_some_and(|v| v.as_bytes() == launchpad_core::browser::extension_origin().as_bytes()) {
+        && req.headers().get(header::ORIGIN).is_some_and(|v| v.as_bytes() == extension_origin().as_bytes()) {
         let tickets: Vec<_> = req.uri().query().unwrap_or("").split('&').filter_map(|v| v.strip_prefix("ticket=")).collect();
         if tickets.len() == 1 { s.auth.socket_tickets.write().unwrap().remove(&hash(tickets[0])).filter(|(access, expires)| *expires > now() && access.valid()).map(|(access, _)| access) } else { None }
     } else { None };
@@ -537,7 +541,7 @@ fn private_response(mut response: Response, private: bool) -> Response {
 /// Chrome omits SameSite cookies on extension WebSocket handshakes. Keep the cookie policy
 /// and exchange an authenticated, origin-bound ticket valid for one upgrade within 30 seconds.
 async fn socket_ticket(State(s): State<Server>, Extension(access): Extension<Access>, headers: HeaderMap) -> ApiResult<Value> {
-    if access.device.is_none() || headers.get(header::ORIGIN).is_none_or(|v| v.as_bytes() != launchpad_core::browser::extension_origin().as_bytes()) {
+    if access.device.is_none() || headers.get(header::ORIGIN).is_none_or(|v| v.as_bytes() != extension_origin().as_bytes()) {
         return Err(ApiError::new(StatusCode::FORBIDDEN, "Socket tickets are only available to the paired Launchpad extension"));
     }
     let mut tickets = s.auth.socket_tickets.write().unwrap();

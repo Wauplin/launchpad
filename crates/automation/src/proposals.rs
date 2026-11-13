@@ -296,7 +296,7 @@ pub async fn get(app: &App, id: &str) -> Result<Proposal> {
 
 /// Paid usage is always off on proposals; the owner changes it in the composer.
 fn sanitize(spec: &mut LaunchSpec, workspace_id: &Option<String>) -> Result<()> {
-    ensure!(!spec.target.is_browser() && spec.bot.is_none(), "proposals cannot start browser or bot sessions: propose a message to the bot instead");
+    ensure!(spec.bot.is_none(), "proposals cannot start bot sessions: propose a message to the bot instead");
     spec.allow_paid_usage = false;
     spec.workspace_id = workspace_id.clone();
     Ok(())

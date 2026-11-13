@@ -123,7 +123,6 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
           onDocumentChange={(doc) => ask ? setText(doc.text) : setDocument(sessionId, doc)}
           root={promptSession?.cwd ?? null} harness={promptSession?.harness ?? null} profile={promptSession?.launch_spec.profile ?? null}
           repo={promptProject?.gh_repo ?? promptProject?.gh_upstream ?? null} projectId={promptSession?.project_id} sessionId={sessionId}
-          noFolders={!!promptSession && promptSession.launch_spec.target.kind === "browser" && !promptSession.launch_spec.target.project_id}
           autocomplete={!ask && !!promptSession} onSend={() => void send()}
           disabled={disabled || busy || reading}
           onPaste={(e) => {

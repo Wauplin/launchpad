@@ -28,10 +28,10 @@ const SuggestionRow = memo(function SuggestionRow({ item, active, id, onPick }: 
   </button>;
 });
 
-export function PromptField({ document: doc, onDocumentChange, root, harness, profile, repo, projectId, sessionId, relativePaths = true, noFolders = false, autocomplete = true, inputRef, onPaste, onSend, disabled, compact = false, placeholder }: {
+export function PromptField({ document: doc, onDocumentChange, root, harness, profile, repo, projectId, sessionId, relativePaths = true, autocomplete = true, inputRef, onPaste, onSend, disabled, compact = false, placeholder }: {
   document: PromptDocument; onDocumentChange: (doc: PromptDocument) => void;
   root: string | null; harness: string | null; profile: string | null; repo: string | null; projectId?: string | null; sessionId?: string;
-  relativePaths?: boolean; noFolders?: boolean; autocomplete?: boolean; inputRef?: React.RefObject<HTMLTextAreaElement | null>;
+  relativePaths?: boolean; autocomplete?: boolean; inputRef?: React.RefObject<HTMLTextAreaElement | null>;
   onPaste?: React.ClipboardEventHandler<HTMLTextAreaElement>; onSend?: () => void; disabled?: boolean; compact?: boolean; placeholder?: string;
 }) {
   const ownRef = useRef<HTMLTextAreaElement>(null), ref = inputRef ?? ownRef;
@@ -53,28 +53,28 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   useEffect(() => { setMention(null); setSelected(0); }, [scopeKey, autocomplete]);
   useEffect(() => { const t = setTimeout(() => setDebounced(mention?.query ?? ""), 150); return () => clearTimeout(t); }, [mention?.query]);
   const params = new URLSearchParams({ ...(root ? { root } : {}), workspace: scope.workspace.id, q: debounced });
-  const files = useQuery({ queryKey: ["prompt-files", root, scope.workspace.id, debounced], queryFn: ({ signal }) => api.get<PathResults>(`/api/prompt/files?${params}`, signal), enabled: autocomplete && !noFolders && mention?.trigger === "@", staleTime: 15_000 });
+  const files = useQuery({ queryKey: ["prompt-files", root, scope.workspace.id, debounced], queryFn: ({ signal }) => api.get<PathResults>(`/api/prompt/files?${params}`, signal), enabled: autocomplete && mention?.trigger === "@", staleTime: 15_000 });
   const skillParams = new URLSearchParams({ harness: harness ?? "", ...(profile ? { profile } : {}), ...(root ? { root } : {}) });
-  const skills = useQuery({ queryKey: ["prompt-skills", root, harness, profile], queryFn: ({ signal }) => api.get<SkillResults>(`/api/prompt/skills?${skillParams}`, signal), enabled: autocomplete && !noFolders && mention?.trigger === "/" && !!harness, staleTime: 30_000 });
+  const skills = useQuery({ queryKey: ["prompt-skills", root, harness, profile], queryFn: ({ signal }) => api.get<SkillResults>(`/api/prompt/skills?${skillParams}`, signal), enabled: autocomplete && mention?.trigger === "/" && !!harness, staleTime: 30_000 });
   const gh = useQuery({ queryKey: ["gh-suggest", repo, debounced], queryFn: ({ signal }) => api.get<GhItem[]>(`/api/gh/${repo}/suggest?q=${encodeURIComponent(debounced)}`, signal), enabled: mention?.trigger === "#" && !!repo, staleTime: 60_000 });
   const cachedGitHub = useQuery({ queryKey: ["prompt-github", debounced], queryFn: ({ signal }) => api.get<GitHubRef[]>(`/api/prompt/github?q=${encodeURIComponent(debounced)}`, signal), enabled: mention?.trigger === "#", staleTime: 30_000 });
   const query = (mention?.query ?? "").toLowerCase();
   const rank = (text: string) => matchScore(text, query);
   const suggestions: Suggestion[] = [];
-  if (mention?.trigger === "@" && !noFolders && debounced === mention.query) {
+  if (mention?.trigger === "@" && debounced === mention.query) {
     const hits = files.data?.hits ?? [];
     for (const hit of hits) {
       const path = relativePaths && root === hit.root ? hit.path : `${hit.root.replace(/[\\/]$/, "")}/${hit.path}`;
       suggestions.push({ id: `${hit.root}:${hit.path}`, group: hit.directory ? "Folder" : "File", label: hit.path, detail: hit.project, token: /\s/.test(path) ? JSON.stringify(path) : path, icon: hit.directory ? "folder" : "file" });
     }
   }
-  if (mention?.trigger === "/" && !noFolders) for (const skill of skills.data?.hits ?? []) {
+  if (mention?.trigger === "/") for (const skill of skills.data?.hits ?? []) {
     if (rank(`${skill.name} ${skill.description}`) === null) continue;
     suggestions.push({ id: skill.path, group: "Skill", label: `/${skill.name}`, detail: `${skill.description} · ${skill.source}`, token: `/${skill.name}`, icon: "file", pick: { kind: "skill", value: { name: skill.name, path: skill.path } } });
   }
   if (mention?.trigger === "#") {
     // Only the folders of this window's workspace: other workspaces show counts, never their content.
-    const folders = noFolders ? [] : scope.projects.filter((p) => p.id !== projectId && rank(`${p.name} ${p.path} ${p.description}`) !== null).sort((a,b) => (rank(a.name) ?? 100) - (rank(b.name) ?? 100));
+    const folders = scope.projects.filter((p) => p.id !== projectId && rank(`${p.name} ${p.path} ${p.description}`) !== null).sort((a,b) => (rank(a.name) ?? 100) - (rank(b.name) ?? 100));
     for (const p of folders.slice(0, 10)) suggestions.push({ id: p.id, group: "Project", label: p.name, detail: p.path, token: `#${p.name.replace(/\s+/g, "-")}`, icon: "folder", pick: { kind: "project", value: { project_id: p.id, branch: null, editable: false } } });
     for (const s of sessions.filter((s) => s.id !== sessionId && s.last_seq > 0 && scope.hasSession(s) && rank(`${s.title} ${s.cwd}`) !== null).sort(byPickerOrder).slice(0, 10)) suggestions.push({ id: s.id, group: "Trace", label: s.title, detail: `${s.cwd} · through event ${s.last_seq}`, token: `#trace:${s.title.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 40) || "agent"}`, icon: "agents", pick: { kind: "trace", value: { session_id: s.id, through_seq: s.last_seq } } });
     const github = new Map<string, GitHubRef>();
@@ -176,7 +176,7 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
       <div id={id} role="listbox" aria-label="Prompt suggestions" ref={scroll} className="min-h-0 overflow-y-auto" style={{ height: Math.min(rows.length * 48, 240) }}>
         <div className="relative" style={{ height: virtual.getTotalSize() }}>{virtual.getVirtualItems().map((row) => <div key={rows[row.index].id} className="absolute top-0 left-0 w-full" style={{ transform: `translateY(${row.start}px)` }}><SuggestionRow id={`${id}-${row.index}`} item={rows[row.index]} active={row.index === active} onPick={() => pick(row.index)} /></div>)}</div>
       </div>
-      <div role="status" className="shrink-0 border-t border-line-2 px-2 py-1 text-[11px] text-ink-3">{error ? error.message : pending ? "Searching…" : !rows.length ? noFolders && mention.trigger !== "#" ? "This agent has no filesystem access" : "No matching items" : "↑ ↓ navigate · Enter/Tab select · Esc dismiss"}{!!warnings?.length && <span className="block">{warnings.slice(0, 2).join(" · ")}</span>}</div>
+      <div role="status" className="shrink-0 border-t border-line-2 px-2 py-1 text-[11px] text-ink-3">{error ? error.message : pending ? "Searching…" : !rows.length ? "No matching items" : "↑ ↓ navigate · Enter/Tab select · Esc dismiss"}{!!warnings?.length && <span className="block">{warnings.slice(0, 2).join(" · ")}</span>}</div>
     </div>, document.body)}
   </>;
 }

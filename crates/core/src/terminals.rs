@@ -825,7 +825,6 @@ pub async fn folders(app: &App, cwd: &str) -> Result<TerminalFolders> {
 
 /// The command that resumes the session in a TUI.
 fn tui_command(app: &App, s: &Session, is_temp: bool) -> Result<Vec<String>> {
-    anyhow::ensure!(!matches!(s.launch_spec.target, crate::model::Target::Browser { .. }), "Browser sessions cannot hand off to a terminal");
     let mut command = app.harnesses.get(s.harness).terminal_command(s, is_temp)?;
     anyhow::ensure!(!command.is_empty(), "empty harness terminal command");
     if let Some(path) = app.env.which(&command[0]) {

@@ -68,8 +68,7 @@ async fn preview(app: &launchpad_core::App, spec: &LaunchSpec) -> anyhow::Result
     if let (Target::Temp, Some(ws)) = (&spec.target, &spec.workspace_id) {
         prompt.push(start::part("temp", "Temporary folder", launchpad_core::sessions::temp_instruction(&cli, SESSION, ws, "<its temporary folder>")));
     }
-    if !matches!(spec.target, Target::Browser { .. })
-        && let Some(text) = launchpad_core::ext::extensions().suggestion_instruction(app, SESSION)
+    if let Some(text) = launchpad_core::ext::extensions().suggestion_instruction(app, SESSION)
     {
         prompt.push(start::part("publish", "GitHub suggestions and connections", text));
     }

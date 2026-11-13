@@ -128,7 +128,6 @@ fn ensure_auto_reviewer(mode: PermissionMode, response: &Value) -> Result<()> {
 }
 
 async fn start(
-    app: &App,
     server: &CodexServer,
     threads: &Threads,
     spec: StartSpec,
@@ -136,42 +135,7 @@ async fn start(
     server_use: Option<ServerUse>,
 ) -> Result<Arc<dyn LiveSession>> {
     let cwd = spec.cwd.to_string_lossy().to_string();
-    let (approval, reviewer, sandbox) = if spec.browser { ("never", "user", "read-only") } else { permission_settings(spec.permission_mode) };
-    let browser_config = if spec.browser {
-        let current = server.request("config/read", json!({"includeLayers":false})).await.context("Read Codex MCP configuration for browser isolation")?;
-        let mut config = serde_json::Map::new();
-        // config/read serializes unset numeric options as empty strings; it is not a config file.
-        // Keep only the transport when disabling a server, never round-trip its optional fields.
-        let mut servers = serde_json::Map::new();
-        if let Some(existing) = current["config"]["mcp_servers"].as_object() {
-            for (name, server) in existing {
-                let mut disabled = json!({"enabled":false});
-                for key in ["command", "url"] { if let Some(value) = server[key].as_str().filter(|v| !v.is_empty()) { disabled[key] = json!(value); } }
-                servers.insert(name.clone(), disabled);
-            }
-        }
-        let mut plugins = serde_json::Map::new();
-        if let Some(existing) = current["config"]["plugins"].as_object() { for name in existing.keys() { plugins.insert(name.clone(), json!({"enabled":false})); } }
-        config.insert("plugins".into(), json!(plugins));
-        let mut apps = serde_json::Map::new();
-        if let Some(existing) = current["config"]["apps"].as_object() { for name in existing.keys() { apps.insert(name.clone(), json!({"enabled":false})); } }
-        apps.insert("_default".into(), json!({"enabled":false}));
-        config.insert("apps".into(), json!(apps));
-        let mut mcp = launchpad_core::browser::mcp_config(app, &spec);
-        // The broker enforces independent owner grants and consequential-action review for every tool.
-        mcp["default_tools_approval_mode"] = json!("approve");
-        mcp["enabled"] = json!(true);
-        servers.insert("launchpad_browser".into(), mcp);
-        config.insert("mcp_servers".into(), json!(servers));
-        config.insert("web_search".into(), json!("disabled"));
-        Some(Value::Object(config))
-    } else if spec.browser_tools {
-        // Add the browser server next to the owner's configuration (a dotted key overrides only this entry).
-        let mut mcp = launchpad_core::browser::mcp_config(app, &spec);
-        mcp["default_tools_approval_mode"] = json!("approve");
-        mcp["enabled"] = json!(true);
-        Some(json!({"mcp_servers.launchpad_browser": mcp}))
-    } else { None };
+    let (approval, reviewer, sandbox) = permission_settings(spec.permission_mode);
     let thread_id = if spec.resume {
         let id = spec
             .harness_session_id
@@ -182,7 +146,6 @@ async fn start(
                 "thread/resume",
                 {
                     let mut params = json!({"threadId": id, "cwd": cwd, "excludeTurns": true, "approvalPolicy": approval, "approvalsReviewer": reviewer, "sandbox": sandbox});
-                    if let Some(config) = &browser_config { params["config"] = config.clone(); }
                     if let Some(m) = &spec.model {
                         params["model"] = json!(m);
                     }
@@ -191,11 +154,10 @@ async fn start(
             )
             .await
             .context("thread/resume")?;
-        if !spec.browser { ensure_auto_reviewer(spec.permission_mode, &res)?; }
+        ensure_auto_reviewer(spec.permission_mode, &res)?;
         id
     } else {
         let mut params = json!({"cwd": cwd, "approvalPolicy": approval, "approvalsReviewer": reviewer, "sandbox": sandbox});
-        if let Some(config) = &browser_config { params["config"] = config.clone(); }
         if let Some(m) = &spec.model {
             params["model"] = json!(m);
         }
@@ -203,7 +165,7 @@ async fn start(
             .request("thread/start", params)
             .await
             .context("thread/start")?;
-        if !spec.browser { ensure_auto_reviewer(spec.permission_mode, &res)?; }
+        ensure_auto_reviewer(spec.permission_mode, &res)?;
         let id = res["thread"]["id"]
             .as_str()
             .context("no thread id")?
@@ -1084,7 +1046,6 @@ const PROFILE_TEMPLATES: &[harness::ProfileTemplate] = &[
 
 pub const REGISTRATION: harness::Registration = harness::Registration {
     descriptor: harness::HarnessDescriptor {
-        browser_isolation: "Read-only sandbox; native shell tools may remain available",
         cost_model_prefixes: &[],
         id: ID,
         name: "Codex",
@@ -1192,7 +1153,7 @@ impl harness::Harness for Adapter {
     }
     async fn start(&self, app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
         if spec.env.is_empty() && spec.jail.is_none() {
-            return start(app, &self.server, &self.threads, spec, sink, None).await;
+            return start(&self.server, &self.threads, spec, sink, None).await;
         }
         let (server, threads) = {
             let mut servers = self.profile_servers.lock().unwrap();
@@ -1207,7 +1168,7 @@ impl harness::Harness for Adapter {
         };
         // Counted before the start: a failed start drops it, which shuts an unused server down.
         let server_use = ServerUse { pool: self.profile_servers.clone(), key: spec.env.clone() };
-        start(app, &server, &threads, spec, sink, Some(server_use)).await
+        start(&server, &threads, spec, sink, Some(server_use)).await
     }
     /// Placeholders in `auth.json` (with a fresh `last_refresh`, so Codex never refreshes) and the ChatGPT
     /// endpoints pointed at the proxy, which adds the access token Home keeps fresh.

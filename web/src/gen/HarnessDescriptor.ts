@@ -7,10 +7,6 @@ import type { VaultLogin } from "./VaultLogin";
 
 export type HarnessDescriptor = { id: HarnessKind, name: string, icon_svg: string, color: string, working_message: string, capabilities: HarnessCapabilities, 
 /**
- * Browser-only isolation, shown in the extension without harness identity checks.
- */
-browser_isolation: string, 
-/**
  * Model prefixes with native pricing; empty means no model restriction.
  */
 cost_model_prefixes: Array<string>, 

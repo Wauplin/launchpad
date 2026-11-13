@@ -25,7 +25,7 @@ import { daemonAsset } from "@/lib/connection";
 import { downloadUrl, pathResolver, useCodeFiles } from "@/features/code/lib";
 import { useMessageDrafts } from "@/stores/messages";
 import { useRunners } from "@/lib/runners";
-import { isDone, isRunning, sessionPlace } from "@/lib/sessionStatus";
+import { isDone, isRunning } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
@@ -315,8 +315,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   const archivePrimary = s.status === "waiting" && !s.open_question && !mergeStopped && !toReview && !gitUnknown && !gitLoading;
   const canReply = !childrenOpen;
 
-  const noShell = s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id;
-  const place = sessionPlace(s, projectName(projects, s.project_id, s.cwd));
+  const place = projectName(projects, s.project_id, s.cwd);
   const profileLabel = s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : null;
   const contextShare = s.usage.context_tokens && s.usage.context_window ? `${Math.round((100 * s.usage.context_tokens) / s.usage.context_window)}% context` : null;
   const titleEl = renaming ? <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
@@ -349,10 +348,10 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
         {s.live && s.status === "waiting" && s.open_question && <ActionMenuItem name="session.stop" params={{ id: s.id }} close={close} detail="Interrupt the agent while it waits for your decision" />}
         <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename" onClick={() => { close(); setTitle(s.title); setRenaming(true); }} />
         <MenuItem label="Session details" detail="Branch, usage and Launch here" onClick={() => { close(); setDetailsOpen(true); }} />
-        {terminalsHere && !noShell && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail={terminalBlock ?? "Open a shell in this folder (the checkout when its worktree is gone)"} disabled={!!terminalBlock} onClick={() => { close(); void openTerminal.folder(s.cwd, s.runner_id); }} />}
+        {terminalsHere && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail={terminalBlock ?? "Open a shell in this folder (the checkout when its worktree is gone)"} disabled={!!terminalBlock} onClick={() => { close(); void openTerminal.folder(s.cwd, s.runner_id); }} />}
       </>}
       {s.status === "in_terminal" && tui && <MenuItem icon={<Icon name="term" size={14} />} label="Show TUI tab" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
-      {terminalsHere && s.launch_spec.target.kind !== "browser" && !running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label={`Continue in ${name} TUI`} detail={terminalBlock ?? "In the terminal dock on the agent's runner, outside quota protection; Re-attach brings it back"} disabled={!!terminalBlock} onClick={() => { close(); void openTerminal.tui(s.id); }} />}
+      {terminalsHere && !running && s.status !== "in_terminal" && s.status !== "quota_paused" && harness?.capabilities.terminal && <MenuItem icon={<Icon name="term" size={14} />} label={`Continue in ${name} TUI`} detail={terminalBlock ?? "In the terminal dock on the agent's runner, outside quota protection; Re-attach brings it back"} disabled={!!terminalBlock} onClick={() => { close(); void openTerminal.tui(s.id); }} />}
       {s.project_id && <MenuItem icon={<Icon name="folder" size={14} />} label="Browse files" detail="Read the folder in Files" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd, session: s.id } }); }} />}
       <MenuItem icon={<Icon name="agents" size={14} />} label="Use trace as context" detail="Reference this trace in a new agent's prompt" disabled={s.last_seq === 0} onClick={() => { close(); useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] }); }} />
       {s.status !== "closed" && !archivePrimary && <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail="It stays resumable" onClick={() => { close(); archive(); }} />}
@@ -399,7 +398,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
           </div>
           <div className="session-actions ml-auto flex flex-wrap items-center gap-1">
             <span data-tour="session.primary" className="inline-flex items-center gap-1"><StatePrimary s={s} primary={primary} /></span>
-            {!noShell && <TerminalMenu cwd={s.cwd} runner={s.runner_id} small label={<span className="@max-[520px]:sr-only">Terminal</span>} title={`Open a shell in ${s.cwd}`} />}
+            <TerminalMenu cwd={s.cwd} runner={s.runner_id} small label={<span className="@max-[520px]:sr-only">Terminal</span>} title={`Open a shell in ${s.cwd}`} />
             {actionsMenu}
             <button className="iconbtn shrink-0" title="Close panel" aria-label="Close panel" onClick={onClear}><Icon name="x" size={14} /></button>
           </div>
@@ -430,7 +429,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
       </div>}
       {phone && detailsOpen && <Sheet title="Session details" onClose={() => setDetailsOpen(false)}>
         <div className="session-detail-sheet grid gap-4 p-4">
-          <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{sessionPlace(s, projectName(projects, s.project_id, s.cwd))} · {s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : name}</p></div></div>
+          <div className="flex items-start gap-2"><HarnessMark harness={s.harness} size={20} /><div className="min-w-0"><b className="break-words">{s.title}</b><p className="mt-1 text-ink-3">{projectName(projects, s.project_id, s.cwd)} · {s.launch_spec.profile ? profileName ?? `${s.launch_spec.profile} (deleted profile)` : name}</p></div></div>
           <dl className="grid gap-2 text-ink-2">
             {usageLine(s) && <div><dt className="text-[12px] text-ink-3">Usage</dt><dd>{usageLine(s)}</dd></div>}
             <div><dt className="text-[12px] text-ink-3">Started</dt><dd>{when(s.started_at)}</dd></div>
@@ -452,13 +451,12 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
       {s.capacity_retry_at != null && <div role="status" className="flex flex-wrap items-center gap-2 border-b border-line bg-teal-soft px-3 py-2 text-[12px] text-teal-ink">
         <Icon name="clock" size={16} />Model at capacity · automatic retry {s.capacity_retry_count + 1} scheduled for {when(s.capacity_retry_at)}. Resume now or archive to cancel.
       </div>}
-      {s.launch_spec.target.kind === "browser" && <div className="border-b border-line bg-teal-soft px-3 py-1 text-[12px] text-teal-ink">Browser task · tabs shared from the Chrome extension · {s.launch_spec.target.act ? "Act" : "Read"}</div>}
       {pollProcesses && processesError != null && <div role="alert" className="px-3 py-2 text-[12px] text-danger">{String(processesError)} <button className="btn btn-sm" onClick={() => void processes.refetch()}>Retry</button></div>}
       {hasProcesses && !processesOpen && !running && <div className="flex items-center gap-2 px-3 py-2 text-[12px] text-ink-3">Background commands are still running.<button className="btn btn-sm" onClick={() => setView("processes")}>View processes</button></div>}
       {processesOpen && <ProcessesPanel sessionId={s.id} processes={runningProcesses} refresh={() => processes.refetch()} />}
       {changesOpen && <GitPanel key={`${s.id}-${gitMain}`} initialMain={gitMain} sessionId={s.id} canMessage={s.status !== "in_terminal" && !quotaMessageBlocked && !(running && !harness?.capabilities.messages_while_running)} />}
       <CodeLinksContext.Provider value={codeLinks}>
-      <ShellCodeContext.Provider value={(s.launch_spec.target.kind === "browser" && !s.launch_spec.target.project_id) || terminalBlock ? null : s.cwd}>
+      <ShellCodeContext.Provider value={terminalBlock ? null : s.cwd}>
       {childrenOpen && log && <SubagentsPanel key={s.id} log={log} agents={children} sessionId={s.id} live={s.live} back={() => setView("trace")} />}
       {!changesOpen && !childrenOpen && !processesOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">{log.error ? "Session events unavailable." : "Loading…"}</div> : <SessionSummary key={s.id} session={s} rows={rows} earlier={log?.earlier ?? null} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
       {traceOpen && !running && <><StateBand session={s} /><FollowUpBands sessionId={s.id} /><QuotaBand session={s} /></>}

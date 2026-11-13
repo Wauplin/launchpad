@@ -2,7 +2,6 @@
 
 mod activity;
 mod burst;
-mod browser;
 mod auth;
 mod exchange;
 mod git_http;
@@ -87,7 +86,6 @@ pub(crate) fn router(server: Server, api: Router<Ctx>) -> Router {
     Router::new()
         .merge(routes::router())
         .merge(api.with_state(ctx))
-        .merge(browser::router())
         .merge(terminals::router())
         .merge(voice::router())
         .merge(worktrees::router())

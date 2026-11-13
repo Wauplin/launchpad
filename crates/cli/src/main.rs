@@ -2,7 +2,6 @@
 //!
 //! The environment comes from `LAUNCHPAD_ENV` (`prod` by default, `dev` for development).
 
-mod browser;
 mod extensions;
 #[cfg(target_os = "linux")]
 mod netcap;
@@ -286,15 +285,9 @@ enum Command {
         #[arg(long)]
         through: Option<i64>,
     },
-    /// Read-only browser MCP bridge, started by Launchpad harness adapters.
-    #[command(hide = true)]
-    BrowserMcp { #[arg(long)] data_dir: Option<std::path::PathBuf> },
     /// Prints the path of this runner's proxy CA certificate (created if needed), for a Local VM's system store.
     #[command(hide = true)]
     ProxyCa,
-    /// Chrome native messaging host (registered for the pinned extension only).
-    #[command(hide = true)]
-    NativeHost { origin: String, #[arg(trailing_var_arg = true, allow_hyphen_values = true)] extra: Vec<String> },
     /// Run the daemon (HTTP + WebSocket; loopback by default).
     Daemon {
         /// home (the default): records and services, no agents; runner (Linux only): agents and terminals, in its own
@@ -1039,16 +1032,10 @@ async fn run() -> Result<()> {
             println!("{text}");
             Ok(())
         }
-        Command::BrowserMcp { data_dir } => {
-            let mut paths = paths;
-            if let Some(dir) = data_dir { paths.data_dir = dir; }
-            browser::mcp(&paths).await
-        },
         Command::ProxyCa => {
             println!("{}", launchpad_core::proxy::ca_certificate(&paths)?.display());
             Ok(())
         }
-        Command::NativeHost { origin, .. } => browser::native_host(&paths, &origin).await,
         Command::Daemon { role } => {
             init_tracing();
             let role = launchpad_core::role::Role::parse(&role)?;

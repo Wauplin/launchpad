@@ -93,18 +93,6 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
     .into_iter()
     .map(String::from)
     .collect();
-    if spec.browser_tools {
-        let bridge = launchpad_core::browser::mcp_config(app, &spec);
-        let mcp = json!({"command":bridge["command"],"args":bridge["args"],"env":bridge["env"]});
-        let config = json!({"mcpServers":{"launchpad_browser":mcp}}).to_string();
-        // The broker checks grants and owner reviews for every call, so its tools need no native approval.
-        if spec.browser {
-            args.extend(["--strict-mcp-config".into(), "--mcp-config".into(), config, "--tools".into(), "".into()]);
-        } else {
-            args.extend(["--mcp-config".into(), config]);
-        }
-        args.extend(["--allowedTools".into(), "mcp__launchpad_browser__*".into()]);
-    }
     args.extend(permission_args(spec.permission_mode));
     let harness_id = spec.harness_session_id.clone().unwrap_or_else(|| spec.session_id.clone());
     if spec.resume {
@@ -129,7 +117,6 @@ pub async fn start(app: &App, spec: StartSpec, sink: Sink) -> Result<Arc<dyn Liv
         .stdin(launchpad_core::exec::Io::Piped)
         .stdout(launchpad_core::exec::Io::Piped)
         .stderr(launchpad_core::exec::Io::Piped);
-    if spec.browser_tools { cmd.env("MCP_TOOL_TIMEOUT", "720000"); }
     let mut child = cmd.spawn().await.context("start claude")?;
     sink.raw("cmd", &format!("claude {}", args.join(" "))).await;
     sink.set_harness_id(&harness_id).await;
@@ -904,7 +891,6 @@ const PROFILE_TEMPLATES: &[harness::ProfileTemplate] = &[
 ];
 pub const REGISTRATION: harness::Registration = harness::Registration {
     descriptor: harness::HarnessDescriptor {
-        browser_isolation: "Browser tools only; built-in tools and other MCP servers disabled",
         cost_model_prefixes: &["claude-", "opus", "sonnet", "haiku"],
         id: ID,
         name: "Claude Code",

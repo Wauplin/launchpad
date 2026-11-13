@@ -48,7 +48,6 @@ function where(spec: LaunchSpec): Where {
       return { projectId: s.project_id, cwd: s.cwd, git: !!world.sessionGit[s.id] || !!s.project_id };
     }
     case "temp": return { projectId: P.scratch, cwd: `${TMP}/${FOLDER[P.scratch]}`, git: false };
-    case "browser": return notInDemo();
     default: throw new DemoError(400, "Choose a folder first.");
   }
 }
@@ -123,7 +122,7 @@ export function startPreview(spec: LaunchSpec): StartPreview {
   // What a launch adds once the session has its id and folder (`Sessions::launch`), shortened for the demo.
   const prompt = promptParts(s, "");
   if (s.target.kind === "temp" && ws) prompt.push({ key: "temp", label: "Temporary folder", text: "Launchpad temporary folder: your working directory `<its temporary folder>` is temporary. Launchpad saves its files on Home at the end of every turn, so they follow this session to another machine." });
-  if (s.target.kind !== "browser") prompt.push({ key: "publish", label: "GitHub suggestions and connections", text: "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `launchpad suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id $LAUNCHPAD_SESSION_ID`. Never publish suggestions yourself; the owner edits and posts with a click." });
+  prompt.push({ key: "publish", label: "GitHub suggestions and connections", text: "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `launchpad suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id $LAUNCHPAD_SESSION_ID`. Never publish suggestions yourself; the owner edits and posts with a click." });
   return { instructions, prompt };
 }
 

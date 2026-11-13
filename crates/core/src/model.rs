@@ -653,8 +653,6 @@ pub struct BotHandoff {
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Target {
-    #[default]
-    None,
     Project {
         project_id: String,
     },
@@ -668,29 +666,12 @@ pub enum Target {
     SessionFolder {
         session_id: String,
     },
-    /// A browser session; grants are created by an explicit owner click. Without a project it runs in a
-    /// scratch folder with browser tools only; with one, in the project (or a task worktree) with the
-    /// harness's normal tools plus the browser tools. `act` turns every grant into a Work grant.
-    Browser {
-        source_session_id: Option<String>,
-        grants: Vec<String>,
-        #[serde(default)]
-        project_id: Option<String>,
-        #[serde(default)]
-        act: bool,
-    },
     /// A new temporary folder in `<data_dir>/tmp`.
     Temp,
-}
-
-impl Target {
-    pub fn is_browser(&self) -> bool { matches!(self, Target::Browser { .. }) }
-    /// A browser task without a project: scratch folder, browser tools only.
-    pub fn browser_only(&self) -> bool { matches!(self, Target::Browser { project_id: None, .. }) }
-    /// The project of a browser task that works in a project.
-    pub fn browser_project(&self) -> Option<&str> {
-        match self { Target::Browser { project_id: Some(p), .. } => Some(p), _ => None }
-    }
+    /// Last: also what records of removed kinds (the former browser sessions) read as.
+    #[default]
+    #[serde(other)]
+    None,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]

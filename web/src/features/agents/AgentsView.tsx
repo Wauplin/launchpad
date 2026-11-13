@@ -15,7 +15,7 @@ import type { Predraft } from "@/gen/Predraft";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { workTags, WorkTagPill, type WorkTag } from "./workTag";
 import { HarnessMark } from "@/components/HarnessMark";
-import { isRunning, isDone, isQuotaPaused, isStopped, isUnseen, needsYou, sessionPlace } from "@/lib/sessionStatus";
+import { isRunning, isDone, isQuotaPaused, isStopped, isUnseen, needsYou } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useProjects, useSession, useSessions } from "@/lib/queries";
@@ -80,7 +80,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, tag,
           {informative(s) ? <SessionStatus s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{age(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
         </span>
         <span className="agent-row-line col-span-2 line-clamp-2 pr-8 text-[12px] leading-[1.3] text-ink-3" title={full ? `${project} · ${full}` : project}>
-          {tag && <WorkTagPill tag={tag} className="mr-1.5 align-[1px]" />}<span className="text-ink-2">{sessionPlace(s, project)}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
+          {tag && <WorkTagPill tag={tag} className="mr-1.5 align-[1px]" />}<span className="text-ink-2">{project}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
         </span>
       </button>
       {/* The row opens the session; Stop, Archive, Mark unread and Pin in ⋯. */}

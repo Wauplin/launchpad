@@ -190,7 +190,7 @@ async fn socket(State(s): State<Server>, access: Option<Extension<Access>>, agen
     let Some(Extension(access)) = access else { return StatusCode::FORBIDDEN.into_response() };
     // A browser window of Home: signed in as a device, from an allowed Origin (checked exactly by the front door),
     // never the Chrome extension's.
-    let window = headers.get(header::ORIGIN).is_some_and(|o| o.as_bytes() != launchpad_core::browser::extension_origin().as_bytes());
+    let window = headers.get(header::ORIGIN).is_some_and(|o| o.as_bytes() != crate::auth::extension_origin().as_bytes());
     if s.app.paths.role != launchpad_core::role::Role::Home || access.device.is_none() || !window {
         return (StatusCode::FORBIDDEN, Json(json!({"error": "voice input runs in Home's browser windows only"}))).into_response();
     }

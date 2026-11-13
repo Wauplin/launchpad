@@ -8,7 +8,6 @@ pub mod attachments;
 pub mod away;
 pub mod bots;
 pub mod bot_memory;
-pub mod browser;
 pub mod code;
 pub mod compose;
 pub mod config;
@@ -126,7 +125,6 @@ pub struct App {
     /// Take the sessions' action locks first; never hold it across a push or a call to Home (`push_unlocked`).
     pub worktree_lock: Arc<tokio::sync::Mutex<()>>,
     pub terminals: terminals::Terminals,
-    pub browser: browser::Broker,
     /// Live runner tunnels (Home).
     pub runners: runners::Hub,
     pub home_backups: home_backup::Backups,
@@ -208,7 +206,6 @@ impl App {
             predraft_lock: Arc::new(tokio::sync::Mutex::new(())),
             worktree_lock: Arc::new(tokio::sync::Mutex::new(())),
             terminals: terminals::Terminals::default(),
-            browser: browser::Broker::default(),
             runners: runners::Hub::default(),
             home_backups: home_backup::Backups::default(),
             proxy: proxy::Proxy::default(),

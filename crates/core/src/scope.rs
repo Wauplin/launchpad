@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use anyhow::{Result, bail, ensure};
+use anyhow::{Result, ensure};
 use serde_json::Value;
 
 use crate::App;
@@ -85,10 +85,9 @@ pub async fn worktree_session(app: &App, id: &str) -> Option<String> {
 /// The workspace a launch spec runs in: its target's record, else the workspace it names.
 pub async fn of_spec(app: &App, spec: &LaunchSpec) -> Option<String> {
     let named = match &spec.target {
-        Target::Project { project_id } | Target::Predraft { project_id } | Target::Browser { project_id: Some(project_id), .. } => of_project(app, project_id).await,
+        Target::Project { project_id } | Target::Predraft { project_id } => of_project(app, project_id).await,
         Target::ExistingPredraft { predraft_id } => of_predraft(app, predraft_id).await,
         Target::SessionFolder { session_id } => of_session(app, session_id).await,
-        Target::Browser { source_session_id: Some(s), .. } => of_session(app, s).await,
         _ => None,
     };
     named.or_else(|| spec.workspace_id.clone())
@@ -151,11 +150,8 @@ pub fn ensure_inside(own: &str, record: Option<&str>, what: &str) -> Result<()> 
 }
 
 /// Every folder, session, Local PR and bot an agent's launch spec names is in workspace `ws`, and the spec runs
-/// there (a spec without a workspace gets `ws`). Browser launches stay the owner's.
+/// there (a spec without a workspace gets `ws`).
 pub async fn check_spec(app: &App, ws: &str, spec: &mut LaunchSpec) -> Result<()> {
-    if spec.target.is_browser() {
-        bail!("browser sessions are the owner's: launch them from Launchpad's window");
-    }
     match &spec.workspace_id {
         Some(w) => ensure_inside(ws, Some(w), "this launch's workspace")?,
         None => spec.workspace_id = Some(ws.to_string()),

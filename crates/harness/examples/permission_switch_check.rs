@@ -45,7 +45,6 @@ async fn main() -> Result<()> {
     let env = core::shellenv::UserEnv::resolve().await;
     let status = core::status::StatusHandle::new(bus.clone());
     let app = core::App {
-        browser: Default::default(),
         runners: Default::default(),
         home_backups: Default::default(),
         proxy: Default::default(),
