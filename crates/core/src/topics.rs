@@ -6,7 +6,6 @@ use ts_rs::TS;
 use crate::App;
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[ts(export)]
 pub struct Topic {
     pub id: String,
     pub workspace_id: String,
