@@ -669,6 +669,11 @@ pub struct BotLaunch {
     pub slug: String,
     /// BOT.md, the owner's instructions. Cleared in session lists.
     pub instructions: String,
+    /// The bot's thread this session belongs to (`bot_thread.id`, `bots::MAIN` for its main conversation). Empty in
+    /// sessions from before bots had several threads: read as main (`BotLaunch::thread_id`).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    #[ts(optional, as = "Option<String>")]
+    pub thread: String,
     /// The thread's previous session, referenced by its trace (never inlined).
     pub previous: Option<BotHandoff>,
     /// The version of BOT.md (`bots::version`) the session started from or last received in a message: when
@@ -695,6 +700,13 @@ pub struct BotLaunch {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub inbox_done: bool,
+}
+
+impl BotLaunch {
+    /// Its thread's ID: `main` for sessions from before bots had several threads.
+    pub fn thread_id(&self) -> &str {
+        if self.thread.is_empty() { "main" } else { &self.thread }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]

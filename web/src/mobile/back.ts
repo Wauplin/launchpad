@@ -23,6 +23,8 @@ let counter = 0;
 let pendingTab: string | null = null;
 /** `phoneBackTo` going back until it reaches its page. */
 let pendingPage: { is: (path: string, search: URLSearchParams) => boolean; fallback: string } | null = null;
+/** `replaceUnderOverlays` going back past the overlays' entries, then replacing the page under them. */
+let pendingReplace: string | null = null;
 
 const indexOf = (h: RouterHistory) => (h.location.state as { __TSR_index?: number }).__TSR_index ?? 0;
 const markerOf = (h: RouterHistory) => (h.location.state as unknown as Record<string, unknown>)[MARK] as string | undefined;
@@ -75,6 +77,10 @@ export function installBack(h: RouterHistory): () => void {
       if (open[i].index > index) { const [o] = open.splice(i, 1); o.close(); }
     }
     if (pendingTab !== null && backwards) { const to = pendingTab; pendingTab = null; h.replace(to); return; }
+    if (pendingReplace !== null && backwards) {
+      if (markerOf(h) && index > 0) { h.back(); return; }
+      const to = pendingReplace; pendingReplace = null; h.replace(to); return;
+    }
     if (pendingPage && backwards) {
       const url = new URL(h.location.href, location.origin);
       if (markerOf(h) || !pendingPage.is(url.pathname, url.searchParams)) {
@@ -144,6 +150,21 @@ export function phoneBackTo(is: (path: string, search: URLSearchParams) => boole
   if (indexOf(h) === 0) { h.replace(fallback); return; }
   pendingPage = { is, fallback };
   h.back();
+}
+
+/**
+ * A switch between siblings from inside an overlay (a bot's thread picked in its Threads sheet): the open overlays
+ * close with their entries, then `to` replaces the page under them, so back never returns to the previous sibling.
+ * Returns false when the shell is not installed (navigate with `replace`).
+ */
+export function replaceUnderOverlays(to: string): boolean {
+  const h = hist;
+  if (!h) return false;
+  for (const o of open.splice(0)) o.close();
+  if (!markerOf(h) || indexOf(h) === 0) { h.replace(to); return true; }
+  pendingReplace = to;
+  h.back();
+  return true;
 }
 
 /**

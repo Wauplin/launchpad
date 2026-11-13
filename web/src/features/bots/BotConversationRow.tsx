@@ -7,9 +7,9 @@ import { memo } from "react";
 import { Count } from "@/components/ui";
 import type { Bot } from "@/gen/Bot";
 import type { Session } from "@/gen/Session";
-import { botInitial, botJob, botState, type BotState } from "@/lib/bots";
+import { botInitial, botJob, botState, threadSummary, type BotState } from "@/lib/bots";
 import { age } from "@/lib/format";
-import { isRunning, isUnseen, needsYou } from "@/lib/sessionStatus";
+import { isUnseen } from "@/lib/sessionStatus";
 import { isNoUpdate } from "@/lib/routines";
 
 const DOT: Record<BotState, string> = { needs: "bg-attn", running: "bg-work", paused: "bg-attn", idle: "bg-line", new: "bg-line" };
@@ -25,9 +25,10 @@ export const BotConversationRow = memo(function BotConversationRow({ bot, thread
   const last = lastTurn(thread);
   const newest = thread.at(-1);
   const unseen = !!newest && isUnseen(newest) && newest.status !== "closed";
-  const waiting = thread.filter(needsYou).length;
-  const working = !!newest && isRunning(newest);
-  const line = working ? `Working${last?.last_message ? ` · ${last.last_message}` : "…"}` : last?.last_message ?? (thread.length ? "No message yet" : botJob(bot) || "No instructions yet");
+  // Over all its threads: how many wait for you, and whether one works.
+  const { needs: waiting, working: workingThreads } = threadSummary(thread);
+  const working = workingThreads > 0;
+  const line = working ? `Working${workingThreads > 1 ? ` on ${workingThreads} threads` : ""}${last?.last_message ? ` · ${last.last_message}` : "…"}` : last?.last_message ?? (thread.length ? "No message yet" : botJob(bot) || "No instructions yet");
   return <Link to="/bots/$id" params={{ id: bot.id }} className={`grid min-h-[60px] grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-x-3 px-3 py-2 no-underline hover:bg-sunk ${className}`} aria-label={`${bot.settings.name}, ${STATE_LABEL[state]}`}>
     <span className="relative grid size-9 place-items-center rounded-card bg-teal-soft text-[15px] font-semibold text-teal-ink" aria-hidden>
       {botInitial(bot.settings.name)}

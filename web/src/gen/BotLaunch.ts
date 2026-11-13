@@ -15,6 +15,11 @@ slug: string,
  */
 instructions: string, 
 /**
+ * The bot's thread this session belongs to (`bot_thread.id`, `bots::MAIN` for its main conversation). Empty in
+ * sessions from before bots had several threads: read as main (`BotLaunch::thread_id`).
+ */
+thread?: string, 
+/**
  * The thread's previous session, referenced by its trace (never inlined).
  */
 previous: BotHandoff | null, 

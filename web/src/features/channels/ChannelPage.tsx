@@ -226,7 +226,7 @@ const MessageRow = memo(function MessageRow({ m, lines, reply, quoted }: { m: Ch
       </div>
       {quoted && <div className="truncate text-[12px] text-ink-3" title={reply ? reply.text : undefined}>↳ Reply to {reply ? `${reply.author.kind === "owner" ? "you" : reply.author.name}: ${firstLine(reply.text)}` : `message ${m.reply_to}`}</div>}
       <Markdown text={m.text} className="text-[13px]" />
-      {lines?.map((l, i) => <Delivery key={i} l={l} />)}
+      {lines?.map((l, i) => <Delivery key={i} l={l} channel={m.channel_id} />)}
     </div>
   </div>;
 }, (a, b) => a.m === b.m && a.reply === b.reply && a.quoted === b.quoted && JSON.stringify(a.lines) === JSON.stringify(b.lines));
@@ -235,12 +235,14 @@ const MessageRow = memo(function MessageRow({ m, lines, reply, quoted }: { m: Ch
 function queuedLine(bot: string, reason: string | null | undefined, what: string): string {
   if (reason?.startsWith("waits for confirmed quota")) return `${bot} waits for confirmed quota · ${what}`;
   if (reason?.startsWith("waits behind")) return `${bot} has earlier messages waiting · ${what}`;
+  if (reason?.startsWith("waits for a free slot")) return `${bot} works in as many threads as it may · ${what}`;
   return `${bot} is busy · ${what}`;
 }
 
 /** A delivery as one muted line: "Maintainer woke up (mention) · open its chat", "Docs is busy · message queued (1)". */
-function Delivery({ l }: { l: DeliveryLine }) {
-  const chat = <Link to="/bots/$id" params={{ id: l.botId }} className="text-teal-ink no-underline hover:underline" title="Its own chat, where it answers and works">open its chat</Link>;
+function Delivery({ l, channel }: { l: DeliveryLine; channel: string }) {
+  // The bot's thread of this channel (`?thread=` takes the thread's key).
+  const chat = <Link to="/bots/$id" params={{ id: l.botId }} search={{ thread: `channel:${channel}` } as never} className="text-teal-ink no-underline hover:underline" title="Its thread for this channel, where it answers and works">open its thread</Link>;
   const row = "flex min-w-0 items-start gap-1.5 text-[12px]";
   switch (l.kind) {
     case "woke":

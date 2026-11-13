@@ -11,4 +11,12 @@ source: string,
 /**
  * The message without Launchpad's own lines: the Telegram text, or the hook's name and the start of its body.
  */
-text: string, };
+text: string, 
+/**
+ * The bot's thread it goes to.
+ */
+thread: string, 
+/**
+ * It waits for a free slot of the bot (its thread does not work, but as many others do as max_threads allows).
+ */
+slot: boolean, };

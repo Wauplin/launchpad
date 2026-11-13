@@ -3,8 +3,9 @@
 // (with receipts for its changes), its questions with their options as chips, and what each turn wrote: proposals
 // as compact lines that become receipts once handled, and ready clicks. The trace stays in Agents (the page's ⋯).
 // Newest at the bottom; older events and sessions load as you scroll up, tail-first. It fills its parent, so it
-// works as a page, a panel and the phone's full screen. The one message box sends to the bot's thread, or answers
-// its open question or a question report ("Answering: …", with Cancel to send a normal message instead).
+// works as a page, a panel and the phone's full screen. It shows one thread of the bot (its parallel conversations,
+// BotThreads.tsx); the one message box sends to that thread (a new one for New thread), or answers its open question
+// or a question report ("Answering: …", with Cancel to send a normal message instead).
 
 import { useProfiles, useProfileModels } from "@/lib/profiles";
 import { VoiceButton } from "@/components/VoiceButton";
@@ -36,7 +37,7 @@ import { withPresets } from "@/lib/presets";
 import { ApiError } from "@/lib/api";
 import { abandonOperation } from "@/lib/operations";
 import { senderLine } from "@/lib/senders";
-import { instructionsUpdated } from "@/lib/bots";
+import { instructionsUpdated, MAIN_THREAD } from "@/lib/bots";
 import { useMarkSeen, useWindowFocused } from "@/features/agents/useSeen";
 import { buildRows } from "@/features/agents/rows";
 import { foldTrace } from "@/features/agents/traceRows";
@@ -56,7 +57,8 @@ import { api } from "@/lib/api";
 import { attachmentSrc, pastedImages } from "@/lib/attachments";
 import { age, ago, when } from "@/lib/format";
 import { readDraft, useKeptDraft, writeDraft } from "@/lib/keptDraft";
-import { useArmedSession, useNextSession } from "./nextSession";
+import { nextSessionKey, useArmedSession, useNextSession } from "./nextSession";
+import { NEW_THREAD } from "./BotThreads";
 import { useCrons, useSession, useHarnessDefaults } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
 import { isRunning } from "@/lib/sessionStatus";
@@ -115,12 +117,16 @@ function botFileReceipt(c: Change): string {
   return `${c.new_sha256 ? (c.sha256 ? "changed" : "added") : "deleted"} ${what}`;
 }
 
-export function BotChat({ bot, thread, rotation, needsProfile, openSettings, intro, view = "bot", onStep }: {
+export function BotChat({ bot, threadId = MAIN_THREAD, thread, rotation, needsProfile, openSettings, intro, view = "bot", onStep, onStarted }: {
   bot: Bot;
   /** Which view shows the chat (a bot page, the Ask panel), for the sessions this window reports on screen. */
   view?: string;
-  /** The bot's sessions, oldest first. */
+  /** The thread shown: its ID, or `new` (New thread: the next message starts one). */
+  threadId?: string;
+  /** The thread's sessions, oldest first. */
   thread: Session[];
+  /** A message started a session (a new thread's first message: the page shows its thread). */
+  onStarted?: (session: Session) => void;
   /** Why the next message starts a new session anyway (profile or folder changed), or null. */
   rotation: string | null;
   needsProfile: boolean;
@@ -184,8 +190,8 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
   const queued = useQuery({ queryKey: ["bot-queued", bot.id], queryFn: () => api.get<QueuedMessage[]>(`/api/bots/${bot.id}/queued`), retry: false }).data;
   const items = useMemo(() => [
     ...chatRows(sessions, cards, first),
-    ...(queued ?? []).map((m): ChatItem => ({ t: "queued", key: `queued/${m.n}`, v: "", n: m.n, at: m.at, source: m.source, text: m.text })),
-  ], [sessions, cards, first, queued]);
+    ...(queued ?? []).filter((m) => m.thread === threadId).map((m): ChatItem => ({ t: "queued", key: `queued/${m.n}`, v: `${m.slot}`, n: m.n, at: m.at, source: m.source, text: m.text, slot: m.slot })),
+  ], [sessions, cards, first, queued, threadId]);
   const step = useMemo(() => { const w = items.findLast((i) => i.t === "working"); return w?.t === "working" ? w.step : null; }, [items]);
   // The records behind each steps line's receipts, one stable array per line (rows are memoized on it).
   // A line keeps its array while its records are the same, so a streaming answer elsewhere never redraws it.
@@ -308,7 +314,7 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
           <div className="h-3" />
         </div>
       </div>
-      <BotComposer bot={bot} current={current} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} reply={reply} skipped={!reportWaits && ask && ask.request_id === skipped ? ask : null}
+      <BotComposer bot={bot} threadId={threadId} onStarted={onStarted} current={current} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} reply={reply} skipped={!reportWaits && ask && ask.request_id === skipped ? ask : null}
         onCancelReply={() => { if (reply?.kind === "report") setReport(null); else if (reply) setSkipped(reply.request_id); }} onUnskip={() => setSkipped(null)}
         onSent={() => { atBottom.current = true; setReport(null); }} />
     </div>
@@ -318,14 +324,16 @@ export function BotChat({ bot, thread, rotation, needsProfile, openSettings, int
 
 // ---------------------------------------------------------------- rows
 
-/** A hook or Telegram message waiting for the bot's turn to end, with Cancel. */
+const QUEUED_FROM: Record<string, string> = { telegram: "Telegram", hook: "a hook", channel: "a channel", agent: "an agent" };
+
+/** A hook, Telegram, channel or agent message waiting for the thread's turn to end (or for a free slot), with Cancel. */
 function QueuedRow({ item, botId }: { item: Extract<ChatItem, { t: "queued" }>; botId: string }) {
   const qc = useQueryClient();
   return <div className="py-1" data-tour="chat.queued"><div className="flex items-center gap-2 rounded-card border border-dashed border-line px-2.5 py-1.5 text-[13px] text-ink-3">
     <Icon name="clock" size={12} className="flex-none" />
     <span className="min-w-0 flex-1">
       <span className="line-clamp-2 break-words whitespace-pre-wrap">{item.text}</span>
-      <span className="block text-[11px]">Waiting · from {item.source === "telegram" ? "Telegram" : "a hook"} · {ago(item.at)} · sent when the current turn ends</span>
+      <span className="block text-[11px]">Waiting · from {QUEUED_FROM[item.source] ?? item.source} · {ago(item.at)} · {item.slot ? "waiting for a free slot: the bot works in as many threads as it may at once" : "sent when the current turn ends"}</span>
     </span>
     <ActionButton name="bot.cancel-queued" params={{ id: botId, n: String(item.n) }} icon={null} onDone={() => qc.invalidateQueries({ queryKey: ["bot-queued", botId] })} />
   </div></div>;
@@ -557,8 +565,8 @@ function WorkingRow({ item, quiet }: { item: Extract<ChatItem, { t: "working" }>
 
 const firstLine = (t: string) => t.trim().split("\n")[0] ?? "";
 
-function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply, skipped, onCancelReply, onUnskip, onSent }: {
-  bot: Bot; current: Session | null; rotation: string | null; needsProfile: boolean;
+function BotComposer({ bot, threadId, onStarted, current, rotation, needsProfile, openSettings, reply, skipped, onCancelReply, onUnskip, onSent }: {
+  bot: Bot; threadId: string; onStarted?: (session: Session) => void; current: Session | null; rotation: string | null; needsProfile: boolean;
   openSettings: () => void;
   /** What the box answers (the open question, or a question report), else null: a normal message. */
   reply: Reply | null;
@@ -572,7 +580,11 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
   const harness = useHarnessInfo(current?.harness ?? null);
   const acceptsImages = harness ? harness.capabilities.images : true;
   // The unsent text survives the box being hidden (the phone's About page, back, another bot in the Ask panel).
-  const { text, setText } = useKeptDraft(`chat.${bot.id}`, "");
+  // One draft per thread (main keeps the bot's own key).
+  const draftKey = threadId === MAIN_THREAD ? `chat.${bot.id}` : `chat.${bot.id}.${threadId}`;
+  const { text, setText } = useKeptDraft(draftKey, "");
+  // Where the message goes: the thread shown, or a new thread.
+  const where = threadId === NEW_THREAD ? { new_thread: true } : threadId === MAIN_THREAD ? {} : { thread: threadId };
   const [busy, setBusy] = useState(false);
   // A message whose response was lost: sending it unchanged returns its result (the same Idempotency-Key), never a
   // second message; only the owner's click after checking the chat starts a new attempt. The exact body is kept, so
@@ -581,8 +593,9 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
   const [lost, setUnconfirmed] = useState<{ path: string; body: Record<string, unknown>; message: string } | null>(null);
   const unconfirmed = lost?.path === messagePath ? lost : null;
   // ⋯ → Start a new session: the next message starts a new session of the thread, with the owner's reason.
-  const newSession = useArmedSession(bot.id, current?.id ?? null);
-  const cancelNewSession = () => useNextSession.getState().set(bot.id, null);
+  const armKey = nextSessionKey(bot.id, threadId);
+  const newSession = useArmedSession(armKey, current?.id ?? null);
+  const cancelNewSession = () => useNextSession.getState().set(armKey, null);
   const fresh = !!newSession;
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -607,7 +620,7 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
   const context = answering ? EMPTY_CONTEXT : storedContext;
   const presets = answering ? [] : selectedPresets.filter((id) => botPresets.some((p) => p.id === id));
   const withContext = hasMessageContext(context);
-  const dictation = useDictation({ inputRef: ref, onSend: () => void send(), keep: { read: () => readDraft(`chat.${bot.id}`) ?? "", write: (t) => writeDraft(`chat.${bot.id}`, t) } });
+  const dictation = useDictation({ inputRef: ref, onSend: () => void send(), keep: { read: () => readDraft(draftKey) ?? "", write: (t) => writeDraft(draftKey, t) } });
   // On the phone, a dictation leaves the row to the field, the mic and Stop & send.
   const narrow = usePhone() && dictation.active;
   const send = async (typed = text) => {
@@ -617,22 +630,24 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
     try {
       if (ask && current) {
         await runAction("session.answer", { id: current.id }, { request_id: ask.request_id, answers: Array(ask.count).fill(t || "See the attachments in my next message.") });
-        if (files.length) await runAction("bot.message", { id: bot.id }, { text: "", attachments: files });
+        if (files.length) await runAction("bot.message", { id: bot.id }, { text: "", attachments: files, ...where });
       } else if (report) {
         const next = await runAction<Proposal>("proposal.reply", { id: report.id }, { text: t });
         qc.setQueryData<Proposal[]>(["proposals"], (old) => old?.map((x) => (x.id === next.id ? next : x)));
         if (next.state === "failed") throw new Error(next.error ?? "The reply was not sent");
-        if (files.length) await runAction("bot.message", { id: bot.id }, { text: "", attachments: files });
+        if (files.length) await runAction("bot.message", { id: bot.id }, { text: "", attachments: files, ...where });
       } else {
         // A cancelled question still waits in the harness, which would hold the message behind it: close it as
         // skipped (never a permission: those keep Allow and Deny), then send the message.
         if (skip && current) await runAction("session.answer", { id: current.id }, { request_id: skip.request_id, answers: Array(skip.count).fill("No answer: the owner skipped this question and sent a message instead.") });
         const message = JSON.stringify({ text: t, attachments: files, context: withContext ? context : null });
-        const body = unconfirmed?.message === message ? unconfirmed.body : { text: t, attachments: files, ...(fresh ? { new_session: true, reason: newSession!.reason } : {}), ...(withContext ? { context } : {}) };
-        try { await runAction("bot.message", { id: bot.id }, body); }
+        const body = unconfirmed?.message === message ? unconfirmed.body : { text: t, attachments: files, ...where, ...(fresh ? { new_session: true, reason: newSession!.reason } : {}), ...(withContext ? { context } : {}) };
+        let started: Session | null = null;
+        try { started = await runAction<Session>("bot.message", { id: bot.id }, body); }
         catch (e) { setUnconfirmed(e instanceof ApiError && e.operationCompleted ? null : { path: messagePath, body, message }); throw e; }
         setUnconfirmed(null);
         cancelNewSession();
+        if (started?.id) onStarted?.(started);
         setContext(EMPTY_CONTEXT);
         setPresets([]);
       }
@@ -647,7 +662,8 @@ function BotComposer({ bot, current, rotation, needsProfile, openSettings, reply
   return (
     <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5" data-tour="bots.reply">
       <div className="mx-auto w-full max-w-text">
-        {rotation && current && <div className="mb-1.5 text-[12px] text-ink-3">{rotation}: your next message starts a new session of {bot.settings.name}'s thread, with a reference to the previous one.</div>}
+        {rotation && current && <div className="mb-1.5 text-[12px] text-ink-3">{rotation}: your next message starts a new session of this thread, with a reference to its previous one.</div>}
+        {threadId === NEW_THREAD && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3"><Icon name="plus" size={12} className="flex-none" />Your next message starts a new thread of {bot.settings.name}, next to its others.</div>}
         {fresh && !rotation && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="bots.new-session"><Icon name="plus" size={12} className="flex-none" /><span className="min-w-0 flex-1 truncate">Your next message starts a new session{newSession!.reason ? ` · “${newSession!.reason}”` : ""}</span><button className="chat-tap flex-none text-teal-ink hover:underline" onClick={cancelNewSession}>Cancel</button></div>}
         {unconfirmed && !busy && <div role="status" className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3"><span className="min-w-0 flex-1">Delivery not confirmed. Send the same message to check its result.</span><button className="chat-tap flex-none text-teal-ink hover:underline" title="Only if the chat does not show the message: it may then be sent twice" onClick={() => void abandonOperation(unconfirmed.path, unconfirmed.body).then(() => setUnconfirmed(null)).catch(toastError)}>I checked the chat — start a new attempt</button></div>}
         {answering && !(ask && ask.permission) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="chat.answering">

@@ -110,12 +110,14 @@ async fn bots(State(s): State<Ctx>, Query(q): Query<Scope>) -> ApiResult<Value> 
     let list = launchpad_core::bots::list(&s.app).await.map_err(bad)?;
     let folders = launchpad_core::projects::list(&s.app).await?;
     Ok(Json(json!(list.into_iter().filter(|b| ws.as_ref().is_none_or(|w| &b.workspace_id == w)).map(|b| {
-        let thread = launchpad_core::bots::thread(&s.app, &b.id);
-        let current = thread.iter().rev().find(|x| x.status != launchpad_core::model::SessionStatus::Closed);
+        let thread = launchpad_core::bots::all_sessions(&s.app, &b.id);
+        let main = launchpad_core::bot_threads::sessions(&s.app, &b.id, launchpad_core::bot_threads::MAIN);
+        let current = main.iter().rev().find(|x| x.status != launchpad_core::model::SessionStatus::Closed);
+        let open: Vec<Value> = launchpad_core::bot_threads::open_sessions(&s.app, &b.id).iter().map(|x| json!({"thread": launchpad_core::bot_threads::of(x), "session": session_json(x)})).collect();
         json!({
             "id": b.id, "name": b.settings.name, "workspace_id": b.workspace_id, "instructions": b.instructions.chars().take(2000).collect::<String>(),
             "profile": b.settings.profile, "folder_id": b.settings.folder, "folder": b.settings.folder.as_ref().map(|f| folders.iter().find(|p| &p.id == f).map_or("a removed folder", |p| p.name.as_str()).to_string()).unwrap_or_else(|| "a temporary folder per session".into()),
-            "current_session": current.map(session_json), "sessions": thread.len(),
+            "current_session": current.map(session_json), "open_threads": open, "sessions": thread.len(),
         })
     }).collect::<Vec<_>>())))
 }

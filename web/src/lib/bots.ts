@@ -1,9 +1,11 @@
-// Bots: named, persistent agents of a workspace, stored by Home as files (BOT.md, bot.toml). A bot's thread is
-// the chain of sessions whose launch spec names it; the newest one that is not archived is its current session.
+// Bots: named, persistent agents of a workspace, stored by Home as files (BOT.md, bot.toml). A bot has several
+// threads (its parallel conversations): a thread is the chain of sessions whose launch spec names the bot and the
+// thread (`launch_spec.bot.thread`, "main" when empty); the newest one that is not archived is its current session.
 // Ask Launchpad and the Librarian are two of them: Home creates each once per workspace.
 
 import { useQuery } from "@tanstack/react-query";
 import type { Bot } from "@/gen/Bot";
+import type { BotThread } from "@/gen/BotThread";
 import type { Session } from "@/gen/Session";
 import { api } from "./api";
 import { isQuotaPaused, isRunning, needsYou } from "./sessionStatus";
@@ -26,8 +28,33 @@ export const librarianOf = (bots: Bot[] | undefined, ws: string | null) => bots?
 
 export const botOf = (s: Session) => s.launch_spec.bot?.id ?? null;
 
-/** The bot's sessions, oldest first. */
-export const botThread = (sessions: Session[], id: string) => sessions.filter((s) => botOf(s) === id).sort((a, b) => a.started_at - b.started_at);
+/** The main thread: the owner's default conversation with a bot. */
+export const MAIN_THREAD = "main";
+
+/** The thread of a bot session (older sessions: main). */
+export const threadOf = (s: Session) => s.launch_spec.bot?.thread || MAIN_THREAD;
+
+/** The bot's sessions (of one thread when `thread` is given), oldest first. */
+export const botThread = (sessions: Session[], id: string, thread?: string) => sessions.filter((s) => botOf(s) === id && (thread === undefined || threadOf(s) === thread)).sort((a, b) => a.started_at - b.started_at);
+
+/** The bot's threads (main first, then the newest), archived ones with `archived`. */
+export const useBotThreads = (id: string | null | undefined, archived = false) => useQuery({ queryKey: ["bot-threads", id, archived], queryFn: () => api.get<BotThread[]>(`/api/bots/${id}/threads${archived ? "?archived=true" : ""}`), enabled: !!id, staleTime: 15_000, retry: false });
+
+/** The thread a `?thread=` value names: a thread ID, or a routing key such as `channel:<id>` (links from a channel). */
+export const findThread = (threads: BotThread[] | undefined, value: string | undefined) => value ? threads?.find((t) => t.id === value || t.key === value) ?? null : null;
+
+/** The current session of each thread of a bot's sessions, by thread. */
+export function threadCurrents(sessions: Session[]): Map<string, Session> {
+  const out = new Map<string, Session>();
+  for (const s of [...sessions].sort((a, b) => a.started_at - b.started_at)) if (s.status !== "closed") out.set(threadOf(s), s);
+  return out;
+}
+
+/** What all threads of a bot do: how many work and how many wait for you. */
+export function threadSummary(sessions: Session[]): { working: number; needs: number } {
+  const open = [...threadCurrents(sessions).values()];
+  return { working: open.filter(isRunning).length, needs: open.filter(needsYou).length };
+}
 
 export const currentSession = (thread: Session[]) => [...thread].reverse().find((s) => s.status !== "closed") ?? null;
 
@@ -42,7 +69,8 @@ export function rotationReason(bot: Bot, current: Session | null, profile: { id:
   if (current.launch_spec.profile !== (profile?.id ?? null)) return "The bot's profile changed";
   // Without a folder, each session runs in its own temporary folder.
   const folder = current.launch_spec.target.kind === "temp" ? null : current.project_id;
-  if (folder !== (bot.settings.folder ?? null)) return "The bot's folder changed";
+  // A plain folder (no longer used by bots): its sessions run in a temporary folder.
+  if (folder !== (bot.folder_unused ? null : bot.settings.folder ?? null)) return "The bot's folder changed";
   if ((current.launch_spec.model ?? null) !== (bot.settings.model ?? profile?.model ?? null)) return "The bot's model changed";
   if ((current.launch_spec.effort ?? null) !== (bot.settings.effort ?? profile?.effort ?? null)) return "The bot's effort changed";
   // The mode bot.toml gave the session at start: one the owner set on the session in Agents keeps the thread.
@@ -58,7 +86,19 @@ export const instructionsUpdated = (bot: Bot, current: Session | null) => {
 
 export type BotState = "needs" | "running" | "paused" | "idle" | "new";
 
-export function botState(thread: Session[]): BotState {
+/** The state of a bot over all its threads (`sessions`: every session of the bot): needs you when one thread does,
+ * else working when one works, else quota paused. */
+export function botState(sessions: Session[]): BotState {
+  const open = [...threadCurrents(sessions).values()];
+  if (!open.length) return sessions.length ? "idle" : "new";
+  if (open.some(needsYou)) return "needs";
+  if (open.some(isRunning)) return "running";
+  if (open.some(isQuotaPaused)) return "paused";
+  return "idle";
+}
+
+/** The state of one thread (its sessions). */
+export function threadState(thread: Session[]): BotState {
   const s = currentSession(thread);
   if (!s) return thread.length ? "idle" : "new";
   if (needsYou(s)) return "needs";

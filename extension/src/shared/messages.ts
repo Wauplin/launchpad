@@ -2,6 +2,7 @@
 // panel and the content scripts. Clients never see a token or the device secret: they ask the worker, which adds the
 // credentials. Add a request by adding an entry to `Requests` and a case to the worker's router (background/router.ts).
 
+import type { BotThread } from "@/gen/BotThread";
 import type { DiffSelection } from "@/gen/DiffSelection";
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtNotifications } from "@/gen/ExtNotifications";
@@ -149,7 +150,9 @@ export type Requests = {
   "bots": Req<void, BotList>;
   /** A message to a bot's thread (`bot.message`); returns its session. `key` is the idempotency key (one per Send).
    * `github_refs` names the GitHub item or comment by reference; the bot reads the content itself. */
-  "bot.message": Req<{ bot: string; text: string; github_refs?: GitHubRef[]; attachments?: FileAttachment[]; new_session?: boolean; reason?: string; key: string; /** Lines of a pull request's diff (Ask about these lines): a reference, Home reads the lines. */ selection?: DiffSelection }, Session>;
+  "bot.message": Req<{ bot: string; text: string; github_refs?: GitHubRef[]; attachments?: FileAttachment[]; new_session?: boolean; reason?: string; key: string; /** Lines of a pull request's diff (Ask about these lines): a reference, Home reads the lines. */ selection?: DiffSelection; /** The bot's thread (the panel's picker); none: the thread of the one GitHub item named (several: a new one). */ thread?: string; /** A new thread (New conversation). */ new_thread?: boolean }, Session>;
+  /** A bot's threads (main first, then the newest). */
+  "bot.threads": Req<{ bot: string }, BotThread[]>;
   /** Home's profiles (id, name, CLI), for a launch's picker. */
   "profiles": Req<void, ProfileBrief[]>;
   /** A one-time agent in a folder of the workspace (`session.launch`): read only (Investigate, Check with an agent) or

@@ -489,7 +489,7 @@ async fn bot_spec(app: &App, bot: &launchpad_core::bots::Bot, text: String) -> R
         text,
         harness: Some(profile.harness),
         profile: Some(profile.id.clone()),
-        target: bot.settings.folder.clone().map_or(Target::Temp, |project_id| Target::Project { project_id }),
+        target: launchpad_core::bots::effective_folder(app, &bot.settings).await.ok().flatten().map_or(Target::Temp, |p| Target::Project { project_id: p.id }),
         workspace_id: Some(bot.workspace_id.clone()),
         ..Default::default()
     })
@@ -961,27 +961,16 @@ fn bot_message(r: &CronAgent, launch: &RoutineLaunch) -> String {
     format!("Routine “{}” · {}\n\n{}\n\n{}", r.title, launch.cause, r.spec.text.trim(), instruction(launch))
 }
 
-/// Why a bot cannot take a routine's message now.
-fn bot_busy(app: &App, bot_id: &str) -> Option<String> {
-    let thread = launchpad_core::bots::thread(app, bot_id);
-    let current = thread.iter().rev().find(|s| s.status != SessionStatus::Closed)?;
-    (current.status.is_running() || current.quota_pause.is_some()).then(|| format!("{} is working", current.launch_spec.bot.as_ref().map(|b| b.name.as_str()).unwrap_or("the bot")))
-}
-
-/// The open session of the bot thread a routine posts to, None for other routines.
-fn thread_current(app: &App, r: &CronAgent) -> Option<Session> {
-    let b = r.bot_id.as_ref()?;
-    launchpad_core::bots::thread(app, b).into_iter().rev().find(|s| s.status != SessionStatus::Closed)
-}
-
-/// Why the bot thread a routine posts to cannot take a message now.
-fn thread_busy(app: &App, r: &CronAgent) -> Option<String> {
-    bot_busy(app, r.bot_id.as_ref()?)
+/// Why a bot routine cannot start a run now: each run starts a thread of its own, so only the bot's limit of
+/// threads at work (`bot_threads::at_cap`) holds it.
+async fn thread_busy(app: &App, r: &CronAgent) -> Option<String> {
+    let bot = launchpad_core::bots::get(app, r.bot_id.as_ref()?).await.ok()?;
+    launchpad_core::bot_threads::at_cap(app, &bot, None)
 }
 
 /// Why the routine's conditions block a run now, or None when it may start.
 pub(crate) async fn why_blocked(app: &App, r: &CronAgent) -> Result<Option<String>> {
-    if let Some(why) = thread_busy(app, r) {
+    if let Some(why) = thread_busy(app, r).await {
         return Ok(Some(why));
     }
     let spec = effective_spec(app, r).await?;
@@ -996,8 +985,8 @@ pub(crate) async fn why_blocked(app: &App, r: &CronAgent) -> Result<Option<Strin
 /// retried). `automatic` runs need confirmed quota.
 async fn start(app: &App, id: &str, cause: String, context: String, automatic: bool, hops: u32) -> Result<Session> {
     let at = now_ms();
-    let current = get(app, id).await?;
-    let quiet_ok = thread_current(app, &current).is_none_or(|s| !s.needs_you());
+    // A run starts its own session (a bot routine: in a thread of its own), so nothing of it is unseen yet.
+    let quiet_ok = true;
     let (record, ()) = modify(app, id, {
         let cause = cause.clone();
         move |r| {
@@ -1013,7 +1002,9 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
     let result = match &record.bot_id {
         Some(bot) => {
             let context = launchpad_core::model::MessageContext { from: Some(routine_sender(&record, hops)), ..Default::default() };
-            launchpad_core::bots::message_with(app, bot, bot_message(&record, &launch), vec![], context, None, automatic, None).await
+            let file = record.file.clone().unwrap_or_else(|| record.id.clone());
+            let to = launchpad_core::bot_threads::route(launchpad_core::bot_threads::Source::Routine { file: &file, title: &record.title });
+            launchpad_core::bots::message_with(app, bot, launchpad_core::bots::Message { text: bot_message(&record, &launch), attachments: vec![], context, new_session: None, automatic, key: None, to }).await
         }
         None => {
             let spec = LaunchSpec { routine: Some(launch), from: Some(routine_sender(&record, hops)), ..record.spec.clone() };
@@ -1052,8 +1043,8 @@ pub async fn run_now(app: &App, id: &str) -> Result<Session> {
     let record = get(app, id).await?;
     // A routine whose file never worked has nothing to run yet.
     ensure!(!record.spec.text.trim().is_empty(), "{} has no instructions: fix its file {}", record.title, record.file.as_deref().unwrap_or_default());
-    if let Some(why) = thread_busy(app, &record) {
-        bail!("{why}: wait for its turn to end, or Stop it");
+    if let Some(why) = thread_busy(app, &record).await {
+        bail!("{why}: wait for one of its threads to end, or Stop one");
     }
     let app = app.clone();
     // Keep starting even if the browser disconnects while it waits for the response.
@@ -1081,7 +1072,7 @@ pub(crate) async fn on_event(app: &App, r: &CronAgent, cause: String, context: S
 /// (`bots::quota_hold`), else of the session it would start. Every trigger checks it before it starts a run.
 pub(crate) async fn quota_hold(app: &App, r: &CronAgent) -> Result<Option<String>> {
     if let Some(b) = &r.bot_id {
-        return Ok(launchpad_core::bots::quota_hold(app, &launchpad_core::bots::get(app, b).await?));
+        return Ok(launchpad_core::bots::quota_hold(app, &launchpad_core::bots::get(app, b).await?, None));
     }
     let spec = effective_spec(app, r).await?;
     Ok(spec.harness.and_then(|h| launchpad_core::quota::hold_reason(app, h, &spec)))
@@ -1175,6 +1166,13 @@ async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
             app.sessions.mark_seen(app, &s.id).await?;
             if let Some(runner) = s.runner_id.as_deref().filter(|r| app.runners.connected(r)) {
                 let _ = app.runners.request(runner, "POST", &format!("/api/sessions/{}/seen", s.id), None).await;
+            }
+            // A bot routine's run had nothing to say: its thread leaves the bot's thread bar (archived, with Bring back).
+            if let Some(b) = &s.launch_spec.bot
+                && b.thread_id() != launchpad_core::bot_threads::MAIN
+                && let Err(e) = launchpad_core::bot_threads::archive(app, &b.id, b.thread_id(), true).await
+            {
+                tracing::warn!("archiving the thread of a quiet run of {}: {e:#}", r.title);
             }
         }
     }

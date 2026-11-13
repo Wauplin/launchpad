@@ -6,11 +6,15 @@ import type { Bot } from "@/gen/Bot";
 import type { Change } from "@/gen/Change";
 import type { Activity } from "@/gen/Activity";
 import type { QueuedMessage } from "@/gen/QueuedMessage";
+import type { BotThread } from "@/gen/BotThread";
 import { clock } from "../daemon";
 import { P, WS } from "./ids";
 import { botVersion, DAILY, MAINTAINER_BOT_MD, MAINTAINER_BOT_MD_PREV } from "../routine";
 
 export const BOT = "demo-bot-maintainer";
+/** The Maintainer's second thread: a review the owner started from the Chrome extension (world/agents.ts
+ * `demo-s-bot-maintainer-120`), next to its main thread. */
+export const PR_THREAD = "demo-thread-pr120";
 export const ASK_BOT = "demo-bot-ask-acme";
 export const LIBRARIAN_BOT = "demo-bot-librarian-acme";
 /** Two more bots of Acme that talk with the Maintainer in its channels (world/channels.ts); they never ran here. */
@@ -43,25 +47,25 @@ export function botsWorld() {
   const bots: Bot[] = [{
     id: ASK_BOT, workspace_id: WS.acme, slug: "ask-launchpad", created_at: clock.ago(60 * 24 * 30), settings: ask, instructions: ASK_DEFAULT,
     settings_text: settingsText(ask), settings_error: null, own_folder: true, paused: false, version: 2, memory: [], routines: {},
-    instructions_version: botVersion(ASK_DEFAULT), memory_loaded: { loaded: 0, total: 0 },
+    instructions_version: botVersion(ASK_DEFAULT), memory_loaded: { loaded: 0, total: 0 }, folder_unused: null,
   }, {
     // Seeded with the workspace too, its weekly tidy paused until you turn it on (world/agents.ts `demo-routine-tidy`).
     id: LIBRARIAN_BOT, workspace_id: WS.acme, slug: "librarian", created_at: clock.ago(60 * 24 * 30), settings: librarian, instructions: LIBRARIAN_DEFAULT,
     settings_text: settingsText(librarian), settings_error: null, own_folder: true, paused: false, version: 3, memory: [], routines: {},
-    instructions_version: botVersion(LIBRARIAN_DEFAULT), memory_loaded: { loaded: 0, total: 0 },
+    instructions_version: botVersion(LIBRARIAN_DEFAULT), memory_loaded: { loaded: 0, total: 0 }, folder_unused: null,
   }, {
     id: BOT, workspace_id: WS.acme, slug: "maintainer", created_at: clock.ago(60 * 26), settings,
     instructions: MAINTAINER_BOT_MD,
     settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 4, memory: [], routines: {},
-    instructions_version: botVersion(MAINTAINER_BOT_MD), memory_loaded: { loaded: 0, total: 0 },
+    instructions_version: botVersion(MAINTAINER_BOT_MD), memory_loaded: { loaded: 0, total: 0 }, folder_unused: null,
   }, {
     id: RELEASE_BOT, workspace_id: WS.acme, slug: "release", created_at: clock.ago(60 * 24 * 6), settings: release, instructions: RELEASE_MD,
     settings_text: settingsText(release), settings_error: null, own_folder: false, paused: false, version: 1, memory: [], routines: {},
-    instructions_version: botVersion(RELEASE_MD), memory_loaded: { loaded: 0, total: 0 },
+    instructions_version: botVersion(RELEASE_MD), memory_loaded: { loaded: 0, total: 0 }, folder_unused: null,
   }, {
     id: DOCS_BOT, workspace_id: WS.acme, slug: "docs", created_at: clock.ago(60 * 24 * 6), settings: docs, instructions: DOCS_MD,
     settings_text: settingsText(docs), settings_error: null, own_folder: false, paused: false, version: 1, memory: [], routines: {},
-    instructions_version: botVersion(DOCS_MD), memory_loaded: { loaded: 0, total: 0 },
+    instructions_version: botVersion(DOCS_MD), memory_loaded: { loaded: 0, total: 0 }, folder_unused: null,
   }];
   // Each bot's memory/ notes: path (in its folder) → content.
   const botMemory: Record<string, Record<string, string>> = {
@@ -89,7 +93,12 @@ export function botsWorld() {
   ];
   // A hook message waiting for the Maintainer's turn to end (a grey row at the bottom of its chat, with Cancel).
   const botQueued: Record<string, QueuedMessage[]> = {
-    [BOT]: [{ n: 1, at: clock.ago(2), source: "hook", text: "The incoming hook \"Nightly CI\" received a request: { \"workflow\": \"checkout-e2e\", \"conclusion\": \"failure\" }" }],
+    [BOT]: [{ n: 1, at: clock.ago(2), source: "hook", text: "The incoming hook \"Nightly CI\" received a request: { \"workflow\": \"checkout-e2e\", \"conclusion\": \"failure\" }", thread: "main", slot: false }],
   };
-  return { bots, botChanges, activity, botQueued, botMemory };
+  // Each bot's threads (Home's `bot_thread` rows): main, and the Maintainer's review of #120 from the extension.
+  const thread = (bot: string, id: string, title: string, key: string | null, minutes: number): BotThread => ({ bot_id: bot, id, key, title, created_at: clock.ago(minutes), archived_at: null });
+  const botThreads: Record<string, BotThread[]> = {
+    [BOT]: [thread(BOT, "main", "Main", null, 60 * 26), thread(BOT, PR_THREAD, "PR #120 · Add gift cards at checkout", "github:acme-labs/storefront#120", 18)],
+  };
+  return { bots, botChanges, activity, botQueued, botMemory, botThreads };
 }

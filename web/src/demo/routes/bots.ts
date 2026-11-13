@@ -2,6 +2,7 @@
 // message to a bot without an open session launches one that replays a prerecorded scenario.
 
 import type { Bot } from "@/gen/Bot";
+import type { BotThread } from "@/gen/BotThread";
 import type { BotSettings } from "@/gen/BotSettings";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { MessageContext } from "@/gen/MessageContext";
@@ -23,7 +24,39 @@ const botOf = (id: string) => {
 };
 const changed = (b: Bot) => { b.version += 1; publish("bots", "changed", { id: b.id }); };
 const record = (b: Bot, path: string, before: string, after: string) => recordBotChange(b.id, path, before || null, after);
-const thread = (id: string) => world.sessions.filter((s) => s.launch_spec.bot?.id === id).sort((a, b) => a.started_at - b.started_at);
+const threadOf = (s: { launch_spec: LaunchSpec }) => s.launch_spec.bot?.thread || "main";
+/** The sessions of one thread of a bot, oldest first. */
+const thread = (id: string, t = "main") => world.sessions.filter((s) => s.launch_spec.bot?.id === id && threadOf(s) === t).sort((a, b) => a.started_at - b.started_at);
+/** A bot's thread rows (Home's `bot_thread`), main created on first use. */
+const threadsOf = (id: string): BotThread[] => {
+  const list = world.botThreads[id] ??= [];
+  if (!list.some((t) => t.id === "main")) list.unshift({ bot_id: id, id: "main", key: null, title: "Main", created_at: clock.now(), archived_at: null });
+  return list;
+};
+const threadsChanged = (id: string) => publish("bots", "threads", { id });
+/** The thread a message goes to (Home's `bot_threads::route` and `resolve`). */
+function resolveThread(b: Bot, body: { thread?: string | null; new_thread?: boolean; item_thread?: boolean; context?: MessageContext }, text: string): string {
+  const list = threadsOf(b.id);
+  const create = (key: string | null, title: string) => {
+    const t: BotThread = { bot_id: b.id, id: `demo-thread-${Math.random().toString(36).slice(2, 10)}`, key, title: title.replace(/\s+/g, " ").trim().slice(0, 80) || "New thread", created_at: clock.now(), archived_at: null };
+    list.push(t);
+    threadsChanged(b.id);
+    return t.id;
+  };
+  if (body.new_thread) return create(null, text.split("\n")[0] ?? "");
+  if (body.item_thread) {
+    const items = (body.context?.github_refs ?? []).filter((r) => r.number != null);
+    const keys = [...new Set(items.map((r) => `github:${r.repo.toLowerCase()}#${r.number}`))];
+    if (keys.length !== 1) return create(null, text.split("\n")[0] ?? "");
+    const open = list.find((t) => t.key === keys[0] && t.archived_at == null);
+    const r = items[0];
+    return open?.id ?? create(keys[0], r.title ? `${r.kind === "pr" ? "PR " : r.kind === "issue" ? "Issue " : ""}#${r.number} · ${r.title}` : `${r.repo}#${r.number}`);
+  }
+  const t = list.find((x) => x.id === (body.thread || "main"));
+  if (!t) throw new DemoError(400, "this thread no longer exists");
+  t.archived_at = null;
+  return t.id;
+}
 
 /** The profile a bot runs with: its own, else the first subscription profile (Home's `bots::profile_of`). */
 const profileOf = (b: Bot) => b.settings.profile ? world.config.profiles.find((p) => p.id === b.settings.profile) : world.config.profiles.find((p) => p.billing === "subscription") ?? world.config.profiles[0];
@@ -50,7 +83,7 @@ route("POST", "/api/bots", ({ body }) => {
   const slug = c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "bot";
   // No folder: each session starts in a temporary folder.
   const settings: BotSettings = { name: c.name.trim(), profile: c.profile ?? undefined, folder: c.folder || undefined, permission_mode: "yolo", proposals: "manual", launchpad: "propose", ...(c.starters?.length ? { starters: c.starters } : {}) };
-  const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 1, memory: [], routines: {}, instructions_version: "", memory_loaded: { loaded: 0, total: 0 } };
+  const b: Bot = { id: `demo-bot-${slug}-${world.bots.length}`, workspace_id: c.workspace_id, slug, created_at: clock.now(), settings, instructions: c.instructions?.trim() ? `${c.instructions.trim()}\n` : `# ${settings.name}\n`, settings_text: settingsText(settings), settings_error: null, own_folder: false, paused: false, version: 1, memory: [], routines: {}, instructions_version: "", memory_loaded: { loaded: 0, total: 0 }, folder_unused: null };
   world.bots.push(b);
   record(b, "BOT.md", "", b.instructions);
   changed(b);
@@ -101,10 +134,30 @@ route("DELETE", "/api/bots/:id", ({ params }) => {
   publish("bots", "changed", { id: params.id });
   return { ok: true };
 });
-route("GET", "/api/bots/:id/start-preview", ({ params }) => {
+route("GET", "/api/bots/:id/threads", ({ params, query }) => { botOf(params.id); const all = query.get("archived") === "true"; return [...threadsOf(params.id)].filter((t) => all || t.archived_at == null).sort((a, b) => Number(b.id === "main") - Number(a.id === "main") || b.created_at - a.created_at); });
+route("PATCH", "/api/bots/:id/threads/:thread", ({ params, body }) => {
+  const t = threadsOf(params.id).find((x) => x.id === params.thread);
+  if (!t) throw new DemoError(400, "this thread no longer exists");
+  const title = String((body as { title?: string })?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+  if (!title) throw new DemoError(400, "give the thread a title");
+  t.title = title;
+  threadsChanged(params.id);
+  return t;
+});
+route("POST", "/api/bots/:id/threads/:thread/archive", ({ params, body }) => {
+  if (params.thread === "main") throw new DemoError(400, "the main thread cannot be archived");
+  const t = threadsOf(params.id).find((x) => x.id === params.thread);
+  if (!t) throw new DemoError(400, "this thread no longer exists");
+  const archived = (body as { archived?: boolean })?.archived !== false;
+  if (archived) for (const s of thread(params.id, t.id).filter((x) => x.status !== "closed")) setStatus(s.id, "closed");
+  t.archived_at = archived ? clock.now() : null;
+  threadsChanged(params.id);
+  return t;
+});
+route("GET", "/api/bots/:id/start-preview", ({ params, query }) => {
   const b = botOf(params.id);
   const profile = profileOf(b);
-  const previous = thread(b.id).at(-1);
+  const previous = thread(b.id, query.get("thread") ?? "main").at(-1);
   return startPreview({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), workspace_id: b.workspace_id, text: "(your next message)",
     bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: b.instructions, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } });
 });
@@ -123,7 +176,8 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
   const b = botOf(params.id);
   const text = withContext(String((body as { text?: string })?.text ?? ""), (body as { context?: MessageContext })?.context).trim();
   if (!text) throw new DemoError(400, "the message is empty");
-  const sessions = thread(b.id);
+  const threadId = resolveThread(b, body as never, text);
+  const sessions = thread(b.id, threadId);
   const current = [...sessions].reverse().find((s) => s.status !== "closed");
   const profile = profileOf(b);
   // Home's `bots::rotation`: a new profile, model or permission mode starts a new session.
@@ -147,6 +201,6 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
   const previous = sessions.at(-1);
   const spec = { harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), worktree: !b.settings.folder || world.projects.find((p) => p.id === b.settings.folder)?.plain ? null : { base: null, when_done: "keep" }, workspace_id: b.workspace_id, text,
     model: b.settings.model ?? profile?.model ?? null, permission_mode: b.settings.permission_mode,
-    bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", version: botVersion(b.instructions), reason: fresh && !reason ? "new" : reason ?? "first", note: fresh ? String((body as { reason?: string }).reason ?? "").trim().slice(0, 120) || undefined : undefined, permission_mode: b.settings.permission_mode, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
+    bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", thread: threadId, version: botVersion(b.instructions), reason: fresh && !reason ? "new" : reason ?? "first", note: fresh ? String((body as { reason?: string }).reason ?? "").trim().slice(0, 120) || undefined : undefined, permission_mode: b.settings.permission_mode, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
   return launch(spec, undefined, b.slug === "ask-launchpad" ? pickReply(text, true) : undefined);
 });

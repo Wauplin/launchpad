@@ -30,7 +30,7 @@ export function statusOf(a: { status: string; needs_you: boolean; open_question:
   return { label: a.status.replace(/_/g, " "), tone: "x-s-off" };
 }
 
-export function Item({ state, tab, page, chatWith }: { state: ConnectionState; tab: ActiveTab; page: Page; chatWith: (bot: string) => void }) {
+export function Item({ state, tab, page, chatWith }: { state: ConnectionState; tab: ActiveTab; page: Page; chatWith: (bot: string, thread?: string | null) => void }) {
   const [ctx, setCtx] = useState<ExtContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -63,6 +63,7 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
     setBusy(label); setError(null);
     try {
       const url = `https://github.com/${page.repo}/${isPr ? "pull" : "issues"}/${page.number}`;
+      // No thread named: Home sends it to this item's thread of the bot (parallel to its other items).
       await request("bot.message", { bot: bot.id, text, github_refs: [{ url, kind: isPr ? "pr" : "issue", repo: page.repo, number: page.number, title: ctx?.page.title ?? null }], key: crypto.randomUUID() });
       setNote(`Sent to ${bot.name}. Its answer shows here and in the chat.`);
       void load(true);
@@ -95,11 +96,12 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
       <p className="x-small x-muted">{page.repo}#{page.number} · {f ? f.relation === "fork" ? `fork of ${f.repo ?? f.name} in ${f.workspace}` : `In Launchpad · ${f.workspace} / ${f.name}` : `Not in Launchpad · ${ctx.workspace?.name ?? "this workspace"}`}</p>
       <div className="x-btns">
         {main
-          ? <button className="x-btn x-sm x-pri" disabled={!main.bot_id && !bot} onClick={() => chatWith(main.bot_id ?? bot!.id)}>Continue</button>
+          ? <button className="x-btn x-sm x-pri" disabled={!main.bot_id && !bot} title={main.bot ? `Continue this item's thread of ${main.bot}` : undefined} onClick={() => chatWith(main.bot_id ?? bot!.id, main.bot_id ? main.thread : null)}>Continue</button>
           : <button className="x-btn x-sm x-pri" disabled={!bot || !!busy} title={bot ? `Ask ${bot.name}` : "No bot in this workspace"} onClick={() => void ask(isPr ? REVIEW : DRAFT, isPr ? "Review with agent" : "Draft a reply")}>{busy ?? (isPr ? "Review with agent" : "Draft a reply")}</button>}
         {f && <button className="x-btn x-sm x-link" onClick={() => open(`/projects/${encodeURIComponent(f.id)}`)}><Icon name="ext" size={14} /> Folder</button>}
       </div>
-      {bot && <p className="x-small x-faint">{main ? "Continue chats with its bot here." : `Goes to ${bot.name} (${bot.source === "folder" ? "the folder's bot" : bot.source === "repository" ? "last used on this repository" : "the workspace's Ask bot"}).`}</p>}
+      {main?.bot && <p className="x-small x-muted" data-tour="ext.item-thread">{main.bot}'s thread for this item · {statusOf(main).label}{main.last_message ? ` · ${main.last_message}` : ""}</p>}
+      {bot && <p className="x-small x-faint">{main ? "Continue chats with its bot here, in this item's thread." : `Goes to ${bot.name} (${bot.source === "folder" ? "the folder's bot" : bot.source === "repository" ? "last used on this repository" : "the workspace's Ask bot"}).`}</p>}
       {note && <p className="x-small x-muted" role="status">{note}</p>}
       {error && <p className="x-error">{error}</p>}
     </div>

@@ -142,7 +142,7 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
     }
     if crate::home_git::here(app) {
         let bots: Vec<_> = crate::bots::list(app).await?.into_iter().filter(|b| b.workspace_id == id).collect();
-        if let Some(b) = bots.iter().find(|b| crate::bots::thread(app, &b.id).iter().any(|s| s.status.is_running())) {
+        if let Some(b) = bots.iter().find(|b| crate::bots::all_sessions(app, &b.id).iter().any(|s| s.status.is_running())) {
             bail!("{} is working: stop it first", b.settings.name);
         }
         for b in bots {

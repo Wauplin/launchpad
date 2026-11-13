@@ -166,6 +166,8 @@ pub struct ExtAgent {
     /// The bot whose thread it is.
     pub bot_id: Option<String>,
     pub bot: Option<String>,
+    /// The bot's thread it belongs to (`BotLaunch.thread`, `main` for older sessions).
+    pub thread: Option<String>,
     /// The issue or pull request it is about (null: the repository or its folder).
     #[ts(type = "number | null")]
     pub number: Option<u64>,
@@ -621,6 +623,7 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
                 open_question: s.open_question,
                 bot_id: s.launch_spec.bot.as_ref().map(|b| b.id.clone()),
                 bot: s.launch_spec.bot.as_ref().map(|b| b.name.clone()),
+                thread: s.launch_spec.bot.as_ref().map(|b| b.thread_id().to_string()),
                 number: number.filter(|n| *n > 0),
                 since: s.status_since,
                 comment,

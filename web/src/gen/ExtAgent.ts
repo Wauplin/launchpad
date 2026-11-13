@@ -10,6 +10,10 @@ export type ExtAgent = { session_id: string, title: string, status: SessionStatu
  */
 bot_id: string | null, bot: string | null, 
 /**
+ * The bot's thread it belongs to (`BotLaunch.thread`, `main` for older sessions).
+ */
+thread: string | null, 
+/**
  * The issue or pull request it is about (null: the repository or its folder).
  */
 number: number | null, since: number, 

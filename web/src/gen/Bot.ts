@@ -36,4 +36,8 @@ memory_loaded: LoadedLines,
 /**
  * Its routine files (`routines/<name>.toml`) as written, by path: what an Undo of a file change puts back.
  */
-routines: Record<string, string>, };
+routines: Record<string, string>, 
+/**
+ * bot.toml names a plain folder, which bots no longer use: why its sessions start in a temporary folder.
+ */
+folder_unused: string | null, };

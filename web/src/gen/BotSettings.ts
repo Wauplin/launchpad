@@ -17,8 +17,9 @@ profile?: string | null,
  */
 profiles?: Array<string>, model?: string | null, effort?: string | null,
 /**
- * The folder it starts in: a plain folder, or a Git folder (a fresh worktree per session). None: each
- * session starts in a temporary folder and adds worktrees of the folders it needs with the CLI.
+ * The folder it starts in: a Git folder (a fresh worktree per session). None: each session starts in a
+ * temporary folder and adds worktrees of the folders it needs with the CLI. Bots no longer use plain folders: a
+ * bot.toml that still names one starts its sessions in a temporary folder (`Bot::folder_unused` says so).
  */
 folder?: string | null, permission_mode: PermissionMode, proposals: ProposalMode, 
 /**
@@ -39,4 +40,9 @@ tools?: { [key in string]: boolean },
  * Ready-made messages shown over the bot's message box: a message sends at once; one ending in "…" fills the
  * box so you finish it. None: no chips.
  */
-starters?: Array<string>, };
+starters?: Array<string>, 
+/**
+ * How many of its threads may work at the same time (default `bot_threads::DEFAULT_MAX_THREADS`). Automatic
+ * messages to another thread wait for a free slot; the owner's never wait.
+ */
+max_threads?: number, };

@@ -42,6 +42,8 @@ export function Connected({ state, open }: { state: ConnectionState; open: (s: S
   const onItem = !!page && (ITEM_KINDS as readonly string[]).includes(page.kind) && !!page.repo && !!page.number;
   const [view, setView] = useState<Tab>("chat");
   const [bot, setBot] = useState<string | null>(null);
+  // The chat's thread of that bot (null: its main thread); This item's Continue opens the item's thread.
+  const [thread, setThread] = useState<string | null>(null);
   // Leaving a GitHub item goes back to the chat.
   useEffect(() => { if (!onItem) setView((v) => (v === "item" ? "chat" : v)); }, [onItem]);
 
@@ -55,8 +57,8 @@ export function Connected({ state, open }: { state: ConnectionState; open: (s: S
       {tabs.map(([id, label]) => <button key={id} role="tab" aria-selected={view === id} className={view === id ? "x-on" : ""} onClick={() => setView(id)}>{label}</button>)}
     </nav>
     {view === "item" && onItem && tab && page
-      ? <Item state={state} tab={tab} page={page} chatWith={(id) => { setBot(id); setView("chat"); }} />
+      ? <Item state={state} tab={tab} page={page} chatWith={(id, t) => { setBot(id); setThread(t ?? null); setView("chat"); }} />
       : view === "agents" ? <Agents state={state} />
-      : <Chat state={state} tab={tab} botId={bot} setBotId={setBot} />}
+      : <Chat state={state} tab={tab} botId={bot} setBotId={setBot} threadId={thread} setThreadId={setThread} />}
   </div>;
 }

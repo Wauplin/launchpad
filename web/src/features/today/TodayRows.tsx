@@ -140,10 +140,12 @@ const OpenAgent = ({ id, close }: { id: string; close: () => void }) => {
 };
 
 /** A bot's session opens the bot's chat (bots talk there; the trace stays in Agents). */
-const OpenChat = ({ bot, close }: { bot: { id: string; name: string }; close?: () => void }) => {
+const OpenChat = ({ bot, close }: { bot: { id: string; name: string; thread?: string }; close?: () => void }) => {
   const phone = usePhone();
-  return close ? <Go close={close} icon="spark" label={`Open the chat of ${bot.name}`} go={(n) => n({ to: "/bots/$id", params: { id: bot.id } })} />
-    : <Link className="btn btn-sm no-underline" to="/bots/$id" params={{ id: bot.id }} title={`Open the chat of ${bot.name}`}>{phone ? "Open" : "Open chat"}</Link>;
+  // The session's thread of the bot (main needs no `?thread=`).
+  const search = bot.thread && bot.thread !== "main" ? { thread: bot.thread } : {};
+  return close ? <Go close={close} icon="spark" label={`Open the chat of ${bot.name}`} go={(n) => n({ to: "/bots/$id", params: { id: bot.id }, search } as never)} />
+    : <Link className="btn btn-sm no-underline" to="/bots/$id" params={{ id: bot.id }} search={search as never} title={`Open the chat of ${bot.name}`}>{phone ? "Open" : "Open chat"}</Link>;
 };
 
 /** Open agent (unless it is the row's main button), Archive (unless it is the row's second button) and Mark seen: the

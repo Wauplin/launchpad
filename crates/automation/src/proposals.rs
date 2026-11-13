@@ -867,7 +867,8 @@ pub async fn reply(app: &App, id: &str, text: &str) -> Result<Proposal> {
     let result: Result<String> = async {
         let author = p.session_id.as_deref().and_then(|sid| app.sessions.get(sid)).context("the agent that wrote this report no longer exists")?;
         match &author.launch_spec.bot {
-            Some(b) => Ok(launchpad_core::bots::message(app, &b.id, message, vec![], Default::default(), false).await?.id),
+            // The thread of the session that wrote it.
+            Some(b) => Ok(launchpad_core::bots::message(app, &b.id, Some(b.thread_id()), message, vec![], Default::default(), false).await?.id),
             None => {
                 launchpad_core::runners::send_anywhere(app, &author.id, &message, vec![], Some(format!("proposal-reply-{}", p.id))).await?;
                 Ok(author.id.clone())

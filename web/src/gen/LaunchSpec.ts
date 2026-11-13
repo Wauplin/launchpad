@@ -19,64 +19,64 @@ import type { WorktreeOptions } from "./WorktreeOptions";
 /**
  * What to launch.
  */
-export type LaunchSpec = { mentions: Array<PromptMention>, skills: Array<SkillRef>, permission_mode: PermissionMode,
+export type LaunchSpec = { mentions: Array<PromptMention>, skills: Array<SkillRef>, permission_mode: PermissionMode, 
 /**
  * Permit additional paid usage after included subscription quotas are exhausted.
  */
-allow_paid_usage: boolean, harness: HarnessKind | null,
+allow_paid_usage: boolean, harness: HarnessKind | null, 
 /**
  * A named profile of `harness` from `config.toml` (environment, defaults, billing).
  */
-profile: string | null,
+profile: string | null, 
 /**
  * Stop new turns once the harness-reported cumulative cost reaches this many USD.
  */
-budget_usd: number | null, target: Target,
+budget_usd: number | null, target: Target, 
 /**
  * A new Launchpad-owned Git worktree for a project target. None: run in the project checkout.
  */
-worktree: WorktreeOptions | null, text: string,
+worktree: WorktreeOptions | null, text: string, 
 /**
  * Uploaded images and files, retained with drafts and scheduled launches.
  */
-attachments: Array<FileAttachment>, presets: Array<string>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>,
+attachments: Array<FileAttachment>, presets: Array<string>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>, 
 /**
  * Files and line ranges added from the code viewer.
  */
-files: Array<FileRef>,
+files: Array<FileRef>, 
 /**
  * Stored trace through a fixed sequence number, selected as launch context.
  */
-agent_traces: Array<AgentTraceRef>, topics?: Array<TopicContext>,
+agent_traces: Array<AgentTraceRef>, topics?: Array<TopicContext>, 
 /**
  * Lines of a pull request's diff the task is about (`MessageContext::selection`), resolved by Home.
  */
-selection?: DiffSelection, model: string | null, effort: string | null,
+selection?: DiffSelection, model: string | null, effort: string | null, 
 /**
  * The workspace of the window that launched it. A new scratch folder joins it; other targets keep their own.
  */
-workspace_id: string | null, inherited_topics?: Array<string>,
+workspace_id: string | null, inherited_topics?: Array<string>, 
 /**
  * Tools of Home's registry (IDs, `mcp:<server>`) switched off for this launch, over the default tools
  * (`tool_defaults`). Only tools granted to the workspace can be on.
  */
-tools_off: Array<string>,
+tools_off: Array<string>, 
 /**
  * Granted tools switched on for this launch although the defaults leave them off.
  */
-tools_on?: Array<string>,
+tools_on?: Array<string>, 
 /**
  * The runner chosen for this launch (for example a Local VM for Docker). None: Home picks one.
  */
-runner_id: string | null,
+runner_id: string | null, 
 /**
  * A session of a bot's thread: Home composes it from the bot's files (`bots::message`).
  */
-bot?: BotLaunch,
+bot?: BotLaunch, 
 /**
  * A run of a routine (`crons.rs`): its prompt says what started it and how to end.
  */
-routine?: RoutineLaunch,
+routine?: RoutineLaunch, 
 /**
  * Who sends its first message when it is not the owner (`MessageContext::from`), stamped by Home.
  */

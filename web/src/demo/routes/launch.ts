@@ -404,13 +404,15 @@ route("DELETE", "/api/launch/crons/:id", (r) => {
 });
 route("POST", "/api/launch/crons/:id/run", (r) => {
   const c = cronOf(r.params.id);
-  // A bot's routine posts to the bot's current session; others start a new agent.
-  const thread = c.bot_id ? world.sessions.filter((s) => s.launch_spec.bot?.id === c.bot_id && s.status !== "closed").sort((a, b) => b.started_at - a.started_at)[0] : null;
+  // A bot's routine starts a new thread of the bot per run (Home's `bot_threads::Source::Routine`); others start a
+  // new agent.
+  const bot = c.bot_id ? world.bots.find((b) => b.id === c.bot_id) : null;
   let s: Session;
-  if (thread) {
-    if (["starting", "working", "background"].includes(thread.status)) throw new DemoError(400, "The bot is working: wait for its turn to end, or Stop it");
-    sendMessage(thread, routineText(c.title, "Run now", c.spec.text), demoId("demo-routine"));
-    s = thread;
+  if (bot) {
+    const t = { bot_id: bot.id, id: demoId("demo-thread"), key: `routine:${c.file ?? c.id}`, title: c.title, created_at: clock.now(), archived_at: null };
+    (world.botThreads[bot.id] ??= []).push(t);
+    publish("bots", "threads", { id: bot.id });
+    s = launch({ ...c.spec, text: routineText(c.title, "Run now", c.spec.text), bot: { id: bot.id, name: bot.settings.name, slug: bot.slug, instructions: "", thread: t.id, previous: null, reason: "first" } } as LaunchSpec);
   } else s = launch(c.spec);
   c.runs = [...c.runs, s.id];
   c.history = [...c.history, { at: clock.now(), cause: "Run now", session_id: s.id, outcome: "running", detail: null }];

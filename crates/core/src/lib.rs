@@ -7,6 +7,7 @@ pub mod self_update;
 pub mod attachments;
 pub mod away;
 pub mod bots;
+pub mod bot_threads;
 pub mod bot_memory;
 pub mod code;
 pub mod compose;
@@ -311,6 +312,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     kb::Hit::export_all(cfg)?;
     kb::NativeMemory::export_all(cfg)?;
     bots::Bot::export_all(cfg)?;
+    bot_threads::BotThread::export_all(cfg)?;
     Ok(())
 }
 

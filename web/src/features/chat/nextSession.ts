@@ -1,9 +1,12 @@
-// "Your next message starts a new session" of a bot's thread, per bot, for this window: the one place that holds
-// it. The bot's ⋯ → Start a new session… sets it with the owner's reason (laptop and phone); the message box shows
+// "Your next message starts a new session" of a bot's thread, per thread of a bot (`nextSessionKey`), for this
+// window: the one place that holds it. The bot's ⋯ → Start a new session… sets it with the owner's reason (laptop and phone); the message box shows
 // it with Cancel and sends it with the next message. It holds only for the session that was current when it was set:
 // once another session is current (the new one started, or a profile change rotated the thread), it no longer applies.
 
 import { create } from "zustand";
+
+/** The key of a thread of a bot: the bot's ID for its main thread. */
+export const nextSessionKey = (bot: string, thread: string) => (thread === "main" ? bot : `${bot}/${thread}`);
 
 /** A new session the owner asked for: the reason shows in the chat's divider. `after`: the session it replaces. */
 export type NewSessionRequest = { reason: string; after: string | null };

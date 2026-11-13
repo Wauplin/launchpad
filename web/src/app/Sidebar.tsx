@@ -1,7 +1,7 @@
 import { useKnowledgeUnseen } from "@/lib/knowledge";
 import { useInboxNeeds } from "@/features/inbox/data";
 import { useChannelAsks, useTodayCount } from "@/features/today/data";
-import { botInitial, botState, botThread, useBots } from "@/lib/bots";
+import { botInitial, botState, botThread, threadSummary, useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
 import { useScope } from "@/lib/workspace";
 import { archivedOf, channelsOf, useChannels } from "@/lib/channels";
@@ -116,9 +116,11 @@ function FinishSetup({ narrow }: { narrow: boolean }) {
   );
 }
 
-/** A bot's row: its initial, its name and the state of its current session (a dot, never a count). */
+/** A bot's row: its initial, its name and the state of its threads (a dot that sums them up, and the number of
+ * threads that need you when there are several). */
 const BotLink = memo(function BotLink({ bot, thread, narrow }: { bot: Bot; thread: Session[]; narrow?: boolean }) {
   const state = botState(thread);
+  const needs = threadSummary(thread).needs;
   if (narrow) return (
     <Link to="/bots/$id" params={{ id: bot.id }} title={bot.settings.name} aria-label={bot.settings.name} className="mx-auto grid size-[31px] flex-none place-items-center rounded-control no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)]" }}>
       <span className="relative grid size-[18px] place-items-center rounded-sm bg-teal-soft text-[11px] font-semibold text-teal-ink">{botInitial(bot.settings.name)}<Corner mark={state === "needs" || state === "paused" || state === "running" ? state : null} /></span>
@@ -128,7 +130,7 @@ const BotLink = memo(function BotLink({ bot, thread, narrow }: { bot: Bot; threa
     <Link to="/bots/$id" params={{ id: bot.id }} className="flex h-[28px] items-center gap-2 rounded-control px-[9px] text-[13px] text-ink no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)] font-semibold" }}>
       <span className="grid size-[16px] flex-none place-items-center rounded-sm bg-teal-soft text-[11px] font-semibold text-teal-ink" aria-hidden>{botInitial(bot.settings.name)}</span>
       <span className="min-w-0 flex-1 truncate">{bot.settings.name}</span>
-      {state === "needs" && <span className="size-[7px] rounded-full bg-attn" title="Needs you" />}
+      {state === "needs" && (needs > 1 ? <Count n={needs} needs title={`${needs} threads need you`} /> : <span className="size-[7px] rounded-full bg-attn" title="Needs you" />)}
       {state === "paused" && <span className="size-[7px] rounded-full border border-attn" title="Quota paused" />}
       {state === "running" && <span className="lp-spin" title="Working" />}
     </Link>

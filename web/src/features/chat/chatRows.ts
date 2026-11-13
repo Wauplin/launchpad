@@ -58,7 +58,7 @@ export type ChatItem = { key: string; v: string } & (
   | { t: "changes"; sessionId: string }
   | { t: "working"; sessionId: string; step: string | null }
   /** A hook or Telegram message waiting for the bot's turn to end (after every other row). */
-  | { t: "queued"; n: number; at: number; source: string; text: string }
+  | { t: "queued"; n: number; at: number; source: string; text: string; slot: boolean }
 );
 
 type Turn = {

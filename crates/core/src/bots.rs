@@ -5,9 +5,11 @@
 //! `memory/` (its own notes, `bot_memory`). Runners mirror the store read-only into its sessions (`$LAUNCHPAD_BOT`).
 //! Ask Launchpad is a bot like the others, created once per workspace (`ask_bot`).
 //!
-//! A bot has one thread: a chain of sessions with `LaunchSpec.bot` set. A message goes to the newest open
-//! session; a new session starts when there is none, when the bot's profile or folder changed, or on the
-//! owner's click. It references the previous session's trace, never an inlined transcript.
+//! A bot has several threads (`bot_threads`): each a chain of sessions with `LaunchSpec.bot` set and the same
+//! `BotLaunch.thread`. A message goes to the newest open session of its thread (`bot_threads::route` picks the
+//! thread from the message's source); a new session starts when there is none, when the bot's profile or folder
+//! changed, or on the owner's click. It references the thread's previous session's trace, never an inlined
+//! transcript. At most `max_threads` threads work at once: automatic messages to another thread wait for a slot.
 
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{OptionalExtension, params};
@@ -66,8 +68,9 @@ pub struct BotSettings {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
-    /// The folder it starts in: a plain folder, or a Git folder (a fresh worktree per session). None: each
-    /// session starts in a temporary folder and adds worktrees of the folders it needs with the CLI.
+    /// The folder it starts in: a Git folder (a fresh worktree per session). None: each session starts in a
+    /// temporary folder and adds worktrees of the folders it needs with the CLI. Bots no longer use plain folders: a
+    /// bot.toml that still names one starts its sessions in a temporary folder (`Bot::folder_unused` says so).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
     #[serde(default)]
@@ -92,6 +95,11 @@ pub struct BotSettings {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<String>>")]
     pub starters: Vec<String>,
+    /// How many of its threads may work at the same time (default `bot_threads::DEFAULT_MAX_THREADS`). Automatic
+    /// messages to another thread wait for a free slot; the owner's never wait.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<u32>")]
+    pub max_threads: Option<u32>,
 }
 
 /// The profile a bot runs with: its own, or the default when bot.toml names none.
@@ -150,6 +158,15 @@ pub struct Bot {
     /// Its routine files (`routines/<name>.toml`) as written, by path: what an Undo of a file change puts back.
     #[ts(type = "Record<string, string>")]
     pub routines: std::collections::BTreeMap<String, String>,
+    /// bot.toml names a plain folder, which bots no longer use: why its sessions start in a temporary folder.
+    pub folder_unused: Option<String>,
+}
+
+impl Bot {
+    /// Threads that may work at the same time.
+    pub fn max_threads(&self) -> u32 {
+        self.settings.max_threads.unwrap_or(crate::bot_threads::DEFAULT_MAX_THREADS).max(1)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -209,7 +226,7 @@ pub fn agent_refusal(current: Option<&BotSettings>, new: &BotSettings) -> Option
 }
 
 /// The fields of `bot.toml`, as `Patch::set` names them.
-pub const SETTING_FIELDS: &[&str] = &["name", "profile", "profiles", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "inbox_done", "tools", "starters"];
+pub const SETTING_FIELDS: &[&str] = &["name", "profile", "profiles", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "inbox_done", "tools", "starters", "max_threads"];
 
 /// Every field of the settings with its value, defaults included (bot.toml leaves defaults out): the values a
 /// `set` puts back.
@@ -275,7 +292,7 @@ pub fn parse_settings(text: &str) -> Result<BotSettings> {
 }
 
 fn render_settings(s: &BotSettings) -> Result<String> {
-    Ok(format!("# Edited from the bot's page (About → Access, or ⋯ → Edit as file). folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# inbox_done = true: it may mark your Inbox threads done (or unsubscribe from them) itself, here and on GitHub.\n# starters: ready-made messages over the message box; one ending in \"…\" fills the box so you finish it.\n{}", toml::to_string(s)?))
+    Ok(format!("# Edited from the bot's page (About → Access, or ⋯ → Edit as file). folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# inbox_done = true: it may mark your Inbox threads done (or unsubscribe from them) itself, here and on GitHub.\n# starters: ready-made messages over the message box; one ending in \"…\" fills the box so you finish it.\n# max_threads: how many of its threads may work at the same time (default 16); automatic messages to another thread wait for a free slot.\n{}", toml::to_string(s)?))
 }
 
 type Row = (String, String, String, i64, Option<String>, bool);
@@ -312,7 +329,11 @@ async fn load(app: &App, (id, workspace_id, slug, created_at, own, paused): Row)
     for f in tree.files.iter().filter(|f| routine_path_ok(&f.path)) {
         routines.insert(f.path.clone(), text_of(app, &tree.files, &f.path).await);
     }
-    Ok(Bot { id, workspace_id, slug, created_at, settings, instructions, instructions_version, settings_text, settings_error, own_folder, paused, version: tree.version, memory, memory_loaded, routines })
+    let folder_unused = match &settings.folder {
+        Some(f) => crate::projects::get(app, f).await.ok().flatten().filter(|p| p.plain).map(|p| format!("{} is a plain folder: bots no longer work in plain folders, so its sessions start in a temporary folder. Choose a Git folder, or none, in About → Access.", p.name)),
+        None => None,
+    };
+    Ok(Bot { id, workspace_id, slug, created_at, settings, instructions, instructions_version, settings_text, settings_error, own_folder, paused, version: tree.version, memory, memory_loaded, routines, folder_unused })
 }
 
 pub async fn list(app: &App) -> Result<Vec<Bot>> {
@@ -432,12 +453,18 @@ pub async fn write_store(app: &App, store_id: &str, files: Vec<(String, Option<S
     Ok(())
 }
 
-async fn check_settings(app: &App, workspace_id: &str, s: &BotSettings) -> Result<()> {
+/// Checks new settings. `current`: the bot's settings before (None for a new bot): a plain folder it already names
+/// may stay (its sessions run in a temporary folder), but no bot gets a plain folder anew.
+async fn check_settings(app: &App, workspace_id: &str, current: Option<&BotSettings>, s: &BotSettings) -> Result<()> {
     ensure!(!s.name.trim().is_empty(), "give the bot a name");
     if let Some(f) = &s.folder {
         let folder = crate::projects::get(app, f).await?.context("the bot's folder no longer exists: choose another one")?;
         ensure!(folder.workspace_id.as_deref() == Some(workspace_id), "{} belongs to another workspace", folder.name);
         ensure!(!folder.is_temp, "{} is a temporary folder: choose a registered folder, or none", folder.name);
+        ensure!(!folder.plain || current.and_then(|c| c.folder.as_deref()) == Some(f.as_str()), "{} is a plain folder: bots work in a Git folder or in a temporary folder per session (no folder)", folder.name);
+    }
+    if let Some(n) = s.max_threads {
+        ensure!((1..=64).contains(&n), "max_threads is between 1 and 64");
     }
     for p in s.profile.iter().chain(s.profiles.iter()) {
         ensure!(app.config.get().profiles.iter().any(|x| &x.id == p), "no profile {p}: choose one on the bot's page (About → Access)");
@@ -457,8 +484,8 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
     let profile = c.profile.filter(|p| !p.is_empty());
     let folder = c.folder.filter(|f| !f.is_empty());
     let own: Option<String> = None;
-    let settings = BotSettings { name: name.clone(), profile, profiles: vec![], model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, inbox_done: false, tools: Default::default(), starters: c.starters };
-    check_settings(app, &c.workspace_id, &settings).await?;
+    let settings = BotSettings { name: name.clone(), profile, profiles: vec![], model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, inbox_done: false, tools: Default::default(), starters: c.starters, max_threads: None };
+    check_settings(app, &c.workspace_id, None, &settings).await?;
     let instructions = if c.instructions.trim().is_empty() { format!("# {name}\n") } else { format!("{}\n", c.instructions.trim_end()) };
     let (id2, ws, slug2, at) = (id.clone(), c.workspace_id.clone(), slug.clone(), now_ms());
     // A new bot has nothing to move out of the knowledge base: a `bots/<slug>/` folder left there by a deleted bot
@@ -486,19 +513,19 @@ pub async fn update(app: &App, id: &str, p: Patch) -> Result<Bot> {
     if let Some(text) = &p.settings_text {
         let s = parse_settings(text)?;
         agent(&s)?;
-        check_settings(app, &bot.workspace_id, &s).await?;
+        check_settings(app, &bot.workspace_id, Some(&bot.settings), &s).await?;
         name = Some(s.name.clone());
         files.push((SETTINGS.to_string(), Some(text.clone())));
     } else if let Some(s) = &p.settings {
         agent(s)?;
-        check_settings(app, &bot.workspace_id, s).await?;
+        check_settings(app, &bot.workspace_id, Some(&bot.settings), s).await?;
         name = Some(s.name.clone());
         files.push((SETTINGS.to_string(), Some(render_settings(s)?)));
     } else if let Some(set) = &p.set {
         ensure!(bot.settings_error.is_none(), "{}'s bot.toml has an error: fix it on its page first (⋯ → Edit as file)", bot.settings.name);
         let s = set_fields(&bot.settings, set)?;
         agent(&s)?;
-        check_settings(app, &bot.workspace_id, &s).await?;
+        check_settings(app, &bot.workspace_id, Some(&bot.settings), &s).await?;
         name = Some(s.name.clone());
         files.push((SETTINGS.to_string(), Some(render_settings(&s)?)));
     }
@@ -543,13 +570,14 @@ pub async fn set_paused(app: &App, id: &str, paused: bool) -> Result<Bot> {
 /// Deletes the bot, its files (memory included) and its routines. Its folder and its sessions stay.
 pub async fn delete(app: &App, id: &str) -> Result<()> {
     ensure_home(app)?;
-    ensure!(thread(app, id).iter().all(|s| !s.status.is_running()), "the bot is working: stop it first");
+    ensure!(all_sessions(app, id).iter().all(|s| !s.status.is_running()), "the bot is working: stop it first");
     crate::ext::extensions().bot_deleted(app, id).await?;
     let (id2, st) = (id.to_string(), store(id));
     app.state_db.call(move |c| {
         let tx = c.transaction()?;
         tx.execute("DELETE FROM bot WHERE id = ?1", [&id2])?;
-        tx.execute("DELETE FROM queued_message WHERE target = 'bot:' || ?1", [&id2])?;
+        tx.execute("DELETE FROM queued_message WHERE target = 'bot:' || ?1 OR target LIKE 'bot:' || ?1 || ':%'", [&id2])?;
+        crate::bot_threads::delete_all(&tx, &id2)?;
         tx.execute("DELETE FROM plain_file WHERE store = ?1", [&st])?;
         tx.execute("DELETE FROM plain_state WHERE store = ?1", [&st])?;
         tx.commit()?;
@@ -619,8 +647,8 @@ pub async fn read_file(app: &App, id: &str, path: &str) -> Result<Vec<u8>> {
     plain::read_blob(app, &e.sha256).await
 }
 
-/// The bot's sessions, oldest first.
-pub fn thread(app: &App, id: &str) -> Vec<Session> {
+/// The bot's sessions, every thread, oldest first.
+pub fn all_sessions(app: &App, id: &str) -> Vec<Session> {
     let mut list: Vec<Session> = app.sessions.list().into_iter().filter(|s| s.launch_spec.bot.as_ref().is_some_and(|b| b.id == id)).collect();
     list.sort_by_key(|s| s.started_at);
     list
@@ -727,12 +755,14 @@ pub async fn record_instructions(app: &App, session_id: &str, (version, instruct
     }
 }
 
-/// Why an automatic message to the bot's thread waits for its quota now (`quota::hold_reason` of its open session
-/// when it runs on the bot's profile, else of a new session with that profile), or None when it may go.
-pub fn quota_hold(app: &App, bot: &Bot) -> Option<String> {
+/// Why an automatic message to a thread of the bot (None: a new thread) waits for its quota now
+/// (`quota::hold_reason` of the thread's open session when it runs on the bot's profile, else of a new session with
+/// that profile), or None when it may go.
+pub fn quota_hold(app: &App, bot: &Bot, thread: Option<&str>) -> Option<String> {
     let config = app.config.get();
     let profile = launch_profile(app, &config, &bot.settings)?;
-    if let Some(c) = thread(app, &bot.id).into_iter().rev().find(|x| x.status != SessionStatus::Closed)
+    if let Some(t) = thread
+        && let Some(c) = crate::bot_threads::sessions(app, &bot.id, t).into_iter().rev().find(|x| x.status != SessionStatus::Closed)
         && (c.launch_spec.profile.as_deref() == Some(profile.id.as_str()) || (bot.settings.profile.is_none() && c.launch_spec.profile.as_ref().is_some_and(|id| bot.settings.profiles.contains(id))))
     {
         return crate::quota::hold_reason(app, c.harness, &c.launch_spec);
@@ -741,25 +771,52 @@ pub fn quota_hold(app: &App, bot: &Bot) -> Option<String> {
     crate::quota::hold_reason(app, profile.harness, &spec)
 }
 
-/// Sends the owner's message to the bot's thread: to its open session, or to a new one.
-pub async fn message(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool) -> Result<Session> {
-    message_with(app, id, text, attachments, context, new_session.then(String::new), false, None).await
+/// The folder a bot's sessions start in: its Git folder, None for a temporary folder (no folder, or a plain folder
+/// that bots no longer use). Fails when the folder was removed.
+pub async fn effective_folder(app: &App, s: &BotSettings) -> Result<Option<crate::model::Project>> {
+    match &s.folder {
+        Some(f) => Ok(crate::projects::get(app, f).await?.context("the bot's folder no longer exists: choose another one on its page (About → Access)")?).map(|p| (!p.plain).then_some(p)),
+        None => Ok(None),
+    }
 }
 
-/// One lock per bot: two messages to the same bot never both decide to start a new session of its thread.
+/// Sends the owner's message to a thread of the bot (None: main): to its open session, or to a new one.
+pub async fn message(app: &App, id: &str, thread: Option<&str>, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool) -> Result<Session> {
+    let to = crate::bot_threads::route(crate::bot_threads::Source::Owner { thread });
+    message_with(app, id, Message { text, attachments, context, new_session: new_session.then(String::new), automatic: false, key: None, to }).await
+}
+
+/// One lock per bot: two messages to the same bot never both decide to start a new session of a thread, and the
+/// check of its free slots and the launch stay together.
 static MESSAGES: std::sync::LazyLock<crate::locks::Locks> = std::sync::LazyLock::new(Default::default);
 
-/// A message to the bot's thread. `automatic` (routines, incoming hooks, other agents): a paused bot refuses it, and
-/// it needs confirmed quota (`quota_hold`: refused for the open session, held by the start of a new one). Hooks and
-/// Telegram go through `hooks::deliver`, which waits for the end of a running turn. `context` (folders, GitHub links, agent traces, as in an agent's message box) goes with the
-/// message to the current session, or into the launch of a new one. `context.from`, set only by Home's own code
-/// (`senders`), names a sender other than the owner: the message arrives under its header.
-/// `new_session`: the owner asked for a new session, with their reason (may be empty), shown in the chat's divider.
-/// `key`: the request's Idempotency-Key (the window's retry protection), passed on as the message's or the new
-/// session's id. The bot's lock (`MESSAGES`) covers the choice of session and a new session's launch, so concurrent
-/// messages never start two sessions; a message to the open session is sent after the lock is released.
-#[allow(clippy::too_many_arguments)]
-pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: Option<String>, automatic: bool, key: Option<String>) -> Result<Session> {
+/// A message to a bot (`message_with`).
+pub struct Message {
+    pub text: String,
+    pub attachments: Vec<FileAttachment>,
+    /// Folders, GitHub links, agent traces, as in an agent's message box; `from` names a sender other than the owner.
+    pub context: MessageContext,
+    /// The owner asked for a new session of the thread, with their reason (may be empty).
+    pub new_session: Option<String>,
+    /// Routines, hooks, channels, other agents: refused while the bot is paused, and they need confirmed quota and a
+    /// free slot (`bot_threads::at_cap`).
+    pub automatic: bool,
+    /// The request's Idempotency-Key: the message's or the new session's id.
+    pub key: Option<String>,
+    /// Its thread (`bot_threads::route`).
+    pub to: crate::bot_threads::To,
+}
+
+/// A message to one of the bot's threads. `automatic` (routines, incoming hooks, other agents): a paused bot refuses it,
+/// it needs confirmed quota (`quota_hold`: refused for the open session, held by the start of a new one) and a free
+/// slot (`bot_threads::at_cap`: callers that can wait queue it first). Hooks, channels and Telegram go through
+/// `hooks::deliver`, which waits for the end of a running turn. `context` goes with the message to the current
+/// session, or into the launch of a new one. `context.from`, set only by Home's own code (`senders`), names a sender
+/// other than the owner: the message arrives under its header. The bot's lock (`MESSAGES`) covers the choice of
+/// thread and session and a new session's launch, so concurrent messages never start two sessions of one thread; a
+/// message to the open session is sent after the lock is released.
+pub async fn message_with(app: &App, id: &str, m: Message) -> Result<Session> {
+    let Message { text, attachments, context, new_session, automatic, key, to } = m;
     ensure!(!text.trim().is_empty() || !attachments.is_empty() || !context.is_empty(), "the message is empty");
     if let Some(f) = &context.from {
         crate::senders::guard_from(f)?;
@@ -774,12 +831,17 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
     let s = &bot.settings;
     let config = app.config.get();
     let profile = launch_profile(app, &config, s).context("choose a profile for this bot on its page (About → Access)")?;
-    let sessions = thread(app, id);
+    let thread_id = crate::bot_threads::resolve(app, id, &to, text.lines().find(|l| !l.trim().is_empty()).unwrap_or_default()).await?;
+    if automatic && let Some(why) = crate::bot_threads::at_cap(app, &bot, Some(&thread_id)) {
+        bail!("{why}");
+    }
+    let sessions = crate::bot_threads::sessions(app, id, &thread_id);
     let current = sessions.iter().rev().find(|x| x.status != SessionStatus::Closed);
     let profile = if s.profile.is_none() && !s.profiles.is_empty() {
         current.and_then(|c| config.profiles.iter().find(|p| Some(&p.id) == c.launch_spec.profile.as_ref() && s.profiles.contains(&p.id))).unwrap_or(profile)
     } else { profile };
-    let resolved = BotSettings { profile: Some(profile.id.clone()), model: s.model.clone().or_else(|| profile.model.clone()), effort: s.effort.clone().or_else(|| profile.effort.clone()), ..s.clone() };
+    let folder = effective_folder(app, s).await?.map(|p| p.id);
+    let resolved = BotSettings { profile: Some(profile.id.clone()), model: s.model.clone().or_else(|| profile.model.clone()), effort: s.effort.clone().or_else(|| profile.effort.clone()), folder, ..s.clone() };
     let reason = match current {
         None if !sessions.is_empty() => Some("archived"),
         c => rotation(&resolved, c.map(Current::of)),
@@ -800,13 +862,13 @@ pub async fn message_with(app: &App, id: &str, text: String, attachments: Vec<Fi
         }
         _ => {
             if let Some(c) = current {
-                ensure!(!c.status.is_running(), "{} is working: wait for its turn to end, or Stop it, before a new session", s.name);
+                ensure!(!c.status.is_running(), "{} is working in this thread: wait for its turn to end, or Stop it, before a new session", s.name);
                 crate::runners::session_action(app, &c.id, "close").await?;
             }
         }
     }
     let from = context.from.clone();
-    let mut spec = next_spec(app, &bot, &sessions, text, attachments, context).await?;
+    let mut spec = next_spec(app, &bot, &thread_id, &sessions, text, attachments, context).await?;
     // The first message of the new session, from another bot or agent: under its header, like `runners::deliver`.
     if let Some(f) = from {
         spec.text = crate::senders::wrap(&f, &spec.text);
@@ -828,17 +890,14 @@ fn note_of(note: Option<String>) -> Option<String> {
     (!line.is_empty()).then(|| line.chars().take(120).collect())
 }
 
-/// The launch of a new session of the thread: the bot's settings, BOT.md and its version, and the previous
-/// session to reference. `thread` is the bot's sessions, oldest first.
-pub async fn next_spec(app: &App, bot: &Bot, thread: &[Session], text: String, attachments: Vec<FileAttachment>, context: MessageContext) -> Result<LaunchSpec> {
+/// The launch of a new session of a thread: the bot's settings, BOT.md and its version, and the thread's previous
+/// session to reference. `sessions` is the thread's sessions, oldest first.
+pub async fn next_spec(app: &App, bot: &Bot, thread: &str, sessions: &[Session], text: String, attachments: Vec<FileAttachment>, context: MessageContext) -> Result<LaunchSpec> {
     let s = &bot.settings;
     let config = app.config.get();
     let profile = launch_profile(app, &config, s).context("choose a profile for this bot on its page (About → Access)")?;
-    let folder = match &s.folder {
-        Some(f) => Some(crate::projects::get(app, f).await?.context("the bot's folder no longer exists: choose another one on its page (About → Access)")?),
-        None => None,
-    };
-    let previous = thread.last().map(|p| BotHandoff { session_id: p.id.clone(), title: p.title.clone(), through_seq: p.last_seq });
+    let folder = effective_folder(app, s).await?;
+    let previous = sessions.last().map(|p| BotHandoff { session_id: p.id.clone(), title: p.title.clone(), through_seq: p.last_seq });
     Ok(LaunchSpec {
         text,
         attachments,
@@ -849,7 +908,7 @@ pub async fn next_spec(app: &App, bot: &Bot, thread: &[Session], text: String, a
         permission_mode: s.permission_mode,
         target: folder.as_ref().map_or(Target::Temp, |f| Target::Project { project_id: f.id.clone() }),
         // Git folders: a fresh worktree per session, never the owner's checkout.
-        worktree: folder.as_ref().filter(|f| !f.plain).map(|f| WorktreeOptions { when_done: f.when_done.without_github(), ..Default::default() }),
+        worktree: folder.as_ref().map(|f| WorktreeOptions { when_done: f.when_done.without_github(), ..Default::default() }),
         workspace_id: Some(bot.workspace_id.clone()),
         bot: Some(BotLaunch {
             id: bot.id.clone(),
@@ -857,6 +916,7 @@ pub async fn next_spec(app: &App, bot: &Bot, thread: &[Session], text: String, a
             slug: bot.slug.clone(),
             instructions: bot.instructions.clone(),
             version: bot.instructions_version.clone(),
+            thread: thread.to_string(),
             reason: None,
             note: None,
             permission_mode: Some(s.permission_mode),
@@ -877,11 +937,11 @@ pub async fn next_spec(app: &App, bot: &Bot, thread: &[Session], text: String, a
 /// The bot part of a session's first prompt.
 pub fn instruction(bot: &BotLaunch, cli: &str) -> String {
     let mut out = format!(
-        "You are {name}, a Launchpad bot: a persistent agent with one thread that continues across sessions. The owner's instructions for you (BOT.md):\n\n<bot-instructions>\n{instructions}\n</bot-instructions>\n\n\
+        "You are {name}, a Launchpad bot: a persistent agent whose conversations (threads) continue across sessions. Several of your threads may work at the same time (the owner's chat, one per GitHub item, channel, hook or agent, one per routine run): each knows only its own conversation, so pass what other threads need through your memory, the knowledge base or your folder. The owner's instructions for you (BOT.md):\n\n<bot-instructions>\n{instructions}\n</bot-instructions>\n\n\
 Your folder: `$LAUNCHPAD_BOT` is a read-only copy of your files: BOT.md, bot.toml, `routines/<name>.toml` (your routines) and `memory/`, your own notes. Your instructions hold these notes as they were at start (\"Your memory\", up to {loaded} lines; when they say it was cut, read the rest before you answer anything it may cover). Write them with `{cli} bot memory write <file>` (content on stdin, or `--file <file>`; paths are relative to `memory/`, for example `notes.md`), `{cli} bot memory append <file> <text>` and `{cli} bot memory rm <file>`; `{cli} bot memory list` and `{cli} bot memory read <file>` read them. Keep them short and current: the owner's preferences and the few facts a later session needs, and what the owner asks you to remember. They are not a journal: never record your runs, what you did, or what went well or failed (the thread and its traces keep that); most turns write nothing. Facts other agents need (shared facts about people, projects, how-tos) go in the workspace knowledge base ($LAUNCHPAD_KB) instead.\n\
 Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. Unless your Launchpad CLI access is admin, you cannot edit BOT.md, bot.toml or your routines. When your instructions or routines should change (the owner asked, or you learned how they like the work done), propose the whole new files as one card and tell the owner it waits for their click: `{cli} propose bot-files --title \"<what changes>\" --spec-file files.json`, where the file holds {{\"bot_id\": \"{id}\", \"files\": {{\"BOT.md\": \"<the whole new BOT.md>\", \"routines/<name>.toml\": \"<the whole new routine file>\"}}}} (only the files that change; null deletes a routine; start from your copies in `$LAUNCHPAD_BOT`). The owner sees one diff per file. Changes to bot.toml (profile, folder, permissions, Launchpad CLI access) are the owner's, on the bot's page (About → Access) (or yours at admin access, when the owner asks).\n\
 Folders: find the workspace's folders and what they hold with `{cli} folders list` and your notes; when a task needs one, add a worktree of it to this session with `{cli} work add-project --session-id $LAUNCHPAD_SESSION_ID --project <name>`, which prints the folder to edit.\n\
-Routines: when the owner wants you to do something on your own later or again (every morning, when CI fails, when another agent is done), propose a routine for yourself and tell the owner it waits for their click: `{cli} propose routine --title \"Daily check\" --spec-file routine.json`, where the file holds {{\"bot_id\": \"{id}\", \"title\": \"Daily check\", \"instructions\": \"<what you do at each run>\", \"trigger\": {triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}}; it becomes a card with your new file `routines/<name>.toml`. To change or delete routines, propose their files with `bot-files` as above (the same fields in TOML; your copies in `$LAUNCHPAD_BOT/routines/` show the format). A run arrives in this thread as a message starting with “Routine”; end it with a short report, or with exactly `no_update` when there is nothing to report.",
+Routines: when the owner wants you to do something on your own later or again (every morning, when CI fails, when another agent is done), propose a routine for yourself and tell the owner it waits for their click: `{cli} propose routine --title \"Daily check\" --spec-file routine.json`, where the file holds {{\"bot_id\": \"{id}\", \"title\": \"Daily check\", \"instructions\": \"<what you do at each run>\", \"trigger\": {triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}}; it becomes a card with your new file `routines/<name>.toml`. To change or delete routines, propose their files with `bot-files` as above (the same fields in TOML; your copies in `$LAUNCHPAD_BOT/routines/` show the format). Each run starts a thread of its own, with a message starting with “Routine”; end it with a short report, or with exactly `no_update` when there is nothing to report.",
         name = bot.name,
         instructions = bot.instructions.trim(),
         id = bot.id,

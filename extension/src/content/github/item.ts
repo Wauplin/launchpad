@@ -106,7 +106,7 @@ export function askText(p: ItemPage, note: string, comment: string | null, kind:
 
 export async function ask(p: ItemPage, ctx: ExtContext | null, bot: BotBrief, note: string, comment: string | null, kind: "ask" | "review" | "reply") {
   const session = await request("bot.message", { bot: bot.id, text: askText(p, note.trim(), comment, kind), github_refs: [refOf(p, ctx, comment)], key: crypto.randomUUID() });
-  const agent: ExtAgent = { session_id: session.id, title: session.title, status: session.status, needs_you: false, open_question: false, bot_id: bot.id, bot: bot.name, number: p.number, since: Date.now(), comment, last_message: null };
+  const agent: ExtAgent = { session_id: session.id, title: session.title, status: session.status, needs_you: false, open_question: false, bot_id: bot.id, bot: bot.name, thread: session.launch_spec.bot?.thread || "main", number: p.number, since: Date.now(), comment, last_message: null };
   if (comment) asked.set(comment, agent);
   return agent;
 }

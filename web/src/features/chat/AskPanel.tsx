@@ -5,7 +5,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { Icon } from "@/components/Icon";
-import { askTarget, botProfile, botThread, currentSession, rotationReason, useBots } from "@/lib/bots";
+import { askTarget, botProfile, botThread, currentSession, MAIN_THREAD, rotationReason, useBots } from "@/lib/bots";
 import { useProfiles } from "@/lib/profiles";
 import { useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
@@ -19,7 +19,8 @@ export function AskPanel() {
   const bots = all.filter((b) => b.workspace_id === scope.workspace.id);
   const bot = bots.find((b) => b.id === botId) ?? askTarget(all, scope.workspace.id);
   const sessions = useSessions().data;
-  const thread = useMemo(() => (bot ? botThread(sessions ?? [], bot.id) : []), [sessions, bot]);
+  // The bot's main thread: the Ask field talks there (its other threads are on its page).
+  const thread = useMemo(() => (bot ? botThread(sessions ?? [], bot.id, MAIN_THREAD) : []), [sessions, bot]);
   const current = currentSession(thread);
   const profiles = useProfiles();
   const navigate = useNavigate();

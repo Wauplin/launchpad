@@ -4,8 +4,9 @@ use axum::extract::{Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use launchpad_core::ask_bot;
+use launchpad_core::bot_threads::{self, BotThread, Source};
 use launchpad_core::bots::{self, Bot, Create, Patch};
-use launchpad_core::model::{FileAttachment, LaunchSpec, MessageContext, Session, Target};
+use launchpad_core::model::{FileAttachment, LaunchSpec, MessageContext, Target};
 use launchpad_core::start::{self, StartPreview};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -18,6 +19,9 @@ pub fn router() -> Router<Ctx> {
         .route("/api/bots", get(list).post(create))
         .route("/api/bots/{id}", get(one).patch(update).delete(remove))
         .route("/api/bots/{id}/message", post(message))
+        .route("/api/bots/{id}/threads", get(threads))
+        .route("/api/bots/{id}/threads/{thread}", axum::routing::patch(rename_thread))
+        .route("/api/bots/{id}/threads/{thread}/archive", post(archive_thread))
         .route("/api/bots/{id}/history", get(history))
         .route("/api/bots/{id}/file", get(file))
         .route("/api/bots/{id}/history/{change}", get(diff))
@@ -29,13 +33,23 @@ pub fn router() -> Router<Ctx> {
         .route("/api/launch/start-preview", post(launch_start_preview).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
 }
 
-/// "What it sees at start" of the bot's next new session: its instructions and first prompt, in labelled parts
-/// (its next message stands for the typed text).
-async fn start_preview(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<StartPreview> {
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ThreadQuery {
+    /// The thread (None: main).
+    thread: Option<String>,
+    /// Archived threads too.
+    archived: bool,
+}
+
+/// "What it sees at start" of the next new session of a thread of the bot (`?thread=`, main by default): its
+/// instructions and first prompt, in labelled parts (its next message stands for the typed text).
+async fn start_preview(State(s): State<Ctx>, Path(id): Path<String>, axum::extract::Query(q): axum::extract::Query<ThreadQuery>) -> ApiResult<StartPreview> {
     let app = &s.app;
     let bot = bots::get(app, &id).await.map_err(bad)?;
-    let thread = bots::thread(app, &id);
-    let spec = bots::next_spec(app, &bot, &thread, "(your next message)".into(), vec![], Default::default()).await.map_err(bad)?;
+    let thread = q.thread.unwrap_or_else(|| bot_threads::MAIN.to_string());
+    let sessions = bot_threads::sessions(app, &id, &thread);
+    let spec = bots::next_spec(app, &bot, &thread, &sessions, "(your next message)".into(), vec![], Default::default()).await.map_err(bad)?;
     Ok(Json(preview(app, &spec).await.map_err(bad)?))
 }
 
@@ -151,15 +165,77 @@ struct Message {
     /// The owner's reason for that new session, shown in the chat's divider.
     #[serde(default)]
     reason: Option<String>,
+    /// The owner's thread it goes to (the one the bot page shows); None: main. Agents always write in their own.
+    #[serde(default)]
+    thread: Option<String>,
+    /// A new thread (New thread on the bot page, New conversation in the extension).
+    #[serde(default)]
+    new_thread: bool,
+    /// The thread of the GitHub item the context names (the extension: the same item continues its conversation,
+    /// other items run in parallel); several items start a new thread.
+    #[serde(default)]
+    item_thread: bool,
 }
 
 /// The owner's message, or an agent's (`launchpad bot message`): Home stamps the agent as its sender from its own
 /// record (`senders::agent`), never from the body, and a paused bot refuses it like a routine's. A window's
 /// Idempotency-Key (claimed by the server's retry protection) becomes the message's or the new session's id.
-async fn message(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::http::HeaderMap, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut m): Json<Message>) -> ApiResult<Session> {
-    m.context.from = launchpad_core::senders::of_request(&s.app, agent.as_ref().map(|a| a.0.0.as_str())).await.map_err(bad)?;
+/// The owner's message goes to the thread they name (`thread`, `new_thread`, `item_thread`); an agent's to its own
+/// thread of the bot (one per sender session), queued while the bot works in as many threads as `max_threads`
+/// allows (`{"queued": true, …}` instead of the session).
+async fn message(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::http::HeaderMap, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut m): Json<Message>) -> ApiResult<Value> {
+    let app = &s.app;
+    m.context.from = launchpad_core::senders::of_request(app, agent.as_ref().map(|a| a.0.0.as_str())).await.map_err(bad)?;
     let key = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()).map(str::to_owned);
-    Ok(Json(bots::message_with(&s.app, &id, m.text, m.attachments, m.context, m.new_session.then(|| m.reason.unwrap_or_default()), agent.is_some(), key).await.map_err(bad)?))
+    let source = match &agent {
+        Some(a) => Source::Agent { session: a.0.0.as_str(), name: m.context.from.as_ref().map_or("", |f| f.name.as_str()) },
+        None if m.new_thread => Source::NewThread,
+        None if m.item_thread => Source::Items { refs: &m.context.github_refs },
+        None => Source::Owner { thread: m.thread.as_deref() },
+    };
+    let to = bot_threads::route(source);
+    if agent.is_some() {
+        let bot = bots::get(app, &id).await.map_err(bad)?;
+        let thread = bot_threads::resolve(app, &id, &to, m.text.lines().next().unwrap_or_default()).await.map_err(bad)?;
+        if !bot.paused && bot_threads::at_cap(app, &bot, Some(&thread)).is_some() {
+            launchpad_channels::hooks::queue_for_slot(app, &id, thread.clone(), m.text, m.attachments, m.context).await.map_err(bad)?;
+            return Ok(Json(json!({"queued": true, "thread": thread, "status": launchpad_channels::hooks::QUEUED_SLOT})));
+        }
+    }
+    let msg = bots::Message { text: m.text, attachments: m.attachments, context: m.context, new_session: m.new_session.then(|| m.reason.unwrap_or_default()), automatic: agent.is_some(), key, to };
+    let session = bots::message_with(app, &id, msg).await.map_err(bad)?;
+    Ok(Json(serde_json::to_value(session).map_err(|e| bad(e.into()))?))
+}
+
+/// The bot's threads: main first, then the newest (archived ones with `?archived=true`).
+async fn threads(State(s): State<Ctx>, Path(id): Path<String>, axum::extract::Query(q): axum::extract::Query<ThreadQuery>) -> ApiResult<Vec<BotThread>> {
+    bots::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    Ok(Json(bot_threads::list(&s.app, &id, q.archived).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct Rename {
+    title: String,
+}
+
+async fn rename_thread(State(s): State<Ctx>, Path((id, thread)): Path<(String, String)>, Json(r): Json<Rename>) -> ApiResult<BotThread> {
+    bots::get(&s.app, &id).await.map_err(bad)?;
+    Ok(Json(bot_threads::rename(&s.app, &id, &thread, &r.title).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct Archive {
+    #[serde(default = "yes")]
+    archived: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+async fn archive_thread(State(s): State<Ctx>, Path((id, thread)): Path<(String, String)>, Json(a): Json<Archive>) -> ApiResult<BotThread> {
+    bots::get(&s.app, &id).await.map_err(bad)?;
+    Ok(Json(bot_threads::archive(&s.app, &id, &thread, a.archived).await.map_err(bad)?))
 }
 #[derive(Deserialize)]
 struct FileQuery {

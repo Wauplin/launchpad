@@ -1,9 +1,11 @@
 // P1 Page chat: a chat with a bot of the workspace (its Ask target by default) about the current tab. The tab is a
 // chip; on Send the panel reads the page once (readable text, URL, selection) and attaches it as `page.md`, so the agent
-// never touches the browser. Suggestions only fill the box. The conversation is the bot's thread (the same as its chat
-// in Launchpad), shown live from the event stream; New conversation starts a new session at the next Send.
+// never touches the browser. Suggestions only fill the box. The conversation is one of the bot's threads (the same as
+// its chat in Launchpad with `?thread=`), chosen in the picker (main by default), shown live from the event stream;
+// New conversation starts a new thread at the next Send, next to the bot's others.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { BotThread } from "@/gen/BotThread";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { Session } from "@/gen/Session";
 import type { SessionEvent } from "@/gen/SessionEvent";
@@ -34,9 +36,28 @@ export function useBots(state: ConnectionState) {
   return { list, error };
 }
 
-/** The thread of a bot: its sessions and the events of the current (last) one, kept live. */
-function useThread(bot: string | null) {
-  const [sessions, setSessions] = useState<Session[]>([]);
+const threadOf = (s: Session) => s.launch_spec.bot?.thread || "main";
+
+/** The threads of a bot (main first, then the newest), kept live. */
+function useThreads(bot: string | null) {
+  const [threads, setThreads] = useState<BotThread[]>([]);
+  useEffect(() => {
+    setThreads([]);
+    if (!bot) return;
+    let alive = true;
+    const load = () => void request("bot.threads", { bot }).then((t) => alive && setThreads(t)).catch(() => undefined);
+    load();
+    const off = subscribe(["bots"], { event: load, resync: load });
+    return () => { alive = false; off(); };
+  }, [bot]);
+  return threads;
+}
+
+/** One thread of a bot: its sessions and the events of the current (last) one, kept live. `all`: every open
+ * session of the bot (the picker's states). */
+function useThread(bot: string | null, threadId: string) {
+  const [all, setSessions] = useState<Session[]>([]);
+  const sessions = useMemo(() => all.filter((s) => threadOf(s) === threadId), [all, threadId]);
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [deltas, setDeltas] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +116,7 @@ function useThread(bot: string | null) {
     return () => { alive = false; off(); };
   }, [currentId]);
 
-  return { sessions, current, events, deltas, error, reload: loadSessions };
+  return { all, sessions, current, events, deltas, error, reload: loadSessions };
 }
 
 const SUGGESTIONS: { label: string; icon: "sum" | "q" | "eye"; text: string; selection?: boolean }[] = [
@@ -104,13 +125,15 @@ const SUGGESTIONS: { label: string; icon: "sum" | "q" | "eye"; text: string; sel
   { label: "Find…", icon: "eye", text: "Find on this page: " },
 ];
 
-export function Chat({ state, tab, botId, setBotId }: { state: ConnectionState; tab: ActiveTab | null; botId: string | null; setBotId: (id: string) => void }) {
+export function Chat({ state, tab, botId, setBotId, threadId: picked, setThreadId }: { state: ConnectionState; tab: ActiveTab | null; botId: string | null; setBotId: (id: string) => void; threadId: string | null; setThreadId: (id: string | null) => void }) {
   const { list, error: botsError } = useBots(state);
   const ws = state.workspace ?? "";
   const bots = list?.bots ?? [];
   const saved = typeof localStorage !== "undefined" ? localStorage.getItem(BOT_KEY(ws)) : null;
   const bot = bots.find((b) => b.id === botId) ?? bots.find((b) => b.id === saved) ?? bots.find((b) => b.id === list?.ask) ?? bots[0] ?? null;
-  const thread = useThread(bot?.id ?? null);
+  const threads = useThreads(bot?.id ?? null);
+  const threadId = picked && (threads.some((t) => t.id === picked) || !threads.length) ? picked : "main";
+  const thread = useThread(bot?.id ?? null, threadId);
   const [text, setText] = useState("");
   const [withTab, setWithTab] = useState(true);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -122,7 +145,8 @@ export function Chat({ state, tab, botId, setBotId }: { state: ConnectionState; 
   const box = useRef<HTMLTextAreaElement>(null);
   const end = useRef<HTMLDivElement>(null);
 
-  const choose = (id: string) => { localStorage.setItem(BOT_KEY(ws), id); setBotId(id); setPicker(false); };
+  const choose = (id: string) => { localStorage.setItem(BOT_KEY(ws), id); setBotId(id); setThreadId(null); setPicker(false); };
+  const chooseThread = (id: string) => { setThreadId(id === "main" ? null : id); setFresh(false); setPicker(false); };
 
   // P3: the selection the context menu sent becomes a quote in the box (never sent by itself).
   useEffect(() => {
@@ -174,8 +198,10 @@ export function Chat({ state, tab, botId, setBotId }: { state: ConnectionState; 
           ? [{ url: `https://github.com/${gh.repo}/${gh.kind === "issue" ? "issues" : "pull"}/${gh.number}`, kind: gh.kind === "issue" ? "issue" : "pr", repo: gh.repo, number: gh.number, title: page?.title ?? null }]
           : [];
         setBusy("Sending…");
-        await request("bot.message", { bot: bot.id, text: parts.join("\n\n"), attachments: file ? [{ name: file.name, data_url: file.data_url }] : [], github_refs: refs, new_session: fresh, reason: fresh ? "New conversation from Chrome" : undefined, key: crypto.randomUUID() });
+        const s = await request("bot.message", { bot: bot.id, text: parts.join("\n\n"), attachments: file ? [{ name: file.name, data_url: file.data_url }] : [], github_refs: refs, ...(fresh ? { new_thread: true } : { thread: threadId }), key: crypto.randomUUID() });
         setText(""); setQuote(null); setFresh(false);
+        // A new conversation is a new thread of the bot: the chat follows it.
+        if (fresh && s?.launch_spec?.bot?.thread) setThreadId(s.launch_spec.bot.thread);
         void thread.reload();
       } catch (e) {
         setError(message(e));
@@ -186,7 +212,12 @@ export function Chat({ state, tab, botId, setBotId }: { state: ConnectionState; 
   };
 
   const stop = () => { if (thread.current) void request("session.stop", { id: thread.current.id }).catch((e) => setError(message(e))); };
-  const openBot = () => bot && void request("open", { path: `/bots/${encodeURIComponent(bot.id)}?ws=${encodeURIComponent(ws)}` }).catch((e) => setError(message(e)));
+  const openBot = () => bot && void request("open", { path: `/bots/${encodeURIComponent(bot.id)}?ws=${encodeURIComponent(ws)}${threadId !== "main" ? `&thread=${encodeURIComponent(threadId)}` : ""}` }).catch((e) => setError(message(e)));
+  const shownThread = threads.find((t) => t.id === threadId);
+  const threadState = (t: BotThread) => {
+    const open = [...thread.all].reverse().find((s) => threadOf(s) === t.id);
+    return open ? (open.open_question ? "asks you" : isRunning(open) ? "working" : "idle") : "";
+  };
 
   if (botsError) return <div className="x-body"><p className="x-error">{botsError}</p></div>;
   if (list && !bots.length) return <div className="x-body"><div className="x-hello"><h1>No bot in this workspace</h1><p className="x-muted">Create one in Launchpad (Bots → New bot): the page chat talks to a bot of the workspace.</p></div></div>;
@@ -197,7 +228,7 @@ export function Chat({ state, tab, botId, setBotId }: { state: ConnectionState; 
       {thread.error && <p className="x-error">{thread.error}</p>}
       {!shown.length && <div className="x-hello">
         <h1>{fresh ? "New conversation" : `Chat with ${bot?.name ?? "a bot"}`}</h1>
-        <p className="x-muted">{fresh ? "Your next message starts a new session of the bot." : "About this page or anything else. The page is read once when you send, and attached."}</p>
+        <p className="x-muted">{fresh ? "Your next message starts a new thread of the bot, next to its others." : "About this page or anything else. The page is read once when you send, and attached."}</p>
       </div>}
       {shown.map((r) => <Row key={r.key} row={r} now={now} onStop={stop} onOpen={openBot} />)}
       {!fresh && thread.current && !running && shown.length > 0 && <div className="x-btns">
@@ -223,8 +254,8 @@ export function Chat({ state, tab, botId, setBotId }: { state: ConnectionState; 
         </div>}
         <div className="x-row">
           <div className="x-pills">
-            <button className="x-pill x-shrink" aria-haspopup="menu" aria-expanded={picker} title="The bot this chat talks to" onClick={() => setPicker(!picker)}><span>{bot?.name ?? "Choose a bot"}</span><Icon name="chev" size={14} /></button>
-            {!fresh && thread.current && <button className="x-pill" title="Your next message starts a new session of the bot" onClick={() => setFresh(true)}><Icon name="plus" size={14} /><span>New conversation</span></button>}
+            <button className="x-pill x-shrink" aria-haspopup="menu" aria-expanded={picker} title="The bot and the thread this chat talks to" onClick={() => setPicker(!picker)}><span>{bot?.name ?? "Choose a bot"}{!fresh && threadId !== "main" && shownThread ? ` · ${shownThread.title}` : ""}</span><Icon name="chev" size={14} /></button>
+            {!fresh && (thread.current || threadId !== "main") && <button className="x-pill" title="Your next message starts a new thread of the bot, next to its others" onClick={() => setFresh(true)}><Icon name="plus" size={14} /><span>New conversation</span></button>}
             {fresh && <button className="x-pill x-on" title="Back to the current conversation" onClick={() => setFresh(false)}><span>New conversation ×</span></button>}
           </div>
           {busy ? <span className="x-line" style={{ marginLeft: "auto" }}><span className="x-spin" />{busy}</span>
@@ -239,6 +270,12 @@ export function Chat({ state, tab, botId, setBotId }: { state: ConnectionState; 
         {bots.map((b) => <button key={b.id} role="menuitemradio" aria-checked={b.id === bot?.id} className={`x-opt ${b.id === bot?.id ? "x-sel" : ""}`} onClick={() => choose(b.id)}>
           <span className={`x-radio ${b.id === bot?.id ? "x-on" : ""}`} /><span className="x-d"><b>{b.name}</b><small>{b.id === list?.ask ? "The workspace's Ask bot" : `@${b.slug}`}{b.paused ? " · paused" : ""}</small></span>
         </button>)}
+        {threads.length > 1 && <>
+          <h2>Thread</h2>
+          {threads.slice(0, 12).map((t) => <button key={t.id} role="menuitemradio" aria-checked={!fresh && t.id === threadId} className={`x-opt ${!fresh && t.id === threadId ? "x-sel" : ""}`} onClick={() => chooseThread(t.id)}>
+            <span className={`x-radio ${!fresh && t.id === threadId ? "x-on" : ""}`} /><span className="x-d"><b>{t.title}</b><small>{threadState(t) || (t.id === "main" ? "The bot's main conversation" : "No open session")}</small></span>
+          </button>)}
+        </>}
       </div>
     </>}
   </>;

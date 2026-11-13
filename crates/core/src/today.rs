@@ -237,6 +237,16 @@ fn group_local_prs(sessions: &mut [Item], local_prs: Vec<Item>) -> Vec<Item> {
 /// The core's own items: agents that need you (with their Local PRs), Local PRs to publish, runners to update.
 async fn core_items(app: &App) -> Vec<Item> {
     let mut out: Vec<Item> = app.sessions.list().iter().filter_map(session_item).collect();
+    // A bot's session: "Bot · thread title" (the main thread keeps the session's own title after the bot's name).
+    if out.iter().any(|i| i.session_id.as_ref().and_then(|s| app.sessions.get(s)).is_some_and(|s| s.launch_spec.bot.is_some())) {
+        let titles = crate::bot_threads::titles(app).await.unwrap_or_default();
+        for i in out.iter_mut() {
+            let Some(b) = i.session_id.as_ref().and_then(|s| app.sessions.get(s)).and_then(|s| s.launch_spec.bot) else { continue };
+            let thread = b.thread_id();
+            let what = if thread == crate::bot_threads::MAIN { i.title.clone() } else { titles.get(&(b.id.clone(), thread.to_string())).cloned().unwrap_or_else(|| i.title.clone()) };
+            i.title = format!("{} · {what}", b.name);
+        }
+    }
     // A finished agent whose merge stopped (conflict or failure): its main action is Fix merge.
     if out.iter().any(|i| i.kind == Kind::Finished) {
         let stopped: Vec<_> = crate::worktrees::list(app).await.unwrap_or_default().into_iter()

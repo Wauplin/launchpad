@@ -568,7 +568,9 @@ async fn handle(app: &App, workspace: &str, msg: &Value) -> Result<()> {
         },
     };
     let name = bot.settings.name.clone();
-    let sent = crate::hooks::deliver(app, crate::hooks::Target::Bot { id: bot.id.clone() }, format!("{body}{FROM_TELEGRAM}"), false, true).await;
+    // The owner's own message: the bot's main thread, like its page's default.
+    let to = launchpad_core::bot_threads::route(launchpad_core::bot_threads::Source::Owner { thread: None });
+    let sent = crate::hooks::deliver(app, crate::hooks::Target::Bot { id: bot.id.clone() }, to, format!("{body}{FROM_TELEGRAM}"), false, true).await;
     match sent {
         Ok(d) if d.queued => {
             let link = match d.session {
@@ -874,6 +876,7 @@ mod tests {
             memory: vec![],
             memory_loaded: Default::default(),
             routines: Default::default(),
+            folder_unused: None,
         };
         if admin {
             b.settings.launchpad = LaunchpadAccess::Admin;

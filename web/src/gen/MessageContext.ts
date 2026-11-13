@@ -11,11 +11,11 @@ import type { TopicContext } from "./TopicContext";
 /**
  * Context attached to one follow-up message. Folders are always read-only references.
  */
-export type MessageContext = { mentions: Array<PromptMention>, skills: Array<SkillRef>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>, agent_traces: Array<AgentTraceRef>, topics?: Array<TopicContext>,
+export type MessageContext = { mentions: Array<PromptMention>, skills: Array<SkillRef>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>, agent_traces: Array<AgentTraceRef>, topics?: Array<TopicContext>, 
 /**
  * Lines of a pull request's diff the message is about (Ask about these lines): a reference, resolved by Home.
  */
-selection?: DiffSelection,
+selection?: DiffSelection, 
 /**
  * Who sends it when it is not the owner: Home stamps it from its own records (`senders`), never from a request.
  */

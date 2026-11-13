@@ -3,7 +3,7 @@
 // with its own route and checks (there is no generic Home call), never its credentials or device routes.
 
 import { PAGE_ONLY, RequestError, type Answer, type Args, type Kind, type Message, type Result } from "../shared/messages";
-import { botMessage, bots, events, launch, ledger, profiles, sessions, stop, takeQuote } from "./agents";
+import { botMessage, bots, botThreads, events, launch, ledger, profiles, sessions, stop, takeQuote } from "./agents";
 import { clone, doneHandled, localPr, notifications, observed, publish, pushToPr, reviewChoice } from "./lists";
 import { anchorHealth, follow, pageContext, pageRows, peekContext, reportAnchors } from "./context";
 import { startEvents, stopEvents } from "./events";
@@ -53,6 +53,7 @@ const handlers: { [K in Kind]: Handler<K> } = {
   "anchors.report": async ({ checks }) => { if (checks && typeof checks === "object") await reportAnchors(checks); },
   bots: () => bots(),
   "bot.message": (args) => botMessage(args),
+  "bot.threads": (args) => botThreads(args),
   profiles: () => profiles(),
   launch: (args) => launch(args),
   "branch.push-to-pr": (args) => pushToPr(args),

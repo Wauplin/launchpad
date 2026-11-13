@@ -5,7 +5,7 @@
 
 import type { CronAgent } from "@/gen/CronAgent";
 import type { RoutineRun } from "@/gen/RoutineRun";
-import { botVersion, CI, DAILY, TRAIN_ROUTINE, MAINTAINER_BOT_MD_NEXT, MAINTAINER_BOT_MD_PATCH, MAINTAINER_BOT_MD_PREV, REVIEW_ROUTINE, routineText } from "../routine";
+import { botVersion, CI, DAILY, TRAIN_ROUTINE, MAINTAINER_BOT_MD, MAINTAINER_BOT_MD_NEXT, MAINTAINER_BOT_MD_PATCH, MAINTAINER_BOT_MD_PREV, REVIEW_ROUTINE, routineText } from "../routine";
 import { ASK_DEFAULT, LIBRARIAN_BOT, LIBRARIAN_TIDY } from "./bots";
 import type { EventBody } from "@/gen/EventBody";
 import type { FileAttachment } from "@/gen/FileAttachment";
@@ -327,6 +327,17 @@ export function agentsWorld() {
         options: [{ label: "Yes, as a Local PR", description: "A new branch with the test, for your review" }, { label: "Not now", description: "I note it in my memory and stop here" }] }] },
       status("waiting"),
     ], patch: { open_question: true } });
+  // A second thread of the Maintainer, in parallel with its main one: the review of #120 the owner asked for from the
+  // Chrome extension (its thread follows the pull request; world/bots.ts `PR_THREAD`).
+  add({ id: "demo-s-bot-maintainer-120", title: "Review #120 Add gift cards at checkout", project: P.storefront, harness: "claude", minutesAgo: 18, seen: true, worktree: "maintainer-review-120",
+    spec: { text: "Review this pull request: acme-labs/storefront#120", github_refs: [{ url: "https://github.com/acme-labs/storefront/pull/120", kind: "pr", repo: "acme-labs/storefront", number: 120, title: "Add gift cards at checkout" }],
+      bot: { id: "demo-bot-maintainer", name: "Maintainer", slug: "maintainer", instructions: "", previous: null, version: botVersion(MAINTAINER_BOT_MD), reason: "first", thread: "demo-thread-pr120" } },
+    events: [
+      user("Review this pull request: acme-labs/storefront#120"),
+      ...tool("Bash", "gh pr diff 120 --repo acme-labs/storefront --name-only", "src/checkout/giftcard.ts\nsrc/checkout/total.ts\ntests/giftcard.spec.ts"),
+      say("**#120 looks right overall.** One problem: `total.ts` applies the gift card before the discount, so a 100% discount code still charges the card. I wrote a suggested review with one line comment for you to post; nothing was posted."),
+      ...end(2), status("waiting"),
+    ] });
   const proposals: Proposal[] = [
     // The Maintainer's reports: one card per pull request it handled, a question waits for your reply.
     { id: "demo-prop-report-118", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "#118 Save carts for later: keep the old cart table?", note: null,
