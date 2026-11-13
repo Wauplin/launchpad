@@ -819,7 +819,8 @@ fn pick_lines(patch: &str, left: bool, start: u64, end: u64) -> Vec<String> {
     let cut = |t: &str| t.chars().take(400).collect::<String>();
     for line in patch.lines() {
         if let Some(h) = line.strip_prefix("@@ ") {
-            for part in h.split_whitespace() {
+            // `-a,b +c,d @@ <the enclosing function>`: only the ranges, never the function's text.
+            for part in h.split(" @@").next().unwrap_or_default().split_whitespace() {
                 let num = |p: &str| p.split(',').next().and_then(|n| n.parse::<u64>().ok());
                 if let Some(n) = part.strip_prefix('-').and_then(num) {
                     old = n;

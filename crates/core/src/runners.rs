@@ -983,21 +983,30 @@ pub async fn continue_anywhere(app: &App, id: &str, action: &str, body: Option<S
 }
 
 /// Home: a selection of a pull request's diff (`DiffSelection`) gets the lines Home reads, replacing whatever the
-/// request said; an invalid one is refused.
-async fn resolve_selection(app: &App, selection: &mut Option<crate::model::DiffSelection>) -> Result<()> {
+/// request said; an invalid one is refused. `agent`: the workspace the message or launch of another bot or agent goes
+/// to (Some(None) when it has none): Home reads with its own GitHub login, so a repository of another workspace's
+/// folder is refused, like every record of another workspace.
+async fn resolve_selection(app: &App, selection: &mut Option<crate::model::DiffSelection>, agent: Option<Option<String>>) -> Result<()> {
     if let Some(sel) = selection {
         sel.check()?;
+        if let Some(ws) = agent {
+            anyhow::ensure!(!crate::scope::repo_outside(app, ws.as_deref().unwrap_or_default(), &sel.repo).await, "{} belongs to another workspace's folder: agents act only in their own workspace", sel.repo);
+        }
         sel.lines = crate::ext::extensions().selection_lines(app, sel).await;
     }
     Ok(())
 }
 
 /// A session input body with its selection's lines read by Home (`resolve_selection`).
-async fn selection_read(app: &App, body: String) -> Result<String> {
+async fn selection_read(app: &App, id: &str, body: String) -> Result<String> {
     let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&body) else { return Ok(body) };
     let Some(raw) = v.get("context").and_then(|c| c.get("selection")).filter(|s| !s.is_null()).cloned() else { return Ok(body) };
     let mut sel = Some(serde_json::from_value::<crate::model::DiffSelection>(raw)?);
-    resolve_selection(app, &mut sel).await?;
+    let agent = match v["context"].get("from").is_some_and(|f| !f.is_null()) {
+        true => Some(crate::scope::of_session(app, id).await),
+        false => None,
+    };
+    resolve_selection(app, &mut sel, agent).await?;
     v["context"]["selection"] = serde_json::to_value(sel)?;
     Ok(v.to_string())
 }
@@ -1008,7 +1017,7 @@ async fn selection_read(app: &App, body: String) -> Result<String> {
 /// accepted it.
 pub async fn deliver(app: &App, runner: &str, id: &str, action: &str, body: Option<String>, key: Option<String>) -> Result<(u16, String)> {
     let body = match (action, body) {
-        ("input", Some(b)) => Some(crate::senders::delivered(&selection_read(app, b).await?)?),
+        ("input", Some(b)) => Some(crate::senders::delivered(&selection_read(app, id, b).await?)?),
         (_, b) => b,
     };
     let (body, received) = match action {
@@ -1143,7 +1152,11 @@ fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> 
 pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
     anyhow::ensure!(app.paths.role == crate::role::Role::Home, "only Home launches sessions: a runner starts the ones Home places on it");
     crate::ref_use::record(app, &id, spec.bot.as_ref().map(|b| b.id.as_str()), &spec.github_refs).await;
-    resolve_selection(app, &mut spec.selection).await?;
+    let agent = match spec.from.is_some() {
+        true => Some(crate::scope::of_spec(app, &spec).await),
+        false => None,
+    };
+    resolve_selection(app, &mut spec.selection, agent).await?;
     // Uploads are stored on Home: the runner or Burst job receives references and fetches the bytes.
     crate::attachments::to_refs(&id, &mut spec.attachments).await?;
     if spec.runner_id.as_deref() == Some(crate::burst::CHOICE) {

@@ -489,7 +489,7 @@ impl DiffSelection {
         anyhow::ensure!(!self.path.is_empty() && self.path.len() <= 1024 && !self.path.starts_with('/') && !self.path.split('/').any(|p| p.is_empty() || p == "." || p == ".."), "the selection's path must be relative to the repository root");
         anyhow::ensure!(self.side == "RIGHT" || self.side == "LEFT", "the selection's side is RIGHT or LEFT");
         anyhow::ensure!(self.start > 0 && self.start <= self.end && self.end - self.start < 400, "the selection holds 1 to 400 lines");
-        anyhow::ensure!(self.head.as_deref().is_none_or(|h| h.len() <= 64 && h.chars().all(|c| c.is_ascii_hexdigit())), "the selection's head is not a commit");
+        anyhow::ensure!(self.head.as_deref().is_none_or(|h| (7..=64).contains(&h.len()) && h.chars().all(|c| c.is_ascii_hexdigit())), "the selection's head is not a commit");
         Ok(())
     }
 }
