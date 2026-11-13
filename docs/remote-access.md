@@ -83,7 +83,7 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 - The Local PR bar holds one button: **Publish** (its branch name and draft options are in its sheet) for a folder on GitHub, else **Merge**; the others are in **⋯**. Today's **Start all** shows in the Approve filter.
 - Every message box has a mic for dictation, which needs the HTTPS address. Tap it to start and stop, or long press it to talk while you hold it. The keyboard closes while you dictate, and back stops the dictation and keeps the text. In **Reply**, a large **Stop** and **Send** replace the row. See [Voice](voice.md).
 - Tap an image in a trace or chat to view it full screen (pinch to zoom, **Download**, **✕** or back to close).
-- **Settings** is a list in three groups: **This device** (theme, layout, devices), **On the phone** (Connections, Workspace, Voice, presets, GitHub, usage) and **On a computer** (profiles, Home and runners, credentials, Hugging Face, Disk cleanup, the setup checklist). The last group shows only a status: open Launchpad on a computer to change these. On a Settings page, **‹** goes back to Settings.
+- **Settings** gives access to every settings page, including profiles, Home and runners, credentials and tools, Hugging Face and Disk cleanup. Device controls (zoom, theme and layout) come first, followed by Workspace, Agents, Machines & access, Help and the setup checklist. On a Settings page, **‹** goes back to Settings.
 
 <table>
   <tr>
