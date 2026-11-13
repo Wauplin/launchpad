@@ -225,7 +225,7 @@ pub async fn save(app: &App, p: &Predraft) -> Result<()> {
     let text = serde_json::to_string(p)?;
     app.state_db.call(move |c| { c.execute("INSERT INTO predraft (id,json) VALUES (?1,?2) ON CONFLICT(id) DO UPDATE SET json=excluded.json", rusqlite::params![id,text])?; Ok(()) }).await?;
     if let Some(session) = p.session_id.as_deref()
-        && let Some(project) = crate::projects::get(app, &p.project_id).await?
+        && let Ok(Some(project)) = crate::projects::get(app, &p.project_id).await
         && let Some(repo) = project.gh_repo.as_deref()
     {
         for number in fixed_issues(&p.body) {
