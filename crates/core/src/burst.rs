@@ -337,7 +337,7 @@ async fn start(app: &App, session_id: Option<String>, pending: Pending) -> Resul
         "secrets": {"LAUNCHPAD_BURST_CREDENTIAL": format!("{}.{secret}", runner.id)},
         "flavor": config.flavor,
         "timeoutSeconds": MAX_SECONDS,
-        "labels": {"launchpad-burst": runner.id},
+        "labels": {"launchpad-burst": "1", "launchpad-burst-id": runner.id},
         "expose": {"ports": [PORT]},
     });
     match image.strip_prefix("hf.co/spaces/").or_else(|| image.strip_prefix("https://huggingface.co/spaces/")) {
