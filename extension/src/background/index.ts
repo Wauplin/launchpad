@@ -2,6 +2,7 @@
 // connection state, the event stream and the toolbar badge, and answers the panel and content scripts through the
 // runtime messages of shared/messages.ts.
 
+import { menuClicked, setupMenu } from "./agents";
 import { HEARTBEAT_ALARM, startEvents, streaming } from "./events";
 import { REFRESH_ALARM, refresh } from "./hf";
 import { current, load } from "./home";
@@ -20,7 +21,9 @@ listen(current, ready);
 
 chrome.runtime.onInstalled.addListener(() => {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  setupMenu();
 });
+chrome.contextMenus.onClicked.addListener(menuClicked);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === REFRESH_ALARM) void refresh().catch((e) => console.warn("token refresh", e));

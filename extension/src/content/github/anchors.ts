@@ -7,10 +7,10 @@
 import type { ExtPageKind } from "@/gen/ExtPageKind";
 import { request } from "../../shared/messages";
 
-export type Params = { repo: string; number: number | null };
+export type Params = { repo: string; number: number | null; /** A comment's anchor (`issuecomment-1`, `discussion_r2`). */ comment?: string };
 type Via = "id" | "data" | "aria" | "text";
 /** `place` overrides the anchor's own, for a strategy that finds another kind of element. */
-type Strategy = { via: Via; find: (p: Params) => Element | null; place?: InsertPosition };
+type Strategy = { via: Via; find: (p: Params) => Element | null; place?: InsertPosition; /** Lists: every match. */ all?: (p: Params) => Element[] };
 type Anchor = {
   /** Its name in Settings. */
   label: string;
@@ -99,7 +99,116 @@ export const ANCHORS = {
       { via: "aria", find: (p) => all("main h1, h1").find((h) => h.textContent?.includes(`#${p.number}`)) ?? null },
     ],
   },
+  /** The first block of a pull request's or issue's sidebar: the Launchpad box (I1). */
+  "sidebar": {
+    label: "Sidebar of a pull request or issue",
+    kinds: ["pr_conversation", "issue"],
+    place: "afterbegin",
+    strategies: [
+      { via: "id", find: () => document.querySelector("#partial-discussion-sidebar") },
+      { via: "data", find: () => document.querySelector('[data-testid="issue-viewer-metadata-pane"] [data-testid="sticky-sidebar"], [data-testid="issue-viewer-metadata-pane"]') },
+      { via: "aria", find: () => all("main h2").find((h) => /^metadata$/i.test(h.textContent?.trim() ?? ""))?.parentElement ?? null },
+    ],
+  },
+  /** The header actions of each comment (Ask a bot, I2): its element carries the comment's anchor as `id` or inside. */
+  "comments": {
+    label: "Comment headers",
+    kinds: ["pr_conversation", "issue"],
+    place: "afterbegin",
+    strategies: [
+      // Classic conversation (pull requests): the comment group, with its header's actions.
+      { via: "id", find: () => document.querySelector('.timeline-comment-group[id^="issuecomment-"] .timeline-comment-actions, .review-comment[id^="discussion_r"] .timeline-comment-actions'),
+        all: () => all('.timeline-comment-group[id^="issuecomment-"], .review-comment[id^="discussion_r"]').map((g) => g.querySelector(".timeline-comment-actions")).filter((x): x is Element => !!x) },
+      // React issues: the comment header (id issuecomment-…) and its right-side items.
+      { via: "data", find: () => document.querySelector('[data-testid="comment-header"][id^="issuecomment-"] [data-testid="comment-header-right-side-items"]'),
+        all: () => all('[data-testid="comment-header"][id^="issuecomment-"] [data-testid="comment-header-right-side-items"]') },
+    ],
+  },
+  /** The conversation's comment box at the bottom (Insert, I3). Absent when signed out of GitHub. */
+  "comment-box": {
+    label: "Comment box",
+    kinds: [],
+    place: "beforebegin",
+    strategies: [
+      { via: "id", find: () => document.querySelector("textarea#new_comment_field") },
+      { via: "data", find: () => all('[data-testid="issue-viewer-comments-container"] ~ * textarea, [data-testid="markdown-editor-comment-composer"] textarea, form[aria-label*="comment" i] textarea').at(-1) ?? null },
+      { via: "aria", find: () => all('main textarea[placeholder*="comment" i], main textarea[aria-label*="comment" i], main textarea[aria-label="Markdown value"]').filter((t) => !t.closest(".js-inline-comment-form-container, .review-thread-reply, [data-launchpad]")).at(-1) ?? null },
+    ],
+  },
+  /** The reply box of the review thread of comment `p.comment` (`discussion_r…`), once GitHub opened it (Insert of a thread reply). */
+  "thread-reply": {
+    label: "Review thread reply box",
+    kinds: [],
+    place: "beforebegin",
+    strategies: [
+      { via: "id", find: (p) => {
+        const c = p.comment ? document.getElementById(p.comment) : null;
+        const thread = c?.closest(".js-resolvable-timeline-thread-container, .review-thread-component, .js-inline-comments-container, .inline-comments");
+        return thread ? all('textarea[name="comment[body]"], textarea', thread).find((t) => t.getClientRects().length > 0) ?? null : null;
+      } },
+      { via: "aria", find: (p) => {
+        const c = p.comment ? document.getElementById(p.comment) : null;
+        const thread = c?.closest('[role="group"], section, li') ?? null;
+        return thread ? all("textarea", thread).find((t) => t.getClientRects().length > 0) ?? null : null;
+      } },
+    ],
+  },
+  /** GitHub's own "Reply…" field of a review thread (focused, never clicked, so the owner opens it). */
+  "thread-reply-opener": {
+    label: "Review thread Reply field",
+    kinds: [],
+    place: "beforebegin",
+    strategies: [
+      { via: "id", find: (p) => {
+        const c = p.comment ? document.getElementById(p.comment) : null;
+        const thread = c?.closest(".js-resolvable-timeline-thread-container, .review-thread-component, .js-inline-comments-container, .inline-comments");
+        return thread?.querySelector(".review-thread-reply-button, button.js-toggle-inline-comment-form") ?? null;
+      } },
+      { via: "text", find: (p) => {
+        const c = p.comment ? document.getElementById(p.comment) : null;
+        const thread = c?.closest(".js-resolvable-timeline-thread-container, .review-thread-component, [role=\"group\"]");
+        return thread ? all("button", thread).find((b) => /^reply/i.test(b.textContent?.trim() ?? "")) ?? null : null;
+      } },
+    ],
+  },
 } satisfies Record<string, Anchor>;
+
+/** The comment element of a comment's header actions (`comments` anchor): what carries its anchor ID. */
+export function commentOf(actions: Element): { id: string; root: Element } | null {
+  const classic = actions.closest('.timeline-comment-group[id^="issuecomment-"], .review-comment[id^="discussion_r"]');
+  if (classic) return { id: classic.id, root: classic };
+  const header = actions.closest('[data-testid="comment-header"][id^="issuecomment-"]');
+  if (header) return { id: header.id, root: header.closest('[data-testid^="comment-viewer-outer-box"]') ?? header.parentElement ?? header };
+  return null;
+}
+
+/** The element a comment's live card goes after, from its anchor ID. */
+export function commentRoot(id: string): Element | null {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  return el.closest('.timeline-comment-group, .review-comment, [data-testid^="comment-viewer-outer-box"]') ?? el;
+}
+
+/** The comment's text container (to see whether it mentions the owner; never read as context). */
+export function commentBody(root: Element): Element | null {
+  return root.querySelector('.comment-body, [data-testid="markdown-body"], .markdown-body');
+}
+
+/** Every match of a list anchor, recorded like `findAnchor`. */
+export function findAnchors(name: AnchorName, p: Params): { els: Element[]; place: InsertPosition; via: Via } | null {
+  const anchor: Anchor = ANCHORS[name];
+  for (const s of anchor.strategies) {
+    let els: Element[] = [];
+    try { els = s.all ? s.all(p) : [s.find(p)].filter((x): x is Element => !!x); } catch { els = []; }
+    els = els.filter((e) => e.isConnected);
+    if (els.length) {
+      page.results.set(name, s.via);
+      return { els, place: s.place ?? anchor.place, via: s.via };
+    }
+  }
+  if (!page.results.get(name)) page.results.set(name, null);
+  return null;
+}
 
 export type AnchorName = keyof typeof ANCHORS;
 

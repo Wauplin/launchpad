@@ -4,12 +4,16 @@
 // topic. Widgets are idempotent: renders only change what changed.
 
 import type { ExtContext } from "@/gen/ExtContext";
-import { CONTEXT_TOPIC, request, subscribe, type Phase } from "../../shared/messages";
+import { CONTEXT_TOPIC, request, subscribe, type Phase, type TabCommand } from "../../shared/messages";
 import { beginPage } from "./anchors";
+import { renderComments, watch } from "./comments";
+import { insertFromPanel, renderInsertBanners } from "./insert";
+import { isItem } from "./item";
 import { observePage, watchNavigation } from "./navigation";
 import { pageOf, type Page } from "./page";
 import { renderRepoBadge } from "./repoBadge";
-import { unmountAll } from "./widgets";
+import { renderSidebarBox } from "./sidebarBox";
+import { unmount, unmountAll } from "./widgets";
 
 let page: Page = pageOf(location.href);
 let context: ExtContext | null = null;
@@ -17,14 +21,33 @@ let context: ExtContext | null = null;
 const byRepo = new Map<string, ExtContext>();
 let phase: Phase | null = null;
 let generation = 0;
+/** Home's context for this page is on its way: the sidebar box keeps its space meanwhile. */
+let loading = false;
 
 function render() {
   renderRepoBadge(page, context);
+  if (isItem(page)) {
+    const ctx = context && context.page.number === page.number && context.page.repo?.toLowerCase() === page.repo.toLowerCase() ? context : null;
+    if (ctx || (loading && phase !== "signed-out" && phase !== "revoked")) renderSidebarBox(page, ctx, refresh);
+    else unmount("sidebar-box");
+    watch(renderComments(page, ctx, refresh), render);
+    renderInsertBanners(page, ctx, refresh);
+  } else {
+    unmount("sidebar-box");
+    watch([], render);
+  }
+}
+
+/** After an action of the page (a bot asked, an agent stopped): show it at once, then Home's fresh context. */
+function refresh() {
+  render();
+  void load(true);
 }
 
 async function load(fresh = false) {
   const mine = ++generation;
   if (!page.repo) return;
+  loading = true;
   try {
     const data = await request("context", { url: page.url, fresh });
     if (mine !== generation) return;
@@ -34,6 +57,8 @@ async function load(fresh = false) {
   } catch {
     // Not connected, or Home did not answer: nothing on the page (the side panel says why).
     if (mine === generation && !context) unmountAll();
+  } finally {
+    if (mine === generation) loading = false;
   }
 }
 
@@ -58,7 +83,20 @@ function whileLoading() {
   document.addEventListener("DOMContentLoaded", () => { clearInterval(timer); render(); observePage(render); }, { once: true });
 }
 
+/** The panel's buttons for this tab (TabCommand): the same actions as the page's. */
+function commands() {
+  chrome.runtime.onMessage.addListener((m: TabCommand, sender, reply: (r: { ok: boolean; error?: string }) => void) => {
+    if (sender.id !== chrome.runtime.id || sender.tab || m?.type !== "insert") return false;
+    insertFromPanel(isItem(page) ? page : null, context, String(m.suggestion))
+      .then(() => reply({ ok: true }), (e) => reply({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+    return true;
+  });
+}
+
 export function start() {
+  commands();
+  // Live cards count their minutes.
+  setInterval(() => { if (isItem(page) && document.visibilityState === "visible") render(); }, 30_000);
   watchNavigation((sameUrl) => {
     if (sameUrl) { render(); observePage(render); } else navigated();
   });

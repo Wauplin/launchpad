@@ -4,6 +4,10 @@
 
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtRows } from "@/gen/ExtRows";
+import type { FileAttachment } from "@/gen/FileAttachment";
+import type { GitHubRef } from "@/gen/GitHubRef";
+import type { Session } from "@/gen/Session";
+import type { SessionEventPage } from "@/gen/SessionEventPage";
 import type { Workspace } from "@/gen/Workspace";
 
 /** Where the extension is connected. Never holds a credential. */
@@ -68,6 +72,21 @@ export type AnchorHealth = { anchors: Record<string, AnchorCheck> };
  * (or `"*"` for all). The GitHub layer subscribes to it and asks for its page's context again. */
 export const CONTEXT_TOPIC = "ext.context";
 
+/** The worker pushes this synthetic topic when the context menu's "Ask Launchpad about selection" ran: `payload` is a
+ * `Quote`. The panel adds it to its message box (never sends it by itself). */
+export const QUOTE_TOPIC = "ext.quote";
+export type Quote = { text: string; url: string; title: string };
+
+/** A bot of the extension's workspace, for the pickers. */
+export type BotBrief = { id: string; name: string; slug: string; workspace_id: string; paused: boolean };
+export type BotList = { bots: BotBrief[]; /** The workspace's Ask target (`askTarget`: the oldest admin bot, else the oldest). */ ask: string | null };
+
+/** The feedback-ledger actions the GitHub layer records (`suggestion.<action>` of Home's action list). */
+export type LedgerAction = "shown" | "inserted" | "posted-by-hand" | "dismiss-comment";
+
+/** Commands the panel sends to the GitHub layer of a tab (`chrome.tabs.sendMessage`): the same buttons as the page. */
+export type TabCommand = { type: "insert"; suggestion: string };
+
 type Req<A, R> = { args: A; result: R };
 
 /** Every request a client may send. `home.get` and `home.post` take Home paths under `/api/`. */
@@ -102,6 +121,23 @@ export type Requests = {
   "open": Req<{ path: string }, void>;
   /** The GitHub layer's anchor checks of one page. */
   "anchors.report": Req<{ checks: Record<string, Omit<AnchorCheck, "at">> }, void>;
+  /** The bots of the extension's workspace and its Ask target. */
+  "bots": Req<void, BotList>;
+  /** A message to a bot's thread (`bot.message`); returns its session. `key` is the idempotency key (one per Send).
+   * `github_refs` names the GitHub item or comment by reference; the bot reads the content itself. */
+  "bot.message": Req<{ bot: string; text: string; github_refs?: GitHubRef[]; attachments?: FileAttachment[]; new_session?: boolean; reason?: string; key: string }, Session>;
+  /** The sessions of the extension's workspace that are not archived (light records), newest first; `bot` narrows to a
+   * bot's thread (oldest first). */
+  "sessions": Req<{ bot?: string }, Session[]>;
+  /** The newest events of a session (`events/page?tail=`). */
+  "session.events": Req<{ id: string; tail?: number }, SessionEventPage>;
+  /** Stops a session's turn (`session.stop`). */
+  "session.stop": Req<{ id: string }, void>;
+  /** A feedback-ledger record of a suggestion (`suggestion.shown`, `.inserted`, `.posted-by-hand`, `.dismiss-comment`). */
+  "suggestion.ledger": Req<{ action: LedgerAction; id: string; part?: string; text?: string }, unknown>;
+  /** The selection the context menu sent, once (the panel takes it when it opens). There is no request that posts to
+   * GitHub: Launchpad's Post stays a click in Launchpad. */
+  "quote.take": Req<void, Quote | null>;
   "home.get": Req<{ path: string }, unknown>;
   "home.post": Req<{ path: string; body?: unknown; idempotency_key?: string }, unknown>;
 };
@@ -113,7 +149,7 @@ export type Message<K extends Kind = Kind> = { kind: K; args: Args<K> };
 export type Answer<K extends Kind = Kind> = { ok: true; data: Result<K> } | { ok: false; error: string; status?: number };
 
 /** Requests only extension pages (the panel) may send. */
-export const PAGE_ONLY: readonly Kind[] = ["signin", "discover", "connect.space", "connect.address.start", "connect.address.poll", "disconnect", "settings.client-id", "workspace.set", "anchors.health"];
+export const PAGE_ONLY: readonly Kind[] = ["signin", "discover", "connect.space", "connect.address.start", "connect.address.poll", "disconnect", "settings.client-id", "workspace.set", "anchors.health", "quote.take"];
 
 /** An error of a request, with Home's HTTP status when there was one. */
 export class RequestError extends Error {

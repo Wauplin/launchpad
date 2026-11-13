@@ -3,6 +3,7 @@
 // credentials or device routes.
 
 import { PAGE_ONLY, RequestError, type Answer, type Args, type Kind, type Message, type Result } from "../shared/messages";
+import { botMessage, bots, events, ledger, sessions, stop, takeQuote } from "./agents";
 import { anchorHealth, follow, pageContext, pageRows, peekContext, reportAnchors } from "./context";
 import { startEvents, stopEvents } from "./events";
 import { clientId, discover, signIn } from "./hf";
@@ -55,8 +56,19 @@ const handlers: { [K in Kind]: Handler<K> } = {
     await chrome.tabs.create({ url: home.origin + appPath(path) });
   },
   "anchors.report": async ({ checks }) => { if (checks && typeof checks === "object") await reportAnchors(checks); },
+  bots: () => bots(),
+  "bot.message": (args) => botMessage(args),
+  sessions: (args) => sessions(args),
+  "session.events": (args) => events(args),
+  "session.stop": (args) => stop(args),
+  "suggestion.ledger": (args) => ledger(args),
+  "quote.take": async () => takeQuote(),
   "home.get": ({ path }) => homeJson(homePath(path)),
-  "home.post": ({ path, body, idempotency_key }) => homeJson(homePath(path), { method: "POST", body: body ?? {}, idempotency_key }),
+  "home.post": ({ path, body, idempotency_key }) => {
+    // GitHub writes stay Launchpad's own buttons: no client of the extension posts, publishes, merges or sends.
+    if (/\/(post|publish|publish-set|merge|merge-local|send|run-ci|reply|review|comment|labels|reviewers|state)(\?|$)/.test(homePath(path))) throw new RequestError("The extension never publishes: use Launchpad's own button");
+    return homeJson(homePath(path), { method: "POST", body: body ?? {}, idempotency_key });
+  },
 };
 
 /** The extension's own pages (the side panel, also when opened in a tab); a content script's URL is its page's. */

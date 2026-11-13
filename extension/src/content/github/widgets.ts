@@ -38,6 +38,51 @@ const STYLE = `
 .lp-item small, .lp-note, .lp-head { color: var(--fgColor-muted, var(--color-fg-muted, #59636e)); font-weight: 400; font-size: 12px; }
 .lp-note { padding: 4px 8px 6px; }
 .lp-sep { height: 1px; margin: 4px 0; background: var(--borderColor-muted, var(--color-border-muted, #d1d9e0b3)); }
+:host([data-block]) { display: block; margin: 0 0 16px; font-weight: 400; font-size: 13px; }
+:host([data-block="card"]) { margin: 8px 0 16px; }
+:host([data-block="banner"]) { margin: 0 0 8px; }
+.lp-box, .lp-card, .lp-banner { display: block; border: 1px solid var(--borderColor-default, var(--color-border-default, #d1d9e0)); border-radius: 6px;
+  background: var(--bgColor-default, var(--color-canvas-default, #ffffff)); padding: 10px 12px; }
+.lp-box { border-top: 2px solid var(--lp-teal); }
+.lp-card, .lp-banner { border-left: 3px solid var(--lp-teal); }
+.lp-reserve { min-height: 92px; }
+.lp-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.lp-row + .lp-row, .lp-sect + .lp-sect, .lp-row + .lp-sect, .lp-sect + .lp-row { margin-top: 6px; }
+.lp-title { font-weight: 600; color: var(--lp-ink); }
+.lp-muted { color: var(--fgColor-muted, var(--color-fg-muted, #59636e)); font-size: 12px; }
+.lp-grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-label { font-size: 12px; font-weight: 600; color: var(--fgColor-muted, #59636e); margin: 8px 0 2px; }
+.lp-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--fgColor-muted, #59636e); }
+.lp-dot.lp-run { background: var(--fgColor-accent, #0969da); animation: lp-pulse 1.4s ease-in-out infinite; }
+.lp-dot.lp-need { background: var(--fgColor-attention, #9a6700); }
+.lp-dot.lp-ok { background: var(--fgColor-success, #1a7f37); }
+.lp-dot.lp-bad { background: var(--fgColor-danger, #d1242f); }
+@keyframes lp-pulse { 50% { opacity: .35; } }
+.lp-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 28px; padding: 0 12px; border-radius: 6px; font: inherit; font-size: 13px; font-weight: 500;
+  border: 1px solid var(--button-default-borderColor-rest, var(--borderColor-default, #d1d9e0)); background: var(--button-default-bgColor-rest, var(--bgColor-muted, #f6f8fa));
+  color: var(--button-default-fgColor-rest, var(--fgColor-default, #1f2328)); cursor: pointer; white-space: nowrap; }
+.lp-btn:hover { background: var(--button-default-bgColor-hover, var(--bgColor-neutral-muted, #eff2f5)); }
+.lp-btn:disabled { opacity: .55; cursor: default; }
+.lp-btn.lp-primary { background: var(--lp-teal); border-color: var(--lp-teal); color: #ffffff; }
+.lp-btn.lp-primary:hover { filter: brightness(1.08); }
+.lp-btn.lp-small { height: 24px; padding: 0 8px; font-size: 12px; }
+.lp-btn.lp-full { width: 100%; }
+.lp-btn:focus-visible, .lp-more:focus-visible { outline: 2px solid var(--focus-outlineColor, var(--lp-teal)); outline-offset: 1px; }
+.lp-more { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: none; border-radius: 6px; border: 1px solid transparent; background: none;
+  color: var(--fgColor-muted, #59636e); font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
+.lp-more:hover { background: var(--control-transparent-bgColor-hover, var(--bgColor-neutral-muted, #818b981f)); }
+.lp-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.lp-preview { margin-top: 6px; max-height: 7.5em; overflow: hidden; white-space: pre-wrap; word-break: break-word; font-size: 13px; color: var(--fgColor-default, #1f2328);
+  -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent); mask-image: linear-gradient(180deg, #000 70%, transparent); }
+.lp-error { color: var(--fgColor-danger, #d1242f); font-size: 12px; margin-top: 6px; }
+.lp-mention { color: var(--fgColor-attention, #9a6700); border-color: color-mix(in srgb, var(--fgColor-attention, #9a6700) 50%, transparent) !important; }
+.lp-pop { position: fixed; z-index: 2147483000; width: 340px; padding: 12px; border-radius: 12px; font-size: 13px; font-weight: 400;
+  background: var(--overlay-bgColor, var(--bgColor-default, #ffffff)); border: 1px solid var(--borderColor-default, #d1d9e0);
+  box-shadow: var(--shadow-floating-large, 0 8px 24px rgba(140, 149, 159, .2)); display: grid; gap: 8px; }
+.lp-pop select, .lp-pop textarea { width: 100%; font: inherit; font-size: 13px; color: inherit; border-radius: 6px; padding: 5px 8px;
+  border: 1px solid var(--borderColor-default, #d1d9e0); background: var(--bgColor-default, #ffffff); }
+.lp-pop textarea { min-height: 64px; resize: vertical; }
+.lp-pop select:focus-visible, .lp-pop textarea:focus-visible { outline: 2px solid var(--lp-teal); outline-offset: -1px; }
 `;
 
 type Props = { class?: string; text?: string; title?: string; attrs?: Record<string, string>; on?: Partial<Record<keyof HTMLElementEventMap, (e: Event) => void>> };
@@ -76,9 +121,14 @@ export function caret() {
 
 /** GitHub shows a dark theme: Primer's variables follow on their own; the teal ink needs to know. */
 function dark() {
-  if (!document.body) return false;
-  const bg = getComputedStyle(document.body).backgroundColor.match(/\d+(\.\d+)?/g)?.map(Number);
-  return !!bg && bg.length >= 3 && 0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2] < 128;
+  // The first opaque background of the body or the document (a transparent one says nothing).
+  for (const el of [document.body, document.documentElement]) {
+    if (!el) continue;
+    const bg = getComputedStyle(el).backgroundColor.match(/\d+(\.\d+)?/g)?.map(Number);
+    if (!bg || bg.length < 3 || (bg.length >= 4 && bg[3] === 0)) continue;
+    return 0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2] < 128;
+  }
+  return false;
 }
 
 export type Widget = { host: HTMLElement; root: ShadowRoot; fresh: boolean };
@@ -90,7 +140,7 @@ const keys = new WeakMap<HTMLElement, string>();
 /** The host of widget `id` next to `anchor`, created or moved when needed. `key` names what it shows (anchor and
  * item, plus anything that changes its content): the same key on a host still in place means nothing to do
  * (`fresh` false), so a caller re-renders only on a change. */
-export function mount(id: string, key: string, anchor: Element, place: InsertPosition): Widget {
+export function mount(id: string, key: string, anchor: Element, place: InsertPosition, block?: "box" | "card" | "banner"): Widget {
   let host = document.querySelector<HTMLElement>(`[${HOST_ATTR}="${CSS.escape(id)}"]`);
   const inPlace = (el: HTMLElement) => {
     switch (place) {
@@ -111,6 +161,7 @@ export function mount(id: string, key: string, anchor: Element, place: InsertPos
   }
   if (!inPlace(host)) anchor.insertAdjacentElement(place, host);
   host.toggleAttribute("data-dark", dark());
+  if (block) host.setAttribute("data-block", block); else host.removeAttribute("data-block");
   keys.set(host, key);
   const root = roots.get(host)!;
   for (const child of Array.from(root.childNodes)) if (!(child instanceof HTMLStyleElement)) child.remove();
@@ -188,4 +239,75 @@ export function chip(root: ShadowRoot, text: string, tone: "accent" | "quiet", m
   }, logo(), h("span", { class: "lp-text", text }), caret());
   root.append(button);
   return button;
+}
+
+/** The ⋯ of a place: its other actions in a menu. */
+export function more(root: ShadowRoot, title: string, entries: () => MenuEntry[]) {
+  const button = h("button", {
+    class: "lp-more",
+    title: "More",
+    attrs: { type: "button", "aria-label": "More", "aria-haspopup": "menu", "aria-expanded": "false" },
+    on: { click: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const close = open.get(root);
+      if (close) return close();
+      openMenu(root, button, title, entries());
+    } },
+  }, kebab());
+  return button;
+}
+
+/** ⋯ as an icon (fonts may lack the character). */
+function kebab() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("aria-hidden", "true");
+  for (const cx of ["3", "8", "13"]) {
+    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    c.setAttribute("cx", cx);
+    c.setAttribute("cy", "8");
+    c.setAttribute("r", "1.5");
+    c.setAttribute("fill", "currentColor");
+    svg.append(c);
+  }
+  return svg;
+}
+
+/** A button of a widget (never one of GitHub's). */
+export function button(text: string, onClick: () => void, opts: { primary?: boolean; small?: boolean; full?: boolean; title?: string; disabled?: boolean } = {}) {
+  const b = h("button", {
+    class: `lp-btn${opts.primary ? " lp-primary" : ""}${opts.small ? " lp-small" : ""}${opts.full ? " lp-full" : ""}`,
+    text,
+    title: opts.title,
+    attrs: { type: "button" },
+    on: { click: (e) => { e.preventDefault(); e.stopPropagation(); onClick(); } },
+  });
+  b.disabled = !!opts.disabled;
+  return b;
+}
+
+/** A popover in `root` under `anchor` (closed by Escape, a click elsewhere, or its own `close`). */
+export function popover(root: ShadowRoot, anchor: HTMLElement, label: string, build: (close: () => void) => HTMLElement[]) {
+  open.get(root)?.();
+  const close = () => {
+    open.delete(root);
+    pop.remove();
+    document.removeEventListener("pointerdown", outside, true);
+    document.removeEventListener("keydown", key, true);
+  };
+  const outside = (e: Event) => { if (!e.composedPath().includes(root.host)) close(); };
+  const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); close(); anchor.focus(); } };
+  const pop = h("div", { class: "lp-pop", attrs: { role: "dialog", "aria-label": label } }, h("div", { class: "lp-head", attrs: { style: "padding:0" } }, logo(), h("span", { text: label })), ...build(close));
+  const r = anchor.getBoundingClientRect();
+  const below = r.bottom + 6 + 260 < window.innerHeight;
+  pop.style.top = below ? `${Math.round(r.bottom + 6)}px` : `${Math.max(8, Math.round(r.top - 266))}px`;
+  pop.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 356)))}px`;
+  root.append(pop);
+  open.set(root, close);
+  document.addEventListener("pointerdown", outside, true);
+  document.addEventListener("keydown", key, true);
+  return close;
 }
