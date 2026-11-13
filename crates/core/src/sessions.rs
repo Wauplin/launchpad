@@ -1951,7 +1951,7 @@ impl Sessions {
         }
         let traces = self.context_traces(app, &context.agent_traces).await?;
         crate::prompt_context::validate_mentions(text, &context.mentions)?;
-        let spec = LaunchSpec { text: text.into(), github_refs: context.github_refs, mentions: context.mentions, skills: context.skills, profile: session.launch_spec.profile.clone(), ..Default::default() };
+        let spec = LaunchSpec { text: text.into(), github_refs: context.github_refs, selection: context.selection, mentions: context.mentions, skills: context.skills, profile: session.launch_spec.profile.clone(), ..Default::default() };
         let mut prompt = render_prompt(&spec, &folders, &[]);
         prompt.push_str(&crate::prompt_context::render_skills(app, session.harness, &spec, Some(&session.cwd)).await?);
         if !traces.is_empty() {

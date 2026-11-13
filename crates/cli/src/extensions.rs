@@ -42,6 +42,9 @@ impl launchpad_core::ext::Extensions for Extensions {
     async fn inbox_threads(&self, app: &App) -> Result<Vec<launchpad_core::github::Thread>> {
         Ok(launchpad_github::inbox::of(app).list(app).await?.threads)
     }
+    async fn selection_lines(&self, app: &App, selection: &launchpad_core::model::DiffSelection) -> Option<String> {
+        launchpad_github::ext::selection_lines(app, selection).await
+    }
     async fn today(&self, app: &App) -> Vec<launchpad_core::today::Item> {
         let mut out = launchpad_automation::today::items(app).await;
         out.extend(launchpad_channels::today::items(app).await);

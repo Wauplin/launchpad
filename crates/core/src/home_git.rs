@@ -733,6 +733,44 @@ pub async fn pull_request(app: &App, p: &Project, number: u64, branch: &str) -> 
     tip(app, &p.id, &format!("refs/heads/{branch}")).await?.context("pull request head missing")
 }
 
+/// How many commits `tip` has on top of `base` in the mirror, when `base` is there and `tip` holds it (a fast-forward):
+/// what a Launchpad branch would add to a pull request (`branch.push-to-pr`). None otherwise.
+pub async fn ahead(app: &App, project_id: &str, base: &str, tip: &str) -> Option<u32> {
+    let dir = mirror(app, project_id);
+    if !valid_commit(base) || !valid_commit(tip) || git(app, &dir, &["cat-file", "-e", &format!("{base}^{{commit}}")]).await.is_err() {
+        return None;
+    }
+    git(app, &dir, &["merge-base", "--is-ancestor", base, tip]).await.ok()?;
+    git(app, &dir, &["rev-list", "--count", &format!("{base}..{tip}")]).await.ok()?.parse().ok()
+}
+
+fn valid_commit(c: &str) -> bool {
+    (7..=64).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// The owner's Push to this PR (`branch.push-to-pr`): pushes `head`, the commit the owner saw, of a Launchpad branch
+/// to a pull request's branch `target` on `remote`. Only while `head` is still the branch's tip on Home, and only as a
+/// fast-forward of the pull request's head `pr_head`, read again from the remote under the mirror's lock; never forced.
+pub async fn push_to_pull_request(app: &App, p: &Project, branch: &str, head: &str, remote: &str, target: &str, pr_head: &str) -> Result<()> {
+    ensure!(branch.starts_with("lp/") && !remote.starts_with('-') && !target.starts_with('-') && !target.is_empty(), "invalid branch");
+    ensure!(valid_commit(head) && valid_commit(pr_head), "invalid commit");
+    let dir = ensure(app, p).await?;
+    let lock = lock(app, &p.id);
+    let guard = lock.lock().await;
+    ensure!(tip(app, &p.id, &format!("refs/heads/{branch}")).await?.as_deref() == Some(head), "{branch} moved since you looked at it: reload the page");
+    git_in(app, &dir, &["fetch", "--quiet", "--no-tags", remote, &format!("refs/heads/{target}")], 300).await.context("could not read the pull request's branch")?;
+    let fetched = git(app, &dir, &["rev-parse", "FETCH_HEAD"]).await?;
+    ensure!(fetched == pr_head, "the pull request's branch moved: reload the page");
+    ensure!(head != pr_head, "the pull request already has this commit");
+    ensure!(
+        git(app, &dir, &["merge-base", "--is-ancestor", pr_head, head]).await.is_ok(),
+        "{branch} does not hold the pull request's head {}: the agent must rebase onto it first (Home never force-pushes)",
+        &pr_head[..pr_head.len().min(7)]
+    );
+    drop(guard);
+    git_in(app, &dir, &["push", "--quiet", remote, &format!("{head}:refs/heads/{target}")], 300).await.map(|_| ())
+}
+
 /// Pushes a commit from the mirror to a remote branch (Publish). Never forced.
 pub async fn push(app: &App, project_id: &str, remote: &str, commit: &str, branch: &str) -> Result<()> {
     ensure!(!remote.starts_with('-') && !branch.starts_with('-'), "invalid remote");

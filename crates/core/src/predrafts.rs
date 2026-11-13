@@ -109,7 +109,7 @@ pub(crate) struct PushTarget {
     pub(crate) repo: String,
 }
 /// The URL of `fork` built from the origin URL, keeping its scheme (SSH or HTTPS).
-pub(crate) fn fork_url(origin_url: &str, origin_repo: &str, fork: &str) -> Option<String> {
+pub fn fork_url(origin_url: &str, origin_repo: &str, fork: &str) -> Option<String> {
     let trimmed = origin_url.trim_end_matches('/');
     let suffix = if trimmed.ends_with(".git") { ".git" } else { "" };
     let base = trimmed.strip_suffix(suffix)?.strip_suffix(origin_repo)?;

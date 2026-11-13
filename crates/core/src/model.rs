@@ -446,10 +446,52 @@ pub struct MessageContext {
     pub context_projects: Vec<ContextProject>,
     pub github_refs: Vec<GitHubRef>,
     pub agent_traces: Vec<AgentTraceRef>,
+    /// Lines of a pull request's diff the message is about (Ask about these lines): a reference, resolved by Home.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub selection: Option<DiffSelection>,
     /// Who sends it when it is not the owner: Home stamps it from its own records (`senders`), never from a request.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub from: Option<MessageFrom>,
+}
+
+/// A line range of a pull request's diff (the extension's Ask about these lines): a reference, never the page's text.
+/// Home reads the lines from the pull request's diff (its cache, else GitHub) when it sends the launch or message to
+/// a runner (`ext::Extensions::selection_lines`) and puts them in `lines`; whatever a request body says there is
+/// replaced, so only Home's reading reaches the prompt.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS, PartialEq)]
+#[serde(default)]
+pub struct DiffSelection {
+    pub repo: String,
+    #[ts(type = "number")]
+    pub number: u64,
+    /// The file, relative to the repository root.
+    pub path: String,
+    /// `RIGHT` (the new code) or `LEFT` (removed lines).
+    pub side: String,
+    #[ts(type = "number")]
+    pub start: u64,
+    #[ts(type = "number")]
+    pub end: u64,
+    /// The pull request's head commit the owner looked at.
+    pub head: Option<String>,
+    /// Filled by Home only: the selected lines as read from the diff, with a note on where they come from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub lines: Option<String>,
+}
+
+impl DiffSelection {
+    /// A usable reference: a repository name, a relative path, a side and a range of at most 400 lines.
+    pub fn check(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(crate::github::valid_repo(&self.repo) && self.number > 0, "the selection names no pull request");
+        anyhow::ensure!(!self.path.is_empty() && self.path.len() <= 1024 && !self.path.starts_with('/') && !self.path.split('/').any(|p| p.is_empty() || p == "." || p == ".."), "the selection's path must be relative to the repository root");
+        anyhow::ensure!(self.side == "RIGHT" || self.side == "LEFT", "the selection's side is RIGHT or LEFT");
+        anyhow::ensure!(self.start > 0 && self.start <= self.end && self.end - self.start < 400, "the selection holds 1 to 400 lines");
+        anyhow::ensure!(self.head.as_deref().is_none_or(|h| h.len() <= 64 && h.chars().all(|c| c.is_ascii_hexdigit())), "the selection's head is not a commit");
+        Ok(())
+    }
 }
 
 /// Who sent a message that is not the owner's, stamped by Home from its own record of the sender (`senders`): another
@@ -502,7 +544,7 @@ pub enum SenderKind {
 impl MessageContext {
     /// Nothing to add to the message (mentions only mark text that is already there).
     pub fn is_empty(&self) -> bool {
-        self.context_projects.is_empty() && self.github_refs.is_empty() && self.agent_traces.is_empty() && self.skills.is_empty()
+        self.context_projects.is_empty() && self.github_refs.is_empty() && self.agent_traces.is_empty() && self.skills.is_empty() && self.selection.is_none()
     }
 }
 
@@ -552,6 +594,10 @@ pub struct LaunchSpec {
     pub files: Vec<FileRef>,
     /// Stored trace through a fixed sequence number, selected as launch context.
     pub agent_traces: Vec<AgentTraceRef>,
+    /// Lines of a pull request's diff the task is about (`MessageContext::selection`), resolved by Home.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selection: Option<DiffSelection>,
     pub model: Option<String>,
     pub effort: Option<String>,
     /// The workspace of the window that launched it. A new scratch folder joins it; other targets keep their own.

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use launchpad_core::App;
-use launchpad_core::model::{Project, Session, SessionStatus};
+use launchpad_core::model::{DiffSelection, Project, Session, SessionStatus};
 use launchpad_core::predrafts::Predraft;
 use launchpad_core::ref_use::Use;
 use launchpad_core::today::Today;
@@ -60,6 +60,10 @@ pub struct ExtPage {
     pub title: Option<String>,
     pub head: Option<String>,
     pub head_branch: Option<String>,
+    /// A pull request's branch repository (`owner/name`), from Home's cache.
+    pub head_repo: Option<String>,
+    /// The pull request's author lets maintainers push to its branch (null: unknown, or the same repository).
+    pub maintainer_can_modify: Option<bool>,
 }
 
 /// GitHub's top-level paths that are not owners.
@@ -71,7 +75,7 @@ const RESERVED: &[&str] = &[
 
 /// The page of a github.com URL. Anything else (another host, a malformed path) is `Other` without a repository.
 pub fn parse_page(url: &str) -> ExtPage {
-    let mut page = ExtPage { kind: PageKind::Other, repo: None, number: None, run: None, title: None, head: None, head_branch: None };
+    let mut page = ExtPage { kind: PageKind::Other, repo: None, number: None, run: None, title: None, head: None, head_branch: None, head_repo: None, maintainer_can_modify: None };
     let Some(rest) = url.strip_prefix("https://github.com/").or_else(|| url.strip_prefix("https://www.github.com/")) else { return page };
     let path = rest.split(['?', '#']).next().unwrap_or("");
     let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
@@ -197,6 +201,27 @@ pub struct ExtSuggestion {
     pub text: String,
     /// The attribution line Insert adds after a blank line (the session's, like Launchpad's own Post).
     pub attribution: String,
+    /// A review's event (`COMMENT`, `APPROVE`, `REQUEST_CHANGES`), shown next to its summary.
+    pub event: String,
+    /// A review's line comments (the extension's ghost comments on Files changed).
+    pub lines: Vec<ExtLine>,
+}
+
+/// One line comment of a suggested review, with what the owner did with it so far.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ExtLine {
+    /// Its ledger part: `line:<path>:<line>:<side>`.
+    pub part: String,
+    pub path: String,
+    #[ts(type = "number")]
+    pub line: u64,
+    #[ts(type = "number | null")]
+    pub start_line: Option<u64>,
+    /// `RIGHT` or `LEFT`.
+    pub side: String,
+    pub body: String,
+    /// The owner's last step with it (`inserted`, `posted_by_hand`, `confirmed`), from the feedback ledger; null: none.
+    pub state: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -252,11 +277,17 @@ pub struct ExtReviewChoice {
     pub preset: Option<String>,
 }
 
-/// Commits of a Launchpad branch that could go to an existing pull request (filled from M3 on).
+/// An agent's Launchpad branch that holds the pull request's head plus `ahead` commits: Push to this PR
+/// (`branch.push-to-pr`) can send it as a fast-forward.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct ExtPushReady {
     pub branch: String,
     pub ahead: u32,
+    /// The branch's commit on Home: the one the push sends (the action's `head`).
+    pub head: String,
+    /// The agent whose branch it is.
+    pub session_id: Option<String>,
+    pub title: Option<String>,
 }
 
 /// A Launchpad branch Home pushes to a pull request on GitHub (`git_follow`).
@@ -270,7 +301,7 @@ pub struct ExtBranch {
     pub not_on_github: bool,
     /// Why Home's last push failed.
     pub error: Option<String>,
-    /// Always null until M3.
+    /// An agent branch Home does not push there yet, with the commits it would add (`branch.push-to-pr`).
     pub push_ready: Option<ExtPushReady>,
 }
 
@@ -299,6 +330,20 @@ pub struct ExtDefaults {
     pub review: Option<ExtReviewChoice>,
 }
 
+/// What a pull request changes in files that decide what its CI runs (workflows, scripts, dependencies, build
+/// files), from Home's cached files of its head: a note next to GitHub's Approve and run.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ExtCi {
+    /// The head these files are of.
+    pub head: String,
+    /// Files changed in all.
+    pub files: u32,
+    /// The workflow-relevant ones among them (at most 20).
+    pub relevant: Vec<String>,
+    /// More workflow-relevant files than listed.
+    pub more: u32,
+}
+
 /// One page's bundle.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct ExtContext {
@@ -323,6 +368,8 @@ pub struct ExtContext {
     pub login: Option<String>,
     /// Presets for messages to bots.
     pub presets: Vec<ExtPreset>,
+    /// A pull request page: its files that matter for CI, when Home has read them for its current head.
+    pub ci: Option<ExtCi>,
 }
 
 /// The state of one row of a list page (pull requests, issues, notifications).
@@ -506,6 +553,8 @@ async fn cached_item(app: &App, page: &mut ExtPage) {
     page.title = v["title"].as_str().map(str::to_string);
     page.head = v["headRefOid"].as_str().map(str::to_string);
     page.head_branch = v["headRefName"].as_str().map(str::to_string);
+    page.head_repo = v["headRepository"]["nameWithOwner"].as_str().map(str::to_string);
+    page.maintainer_can_modify = v["maintainerCanModify"].as_bool();
 }
 
 /// What Launchpad has about one item (`number`) or a whole repository (None) in one workspace.
@@ -598,7 +647,12 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
             let bot = session.and_then(|x| x.launch_spec.bot.as_ref().map(|b| b.name.clone()));
             let attribution = session.map(launchpad_core::attribution::line).unwrap_or_else(|| launchpad_core::attribution::text(None, "Claude Code"));
             let text = format!("{}{}", reply_to.as_ref().map(ReplyTo::prefix).unwrap_or_default(), s.body);
-            Some(ExtSuggestion { id: s.id.clone(), kind: s.kind.clone(), number: *number, head: s.head.clone(), comments, outdated, status: s.status.clone(), session_id: s.session_id.clone(), bot, reply_to: reply_to.clone(), text, attribution })
+            let lines = s
+                .comments
+                .iter()
+                .map(|c| ExtLine { part: crate::ledger::line_part(c), path: c.path.clone(), line: c.line, start_line: c.start_line, side: c.side.clone(), body: c.body.clone(), state: None })
+                .collect();
+            Some(ExtSuggestion { id: s.id.clone(), kind: s.kind.clone(), number: *number, head: s.head.clone(), comments, outdated, status: s.status.clone(), session_id: s.session_id.clone(), bot, reply_to: reply_to.clone(), text, attribution, event: s.event.clone(), lines })
         })
         .collect();
     let local_prs: Vec<ExtLocalPr> = match it.folder {
@@ -659,6 +713,208 @@ async fn branches(app: &App, folder: Option<&ExtFolder>, number: Option<u64>) ->
     out
 }
 
+/// The agents' Launchpad branches of the folder that hold the pull request's head `pr_head` and more commits, and
+/// that Home does not push to GitHub yet (not followed): what Push to this PR would send.
+async fn push_ready(app: &App, f: &ExtFolder, agents: &[ExtAgent], followed: &[ExtBranch], number: u64, pr_head: &str, url: &str) -> Vec<ExtBranch> {
+    if !launchpad_core::home_git::here(app) {
+        return vec![];
+    }
+    let mut seen: HashSet<String> = followed.iter().map(|b| b.branch.clone()).collect();
+    let mut out = vec![];
+    for a in agents.iter().filter(|a| a.number == Some(number)).take(10) {
+        let records = launchpad_core::away::session_records(app, &a.session_id).await.unwrap_or_default();
+        for w in records.into_iter().filter(|w| w.project_id == f.id) {
+            if !seen.insert(w.branch.clone()) {
+                continue;
+            }
+            let Ok(Some(tip)) = launchpad_core::home_git::tip(app, &f.id, &format!("refs/heads/{}", w.branch)).await else { continue };
+            if tip == pr_head {
+                continue;
+            }
+            let Some(ahead) = launchpad_core::home_git::ahead(app, &f.id, pr_head, &tip).await.filter(|n| *n > 0) else { continue };
+            let push_ready = Some(ExtPushReady { branch: w.branch.clone(), ahead, head: tip.clone(), session_id: Some(a.session_id.clone()), title: Some(a.title.clone()) });
+            out.push(ExtBranch { branch: w.branch, url: url.to_string(), head: Some(tip), not_on_github: false, error: None, push_ready });
+        }
+    }
+    out
+}
+
+/// Whether a changed file decides what CI runs: workflows and actions, scripts, build and dependency files.
+fn ci_relevant(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    let name = lower.rsplit('/').next().unwrap_or(&lower);
+    lower.starts_with(".github/")
+        || lower.starts_with("scripts/")
+        || lower.starts_with(".circleci/")
+        || lower.contains("/scripts/")
+        || [".sh", ".bash", ".ps1", ".bat", ".cmd"].iter().any(|e| name.ends_with(e))
+        || name.starts_with("dockerfile")
+        || name.starts_with("requirements")
+        || [
+            "makefile", "justfile", "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "pyproject.toml", "setup.py", "setup.cfg", "tox.ini", "noxfile.py",
+            "conftest.py", "uv.lock", "poetry.lock", "pipfile", "pipfile.lock", "cargo.toml", "cargo.lock", "build.rs", "go.mod", "go.sum", "gemfile", "gemfile.lock",
+            ".pre-commit-config.yaml", "docker-compose.yml", "docker-compose.yaml", ".gitlab-ci.yml", ".travis.yml", "action.yml", "action.yaml",
+        ]
+        .contains(&name)
+}
+
+/// The pull request's files that matter for CI, from Home's cached diff of its current head (never a GitHub call).
+async fn ci(app: &App, repo: &str, number: Option<u64>) -> Option<ExtCi> {
+    let n = number?;
+    let item = crate::items::cached(app, format!("item:{repo}:{n}")).await.ok().flatten()?;
+    let (base, head) = (&item["baseRefOid"], item["headRefOid"].as_str()?);
+    let project = launchpad_core::projects::for_repo(app, repo).await.ok().flatten().map(|p| p.id).unwrap_or_else(|| "api".into());
+    let mut diff = None;
+    for key in [project.as_str(), "api"] {
+        diff = crate::items::cached(app, format!("diff:{repo}:{base}:{}:{key}", serde_json::json!(head))).await.ok().flatten();
+        if diff.is_some() {
+            break;
+        }
+    }
+    let files: Vec<String> = diff?["files"].as_array()?.iter().filter_map(|f| f["filename"].as_str().map(str::to_string)).collect();
+    let relevant: Vec<String> = files.iter().filter(|f| ci_relevant(f)).cloned().collect();
+    Some(ExtCi { head: head.to_string(), files: files.len() as u32, more: relevant.len().saturating_sub(20) as u32, relevant: relevant.into_iter().take(20).collect() })
+}
+
+/// The owner's last step with each line comment of the page's suggested reviews (the feedback ledger).
+async fn ledger_states(app: &App, suggestions: &mut [ExtSuggestion]) {
+    for s in suggestions.iter_mut().filter(|s| !s.lines.is_empty()) {
+        let records = crate::ledger::list(app, Some(&s.id)).await.unwrap_or_default();
+        for l in &mut s.lines {
+            let Some(r) = records.iter().find(|r| r.part == l.part) else { continue };
+            l.state = r.events.iter().rev().map(|e| e.event.as_str()).find(|e| matches!(*e, "inserted" | "posted_by_hand" | "confirmed")).map(str::to_string);
+        }
+    }
+}
+
+/// `DiffSelection::lines`: the selected lines of a pull request's diff (Home's cached diff of its head, else read
+/// from GitHub), numbered, with `+`/`-`/space marks, and a first line naming the head when it moved since the owner
+/// selected them. None when the file or lines are not in the diff.
+pub async fn selection_lines(app: &App, sel: &DiffSelection) -> Option<String> {
+    let v = match crate::items::diff(app, &sel.repo, sel.number).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("selection of {}#{}: {e:#}", sel.repo, sel.number);
+            return None;
+        }
+    };
+    let file = v["files"].as_array()?.iter().find(|f| f["filename"].as_str() == Some(sel.path.as_str()))?;
+    let picked = pick_lines(file["patch"].as_str()?, sel.side == "LEFT", sel.start, sel.end);
+    if picked.is_empty() {
+        return None;
+    }
+    let head = v["head"].as_str().unwrap_or_default();
+    let mut out = String::new();
+    if let Some(h) = sel.head.as_deref().filter(|h| !head.is_empty() && !head.starts_with(*h)) {
+        out.push_str(&format!("@@ read at {} (the owner selected the lines at {}: the numbers may have moved) @@\n", &head[..head.len().min(12)], &h[..h.len().min(12)]));
+    }
+    out.push_str(&picked.join("\n"));
+    Some(out)
+}
+
+/// The lines of a unified diff patch whose old (`left`) or new line number is in `start..=end`, numbered and marked.
+fn pick_lines(patch: &str, left: bool, start: u64, end: u64) -> Vec<String> {
+    let (mut old, mut new) = (0u64, 0u64);
+    let mut out = vec![];
+    let cut = |t: &str| t.chars().take(400).collect::<String>();
+    for line in patch.lines() {
+        if let Some(h) = line.strip_prefix("@@ ") {
+            for part in h.split_whitespace() {
+                let num = |p: &str| p.split(',').next().and_then(|n| n.parse::<u64>().ok());
+                if let Some(n) = part.strip_prefix('-').and_then(num) {
+                    old = n;
+                } else if let Some(n) = part.strip_prefix('+').and_then(num) {
+                    new = n;
+                }
+            }
+            continue;
+        }
+        let (mark, text) = line.split_at(line.chars().next().map(char::len_utf8).unwrap_or(0));
+        let at = match mark {
+            "+" => {
+                new += 1;
+                (!left).then_some(new - 1)
+            }
+            "-" => {
+                old += 1;
+                left.then_some(old - 1)
+            }
+            " " | "" => {
+                old += 1;
+                new += 1;
+                Some(if left { old - 1 } else { new - 1 })
+            }
+            _ => None,
+        };
+        if let Some(n) = at.filter(|n| (start..=end).contains(n)) {
+            out.push(format!("{n:>5} {}{}", if mark.is_empty() { " " } else { mark }, cut(text)));
+            if out.len() >= 400 {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// `branch.push-to-pr`: the owner's Push to this PR. Reads the pull request on GitHub, then pushes the Launchpad
+/// branch at `head` (the commit the owner saw) to the pull request's branch: its repository, or the fork when the
+/// author lets maintainers edit (or the fork is the owner's), only as a fast-forward of its head, never forced
+/// (`home_git::push_to_pull_request`). Home then follows the branch (`git_follow`), so the agent's next commits go
+/// there too, like a session launched with Push to PR.
+pub async fn push_to_pr(app: &App, repo: &str, number: u64, branch: &str, head: &str) -> Result<serde_json::Value> {
+    use anyhow::{Context, ensure};
+    crate::items::validate(repo)?;
+    ensure!(branch.starts_with("lp/") && branch.len() <= 255 && !branch.contains(".."), "only Launchpad branches (lp/…) go to a pull request");
+    ensure!(head.len() == 40 && head.bytes().all(|b| b.is_ascii_hexdigit()), "give the branch's commit you saw (40 characters)");
+    let label = format!("{repo}#{number}");
+    let v = app.github.get(&format!("/repos/{repo}/pulls/{number}")).await.with_context(|| format!("could not read pull request {label}"))?;
+    ensure!(v["state"] == "open", "pull request {label} is not open");
+    let head_repo = v["head"]["repo"]["full_name"].as_str().with_context(|| format!("the branch repository of {label} was deleted"))?.to_string();
+    let target = v["head"]["ref"].as_str().context("pull request branch missing")?.to_string();
+    let pr_head = v["head"]["sha"].as_str().context("pull request head missing")?.to_string();
+    let url = v["html_url"].as_str().context("pull request URL missing")?.to_string();
+    let projects = launchpad_core::projects::list(app).await?;
+    let mut project = None;
+    for p in projects.iter().filter(|p| p.home_git && !p.is_temp) {
+        let names = [p.gh_repo.as_deref(), p.gh_upstream.as_deref()];
+        if names.iter().flatten().any(|r| same(r, repo) || same(r, &head_repo)) && launchpad_core::home_git::tip(app, &p.id, &format!("refs/heads/{branch}")).await?.is_some() {
+            project = Some(p.clone());
+            break;
+        }
+    }
+    let p = project.with_context(|| format!("no folder of {repo} has the branch {branch}"))?;
+    if let Some(f) = launchpad_core::home_git::follow(app, &p.id, branch).await? {
+        ensure!(f.url.trim_end_matches('/') == url.trim_end_matches('/'), "{branch} already goes to {}", f.url);
+    }
+    let own = p.gh_repo.as_deref().is_some_and(|r| same(r, &head_repo));
+    let login = crate::items::cached(app, "/user".into()).await.ok().flatten().and_then(|u| u["login"].as_str().map(str::to_string));
+    let yours = login.is_some_and(|l| head_repo.split('/').next().is_some_and(|o| same(o, &l)));
+    ensure!(own || yours || v["maintainer_can_modify"] == true, "the author of {label} does not let maintainers edit its branch: Home cannot push there");
+    let remote = if own {
+        "origin".to_string()
+    } else {
+        launchpad_core::predrafts::fork_url(&p.remote_url.clone().unwrap_or_default(), &p.gh_repo.clone().unwrap_or_default(), &head_repo).with_context(|| format!("cannot derive the URL of {head_repo}"))?
+    };
+    launchpad_core::home_git::push_to_pull_request(app, &p, branch, head, &remote, &target, &pr_head).await?;
+    // The session whose branch it is (`lp/<slug>-<session8>`) hears of it and of later pushes.
+    let short = branch.rsplit('-').next().unwrap_or_default();
+    let mut session = None;
+    for s in app.sessions.list().into_iter().filter(|s| short.len() == 8 && s.id.starts_with(short)) {
+        if launchpad_core::away::session_branch(app, &s.id, &p.id, branch).await.ok().flatten().is_some() {
+            session = Some(s.id);
+            break;
+        }
+    }
+    let follow = launchpad_core::home_git::Follow { remote, branch: target.clone(), url: url.clone(), session_id: session.clone(), forwarded: Some(head.to_string()), error: None };
+    launchpad_core::home_git::set_follow(app, &p.id, branch, &follow).await?;
+    app.bus.publish("home_git", "followed", serde_json::json!({"project_id": p.id, "branch": branch, "url": url}));
+    if let Some(sid) = &session {
+        let text = format!("The owner pushed {branch} ({}) to {url} ({target}). Home now pushes your next commits on this branch there too; it never force-pushes.", &head[..12]);
+        launchpad_core::sessions::notice_anywhere(app, sid, &text).await;
+    }
+    Ok(serde_json::json!({"ok": true, "url": url, "branch": target, "head": head}))
+}
+
 /// The default bot: the folder's setting, else the last bot used on the repository, else the workspace's Ask bot.
 async fn default_bot(app: &App, project: Option<&Project>, repo: Option<&str>, workspace: Option<&str>) -> Option<ExtBot> {
     let ws = workspace?;
@@ -706,6 +962,7 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
         defaults: ExtDefaults { bot: default_bot(app, project, page.repo.as_deref(), ws.as_deref()).await, review: match page.repo.as_deref() { Some(r) => review_choice(app, r).await.unwrap_or(None), None => None } },
         login: d.login.clone(),
         presets: presets(app),
+        ci: None,
         page: page.clone(),
     };
     let Some(repo) = page.repo.as_deref() else { return Ok(out) };
@@ -714,6 +971,14 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
     let s = state(&d, &uses, &item);
     (out.agents, out.suggestions, out.local_prs, out.today) = (s.agents, s.suggestions, s.local_prs, s.today);
     out.branches = branches(app, folder.as_ref(), page.number).await;
+    if page.kind.is_pr() && let (Some(f), Some(n), Some(head)) = (folder.as_ref(), page.number, page.head.as_deref()) {
+        let url = format!("https://github.com/{repo}/pull/{n}");
+        out.branches.extend(push_ready(app, f, &out.agents, &out.branches, n, head, &url).await);
+    }
+    if page.kind.is_pr() {
+        out.ci = ci(app, repo, page.number).await;
+    }
+    ledger_states(app, &mut out.suggestions).await;
     let threads = crate::inbox::of(app).threads_of(app, Some(repo), &[]).await.unwrap_or_default();
     out.inbox_unread = threads.iter().filter(|t| t.unread).count() as u32;
     if let Some(n) = page.number {

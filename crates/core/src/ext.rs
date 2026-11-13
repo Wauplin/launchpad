@@ -49,6 +49,11 @@ pub trait Extensions: Send + Sync {
     async fn inbox_threads(&self, _app: &App) -> Result<Vec<crate::github::Thread>> {
         Ok(vec![])
     }
+    /// Home: the lines of a pull request's diff a selection names (`DiffSelection::lines`), read from Home's cache or
+    /// GitHub, with a note when the pull request moved since; None when they cannot be read.
+    async fn selection_lines(&self, _app: &App, _selection: &crate::model::DiffSelection) -> Option<String> {
+        None
+    }
     /// The Today items of the crates above the core (proposals, Outbox drafts, suggestions, review requests,
     /// failed routines), waiting and handled (`today::Item::handled`).
     async fn today(&self, _app: &App) -> Vec<crate::today::Item> {

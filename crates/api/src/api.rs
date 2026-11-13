@@ -414,6 +414,10 @@ async fn input(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::http
     // Only Home names a sender other than the owner (`launchpad_core::senders`), in the messages it relays.
     if !headers.contains_key(launchpad_http::FROM_HOME) {
         b.context.from = None;
+        // Only Home reads a selection's lines (`runners::deliver`).
+        if let Some(sel) = &mut b.context.selection {
+            sel.lines = None;
+        }
     }
     // Images stay references (records and events carry no bytes); the harness gets data URLs at delivery.
     launchpad_core::attachments::fetch_missing_images(&s.app, &id, &b.images).await.map_err(bad)?;

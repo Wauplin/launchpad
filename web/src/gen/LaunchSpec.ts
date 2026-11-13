@@ -2,6 +2,7 @@
 import type { AgentTraceRef } from "./AgentTraceRef";
 import type { BotLaunch } from "./BotLaunch";
 import type { ContextProject } from "./ContextProject";
+import type { DiffSelection } from "./DiffSelection";
 import type { FileAttachment } from "./FileAttachment";
 import type { FileRef } from "./FileRef";
 import type { GitHubRef } from "./GitHubRef";
@@ -45,7 +46,11 @@ files: Array<FileRef>,
 /**
  * Stored trace through a fixed sequence number, selected as launch context.
  */
-agent_traces: Array<AgentTraceRef>, model: string | null, effort: string | null, 
+agent_traces: Array<AgentTraceRef>, 
+/**
+ * Lines of a pull request's diff the task is about (`MessageContext::selection`), resolved by Home.
+ */
+selection?: DiffSelection, model: string | null, effort: string | null, 
 /**
  * The workspace of the window that launched it. A new scratch folder joins it; other targets keep their own.
  */

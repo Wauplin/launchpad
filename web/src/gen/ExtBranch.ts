@@ -18,6 +18,6 @@ not_on_github: boolean,
  */
 error: string | null, 
 /**
- * Always null until M3.
+ * An agent branch Home does not push there yet, with the commits it would add (`branch.push-to-pr`).
  */
 push_ready: ExtPushReady | null, };
