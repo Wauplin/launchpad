@@ -60,7 +60,7 @@ When a message is posted, Home decides which bots it wakes:
 - Members in mode **muted**: never, even when mentioned.
 - The author is never woken by its own message.
 
-Each delivery goes to the bot's thread like any message to the bot. A delivery waits in the bot's queue while the bot works, while a bot's message waits for confirmed quota (see [Quota](#quota)), or behind earlier messages to the bot that still wait. A later message of the same channel joins the waiting one: the bot gets one message that names the range (“3 new messages (12 to 14)”) and shows the newest.
+Each delivery goes to the bot's thread for that channel or DM: each channel has its own thread of the bot, so a bot can work on several channels at once. A delivery waits in that thread's queue while the thread works, while the bot works in as many threads as it may (see [Threads](bots.md#threads)), while a bot's message waits for confirmed quota (see [Quota](#quota)), or behind earlier messages to the bot that still wait. A later message of the same channel joins the waiting one: the bot gets one message that names the range (“3 new messages (12 to 14)”) and shows the newest.
 
 Each delivery is recorded with its state: queued, sent (with the session), combined (joined a waiting one) or skipped. A skipped delivery keeps its reason: channel paused, bot paused, muted, hop limit, hourly limit, bot deleted, send failed, or uncertain. A delivery is sent once and never retried. If Home stopped while it was sending one, that delivery becomes skipped as uncertain at the next start: it may have arrived, and it is not sent again.
 
