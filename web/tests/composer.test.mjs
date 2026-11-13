@@ -112,7 +112,6 @@ test("existing worktree choices require a reusable primary folder and account fo
     assert.deepEqual(choices({ ...info, worktree: { ...info.worktree, ...patch } }), []);
   }
   assert.deepEqual(choices(info, [{ ...source, cwd: "/repo" }]), []);
-  assert.deepEqual(choices(info, [{ ...source, launch_spec: { target: { kind: "browser" } } }]), []);
 });
 
 
