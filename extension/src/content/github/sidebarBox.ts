@@ -11,8 +11,9 @@ import type { ExtContext } from "@/gen/ExtContext";
 import { request } from "../../shared/messages";
 import { findAnchor } from "./anchors";
 import { askPopover } from "./askPopover";
-import { insertSuggestion } from "./insert";
-import { agentPath, dotClass, elapsed, open, refOf, statusText, stop, who, type ItemPage } from "./item";
+import { openAgentView } from "./agentView";
+import { insertSuggestion, isPrefilled, showPrefilled } from "./insert";
+import { agentPath, dotClass, elapsed, open, refOf, running, statusText, stop, who, type ItemPage } from "./item";
 import { launchPopover } from "./launchPopover";
 import { publishPopover } from "./lists";
 import { stepOfSession } from "./live";
@@ -20,11 +21,13 @@ import { button, h, logo, more, mount, popover, unmount, type MenuEntry } from "
 
 const ID = "sidebar-box";
 
-function agentRow(a: ExtAgent) {
+function agentRow(a: ExtAgent, ws: string | null) {
   const step = a.status === "working" ? stepOfSession(a.session_id) : null;
-  return h("div", { class: "lp-row", title: a.title },
+  const show = h("button", { class: "lp-link lp-grow", text: `${who(a)} · ${step ?? statusText(a)}`, title: `${a.title}: show its work here`, attrs: { type: "button", style: "text-align: left" },
+    on: { click: (e) => { e.preventDefault(); openAgentView({ session_id: a.session_id, title: a.title, bot: a.bot, running: running(a) }, ws); } } });
+  return h("div", { class: "lp-row" },
     h("span", { class: dotClass(a) }),
-    h("span", { class: "lp-grow", text: `${who(a)} · ${step ?? statusText(a)}` }),
+    show,
     h("span", { class: "lp-muted", text: elapsed(a.since) }));
 }
 
@@ -37,7 +40,7 @@ export function renderSidebarBox(page: ItemPage, ctx: ExtContext | null, refresh
   const waiting = ctx?.suggestions.filter((s) => s.number === page.number) ?? [];
   const branches = ctx?.branches ?? [];
   const steps = agents.map((a) => `${a.session_id}:${a.status}:${a.since}:${stepOfSession(a.session_id) ?? ""}`).join(",");
-  const key = ctx ? JSON.stringify([page.url, ctx.folder?.id, ctx.workspace?.id, steps, waiting.map((s) => `${s.id}:${s.status}:${s.outdated}`), branches.map((b) => `${b.branch}:${b.head}:${b.not_on_github}:${b.error}:${b.push_ready?.ahead}`), ctx.local_prs.map((p) => `${p.id}:${p.state}`), ctx.page.maintainer_can_modify, ctx.page.head_repo]) : `reserve:${page.url}`;
+  const key = ctx ? JSON.stringify([page.url, ctx.folder?.id, ctx.workspace?.id, steps, waiting.map((s) => `${s.id}:${s.status}:${s.outdated}:${isPrefilled(s.id)}`), branches.map((b) => `${b.branch}:${b.head}:${b.not_on_github}:${b.error}:${b.push_ready?.ahead}`), ctx.local_prs.map((p) => `${p.id}:${p.state}`), ctx.page.maintainer_can_modify, ctx.page.head_repo]) : `reserve:${page.url}`;
   const w = mount(ID, key, anchor.el, anchor.place, "box");
   if (!w.fresh) return;
   if (!ctx) {
@@ -48,7 +51,7 @@ export function renderSidebarBox(page: ItemPage, ctx: ExtContext | null, refresh
   const box = h("div", { class: "lp-box" }, h("div", { class: "lp-row" }, logo(), h("span", { class: "lp-title", text: "Launchpad" }), h("span", { class: "lp-muted lp-grow", text: where })));
 
   if (agents.length) {
-    box.append(h("div", { class: "lp-label", text: `Agents on this ${page.kind === "issue" ? "issue" : "pull request"}` }), ...agents.slice(0, 3).map(agentRow));
+    box.append(h("div", { class: "lp-label", text: `Agents on this ${page.kind === "issue" ? "issue" : "pull request"}` }), ...agents.slice(0, 3).map((a) => agentRow(a, ws)));
     if (agents.length > 3) box.append(h("div", { class: "lp-muted", text: `and ${agents.length - 3} more` }));
   }
   const reply = waiting.find((s) => s.kind === "comment");
@@ -73,7 +76,9 @@ export function renderSidebarBox(page: ItemPage, ctx: ExtContext | null, refresh
   const ref = refOf(page, ctx);
   const repoFolder = !!ctx.folder && ctx.folder.relation !== "fork";
   let main: HTMLButtonElement;
-  if (reply && reply.status === "draft") {
+  if (reply && reply.status === "draft" && isPrefilled(reply.id)) {
+    main = button("Edit the reply", () => showPrefilled(reply.id), { full: true, title: "The draft is in GitHub's comment box: edit it, then post it with GitHub's button" });
+  } else if (reply && reply.status === "draft") {
     main = button("Insert reply", () => void insertSuggestion(page, reply).catch((e) => console.warn("Launchpad: insert", e)), { full: true, title: "Puts the reply into GitHub's box: you edit it and post it with GitHub's button" });
   } else if (page.kind === "issue" && prs[0]) {
     const p = prs[0];
@@ -119,6 +124,7 @@ function entries(page: ItemPage, ctx: ExtContext, agents: ExtAgent[], ws: string
   if (review) out.push({ label: "Open the suggested review", hint: "In Launchpad, with its line comments", onSelect: () => open(`/github/${page.repo}/${page.number}?tab=files&draft=${encodeURIComponent(review)}`, ws) });
   for (const a of agents.slice(0, 5)) {
     out.push({ separator: true });
+    out.push({ label: `Show ${who(a)}'s work`, hint: `${a.title}: its turns and steps, here on the page`, onSelect: () => openAgentView({ session_id: a.session_id, title: a.title, bot: a.bot, running: running(a) }, ws) });
     out.push({ label: `Open ${who(a)} in Launchpad`, hint: a.title, onSelect: () => open(agentPath(a), ws) });
     if (a.status === "working" || a.status === "starting") out.push({ label: `Stop ${who(a)}`, hint: "Stops its turn", onSelect: () => void stop(a).then(refresh).catch((e) => console.warn("Launchpad: stop", e)) });
   }

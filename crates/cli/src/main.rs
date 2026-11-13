@@ -85,6 +85,18 @@ enum Command {
         #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
         session_id: String,
     },
+    /// Leave the owner a private note about a GitHub issue or pull request (Markdown, never posted); it replaces this
+    /// bot's (else this session's) earlier note about the item and shows on the item's page in the Chrome extension.
+    Note {
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        number: u64,
+        #[arg(long)]
+        body_file: std::path::PathBuf,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
+    },
     /// Save a suggestion locally and link its session to the GitHub item and topic; never posts.
     Suggest {
         #[command(subcommand)]
@@ -938,6 +950,12 @@ async fn run() -> Result<()> {
             session_id,
         } => {
             let value = Client::new(&paths)?.json("POST", "/api/link", Some(serde_json::json!({"repo":repo,"number":number,"comment_url":comment_url,"session_id":session_id}))).await?;
+            println!("{value}");
+            Ok(())
+        }
+        Command::Note { repo, number, body_file, session_id } => {
+            let body = std::fs::read_to_string(&body_file).with_context(|| format!("reading {}", body_file.display()))?;
+            let value = Client::new(&paths)?.json("POST", "/api/notes", Some(serde_json::json!({"repo":repo,"number":number,"body":body,"session_id":session_id}))).await?;
             println!("{value}");
             Ok(())
         }

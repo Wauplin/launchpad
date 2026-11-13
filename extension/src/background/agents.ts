@@ -132,6 +132,10 @@ export async function stop(a: { id: string }) {
   await homeJson(`/api/sessions/${id(a.id, "session")}/interrupt`, { method: "POST", body: {} });
 }
 
+export async function deleteNote(a: { id: string }) {
+  await homeJson(`/api/notes/${id(a.id, "note")}`, { method: "DELETE" });
+}
+
 const LEDGER: readonly LedgerAction[] = ["shown", "inserted", "posted-by-hand", "dismiss-comment"];
 export function ledger(a: { action: LedgerAction; id: string; part?: string; text?: string }) {
   if (!LEDGER.includes(a.action)) throw new RequestError("Not a ledger action");

@@ -332,6 +332,20 @@ pub struct ExtDefaults {
     pub review: Option<ExtReviewChoice>,
 }
 
+/// A private note about the page's item (`crate::notes`).
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ExtNote {
+    pub id: String,
+    /// The bot's name, else the session's title.
+    pub author: String,
+    pub bot_id: Option<String>,
+    pub session_id: Option<String>,
+    /// Markdown.
+    pub body: String,
+    #[ts(type = "number")]
+    pub updated_at: i64,
+}
+
 /// What a pull request changes in files that decide what its CI runs (workflows, scripts, dependencies, build
 /// files), from Home's cached files of its head: a note next to GitHub's Approve and run.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -358,6 +372,8 @@ pub struct ExtContext {
     pub workspace: Option<ExtWorkspace>,
     pub agents: Vec<ExtAgent>,
     pub suggestions: Vec<ExtSuggestion>,
+    /// The private notes of the workspace about this item (`launchpad note`), newest first.
+    pub notes: Vec<ExtNote>,
     pub local_prs: Vec<ExtLocalPr>,
     pub branches: Vec<ExtBranch>,
     /// Today item IDs about this page (its item, its agents, its Local PRs; on repository pages, the repository).
@@ -955,6 +971,7 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
         others,
         agents: vec![],
         suggestions: vec![],
+        notes: vec![],
         local_prs: vec![],
         branches: vec![],
         today: vec![],
@@ -971,6 +988,15 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
     let item = Item { repo, number: page.number, folder: folder.as_ref(), workspace: ws.as_deref(), head: page.head.as_deref(), head_branch: page.head_branch.as_deref() };
     let s = state(&d, &uses, &item);
     (out.agents, out.suggestions, out.local_prs, out.today) = (s.agents, s.suggestions, s.local_prs, s.today);
+    if let (Some(n), Some(w)) = (page.number, ws.as_deref()) {
+        out.notes = crate::notes::of_item(app, repo, n)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|x| x.workspace_id.as_deref() == Some(w))
+            .map(|x| ExtNote { id: x.id, author: x.author, bot_id: x.bot_id, session_id: x.session_id, body: x.body, updated_at: x.updated_at })
+            .collect();
+    }
     out.branches = branches(app, folder.as_ref(), page.number).await;
     if page.kind.is_pr() && let (Some(f), Some(n), Some(head)) = (folder.as_ref(), page.number, page.head.as_deref()) {
         let url = format!("https://github.com/{repo}/pull/{n}");

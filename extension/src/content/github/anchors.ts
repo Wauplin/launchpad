@@ -173,6 +173,26 @@ export const ANCHORS = {
       { via: "aria", find: (p) => all("main h1, h1").find((h) => h.textContent?.includes(`#${p.number}`)) ?? null },
     ],
   },
+  /** The description (opening comment) of a pull request or issue: the private notes go right under it. */
+  "item-description": {
+    label: "Pull request and issue description",
+    kinds: ["pr_conversation", "issue"],
+    place: "afterend",
+    strategies: [
+      // Classic conversation: the opening comment's group (`pullrequest-…`, `issue-…`) and its timeline item.
+      { via: "id", find: () => {
+        const group = document.querySelector('.js-discussion .timeline-comment-group[id^="pullrequest-"], .js-discussion .timeline-comment-group[id^="issue-"]');
+        return group?.closest(".js-comment-container, .TimelineItem") ?? group ?? document.querySelector(".js-discussion > .js-comment-container:first-child, .js-discussion > .TimelineItem:first-child");
+      } },
+      // React issues: the issue body.
+      { via: "data", find: () => {
+        const body = document.querySelector('[data-testid="issue-body"]');
+        return body?.closest('[data-testid^="issue-viewer-issue-container"], [data-testid="issue-body-viewer"]') ?? body;
+      } },
+      // The first comment box of the page's main column.
+      { via: "aria", find: () => document.querySelector('main [data-testid="markdown-body"], main .comment-body')?.closest('.timeline-comment, [data-testid^="comment-viewer-outer-box"]') ?? null },
+    ],
+  },
   /** The first block of a pull request's or issue's sidebar: the Launchpad box (I1). */
   "sidebar": {
     label: "Sidebar of a pull request or issue",

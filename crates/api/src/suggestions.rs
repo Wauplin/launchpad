@@ -20,6 +20,27 @@ pub fn router() -> Router<Ctx> {
         .route("/api/suggestions/{id}/inserted", post(inserted))
         .route("/api/suggestions/{id}/posted-by-hand", post(posted_by_hand))
         .route("/api/suggestions/{id}/dismiss-comment", post(dismiss_comment))
+        .route("/api/notes", get(notes).post(write_note))
+        .route("/api/notes/{id}", axum::routing::delete(delete_note))
+}
+#[derive(serde::Deserialize)]
+struct NotesQuery {
+    repo: String,
+    number: u64,
+}
+/// The private notes about one GitHub item (`GET /api/notes?repo=&number=`, the owner's).
+async fn notes(State(s): State<Ctx>, axum::extract::Query(q): axum::extract::Query<NotesQuery>) -> ApiResult<Value> {
+    launchpad_github::items::validate(&q.repo)?;
+    Ok(Json(json!(launchpad_github::notes::of_item(&s.app, &q.repo, q.number).await?)))
+}
+/// `launchpad note`: an agent's own write (`agent_auth` checks the body's `session_id`).
+async fn write_note(State(s): State<Ctx>, Json(q): Json<launchpad_github::notes::Write>) -> ApiResult<Value> {
+    Ok(Json(json!(launchpad_github::notes::write(&s.app, q).await?)))
+}
+/// `note.delete`: the owner's.
+async fn delete_note(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
+    launchpad_github::notes::delete(&s.app, &id).await?;
+    Ok(Json(json!({"ok": true})))
 }
 /// The part of a suggestion a ledger action is about: `body` (the default) or `line:<path>:<line>:<side>`.
 #[derive(serde::Deserialize)]

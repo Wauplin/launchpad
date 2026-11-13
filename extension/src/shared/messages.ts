@@ -49,6 +49,9 @@ export type ConnectionState = {
   workspace: string | null;
   /** Today's count of the current workspace (null before the first answer). */
   today: number | null;
+  /** Settings → GitHub: fill GitHub's comment box with an agent's suggested comment when an item page opens (on by
+   * default). Posting stays GitHub's own button. */
+  prefill: boolean;
   error: string | null;
 };
 
@@ -126,6 +129,7 @@ export type Requests = {
   "connect.address.poll": Req<void, { approved: boolean; state: ConnectionState }>;
   "disconnect": Req<void, ConnectionState>;
   "settings.client-id": Req<{ client_id: string | null }, ConnectionState>;
+  "settings.prefill": Req<{ on: boolean }, ConnectionState>;
   "workspace.set": Req<{ id: string }, ConnectionState>;
   /** The GitHub layer follows the repository's workspace (the worker also does it itself on `context`). */
   "workspace.follow": Req<{ id: string }, ConnectionState>;
@@ -167,6 +171,8 @@ export type Requests = {
   "sessions": Req<{ bot?: string }, Session[]>;
   /** The newest events of a session (`events/page?tail=`). */
   "session.events": Req<{ id: string; tail?: number }, SessionEventPage>;
+  /** Deletes an agent's private note about a GitHub item (`note.delete`). */
+  "note.delete": Req<{ id: string }, void>;
   /** Stops a session's turn (`session.stop`). */
   "session.stop": Req<{ id: string }, void>;
   /** A feedback-ledger record of a suggestion (`suggestion.shown`, `.inserted`, `.posted-by-hand`, `.dismiss-comment`). */
@@ -200,7 +206,7 @@ export type Message<K extends Kind = Kind> = { kind: K; args: Args<K> };
 export type Answer<K extends Kind = Kind> = { ok: true; data: Result<K> } | { ok: false; error: string; status?: number };
 
 /** Requests only extension pages (the panel) may send. */
-export const PAGE_ONLY: readonly Kind[] = ["signin", "discover", "connect.space", "connect.address.start", "connect.address.poll", "disconnect", "settings.client-id", "workspace.set", "anchors.health", "quote.take"];
+export const PAGE_ONLY: readonly Kind[] = ["signin", "discover", "connect.space", "connect.address.start", "connect.address.poll", "disconnect", "settings.client-id", "settings.prefill", "workspace.set", "anchors.health", "quote.take"];
 
 /** An error of a request, with Home's HTTP status when there was one. */
 export class RequestError extends Error {

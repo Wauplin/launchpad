@@ -81,7 +81,7 @@ function stale(urls: string[] | "*") {
 }
 
 /** Topics whose events can change any page's context. */
-const ALL = new Set(["today", "suggestions", "predrafts", "projects", "inbox", "bots", "workspaces", "worktrees", "home_git"]);
+const ALL = new Set(["today", "suggestions", "predrafts", "projects", "inbox", "bots", "workspaces", "worktrees", "home_git", "notes"]);
 
 /** Called for every bus event of Home's stream. */
 export function contextEvent(ev: BusEvent) {

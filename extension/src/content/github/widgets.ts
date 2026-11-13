@@ -120,6 +120,22 @@ const STYLE = `
   border: 1px solid var(--borderColor-default, #d1d9e0); background: var(--bgColor-default, #ffffff); }
 .lp-pop textarea { min-height: 64px; resize: vertical; }
 .lp-pop select:focus-visible, .lp-pop textarea:focus-visible { outline: 2px solid var(--lp-teal); outline-offset: -1px; }
+/* Agent Markdown (markdown.ts). */
+.lp-md { font-size: 14px; line-height: 1.5; color: var(--fgColor-default, #1f2328); word-break: break-word; font-weight: 400; }
+.lp-md > :first-child { margin-top: 0; }
+.lp-md > :last-child { margin-bottom: 0; }
+.lp-md p, .lp-md ul, .lp-md ol, .lp-md pre, .lp-md blockquote { margin: 0 0 8px; }
+.lp-md ul, .lp-md ol { padding-left: 22px; }
+.lp-md li + li { margin-top: 2px; }
+.lp-md h3, .lp-md h4 { margin: 12px 0 6px; font-size: 14px; font-weight: 600; }
+.lp-md h3 { font-size: 15px; }
+.lp-md code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 4px; border-radius: 4px; background: var(--bgColor-neutral-muted, #818b981f); }
+.lp-md pre { padding: 8px 10px; border-radius: 6px; overflow: auto; background: var(--bgColor-muted, #f6f8fa); }
+.lp-md pre code { padding: 0; background: none; white-space: pre; }
+.lp-md blockquote { padding: 0 10px; border-left: 3px solid var(--borderColor-default, #d1d9e0); color: var(--fgColor-muted, #59636e); }
+.lp-md hr { border: 0; height: 1px; background: var(--borderColor-muted, #d1d9e0b3); margin: 10px 0; }
+.lp-md a { color: var(--fgColor-accent, #0969da); text-decoration: none; }
+.lp-md a:hover { text-decoration: underline; }
 `;
 
 type Props = { class?: string; text?: string; title?: string; attrs?: Record<string, string>; on?: Partial<Record<keyof HTMLElementEventMap, (e: Event) => void>> };

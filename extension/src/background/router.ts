@@ -3,7 +3,7 @@
 // with its own route and checks (there is no generic Home call), never its credentials or device routes.
 
 import { PAGE_ONLY, RequestError, type Answer, type Args, type Kind, type Message, type Result } from "../shared/messages";
-import { botMessage, bots, botThreads, events, launch, ledger, profiles, sessions, stop, takeQuote } from "./agents";
+import { botMessage, bots, botThreads, deleteNote, events, launch, ledger, profiles, sessions, stop, takeQuote } from "./agents";
 import { clone, doneHandled, localPr, notifications, observed, publish, pushToPr, reviewChoice } from "./lists";
 import { anchorHealth, follow, pageContext, pageRows, peekContext, reportAnchors } from "./context";
 import { startEvents, stopEvents } from "./events";
@@ -30,6 +30,11 @@ const handlers: { [K in Kind]: Handler<K> } = {
     const value = client_id?.trim();
     if (value) await setLocal({ "hf.client_id": value }); else await removeLocal("hf.client_id");
     update({ client_id: await clientId() });
+    return current();
+  },
+  "settings.prefill": async ({ on }) => {
+    if (on) await removeLocal("prefill.off"); else await setLocal({ "prefill.off": true });
+    update({ prefill: !!on });
     return current();
   },
   "workspace.set": async ({ id }) => { await setWorkspace(id); return current(); },
@@ -60,6 +65,7 @@ const handlers: { [K in Kind]: Handler<K> } = {
   sessions: (args) => sessions(args),
   "session.events": (args) => events(args),
   "session.stop": (args) => stop(args),
+  "note.delete": (args) => deleteNote(args),
   "suggestion.ledger": (args) => ledger(args),
   notifications: () => notifications(),
   "inbox.observed": (args) => observed(args),

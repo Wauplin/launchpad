@@ -212,6 +212,8 @@ DROP TABLE IF EXISTS browser_grant;
 DROP TABLE IF EXISTS browser_site;
 CREATE TABLE IF NOT EXISTS scheduled_launch (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS draft_comment (id TEXT PRIMARY KEY, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS item_note (id TEXT PRIMARY KEY, item TEXT NOT NULL, json TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS item_note_item ON item_note (item);
 CREATE TABLE IF NOT EXISTS suggestion_ledger (suggestion_id TEXT NOT NULL, part TEXT NOT NULL, repo TEXT, number INTEGER, pending INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, json TEXT NOT NULL, PRIMARY KEY (suggestion_id, part));
 CREATE INDEX IF NOT EXISTS suggestion_ledger_pending ON suggestion_ledger (repo, number) WHERE pending = 1;
 CREATE TABLE IF NOT EXISTS predraft (id TEXT PRIMARY KEY, json TEXT NOT NULL);

@@ -97,7 +97,7 @@ The extension follows the workspace of the repository you look at: when a folder
 
 ### Pull request and issue conversation
 
-- **Launchpad box** at the top of GitHub's sidebar. It lists the agents on the item, suggestions waiting for you, Local PRs and the agent's branch. Its one main button depends on the state:
+- **Launchpad box** at the top of GitHub's sidebar. It lists the agents on the item (click one to read its work on the page), suggestions waiting for you, Local PRs and the agent's branch. Its one main button depends on the state (**Edit the reply** when a reply was prefilled into GitHub's box):
   - pull request: **Insert reply**, then **Push to this PR**, **Continue**, **Review with agent**;
   - issue: **Insert reply**, then **Publish…** (its Local PR), **Fix in a Local PR**, **Investigate**.
 - **Ask** on each comment: a bot gets the item and that comment as context (by its ID, never the page text). Messages about one item go to that item's thread of the bot, so each pull request or issue has its own conversation. A comment that mentions you gets an amber **Ask <bot> what to answer**.
@@ -105,9 +105,21 @@ The extension follows the workspace of the repository you look at: when a folder
 - **Investigate** and **Check with an agent** launch a read-only agent; **Fix in a Local PR** launches an agent that ends with a Local PR. These are one-time launches in the folder, with a profile you pick in the popover.
 - **Before you approve**: next to GitHub's **Approve and run** banner, a note lists the files of the pull request that change what CI runs (from Home's copy of the diff), with **Check with an agent**. GitHub's button stays your click.
 
-### Insert
+### Private notes
 
-An agent's suggested comment shows as a banner over GitHub's comment box. **Insert** writes it into GitHub's box:
+Agents can leave you a private note about an issue or pull request (`launchpad note`): a summary, what matters, risks, what to check. Notes are never posted. They show in a card right under the item's description, newest first, one per bot (a bot's new note replaces its earlier one). Long notes fold; **Show all** unfolds them. **Show work** opens the agent's work on the page (see below). In **⋯**, you can open the agent in Launchpad or delete the note. The panel's **This item** lists the same notes.
+
+A triage bot typically writes both: a note for you, and a suggested comment to post.
+
+### An agent's work on the page
+
+Click an agent in the Launchpad box (or **Show work** on a note, or **Show the agent's work** in a banner's **⋯**). A drawer opens on the right with what the agent was asked, its answer for each turn (Markdown) and its steps, folded under a line such as “12 steps · 3 min”. It refreshes every 5 seconds while it is open. **Close** or Esc closes it. **Open in Launchpad** opens the full trace, with Stop.
+
+### Prefill and Insert
+
+When you open a pull request or issue and an agent suggested a comment for it, the extension puts the text into GitHub's comment box on its own if the box is empty. The banner says **Prefilled with <bot>'s draft**. Edit it and post it with GitHub's button. The page does not scroll and the focus does not move. Nothing is claimed in Launchpad until you submit GitHub's form, so Launchpad's own Post stays available. If you discard or post the suggestion from Launchpad and the box still holds the untouched text, the extension takes it out again; **⋯ → Take it out of GitHub's box** does the same. Turn prefill off in the panel's **Settings → GitHub**. It fills each suggestion once per tab: if you empty the box, it stays empty.
+
+An agent's suggested comment shows as a banner over GitHub's comment box. **Insert** writes it into GitHub's box (and **Insert again** when it was prefilled or inserted before):
 
 - The text goes in as one undo step, so Ctrl+Z removes it.
 - When the box already has text, you choose **Replace it**, **Add below** or **Cancel**.
@@ -142,9 +154,9 @@ Home pushes only to the pull request's own repository, your own fork, or a fork 
 The side panel has a header with the workspace picker and Settings, then three tabs.
 
 - **Chat**: talk to a bot of the workspace about the page or anything else. The workspace's Ask bot comes first; pick another one above the box. The **This tab** chip attaches the page: when you send, the extension reads the page once (readable text, URL and your selection) and attaches it as `page.md`. Remove the chip to send without it. Starters: **Summarize this page**, **Explain my selection**, **Find…**. The chat is one of the bot's threads in Launchpad (Main by default); pick another thread above the box, or **New conversation** to start a new thread with your next message. While the bot works, the chat shows its step with **Stop**; a question shows with **Answer in Launchpad**.
-- **This item** (on GitHub pull requests and issues): the bot's thread for this item and its state, with **Continue** to open it in Chat, and the same facts and buttons as the page's box: agents with **Stop**, suggestions with **Insert**, **Show on Files changed** and **Review in Launchpad**, Local PRs, and the branch with **Push to this PR…** (a confirm step in the panel). Use it when a mark does not show on the page.
+- **This item** (on GitHub pull requests and issues): the bot's thread for this item and its state, with **Continue** to open it in Chat, the private notes about the item, and the same facts and buttons as the page's box: agents with **Stop**, suggestions with **Insert**, **Show on Files changed** and **Review in Launchpad**, Local PRs, and the branch with **Push to this PR…** (a confirm step in the panel). Use it when a mark does not show on the page.
 - **Agents**: the workspace's agents of the last day, grouped as Needs you, Running and Earlier today.
-- **Settings**: the connection and Hugging Face account, the OAuth client ID, text size (100–150%), **GitHub anchors** (“3 of 4 work”, naming the places the extension could not find on GitHub's pages) and **Disconnect**.
+- **Settings**: the connection and Hugging Face account, the OAuth client ID, **Prefill suggested comments** (on by default), text size (100–150%), **GitHub anchors** (“3 of 4 work”, naming the places the extension could not find on GitHub's pages) and **Disconnect**.
 
 **Ask Launchpad about selection** in Chrome's right-click menu adds the selected text as a quote to the chat's box and opens the panel. It never sends by itself.
 
@@ -173,7 +185,7 @@ For each suggestion, Home records what happened to it, part by part (the review'
 
 ## Safety
 
-- **Never posts or submits.** The extension never clicks, submits or posts on GitHub. Insert only fills GitHub's own fields, and you post with GitHub's button. The extension observes that click to record it in the ledger.
+- **Never posts or submits.** The extension never clicks, submits or posts on GitHub. Insert and prefill only fill GitHub's own fields, and you post with GitHub's button. The extension observes that click to record it in the ledger.
 - **GitHub writes only through its own confirmations.** Three actions write to GitHub: **Publish** of a Local PR, **Done all handled** and **Push to this PR**. Each runs only from the confirm button of its own dialog, on your real click, and Home checks it again.
 - **Tokens stay in the service worker.** Only the service worker talks to Home and Hugging Face. It keeps the Hugging Face tokens and the device secret in extension storage that content scripts cannot read. Content scripts reach Home only through narrow messages, one per Home route.
 - **Page text stays on the page.** Marks are built from Home's data and the URL. Titles read from the page show only in the extension's popovers; agents get item numbers and comment IDs, never page text. Only Chat sends a page, when you send with its chip.

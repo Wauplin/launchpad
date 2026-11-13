@@ -25,6 +25,10 @@ For a PR review, inspect a specific committed head and use `launchpad suggest re
 
 For a Local PR, replace `--repo` and `--number` with `--predraft <id>`. Its card lets the owner add the text to local review notes. Publishing the pre-draft does not publish these suggestions. The owner can edit, post or discard GitHub drafts in the issue or PR conversation. Stop after saving the suggestion and report its id; leave posting to the owner.
 
+## Private notes about an item
+
+A note is for the owner only and is never posted: what the issue or pull request is about, what matters, risks, what to check or decide. Write Markdown to a file, then run `launchpad note --repo owner/repo --number 123 --body-file /path/to/note.md --session-id <session-id>`. A new note of the same bot (or session) about the same item replaces the earlier one, so keep it current rather than adding more. The Chrome extension shows notes on the item's page, under its description. Text meant to be posted on GitHub goes into a suggested comment instead; a triage run often writes both.
+
 ## Connections
 
 When the session prompt lists the owner's connections, send a message only when the task asks for it: write it to a file, then run `launchpad send <connection> --body-file /path/to/message.md [--title "…"] --session-id <session-id>`. `telegram` is the owner's own chat of your session's workspace (listed only when a workspace has one) and is sent at once; keep it short and plain. Every other connection (Slack, Discord, webhooks) reaches other people: the command only saves a draft in the owner's Outbox, and the owner edits and sends it. Never send the same message twice and never use other tools to post to these connections.

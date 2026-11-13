@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ExtAgent } from "@/gen/ExtAgent";
 import type { ExtBranch } from "@/gen/ExtBranch";
 import type { ExtContext } from "@/gen/ExtContext";
+import type { ExtNote } from "@/gen/ExtNote";
 import type { ExtSuggestion } from "@/gen/ExtSuggestion";
 import { ago } from "@/lib/format";
 import type { Page } from "../content/github/page";
@@ -106,6 +107,11 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
       {error && <p className="x-error">{error}</p>}
     </div>
 
+    {ctx.notes.length > 0 && <>
+      <div className="x-sect">Private notes</div>
+      {ctx.notes.map((n) => <NoteCard key={n.id} n={n} open={open} onError={setError} onDone={() => void load(true)} />)}
+    </>}
+
     {ctx.suggestions.length > 0 && <>
       <div className="x-sect">Waiting for you</div>
       {ctx.suggestions.map((s) => <div key={s.id} className="x-card">
@@ -135,7 +141,29 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
     </>}
 
     {isPr && <Branches ctx={ctx} page={page} onError={setError} onDone={() => void load(true)} />}
-    {!agents.length && !ctx.suggestions.length && !ctx.local_prs.length && <p className="x-muted x-small" style={{ margin: "0 4px" }}>No agent worked on this {isPr ? "pull request" : "issue"} yet.</p>}
+    {!agents.length && !ctx.suggestions.length && !ctx.local_prs.length && !ctx.notes.length && <p className="x-muted x-small" style={{ margin: "0 4px" }}>No agent worked on this {isPr ? "pull request" : "issue"} yet.</p>}
+  </div>;
+}
+
+/** An agent's private note about the item (`launchpad note`): only the owner sees it; Delete asks first. */
+function NoteCard({ n, open, onError, onDone }: { n: ExtNote; open: (path: string) => void; onError: (e: string | null) => void; onDone: () => void }) {
+  const [all, setAll] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const long = n.body.length > 600;
+  const remove = async () => {
+    onError(null);
+    try { await request("note.delete", { id: n.id }); onDone(); } catch (e) { onError(message(e)); } finally { setConfirm(false); }
+  };
+  return <div className="x-card">
+    <h3><span style={{ flex: 1 }}>{n.author}</span><span className="x-small x-faint">{ago(n.updated_at)}</span></h3>
+    <p className="x-small" style={{ whiteSpace: "pre-wrap", ...(long && !all ? { maxHeight: "12em", overflow: "hidden" } : {}) }}>{n.body}</p>
+    <div className="x-btns">
+      {long && <button className="x-btn x-sm" onClick={() => setAll(!all)}>{all ? "Show less" : "Show all"}</button>}
+      {n.session_id && <button className="x-btn x-sm x-link" onClick={() => open(`/agents?session=${encodeURIComponent(n.session_id!)}`)}>Agent</button>}
+      {confirm
+        ? <><button className="x-btn x-sm x-danger" onClick={() => void remove()}>Delete note</button><button className="x-btn x-sm" onClick={() => setConfirm(false)}>Cancel</button></>
+        : <button className="x-btn x-sm x-link" onClick={() => setConfirm(true)}>Delete…</button>}
+    </div>
   </div>;
 }
 

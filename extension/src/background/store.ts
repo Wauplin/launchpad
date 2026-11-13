@@ -15,6 +15,8 @@ export type Local = {
   "device"?: string;
   /** The extension's current workspace. */
   "workspace"?: string;
+  /** Settings → GitHub: prefilling GitHub's comment box was turned off. */
+  "prefill.off"?: boolean;
   /** The event stream's position, for `?boot=&since=` after the worker restarted. */
   "events.position"?: { boot: string; bus: number };
   /** The GitHub layer's last check of each anchor (`anchors.report`). */

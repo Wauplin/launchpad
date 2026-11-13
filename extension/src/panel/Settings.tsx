@@ -44,6 +44,12 @@ export function Settings({ state, back }: { state: ConnectionState; back: () => 
         <div className="x-btns"><button className="x-btn x-sm" onClick={() => void save()}>Save</button>{saved && <span className="x-small x-muted" role="status" style={{ alignSelf: "center" }}>{saved}</span>}</div>
       </div>
 
+      <div className="x-sect" style={{ marginLeft: 4, marginTop: 16 }}>GitHub</div>
+      <label className="x-setrow" style={{ cursor: "pointer" }}>
+        <input type="checkbox" checked={state.prefill} onChange={(e) => void request("settings.prefill", { on: e.target.checked }).catch((err) => setError(err instanceof Error ? err.message : String(err)))} />
+        <span className="x-d"><b style={{ fontWeight: 500 }}>Prefill suggested comments</b><small>When you open a pull request or issue, an agent's suggested comment goes into GitHub's empty comment box. You still post it with GitHub's button.</small></span>
+      </label>
+
       <Anchors />
 
       <div className="x-sect" style={{ marginLeft: 4, marginTop: 16 }}>Text size</div>

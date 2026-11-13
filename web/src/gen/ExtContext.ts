@@ -6,6 +6,7 @@ import type { ExtDefaults } from "./ExtDefaults";
 import type { ExtFolder } from "./ExtFolder";
 import type { ExtInbox } from "./ExtInbox";
 import type { ExtLocalPr } from "./ExtLocalPr";
+import type { ExtNote } from "./ExtNote";
 import type { ExtPage } from "./ExtPage";
 import type { ExtPreset } from "./ExtPreset";
 import type { ExtSuggestion } from "./ExtSuggestion";
@@ -26,7 +27,11 @@ others: Array<ExtFolder>,
 /**
  * The workspace this answer is narrowed to: the folder's, else the one asked for. The extension follows it.
  */
-workspace: ExtWorkspace | null, agents: Array<ExtAgent>, suggestions: Array<ExtSuggestion>, local_prs: Array<ExtLocalPr>, branches: Array<ExtBranch>, 
+workspace: ExtWorkspace | null, agents: Array<ExtAgent>, suggestions: Array<ExtSuggestion>, 
+/**
+ * The private notes of the workspace about this item (`launchpad note`), newest first.
+ */
+notes: Array<ExtNote>, local_prs: Array<ExtLocalPr>, branches: Array<ExtBranch>, 
 /**
  * Today item IDs about this page (its item, its agents, its Local PRs; on repository pages, the repository).
  */

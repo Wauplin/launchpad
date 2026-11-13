@@ -5,19 +5,29 @@
 // has text. Then it only OBSERVES that form: when GitHub's own button or Ctrl+Enter submits it, the final text is read
 // and sent as `suggestion.posted-by-hand`; Home confirms it from GitHub later. Nothing here ever calls click(), submit()
 // or requestSubmit() on GitHub's elements, and nothing is posted by the extension.
+// Prefill (on by default, Settings → GitHub): the newest suggested comment for the conversation's box goes into it on
+// its own when the page shows it and the box is empty, once per tab, without moving the focus or the page. It claims
+// nothing on Home until GitHub's form is submitted (then `inserted` and `posted-by-hand`), so Launchpad's Post stays
+// possible meanwhile; a prefilled text left untouched is taken out again when the suggestion is discarded or posted
+// from Launchpad.
 
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtSuggestion } from "@/gen/ExtSuggestion";
 import { request } from "../../shared/messages";
 import { findAnchor } from "./anchors";
+import { openAgentView } from "./agentView";
 import { askPopover } from "./askPopover";
 import { agentPath, ledger, open, type ItemPage } from "./item";
 import { button, h, logo, more, mount, unmount } from "./widgets";
 
-type Inserted = { box: HTMLTextAreaElement; at: number; posted: boolean; stop: () => void };
+type Inserted = { box: HTMLTextAreaElement; at: number; posted: boolean; stop: () => void; /** Filled by prefill (no click): the text written. */ prefilled?: string };
 /** Suggestions inserted in this tab: the box they went into and whether its form was submitted. */
 const inserted = new Map<string, Inserted>();
 const shown = new Set<string>();
+/** Suggestions prefilled in this tab: never again, even when the owner emptied the box. */
+const prefilledOnce = new Set<string>();
+/** The suggestion was prefilled into GitHub's box and is still there, unposted. */
+export const isPrefilled = (id: string) => { const e = inserted.get(id); return !!e?.prefilled && !e.posted; };
 let onChange: () => void = () => undefined;
 /** What re-renders the page after an insert or a post (main.ts sets it). */
 export function onInserted(fn: () => void) { onChange = fn; }
@@ -80,6 +90,46 @@ export async function insertSuggestion(page: ItemPage, s: ExtSuggestion, mode?: 
   inserted.set(s.id, entry);
   onChange();
   await ledger("inserted", s.id, s.text);
+}
+
+/** Sets a field's value like GitHub's own editor expects (the native setter and an input event). */
+function setValue(box: HTMLTextAreaElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(box, value);
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** Prefill: writes the suggestion into the empty box without a click, keeping the focus and the scroll position. The
+ * claim waits for GitHub's submit. */
+function prefill(box: HTMLTextAreaElement, s: ExtSuggestion) {
+  prefilledOnce.add(s.id);
+  const text = `${s.text.trimEnd()}\n\n${s.attribution}`;
+  const before = document.activeElement;
+  const [x, y] = [window.scrollX, window.scrollY];
+  box.focus({ preventScroll: true });
+  box.select();
+  if (!document.execCommand("insertText", false, text) || box.value !== text) setValue(box, text);
+  if (before instanceof HTMLElement && before !== box && before !== document.body) before.focus({ preventScroll: true }); else box.blur();
+  window.scrollTo(x, y);
+  const entry: Inserted = { box, at: Date.now(), posted: false, stop: () => undefined, prefilled: text };
+  entry.stop = watchSubmit(box, entry, async (posted) => { await ledger("inserted", s.id, s.text); await ledger("posted-by-hand", s.id, posted); });
+  inserted.set(s.id, entry);
+}
+
+/** Scrolls to GitHub's box that holds a prefilled suggestion and focuses it. */
+export function showPrefilled(id: string) {
+  const e = inserted.get(id);
+  if (!e?.box.isConnected) return;
+  e.box.scrollIntoView({ block: "center" });
+  e.box.focus({ preventScroll: true });
+}
+
+/** Takes an untouched prefill out of GitHub's box (Launchpad discarded or posted the suggestion). */
+function unprefill(id: string) {
+  const e = inserted.get(id);
+  if (!e?.prefilled || e.posted) return;
+  e.stop();
+  inserted.delete(id);
+  if (e.box.isConnected && e.box.value === e.prefilled) setValue(e.box, "");
 }
 
 /** Parts other than a comment's body filled into GitHub's fields (a line comment, a review's summary): `<id>|<part>`. */
@@ -159,13 +209,19 @@ export function watchShown(host: HTMLElement, id: string, part = "body") {
   io.observe(host);
 }
 
-/** The banners of the page's waiting suggested comments (idempotent). */
-export function renderInsertBanners(page: ItemPage, ctx: ExtContext | null, refresh: () => void) {
+/** The banners of the page's waiting suggested comments (idempotent); `autoFill`: prefill the conversation's box. */
+export function renderInsertBanners(page: ItemPage, ctx: ExtContext | null, refresh: () => void, autoFill = true) {
   onChange = refresh;
   const list = (ctx?.suggestions ?? []).filter((s) => s.kind === "comment" && s.number === page.number && (s.status === "draft" || s.status === "inserted"));
+  if (ctx) for (const id of [...inserted.keys()]) if (!list.some((s) => s.id === id)) unprefill(id);
   const ids = new Set<string>();
   // One banner over the comment box (the newest suggestion for it) and one per review thread.
   const main = list.filter((s) => !threadOf(s)).at(-1);
+  if (autoFill && main && main.status === "draft" && !prefilledOnce.has(main.id) && !inserted.has(main.id)) {
+    const { box } = boxFor(page, main);
+    // An empty box only: never over the owner's own text or GitHub's restored draft.
+    if (box && !box.value.trim()) prefill(box, main);
+  }
   for (const s of [main, ...list.filter(threadOf)]) {
     if (!s) continue;
     const id = `insert-${s.id}`;
@@ -174,7 +230,7 @@ export function renderInsertBanners(page: ItemPage, ctx: ExtContext | null, refr
     const place = box ? (box.closest("form") ?? box) : opener ? (opener.closest("form, .review-thread-reply, div") ?? opener) : null;
     if (!place) { unmount(id); continue; }
     const state = inserted.get(s.id);
-    const key = `${s.id}|${s.status}|${state ? (state.posted ? "posted" : "in") : "-"}|${!!box}`;
+    const key = `${s.id}|${s.status}|${state ? (state.posted ? "posted" : state.prefilled ? "pre" : "in") : "-"}|${!!box}`;
     const w = mount(id, key, place, "beforebegin", "banner");
     if (!w.fresh) continue;
     banner(w.root, page, ctx, s, !!box);
@@ -187,7 +243,7 @@ function banner(root: ShadowRoot, page: ItemPage, ctx: ExtContext | null, s: Ext
   const state = inserted.get(s.id);
   const ws = ctx?.folder?.workspace_id ?? ctx?.workspace?.id ?? null;
   const to = s.reply_to ? ` to ${s.reply_to.author ?? "a comment"}` : "";
-  const title = state?.posted ? "Recorded: posted by you on GitHub" : state ? "Inserted: edit it, then post with GitHub's button" : s.status === "inserted" ? `Inserted earlier${to}` : `${s.bot ?? "An agent"} drafted a reply${to}`;
+  const title = state?.posted ? "Recorded: posted by you on GitHub" : state?.prefilled ? `Prefilled with ${s.bot ?? "an agent"}'s draft${to}: edit it, then post with GitHub's button` : state ? "Inserted: edit it, then post with GitHub's button" : s.status === "inserted" ? `Inserted earlier${to}` : `${s.bot ?? "An agent"} drafted a reply${to}`;
   const preview = h("div", { class: "lp-preview", text: s.text, attrs: { hidden: "" } });
   const error = h("div", { class: "lp-error", attrs: { role: "alert", hidden: "" } });
   const choice = h("div", { class: "lp-actions", attrs: { hidden: "" } });
@@ -203,11 +259,13 @@ function banner(root: ShadowRoot, page: ItemPage, ctx: ExtContext | null, s: Ext
       } else fail(e);
     });
   };
-  if (!state?.posted) row.append(button(state || s.status === "inserted" ? "Insert again" : "Insert", () => run(), { primary: !state && s.status !== "inserted", small: true, title: ready ? "Puts the text into GitHub's box; you edit it and post it with GitHub's button" : "Open GitHub's reply box of this thread first" }));
+  if (!state?.posted && !state?.prefilled) row.append(button(state || s.status === "inserted" ? "Insert again" : "Insert", () => run(), { primary: !state && s.status !== "inserted", small: true, title: ready ? "Puts the text into GitHub's box; you edit it and post it with GitHub's button" : "Open GitHub's reply box of this thread first" }));
   row.append(more(root, "Suggestion", () => {
     const agent = ctx?.agents.find((a) => a.session_id === s.session_id) ?? null;
     return [
       { label: preview.hidden ? "Preview" : "Hide preview", hint: "The suggested text", onSelect: () => { preview.hidden = !preview.hidden; } },
+      ...(state?.prefilled && !state.posted ? [{ label: "Take it out of GitHub's box", hint: "Empties the box if you did not edit the text", onSelect: () => { unprefill(s.id); onChange(); } }] : []),
+      ...(s.session_id ? [{ label: "Show the agent's work", hint: "Its turns and steps, here on the page", onSelect: () => openAgentView({ session_id: s.session_id!, bot: s.bot, title: agent?.title, running: agent ? ["working", "starting", "background"].includes(agent.status) : undefined }, ws) }] : []),
       { label: "Ask again with a note", hint: "The same bot, about the same comment", onSelect: () => askPopover(root, row, page, ctx, threadOf(s) ?? (s.reply_to ? `issuecomment-${s.reply_to.id}` : null), "ask", onChange, agent?.bot_id) },
       ...(s.session_id ? [{ label: "Open the agent in Launchpad", hint: "Its trace and the suggestion's card", onSelect: () => open(agentPath({ session_id: s.session_id! }), ws) }] : []),
       { note: "Discard it in Launchpad if you do not want it." },

@@ -7,7 +7,7 @@ import type { SessionEvent } from "@/gen/SessionEvent";
 export type ChatRow =
   | { t: "user"; key: string; text: string; from: string | null; queued: boolean }
   | { t: "answer"; key: string; text: string; streaming: boolean }
-  | { t: "steps"; key: string; count: number; durationMs: number | null }
+  | { t: "steps"; key: string; count: number; durationMs: number | null; /** The steps' titles, oldest first. */ titles: string[] }
   | { t: "ask"; key: string; question: string }
   | { t: "ended"; key: string; text: string }
   | { t: "working"; key: string; step: string | null; since: number };
@@ -45,7 +45,7 @@ export function chatRows(events: SessionEvent[], running: boolean, deltas: Recor
     const streamed = Object.entries(deltas).filter(([k]) => !k.includes("\0")).at(-1);
     if (t.answer) out.push({ t: "answer", key: t.answer.key, text: t.answer.text, streaming: false });
     else if (working && streamed) out.push({ t: "answer", key: `d:${streamed[0]}`, text: streamed[1], streaming: true });
-    if (t.steps.length && !working) out.push({ t: "steps", key: `s:${t.key}`, count: t.steps.length, durationMs: t.end?.duration_ms ?? null });
+    if (t.steps.length && !working) out.push({ t: "steps", key: `s:${t.key}`, count: t.steps.length, durationMs: t.end?.duration_ms ?? null, titles: t.steps });
     out.push(...t.asks);
     if (t.end?.error) out.push({ t: "ended", key: `e:${t.key}`, text: line(t.end.error, 200) });
     else if (t.end?.interrupted) out.push({ t: "ended", key: `e:${t.key}`, text: "Stopped" });
