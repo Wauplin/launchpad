@@ -3,7 +3,7 @@
   "name": "Launchpad",
   "version": "0.2.0",
   "minimum_chrome_version": "116",
-  "description": "Read and work in tabs explicitly shared with your Launchpad agents.",
+  "description": "Launchpad on GitHub and a chat about any page, connected to your Launchpad Home.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtWXlK9TLyNG9yLugVTP3laaaAjrih2iVeUxMtQt1gCQ5AM0QLnbWR9ACu5SslTd6wGI2Y517IXA5vvdqBOz7TPihisqcO1hUusEIppGQRW9rY6CC5Zs+Tk5GzUsX8JSmlHP3uBFLgbGXB6lTxkKKENPWhosvqcP/UZkzUcpTQT3R5U7wcIjjePqufnC1TnVVfDeQSmV1D6gIuDiRID/NxILOgBq7QHOyVJuKGOirP0Yphv4mXPkUNqxP4kgFcE0ljT03kKTGE8H6yQp+OQTDohuJzhzGBBL0HqQ+uuhDvL3lINItk5fyxnKFCQaOpc1PD+mUiOQotucE6v70ee/qAwIDAQAB",
   "permissions": [
     "sidePanel",
@@ -11,11 +11,7 @@
     "scripting",
     "storage",
     "contextMenus",
-    "nativeMessaging",
-    "alarms",
-    "tabs",
-    "debugger",
-    "tabGroups"
+    "alarms"
   ],
   "host_permissions": [
     "http://127.0.0.1/*",
