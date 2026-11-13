@@ -4,6 +4,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { openExternal } from "@/lib/platform";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { BotChip, ConfirmButton, Empty, MoreMenu } from "@/components/ui";
 import { ActionMenuItem } from "@/components/ActionButton";
@@ -88,7 +89,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, tag,
         <MoreMenu label={`More actions for ${s.title}`}>{(close) => <>
           {stop && <ActionMenuItem name="session.stop" params={{ id: s.id }} close={close} />}
           {!stop && !dim && <ActionMenuItem name="session.archive" params={{ id: s.id }} close={close} detail="It stays resumable" />}
-          {tag?.pr && <MenuItem icon={<Icon name="pr" size={14} />} label={`Open PR #${tag.pr.number}`} detail={tag.pr.repo} onClick={() => { close(); const [owner, repo] = tag.pr!.repo.split("/"); void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(tag.pr!.number) } }); }} />}
+          {tag?.pr && <MenuItem icon={<Icon name="pr" size={14} />} label={`Open PR #${tag.pr.number}`} detail={tag.pr.repo} onClick={() => { close(); openExternal(`https://github.com/${tag.pr!.repo}/pull/${tag.pr!.number}`); }} />}
           {tag?.localPr && <MenuItem icon={<Icon name="pr-local" size={14} />} label="Open Local PR" detail={tag.localPr.title} onClick={() => { close(); void navigate({ to: "/predrafts/$id", params: { id: tag.localPr!.id } }); }} />}
           {canMarkUnread && <ActionMenuItem name="session.unread" params={{ id: s.id }} close={() => { close(); onMarkUnread(s.id); }} label="Mark unread" detail="Return to Today for later" icon="mail" />}
           <MenuItem icon={<span className="text-teal-ink">{pinned ? "★" : "☆"}</span>} label={pinned ? "Unpin" : "Pin"} detail="Pinned sessions show first" onClick={() => { close(); useLayout.getState().togglePin(s.id); }} />

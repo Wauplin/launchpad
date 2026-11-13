@@ -6,6 +6,7 @@ import { useNavigate } from "@tanstack/react-router";
 import type { Predraft } from "@/gen/Predraft";
 import { Icon, type IconName } from "@/components/Icon";
 import { api } from "@/lib/api";
+import { openExternal } from "@/lib/platform";
 import { itemKey, itemPath } from "@/features/github/lib";
 import type { Item } from "@/features/github/types";
 import { githubPr, prState, type PrState } from "./localPrState";
@@ -24,14 +25,14 @@ export function localPrLook(p: Predraft, gh: PrState | null): { label: string; i
   const pr = githubPr(p);
   if (pr) {
     const state = gh ?? "published";
-    return { label: `PR #${pr.number} · ${state}`, icon: state === "merged" ? "pr-merged" : state === "draft" ? "pr-draft" : "pr", color: state === "merged" ? "text-gh-merged" : state === "draft" ? "text-gh-draft" : state === "closed" ? "text-gh-closed" : "text-gh-open", title: `Published as ${pr.repo}#${pr.number}: open the pull request` };
+    return { label: `PR #${pr.number} · ${state}`, icon: state === "merged" ? "pr-merged" : state === "draft" ? "pr-draft" : "pr", color: state === "merged" ? "text-gh-merged" : state === "draft" ? "text-gh-draft" : state === "closed" ? "text-gh-closed" : "text-gh-open", title: `Published as ${pr.repo}#${pr.number}: open the pull request on GitHub` };
   }
   if (p.merged) return { label: "Local PR · merged", icon: "pr-merged", color: "text-gh-merged", title: `Merged into ${p.base_branch} on Home: open the Local PR` };
   if (p.archived) return { label: "Local PR · discarded", icon: "pr-local", color: "text-ink-3", title: "Discarded: open the Local PR" };
   return { label: "Local PR · open", icon: "pr-local", color: "text-teal-ink", title: `Open the Local PR "${p.title}", not published to GitHub yet` };
 }
 
-/** Navigation to a Local PR and to its GitHub pull request (Launchpad's pull request page). */
+/** Navigation to a Local PR and to its GitHub pull request (on GitHub). */
 export function useLocalPrNav() {
   const navigate = useNavigate();
   return {
@@ -39,8 +40,7 @@ export function useLocalPrNav() {
     github: (p: Predraft) => {
       const pr = githubPr(p);
       if (!pr) return;
-      const [owner, repo] = pr.repo.split("/");
-      void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number: String(pr.number) } });
+      openExternal(`https://github.com/${pr.repo}/pull/${pr.number}`);
     },
   };
 }
