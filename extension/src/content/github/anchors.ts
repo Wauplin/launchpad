@@ -300,10 +300,14 @@ export const ANCHORS = {
         && (f.querySelector('input[name="line"]') as HTMLInputElement | null)?.value === String(p.line)
         && ((f.querySelector('input[name="side"]') as HTMLInputElement | null)?.value ?? "RIGHT").toUpperCase() === p.side
         && !!visibleTextarea(f))?.querySelector("textarea") ?? null },
-      // Newer layouts: the text field GitHub focused in this file's diff after the owner opened a line's form.
+      // Newer layouts: the text field GitHub focused in this file's diff after the owner opened a line's form, when it
+      // sits after this line and before the next one.
       { via: "aria", find: (p) => {
         const t = lastFocused && Date.now() - lastFocused.at < 120_000 && lastFocused.path === p.path ? lastFocused.box : null;
-        return t?.isConnected && t.getClientRects().length > 0 ? t : null;
+        const row = p.path ? findLine(p) : null;
+        if (!t?.isConnected || !row || t.getClientRects().length === 0 || !(row.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING)) return null;
+        const next = all("[data-line-number]").find((el) => !row.contains(el) && !!(row.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING));
+        return !next || !!(t.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING) ? t : null;
       } },
     ],
   },

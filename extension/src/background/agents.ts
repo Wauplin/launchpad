@@ -72,8 +72,8 @@ export async function botMessage(a: { bot: string; text: string; github_refs?: G
 
 /** Home's profiles without their environment (only what a picker shows). */
 export async function profiles(): Promise<ProfileBrief[]> {
-  const config = await homeJson<Config>("/api/config");
-  return config.profiles.map((p) => ({ id: p.id, name: p.name, harness: p.harness, subscription: p.billing === "subscription" }));
+  const { config } = await homeJson<{ config: Config }>("/api/config");
+  return (config?.profiles ?? []).map((p) => ({ id: p.id, name: p.name, harness: p.harness, subscription: p.billing === "subscription" }));
 }
 
 /** A one-time agent in a Git folder of the workspace, in its own worktree: read only, or ending in a Local PR. */

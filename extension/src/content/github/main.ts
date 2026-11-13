@@ -122,6 +122,11 @@ export function start() {
   watchNotificationForms(() => page.kind === "notifications");
   // GitHub's own list checkboxes change no markup on every layout: L4's selection bar follows them here.
   document.addEventListener("change", (e) => { if ((page.kind === "pulls" || page.kind === "issues") && e.target instanceof HTMLInputElement && e.target.type === "checkbox") render(); }, true);
+  // GitHub opens its line forms and its Review changes dialog by focusing a field or toggling a <details> (no markup
+  // change the observer sees): Files changed renders again then.
+  const filesRender = (e: Event) => { if (isFiles(page) && (e.type === "toggle" || e.target instanceof HTMLTextAreaElement)) requestAnimationFrame(render); };
+  document.addEventListener("focusin", filesRender, true);
+  document.addEventListener("toggle", filesRender, true);
   // Live cards count their minutes.
   setInterval(() => { if (isItem(page) && document.visibilityState === "visible") render(); }, 30_000);
   watchNavigation((sameUrl) => {
