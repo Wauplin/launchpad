@@ -80,14 +80,14 @@ Testing policy: keep tests few, fast and free of mocks. Add a test only for a sm
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 
-- On pushes to `main`, pull requests and tags: Clippy, UI type checks and UI tests, debug tests and the `deploy/hf-home` Python tests, on Linux only.
+- On pushes to `main`, pull requests and tags: Clippy, UI type checks and UI tests, debug tests, the `deploy/hf-home` Python tests and the extension's type check and build, on Linux only.
 - On tags and pushes to `main`: release builds on Ubuntu 22.04 (Linux x86_64). A push to `main` attaches its package to the `main-build` prerelease, named by commit (the 20 newest are kept); `deploy.sh --main` deploys it. The build steps live in [`.github/workflows/build.yml`](../.github/workflows/build.yml), shared with releases.
 
-[`.github/workflows/release.yml`](../.github/workflows/release.yml) makes a release when started by hand (Actions → Release → Run workflow, on the branch to release). It tags the branch's latest commit `vYYYY.MM.DD.N` (UTC date; `N` counts that day's releases from 1, so several releases per day are possible), runs the release build and tests, and creates a GitHub release with generated notes and the `launchpad-linux-x86_64.tar.gz` package and its SHA-256 file. Runs wait for each other, so two runs never pick the same tag. The tag it pushes does not start `ci.yml` again.
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) makes a release when started by hand (Actions → Release → Run workflow, on the branch to release). It tags the branch's latest commit `vYYYY.MM.DD.N` (UTC date; `N` counts that day's releases from 1, so several releases per day are possible), runs the release build and tests, and creates a GitHub release with generated notes the `launchpad-linux-x86_64.tar.gz` package and its SHA-256 file, and `launchpad-chrome-extension.zip` (a zip of `extension/dist`, also inside the package's `extension/`). Runs wait for each other, so two runs never pick the same tag. The tag it pushes does not start `ci.yml` again.
 
 ## Other components
 
-- **Chrome extension** (on hold, not built in CI or included in releases): `cd extension && pnpm install --frozen-lockfile && pnpm build` after installing the `web/` dependencies. See [extension/README.md](../extension/README.md).
+- **Chrome extension**: `cd extension && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build` after installing the `web/` dependencies. Set `VITE_HF_CLIENT_ID` in `extension/.env.local` (see `.env.example`) to build with a Hugging Face client ID. Load `extension/dist` unpacked in Chrome and connect it to the dev Home with **Use an address** (`http://127.0.0.1:7318`) and a pairing code. Never connect a test build to your real Space. See [extension/README.md](../extension/README.md).
 - **Home in a Hugging Face Space**: see [deploy/hf-home/README.md](../deploy/hf-home/README.md). Test `deploy.sh` only with a throwaway `--space`, and delete that Space and its bucket afterwards.
 - **Local VM runner**: `packaging/local-vm.sh <Home address>` creates one with Multipass.
 - **Icons**: `packaging/icons/source.png` is the master. Regenerate exports with `python3 packaging/generate-icons.py`.

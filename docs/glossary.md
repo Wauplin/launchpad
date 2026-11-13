@@ -16,6 +16,8 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Knowledge | memory, notes, wiki | The knowledge base of a workspace: notes and media that are the memory agents share (bots also keep their own). The Librarian bot tends it. |
 | Home Git | Git server, mirror | Home's copy of every Git folder, with the Launchpad branches. Runners clone from it and push to it. |
 | Suggestion | agent draft, Agent draft banner, suggested comment | A comment or review written by an agent, posted with a click. |
+| Insert | Paste, Fill, Apply, Use on GitHub | The Chrome extension's button that writes a suggestion into GitHub's own field (comment box, reply box, line comment form, review summary), with the attribution line last. You post with GitHub's button. A suggested review's line comments show under their lines in Files changed as **Suggested line comment** (dashed), with **Add to my review**. |
+| Done on GitHub | Synced from GitHub, archived on GitHub | A notification you marked Done, read or unsubscribed with GitHub's own button, seen by the Chrome extension and applied in Launchpad's Inbox at once. |
 | Draft | (5 meanings) | Only an unsent composer launch. GitHub draft PRs say "GitHub draft"; unsent replies are "unsent reply". |
 | Changes | Files changed, Diff | Every diff view (session, Local PR, PR, commit). |
 | Files | Code, code viewer, Open worktree, View file | The read-only file browser. "Browse files" in menus; the commit toggle is Diff · Files. |

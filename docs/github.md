@@ -16,9 +16,11 @@ Sign in with `gh auth login` on the machine that runs the daemon. Launchpad read
 - The preview shows the latest comments and a reply box. **Read/Unread** and **Unsubscribe** are in the preview.
 - The sidebar count is unread review requests, mentions and assignments.
 
-GitHub's API cannot mirror the web inbox exactly, so Launchpad tracks inbox membership locally. Read and Done changes made on github.com may not appear.
+GitHub's API cannot mirror the web inbox exactly, so Launchpad tracks inbox membership locally. Read and Done changes made on github.com may not appear, except those the [Chrome extension](#on-githubcom) sees: **Done on GitHub** below.
 
-Home polls GitHub for notifications. A poll reads the newest page first and stops at the first page it already holds unchanged, so a quiet poll costs one or two requests. It only adds or updates threads. A full pass reads the whole history every 3 hours and at each Home start, and replaces the local copy. So a thread that left GitHub's history, or a thread on an older page that you marked read on github.com, can take up to 3 hours to update. A bot that should clear threads itself uses `launchpad inbox done` or `launchpad inbox unsubscribe` (see [Bots](bots.md#the-launchpad-cli-tool)), which marks them done in both places.
+Home polls GitHub for notifications. A poll reads the newest page first and stops at the first page it already holds unchanged, so a quiet poll costs one or two requests. It only adds or updates threads. A full pass reads the whole history every 3 hours and at each Home start, and replaces the local copy. So a thread that left GitHub's history, or a thread on an older page that you marked read on github.com, can take up to 3 hours to update. **Done on GitHub**: with the Chrome extension, when you click GitHub's own **Done**, **Mark as read** or **Unsubscribe** on github.com/notifications, the extension tells Home once the page shows the change. Home applies the same change as Launchpad's own button, at once and only in Launchpad: GitHub already has it, so Home writes nothing more there. The Inbox header says “N done on GitHub today” (hover it for the list). A thread with new activity comes back like any other.
+
+A bot that should clear threads itself uses `launchpad inbox done` or `launchpad inbox unsubscribe` (see [Bots](bots.md#the-launchpad-cli-tool)), which marks them done in both places.
 
 ## Issues and pull requests
 
@@ -56,6 +58,10 @@ launchpad suggest review --repo owner/repo --number 123 --head <commit> --body-f
 
 A suggested review is a Today card (and a line in its bot's chat): **Review** shows its summary and line comments, **Edit** changes the summary and event or removes line comments, and **Post review** sends the summary and every line comment to GitHub as one review at the commit the agent reviewed. **Edit in pull request** opens it on the PR page instead. There, it appears in **Your review**, with **Use** to copy its summary, event, follow-up and line comments into the pending review (where you edit them like your own), and **Drop** to discard it. The Inbox, the PR banner and the session's next steps show **Review ready · n comments**, which opens the panel. Posting a suggestion claims it, so it cannot be posted again from the other place. Suggested plain comments keep their Conversation card. Agent text published from a source suggestion ends with its [attribution line](agents.md#attribution).
 
+A suggested comment can answer one comment: the agent adds `--reply-to <comment>` (`issuecomment-<id>`, `discussion_r<id>`, the comment's URL or a review thread's `PRRT_…` ID). Its card says **Reply to <author>'s comment**. **Post** sends a reply to a review comment into its thread, and a reply to a conversation comment as a new comment that starts with a quote line linking it.
+
+With the Chrome extension, you can also **Insert** a suggestion into GitHub's own comment box and post it there with GitHub's button. The card then says **Inserted on GitHub** and offers no Post (Discard stays); once you post it, it says **Posted by you on GitHub** and leaves Today. See [On github.com](#on-githubcom).
+
 A suggested follow-up enters the panel with **Use**. Approvals can **then squash and merge**; `--run-ci` suggests approving the waiting CI runs instead. Uncheck the follow-up to post only the review. Follow-ups run after the review is recorded as posted. A failure reports that the review was posted and never retries the follow-up.
 
 When workflow runs of a pull request wait for approval, its **Checks** section shows **Approve and run workflows**. Agents can prepare the same click as a ready card (`github.run-ci`, see [Bots](bots.md#proposals)). It runs the pull request's code in the repository's CI, so it stays your click, like GitHub's own button.
@@ -85,6 +91,20 @@ flowchart LR
 - **Discard** deletes the branch on Home. Its tip stays restorable for 30 days (folder page → Launchpad branches).
 
 Publication and merges wait until the Local PR's agent is idle.
+
+## On github.com
+
+The [Chrome extension](../extension/README.md) shows Launchpad inside github.com: a badge on each repository, Local PRs and row states on the Pull requests and Issues lists, a box in the sidebar of each issue and pull request, Ask on comments, live agent cards, suggestions to **Insert** into GitHub's own fields, the line comments of a suggested review under their lines in Files changed, and a strip on the notifications page. It reads all of this from Home's records and cache (`/api/ext/*`), never from GitHub.
+
+- **Prefill, never post.** The extension never posts or submits on GitHub. **Insert** fills GitHub's field and adds the attribution line at the end, visible and removable; you post with GitHub's button.
+- **Bot on GitHub**: a folder setting (folder page → **Bot on GitHub**) that names the bot the extension asks on the repository's pages. **Automatic** uses the last bot you used on the repository, else the workspace's Ask bot.
+- **Ask about these lines**: on Files changed, a bot gets a reference to the lines you selected (repository, pull request, path, side, range and head). Home reads the lines from the pull request's diff when it sends the message, and gives them to the agent marked as text from the pull request's author. A bot or agent may name only a repository of its own workspace.
+- **Push to this PR**: when an agent's Launchpad branch holds the pull request's head plus new commits, the extension offers to push them to the pull request's branch. After your confirmation, Home checks that the branch still points at the commit you saw, pushes it as a fast-forward (never forced) and then follows the branch, so the agent's next commits go to the pull request too, as with [Continue a pull request](#continue-a-pull-request). Home pushes only to the pull request's own repository, your own fork, or a fork whose author lets maintainers edit. Agents can prepare the same click as a ready card (`branch.push-to-pr`).
+- **Done all handled**: on the notifications page, the extension lists the threads a bot already handled (its newest report about the item says merged, closed, approved or commented, and nothing happened after it) and marks them Done on your confirmation.
+
+### Feedback ledger
+
+Home keeps a ledger of what happened to each suggestion, part by part (a review's summary and each line comment): shown, inserted, posted by hand, confirmed or unconfirmed, posted by Launchpad, dismissed, discarded or outdated, with the final text, the size of your edits and whether you kept the attribution line. A “posted by hand” record is only a claim: Home confirms it when a refresh of the item finds your comment with at least 85% of the text (it checks 20 s, 2 min, 10 min and an hour after the claim), else marks it unconfirmed after an hour. Nothing reads the ledger yet; it is kept for a later feedback view. No marker is added to what you post.
 
 ## What waits for you
 

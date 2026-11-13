@@ -30,6 +30,8 @@ Pairing links work once and expire after five minutes. Browser credentials last 
 
 **Reverse pairing**: on the unpaired browser, choose **Show pairing code**. On a paired device, enter the eight-character code in **Settings → Devices** and click **Approve browser**. Keep the requesting tab open until approval. Only approve a code you can see on your own device.
 
+The [Chrome extension](../extension/README.md) pairs the same way with **Use an address**: it shows the code in its side panel. With a Home in a Space, it uses Sign in with Hugging Face instead. Either way, it shows in **Settings → Devices** as “Chrome on <system>”, and **Revoke** disconnects it at once.
+
 ## Reach Home from other devices
 
 ### Tailscale (recommended)
@@ -58,7 +60,7 @@ public_origin = "https://launchpad.example.com"
 ```
 
 - Serve Launchpad at the root of a host name, not under a path prefix.
-- Forward `/`, `/api/*` and `/ws` (runners use `/api/runners/tunnel`) to `http://127.0.0.1:7317`, with WebSocket upgrades and long-lived connections.
+- Forward `/`, `/api/*` and `/ws` (runners use `/api/runners/tunnel`) to `http://127.0.0.1:7317`, with WebSocket upgrades and long-lived connections. Do not buffer `/api/events`, the server-sent events stream of the Chrome extension.
 - Preserve the browser's `Host` and `Origin` headers.
 - Never expose port 7317 directly to the internet. Put a VPN or an identity-aware proxy in front.
 
