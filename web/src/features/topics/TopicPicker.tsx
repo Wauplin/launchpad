@@ -40,6 +40,7 @@ function Picker({ onPick, exclude, close }: { onPick: (topic: Topic) => Promise<
   </div>;
 }
 export function SessionTopics({ sessionId }: { sessionId: string }) {
+  const phone = usePhone();
   const { data = [] } = useTopics();
   const { add } = useTopicMutations();
   const topics = data.filter((t) => t.session_ids.includes(sessionId));
@@ -47,7 +48,7 @@ export function SessionTopics({ sessionId }: { sessionId: string }) {
     try { await add(t.id, [sessionId], false); toast(`Removed from ${t.name}`, { label: "Undo", run: () => { void add(t.id, [sessionId]).catch(toastError); } }); } catch (e) { toastError(e); }
   };
   return <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-4 py-2" data-tour="session.topics">
-    {topics.map((t) => <span key={t.id} className="inline-flex max-w-full items-center rounded-control border border-line text-[12px]"><Link className="truncate px-2 py-1 text-teal-ink hover:underline" to="/topics/$id" params={{ id: t.id }}>{t.name}</Link><button className="px-2 py-1 text-ink-3 hover:text-ink" aria-label={`Remove ${t.name} from this session`} onClick={() => void remove(t)}>×</button></span>)}
+    {topics.map((t) => <span key={t.id} className="inline-flex max-w-full items-center rounded-control border border-line text-[12px]"><Link style={phone ? { minHeight: 44, display: "flex", alignItems: "center" } : undefined} className="truncate px-2 py-1 text-teal-ink hover:underline" to="/topics/$id" params={{ id: t.id }}>{t.name}</Link><button style={phone ? { minWidth: 44, minHeight: 44 } : undefined} className="px-2 py-1 text-ink-3 hover:text-ink" aria-label={`Remove ${t.name} from this session`} onClick={() => void remove(t)}>×</button></span>)}
     <TopicPicker exclude={topics.map((t) => t.id)} onPick={(t) => add(t.id, [sessionId])} />
   </div>;
 }
