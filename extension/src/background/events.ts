@@ -4,6 +4,7 @@
 // `heartbeat` alarm restarts the stream when Chrome stopped the worker anyway.
 
 import type { BusEvent } from "../shared/messages";
+import { contextEvent, contextResync } from "./context";
 import { current, homeFetch, loadToday, loadWorkspaces, todayChanged, update } from "./home";
 import { homeStatus } from "./hf";
 import { pushEvent, pushResync } from "./ports";
@@ -92,13 +93,14 @@ async function once(mine: number): Promise<boolean> {
       update({ phase: "online", error: null });
       // Every (re)opened stream reloads the workspaces and the count: cheap, and the worker may have just started.
       await loadWorkspaces().then(loadToday).catch((e) => console.warn("reload", e));
-      if (ev.type === "resync") pushResync();
+      if (ev.type === "resync") { contextResync(); pushResync(); }
       return;
     }
     if (at) at = { ...at, bus: ev.bus };
     void save();
     if (ev.topic === "today") todayChanged();
     else if (ev.topic === "workspaces") void loadWorkspaces().then(() => todayChanged()).catch((e) => console.warn("workspaces", e));
+    contextEvent(ev);
     pushEvent(ev);
   };
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();

@@ -2,6 +2,8 @@
 // panel and the content scripts. Clients never see a token or the device secret: they ask the worker, which adds the
 // credentials. Add a request by adding an entry to `Requests` and a case to the worker's router (background/router.ts).
 
+import type { ExtContext } from "@/gen/ExtContext";
+import type { ExtRows } from "@/gen/ExtRows";
 import type { Workspace } from "@/gen/Workspace";
 
 /** Where the extension is connected. Never holds a credential. */
@@ -49,6 +51,23 @@ export type FoundHome = {
   answers: boolean;
 };
 
+/** One anchor of the GitHub layer (content/github/anchors.ts) as last checked on a page where it is expected. */
+export type AnchorCheck = {
+  /** Its name in Settings ("Repository name"). */
+  label: string;
+  ok: boolean;
+  /** The strategy that matched (`data`, `aria`, `text`…), null when none did. */
+  strategy: string | null;
+  /** The page kind it was checked on. */
+  kind: string;
+  at: number;
+};
+export type AnchorHealth = { anchors: Record<string, AnchorCheck> };
+
+/** The worker pushes this synthetic bus topic when page contexts it cached went stale: `payload.urls` lists the pages
+ * (or `"*"` for all). The GitHub layer subscribes to it and asks for its page's context again. */
+export const CONTEXT_TOPIC = "ext.context";
+
 type Req<A, R> = { args: A; result: R };
 
 /** Every request a client may send. `home.get` and `home.post` take Home paths under `/api/`. */
@@ -65,9 +84,24 @@ export type Requests = {
   "disconnect": Req<void, ConnectionState>;
   "settings.client-id": Req<{ client_id: string | null }, ConnectionState>;
   "workspace.set": Req<{ id: string }, ConnectionState>;
-  /** The GitHub layer follows the repository's workspace (step 4's context API calls it from the worker itself). */
+  /** The GitHub layer follows the repository's workspace (the worker also does it itself on `context`). */
   "workspace.follow": Req<{ id: string }, ConnectionState>;
+  /** The GitHub layer's anchor health, for Settings ("11 of 12 work"). */
+  "anchors.health": Req<void, AnchorHealth>;
   // Every client:
+  /** Home's bundle about a github.com page (`GET /api/ext/context`), cached 30 s per page and workspace, dropped on
+   * relevant bus events. `fresh` skips the cache. From the active tab, a page whose repository has a folder makes the
+   * extension follow that folder's workspace. */
+  "context": Req<{ url: string; fresh?: boolean }, ExtContext>;
+  /** The newest context the worker holds for any page of the same repository (null: none), without calling Home: what
+   * the GitHub layer shows at once while `context` loads. */
+  "context.peek": Req<{ url: string }, ExtContext | null>;
+  /** Row states of a list page (`GET /api/ext/rows`): numbers on Pull requests and Issues, thread IDs on Notifications. */
+  "rows": Req<{ url: string; items: string[] }, ExtRows>;
+  /** Opens a page of Home (a path such as `/projects/<id>`) in a new tab. */
+  "open": Req<{ path: string }, void>;
+  /** The GitHub layer's anchor checks of one page. */
+  "anchors.report": Req<{ checks: Record<string, Omit<AnchorCheck, "at">> }, void>;
   "home.get": Req<{ path: string }, unknown>;
   "home.post": Req<{ path: string; body?: unknown; idempotency_key?: string }, unknown>;
 };
@@ -79,7 +113,7 @@ export type Message<K extends Kind = Kind> = { kind: K; args: Args<K> };
 export type Answer<K extends Kind = Kind> = { ok: true; data: Result<K> } | { ok: false; error: string; status?: number };
 
 /** Requests only extension pages (the panel) may send. */
-export const PAGE_ONLY: readonly Kind[] = ["signin", "discover", "connect.space", "connect.address.start", "connect.address.poll", "disconnect", "settings.client-id", "workspace.set"];
+export const PAGE_ONLY: readonly Kind[] = ["signin", "discover", "connect.space", "connect.address.start", "connect.address.poll", "disconnect", "settings.client-id", "workspace.set", "anchors.health"];
 
 /** An error of a request, with Home's HTTP status when there was one. */
 export class RequestError extends Error {

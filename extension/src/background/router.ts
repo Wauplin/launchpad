@@ -3,6 +3,7 @@
 // credentials or device routes.
 
 import { PAGE_ONLY, RequestError, type Answer, type Args, type Kind, type Message, type Result } from "../shared/messages";
+import { anchorHealth, follow, pageContext, pageRows, peekContext, reportAnchors } from "./context";
 import { startEvents, stopEvents } from "./events";
 import { clientId, discover, signIn } from "./hf";
 import { connectSpace, current, disconnect, homeJson, pollPairing, setWorkspace, signedIn, startPairing, update } from "./home";
@@ -14,7 +15,13 @@ function homePath(path: unknown): string {
   return path;
 }
 
-type Handler<K extends Kind> = (args: Args<K>) => Promise<Result<K>>;
+/** A path of Home's web app to open in a tab: absolute, no scheme or host, no dot segments. */
+function appPath(path: unknown): string {
+  if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//") || /[\\\s]|(^|\/)\.\.?(\/|$|\?)|%2e/i.test(path) || path.length > 500) throw new RequestError("Not a Launchpad page");
+  return path;
+}
+
+type Handler<K extends Kind> = (args: Args<K>, sender: chrome.runtime.MessageSender) => Promise<Result<K>>;
 const handlers: { [K in Kind]: Handler<K> } = {
   state: async () => current(),
   signin: async () => { await signIn(); await signedIn(); return current(); },
@@ -33,6 +40,21 @@ const handlers: { [K in Kind]: Handler<K> } = {
   // Hook for the GitHub layer: once Home's page context names the repository's workspace (step 4), the worker calls
   // setWorkspace with it; this request lets a content script ask for the same.
   "workspace.follow": async ({ id }) => { await setWorkspace(id); return current(); },
+  "anchors.health": () => anchorHealth(),
+  context: async ({ url, fresh }, sender) => {
+    const data = await pageContext(url, fresh);
+    // Only the tab you look at moves the extension to another workspace.
+    if (sender.tab?.active) await follow(data).catch((e) => console.warn("workspace follow", e));
+    return data;
+  },
+  "context.peek": async ({ url }) => peekContext(url),
+  rows: ({ url, items }) => pageRows(url, Array.isArray(items) ? items.map(String) : []),
+  open: async ({ path }) => {
+    const home = current().home;
+    if (!home) throw new RequestError("Not connected to a Launchpad Home");
+    await chrome.tabs.create({ url: home.origin + appPath(path) });
+  },
+  "anchors.report": async ({ checks }) => { if (checks && typeof checks === "object") await reportAnchors(checks); },
   "home.get": ({ path }) => homeJson(homePath(path)),
   "home.post": ({ path, body, idempotency_key }) => homeJson(homePath(path), { method: "POST", body: body ?? {}, idempotency_key }),
 };
@@ -52,7 +74,7 @@ export function route(ready: Promise<unknown>) {
         await ready;
         if (PAGE_ONLY.includes(kind) && !fromPage(sender)) throw new RequestError("Only the Launchpad panel may do this");
         const run = handlers[kind] as Handler<typeof kind>;
-        return { ok: true, data: await run(message.args) };
+        return { ok: true, data: await run(message.args, sender) };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e), status: e instanceof RequestError ? e.status : undefined };
       }

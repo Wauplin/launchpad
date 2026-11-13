@@ -1,7 +1,8 @@
-// Settings: the connection, the Hugging Face OAuth client ID (until the app ships with one), text size and Disconnect.
+// Settings: the connection, the Hugging Face OAuth client ID (until the app ships with one), text size, the GitHub
+// layer's anchors and Disconnect.
 
-import { useState } from "react";
-import type { ConnectionState } from "../shared/messages";
+import { useEffect, useState } from "react";
+import type { AnchorHealth, ConnectionState } from "../shared/messages";
 import { request } from "../shared/messages";
 import { Icon } from "../icons";
 import { TEXT_SIZES, applyTextSize, textSize } from "../textSize";
@@ -43,6 +44,8 @@ export function Settings({ state, back }: { state: ConnectionState; back: () => 
         <div className="x-btns"><button className="x-btn x-sm" onClick={() => void save()}>Save</button>{saved && <span className="x-small x-muted" role="status" style={{ alignSelf: "center" }}>{saved}</span>}</div>
       </div>
 
+      <Anchors />
+
       <div className="x-sect" style={{ marginLeft: 4, marginTop: 16 }}>Text size</div>
       <div className="x-sizes" role="radiogroup" aria-label="Text size">{TEXT_SIZES.map((v) => <button key={v} role="radio" aria-checked={v === size} className={`x-btn x-sm ${v === size ? "x-pri" : ""}`} onClick={() => { applyTextSize(v); setSize(v); }}>{v}%</button>)}</div>
 
@@ -58,4 +61,24 @@ export function Settings({ state, back }: { state: ConnectionState; back: () => 
       {error && <p className="x-error" style={{ marginTop: 8 }}>{error}</p>}
     </div>
   </div>;
+}
+
+/** "GitHub anchors: 11 of 12 work": the places the GitHub layer found on the pages you opened. A broken one shows
+ * nothing on GitHub; its feature stays in this panel. */
+function Anchors() {
+  const [health, setHealth] = useState<AnchorHealth | null>(null);
+  useEffect(() => { void request("anchors.health").then(setHealth).catch(() => setHealth({ anchors: {} })); }, []);
+  const list = Object.values(health?.anchors ?? {});
+  const broken = list.filter((a) => !a.ok);
+  return <>
+    <div className="x-sect" style={{ marginLeft: 4, marginTop: 16 }}>GitHub anchors</div>
+    <div className="x-setrow" style={{ display: "grid", gap: 4 }}>
+      {!health ? <small className="x-faint">Loading…</small>
+        : !list.length ? <small className="x-muted">Not checked yet: open a repository on github.com.</small>
+        : <>
+          <span>{list.length - broken.length} of {list.length} work</span>
+          {broken.map((a) => <small key={a.label} className="x-muted">Not found: {a.label} (last checked on a {a.kind.replace(/_/g, " ")} page). Its feature shows only in this panel.</small>)}
+        </>}
+    </div>
+  </>;
 }

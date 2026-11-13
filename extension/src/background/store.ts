@@ -1,7 +1,7 @@
 // What the worker keeps. Credentials live only here: the refresh token and the device secret in chrome.storage.local,
 // the access token in chrome.storage.session; both areas are closed to content scripts (`lockStorage`).
 
-import type { HomeInfo } from "../shared/messages";
+import type { AnchorCheck, HomeInfo } from "../shared/messages";
 
 export type Local = {
   /** Hugging Face refresh token. */
@@ -17,6 +17,8 @@ export type Local = {
   "workspace"?: string;
   /** The event stream's position, for `?boot=&since=` after the worker restarted. */
   "events.position"?: { boot: string; bus: number };
+  /** The GitHub layer's last check of each anchor (`anchors.report`). */
+  "anchors"?: Record<string, AnchorCheck>;
 };
 export type Session = {
   "hf.access"?: { token: string; expires_at: number };
