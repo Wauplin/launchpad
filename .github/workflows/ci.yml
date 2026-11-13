@@ -85,6 +85,27 @@ jobs:
         working-directory: web
         run: pnpm test:review
 
+  extension:
+    name: Chrome extension
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: web/.nvmrc
+      - name: Install UI dependencies (the extension imports web/src)
+        working-directory: web
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - name: Check and build the extension
+        working-directory: extension
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm build
+
   tests:
     name: Tests
     runs-on: ubuntu-24.04

@@ -2,8 +2,9 @@ name: Build
 
 # Release build of the Linux x86_64 package. Called by ci.yml (tag and main pushes)
 # and release.yml (manual releases). With `release-tag`, it also creates the tag and
-# the GitHub release on the built commit, with the package attached. With
-# `main-build`, it attaches the package of this main commit to the `main-build`
+# the GitHub release on the built commit, with the package and the Chrome extension
+# zip attached (the package also holds the zip, in extension/). With `main-build`,
+# it attaches the package of this main commit to the `main-build`
 # prerelease (deploy/hf-home/deploy.sh --main deploys it).
 
 on:
@@ -45,6 +46,12 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
           pnpm build
+      - name: Build the Chrome extension (zip of extension/dist, loaded unpacked; its manifest key pins the ID)
+        working-directory: extension
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          (cd dist && zip -qr ../../launchpad-chrome-extension.zip .)
       - name: Check installer syntax
         run: bash -n packaging/install.sh
       - name: Build release binaries
@@ -61,6 +68,8 @@ jobs:
           cp target/release/launchpad artifacts/target/release/
           cp -r packaging skills artifacts/
           cp -r web/dist artifacts/web/
+          mkdir -p artifacts/extension
+          cp launchpad-chrome-extension.zip extension/README.md artifacts/extension/
           printf '%s\n' "$GITHUB_SHA" > artifacts/COMMIT
           tar -czf launchpad-linux-x86_64.tar.gz -C artifacts .
           sha256sum launchpad-linux-x86_64.tar.gz > launchpad-linux-x86_64.tar.gz.sha256
@@ -70,6 +79,7 @@ jobs:
           path: |
             launchpad-linux-x86_64.tar.gz
             launchpad-linux-x86_64.tar.gz.sha256
+            launchpad-chrome-extension.zip
           if-no-files-found: error
           retention-days: 90
       - name: Create GitHub release
@@ -84,7 +94,8 @@ jobs:
             --title "$TAG" \
             --generate-notes \
             launchpad-linux-x86_64.tar.gz \
-            launchpad-linux-x86_64.tar.gz.sha256
+            launchpad-linux-x86_64.tar.gz.sha256 \
+            launchpad-chrome-extension.zip
       - name: Publish main build
         if: inputs.main-build
         env:
