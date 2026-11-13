@@ -7,7 +7,7 @@
 import type { ExtNotifications } from "@/gen/ExtNotifications";
 import { request, type ObservedAction } from "../../shared/messages";
 import { addPopover, askWithoutCloning } from "./addRepo";
-import { findAnchor, findAnchors, rowItem, rowSlot } from "./anchors";
+import { findAnchor, findAnchors, rowItem, notificationSlot } from "./anchors";
 import { open } from "./item";
 import type { Page } from "./page";
 import { chipButton, chipOf, hoverWith, RowStates } from "./rows";
@@ -107,12 +107,14 @@ function renderRows(page: Page, d: ExtNotifications | null, st: RowStates) {
   for (const { el, item } of rows) {
     const key = `${item!.repo}#${item!.number}`;
     const id = `nrow-${key.replace(/[^A-Za-z0-9]/g, "-")}`;
+    const slot = notificationSlot(el);
+    if (!slot) continue;
     next.add(id);
     const state = data?.rows.find((r) => r.item === key) ?? null;
     const chip = state ? chipOf(state, ws, true) : null;
     const target: Target = { repo: item!.repo, number: item!.number, kind: item!.kind, title: item!.title };
-    const slot = rowSlot(el);
     const w = mount(id, JSON.stringify([chip?.text, chip?.tone, ws, state?.folder]), slot.el, slot.place);
+    w.host.setAttribute("data-notification", "");
     hoverWith(el, w);
     if (!w.fresh) continue;
     const add = (b: HTMLElement) => addPopover(w.root, b, item!.repo, () => notificationsStale());

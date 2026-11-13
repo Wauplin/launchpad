@@ -427,6 +427,13 @@ export function rowSlot(row: Element): { el: Element; place: InsertPosition } {
   return { el: row, place: "beforeend" };
 }
 
+/** Keep notification controls beside the repository/number, never in a new row below the title.
+ * Skip unknown layouts instead of making the notification taller. */
+export function notificationSlot(row: Element): { el: Element; place: InsertPosition } | null {
+  const meta = row.querySelector(".notification-list-item-link .f6, .notification-list-item-link .text-small");
+  return meta ? { el: meta, place: "beforeend" } : null;
+}
+
 /** The comment element of a comment's header actions (`comments` anchor): what carries its anchor ID. */
 export function commentOf(actions: Element): { id: string; root: Element } | null {
   const classic = actions.closest('.timeline-comment-group[id^="issuecomment-"], .review-comment[id^="discussion_r"]');

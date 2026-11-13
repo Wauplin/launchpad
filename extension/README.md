@@ -134,7 +134,7 @@ Home pushes only to the pull request's own repository, your own fork, or a fork 
 
 - **Strip** at the top of github.com/notifications: what waits for you in Launchpad's Today of the workspace (questions, finished agents, suggestions to post, Local PRs to publish), with **Open Today**.
 - **Done all handled**: threads that a bot already handled (its newest report says merged, closed, approved or commented, and nothing happened after it). The confirmation lists them; **Mark N Done** marks them Done in Launchpad and on GitHub. Home checks each thread again first.
-- One chip per row (needs you, Reply ready, Review ready, a bot's report, Not in Launchpad), and hover actions: **Review with agent** or **Ask**, and in ⋯ **Draft a reply** and **Open in Launchpad**.
+- Compact controls beside the repository and item number, without an extra row: one status chip (needs you, Reply ready, Review ready, a bot's report, Not in Launchpad), and hover actions: **Review with agent** or **Ask**, and in ⋯ **Draft a reply** and **Open in Launchpad**.
 - **Done on GitHub**: when you click GitHub's own **Done**, **Mark as read** or **Unsubscribe**, the extension tells Home once the page shows the change. Launchpad's Inbox updates at once (the Inbox header says “N done on GitHub today”). Home writes nothing more to GitHub.
 
 ## Side panel
