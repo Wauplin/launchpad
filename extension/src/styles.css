@@ -163,3 +163,15 @@
 .x-ws { max-width: 45%; border: 0; border-radius: 999px; padding: 3px 8px; font: inherit; font-size: 12px; font-weight: 600; color: var(--color-teal-ink); background: var(--color-teal-soft); cursor: pointer; }
 .x-ws:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 1px; }
 .x-count { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--color-attn-soft); color: var(--color-attn); border: 1px solid var(--color-attn-line); font-weight: 600; font-size: 12px; text-align: center; }
+
+/* Tabs: Chat · This item · Agents */
+.x-tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--color-line-2); flex: none; }
+.x-tabs button { all: unset; cursor: pointer; padding: 6px 10px 8px; font-size: 13px; font-weight: 500; color: var(--color-ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.x-tabs button:hover { color: var(--color-ink); }
+.x-tabs button.x-on { color: var(--color-ink); border-bottom-color: var(--color-teal); }
+.x-tabs button:focus-visible { outline: 2px solid var(--color-teal); outline-offset: -2px; }
+.x-body > .x-sect { margin-left: 4px; }
+button.x-count { all: unset; cursor: pointer; display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--color-attn-soft); color: var(--color-attn); border: 1px solid var(--color-attn-line); font-weight: 600; font-size: 12px; text-align: center; }
+button.x-count:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 1px; }
+.x-task[role="group"] { cursor: default; align-items: center; }
+.x-chip.x-ghost { cursor: pointer; font: inherit; font-size: 12.5px; }
