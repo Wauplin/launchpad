@@ -9,9 +9,12 @@ import { beginPage } from "./anchors";
 import { renderComments, watch } from "./comments";
 import { insertFromPanel, renderInsertBanners } from "./insert";
 import { isItem } from "./item";
+import { clearLists, listsStale, renderLists } from "./lists";
+import { clearNotifications, notificationsStale, renderNotifications, watchNotificationForms } from "./notifications";
 import { observePage, watchNavigation } from "./navigation";
 import { pageOf, type Page } from "./page";
 import { renderRepoBadge } from "./repoBadge";
+import { renderRepoStrip } from "./repoStrip";
 import { renderSidebarBox } from "./sidebarBox";
 import { unmount, unmountAll } from "./widgets";
 
@@ -24,8 +27,17 @@ let generation = 0;
 /** Home's context for this page is on its way: the sidebar box keeps its space meanwhile. */
 let loading = false;
 
+/** Connected to Home (the list pages ask for rows only then). */
+const connected = () => phase === "online" || phase === "offline" || phase === "starting";
+
 function render() {
-  renderRepoBadge(page, context);
+  if (page.kind === "notifications") {
+    if (connected()) renderNotifications(page, render); else clearNotifications();
+    return;
+  }
+  renderRepoBadge(page, context, refresh);
+  renderRepoStrip(page, context, refresh);
+  if (connected()) renderLists(page, context, render, refresh); else clearLists();
   if (isItem(page)) {
     const ctx = context && context.page.number === page.number && context.page.repo?.toLowerCase() === page.repo.toLowerCase() ? context : null;
     if (ctx || (loading && phase !== "signed-out" && phase !== "revoked")) renderSidebarBox(page, ctx, refresh);
@@ -64,8 +76,11 @@ async function load(fresh = false) {
 
 function navigated() {
   page = pageOf(location.href);
-  beginPage(page.kind, page.repo ? { repo: page.repo, number: page.number } : null);
+  beginPage(page.kind, page.repo ? { repo: page.repo, number: page.number } : page.kind === "notifications" ? { repo: "", number: null } : null);
   context = page.repo ? byRepo.get(page.repo.toLowerCase()) ?? null : null;
+  clearLists();
+  if (page.kind === "notifications") { generation++; unmountAll(); clearNotifications(); render(); observePage(render); return; }
+  clearNotifications();
   if (!page.repo) { generation++; unmountAll(); return; }
   render();
   observePage(render);
@@ -95,6 +110,9 @@ function commands() {
 
 export function start() {
   commands();
+  watchNotificationForms(() => page.kind === "notifications");
+  // GitHub's own list checkboxes change no markup on every layout: L4's selection bar follows them here.
+  document.addEventListener("change", (e) => { if ((page.kind === "pulls" || page.kind === "issues") && e.target instanceof HTMLInputElement && e.target.type === "checkbox") render(); }, true);
   // Live cards count their minutes.
   setInterval(() => { if (isItem(page) && document.visibilityState === "visible") render(); }, 30_000);
   watchNavigation((sameUrl) => {
@@ -104,16 +122,20 @@ export function start() {
     state: (s) => {
       const was = phase;
       phase = s.phase;
-      if (s.phase === "online" && was !== "online") void load();
-      if (!s.home || s.phase === "revoked" || s.phase === "signed-out") { context = null; byRepo.clear(); unmountAll(); }
+      if (s.phase === "online" && was !== "online") { notificationsStale(); listsStale(); if (page.kind === "notifications") render(); else void load(); }
+      if (!s.home || s.phase === "revoked" || s.phase === "signed-out") { context = null; byRepo.clear(); clearLists(); clearNotifications(); unmountAll(); }
     },
     event: (e) => {
       const urls = (e.payload as { urls?: string[] | "*" } | null)?.urls;
+      // Rows and the notifications strip are not cached by the worker: any change of Home's records asks again.
+      notificationsStale();
+      listsStale();
+      if (page.kind === "notifications" || page.kind === "pulls" || page.kind === "issues") render();
       const here = new URL(page.url);
       here.hash = "";
       if (urls === "*" || (Array.isArray(urls) && urls.includes(here.toString()))) void load();
     },
-    resync: () => void load(true),
+    resync: () => { notificationsStale(); listsStale(); if (page.kind === "notifications") render(); else void load(true); },
   });
   navigated();
   whileLoading();

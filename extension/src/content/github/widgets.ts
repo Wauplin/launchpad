@@ -15,6 +15,8 @@ const STYLE = `
   --lp-teal: ${TEAL.light}; --lp-ink: ${TEAL.lightInk}; }
 :host([data-dark]) { --lp-teal: ${TEAL.dark}; --lp-ink: ${TEAL.darkInk}; }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
+:host([data-block="strip"]) { display: block; max-width: 1280px; margin: 12px auto 0; padding: 0 32px; font-weight: 400; font-size: 13px; }
 .lp-chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; max-width: 360px; padding: 0 8px 0 6px; border-radius: 999px;
   border: 1px solid var(--borderColor-default, var(--color-border-default, #d1d9e0));
   background: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa)); color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
@@ -76,6 +78,32 @@ const STYLE = `
   -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent); mask-image: linear-gradient(180deg, #000 70%, transparent); }
 .lp-error { color: var(--fgColor-danger, #d1242f); font-size: 12px; margin-top: 6px; }
 .lp-mention { color: var(--fgColor-attention, #9a6700); border-color: color-mix(in srgb, var(--fgColor-attention, #9a6700) 50%, transparent) !important; }
+.lp-link { display: inline; padding: 0; border: 0; background: none; font: inherit; color: var(--fgColor-default, #1f2328); cursor: pointer; text-decoration: none; white-space: nowrap; }
+.lp-link:hover { color: var(--fgColor-accent, #0969da); text-decoration: underline; }
+.lp-strip > .lp-row { margin-top: 0 !important; }
+.lp-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; padding: 8px 12px; }
+.lp-count { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 999px; font-size: 12px; font-weight: 500; text-decoration: none; white-space: nowrap;
+  color: var(--lp-ink); border: 1px solid color-mix(in srgb, var(--lp-teal) 55%, transparent); }
+.lp-tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; max-width: 260px; padding: 0 7px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap;
+  border: 1px solid var(--borderColor-default, #d1d9e0); background: none; color: var(--fgColor-muted, #59636e); font-family: inherit; cursor: pointer; }
+.lp-tag > span { overflow: hidden; text-overflow: ellipsis; }
+.lp-tag.lp-need { color: var(--fgColor-attention, #9a6700); border-color: color-mix(in srgb, var(--fgColor-attention, #9a6700) 50%, transparent); }
+.lp-tag.lp-run { color: var(--fgColor-accent, #0969da); border-color: color-mix(in srgb, var(--fgColor-accent, #0969da) 50%, transparent); }
+.lp-tag.lp-ok { color: var(--fgColor-success, #1a7f37); border-color: color-mix(in srgb, var(--fgColor-success, #1a7f37) 50%, transparent); }
+.lp-tag:hover { background: var(--control-transparent-bgColor-hover, #818b981f); }
+.lp-hover { display: inline-flex; align-items: center; gap: 2px; }
+:host([data-hover]:not([data-show])) .lp-hover { visibility: hidden; }
+.lp-section { border: 1px solid var(--borderColor-default, #d1d9e0); border-top: 2px solid var(--lp-teal); border-radius: 6px; margin: 0 0 16px; background: var(--bgColor-default, #ffffff); }
+.lp-section-head { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: var(--bgColor-muted, #f6f8fa); border-bottom: 1px solid var(--borderColor-muted, #d1d9e0b3); border-radius: 6px 6px 0 0; }
+.lp-section-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+.lp-section-row + .lp-section-row { border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+.lp-pop label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.lp-pop input[type="text"] { width: 100%; font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: inherit; border-radius: 6px; padding: 5px 8px;
+  border: 1px solid var(--borderColor-default, #d1d9e0); background: var(--bgColor-default, #ffffff); }
+.lp-confirm { padding: 8px; border-radius: 6px; background: var(--bgColor-attention-muted, #fff8c5); color: var(--fgColor-default, #1f2328); font-size: 12px; }
+.lp-bar { position: fixed; z-index: 2147483000; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 12px;
+  border-radius: 12px; background: var(--overlay-bgColor, var(--bgColor-default, #ffffff)); border: 1px solid var(--borderColor-default, #d1d9e0);
+  box-shadow: var(--shadow-floating-large, 0 8px 24px rgba(140, 149, 159, .2)); font-size: 13px; }
 .lp-pop { position: fixed; z-index: 2147483000; width: 340px; padding: 12px; border-radius: 12px; font-size: 13px; font-weight: 400;
   background: var(--overlay-bgColor, var(--bgColor-default, #ffffff)); border: 1px solid var(--borderColor-default, #d1d9e0);
   box-shadow: var(--shadow-floating-large, 0 8px 24px rgba(140, 149, 159, .2)); display: grid; gap: 8px; }
@@ -140,7 +168,7 @@ const keys = new WeakMap<HTMLElement, string>();
 /** The host of widget `id` next to `anchor`, created or moved when needed. `key` names what it shows (anchor and
  * item, plus anything that changes its content): the same key on a host still in place means nothing to do
  * (`fresh` false), so a caller re-renders only on a change. */
-export function mount(id: string, key: string, anchor: Element, place: InsertPosition, block?: "box" | "card" | "banner"): Widget {
+export function mount(id: string, key: string, anchor: Element, place: InsertPosition, block?: "box" | "card" | "banner" | "strip"): Widget {
   let host = document.querySelector<HTMLElement>(`[${HOST_ATTR}="${CSS.escape(id)}"]`);
   const inPlace = (el: HTMLElement) => {
     switch (place) {

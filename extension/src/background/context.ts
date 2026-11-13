@@ -65,7 +65,7 @@ export async function follow(data: ExtContext) {
 export function pageRows(raw: string, items: string[]): Promise<ExtRows> {
   const url = pageUrl(raw);
   const ws = current().workspace;
-  const list = items.filter((i) => /^[A-Za-z0-9]{1,40}$/.test(i)).slice(0, 100).join(",");
+  const list = items.filter((i) => /^([A-Za-z0-9]{1,40}|[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}#[1-9]\d{0,9})$/.test(i)).slice(0, 100).map(encodeURIComponent).join(",");
   return homeJson<ExtRows>(`/api/ext/rows?url=${encodeURIComponent(url)}&items=${list}${ws ? `&workspace=${encodeURIComponent(ws)}` : ""}`);
 }
 

@@ -4,6 +4,7 @@
 
 import { PAGE_ONLY, RequestError, type Answer, type Args, type Kind, type Message, type Result } from "../shared/messages";
 import { botMessage, bots, events, ledger, sessions, stop, takeQuote } from "./agents";
+import { clone, doneHandled, localPr, notifications, observed, publish, reviewChoice } from "./lists";
 import { anchorHealth, follow, pageContext, pageRows, peekContext, reportAnchors } from "./context";
 import { startEvents, stopEvents } from "./events";
 import { clientId, discover, signIn } from "./hf";
@@ -62,6 +63,13 @@ const handlers: { [K in Kind]: Handler<K> } = {
   "session.events": (args) => events(args),
   "session.stop": (args) => stop(args),
   "suggestion.ledger": (args) => ledger(args),
+  notifications: () => notifications(),
+  "inbox.observed": (args) => observed(args),
+  "inbox.done-handled": (args) => doneHandled(args),
+  "review-choice": (args) => reviewChoice(args),
+  "folder.clone": (args) => clone(args),
+  "localpr.detail": (args) => localPr(args),
+  "localpr.publish": (args) => publish(args),
   "quote.take": async () => takeQuote(),
   "home.get": ({ path }) => homeJson(homePath(path)),
   "home.post": ({ path, body, idempotency_key }) => {

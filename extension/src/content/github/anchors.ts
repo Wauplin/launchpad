@@ -88,6 +88,71 @@ export const ANCHORS = {
       }) ?? null },
     ],
   },
+  /** Each row of a Pull requests or Issues list (row chips L2, hover review L3, selection L4). */
+  "list-items": {
+    label: "Pull request and issue list rows",
+    kinds: ["pulls", "issues"],
+    place: "beforeend",
+    strategies: [
+      { via: "data", find: () => document.querySelector('[data-listview-component="items-list"] > li'), all: () => all('[data-listview-component="items-list"] > li') },
+      { via: "id", find: () => document.querySelector(".js-issue-row"), all: () => all(".js-issue-row") },
+      { via: "aria", find: (p) => listRows(p)[0] ?? null, all: (p) => listRows(p) },
+    ],
+  },
+  /** The list of a Pull requests page: the Local PRs section goes above it (L1). */
+  "list-view": {
+    label: "Pull request list",
+    kinds: ["pulls"],
+    place: "beforebegin",
+    strategies: [
+      { via: "data", find: () => document.querySelector('[data-listview-component="items-list"]')?.closest('[id$="list-view-container"]') ?? document.querySelector('[data-listview-component="items-list"]') },
+      { via: "id", find: () => document.querySelector("#js-issues-toolbar")?.closest(".Box") ?? null },
+      { via: "aria", find: (p) => listRows(p)[0]?.closest("ul, ol, [role=list]") ?? null },
+    ],
+  },
+  /** The Pull requests tab of the repository: "+2 local" after its count (L1). */
+  "pr-tab": {
+    label: "Pull requests tab",
+    kinds: REPO_KINDS,
+    place: "afterend",
+    strategies: [
+      { via: "data", find: () => document.querySelector('nav[aria-label="Repository"] a[data-tab-item="pull-requests"], a[data-tab-item="i2pull-requests-tab"]') },
+      { via: "id", find: () => document.querySelector("a#pull-requests-tab") },
+      { via: "text", find: (p) => all("nav a[href]").find((a) => same(pathOf(a), `/${p.repo}/pulls`) && /pull requests/i.test(a.textContent ?? "")) ?? null },
+    ],
+  },
+  /** The top of a repository's content, under its tabs: the Launchpad strip (R2). */
+  "repo-content": {
+    label: "Repository content",
+    kinds: ["repo"],
+    place: "afterbegin",
+    strategies: [
+      { via: "id", find: () => document.querySelector("#repo-content-pjax-container") ?? document.querySelector("#repo-content-turbo-frame") },
+      { via: "aria", find: () => document.querySelector('main[id="js-repo-pjax-container"], main') },
+    ],
+  },
+  /** The list of github.com/notifications: the Today strip goes above it (N1). */
+  "notification-list": {
+    label: "Notifications list",
+    kinds: ["notifications"],
+    place: "beforebegin",
+    strategies: [
+      { via: "id", find: () => document.querySelector(".js-notifications-container") },
+      { via: "data", find: () => document.querySelector("[data-notification-id]")?.closest(".Box, ul") ?? null },
+      { via: "aria", find: () => notificationRows()[0]?.closest("ul, ol, [role=list]") ?? null },
+    ],
+  },
+  /** Each notification row (row status N2, observed Done N3, hover Ask N5). */
+  "notification-rows": {
+    label: "Notification rows",
+    kinds: ["notifications"],
+    place: "beforeend",
+    strategies: [
+      { via: "data", find: () => document.querySelector("li[data-notification-id]"), all: () => all("li[data-notification-id]") },
+      { via: "id", find: () => document.querySelector(".notifications-list-item"), all: () => all(".notifications-list-item") },
+      { via: "aria", find: () => notificationRows()[0] ?? null, all: () => notificationRows() },
+    ],
+  },
   /** The title of an issue or pull request (live agent cards, I5). */
   "item-title": {
     label: "Issue and pull request title",
@@ -172,6 +237,47 @@ export const ANCHORS = {
     ],
   },
 } satisfies Record<string, Anchor>;
+
+/** Rows of a list found by their links to the repository's pull requests or issues. */
+function listRows(p: Params): Element[] {
+  const rows = all("main li").filter((li) => all("a[href]", li).some((a) => new RegExp(`^/${p.repo.replace(/[.]/g, "\\.")}/(pull|issues)/\\d+$`, "i").test(pathOf(a))));
+  return rows.filter((r) => !rows.some((o) => o !== r && r.contains(o)));
+}
+
+/** Rows of the notifications list found by their links (GitHub adds `notification_referrer_id`). */
+function notificationRows(): Element[] {
+  return all('a[href*="notification_referrer_id"]').map((a) => a.closest("li")).filter((x): x is HTMLLIElement => !!x);
+}
+
+/** The item a list or notification row links to: its repository and number, from the row's link (never its text). */
+export function rowItem(row: Element): { repo: string; number: number; kind: "pr" | "issue"; url: string; title: string | null } | null {
+  for (const a of all('a[href]', row)) {
+    const m = pathOf(a).match(/^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(pull|issues)\/([1-9]\d{0,9})$/);
+    if (!m) continue;
+    const repo = `${m[1]}/${m[2]}`;
+    const kind = m[3] === "pull" ? "pr" : "issue";
+    // The title is page text: shown in our popovers only, never sent to Home or an agent.
+    const title = (a.querySelector(".markdown-title") ?? a).textContent?.replace(/\s+/g, " ").trim().slice(0, 300) || null;
+    return { repo, number: Number(m[4]), kind, url: `https://github.com/${repo}/${m[3]}/${m[4]}`, title };
+  }
+  return null;
+}
+
+/** GitHub's own checkbox of a list row is checked (read only: L4 never changes it). */
+export function rowChecked(row: Element): boolean {
+  return all('input[type="checkbox"]', row).some((c) => (c as HTMLInputElement).checked) || all('[role="checkbox"][aria-checked="true"]', row).length > 0;
+}
+
+/** Where a row's chip goes: the end of its metadata line (number, author, time), else the end of the row. */
+export function rowSlot(row: Element): { el: Element; place: InsertPosition } {
+  const meta = row.querySelector('[data-testid="timestamp-container"], [data-testid="issue-activity-timestamp"]')?.parentElement;
+  if (meta && row.contains(meta)) return { el: meta, place: "beforeend" };
+  const classic = row.querySelector(".opened-by")?.parentElement;
+  if (classic) return { el: classic, place: "beforeend" };
+  const actions = row.querySelector(".notification-list-item-actions");
+  if (actions) return { el: actions, place: "beforebegin" };
+  return { el: row, place: "beforeend" };
+}
 
 /** The comment element of a comment's header actions (`comments` anchor): what carries its anchor ID. */
 export function commentOf(actions: Element): { id: string; root: Element } | null {

@@ -4,6 +4,7 @@
 
 import type { ExtContext } from "@/gen/ExtContext";
 import { request } from "../../shared/messages";
+import { addPopover, askWithoutCloning } from "./addRepo";
 import { findAnchor } from "./anchors";
 import type { Page } from "./page";
 import { chip, mount, unmount, type MenuEntry } from "./widgets";
@@ -23,12 +24,15 @@ function label(ctx: ExtContext): { text: string; tone: "accent" | "quiet" } {
   return { text: `In Launchpad · ${f.workspace} / ${f.name}`, tone: "accent" };
 }
 
-function entries(ctx: ExtContext): MenuEntry[] {
+function entries(ctx: ExtContext, page: Page, root: ShadowRoot, button: HTMLElement, refresh: () => void): MenuEntry[] {
   const f = ctx.folder;
   if (!f) {
+    const repo = page.repo ?? ctx.page.repo ?? "";
+    const item = page.number && (page.kind === "issue" || page.kind.startsWith("pr_")) ? { repo, number: page.number, kind: page.kind === "issue" ? "issue" as const : "pr" as const, title: ctx.page.title } : null;
     return [
-      { label: "Add to Launchpad", hint: "Clone from GitHub into a workspace · coming soon", disabled: true },
-      { label: "Ask without cloning", hint: "Temporary folder, this repository as context · coming soon", disabled: true },
+      { label: "Add to Launchpad", hint: "Clone from GitHub into a workspace", onSelect: () => addPopover(root, button, repo, refresh) },
+      { label: "Ask without cloning", hint: item ? `A bot answers about #${item.number}, without a folder` : "A bot answers with this repository as context", onSelect: () => askWithoutCloning(root, button, ctx, item ?? { repo, number: null, kind: "repo" }, refresh) },
+      ...(ctx.inbox_unread ? [{ note: `${ctx.inbox_unread} unread notifications of this repository: Launchpad's Inbox shows them in no workspace until it has a folder.` }] : []),
     ];
   }
   const ws = `ws=${encodeURIComponent(f.workspace_id)}`;
@@ -45,7 +49,7 @@ function entries(ctx: ExtContext): MenuEntry[] {
 }
 
 /** Renders the badge (idempotent), or removes it without a context or anchor. */
-export function renderRepoBadge(page: Page, ctx: ExtContext | null) {
+export function renderRepoBadge(page: Page, ctx: ExtContext | null, refresh: () => void) {
   if (!page.repo || !ctx || ctx.page.repo?.toLowerCase() !== page.repo.toLowerCase()) return unmount(ID);
   const anchor = findAnchor("repo-name", { repo: page.repo, number: page.number });
   if (!anchor) return unmount(ID);
@@ -54,5 +58,6 @@ export function renderRepoBadge(page: Page, ctx: ExtContext | null) {
   const others = ctx.others.map((o) => o.id).join(",");
   const w = mount(ID, `${page.repo.toLowerCase()}|${text}|${ctx.folder?.id ?? ""}|${others}`, anchor.el, anchor.place);
   if (!w.fresh) return;
-  chip(w.root, text, tone, () => ({ title: text, entries: entries(latest ?? ctx) }));
+  const root = w.root;
+  const button: HTMLElement = chip(root, text, tone, () => ({ title: text, entries: entries(latest ?? ctx, page, root, button, refresh) }));
 }
