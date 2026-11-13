@@ -48,6 +48,8 @@ jobs:
           pnpm build
       - name: Build the Chrome extension (zip of extension/dist, loaded unpacked; its manifest key pins the ID)
         working-directory: extension
+        env:
+          VITE_HF_CLIENT_ID: ${{ vars.HF_CLIENT_ID }}
         run: |
           pnpm install --frozen-lockfile
           pnpm build

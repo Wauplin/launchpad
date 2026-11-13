@@ -53,7 +53,9 @@ Sign in needs an OAuth app on Hugging Face. Register it once under your account,
 | Redirect URL | `https://bbefehapjjlbeodihifmpgidgjhmcklj.chromiumapp.org/` |
 | Type | Public client (PKCE, no secret) |
 
-Give its client ID to the extension in one of two ways:
+Release and main builds include the client ID from the GitHub repository variable `HF_CLIENT_ID`, passed to the build as `VITE_HF_CLIENT_ID`. Set that variable under **Settings → Secrets and variables → Actions → Variables** before building.
+
+For a source build or a different OAuth app, give its client ID to the extension in one of two ways:
 
 - at build time, with `VITE_HF_CLIENT_ID` in `extension/.env.local`;
 - in the panel's **Settings → Sign in with Hugging Face → OAuth client ID** (this wins over the build's value; leave it empty to use the build's).
