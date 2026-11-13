@@ -76,7 +76,7 @@ function prRow(root: ShadowRoot, p: ExtLocalPr, ws: string, refresh: () => void)
 }
 
 /** The Publish dialog: options, then a confirmation that names the commit; only the confirm click publishes. */
-function publishPopover(root: ShadowRoot, anchor: HTMLElement, p: ExtLocalPr, refresh: () => void) {
+export function publishPopover(root: ShadowRoot, anchor: HTMLElement, p: ExtLocalPr, refresh: () => void) {
   const status = h("div", { class: "lp-muted", text: "Reading the Local PR…" });
   const remote = h("input", { attrs: { type: "text", "aria-label": "Remote branch name", placeholder: "Remote branch name" } });
   const draft = h("input", { attrs: { type: "checkbox" } });

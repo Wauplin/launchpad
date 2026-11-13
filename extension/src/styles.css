@@ -120,6 +120,7 @@
 .x-banner { display: flex; gap: 8px; align-items: center; font-size: 12.5px; padding: 6px 8px 6px 10px; border-radius: 10px; }
 .x-banner.x-run { background: var(--color-teal-soft); color: var(--color-teal-ink); }
 .x-banner.x-warn { background: var(--color-attn-soft); color: var(--color-attn); }
+.x-confirm { background: var(--color-attn-soft); color: var(--color-ink, inherit); padding: 6px 8px; border-radius: 6px; }
 .x-banner.x-off { background: var(--color-chrome); color: var(--color-ink-2); }
 .x-banner > span { flex: 1; min-width: 0; }
 .x-shared { display: flex; gap: 6px; flex-wrap: wrap; }

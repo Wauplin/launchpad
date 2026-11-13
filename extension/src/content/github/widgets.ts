@@ -77,6 +77,7 @@ const STYLE = `
 .lp-preview { margin-top: 6px; max-height: 7.5em; overflow: hidden; white-space: pre-wrap; word-break: break-word; font-size: 13px; color: var(--fgColor-default, #1f2328);
   -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent); mask-image: linear-gradient(180deg, #000 70%, transparent); }
 .lp-error { color: var(--fgColor-danger, #d1242f); font-size: 12px; margin-top: 6px; }
+.lp-warn { color: var(--fgColor-attention, #9a6700); font-size: 12px; }
 .lp-ghost { display: block; border: 1px dashed var(--lp-teal); border-radius: 6px; padding: 8px 10px; background: color-mix(in srgb, var(--lp-teal) 6%, var(--bgColor-default, #ffffff)); }
 .lp-answer { margin-top: 6px; max-height: 16em; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 13px; color: var(--fgColor-default, #1f2328); }
 .lp-mention { color: var(--fgColor-attention, #9a6700); border-color: color-mix(in srgb, var(--fgColor-attention, #9a6700) 50%, transparent) !important; }

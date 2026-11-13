@@ -7,6 +7,7 @@ import type { ExtContext } from "@/gen/ExtContext";
 import { CONTEXT_TOPIC, request, subscribe, type Phase, type TabCommand } from "../../shared/messages";
 import { beginPage } from "./anchors";
 import { renderComments, watch } from "./comments";
+import { renderCiNote } from "./ci";
 import { clearFiles, isFiles, renderFiles } from "./files";
 import { insertFromPanel, onInserted, renderInsertBanners } from "./insert";
 import { isItem } from "./item";
@@ -48,7 +49,9 @@ function render() {
     else unmount("sidebar-box");
     watch(renderComments(page, ctx, refresh), render);
     renderInsertBanners(page, ctx, refresh);
+    renderCiNote(page, ctx, refresh);
   } else {
+    unmount("ci-note");
     unmount("sidebar-box");
     if (!isFiles(page)) watch([], render);
   }

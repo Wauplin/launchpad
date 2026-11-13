@@ -1,9 +1,11 @@
 // P2 This item: on a GitHub pull request or issue, what Launchpad has about it (agents that named it, suggestions with
-// Insert, Local PRs) with the same buttons as the page's sidebar box. It is also where a feature lands when its anchor
+// Insert, a suggested review's line comments and how many are outdated, Local PRs, an agent branch ready to push with
+// Push to this PR, Not on GitHub yet, a fork's edit permission) with the same buttons as the page's sidebar box. It is also where a feature lands when its anchor
 // on the page stopped matching (the repository state line covers the badge).
 
 import { useCallback, useEffect, useState } from "react";
 import type { ExtAgent } from "@/gen/ExtAgent";
+import type { ExtBranch } from "@/gen/ExtBranch";
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtSuggestion } from "@/gen/ExtSuggestion";
 import { ago } from "@/lib/format";
@@ -76,6 +78,11 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
     } catch (e) { setError(message(e)); }
   };
 
+  const files = () => {
+    if (!page.repo || !page.number) return;
+    void chrome.tabs.update(tab.id, { url: `https://github.com/${page.repo}/pull/${page.number}/files` }).catch((e) => setError(message(e)));
+  };
+
   if (error && !ctx) return <div className="x-body"><p className="x-error">{error}</p><div className="x-btns"><button className="x-btn x-sm" onClick={() => void load(true)}>Try again</button></div></div>;
   if (!ctx) return <div className="x-body"><div className="x-line"><span className="x-spin" />Loading…</div></div>;
 
@@ -102,9 +109,11 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
       {ctx.suggestions.map((s) => <div key={s.id} className="x-card">
         <h3><span style={{ flex: 1 }}>{s.bot ?? "An agent"} · {s.kind === "review" ? "review" : s.reply_to ? `reply to ${s.reply_to.author ?? "a comment"}` : "comment"}</span>{s.status === "inserted" && <span className="x-status x-s-run">Inserted on GitHub</span>}</h3>
         <p className="x-small" style={{ whiteSpace: "pre-wrap", maxHeight: "9em", overflow: "hidden" }}>{s.text}</p>
-        {s.outdated > 0 && <p className="x-small" style={{ color: "var(--color-attn)" }}>Written for an older commit: {s.outdated} line {s.outdated === 1 ? "comment" : "comments"} may not apply.</p>}
+        {s.kind === "review" && s.lines.length > 0 && <p className="x-small x-muted">{s.lines.length} line {s.lines.length === 1 ? "comment" : "comments"} on Files changed{s.lines.some((l) => l.state === "posted_by_hand" || l.state === "confirmed") ? ` · ${s.lines.filter((l) => l.state === "posted_by_hand" || l.state === "confirmed").length} added to your review` : ""} · suggests {s.event === "APPROVE" ? "Approve" : s.event === "REQUEST_CHANGES" ? "Request changes" : "Comment"}</p>}
+        {s.outdated > 0 && <p className="x-small" style={{ color: "var(--color-attn)" }}>Written at {s.head?.slice(0, 7) ?? "an older commit"}, the pull request is now at {ctx.page.head?.slice(0, 7) ?? "a newer one"}: {s.outdated} line {s.outdated === 1 ? "comment" : "comments"} outdated, inserted only after a second click.</p>}
         <div className="x-btns">
           {s.kind === "comment" && s.status !== "inserted" && <button className="x-btn x-sm" onClick={() => void insert(s)}>Insert</button>}
+          {s.kind === "review" && page.kind !== "pr_files" && s.lines.length > 0 && <button className="x-btn x-sm" onClick={files}>Show on Files changed</button>}
           {s.kind === "review" && <button className="x-btn x-sm" onClick={() => open(`/github/${page.repo}/${page.number}?tab=files&draft=${encodeURIComponent(s.id)}`)}>Review in Launchpad</button>}
           {s.session_id && <button className="x-btn x-sm x-link" onClick={() => open(`/agents?session=${encodeURIComponent(s.session_id!)}`)}>Agent</button>}
         </div>
@@ -123,7 +132,7 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
       </button>)}
     </>}
 
-    {ctx.branches.filter((b) => b.not_on_github).map((b) => <div key={b.branch} className="x-banner x-warn"><Icon name="warn" size={14} /><span>{b.branch}: not on GitHub yet{b.error ? ` (${b.error})` : ""}</span></div>)}
+    {isPr && <Branches ctx={ctx} page={page} onError={setError} onDone={() => void load(true)} />}
     {!agents.length && !ctx.suggestions.length && !ctx.local_prs.length && <p className="x-muted x-small" style={{ margin: "0 4px" }}>No agent worked on this {isPr ? "pull request" : "issue"} yet.</p>}
   </div>;
 }
@@ -140,4 +149,43 @@ export function AgentRow({ a, open, onError }: { a: Pick<ExtAgent, "session_id" 
     {working && <button className="x-btn x-sm" onClick={() => void request("session.stop", { id: a.session_id }).catch((e) => onError(message(e)))}>Stop</button>}
     <button className="x-ib" aria-label="Open in Launchpad" title="Open in Launchpad" onClick={() => open(`/agents?session=${encodeURIComponent(a.session_id)}`)}><Icon name="ext" size={16} /></button>
   </div>;
+}
+
+/** The pull request's branch states: agent branches ready to push (Push to this PR, confirmed here first), Not on
+ * GitHub yet with the last error, and whether maintainers can edit a fork's branch. */
+function Branches({ ctx, page, onError, onDone }: { ctx: ExtContext; page: Page; onError: (e: string | null) => void; onDone: () => void }) {
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fork = !!ctx.page.head_repo && !!ctx.page.repo && ctx.page.head_repo.toLowerCase() !== ctx.page.repo.toLowerCase();
+  const own = fork && !!ctx.login && ctx.page.head_repo!.split("/")[0]?.toLowerCase() === ctx.login.toLowerCase();
+  const canPush = !fork || own || ctx.page.maintainer_can_modify !== false;
+  const target = ctx.page.head_repo && ctx.page.head_branch ? `${ctx.page.head_repo}:${ctx.page.head_branch}` : "this pull request's branch";
+  const push = async (b: ExtBranch, e: React.MouseEvent) => {
+    // Only a real click of the owner pushes.
+    if (!e.nativeEvent.isTrusted || busy || !page.repo || !page.number || !b.push_ready) return;
+    setBusy(true); onError(null);
+    try {
+      await request("branch.push-to-pr", { repo: page.repo, number: page.number, branch: b.push_ready.branch, head: b.push_ready.head });
+      setConfirming(null);
+      onDone();
+    } catch (err) { onError(message(err)); } finally { setBusy(false); }
+  };
+  const ready = ctx.branches.filter((b) => b.push_ready);
+  const behind = ctx.branches.filter((b) => !b.push_ready && (b.not_on_github || b.error));
+  if (!ready.length && !behind.length && !(fork && ctx.page.maintainer_can_modify !== null)) return null;
+  return <>
+    <div className="x-sect">Branch</div>
+    {ready.map((b) => <div key={b.branch} className="x-card">
+      <h3>{b.push_ready!.ahead} {b.push_ready!.ahead === 1 ? "commit" : "commits"} ready to push</h3>
+      <p className="x-small x-muted">{b.branch} is {b.push_ready!.ahead} ahead of {target}{b.push_ready!.title ? ` (${b.push_ready!.title})` : ""}.</p>
+      {confirming === b.branch && <p className="x-small x-confirm">Home pushes {b.branch} at {b.push_ready!.head.slice(0, 8)} to {target} on GitHub. Fast-forward only, never forced; refused if the pull request moved. Then Home keeps pushing the agent's new commits there.</p>}
+      <div className="x-btns">
+        {confirming === b.branch
+          ? <><button className="x-btn x-sm x-pri" disabled={busy} onClick={(e) => void push(b, e)}>{busy ? "Pushing…" : "Push to this PR"}</button><button className="x-btn x-sm" onClick={() => setConfirming(null)}>Cancel</button></>
+          : <button className="x-btn x-sm" disabled={!canPush} title={canPush ? "You confirm first" : "Maintainers cannot edit this pull request's branch"} onClick={() => setConfirming(b.branch)}>Push to this PR…</button>}
+      </div>
+    </div>)}
+    {behind.map((b) => <div key={b.branch} className="x-banner x-warn"><Icon name="warn" size={14} /><span>Not on GitHub yet: {b.branch}{b.error ? `, push refused: ${b.error}` : ""}{b.head ? ` (commit ${b.head.slice(0, 7)})` : ""}</span></div>)}
+    {fork && ctx.page.maintainer_can_modify !== null && <p className="x-small x-muted" style={{ margin: "0 4px" }}>{canPush ? "Maintainers can edit this fork's branch." : "Maintainers cannot edit: agents cannot push here. Continue makes a Local PR on top of this branch, or a review with suggestion blocks."}</p>}
+  </>;
 }
