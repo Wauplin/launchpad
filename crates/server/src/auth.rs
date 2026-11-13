@@ -31,6 +31,13 @@ use tokio::sync::watch;
 /// The pinned ID of the Chrome extension (its `key` in `extension/public/manifest.json`): its origin may call the daemon.
 pub const EXTENSION_ID: &str = "bbefehapjjlbeodihifmpgidgjhmcklj";
 pub fn extension_origin() -> String { format!("chrome-extension://{EXTENSION_ID}") }
+/// The extension's device secret (a `browser_device` record), sent on every call instead of a cookie; only with the
+/// extension's Origin. The Space gateway passes it through and adds no daemon credential to these calls.
+pub const DEVICE_HEADER: &str = "x-launchpad-device";
+
+fn from_extension(headers: &HeaderMap) -> bool {
+    headers.get(header::ORIGIN).is_some_and(|v| v.as_bytes() == extension_origin().as_bytes())
+}
 
 const DEVICE_LIFETIME: i64 = 365 * 24 * 60 * 60;
 const PAIR_LIFETIME: i64 = 5 * 60;
@@ -80,7 +87,7 @@ struct Session {
 #[derive(Clone)]
 pub struct Access {
     session: Option<(Arc<AtomicBool>, i64)>,
-    /// The browser device; None for bearer clients (CLI, Chrome extension native host).
+    /// The browser device (cookie, or the extension's `X-Launchpad-Device`); None for bearer clients (CLI, the Space gateway).
     pub device: Option<String>,
     pub changes: watch::Receiver<u64>,
 }
@@ -267,25 +274,31 @@ impl Auth {
                 changes,
             });
         }
+        // The extension's header decides alone: a stale secret never falls back to a cookie.
+        if let Some(v) = headers.get(DEVICE_HEADER) {
+            let secret = v.to_str().ok().filter(|_| from_extension(headers))?;
+            return self.device_access(secret, changes);
+        }
         for v in headers.get_all(header::COOKIE) {
             let Ok(v) = v.to_str() else { continue };
             for pair in v.split(';') {
                 if let Some((k, val)) = pair.trim().split_once('=')
                     && k == self.cookie
-                    && let Some(session) = self.sessions.read().unwrap().get(&hash(val))
-                    && session.expires_at > now()
-                    && session.valid.load(Ordering::Acquire)
+                    && let Some(access) = self.device_access(val, changes.clone())
                 {
-                    self.touch(session);
-                    return Some(Access {
-                        session: Some((session.valid.clone(), session.expires_at)),
-                        device: Some(session.id.clone()),
-                        changes,
-                    });
+                    return Some(access);
                 }
             }
         }
         None
+    }
+
+    /// The live device whose secret this is (cookie or extension header).
+    fn device_access(&self, secret: &str, changes: watch::Receiver<u64>) -> Option<Access> {
+        let sessions = self.sessions.read().unwrap();
+        let session = sessions.get(&hash(secret)).filter(|s| s.expires_at > now() && s.valid.load(Ordering::Acquire))?;
+        self.touch(session);
+        Some(Access { session: Some((session.valid.clone(), session.expires_at)), device: Some(session.id.clone()), changes })
     }
 
     /// Records the device's last activity, at most once per `SEEN_INTERVAL`, off the request path.
@@ -438,9 +451,45 @@ pub fn router() -> Router<Server> {
         .route("/api/devices/https/run", post(run_https))
         .route("/api/devices/https/check", post(check_https))
         .route("/api/devices/{id}", axum::routing::delete(revoke))
+        .route("/api/devices/extension", post(extension_device))
+        .route("/api/extension/disconnect", post(extension_disconnect))
 }
 
-pub async fn guard(State(s): State<Server>, mut req: Request, next: Next) -> Response {
+/// CORS for the pinned extension origin: its service worker sends the device header (and through the Space gateway
+/// the Hugging Face token), so preflights must pass. No other origin gets CORS headers.
+fn cors(mut response: Response) -> Response {
+    let headers = response.headers_mut();
+    headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, extension_origin().parse().unwrap());
+    headers.insert(header::ACCESS_CONTROL_EXPOSE_HEADERS, "Idempotency-Status".parse().unwrap());
+    headers.append(header::VARY, "Origin".parse().unwrap());
+    response
+}
+
+fn preflight() -> Response {
+    cors((
+        StatusCode::NO_CONTENT,
+        [
+            (header::ACCESS_CONTROL_ALLOW_METHODS, "GET, HEAD, POST, PUT, PATCH, DELETE"),
+            (header::ACCESS_CONTROL_ALLOW_HEADERS, "Authorization, Content-Type, Idempotency-Key, X-Launchpad-Device, Last-Event-ID"),
+            (header::ACCESS_CONTROL_MAX_AGE, "600"),
+        ],
+    ).into_response())
+}
+
+pub async fn guard(State(s): State<Server>, req: Request, next: Next) -> Response {
+    if !from_extension(req.headers()) {
+        return guard_inner(s, req, next).await;
+    }
+    if req.method() == Method::OPTIONS {
+        if let Err(message) = s.auth.check_front_door(req.headers(), req.method()) {
+            return (StatusCode::FORBIDDEN, message).into_response();
+        }
+        return preflight();
+    }
+    cors(guard_inner(s, req, next).await)
+}
+
+async fn guard_inner(s: Server, mut req: Request, next: Next) -> Response {
     // A Burst runner's only entry: Home dials it through the HF Jobs proxy (another Host), with the runner's
     // own credential, checked by the handler.
     if req.uri().path() == "/api/runner/reverse" && launchpad_core::home_link::burst().is_some() {
@@ -830,7 +879,47 @@ async fn reverse_poll(
         return Ok(Json(json!({"ok":false})).into_response());
     };
     let token = s.auth.create_device(name).await?;
+    // The extension keeps its secret and sends it as `X-Launchpad-Device`, like on Home's Space.
+    if from_extension(&headers) {
+        return Ok(([(header::CACHE_CONTROL, "no-store")], Json(json!({"ok":true,"device":token}))).into_response());
+    }
     Ok(device_response(&s.auth, &headers, &token))
+}
+
+#[derive(Deserialize)]
+struct ExtensionDevice {
+    name: String,
+}
+/// A device for the Chrome extension on Home's Space: the gateway calls it with the daemon's own credential for
+/// `POST /_home/extension/connect` (the Hub's private-Space check stands for pairing there). Owner bearer only.
+async fn extension_device(
+    State(s): State<Server>,
+    Extension(access): Extension<Access>,
+    Json(body): Json<ExtensionDevice>,
+) -> ApiResult<Value> {
+    if access.device.is_some() {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "Only Home's Space gateway creates extension devices"));
+    }
+    let name = body.name.trim();
+    if name.is_empty() || name.chars().count() > 80 {
+        return Err(ApiError::bad_request("Use a device name of 1 to 80 characters"));
+    }
+    let token = s.auth.create_device(name.to_string()).await?;
+    let id = s.auth.sessions.read().unwrap().get(&hash(&token)).map(|d| d.id.clone());
+    Ok(Json(json!({"id": id, "device": token})))
+}
+
+/// The extension's Sign out: it deletes its own device record (Settings → Devices lists it until then).
+async fn extension_disconnect(
+    State(s): State<Server>,
+    Extension(access): Extension<Access>,
+    headers: HeaderMap,
+) -> ApiResult<Value> {
+    let Some(id) = access.device.filter(|_| from_extension(&headers) && headers.contains_key(DEVICE_HEADER)) else {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "Only the Launchpad extension disconnects itself here"));
+    };
+    s.auth.revoke(id).await?;
+    Ok(Json(json!({"ok":true})))
 }
 
 #[derive(Serialize)]

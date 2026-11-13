@@ -226,12 +226,13 @@ pub fn rewrite(template: &str, channel: Channel, version: &str) -> Result<String
 }
 
 /// The Space card deploy.sh writes.
+/// The Space card. `tags: [launchpad-home]` lets the Chrome extension find Home after Sign in with Hugging Face.
 fn card(channel: Channel, version: &str) -> String {
     let note = match channel {
         Channel::Release => "Built from the GitHub release named by `LAUNCHPAD_RELEASE` in the Dockerfile. Home updates it from Settings → Home and runners, or run the deploy script again.".to_string(),
         Channel::Main => format!("Built from CI's package of main commit `{version}`. Home updates it from Settings → Home and runners, or run the deploy script again with `--main`."),
     };
-    format!("---\ntitle: Launchpad Home\nemoji: 🏠\ncolorFrom: blue\ncolorTo: green\nsdk: docker\napp_port: 7860\nheader: mini\n---\n\n[Launchpad](https://github.com/{REPO}) Home. {note}\n")
+    format!("---\ntitle: Launchpad Home\nemoji: 🏠\ncolorFrom: blue\ncolorTo: green\nsdk: docker\napp_port: 7860\nheader: mini\ntags:\n- launchpad-home\n---\n\n[Launchpad](https://github.com/{REPO}) Home. {note}\n")
 }
 
 // ------------------------------------------------------------------ Hugging Face and GitHub

@@ -7,18 +7,23 @@
 //! what it shows; so does a client that falls behind the live stream. `{"type": "ping"}` arrives every 25 s
 //! so proxies keep the idle socket open and the window can detect a dead connection. A window may send
 //! `{"type": "ping"}` too; the daemon answers `{"type": "pong"}`.
+//!
+//! `GET /api/events` is the same stream as server-sent events, for clients that cannot open
+//! a WebSocket with their headers (the Chrome extension through Home's Space). Each message is `data: <the same
+//! JSON text>`; bus events also carry `id: <boot>:<bus>`, so `Last-Event-ID` resumes like `?boot=&since=`. A
+//! `: keepalive` comment comes every 15 s. It is one-way: no presence.
 
 use axum::extract::{Query, State};
 use axum::Extension;
 use crate::auth::Access;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::Server;
 
-#[derive(serde::Deserialize, Default)]
+#[derive(serde::Deserialize, Default, Clone)]
 pub struct Resume {
     boot: Option<String>,
     since: Option<u64>,
@@ -118,4 +123,78 @@ fn client_message(s: &Server, window: u64, text: &str) {
         let sessions = msg["sessions"].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
         s.app.sessions.set_watched(window, Some((msg["focused"].as_bool().unwrap_or(false), sessions, msg["idle_ms"].as_i64())));
     }
+}
+
+const KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// `GET /api/events`: the bus as server-sent events (see the module comment).
+pub async fn events(State(s): State<Server>, Extension(access): Extension<Access>, Query(mut resume): Query<Resume>, headers: axum::http::HeaderMap) -> Response {
+    use axum::http::header;
+    if resume.since.is_none()
+        && let Some((boot, since)) = headers.get("last-event-id").and_then(|v| v.to_str().ok()).and_then(|v| v.split_once(':'))
+    {
+        resume = Resume { boot: Some(boot.to_string()), since: since.parse().ok() };
+    }
+    let bus = &s.app.bus;
+    let boot = bus.boot().to_string();
+    let since = resume.since.filter(|_| resume.boot.as_deref() == Some(bus.boot()));
+    let replay = bus.subscribe(since);
+    let hello = serde_json::json!({"type": "hello", "env": s.app.paths.app_env.name(), "build": crate::ui::build_id(), "boot": boot, "bus": replay.last});
+    let mut first = std::collections::VecDeque::from([format!("retry: 3000\ndata: {hello}\n\n")]);
+    match replay.missed {
+        Some(missed) => {
+            first.extend(missed.into_iter().map(|e| format!("id: {boot}:{}\ndata: {}\n\n", e.bus, e.text)));
+            first.push_back("data: {\"type\":\"replayed\"}\n\n".into());
+        }
+        None => first.push_back("data: {\"type\":\"resync\"}\n\n".into()),
+    }
+    struct Stream {
+        first: std::collections::VecDeque<String>,
+        events: tokio::sync::broadcast::Receiver<launchpad_core::events::Delivered>,
+        access: Access,
+        boot: String,
+        keepalive: tokio::time::Interval,
+        expiry: tokio::time::Interval,
+    }
+    let state = Stream {
+        first,
+        events: replay.rx,
+        access,
+        boot,
+        keepalive: tokio::time::interval_at(tokio::time::Instant::now() + KEEPALIVE, KEEPALIVE),
+        expiry: tokio::time::interval(std::time::Duration::from_secs(30)),
+    };
+    let stream = futures_util::stream::unfold(state, |mut st| async move {
+        if !st.access.valid() {
+            return None;
+        }
+        if let Some(text) = st.first.pop_front() {
+            return Some((Ok::<_, std::convert::Infallible>(bytes::Bytes::from(text)), st));
+        }
+        loop {
+            let text = tokio::select! {
+                _ = st.access.changes.changed() => { if !st.access.valid() { return None } continue }
+                _ = st.expiry.tick() => { if !st.access.valid() { return None } continue }
+                _ = st.keepalive.tick() => ": keepalive\n\n".to_string(),
+                ev = st.events.recv() => match ev {
+                    Ok(ev) => format!("id: {}:{}\ndata: {}\n\n", st.boot, ev.bus, ev.text),
+                    Err(RecvError::Lagged(n)) => {
+                        tracing::warn!("event stream client lagged by {n} events");
+                        "data: {\"type\":\"resync\"}\n\n".to_string()
+                    }
+                    Err(RecvError::Closed) => return None,
+                },
+            };
+            return Some((Ok(bytes::Bytes::from(text)), st));
+        }
+    });
+    (
+        [
+            (header::CONTENT_TYPE, "text/event-stream"),
+            (header::CACHE_CONTROL, "no-store"),
+            (header::HeaderName::from_static("x-accel-buffering"), "no"),
+        ],
+        axum::body::Body::from_stream(stream),
+    )
+        .into_response()
 }

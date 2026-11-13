@@ -94,6 +94,7 @@ pub(crate) fn router(server: Server, api: Router<Ctx>) -> Router {
         .merge(git_http::router())
         .merge(plain_http::router())
         .route("/ws", axum::routing::get(ws::handler))
+        .route("/api/events", axum::routing::get(ws::events))
         .merge(auth::router())
         .fallback(ui::serve)
         .layer(axum::middleware::from_fn_with_state(server.clone(), runners::relay))
