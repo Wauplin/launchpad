@@ -36,8 +36,15 @@ def denied(path):
 
 def from_extension(request):
     """A call of the Chrome extension's service worker. It passed the Hub's private-Space check with the owner's
-    Hugging Face token, like every request here; the daemon still checks its device secret."""
-    return request.headers.getall("Origin", []) == [EXTENSION_ORIGIN]
+    Hugging Face token, like every request here; the daemon still checks its device secret. Chrome sends no Origin on
+    the extension's GETs (it holds host permissions for *.hf.space), with `Sec-Fetch-Site: none` and a non-navigation
+    mode; the Space's own pages send `same-origin` and never the device header, and a page of another site always
+    sends its Origin."""
+    origins = request.headers.getall("Origin", [])
+    if origins == [EXTENSION_ORIGIN]:
+        return True
+    worker = request.headers.get("Sec-Fetch-Site") == "none" and request.headers.get("Sec-Fetch-Mode") not in (None, "navigate")
+    return not origins and (DEVICE_HEADER in request.headers or worker)
 
 
 async def cors(request, response):

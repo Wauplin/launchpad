@@ -32,11 +32,18 @@ use tokio::sync::watch;
 pub const EXTENSION_ID: &str = "bbefehapjjlbeodihifmpgidgjhmcklj";
 pub fn extension_origin() -> String { format!("chrome-extension://{EXTENSION_ID}") }
 /// The extension's device secret (a `browser_device` record), sent on every call instead of a cookie; only with the
-/// extension's Origin. The Space gateway passes it through and adds no daemon credential to these calls.
+/// extension's Origin or none (`device_caller`). The Space gateway passes it through and adds no daemon credential to these calls.
 pub const DEVICE_HEADER: &str = "x-launchpad-device";
 
 fn from_extension(headers: &HeaderMap) -> bool {
     headers.get(header::ORIGIN).is_some_and(|v| v.as_bytes() == extension_origin().as_bytes())
+}
+
+/// Who may send `X-Launchpad-Device`: the extension's Origin, or no Origin at all. Chrome sends no Origin on the GETs of
+/// an extension that holds host permissions for the address; a web page of another origin always sends one (and its
+/// custom header needs a preflight that only the extension origin passes).
+fn device_caller(headers: &HeaderMap) -> bool {
+    from_extension(headers) || !headers.contains_key(header::ORIGIN)
 }
 
 const DEVICE_LIFETIME: i64 = 365 * 24 * 60 * 60;
@@ -276,7 +283,7 @@ impl Auth {
         }
         // The extension's header decides alone: a stale secret never falls back to a cookie.
         if let Some(v) = headers.get(DEVICE_HEADER) {
-            let secret = v.to_str().ok().filter(|_| from_extension(headers))?;
+            let secret = v.to_str().ok().filter(|_| device_caller(headers))?;
             return self.device_access(secret, changes);
         }
         for v in headers.get_all(header::COOKIE) {
