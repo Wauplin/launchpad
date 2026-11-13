@@ -459,7 +459,10 @@ fn same(a: &str, b: &str) -> bool {
 /// workspace; then the oldest).
 async fn folders(app: &App, d: &Data, repo: &str, prefer: Option<&str>) -> Vec<ExtFolder> {
     // A fork Home knows: its cached repository record names its parent, or a Local PR was published from it.
-    let parent = crate::items::cached(app, format!("/repos/{repo}")).await.ok().flatten().and_then(|v| v["parent"]["full_name"].as_str().map(str::to_string));
+    let record = crate::items::cached(app, format!("/repos/{repo}")).await.ok().flatten();
+    let parent = record.as_ref().and_then(|v| v["parent"]["full_name"].as_str().map(str::to_string));
+    // The owner's repository of the same name counts as a fork only when the cache does not say it is none.
+    let not_fork = record.as_ref().is_some_and(|v| v["fork"] == false);
     let owner = repo.split('/').next().unwrap_or("");
     let name = repo.split('/').nth(1).unwrap_or("");
     let yours = d.login.as_deref().is_some_and(|l| same(l, owner));
@@ -474,7 +477,7 @@ async fn folders(app: &App, d: &Data, repo: &str, prefer: Option<&str>) -> Vec<E
         } else if origin.is_some_and(|o| {
             parent.as_deref().is_some_and(|x| same(x, o))
                 || d.predrafts.iter().any(|x| x.project_id == p.id && x.push_repo.as_deref().is_some_and(|f| same(f, repo)))
-                || (yours && !same(o, repo) && o.split('/').nth(1).is_some_and(|n| same(n, name)))
+                || (yours && !not_fork && !same(o, repo) && o.split('/').nth(1).is_some_and(|n| same(n, name)))
         }) {
             Relation::Fork
         } else {

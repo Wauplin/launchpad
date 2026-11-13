@@ -443,6 +443,8 @@ async fn confirm_with(app: &App, repo: &str, number: u64, item: Option<&Value>) 
             comments
                 .iter()
                 .filter(|c| c.author.as_deref().is_some_and(|a| a.eq_ignore_ascii_case(login)) && launchpad_core::today::parse_time(&c.created_at) >= since && !taken.contains(&c.url))
+                // A length that differs by more than the allowed change cannot match: skip the edit distance.
+                .filter(|c| close_lengths(wanted.chars().count(), attribution::unsigned(&c.body).trim().chars().count()))
                 .map(|c| (c, edit_size(&wanted, attribution::unsigned(&c.body).trim()).ratio_kept))
                 .filter(|(_, ratio)| *ratio >= MATCH_RATIO)
                 .max_by(|a, b| a.1.total_cmp(&b.1))
@@ -461,6 +463,11 @@ async fn confirm_with(app: &App, repo: &str, number: u64, item: Option<&Value>) 
         }
     }
     logged("confirm", store(app, changed).await);
+}
+
+/// Whether two texts of these lengths (characters) can keep `MATCH_RATIO` of each other.
+fn close_lengths(a: usize, b: usize) -> bool {
+    (a.abs_diff(b) as f64) <= (1.0 - MATCH_RATIO) * a.max(b) as f64
 }
 
 /// Edit size between the agent's text and the posted one: Levenshtein on characters and on words, after the common

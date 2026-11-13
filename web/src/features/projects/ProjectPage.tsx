@@ -130,7 +130,6 @@ export function ProjectPage() {
   );
 }
 
-/** The folder page's Settings tab: everything about this folder, saved as it changes. */
 /** The bot the Chrome extension's Ask uses on this folder's GitHub pages (`bot` of `folder.set`). */
 function DefaultBot({ p, patch }: { p: Project; patch: (body: Record<string, unknown>) => Promise<unknown> }) {
   const state = useSaveState();
@@ -147,6 +146,7 @@ function DefaultBot({ p, patch }: { p: Project; patch: (body: Record<string, unk
   );
 }
 
+/** The folder page's Settings tab: everything about this folder, saved as it changes. */
 function FolderSettings({ p }: { p: Project }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
