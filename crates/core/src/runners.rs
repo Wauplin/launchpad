@@ -1016,6 +1016,24 @@ async fn selection_read(app: &App, id: &str, body: String) -> Result<String> {
 /// bot session whose BOT.md changed gets the new one after its typed text, recorded in the session once the runner
 /// accepted it.
 pub async fn deliver(app: &App, runner: &str, id: &str, action: &str, body: Option<String>, key: Option<String>) -> Result<(u16, String)> {
+    let mut inherited_membership = None;
+    let body = if action == "input" {
+        if let Some(raw) = body {
+            let mut value: serde_json::Value = serde_json::from_str(&raw)?;
+            if let Some(context) = value.get_mut("context") {
+                let mut ctx: crate::model::MessageContext = serde_json::from_value(context.clone())?;
+                if !ctx.topics.is_empty() || !ctx.agent_traces.is_empty() {
+                    let ws = crate::scope::of_session(app, id).await.context("Context needs a workspace")?;
+                    let inherited = crate::topics::resolve(app, &ws, &mut ctx.topics, &mut ctx.agent_traces).await?;
+                    ctx.agent_traces.retain(|t| t.session_id != id);
+                    for topic in &mut ctx.topics { if let Some(ref mut refs) = topic.snapshot { refs.retain(|t| t.session_id != id); } }
+                    inherited_membership = Some((ws, inherited));
+                    *context = serde_json::to_value(ctx)?;
+                }
+            }
+            Some(value.to_string())
+        } else { None }
+    } else { body };
     let body = match (action, body) {
         ("input", Some(b)) => Some(crate::senders::delivered(&selection_read(app, id, b).await?)?),
         (_, b) => b,
@@ -1026,6 +1044,9 @@ pub async fn deliver(app: &App, runner: &str, id: &str, action: &str, body: Opti
     };
     let headers = key.map(|k| vec![("idempotency-key".to_string(), k)]).unwrap_or_default();
     let answer = app.runners.request_with(runner, "POST", &format!("/api/sessions/{id}/{action}"), body, headers).await?;
+    if (200..300).contains(&answer.0) && let Some((ws, inherited)) = inherited_membership {
+        crate::topics::inherit(app, id, &ws, inherited).await?;
+    }
     if let Some(r) = received.filter(|_| (200..300).contains(&answer.0)) {
         crate::bots::record_instructions(app, id, r).await;
     }
@@ -1151,6 +1172,11 @@ fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> 
 /// Burst, when that runner does not take launches), else another runner, else Burst. Runners never pick their own launches: they start only what Home places.
 pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
     anyhow::ensure!(app.paths.role == crate::role::Role::Home, "only Home launches sessions: a runner starts the ones Home places on it");
+    if !spec.topics.is_empty() || !spec.agent_traces.is_empty() {
+        let ws = crate::scope::of_spec(app, &spec).await.context("Context needs a workspace")?;
+        let inherited = crate::topics::resolve(app, &ws, &mut spec.topics, &mut spec.agent_traces).await?;
+        spec.inherited_topics = inherited;
+    }
     crate::ref_use::record(app, &id, spec.bot.as_ref().map(|b| b.id.as_str()), &spec.github_refs).await;
     let agent = match spec.from.is_some() {
         true => Some(crate::scope::of_spec(app, &spec).await),
@@ -1251,6 +1277,9 @@ pub(crate) async fn record_placement(app: &App, spec: &crate::model::LaunchSpec,
     match app.sessions.get(id) {
         Some(s) => anyhow::ensure!(is_placeholder(&s, runner_id), "a session with this id already exists"),
         None => app.sessions.placeholder(app, placed_record(spec, id, runner_id)?).await?,
+    }
+    if let Some(ws) = crate::scope::of_spec(app, spec).await {
+        crate::topics::inherit(app, id, &ws, spec.inherited_topics.clone()).await?;
     }
     Ok(())
 }

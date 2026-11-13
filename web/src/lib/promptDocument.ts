@@ -14,10 +14,10 @@ export const traceKey = (t: AgentTraceRef) => `trace:${t.session_id}:${t.through
 export const skillKey = (s: SkillRef) => `skill:${s.path}`;
 export const pickKey = (p: ContextPick) => p.kind === "project" ? projectKey(p.value) : p.kind === "github" ? githubKey(p.value) : p.kind === "trace" ? traceKey(p.value) : skillKey(p.value);
 export const contextKeys = (d: Omit<PromptDocument, "text">) => new Set([
-  ...d.context_projects.map(projectKey), ...d.github_refs.map(githubKey), ...d.agent_traces.map(traceKey), ...(d.skills ?? []).map(skillKey),
+  ...(d.topics ?? []).map(t => `topic:${t.id}`), ...d.context_projects.map(projectKey), ...d.github_refs.map(githubKey), ...d.agent_traces.map(traceKey), ...(d.skills ?? []).map(skillKey),
 ]);
 function without(d: PromptDocument, keys: Set<string>): PromptDocument {
-  return { ...d, context_projects: d.context_projects.filter((p) => !keys.has(projectKey(p))), github_refs: d.github_refs.filter((p) => !keys.has(githubKey(p))), agent_traces: d.agent_traces.filter((p) => !keys.has(traceKey(p))), skills: (d.skills ?? []).filter((p) => !keys.has(skillKey(p))) };
+  return { ...d, topics: d.topics?.filter(t => !keys.has(`topic:${t.id}`)), context_projects: d.context_projects.filter((p) => !keys.has(projectKey(p))), github_refs: d.github_refs.filter((p) => !keys.has(githubKey(p))), agent_traces: d.agent_traces.filter((p) => !keys.has(traceKey(p))), skills: (d.skills ?? []).filter((p) => !keys.has(skillKey(p))) };
 }
 /** Apply an exact textarea edit, shifting surviving ranges and invalidating overlapping occurrences. */
 export function replaceText<T extends PromptDocument>(doc: T, start: number, end: number, inserted: string): T {

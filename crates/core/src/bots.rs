@@ -842,6 +842,7 @@ pub async fn next_spec(app: &App, bot: &Bot, thread: &[Session], text: String, a
         context_projects: context.context_projects.into_iter().map(|c| ContextProject { editable: false, ..c }).collect(),
         github_refs: context.github_refs,
         agent_traces: context.agent_traces,
+        topics: context.topics,
         selection: context.selection,
         ..Default::default()
     })

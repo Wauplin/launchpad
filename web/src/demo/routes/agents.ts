@@ -1,3 +1,4 @@
+import { topicContext } from "./topics";
 // Sessions, their events and the agent actions (`/api/sessions/*`). Messages and answers continue prerecorded
 // scenarios (`player.ts`); every mutation publishes the same bus events as the daemon (`sessions`, `session/<id>`).
 
@@ -346,7 +347,9 @@ export function withContext(text: string, context: MessageContext | undefined): 
 
 route("POST", "/api/sessions/:id/input", (r) => {
   const s = found(r.params.id);
-  const text = withContext(String(r.body?.text ?? ""), r.body?.context as MessageContext | undefined);
+  const context = r.body?.context as MessageContext | undefined;
+  if (context) context.agent_traces = topicContext(s.id, context.topics, context.agent_traces);
+  const text = withContext(String(r.body?.text ?? ""), context);
   const files = (r.body?.files ?? []) as { name: string }[];
   if (!text.trim() && !files.length) throw new DemoError(400, "the message is empty");
   if (s.quota_pause) {

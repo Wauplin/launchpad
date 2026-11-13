@@ -1,3 +1,4 @@
+import { TopicContextChips } from "@/features/topics/TopicContextChips";
 // Follow-up context uses the same picker as the launch composer, with compact removable chips.
 import type { MessageContext } from "@/gen/MessageContext";
 import { Icon, type IconName } from "@/components/Icon";
@@ -8,7 +9,7 @@ import { useScope } from "@/lib/workspace";
 
 export const EMPTY_CONTEXT: MessageContext = { context_projects: [], github_refs: [], agent_traces: [], mentions: [], skills: [] };
 export function hasMessageContext(context: MessageContext): boolean {
-  return !!(context.context_projects.length || context.github_refs.length || context.agent_traces.length || context.skills?.length);
+  return !!(context.context_projects.length || context.github_refs.length || context.agent_traces.length || context.skills?.length || context.topics?.length);
 }
 
 /** `sessionId`: the session the message goes to (left out of its own pickers), or null for a bot without one. */
@@ -38,7 +39,7 @@ export function MessageContextButton({ sessionId, value, onChange, disabled, pre
     }
     if (recent.length >= 6) break;
   }
-  return <AddContextMenu icon disabled={disabled} projects={available} recent={recent} sessions={sessions.filter((s) => s.id !== sessionId && scope.hasSession(s))} selectedTraces={value.agent_traces} presets={presets}
+  return <AddContextMenu topics={value.topics} onTopic={t => onChange({...value,topics:[...(value.topics ?? []),t]})} icon disabled={disabled} projects={available} recent={recent} sessions={sessions.filter((s) => s.id !== sessionId && scope.hasSession(s))} selectedTraces={value.agent_traces} presets={presets}
     onProject={(p) => addProject(p.id)}
     onGitHub={(g) => { if (!value.github_refs.some((r) => r.url === g.url)) onChange({ ...value, github_refs: [...value.github_refs, g] }); }}
     onToggleTrace={(trace) => onChange({ ...value, agent_traces: value.agent_traces.some((t) => t.session_id === trace.session_id) ? value.agent_traces.filter((t) => t.session_id !== trace.session_id) : [...value.agent_traces, trace] })} />;
@@ -55,6 +56,7 @@ export function MessageContextChips({ value, onChange, disabled, className = "mt
     <button className="iconbtn shrink-0" aria-label={`Remove ${label}`} disabled={disabled} onClick={remove}><Icon name="x" size={12} /></button>
   </span>;
   return <div className={`${className} flex min-w-0 flex-wrap items-center gap-1.5`}>
+    <TopicContextChips topics={value.topics} onRemove={id => onChange({...value,topics:value.topics?.filter(t => t.id !== id)})} />
     <SkillChips skills={value.skills} disabled={disabled} onRemove={(path) => onChange({ ...value, skills: (value.skills ?? []).filter((v) => v.path !== path) })} />
     {value.context_projects.map((c) => chip(c.project_id, "folder", projects.find((p) => p.id === c.project_id)?.name ?? "Removed folder", "Read-only folder reference", () => onChange({ ...value, context_projects: value.context_projects.filter((r) => r.project_id !== c.project_id) })))}
     {value.github_refs.map((g) => chip(g.url, g.kind === "pr" ? "pr" : "issue", g.number ? `${g.repo}#${g.number}` : g.title ?? g.url, g.url, () => onChange({ ...value, github_refs: value.github_refs.filter((r) => r.url !== g.url) })))}

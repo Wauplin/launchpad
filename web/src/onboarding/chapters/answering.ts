@@ -24,7 +24,7 @@ export const answering: Chapter = {
     {
       id: "answering.topics", route: `/agents?session=${ID}`, anchor: "session.topics",
       title: "Keep related sessions together",
-      body: "Add a topic to collect related work across folders. Type to find or create one. A topic name opens its history; × removes this session, with Undo. Topics stay with archived sessions too.",
+      body: "Add a topic to collect related work across folders. Type to find or create one. A topic name opens its history; × removes this session, with Undo. Topics stay with archived sessions too. Add context → Topic attaches its history. New agents and follow-up messages inherit topics from their attached topics and traces. Launch or Summarize from the topic to continue its work.",
     },
     {
       id: "answering.question", route: `/agents?session=${ID}`, anchor: "session.question",

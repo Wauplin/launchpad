@@ -96,7 +96,7 @@ Run only what your change can break, and rebuild only what you changed; CI runs 
 
 ### Topics
 
-- Topics are workspace collections on Home (`topics.rs`, tables `topic` and `topic_session`), independent of runner-replicated session records. Membership edits never send input or change session status; archived sessions retain membership. Bulk edits validate every session against the topic's workspace before one transaction. Topic names link to `/topics/{id}`; a separate × removes membership with Undo. `/api/topics…` is Home-owned and owner-only; scoped agent reads are separate.
+- Topics are workspace collections on Home (`topics.rs`, tables `topic` and `topic_session`), independent of runner-replicated session records. Membership edits never send input or change session status; archived sessions retain membership. Bulk edits validate every session against the topic's workspace before one transaction. Topic names link to `/topics/{id}`; a separate × removes membership with Undo. `/api/topics…` is Home-owned and owner-only; scoped agent reads use `/api/context/topics` (`launchpad topics list|show`). Topic selections freeze their trace IDs and event cutoffs on Home at dispatch, then expand without recursion and deduplicate overlapping traces. Launch and follow-up context inherit source memberships in the receiving workspace; membership remains independent of context.
 
 ### Folders, worktrees and Local PRs
 

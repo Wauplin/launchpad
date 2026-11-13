@@ -318,7 +318,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
         (false, ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["connections", "send"] | ["inbox", "agent-done"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
-        (true, ["context", "folders" | "bots" | "sessions" | "inbox" | "schedules"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
+        (true, ["context", "folders" | "bots" | "sessions" | "inbox" | "schedules" | "topics"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
         (false, ["channels"] | ["channels", "dm"]) => Body,
         // The agent's own channels: Home resolves them in the session's workspace (`launchpad_channels::agent`).
         (true, ["channels", "agent"] | ["channels", "agent", "read"]) | (false, ["channels", "agent", "post"]) => Shared,

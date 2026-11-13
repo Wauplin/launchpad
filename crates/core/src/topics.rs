@@ -137,3 +137,155 @@ mod tests {
         }
     }
 }
+
+/// A live topic selection becomes a fixed source index on Home at dispatch.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct TopicContext {
+    pub id: String,
+    pub name: String,
+    #[ts(optional)]
+    pub snapshot: Option<Vec<crate::model::AgentTraceRef>>,
+    #[serde(default)]
+    #[ts(optional, as = "Option<Vec<String>>")]
+    pub notes: Vec<String>,
+}
+
+/// Resolve once, without following any context attached to the sources themselves.
+pub async fn resolve(
+    app: &App,
+    workspace: &str,
+    topics: &mut [TopicContext],
+    traces: &mut Vec<crate::model::AgentTraceRef>,
+) -> Result<Vec<String>> {
+    let original = traces.clone();
+    let mut inherited = Vec::new();
+    for selected in topics {
+        if selected.snapshot.is_none() {
+            let topic = get(app, &selected.id).await?;
+            ensure!(
+                topic.workspace_id == workspace,
+                "Topic belongs to another workspace"
+            );
+            selected.name = topic.name;
+            let mut snapshot = Vec::new();
+            selected.notes.clear();
+            for id in topic.session_ids {
+                if crate::scope::of_session(app, &id).await.as_deref() != Some(workspace) {
+                    selected
+                        .notes
+                        .push("Some history is unavailable in this workspace".into());
+                    continue;
+                }
+                if let Some(session) = app.sessions.get(&id).filter(|s| s.last_seq > 0) {
+                    if matches!(
+                        session.status,
+                        crate::model::SessionStatus::Starting
+                            | crate::model::SessionStatus::Working
+                            | crate::model::SessionStatus::Background
+                            | crate::model::SessionStatus::Stopped
+                            | crate::model::SessionStatus::Interrupted
+                    ) {
+                        selected.notes.push(format!(
+                            "{} is unfinished; only stored events are included",
+                            session.title
+                        ));
+                    }
+                    snapshot.push(crate::model::AgentTraceRef {
+                        session_id: id,
+                        through_seq: session.last_seq,
+                    });
+                } else {
+                    selected
+                        .notes
+                        .push(format!("Session {id} has no stored history available"));
+                }
+            }
+            selected.snapshot = Some(snapshot);
+        }
+        // Deleted collections do not invalidate their already frozen source references.
+        if get(app, &selected.id)
+            .await
+            .is_ok_and(|t| t.workspace_id == workspace)
+        {
+            inherited.push(selected.id.clone());
+        }
+        traces.extend(selected.snapshot.clone().unwrap_or_default());
+    }
+    *traces = dedup(traces);
+    for trace in traces.iter() {
+        ensure!(
+            crate::scope::of_session(app, &trace.session_id)
+                .await
+                .as_deref()
+                == Some(workspace),
+            "Context agent belongs to another workspace or is unavailable"
+        );
+        let source = app
+            .sessions
+            .get(&trace.session_id)
+            .context("Context agent unavailable")?;
+        ensure!(
+            trace.through_seq > 0 && trace.through_seq <= source.last_seq,
+            "Context trace unavailable"
+        );
+    }
+    for topic in list(app, workspace).await? {
+        if original
+            .iter()
+            .any(|r| topic.session_ids.contains(&r.session_id))
+        {
+            inherited.push(topic.id);
+        }
+    }
+    inherited.sort();
+    inherited.dedup();
+    Ok(inherited)
+}
+fn dedup(traces: &[crate::model::AgentTraceRef]) -> Vec<crate::model::AgentTraceRef> {
+    let mut out: Vec<crate::model::AgentTraceRef> = Vec::new();
+    for trace in traces {
+        if let Some(old) = out.iter_mut().find(|t| t.session_id == trace.session_id) {
+            old.through_seq = old.through_seq.max(trace.through_seq);
+        } else {
+            out.push(trace.clone());
+        }
+    }
+    out
+}
+/// Home has already validated the receiving workspace, including launches not placed yet.
+pub async fn inherit(app: &App, session: &str, workspace: &str, ids: Vec<String>) -> Result<()> {
+    let session = session.to_owned();
+    let workspace = workspace.to_owned();
+    app.state_db.call(move |c| {
+        let tx = c.transaction()?;
+        for id in ids { tx.execute("INSERT OR IGNORE INTO topic_session (topic_id, session_id) SELECT id, ?2 FROM topic WHERE id = ?1 AND workspace_id = ?3", params![id, session, workspace])?; }
+        tx.commit()?; Ok(())
+    }).await?;
+    changed(app);
+    Ok(())
+}
+
+#[cfg(test)]
+mod context_tests {
+    #[test]
+    fn overlapping_sources_keep_latest_cutoff_once() {
+        use crate::model::AgentTraceRef as R;
+        let refs = vec![
+            R {
+                session_id: "a".into(),
+                through_seq: 3,
+            },
+            R {
+                session_id: "b".into(),
+                through_seq: 2,
+            },
+            R {
+                session_id: "a".into(),
+                through_seq: 8,
+            },
+        ];
+        let result = super::dedup(&refs);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].through_seq, 8);
+    }
+}

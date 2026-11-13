@@ -11,11 +11,11 @@ import { useTopics, useTopicMutations, type Topic } from "./data";
 export function TopicPicker({ onPick, exclude = [], label = "Add topic…" }: { onPick: (topic: Topic) => Promise<void> | void; exclude?: string[]; label?: string }) {
   const phone = usePhone();
   const [open, setOpen] = useState(false);
-  const content = (close: () => void) => <Picker onPick={onPick} exclude={exclude} close={close} />;
+  const content = (close: () => void) => <TopicChoices onPick={onPick} exclude={exclude} close={close} />;
   if (phone) return <><button className="btn btn-sm" onClick={() => setOpen(true)}>{label}</button>{open && <Sheet title="Add topic" onClose={() => setOpen(false)}>{content(() => setOpen(false))}</Sheet>}</>;
   return <Popover viewport width={300} label="Add topic" trigger={({ toggle }) => <button className="btn btn-sm" onClick={toggle}>{label}</button>}>{content}</Popover>;
 }
-function Picker({ onPick, exclude, close }: { onPick: (topic: Topic) => Promise<void> | void; exclude: string[]; close: () => void }) {
+export function TopicChoices({ onPick, exclude, close }: { onPick: (topic: Topic) => Promise<void> | void; exclude: string[]; close: () => void }) {
   const query = useTopics();
   const { workspace } = useScope();
   const { create } = useTopicMutations();

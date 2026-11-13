@@ -1,3 +1,4 @@
+import { topicContext } from "./topics";
 // Launching agents: the composer draft, preview and launch, delayed launches and follow-ups, crons, proposals
 // and uploads. A launch plays the prerecorded scenario closest to its prompt.
 
@@ -135,6 +136,7 @@ export function launch(input: LaunchSpec, id = demoId("demo-run"), scenarioId?: 
   const spec: LaunchSpec = { ...defaultSpec(), ...input };
   if (!spec.text.trim()) throw new DemoError(400, "the prompt is empty");
   if (session(id)) return session(id)!;
+  spec.agent_traces = topicContext(id, spec.topics, spec.agent_traces);
   const harness = spec.harness ?? "claude";
   const place = where(spec);
   let cwd = place.cwd;

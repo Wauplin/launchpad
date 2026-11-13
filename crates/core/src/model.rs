@@ -446,6 +446,9 @@ pub struct MessageContext {
     pub context_projects: Vec<ContextProject>,
     pub github_refs: Vec<GitHubRef>,
     pub agent_traces: Vec<AgentTraceRef>,
+    #[ts(optional, as = "Option<Vec<crate::topics::TopicContext>>")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topics: Vec<crate::topics::TopicContext>,
     /// Lines of a pull request's diff the message is about (Ask about these lines): a reference, resolved by Home.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -544,7 +547,7 @@ pub enum SenderKind {
 impl MessageContext {
     /// Nothing to add to the message (mentions only mark text that is already there).
     pub fn is_empty(&self) -> bool {
-        self.context_projects.is_empty() && self.github_refs.is_empty() && self.agent_traces.is_empty() && self.skills.is_empty() && self.selection.is_none()
+        self.context_projects.is_empty() && self.github_refs.is_empty() && self.agent_traces.is_empty() && self.topics.is_empty() && self.skills.is_empty() && self.selection.is_none()
     }
 }
 
@@ -594,6 +597,9 @@ pub struct LaunchSpec {
     pub files: Vec<FileRef>,
     /// Stored trace through a fixed sequence number, selected as launch context.
     pub agent_traces: Vec<AgentTraceRef>,
+    #[ts(optional, as = "Option<Vec<crate::topics::TopicContext>>")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topics: Vec<crate::topics::TopicContext>,
     /// Lines of a pull request's diff the task is about (`MessageContext::selection`), resolved by Home.
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -602,6 +608,9 @@ pub struct LaunchSpec {
     pub effort: Option<String>,
     /// The workspace of the window that launched it. A new scratch folder joins it; other targets keep their own.
     pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<String>>")]
+    pub inherited_topics: Vec<String>,
     /// Tools of Home's registry (IDs, `mcp:<server>`) switched off for this launch, over the default tools
     /// (`tool_defaults`). Only tools granted to the workspace can be on.
     pub tools_off: Vec<String>,

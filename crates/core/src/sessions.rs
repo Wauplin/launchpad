@@ -1027,6 +1027,7 @@ impl Sessions {
             }
             prompt.push_str(&crate::compose::trace_references(&traces, &cli));
         }
+        prompt.push_str(&crate::compose::topic_notes(&spec.topics));
         marks.push(("folder", "Folder and worktrees", prompt.len()));
         if !for_launch && !prompt.trim().is_empty() && matches!(spec.target, Target::Predraft { .. } | Target::ExistingPredraft { .. }) {
             prompt.push_str("\n\nWork on the Local PR's branch in a fresh worktree. Commit your changes, update the Local PR title and description with launchpad pr update. Do not open a pull request on GitHub.");
@@ -1951,13 +1952,14 @@ impl Sessions {
         }
         let traces = self.context_traces(app, &context.agent_traces).await?;
         crate::prompt_context::validate_mentions(text, &context.mentions)?;
-        let spec = LaunchSpec { text: text.into(), github_refs: context.github_refs, selection: context.selection, mentions: context.mentions, skills: context.skills, profile: session.launch_spec.profile.clone(), ..Default::default() };
+        let spec = LaunchSpec { topics: context.topics.clone(), text: text.into(), github_refs: context.github_refs, selection: context.selection, mentions: context.mentions, skills: context.skills, profile: session.launch_spec.profile.clone(), ..Default::default() };
         let mut prompt = render_prompt(&spec, &folders, &[]);
         prompt.push_str(&crate::prompt_context::render_skills(app, session.harness, &spec, Some(&session.cwd)).await?);
         if !traces.is_empty() {
             if !prompt.is_empty() { prompt.push_str("\n\n"); }
             prompt.push_str(&crate::compose::trace_references(&traces, &app.paths.cli_command()));
         }
+        prompt.push_str(&crate::compose::topic_notes(&context.topics));
         self.send_locked(app, id, &prompt, images, InputMode::Manual, client_id, context.from).await
     }
 

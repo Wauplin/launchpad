@@ -33,7 +33,7 @@ function withText(drafts: Record<string, string>, id: string, text: string): Rec
 function withContext(contexts: Record<string, MessageContext>, id: string, doc: PromptDocument): Record<string, MessageContext> {
   const { text: _text, mentions, skills, ...context } = doc;
   const next = { ...contexts };
-  if (context.context_projects.length || context.github_refs.length || context.agent_traces.length || skills?.length) {
+  if (context.context_projects.length || context.github_refs.length || context.agent_traces.length || context.topics?.length || skills?.length) {
     next[id] = { ...context, ...(mentions?.length ? { mentions } : {}), ...(skills?.length ? { skills } : {}) } as MessageContext;
   } else delete next[id];
   return next;

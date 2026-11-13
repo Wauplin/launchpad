@@ -56,6 +56,8 @@ export type LaunchContext = {
   /** Lines from the code viewer. */
   files?: FileRef[];
   agentTraces?: AgentTraceRef[];
+  topics?: import("@/gen/TopicContext").TopicContext[];
+  text?: string;
 };
 
 type Composer = {
@@ -309,6 +311,8 @@ export const useComposer = create<Composer>((set, get) => ({
     for (const c of ctx?.contextProjects ?? [])
       if (!spec.context_projects.some((p) => p.project_id === c.project_id)) spec.context_projects = [...spec.context_projects, c];
     for (const trace of ctx?.agentTraces ?? []) if (!(spec.agent_traces ?? []).some((t) => t.session_id === trace.session_id)) spec.agent_traces = [...(spec.agent_traces ?? []), trace];
+    if (ctx?.topics) spec.topics = [...(spec.topics ?? []), ...ctx.topics.filter(t => !spec.topics?.some(p => p.id === t.id))];
+    if (ctx?.text) spec.text = ctx.text;
     // Adding context items to a minimized draft keeps it minimized (the pill flashes); Launch buttons open it.
     const collect = !!ctx && ctx.projectId === undefined && !!(ctx.githubRefs?.length || ctx.files?.length || ctx.contextProjects?.length || ctx.agentTraces?.length);
     set({ open: true, minimized: get().open && get().minimized && collect, spec });

@@ -279,6 +279,13 @@ enum Command {
     #[command(external_subcommand)]
     Verb(Vec<String>),
     /// Print the stored trace of an agent session, for use as reference context.
+    Topics {
+        #[arg(default_value = "list")]
+        verb: String,
+        id: Option<String>,
+        #[arg(long)]
+        workspace: Option<String>,
+    },
     Trace {
         session_id: String,
         /// Last event included (defaults to the latest stored event).
@@ -1024,6 +1031,14 @@ async fn run() -> Result<()> {
         Command::Verb(words) => {
             let [group, verb, args @ ..] = words.as_slice() else { anyhow::bail!("unknown command {:?}: see `launchpad --help`", words.join(" ")) };
             do_action(&paths, &format!("{group}.{verb}"), args).await
+        }
+        Command::Topics { verb, id, workspace } => {
+            anyhow::ensure!(verb == "list" || verb == "show", "Use topics list or topics show <id or name>");
+            let mut pairs = Vec::new();
+            if let Some(ref ws) = workspace { pairs.push(("workspace", ws.as_str())); }
+            if let Some(ref id) = id { pairs.push(("id", id.as_str())); }
+            let value = Client::new(&paths)?.json("GET", &query("/api/context/topics", &pairs), None).await?;
+            println!("{}", serde_json::to_string_pretty(&value)?); Ok(())
         }
         Command::Trace { session_id, through } => {
             let mut path = format!("/api/sessions/{}/trace", url_segment(&session_id));
