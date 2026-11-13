@@ -8,6 +8,15 @@ HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
        "te", "trailer", "transfer-encoding", "upgrade"}
 IDENTITY = {"authorization", "cookie", "host", "forwarded", "origin"}
 BLOCKED = ("/auth", "/api/devices", "/api/push", "/api/open", "/api/window")
+# The Chrome extension's pinned origin: keep it in sync with `EXTENSION_ID` in crates/server/src/auth.rs and the
+# `key` of extension/public/manifest.json.
+EXTENSION_ORIGIN = "chrome-extension://bbefehapjjlbeodihifmpgidgjhmcklj"
+DEVICE_HEADER = "X-Launchpad-Device"
+CORS_HEADERS = {
+    "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key, X-Launchpad-Device, Last-Event-ID",
+    "Access-Control-Max-Age": "600",
+}
 # The daemon's tunnel message limit (`MAX_MESSAGE` in crates/server/src/wire.rs): a lower one would drop runners' tunnels.
 WS_MAX_MESSAGE = 64 * 1024 * 1024
 
@@ -23,6 +32,20 @@ def canonical_path(raw):
 
 def denied(path):
     return any(path == p or path.startswith(p + "/") for p in BLOCKED)
+
+
+def from_extension(request):
+    """A call of the Chrome extension's service worker. It passed the Hub's private-Space check with the owner's
+    Hugging Face token, like every request here; the daemon still checks its device secret."""
+    return request.headers.getall("Origin", []) == [EXTENSION_ORIGIN]
+
+
+async def cors(request, response):
+    """`on_response_prepare`: CORS headers for the extension origin only, on every answer (errors included)."""
+    if from_extension(request):
+        response.headers["Access-Control-Allow-Origin"] = EXTENSION_ORIGIN
+        response.headers["Access-Control-Expose-Headers"] = "Idempotency-Status"
+        response.headers["Vary"] = "Origin"
 
 
 class Proxy:
@@ -42,6 +65,8 @@ class Proxy:
     def guard(self, request):
         if request.headers.getall("Host", []) != [self.host]:
             raise web.HTTPForbidden(text="Unexpected host")
+        if from_extension(request):
+            return canonical_path(request.raw_path)
         if request.method not in ("GET", "HEAD") or request.headers.get("Upgrade"):
             if request.headers.getall("Origin", []) != [self.origin]:
                 raise web.HTTPForbidden(text="Use the Space origin")
@@ -56,7 +81,12 @@ class Proxy:
         headers = {k: v for k, v in request.headers.items()
                    if k.lower() not in HOP | IDENTITY | connection
                    and not k.lower().startswith(("x-forwarded-", "x-hf-", "x-auth-", "sec-websocket-"))}
-        headers.update(Host=self.host, Origin=self.origin, Authorization=f"Bearer {self.token}")
+        if from_extension(request):
+            # The extension acts as its device (`X-Launchpad-Device`), never with the daemon's credential.
+            headers.update(Host=self.host, Origin=EXTENSION_ORIGIN)
+        else:
+            headers = {k: v for k, v in headers.items() if k.lower() != DEVICE_HEADER.lower()}
+            headers.update(Host=self.host, Origin=self.origin, Authorization=f"Bearer {self.token}")
         # The body is passed through unchanged: never let the client library ask for an encoding the caller cannot read.
         if not any(k.lower() == "accept-encoding" for k in headers):
             headers["Accept-Encoding"] = "identity"
@@ -66,6 +96,8 @@ class Proxy:
         path = self.guard(request)
         if denied(path):
             raise web.HTTPNotFound()
+        if from_extension(request) and not request.headers.get(DEVICE_HEADER):
+            return web.json_response({"error": "Connect this browser first"}, status=401)
         headers = self.headers(request)
         url = self.base + request.raw_path
         if request.headers.get("Upgrade", "").lower() == "websocket":

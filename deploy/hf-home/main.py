@@ -12,7 +12,7 @@ import aiohttp
 from aiohttp import web
 import tomlkit
 
-from gateway.proxy import Proxy, canonical_path
+from gateway.proxy import CORS_HEADERS, Proxy, canonical_path, cors, from_extension
 from onboarding import KEY_MISMATCH, MIN_KEY, Setup, derive_key
 
 
@@ -30,6 +30,10 @@ class HomeProxy(Proxy):
 
     async def handle(self, request):
         path = self.guard(request)
+        if from_extension(request):
+            response = await self.extension(request, path)
+            if response is not None:
+                return response
         response = await self.setup.handle(request, path)
         if response is not None:
             return response
@@ -41,6 +45,34 @@ class HomeProxy(Proxy):
             except (ValueError, AttributeError):
                 return web.json_response({"error": "Home backup is required and managed by the deployment; legacy trace sync settings do not apply"}, status=400)
         return await super().handle(request, body=body)
+
+    async def extension(self, request, path):
+        """The extension's own routes; None lets a call with its device header through to Home."""
+        if request.method == "OPTIONS":
+            return web.Response(status=204, headers=CORS_HEADERS)
+        if path == "/_home/status" and request.method == "GET":
+            # Discovery: is this a Launchpad Home, and does it answer? Nothing of the setup page's state.
+            return web.json_response({"launchpad": True, "space": self.setup.space, "complete": self.setup.complete,
+                                      "unlocked": self.setup.unlocked}, headers={"Cache-Control": "no-store"})
+        if path == "/_home/extension/connect" and request.method == "POST":
+            if not self.setup.complete or not self.setup.api:
+                return web.json_response({"error": "Finish Home setup first.", "setup": "/_home/setup"}, status=503)
+            try:
+                body = await request.json()
+            except ValueError:
+                body = None
+            name = " ".join(str(body.get("name", "")).split()) if isinstance(body, dict) else ""
+            if not name or len(name) > 80:
+                return web.json_response({"error": "Use a device name of 1 to 80 characters"}, status=400)
+            try:
+                device = await self.setup.api("POST", "/api/devices/extension", {"name": name})
+            except (ValueError, aiohttp.ClientError) as error:
+                return web.json_response({"error": str(error) or "Home did not answer"}, status=502)
+            return web.json_response({"id": device.get("id"), "device": device.get("device"), "name": name},
+                                     headers={"Cache-Control": "no-store"})
+        if path.startswith("/_home/"):
+            raise web.HTTPForbidden(text="Not available to the extension")
+        return None
 
     def guard(self, request):
         path = canonical_path(request.raw_path)
@@ -182,6 +214,7 @@ async def main():
         app.on_startup.append(proxy.start)
         app.on_cleanup.append(proxy.close)
         app.router.add_route("*", "/{path:.*}", proxy.handle)
+        app.on_response_prepare.append(cors)
         # Pass request bodies through unchanged: Git gzips large fetch requests and `git http-backend` inflates them.
         runner = web.AppRunner(app, access_log=None, auto_decompress=False)
         await runner.setup()

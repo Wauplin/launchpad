@@ -128,6 +128,8 @@ colorTo: green
 sdk: docker
 app_port: 7860
 header: mini
+tags:
+- launchpad-home
 ---
 
 [Launchpad](https://github.com/$REPO) Home. $NOTE
