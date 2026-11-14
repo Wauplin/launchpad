@@ -39,14 +39,13 @@ export function AddFolderDialog() {
 function Body({ onClose }: { onClose: () => void }) {
   const workspaces = useWorkspaces().data ?? [];
   const current = useScope().workspace;
-  const preset = useAddFolder((s) => s.preset);
   const [tab, setTab] = useState<"clone" | "plain">("clone");
-  const [chosenId, setChosenId] = useState<string | null>(preset.workspaceId ?? null);
+  const [chosenId, setChosenId] = useState<string | null>(null);
   const chosen = workspaces.find((w) => w.id === (chosenId ?? defaultWorkspace(current, workspaces))) ?? null;
   return (
     <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto p-4">
       <Tabs label="How to add" className="min-h-[33px]" value={tab} onChange={setTab} items={[{ id: "clone" as const, label: "Clone from GitHub", icon: "branch" as const }, { id: "plain" as const, label: "New plain folder", icon: "plus" as const }]} />
-      {tab === "plain" ? <NewPlainFolder workspaceId={chosen?.id ?? null} onDone={onClose} /> : <CloneFromGitHub workspace={chosen} initialRepo={preset.repo} onDone={onClose} />}
+      {tab === "plain" ? <NewPlainFolder workspaceId={chosen?.id ?? null} onDone={onClose} /> : <CloneFromGitHub workspace={chosen} onDone={onClose} />}
       <WorkspacePicker label="Add to" value={chosen?.id ?? null} onChange={setChosenId} />
     </div>
   );

@@ -16,7 +16,7 @@ import { MenuItem } from "@/components/Popover";
 import { Markdown } from "@/components/Markdown";
 import { toast, toastError } from "@/components/Toast";
 import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, IconButton, Loading, MoreMenu, PageHeader, Tabs } from "@/components/ui";
-import { PatchView } from "@/features/github/DiffReview";
+import { PatchView } from "@/components/diff/DiffReview";
 import { BotChat } from "@/features/chat/BotChat";
 import { nextSessionKey, useNextSession } from "@/features/chat/nextSession";
 import { NEW_THREAD, ThreadBar, ThreadList, useThreadRows, type ThreadRow } from "@/features/chat/BotThreads";
@@ -53,7 +53,7 @@ import type { ProposalMode } from "@/gen/ProposalMode";
 import type { LaunchpadAccess } from "@/gen/LaunchpadAccess";
 
 const CLI_ACCESS: { id: LaunchpadAccess; label: string; detail: string }[] = [
-  { id: "read", label: "Read", detail: "reads Launchpad state: folders, agents, Inbox, schedules, quotas" },
+  { id: "read", label: "Read", detail: "reads Launchpad state: folders, agents, schedules, quotas" },
   { id: "propose", label: "Propose", detail: "reads, and writes proposals that wait for your click" },
   { id: "admin", label: "Admin", detail: "also changes Launchpad itself: bots, routines, schedules, workspaces, launches and messages; never GitHub, the Outbox, credentials, the machine or paid usage" },
 ];
@@ -568,7 +568,7 @@ function InstructionsEditor({ bot, older, onSave }: { bot: Bot; older: boolean; 
 
 // ---------------------------------------------------------------- triggers
 
-const TRIGGER_ICON: Record<CronAgent["trigger"]["kind"], IconName> = { schedule: "clock", github: "pr", session_done: "agents", failure: "alert", channel: "comment" };
+const TRIGGER_ICON: Record<CronAgent["trigger"]["kind"], IconName> = { schedule: "clock", session_done: "agents", failure: "alert", channel: "comment" };
 
 /** Every way the bot starts on its own, in one list: its routines (with their last runs), incoming hooks that message
  * it and its Telegram command, with one Pause for all of them. */
@@ -584,8 +584,6 @@ function TriggersSection({ bot, routines, onEditFile, openThread, threadKeys }: 
   const askBot = askTarget(useBots().data ?? [], bot.workspace_id)?.id === bot.id;
   const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
-  const folder = projects.find((p) => p.id === bot.settings.folder);
-  const repo = folder && !folder.plain ? folder.gh_repo ?? folder.gh_upstream ?? null : null;
   const harness = profiles.find((p) => p.id === bot.settings.profile)?.harness ?? null;
   const folderName = (fid: string) => projects.find((p) => p.id === fid)?.name ?? "a removed folder";
   const channelName = useChannelName();
@@ -621,7 +619,7 @@ function TriggersSection({ bot, routines, onEditFile, openThread, threadKeys }: 
       </Link>}
       {!routines.length && !hooks.length && !telegram && !adding && <p className="m-0 text-[12px] text-ink-3">No trigger yet: {bot.settings.name} runs only when you message it.</p>}
     </div>
-    {adding ? <NewRoutine bot={bot} repo={repo} harness={harness} onDone={() => setAdding(false)} />
+    {adding ? <NewRoutine bot={bot} harness={harness} onDone={() => setAdding(false)} />
       : <button className="btn btn-sm w-fit" data-tour="bots.routine-new" title="A routine: on a schedule, on GitHub activity, when another agent is done, on a Launchpad failure or on a new message in a channel. Incoming hooks are created in Settings → Connections." onClick={() => setAdding(true)}><Icon name="plus" size={12} />New trigger</button>}
   </Section>;
 }
@@ -677,7 +675,6 @@ function AccessSection({ bot }: { bot: Bot }) {
     bot.folder_unused ? "a temporary folder (its plain folder is not used)" : folderLabel(projects, s.folder),
     PERMISSIONS.find((p) => p.id === s.permission_mode)?.label,
     `${access.label.toLowerCase()}${(s.proposals ?? "manual") === "auto" ? " (auto proposals)" : ""}`,
-    s.inbox_done && access.id !== "read" ? "marks Inbox threads done" : null,
     tools.length ? tools.map((t) => t.name).join(", ") : "no tools",
     `up to ${s.max_threads ?? 16} threads at once`,
   ].filter(Boolean);
@@ -763,9 +760,6 @@ function SettingsForm({ bot, onClose }: { bot: Bot; onClose: () => void }) {
         {PROPOSAL_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
       </select>
       <span className="font-normal text-ink-3">{PROPOSAL_MODES.find((m) => m.id === (s.proposals ?? "manual"))?.detail}</span>
-    </label>
-    <label className="flex min-h-7 items-center gap-2 text-[13px]" title="Marks your Inbox threads done or unsubscribes from them itself, here and on GitHub, without your click (needs Propose or Admin)">
-      <input type="checkbox" className="accent-teal" disabled={access === "read"} checked={!!s.inbox_done && access !== "read"} onChange={(e) => setS({ ...s, inbox_done: e.target.checked || undefined })} />Marks Inbox threads done
     </label>
     <div className="grid gap-1">
       <span className="text-[12px] font-semibold text-ink-2">Default tools</span>

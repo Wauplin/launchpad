@@ -58,8 +58,6 @@ export function pageTitle(path: string): string {
   if (path === "/more") return "More";
   if (path === "/chats") return "Chats";
   if (path.startsWith("/agents")) return "Agents";
-  if (path.startsWith("/inbox")) return "Inbox";
-  if (path.startsWith("/github")) return "GitHub";
   if (path.startsWith("/predrafts")) return "Local PR";
   if (path.startsWith("/terminals")) return "Terminals";
   if (path.startsWith("/settings")) return "Settings";

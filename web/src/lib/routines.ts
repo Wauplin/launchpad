@@ -1,23 +1,13 @@
-// Routines (code: crons): runs that start on their own, from a schedule, GitHub activity in the Inbox or another
-// agent's turn ending Done, or Launchpad's own failures. A bot's routine sends its instructions to the bot's thread; other routines launch a
+// Routines (code: crons): runs that start on their own, from a schedule, another agent's turn ending Done, a bot
+// channel message or Launchpad's own failures. A bot's routine sends its instructions to the bot's thread; other routines launch a
 // new session. A run ends with a report, or with `no_update`, which stays silent.
 
 import { clockAt, when } from "./format.ts";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { FailureKind } from "@/gen/FailureKind";
-import type { GithubEvent } from "@/gen/GithubEvent";
 import type { RoutineRun } from "@/gen/RoutineRun";
 import type { RunOutcome } from "@/gen/RunOutcome";
 import type { Trigger } from "@/gen/Trigger";
-
-export const GITHUB_EVENTS: { id: GithubEvent; label: string }[] = [
-  { id: "review_requested", label: "Review requested" },
-  { id: "mentioned", label: "Mentioned" },
-  { id: "assigned", label: "Assigned" },
-  { id: "ci_activity", label: "CI activity" },
-  { id: "release", label: "New release" },
-  { id: "any", label: "Any activity" },
-];
 
 export const FAILURE_EVENTS: { id: FailureKind; label: string }[] = [
   { id: "any", label: "Any failure" },
@@ -114,7 +104,6 @@ export function triggerSummary(r: Pick<CronAgent, "trigger" | "schedule" | "time
   const t: Trigger = r.trigger;
   if (t.kind === "channel") return `New message in ${channelName?.(t.channel) ?? "a channel"}${t.mentions_only ? ` mentioning ${botName ?? "the bot"}` : ""}`;
   if (t.kind === "schedule") return `${describeCron(r.schedule)} (${r.time_zone ?? "server time"})`;
-  if (t.kind === "github") return `GitHub · ${t.events.map((e) => GITHUB_EVENTS.find((x) => x.id === e)?.label.toLowerCase() ?? e).join(", ")} · ${t.repo ?? "the workspace's repositories"}`;
   if (t.kind === "failure") return `When Launchpad fails · ${t.events.map((e) => FAILURE_EVENTS.find((x) => x.id === e)?.label.toLowerCase() ?? e).join(", ")}`;
   return `When an agent is done · ${t.folder ? folderName?.(t.folder) ?? "a folder" : "any folder of the workspace"}${t.include_bots ? " · bots too" : ""}`;
 }
@@ -136,7 +125,7 @@ export function routineState(r: CronAgent, botName?: string): string {
   if (r.trigger.kind === "schedule") return r.next_run_at ? `Next run ${when(r.next_run_at)}` : "No run planned";
   if (r.trigger.kind === "failure") return "Waits for a failure";
   if (r.trigger.kind === "channel") return "Waits for a message";
-  return r.trigger.kind === "github" ? "Waits for GitHub activity" : "Waits for an agent to finish";
+  return "Waits for an agent to finish";
 }
 
 /** The last run that did its job (a report or nothing to report). */

@@ -4,7 +4,7 @@
 
 import { PAGE_ONLY, RequestError, type Answer, type Args, type Kind, type Message, type Result } from "../shared/messages";
 import { botMessage, bots, botThreads, deleteNote, discardSuggestion, editSuggestion, events, launch, ledger, postSuggestion, profiles, sessions, stop, takeQuote, writeNote } from "./agents";
-import { clone, doneHandled, localPr, notifications, observed, publish, pushToPr, reviewChoice } from "./lists";
+import { clone, localPr, publish, pushToPr, reviewChoice } from "./lists";
 import { anchorHealth, follow, pageContext, pageRows, peekContext, reportAnchors } from "./context";
 import { startEvents, stopEvents } from "./events";
 import { clientId, discover, signIn } from "./hf";
@@ -71,9 +71,6 @@ const handlers: { [K in Kind]: Handler<K> } = {
   "suggestion.edit": (args) => editSuggestion(args),
   "suggestion.discard": (args) => discardSuggestion(args),
   "suggestion.ledger": (args) => ledger(args),
-  notifications: () => notifications(),
-  "inbox.observed": (args) => observed(args),
-  "inbox.done-handled": (args) => doneHandled(args),
   "review-choice": (args) => reviewChoice(args),
   "folder.clone": (args) => clone(args),
   "localpr.detail": (args) => localPr(args),

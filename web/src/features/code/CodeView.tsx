@@ -65,19 +65,17 @@ export function CodeView() {
     if (search.root && !search.session) setLast(id, { root: search.root, rev: search.rev, path: search.path, view: search.view });
   }, [id, search.root, search.rev, search.path, search.view, search.session, setLast]);
 
-  // Phone ‹: the page Files was opened from (over the files shown since); opened from a link, the agent or pull
-  // request it names, else the folder.
-  const prParts = search.pr?.match(/^([^/]+)\/([^#]+)#(\d+)$/);
+  // Phone ‹: the page Files was opened from (over the files shown since); opened from a link, the agent it names,
+  // else the folder.
   const backTo = useLeave(() => void (search.session ? navigate({ to: "/agents", search: { session: search.session } })
-    : prParts ? navigate({ to: "/github/$owner/$repo/$number", params: { owner: prParts[1], repo: prParts[2], number: prParts[3] } })
     : navigate({ to: "/projects/$id", params: { id } })));
   // The phone's only title bar: ‹, the file name and, from the viewer, the tree toggle.
-  const phoneBar = (end?: ReactNode) => phone && <PhoneBar title={search.path ? basename(search.path) : project?.name ?? "Files"} onBack={backTo} backLabel={search.session ? "Back to the agent" : prParts ? "Back to the pull request" : "Back"} end={end} />;
+  const phoneBar = (end?: ReactNode) => phone && <PhoneBar title={search.path ? basename(search.path) : project?.name ?? "Files"} onBack={backTo} backLabel={search.session ? "Back to the agent" : "Back"} end={end} />;
   const bar = phoneBar();
   if (!project) return <>{bar}<Empty fill icon="folder">This folder is not registered in Launchpad.</Empty></>;
   if (!search.root) return bar || null;
   const diff = !!search.rev && search.view === "diff";
-  const go = (next: CodeSearch) => void navigate({ to: "/projects/$id/code", params: { id }, search: { root: search.root, rev: search.rev, session: search.session, pr: search.pr, ...next } });
+  const go = (next: CodeSearch) => void navigate({ to: "/projects/$id/code", params: { id }, search: { root: search.root, rev: search.rev, session: search.session, ...next } });
   const showCode = () => {
     const files = qc.getQueryData<CommitChanges>(["code-commit-diff", search.root, search.rev])?.files;
     const selected = files?.find((f) => f.filename === search.path) ?? files?.[0];
@@ -87,16 +85,15 @@ export function CodeView() {
     {diff && bar}
     {search.rev && <div className="flex flex-wrap items-center gap-2 border-b border-line bg-paper px-3 py-2">
       {search.session && !phone && <BackToSession id={search.session} />}
-      {search.pr && !phone && <BackToPr pr={search.pr} />}
       <span className="min-w-0 truncate font-mono text-[12px] text-ink-3" title={search.rev}>{diff ? "Commit" : "Revision"} {search.rev.slice(0, 12)}</span>
       <Tabs className="ml-auto border-b-0" label="Commit view" value={diff ? "diff" : "files"} onChange={(v) => (v === "diff" ? go({ view: "diff", path: search.path }) : showCode())} items={[{ id: "diff", label: "Diff" }, { id: "files", label: "Files" }]} />
     </div>}
     {diff ? <CommitDiff key={sourceKey(search.root, search.rev)} root={search.root} rev={search.rev!} path={search.path} select={(path) => go({ view: "diff", path })} openFile={(rev, path) => go({ rev, path })} /> :
-      <div className="min-h-0 flex-1"><Viewer key={sourceKey(search.root, search.rev)} project={project} root={search.root} rev={search.rev ?? null} path={search.path ?? null} line={search.line ?? null} session={search.session ?? null} pr={search.pr ?? null} bar={phoneBar} /></div>}
+      <div className="min-h-0 flex-1"><Viewer key={sourceKey(search.root, search.rev)} project={project} root={search.root} rev={search.rev ?? null} path={search.path ?? null} line={search.line ?? null} session={search.session ?? null} bar={phoneBar} /></div>}
   </div>;
 }
 
-function Viewer({ project, root, rev, path, line, session, pr, bar }: { project: Project; root: string; rev: string | null; path: string | null; line: number | null; session: string | null; pr: string | null; bar: (end?: ReactNode) => ReactNode }) {
+function Viewer({ project, root, rev, path, line, session, bar }: { project: Project; root: string; rev: string | null; path: string | null; line: number | null; session: string | null; bar: (end?: ReactNode) => ReactNode }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const phone = usePhone();
@@ -114,8 +111,8 @@ function Viewer({ project, root, rev, path, line, session, pr, bar }: { project:
   const [searchState, setSearchState] = useState<{ q: string; opts: FindOpts }>({ q: "", opts: { case: false, word: false, regex: false } });
 
   const go = useCallback(
-    (s: CodeSearch, push = false) => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root, rev: rev ?? undefined, session: session ?? undefined, pr: pr ?? undefined, ...s }, replace: !push }),
-    [navigate, project.id, root, rev, session, pr],
+    (s: CodeSearch, push = false) => void navigate({ to: "/projects/$id/code", params: { id: project.id }, search: { root, rev: rev ?? undefined, session: session ?? undefined, ...s }, replace: !push }),
+    [navigate, project.id, root, rev, session],
   );
   // Each opened file is its own history entry, so Back returns to the previous file.
   const open = useCallback((p: string, l?: number) => { go({ path: p, line: l }, p !== path); if (phone) setBrowserOpen(false); }, [go, phone, path]);
@@ -161,7 +158,6 @@ function Viewer({ project, root, rev, path, line, session, pr, bar }: { project:
       <aside className={`code-browser min-h-0 min-w-0 flex-col border-r border-line bg-paper ${phone ? browserOpen ? "flex flex-1" : "hidden" : "flex"}`}>
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2 px-2.5 pt-2.5 pb-1">
           {session && !rev && !phone && <BackToSession id={session} />}
-          {pr && !rev && !phone && <BackToPr pr={pr} />}
           <div className="flex min-w-0 gap-1.5">
             <div className="min-w-0 flex-1"><SourcePicker project={project} root={root} rev={rev} path={path} session={session} /></div>
             <TerminalMenu cwd={root} runner={runner} phone={phone} className="flex-none" />
@@ -240,15 +236,6 @@ function BackToSession({ id }: { id: string }) {
   const title = useSessions().data?.find((s) => s.id === id)?.title;
   if (!title) return null;
   return <button aria-label="Back to agent" className="truncate text-left text-[12px] text-teal-ink hover:underline" title={`Back to the agent "${title}"`} onClick={() => void navigate({ to: "/agents", search: { session: id } })}>← Back to agent · {title}</button>;
-}
-
-/** Shown when Files was opened from a pull request's Changes: `pr` is `owner/repo#number`. */
-function BackToPr({ pr }: { pr: string }) {
-  const navigate = useNavigate();
-  const m = pr.match(/^([^/]+)\/([^#]+)#(\d+)$/);
-  if (!m) return null;
-  const [, owner, repo, number] = m;
-  return <button aria-label={`Back to PR #${number}`} className="truncate text-left text-[12px] text-teal-ink hover:underline" title={`Back to ${owner}/${repo}#${number}`} onClick={() => void navigate({ to: "/github/$owner/$repo/$number", params: { owner, repo, number } })}>← Back to PR #{number}</button>;
 }
 
 /** The branch of the task worktree that lived at `root`, if Launchpad knows it. */

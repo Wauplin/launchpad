@@ -19,13 +19,15 @@ import { useBots } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
 import { useChannelName } from "@/lib/channels";
 import { browserZone, channelTriggerOf, cronTitle, describeCron, triggerSummary } from "@/lib/routines";
-import { PatchView } from "@/features/github/DiffReview";
+import { PatchView } from "@/components/diff/DiffReview";
 import { useLayout } from "@/stores/layout";
 import { SessionStatus } from "@/features/agents/SessionBits";
 import { action as actionOf, runAction, type ActionName } from "@/lib/actions";
 import { ActionButton } from "@/components/ActionButton";
 import { ACTIONS } from "@/gen/actions";
-import { BranchActions, ghParams } from "@/features/today/TodayCards";
+import { BranchActions } from "@/features/today/TodayCards";
+import { githubItemUrl } from "@/lib/githubLinks";
+import { externalLinkProps, openExternal } from "@/lib/platform";
 import { proposalPurpose, proposalReceipt, REPORT_OUTCOME } from "./proposalState";
 
 export const useProposalList = (enabled = true) => useQuery({ enabled, queryKey: ["proposals"], queryFn: () => api.get<Proposal[]>("/api/proposals"), staleTime: 30_000 });
@@ -62,7 +64,7 @@ function ReportBody({ p, body, busy, dismiss }: { p: Proposal; body: Report; bus
     <>
       <span className="flex flex-wrap items-center gap-1.5 text-[12px]">
         <Badge tone={tone}>{label}</Badge>
-        {ref && <Link to="/github/$owner/$repo/$number" params={ghParams(ref[1], Number(ref[2]))} className="text-teal-ink no-underline hover:underline">{body.github}</Link>}
+        {ref && githubItemUrl(ref[1], Number(ref[2])) && <a {...externalLinkProps(githubItemUrl(ref[1], Number(ref[2]))!)} className="text-teal-ink no-underline hover:underline" title="Open on GitHub">{body.github}</a>}
         {p.session_id && <Link to="/agents" search={{ session: p.session_id }} className="text-teal-ink no-underline hover:underline">Open agent</Link>}
       </span>
       <div className="max-h-[360px] overflow-auto"><Markdown text={body.body} className="text-[13px]" /></div>
@@ -200,15 +202,14 @@ function ChannelJoinBody({ body }: { body: Extract<Proposal["body"], { kind: "ch
 type Ready = Extract<Proposal["body"], { kind: "ready" }>;
 
 /** Where the owner checks what a ready click acts on. */
-function readyLink(body: Ready): { to: string; params?: Record<string, string>; search?: Record<string, string>; label: string } | null {
+function readyLink(body: Ready): { to?: string; href?: string; params?: Record<string, string>; search?: Record<string, string>; label: string } | null {
   const id = body.args[0] ?? "";
   switch (body.action) {
     case "local-pr.publish": case "local-pr.merge": return { to: "/predrafts/$id", params: { id }, label: "Review the Local PR" };
     case "outbox.send": return { to: "/", search: { filter: "send" }, label: "Open in Today" };
     case "suggestion.post": return { to: "/", search: { filter: "github" }, label: "Open in Today" };
-    case "inbox.done": return { to: "/inbox", label: "Open the Inbox" };
     case "home.update": return { to: "/settings/runners", label: "Open Home and runners" };
-    case "github.run-ci": case "branch.push-to-pr": return { to: "/github/$owner/$repo/$number", params: { owner: body.args[0] ?? "", repo: body.args[1] ?? "", number: body.args[2] ?? "" }, label: "Open the pull request" };
+    case "github.run-ci": case "branch.push-to-pr": { const href = githubItemUrl(`${body.args[0] ?? ""}/${body.args[1] ?? ""}`, Number(body.args[2]), { kind: "pr" }); return href ? { href, label: "Open the pull request on GitHub" } : null; }
     default: return body.session_id ? { to: "/agents", search: { session: body.session_id, view: "changes" }, label: "Review changes" } : null;
   }
 }
@@ -247,7 +248,7 @@ function ReadyBody({ p, body, dismiss }: { p: Proposal; body: Ready; dismiss: ()
   const link = readyLink(body);
   // The action is the one visible button; the page link and Dismiss go in ⋯.
   const more = <MoreMenu label="More actions">{(close) => <>
-    {link && <MenuItem icon={<Icon name="ext" size={14} />} label={link.label} onClick={() => { close(); void navigate({ to: link.to as never, params: link.params as never, search: link.search as never }); }} />}
+    {link && <MenuItem icon={<Icon name="ext" size={14} />} label={link.label} onClick={() => { close(); if (link.href) openExternal(link.href); else void navigate({ to: link.to as never, params: link.params as never, search: link.search as never }); }} />}
     <MenuItem icon={<Icon name="x" size={14} />} label="Dismiss" onClick={() => { close(); dismiss(); }} />
   </>}</MoreMenu>;
   return (
@@ -476,7 +477,7 @@ export const ProposalLine = memo(function ProposalLine({ p, onReply }: { p: Prop
         </span>
         <RowActions width={phone ? 0 : undefined} label="More actions" main={main} more={(close) => <>
           <MenuItem icon={<Icon name="expand" size={14} />} label="Details" detail="The full card" onClick={() => { close(); setOpen(true); }} />
-          {link && <MenuItem icon={<Icon name="ext" size={14} />} label={link.label} onClick={() => { close(); void navigate({ to: link.to as never, params: link.params as never, search: link.search as never }); }} />}
+          {link && <MenuItem icon={<Icon name="ext" size={14} />} label={link.label} onClick={() => { close(); if (link.href) openExternal(link.href); else void navigate({ to: link.to as never, params: link.params as never, search: link.search as never }); }} />}
           {question && <MenuItem icon={<Icon name="check" size={14} />} label="Mark read" disabled={busy} onClick={() => { close(); void act("dismiss"); }} />}
           {b.kind !== "report" && <MenuItem icon={<Icon name="x" size={14} />} label="Dismiss" disabled={busy} onClick={() => { close(); void act("dismiss"); }} />}
           <EditMenuItem p={p} close={close} />

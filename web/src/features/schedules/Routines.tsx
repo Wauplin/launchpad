@@ -14,10 +14,8 @@ import type { Bot } from "@/gen/Bot";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { CronCondition } from "@/gen/CronCondition";
 import type { FailureKind } from "@/gen/FailureKind";
-import type { GithubEvent } from "@/gen/GithubEvent";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { Preview } from "@/gen/Preview";
-import type { Project } from "@/gen/Project";
 import type { RoutineRun } from "@/gen/RoutineRun";
 import type { Session } from "@/gen/Session";
 import type { Trigger } from "@/gen/Trigger";
@@ -25,7 +23,7 @@ import { api } from "@/lib/api";
 import { ago, when } from "@/lib/format";
 import { useChannelName, useChannels } from "@/lib/channels";
 import { useProjects } from "@/lib/queries";
-import { EVENT_RUNS_PER_HOUR, FAILURE_EVENTS, GITHUB_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, cronTitle, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
+import { EVENT_RUNS_PER_HOUR, FAILURE_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, cronTitle, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
 
 export type RoutineDraft = { trigger: Trigger; schedule: string; conditions: CronCondition[] };
 
@@ -45,19 +43,13 @@ export function OutcomeBadge({ run }: { run: RoutineRun }) {
   return <StatusBadge tone={TONE[o.tone]} label={o.label} />;
 }
 
-/** The repositories of a workspace's folders. */
-function repositories(projects: Project[], workspaceId: string | null): string[] {
-  return [...new Set(projects.filter((p) => p.workspace_id === workspaceId).flatMap((p) => [p.gh_repo, p.gh_upstream]).filter((r): r is string => !!r))].sort();
-}
-
-/** When a routine runs: a schedule, GitHub activity, another agent's turn, a failure or (a bot's routine) a channel
+/** When a routine runs: a schedule, another agent's turn, a failure or (a bot's routine) a channel
  * message, and its conditions. */
 export function TriggerFields({ draft, harness, workspaceId, inThread, botId, onChange, onValidityChange }: { draft: RoutineDraft; harness: HarnessKind | null; workspaceId: string | null; inThread: boolean; botId?: string | null; onChange: (d: RoutineDraft) => void; onValidityChange: (valid: boolean) => void }) {
   const projects = useProjects().data ?? [];
   // The bot's channels and DMs: a channel routine reads them, so the bot is a member.
   const channels = (useChannels().data ?? []).filter((c) => c.workspace_id === workspaceId && !c.archived && !!botId && c.members.some((m) => m.bot_id === botId)).sort((a, b) => a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title));
   const channelName = useChannelName();
-  const repos = repositories(projects, workspaceId);
   const folders = projects.filter((p) => p.workspace_id === workspaceId && !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const [fieldsValid, setFieldsValid] = useState(true);
   const t = draft.trigger;
@@ -65,17 +57,15 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, botId, on
   const picked = t.kind === "channel" ? channels.find((c) => c.id === t.channel) : undefined;
   const member = picked?.members.find((m) => m.bot_id === botId);
   const direct = member?.mode === "all" || member?.mode === "mentions";
-  const valid = fieldsValid && ((t.kind !== "github" && t.kind !== "failure") || t.events.length > 0) && (t.kind !== "channel" || !!t.channel);
+  const valid = fieldsValid && (t.kind !== "failure" || t.events.length > 0) && (t.kind !== "channel" || !!t.channel);
   useEffect(() => onValidityChange(valid), [valid, onValidityChange]);
-  const kind = (k: Trigger["kind"]) => onChange({ ...draft, trigger: k === "schedule" ? { kind: "schedule" } : k === "github" ? { kind: "github", repo: null, events: ["review_requested"] } : k === "failure" ? { kind: "failure", events: ["any"] } : k === "channel" ? { kind: "channel", channel: channels[0]?.id ?? "", mentions_only: false } : { kind: "session_done", folder: null, include_bots: false }, schedule: draft.schedule || DEFAULT_CRON.schedule });
+  const kind = (k: Trigger["kind"]) => onChange({ ...draft, trigger: k === "schedule" ? { kind: "schedule" } : k === "failure" ? { kind: "failure", events: ["any"] } : k === "channel" ? { kind: "channel", channel: channels[0]?.id ?? "", mentions_only: false } : { kind: "session_done", folder: null, include_bots: false }, schedule: draft.schedule || DEFAULT_CRON.schedule });
   const toggleFailure = (e: FailureKind) => t.kind === "failure" && onChange({ ...draft, trigger: { ...t, events: t.events.includes(e) ? t.events.filter((x) => x !== e) : [...t.events, e] } });
-  const toggle = (e: GithubEvent) => t.kind === "github" && onChange({ ...draft, trigger: { ...t, events: t.events.includes(e) ? t.events.filter((x) => x !== e) : [...t.events, e] } });
   // In a thread (a bot, Ask Launchpad), a run waits for the thread anyway: no "previous run" condition.
   const conditions = inThread ? draft.conditions.filter((c) => c.kind !== "previous_run_finished") : draft.conditions;
   return <div className="grid gap-2">
     <Choices label="When it runs">
       <Choice active={t.kind === "schedule"} onClick={() => kind("schedule")}>On a schedule</Choice>
-      <Choice active={t.kind === "github"} onClick={() => kind("github")}>GitHub activity</Choice>
       <Choice active={t.kind === "session_done"} onClick={() => kind("session_done")}>When an agent is done</Choice>
       <Choice active={t.kind === "failure"} onClick={() => kind("failure")}>When Launchpad fails</Choice>
       {(!!botId || t.kind === "channel") && <Choice active={t.kind === "channel"} onClick={() => kind("channel")}>New message in a channel</Choice>}
@@ -101,20 +91,6 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, botId, on
         {!t.events.length && <p role="alert" className="m-0 text-[12px] text-gh-closed">Pick at least one kind of failure.</p>}
       </div>
       <p className="m-0 text-[12px] text-ink-3">Launchpad checks every 30 seconds for failures in this workspace, plus runners, Home restarts and Burst jobs. New failures found in one check start one run with their ids and reasons. A routine never runs for its own runs or its bot's sessions.</p>
-    </div>}
-    {t.kind === "github" && <div className="grid gap-2">
-      <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Repository
-        <select className="field-input font-normal" value={t.repo ?? ""} onChange={(e) => onChange({ ...draft, trigger: { ...t, repo: e.target.value || null } })}>
-          <option value="">Any repository of the workspace{repos.length ? ` (${repos.length})` : ""}</option>
-          {repos.map((r) => <option key={r} value={r}>{r}</option>)}
-          {t.repo && !repos.includes(t.repo) && <option value={t.repo}>{t.repo}</option>}
-        </select>
-      </label>
-      <div className="grid gap-1"><span className="text-[12px] font-semibold text-ink-2">New in your Inbox</span>
-        <Choices label="New in your Inbox">{GITHUB_EVENTS.map((e) => <Choice key={e.id} active={t.events.includes(e.id)} onClick={() => toggle(e.id)}>{e.label}</Choice>)}</Choices>
-        {!t.events.length && <p role="alert" className="m-0 text-[12px] text-gh-closed">Pick at least one kind of activity.</p>}
-      </div>
-      <p className="m-0 text-[12px] text-ink-3">Launchpad reads your GitHub notifications (the Inbox) about every minute. New activity found in one check starts one run with all of it.</p>
     </div>}
     {t.kind === "session_done" && <div className="grid gap-2">
       <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Folder
@@ -201,14 +177,10 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
 }
 
 /** Ready-made routines for a bot, from its folder. Each fills the form; nothing is saved until Add routine. */
-export function routineTemplates(repo: string | null): { label: string; title: string; instructions: string; draft: RoutineDraft }[] {
+export function routineTemplates(): { label: string; title: string; instructions: string; draft: RoutineDraft }[] {
   const cond = DEFAULT_CRON.conditions.filter((c) => c.kind === "quota_left");
   return [
     { label: "Daily check", title: "Daily check", instructions: "Look at what changed in your folder and in the knowledge base since your last run. Report only what needs my attention, in a few lines.", draft: { trigger: { kind: "schedule" }, schedule: DEFAULT_CRON.schedule, conditions: cond } },
-    ...(repo ? [
-      { label: "Review requests", title: "Review requests", instructions: "Review each pull request below. Prepare your review as a suggestion (launchpad suggest review) for me to post; do not post it yourself. Report one line per pull request with your verdict.", draft: { trigger: { kind: "github" as const, repo, events: ["review_requested" as const] }, schedule: "", conditions: cond } },
-      { label: "CI failures", title: "CI failures", instructions: "Read the failing logs below. If the change itself causes the failure, prepare a fix in a new worktree as a Local PR and report. If it is flaky or unrelated, reply no_update.", draft: { trigger: { kind: "github" as const, repo, events: ["ci_activity" as const] }, schedule: "", conditions: cond } },
-    ] : []),
     { label: "After each agent", title: "Review finished work", instructions: "Read what the agent below did. If something looks wrong or unfinished, report it with the file and line. Otherwise reply no_update.", draft: { trigger: { kind: "session_done", folder: null, include_bots: false }, schedule: "", conditions: cond } },
     { label: BRIEF_TITLE, title: BRIEF_TITLE, instructions: BRIEF, draft: { trigger: { kind: "schedule" }, schedule: "30 8 * * 1-5", conditions: cond } },
   ];
@@ -216,10 +188,10 @@ export function routineTemplates(repo: string | null): { label: string; title: s
 
 /** The morning brief: a routine of a bot that has the Launchpad CLI, weekdays at 8:30 (edit it after). */
 export const BRIEF_TITLE = "Morning brief";
-export const BRIEF = "Write my morning brief for this workspace. Read what changed since your previous brief: agents that need me or finished, Inbox threads, Local PRs and suggestions waiting for my click, routine reports, and the quota. Start with what needs me (at most five items, each with its link and one next action), then one line about what was handled. Keep it short. If nothing changed, reply no_update.";
+export const BRIEF = "Write my morning brief for this workspace. Read what changed since your previous brief: agents that need me or finished, Local PRs and suggestions waiting for my click, routine reports, and the quota. Start with what needs me (at most five items, each with its link and one next action), then one line about what was handled. Keep it short. If nothing changed, reply no_update.";
 
 /** Adds a routine to a bot: a name, what it does, and when. */
-export function NewRoutine({ bot, repo, harness, onDone }: { bot: Bot; repo: string | null; harness: HarnessKind | null; onDone: () => void }) {
+export function NewRoutine({ bot, harness, onDone }: { bot: Bot; harness: HarnessKind | null; onDone: () => void }) {
   const name = bot.settings.name;
   const ws = bot.workspace_id;
   const qc = useQueryClient();
@@ -239,7 +211,7 @@ export function NewRoutine({ bot, repo, harness, onDone }: { bot: Bot; repo: str
   };
   return <div className="grid gap-2 rounded-card border border-line bg-paper p-3" data-tour="bots.routine-form">
     {!title && !instructions && <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-ink-3">Start from
-      {routineTemplates(repo).map((t) => <button key={t.label} className="btn btn-sm" onClick={() => { setTitle(t.title); setInstructions(t.instructions); setDraft(t.draft); }}>{t.label}</button>)}
+      {routineTemplates().map((t) => <button key={t.label} className="btn btn-sm" onClick={() => { setTitle(t.title); setInstructions(t.instructions); setDraft(t.draft); }}>{t.label}</button>)}
     </div>}
     <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input font-normal" maxLength={80} value={title} placeholder="Morning check" onChange={(e) => setTitle(e.target.value)} /></label>
     <label className="grid gap-1 text-[12px] font-semibold text-ink-2">What it does at each run

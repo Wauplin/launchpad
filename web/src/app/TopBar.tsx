@@ -3,8 +3,6 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { Fragment } from "react";
 import type { Predraft } from "@/gen/Predraft";
 import type { Project } from "@/gen/Project";
-import type { Item } from "@/features/github/types";
-import { itemKey } from "@/features/github/lib";
 import logo from "@/assets/launchpad.png";
 import { CommandField } from "./CommandField";
 import { useProjects } from "@/lib/queries";
@@ -22,10 +20,9 @@ const SETTINGS: Record<string, string> = {
   ...Object.fromEntries([...WORKSPACE_NAV, ...SETTINGS_NAV.flatMap((g) => g.items)].map((e) => [e.to.replace(/^\/settings\/?/, ""), e.label])),
 };
 
-/** The breadcrumb of a route: every segment but the last is a link. A top-level page (Today, Inbox, Agents, Folders,
+/** The breadcrumb of a route: every segment but the last is a link. A top-level page (Today, Agents, Folders,
  * Setup) names itself in its page header, so it has no crumb; a detail page shows its parents. */
-function routeCrumbs(path: string, projects: Project[], bots: Bot[], channels: Channel[]): Crumb[] | "item" | "predraft" {
-  if (/^\/github\/[^/]+\/[^/]+\/\d+/.test(path)) return "item";
+function routeCrumbs(path: string, projects: Project[], bots: Bot[], channels: Channel[]): Crumb[] | "predraft" {
   if (/^\/predrafts\/[^/]+/.test(path)) return "predraft";
   const settings = path.match(/^\/settings\/?([^/]*)/);
   if (settings) return [{ label: "Settings", to: "/settings" }, { label: SETTINGS[settings[1]] ?? "Settings" }];
@@ -74,7 +71,6 @@ export function TopBar() {
   const opened = useQuery<{ channel: Channel }>({ queryKey: ["channel", channelId], enabled: false }).data?.channel;
   const channels = opened ? [opened] : listed;
   const crumbs = routeCrumbs(path, projects, bots, channels);
-  const gh = path.match(/^\/github\/([^/]+)\/([^/]+)\/(\d+)/);
   const predraftId = path.match(/^\/predrafts\/([^/]+)/)?.[1];
   return (
     <header className="flex flex-none flex-wrap items-center gap-x-3.5 gap-y-1.5 border-b border-line bg-chrome py-1.5 pl-3.5" style={HOST_INSET}>
@@ -83,7 +79,7 @@ export function TopBar() {
         Launchpad
       </div>
       <nav aria-label="Breadcrumb" className="flex min-w-0 shrink items-center gap-1.5 whitespace-nowrap text-ink-2">
-        {crumbs === "item" && gh ? <ItemCrumb repo={`${gh[1]}/${gh[2]}`} number={Number(gh[3])} /> : crumbs === "predraft" && predraftId ? <PredraftCrumb id={predraftId} /> : Array.isArray(crumbs) && <Crumbs list={crumbs} />}
+        {crumbs === "predraft" && predraftId ? <PredraftCrumb id={predraftId} /> : Array.isArray(crumbs) && <Crumbs list={crumbs} />}
       </nav>
       <span className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
         {isDemo && <DemoChip />}
@@ -91,17 +87,6 @@ export function TopBar() {
       </span>
     </header>
   );
-}
-
-/** Reads the item the page already cached; it never fetches by itself. */
-function ItemCrumb({ repo, number }: { repo: string; number: number }) {
-  const projects = useProjects().data ?? [];
-  const item = useQuery<Item>({ queryKey: itemKey(repo, number), enabled: false }).data;
-  const lower = repo.toLowerCase();
-  const project = projects.find((p) => p.gh_repo?.toLowerCase() === lower) ?? projects.find((p) => p.gh_upstream?.toLowerCase() === lower);
-  const kind = item ? (item.__typename === "PullRequest" ? "Pull requests" : "Issues") : "Items";
-  const list: Crumb[] = project ? [{ label: "Folders", to: "/projects" }, { label: project.name, to: "/projects/$id", params: { id: project.id } }, { label: kind, to: "/projects/$id", params: { id: project.id } }] : [{ label: "Inbox", to: "/inbox" }];
-  return <Crumbs list={[...list, { label: project ? `#${number}` : `${repo}#${number}` }]} />;
 }
 
 function PredraftCrumb({ id }: { id: string }) {

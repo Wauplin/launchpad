@@ -12,7 +12,7 @@ import { RELEASE_TRAIN } from "@/demo/world/channels";
 import { useAskPanel } from "@/stores/ask";
 
 const THREAD = "demo-s-ask-acme";
-const READY = "demo-prop-ready-done";
+const READY = "demo-prop-ready-ci";
 const proposal = () => world.proposals.find((p) => p.id === TODAY_PROPOSAL);
 const ASK_ROUTE = `/bots/${ASK_BOT}`;
 const BOT_ROUTE = `/bots/${BOT}`;
@@ -41,7 +41,7 @@ export const ask: Chapter = {
     {
       id: "ask.ready", route: ASK_ROUTE, anchor: "proposal.card", anchorId: READY,
       title: "Your click",
-      body: "Merging, publishing, posting, sending and marking Inbox threads done stay yours. A bot can prepare them as a ready click: the card runs the same call as the button on its page, with the same confirmation, and only when you click it.",
+      body: "Merging, publishing, posting, sending and approving CI runs stay yours. A bot can prepare them as a ready click: the card runs the same call as the button on its page, with the same confirmation, and only when you click it.",
       enter: () => useAskPanel.getState().close(),
     },
     {
@@ -52,7 +52,7 @@ export const ask: Chapter = {
     {
       id: "ask.thread", route: ASK_ROUTE, anchor: "bots.thread",
       title: "Ask Launchpad",
-      body: "Every workspace starts with this bot. Its page is a chat: your messages, its answers and the cards it writes. One quiet line per turn counts the steps behind an answer and the time it took; a tap lists the step titles. The full trace stays in Agents (⋯ → Open current session in Agents). It reads your folders, agents, inbox, schedules and quotas with the Launchpad CLI, and keeps what it learns about you in its own memory.",
+      body: "Every workspace starts with this bot. Its page is a chat: your messages, its answers and the cards it writes. One quiet line per turn counts the steps behind an answer and the time it took; a tap lists the step titles. The full trace stays in Agents (⋯ → Open current session in Agents). It reads your folders, agents, schedules and quotas with the Launchpad CLI, and keeps what it learns about you in its own memory.",
     },
     {
       id: "ask.question", route: ASK_ROUTE, anchor: "bots.reply",
@@ -135,7 +135,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-routines", route: `${BOT_ROUTE}?panel=about`, anchor: "bots.triggers",
       title: "Triggers: work on its own",
-      body: "A routine sends the bot a task by itself: every weekday morning, when CI fails on GitHub, when another agent is done, or when a new message arrives in a channel (never for its own posts or for messages the channel already delivered to it). Each run starts a thread of its own and ends with a report, or with No update, which never notifies you. “When an agent is done” leaves bots' answers out unless you check Bots' answers count too, and a routine started by events runs at most six times an hour. Incoming hooks and the Telegram command that message the bot are listed too. Each routine is a file of the bot (Edit as file in its ⋯), and a bot proposes changes to its BOT.md and routines as one card with a diff per file. Pause all stops every trigger of the bot; your own messages still go through.",
+      body: "A routine sends the bot a task by itself: every weekday morning, when Launchpad fails, when another agent is done, or when a new message arrives in a channel (never for its own posts or for messages the channel already delivered to it). Each run starts a thread of its own and ends with a report, or with No update, which never notifies you. “When an agent is done” leaves bots' answers out unless you check Bots' answers count too, and a routine started by events runs at most six times an hour. Incoming hooks and the Telegram command that message the bot are listed too. Each routine is a file of the bot (Edit as file in its ⋯), and a bot proposes changes to its BOT.md and routines as one card with a diff per file. Pause all stops every trigger of the bot; your own messages still go through.",
       tryIt: { text: "press Run now on a routine.", done: () => (world.crons.find((c) => c.id === DAILY)?.history.length ?? 0) > dailyRuns, doIt: () => api.post(`/api/launch/crons/${DAILY}/run`) },
       enter: () => { dailyRuns = world.crons.find((c) => c.id === DAILY)?.history.length ?? 0; },
     },

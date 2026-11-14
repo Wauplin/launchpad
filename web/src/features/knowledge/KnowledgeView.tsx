@@ -13,7 +13,7 @@ import { Icon } from "@/components/Icon";
 import { Markdown } from "@/components/Markdown";
 import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, FilterChip, Loading, PageHeader, Tabs } from "@/components/ui";
-import { PatchView } from "@/features/github/DiffReview";
+import { PatchView } from "@/components/diff/DiffReview";
 import type { Bot } from "@/gen/Bot";
 import type { Change } from "@/gen/Change";
 import type { Hit } from "@/gen/Hit";

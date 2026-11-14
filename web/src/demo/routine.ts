@@ -11,14 +11,14 @@ export function routineText(title: string, cause: string, instructions: string, 
 
 export const DAILY = "Look at what changed in your folder and in the knowledge base since your last run. Report only what needs my attention, in a few lines.";
 export const TRAIN_ROUTINE = "Read the new messages of the channel. When Release asks you what goes into the release, answer there with the merged pull requests and the open risks. Otherwise reply no_update.";
-export const CI = "Read the failing logs below. If the change itself causes the failure, prepare a fix in a new worktree as a Local PR and report. If it is flaky or unrelated, reply no_update.";
+export const CI = "Read the failing CI runs of storefront's open pull requests since your last run (gh run list). If a change itself causes a failure, prepare a fix in a new worktree as a Local PR and report. If it is flaky or unrelated, reply no_update.";
 
 // ---------------------------------------------------------------- routine files
 
 /** What a routine file holds (Home's `crons::RoutineFile`). */
 export type RoutineDef = { title: string; paused: boolean; schedule: string; time_zone?: string; instructions: string; trigger: CronAgent["trigger"]; conditions: CronCondition[] };
 
-const HEADER = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), github, session_done, failure or channel.\n";
+const HEADER = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), session_done, failure or channel.\n";
 const str = (v: string) => JSON.stringify(v);
 const value = (v: unknown): string => Array.isArray(v) ? `[${v.map(value).join(", ")}]` : typeof v === "string" ? str(v) : String(v);
 const table = (o: Record<string, unknown>) => Object.entries(o).filter(([, v]) => v != null).map(([k, v]) => `${k} = ${value(v)}`).join("\n");
@@ -86,4 +86,4 @@ export const MAINTAINER_BOT_MD_PREV = "# Maintainer\n\nMaintain storefront: answ
 export const botVersion = (text: string) => { let a = 5381, b = 52711; for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); a = (a * 33) ^ c; b = (b * 31) ^ c; } return ((a >>> 0).toString(16).padStart(8, "0") + (b >>> 0).toString(16).padStart(8, "0")); };
 export const MAINTAINER_BOT_MD_NEXT = `${MAINTAINER_BOT_MD}\nReview requests: prepare each review as a suggestion for me to post, never post it yourself.\n`;
 export const MAINTAINER_BOT_MD_PATCH = "@@ -2,3 +2,5 @@\n \n Maintain storefront: answer my questions about the code, investigate issues and failing checks, and prepare fixes as Local PRs for my review. Keep answers short and cite commits.\n+\n+Review requests: prepare each review as a suggestion for me to post, never post it yourself.\n";
-export const REVIEW_ROUTINE = routineToml({ title: "Review requests", paused: false, schedule: "", instructions: "Review each pull request below. Prepare your review as a suggestion for me to post; do not post it yourself. Report one line per pull request with your verdict.", trigger: { kind: "github", repo: "acme-labs/storefront", events: ["review_requested"] }, conditions: [] });
+export const REVIEW_ROUTINE = routineToml({ title: "Review requests", paused: false, schedule: "0 10 * * 1-5", instructions: "Find the storefront pull requests that wait for my review (gh pr list --search review-requested:@me). Prepare each review as a suggestion for me to post; do not post it yourself. Report one line per pull request with your verdict.", trigger: { kind: "schedule" }, conditions: [] });

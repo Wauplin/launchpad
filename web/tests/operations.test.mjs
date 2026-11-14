@@ -32,9 +32,9 @@ test("unavailable durable storage fails before a request can be sent", async () 
   await assert.rejects(operationKey("/api/sessions", {}, { getItem: () => null, setItem: () => { throw Error("storage full"); } }), /storage full/);
 });
 
-test("launch, input and explicit GitHub publications use retry protection", () => {
-  for (const p of ["/api/sessions", "/api/sessions/a/input", "/api/items/o/r/1/comment", "/api/items/o/r/1/review", "/api/inbox/123/reply", "/api/bots/b/message"]) assert.equal(retryProtected(p), true);
-  for (const p of ["/api/sessions/a/answer", "/api/launch/schedules", "/api/sessions/a/input/other", "/api/items/o/r/1/diff", "/api/items/o/r/1/reviewers", "/api/bots/b/message/x", "/api/bots/b/queued/1"]) assert.equal(retryProtected(p), false);
+test("launch, input and bot messages use retry protection", () => {
+  for (const p of ["/api/sessions", "/api/sessions/a/input", "/api/bots/b/message"]) assert.equal(retryProtected(p), true);
+  for (const p of ["/api/sessions/a/answer", "/api/launch/schedules", "/api/sessions/a/input/other", "/api/bots/b/message/x", "/api/bots/b/queued/1"]) assert.equal(retryProtected(p), false);
 });
 
 test("API retries a lost reply with the same key and clears it only after a recorded response", async () => {
@@ -161,12 +161,12 @@ test("legacy and malformed ledger entries need review and can be abandoned witho
   assert.equal(saved.values.size, 0);
 });
 
-test("all manual publication paths retain an uncertain key across recreated API calls", async () => {
+test("every protected path retains an uncertain key across recreated API calls", async () => {
   const { api } = await import("../src/lib/api.ts");
   const oldFetch = globalThis.fetch, oldStorage = globalThis.localStorage;
   globalThis.localStorage = storage();
   try {
-    for (const path of ["/api/items/o/r/1/comment", "/api/items/o/r/1/review", "/api/inbox/123/reply"]) {
+    for (const path of ["/api/sessions", "/api/sessions/a/input", "/api/bots/b/message"]) {
       const keys = [];
       globalThis.fetch = async (_path, options) => {
         keys.push(options.headers["Idempotency-Key"]);

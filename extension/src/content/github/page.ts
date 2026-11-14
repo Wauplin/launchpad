@@ -14,7 +14,6 @@ export function pageOf(href: string): Page {
   const page: Page = { kind: "other", repo: null, number: null, url: href };
   if (url.origin !== "https://github.com") return page;
   const [owner, name, ...rest] = url.pathname.split("/").filter(Boolean);
-  if (owner === "notifications") return { ...page, kind: "notifications" };
   if (!owner || !name || RESERVED.has(owner.toLowerCase()) || !NAME.test(owner) || !NAME.test(name) || name === "." || name === "..") return page;
   page.repo = `${owner}/${name.replace(/\.git$/, "")}`;
   const num = (s: string | undefined) => (s && /^[1-9]\d{0,9}$/.test(s) ? Number(s) : null);

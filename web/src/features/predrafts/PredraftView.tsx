@@ -13,14 +13,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useNavigate } from "@tanstack/react-router";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { openGitHub } from "@/features/github/lib";
+import { openGitHub } from "@/lib/githubLinks";
 import { api } from "@/lib/api";
 import { useReviewState } from "@/lib/reviewState";
 import type { Predraft } from "@/gen/Predraft";
 import type { Note } from "@/gen/Note";
-import type { Diff } from "@/features/github/types";
-import { FilesChanged } from "@/features/github/FilesChanged";
-import type { LineNote } from "@/features/github/DiffReview";
+import type { Diff } from "@/components/diff/types";
+import { FilesChanged } from "@/features/predrafts/FilesChanged";
+import type { LineNote } from "@/components/diff/DiffReview";
 import { Markdown } from "@/components/Markdown";
 import { toast } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, Loading, PageHeader, Tabs, type BadgeTone } from "@/components/ui";
@@ -173,7 +173,7 @@ function Review({ id }: { id: string }) {
     </div>}
     {!!error && <ErrorState className="m-2" error={error} />}
     {notesBar}
-    {tab === "files" && !p.archived && d.head ? <FilesChanged repo="local" number={0} head={d.head} local={{ id }} notes={lineNotes} onAddNote={active ? (n) => setNotes((all) => [...all, { path: n.path, text: n.text, line: n.line ?? undefined, side: n.side }]) : undefined} /> : <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+    {tab === "files" && !p.archived && d.head ? <FilesChanged id={id} head={d.head} notes={lineNotes} onAddNote={active ? (n) => setNotes((all) => [...all, { path: n.path, text: n.text, line: n.line ?? undefined, side: n.side }]) : undefined} /> : <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
       {tab === "files" && <Empty icon="info">{p.archived ? "This Local PR was discarded." : "No commits to compare yet."}</Empty>}
       {tab === "description" && <div className="grid max-w-text gap-4">
         {editing && active ? <div className="grid gap-3">{kept && <span className="text-[12px] text-ink-3">Draft kept: your unsaved title and description from before.</span>}<input aria-label="PR title" className="field-input" value={title} onChange={(e) => setTitle(e.target.value)} /><textarea aria-label="PR description" className="field-input min-h-48" value={body} onChange={(e) => setBody(e.target.value)} /><div className="flex gap-2"><button className="btn btn-primary w-fit" disabled={busy} onClick={() => void run(save, "Title and description saved")}>Save title and description</button><button className="btn" disabled={busy} onClick={() => { setTitle(p.title); setBody(p.body); setEditing(false); }}>Cancel</button></div></div>

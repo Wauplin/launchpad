@@ -4,7 +4,7 @@ import { storageAllowed } from "./clientStorage.ts";
 
 import type { QueryClient } from "@tanstack/react-query";
 
-const KEYS = ["status", "workspaces", "projects", "sessions", "predrafts", "suggestions", "inbox"];
+const KEYS = ["status", "workspaces", "projects", "sessions", "predrafts", "suggestions"];
 const DB = "launchpad-cache";
 const STORE = "queries";
 type Snapshot = { at: number; entries: [string, unknown][] };
@@ -33,7 +33,8 @@ export async function restoreCache(qc: QueryClient): Promise<void> {
     const snap = await Promise.race([read, new Promise<undefined>((r) => setTimeout(() => r(undefined), 300))]);
     if (!snap || !storageAllowed()) return;
     // Never replace data the daemon already sent.
-    for (const [key, data] of snap.entries) if (!qc.getQueryState([key])?.dataUpdatedAt) qc.setQueryData([key], data, { updatedAt: snap.at });
+    // Only the current keys: a snapshot saved by an older build may hold lists that no longer exist.
+    for (const [key, data] of snap.entries) if (KEYS.includes(key) && !qc.getQueryState([key])?.dataUpdatedAt) qc.setQueryData([key], data, { updatedAt: snap.at });
     restoredAt = snap.at;
   } catch { /* No cache: load normally. */ }
 }

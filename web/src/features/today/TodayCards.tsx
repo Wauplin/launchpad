@@ -17,7 +17,6 @@ import { AskCard } from "@/features/agents/AskCard";
 import { buildRows } from "@/features/agents/rows";
 import { SessionStatus } from "@/features/agents/SessionBits";
 import { useSessionWorktrees, worktreeSession } from "@/features/agents/Worktrees";
-import { reviewWithAgent } from "@/features/github/reviewAgent";
 import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
 import { ProposalCard } from "@/features/proposals/ProposalCard";
 import { SuggestionCard } from "@/features/suggestions/Suggestions";
@@ -25,6 +24,8 @@ import { UpdateHomeButton, useHomeUpdate } from "@/features/settings/HomeUpdate"
 import { CliUpdateDetails } from "@/features/settings/CliUpdates";
 import { runAction, type ActionName } from "@/lib/actions";
 import { ago } from "@/lib/format";
+import { suggestionItemUrl } from "@/lib/githubLinks";
+import { externalLinkProps } from "@/lib/platform";
 import { isPhone } from "@/lib/phone";
 import { projectName, useProjects, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
@@ -32,10 +33,9 @@ import { isDone } from "@/lib/sessionStatus";
 import type { TodayItem } from "./data";
 
 export const ICON: Record<TodayItem["kind"], IconName> = {
-  question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", review_request: "pr", routine: "refresh", runner: "window", home_update: "download", cli_update: "download", channel_ask: "comment",
+  question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", routine: "refresh", runner: "window", home_update: "download", cli_update: "download", channel_ask: "comment",
 };
 
-export const ghParams = (repo: string, number: number) => ({ owner: repo.split("/")[0], repo: repo.split("/")[1], number: String(number) });
 
 /** The card frame: icon, title, one meta line, then the kind's own content and buttons. `age: false` when the meta already says since when (a session's status badge). */
 function Card({ item, meta, open, children, tone = "border-line", age = true }: { item: TodayItem; meta?: ReactNode; open?: ReactNode; children?: ReactNode; tone?: string; age?: boolean }) {
@@ -230,7 +230,7 @@ function SuggestionItem({ item, s }: { item: TodayItem; s: Suggestion | undefine
   return <div className="grid gap-1.5">
     <div className="flex flex-wrap items-center gap-2 px-1 text-[12px] text-ink-3">
       <Icon name="pr" size={12} />
-      <Link to="/github/$owner/$repo/$number" params={ghParams(t.repo, t.number)} search={{ draft: s.id }} className="text-teal-ink no-underline hover:underline">{t.repo}#{t.number}</Link>
+      <a {...externalLinkProps(suggestionItemUrl(s) ?? "")} className="text-teal-ink no-underline hover:underline" title="Open on GitHub">{t.repo}#{t.number}</a>
       <span>· {ago(s.created_at)}</span>
       {s.session_id && <Link to="/agents" search={{ session: s.session_id }} className="text-teal-ink no-underline hover:underline">Open agent</Link>}
     </div>
@@ -242,21 +242,6 @@ function SuggestionItem({ item, s }: { item: TodayItem; s: Suggestion | undefine
 export function githubRef(item: TodayItem) {
   const m = item.github?.match(/^([^/]+\/[^#]+)#(\d+)$/);
   return m ? { repo: m[1], number: Number(m[2]) } : null;
-}
-
-/** Review with agent: a launch draft that asks an agent for a local suggested review of the pull request. */
-export function ReviewWithAgent({ item, primary = true, label = "Review with agent" }: { item: TodayItem; primary?: boolean; label?: string }) {
-  const projects = useProjects().data ?? [];
-  const ref = githubRef(item);
-  if (!ref) return null;
-  return <button className={`btn btn-sm ${primary ? "btn-primary" : ""}`} title="Opens a launch draft: an agent reviews the pull request and writes a suggested review, which comes back to Today for you to edit and post" onClick={() => reviewWithAgent({ projects, ...ref, title: item.title, url: `https://github.com/${ref.repo}/pull/${ref.number}` })}><Icon name="spark" size={12} />{label}</button>;
-}
-
-function ReviewRequestCard({ item }: { item: TodayItem }) {
-  const ref = githubRef(item);
-  return <Card item={item} open={ref && <Link className="btn btn-sm no-underline" to="/github/$owner/$repo/$number" params={ghParams(ref.repo, ref.number)}>Open</Link>}>
-    <div><ReviewWithAgent item={item} /></div>
-  </Card>;
 }
 
 function RoutineCard({ item }: { item: TodayItem }) {
@@ -300,7 +285,6 @@ export const ItemCard = memo(function ItemCard({ item, proposal, suggestion }: {
     case "proposal": return <ProposalItem item={item} p={proposal} />;
     case "outbox": return <OutboxItem item={item} />;
     case "suggestion": return <SuggestionItem item={item} s={suggestion} />;
-    case "review_request": return <ReviewRequestCard item={item} />;
     case "routine": return <RoutineCard item={item} />;
     case "runner": return <RunnerCard item={item} />;
     case "home_update": return <HomeUpdateItemCard item={item} />;

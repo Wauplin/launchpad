@@ -1,5 +1,5 @@
 // What the current workspace contains. Every folder belongs to exactly one workspace (`Project.workspace_id`), and a
-// window always shows one workspace. Every list that a workspace narrows (sidebar, agents, projects, inbox,
+// window always shows one workspace. Every list that a workspace narrows (sidebar, agents, projects,
 // composer) uses these predicates, so counts and markers agree. Other workspaces show counts only.
 
 import { setAppBadge } from "./platform";

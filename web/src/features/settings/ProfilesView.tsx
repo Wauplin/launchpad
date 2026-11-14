@@ -524,7 +524,7 @@ export function GitHubCard() {
   const home = delegatedAccess();
   return (
     <Card title="Home's GitHub login">
-      <p className="m-0 text-[13px] text-ink-2">The Inbox, issues, pull requests, Clone from GitHub and publication use Home's GitHub login.</p>
+      <p className="m-0 text-[13px] text-ink-2">Clone from GitHub, publication, suggestions and agents' GitHub tools use Home's GitHub login.</p>
       {c && (home ? <CliCheckRow check={c} icon="pr" command={null}>
         {c.signed_in && <a href="/_home/setup" className="btn btn-sm w-fit">Home setup</a>}
       </CliCheckRow> : <CliCheckRow check={c} icon="pr" />)}

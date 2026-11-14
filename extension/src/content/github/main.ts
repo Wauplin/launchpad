@@ -8,12 +8,10 @@ import { CONTEXT_TOPIC, request, subscribe, type Phase, type TabCommand } from "
 import { beginPage } from "./anchors";
 import { closeAgentView } from "./agentView";
 import { renderComments, watch } from "./comments";
-import { renderCiNote } from "./ci";
 import { clearFiles, isFiles, renderFiles } from "./files";
 import { insertFromPanel, onInserted, renderInsertBanners } from "./insert";
 import { isItem } from "./item";
 import { clearLists, listsStale, renderLists } from "./lists";
-import { clearNotifications, notificationsStale, renderNotifications, watchNotificationForms } from "./notifications";
 import { observePage, watchNavigation } from "./navigation";
 import { pageOf, type Page } from "./page";
 import { renderRepoBadge } from "./repoBadge";
@@ -37,10 +35,6 @@ let loading = false;
 const connected = () => phase === "online" || phase === "offline" || phase === "starting";
 
 function render() {
-  if (page.kind === "notifications") {
-    if (connected()) renderNotifications(page, render); else clearNotifications();
-    return;
-  }
   renderRepoBadge(page, context, refresh);
   renderRepoStrip(page, context, refresh);
   if (connected()) renderLists(page, context, render, refresh); else clearLists();
@@ -55,9 +49,7 @@ function render() {
     else unmount("sidebar-box");
     renderTimeline(page, ctx, refresh);
     watch(renderComments(page, ctx, refresh), render);
-    renderCiNote(page, ctx, refresh);
   } else {
-    unmount("ci-note");
     unmount("sidebar-box");
     clearTimeline();
     if (!isFiles(page)) watch([], render);
@@ -91,11 +83,9 @@ async function load(fresh = false) {
 function navigated() {
   page = pageOf(location.href);
   closeAgentView();
-  beginPage(page.kind, page.repo ? { repo: page.repo, number: page.number } : page.kind === "notifications" ? { repo: "", number: null } : null);
+  beginPage(page.kind, page.repo ? { repo: page.repo, number: page.number } : null);
   context = page.repo ? byRepo.get(page.repo.toLowerCase()) ?? null : null;
   clearLists();
-  if (page.kind === "notifications") { generation++; unmountAll(); clearNotifications(); render(); observePage(render); return; }
-  clearNotifications();
   if (!page.repo) { generation++; unmountAll(); return; }
   render();
   observePage(render);
@@ -127,7 +117,6 @@ function commands() {
 export function start() {
   commands();
   onInserted(() => render());
-  watchNotificationForms(() => page.kind === "notifications");
   // GitHub's own list checkboxes change no markup on every layout: L4's selection bar follows them here.
   document.addEventListener("change", (e) => { if ((page.kind === "pulls" || page.kind === "issues") && e.target instanceof HTMLInputElement && e.target.type === "checkbox") render(); }, true);
   // GitHub opens its line forms and its Review changes dialog by focusing a field or toggling a <details> (no markup
@@ -145,20 +134,19 @@ export function start() {
       const was = phase;
       phase = s.phase;
       prefill = s.prefill === true;
-      if (s.phase === "online" && was !== "online") { notificationsStale(); listsStale(); if (page.kind === "notifications") render(); else void load(); }
-      if (!s.home || s.phase === "revoked" || s.phase === "signed-out") { context = null; byRepo.clear(); clearLists(); clearNotifications(); closeAgentView(); unmountAll(); }
+      if (s.phase === "online" && was !== "online") { listsStale(); void load(); }
+      if (!s.home || s.phase === "revoked" || s.phase === "signed-out") { context = null; byRepo.clear(); clearLists(); closeAgentView(); unmountAll(); }
     },
     event: (e) => {
       const urls = (e.payload as { urls?: string[] | "*" } | null)?.urls;
-      // Rows and the notifications strip are not cached by the worker: any change of Home's records asks again.
-      notificationsStale();
+      // Rows are not cached by the worker: any change of Home's records asks again.
       listsStale();
-      if (page.kind === "notifications" || page.kind === "pulls" || page.kind === "issues") render();
+      if (page.kind === "pulls" || page.kind === "issues") render();
       const here = new URL(page.url);
       here.hash = "";
       if (urls === "*" || (Array.isArray(urls) && urls.includes(here.toString()))) void load();
     },
-    resync: () => { notificationsStale(); listsStale(); if (page.kind === "notifications") render(); else void load(true); },
+    resync: () => { listsStale(); void load(true); },
   });
   navigated();
   whileLoading();

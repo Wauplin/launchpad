@@ -366,9 +366,8 @@ export const nextDue = (c: CronAgent) => (c.paused || c.bot_paused || c.trigger.
 export function createCron(spec: LaunchSpec, expr: string, conditions: CronCondition[], trigger: CronAgent["trigger"] = { kind: "schedule" }, extra: Partial<CronAgent> = {}): CronAgent {
   if (!spec.text.trim()) throw new DemoError(400, "the prompt is empty");
   if (trigger.kind === "schedule") nextRuns(expr, 1);
-  if (trigger.kind === "github" && !trigger.events.length) throw new DemoError(400, "pick at least one kind of GitHub activity");
   if (trigger.kind === "failure" && !trigger.events.length) throw new DemoError(400, "pick at least one kind of failure");
-  const c: CronAgent = { id: demoId("demo-cron"), spec, title: titleOf(spec.text), schedule: expr.trim(), trigger, bot_id: null, bot_paused: false, conditions, paused: false, created_at: clock.now(), next_run_at: null, last_check_at: null, last_outcome: null, runs: [], history: [], github_seen: null, failure_seen: null, channel_seen: null, file: null, file_error: null, waiting: null, ...extra };
+  const c: CronAgent = { id: demoId("demo-cron"), spec, title: titleOf(spec.text), schedule: expr.trim(), trigger, bot_id: null, bot_paused: false, conditions, paused: false, created_at: clock.now(), next_run_at: null, last_check_at: null, last_outcome: null, runs: [], history: [], failure_seen: null, channel_seen: null, file: null, file_error: null, waiting: null, ...extra };
   c.next_run_at = nextDue(c);
   world.crons = [...world.crons, c];
   publishCrons();

@@ -2,9 +2,8 @@
 // selection, read from the URL fragment or its highlighted cells, sent to a bot as a reference: Home reads the lines),
 // with the answer under the lines and Turn into line comment; D2 an agent's suggested review as ghost comments on
 // their lines (dashed teal), each with Add to my review (fills GitHub's own line comment form) and Dismiss; D3 Insert
-// summary over GitHub's Review changes dialog (its event radios and submit stay untouched); D4 ghosts of a review
-// written at an older head say so, and Add needs a second click. GitHub's buttons post; nothing here clicks or
-// submits GitHub's elements. The line form opens only by the owner's click on GitHub's +: a pending Add fills it then.
+// summary over GitHub's Review changes dialog (its event radios and submit stay untouched). GitHub's buttons post;
+// nothing here clicks or submits GitHub's elements. The line form opens only by the owner's click on GitHub's +: a pending Add fills it then.
 
 import type { ExtAgent } from "@/gen/ExtAgent";
 import type { ExtContext } from "@/gen/ExtContext";
@@ -14,7 +13,7 @@ import type { SessionEvent } from "@/gen/SessionEvent";
 import { request, type BotBrief } from "../../shared/messages";
 import { findAnchor, findAnchors, findLine, hashPaths, pathOfHash, type Params } from "./anchors";
 import { fillPart, NeedsChoice, partState, watchShown } from "./insert";
-import { agentPath, elapsed, open, running, statusText, workspaceBots } from "./item";
+import { agentPath, elapsed, open, running, statusText, suggestionPath, workspaceBots } from "./item";
 import { stepOfSession, watch } from "./live";
 import type { Page } from "./page";
 import { button, h, logo, more, mount, popover, unmount, type MenuEntry } from "./widgets";
@@ -31,6 +30,13 @@ const sideText = (s: Side) => (s === "LEFT" ? "left side" : "right side");
 const fileName = (path: string) => path.split("/").at(-1) ?? path;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const LINK = "[Launchpad](https://github.com/Wauplin/launchpad)";
+
+/** The head commit the page shows, when its URL names one (`/pull/<n>/files/<sha>` or `<base>..<sha>`): sent with a
+ * selection so Home can say when the lines moved since. Null on the usual Files changed URL. */
+function pageHead(): string | null {
+  const m = location.pathname.match(/\/pull\/\d+\/(?:files|changes)\/(?:[0-9a-f]{7,64}\.\.)?([0-9a-f]{7,64})\/?$/);
+  return m ? m[1] : null;
+}
 
 /** The lines selected the GitHub way (click a line number, shift-click another): `#diff-<sha256 of path>R12-R14`,
  * else the cells GitHub highlights. Never the page's text. */
@@ -61,8 +67,6 @@ const keyOf = (l: Lines) => `${l.path}|${l.side}|${l.start}-${l.end}`;
 /** Add to my review / Turn into line comment clicked while GitHub's line form was closed: filled when the owner opens it. */
 type Pending = { params: Params; until: number; fill: (box: HTMLTextAreaElement) => Promise<void> };
 const pending = new Map<string, Pending>();
-/** Outdated ghosts the owner confirmed once (D4: the second click inserts). */
-const confirmed = new Set<string>();
 /** Ghosts whose last action failed: their message. */
 const errors = new Map<string, string>();
 /** GitHub's field already had text: the owner chooses Replace it or Add below (never decided silently). */
@@ -99,7 +103,6 @@ export function renderFiles(page: FilesPage, ctx: ExtContext | null, refresh: ()
     // Another pull request (a soft navigation): never show or fill this one's lines there.
     statePr = pr;
     for (const m of [asked, pending, choices, errors]) m.clear();
-    confirmed.clear();
   }
   const reviews = (ctx?.suggestions ?? []).filter((s) => s.kind === "review" && s.number === page.number && (s.status === "draft" || s.status === "inserted"));
   // GitHub's line anchors hash the path: known paths are hashed once (newer layouts carry no path attribute).
@@ -125,7 +128,7 @@ export function clearFiles() {
 function renderBar(page: FilesPage, ctx: ExtContext | null) {
   const sel = ctx ? selected() : null;
   if (!sel || !ctx) return unmount("lines-bar");
-  const w = mount("lines-bar", `${keyOf(sel)}|${ctx.page.head}`, document.body, "beforeend");
+  const w = mount("lines-bar", keyOf(sel), document.body, "beforeend");
   if (!w.fresh) return;
   const label = `${range(sel)} · ${sideText(sel.side)} · ${fileName(sel.path)}`;
   const ask: HTMLButtonElement = button("Ask about these lines", () => askLines(w.root, ask, page, ctx, sel), { primary: true, small: true, title: "A bot of the workspace gets these lines by reference; Home reads them from the pull request" });
@@ -139,8 +142,9 @@ function askLines(root: ShadowRoot, anchor: HTMLElement, page: FilesPage, ctx: E
   const send = h("button", { class: "lp-btn lp-primary", text: "Send", attrs: { type: "button", disabled: "" } });
   let bots: BotBrief[] = [];
   let busy = false;
+  const head = pageHead();
   const close = popover(root, anchor, "Ask about these lines", (close) => [
-    h("div", { class: "lp-muted", text: `${range(sel)} · ${sideText(sel.side)} · ${sel.path} @ ${short(ctx.page.head)}` }),
+    h("div", { class: "lp-muted", text: `${range(sel)} · ${sideText(sel.side)} · ${sel.path}${head ? ` @ ${short(head)}` : ""}` }),
     select, note, error,
     h("div", { class: "lp-row" }, h("span", { class: "lp-grow" }), button("Cancel", close, { small: true }), send),
   ]);
@@ -155,10 +159,10 @@ function askLines(root: ShadowRoot, anchor: HTMLElement, page: FilesPage, ctx: E
     const question = note.value.trim();
     try {
       const text = question || "What do these lines do, and is anything wrong with them?";
-      const ref = { url: `https://github.com/${page.repo}/pull/${page.number}`, kind: "pr", repo: page.repo, number: page.number, title: ctx.page.title ?? null };
-      const selection = { repo: page.repo, number: page.number, path: sel.path, side: sel.side, start: sel.start, end: sel.end, head: ctx.page.head ?? null };
+      const ref = { url: `https://github.com/${page.repo}/pull/${page.number}`, kind: "pr", repo: page.repo, number: page.number, title: null };
+      const selection = { repo: page.repo, number: page.number, path: sel.path, side: sel.side, start: sel.start, end: sel.end, head };
       const session = await request("bot.message", { bot: bot.id, text, github_refs: [ref], selection, key });
-      asked.set(keyOf(sel), { lines: sel, head: ctx.page.head ?? null, bot, session: session.id, key, note: text, at: Date.now(), answer: null, readAt: null });
+      asked.set(keyOf(sel), { lines: sel, head, bot, session: session.id, key, note: text, at: Date.now(), answer: null, readAt: null });
       close();
       refreshPage();
     } catch (e) {
@@ -308,13 +312,11 @@ function fillPending(page: FilesPage) {
   }
 }
 
-// ---- D2 ghost comments, D4 outdated guard --------------------------------------------------------------------------
+// ---- D2 ghost comments -----------------------------------------------------------------------------------------
 
 function renderGhosts(page: FilesPage, ctx: ExtContext | null, reviews: ExtSuggestion[]) {
   const ids = new Set<string>();
-  const head = ctx?.page.head ?? null;
   for (const s of reviews) {
-    const outdated = !!(s.head && head && s.head !== head);
     s.lines.forEach((l, i) => {
       const id = `ghost-${s.id}-${i}`;
       const row = findLine({ repo: page.repo, number: page.number, path: l.path, side: l.side as Side, line: l.line });
@@ -322,41 +324,38 @@ function renderGhosts(page: FilesPage, ctx: ExtContext | null, reviews: ExtSugge
       ids.add(id);
       const mine = partState(s.id, l.part);
       const waiting = pending.has(pendingKey({ path: l.path, side: l.side as Side, end: l.line }));
-      const key = [s.id, l.part, l.state, mine, outdated, confirmed.has(id), waiting, errors.get(id), choices.has(id)].join("|");
+      const key = [s.id, l.part, l.state, mine, waiting, errors.get(id), choices.has(id)].join("|");
       const w = underLine(row, id, key, "card");
       if (!w.fresh) return;
-      ghost(w.root, page, ctx!, s, l, id, outdated, mine, waiting);
+      ghost(w.root, page, ctx!, s, l, id, mine, waiting);
       watchShown(w.host, s.id, l.part);
     });
   }
   for (const el of document.querySelectorAll<HTMLElement>('[data-launchpad^="ghost-"]')) if (!ids.has(el.dataset.launchpad ?? "")) el.closest("tr[data-launchpad-row]")?.remove() ?? el.remove();
 }
 
-function ghost(root: ShadowRoot, page: FilesPage, ctx: ExtContext, s: ExtSuggestion, l: ExtLine, id: string, outdated: boolean, mine: "in" | "posted" | null, waiting: boolean) {
+function ghost(root: ShadowRoot, page: FilesPage, ctx: ExtContext, s: ExtSuggestion, l: ExtLine, id: string, mine: "in" | "posted" | null, waiting: boolean) {
   const ws = ctx.folder?.workspace_id ?? ctx.workspace?.id ?? null;
   const done = mine === "posted" || l.state === "posted_by_hand" || l.state === "confirmed";
   const state = done ? "Added to your review" : mine === "in" || l.state === "inserted" ? "Inserted in GitHub's form" : null;
   const where = l.start_line ? `Lines ${l.start_line}–${l.line}` : `Line ${l.line}`;
   const head = h("div", { class: "lp-row" }, logo(), h("span", { class: "lp-title", text: s.bot ?? "An agent" }), h("span", { class: "lp-muted lp-grow", text: `suggested line comment · ${where}` }));
-  if (outdated) head.append(h("span", { class: "lp-tag lp-need", text: `outdated · at ${short(s.head)}`, title: `Written for commit ${s.head}; the pull request is now at ${ctx.page.head}. The line may have moved or changed.` }));
   if (state) head.append(h("span", { class: "lp-tag lp-ok", text: state }));
   const box = h("div", { class: "lp-ghost" }, head, h("div", { class: "lp-answer", text: l.body }));
   const actions = h("div", { class: "lp-actions" });
   const params: Params = { repo: page.repo, number: page.number, path: l.path, side: l.side as Side, line: l.line };
   const add = () => {
-    // D4: an outdated comment is never inserted on the first click.
-    if (outdated && !confirmed.has(id)) { confirmed.add(id); refreshPage(); return; }
     fillLine(params, (b, mode) => fillPart(b, s.id, l.part, l.body, s.attribution, mode), id);
   };
   if (waiting) actions.append(h("span", { class: "lp-muted lp-grow", text: `Open GitHub's comment form on line ${l.line} (its +): Launchpad fills it then.` }));
   else if (!done) {
-    const label = outdated && confirmed.has(id) ? `Insert anyway (written at ${short(s.head)})` : mine || l.state === "inserted" ? "Add again" : "Add to my review";
-    actions.append(button(label, add, { primary: !mine && !outdated, small: true, title: "Fills GitHub's comment form of this line: you add it to your review with GitHub's button" }));
+    const label = mine || l.state === "inserted" ? "Add again" : "Add to my review";
+    actions.append(button(label, add, { primary: !mine, small: true, title: "Fills GitHub's comment form of this line: you add it to your review with GitHub's button" }));
   }
   if (l.start_line && !done) actions.append(h("span", { class: "lp-muted", text: `Select lines ${l.start_line}–${l.line} with GitHub's + for a range` }));
   actions.append(more(root, "Suggested line comment", (): MenuEntry[] => [
     { label: "Dismiss", hint: "Hidden here and left out when Launchpad posts the review", onSelect: () => void request("suggestion.ledger", { action: "dismiss-comment", id: s.id, part: l.part }).then(refreshPage).catch((e) => { errors.set(id, message(e)); refreshPage(); }) },
-    { label: "Review in Launchpad", hint: "The whole suggested review", onSelect: () => open(`/github/${page.repo}/${page.number}?tab=files&draft=${encodeURIComponent(s.id)}`, ws) },
+    { label: "Open in Today", hint: "The whole suggested review, with Post and Discard", onSelect: () => open(suggestionPath(s.id), ws) },
     ...(s.session_id ? [{ label: "Open the agent", hint: "Its chat and trace", onSelect: () => open(agentPath({ session_id: s.session_id! }), ws) }] : []),
   ]));
   box.append(actions);
@@ -368,24 +367,22 @@ function ghost(root: ShadowRoot, page: FilesPage, ctx: ExtContext, s: ExtSuggest
 }
 
 /** The banner over the diff when a suggested review exists: who reviewed at which head, its event, its line comments
- * (outdated ones counted), and Next comment. */
+ * and Next comment. */
 function renderReviewBanner(page: FilesPage, ctx: ExtContext | null, reviews: ExtSuggestion[]) {
   const s = reviews.at(-1);
   const first = findAnchors("diff-files", { repo: page.repo, number: page.number })?.els[0];
   if (!s || !ctx || !first) return unmount("review-banner");
   const anchor = first.closest("copilot-diff-entry") ?? first;
-  const head = ctx.page.head ?? null;
-  const outdated = !!(s.head && head && s.head !== head);
   const added = s.lines.filter((l) => partState(s.id, l.part) === "posted" || l.state === "posted_by_hand" || l.state === "confirmed").length;
-  const key = [s.id, s.status, s.lines.length, added, outdated, head].join("|");
+  const key = [s.id, s.status, s.lines.length, added].join("|");
   const w = mount("review-banner", key, anchor, "beforebegin", "banner");
   if (!w.fresh) return;
   const ws = ctx.folder?.workspace_id ?? ctx.workspace?.id ?? null;
   const event = s.event === "APPROVE" ? "Approve" : s.event === "REQUEST_CHANGES" ? "Request changes" : "Comment";
   const facts = [
-    `reviewed at ${short(s.head)}${outdated ? ` (the pull request is now at ${short(head)})` : " (current head)"}`,
+    s.head ? `reviewed at ${short(s.head)}` : null,
     event,
-    `${s.lines.length} line comment${s.lines.length === 1 ? "" : "s"}${added ? `, ${added} added` : ""}${outdated ? ", outdated" : ""}`,
+    `${s.lines.length} line comment${s.lines.length === 1 ? "" : "s"}${added ? `, ${added} added` : ""}`,
     s.text.trim() ? "summary ready" : null,
   ].filter(Boolean).join(" · ");
   const row = h("div", { class: "lp-row" }, logo(), h("span", { class: "lp-title", text: s.bot ?? "An agent" }), h("span", { class: "lp-grow", text: facts, title: facts }));
@@ -396,7 +393,7 @@ function renderReviewBanner(page: FilesPage, ctx: ExtContext | null, reviews: Ex
   };
   if (s.lines.length) row.append(button("Next comment", next, { small: true, title: "Scrolls to the next suggested line comment" }));
   row.append(more(w.root, "Suggested review", (): MenuEntry[] => [
-    { label: "Review in Launchpad", hint: "Edit it, or post it as it is from there", onSelect: () => open(`/github/${page.repo}/${page.number}?tab=files&draft=${encodeURIComponent(s.id)}`, ws) },
+    { label: "Open in Today", hint: "Post it as it is, or discard it, from Launchpad", onSelect: () => open(suggestionPath(s.id), ws) },
     ...(s.session_id ? [{ label: "Open the agent", hint: "Its chat and trace", onSelect: () => open(agentPath({ session_id: s.session_id! }), ws) }] : []),
     { note: "Its summary goes into GitHub's Review changes dialog: open it, then Insert summary." },
   ]));

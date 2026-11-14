@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { LineComments } from "./LineComments";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -6,7 +5,7 @@ import { memo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useReviewState } from "@/lib/reviewState";
 import { Markdown } from "@/components/Markdown";
-import { openGitHub } from "@/features/github/lib";
+import { openGitHub, suggestionItemUrl } from "@/lib/githubLinks";
 import { Badge, ErrorState, Choice, Choices } from "@/components/ui";
 import { ActionButton } from "@/components/ActionButton";
 import { runAction } from "@/lib/actions";
@@ -18,9 +17,9 @@ export function useSuggestions(target: SuggestionTarget) {
   const q = useQuery({ queryKey: ["suggestions"], queryFn: () => api.get<Suggestion[]>("/api/suggestions") });
   return { ...q, data: (q.data ?? []).filter((s) => s.target.kind === target.kind && (s.target.kind === "predraft" && target.kind === "predraft" ? s.target.id === target.id : s.target.kind === "git_hub" && target.kind === "git_hub" && s.target.repo.toLowerCase() === target.repo.toLowerCase() && s.target.number === target.number)) };
 }
-/** A suggested comment or review (with its line comments): Post sends it all to GitHub in one click. A review can
- * also go to the pull request's review panel (Edit in pull request), to change its line comments there. */
-export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head, onPosted }: { suggestion: Suggestion; head?: string; onPosted?: () => void }) {
+/** A suggested comment or review (with its line comments): Post sends it all to GitHub in one click (Home checks
+ * that a review's pull request is still at the reviewed commit). Open on GitHub shows the item there. */
+export const SuggestionCard = memo(function SuggestionCard({ suggestion: s }: { suggestion: Suggestion }) {
   const qc = useQueryClient();
   // Unsaved edits live in the daemon so they follow the owner across devices.
   const edit = useReviewState<{ body?: string; event?: string; merge?: string | null; run_ci?: boolean; comments?: Suggestion["comments"] }>(`suggestion:${s.id}`, {});
@@ -37,13 +36,12 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
   const [error, setError] = useState<unknown>(null);
   const local = s.target.kind === "predraft";
   const reply = s.target.kind === "git_hub" ? s.target.reply_to ?? null : null;
-  const stale = !local && s.kind === "review" && head !== undefined && s.head !== head;
   function clear() { void edit.clear(); }
   const save = () => api.patch(`/api/suggestions/${s.id}`, { body, event, merge, run_ci: runCi, comments });
-  const posted = () => { toast(local ? "Suggestion saved to the Local PR notes" : s.kind === "review" ? (merge ? "Review posted and pull request merged" : runCi ? "Review posted and workflows approved" : "Suggested review posted") : "Suggested comment posted"); onPosted?.(); };
+  const posted = () => { toast(local ? "Suggestion saved to the Local PR notes" : s.kind === "review" ? (merge ? "Review posted and pull request merged" : runCi ? "Review posted and workflows approved" : "Suggested review posted") : "Suggested comment posted"); };
   const settled = () => { clear(); setEditing(false); void qc.invalidateQueries({ queryKey: ["suggestions"] }); };
   // A failed merge or workflow approval after a posted review removes the card from Today: the toast keeps it seen.
-  const failed = (e: unknown) => { setError(e); toastError(e); onPosted?.(); void qc.invalidateQueries({ queryKey: ["suggestions"] }); };
+  const failed = (e: unknown) => { setError(e); toastError(e); void qc.invalidateQueries({ queryKey: ["suggestions"] }); };
   async function run(action: "save" | "post") {
     setBusy(true); setError(null);
     try {
@@ -67,7 +65,6 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
       {s.kind === "review" && !local && <Choices label="After posting">{([["none", "Nothing else"], ["merge", "Merge"], ["run_ci", "Run CI"]] as const).filter(([id]) => id !== "merge" || event === "APPROVE").map(([id, label]) => <Choice key={id} active={(id === "merge" ? !!merge : id === "run_ci" ? runCi && !merge : !merge && !runCi)} disabled={busy} onClick={() => edit.set((o) => ({ ...o, merge: id === "merge" ? merge ?? s.merge ?? "squash" : null, run_ci: id === "run_ci" }))}>{label}</Choice>)}</Choices>}
     </div> : <Markdown text={s.body} />}
     {!!comments.length && <div className="mt-3"><LineComments comments={comments} disabled={busy} onRemove={editing && s.status === "draft" ? (i) => edit.set((o) => ({ ...o, comments: (o.comments ?? s.comments).filter((_, j) => j !== i) })) : undefined} /></div>}
-    {stale && s.status === "draft" && <p className="mt-3 flex items-center gap-1.5 text-[12px] text-attn"><Icon name="alert" size={12} />The PR head changed. Ask the agent for a fresh review before posting.</p>}
     {s.followup_error && <p className="mt-3 flex items-center gap-1.5 text-[12px] text-attn"><Icon name="alert" size={12} />{s.followup_error}</p>}
     {["posting", "uncertain"].includes(s.status) && <p className="mt-3 flex items-center gap-1.5 text-[12px] text-attn"><Icon name="alert" size={12} />Publication was attempted. Check GitHub before discarding or creating another suggestion. Automatic retries are disabled.</p>}
     {!!error && <ErrorState className="mt-2" error={error} />}
@@ -77,8 +74,8 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s, head
         {editing && <button className="btn btn-sm" disabled={busy} onClick={() => { clear(); setEditing(false); }}>Cancel edit</button>}
         {local
           ? <button className="btn btn-primary btn-sm" disabled={busy || !body.trim()} onClick={() => void run("post")}>{busy ? "Working…" : "Add to local notes"}</button>
-          : <ActionButton name="suggestion.post" params={{ id: s.id }} consequence={merge ? `Posts this review to GitHub as you, then merges the pull request (${merge}) at the reviewed commit.` : runCi ? "Posts this review to GitHub as you, then approves the waiting GitHub Actions runs of the reviewed commit: the pull request's code runs in the repository's CI." : undefined} primary disabled={busy || stale || !body.trim()} before={async () => { setError(null); if (editing) await save(); }} onDone={() => { posted(); settled(); }} onError={failed}>{s.kind === "review" ? (merge ? "Post review and merge" : runCi ? "Post review and run CI" : comments.length ? `Post review (${comments.length} line ${comments.length === 1 ? "comment" : "comments"})` : "Post review") : "Post comment"}</ActionButton>}
-        {!local && s.kind === "review" && s.target.kind === "git_hub" && <Link className="btn btn-sm no-underline" to="/github/$owner/$repo/$number" params={{ owner: s.target.repo.split("/")[0], repo: s.target.repo.split("/")[1], number: String(s.target.number) }} search={{ tab: "files", draft: s.id }}>Edit in pull request</Link>}
+          : <ActionButton name="suggestion.post" params={{ id: s.id }} consequence={merge ? `Posts this review to GitHub as you, then merges the pull request (${merge}) at the reviewed commit.` : runCi ? "Posts this review to GitHub as you, then approves the waiting GitHub Actions runs of the reviewed commit: the pull request's code runs in the repository's CI." : undefined} primary disabled={busy || !body.trim()} before={async () => { setError(null); if (editing) await save(); }} onDone={() => { posted(); settled(); }} onError={failed}>{s.kind === "review" ? (merge ? "Post review and merge" : runCi ? "Post review and run CI" : comments.length ? `Post review (${comments.length} line ${comments.length === 1 ? "comment" : "comments"})` : "Post review") : "Post comment"}</ActionButton>}
+        {!local && suggestionItemUrl(s) && <button className="btn btn-sm" onClick={() => openGitHub(suggestionItemUrl(s)!)}><Icon name="ext" size={12} />Open on GitHub</button>}
         <span className="text-[12px] text-ink-3">{local ? "Stays in Launchpad." : "Posts to GitHub when you click."}</span>
       </>}
       {/* Insert in the Chrome extension claimed it: GitHub's own button posts it, never Launchpad's Post. */}

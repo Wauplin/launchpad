@@ -4,7 +4,7 @@
 
 import type { ExtContext } from "@/gen/ExtContext";
 import { findAnchor } from "./anchors";
-import { agentPath, open, running } from "./item";
+import { agentPath, open, running, suggestionPath } from "./item";
 import type { Page } from "./page";
 import { targetPopover } from "./target";
 import { button, h, logo, mount, unmount } from "./widgets";
@@ -37,7 +37,7 @@ export function renderRepoStrip(page: Page, ctx: ExtContext | null, refresh: () 
   if (agents.length) items.push(h("span", { class: "lp-row" }, h("span", { class: "lp-dot lp-run" }), link(plural(agents.length, "agent working", "agents working"), agents.map((a) => a.title).join("\n"), () => open(agents.length === 1 ? agentPath(agents[0]) : "/agents", ws))));
   if (suggestions.length) {
     const s = suggestions[0];
-    items.push(h("span", { class: "lp-row" }, h("span", { class: "lp-dot lp-need" }), link(plural(suggestions.length, "suggestion to post", "suggestions to post"), "Agent-written comments and reviews waiting for you", () => open(suggestions.length === 1 ? `/github/${page.repo}/${s.number}?draft=${encodeURIComponent(s.id)}` : "/?filter=github", ws))));
+    items.push(h("span", { class: "lp-row" }, h("span", { class: "lp-dot lp-need" }), link(plural(suggestions.length, "suggestion to post", "suggestions to post"), "Agent-written comments and reviews waiting for you", () => open(suggestions.length === 1 ? suggestionPath(s.id) : "/?filter=github", ws))));
   }
   if (prs.length) items.push(h("span", { class: "lp-row" }, h("span", { class: "lp-dot lp-need" }), link(`${plural(prs.length, "Local PR", "Local PRs")} to publish`, prs.map((p) => p.title).join("\n"), () => { location.assign(`/${page.repo}/pulls`); })));
   for (const b of behind.slice(0, 2)) items.push(h("span", { class: "lp-row", title: b.error ?? "Home has commits GitHub does not have yet" }, h("span", { class: b.error ? "lp-dot lp-bad" : "lp-dot lp-need" }), h("a", { class: "lp-link", text: `${b.branch} not on GitHub yet`, attrs: { href: b.url } })));

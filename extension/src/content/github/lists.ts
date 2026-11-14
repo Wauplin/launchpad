@@ -147,13 +147,13 @@ function renderRows(page: Page, ctx: ExtContext | null, st: RowStates) {
     const id = `row-${item!.number}`;
     next.add(id);
     const state = data?.rows.find((r) => r.item === String(item!.number)) ?? null;
-    const chip = state ? chipOf(state, ws, false) : null;
+    const chip = state ? chipOf(state, ws) : null;
     const target: Target = { repo: item!.repo, number: item!.number, kind: item!.kind, title: item!.title };
     const slot = rowSlot(el);
     const w = mount(id, JSON.stringify([chip?.text, chip?.tone, !!ctx, ctx?.defaults.review, ctx?.defaults.bot?.id]), slot.el, slot.place);
     hoverWith(el, w);
     if (!w.fresh) continue;
-    if (chip) w.root.append(chipButton(chip, () => undefined));
+    if (chip) w.root.append(chipButton(chip));
     if (ctx) {
       const review = item!.kind === "pr";
       const choice = ctx.defaults.review;

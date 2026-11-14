@@ -2,7 +2,7 @@ import { usePhone } from "@/lib/phone";
 import { FolderToolDefaults } from "@/features/settings/ToolDefaults";
 import { PhoneHeader, PhoneActions } from "@/mobile/PhoneHeader";
 import { phoneBack } from "@/mobile/back";
-// A project: running agents, GitHub items, worktrees and all agents.
+// A project: running agents, Local PRs, worktrees and all agents.
 
 import { openExternal } from "@/lib/platform";
 import { memo, useRef, useState } from "react";
@@ -17,7 +17,7 @@ import type { HomeBranch } from "@/gen/HomeBranch";
 import type { AssetInfo } from "@/gen/AssetInfo";
 import type { Change } from "@/gen/Change";
 import { useComposer } from "@/stores/composer";
-import { isOpenLocalPr, RepoItems } from "@/features/github/RepoItems";
+import { FolderLocalPrs, isOpenLocalPr } from "@/features/predrafts/FolderLocalPrs";
 import { Link, useParams, useSearch } from "@tanstack/react-router";
 import { Badge, ConfirmButton, Empty, Choice, Choices, PageHeader, SettingRow, Tabs, useSaveState } from "@/components/ui";
 import { ago } from "@/lib/format";
@@ -83,7 +83,7 @@ export function ProjectPage() {
         {tab === "settings" ? <FolderSettings p={p} /> : tab === "branches" ? <Branches projectId={p.id} /> : <>
         {p.is_temp && <TempProjectCard p={p} />}
         <ProjectAgents title="Running agents" sessions={sessions.filter(isRunning)} empty="No running agents in this folder." />
-        <RepoItems key={p.gh_repo ?? p.id} repo={p.gh_repo ?? ""} projectId={p.id} />
+        <FolderLocalPrs repo={p.gh_repo ?? null} predrafts={predrafts} />
         {worktrees.length > 0 && (
           <>
             <div className="seclabel">Worktrees · {worktrees.length}</div>
@@ -172,7 +172,7 @@ function FolderSettings({ p }: { p: Project }) {
       <SettingRow label="Description" hint="One line, used when the folder is given as context." state={description.state} error={description.error}>
         <input className="field-input min-w-0 flex-1" aria-label="Folder description" placeholder="Add a description" {...field("description", description, (v) => ({ description: v }), p.description ?? "")} />
       </SettingRow>
-      <SettingRow label="Workspace" hint="Every folder belongs to one workspace. Its agents, schedules and inbox threads follow it." state={member.state} error={member.error}>
+      <SettingRow label="Workspace" hint="Every folder belongs to one workspace. Its agents and schedules follow it." state={member.state} error={member.error}>
         {workspaces.length === 0 ? <span className="text-[12px] text-ink-3">No workspace yet: create one from the workspace menu.</span> : (
           <Choices label="Workspace of this folder">
             {workspaces.map((w) => {

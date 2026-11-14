@@ -6,6 +6,7 @@ import type { ExtContext } from "@/gen/ExtContext";
 import { request } from "../../shared/messages";
 import { addPopover, askWithoutCloning } from "./addRepo";
 import { findAnchor } from "./anchors";
+import { itemTitle } from "./item";
 import type { Page } from "./page";
 import { chip, mount, unmount, type MenuEntry } from "./widgets";
 
@@ -28,11 +29,10 @@ function entries(ctx: ExtContext, page: Page, root: ShadowRoot, button: HTMLElem
   const f = ctx.folder;
   if (!f) {
     const repo = page.repo ?? ctx.page.repo ?? "";
-    const item = page.number && (page.kind === "issue" || page.kind.startsWith("pr_")) ? { repo, number: page.number, kind: page.kind === "issue" ? "issue" as const : "pr" as const, title: ctx.page.title } : null;
+    const item = page.number && (page.kind === "issue" || page.kind.startsWith("pr_")) ? { repo, number: page.number, kind: page.kind === "issue" ? "issue" as const : "pr" as const, title: itemTitle({ repo, number: page.number }) } : null;
     return [
       { label: "Add to Launchpad", hint: "Clone from GitHub into a workspace", onSelect: () => addPopover(root, button, repo, refresh) },
       { label: "Ask without cloning", hint: item ? `A bot answers about #${item.number}, without a folder` : "A bot answers with this repository as context", onSelect: () => askWithoutCloning(root, button, ctx, item ?? { repo, number: null, kind: "repo" }, refresh) },
-      ...(ctx.inbox_unread ? [{ note: `${ctx.inbox_unread} unread notifications of this repository: Launchpad's Inbox shows them in no workspace until it has a folder.` }] : []),
     ];
   }
   const ws = `ws=${encodeURIComponent(f.workspace_id)}`;

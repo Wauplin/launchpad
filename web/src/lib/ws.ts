@@ -127,9 +127,6 @@ export function connectEvents(queryClient: QueryClient) {
     const topic: string = ev.topic;
     if (topic === "status") {
       queryClient.setQueryData(["status"], ev.payload);
-    } else if (topic === "inbox") {
-      if (!queryClient.isMutating({ mutationKey: ["inbox-action"] })) void queryClient.invalidateQueries({ queryKey: ["inbox"] });
-      void queryClient.invalidateQueries({ queryKey: ["inbox-preview"] });
     } else if (topic === "onboarding") {
       void queryClient.invalidateQueries({ queryKey: ["onboarding"] });
     } else if (topic === "config") {

@@ -8,6 +8,7 @@ import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtSuggestion } from "@/gen/ExtSuggestion";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import { request, type BotBrief, type LedgerAction } from "../../shared/messages";
+import { findAnchor } from "./anchors";
 import type { Page } from "./page";
 
 export type ItemPage = Page & { repo: string; number: number };
@@ -25,6 +26,9 @@ export function open(path: string, ws?: string | null) {
 }
 
 export const agentPath = (a: { session_id: string }) => `/agents?session=${encodeURIComponent(a.session_id)}`;
+
+/** A suggestion's Today card (Post and Discard are there). */
+export const suggestionPath = (id: string) => `/?card=${encodeURIComponent(`suggestion:${id}`)}`;
 
 // Bots of the workspace, kept a minute per page.
 let botsCache: { at: number; list: Promise<{ bots: BotBrief[]; ask: string | null }> } | null = null;
@@ -87,12 +91,18 @@ export function dotClass(a: ExtAgent) {
   return "lp-dot";
 }
 
-/** The reference of the item, or of one of its comments (`issuecomment-…`, `discussion_r…`). */
-export function refOf(p: ItemPage, ctx: ExtContext | null, comment?: string | null): GitHubRef {
+/** The item's title as the page shows it: page text, shown in our popovers only, never sent to Home or an agent. */
+export function itemTitle(p: { repo: string; number: number }): string | null {
+  const text = findAnchor("item-title", { repo: p.repo, number: p.number })?.el.textContent?.replace(/\s+/g, " ").trim() ?? "";
+  return text.replace(new RegExp(`\\s*#${p.number}$`), "").slice(0, 300) || null;
+}
+
+/** The reference of the item, or of one of its comments (`issuecomment-…`, `discussion_r…`): by URL and number only
+ * (Home and the agent read the item themselves). */
+export function refOf(p: ItemPage, comment?: string | null): GitHubRef {
   const url = itemUrl(p);
-  const title = ctx?.page.title ?? null;
-  if (comment) return { url: `${url}#${comment}`, kind: comment.startsWith("discussion_r") ? "review_comment" : "comment", repo: p.repo, number: p.number, title };
-  return { url, kind: p.kind === "issue" ? "issue" : "pr", repo: p.repo, number: p.number, title };
+  if (comment) return { url: `${url}#${comment}`, kind: comment.startsWith("discussion_r") ? "review_comment" : "comment", repo: p.repo, number: p.number, title: null };
+  return { url, kind: p.kind === "issue" ? "issue" : "pr", repo: p.repo, number: p.number, title: null };
 }
 
 /** The message of an Ask: the owner's note, then how to answer so the reply lands back here. */
@@ -104,8 +114,8 @@ export function askText(p: ItemPage, note: string, comment: string | null, kind:
   return `${note || "What should I answer to this comment?"}\n\nIf a reply helps, draft it as a suggested comment that answers this comment (\`launchpad suggest comment ${target} --reply-to ${comment} --body-file <file>\`); I insert it into GitHub's reply box and post it myself.`;
 }
 
-export async function ask(p: ItemPage, ctx: ExtContext | null, bot: BotBrief, note: string, comment: string | null, kind: "ask" | "review" | "reply") {
-  const session = await request("bot.message", { bot: bot.id, text: askText(p, note.trim(), comment, kind), github_refs: [refOf(p, ctx, comment)], key: crypto.randomUUID() });
+export async function ask(p: ItemPage, bot: BotBrief, note: string, comment: string | null, kind: "ask" | "review" | "reply") {
+  const session = await request("bot.message", { bot: bot.id, text: askText(p, note.trim(), comment, kind), github_refs: [refOf(p, comment)], key: crypto.randomUUID() });
   const agent: ExtAgent = { session_id: session.id, title: session.title, status: session.status, needs_you: false, open_question: false, bot_id: bot.id, bot: bot.name, thread: session.launch_spec.bot?.thread || "main", number: p.number, since: Date.now(), comment, last_message: null };
   if (comment) asked.set(comment, agent);
   return agent;

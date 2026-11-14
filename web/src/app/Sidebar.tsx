@@ -1,5 +1,4 @@
 import { useKnowledgeUnseen } from "@/lib/knowledge";
-import { useInboxNeeds } from "@/features/inbox/data";
 import { useChannelAsks, useTodayCount } from "@/features/today/data";
 import { botInitial, botState, botThread, threadSummary, useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
@@ -186,7 +185,6 @@ export function Sidebar() {
   const { theme, toggle } = useTheme();
   const narrow = !!useSidebar((s) => s.collapsed.sidebar);
   const toggleGroup = useSidebar((s) => s.toggle);
-  const needs = useInboxNeeds();
   const today = useTodayCount();
   const knowledgeNew = useKnowledgeUnseen();
   const scope = useScope();
@@ -196,7 +194,6 @@ export function Sidebar() {
   const quotaPaused = sessions.filter(isQuotaPaused).length;
   const folderSessions = sessions.filter((s) => projects.some((p) => inProject(p, s)));
   const todayTitle = `${today} decisions wait: questions, finished agents, proposals, drafts to send and reviews`;
-  const inboxTitle = `${needs} for you: unread review requests, mentions and assignments. The Inbox "For you" filter lists them.`;
   const knowledgeTitle = `${knowledgeNew} changes by agents since your last look`;
   const label = (name: string, detail: string | false) => detail ? `${name} · ${detail}` : name;
   const collapse = (
@@ -216,9 +213,6 @@ export function Sidebar() {
       </NavItem>
       <NavItem narrow={narrow} tour="sidebar.agents" to="/agents" icon="agents" mark={quotaPaused ? "paused" : running ? "running" : null} title={label("Agents", [quotaPaused && `${quotaPaused} quota paused`, running && `${running} running`].filter(Boolean).join(", "))} end={<AgentCounts quotaPaused={quotaPaused} running={running} />}>
         Agents
-      </NavItem>
-      <NavItem narrow={narrow} tour="sidebar.inbox" to="/inbox" icon="inbox" mark={{ count: needs }} title={label("Inbox", needs > 0 && inboxTitle)} end={<Count n={needs} needs title={inboxTitle} />}>
-        Inbox
       </NavItem>
       <NavItem narrow={narrow} tour="sidebar.schedules" to="/schedules" icon="clock" title="Schedules">
         Schedules

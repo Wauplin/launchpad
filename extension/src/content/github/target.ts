@@ -1,5 +1,5 @@
 // Ask a bot about items of a list (M2): one or several pull requests or issues (a row's hover action, the rows selected
-// with GitHub's own checkboxes, a notification), or a repository without a folder (Ask without cloning). The bot gets
+// with GitHub's own checkboxes), or a repository without a folder (Ask without cloning). The bot gets
 // the items by reference (`github_refs`), never their text. Review with agent remembers the bot and preset per
 // repository (`github.review-choice`). Nothing is sent without the popover's Send.
 

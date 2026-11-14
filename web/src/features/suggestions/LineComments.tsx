@@ -1,16 +1,10 @@
-// The line comments of an agent's suggested review: shown on its card and in the review panel, posted with the review.
+// The line comments of an agent's suggested review: shown on its card, posted with the review.
 
 import type { LineComment } from "@/gen/LineComment";
-import type { LineNote } from "@/features/github/DiffReview";
 import { Markdown } from "@/components/Markdown";
 
 /** `src/a.rs:10–12`, with "(removed line)" for the old side. */
 export const commentPlace = (c: LineComment) => `${c.path}:${c.start_line ? `${c.start_line}–` : ""}${c.line}${c.side === "LEFT" ? " (removed line)" : ""}`;
-
-/** A suggested line comment as a line comment of the pending review, at the commit the agent reviewed. */
-export function asLineNote(c: LineComment, head: string | null): LineNote {
-  return { path: c.path, line: c.line, side: c.side === "LEFT" ? "old" : "new", code: "", text: c.body, ...(head ? { head } : {}), ...(c.start_line ? { startLine: c.start_line } : {}) };
-}
 
 export function LineComments({ comments, onRemove, disabled }: { comments: LineComment[]; onRemove?: (index: number) => void; disabled?: boolean }) {
   if (!comments.length) return null;

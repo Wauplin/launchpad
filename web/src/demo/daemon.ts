@@ -109,7 +109,7 @@ const BOOT = "demo";
 
 /** Sends one event to every open bus socket, like `app.bus.publish` in the daemon. */
 /** Topics whose changes can change Today's list: Home then publishes `today` (crates/core/src/today.rs). */
-const TODAY_TOPICS = new Set(["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons", "channels"]);
+const TODAY_TOPICS = new Set(["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "crons", "channels"]);
 
 export function publish(topic: string, type: string, payload: unknown) {
   busSeq += 1;

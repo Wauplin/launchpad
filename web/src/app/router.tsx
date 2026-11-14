@@ -25,8 +25,6 @@ const routeTree = root.addChildren([
   // Phone pages.
   createRoute({ getParentRoute: () => root, path: "/terminals", component: lazyRouteComponent(() => import("@/mobile/TerminalsView"), "TerminalsView") }),
   createRoute({ getParentRoute: () => root, path: "/more", component: lazyRouteComponent(() => import("@/mobile/MoreView"), "MoreView") }),
-  // `thread`: the phone shows one Inbox thread (a history entry, so back returns to the list).
-  createRoute({ getParentRoute: () => root, path: "/inbox", component: lazyRouteComponent(() => import("@/features/inbox/InboxView"), "InboxView"), validateSearch: (s: Record<string, unknown>): { thread?: string } => (typeof s.thread === "string" && s.thread ? { thread: s.thread } : {}) }),
   // The phone's Chats tab: every bot of the workspace, Ask Launchpad first.
   createRoute({ getParentRoute: () => root, path: "/chats", component: lazyRouteComponent(() => import("@/mobile/ChatsView"), "ChatsView") }),
   createRoute({ getParentRoute: () => root, path: "/bots", component: lazyRouteComponent(() => import("@/features/bots/BotsView"), "BotsView"), validateSearch: (s: Record<string, unknown>): { new?: true | "channel"; archived?: true } => ({ ...(s.new === "channel" ? { new: "channel" as const } : s.new === true || s.new === "true" || s.new === 1 ? { new: true as const } : {}), ...(s.archived === true || s.archived === "true" || s.archived === 1 ? { archived: true as const } : {}) }) }),
@@ -35,18 +33,6 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/channels/$id", component: lazyRouteComponent(() => import("@/features/channels/ChannelPage"), "ChannelPage"), validateSearch: (s: Record<string, unknown>): { panel?: string; thread?: string } => ({ ...(typeof s.panel === "string" && s.panel ? { panel: s.panel } : {}), ...(typeof s.thread === "string" && s.thread ? { thread: s.thread } : {}) }) }),
   createRoute({ getParentRoute: () => root, path: "/schedules", component: lazyRouteComponent(() => import("@/features/schedules/SchedulesView"), "SchedulesView"), validateSearch: (s: Record<string, unknown>): { tab?: "routines" | "launches"; routine?: string; launch?: string } => ({ ...(s.tab === "routines" || s.tab === "launches" ? { tab: s.tab } : {}), ...(typeof s.routine === "string" && s.routine ? { routine: s.routine } : {}), ...(typeof s.launch === "string" && s.launch ? { launch: s.launch } : {}) }) }),
   createRoute({ getParentRoute: () => root, path: "/predrafts/$id", component: lazyRouteComponent(() => import("@/features/predrafts/PredraftView"), "PredraftView") }),
-  createRoute({
-    getParentRoute: () => root,
-    path: "/github/$owner/$repo/$number",
-    component: lazyRouteComponent(() => import("@/features/github/ItemView"), "ItemView"),
-    // `draft`: the agent suggestion to expand and scroll to. `tab`: the PR view (Conversation without it). `file`:
-    // the file a PR's Changes shows (the phone's one-file view).
-    validateSearch: (s: Record<string, unknown>): { draft?: string; tab?: "files" | "threads"; file?: string } => ({
-      ...(typeof s.draft === "string" || typeof s.draft === "number" ? { draft: String(s.draft) } : {}),
-      ...(s.tab === "files" || s.tab === "threads" ? { tab: s.tab } : {}),
-      ...(typeof s.file === "string" && s.file ? { file: s.file } : {}),
-    }),
-  }),
   createRoute({
     getParentRoute: () => root,
     path: "/agents",

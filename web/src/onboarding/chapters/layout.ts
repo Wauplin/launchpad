@@ -10,7 +10,7 @@ let sawPersonal = false;
 
 export const layout: Chapter = {
   ...meta("layout"),
-  learned: ["Demo mode and how to leave it", "Today lists every decision; Agents, Inbox and Folders are one click away", "Each window shows one workspace; the menu at the top of the sidebar switches and counts what waits in the others", "Quota meters show what your subscriptions have left"],
+  learned: ["Demo mode and how to leave it", "Today lists every decision; Agents and Folders are one click away", "Each window shows one workspace; the menu at the top of the sidebar switches and counts what waits in the others", "Quota meters show what your subscriptions have left"],
   setup: () => { sawPersonal = false; useWorkspace.getState().switchTo(WS.acme); },
   steps: [
     {
@@ -26,12 +26,12 @@ export const layout: Chapter = {
     {
       id: "layout.places", route: "/", anchor: "sidebar.nav",
       title: "The places you use every day",
-      body: "Today carries the one count that needs you. Agents shows what runs and what ran. Inbox holds your GitHub notifications. Bots sit above, Schedules, Knowledge and Folders below; Ask Launchpad is the first bot.",
+      body: "Today carries the one count that needs you. Agents shows what runs and what ran. Bots sit above, Schedules, Knowledge and Folders below; Ask Launchpad is the first bot.",
     },
     {
       id: "layout.workspaces", route: "/", anchor: "sidebar.workspaces",
       title: "Workspaces",
-      body: "Each window shows one workspace: its folders, agents, bots, Inbox and notes. The menu at the top of the sidebar lists your workspaces. A count shows the Today decisions of another workspace, never its content. Click one to switch; open a second tab to see two side by side.",
+      body: "Each window shows one workspace: its folders, agents, bots and notes. The menu at the top of the sidebar lists your workspaces. A count shows the Today decisions of another workspace, never its content. Click one to switch; open a second tab to see two side by side.",
       tryIt: {
         text: "switch to the Personal workspace, then back to Acme.",
         done: () => { const ws = useWorkspace.getState().current; if (ws === WS.personal) sawPersonal = true; return sawPersonal && ws !== WS.personal; },

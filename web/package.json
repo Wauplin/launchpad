@@ -17,7 +17,7 @@
     "test:proposals": "node --experimental-strip-types --test tests/proposals.test.mjs",
     "test:chat": "node --experimental-strip-types --test tests/chatRows.test.mjs tests/channels.test.mjs",
     "test:drafts": "node --experimental-strip-types --test tests/draftPersistence.test.mjs",
-    "test:review": "node --experimental-strip-types --test tests/reviewPayload.test.mjs tests/popoverPlace.test.mjs",
+    "test:review": "node --experimental-strip-types --test tests/popoverPlace.test.mjs",
     "test:tour": "node --test tests/tour.test.mjs",
     "shots": "node scripts/shots.mjs",
     "ui-check": "node scripts/ui-check.mjs",

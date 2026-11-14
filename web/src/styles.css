@@ -427,10 +427,6 @@ button {
   max-width: 100%;
 }
 
-:root[data-theme="dark"] .lp-gh-html,
-.lp-gh-html { background: transparent; color: var(--color-ink); font-size: 13px; overflow-wrap: anywhere; }
-.lp-gh-html img { max-height: 600px; }
-.lp-gh-html pre { overflow: auto; }
 /* Tailwind's preflight removes list markers and GitHub's stylesheet relies on the browser default; nested lists keep its own types. */
 .markdown-body ul { list-style: disc; }
 .markdown-body ol { list-style: decimal; }
@@ -622,7 +618,6 @@ button {
 .lp-phone .phone-action-popover > button,
 .lp-phone .phone-action-popover .btn { min-height: 48px; }
 .lp-phone .phone-action-popover:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 2px; }
-.lp-phone .phone-item-controls { width: 100%; border: 0; border-radius: var(--radius-card); }
 .lp-phone .phone-tabs {
   min-width: 0;
   flex-wrap: nowrap;
@@ -664,8 +659,6 @@ button {
 .lp-phone .phone-publish-bar > input { min-width: 0; flex-basis: 100%; }
 .lp-phone .phone-publish-bar .btn { white-space: normal; }
 .lp-phone .phone-diff-toolbar { flex-wrap: wrap; padding: 8px 12px; }
-.lp-phone .inbox-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-block: 4px; }
-.lp-phone .inbox-filters > button { min-height: 44px; flex-shrink: 0; }
 .lp-phone .phone-project-agent { height: 56px; padding-inline: 12px; }
 .lp-phone .phone-worktree-row { height: 72px; padding-inline: 12px; }
 .lp-phone .phone-worktree-row > span > span { flex-wrap: wrap; gap: 2px 6px; }
@@ -698,8 +691,6 @@ button {
 .lp-phone .lp-tab { min-height: 44px; flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
 .lp-phone .lp-chip { flex-shrink: 0; padding-inline: 12px; font-size: 13px; }
 .lp-phone .page-header { padding: 8px 12px 0; }
-/* Laptop page bodies use the header's 20 px side padding; the phone uses 12 px. */
-.lp-phone .page-body { padding-inline: 12px; }
 /* Agents rows: the 44 px ⋯ sits in the row's bottom-right corner. */
 .lp-phone .agent-row-action { bottom: 0; right: 0; }
 .lp-phone .agent-row-line { padding-right: 44px; }

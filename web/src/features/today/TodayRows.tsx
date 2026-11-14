@@ -28,11 +28,13 @@ import { SuggestionCard } from "@/features/suggestions/Suggestions";
 import { runAction, type ActionName } from "@/lib/actions";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/format";
+import { suggestionItemUrl } from "@/lib/githubLinks";
+import { openExternal } from "@/lib/platform";
 import { usePhone } from "@/lib/phone";
 import { useSession } from "@/lib/queries";
 import type { TodayItem } from "./data";
 import { CliUpdateDetails } from "@/features/settings/CliUpdates";
-import { FixMergeButton, ghParams, githubRef, MergeButton, NotMerged, ReviewWithAgent, SessionMeta, useBranch, useOpenQuestion } from "./TodayCards";
+import { FixMergeButton, MergeButton, NotMerged, SessionMeta, useBranch, useOpenQuestion } from "./TodayCards";
 
 /** The icon, color and name of each kind: GitHub's icons for pull requests. */
 export const LOOK: Record<TodayItem["kind"], { icon: IconName; color: string; name: string }> = {
@@ -43,7 +45,6 @@ export const LOOK: Record<TodayItem["kind"], { icon: IconName; color: string; na
   proposal: { icon: "spark", color: "text-work", name: "Proposal" },
   outbox: { icon: "send", color: "text-work", name: "Message to send" },
   suggestion: { icon: "comment", color: "text-teal", name: "Suggestion to post on GitHub" },
-  review_request: { icon: "pr", color: "text-gh-open", name: "Pull request that requests your review" },
   routine: { icon: "refresh", color: "text-gh-closed", name: "Routine whose last run failed" },
   runner: { icon: "window", color: "text-attn", name: "Runner to update" },
   home_update: { icon: "download", color: "text-attn", name: "Update for Home" },
@@ -324,28 +325,14 @@ function OutboxRow(p: RowProps) {
 }
 
 function SuggestionRow({ s, ...p }: RowProps & { s: Suggestion | undefined }) {
-  const ref = githubRef(p.item);
+  const url = s ? suggestionItemUrl(s) : null;
   return <Row {...p}
     main={<Expand {...p}>{s?.kind === "review" ? "Review" : "Read"}</Expand>}
-    menu={(!!ref || !!s?.session_id) && ((close) => <>
-      {ref && <Go close={close} icon="pr" label="Open pull request" go={(n) => n({ to: "/github/$owner/$repo/$number", params: ghParams(ref.repo, ref.number), search: s ? { draft: s.id } : undefined })} />}
+    menu={(!!url || !!s?.session_id) && ((close) => <>
+      {url && <MenuItem icon={<Icon name="ext" size={14} />} label="Open on GitHub" onClick={() => { close(); openExternal(url); }} />}
       {s?.session_id && <OpenAgent id={s.session_id} close={close} />}
     </>)}
     details={s && s.target.kind === "git_hub" ? <SuggestionCard suggestion={s} /> : <Loading what="the suggestion" />} card />;
-}
-
-/** Review with agent; Open (the PR page) and Done (removes the notification here and on GitHub) in ⋯. */
-function ReviewRequestRow(p: RowProps) {
-  const { item } = p;
-  const ref = githubRef(item);
-  return <Row {...p}
-    to={ref && <Link className="block max-w-full text-ink no-underline hover:underline" to="/github/$owner/$repo/$number" params={ghParams(ref.repo, ref.number)}><span className="block truncate text-[13px] font-semibold" title={item.title}>{item.title}</span></Link>}
-    main={ref && <Link className="btn btn-sm no-underline" to="/github/$owner/$repo/$number" params={ghParams(ref.repo, ref.number)} search={{ tab: "files" }}>Open PR</Link>}
-    menu={(close) => <>
-      <ReviewWithAgent item={item} primary={false} label="Review with agent" />
-      {ref && <Go close={close} icon="pr" label="Open pull request" go={(n) => n({ to: "/github/$owner/$repo/$number", params: ghParams(ref.repo, ref.number) })} />}
-      <ActionMenuItem name="inbox.done" params={{ id: item.record }} close={close} detail="Not for you: done here and on GitHub" />
-    </>} />;
 }
 
 function RoutineRow(p: RowProps) {
@@ -412,7 +399,6 @@ export const ItemRow = memo(function ItemRow({ proposal, suggestion, ...p }: Row
     case "proposal": return <ProposalRow {...p} p={proposal} />;
     case "outbox": return <OutboxRow {...p} />;
     case "suggestion": return <SuggestionRow {...p} s={suggestion} />;
-    case "review_request": return <ReviewRequestRow {...p} />;
     case "routine": return <RoutineRow {...p} />;
     case "runner": return <RunnerRow {...p} />;
     case "home_update": return <RunnerRow {...p} />; // Opens Settings → Home and runners, where Update Home is.

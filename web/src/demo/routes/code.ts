@@ -8,7 +8,7 @@ import type { FileList } from "@/gen/FileList";
 import type { SearchHit } from "@/gen/SearchHit";
 import type { SearchResult } from "@/gen/SearchResult";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
-import type { DiffFile } from "@/features/github/types";
+import type { DiffFile } from "@/components/diff/types";
 import { clock, DemoError, publish, route } from "../daemon";
 import { world } from "../world";
 import { codeRepoOf, DEMO_COMMITS, languageOf, lineMarks, unifiedDiff, type Change } from "../world/code";
@@ -58,7 +58,7 @@ export function diffFile(c: Change, withPatch = true): DiffFile {
   const d = unifiedDiff(c.before, c.after);
   return {
     filename: c.path, status: c.before === null ? "added" : c.after === null ? "removed" : "modified", additions: d.additions, deletions: d.deletions,
-    has_patch: !!d.patch, language: languageOf(c.path)?.[0], ...(withPatch ? { patch: d.patch } : {}),
+    language: languageOf(c.path)?.[0], ...(withPatch ? { patch: d.patch } : {}),
   };
 }
 

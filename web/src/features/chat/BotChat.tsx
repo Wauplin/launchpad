@@ -9,7 +9,7 @@
 
 import { useProfiles, useProfileModels } from "@/lib/profiles";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -41,7 +41,9 @@ import { foldTrace } from "@/features/agents/traceRows";
 import { ProposalLine, useProposalList } from "@/features/proposals/ProposalCard";
 import { useSuggestionList } from "@/features/suggestions/data";
 import { useToday, type TodayItem } from "@/features/today/data";
-import { BranchActions, ghParams, githubRef, ItemCard, useBranch } from "@/features/today/TodayCards";
+import { BranchActions, githubRef, ItemCard, useBranch } from "@/features/today/TodayCards";
+import { githubItemUrl, suggestionItemUrl } from "@/lib/githubLinks";
+import { openExternal } from "@/lib/platform";
 import { LOOK } from "@/features/today/TodayRows";
 import { MenuItem } from "@/components/Popover";
 import { RowActions } from "@/components/ui";
@@ -391,9 +393,9 @@ function ProposalRow({ p }: { p: Proposal }) {
 function ReadyLine({ item, suggestion }: { item: TodayItem; suggestion: Suggestion | undefined }) {
   const [open, setOpen] = useState(false);
   const phone = usePhone();
-  const navigate = useNavigate();
   const look = LOOK[item.kind];
   const ref = githubRef(item);
+  const url = suggestion ? suggestionItemUrl(suggestion) : ref ? githubItemUrl(ref.repo, ref.number) : null;
   if (open) return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1">
     <ItemCard item={item} proposal={undefined} suggestion={suggestion} />
     <button className="chat-tap justify-self-start text-[12px] text-teal-ink hover:underline" onClick={() => setOpen(false)}>Hide details</button>
@@ -402,9 +404,9 @@ function ReadyLine({ item, suggestion }: { item: TodayItem; suggestion: Suggesti
   const main = pr
     ? <Link className="btn btn-sm no-underline" to="/predrafts/$id" params={{ id: item.record }} title="Publish to GitHub or merge locally from its page">Review</Link>
     : <button className="btn btn-sm" title="Read it, then send or post it" onClick={() => setOpen(true)}>Review</button>;
-  const more = (pr || ref) && ((close: () => void) => <>
+  const more = (pr || !!url) && ((close: () => void) => <>
     {pr && <MenuItem icon={<Icon name="expand" size={14} />} label="Details" detail="The full card" onClick={() => { close(); setOpen(true); }} />}
-    {ref && <MenuItem icon={<Icon name="pr" size={14} />} label="Open pull request" onClick={() => { close(); void navigate({ to: "/github/$owner/$repo/$number", params: ghParams(ref.repo, ref.number), search: suggestion ? { draft: suggestion.id } as never : undefined }); }} />}
+    {url && <MenuItem icon={<Icon name="ext" size={14} />} label="Open on GitHub" onClick={() => { close(); openExternal(url); }} />}
   </>);
   return (
     <article data-tour="chat.ready" data-tour-id={item.id} className="group grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 rounded-card border border-line bg-paper py-1.5 pr-1.5 pl-2.5">

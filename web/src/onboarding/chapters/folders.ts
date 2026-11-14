@@ -8,12 +8,12 @@ const findOpen = () => !!document.querySelector('input[placeholder="Find in file
 
 export const folders: Chapter = {
   ...meta("folders"),
-  learned: ["A folder page shows its agents, GitHub items and worktrees", "Files browses any checkout or worktree, with Find", "Each folder belongs to one workspace; a window shows one workspace", "Add folder clones a GitHub repository or creates a plain folder", "Knowledge is the shared memory of a workspace: notes agents read and write, every change restorable; each bot's own memory is listed there too"],
+  learned: ["A folder page shows its agents, Local PRs and worktrees, and links to its pull requests and issues on GitHub", "Files browses any checkout or worktree, with Find", "Each folder belongs to one workspace; a window shows one workspace", "Add folder clones a GitHub repository or creates a plain folder", "Knowledge is the shared memory of a workspace: notes agents read and write, every change restorable; each bot's own memory is listed there too"],
   steps: [
     {
       id: "folders.page", route: "/projects/demo-storefront", anchor: "folder.page",
       title: "A folder page",
-      body: "The line under the title counts running agents, waiting ones and Local PRs. Overview lists running agents, GitHub items, worktrees and every agent; Settings holds the worktree setup command and the When done default.",
+      body: "The line under the title counts running agents, waiting ones and Local PRs. Overview lists running agents, Local PRs (with links to the pull requests and issues on GitHub), worktrees and every agent; Settings holds the worktree setup command and the When done default.",
     },
     {
       id: "folders.files", route: "/projects/demo-storefront/code", anchor: "code.find",

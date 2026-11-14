@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Icon } from "@/components/Icon";
-import { DiffReview } from "@/features/github/DiffReview";
+import { DiffReview } from "@/components/diff/DiffReview";
 import { Empty } from "@/components/ui";
-import type { DiffFile } from "@/features/github/types";
+import type { DiffFile } from "@/components/diff/types";
 import { sourceParams } from "./lib";
 
 export type CommitChanges = { sha: string; subject: string; parent: string | null; files: DiffFile[] };

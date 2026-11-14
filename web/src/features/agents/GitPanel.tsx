@@ -11,7 +11,7 @@ import { ago } from "@/lib/format";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { ConfirmButton, Empty, ErrorState, Choice, Choices, Loading } from "@/components/ui";
-import { DiffReview, type LineNote } from "@/features/github/DiffReview";
+import { DiffReview, type LineNote } from "@/components/diff/DiffReview";
 import type { SessionGitStatus as Status } from "@/gen/SessionGitStatus";
 import type { SessionGitHistory as History } from "@/gen/SessionGitHistory";
 import type { SessionGitDiff as Diff } from "@/gen/SessionGitDiff";

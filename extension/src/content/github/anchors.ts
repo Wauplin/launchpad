@@ -140,28 +140,6 @@ export const ANCHORS = {
       { via: "aria", find: () => document.querySelector('main[id="js-repo-pjax-container"], main') },
     ],
   },
-  /** The list of github.com/notifications: the Today strip goes above it (N1). */
-  "notification-list": {
-    label: "Notifications list",
-    kinds: ["notifications"],
-    place: "beforebegin",
-    strategies: [
-      { via: "id", find: () => document.querySelector(".js-notifications-container") },
-      { via: "data", find: () => document.querySelector("[data-notification-id]")?.closest(".Box, ul") ?? null },
-      { via: "aria", find: () => notificationRows()[0]?.closest("ul, ol, [role=list]") ?? null },
-    ],
-  },
-  /** Each notification row (row status N2, observed Done N3, hover Ask N5). */
-  "notification-rows": {
-    label: "Notification rows",
-    kinds: ["notifications"],
-    place: "beforeend",
-    strategies: [
-      { via: "data", find: () => document.querySelector("li[data-notification-id]"), all: () => all("li[data-notification-id]") },
-      { via: "id", find: () => document.querySelector(".notifications-list-item"), all: () => all(".notifications-list-item") },
-      { via: "aria", find: () => notificationRows()[0] ?? null, all: () => notificationRows() },
-    ],
-  },
   /** The title of an issue or pull request (live agent cards, I5). */
   "item-title": {
     label: "Issue and pull request title",
@@ -370,16 +348,6 @@ export const ANCHORS = {
       { via: "aria", find: () => all('[role="dialog"]').filter((d) => /finish your review|review changes|submit review/i.test(d.querySelector("h1, h2, h3, [id$='title'], [class*='Title']")?.textContent ?? d.getAttribute("aria-label") ?? "")).map((d) => visibleTextarea(d)).find(Boolean) ?? null },
     ],
   },
-  /** GitHub's "Approve and run" of workflows waiting for a maintainer on a fork's pull request (CI note, I8). */
-  "ci-approval": {
-    label: "Approve and run workflows",
-    kinds: [],
-    place: "afterend",
-    strategies: [
-      { via: "data", find: () => all('form[action*="approve"] button, form[action*="approve"] input[type="submit"]').find((b) => /approve and run/i.test(b.textContent ?? (b as HTMLInputElement).value ?? ""))?.closest(".branch-action-item, .merge-pr, .mergeability-details, section, .Box, form") ?? null },
-      { via: "text", find: () => all("main button").find((b) => /^approve and run/i.test(b.textContent?.trim() ?? ""))?.closest(".branch-action-item, section, [class*='MergeBox'], .Box, div") ?? null },
-    ],
-  },
 } satisfies Record<string, Anchor>;
 
 /** sha256 of each diff path seen (GitHub's line anchors use it), filled by `hashPaths`. */
@@ -440,12 +408,7 @@ function listRows(p: Params): Element[] {
   return rows.filter((r) => !rows.some((o) => o !== r && r.contains(o)));
 }
 
-/** Rows of the notifications list found by their links (GitHub adds `notification_referrer_id`). */
-function notificationRows(): Element[] {
-  return all('a[href*="notification_referrer_id"]').map((a) => a.closest("li")).filter((x): x is HTMLLIElement => !!x);
-}
-
-/** The item a list or notification row links to: its repository and number, from the row's link (never its text). */
+/** The item a list row links to: its repository and number, from the row's link (never its text). */
 export function rowItem(row: Element): { repo: string; number: number; kind: "pr" | "issue"; url: string; title: string | null } | null {
   for (const a of all('a[href]', row)) {
     const m = pathOf(a).match(/^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(pull|issues)\/([1-9]\d{0,9})$/);
@@ -470,16 +433,7 @@ export function rowSlot(row: Element): { el: Element; place: InsertPosition } {
   if (meta && row.contains(meta)) return { el: meta, place: "beforeend" };
   const classic = row.querySelector(".opened-by")?.parentElement;
   if (classic) return { el: classic, place: "beforeend" };
-  const actions = row.querySelector(".notification-list-item-actions");
-  if (actions) return { el: actions, place: "beforebegin" };
   return { el: row, place: "beforeend" };
-}
-
-/** Keep notification controls beside the repository/number, never in a new row below the title.
- * Skip unknown layouts instead of making the notification taller. */
-export function notificationSlot(row: Element): { el: Element; place: InsertPosition } | null {
-  const meta = row.querySelector(".notification-list-item-link .f6, .notification-list-item-link .text-small");
-  return meta ? { el: meta, place: "beforeend" } : null;
 }
 
 /** The moment of a timeline item (its first `relative-time`), in ms; null when it has none. */

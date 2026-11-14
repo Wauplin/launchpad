@@ -15,13 +15,13 @@ export default scenario({
   harness: "claude",
   title: "What needs me today?",
   timeline: [
-    at(0.4, think("The owner wants a short list of what needs them. I will read the agents, the inbox and the schedules of this workspace.")),
+    at(0.4, think("The owner wants a short list of what needs them. I will read the agents, the GitHub items waiting for a review and the schedules of this workspace.")),
     at(0.8, tool("bash", "launchpad sessions list --workspace Acme", { seconds: 0.9, output: `[{"title":"Rate-limit /invoices","status":"waiting","needs_you":true,"open_question":true},
  {"title":"Fix the flaky checkout test","status":"waiting","needs_you":true},
  {"title":"Upgrade CI to Node 24","status":"error","needs_you":true},
  {"title":"Split the invoice service into modules","status":"quota_paused"}, …]` })),
-    at(0.6, tool("bash", "launchpad inbox list --workspace Acme", { seconds: 0.9, output: `[{"repo":"acme-labs/storefront","number":118,"reason":"review_requested","title":"Add Apple Pay to checkout"},
- {"repo":"acme-labs/billing-api","number":77,"reason":"mention","title":"Invoices API returns 500 on empty cart"}, …]` })),
+    at(0.6, tool("bash", "gh search prs --review-requested=@me --state open --owner acme-labs", { seconds: 0.9, output: `acme-labs/storefront#118  Add Apple Pay to checkout
+acme-labs/storefront#119  Lazy-load product images` })),
     at(0.6, tool("bash", "launchpad schedules list --workspace Acme", { seconds: 0.6, output: `[{"title":"Write the v2 API migration guide","conditions":["quota available"]}]` })),
     at(0.8, think("The failed CI upgrade can be retried with the lockfile fix. I will propose that launch; the owner decides.")),
     at(0.6, tool("bash", "launchpad propose launch --title \"Retry the Node 24 CI upgrade\" --spec-file /tmp/ci.json", { seconds: 0.8, output: "Proposal created: Retry the Node 24 CI upgrade (waiting for the owner)" })),

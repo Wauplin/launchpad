@@ -1,4 +1,4 @@
-// Agent suggestions (comments and reviews waiting for the owner's Post), shared by Today and the Inbox.
+// Agent suggestions (comments and reviews waiting for the owner's Post), shared by Today and the bot chat.
 
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";

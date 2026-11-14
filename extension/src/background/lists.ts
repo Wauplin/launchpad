@@ -1,13 +1,10 @@
-// Inboxes and lists (M2) for the GitHub layer: the notifications strip and Done all handled, Done/read/Unsubscribe
-// clicked on github.com recorded in Launchpad's Inbox (`inbox.observed`, never a GitHub write), the remembered Review
-// with agent choice, Add to Launchpad (`folder.clone`) and a Local PR's Publish (`local-pr.publish`, run only by the
-// confirm button of the extension's own Publish dialog). Every call goes to Home through `homeJson`.
+// Lists and actions of the GitHub layer: the remembered Review with agent choice, Add to Launchpad (`folder.clone`), a
+// Local PR's Publish (`local-pr.publish`) and Push to this PR (`branch.push-to-pr`), both run only by the confirm button
+// of the extension's own dialog. Every call goes to Home through `homeJson`.
 
-import type { ExtNotifications } from "@/gen/ExtNotifications";
 import type { ExtReviewChoice } from "@/gen/ExtReviewChoice";
-import type { ObservedResult } from "@/gen/ObservedResult";
 import type { Project } from "@/gen/Project";
-import { RequestError, type DoneResult, type LocalPrDetail, type ObservedAction, type PushResult } from "../shared/messages";
+import { RequestError, type LocalPrDetail, type PushResult } from "../shared/messages";
 import { current, homeJson } from "./home";
 
 const id = (v: unknown, what: string) => {
@@ -20,26 +17,6 @@ const workspace = () => {
   return ws;
 };
 const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
-/** A thread ID or `owner/repo#number`. */
-const ITEM = /^([A-Za-z0-9]{1,40}|[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}#[1-9]\d{0,9})$/;
-
-export function notifications(): Promise<ExtNotifications> {
-  return homeJson<ExtNotifications>(`/api/ext/notifications?workspace=${encodeURIComponent(workspace())}`);
-}
-
-const ACTIONS: readonly ObservedAction[] = ["done", "read", "unsubscribe"];
-export function observed(a: { items: string[]; action: ObservedAction }): Promise<ObservedResult[]> {
-  if (!ACTIONS.includes(a.action)) throw new RequestError("Not an Inbox action");
-  const ids = (Array.isArray(a.items) ? a.items : []).map(String).filter((i) => ITEM.test(i)).slice(0, 100);
-  if (!ids.length) throw new RequestError("No thread to record");
-  return homeJson<ObservedResult[]>("/api/ext/inbox/observed", { method: "POST", body: { ids, action: a.action } });
-}
-
-export function doneHandled(a: { ids: string[] }): Promise<DoneResult[]> {
-  const ids = (Array.isArray(a.ids) ? a.ids : []).map(String).filter((i) => /^[A-Za-z0-9]{1,40}$/.test(i)).slice(0, 100);
-  if (!ids.length) throw new RequestError("No thread to mark Done");
-  return homeJson<DoneResult[]>("/api/ext/inbox/done-handled", { method: "POST", body: { ids, workspace: workspace() } });
-}
 
 export function reviewChoice(a: { repo: string; bot?: string | null; preset?: string | null }): Promise<ExtReviewChoice> {
   if (typeof a.repo !== "string" || !REPO.test(a.repo)) throw new RequestError("Not a repository");

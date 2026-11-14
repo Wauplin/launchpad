@@ -48,9 +48,9 @@ export const review: Chapter = {
       body: "Review lists finished agents you have not seen and Local PRs to publish. A row offers Merge only when it is safe: the agent is Done, its branch is on Home, nothing is uncommitted and the base did not move. Otherwise it says Review. A folder's Branches tab lists all its agent branches.",
     },
     {
-      id: "review.suggestion", route: "/github/acme-labs/storefront/118", anchor: "suggestion.card",
+      id: "review.suggestion", route: "/?card=suggestion:demo-sg-118", anchor: "suggestion.card",
       title: "Suggestions",
-      body: "Agents can write a comment or a review on a GitHub PR. It stays here as a suggestion: edit it, then post it with a click, or discard it. Nothing reaches GitHub on its own.",
+      body: "Agents can write a comment or a review on a GitHub PR. It waits in Today as a suggestion: edit it, then post it with a click, or discard it. Nothing reaches GitHub on its own.",
     },
     {
       id: "review.send", route: "/?filter=send", anchor: "today.filters",

@@ -1,26 +1,26 @@
-// Row states of list pages (Pull requests, Issues, Notifications): one `rows` request for the visible rows, refetched
-// when the set of rows changes or Home's records change (`ext.context`), and the row chip: at most one per row, by
-// priority: needs you (amber) › working (blue) › a bot's report (green) › commits to push › Not in Launchpad. A row's
+// Row states of list pages (Pull requests, Issues): one `rows` request for the visible rows, refetched when the set of
+// rows changes or Home's records change (`ext.context`), and the row chip: at most one per row, by priority: needs you
+// (amber) › working (blue) › a bot's report (green) › commits to push. A row's
 // hover action shows only while the pointer is on the row (or it has focus); it never replaces GitHub's controls.
 
 import type { ExtRow } from "@/gen/ExtRow";
 import type { ExtRows } from "@/gen/ExtRows";
 import { request } from "../../shared/messages";
-import { agentPath, elapsed, open, running, who } from "./item";
+import { agentPath, elapsed, open, running, suggestionPath, who } from "./item";
 import { h, type Widget } from "./widgets";
 
-export type Chip = { text: string; tone: "need" | "run" | "ok" | "quiet"; title: string; go: (() => void) | "add" };
+export type Chip = { text: string; tone: "need" | "run" | "ok" | "quiet"; title: string; go: () => void };
 
 const OUTCOME: Record<string, string> = { merged: "merged", approved: "approved", commented: "answered", closed: "closed", waiting: "waiting", info: "reported", needs_you: "asks you" };
 
-/** The one chip of a row, or null. `notifications`: a repository without a folder says Not in Launchpad. */
-export function chipOf(row: ExtRow, ws: string | null, notifications: boolean): Chip | null {
+/** The one chip of a row, or null. */
+export function chipOf(row: ExtRow, ws: string | null): Chip | null {
   const repo = row.repo ?? "";
   const n = row.number;
   const asks = row.agents.find((a) => a.open_question);
   if (asks) return { text: `${who(asks)} asks you`, tone: "need", title: asks.title, go: () => open(agentPath(asks), ws) };
   const review = row.suggestions.find((s) => s.kind === "review" && s.status === "draft");
-  if (review && n !== null) return { text: `Review ready${review.comments ? ` · ${review.comments} comment${review.comments === 1 ? "" : "s"}` : ""}`, tone: "need", title: `${review.bot ?? "An agent"} wrote a review for you to post`, go: () => open(`/github/${repo}/${n}?tab=files&draft=${encodeURIComponent(review.id)}`, ws) };
+  if (review && n !== null) return { text: `Review ready${review.comments ? ` · ${review.comments} comment${review.comments === 1 ? "" : "s"}` : ""}`, tone: "need", title: `${review.bot ?? "An agent"} wrote a review for you to post: its card in Launchpad's Today posts it`, go: () => open(suggestionPath(review.id), ws) };
   const reply = row.suggestions.find((s) => s.kind === "comment" && s.status === "draft");
   if (reply && n !== null) return { text: `Reply ready${reply.bot ? ` · ${reply.bot}` : ""}`, tone: "need", title: "A suggested comment: open the item and Insert it", go: () => { location.assign(`https://github.com/${repo}/issues/${n}`); } }; // GitHub sends /issues/<n> of a pull request to its page.
   const report = row.report;
@@ -30,15 +30,14 @@ export function chipOf(row: ExtRow, ws: string | null, notifications: boolean): 
   const working = row.agents.find(running);
   if (working) return { text: `${who(working)} working · ${elapsed(working.since)}`, tone: "run", title: working.title, go: () => open(agentPath(working), ws) };
   if (report) return { text: `${report.bot ?? "A bot"} · ${OUTCOME[report.outcome] ?? report.outcome}`, tone: ["merged", "approved", "commented", "closed"].includes(report.outcome) ? "ok" : "quiet", title: report.title, go: () => open(`/?card=${encodeURIComponent(`proposal:${report.id}`)}`, ws) };
-  if (row.push) { const p = row.push; return { text: "Commits to push", tone: "need", title: p.error ? `Home's last push failed: ${p.error}` : `${p.branch}: Home has commits GitHub does not have yet`, go: () => open(`/github/${repo}/${n}`, ws) }; }
-  if (notifications && !row.folder) return { text: "Not in Launchpad · Add", tone: "quiet", title: "Clone this repository into a workspace, or ask a bot without cloning", go: "add" };
+  if (row.push) { const p = row.push; return { text: "Commits to push", tone: "need", title: p.error ? `Home's last push failed: ${p.error}` : `${p.branch}: Home has commits GitHub does not have yet`, go: () => { location.assign(`https://github.com/${repo}/pull/${n}`); } }; }
   return null;
 }
 
 /** The chip as a button in a widget. */
-export function chipButton(c: Chip, onAdd: (button: HTMLElement) => void) {
+export function chipButton(c: Chip) {
   const b = h("button", { class: `lp-tag lp-${c.tone}`, title: c.title, attrs: { type: "button" } }, h("span", { text: c.text }));
-  b.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); if (c.go === "add") onAdd(b); else c.go(); });
+  b.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); c.go(); });
   return b;
 }
 

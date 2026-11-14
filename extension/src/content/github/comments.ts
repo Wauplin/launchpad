@@ -1,5 +1,5 @@
 // I2 Ask a bot on each comment: a small "Ask" in the comment's header actions, highlighted ("Ask <bot> what to
-// answer", amber) on comments that mention you or on a pull request that requests your review. I5 the live agent card
+// answer", amber) on comments that mention you. I5 the live agent card
 // under the comment that was asked about: working with its current step and time, Stop and Open in Launchpad; then
 // "Reply ready" with the suggestion's preview and Insert, from the event stream. The comment is passed by reference
 // (its anchor ID); its text is never read.
@@ -29,13 +29,12 @@ export function renderComments(page: ItemPage, ctx: ExtContext | null, refresh: 
   const ids = new Set<string>();
   const cards = new Set<string>();
   const live: string[] = [];
-  const reviewRequested = ctx?.inbox?.reason === "review_requested";
   for (const actions of found?.els ?? []) {
     const c = commentOf(actions);
     if (!c || !ctx) continue;
     const id = `ask-${c.id}`;
     ids.add(id);
-    const highlight = mentions(c.root, ctx.login) || (reviewRequested && c.id.startsWith("issuecomment-") && c.root === document.querySelector('.timeline-comment-group[id^="issuecomment-"], [data-testid="comment-header"][id^="issuecomment-"]'));
+    const highlight = mentions(c.root, ctx.login);
     const bot = ctx.defaults.bot;
     const text = highlight ? `Ask ${bot?.name ?? "a bot"} what to answer` : "Ask";
     const w = mount(id, `${c.id}|${text}`, actions, found!.place);

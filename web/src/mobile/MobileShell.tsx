@@ -1,6 +1,6 @@
 // Phone shell: a top bar with the workspace sheet (workspaces with their counts, nothing else), the section title and
 // a status that warns (a detail page replaces the bar with its ‹, title and ⋯: `PhoneBar`, and keeps the status only
-// while it warns), one page at a time, and bottom tabs (Today · Chats · Agents · Inbox · More). Chats lists the
+// while it warns), one page at a time, and bottom tabs (Today · Chats · Agents · More). Chats lists the
 // workspace's bots (Ask Launchpad pinned first); More holds the other places. Android back follows `./back.ts`: tab
 // taps replace the entries above Today, overlays and detail views own one entry each. Same daemon, rules and feature
 // components as the laptop shell; only the frame differs. Every action stays a visible button.
@@ -18,7 +18,6 @@ import { useChannels } from "@/lib/channels";
 import { Toasts } from "@/components/Toast";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
-import { useInboxNeeds } from "@/features/inbox/data";
 import { useTodayCount } from "@/features/today/data";
 import { useScope, useWorkspaceSync } from "@/lib/workspace";
 import { useSessions } from "@/lib/queries";
@@ -103,7 +102,6 @@ export function MobileShell() {
   const sessions = (useSessions().data ?? []).filter(scope.hasSession);
   const today = useTodayCount();
   const running = sessions.filter(isRunning).length;
-  const inbox = useInboxNeeds();
   // What waits in the other workspaces, shown on the button that opens the sheet.
   const counts = useWorkspaceCounts();
   const inMenu = Object.entries(counts).reduce((n, [id, c]) => n + (id === scope.workspace.id ? 0 : c.total), 0);
@@ -162,7 +160,6 @@ export function MobileShell() {
         <Tab to="/" icon="okcircle" label="Today" count={today} highlight exact />
         <Tab to="/chats" icon="spark" label="Chats" count={chatsNeed} highlight active={onChats} tour="phone.chats-tab" onAgain={openLastChat} />
         <Tab to="/agents" icon="agents" label="Agents" count={running} />
-        <Tab to="/inbox" icon="inbox" label="Inbox" count={inbox} highlight />
         <Tab to="/more" icon="more" label="More" count={moreNeeds} highlight active={onMore} tour="phone.more-tab" />
       </nav>}
       <Composer />

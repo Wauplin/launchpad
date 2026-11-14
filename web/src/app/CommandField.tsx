@@ -1,6 +1,6 @@
 // The one field of the top bar: Ask (a message to a bot of the workspace, shown in the Ask panel) and Launch (an agent
 // at once, with the page as context and the folder's defaults; its menu opens the full composer with the text).
-// The page you are on is the context: a folder, a GitHub item, a session's trace, a Local PR or a settings page.
+// The page you are on is the context: a folder, a session's trace, a Local PR or a settings page.
 // Pasted screenshots go with the message (Ask) or the launch, as small thumbnails in the field; no file picker.
 // Ask is the primary button (and Enter) on every page; Launch is an outline button. Without a bot, Launch is the
 // only button, so it is the primary one.
@@ -15,8 +15,6 @@ import type { Session } from "@/gen/Session";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { LaunchSplitButton, openOptions } from "@/features/launch/LaunchButton";
-import { itemKey } from "@/features/github/lib";
-import type { Item } from "@/features/github/types";
 import { runAction } from "@/lib/actions";
 import { askTarget, useBots } from "@/lib/bots";
 import { attachmentSrc, pastedImages } from "@/lib/attachments";
@@ -39,24 +37,11 @@ type PageContext = {
   botId?: string;
 };
 
-function pageContext(path: string, sessionId: string | null, projects: Project[], sessions: Session[], bots: Bot[], item: Item | undefined, predraft: Predraft | undefined): PageContext {
+function pageContext(path: string, sessionId: string | null, projects: Project[], sessions: Session[], bots: Bot[], predraft: Predraft | undefined): PageContext {
   const project = path.match(/^\/projects\/([^/]+)/);
   if (project) {
     const p = projects.find((x) => x.id === project[1]);
     return { label: p ? `Folder ${p.name}` : null, line: p ? `the folder ${p.name} (folder id ${p.id})` : null, launch: p ? { projectId: p.id } : undefined };
-  }
-  const gh = path.match(/^\/github\/([^/]+)\/([^/]+)\/(\d+)/);
-  if (gh) {
-    const repo = `${gh[1]}/${gh[2]}`;
-    const number = Number(gh[3]);
-    const pr = item?.__typename === "PullRequest";
-    const lower = repo.toLowerCase();
-    const p = projects.find((x) => x.gh_repo?.toLowerCase() === lower) ?? projects.find((x) => x.gh_upstream?.toLowerCase() === lower);
-    const url = `https://github.com/${repo}/${pr ? "pull" : "issues"}/${number}`;
-    return {
-      label: `${repo}#${number}`, line: `${pr ? "the pull request" : "the GitHub item"} ${repo}#${number}${item ? ` “${item.title}”` : ""} (${url})`,
-      launch: { projectId: p?.id ?? null, githubRefs: [{ url, kind: pr ? "pr" : "issue", repo, number, title: item?.title ?? null }] },
-    };
   }
   const session = sessionId ? sessions.find((s) => s.id === sessionId) : undefined;
   if (session) {
@@ -86,16 +71,14 @@ export function CommandField() {
   const scope = useScope();
   const allBots = useBots().data ?? [];
   const bots = allBots.filter((b) => b.workspace_id === scope.workspace.id);
-  const gh = path.match(/^\/github\/([^/]+)\/([^/]+)\/(\d+)/);
-  // The item and Local PR the page already cached; the field never fetches them.
-  const item = useQuery<Item>({ queryKey: gh ? itemKey(`${gh[1]}/${gh[2]}`, Number(gh[3])) : ["none"], enabled: false }).data;
+  // The Local PR the page already cached; the field never fetches it.
   const predraftId = path.match(/^\/predrafts\/([^/]+)/)?.[1];
   const predraft = useQuery<{ predraft: Predraft }>({ queryKey: ["predrafts", predraftId ?? ""], enabled: false }).data?.predraft;
   // The agent shown in Agents: the address on the phone (and from links), the selected session on a laptop, which
   // clears the address once it opened the session.
   const selectedSession = useLayout((s) => s.selectedSession);
   const sessionId = path.startsWith("/agents") ? (typeof search.session === "string" ? search.session : selectedSession) : null;
-  const page = pageContext(path, sessionId, projects, sessions, allBots, item, predraft);
+  const page = pageContext(path, sessionId, projects, sessions, allBots, predraft);
   const [withContext, setWithContext] = useState(true);
   const pageKey = `${path}:${sessionId ?? ""}`;
   useEffect(() => setWithContext(true), [pageKey]);

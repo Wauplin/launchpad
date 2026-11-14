@@ -16,7 +16,7 @@ import { api } from "@/lib/api";
 import { isPhone } from "@/lib/phone";
 import { ActionButton } from "@/components/ActionButton";
 import { canMergeWorktree } from "./worktreeMerge";
-import { LocalPrButtons, localPrOf, localPrText, useGitHubPrState } from "@/features/predrafts/LocalPrLink";
+import { LocalPrButtons, localPrOf, localPrText } from "@/features/predrafts/LocalPrLink";
 
 /** Git views of a session poll only while it runs (a Done, archived or away session does not change); the turn end
  * refreshes them once (`useGitRefreshAtTurnEnd`). */
@@ -160,7 +160,6 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
   const merged = isMergedWorktree(i, localPrs);
   // The branch's Local PR: opening it replaces Create Local PR, whatever its state.
   const localPr = localPrOf(w, localPrs);
-  const gh = useGitHubPrState(localPr);
   const canMerge = merge && canMergeWorktree(i, localPrs);
   // Away with commits Home lacks: Merge takes only the commit Home holds, and says so.
   const partial = !!away && i.unpushed && !!i.head ? `Home pushes ${i.head.slice(0, 12)}, the commit saved on Home, to ${base} on the folder's remote, then fast-forwards ${base} on Home. Its runner has newer commits that are not on Home: they stay out of this merge.` : undefined;
@@ -176,7 +175,7 @@ export function WorktreeCard({ info: i, session, merge = true }: { info: Worktre
       {away && <div className="text-[12px] text-attn">{away}: this is the branch saved on Home. Merge and Create Local PR run on Home.</div>}
       {w.push_note && <div className="text-[12px] text-attn">{w.push_note}</div>}
       {w.merged?.note && <div className="text-[12px] text-ink-2">{w.merged.note}</div>}
-      {localPr && <div className="text-[12px] text-ink-2">{localPrText(localPr, gh)}</div>}
+      {localPr && <div className="text-[12px] text-ink-2">{localPrText(localPr)}</div>}
       {w.pull_request && <div className="text-[12px] text-ink-2">Continues <a href={w.pull_request.url} target="_blank" rel="noreferrer">#{w.pull_request.number}</a>: Home pushes each new commit to {w.pull_request.head_branch}.</div>}
       {w.pull_request && <GitHubSync projectId={w.project_id} branch={w.branch} />}
       {w.cleanup_note && w.state === "active" && !i.ahead && <div className="text-[11px] text-ink-3">Cleanup: {w.cleanup_note}</div>}

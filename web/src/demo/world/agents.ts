@@ -294,7 +294,7 @@ export function agentsWorld() {
       say("Three agents run in **Acme**:\n\n- **Add a dark-mode toggle to the header** (storefront): testing the toggle.\n- **Speed up invoice PDF rendering** (billing-api): benchmarking font caching.\n- **Run the load test on the invoices API** (billing-api): k6 runs in the background, about 10 minutes left."),
       ...end(1),
       user("Anything I should start or automate?", false),
-      ...tool("Bash", "launchpad inbox list --workspace Acme", "[{\"repo\":\"acme-labs/billing-api\",\"number\":77,\"reason\":\"mention\",\"title\":\"Invoices API returns 500 on empty cart\"}, …]"),
+      ...tool("Bash", "gh search issues --mentions=@me --state open --owner acme-labs", "acme-labs/billing-api#77  Invoices API returns 500 on empty cart"),
       ...tool("Bash", "launchpad propose launch --title \"Fix the empty-cart 500 in the invoices API\" --spec-file /tmp/fix.json", "Proposal created (waiting for the owner)"),
       ...tool("Bash", "launchpad propose cron --title \"Weekly docs link check\" --spec-file /tmp/links.json", "Proposal created (waiting for the owner)"),
       say("I proposed two things; nothing starts until you press its button:\n\n1. **Fix the empty-cart 500 in the invoices API**: issue #77 mentions you, and the fix looks small.\n2. **Weekly docs link check**: a repeating agent every Monday at 09:00 that reports broken links in docs.\n\nBoth cards are below."),
@@ -319,7 +319,7 @@ export function agentsWorld() {
       ...tool("Bash", "git log --since=1.day --oneline", "(no new commits)"),
       say("no_update"),
       ...end(1),
-      user(routineText("CI failures", "GitHub, CI activity: acme-labs/storefront#118", CI, "- CI activity: acme-labs/storefront#118 “Poll the order in the checkout e2e test” (PullRequest, ci_activity) https://github.com/acme-labs/storefront/pull/118"), false),
+      user(routineText("CI failures", "Scheduled", CI), false),
       ...tool("Bash", "gh run view --log-failed --repo acme-labs/storefront", "checkout.spec.ts:18 Timeout 10000ms exceeded waiting for POST /api/payments"),
       say("**CI on #118 fails because of the change itself**: the test now waits for the order request, but the payment request finishes later on CI. I prepared a fix (also wait for `POST /api/payments`) as the Local PR **Wait for the payment request in the checkout test**. Nothing was pushed to the pull request."),
       // An open question: its options are chips in the chat, and the message box answers it.
@@ -349,7 +349,7 @@ export function agentsWorld() {
     // The Maintainer proposes a change to its own files: one line of BOT.md and a new routine, one diff each (shown
     // in its About and on the Proposals page).
     { id: "demo-prop-review-routine", workspace_id: WS.acme, session_id: "demo-s-bot-maintainer", title: "Review requests on storefront",
-      note: "So I review pull requests as soon as GitHub asks you for a review, and prepare my review as a suggestion.",
+      note: "So every weekday morning I review the pull requests that wait for your review, and prepare each review as a suggestion.",
       body: { kind: "bot_files", bot_id: "demo-bot-maintainer", files: { "BOT.md": MAINTAINER_BOT_MD_NEXT, "routines/review-requests.toml": REVIEW_ROUTINE },
         before: { "BOT.md": "b2", "routines/review-requests.toml": null },
         patches: { "BOT.md": MAINTAINER_BOT_MD_PATCH, "routines/review-requests.toml": `@@ -0,0 +1,${REVIEW_ROUTINE.trimEnd().split("\n").length} @@\n${REVIEW_ROUTINE.trimEnd().split("\n").map((l) => `+${l}`).join("\n")}\n` } },
@@ -403,33 +403,33 @@ export function agentsWorld() {
     id: "demo-cron-audit", title: "Nightly dependency audit", schedule: "0 3 * * *", trigger: { kind: "schedule" }, bot_id: null, bot_paused: false, paused: false, created_at: clock.ago(day * 12),
     spec: defaultSpec({ harness: "codex", profile: "codex-plus", target: { kind: "project", project_id: P.billing }, text: "Run cargo audit and pnpm audit. Report new advisories only, with the fix for each.", workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "weekly", min_left_percent: 30 }, { kind: "previous_run_finished" }],
-    next_run_at: nextAt(3, 0), last_check_at: clock.ago(60 * 9), last_outcome: "Report", runs: ["demo-s-audit"], github_seen: null, failure_seen: null, channel_seen: null, file: null, file_error: null, waiting: null,
+    next_run_at: nextAt(3, 0), last_check_at: clock.ago(60 * 9), last_outcome: "Report", runs: ["demo-s-audit"], failure_seen: null, channel_seen: null, file: null, file_error: null, waiting: null,
     history: [run(day * 4 + 540, "no_update", null), run(day * 3 + 540, "no_update", null), run(day * 2 + 540, "skipped", null, "Scheduled", "28% of the weekly quota left, below 30%"), run(day + 540, "no_update", null), run(540, "report", "demo-s-audit")],
   }, {
     id: "demo-routine-daily", title: "Daily check", schedule: "0 9 * * 1-5", trigger: { kind: "schedule" }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 6),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: DAILY, workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
-    next_run_at: nextAt(9, 0), last_check_at: clock.ago(50), last_outcome: "No update", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, channel_seen: null, file: "routines/daily-check.toml", file_error: null, waiting: null,
+    next_run_at: nextAt(9, 0), last_check_at: clock.ago(50), last_outcome: "No update", runs: ["demo-s-bot-maintainer"], failure_seen: null, channel_seen: null, file: "routines/daily-check.toml", file_error: null, waiting: null,
     history: [run(day * 5 + 50, "report", "demo-s-bot-maintainer"), run(day * 4 + 50, "no_update", "demo-s-bot-maintainer"), run(day * 3 + 50, "no_update", "demo-s-bot-maintainer"), run(day + 50, "report", "demo-s-bot-maintainer"), run(50, "no_update", "demo-s-bot-maintainer")],
   }, {
-    id: "demo-routine-ci", title: "CI failures", schedule: "", trigger: { kind: "github", repo: "acme-labs/storefront", events: ["ci_activity"] }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 6),
+    id: "demo-routine-ci", title: "CI failures", schedule: "0 7 * * 1-5", trigger: { kind: "schedule" }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 6),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: CI, workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
-    next_run_at: null, last_check_at: clock.ago(40), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, channel_seen: null, file: "routines/ci-failures.toml", file_error: null, waiting: null,
-    history: [run(day * 2 + 300, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#112"), run(day + 200, "skipped", null, "GitHub, CI activity: acme-labs/storefront#115", "Maintainer was working"), run(40, "report", "demo-s-bot-maintainer", "GitHub, CI activity: acme-labs/storefront#118")],
+    next_run_at: nextAt(7, 0), last_check_at: clock.ago(40), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], failure_seen: null, channel_seen: null, file: "routines/ci-failures.toml", file_error: null, waiting: null,
+    history: [run(day * 2 + 40, "report", "demo-s-bot-maintainer"), run(day + 40, "skipped", null, "Scheduled", "Maintainer was working"), run(40, "report", "demo-s-bot-maintainer")],
   }, {
     // The Maintainer follows #release-train: the channel wakes it when it is mentioned, and this routine (a channel
     // trigger: the file keeps the channel's ID) reads the other messages, never those the channel delivered to it.
     id: "demo-routine-train", title: "Release questions", schedule: "", trigger: { kind: "channel", channel: "demo-chan-release-train", mentions_only: false }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 4),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: TRAIN_ROUTINE, workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
-    next_run_at: null, last_check_at: clock.ago(1), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], github_seen: null, failure_seen: null, channel_seen: 46, file: "routines/release-questions.toml", file_error: null, waiting: null,
+    next_run_at: null, last_check_at: clock.ago(1), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], failure_seen: null, channel_seen: 46, file: "routines/release-questions.toml", file_error: null, waiting: null,
     history: [run(179, "no_update", "demo-s-bot-maintainer", "#release-train, the owner (message 40)"), run(52, "report", "demo-s-bot-maintainer", "#release-train: 2 new messages")],
   }, {
     // The Librarian's weekly tidy, created paused with the bot (`librarian::ROUTINE`): Sunday 03:00 in Home's time zone.
     id: "demo-routine-tidy", title: "Weekly tidy", schedule: "0 3 * * 0", trigger: { kind: "schedule" }, bot_id: LIBRARIAN_BOT, bot_paused: false, paused: true, created_at: clock.ago(day * 30),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "temp" }, text: LIBRARIAN_TIDY, workspace_id: WS.acme }),
-    conditions: [], next_run_at: null, last_check_at: null, last_outcome: null, runs: [], github_seen: null, failure_seen: null, channel_seen: null, file: "routines/weekly-tidy.toml", file_error: null, waiting: null, history: [],
+    conditions: [], next_run_at: null, last_check_at: null, last_outcome: null, runs: [], failure_seen: null, channel_seen: null, file: "routines/weekly-tidy.toml", file_error: null, waiting: null, history: [],
   }];
 
   return {

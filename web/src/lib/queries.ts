@@ -37,7 +37,7 @@ export const useConfig = () =>
   useQuery({ queryKey: ["config"], queryFn: () => api.get<ConfigResponse>("/api/config"), staleTime: Infinity });
 
 /** Home's shared settings (`GET /api/settings/shared`; a runner forwards it). Presets live there: launches on every runner read Home's. */
-export type SharedSettings = { presets: Preset[]; notify: boolean; github_poll_interval_seconds: number; worktrees_keep: number };
+export type SharedSettings = { presets: Preset[]; worktrees_keep: number };
 
 export const useSharedSettings = () =>
   useQuery({ queryKey: ["shared-settings"], queryFn: () => api.get<SharedSettings>("/api/settings/shared"), staleTime: 60_000 });

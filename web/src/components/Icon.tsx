@@ -9,7 +9,6 @@ export type IconName =
   | "pr-draft"
   | "pr-merged"
   | "pr-local"
-  | "inbox"
   | "agents"
   | "folder"
   | "sliders"
@@ -75,7 +74,6 @@ export function IconSprite() {
     <symbol id="i-pr-draft" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><circle cx="4" cy="3.5" r="1.75"/><circle cx="4" cy="12.5" r="1.75"/><circle cx="12" cy="12.5" r="1.75"/><path d="M4 5.25v5.5"/></g><circle cx="12" cy="8" r="1" fill="currentColor"/><circle cx="12" cy="4.25" r="1" fill="currentColor"/></symbol>
     <symbol id="i-pr-merged" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><circle cx="4" cy="3.5" r="1.75"/><circle cx="4" cy="12.5" r="1.75"/><circle cx="12" cy="8.5" r="1.75"/><path d="M4 5.25v5.5"/><path d="M4 5.25c0 2.5 2.2 3.25 6.25 3.25"/></g></symbol>
     <symbol id="i-pr-local" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="4" cy="3.5" r="1.75"/><circle cx="4" cy="12.5" r="1.75"/><circle cx="12" cy="12.5" r="1.75"/><path d="M4 5.6v4.8" strokeDasharray="1.6 1.6"/><path d="M12 10.75V6.5a2 2 0 0 0-2-2H7.5" strokeDasharray="1.6 1.6"/></g></symbol>
-    <symbol id="i-inbox" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M2 9.5 3.6 3.6a1 1 0 0 1 1-.85h6.8a1 1 0 0 1 1 .85L14 9.5v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/><path d="M2 9.5h3.5l1 1.5h3l1-1.5H14"/></g></symbol>
     <symbol id="i-agents" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></g></symbol>
     <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 4.5a1 1 0 0 1 1-1h3.2l1.5 1.5H13a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></symbol>
     <symbol id="i-sliders" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2.5 4h6.5M12 4h1.5M2.5 8h1.5M7 8h6.5M2.5 12h7.5M13 12h.5"/><circle cx="10.5" cy="4" r="1.5"/><circle cx="5.5" cy="8" r="1.5"/><circle cx="11.5" cy="12" r="1.5"/></g></symbol>

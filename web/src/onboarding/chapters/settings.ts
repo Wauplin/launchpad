@@ -1,4 +1,4 @@
-// Chapter 10: profiles, spending limits, presets, devices, and repositories without a folder.
+// Chapter 10: profiles, spending limits, presets, devices, and Home's GitHub login.
 
 import type { Chapter } from "../tour/types";
 import { clickAnchor } from "./helpers";
@@ -8,7 +8,7 @@ const qrShown = () => /demo\.invalid/.test(document.querySelector("main")?.textC
 
 export const settings: Chapter = {
   ...meta("settings"),
-  learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Pair a phone with a QR code", "Settings has two parts: Workspace, and Launchpad, shared by every workspace", "Each workspace can have its own Telegram bot and chat", "Repositories without a folder reach no Inbox; Settings → GitHub lists them"],
+  learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Pair a phone with a QR code", "Settings has two parts: Workspace, and Launchpad, shared by every workspace", "Each workspace can have its own Telegram bot and chat", "Settings → GitHub shows Home's GitHub login and rate limits"],
   steps: [
     {
       id: "settings.trace-sync", route: "/settings/huggingface", anchor: "settings.trace-sync",
@@ -33,7 +33,7 @@ export const settings: Chapter = {
     {
       id: "settings.devices", route: "/settings/devices", anchor: "devices.pair",
       title: "Your phone",
-      body: "Pair a phone or another browser with a QR code. Every paired browser has full access; the phone layout keeps Today, Chats, Agents and Inbox one tap away, and every other place in More.",
+      body: "Pair a phone or another browser with a QR code. Every paired browser has full access; the phone layout keeps Today, Chats and Agents one tap away, and every other place in More.",
       tryIt: { text: "create a pairing link.", done: qrShown, doIt: () => clickAnchor("devices.pair") },
     },
     {
@@ -52,9 +52,9 @@ export const settings: Chapter = {
       body: "Add a remote MCP server once, with its token: agents on every machine reach it through Home, and the token never leaves Home. Switch off each tool agents must not use; a launch can leave a server out.",
     },
     {
-      id: "settings.github-repos", route: "/settings/github", anchor: "settings.github-repos",
-      title: "Repositories without a folder",
-      body: "Notifications of repositories with no folder belong to no workspace: no Inbox or count shows them. This list does. Add to clones one into a workspace, whose Inbox then shows its items; Open on GitHub, in the ⋯ of a row, checks the others there. This page is under Launchpad, shared by every workspace; Workspace, at the top, holds its name, bots, Telegram, tools and MCP servers.",
+      id: "settings.github", route: "/settings/github", anchor: "settings.github-limits",
+      title: "GitHub",
+      body: "Home's GitHub login clones repositories, publishes Local PRs and posts suggestions; it reads GitHub only when one of these asks, never in the background. Rate limits show what is left as of Home's last call. This page is under Launchpad, shared by every workspace; Workspace, at the top, holds its name, bots, Telegram, tools and MCP servers.",
     },
   ],
 };

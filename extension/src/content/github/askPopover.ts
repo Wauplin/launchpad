@@ -4,7 +4,7 @@
 
 import type { ExtContext } from "@/gen/ExtContext";
 import type { BotBrief } from "../../shared/messages";
-import { ask, workspaceBots, type ItemPage } from "./item";
+import { ask, itemTitle, workspaceBots, type ItemPage } from "./item";
 import { button, h, popover } from "./widgets";
 
 export type AskKind = "ask" | "review" | "reply";
@@ -15,7 +15,8 @@ const TITLES: Record<AskKind, string> = { ask: "Ask a bot about this comment", r
 export function askPopover(root: ShadowRoot, anchor: HTMLElement, page: ItemPage, ctx: ExtContext | null, comment: string | null, kind: AskKind, done: () => void, prefer?: string | null) {
   const select = h("select", { attrs: { "aria-label": "Bot" } }, h("option", { text: "Loading bots…", attrs: { value: "" } }));
   const note = h("textarea", { attrs: { "aria-label": "Note for the bot (optional)", placeholder: kind === "review" ? "What to look at (optional)" : "Your note (optional): what you think, what to check" } });
-  const what = h("div", { class: "lp-muted", text: comment ? `${page.repo}#${page.number} · ${comment.startsWith("discussion_r") ? "review comment" : "comment"} ${comment.replace(/^\D+/, "")}` : `${page.repo}#${page.number}${ctx?.page.title ? ` · ${ctx.page.title}` : ""}` });
+  const title = itemTitle(page);
+  const what = h("div", { class: "lp-muted", text: comment ? `${page.repo}#${page.number} · ${comment.startsWith("discussion_r") ? "review comment" : "comment"} ${comment.replace(/^\D+/, "")}` : `${page.repo}#${page.number}${title ? ` · ${title}` : ""}` });
   const error = h("div", { class: "lp-error", attrs: { role: "alert", hidden: "" } });
   let bots: BotBrief[] = [];
   let busy = false;
@@ -39,7 +40,7 @@ export function askPopover(root: ShadowRoot, anchor: HTMLElement, page: ItemPage
     send.textContent = "Sending…";
     error.hidden = true;
     try {
-      await ask(page, ctx, bot, note.value, comment, kind);
+      await ask(page, bot, note.value, comment, kind);
       close();
       done();
     } catch (e) {

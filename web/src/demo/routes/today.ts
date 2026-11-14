@@ -13,7 +13,7 @@ import { world } from "../world";
 type Place = { everywhere: true } | { workspace: string | null } | { project: string } | { session: string } | { repo: string };
 type Draft = Omit<TodayItem, "workspaces"> & { place: Place };
 
-const PREFIX: Record<TodayKind, string> = { question: "session", finished: "session", failed: "session", local_pr: "local-pr", proposal: "proposal", outbox: "outbox", suggestion: "suggestion", review_request: "review-request", routine: "routine", runner: "runner", home_update: "home-update", cli_update: "cli-update", channel_ask: "channel" };
+const PREFIX: Record<TodayKind, string> = { question: "session", finished: "session", failed: "session", local_pr: "local-pr", proposal: "proposal", outbox: "outbox", suggestion: "suggestion", routine: "routine", runner: "runner", home_update: "home-update", cli_update: "cli-update", channel_ask: "channel" };
 const ORDER: TodayFilter[] = ["answer", "review", "approve", "send", "github", "fix"];
 
 function item(kind: TodayKind, filter: TodayFilter, record: string, title: string, place: Place, at: number, more: Partial<Draft> = {}): Draft {
@@ -101,10 +101,6 @@ function drafts(): Draft[] {
     if (s.status === "posted") add({ outcome: `Posted to ${repo}#${number}` });
     else if (s.status === "posting" || s.status === "uncertain") add({ detail: "Uncertain: check GitHub before you discard it", action: "suggestion.discard" });
     else { if (s.kind === "review") reviewed.add(`${repo.toLowerCase()}#${number}`); add({ action: "suggestion.post" }); }
-  }
-  for (const t of world.inboxThreads) {
-    if (t.number === null || t.reason !== "review_requested" || t.kind !== "PullRequest" || t.state === "closed" || t.state === "merged" || reviewed.has(`${t.repo.toLowerCase()}#${t.number}`)) continue;
-    out.push(item("review_request", "github", t.id, t.title, { repo: t.repo }, Date.parse(t.updated_at), { detail: `${t.repo}#${t.number} · review requested`, github: `${t.repo}#${t.number}` }));
   }
   // Agent CLI updates, with the rules of launchpad_setup::cli_update::items (the demo has one runner).
   for (const u of world.cliUpdates) {

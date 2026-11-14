@@ -54,7 +54,7 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
   );
 }
 
-/** Pill with an optional count: narrows a list (Inbox reasons, PRs/Issues, Review groups). */
+/** Pill with an optional count: narrows a list (Today filters, Review groups). */
 export function FilterChip({ active, onClick, children, count, countNeeds, title, disabled }: { active: boolean; onClick: () => void; children: ReactNode; count?: number; countNeeds?: boolean; title?: string; disabled?: boolean }) {
   return (
     <button type="button" className="lp-chip" aria-pressed={active} title={title} disabled={disabled} onClick={onClick}>

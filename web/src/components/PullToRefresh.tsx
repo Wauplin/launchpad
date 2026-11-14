@@ -1,4 +1,4 @@
-// Pull to refresh, the one gesture of the phone (Today, Inbox and Agents; an exception to click only, decided by
+// Pull to refresh, the one gesture of the phone (Today and Agents; an exception to click only, decided by
 // the owner): pulling a list down from its top shows an arrow, and releasing it past the threshold runs `onRefresh`
 // while a spinner shows. Place it as the first child of the scrolling element `target`.
 

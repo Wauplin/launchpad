@@ -48,7 +48,7 @@ export function homeSteps(d: HomeData): HomeStep[] {
   const burst = !!d.burst?.config.enabled && !d.burst.unavailable;
   return [
     step("workspaces", "Workspace", "Groups of folders, for example Work and Side projects. Create at least one; add more any time.", true, d.workspaces > 0),
-    step("github", "GitHub", "Home's GitHub login: the Inbox, issues, pull requests, Clone from GitHub and publication use it.", true, !!d.github?.find((c) => c.id === "github")?.signed_in),
+    step("github", "GitHub", "Home's GitHub login: Clone from GitHub, publication and suggestions use it.", true, !!d.github?.find((c) => c.id === "github")?.signed_in),
     step("profile", "Agent login", "A profile and its login in Home's vault. Agents never use a machine's own sign-in.", true, d.profiles.length > 0 && !!d.vault && d.profiles.every((p) => hasLogin(p.harness))),
     step("identity", "Git identity of agents", "The name and email of your agents' commits, kept in Home's vault.", true, !!(d.vault?.git_name.trim() && d.vault.git_email.trim())),
     step("runner", "Where agents run", "Burst runs them in Hugging Face Jobs, with nothing to install. A runner is a Linux machine of yours.", true, runner || burst),

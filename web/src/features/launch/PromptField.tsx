@@ -57,7 +57,6 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   const skillParams = new URLSearchParams({ harness: harness ?? "", ...(profile ? { profile } : {}), ...(root ? { root } : {}) });
   const skills = useQuery({ queryKey: ["prompt-skills", root, harness, profile], queryFn: ({ signal }) => api.get<SkillResults>(`/api/prompt/skills?${skillParams}`, signal), enabled: autocomplete && mention?.trigger === "/" && !!harness, staleTime: 30_000 });
   const gh = useQuery({ queryKey: ["gh-suggest", repo, debounced], queryFn: ({ signal }) => api.get<GhItem[]>(`/api/gh/${repo}/suggest?q=${encodeURIComponent(debounced)}`, signal), enabled: mention?.trigger === "#" && !!repo, staleTime: 60_000 });
-  const cachedGitHub = useQuery({ queryKey: ["prompt-github", debounced], queryFn: ({ signal }) => api.get<GitHubRef[]>(`/api/prompt/github?q=${encodeURIComponent(debounced)}`, signal), enabled: mention?.trigger === "#", staleTime: 30_000 });
   const query = (mention?.query ?? "").toLowerCase();
   const rank = (text: string) => matchScore(text, query);
   const suggestions: Suggestion[] = [];
@@ -79,7 +78,6 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
     for (const s of sessions.filter((s) => s.id !== sessionId && s.last_seq > 0 && scope.hasSession(s) && rank(`${s.title} ${s.cwd}`) !== null).sort(byPickerOrder).slice(0, 10)) suggestions.push({ id: s.id, group: "Trace", label: s.title, detail: `${s.cwd} · through event ${s.last_seq}`, token: `#trace:${s.title.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 40) || "agent"}`, icon: "agents", pick: { kind: "trace", value: { session_id: s.id, through_seq: s.last_seq } } });
     const github = new Map<string, GitHubRef>();
     for (const s of sessions.filter(scope.hasSession)) for (const g of s.launch_spec.github_refs) if (rank(`${g.repo}#${g.number} ${g.title ?? ""}`) !== null) github.set(g.url, g);
-    for (const g of cachedGitHub.data ?? []) github.set(g.url, g);
     for (const g of gh.data ?? []) github.set(g.url, { ...g, number: g.number, title: g.title });
     if (debounced === mention.query) for (const g of [...github.values()].slice(0, 10)) suggestions.push({ id: g.url, group: g.kind === "pr" ? "PR" : "Issue", label: `${g.repo}#${g.number} ${g.title}`, detail: g.repo, token: `#${g.repo}#${g.number}`, icon: g.kind === "pr" ? "pr" : "issue", pick: { kind: "github", value: { url: g.url, kind: g.kind, repo: g.repo, number: g.number, title: g.title } } });
   }

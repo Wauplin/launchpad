@@ -1,43 +1,43 @@
-// One-time agents launched from GitHub (I6 Investigate and Fix in a Local PR on issues, I8 Check with an agent on a
-// fork's pull request): a popover with the profile (the last one chosen in this tab, else the first subscription
-// profile), an optional note and Launch. The agent runs in the folder of the page's repository, in its own worktree:
-// read only, or ending in a Local PR. The item goes by reference (github_refs); its text is never sent.
+// One-time agents launched from GitHub (I6 Investigate and Fix in a Local PR on issues): a popover with the profile
+// (the last one chosen in this tab, else the first subscription profile), an optional note and Launch. The agent runs
+// in the folder of the page's repository, in its own worktree: read only, or ending in a Local PR. The item goes by reference (github_refs); its text is never sent.
 
 import type { ExtContext } from "@/gen/ExtContext";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import { request, type LaunchWhenDone, type ProfileBrief } from "../../shared/messages";
+import { itemTitle } from "./item";
 import { button, h, popover } from "./widgets";
 
-export type LaunchKind = "investigate" | "fix" | "ci";
+export type LaunchKind = "investigate" | "fix";
 
-const TITLES: Record<LaunchKind, string> = { investigate: "Investigate", fix: "Fix in a Local PR", ci: "Check with an agent" };
-const WHEN: Record<LaunchKind, LaunchWhenDone> = { investigate: "read_only", fix: "local_pr", ci: "read_only" };
+const TITLES: Record<LaunchKind, string> = { investigate: "Investigate", fix: "Fix in a Local PR" };
+const WHEN: Record<LaunchKind, LaunchWhenDone> = { investigate: "read_only", fix: "local_pr" };
 
 let profilesCache: Promise<ProfileBrief[]> | null = null;
 /** The profile chosen last in this tab. */
 let lastProfile: string | null = null;
 
-/** The task each launch gets: the owner's note first, then how to work and end. `extra`: facts from Home (CI files). */
-export function launchText(kind: LaunchKind, ref: GitHubRef, note: string, extra = "") {
+/** The task each launch gets: the owner's note first, then how to work and end. */
+export function launchText(kind: LaunchKind, ref: GitHubRef, note: string) {
   const item = `${ref.repo}#${ref.number}`;
   switch (kind) {
     case "investigate": return `${note || `Investigate issue ${item}: find the root cause.`}\n\nThis is a read-only investigation: change nothing. End with the root cause, the files and lines involved, and what a fix needs.`;
     case "fix": return `${note || `Fix issue ${item}.`}\n\nWork in your worktree and add a test only if the fix clearly needs one. When done, run \`launchpad work finish\` to open a Local PR whose description starts with "Fixes ${item}", for me to review and publish.`;
-    case "ci": return `${note || `Check pull request ${item} before its GitHub Actions workflows run.`}\n\nIt comes from a fork: approving its workflows runs its code with this repository's CI. ${extra}Read what runs during CI (workflows, scripts, dependencies, build and test files) in its diff and say whether approving is safe, and why. This is read only: change nothing, post nothing.`;
   }
 }
 
 /** Opens the launch popover under `anchor`. */
-export function launchPopover(root: ShadowRoot, anchor: HTMLElement, ctx: ExtContext, kind: LaunchKind, ref: GitHubRef, done: () => void, extra = "") {
+export function launchPopover(root: ShadowRoot, anchor: HTMLElement, ctx: ExtContext, kind: LaunchKind, ref: GitHubRef, done: () => void) {
   const folder = ctx.folder;
   const select = h("select", { attrs: { "aria-label": "Profile" } }, h("option", { text: "Loading profiles…", attrs: { value: "" } }));
   const note = h("textarea", { attrs: { "aria-label": "Note for the agent (optional)", placeholder: kind === "fix" ? "What the fix should do (optional)" : "What to look at (optional)" } });
   const error = h("div", { class: "lp-error", attrs: { role: "alert", hidden: "" } });
   const go = h("button", { class: "lp-btn lp-primary", text: "Launch", attrs: { type: "button", disabled: "" } });
   let busy = false;
+  const title = ref.repo && ref.number ? itemTitle({ repo: ref.repo, number: ref.number }) : null;
   const where = folder ? `Folder ${folder.name} · ${folder.workspace} · ${kind === "fix" ? "ends in a Local PR" : "read only"}` : "";
   const close = popover(root, anchor, TITLES[kind], (close) => [
-    h("div", { class: "lp-muted", text: `${ref.repo}#${ref.number}${ctx.page.title ? ` · ${ctx.page.title}` : ""}` }),
+    h("div", { class: "lp-muted", text: `${ref.repo}#${ref.number}${title ? ` · ${title}` : ""}` }),
     select, note, error,
     h("div", { class: "lp-row" }, h("span", { class: "lp-muted lp-grow", text: where }), button("Cancel", close, { small: true }), go),
   ]);
@@ -54,7 +54,7 @@ export function launchPopover(root: ShadowRoot, anchor: HTMLElement, ctx: ExtCon
     error.hidden = true;
     try {
       lastProfile = select.value;
-      await request("launch", { folder: folder.id, text: launchText(kind, ref, note.value.trim(), extra), github_refs: [ref], when_done: WHEN[kind], profile: select.value, key: crypto.randomUUID() });
+      await request("launch", { folder: folder.id, text: launchText(kind, ref, note.value.trim()), github_refs: [ref], when_done: WHEN[kind], profile: select.value, key: crypto.randomUUID() });
       close();
       done();
     } catch (e) {

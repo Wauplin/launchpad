@@ -1,5 +1,5 @@
 // Add folder → Clone from GitHub: Home mirrors a repository and registers it as a Git folder; runners clone it from Home.
-// Suggestions put repositories with recent GitHub notifications first, then recently pushed ones; any owner/name can be typed.
+// Suggestions list your recently pushed repositories, read from GitHub when the dialog opens; any owner/name can be typed.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -12,13 +12,12 @@ import type { Workspace } from "@/gen/Workspace";
 
 const SHOWN = 30;
 
-/** `workspace`: the one workspace of the new folder, chosen in the Add folder dialog (null: not chosen yet).
- * `initialRepo`: a repository to fill in (Settings → GitHub → Add to). */
-export function CloneFromGitHub({ workspace, initialRepo, onDone }: { workspace: Workspace | null; initialRepo?: string; onDone?: () => void }) {
+/** `workspace`: the one workspace of the new folder, chosen in the Add folder dialog (null: not chosen yet). */
+export function CloneFromGitHub({ workspace, onDone }: { workspace: Workspace | null; onDone?: () => void }) {
   const qc = useQueryClient();
-  const [repo, setRepo] = useState(initialRepo ?? "");
+  const [repo, setRepo] = useState("");
   const [cloning, setCloning] = useState<string | null>(null);
-  // POST refreshes recent notifications and pushed repositories from GitHub (best effort), then reads the cache.
+  // POST reads your recently pushed repositories from GitHub (nothing is stored).
   const q = useQuery({ queryKey: ["clone-suggestions"], queryFn: () => api.post<CloneSuggestion[]>("/api/projects/clone/suggestions", {}) });
   const typed = repo.trim();
   const matches = (q.data ?? []).filter((r) => !typed || r.repo.toLowerCase().includes(typed.toLowerCase()));
@@ -55,7 +54,6 @@ export function CloneFromGitHub({ workspace, initialRepo, onDone }: { workspace:
           {matches.slice(0, SHOWN).map((r) => (
             <div key={r.repo} className="flex h-9 items-center gap-2 border-b border-line-2 px-3 text-[13px] last:border-0">
               <span className="truncate font-mono text-[12px]">{r.repo}</span>
-              {r.notifications > 0 && <span className="shrink-0 text-[11px] text-ink-3">{r.notifications} recent notification{r.notifications === 1 ? "" : "s"}</span>}
               <button className="btn btn-sm ml-auto" disabled={!!cloning || !workspace} onClick={() => void clone(r.repo)}>
                 <Icon name="plus" size={12} />
                 Clone

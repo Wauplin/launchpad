@@ -1,7 +1,6 @@
-// One Changes view for every diff: PR files, Local PR files, session Changes (and commit diffs through FilePatch).
+// One Changes view for every diff: Local PR files, session Changes (and commit diffs through FilePatch).
 // File list with viewed markers and progress, Unified · Split, Wrap, syntax colors and line notes. Hosts own the
-// data: where the patch comes from, what "viewed" means and where notes go (PR line comments posted with Submit
-// review, notes for the agent elsewhere). Rows are virtualized; wrapped rows are measured.
+// data: where the patch comes from, what "viewed" means and where notes go (notes for the agent). Rows are virtualized; wrapped rows are measured.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -16,8 +15,8 @@ import { useReviewState } from "@/lib/reviewState";
 import { useTheme } from "@/stores/theme";
 
 export type DiffEntry = { path: string; previous?: string | null; status: string; additions?: number | null; deletions?: number | null };
-/** A note on one diff line. `side`: the old (deleted) or new file line. `head`: the PR head the note was written on. */
-export type LineNote = { path: string; line: number | null; side?: "old" | "new"; code: string; text: string; head?: string; startLine?: number };
+/** A note on one diff line. `side`: the old (deleted) or new file line. */
+export type LineNote = { path: string; line: number | null; side?: "old" | "new"; code: string; text: string; startLine?: number };
 
 type Line = { text: string; kind: "hunk" | "add" | "del" | "context" | "note" | "meta"; old: number | null; next: number | null; index: number };
 
@@ -103,12 +102,6 @@ export const PatchView = memo(function PatchView({ patch, path, language, split,
       })}
     </div>
   </div>;
-});
-
-/** Read-only patch with a bounded height (commit diffs). Kept for callers that show one file without the review UI. */
-export const FilePatch = memo(function FilePatch({ file, split, emptyMessage = "Binary file or patch unavailable. Open the full file or GitHub to inspect it." }: { file: { filename: string; patch?: string; language?: string }; split: boolean; emptyMessage?: string }) {
-  if (!file.patch) return <Empty icon="info">{emptyMessage}</Empty>;
-  return <div className="border-t border-line"><PatchView patch={file.patch} path={file.filename} language={file.language} split={split} wrap={false} maxHeight={520} /></div>;
 });
 
 /** Split/unified preference shared by every Changes view on this device. */

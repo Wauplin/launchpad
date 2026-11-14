@@ -81,7 +81,7 @@ function stale(urls: string[] | "*") {
 }
 
 /** Topics whose events can change any page's context. */
-const ALL = new Set(["today", "suggestions", "predrafts", "projects", "inbox", "bots", "workspaces", "worktrees", "home_git", "notes"]);
+const ALL = new Set(["today", "suggestions", "predrafts", "projects", "bots", "workspaces", "worktrees", "home_git", "notes"]);
 
 /** Called for every bus event of Home's stream. */
 export function contextEvent(ev: BusEvent) {
@@ -115,6 +115,10 @@ export async function reportAnchors(checks: Record<string, Omit<AnchorCheck, "at
   await setLocal({ anchors: health });
 }
 
+/** Anchors of features the extension no longer has: older checks of them are left out of Settings. */
+const RETIRED = new Set(["notification-list", "notification-rows", "ci-approval"]);
+
 export async function anchorHealth(): Promise<AnchorHealth> {
-  return { anchors: (await local("anchors")) ?? {} };
+  const all: AnchorHealth["anchors"] = (await local("anchors")) ?? {};
+  return { anchors: Object.fromEntries(Object.entries(all).filter(([name]) => !RETIRED.has(name))) };
 }

@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { HostChip, useConnection } from "@/app/Connection";
 import { HarnessMark, useHarnesses } from "@/components/HarnessMark";
 import type { QuotaWindow } from "@/gen/QuotaWindow";
-import { useInbox } from "@/features/inbox/data";
+import { useGitHubLimits } from "@/lib/githubLimits";
 import { ago, formatReset, resetLabel, when } from "@/lib/format";
 import { useStatus } from "@/lib/queries";
 import { spendLabel, spendPercent, useQuotas, windowLabel } from "@/lib/profiles";
@@ -26,7 +26,7 @@ function useStatusWarnings(): Warning[] {
   const outdated = useOutdatedRunners().map((r) => r.runner.name);
   const offline = useOfflineRunners();
   const refused = useRefusedRunners();
-  const limits = useInbox().data?.limits ?? {};
+  const limits = useGitHubLimits().data ?? {};
   const out: Warning[] = [];
   if (!online) out.push({ key: "offline", text: `Not connected to ${data?.host || "the daemon"}${since ? ` since ${when(since)}` : ""}. Showing what was last received.` });
   if (!data) return out;

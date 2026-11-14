@@ -5,10 +5,8 @@
 import type { BotThread } from "@/gen/BotThread";
 import type { DiffSelection } from "@/gen/DiffSelection";
 import type { ExtContext } from "@/gen/ExtContext";
-import type { ExtNotifications } from "@/gen/ExtNotifications";
 import type { ExtReviewChoice } from "@/gen/ExtReviewChoice";
 import type { ExtRows } from "@/gen/ExtRows";
-import type { ObservedResult } from "@/gen/ObservedResult";
 import type { Predraft } from "@/gen/Predraft";
 import type { Project } from "@/gen/Project";
 import type { FileAttachment } from "@/gen/FileAttachment";
@@ -102,10 +100,6 @@ export type LedgerAction = "shown" | "inserted" | "posted-by-hand" | "dismiss-co
 /** Commands the panel sends to the GitHub layer of a tab (`chrome.tabs.sendMessage`): the same buttons as the page. */
 export type TabCommand = { type: "insert"; suggestion: string };
 
-/** Done, mark as read or Unsubscribe, clicked on github.com's notifications. */
-export type ObservedAction = "done" | "read" | "unsubscribe";
-/** One thread of Done all handled: marked Done, or why not. */
-export type DoneResult = { id: string; error: string | null };
 /** `GET /api/predrafts/{id}`: what the Publish dialog needs (the commit shown is the one published). */
 export type LocalPrDetail = { predraft: Predraft; status: string | null; head?: string; default_remote_branch?: string; base_ahead: number; project_missing?: boolean; change_set?: { id: string; title: string; published_url: string | null; merged: boolean }[] };
 
@@ -154,8 +148,8 @@ export type Requests = {
   /** The newest context the worker holds for any page of the same repository (null: none), without calling Home: what
    * the GitHub layer shows at once while `context` loads. */
   "context.peek": Req<{ url: string }, ExtContext | null>;
-  /** Row states of a list page (`GET /api/ext/rows`): numbers on Pull requests and Issues, `owner/repo#number` (or
-   * thread IDs) on Notifications. */
+  /** Row states of a list page (`GET /api/ext/rows`): numbers on Pull requests and Issues (`owner/repo#number` on
+   * lists that span repositories). */
   "rows": Req<{ url: string; items: string[] }, ExtRows>;
   /** Opens a page of Home (a path such as `/projects/<id>`) in a new tab. */
   "open": Req<{ path: string }, void>;
@@ -199,14 +193,6 @@ export type Requests = {
   "session.stop": Req<{ id: string }, void>;
   /** A feedback-ledger record of a suggestion (`suggestion.shown`, `.inserted`, `.posted-by-hand`, `.dismiss-comment`). */
   "suggestion.ledger": Req<{ action: LedgerAction; id: string; part?: string; text?: string }, unknown>;
-  /** The notifications strip (`GET /api/ext/notifications`): Today's counts of the workspace and the threads a bot
-   * already handled. */
-  "notifications": Req<void, ExtNotifications>;
-  /** Done, read or Unsubscribe clicked on github.com (`inbox.observed`): recorded in Launchpad's Inbox, never sent to
-   * GitHub again. `items`: `owner/repo#number` or thread IDs. */
-  "inbox.observed": Req<{ items: string[]; action: ObservedAction }, ObservedResult[]>;
-  /** Done all handled (`inbox.done-handled`, a GitHub write): only from the confirm button that lists the threads. */
-  "inbox.done-handled": Req<{ ids: string[] }, DoneResult[]>;
   /** Remembers the bot and preset of Review with agent on a repository (`github.review-choice`). */
   "review-choice": Req<{ repo: string; bot?: string | null; preset?: string | null }, ExtReviewChoice>;
   /** Add to Launchpad: Clone from GitHub into a workspace (`folder.clone`). */

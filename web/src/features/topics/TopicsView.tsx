@@ -15,6 +15,8 @@ import { runAction } from "@/lib/actions";
 import { ActionMenuItem } from "@/components/ActionButton";
 import { toast, toastError } from "@/components/Toast";
 import { ago } from "@/lib/format";
+import { githubItemUrl } from "@/lib/githubLinks";
+import { openExternal } from "@/lib/platform";
 import { TopicName, TopicPicker } from "./TopicPicker";
 import { useTopics, useTopicMutations, type Topic } from "./data";
 import type { Session } from "@/gen/Session";
@@ -67,7 +69,11 @@ function TopicPage({ id }: { id?: string }) {
     if (!topic) return;
     try { await add(topic.id, [s.id], false); toast(`Removed from ${topic.name}`, { label: "Undo", run: () => { void add(topic.id, [s.id]).catch(toastError); } }); } catch (e) { toastError(e); }
   };
+  // A topic named after a GitHub item (`owner/repo#N`, joined by item links and suggestions) opens it on GitHub.
+  const item = topic?.name.match(/^([^/\s#]+\/[^/\s#]+)#(\d+)$/);
+  const itemUrl = item ? githubItemUrl(item[1], Number(item[2])) : null;
   const menu = (close: () => void) => topic && <>
+    {itemUrl && <MenuItem icon={<Icon name="ext" size={14} />} label="Open on GitHub" detail={topic.name} onClick={() => { close(); openExternal(itemUrl); }} />}
     <MenuItem icon={<Icon name="spark" size={14} />} label="Summarize…" detail="Launch an agent that reads every trace" onClick={() => { close(); launch(true); }} />
     <MenuItem icon={<Icon name="agents" size={14} />} label="Show in Agents" detail="The Agents list, filtered by this topic" onClick={() => { close(); void navigate({ to: "/agents", search: { topic: topic.id } }); }} />
     <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename" onClick={() => { close(); setRename(topic.name); }} />

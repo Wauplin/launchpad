@@ -96,12 +96,6 @@ const STYLE = `
 .lp-tag:hover { background: var(--control-transparent-bgColor-hover, #818b981f); }
 .lp-hover { display: inline-flex; align-items: center; gap: 2px; }
 :host([data-hover]:not([data-show])) .lp-hover { visibility: hidden; }
-/* Notification metadata is a single compact line; popovers keep their normal sizing. */
-:host([data-notification]) { height: 20px; margin: 0 0 0 8px; gap: 4px; white-space: nowrap; vertical-align: middle; }
-:host([data-notification]) .lp-hover { height: 20px; }
-:host([data-notification]) .lp-hover > .lp-btn { height: 20px; padding: 0 5px; font-size: 11px; background: transparent; }
-:host([data-notification]) .lp-hover > .lp-more { width: 20px; height: 20px; }
-:host([data-notification]) > .lp-tag { height: 18px; padding: 0 5px; font-size: 11px; }
 .lp-section { border: 1px solid var(--borderColor-default, #d1d9e0); border-top: 2px solid var(--lp-teal); border-radius: 6px; margin: 0 0 16px; background: var(--bgColor-default, #ffffff); }
 .lp-section-head { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: var(--bgColor-muted, #f6f8fa); border-bottom: 1px solid var(--borderColor-muted, #d1d9e0b3); border-radius: 6px 6px 0 0; }
 .lp-section-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }

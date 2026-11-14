@@ -5,7 +5,7 @@ import type { Topic } from "@/gen/Topic";
 
 import { coreWorld } from "./core";
 import { agentsWorld } from "./agents";
-import { githubWorld } from "./github";
+import { fakeSha, githubWorld } from "./github";
 import { codeWorld } from "./code";
 import { settingsWorld } from "./settings";
 import { knowledgeWorld } from "./knowledge";
@@ -22,9 +22,8 @@ export let world: World = null as unknown as World;
 export function resetWorld() {
   world = { topics: [], ...coreWorld(), ...agentsWorld(), ...githubWorld(), ...codeWorld(), ...settingsWorld(), ...knowledgeWorld(), ...botsWorld(), ...connectionsWorld(), ...channelsWorld() };
   world.topics = [{ id: "demo-topic-launch", workspace_id: WS.acme, name: "Launch experience", naming: false, session_ids: world.sessions.filter((s) => s.project_id === world.projects.find((p) => p.workspace_id === WS.acme)?.id).slice(0, 4).map((s) => s.id) }];
-  // A ready click from Ask Launchpad: an Inbox thread to mark done, run only by your click.
-  const old = world.inboxThreads.find((t) => t.reason === "assign" && !t.unread);
-  if (old) world.proposals.push({ id: "demo-prop-ready-done", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: `Mark “${old.title}” done`,
-    note: "It was assigned to you weeks ago and nothing happened since; mark it done in the Inbox and on GitHub.",
-    body: { kind: "ready", action: "inbox.done", args: [old.id], input: {} }, state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(14), updated_at: clock.ago(14) });
+  // A ready click from Ask Launchpad: the waiting workflows of a contributor's pull request, run only by your click.
+  world.proposals.push({ id: "demo-prop-ready-ci", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: "Approve and run the workflows of storefront#119",
+    note: "The pull request comes from a fork, so its checks wait for a maintainer. I read the diff: it changes only the cart view, no workflow file.",
+    body: { kind: "ready", action: "github.run-ci", args: ["acme-labs", "storefront", "119"], input: { head: fakeSha("acme-labs/storefront#119:head") } }, state: "proposed", result_id: null, replaced_by: null, error: null, created_at: clock.ago(14), updated_at: clock.ago(14) });
 }

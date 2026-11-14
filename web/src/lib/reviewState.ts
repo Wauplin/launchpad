@@ -1,5 +1,5 @@
 // Review progress kept by the daemon (`/api/review-state`), so every browser and device sees the same
-// viewed markers and unsent drafts. Keys are namespaced: `viewed:`, `reply:`, `predraft:`, `suggestion:`.
+// viewed markers and unsent drafts. Keys are namespaced: `viewed:`, `predraft:`, `suggestion:`.
 // Writes are debounced; other windows refresh on the `review-state` bus event. Pure UI state (layout,
 // collapsed groups, selection, diff view mode) stays in local storage.
 
@@ -108,7 +108,6 @@ function setup(qc: QueryClient) {
 }
 
 export const viewedKey = (id: string, number: number, head: string) => `viewed:${id}#${number}@${head}`;
-export const replyKey = (repo: string, number: number) => `reply:${repo}#${number}`;
 
 /**
  * One review state value shared through the daemon. `empty` is the value when nothing is stored;

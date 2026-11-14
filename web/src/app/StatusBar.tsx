@@ -1,4 +1,4 @@
-import { useInbox } from "@/features/inbox/data";
+import { useGitHubLimits } from "@/lib/githubLimits";
 import { Fragment, useEffect, useState } from "react";
 import type { HarnessStatus } from "@/gen/HarnessStatus";
 import type { QuotaStatus } from "@/gen/QuotaStatus";
@@ -158,7 +158,7 @@ function Details({ entry, labeled, data, limits }: { entry: QuotaEntry | null; l
 export function StatusBar() {
   const harnesses = useHarnesses();
   const { data } = useStatus();
-  const limits = useInbox().data?.limits ?? {};
+  const limits = useGitHubLimits().data ?? {};
   const low = Object.entries(limits).filter(([, v]) => v.remaining < 500);
   // Re-render every 30 s so ages and reset times stay current.
   const [, tick] = useState(0);
