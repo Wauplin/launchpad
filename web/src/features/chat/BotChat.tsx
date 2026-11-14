@@ -281,7 +281,6 @@ export function BotChat({ bot, threadId = MAIN_THREAD, thread, rotation, needsPr
   return (
     <ReplyContext.Provider value={onReply}>
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-paper" data-tour="bots.thread">
-      <BotModelChoice bot={bot} current={current} />
       {failedLog && <div role="alert" className="flex flex-wrap items-center gap-3 px-4 py-2 text-[12px] text-ink-3">
         <span className="min-w-0 flex-1 break-words">Could not load the thread: {failedLog.error}</span>
         <button className="btn btn-sm" onClick={() => visible.forEach((s) => void load(s.id))}>Retry</button>
@@ -695,29 +694,37 @@ function BotComposer({ bot, threadId, onStarted, current, rotation, needsProfile
 }
 
 
-function BotModelChoice({ bot, current }: { bot: Bot; current: Session | null }) {
+/** ⋯ → Profile and model: a quick override of the bot's profile list and model (About → Access → Edit holds all of
+ * its settings). A change starts a new session with the next message. */
+export function BotModelChoice({ bot, current }: { bot: Bot; current: Session | null }) {
   const profiles = useProfiles();
   const qc = useQueryClient();
   const profile = profiles.find((p) => p.id === (bot.settings.profile ?? current?.launch_spec.profile ?? bot.settings.profiles?.[0]));
   const defaults = useHarnessDefaults(profile && !profile.models_url ? profile.harness : null).data?.models ?? [];
   const remote = useProfileModels(profile?.models_url);
   const models = profile?.models_url ? remote.data ?? [] : defaults;
+  const running = !!current && isRunning(current);
   const save = async (model: string, chosen = bot.settings.profile) => {
     try {
       await runAction("bot.update", { id: bot.id }, { settings: { ...bot.settings, profile: chosen || (model ? profile?.id : null), model: model || null } });
       await qc.invalidateQueries({ queryKey: ["bots"] });
     } catch (e) { toastError(e); }
   };
-  return <div className="flex items-center justify-end flex-wrap gap-2 px-3 py-1 text-[12px] text-ink-3">
-    <select className="field-input w-auto max-w-full" aria-label="Bot profile" disabled={!!current && isRunning(current)} value={bot.settings.profile ?? ""} onChange={(e) => void save("", e.target.value)}>
-      <option value="">Automatic profile</option>
-      {profiles.filter((p) => !bot.settings.profiles?.length || bot.settings.profiles.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-    </select>
-    Model
-    <select className="field-input w-auto max-w-full" aria-label="Bot model" title="Changing model starts a new session on the next message" disabled={!!current && isRunning(current)} value={bot.settings.model ?? ""} onChange={(e) => void save(e.target.value)}>
-      <option value="">Automatic · profile default</option>
-      {models.map((m) => <option key={m.id} value={m.id}>{m.display_name || m.id}</option>)}
-      {bot.settings.model && !models.some((m) => m.id === bot.settings.model) && <option value={bot.settings.model}>{bot.settings.model}</option>}
-    </select>
+  const field = "grid gap-1 text-[12px] font-semibold text-ink-2";
+  return <div className="grid gap-2.5">
+    <label className={field}>Profile
+      <select className="field-input font-normal" disabled={running} value={bot.settings.profile ?? ""} onChange={(e) => void save("", e.target.value)}>
+        <option value="">Automatic profile</option>
+        {profiles.filter((p) => !bot.settings.profiles?.length || bot.settings.profiles.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+    </label>
+    <label className={field}>Model
+      <select className="field-input font-normal" disabled={running} value={bot.settings.model ?? ""} onChange={(e) => void save(e.target.value)}>
+        <option value="">Automatic · profile default</option>
+        {models.map((m) => <option key={m.id} value={m.id}>{m.display_name || m.id}</option>)}
+        {bot.settings.model && !models.some((m) => m.id === bot.settings.model) && <option value={bot.settings.model}>{bot.settings.model}</option>}
+      </select>
+    </label>
+    <span className="text-[12px] text-ink-3">{running ? "Wait for the turn to end, or Stop it." : "A change starts a new session with your next message."}</span>
   </div>;
 }
