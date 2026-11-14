@@ -572,8 +572,10 @@ button {
   line-height: 24px;
 }
 
-/* Center one line beside the 44 px actions; keep the last line aligned as it grows. */
+/* The text takes the whole width; the 44 px actions wrap to a row of their own under it, on the right. */
+.lp-phone .session-message-input { flex-wrap: wrap; justify-content: flex-end; column-gap: 4px; row-gap: 0; }
 .lp-phone .session-message-input > textarea {
+  flex-basis: 100%;
   min-height: 44px;
   padding-block: 12px;
   font-size: 16px;
