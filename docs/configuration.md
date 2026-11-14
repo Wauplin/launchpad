@@ -12,8 +12,7 @@ Most settings are editable in **Settings** and saved as soon as they change. Set
 
 Home's data folder contains:
 
-- `state.db`: your data (sessions, events, drafts, Local PRs, suggestions, devices, the vault). Home backs it up when `[home] backup` is set.
-- `cache.db`: the GitHub cache. Delete it at any time; it is rebuilt.
+- `state.db`: your data (sessions, events, drafts, Local PRs, suggestions, devices, the vault). Home backs it up when `[home] backup` is set. Launchpad stores no GitHub responses: it reads GitHub when a feature needs the answer.
 - `uploads/`: files attached to prompts, drafts, scheduled launches and routines.
 - `git/`: the Home Git mirrors. `blobs/`: plain-folder, knowledge base and handoff files, by hash.
 
@@ -41,9 +40,6 @@ bind = "127.0.0.1"                  # local listener (browsers, CLI)
 auto_tailnet = true                 # also listen on a discovered Tailscale IP
 # public_origin = "https://launchpad.example.com"  # see remote-access.md; restart after changes
 
-[github]
-poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
-
 [worktrees]
 keep = 15                           # clean task worktrees of idle agents kept on each runner (0: keep all); Home sends it to runners
 
@@ -61,9 +57,9 @@ Credentials and tools live in Home's database, never in `config.toml`: edit them
 
 Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `bots` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later. Presets are Home's: a runner reads them from Home when it starts an agent, so a launch that names presets fails visibly while Home cannot answer.
 
-A bot with admin access to the Launchpad CLI can change a few shared settings when you ask it in chat: presets, the GitHub poll interval and the number of worktrees kept. Each change shows in the chat as a receipt on the turn's steps line; open the steps line to see the value before and after. Every other setting stays yours.
+A bot with admin access to the Launchpad CLI can change a few shared settings when you ask it in chat: presets and the number of worktrees kept. Each change shows in the chat as a receipt on the turn's steps line; open the steps line to see the value before and after. Every other setting stays yours.
 
-The daemon watches the file and applies most changes live. Changes to `[server]` need a daemon restart.
+The daemon watches the file and applies most changes live. Changes to `[server]` need a daemon restart. Unknown keys are ignored, so a file with keys Launchpad no longer uses (such as `[github] poll_interval_seconds`) still loads.
 
 ### Profiles
 
@@ -116,11 +112,11 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad hops` | Print the hop count an agent sends to an incoming hook in `X-Launchpad-Hops` ([Loops between bots](connections.md#loops-between-bots)) |
 | `launchpad work finish\|add-project` | Request a worktree merge (only when the launch chose Merge) or open a Local PR, or add another Git folder of the workspace to a task (used by agents) |
 | `launchpad trace <session> [--through <seq>]` | Print the stored trace of a session |
-| `launchpad folders\|sessions\|profiles\|presets\|inbox\|schedules\|proposals list` | Read Launchpad state as JSON (an agent reads only its own workspace) |
+| `launchpad folders\|sessions\|profiles\|presets\|schedules\|proposals list` | Read Launchpad state as JSON (an agent reads only its own workspace) |
 | `launchpad channel list\|read\|post`, `launchpad dm <bot>` | Bot channels for bots: list the workspace's channels and the bot's DMs, read messages, post in a channel or a DM ([Commands for bots](channels.md#cli-commands-for-bots)). `launchpad channel join <name>` files a card that asks you to add the bot. `launchpad channel create\|add-member\|set-mode\|remove-member` need admin access |
 | `launchpad today` | Print what waits for the owner (the [Today](today.md) list) as JSON |
 | `launchpad activity list` | List what sessions with admin access changed directly, with the values before |
-| `launchpad propose launch\|message\|schedule\|cron\|status\|preset\|tool\|bot\|routine\|bot-files\|bot-instructions\|channel\|ready\|report` | Store a proposal (sessions with propose or admin access to the Launchpad CLI tool); the owner starts it, except one-time starts of a bot in auto mode. `bot-files` proposes a bot's `BOT.md` and routine files in one card (`routine` and `bot-instructions` become such cards). `channel` proposes a new bot channel ([Cards from bots](channels.md#cards-from-bots)). `ready` prepares an owner click (merge, publish, post, send, run CI, Inbox done) |
+| `launchpad propose launch\|message\|schedule\|cron\|status\|preset\|tool\|bot\|routine\|bot-files\|bot-instructions\|channel\|ready\|report` | Store a proposal (sessions with propose or admin access to the Launchpad CLI tool); the owner starts it, except one-time starts of a bot in auto mode. `bot-files` proposes a bot's `BOT.md` and routine files in one card (`routine` and `bot-instructions` become such cards). `channel` proposes a new bot channel ([Cards from bots](channels.md#cards-from-bots)). `ready` prepares an owner click (merge, publish, post, send, run CI, push to a pull request) |
 | `launchpad api <GET\|POST\|PUT\|PATCH\|DELETE> <path> [--body-file <file.json>]` | Call Launchpad's API directly: sessions with admin access only, limited to Launchpad's own records of the session's workspace and the shared settings |
 
 Agents receive the exact binary path and environment in their prompt. The [launchpad skill](../skills/launchpad/SKILL.md) documents these commands for them; the daemon links it into `~/.agents/skills/launchpad` at startup.

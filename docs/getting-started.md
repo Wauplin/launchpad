@@ -62,7 +62,7 @@ The tour runs in demo mode: a fictional organization with prerecorded agent runs
 **Finish setup** in the sidebar (route `/setup`) lists Home's setup steps, what was found and where to finish each one. The sidebar counts the required steps left. On a self-hosted Home, the steps are:
 
 - **Workspace**: at least one, with the name you choose. Launchpad creates none by itself. Adding or cloning a folder waits until a workspace exists.
-- **GitHub**: Home's GitHub login (`gh auth login` on Home). The Inbox, issues, pull requests, Clone from GitHub and publication use it.
+- **GitHub**: Home's GitHub login (`gh auth login` on Home). Clone from GitHub, Suggestions, publication and Push to PR use it.
 - **Agent login**: a profile and its login in Home's vault (**Settings → Credentials and tools**). Agents never use a machine's own sign-in.
 - **Git identity of agents**: the name and email of your agents' commits.
 - **Where agents run**: a paired runner, or Burst on a Home in a Space.
@@ -82,10 +82,10 @@ See [Profiles](agents.md#profiles) for the details.
 
 Launchpad starts with no workspace: create one in the **Workspace** step of **Finish setup**, or in the **Add folder** dialog, which offers it when there is none. The menu at the top of the sidebar lists your workspaces (see [Workspaces](agents.md#workspaces)). Open **Folders** in the sidebar and click **Add folder**. It has two tabs:
 
-- **Clone from GitHub**: Home keeps a mirror of the repository, and runners clone it on first use. Suggestions list repositories with recent GitHub notifications first, then your recently pushed repositories.
+- **Clone from GitHub**: Home keeps a mirror of the repository, and runners clone it on first use. Suggestions list the repositories you pushed to recently, read from GitHub; you can also type any `owner/repo`.
 - **New plain folder**: a folder without Git, whose files Home stores.
 
-Every folder is stored by Home, so agents run in it on any runner. The sidebar lists **Bots** first (its chevron collapses the group on this device), then Today, Agents, Inbox, Schedules, Knowledge and Folders. The sidebar button next to Settings collapses the sidebar to icons on this device (counts become badges on the icons, and names show on hover); click it again to expand it. The Folders page lists the folders of the workspace and its temporary folders.
+Every folder is stored by Home, so agents run in it on any runner. The sidebar lists **Bots** first (its chevron collapses the group on this device), then Today, Agents, Schedules, Knowledge and Folders. The sidebar button next to Settings collapses the sidebar to icons on this device (counts become badges on the icons, and names show on hover); click it again to expand it. The Folders page lists the folders of the workspace and its temporary folders.
 
 ### Launch your first agent
 
@@ -100,11 +100,11 @@ The agent appears in **Agents → Running**. When it finishes, a card waits in *
 
 ### Find your way
 
-- **One action per row.** Lists and cards show one button per row or card: **Done** on Inbox rows, **Launch** on Folders rows, the main action on Today rows (**Merge**, **Review**, **Resume**, **Start**), **Start** on proposal cards. The other actions are in **⋯**: on Folders, **Files**, **Folder settings**, **Move to …** and **Remove**; on Agents rows, **Stop** or **Archive**, **Mark unread** and **Pin**; on proposal cards, **Dismiss** and **Edit**. Settings lists (profiles, tools, MCP servers, hooks, runners, presets) work the same way. In lists, **⋯** shows when you hover the row or focus it with the keyboard; on touch screens it is always visible. On the phone, Today rows have no **⋯**: tap the row for the other actions.
-- **Colors and counts.** A status is blue while an agent runs, green when it is Done, red when it failed or was interrupted, and grey when it is idle, stopped or archived. Amber is only for what needs your answer or click, for example a question or Quota paused. A small amber dot after a status marks an agent you have not seen yet. Counts that need you are amber pills (Today, Inbox); other counts are plain grey numbers.
+- **One action per row.** Lists and cards show one button per row or card: **Launch** on Folders rows, the main action on Today rows (**Merge**, **Review**, **Resume**, **Start**), **Start** on proposal cards. The other actions are in **⋯**: on Folders, **Files**, **Folder settings**, **Move to …** and **Remove**; on Agents rows, **Stop** or **Archive**, **Mark unread** and **Pin**; on proposal cards, **Dismiss** and **Edit**. Settings lists (profiles, tools, MCP servers, hooks, runners, presets) work the same way. In lists, **⋯** shows when you hover the row or focus it with the keyboard; on touch screens it is always visible. On the phone, Today rows have no **⋯**: tap the row for the other actions.
+- **Colors and counts.** A status is blue while an agent runs, green when it is Done, red when it failed or was interrupted, and grey when it is idle, stopped or archived. Amber is only for what needs your answer or click, for example a question or Quota paused. A small amber dot after a status marks an agent you have not seen yet. Counts that need you are amber pills (Today); other counts are plain grey numbers.
 - **Dates.** Past moments read “just now”, “5 min ago”, “3 h ago”, “yesterday” or “Oct 3”. Exact and future moments read “today 15:00”, “tomorrow 03:00” or “Fri 7 Nov, 03:00”, in your browser's time format, without seconds. Schedules read as sentences, for example “Weekdays at 09:00”; hover them to see the cron.
 - **Page explanations.** A page explains itself under its title on your first visit on this device. After that, click **ⓘ** next to the title to read it again. The line under the title shows facts, such as counts.
-- **Breadcrumbs.** On a laptop, the top bar shows where a detail page belongs: **Folders / folder / Local PR**, **Folders / folder / Pull requests / #N**, or **Inbox / owner/repo#N** for a GitHub item without a folder, and **Bots / bot**. Click a part to open that page.
+- **Breadcrumbs.** On a laptop, the top bar shows where a detail page belongs: **Folders / folder / Local PR** and **Bots / bot**. Links to GitHub issues and pull requests open github.com. Click a part to open that page.
 - **Settings search.** On a laptop, Settings replaces the sidebar with its pages (**Back to Launchpad** returns to the page you were on); the field at the top finds pages by name and by keyword: "telegram" finds Workspace (its Telegram bot) and "runner" finds Home and runners.
 
 ### Open Launchpad on your phone

@@ -1,11 +1,11 @@
 # Remote access and phones
 
-Home serves the app, the GitHub cache and every record. Your browsers and phones are clients of Home: they see the same agents, drafts and review state. Agents run on runners, which connect to Home on their own (see [Home and runners](home-and-runners.md)).
+Home serves the app and every record. Your browsers and phones are clients of Home: they see the same agents, drafts and review state. Agents run on runners, which connect to Home on their own (see [Home and runners](home-and-runners.md)).
 
 ```mermaid
 flowchart LR
     subgraph H["Home (Space or your server)"]
-        D["launchpad daemon<br/>records, Home Git, GitHub cache"]
+        D["launchpad daemon<br/>records, Home Git"]
     end
     T[Private HTTPS<br/>Hub sign-in or Tailscale Serve] --> D
     P[Phone] -->|paired browser| T
@@ -68,13 +68,13 @@ public_origin = "https://launchpad.example.com"
 
 Screens narrower than 720 px get a phone layout (or choose it in **Settings → Appearance** on a laptop, **Settings → This device → Layout** on the phone):
 
-- Tabs: **Today** (what waits for you, with the card buttons in place), **Chats**, **Agents**, **Inbox** and **More**. A tab shows an amber count when something there needs you.
+- Tabs: **Today** (what waits for you, with the card buttons in place), **Chats**, **Agents** and **More**. A tab shows an amber count when something there needs you.
 - **Chats** lists the workspace's bots like a messaging app: your default Ask bot (the same bot as the laptop's Ask field) pinned first, then the others by their last activity, each with its state dot, its last message and its time, bold while unseen, and an amber count when it needs you. Under them, **Channels** and **Bot DMs** list the workspace's channels and DMs, each with its last message, its author and its age (see [Where you see channels](channels.md#where-you-see-channels)); a channel that mentions or asks you adds to the tab's count. **+ New** in the bar creates a bot or a channel, and **Archived channels** at the end of the list opens the archived ones. Tap the tab again to open the last chat or channel. A bot's Today card and its Telegram notifications open its chat; the full trace stays in Agents (**⋯ → Open current session in Agents** on its About page), and a bot's session page there links back to the chat. Over a chat's message box, the bot's starters show as quick chips, as on a laptop: they send common questions (**What needs me?**, **How are my agents doing?**) or start a message for you to finish (**Start an agent to …**). They are normal messages, hidden once the box has text, attachments, context or presets. See [Bots](bots.md#the-bots-page).
 - **More** lists Schedules, Folders, Knowledge, Terminals, Settings and Finish setup, each with its state (for example a failed routine).
 - The workspace button at the top left opens the workspace sheet: one row per workspace with the count of what waits in it; tap one to switch, or **New workspace**. The button shows how many items wait in the other workspaces.
-- Each screen has one title bar. On a tab page (Today, Chats, Agents, Inbox, More and the pages listed in More), it shows the workspace button, the section title, the page's main button and **⋯** when it has them (**+ New** on Chats, **Add folder** on Folders, **⋯** on Knowledge and Inbox), and the status button. The page content starts right under the bar. On a detail page (an agent, a bot, a channel or DM, a Local PR, a folder, an Inbox thread, a pull request, Files, a Settings page, Setup, a routine or a scheduled launch), it shows **‹**, the page title and **⋯** with the page's other actions. **‹** returns to the page you came from, or to the page's list when you opened it from a link or a notification. Files goes back to the page that opened it, even after you opened several files.
-- Android's back button does the same as **‹**, one step at a time: it first closes the topmost menu, sheet, the composer (its draft is kept), the full-screen or Reply mode of a session, an opened Today card, the Files tree or an image; then it goes back one page (an Inbox thread back to the Inbox, a note back to Knowledge, a pull request file back to its file list). From any tab, back goes to Today, and back on Today leaves the app. A page opened from a link or notification has Today and its list under it. Unsaved text in an editor (BOT.md, a note, a Local PR description) is kept when back closes it and shows "Draft kept" when you return.
-- Pull down Today, the Inbox or Agents from the top to refresh them. Today keeps its scroll position and open cards while you visit other pages.
+- Each screen has one title bar. On a tab page (Today, Chats, Agents, More and the pages listed in More), it shows the workspace button, the section title, the page's main button and **⋯** when it has them (**+ New** on Chats, **Add folder** on Folders, **⋯** on Knowledge), and the status button. The page content starts right under the bar. On a detail page (an agent, a bot, a channel or DM, a Local PR, a folder, Files, a Settings page, Setup, a routine or a scheduled launch), it shows **‹**, the page title and **⋯** with the page's other actions. **‹** returns to the page you came from, or to the page's list when you opened it from a link or a notification. Files goes back to the page that opened it, even after you opened several files.
+- Android's back button does the same as **‹**, one step at a time: it first closes the topmost menu, sheet, the composer (its draft is kept), the full-screen or Reply mode of a session, an opened Today card, the Files tree or an image; then it goes back one page (a note back to Knowledge, a Local PR file back to its file list). From any tab, back goes to Today, and back on Today leaves the app. A page opened from a link or notification has Today and its list under it. Unsaved text in an editor (BOT.md, a note, a Local PR description) is kept when back closes it and shows "Draft kept" when you return.
+- Pull down Today or Agents from the top to refresh them. Today keeps its scroll position and open cards while you visit other pages.
 - The status button turns amber with a count when something is wrong: no connection, Home unreachable, outdated, offline or refused runners, a missing harness that a profile uses, quota near its limit or without a fresh reading, a spending limit reached, or a low GitHub rate limit. Its sheet says why, with a link to the page that fixes it. On a detail page, the status button shows only while something is wrong.
 - **Files** shows the open file right under the bar. The bar holds the file name and the tree button (**Tree and search**); the row under it has the folder path, **Find**, **Preview** and **⋯** as icons. Each opened file is a step of **‹**, so there are no file tabs.
 - Short status messages (with **Undo** when there is one) show under the title bar, so they never cover the tab bar.
@@ -119,7 +119,7 @@ This installs `~/.local/bin/launchpad` and the systemd user unit, which runs Hom
 Operations:
 
 - Restarting Home does not stop agents: they keep running on their runners, which resend what Home missed when the link is back. Restarting a runner interrupts its running turns.
-- Set `[home] backup` to a folder (or a bucket) for Home backups, or back up `state.db` while Home runs: `sqlite3 ~/.local/share/launchpad/state.db ".backup /backups/launchpad-state.db"`. `cache.db` can be rebuilt.
+- Set `[home] backup` to a folder (or a bucket) for Home backups, or back up `state.db` while Home runs: `sqlite3 ~/.local/share/launchpad/state.db ".backup /backups/launchpad-state.db"`.
 - Logs: `journalctl --user -u launchpad -f`.
 
 ## Several devices at once

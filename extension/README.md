@@ -103,7 +103,6 @@ The extension follows the workspace of the repository you look at: when a folder
 - **Ask** on each comment: a bot gets the item and that comment as context (by its ID, never the page text). Messages about one item go to that item's thread of the bot, so each pull request or issue has its own conversation. A comment that mentions you gets an amber **Ask <bot> what to answer**.
 - **Live agent card** under the comment an agent was asked about: its current step and time, then **Reply ready** with **Insert** when it wrote a reply.
 - **Investigate** and **Check with an agent** launch a read-only agent; **Fix in a Local PR** launches an agent that ends with a Local PR. These are one-time launches in the folder, with a profile you pick in the popover.
-- **Before you approve**: next to GitHub's **Approve and run** banner, a note lists the files of the pull request that change what CI runs (from Home's copy of the diff), with **Check with an agent**. GitHub's button stays your click.
 
 ### Private notes
 
@@ -130,24 +129,16 @@ You edit the text and post it with GitHub's button. The suggestion then says **I
 
 ### Files changed
 
-- **Ask about these lines**: select lines with GitHub's line numbers (shift-click for a range). A bar shows the range with **Ask about these lines**. The bot gets a reference to the lines; Home reads them from the pull request's diff. The answer shows under the lines, with **Turn into line comment**.
+- **Ask about these lines**: select lines with GitHub's line numbers (shift-click for a range). A bar shows the range with **Ask about these lines**. The bot gets a reference to the lines; Home reads them from the pull request's diff on GitHub when it sends the message. The answer shows under the lines, with **Turn into line comment**.
 - **Ghost comments**: the line comments of an agent's suggested review show under their lines as dashed teal boxes. **Add to my review** fills GitHub's line comment form; you then click GitHub's **Add single comment** or **Start a review**. **Dismiss** in ⋯ drops the comment from the suggestion. The extension never opens GitHub's form itself: when it is closed, it scrolls to the line and fills the form once you open it with GitHub's **+** (within two minutes).
 - **Review banner** above the files: the commit the agent reviewed, its event, the number of line comments, and **Next comment**.
 - **Insert summary**: over GitHub's **Review changes** dialog, it fills the summary field. The suggested event shows as text; you choose the event and submit with GitHub's button.
-- **Outdated guard**: a review written for an older commit says **outdated**. Its comments insert only on a second click (**Insert anyway**), which names the commit it was written at.
 
 ### Push to this PR
 
-When an agent's Launchpad branch holds the pull request's head plus new commits, the box says **N commits ready to push**. **Push to this PR** opens a confirmation that names the branch, the commit and the target. On your click, Home checks that the branch still points at that commit, then pushes it to the pull request's branch as a fast-forward, never forced. After that, Home follows the branch: the agent's next commits go to the pull request too.
+When an agent's Launchpad branch of the pull request has commits since the agent started and Home does not push it to GitHub yet, the box says **N commits ready to push**. **Push to this PR** opens a confirmation that names the branch and the commit. On your click, Home checks that the branch still points at that commit, reads the pull request on GitHub, then pushes the branch to the pull request's branch only as a fast-forward of its head, never forced. After that, Home follows the branch: the agent's next commits go to the pull request too.
 
-Home pushes only to the pull request's own repository, your own fork, or a fork whose author lets maintainers edit. The box shows **Maintainers can edit** or **Maintainers cannot edit**. A branch whose last commits did not reach GitHub shows **Not on GitHub yet** with the last error.
-
-### Notifications
-
-- **Strip** at the top of github.com/notifications: what waits for you in Launchpad's Today of the workspace (questions, finished agents, suggestions to post, Local PRs to publish), with **Open Today**.
-- **Done all handled**: threads that a bot already handled (its newest report says merged, closed, approved or commented, and nothing happened after it). The confirmation lists them; **Mark N Done** marks them Done in Launchpad and on GitHub. Home checks each thread again first.
-- Compact controls beside the repository and item number, without an extra row: one status chip (needs you, Reply ready, Review ready, a bot's report, Not in Launchpad), and hover actions: **Review with agent** or **Ask**, and in ⋯ **Draft a reply** and **Open in Launchpad**.
-- **Done on GitHub**: when you click GitHub's own **Done**, **Mark as read** or **Unsubscribe**, the extension tells Home once the page shows the change. Launchpad's Inbox updates at once (the Inbox header says “N done on GitHub today”). Home writes nothing more to GitHub.
+Home pushes only to the pull request's own repository, your own fork, or a fork whose author lets maintainers edit; otherwise the push is refused and the dialog says why. A branch whose last commits did not reach GitHub shows **Not on GitHub yet** with the last error.
 
 ## Side panel
 
@@ -172,7 +163,7 @@ For each suggestion, Home records what happened to it, part by part (the review'
 - posted by Launchpad, dismissed, discarded or outdated;
 - the final text, the size of your edits and whether you kept the attribution line.
 
-“Posted by hand” is a claim until Home finds your comment on GitHub. Home checks the item's comments 20 s, 2 min, 10 min and an hour after the claim. A comment of yours that keeps at least 85% of the text confirms it; otherwise the claim becomes unconfirmed after an hour. Nothing reads the ledger yet: it is kept for a future feedback view. No marker is added to the text you post.
+“Posted by hand” is a claim until Home finds your comment on GitHub. Home reads the item's comments on GitHub 20 s, 2 min, 10 min and just after an hour after the claim. A comment of yours that keeps at least 85% of the text confirms it; otherwise the claim becomes unconfirmed after an hour. Nothing reads the ledger yet: it is kept for a future feedback view. No marker is added to the text you post.
 
 ## Permissions
 
@@ -194,7 +185,7 @@ For each suggestion, Home records what happened to it, part by part (the review'
 ## Known limits
 
 - Sign in with Hugging Face has not been tested against a real Space yet: register the OAuth app first.
-- Some GitHub selectors were checked only on signed-out pages and copies of GitHub's markup: the comment box of the newer issue pages, notifications, line comment forms, the newer Files changed view, the Review changes dialog and the Approve and run banner. A mark that does not find its place does not show.
+- Some GitHub selectors were checked only on signed-out pages and copies of GitHub's markup: the comment box of the newer issue pages, line comment forms, the newer Files changed view and the Review changes dialog. A mark that does not find its place does not show.
 - Not built yet: diagnosis of failed CI runs, filling a new pull request's form, release notes, sync of viewed files, and a view of the feedback ledger.
 
 ## Development

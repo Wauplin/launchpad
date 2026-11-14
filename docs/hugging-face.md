@@ -31,7 +31,7 @@ Home copies the original conversation of every agent to its backup destination (
 
 ## Run Home in a Space
 
-A private Docker Space runs Home: records, credentials, Home Git, the GitHub cache and the app. It runs no agents: they run on your runners, or on **Burst**, HF Jobs that Home starts from its own image when no runner is online. A private bucket mounted at `/backups` holds Home's backups and the trace copies.
+A private Docker Space runs Home: records, credentials, Home Git and the app. It runs no agents: they run on your runners, or on **Burst**, HF Jobs that Home starts from its own image when no runner is online. A private bucket mounted at `/backups` holds Home's backups and the trace copies.
 
 ```mermaid
 flowchart LR
