@@ -92,10 +92,10 @@ fn check_body(body: &str) -> Result<()> {
     Ok(())
 }
 
-/// A note it answers must be about the same item.
-async fn check_reply(app: &App, repo: &str, number: u64, reply_to: Option<&str>) -> Result<Option<String>> {
+/// A note it answers must be about the same item, in the same workspace.
+async fn check_reply(app: &App, repo: &str, number: u64, workspace: Option<&str>, reply_to: Option<&str>) -> Result<Option<String>> {
     let Some(id) = reply_to.map(str::trim).filter(|r| !r.is_empty()) else { return Ok(None) };
-    ensure!(of_item(app, repo, number).await?.iter().any(|n| n.id == id), "--reply-to-note: no note {id} about {repo}#{number}");
+    ensure!(of_item(app, repo, number).await?.iter().any(|n| n.id == id && n.workspace_id.as_deref() == workspace), "--reply-to-note: no note {id} about {repo}#{number}");
     Ok(Some(id.to_string()))
 }
 
@@ -124,8 +124,8 @@ pub async fn write(app: &App, q: Write) -> Result<ItemNote> {
     ensure!(q.number > 0, "invalid item number");
     check_body(&q.body)?;
     let s = app.sessions.get(&q.session_id).context("session not found")?;
-    let reply_to = check_reply(app, &q.repo, q.number, q.reply_to.as_deref()).await?;
     let workspace_id = launchpad_core::kb::workspace_of_session(app, &q.session_id).await;
+    let reply_to = check_reply(app, &q.repo, q.number, workspace_id.as_deref(), q.reply_to.as_deref()).await?;
     let bot = s.launch_spec.bot.as_ref();
     let suggestion_id = match q.suggest.filter(|t| !t.trim().is_empty()) {
         Some(body) => {
@@ -173,7 +173,7 @@ pub async fn write_owner(app: &App, q: &OwnerWrite) -> Result<ItemNote> {
     ensure!(q.number > 0, "invalid item number");
     check_body(&q.body)?;
     ensure!(launchpad_core::workspace::get(app, &q.workspace).await.is_ok(), "no such workspace");
-    let reply_to = check_reply(app, &q.repo, q.number, q.reply_to.as_deref()).await?;
+    let reply_to = check_reply(app, &q.repo, q.number, Some(&q.workspace), q.reply_to.as_deref()).await?;
     let note = ItemNote {
         id: uuid::Uuid::new_v4().to_string(),
         repo: q.repo.clone(),
@@ -255,7 +255,9 @@ pub async fn recipients(app: &App, repo: &str, number: u64, workspace: &str) -> 
     let flat: Vec<_> = entries.into_iter().map(|(_, b, s, n)| (b, s, n)).collect();
     // A bot that left the workspace (deleted) hears nothing.
     let bots = launchpad_core::bots::briefs(app, workspace).await.unwrap_or_default();
-    let mut out: Vec<Recipient> = distinct_authors(&flat).into_iter().filter(|r| match r { Recipient::Bot { id, .. } => bots.iter().any(|b| &b.id == id), Recipient::Session { .. } => true }).collect();
+    // An archived session cannot take a message: the default bot hears it when no one else can.
+    let live = |id: &str| app.sessions.get(id).is_some_and(|x| x.status != launchpad_core::model::SessionStatus::Closed);
+    let mut out: Vec<Recipient> = distinct_authors(&flat).into_iter().filter(|r| match r { Recipient::Bot { id, .. } => bots.iter().any(|b| &b.id == id), Recipient::Session { id, .. } => live(id) }).collect();
     if out.is_empty() {
         let project = launchpad_core::projects::list(app).await.unwrap_or_default().into_iter().find(|p| p.workspace_id.as_deref() == Some(workspace) && p.gh_repo.as_deref().is_some_and(|r| r.eq_ignore_ascii_case(repo)));
         if let Some(b) = crate::ext::default_bot(app, project.as_ref(), Some(repo), Some(workspace)).await {

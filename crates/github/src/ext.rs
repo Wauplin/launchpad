@@ -687,6 +687,12 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
                 _ => 0,
             };
             let session = s.session_id.as_deref().and_then(|id| d.all_sessions.iter().find(|x| x.id == id));
+            // Another workspace's agent's suggestion is not this workspace's (its Post would be offered on the page).
+            if let (Some(ws), Some(x)) = (it.workspace, session)
+                && d.session_workspace(x).is_some_and(|w| w != ws)
+            {
+                return None;
+            }
             let bot = session.and_then(|x| x.launch_spec.bot.as_ref().map(|b| b.name.clone()));
             let attribution = session.map(launchpad_core::attribution::line).unwrap_or_else(|| launchpad_core::attribution::text(None, "Claude Code"));
             let text = format!("{}{}", reply_to.as_ref().map(ReplyTo::prefix).unwrap_or_default(), s.body);

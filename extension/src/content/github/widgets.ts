@@ -213,10 +213,17 @@ const keys = new WeakMap<HTMLElement, string>();
  * (`fresh` false), so a caller re-renders only on a change. */
 export function mount(id: string, key: string, anchor: Element, place: InsertPosition, block?: "box" | "card" | "banner" | "strip"): Widget {
   let host = document.querySelector<HTMLElement>(`[${HOST_ATTR}="${CSS.escape(id)}"]`);
+  // Several widgets may sit at one place (a timeline entry after the comment that has a live card, the note box and an
+  // Insert banner over one form): other hosts between the anchor and this one still count as in place, so two widgets
+  // never take the place from each other at every render (each move is a mutation the page observer answers).
+  const sibling = (el: Element | null, next: boolean, target: HTMLElement) => {
+    while (el && el !== target && el.hasAttribute(HOST_ATTR)) el = next ? el.nextElementSibling : el.previousElementSibling;
+    return el === target;
+  };
   const inPlace = (el: HTMLElement) => {
     switch (place) {
-      case "afterend": return anchor.nextElementSibling === el;
-      case "beforebegin": return anchor.previousElementSibling === el;
+      case "afterend": return sibling(anchor.nextElementSibling, true, el);
+      case "beforebegin": return sibling(anchor.previousElementSibling, false, el);
       case "beforeend": return el.parentElement === anchor;
       case "afterbegin": return anchor.firstElementChild === el;
     }
