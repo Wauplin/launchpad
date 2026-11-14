@@ -726,3 +726,14 @@ button {
 /* A scroll area without a visible scrollbar (the bot chat): wheel, touch and keys still scroll it. */
 .lp-quiet-scroll { scrollbar-width: none; }
 .lp-quiet-scroll::-webkit-scrollbar { display: none; }
+
+/* Hugging Face's Space page draws a floating button over the bottom-right corner of the framed app (`hfCorner` in
+   lib/phone.ts). The phone keeps that corner free: the tab bar gets an empty fifth slot (MobileShell), and what can
+   reach the bottom edge (message boxes and the composer footer while the keyboard hides the tab bar, sheets,
+   the terminal keys) keeps its right-hand controls out of it. */
+.lp-hf-corner { --lp-hf-corner: 56px; }
+.lp-hf-corner.lp-phone .session-message-input > :last-child { margin-right: var(--lp-hf-corner); }
+.lp-hf-corner.lp-phone .composer-phone-footer,
+.lp-hf-corner.lp-phone .terminal-keybar { padding-right: var(--lp-hf-corner); }
+.lp-hf-corner.lp-phone .lp-sheet { padding-bottom: max(env(safe-area-inset-bottom), var(--lp-hf-corner)); }
+.lp-hf-corner .lp-tour-pill { right: calc(16px + var(--lp-hf-corner)); }

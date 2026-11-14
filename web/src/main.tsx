@@ -6,7 +6,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { HarnessProvider } from "@/components/HarnessMark";
 import { makeRouter, type Entry } from "@/app/router";
-import { isPhone, watchLayout } from "@/lib/phone";
+import { hfCorner, isPhone, watchLayout } from "@/lib/phone";
 import { persistCache, restoreCache } from "@/lib/offlineCache";
 import { logToDaemon } from "@/lib/api";
 import { connectEvents } from "@/lib/ws";
@@ -48,6 +48,7 @@ window.addEventListener("unhandledrejection", (e) => logToDaemon(`unhandled reje
 // index.html guessed the layout before paint; the window may have been resized since (a window restoring
 // its size), so `isPhone` decides: a stale `lp-phone` would apply the phone CSS to the laptop shell.
 document.documentElement.classList.toggle("lp-phone", isPhone);
+document.documentElement.classList.toggle("lp-hf-corner", isPhone && hfCorner);
 watchLayout();
 const shell: Promise<Entry> = isPhone ? import("@/mobile/entry").then((m) => m.entry) : import("@/app/desktop").then((m) => m.entry);
 // A runner's own window shows only its status page (features/runner); everything else lives on Home.

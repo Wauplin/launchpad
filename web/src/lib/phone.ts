@@ -44,3 +44,14 @@ export function watchLayout() {
     timer = setTimeout(() => { if (mq.matches !== isPhone) location.reload(); }, 600);
   });
 }
+
+/** Hugging Face's Space page (huggingface.co/spaces/…) frames Home's `*.hf.space` address and draws its own floating
+ * button over the bottom-right corner of the frame. The phone shell then keeps that corner free (`lp-hf-corner` in
+ * styles.css). `?hf-corner=1` forces it, for screenshots. */
+export const hfCorner = (() => {
+  if (typeof window === "undefined") return false;
+  if (new URLSearchParams(location.search).get("hf-corner") === "1") return true;
+  let framed = true;
+  try { framed = window.self !== window.top; } catch { /* A cross-origin parent: framed. */ }
+  return framed && location.hostname.endsWith(".hf.space");
+})();

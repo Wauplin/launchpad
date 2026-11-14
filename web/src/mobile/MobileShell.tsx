@@ -6,6 +6,7 @@
 // components as the laptop shell; only the frame differs. Every action stays a visible button.
 
 import { recordingZoom } from "@/lib/zoom";
+import { hfCorner } from "@/lib/phone";
 import { demoChapter, isDemo } from "@/demo/mode";
 import { PhoneDemoStrip } from "@/onboarding/DemoChip";
 import { lazy, Suspense } from "react";
@@ -161,6 +162,8 @@ export function MobileShell() {
         <Tab to="/chats" icon="spark" label="Chats" count={chatsNeed} highlight active={onChats} tour="phone.chats-tab" onAgain={openLastChat} />
         <Tab to="/agents" icon="agents" label="Agents" count={running} />
         <Tab to="/more" icon="more" label="More" count={moreNeeds} highlight active={onMore} tour="phone.more-tab" />
+        {/* Hugging Face's floating button covers the bottom-right corner of a framed Space: an empty fifth slot. */}
+        {hfCorner && <span className="flex-1" aria-hidden />}
       </nav>}
       <Composer />
       {menu && <WorkspaceSheet onClose={() => setMenu(false)} />}
