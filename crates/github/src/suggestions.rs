@@ -82,8 +82,8 @@ pub(crate) fn comment_of(url: &str) -> Option<(ReplyKind, u64)> {
     }
     f.strip_prefix("discussion_r").and_then(|n| n.parse().ok()).map(|n| (ReplyKind::ReviewComment, n))
 }
-/// Comment `id` of `repo` read from GitHub now: its author and URL, when it belongs to item `number` (else an
-/// error). `Ok(None)`: GitHub has no such comment of that kind.
+/// Comment `id` of `repo` read from GitHub now: its author and URL. `Ok(None)`: GitHub has no such comment of that
+/// kind on item `number`.
 async fn read_comment(app: &App, repo: &str, number: u64, kind: ReplyKind, id: u64) -> Result<Option<ReplyTo>> {
     let (path, item) = match kind {
         ReplyKind::IssueComment => (format!("/repos/{repo}/issues/comments/{id}"), ("issue_url", format!("/issues/{number}"))),
@@ -94,7 +94,10 @@ async fn read_comment(app: &App, repo: &str, number: u64, kind: ReplyKind, id: u
         Err(e) if e.downcast_ref::<reqwest::Error>().and_then(|e| e.status()) == Some(reqwest::StatusCode::NOT_FOUND) => return Ok(None),
         Err(e) => return Err(e),
     };
-    ensure!(v[item.0].as_str().is_some_and(|u| u.ends_with(&item.1)), "comment {id} is not a comment of {repo}#{number}");
+    // A comment of another item counts as none: a bare ID may name a comment of each kind.
+    if !v[item.0].as_str().is_some_and(|u| u.ends_with(&item.1)) {
+        return Ok(None);
+    }
     Ok(Some(ReplyTo { kind, id, author: v["user"]["login"].as_str().map(str::to_string), url: v["html_url"].as_str().map(str::to_string).unwrap_or_else(|| reply_url(repo, number, kind, id)) }))
 }
 fn reply_url(repo: &str, number: u64, kind: ReplyKind, id: u64) -> String {
