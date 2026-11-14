@@ -3,7 +3,7 @@ import { TopicContextChips } from "@/features/topics/TopicContextChips";
 import type { MessageContext } from "@/gen/MessageContext";
 import { Icon, type IconName } from "@/components/Icon";
 import { SkillChips } from "@/features/launch/SkillChips";
-import { AddContextMenu, type PresetPick } from "@/features/launch/AddContextMenu";
+import { AddContextMenu, type AttachPick, type PresetPick } from "@/features/launch/AddContextMenu";
 import { useProjects, useSession, useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
 
@@ -15,8 +15,8 @@ export function hasMessageContext(context: MessageContext): boolean {
 /** `sessionId`: the session the message goes to (left out of its own pickers), or null for a bot without one. */
 type PickerProps = { sessionId: string | null; value: MessageContext; onChange: (value: MessageContext) => void; disabled: boolean };
 
-/** The "+" icon of the message box: opens the Add context menu (folders, GitHub links, agent traces, presets, recent contexts). */
-export function MessageContextButton({ sessionId, value, onChange, disabled, presets }: PickerProps & { presets?: PresetPick }) {
+/** The "+" icon of the message box: opens the Add context menu (files, folders, GitHub links, agent traces, presets, recent contexts). */
+export function MessageContextButton({ sessionId, value, onChange, disabled, presets, attach }: PickerProps & { presets?: PresetPick; attach?: AttachPick }) {
   const sessions = useSessions().data ?? [];
   const session = useSession(sessionId);
   const scope = useScope();
@@ -39,7 +39,7 @@ export function MessageContextButton({ sessionId, value, onChange, disabled, pre
     }
     if (recent.length >= 6) break;
   }
-  return <AddContextMenu topics={value.topics} onTopic={t => onChange({...value,topics:[...(value.topics ?? []),t]})} icon disabled={disabled} projects={available} recent={recent} sessions={sessions.filter((s) => s.id !== sessionId && scope.hasSession(s))} selectedTraces={value.agent_traces} presets={presets}
+  return <AddContextMenu topics={value.topics} onTopic={t => onChange({...value,topics:[...(value.topics ?? []),t]})} icon disabled={disabled} projects={available} recent={recent} sessions={sessions.filter((s) => s.id !== sessionId && scope.hasSession(s))} selectedTraces={value.agent_traces} presets={presets} attach={attach}
     onProject={(p) => addProject(p.id)}
     onGitHub={(g) => { if (!value.github_refs.some((r) => r.url === g.url)) onChange({ ...value, github_refs: [...value.github_refs, g] }); }}
     onToggleTrace={(trace) => onChange({ ...value, agent_traces: value.agent_traces.some((t) => t.session_id === trace.session_id) ? value.agent_traces.filter((t) => t.session_id !== trace.session_id) : [...value.agent_traces, trace] })} />;

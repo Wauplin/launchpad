@@ -9,7 +9,7 @@ Voice uses your Claude subscription logins. Home sends the audio to Anthropic's 
 You find it in five message boxes:
 
 - An agent's message box: the session page, a Today row and **Reply** on the phone.
-- The launch composer, in the row with **Attach**.
+- The launch composer, in the row with **+ Add context**.
 - A bot's chat, and the Ask panel.
 - Channels and bot DMs.
 - The top-bar field, at its right edge.

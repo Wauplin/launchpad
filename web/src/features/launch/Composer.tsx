@@ -15,7 +15,7 @@ import type { HarnessDefaults } from "@/gen/HarnessDefaults";
 import type { HarnessKind } from "@/gen/HarnessKind";
 import type { Profile } from "@/gen/Profile";
 import { isImageAttachment, pastedImages, readAttachments } from "@/lib/attachments";
-import { ATTACH_LIMITS, AttachmentList } from "@/features/agents/MessageAttachments";
+import { AttachmentList } from "@/features/agents/MessageAttachments";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
 import type { StartPreview } from "@/gen/StartPreview";
@@ -637,8 +637,8 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
                 return { ...s, agent_traces: traces.some((t) => t.session_id === trace.session_id) ? traces.filter((t) => t.session_id !== trace.session_id) : [...traces, trace] };
               })}
               presets={{ presets: agentPresets, selected: spec.presets, onChange: (ids) => set((s) => ({ ...s, presets: ids })) }}
+              attach={{ images: !harness || harness.capabilities.images, disabled: readingAttachments, onPick: () => attachmentInput.current?.click() }}
             />
-            <button className={`${isPhone ? "btn btn-ghost text-[13px]" : "btn btn-sm btn-ghost"} ml-auto`} disabled={launching || readingAttachments} aria-label="Attach files or images" title={`Attach files or images${isPhone ? "" : "; you can also drop files or paste a screenshot"}. ${ATTACH_LIMITS}`} onClick={() => attachmentInput.current?.click()}><Icon name="clip" size={14} />{isPhone ? "Attach files or images" : "Attach"}</button>
             <VoiceButton dictation={dictation} tour="composer.mic" />
           </div>
         </div>

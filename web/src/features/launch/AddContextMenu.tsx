@@ -16,6 +16,7 @@ import { AgentTracePicker } from "./AgentTracePicker";
 import { PresetChecklist } from "@/features/agents/MessagePresets";
 import { usePhone } from "@/lib/phone";
 import { Sheet } from "@/mobile/Sheet";
+import { ATTACH_LIMITS } from "@/features/agents/MessageAttachments";
 
 function GitHubLinkForm({ onAdd, onDone }: { onAdd: (r: GitHubRef) => void; onDone: () => void }) {
   const [url, setUrl] = useState("");
@@ -55,8 +56,11 @@ function GitHubLinkForm({ onAdd, onDone }: { onAdd: (r: GitHubRef) => void; onDo
 /** The presets offered by the menu: the available ones, the chosen IDs and how to change them. */
 export type PresetPick = { presets: Preset[]; selected: string[]; onChange: (ids: string[]) => void };
 
-/** The "+ Add context" popover: one menu for projects, GitHub links, agent traces, presets and recent contexts. */
-export function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject, onGitHub, onToggleTrace, presets, topics = [], onTopic, disabled, compact = false, icon = false }: {
+/** Files and images in the menu: opens the box's file picker (pasting and dropping still work in the text). */
+export type AttachPick = { onPick: () => void; images: boolean; disabled?: boolean };
+
+/** The "+ Add context" popover: one menu for attachments, projects, GitHub links, agent traces, presets and recent contexts. */
+export function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject, onGitHub, onToggleTrace, presets, attach, topics = [], onTopic, disabled, compact = false, icon = false }: {
   topics?: TopicContext[];
   onTopic?: (topic: TopicContext) => void;
   disabled?: boolean;
@@ -72,12 +76,14 @@ export function AddContextMenu({ projects, recent, sessions, selectedTraces, onP
   onToggleTrace: (t: AgentTraceRef) => void;
   /** Omitted where presets do not apply (answers to a question). */
   presets?: PresetPick;
+  /** Omitted where the box takes no attachments. */
+  attach?: AttachPick;
 }) {
   const [mode, setMode] = useState<"menu" | "project" | "github" | "trace" | "preset" | "topic">("menu");
   const [sheet, setSheet] = useState(false);
   const phone = usePhone();
   const presetCount = presets ? presets.presets.filter((p) => presets.selected.includes(p.id)).length : 0;
-  const title = presets ? "Add context: a folder, a GitHub link, an agent trace or presets" : "Add context: a folder, a GitHub link or an agent trace";
+  const title = `Add context: ${attach ? (attach.images ? "files or images, " : "files, ") : ""}a folder, a GitHub link, an agent trace${presets ? " or presets" : ""}${attach ? `. Files: ${ATTACH_LIMITS}` : ""}`;
   const body = (close: () => void) => {
     const back = <MenuItem icon={<Icon name="chev" size={12} className="rotate-90" />} label="Back" onClick={() => setMode("menu")} />;
     if (mode === "topic") return <>{back}<TopicChoices exclude={topics.map(t => t.id)} close={close} onPick={t => onTopic?.({id:t.id,name:t.name})} /></>;
@@ -87,6 +93,7 @@ export function AddContextMenu({ projects, recent, sessions, selectedTraces, onP
     if (mode === "trace") return <>{back}<AgentTracePicker sessions={sessions} selected={selectedTraces} onToggle={onToggleTrace} /><div className="flex items-center justify-between px-2 pt-1 text-[12px] text-ink-3"><span>{selectedTraces.length} selected</span><button className="btn btn-sm btn-primary" onClick={close}>Done</button></div></>;
     return (
       <>
+        {attach && <MenuItem icon={<Icon name="clip" size={12} />} label={attach.images ? "Files or images…" : "Files…"} detail={attach.images ? "Or paste or drop them in the text" : "Or drop them in the text"} disabled={attach.disabled} onClick={() => { attach.onPick(); close(); }} />}
         <MenuItem icon={<Icon name="folder" size={12} />} label="Folder…" detail="Another folder as read-only context" onClick={() => setMode("project")} />
         <MenuItem icon={<Icon name="issue" size={12} />} label="GitHub link…" detail="An issue, PR or comment URL" onClick={() => setMode("github")} />
         {onTopic && <MenuItem icon={<Icon name="folder" size={12} />} label="Topic…" detail="All sessions in a topic" onClick={() => setMode("topic")} />}
