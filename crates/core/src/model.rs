@@ -611,6 +611,11 @@ pub struct LaunchSpec {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(optional, as = "Option<Vec<String>>")]
     pub inherited_topics: Vec<String>,
+    /// The topic Home created for this launch and its sources (`topics::group`), named once by the runner
+    /// (`titles::name_topic`). Set only by Home at launch; the runner writes only its `name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub topic_naming: Option<crate::topics::TopicNaming>,
     /// Tools of Home's registry (IDs, `mcp:<server>`) switched off for this launch, over the default tools
     /// (`tool_defaults`). Only tools granted to the workspace can be on.
     pub tools_off: Vec<String>,

@@ -182,6 +182,8 @@ const STATE_MIGRATIONS: &[&str] = &[
     "CREATE TABLE topic (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, name TEXT NOT NULL COLLATE NOCASE, UNIQUE(workspace_id, name));
     CREATE TABLE topic_session (topic_id TEXT NOT NULL, session_id TEXT NOT NULL, PRIMARY KEY(topic_id, session_id));
     CREATE INDEX topic_session_session ON topic_session(session_id);",
+    // 10: a topic Home created for a launch keeps that session until its generated name arrives or the owner renames it.
+    "ALTER TABLE topic ADD COLUMN auto_session TEXT;",
 ];
 
 pub fn open_state(path: &Path) -> Result<Db> {

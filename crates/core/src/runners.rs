@@ -1170,11 +1170,24 @@ fn answer<T: serde::de::DeserializeOwned>(status: u16, body: &str) -> Result<T> 
 /// Home: starts a session on a runner (sent once, never retried). Home places it like a message (`place`): the
 /// chosen runner (no fallback), else the runner it is pinned to (its sessions move first to another runner, else to
 /// Burst, when that runner does not take launches), else another runner, else Burst. Runners never pick their own launches: they start only what Home places.
-pub async fn launch_anywhere(app: &App, mut spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
+pub async fn launch_anywhere(app: &App, spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
+    let result = launch_placed(app, spec, id.clone(), automatic).await;
+    // A launch that left no session (refused, or failed before its placement) takes the topic Home created for it.
+    if result.is_err() && app.sessions.get(&id).is_none() {
+        crate::topics::forget_auto(app, &id).await;
+    }
+    result
+}
+
+async fn launch_placed(app: &App, mut spec: crate::model::LaunchSpec, id: String, automatic: bool) -> Result<crate::model::Session> {
     anyhow::ensure!(app.paths.role == crate::role::Role::Home, "only Home launches sessions: a runner starts the ones Home places on it");
+    // Only Home names the topic of a launch: never one a request carried (a relaunch of an older spec).
+    spec.topic_naming = None;
     if !spec.topics.is_empty() || !spec.agent_traces.is_empty() {
         let ws = crate::scope::of_spec(app, &spec).await.context("Context needs a workspace")?;
-        let inherited = crate::topics::resolve(app, &ws, &mut spec.topics, &mut spec.agent_traces).await?;
+        let sources: Vec<String> = spec.agent_traces.iter().map(|t| t.session_id.clone()).collect();
+        let mut inherited = crate::topics::resolve(app, &ws, &mut spec.topics, &mut spec.agent_traces).await?;
+        spec.topic_naming = crate::topics::group(app, &ws, &id, &sources, &mut inherited).await?;
         spec.inherited_topics = inherited;
     }
     let agent = match spec.from.is_some() {

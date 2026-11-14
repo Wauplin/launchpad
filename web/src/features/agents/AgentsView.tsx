@@ -1,5 +1,5 @@
 import { useTopics, useTopicMutations } from "@/features/topics/data";
-import { TopicPicker } from "@/features/topics/TopicPicker";
+import { TopicFilterChip, TopicPicker } from "@/features/topics/TopicPicker";
 // Agents: a monitor of what runs and what ran, grouped by state, showing one session at a time. What needs you is
 // in Today; unseen sessions stay bold in their group. Clicking a session opens its conversation. The window's
 // workspace narrows every group.
@@ -272,9 +272,16 @@ export function AgentsView() {
       <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "w-[280px] flex-none border-r border-line"}`}>
         <div className="grid gap-2 border-b border-line p-2">
           <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
-          <div className="flex flex-wrap items-center gap-2"><button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button>{phone && <span className="ml-auto"><LaunchButton small title="Open the composer (the draft if one exists)" /></span>}</div>
-          <div className="flex flex-wrap items-center gap-2"><select className="field-input min-w-0 flex-1" aria-label="Filter by topic" value={search.topic ?? ""} onChange={(e) => void navigate({ to: "/agents", search: { ...search, topic: e.target.value || undefined }, replace: true })}><option value="">All topics</option>{topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select><Link to="/topics" className="btn btn-sm">Topics</Link></div>
-          <div className="flex flex-wrap items-center gap-2"><button className="btn btn-sm" onClick={() => { setSelecting(!selecting); setSelection([]); }}>{selecting ? "Cancel selection" : "Select sessions"}</button>{selecting && selection.length > 0 && <TopicPicker label={`Add ${selection.length} to topic…`} onPick={async (t) => { await addTopic(t.id, selection); setSelection([]); setSelecting(false); }} />}</div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button>
+            <TopicFilterChip value={search.topic} onChange={(topic) => void navigate({ to: "/agents", search: { ...search, topic }, replace: true })} />
+            <button className="lp-chip" aria-pressed={selecting} title="Select sessions to add them to a topic" onClick={() => { setSelecting(!selecting); setSelection([]); }}>Select</button>
+            {phone && <span className="ml-auto"><LaunchButton small title="Open the composer (the draft if one exists)" /></span>}
+          </div>
+          {selecting && <div className="flex items-center gap-2 text-[12px] text-ink-3">
+            <span className="min-w-0 flex-1 truncate">{selection.length ? `${selection.length} selected` : "Tick sessions to add them to a topic"}</span>
+            {selection.length > 0 && <TopicPicker onPick={async (t) => { await addTopic(t.id, selection); toast(`Added ${selection.length} to ${t.name}`); setSelection([]); setSelecting(false); }} />}
+          </div>}
           {matches.isFetching && <span className="text-[12px] text-ink-3">Searching messages…</span>}
           {matches.error && <span className="text-[12px] text-danger-ink">{matches.error.message}</span>}
         </div>

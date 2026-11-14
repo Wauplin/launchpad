@@ -23,7 +23,7 @@ export const answering: Chapter = {
     {
       id: "answering.topics", route: `/agents?session=${ID}`, anchor: "session.topics",
       title: "Keep related sessions together",
-      body: "Add a topic to collect related work across folders. Type to find or create one. A topic name opens its history; × removes this session, with Undo. Topics stay with archived sessions too. Add context → Topic attaches its history. New agents and follow-up messages inherit topics from their attached topics and traces. Launch or Summarize from the topic to continue its work.",
+      body: "Topics collect related work across folders. This chip in the meta line lists the session's topics: a name opens its page, × removes it with Undo, and the field finds or creates one. An agent launched with another agent's trace joins its topics, or gets a new named topic with it. Add context → Topic passes a topic's history to the next agent.",
     },
     {
       id: "answering.question", route: `/agents?session=${ID}`, anchor: "session.question",

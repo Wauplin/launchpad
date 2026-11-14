@@ -617,6 +617,7 @@ impl Sessions {
                 // Only sessions Home placed on this runner are its records (`runners::record_placement`, a move):
                 // a record of an unknown session or of another runner's is ignored.
                 let stale = current.as_ref().is_none_or(|c| c.runner_id.as_deref() != Some(runner_id) || c.generation > s.generation);
+                let mut topic_name = None;
                 if !stale {
                     s.runner_id = Some(runner.clone());
                     // Either side may have shown it to the owner.
@@ -632,6 +633,15 @@ impl Sessions {
                         s.launch_spec.bot = c.launch_spec.bot.clone();
                         s.launch_spec.tools_off = c.launch_spec.tools_off.clone();
                         s.launch_spec.tools_on = c.launch_spec.tools_on.clone();
+                        // Home created the launch's topic: the runner writes only its generated name, once.
+                        let generated = s.launch_spec.topic_naming.as_ref().and_then(|n| n.name.clone());
+                        s.launch_spec.topic_naming = c.launch_spec.topic_naming.clone().map(|mut n| {
+                            if n.name.as_deref().is_none_or(str::is_empty) {
+                                topic_name = generated.clone().filter(|v| !v.is_empty());
+                                n.name = generated.clone();
+                            }
+                            n
+                        });
                     }
                 }
                 let stored = s.clone();
@@ -662,6 +672,11 @@ impl Sessions {
                     }
                     app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
                     self.publish_counts(app);
+                    if let Some(name) = topic_name
+                        && let Err(e) = crate::topics::named(app, &s.id, &name).await
+                    {
+                        tracing::info!("generated topic name of {}: {e:#}", s.id);
+                    }
                     let ended = current.as_ref().is_some_and(|c| c.status.is_running() && !s.status.is_running());
                     if ended {
                         self.replica_turn_ended(app, &s);
@@ -1426,7 +1441,10 @@ impl Sessions {
                 sink.fail(&format!("could not start {}: {e:#}", harness.display())).await
             }
         }
-        if let Some(session) = self.get(id).filter(|s| s.status != SessionStatus::Error) { crate::titles::generate(app, &session); }
+        if let Some(session) = self.get(id).filter(|s| s.status != SessionStatus::Error) {
+            crate::titles::generate(app, &session);
+            crate::titles::name_topic(app, &session);
+        }
     }
 
     async fn attach(&self, app: &App, harness: HarnessKind, start: StartSpec, sink: Sink) -> Result<Arc<dyn LiveSession>> {
@@ -1632,6 +1650,7 @@ impl Sessions {
             let Some(s) = self.get(&s.id) else { continue };
             if s.live && s.quota_pause.is_none() && (s.status.is_running() || s.status.is_done()) {
                 crate::titles::generate(app, &s);
+                crate::titles::name_topic(app, &s);
             }
             if let Some(live) = self.live(&s.id)
                 && let Some(after) = live.idle_release()

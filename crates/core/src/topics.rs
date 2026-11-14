@@ -11,17 +11,20 @@ pub struct Topic {
     pub workspace_id: String,
     pub name: String,
     pub session_ids: Vec<String>,
+    /// Home created it for a launch and its generated name has not arrived yet (`group`).
+    #[serde(default)]
+    pub naming: bool,
 }
 
 pub async fn list(app: &App, workspace: &str) -> Result<Vec<Topic>> {
     let workspace = workspace.to_owned();
     app.state_db.call(move |c| {
-        let mut q = c.prepare("SELECT id, name FROM topic WHERE workspace_id = ?1 ORDER BY name COLLATE NOCASE")?;
-        let rows = q.query_map([&workspace], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-        rows.into_iter().map(|(id, name)| {
+        let mut q = c.prepare("SELECT id, name, auto_session IS NOT NULL FROM topic WHERE workspace_id = ?1 ORDER BY name COLLATE NOCASE")?;
+        let rows = q.query_map([&workspace], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, bool>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(|(id, name, naming)| {
             let mut q = c.prepare("SELECT session_id FROM topic_session WHERE topic_id = ?1 ORDER BY session_id")?;
             let session_ids = q.query_map([&id], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
-            Ok(Topic { id, workspace_id: workspace.clone(), name, session_ids })
+            Ok(Topic { id, workspace_id: workspace.clone(), name, session_ids, naming })
         }).collect()
     }).await
 }
@@ -61,6 +64,7 @@ pub async fn create(app: &App, workspace: &str, value: &str) -> Result<Topic> {
         workspace_id: workspace.into(),
         name: name(value)?,
         session_ids: vec![],
+        naming: false,
     };
     let t = topic.clone();
     app.state_db
@@ -115,7 +119,8 @@ pub async fn rename(app: &App, id: &str, value: &str) -> Result<Topic> {
     app.state_db
         .call(move |c| {
             c.execute(
-                "UPDATE topic SET name = ?2 WHERE id = ?1",
+                // The owner's name wins over a generated one that has not arrived yet.
+                "UPDATE topic SET name = ?2, auto_session = NULL WHERE id = ?1",
                 params![key, value],
             )?;
             Ok(())
@@ -324,6 +329,147 @@ pub async fn inherit(app: &App, session: &str, workspace: &str, ids: Vec<String>
     Ok(())
 }
 
+/// What the runner needs to name a topic Home created for a launch, once. Home sets `topic_id` and `context`;
+/// the runner writes only `name` (`Some("")` once claimed), which Home applies (`named`) only to the topic it
+/// created for that session.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TopicNaming {
+    pub topic_id: String,
+    pub context: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Home, at a launch with other agents' traces (`sources`): the new agent and its sources form one group. The new
+/// agent inherits the sources' topics (through `inherited`) and sources without a topic join them; when no source
+/// has one, Home creates a topic for all of them under a temporary name and returns what the runner needs to
+/// name it.
+pub async fn group(app: &App, workspace: &str, session: &str, sources: &[String], inherited: &mut Vec<String>) -> Result<Option<TopicNaming>> {
+    let mut sources = sources.to_vec();
+    sources.sort();
+    sources.dedup();
+    if sources.is_empty() {
+        return Ok(None);
+    }
+    let all = list(app, workspace).await?;
+    let held: Vec<&Topic> = all.iter().filter(|t| sources.iter().any(|s| t.session_ids.contains(s))).collect();
+    if !held.is_empty() {
+        let ids: Vec<String> = held.iter().map(|t| t.id.clone()).collect();
+        let bare: Vec<String> = sources.iter().filter(|s| !held.iter().any(|t| t.session_ids.contains(s))).cloned().collect();
+        inherited.extend(ids.iter().cloned());
+        if !bare.is_empty() {
+            app.state_db.call(move |c| {
+                let tx = c.transaction()?;
+                for id in &ids {
+                    for s in &bare {
+                        tx.execute("INSERT OR IGNORE INTO topic_session (topic_id, session_id) VALUES (?1, ?2)", params![id, s])?;
+                    }
+                }
+                tx.commit()?;
+                Ok(())
+            }).await?;
+            changed(app);
+        }
+        return Ok(None);
+    }
+    let titles: Vec<(String, String)> = sources.iter().filter_map(|id| app.sessions.get(id).map(|s| (id.clone(), s.title))).collect();
+    let base = titles.first().map_or("Related agents".to_string(), |(_, t)| t.chars().take(60).collect::<String>().trim().to_string());
+    let base = name(&base).unwrap_or_else(|_| "Related agents".into());
+    let mut context = String::new();
+    for (id, title) in &titles {
+        context.push_str(&format!("Earlier agent: {title}\n"));
+        if let Some(last) = last_answer(app, id).await {
+            context.push_str(&format!("Its final message: {}\n", last.chars().take(1500).collect::<String>()));
+        }
+    }
+    let taken: Vec<&str> = all.iter().map(|t| t.name.as_str()).take(40).collect();
+    if !taken.is_empty() {
+        context.push_str(&format!("Topic names already used: {}\n", taken.join("; ")));
+    }
+    let topic_id = uuid::Uuid::new_v4().to_string();
+    let (id, ws, owner) = (topic_id.clone(), workspace.to_owned(), session.to_owned());
+    app.state_db.call(move |c| {
+        let tx = c.transaction()?;
+        let value = unique(&tx, &ws, &base, None)?;
+        tx.execute("INSERT INTO topic (id, workspace_id, name, auto_session) VALUES (?1, ?2, ?3, ?4)", params![id, ws, value, owner])?;
+        for s in &sources {
+            tx.execute("INSERT OR IGNORE INTO topic_session (topic_id, session_id) VALUES (?1, ?2)", params![id, s])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }).await?;
+    changed(app);
+    inherited.push(topic_id.clone());
+    Ok(Some(TopicNaming { topic_id, context, name: None }))
+}
+
+/// The newest assistant message Home stored for a session.
+async fn last_answer(app: &App, id: &str) -> Option<String> {
+    let id = id.to_owned();
+    let json: String = app.state_db.call(move |c| {
+        Ok(c.query_row("SELECT json FROM session_event WHERE session_id = ?1 AND kind = 'assistant_message' ORDER BY seq DESC LIMIT 1", [id], |r| r.get(0))?)
+    }).await.ok()?;
+    match serde_json::from_str::<crate::model::EventBody>(&json).ok()? {
+        crate::model::EventBody::AssistantMessage { text, .. } => Some(text),
+        _ => None,
+    }
+}
+
+/// `value`, or `value` and three random digits when another topic of the workspace has that name.
+fn unique(c: &rusqlite::Connection, workspace: &str, value: &str, except: Option<&str>) -> Result<String> {
+    let taken = |v: &str| -> rusqlite::Result<bool> {
+        c.query_row("SELECT COUNT(*) FROM topic WHERE workspace_id = ?1 AND name = ?2 AND id IS NOT ?3", params![workspace, v, except], |r| r.get::<_, i64>(0)).map(|n| n > 0)
+    };
+    let mut candidate = value.to_owned();
+    for _ in 0..20 {
+        if !taken(&candidate)? {
+            return Ok(candidate);
+        }
+        let digits = 100 + uuid::Uuid::new_v4().as_u128() % 900;
+        let stem: String = value.chars().take(76).collect();
+        candidate = format!("{} {digits}", stem.trim_end());
+    }
+    anyhow::bail!("no free topic name")
+}
+
+/// Home: the name a runner generated for the topic Home created at this session's launch. Applied once, only while
+/// that topic still waits for it (an owner rename or a delete wins).
+pub async fn named(app: &App, session: &str, value: &str) -> Result<()> {
+    let value = name(value)?;
+    let session = session.to_owned();
+    let renamed = app.state_db.call(move |c| {
+        let tx = c.transaction()?;
+        let Some((id, ws)) = tx.query_row("SELECT id, workspace_id FROM topic WHERE auto_session = ?1", [&session], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).ok() else {
+            return Ok(false);
+        };
+        let value = unique(&tx, &ws, &value, Some(&id))?;
+        tx.execute("UPDATE topic SET name = ?2, auto_session = NULL WHERE id = ?1", params![id, value])?;
+        tx.commit()?;
+        Ok(true)
+    }).await?;
+    if renamed {
+        changed(app);
+    }
+    Ok(())
+}
+
+/// Home: a launch the runner refused takes the topic Home created for it along.
+pub async fn forget_auto(app: &App, session: &str) {
+    let session = session.to_owned();
+    let result = app.state_db.call(move |c| {
+        let tx = c.transaction()?;
+        tx.execute("DELETE FROM topic_session WHERE topic_id IN (SELECT id FROM topic WHERE auto_session = ?1)", [&session])?;
+        let n = tx.execute("DELETE FROM topic WHERE auto_session = ?1", [&session])?;
+        tx.commit()?;
+        Ok(n)
+    }).await;
+    match result {
+        Ok(0) => {}
+        Ok(_) => changed(app),
+        Err(e) => tracing::warn!("topic of a refused launch: {e:#}"),
+    }
+}
+
 #[cfg(test)]
 mod context_tests {
     #[test]
@@ -346,5 +492,14 @@ mod context_tests {
         let result = super::dedup(&refs);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].through_seq, 8);
+    }
+    #[test]
+    fn taken_names_get_three_digits() {
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE topic (id TEXT PRIMARY KEY, workspace_id TEXT, name TEXT COLLATE NOCASE, UNIQUE(workspace_id, name)); INSERT INTO topic VALUES ('t1', 'w1', 'Login fix');").unwrap();
+        assert_eq!(super::unique(&c, "w2", "login fix", None).unwrap(), "login fix");
+        assert_eq!(super::unique(&c, "w1", "Login fix", Some("t1")).unwrap(), "Login fix");
+        let other = super::unique(&c, "w1", "login FIX", None).unwrap();
+        assert!(other.starts_with("login FIX ") && other.len() == "login FIX ".len() + 3, "{other}");
     }
 }

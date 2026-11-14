@@ -106,6 +106,7 @@ export type View = "summary" | "trace" | "changes" | "subagents" | "processes";
 export function SessionPane({ sessionId, onClear, initialView, onView }: { sessionId: string; onClear: () => void; initialView?: View; onView?: (view: View) => void }) {
   const phone = usePhone();
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [topicsOpen, setTopicsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   // Phone: Reply opens the message box in place of the bottom bar, so no other action sits under the keyboard;
   // Hide closes it. A session with a draft opens with it.
@@ -349,6 +350,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
         {s.live && s.status === "waiting" && s.open_question && <ActionMenuItem name="session.stop" params={{ id: s.id }} close={close} detail="Interrupt the agent while it waits for your decision" />}
         <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename" onClick={() => { close(); setTitle(s.title); setRenaming(true); }} />
         <MenuItem label="Session details" detail="Branch, usage and Launch here" onClick={() => { close(); setDetailsOpen(true); }} />
+        <MenuItem icon={<Icon name="tag" size={14} />} label="Topics…" detail="Group related sessions across folders" onClick={() => { close(); setTopicsOpen(true); }} />
         {terminalsHere && <MenuItem icon={<Icon name="term" size={16} />} label="Terminal" detail={terminalBlock ?? "Open a shell in this folder (the checkout when its worktree is gone)"} disabled={!!terminalBlock} onClick={() => { close(); void openTerminal.folder(s.cwd, s.runner_id); }} />}
       </>}
       {s.status === "in_terminal" && tui && <MenuItem icon={<Icon name="term" size={14} />} label="Show TUI tab" detail="In the terminal dock" onClick={() => { close(); setDock({ open: true, active: tui.id }); }} />}
@@ -379,6 +381,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
           <SessionStatus s={s} />
           {s.launch_spec.bot && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} search={(s.launch_spec.bot.thread && s.launch_spec.bot.thread !== "main" ? { thread: s.launch_spec.bot.thread } : {}) as never} className="flex min-w-0 max-w-[40%] shrink-0 no-underline" aria-label={`Open the chat of ${s.launch_spec.bot.name}`}><BotChip name={s.launch_spec.bot.name} className="max-w-full" /></Link>}
           {localPr && <LocalPrChip pr={localPr} />}
+          <SessionTopics sessionId={s.id} open={topicsOpen} onClose={() => setTopicsOpen(false)} />
           <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{place} <Icon name="chev" size={12} /></button>
           {stateChips}
         </span>
@@ -412,6 +415,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
           <span className="session-meta flex min-w-0 flex-1 items-center gap-x-1.5 overflow-hidden text-[12px] whitespace-nowrap text-ink-3 tabular-nums">
             <span className="max-w-[40%] shrink-0 truncate" title={s.cwd}>{place}</span>
             <span className="flex min-w-0 [&>div]:min-w-0 [&_button]:max-w-full"><WorktreeChip session={s} /></span>
+            <SessionTopics sessionId={s.id} />
             {localPr && <LocalPrChip pr={localPr} />}
             {(profileLabel || contextShare) && <span className="min-w-0 truncate">{[profileLabel, contextShare].filter(Boolean).join(" · ")}</span>}
             </span>
@@ -441,7 +445,6 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
         </div>
       </Sheet>}
 
-      <SessionTopics sessionId={s.id} />
       {branch.stopped && !running && <div className="grid gap-1 border-b border-attn-line bg-attn-soft px-4 py-2.5">
         <NotMerged branch={branch} />
         <span className="text-[12px] text-attn">{s.status === "waiting" ? "Fix merge sends the problem to the agent: it rebases, resolves and asks to merge again." : "Resume the agent, then use Fix merge."}</span>

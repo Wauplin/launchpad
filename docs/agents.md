@@ -63,11 +63,15 @@ New launches ask the agent to end its first task with a short, self-contained su
 
 Collect related sessions across the folders of one workspace with topics. A session can belong to several topics, and archived sessions keep their membership. Adding or removing a topic works in any state and never messages or interrupts the agent.
 
-Open **Topics** from the laptop sidebar or the phone's **More** tab. Create a topic with just a name. Open one to search its sessions; **⋯** offers Rename and Delete. Deleting a topic keeps its sessions.
+Open **Topics** from the laptop sidebar or the phone's **More** tab. The list shows the most recently active topics first. **New topic** finds or creates one by name. A topic page lists its sessions; each row's **⋯** removes the session, with **Undo**. The page's **Launch** and **⋯** (Summarize…, Show in Agents, Rename, Delete) act on the whole topic. Deleting a topic keeps its sessions.
 
-In a session, **Add topic…** opens a searchable picker. Choose an existing topic or type a name to create one inline. The same picker opens in a sheet on the phone. A chip's name opens its topic page; its separate **×** removes the session from that topic at once, with **Undo** in the toast.
+A session's topics show in its meta line, next to its folder and branch: the first topic's name, and **+N** when there are more. Click it to open the list. Each name opens its topic page, **×** removes the session with **Undo**, and the field under the list finds or creates a topic (Enter picks the first line). Without a topic, the laptop shows a quiet **+ Topic** there; on the phone, use **⋯ → Topics…**.
 
-In **Agents**, combine the topic filter with text search to find related work. To group older runs, click **Select sessions**, check the sessions, then **Add N to topic…**. Choose or create the topic in the picker.
+In **Agents**, the **Topic** chip next to **★ Pinned** filters the list to one topic, combined with text search. To group older runs, click **Select**, check the sessions, then **Add to topic…**.
+
+### Automatic topics
+
+A new agent launched with other agents' traces (**Launch here**, **Use trace as context**, **Add context → Trace**) joins their topics, so related work stays together without a click. Sources without a topic join those topics too. When none of the sources has a topic, Launchpad creates one for all of them, for example agent C launched with the traces of A and B. It starts with the first source's title and shows **naming…**. The new agent's runner then names it once from the sources' last answers and the new prompt, like a session title, and Home applies that name. A name already used in the workspace gets three random digits. A rename by you before the name arrives wins, and a launch that fails takes its new topic away. Follow-up messages with traces inherit the sources' topics but never create one.
 
 ### Continue with topic history
 

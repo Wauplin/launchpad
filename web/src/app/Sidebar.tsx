@@ -223,7 +223,7 @@ export function Sidebar() {
       <NavItem narrow={narrow} tour="sidebar.schedules" to="/schedules" icon="clock" title="Schedules">
         Schedules
       </NavItem>
-      <NavItem narrow={narrow} to="/topics" icon="book" title="Topics">Topics</NavItem>
+      <NavItem narrow={narrow} to="/topics" icon="tag" title="Topics">Topics</NavItem>
       <NavItem narrow={narrow} tour="sidebar.knowledge" to="/knowledge" icon="book" mark={knowledgeNew ? "new" : null} title={label("Knowledge", knowledgeNew > 0 && knowledgeTitle)} end={<Count n={knowledgeNew} title={knowledgeTitle} />}>
         Knowledge
       </NavItem>

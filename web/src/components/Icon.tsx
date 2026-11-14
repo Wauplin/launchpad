@@ -3,6 +3,7 @@
 export type IconName =
   | "issue"
   | "book"
+  | "tag"
   | "issue-done"
   | "pr"
   | "pr-draft"
@@ -64,6 +65,7 @@ export function IconSprite() {
       <defs>
     <symbol id="i-preset" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 2.5H4a1.5 1.5 0 0 0-1.5 1.5v8A1.5 1.5 0 0 0 4 13.5h8a1.5 1.5 0 0 0 1.5-1.5V8.5"/><path d="M5.5 7.5h3M5.5 10.5h5"/><path d="M12.5 1.5v4M10.5 3.5h4"/></g></symbol>
         <symbol id="i-book" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 4.2C6.8 3.2 5 2.8 2.5 3v9.5c2.5-.2 4.3.2 5.5 1.2 1.2-1 3-1.4 5.5-1.2V3C11 2.8 9.2 3.2 8 4.2z"/><path d="M8 4.2v9.5"/></g></symbol>
+    <symbol id="i-tag" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"><path d="M2.5 3.5a1 1 0 0 1 1-1h4.1a1 1 0 0 1 .7.3l5.2 5.2a1 1 0 0 1 0 1.4l-4.1 4.1a1 1 0 0 1-1.4 0L2.8 8.3a1 1 0 0 1-.3-.7z"/><circle cx="5.6" cy="5.6" r="1" fill="currentColor" stroke="none"/></g></symbol>
     <symbol id="i-clip" viewBox="0 0 16 16"><path d="M13 7.5 8 12.5a3.2 3.2 0 0 1-4.5-4.5l5.3-5.3a2.1 2.1 0 0 1 3 3L6.6 10.9a1 1 0 0 1-1.5-1.5L10 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></symbol>
     <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5"/><path d="M8 4v4l3 2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></symbol>
     <symbol id="i-archive" viewBox="0 0 16 16"><path d="M3 6v7h10V6M2 3h12v3H2zM6 9h4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></symbol>

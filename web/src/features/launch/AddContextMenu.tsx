@@ -96,7 +96,7 @@ export function AddContextMenu({ projects, recent, sessions, selectedTraces, onP
         {attach && <MenuItem icon={<Icon name="clip" size={12} />} label={attach.images ? "Files or images…" : "Files…"} detail={attach.images ? "Or paste or drop them in the text" : "Or drop them in the text"} disabled={attach.disabled} onClick={() => { attach.onPick(); close(); }} />}
         <MenuItem icon={<Icon name="folder" size={12} />} label="Folder…" detail="Another folder as read-only context" onClick={() => setMode("project")} />
         <MenuItem icon={<Icon name="issue" size={12} />} label="GitHub link…" detail="An issue, PR or comment URL" onClick={() => setMode("github")} />
-        {onTopic && <MenuItem icon={<Icon name="folder" size={12} />} label="Topic…" detail="All sessions in a topic" onClick={() => setMode("topic")} />}
+        {onTopic && <MenuItem icon={<Icon name="tag" size={12} />} label="Topic…" detail="The traces of every session in a topic" onClick={() => setMode("topic")} />}
         <MenuItem icon={<Icon name="agents" size={12} />} label="Agent trace…" detail="The stored trace of another agent" onClick={() => setMode("trace")} />
         {presets && <MenuItem icon={<Icon name="preset" size={12} />} label={presetCount ? `Presets… · ${presetCount}` : "Presets…"} detail="Your usual instructions, added after the text" onClick={() => setMode("preset")} />}
         {!!recent.length && <div className="px-[9px] pt-2 pb-1 seclabel">Recent contexts</div>}
