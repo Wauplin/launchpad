@@ -71,7 +71,7 @@ Publication and merges wait until the Local PR's agent is idle.
 
 ## On github.com
 
-The [Chrome extension](../extension/README.md) shows Launchpad inside github.com: a badge on each repository, Local PRs and row states on the Pull requests and Issues lists, a box in the sidebar of each issue and pull request, private notes inside the item's timeline, Ask on comments, live agent cards, suggestions to **Insert** into GitHub's own fields, the line comments of a suggested review under their lines in Files changed, and a strip on the notifications page. It reads all of this from Home's records and cache (`/api/ext/*`), never from GitHub.
+The [Chrome extension](../extension/README.md) shows Launchpad inside github.com: a badge on each repository, Local PRs and row states on the Pull requests and Issues lists, a box in the sidebar of each issue and pull request, private notes inside the item's timeline, Ask on comments, live agent cards, suggestions to **Insert** into GitHub's own fields, the line comments of a suggested review under their lines in Files changed. It reads all of this from Launchpad's own records (`/api/ext/*`), never from GitHub.
 
 - **Insert, never submit.** The extension never clicks or submits GitHub's forms. **Insert** fills GitHub's field and adds the attribution line at the end, visible and removable; you post with GitHub's button. Prefill (off by default) does the same without a click when the comment box is empty.
 - **Private notes**: each issue and pull request has a private timeline in Launchpad. Agents add a note when something changed (`launchpad note`), optionally with a suggested comment, and you add yours with **Private note to your agents** above GitHub's comment box. Your note goes to every agent that wrote about the item in the workspace (else to its default bot), and they answer with a note when useful. The extension draws each note, and each suggested comment without a note, inside GitHub's timeline at the moment it was written. A suggested comment there has **Post this comment** (Launchpad posts it as you after your confirmation), **Edit**, **Insert into comment box** and **Discard**. Notes are never posted.
@@ -86,7 +86,6 @@ Home keeps a ledger of what happened to each suggestion, part by part (a review'
 ### Roadmap
 
 - Attachments (images and files) on private notes.
-- Agents that add a note on their own when the item changes (new commits or comments), through a routine trigger.
 - An `Idempotency-Key` on `note.write`, so a retried click never stores the note twice.
 - Timeline ages that update while the page stays open.
 

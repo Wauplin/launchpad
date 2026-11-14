@@ -177,7 +177,7 @@ For each suggestion, Home records what happened to it, part by part (the review'
 ## Safety
 
 - **Never clicks or submits GitHub's forms.** Insert and prefill only fill GitHub's own fields, and you post with GitHub's button. The extension observes that click to record it in the ledger.
-- **GitHub writes only through its own confirmations.** Four actions write to GitHub, through Home: **Publish** of a Local PR, **Done all handled**, **Push to this PR** and **Post this comment** of a suggested comment in the timeline. Each runs only from the confirm button of its own dialog, on your real click, and Home checks it again.
+- **GitHub writes only through its own confirmations.** Three actions write to GitHub, through Home: **Publish** of a Local PR, **Push to this PR** and **Post this comment** of a suggested comment in the timeline. Each runs only from the confirm button of its own dialog, on your real click, and Home checks it again.
 - **Tokens stay in the service worker.** Only the service worker talks to Home and Hugging Face. It keeps the Hugging Face tokens and the device secret in extension storage that content scripts cannot read. Content scripts reach Home only through narrow messages, one per Home route.
 - **Page text stays on the page.** Marks are built from Home's data and the URL. Titles read from the page show only in the extension's popovers; agents get item numbers and comment IDs, never page text. Only Chat sends a page, when you send with its chip.
 - Agents cannot use the extension's routes (`/api/ext/*` and the ledger routes are the owner's).
