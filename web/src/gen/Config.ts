@@ -9,7 +9,7 @@ import type { Worktrees } from "./Worktrees";
 
 /**
  * Unknown keys are ignored, so files with removed keys and sections (`projects_root`, `remove_published_worktree`,
- * `[commands]`, `[agents]`) keep loading.
+ * `[commands]`, `[agents]`, `[voice]`) keep loading.
  */
 export type Config = { server: ServerConfig, github: GitHub, worktrees: Worktrees, presets: Array<Preset>, 
 /**
