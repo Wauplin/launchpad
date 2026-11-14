@@ -10,11 +10,11 @@
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtNote } from "@/gen/ExtNote";
 import type { ExtSuggestion } from "@/gen/ExtSuggestion";
-import { request } from "../../shared/messages";
+import { request, sentSummary } from "../../shared/messages";
 import { openAgentView } from "./agentView";
 import { findAnchor, findAnchors, timeOf } from "./anchors";
 import { insertSuggestion, NeedsChoice } from "./insert";
-import { agentPath, elapsed, open, type ItemPage } from "./item";
+import { agentPath, elapsed, open, running, type ItemPage } from "./item";
 import { markdown } from "./markdown";
 import { button, h, logo, more, mount, popover, unmount } from "./widgets";
 
@@ -47,7 +47,7 @@ function field(label: string, value: string, placeholder?: string) {
 }
 
 /** Pure: the entries in time order (notes, then the waiting suggested comments of this item no note carries). */
-export function entriesOf(ctx: ExtContext, number: number): Entry[] {
+function entriesOf(ctx: ExtContext, number: number): Entry[] {
   const carried = new Set(ctx.notes.map((n) => n.suggestion?.id).filter((x): x is string => !!x));
   const out: Entry[] = ctx.notes.map((n) => ({ key: n.id, at: n.created_at, note: n, suggestion: n.suggestion ? ctx.suggestions.find((s) => s.id === n.suggestion!.id) ?? null : null }));
   for (const s of ctx.suggestions) {
@@ -59,7 +59,7 @@ export function entriesOf(ctx: ExtContext, number: number): Entry[] {
 
 /** Pure: where each entry goes among timeline items of known times (page order): before the first later item, else
  * after the last one (`-1`). Consecutive entries with the same place form one group. */
-export function placeEntries(items: (number | null)[], at: number[]): { before: number; entries: number[] }[] {
+function placeEntries(items: (number | null)[], at: number[]): { before: number; entries: number[] }[] {
   const groups: { before: number; entries: number[] }[] = [];
   at.forEach((t, i) => {
     const before = items.findIndex((x) => x !== null && x > t);
@@ -121,7 +121,7 @@ function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | n
   }
   const written = n?.head ?? e.suggestion?.head ?? null;
   if (written && ctx.page.head && written !== ctx.page.head) head.append(h("span", { class: "lp-tag", text: `head ${written.slice(0, 7)}`, title: `Written when the pull request's head was ${written.slice(0, 7)}; it is now at ${ctx.page.head.slice(0, 7)}` }));
-  if (sessionId) head.append(button("Show work", () => openAgentView({ session_id: sessionId, title: agent?.title, bot: agent?.bot ?? author, running: agent ? ["working", "starting", "background"].includes(agent.status) : undefined }, ws), { small: true, title: "What it was asked, its answers and its steps, here on the page" }));
+  if (sessionId) head.append(button("Show work", () => openAgentView({ session_id: sessionId, title: agent?.title, bot: agent?.bot ?? author, running: agent ? running(agent) : undefined }, ws), { small: true, title: "What it was asked, its answers and its steps, here on the page" }));
   const menu: HTMLElement = more(root, n ? "Note" : "Suggested comment", () => [
     ...(sessionId ? [{ label: "Open the agent in Launchpad", hint: "Its full trace and thread", onSelect: () => open(agentPath({ session_id: sessionId }), ws) }] : []),
     ...(n ? [{ label: "Delete note…", hint: "Removes it from Launchpad", onSelect: () => confirmDelete(root, menu, n, refresh) }] : []),
@@ -229,10 +229,7 @@ function renderBox(page: ItemPage, ctx: ExtContext, ws: string, form: Element, r
     request("note.write", { repo: page.repo, number: page.number, body: area.value, workspace: ws })
       .then((r) => {
         drafts.delete(page.url);
-        const ok = r.sent.filter((x) => !x.error).map((x) => x.recipient.name);
-        const bad = r.sent.filter((x) => x.error).map((x) => `${x.recipient.name} (${x.error})`);
-        const text = r.sent.length ? [ok.length ? `Sent to ${ok.join(", ")}.` : "", bad.length ? `Not sent to ${bad.join(", ")}.` : ""].filter(Boolean).join(" ") : "Saved. No agent of this workspace wrote about this item and it has no default bot.";
-        sent = { url: page.url, text, error: !ok.length && !!bad.length };
+        sent = { url: page.url, ...sentSummary(r, "Saved. No agent of this workspace wrote about this item and it has no default bot.") };
         refresh();
       })
       .catch((x) => { sent = { url: page.url, text: fail(x), error: true }; refresh(); });

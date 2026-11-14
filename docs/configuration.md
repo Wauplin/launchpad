@@ -111,7 +111,7 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad pair` | Print a five-minute pairing link and QR code |
 | `launchpad pr create\|update\|show\|list` | Manage Local PRs (used by agents; an agent updates only its own) |
 | `launchpad suggest comment\|review` | Save an agent-written comment or review as a suggestion; never posts |
-| `launchpad note` | Save a private note about an issue or pull request for the owner (replaces the same bot's earlier note); never posted, shown under the item's description in the Chrome extension |
+| `launchpad note` | Add a private note to an issue's or pull request's timeline (each run adds one; `--suggest-file` attaches a suggested comment, `--reply-to-note` answers a note); never posted, shown inside GitHub's timeline by the Chrome extension |
 | `launchpad send <connection>\|telegram --body-file <file> --session-id <id>` | Draft a message for an outgoing connection (it waits in the Outbox), or send one to the Telegram chat of the session's workspace ([Connections](connections.md#telegram)) |
 | `launchpad hops` | Print the hop count an agent sends to an incoming hook in `X-Launchpad-Hops` ([Loops between bots](connections.md#loops-between-bots)) |
 | `launchpad work finish\|add-project` | Request a worktree merge (only when the launch chose Merge) or open a Local PR, or add another Git folder of the workspace to a task (used by agents) |

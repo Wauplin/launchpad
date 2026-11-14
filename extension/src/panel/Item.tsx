@@ -12,7 +12,7 @@ import type { ExtSuggestion } from "@/gen/ExtSuggestion";
 import { ago } from "@/lib/format";
 import type { Page } from "../content/github/page";
 import { Icon } from "../icons";
-import { CONTEXT_TOPIC, request, subscribe, type ConnectionState, type TabCommand } from "../shared/messages";
+import { CONTEXT_TOPIC, request, sentSummary, subscribe, type ConnectionState, type TabCommand } from "../shared/messages";
 import type { ActiveTab } from "./tab";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -185,10 +185,8 @@ function NoteBox({ repo, number, ws, onDone }: { repo: string; number: number; w
     setBusy(true); setStatus(null);
     try {
       const r = await request("note.write", { repo, number, body: text, workspace: ws || null });
-      const ok = r.sent.filter((x) => !x.error).map((x) => x.recipient.name);
-      const bad = r.sent.filter((x) => x.error).map((x) => `${x.recipient.name} (${x.error})`);
       setText("");
-      setStatus({ text: r.sent.length ? [ok.length ? `Sent to ${ok.join(", ")}.` : "", bad.length ? `Not sent to ${bad.join(", ")}.` : ""].filter(Boolean).join(" ") : "Saved. No agent to tell about it.", error: !ok.length && !!bad.length });
+      setStatus(sentSummary(r, "Saved. No agent to tell about it."));
       onDone();
     } catch (err) { setStatus({ text: message(err), error: true }); } finally { setBusy(false); }
   };

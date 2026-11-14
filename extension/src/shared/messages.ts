@@ -115,6 +115,13 @@ export type ProfileBrief = { id: string; name: string; harness: string; subscrip
 export type LaunchWhenDone = "read_only" | "local_pr";
 /** `note.write`'s answer: the note, and each agent it was sent to (with the error when the message failed). */
 export type NoteWriteResult = { note: ItemNote; sent: { recipient: NoteRecipient; error: string | null }[] };
+/** What the note box says after `note.write`: who got the note and who did not; `none` when no agent was told. */
+export function sentSummary(r: NoteWriteResult, none: string): { text: string; error: boolean } {
+  if (!r.sent.length) return { text: none, error: false };
+  const ok = r.sent.filter((x) => !x.error).map((x) => x.recipient.name);
+  const bad = r.sent.filter((x) => x.error).map((x) => `${x.recipient.name} (${x.error})`);
+  return { text: [ok.length ? `Sent to ${ok.join(", ")}.` : "", bad.length ? `Not sent to ${bad.join(", ")}.` : ""].filter(Boolean).join(" "), error: !ok.length };
+}
 /** Push to this PR's answer. */
 export type PushResult = { ok: boolean; url: string; branch: string; head: string };
 

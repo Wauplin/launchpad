@@ -94,9 +94,10 @@ Publication and merges wait until the Local PR's agent is idle.
 
 ## On github.com
 
-The [Chrome extension](../extension/README.md) shows Launchpad inside github.com: a badge on each repository, Local PRs and row states on the Pull requests and Issues lists, a box in the sidebar of each issue and pull request, Ask on comments, live agent cards, suggestions to **Insert** into GitHub's own fields, the line comments of a suggested review under their lines in Files changed, and a strip on the notifications page. It reads all of this from Home's records and cache (`/api/ext/*`), never from GitHub.
+The [Chrome extension](../extension/README.md) shows Launchpad inside github.com: a badge on each repository, Local PRs and row states on the Pull requests and Issues lists, a box in the sidebar of each issue and pull request, private notes inside the item's timeline, Ask on comments, live agent cards, suggestions to **Insert** into GitHub's own fields, the line comments of a suggested review under their lines in Files changed, and a strip on the notifications page. It reads all of this from Home's records and cache (`/api/ext/*`), never from GitHub.
 
-- **Prefill, never post.** The extension never posts or submits on GitHub. **Insert** fills GitHub's field and adds the attribution line at the end, visible and removable; you post with GitHub's button.
+- **Insert, never submit.** The extension never clicks or submits GitHub's forms. **Insert** fills GitHub's field and adds the attribution line at the end, visible and removable; you post with GitHub's button. Prefill (off by default) does the same without a click when the comment box is empty.
+- **Private notes**: each issue and pull request has a private timeline in Launchpad. Agents add a note when something changed (`launchpad note`), optionally with a suggested comment, and you add yours with **Private note to your agents** above GitHub's comment box. Your note goes to every agent that wrote about the item in the workspace (else to its default bot), and they answer with a note when useful. The extension draws each note, and each suggested comment without a note, inside GitHub's timeline at the moment it was written. A suggested comment there has **Post this comment** (Launchpad posts it as you after your confirmation), **Edit**, **Insert into comment box** and **Discard**. Notes are never posted.
 - **Bot on GitHub**: a folder setting (folder page → **Bot on GitHub**) that names the bot the extension asks on the repository's pages. **Automatic** uses the last bot you used on the repository, else the workspace's Ask bot.
 - **Ask about these lines**: on Files changed, a bot gets a reference to the lines you selected (repository, pull request, path, side, range and head). Home reads the lines from the pull request's diff when it sends the message, and gives them to the agent marked as text from the pull request's author. A bot or agent may name only a repository of its own workspace.
 - **Push to this PR**: when an agent's Launchpad branch holds the pull request's head plus new commits, the extension offers to push them to the pull request's branch. After your confirmation, Home checks that the branch still points at the commit you saw, pushes it as a fast-forward (never forced) and then follows the branch, so the agent's next commits go to the pull request too, as with [Continue a pull request](#continue-a-pull-request). Home pushes only to the pull request's own repository, your own fork, or a fork whose author lets maintainers edit. Agents can prepare the same click as a ready card (`branch.push-to-pr`).
@@ -105,6 +106,13 @@ The [Chrome extension](../extension/README.md) shows Launchpad inside github.com
 ### Feedback ledger
 
 Home keeps a ledger of what happened to each suggestion, part by part (a review's summary and each line comment): shown, inserted, posted by hand, confirmed or unconfirmed, posted by Launchpad, dismissed, discarded or outdated, with the final text, the size of your edits and whether you kept the attribution line. A “posted by hand” record is only a claim: Home confirms it when a refresh of the item finds your comment with at least 85% of the text (it checks 20 s, 2 min, 10 min and an hour after the claim), else marks it unconfirmed after an hour. Nothing reads the ledger yet; it is kept for a later feedback view. No marker is added to what you post.
+
+### Roadmap
+
+- Attachments (images and files) on private notes.
+- Agents that add a note on their own when the item changes (new commits or comments), through a routine trigger.
+- An `Idempotency-Key` on `note.write`, so a retried click never stores the note twice.
+- Timeline ages that update while the page stays open.
 
 ## What waits for you
 

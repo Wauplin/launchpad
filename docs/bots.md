@@ -142,7 +142,7 @@ Some messages do not come from you: a message an admin bot sends with `launchpad
 
 In the chat, such a message is a bordered row on the left, with the sender's avatar and one line over the text: **From bot Scout · not from you**, or **From Scout, accepted by you** for a card you accepted (**accepted automatically** in auto mode). The line links to the bot or the agent. The row shows the text without the header and the fence. Agents shows the same row in the trace.
 
-Your own messages, Telegram messages, report replies and routine runs get no header. Incoming hooks keep their own fenced block (see [Connections](connections.md)). In the chat, a hook message shows on the left under **From hook Nightly CI · not from you**, with a link to Settings → Connections. An agent that another agent launched gets no header either, because its task comes from the agent that delegated it. Its trace still names the launcher.
+Your own messages (also your private notes on GitHub items), Telegram messages, report replies and routine runs get no header. Incoming hooks keep their own fenced block (see [Connections](connections.md)). In the chat, a hook message shows on the left under **From hook Nightly CI · not from you**, with a link to Settings → Connections. An agent that another agent launched gets no header either, because its task comes from the agent that delegated it. Its trace still names the launcher.
 
 ### Channels and DMs
 
