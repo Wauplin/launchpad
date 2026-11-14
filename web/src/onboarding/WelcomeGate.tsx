@@ -37,7 +37,7 @@ function WelcomeDialog() {
     <div className="fixed inset-0 z-[70] grid place-items-center bg-[rgb(10_15_25/0.45)] p-4">
       <div role="dialog" aria-modal="true" aria-labelledby="lp-welcome" className="w-[520px] max-w-full rounded-card border border-line border-t-[3px] border-t-demo bg-paper p-5 shadow-[0_20px_50px_-15px_rgba(10,15,25,.6)]" aria-busy={busy}>
         <h2 id="lp-welcome" className="m-0 text-[18px] font-semibold">Welcome to Launchpad</h2>
-        <p className="mt-1.5 mb-3 text-[13px] text-ink-2">Launchpad starts coding agents, keeps an eye on them and helps you review their work and your GitHub notifications. Take a quick tour on demo data first?</p>
+        <p className="mt-1.5 mb-3 text-[13px] text-ink-2">Launchpad starts coding agents, keeps an eye on them and helps you review their work. Take a quick tour on demo data first?</p>
         <div className="grid gap-2">
           <Choice icon="play" primary title="Essentials tour · about 3 min" text="Launch an agent, answer it, review its work. Demo data only." action="Start" onClick={() => answer("tour", () => enterDemo("essentials:layout"))} />
           <Choice icon="agents" title="Full tour · about 10 min" text="Adds GitHub, Ask, terminals, workspaces, automation and settings." action="Start" onClick={() => answer("tour", () => enterDemo("full:layout"))} />

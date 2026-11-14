@@ -43,7 +43,7 @@ const EMPTY: Record<View, string> = {
   review: "Nothing to review: no unseen finished agent and no Local PR to publish.",
   approve: "No proposal waits for you.",
   send: "No message waits to be sent.",
-  github: "No suggestion to post and no review request.",
+  github: "No suggestion to post.",
   fix: "No failed routine and no runner to update.",
   done: "Nothing handled in the last 30 days.",
 };
