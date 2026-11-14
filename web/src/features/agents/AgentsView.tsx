@@ -129,6 +129,9 @@ export function AgentsView() {
   const qc = useQueryClient();
   const [panelLoad, setPanelLoad] = useState(0);
   const [filter, setFilter] = useState("");
+  // The search field opens from its icon; it stays open while it holds text.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searching = searchOpen || !!filter;
   const [debounced, setDebounced] = useState("");
   const topicsQuery = useTopics();
   const topics = topicsQuery.data ?? [];
@@ -274,13 +277,14 @@ export function AgentsView() {
     <div className="flex h-full min-h-0">
       <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "w-[280px] flex-none border-r border-line"}`}>
         <div className="grid gap-2 border-b border-line p-2">
-          <input aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} />
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button className="lp-chip" aria-pressed={pinsOnly} onClick={() => setPinsOnly(!pinsOnly)}>★ Pinned</button>
-            <TopicFilterChip value={search.topic} onChange={(topic) => void navigate({ to: "/agents", search: { ...search, topic }, replace: true })} />
-            <button className="lp-chip" aria-pressed={selecting} title="Select sessions to add them to a topic" onClick={() => { setSelecting(!selecting); setSelection([]); }}>Select</button>
-            {phone && <span className="ml-auto"><LaunchButton small title="Open the composer (the draft if one exists)" /></span>}
+          <div className="flex min-w-0 items-center gap-1.5">
+            <button className="lp-chip" aria-pressed={searching} aria-label="Search sessions and messages" title={searching ? "Close the search" : "Search sessions and messages"} onClick={() => { if (searching) { setFilter(""); setArchivedLimit(30); } setSearchOpen(!searching); }}><Icon name="search" size={12} /></button>
+            <button className="lp-chip" aria-pressed={pinsOnly} aria-label="Pinned only" title="Show only pinned sessions" onClick={() => setPinsOnly(!pinsOnly)}>★</button>
+            <TopicFilterChip compact value={search.topic} onChange={(topic) => void navigate({ to: "/agents", search: { ...search, topic }, replace: true })} />
+            <button className="lp-chip" aria-pressed={selecting} aria-label="Select sessions" title="Select sessions to add them to a topic" onClick={() => { setSelecting(!selecting); setSelection([]); }}><Icon name="check" size={12} /></button>
+            {phone && <span className="ml-auto shrink-0"><LaunchButton small title="Open the composer (the draft if one exists)" /></span>}
           </div>
+          {searching && <input autoFocus={searchOpen} aria-label="Search sessions" className="field-input w-full" placeholder="Search sessions and messages…" value={filter} onChange={(e) => { setFilter(e.target.value); setArchivedLimit(30); }} onKeyDown={(e) => { if (e.key === "Escape" && !filter) setSearchOpen(false); }} />}
           {selecting && <div className="flex items-center gap-2 text-[12px] text-ink-3">
             <span className="min-w-0 flex-1 truncate">{selection.length ? `${selection.length} selected` : "Tick sessions to add them to a topic"}</span>
             {selection.length > 0 && <TopicPicker onPick={async (t) => { await addTopic(t.id, selection); toast(`Added ${selection.length} to ${t.name}`); setSelection([]); setSelecting(false); }} />}

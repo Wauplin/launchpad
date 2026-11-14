@@ -109,13 +109,14 @@ export function SessionTopics({ sessionId, open = false, onClose }: { sessionId:
 }
 
 /** The Agents list's topic filter: a chip named after the chosen topic, with the workspace's topics to pick from. */
-export function TopicFilterChip({ value, onChange }: { value?: string; onChange: (id?: string) => void }) {
+/** `compact`: only the tag icon until a topic is chosen (toolbars with icon chips). */
+export function TopicFilterChip({ value, onChange, compact }: { value?: string; onChange: (id?: string) => void; compact?: boolean }) {
   const { data = [] } = useTopics();
   const phone = usePhone();
   const [open, setOpen] = useState(false);
   const active = data.find((t) => t.id === value);
-  const chip = (toggle: () => void) => <button type="button" className="lp-chip max-w-48" aria-pressed={!!active} aria-haspopup="dialog" title={active ? `Only sessions of ${active.name}` : "Show the sessions of one topic"} onClick={toggle}>
-    <Icon name="tag" size={12} className="shrink-0" /><span className="truncate">{active?.name ?? "Topic"}</span><Icon name="chev" size={12} className="shrink-0" />
+  const chip = (toggle: () => void) => <button type="button" className={`lp-chip min-w-0 ${compact ? "max-w-36" : "max-w-48"}`} aria-pressed={!!active} aria-haspopup="dialog" aria-label={active ? `Topic: ${active.name}` : "Filter by topic"} title={active ? `Only sessions of ${active.name}` : "Show the sessions of one topic"} onClick={toggle}>
+    <Icon name="tag" size={12} className="shrink-0" />{(!compact || active) && <span className="truncate">{active?.name ?? "Topic"}</span>}<Icon name="chev" size={12} className="shrink-0" />
   </button>;
   const list = (close: () => void) => <TopicFilterList value={value} topics={data} close={close} onChange={onChange} />;
   if (phone) return <>{chip(() => setOpen(true))}{open && <Sheet title="Filter by topic" onClose={() => setOpen(false)}>{list(() => setOpen(false))}</Sheet>}</>;

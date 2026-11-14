@@ -67,7 +67,7 @@ Open **Topics** from the laptop sidebar or the phone's **More** tab. The list sh
 
 A session's topics show in its meta line, next to its folder and branch: the first topic's name, and **+N** when there are more. Click it to open the list. Each name opens its topic page, **×** removes the session with **Undo**, and the field under the list finds or creates a topic (Enter picks the first line). Without a topic, the laptop shows a quiet **+ Topic** there; on the phone, use **⋯ → Topics…**.
 
-In **Agents**, the **Topic** chip next to **★ Pinned** filters the list to one topic, combined with text search. To group older runs, click **Select**, check the sessions, then **Add to topic…**.
+In **Agents**, one row of icon chips sits over the list: search (opens the search field), ★ (pinned only), the topic tag (filters the list to one topic, combined with text search) and ✓ Select; on the phone, **Launch** ends the row. To group older runs, click Select (✓), check the sessions, then **Add to topic…**.
 
 ### Automatic topics
 
