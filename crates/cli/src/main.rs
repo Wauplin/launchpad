@@ -108,6 +108,14 @@ enum Command {
         #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
         session_id: String,
     },
+    /// List the private notes of a GitHub issue or pull request in this session's workspace, oldest first, each with
+    /// its `url`: put that link in a note's Markdown to point at the note.
+    Notes {
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        number: u64,
+    },
     /// End this turn and have Launchpad wake this session later, in the same conversation: instead of a long `sleep` in
     /// the shell. Run it, then end your turn; the wake-up message brings back your note. A new sleep replaces the last.
     Sleep {
@@ -955,6 +963,11 @@ async fn run() -> Result<()> {
             };
             let value = Client::new(&paths)?.json("POST", "/api/notes", Some(serde_json::json!({"repo":repo,"number":number,"body":body,"suggest":suggest,"suggest_reply_to":reply_to,"reply_to":reply_to_note,"session_id":session_id}))).await?;
             println!("{value}");
+            Ok(())
+        }
+        Command::Notes { repo, number } => {
+            let value = Client::new(&paths)?.json("GET", &query("/api/context/notes", &[("repo", &repo), ("number", &number.to_string())]), None).await?;
+            println!("{}", serde_json::to_string_pretty(&value)?);
             Ok(())
         }
         Command::Sleep { delay, until, note, session_id } => {

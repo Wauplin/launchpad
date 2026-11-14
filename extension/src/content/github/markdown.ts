@@ -1,36 +1,69 @@
 // Agent Markdown (notes, answers) for the GitHub layer's widgets, built with `h()` from text only: headings, paragraphs,
-// lists, quotes, fenced code, tables kept as text, and inline code, bold, italics and http(s) links. Never parses HTML,
-// so a note can hold no markup of its own; anything unknown stays plain text.
+// lists, quotes, fenced code, tables kept as text, and inline code, bold, italics and http(s) links. References show
+// like in GitHub's comments (refs.ts): bare URLs, `#123`, `owner/repo#123`, `@login`, short GitHub URLs and links to
+// private notes. Never parses HTML, so a note can hold no markup of its own; anything unknown stays plain text.
 
+import { linkRef, tokens, type Here, type NoteRef, type Ref } from "./refs";
 import { h } from "./widgets";
 
-const LINK = /^https?:\/\//i;
+/** Where the text is shown: its item (for `#123` and short labels), and what a note link does. */
+export type MdOptions = {
+  here?: Here;
+  /** The label of a note link (its author on this page), else the short one (`#12 (note)`). */
+  noteLabel?: (note: NoteRef) => string | null;
+  /** A plain click on a note link: true when it was handled on the page (no navigation). */
+  onNote?: (note: NoteRef) => boolean;
+};
 
-/** Inline spans: `code`, **bold**, *italic* or _italic_, [text](https://…). */
-function inline(text: string): (Node | string)[] {
+/** A link to a reference: GitHub's links open in this tab like GitHub's own, others in a new one. */
+function anchor(ref: Ref, children: (Node | string)[], o: MdOptions): HTMLAnchorElement {
+  const a = h("a", { attrs: { href: ref.href, ...(ref.github ? {} : { target: "_blank", rel: "noopener noreferrer" }) } }, ...children);
+  const note = ref.note;
+  if (note) {
+    a.className = "lp-note-link";
+    a.title = "Private note";
+    a.addEventListener("click", (ev) => {
+      if (ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
+      if (o.onNote?.(note)) ev.preventDefault();
+    });
+  }
+  return a;
+}
+
+/** Plain text with its references as links (`link` false: inside a link's own text). */
+function linked(text: string, o: MdOptions, link: boolean): (Node | string)[] {
+  if (!link) return [text];
+  return tokens(text, o.here ?? null).map((t) => (typeof t === "string" ? t : anchor(t, [t.note ? o.noteLabel?.(t.note) ?? t.label : t.label], o)));
+}
+
+/** Inline spans: `code`, **bold**, *italic* or _italic_, [text](https://… or #lp-note-<id>), and references. */
+function inline(text: string, o: MdOptions, link = true): (Node | string)[] {
   const out: (Node | string)[] = [];
   const re = /(`+)([^`]+?)\1|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\s][^*]*)\*|(?<![\w])_([^_\s][^_]*)_(?![\w])|\[([^\]]+)\]\(([^)\s]+)\)/g;
   let at = 0;
   for (const m of text.matchAll(re)) {
-    if (m.index > at) out.push(text.slice(at, m.index));
+    const ref = m[7] !== undefined ? linkRef(m[8] ?? "", o.here ?? null) : null;
+    // A URL's own `_` or `*` is not emphasis: the URL is linked whole.
+    if ((m[3] ?? m[4] ?? m[5] ?? m[6]) !== undefined && /https?:\/\/\S*$/.test(text.slice(0, m.index))) continue;
+    if (m.index > at) out.push(...linked(text.slice(at, m.index), o, link));
     if (m[2] !== undefined) out.push(h("code", { text: m[2] }));
-    else if (m[3] !== undefined || m[4] !== undefined) out.push(h("strong", {}, ...inline(m[3] ?? m[4] ?? "")));
-    else if (m[5] !== undefined || m[6] !== undefined) out.push(h("em", {}, ...inline(m[5] ?? m[6] ?? "")));
-    else if (m[7] !== undefined && LINK.test(m[8] ?? "")) out.push(h("a", { attrs: { href: m[8]!, target: "_blank", rel: "noopener noreferrer" } }, ...inline(m[7])));
+    else if (m[3] !== undefined || m[4] !== undefined) out.push(h("strong", {}, ...inline(m[3] ?? m[4] ?? "", o, link)));
+    else if (m[5] !== undefined || m[6] !== undefined) out.push(h("em", {}, ...inline(m[5] ?? m[6] ?? "", o, link)));
+    else if (ref && link) out.push(anchor(ref, inline(m[7]!, o, false), o));
     else out.push(m[0]);
     at = m.index + m[0].length;
   }
-  if (at < text.length) out.push(text.slice(at));
+  if (at < text.length) out.push(...linked(text.slice(at), o, link));
   return out;
 }
 
 /** The blocks of `md`, in a `div.lp-md`. */
-export function markdown(md: string): HTMLElement {
+export function markdown(md: string, o: MdOptions = {}): HTMLElement {
   const root = h("div", { class: "lp-md" });
   const lines = md.replace(/\r\n?/g, "\n").split("\n");
   let i = 0;
   const para: string[] = [];
-  const flush = () => { if (para.length) { root.append(h("p", {}, ...inline(para.join(" ")))); para.length = 0; } };
+  const flush = () => { if (para.length) { root.append(h("p", {}, ...inline(para.join(" "), o))); para.length = 0; } };
   while (i < lines.length) {
     const line = lines[i]!;
     const fence = line.match(/^\s*(```+|~~~+)/);
@@ -45,13 +78,13 @@ export function markdown(md: string): HTMLElement {
     }
     if (!line.trim()) { flush(); i++; continue; }
     const head = line.match(/^(#{1,6})\s+(.*)$/);
-    if (head) { flush(); root.append(h(head[1]!.length <= 2 ? "h3" : "h4", {}, ...inline(head[2]!.replace(/\s#+$/, "")))); i++; continue; }
+    if (head) { flush(); root.append(h(head[1]!.length <= 2 ? "h3" : "h4", {}, ...inline(head[2]!.replace(/\s#+$/, ""), o))); i++; continue; }
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { flush(); root.append(h("hr")); i++; continue; }
     if (/^\s*>/.test(line)) {
       flush();
       const body: string[] = [];
       while (i < lines.length && /^\s*>/.test(lines[i]!)) body.push(lines[i++]!.replace(/^\s*>\s?/, ""));
-      root.append(h("blockquote", {}, markdown(body.join("\n"))));
+      root.append(h("blockquote", {}, markdown(body.join("\n"), o)));
       continue;
     }
     const item = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
@@ -67,7 +100,7 @@ export function markdown(md: string): HTMLElement {
         if (m && (/\d/.test(m[2]!) === ordered || m[1]!.length > first[1]!.length)) {
           const nested = m[1]!.length > first[1]!.length + 1;
           const task = m[3]!.match(/^\[([ xX])\]\s+(.*)$/);
-          const li = h("li", {}, ...(task ? [task[1] === " " ? "☐ " : "☑ ", ...inline(task[2]!)] : inline(m[3]!)));
+          const li = h("li", {}, ...(task ? [task[1] === " " ? "☐ " : "☑ ", ...inline(task[2]!, o)] : inline(m[3]!, o)));
           if (nested && current) {
             let sub = current.querySelector(":scope > ul, :scope > ol");
             if (!sub) { sub = h(/\d/.test(m[2]!) ? "ol" : "ul"); current.append(sub); }
@@ -75,7 +108,7 @@ export function markdown(md: string): HTMLElement {
           } else { list.append(li); current = li; }
           i++;
         } else if (l.trim() && /^\s{2,}/.test(l) && current) {
-          current.append(" ", ...inline(l.trim()));
+          current.append(" ", ...inline(l.trim(), o));
           i++;
         } else break;
       }

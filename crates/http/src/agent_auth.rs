@@ -318,7 +318,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
         (false, ["link"] | ["sleep"] | ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["notes"] | ["connections", "send"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
-        (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
+        (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics" | "notes"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
         (false, ["channels"] | ["channels", "dm"]) => Body,
         // The agent's own channels: Home resolves them in the session's workspace (`launchpad_channels::agent`).
         (true, ["channels", "agent"] | ["channels", "agent", "read"]) | (false, ["channels", "agent", "post"]) => Shared,
@@ -566,7 +566,7 @@ mod tests {
         assert_eq!(names(&Method::GET, "/api/channels"), Listed);
         assert_eq!(names(&Method::GET, "/api/channels/agent/messages"), Unscoped);
         assert_eq!(names(&Method::GET, "/api/channels/agent/post"), Unscoped);
-        for path in ["/api/context/sessions", "/api/context/folders", "/api/proposals", "/api/today", "/api/activity", "/api/predrafts"] {
+        for path in ["/api/context/sessions", "/api/context/folders", "/api/context/notes", "/api/proposals", "/api/today", "/api/activity", "/api/predrafts"] {
             assert_eq!(names(&Method::GET, path), Listed, "{path}");
         }
         for path in ["/api/context/presets", "/api/context/hops", "/api/status", "/api/settings/shared", "/api/context/health", "/api/logs", "/api/predrafts/resolve"] {

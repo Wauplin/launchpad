@@ -18,7 +18,7 @@ import { pageOf, type Page } from "./page";
 import { renderRepoBadge } from "./repoBadge";
 import { renderRepoStrip } from "./repoStrip";
 import { renderSidebarBox } from "./sidebarBox";
-import { clearTimeline, renderTimeline } from "./timeline";
+import { clearTimeline, renderTimeline, showNote } from "./timeline";
 import { closeOverlays, unmount, unmountAll } from "./widgets";
 
 let page: Page = pageOf(location.href);
@@ -115,7 +115,12 @@ function whileLoading() {
 /** The panel's buttons for this tab (TabCommand): the same actions as the page's. */
 function commands() {
   chrome.runtime.onMessage.addListener((m: TabCommand, sender, reply: (r: { ok: boolean; error?: string }) => void) => {
-    if (sender.id !== chrome.runtime.id || sender.tab || m?.type !== "insert") return false;
+    if (sender.id !== chrome.runtime.id || sender.tab) return false;
+    if (m?.type === "note") {
+      reply(isItem(page) && showNote({ repo: page.repo, number: page.number, id: String(m.id) }) ? { ok: true } : { ok: false, error: "This note is not on the page in this tab" });
+      return false;
+    }
+    if (m?.type !== "insert") return false;
     insertFromPanel(isItem(page) ? page : null, context, String(m.suggestion))
       .then(() => reply({ ok: true }), (e) => reply({ ok: false, error: e instanceof Error ? e.message : String(e) }));
     return true;

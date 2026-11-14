@@ -21,6 +21,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/suggestions/{id}/posted-by-hand", post(posted_by_hand))
         .route("/api/suggestions/{id}/dismiss-comment", post(dismiss_comment))
         .route("/api/notes", get(notes).post(write_note))
+        .route("/api/context/notes", get(context_notes))
         .route("/api/notes/owner", post(write_owner_note))
         .route("/api/notes/read", post(read_notes))
         .route("/api/notes/{id}", axum::routing::delete(delete_note))
@@ -35,9 +36,23 @@ async fn notes(State(s): State<Ctx>, axum::extract::Query(q): axum::extract::Que
     launchpad_github::items::validate(&q.repo)?;
     Ok(Json(json!(launchpad_github::notes::of_item(&s.app, &q.repo, q.number).await?)))
 }
+#[derive(serde::Deserialize)]
+struct ContextNotesQuery {
+    repo: String,
+    number: u64,
+    workspace: String,
+}
+/// `launchpad notes`: the private notes of one item in a workspace (an agent's own, forced by `agent_auth`), oldest
+/// first, each with its link.
+async fn context_notes(State(s): State<Ctx>, axum::extract::Query(q): axum::extract::Query<ContextNotesQuery>) -> ApiResult<Value> {
+    use launchpad_github::notes;
+    launchpad_github::items::validate(&q.repo)?;
+    let list = notes::of_item(&s.app, &q.repo, q.number).await?;
+    Ok(Json(Value::Array(list.iter().filter(|n| n.workspace_id.as_deref() == Some(q.workspace.as_str())).map(notes::with_link).collect())))
+}
 /// `launchpad note`: an agent's own write (`agent_auth` checks the body's `session_id`).
 async fn write_note(State(s): State<Ctx>, Json(q): Json<launchpad_github::notes::Write>) -> ApiResult<Value> {
-    Ok(Json(json!(launchpad_github::notes::write(&s.app, q).await?)))
+    Ok(Json(launchpad_github::notes::with_link(&launchpad_github::notes::write(&s.app, q).await?)))
 }
 /// `note.write`: the owner's private note on an item's timeline, then a message to each agent that wrote about the
 /// item in the workspace (its bot's thread of the item, else its session), else to the item's default bot. The owner's

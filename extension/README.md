@@ -123,6 +123,8 @@ A note you have not read yet has a **New** tag. Opening the item's page counts a
 
 Above GitHub's comment box, **Private note to your agents** stores your own note in Launchpad and sends it to every agent that wrote about the item (else to its default bot); they answer with a note when they have something useful. The panel's **This item** lists the same timeline and has the same box.
 
+Notes link to each other with a note's link (⋯ → **Copy link**, or `url` of `launchpad notes` for agents): `https://github.com/owner/repo/issues/123#lp-note-<id>`. The link shows the note's author ("Reviewer's note"); a click scrolls to that note on this page and marks it, or opens the other item's page at that note. Each note lists the notes of the item that reference it (**Referenced in**), and an answer's "answers …" tag links to the note it answers. Like GitHub's comments, `#123`, `owner/repo#123`, `@login` and GitHub URLs (`#123 (comment)`, `#123 (review)`, short commits) show as links.
+
 ### An agent's work on the page
 
 Click an agent in the Launchpad box (or **Show work** on a note, or **Show the agent's work** in a banner's **⋯**). A drawer opens on the right with what the agent was asked, its answer for each turn (Markdown) and its steps, folded under a line such as “12 steps · 3 min”. It refreshes every 5 seconds while it is open. **Close** or Esc closes it. **Open in Launchpad** opens the full trace, with Stop.

@@ -100,7 +100,8 @@ export type BotList = { bots: BotBrief[]; /** The workspace's Ask target (`askTa
 export type LedgerAction = "shown" | "inserted" | "posted-by-hand" | "dismiss-comment";
 
 /** Commands the panel sends to the GitHub layer of a tab (`chrome.tabs.sendMessage`): the same buttons as the page. */
-export type TabCommand = { type: "insert"; suggestion: string };
+/** The panel asks this tab's GitHub layer: insert a suggestion, or show a note of the page (a note link). */
+export type TabCommand = { type: "insert"; suggestion: string } | { type: "note"; id: string };
 
 /** `GET /api/predrafts/{id}`: what the Publish dialog needs (the commit shown is the one published). */
 export type LocalPrDetail = { predraft: Predraft; status: string | null; head?: string; default_remote_branch?: string; base_ahead: number; project_missing?: boolean; change_set?: { id: string; title: string; published_url: string | null; merged: boolean }[]; /** `<short sha> <subject>`, newest first. */ commits?: string[]; files?: { filename: string; status: string; patch?: string }[] };

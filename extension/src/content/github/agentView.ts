@@ -8,9 +8,13 @@ import { chatRows, duration, type ChatRow } from "../../panel/thread";
 import { request } from "../../shared/messages";
 import { agentPath, open } from "./item";
 import { markdown } from "./markdown";
+import { pageOf } from "./page";
+import { showNote } from "./timeline";
 import { button, h, logo, mount, unmount } from "./widgets";
 
 const ID = "agent-view";
+/** The item of the page (answers' `#123` and note links). */
+const here = () => { const p = pageOf(location.href); return p.repo && p.number ? { repo: p.repo, number: p.number } : null; };
 const STYLE_ID = "lp-drawer-style";
 
 export type ViewedAgent = { session_id: string; title?: string | null; bot?: string | null; running?: boolean };
@@ -96,7 +100,7 @@ function row(r: ChatRow, opened: Set<string>): HTMLElement {
       if (r.text.length > 400) text.addEventListener("click", () => text.classList.remove("lp-folded"), { once: true });
       return r.from ? h("div", { attrs: { style: "display:flex;flex-direction:column;gap:8px" } }, h("div", { class: "lp-from", text: r.from }), text) : text;
     }
-    case "answer": return markdown(r.text);
+    case "answer": return markdown(r.text, { here: here(), onNote: showNote });
     case "steps": {
       const d = h("details", { class: "lp-steps" },
         h("summary", { text: `${r.count} step${r.count === 1 ? "" : "s"}${r.durationMs ? ` · ${duration(r.durationMs)}` : ""}` }),

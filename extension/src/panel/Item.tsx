@@ -11,6 +11,7 @@ import type { ExtNote } from "@/gen/ExtNote";
 import type { ExtSuggestion } from "@/gen/ExtSuggestion";
 import { ago } from "@/lib/format";
 import type { Page } from "../content/github/page";
+import { tokens, type NoteRef } from "../content/github/refs";
 import { Icon } from "../icons";
 import { CONTEXT_TOPIC, request, sentSummary, subscribe, type ConnectionState, type TabCommand } from "../shared/messages";
 import type { ActiveTab } from "./tab";
@@ -87,6 +88,16 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
     } catch (e) { setError(message(e)); }
   };
 
+  /** A note link: a note of this item scrolls the page to it; another item's note opens its page in the tab. */
+  const showNote = (note: NoteRef, href: string) => {
+    setError(null);
+    const here = page.repo && page.number === note.number && page.repo.toLowerCase() === note.repo.toLowerCase();
+    const go = here
+      ? chrome.tabs.sendMessage<TabCommand, { ok: boolean; error?: string } | undefined>(tab.id, { type: "note", id: note.id }).then((a) => { if (!a?.ok) throw new Error(a?.error ?? "The page did not answer: reload the GitHub tab and try again."); })
+      : chrome.tabs.update(tab.id, { url: href });
+    void go.catch((e) => setError(message(e)));
+  };
+
   const files = () => {
     if (!page.repo || !page.number) return;
     void chrome.tabs.update(tab.id, { url: `https://github.com/${page.repo}/pull/${page.number}/files` }).catch((e) => setError(message(e)));
@@ -116,7 +127,7 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
 
     {page.repo && page.number ? <>
       <div className="x-sect">Private timeline</div>
-      {ctx.notes.map((n) => <NoteCard key={n.id} n={n} ctx={ctx} open={open} onError={setError} onDone={() => void load(true)} />)}
+      {ctx.notes.map((n) => <NoteCard key={n.id} n={n} ctx={ctx} here={{ repo: page.repo!, number: page.number! }} showNote={showNote} open={open} onError={setError} onDone={() => void load(true)} />)}
       <NoteBox repo={page.repo} number={page.number} ws={ws} onDone={() => void load(true)} />
     </> : null}
 
@@ -153,7 +164,7 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
 }
 
 /** A note of the item's private timeline (an agent's `launchpad note`, or yours): only you see it; Delete asks first. */
-function NoteCard({ n, ctx, open, onError, onDone }: { n: ExtNote; ctx: ExtContext; open: (path: string) => void; onError: (e: string | null) => void; onDone: () => void }) {
+function NoteCard({ n, ctx, here, showNote, open, onError, onDone }: { n: ExtNote; ctx: ExtContext; here: { repo: string; number: number }; showNote: (note: NoteRef, href: string) => void; open: (path: string) => void; onError: (e: string | null) => void; onDone: () => void }) {
   const [all, setAll] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const long = n.body.length > 600;
@@ -166,7 +177,7 @@ function NoteCard({ n, ctx, open, onError, onDone }: { n: ExtNote; ctx: ExtConte
   const waiting = s ? ctx.suggestions.find((x) => x.id === s.id) : undefined;
   return <div className="x-card">
     <h3><span style={{ flex: 1 }}>{n.author}{answers ? <span className="x-small x-faint"> · answers {answers.by_owner ? "your note" : answers.author}</span> : null}</span>{n.unread && <span className="x-status x-s-need">New</span>}<span className="x-small x-faint">{ago(n.created_at)}</span></h3>
-    <p className="x-small" style={{ whiteSpace: "pre-wrap", ...(long && !all ? { maxHeight: "12em", overflow: "hidden" } : {}) }}>{n.body}</p>
+    <p className="x-small" style={{ whiteSpace: "pre-wrap", ...(long && !all ? { maxHeight: "12em", overflow: "hidden" } : {}) }}><Linked text={n.body} ctx={ctx} here={here} showNote={showNote} /></p>
     {s && <p className="x-small x-muted">{waiting ? "With a suggested comment: see Waiting for you below, or post it from the page." : s.status === "posted" || s.status === "posted_by_hand" ? "Its suggested comment was posted." : s.status === "discarded" ? "Its suggested comment was discarded." : `Suggested comment: ${s.status.replace(/_/g, " ")}.`}</p>}
     <div className="x-btns">
       {long && <button className="x-btn x-sm" onClick={() => setAll(!all)}>{all ? "Show less" : "Show all"}</button>}
@@ -176,6 +187,19 @@ function NoteCard({ n, ctx, open, onError, onDone }: { n: ExtNote; ctx: ExtConte
         : <button className="x-btn x-sm x-link" onClick={() => setConfirm(true)}>Delete…</button>}
     </div>
   </div>;
+}
+
+/** A note's text with its references as links, like the page (refs.ts): a note of this item by its author. */
+function Linked({ text, ctx, here, showNote }: { text: string; ctx: ExtContext; here: { repo: string; number: number }; showNote: (note: NoteRef, href: string) => void }) {
+  return <>{tokens(text, here).map((t, i) => {
+    if (typeof t === "string") return t;
+    const note = t.note;
+    if (!note) return <a key={i} href={t.href} target="_blank" rel="noopener noreferrer">{t.label}</a>;
+    const mine = note.number === here.number && note.repo.toLowerCase() === here.repo.toLowerCase();
+    const to = mine ? ctx.notes.find((x) => x.id === note.id) : undefined;
+    const label = mine ? to ? to.by_owner ? "your note" : `${to.author}'s note` : "a deleted note" : t.label;
+    return <a key={i} href={t.href} onClick={(e) => { e.preventDefault(); showNote(note, t.href); }}>{label}</a>;
+  })}</>;
 }
 
 /** Your private note to the item's agents (`note.write`): stored in Launchpad only, then sent to the agents that wrote

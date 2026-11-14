@@ -168,6 +168,10 @@ const STYLE = `
 .lp-tl textarea:focus-visible, .lp-notebox textarea:focus-visible { outline: 2px solid var(--lp-teal); outline-offset: -1px; }
 .lp-notebox textarea { min-height: 64px; }
 .lp-tl a.lp-plain { color: var(--fgColor-accent, #0969da); text-decoration: none; }
+.lp-tl a.lp-plain:hover { text-decoration: underline; }
+.lp-tl a.lp-tag { text-decoration: none; }
+.lp-tl.lp-target .lp-tl-box { border-color: var(--borderColor-attention-emphasis, #9a6700); box-shadow: 0 0 0 1px var(--borderColor-attention-emphasis, #9a6700); }
+.lp-refs { margin-top: 8px; font-size: 12px; }
 /* Agent Markdown (markdown.ts). */
 .lp-md { font-size: 14px; line-height: 1.5; color: var(--fgColor-default, #1f2328); word-break: break-word; font-weight: 400; }
 .lp-md > :first-child { margin-top: 0; }
@@ -184,6 +188,7 @@ const STYLE = `
 .lp-md hr { border: 0; height: 1px; background: var(--borderColor-muted, #d1d9e0b3); margin: 10px 0; }
 .lp-md a { color: var(--fgColor-accent, #0969da); text-decoration: none; }
 .lp-md a:hover { text-decoration: underline; }
+.lp-md a.lp-note-link { font-weight: 500; }
 `;
 
 type Props = { class?: string; text?: string; title?: string; attrs?: Record<string, string>; on?: Partial<Record<keyof HTMLElementEventMap, (e: Event) => void>> };

@@ -81,6 +81,20 @@ fn item(repo: &str, number: u64) -> String {
     format!("{}#{number}", repo.to_lowercase())
 }
 
+/// Pure: a note's link, the item's page with the fragment `#lp-note-<id>` (GitHub sends `/issues/N` of a pull request
+/// to `/pull/N`, keeping the fragment). Notes reference other notes with it; the extension shows it as a link that
+/// scrolls to the note, on its item's page.
+pub fn link(repo: &str, number: u64, id: &str) -> String {
+    format!("https://github.com/{repo}/issues/{number}#lp-note-{id}")
+}
+
+/// A note as agents read it: with its `url` (`link`).
+pub fn with_link(note: &ItemNote) -> serde_json::Value {
+    let mut v = json!(note);
+    v["url"] = json!(link(&note.repo, note.number, &note.id));
+    v
+}
+
 /// The notes of one item, oldest first (old rows of another shape are left out).
 pub async fn of_item(app: &App, repo: &str, number: u64) -> Result<Vec<ItemNote>> {
     let key = item(repo, number);
@@ -333,10 +347,11 @@ pub async fn recipients(app: &App, repo: &str, number: u64, workspace: &str) -> 
 pub fn owner_message(app: &App, note: &ItemNote, url: &str) -> String {
     let quoted = note.body.lines().map(|l| format!("> {l}")).collect::<Vec<_>>().join("\n");
     format!(
-        "The owner added a private note on {repo}#{n} ({url}) in Launchpad (only you agents and the owner see it; never posted on GitHub):\n\n{quoted}\n\nAnswer only if you have something useful to add: read the item again if needed, then write a new private note with `{cli} note --repo {repo} --number {n} --reply-to-note {id} --body-file <file>` (a comment the owner could post on GitHub goes in `--suggest-file <file>`, never in the note body). Otherwise end your turn with no_update.",
+        "The owner added a private note on {repo}#{n} ({url}) in Launchpad (only you agents and the owner see it; never posted on GitHub; its link: {link}):\n\n{quoted}\n\nAnswer only if you have something useful to add: read the item again if needed, then write a new private note with `{cli} note --repo {repo} --number {n} --reply-to-note {id} --body-file <file>` (a comment the owner could post on GitHub goes in `--suggest-file <file>`, never in the note body). Otherwise end your turn with no_update.",
         repo = note.repo,
         n = note.number,
         id = note.id,
+        link = link(&note.repo, note.number, &note.id),
         cli = app.paths.cli_command(),
     )
 }
@@ -344,7 +359,7 @@ pub fn owner_message(app: &App, note: &ItemNote, url: &str) -> String {
 /// Included in every launched session, next to the suggestions' instruction.
 pub fn instruction(app: &App, session: &str) -> String {
     format!(
-        "Private notes are a private timeline of an issue or pull request, shown to the owner inside GitHub's timeline by the extension and never posted. Run `{cli} note --repo <owner/repo> --number <n> --body-file <file> --session-id {session}` (Markdown) to add a note when something new happened (new commits, new comments, the owner's note); each run appends a new note, so keep each one focused on what changed and never repeat earlier notes. Text the owner could post on GitHub (a reply, a review request, a closing comment) goes in `--suggest-file <file>`, never in the note: the extension shows it as a separate comment the owner posts with one click (`--reply-to <comment>` as for `suggest comment`); a draft written inside the note body cannot be posted. Answer the owner's note with `--reply-to-note <note id>`.",
+        "Private notes are a private timeline of an issue or pull request, shown to the owner inside GitHub's timeline by the extension and never posted. Run `{cli} note --repo <owner/repo> --number <n> --body-file <file> --session-id {session}` (Markdown) to add a note when something new happened (new commits, new comments, the owner's note); each run appends a new note, so keep each one focused on what changed and never repeat earlier notes. Text the owner could post on GitHub (a reply, a review request, a closing comment) goes in `--suggest-file <file>`, never in the note: the extension shows it as a separate comment the owner posts with one click (`--reply-to <comment>` as for `suggest comment`); a draft written inside the note body cannot be posted. Answer the owner's note with `--reply-to-note <note id>`. To point at another note (of this item or another one), put its link in your Markdown (`url` of `{cli} notes --repo <owner/repo> --number <n>`, which lists the item's notes; `note` prints the new note's `url`); links to issues, pull requests and comments (`#123`, `owner/repo#123`, GitHub URLs) show like on GitHub.",
         cli = app.paths.cli_command()
     )
 }
@@ -352,6 +367,11 @@ pub fn instruction(app: &App, session: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn note_links_name_the_item_and_the_note() {
+        assert_eq!(link("o/r", 12, "n1"), "https://github.com/o/r/issues/12#lp-note-n1");
+    }
 
     #[test]
     fn authors_count_once_per_bot_then_per_session() {

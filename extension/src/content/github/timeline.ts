@@ -6,6 +6,9 @@
 // (Launchpad's `suggestion.post`, in one trusted click), Edit (`suggestion.edit`), Insert into comment box (insert.ts)
 // and Discard. Above GitHub's comment form, the owner's box adds a private note and tells the agents about it.
 // Without timeline items, the entries go above the comment form, else under the description: nothing is lost.
+// Notes link to other notes with their link (`#lp-note-<id>`, refs.ts): a link to a note of this item scrolls to it and
+// marks it (also when the page opens with that fragment), a link to another item's note opens that page; each note
+// lists the notes of this item that reference it, and Copy link gives its own link.
 
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtNote } from "@/gen/ExtNote";
@@ -15,7 +18,8 @@ import { openAgentView } from "./agentView";
 import { findAnchor, findAnchors, timeOf } from "./anchors";
 import { insertSuggestion, NeedsChoice } from "./insert";
 import { agentPath, elapsed, open, running, type ItemPage } from "./item";
-import { markdown } from "./markdown";
+import { markdown, type MdOptions } from "./markdown";
+import { noteIdsIn, type NoteRef } from "./refs";
 import { button, h, logo, more, mount, popover, unmount } from "./widgets";
 
 /** One entry: a note, or a suggested comment without a note. */
@@ -32,6 +36,11 @@ const errors = new Map<string, string>();
 /** The owner's note being typed, per page, and the last answer of Add private note. */
 const drafts = new Map<string, string>();
 let sent: { url: string; text: string; error: boolean } | null = null;
+/** The entry of each note on this page, the item shown, the note marked as the target and the fragment already shown. */
+const noteEls = new Map<string, HTMLElement>();
+let shownItem: { repo: string; number: number } | null = null;
+let target: string | null = null;
+let shownHash: string | null = null;
 
 /** Notes that were unread when this tab showed them: they keep a New tag while the tab stays on the page. */
 const fresh = new Set<string>();
@@ -58,6 +67,48 @@ function entriesOf(ctx: ExtContext, number: number): Entry[] {
     out.push({ key: s.id, at: s.created_at, note: null, suggestion: s });
   }
   return out.sort((a, b) => a.at - b.at);
+}
+
+/** A note's link (`notes::link` on Home). */
+const noteLink = (repo: string, number: number, id: string) => `https://github.com/${repo}/issues/${number}#lp-note-${id}`;
+const sameItem = (a: { repo: string; number: number } | null, b: { repo: string; number: number }) => !!a && a.number === b.number && a.repo.toLowerCase() === b.repo.toLowerCase();
+
+/** A link to a note: on this item's page, scrolls to it and marks it (true); another item's note is false (the link
+ * opens its page). A note of this item that is gone does nothing. */
+export function showNote(note: NoteRef): boolean {
+  if (!sameItem(shownItem, note)) return false;
+  const el = noteEls.get(note.id);
+  if (!el?.isConnected) return true;
+  for (const other of noteEls.values()) other.classList.remove("lp-target");
+  target = note.id;
+  el.classList.add("lp-target");
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+  return true;
+}
+
+/** How Markdown on this item shows note links: by their author when the note is on this page. */
+function mdOptions(page: ItemPage, ctx: ExtContext): MdOptions {
+  return {
+    here: { repo: page.repo, number: page.number },
+    noteLabel: (note) => {
+      if (!sameItem(page, note)) return null;
+      const n = ctx.notes.find((x) => x.id === note.id);
+      return n ? (n.by_owner ? "your note" : `${n.author}'s note`) : "a deleted note";
+    },
+    onNote: showNote,
+  };
+}
+
+/** Pure: the notes that link to each note of the item (oldest first), for "Referenced in". */
+function referencesOf(ctx: ExtContext, page: ItemPage): Map<string, ExtNote[]> {
+  const out = new Map<string, ExtNote[]>();
+  for (const n of ctx.notes) {
+    for (const id of noteIdsIn(n.body, page)) {
+      if (id === n.id || !ctx.notes.some((x) => x.id === id)) continue;
+      out.set(id, [...(out.get(id) ?? []), n]);
+    }
+  }
+  return out;
 }
 
 /** Pure: where each entry goes among timeline items of known times (page order): before the first later item, else
@@ -103,6 +154,9 @@ export function renderTimeline(page: ItemPage, ctx: ExtContext | null, refresh: 
   const box = ctx && ws && form ? renderBox(page, ctx, ws, form.el, refresh) : (unmount(BOX), null);
   const entries = ctx ? entriesOf(ctx, page.number) : [];
   const ids = new Set<string>();
+  if (!sameItem(shownItem, page)) { noteEls.clear(); target = null; }
+  shownItem = { repo: page.repo, number: page.number };
+  const refs = ctx ? referencesOf(ctx, page) : new Map<string, ExtNote[]>();
   if (ctx && entries.length) {
     const found = findAnchors("timeline-items", { repo: page.repo, number: page.number });
     const items = found?.els ?? [];
@@ -121,24 +175,32 @@ export function renderTimeline(page: ItemPage, ctx: ExtContext | null, refresh: 
     for (const g of groups) {
       const id = `${PREFIX}${g.entries[0]!.key}`;
       ids.add(id);
-      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, fresh.has(e.key), e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, editing.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key)])]);
+      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, fresh.has(e.key), e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, editing.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key), refs.get(e.key)?.map((r) => r.id)]), ctx.notes.map((n) => n.id)]);
       const w = mount(id, key, g.anchor, g.place, "card");
       if (!w.fresh) continue;
-      for (const e of g.entries) w.root.append(entry(w.root, page, ctx, ws, e, refresh));
+      for (const e of g.entries) w.root.append(entry(w.root, page, ctx, ws, e, refs.get(e.key) ?? [], refresh));
     }
   }
   for (const el of document.querySelectorAll<HTMLElement>(`[data-launchpad^="${PREFIX}"]`)) if (!ids.has(el.dataset.launchpad ?? "")) el.remove();
+  // The page opened at a note's link: show that note once it is drawn.
+  const hash = location.hash.match(/^#lp-note-([A-Za-z0-9-]{1,64})$/);
+  if (hash && shownHash !== location.href && noteEls.get(hash[1]!)?.isConnected) {
+    shownHash = location.href;
+    showNote({ ...page, id: hash[1]! });
+  }
 }
 
 export function clearTimeline() {
   stopReading();
   fresh.clear();
   unmount(BOX);
+  noteEls.clear();
+  shownItem = null;
   for (const el of document.querySelectorAll<HTMLElement>(`[data-launchpad^="${PREFIX}"]`)) el.remove();
 }
 
 /** One entry, like a GitHub comment: the logo as avatar, a header (author · private note · age), the body. */
-function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | null, e: Entry, refresh: () => void) {
+function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | null, e: Entry, refs: ExtNote[], refresh: () => void) {
   const n = e.note;
   const sessionId = n?.session_id ?? e.suggestion?.session_id ?? null;
   const agent = sessionId ? ctx.agents.find((a) => a.session_id === sessionId) ?? null : null;
@@ -148,11 +210,12 @@ function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | n
   if (n && fresh.has(n.id)) head.append(h("span", { class: "lp-new", text: "New", title: "You had not read this note yet" }));
   if (n?.reply_to) {
     const to = ctx.notes.find((x) => x.id === n.reply_to);
-    if (to) head.append(h("span", { class: "lp-tag", text: `answers ${to.by_owner ? "your note" : to.author}` }));
+    if (to) head.append(noteButton(`answers ${to.by_owner ? "your note" : `${to.author}'s note`}`, page, to.id, "lp-tag"));
   }
   if (sessionId) head.append(button("Show work", () => openAgentView({ session_id: sessionId, title: agent?.title, bot: agent?.bot ?? author, running: agent ? running(agent) : undefined }, ws), { small: true, title: "What it was asked, its answers and its steps, here on the page" }));
   const menu: HTMLElement = more(root, n ? "Note" : "Suggested comment", () => [
     ...(sessionId ? [{ label: "Open the agent in Launchpad", hint: "Its full trace and thread", onSelect: () => open(agentPath({ session_id: sessionId }), ws) }] : []),
+    ...(n ? [{ label: "Copy link", hint: "Its link: put it in a note to point at this one", onSelect: () => void navigator.clipboard.writeText(noteLink(page.repo, page.number, n.id)).catch(() => undefined) }] : []),
     ...(n ? [{ label: "Delete note…", hint: "Removes it from Launchpad", onSelect: () => confirmDelete(root, menu, n, refresh) }] : []),
     ...(!n && e.suggestion ? [{ label: "Discard…", hint: "Deletes the suggested comment", onSelect: () => confirmDiscard(root, menu, e.suggestion!, refresh) }] : []),
   ]);
@@ -160,10 +223,15 @@ function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | n
   const body = h("div", { class: "lp-tl-body" });
   if (n) {
     const long = n.body.length > 1500 && !unfolded.has(e.key);
-    const md = markdown(n.body);
+    const md = markdown(n.body, mdOptions(page, ctx));
     if (long) md.setAttribute("style", "max-height: 22em; overflow: hidden; -webkit-mask-image: linear-gradient(180deg, #000 75%, transparent); mask-image: linear-gradient(180deg, #000 75%, transparent)");
     body.append(md);
     if (long) body.append(h("div", { class: "lp-actions" }, button("Show all", () => { unfolded.add(e.key); refresh(); }, { small: true })));
+    if (refs.length) {
+      const line = h("div", { class: "lp-refs lp-muted" }, "Referenced in ");
+      refs.forEach((r, i) => line.append(i ? ", " : "", noteButton(`${r.by_owner ? "your note" : `${r.author}'s note`} · ${ago(r.created_at)}`, page, r.id, "lp-plain")));
+      body.append(line);
+    }
   }
   const err = errors.get(e.key);
   if (err) body.append(h("div", { class: "lp-error", text: err, attrs: { role: "alert" } }));
@@ -171,7 +239,19 @@ function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | n
   if (body.childNodes.length) card.append(body);
   const sugg = suggestionBlock(root, page, e, refresh);
   if (sugg) card.append(sugg);
-  return h("div", { class: "lp-tl" }, h("div", { class: "lp-tl-avatar", attrs: { "aria-hidden": "true" } }, logo()), card);
+  const el = h("div", { class: n && n.id === target ? "lp-tl lp-target" : "lp-tl" }, h("div", { class: "lp-tl-avatar", attrs: { "aria-hidden": "true" } }, logo()), card);
+  if (n) noteEls.set(n.id, el);
+  return el;
+}
+
+/** A link to another note of this item: shows it on the page. */
+function noteButton(label: string, page: ItemPage, id: string, cls: string) {
+  const a = h("a", { class: cls, text: label, attrs: { href: noteLink(page.repo, page.number, id) } });
+  a.addEventListener("click", (ev) => {
+    if (ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
+    if (showNote({ ...page, id })) ev.preventDefault();
+  });
+  return a;
 }
 
 /** The suggested comment of an entry, as its own section at the bottom of the card: a header, the comment as GitHub
@@ -203,7 +283,7 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
     wrap.append(area, h("div", { class: "lp-actions" }, save, button("Cancel", () => { editing.delete(s.id); refresh(); }, { small: true })));
     return wrap;
   }
-  wrap.append(h("div", { class: "lp-sugg-text" }, markdown(s.text)));
+  wrap.append(h("div", { class: "lp-sugg-text" }, markdown(s.text, { here: { repo: page.repo, number: page.number } })));
   if (s.status !== "draft" && s.status !== "inserted") return wrap;
   const actions = h("div", { class: "lp-actions" });
   if (s.status === "draft") actions.append(button("Edit", () => { editing.set(s.id, s.body); refresh(); }, { small: true, title: "Change the text before posting it" }));
