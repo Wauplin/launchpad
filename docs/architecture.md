@@ -15,7 +15,6 @@ flowchart TB
         HG[Home Git and plain stores]
         V[Vault and quota monitors]
         G[GitHub sync]
-        VR[Voice relay]
         DB[("state.db<br/>cache.db")]
     end
     subgraph Runner["Runner: launchpad daemon --role runner (Linux)"]
@@ -33,7 +32,6 @@ flowchart TB
     H --> C2[codex app-server]
     H --> C3[opencode acp]
     G --> GH[api.github.com]
-    VR -->|audio, Claude login| AN[api.anthropic.com voice_stream]
     S -->|worktrees cloned from| HG
 ```
 
@@ -43,12 +41,12 @@ flowchart TB
 2. **Launching an agent is the main action.** A minimal launch is a prompt and a click.
 3. **The core does not depend on a harness.** Claude Code, Codex and OpenCode are adapters behind one session model.
 4. **Local first, then follow GitHub.** New work stays local until you publish it. Once work is on GitHub (a published Local PR, or a pull request launched with **Push to PR**), agents keep pushing to that same branch, never with force. Comments, reviews and PR state changes always need your click.
-5. **Click only.** Every action is a visible button. The only keyboard shortcuts are `Ctrl+F` in Files, `Ctrl+T` for a terminal, `Ctrl+Space` and `Esc` for dictation in a message box, and normal text and terminal keys. The only gestures are pull to refresh on phone lists and a long press on a message box's mic to hold to talk.
+5. **Click only.** Every action is a visible button. The only keyboard shortcuts are `Ctrl+F` in Files, `Ctrl+T` for a terminal, and normal text and terminal keys. The only gesture is pull to refresh on phone lists.
 6. **One user, move fast.** No multi-user model, no versioning, no data migrations. Few tests.
 
 ## Processes
 
-- **Home** (`launchpad daemon`, the default role; `--role home` is a no-op): a systemd user service on a Linux server, or the daemon of a Hugging Face Space (`deploy/hf-home`). It owns `state.db`, Home Git, the vault, GitHub polling, quota monitoring, routines, Telegram and the voice relay. It runs no agents and no terminals: a request that would start an agent there is refused, and terminal calls are relayed to a runner. Home may run on another system than Linux.
+- **Home** (`launchpad daemon`, the default role; `--role home` is a no-op): a systemd user service on a Linux server, or the daemon of a Hugging Face Space (`deploy/hf-home`). It owns `state.db`, Home Git, the vault, GitHub polling, quota monitoring, routines and Telegram. It runs no agents and no terminals: a request that would start an agent there is refused, and terminal calls are relayed to a runner. Home may run on another system than Linux.
 - **Runner** (`launchpad daemon --role runner`, Linux only, `role::ensure_agent_os`): runs agents in its own folders and keeps only copies and work in progress. It starts only the sessions Home places on it. At startup, it reads the environment of your login shell, so agents see the same tools as in a terminal.
 - **Agent processes**: children of a runner, each in its jail. **Restarting a runner interrupts its running turns**; sessions become Interrupted and resume with one click through the harness's native resume, on that runner or another one. At its next start the runner handles each cut turn as a turn end (`Sessions::load`: heads, `unsaved` mark), and notifies only once that turn is saved (`turn_sync::notify_when_saved`). Restarting Home interrupts nothing.
 
@@ -130,7 +128,6 @@ Every harness maps to the same model:
 
 Adapters (`crates/harness/`, contract in `crates/core/src/harness/mod.rs`) translate each native protocol into these events and own everything native: startup, resume, model discovery, quota readings, terminal commands. See [Harness adapters](harness-adapters.md).
 
-Voice (`crates/server/src/voice.rs`, Home only; see [Voice](voice.md)): `GET /api/voice` returns the `[voice]` settings and every profile as a source with its state (ready, used up with its reset time, refused, no login, pay as you go, unsupported) and why voice is unavailable. `GET /api/voice/ws` is the dictation socket. It accepts only a signed-in browser device of Home with one of Home's window origins: runners, bearer clients (the CLI), agents' session tokens and the Chrome extension's origin are refused. The window sends `warm`, `start {id, keyterms, profile?}`, binary frames of 16 kHz mono 16-bit PCM (100 ms each), `stop` and `cancel`; Home answers `source {name, note?}`, `delta` (the phrase so far), `done` (a settled phrase), `error {reason}` and `closed`, each with the `id` of its start, so the window drops late messages of an earlier dictation. Home opens the provider through the harness contract: `HarnessCapabilities.voice` (shown by `GET /api/harnesses`) and `Harness::open_voice(app, env, VoiceOpts {language, keyterms})`, which returns a `VoiceCall` with an input channel (`Audio`, `Finish`) and events (`Interim`, `Final`, `Error {refused}`, `Closed`); a refused login is a `VoiceRefused` error. The env is Home's own copy of the profile's vault login (`vault::login_home`, read only, never refreshed), and two profiles with one login count once. Only Claude Code sets `voice` today (`crates/harness/src/claude/voice.rs`: a WebSocket to `wss://api.anthropic.com/api/ws/speech_to_text/voice_stream` with `Authorization: Bearer`, `x-app: cli` and `x-config-keyterms`, `KeepAlive` every 8 s and `CloseStream` to finish). Home keeps the audio since the last settled phrase in memory; on a refusal, an error, a call the provider closed, or no connection within 3 s, it opens the next source and replays that audio, with a failover note. A warm-up opens the first source for 30 s, and a start with the same keyterms takes it over. One dictation per socket, 5 minutes at most. Logs hold sizes, timings and HTTP statuses, never text, audio or tokens. The provider connection ignores `HTTPS_PROXY`. In the browser, `web/src/lib/voice/` captures the microphone with an AudioWorklet, keeps one dictation per window, detects silence and inserts settled phrases at the caret; the demo plays a scripted voice through the same code (`demo/routes/voice.ts`).
 
 A launch only does local work in the request: it records the session (Starting) and its planned worktrees, then returns. A background task has Home refresh its mirror, clones or fetches the runner's repository cache, adds the worktrees, runs worktree setup and starts the harness; Stop cancels it between steps. A worktree that cannot be prepared fails the session visibly. Merges and publications run on Home and never touch a checkout of the owner.
 
@@ -245,7 +242,7 @@ crates/
 ├── setup/       launchpad-setup: setup checklist, clone from GitHub, onboarding progress
 ├── http/        launchpad-http: API error type, route state (Ctx), session CLI token checks
 ├── api/         launchpad-api: the JSON routes that need only the App
-├── server/      launchpad-server: authentication, runner tunnel and relay, Git and plain-folder HTTP, terminals and event WebSockets, the voice relay, Tailscale, embedded UI
+├── server/      launchpad-server: authentication, runner tunnel and relay, Git and plain-folder HTTP, terminals and event WebSockets, Tailscale, embedded UI
 └── cli/         launchpad: the binary (daemon and agent-facing subcommands) and build.rs
 web/             React app (Vite, TanStack Query/Router/Virtual, Tailwind)
 ├── src/features/   one folder per feature

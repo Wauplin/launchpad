@@ -8,9 +8,6 @@
 // or a question report ("Answering: …", with Cancel to send a normal message instead).
 
 import { useProfiles, useProfileModels } from "@/lib/profiles";
-import { VoiceButton } from "@/components/VoiceButton";
-import { VoiceCaption } from "@/components/VoiceCaption";
-import { useDictation } from "@/lib/voice/useDictation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -56,7 +53,7 @@ import { activityLine, activityLink, activityParts, activityReceipt, useActivity
 import { api } from "@/lib/api";
 import { attachmentSrc, pastedImages } from "@/lib/attachments";
 import { age, ago, when } from "@/lib/format";
-import { readDraft, useKeptDraft, writeDraft } from "@/lib/keptDraft";
+import { useKeptDraft } from "@/lib/keptDraft";
 import { nextSessionKey, useArmedSession, useNextSession } from "./nextSession";
 import { NEW_THREAD } from "./BotThreads";
 import { useCrons, useSession, useHarnessDefaults } from "@/lib/queries";
@@ -620,9 +617,6 @@ function BotComposer({ bot, threadId, onStarted, current, rotation, needsProfile
   const context = answering ? EMPTY_CONTEXT : storedContext;
   const presets = answering ? [] : selectedPresets.filter((id) => botPresets.some((p) => p.id === id));
   const withContext = hasMessageContext(context);
-  const dictation = useDictation({ inputRef: ref, onSend: () => void send(), keep: { read: () => readDraft(draftKey) ?? "", write: (t) => writeDraft(draftKey, t) } });
-  // On the phone, a dictation leaves the row to the field, the mic and Stop & send.
-  const narrow = usePhone() && dictation.active;
   const send = async (typed = text) => {
     const t = answering ? typed.trim() : withPresets(typed, presets, botPresets);
     if ((!t && !files.length && !withContext) || busy || reading || blocked) return;
@@ -682,7 +676,6 @@ function BotComposer({ bot, threadId, onStarted, current, rotation, needsProfile
         {!answering && <PresetChips surface="bots" selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
         {!answering && <MessageContextChips className="mb-1.5" value={context} onChange={setContext} disabled={busy || reading} />}
         {!text && !files.length && !withContext && !presets.length && !answering && !blocked && !busy && <QuickChips starters={bot.settings.starters ?? []} onSend={(t) => void send(t)} onFill={(t) => { setText(t); requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } }); }} />}
-        <VoiceCaption dictation={dictation} />
         <div className="session-message-input flex items-end gap-2 rounded-control border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
           <textarea ref={ref} rows={1} value={text} disabled={busy || blocked} aria-label={`Message ${bot.settings.name}`}
             placeholder={busyTurn ? `${bot.settings.name} is working: Stop it or wait for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? "Type your answer…" : `Message ${bot.settings.name}…`}
@@ -690,11 +683,9 @@ function BotComposer({ bot, threadId, onStarted, current, rotation, needsProfile
             onPaste={(e) => { if (!acceptsImages || busy) return; const pasted = pastedImages(e); if (pasted) void attachments.add(pasted); }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}
             className="min-h-6 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
-          {!answering && !narrow && <MessageContextButton sessionId={current?.id ?? null} value={context} onChange={setContext} presets={{ presets: botPresets, selected: presets, onChange: setPresets }} attach={{ images: acceptsImages, onPick: () => fileRef.current?.click() }} disabled={busy || reading || blocked} />}
-          {answering && !narrow && <button className="iconbtn" title={`Attach files${acceptsImages ? " or images" : ""}. ${ATTACH_LIMITS}`} aria-label="Attach files" disabled={busy || reading || blocked} onClick={() => fileRef.current?.click()}><Icon name="clip" size={14} /></button>}
-          {!blocked && <VoiceButton dictation={dictation} tour="chat.mic" />}
-          {dictation.active ? <button className="btn btn-sm flex-none" title="Finish the dictation, then send" disabled={busy || reading || dictation.phase === "finishing"} onClick={dictation.stopAndSend}>Stop &amp; send</button>
-            : <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || reading || blocked || (!text.trim() && !files.length && !withContext && !presets.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>}
+          {!answering && <MessageContextButton sessionId={current?.id ?? null} value={context} onChange={setContext} presets={{ presets: botPresets, selected: presets, onChange: setPresets }} attach={{ images: acceptsImages, onPick: () => fileRef.current?.click() }} disabled={busy || reading || blocked} />}
+          {answering && <button className="iconbtn" title={`Attach files${acceptsImages ? " or images" : ""}. ${ATTACH_LIMITS}`} aria-label="Attach files" disabled={busy || reading || blocked} onClick={() => fileRef.current?.click()}><Icon name="clip" size={14} /></button>}
+          <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || reading || blocked || (!text.trim() && !files.length && !withContext && !presets.length)} onClick={() => void send()}><Icon name="send" size={14} /></button>
         </div>
       </div>
     </div>

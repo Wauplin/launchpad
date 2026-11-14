@@ -30,56 +30,6 @@ pub struct HarnessCapabilities {
     pub quota: bool,
     /// Reports the cumulative USD cost of a session, so cost limits can apply.
     pub cost: bool,
-    /// Dictation on a subscription login of Home's vault (`Harness::open_voice`): Settings → Voice offers its profiles.
-    pub voice: bool,
-}
-
-/// What a dictation asks for (`Harness::open_voice`).
-#[derive(Clone, Debug, Default)]
-pub struct VoiceOpts {
-    /// Language code of the speech, such as `en` or `fr`.
-    pub language: String,
-    /// Words the recognizer should expect (folder, bot and branch names).
-    pub keyterms: Vec<String>,
-}
-
-/// From the window to a dictation: 16 kHz mono 16-bit little-endian PCM, then Finish (the last words come back, then
-/// `Closed`). Dropping the sender cancels the call.
-#[derive(Debug)]
-pub enum VoiceInput {
-    Audio(Vec<u8>),
-    Finish,
-}
-
-/// From a dictation to the window.
-#[derive(Clone, Debug)]
-pub enum VoiceEvent {
-    /// The words of the current phrase so far; each replaces the previous one.
-    Interim(String),
-    /// A settled phrase: insert it.
-    Final(String),
-    /// The provider failed; `refused`: it refused this login for voice (try another one).
-    Error { message: String, refused: bool },
-    /// The call ended (after Finish, or an error).
-    Closed,
-}
-
-/// `open_voice` failed because the provider refused this login for voice (try another login).
-#[derive(Debug)]
-pub struct VoiceRefused(pub String);
-
-impl std::fmt::Display for VoiceRefused {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for VoiceRefused {}
-
-/// A live dictation call: audio in, transcript out. Audio goes to the provider from Home; the window never sees the login.
-pub struct VoiceCall {
-    pub input: tokio::sync::mpsc::Sender<VoiceInput>,
-    pub events: tokio::sync::mpsc::Receiver<VoiceEvent>,
 }
 
 #[derive(Clone, Copy, Serialize, TS)]
@@ -330,11 +280,6 @@ pub trait Harness: Send + Sync {
     fn title_response(&self, stdout: String) -> Result<TitleReply> {
         Ok(TitleReply { title: stdout, ..Default::default() })
     }
-    /// Opens a dictation call on Home with Home's copy of a vault login (`vault::login_home`: `env`), when the
-    /// descriptor says `voice`. Returns once the provider accepted the call; read only, it never refreshes a token.
-    async fn open_voice(&self, _app: &App, _env: &[(String, String)], _opts: VoiceOpts) -> Result<VoiceCall> {
-        bail!("this harness has no voice input")
-    }
 }
 
 /// A generated title, with the USD cost the harness reported for the auxiliary request.
@@ -463,7 +408,7 @@ pub(crate) mod test_support {
                 icon_svg: "",
                 color: "",
                 working_message: "",
-                capabilities: HarnessCapabilities { permission_modes: true, images: true, messages_while_running: true, terminal: true, quota: true, cost: true, voice: false },
+                capabilities: HarnessCapabilities { permission_modes: true, images: true, messages_while_running: true, terminal: true, quota: true, cost: true },
                 cost_model_prefixes: &[],
                 account_env,
                 vault_login,

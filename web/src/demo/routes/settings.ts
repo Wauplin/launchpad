@@ -95,7 +95,7 @@ route("PUT", "/api/config", ({ body }) => {
 });
 
 type GeneralPatch = Partial<{
-  presets: Config["presets"]; github_poll_interval_seconds: number; worktrees_keep: number; voice: Config["voice"];
+  presets: Config["presets"]; github_poll_interval_seconds: number; worktrees_keep: number;
 }>;
 
 route("PATCH", "/api/config", ({ body }) => {
@@ -104,7 +104,6 @@ route("PATCH", "/api/config", ({ body }) => {
   if (p.presets !== undefined) c.presets = p.presets;
   if (p.github_poll_interval_seconds !== undefined) c.github.poll_interval_seconds = Math.max(15, p.github_poll_interval_seconds);
   if (p.worktrees_keep !== undefined) c.worktrees.keep = p.worktrees_keep;
-  if (p.voice !== undefined) c.voice = p.voice;
   return saveConfig(c);
 });
 

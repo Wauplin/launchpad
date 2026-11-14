@@ -38,14 +38,13 @@ export function coreWorld() {
     ],
     profiles: [
       { id: "claude-max", name: "Claude · Max", harness: "claude", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], login: null },
-      // A second Claude login: Settings → Voice shows it as the next source, used up for now.
+      // A second Claude login, with its own quota meters.
       { id: "claude-personal", name: "Claude · Personal", harness: "claude", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], login: "claude-pro" },
       { id: "codex-plus", name: "Codex · Plus", harness: "codex", env: {}, model: null, effort: null, billing: "subscription", budget_usd: null, models_url: null, spend_limits: [], login: null },
       { id: "opencode-router", name: "OpenCode · HF router", harness: "opencode", env: { OPENAI_API_KEY: "${HF_TOKEN}" }, model: "open-labs/open-coder-70b", effort: null, billing: "pay_as_you_go", budget_usd: null, models_url: "https://router.example.com/v1/models", spend_limits: [{ usd: 5, hours: 24 }], login: null },
     ],
     home: { backup: "", git_name: "", git_email: "", burst: { enabled: true, monthly_cap_usd: 20, flavor: "cpu-basic" }, cli_updates: {}, time_zone: "" },
     runner: { boundary: "jail" },
-    voice: { enabled: true, profiles: [], language: "en", silence_stop_s: 8 },
   };
   const status: Status = {
     env: "demo",

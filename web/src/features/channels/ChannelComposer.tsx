@@ -3,15 +3,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { BotAvatar } from "@/components/BotAvatar";
 import { Icon } from "@/components/Icon";
-import { VoiceButton } from "@/components/VoiceButton";
-import { VoiceCaption } from "@/components/VoiceCaption";
-import { useDictation } from "@/lib/voice/useDictation";
-import { spokenMentions } from "@/lib/voice/text";
 import { toastError } from "@/components/Toast";
 import type { Channel } from "@/gen/Channel";
 import { runAction } from "@/lib/actions";
 import { mentionAt } from "@/lib/channels";
-import { readDraft, useKeptDraft, writeDraft } from "@/lib/keptDraft";
+import { useKeptDraft } from "@/lib/keptDraft";
 import { usePhone } from "@/lib/phone";
 
 /** Your message: Enter sends, Shift+Enter adds a line; `@` suggests the member bots (Enter or Tab picks the first).
@@ -45,9 +41,6 @@ export function ChannelComposer({ channel, onSent, replyTo, className = "border-
       await onSent();
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
-  // A spoken member name ("at Hubert JS") becomes its mention (@hubert-js), on an exact match only.
-  const members = channel.members.filter((m) => m.slug).map((m) => ({ name: m.name, slug: m.slug }));
-  const dictation = useDictation({ inputRef: ref, onSend: () => void send(), map: (t) => spokenMentions(t, members), keep: { read: () => readDraft(`channel.${channel.id}`) ?? "", write: (t) => writeDraft(`channel.${channel.id}`, t) }, keyterms: members.flatMap((m) => [m.name, m.slug]) });
   const dm = channel.kind === "dm";
   const closed = channel.archived;
   const name = dm ? "both bots" : channel.title;
@@ -56,7 +49,6 @@ export function ChannelComposer({ channel, onSent, replyTo, className = "border-
       <div className="relative w-full max-w-text">
         {dm && !closed && <div className="mb-1.5 text-[12px] text-ink-3">Both bots will see your message</div>}
         {closed && <div className="mb-1.5 text-[12px] text-ink-3">Archived: nobody posts here. ⋯ → Bring back to post again.</div>}
-        <VoiceCaption dictation={dictation} />
         {suggestions.length > 0 && <div role="listbox" aria-label="Mention a bot" className="absolute bottom-full left-0 z-10 mb-1 grid min-w-[220px] gap-px rounded-card border border-line bg-paper p-1 shadow-[0_8px_24px_-12px_rgba(23,32,43,.5)]">
           {suggestions.map((m, i) => <button key={m.bot_id} role="option" aria-selected={i === 0} className={`flex ${phone ? "min-h-11" : "min-h-8"} items-center gap-2 rounded-control px-2 text-left text-[13px] hover:bg-sunk ${i === 0 ? "bg-sunk" : ""}`} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(m.slug)}>
             <BotAvatar name={m.name} size={18} /><span className="min-w-0 flex-1 truncate">{m.name}</span><span className="text-[12px] text-ink-3">@{m.slug}</span>
@@ -73,9 +65,7 @@ export function ChannelComposer({ channel, onSent, replyTo, className = "border-
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
             }}
             className="min-h-6 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
-          {!closed && <VoiceButton dictation={dictation} />}
-          {dictation.active ? <button className="btn btn-sm flex-none" title="Finish the dictation, then send" disabled={busy || dictation.phase === "finishing"} onClick={dictation.stopAndSend}>Stop &amp; send</button>
-            : <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || closed || !text.trim()} onClick={() => void send()}><Icon name="send" size={14} /></button>}
+          <button className="iconbtn border-line! bg-paper" title="Send" aria-label="Send" disabled={busy || closed || !text.trim()} onClick={() => void send()}><Icon name="send" size={14} /></button>
         </div>
       </div>
     </div>

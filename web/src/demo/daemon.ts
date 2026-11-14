@@ -124,9 +124,6 @@ type TerminalSocketHandler = (socket: FakeSocket, id: string) => void;
 let terminalSocket: TerminalSocketHandler | null = null;
 /** The terminal routes register how a terminal socket (`/api/terminals/{id}/ws`) is served. */
 export function onTerminalSocket(fn: TerminalSocketHandler) { terminalSocket = fn; }
-let voiceSocket: ((socket: FakeSocket) => void) | null = null;
-/** The voice routes register how the dictation socket (`/api/voice/ws`) is served. */
-export function onVoiceSocket(fn: (socket: FakeSocket) => void) { voiceSocket = fn; }
 
 /** A WebSocket stand-in with the subset of the API the UI uses (`on*` handlers, send, close). */
 export class FakeSocket {
@@ -158,8 +155,6 @@ export class FakeSocket {
     queueMicrotask(() => {
       if (this.readyState !== 0) return;
       this.readyState = 1;
-      // The voice socket's handler is in place before the UI's onopen sends what it queued (its start message).
-      if (path === "/api/voice/ws" && voiceSocket) voiceSocket(this);
       this.onopen?.(new Event("open"));
       if (path === "/ws") {
         busSockets.add(this);
@@ -169,7 +164,7 @@ export class FakeSocket {
       }
       const terminal = path.match(/^\/api\/terminals\/([^/]+)\/ws$/);
       if (terminal && terminalSocket) terminalSocket(this, decodeURIComponent(terminal[1]));
-      else if (path !== "/api/voice/ws" || !voiceSocket) this.close();
+      else this.close();
     });
   }
 

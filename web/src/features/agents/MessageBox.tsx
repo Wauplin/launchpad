@@ -3,10 +3,6 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/Icon";
-import { VoiceButton } from "@/components/VoiceButton";
-import { VoiceCaption } from "@/components/VoiceCaption";
-import { usePhone } from "@/lib/phone";
-import { useDictation } from "@/lib/voice/useDictation";
 import { toastError } from "@/components/Toast";
 import { PromptField } from "@/features/launch/PromptField";
 import { api, ApiError } from "@/lib/api";
@@ -66,10 +62,6 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [text, ref]);
-  const phone = usePhone();
-  // Phone Reply: dictating closes the keyboard (the text stays in view over a large Stop); back stops and keeps the text.
-  const dictation = useDictation({ inputRef: ref, onSend: () => void send(), blurOnStart: !!onHide, keep: { read: () => useMessageDrafts.getState().drafts[sessionId] ?? "", write: (t) => useMessageDrafts.getState().set(sessionId, t) } });
-  const bigStop = phone && !!onHide && dictation.active;
   const send = async () => {
     const t = message;
     if ((!t && !files.length && !hasMessageContext(context)) || busy || disabled || reading || ask?.permission) return;
@@ -109,7 +101,6 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
       {delivery && <div role="status" className="mb-1 text-[12px] text-ink-3">{delivery === "sending" ? "Sending…" : delivery === "delivered" ? promptSession?.quota_pause ? "Queued for when the agent resumes" : "Delivered" : delivery === "failed" ? "Attempt failed. Check the trace before starting a new attempt." : "Delivery not confirmed. Retry the same message to check its result."}</div>}
       {delivery === "uncertain" && <button className="btn btn-sm mb-1" disabled={busy} onClick={() => void abandonOperation(`/api/sessions/${sessionId}/input`, payload).then(() => setDelivery(null)).catch(toastError)}>I checked the trace — start a new attempt</button>}
       {reading && <div className="mb-1 text-[12px] text-ink-3">Reading attachments…</div>}
-      <VoiceCaption dictation={dictation} />
       {onHide ? (
         <div className="mb-1.5 flex items-start gap-2">
           {!ask && <PresetChips surface={presetSurface} selected={presets} onChange={setPresets} disabled={busy} className="min-w-0 flex-1" />}
@@ -137,15 +128,10 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
         {ask && <button className="iconbtn" title={`Attach files or images (you can also drop files${acceptsImages ? " or paste a screenshot" : ""}). ${ATTACH_LIMITS}`} aria-label="Attach files or images" disabled={disabled || busy || reading} onClick={() => fileRef.current?.click()}>
           <Icon name="clip" size={14} />
         </button>}
-        <VoiceButton dictation={dictation} className={bigStop ? "hidden" : ""} tour="session.mic" />
-        {dictation.active && !bigStop ? <button className="btn btn-sm flex-none" title="Finish the dictation, then send" disabled={disabled || busy || reading || dictation.phase === "finishing"} onClick={dictation.stopAndSend}>Stop &amp; send</button> : <button className="session-send iconbtn border-line! bg-paper" aria-label="Send" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : promptSession?.quota_pause ? "Queue for resume" : "Send"} disabled={disabled || busy || reading || (!message && !files.length && !hasMessageContext(context))} onClick={() => void send()}>
+        <button className="session-send iconbtn border-line! bg-paper" aria-label="Send" title={delivery === "failed" ? "Send as a new attempt" : delivery === "uncertain" ? "Retry delivery" : promptSession?.quota_pause ? "Queue for resume" : "Send"} disabled={disabled || busy || reading || (!message && !files.length && !hasMessageContext(context))} onClick={() => void send()}>
           <Icon name="send" size={14} />
-        </button>}
+        </button>
       </div>
-      {bigStop && <div className="mt-2 flex gap-2">
-        <VoiceButton dictation={dictation} large />
-        <button className="btn h-[52px] px-5" disabled={disabled || busy || reading || dictation.phase === "finishing"} onClick={dictation.stopAndSend}><Icon name="send" size={14} />Send</button>
-      </div>}
       {!ask && <MessageContextChips value={context} onChange={setContext} disabled={disabled || busy || reading} />}
     </div>
   );

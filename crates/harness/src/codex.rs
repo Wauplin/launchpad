@@ -1059,7 +1059,6 @@ pub const REGISTRATION: harness::Registration = harness::Registration {
             terminal: true,
             quota: true,
             cost: false,
-            voice: false,
         },
         account_env: &["CODEX_HOME"],
         vault_login: Some(harness::VaultLogin { kind: launchpad_core::vault::Kind::CodexLogin, hosts: &["chatgpt.com"], how: "Sign in with codex login (ChatGPT) on any machine and paste the whole ~/.codex/auth.json. Home refreshes it from then on: do not use that login elsewhere." }),

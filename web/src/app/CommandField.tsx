@@ -13,10 +13,6 @@ import type { Predraft } from "@/gen/Predraft";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import { Icon } from "@/components/Icon";
-import { VoiceButton } from "@/components/VoiceButton";
-import { VoiceCaption } from "@/components/VoiceCaption";
-import { useDictation } from "@/lib/voice/useDictation";
-import { useVoice } from "@/lib/voice/dictation";
 import { toast, toastError } from "@/components/Toast";
 import { LaunchSplitButton, openOptions } from "@/features/launch/LaunchButton";
 import { itemKey } from "@/features/github/lib";
@@ -154,9 +150,6 @@ export function CommandField() {
   };
   // Ask is the primary button (and Enter) on every page; without a bot in the workspace, Launch is.
   const primary = bot ? () => void ask() : launch;
-  // The field is one line: the words of the current phrase show in it, in italics; the mic sits at its right edge.
-  const dictation = useDictation({ inputRef: ref, onSend: primary });
-  const interim = useVoice((s) => (s.owner === dictation.id ? s.interim : ""));
   const askLabel = bot ? `Ask ${bot.settings.name}` : "Ask";
   return (
     <div className="flex min-w-[280px] max-w-text flex-1 items-center gap-1.5" data-tour="topbar.field">
@@ -180,11 +173,8 @@ export function CommandField() {
           onPaste={(e) => { if (busy) return; const pasted = pastedImages(e); if (pasted) void shots.add(pasted); }}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); primary(); } }}
           className="min-h-6 min-w-[48px] flex-1 resize-none bg-transparent placeholder-shown:overflow-hidden placeholder-shown:whitespace-nowrap py-0.5 text-[13px] leading-5 outline-none" />
-        {dictation.active && <span className="min-w-0 max-w-[45%] flex-none truncate text-[13px] italic text-ink-3" title={interim}>{interim || <VoiceCaption dictation={dictation} inline className="" />}</span>}
-        {!dictation.active && <VoiceCaption dictation={dictation} inline className="min-w-0 max-w-[45%] flex-none" />}
-        <VoiceButton dictation={dictation} className="-my-0.5" />
       </div>
-      {bot && <button className="btn btn-primary" data-tour="topbar.ask" title={`${askLabel}: the answer opens in the Ask panel${ctx.line ? ", with the page as context" : ""}`} disabled={busy || reading || dictation.phase === "finishing"} onClick={() => (dictation.active ? dictation.stopAndSend() : void ask())}><Icon name="send" size={12} />Ask</button>}
+      {bot && <button className="btn btn-primary" data-tour="topbar.ask" title={`${askLabel}: the answer opens in the Ask panel${ctx.line ? ", with the page as context" : ""}`} disabled={busy || reading} onClick={() => void ask()}><Icon name="send" size={12} />Ask</button>}
       <LaunchSplitButton ctx={ctx.launch} text={text} onLaunch={launch} onUsed={() => { withShots(); setText(""); }} primary={!bot}
         title={text.trim() ? `Launch an agent at once${ctx.launch ? " with the page as context" : ""}, with the folder's defaults` : "Open the composer"} />
     </div>

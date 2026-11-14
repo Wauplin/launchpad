@@ -12,6 +12,5 @@ import "./connections";
 import "./channels";
 import "./today";
 import "./ask";
-import "./voice";
 
 import "./topics";

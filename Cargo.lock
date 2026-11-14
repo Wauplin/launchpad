@@ -1624,13 +1624,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "futures-util",
  "launchpad-core",
  "reqwest",
  "serde_json",
  "time",
  "tokio",
- "tokio-tungstenite",
  "toml",
  "tracing",
  "uuid",

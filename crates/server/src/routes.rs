@@ -57,18 +57,12 @@ struct GeneralPatch {
     presets: Option<Vec<launchpad_core::config::Preset>>,
     github_poll_interval_seconds: Option<u64>,
     worktrees_keep: Option<u32>,
-    voice: Option<launchpad_core::config::VoiceConfig>,
 }
 async fn patch_general_config(State(s): State<Server>, Json(patch): Json<GeneralPatch>) -> ApiResult<Value> {
     s.app.config.update(|config| {
         if let Some(value) = patch.presets { config.presets = value; }
         if let Some(value) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = value.max(15); }
         if let Some(value) = patch.worktrees_keep { config.worktrees.keep = value; }
-        if let Some(mut value) = patch.voice {
-            value.silence_stop_s = value.silence_stop_s.min(300);
-            value.profiles.dedup();
-            config.voice = value;
-        }
         Ok(())
     }).map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
     Ok(Json(config_response(&s, None)))

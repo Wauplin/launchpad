@@ -1,4 +1,4 @@
-// Chapter 10: profiles, spending limits, presets, voice, devices, and repositories without a folder.
+// Chapter 10: profiles, spending limits, presets, devices, and repositories without a folder.
 
 import type { Chapter } from "../tour/types";
 import { clickAnchor } from "./helpers";
@@ -8,7 +8,7 @@ const qrShown = () => /demo\.invalid/.test(document.querySelector("main")?.textC
 
 export const settings: Chapter = {
   ...meta("settings"),
-  learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Voice uses your Claude subscription logins, in the order you set", "Pair a phone with a QR code", "Settings has two parts: Workspace, and Launchpad, shared by every workspace", "Each workspace can have its own Telegram bot and chat", "Repositories without a folder reach no Inbox; Settings → GitHub lists them"],
+  learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Pair a phone with a QR code", "Settings has two parts: Workspace, and Launchpad, shared by every workspace", "Each workspace can have its own Telegram bot and chat", "Repositories without a folder reach no Inbox; Settings → GitHub lists them"],
   steps: [
     {
       id: "settings.trace-sync", route: "/settings/huggingface", anchor: "settings.trace-sync",
@@ -29,11 +29,6 @@ export const settings: Chapter = {
       id: "settings.presets", route: "/settings/presets", anchor: "settings.presets",
       title: "Presets",
       body: "Presets are instructions you add to a launch or a message with one click, like “Write tests”. Choose availability in Ask Launchpad, agent composer / steering, or both. Launchpad ships none: you write your own.",
-    },
-    {
-      id: "settings.voice", route: "/settings/voice", anchor: "settings.voice-sources",
-      title: "Voice",
-      body: "Dictation uses your Claude subscription logins on Home, in this order. A used-up login is skipped, and if one fails mid-sentence the next one continues with the same audio. Test voice tries each one.",
     },
     {
       id: "settings.devices", route: "/settings/devices", anchor: "devices.pair",

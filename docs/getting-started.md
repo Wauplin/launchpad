@@ -49,7 +49,7 @@ Open Home in your browser.
 
 On a fresh install, a welcome dialog offers:
 
-- **Essentials tour** (about 3 minutes): launch an agent, answer it (also by voice) and review its work.
+- **Essentials tour** (about 3 minutes): launch an agent, answer it and review its work.
 - **Full tour** (about 10 minutes): adds GitHub, Ask Launchpad and bots with their routines, terminals, workspaces, automation, settings, and Home with its runners and credentials.
 - **Skip the tour**: go straight to **Finish setup**.
 

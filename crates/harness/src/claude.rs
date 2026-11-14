@@ -17,7 +17,6 @@ use launchpad_core::sessions::{LiveSession, Sink, StartSpec, json_line, shorten,
 
 use launchpad_core::harness::{self, permission_options};
 
-mod voice;
 
 fn permission_args(mode: PermissionMode) -> Vec<String> {
     match mode {
@@ -904,7 +903,6 @@ pub const REGISTRATION: harness::Registration = harness::Registration {
             terminal: true,
             quota: true,
             cost: true,
-            voice: true,
         },
         account_env: &["CLAUDE_CONFIG_DIR"],
         vault_login: Some(harness::VaultLogin { kind: launchpad_core::vault::Kind::ClaudeLogin, hosts: &["api.anthropic.com"], how: "Run claude setup-token on any machine and paste the token it prints." }),
@@ -983,9 +981,6 @@ impl harness::Harness for Adapter {
     }
     async fn read_quota_now(&self, app: &App, account: launchpad_core::quota::QuotaAccount) -> Result<launchpad_core::quota::QuotaPair> {
         read_quota_now(app, &account).await
-    }
-    async fn open_voice(&self, _app: &App, env: &[(String, String)], opts: harness::VoiceOpts) -> Result<harness::VoiceCall> {
-        voice::open(env, opts).await
     }
     async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<harness::trace::TraceFile>> {
         let id = harness::trace::conversation(session)?;

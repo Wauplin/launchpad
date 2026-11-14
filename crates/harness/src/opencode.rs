@@ -24,7 +24,6 @@ pub const REGISTRATION: harness::Registration = harness::Registration {
             terminal: true,
             quota: false,
             cost: true,
-            voice: false,
         },
         account_env: &[],
         vault_login: None,
