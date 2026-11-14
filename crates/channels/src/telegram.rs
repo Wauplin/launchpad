@@ -427,6 +427,10 @@ pub async fn notification(app: &App, session_id: &str, event: &str) -> Result<()
         return Ok(());
     }
     let s = app.sessions.get(session_id).context("session not found")?;
+    // A turn that ended asleep (`launchpad sleep`) is not finished work.
+    if event == "done" && s.sleeping() {
+        return Ok(());
+    }
     let pid = s.project_id.clone();
     let project = app
         .state_db

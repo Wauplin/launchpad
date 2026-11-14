@@ -30,6 +30,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/launch/preview", post(preview).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/launch/schedules", get(schedules).post(schedule).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}/follow-up", post(follow_up))
+        .route("/api/sleep", post(sleep))
         .route("/api/launch/schedules/{id}", axum::routing::delete(cancel_schedule).patch(update_schedule).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/launch/schedules/{id}/start", post(start_schedule))
         .route("/api/launch/crons", get(crons).post(create_cron).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
@@ -693,6 +694,14 @@ async fn sender(s: &Ctx, agent: Option<axum::Extension<launchpad_http::AgentSess
 async fn follow_up(State(s): State<Ctx>, Path(id): Path<String>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(b): Json<FollowUpRequest>) -> ApiResult<ScheduledLaunch> {
     let from = sender(&s, agent).await?;
     Ok(Json(schedules::follow_up(&s.app, &id, b.message, b.conditions, from).await.map_err(bad)?))
+}
+/// `launchpad sleep`: an agent asks Home to wake its own session later (`agent_auth` lets a CLI token name only its
+/// session; Home only, runners forward it).
+async fn sleep(State(s): State<Ctx>, Json(b): Json<schedules::SleepRequest>) -> ApiResult<ScheduledLaunch> {
+    if s.app.paths.role != launchpad_core::role::Role::Home {
+        return Err(bad(anyhow::anyhow!("only Home schedules wake-ups")));
+    }
+    Ok(Json(schedules::sleep(&s.app, b).await.map_err(bad)?))
 }
 async fn schedules(State(s): State<Ctx>) -> ApiResult<Vec<ScheduledLaunch>> { Ok(Json(schedules::list(&s.app).await?)) }
 async fn schedule(State(s): State<Ctx>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut b): Json<ScheduleRequest>) -> ApiResult<ScheduledLaunch> {

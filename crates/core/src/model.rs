@@ -185,6 +185,24 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub unsaved: Option<Unsaved>,
+    /// Home: the agent asked Launchpad to wake it later (`launchpad sleep`). Kept by Home over the runner's records;
+    /// cleared when the wake-up is sent, cancelled or fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sleep: Option<Sleep>,
+}
+
+/// A wake-up an agent asked for: Home sends the session a message at `until` (its scheduled follow-up `schedule_id`),
+/// in the same conversation.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
+pub struct Sleep {
+    /// When Home wakes it (Unix ms).
+    #[ts(type = "number")]
+    pub until: i64,
+    /// What the agent said it will do when it wakes up.
+    pub note: String,
+    /// The scheduled follow-up that wakes it (Wake now: `schedule.start`, Cancel: `schedule.cancel`).
+    pub schedule_id: String,
 }
 
 /// A turn whose work has not reached Home yet.
@@ -203,7 +221,7 @@ impl Session {
     /// Archiving a completed turn must not block delayed launches waiting for it.
     /// An open question is not done: the agent waits for the owner.
     pub fn dependency_done(&self) -> bool {
-        (self.status.is_done() && !self.open_question) || (self.status == SessionStatus::Closed && self.archived_done)
+        (self.status.is_done() && !self.open_question && self.sleep.is_none()) || (self.status == SessionStatus::Closed && self.archived_done)
     }
 
     pub fn change_status(&mut self, status: SessionStatus) {
@@ -251,7 +269,12 @@ impl Session {
     /// Shared "Needs you" predicate: an open question, or Done, Failed or Interrupted not seen since the status changed.
     pub fn needs_you(&self) -> bool {
         let unseen = self.seen_at < self.status_since;
-        (self.status.is_done() && (self.open_question || unseen)) || (matches!(self.status, SessionStatus::Error | SessionStatus::Interrupted) && unseen)
+        (self.status.is_done() && (self.open_question || (unseen && !self.sleeping()))) || (matches!(self.status, SessionStatus::Error | SessionStatus::Interrupted) && unseen)
+    }
+
+    /// Sleeping: Done, nothing asked, and Home wakes it later (`sleep`). It does not need you.
+    pub fn sleeping(&self) -> bool {
+        self.status.is_done() && !self.open_question && self.sleep.is_some()
     }
 
     /// The reported cost reached the session cost limit: no new turn may start.
@@ -542,6 +565,8 @@ pub enum SenderKind {
     /// A message in a bot channel or DM (`launchpad_channels::channel`), delivered under the channel's own frame; the
     /// channel's loop guard decided its delivery.
     Channel,
+    /// The wake-up an agent asked for (`launchpad sleep`): Launchpad's own message to it, with the agent's note.
+    Wake,
 }
 
 impl MessageContext {

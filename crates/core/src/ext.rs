@@ -19,6 +19,9 @@ pub trait Extensions: Send + Sync {
     fn turn_ended(&self, _app: &App, _session: &Session) {}
     /// Home: the work of a session's last turn reached Home (its `unsaved` mark cleared after the turn ended).
     fn turn_saved(&self, _app: &App, _session: &Session) {}
+    /// Home: a sleeping session started a turn before its wake-up (a message woke it): its wake-up `schedule_id` goes
+    /// (`schedules::woken`).
+    fn woken(&self, _app: &App, _session_id: &str, _schedule_id: &str) {}
     /// Instructions added to a session's initial prompt about agent-written GitHub text and connections.
     fn suggestion_instruction(&self, _app: &App, _session_id: &str) -> Option<String> {
         None

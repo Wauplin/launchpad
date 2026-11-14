@@ -354,6 +354,7 @@ CREATE TABLE IF NOT EXISTS repo_choice (repo TEXT NOT NULL, what TEXT NOT NULL, 
     }
     if !has("generation") { conn.execute_batch("ALTER TABLE session ADD COLUMN generation INTEGER NOT NULL DEFAULT 1;")?; }
     if !has("unsaved_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN unsaved_json TEXT;")?; }
+    if !has("sleep_json") { conn.execute_batch("ALTER TABLE session ADD COLUMN sleep_json TEXT;")?; }
     if !has("title_pending") { conn.execute_batch("ALTER TABLE session ADD COLUMN title_pending INTEGER;")?; }
     // Existing sessions with a finished turn already had their conversation title.
     if !has("title_refreshed") {

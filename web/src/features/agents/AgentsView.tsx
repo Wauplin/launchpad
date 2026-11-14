@@ -18,7 +18,7 @@ import type { Predraft } from "@/gen/Predraft";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { workTags, WorkTagPill, type WorkTag } from "./workTag";
 import { HarnessMark } from "@/components/HarnessMark";
-import { isRunning, isDone, isQuotaPaused, isStopped, isUnseen, needsYou } from "@/lib/sessionStatus";
+import { isRunning, isDone, isQuotaPaused, isSleeping, isStopped, isUnseen, needsYou } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useProjects, useSession, useSessions } from "@/lib/queries";
@@ -201,7 +201,9 @@ export function AgentsView() {
   const needs = filtered.filter((s) => s.status !== "closed" && needsYou(s)).sort(newest);
   const needIds = new Set(needs.map((s) => s.id));
   const local = filtered.filter((s) => !needIds.has(s.id));
-  const done = local.filter(isDone).sort(newest);
+  // Asleep (`launchpad sleep`): the next to wake up first.
+  const sleeping = local.filter(isSleeping).sort((a, b) => (a.sleep?.until ?? 0) - (b.sleep?.until ?? 0));
+  const done = local.filter((s) => isDone(s) && !isSleeping(s)).sort(newest);
   const running = local.filter((s) => isRunning(s)).sort(order);
   const quotaPaused = local.filter(isQuotaPaused).sort(order);
   const stopped = local.filter(isStopped).sort(order);
@@ -250,6 +252,7 @@ export function AgentsView() {
     ...group("Needs you", sessionRows(needs), { highlight: true }),
     ...group("Running", sessionRows(running)),
     ...group("Quota paused", sessionRows(quotaPaused)),
+    ...group("Sleeping", sessionRows(sleeping)),
     ...group("Done", sessionRows(done), { tail: oldDone.length ? [{ kind: "archive-old" }] : [] }),
     ...group("Stopped", sessionRows(stopped)),
     ...group("Interrupted", sessionRows(interrupted)),

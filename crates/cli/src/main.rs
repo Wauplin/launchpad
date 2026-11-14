@@ -107,6 +107,21 @@ enum Command {
         #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
         session_id: String,
     },
+    /// End this turn and have Launchpad wake this session later, in the same conversation: instead of a long `sleep` in
+    /// the shell. Run it, then end your turn; the wake-up message brings back your note. A new sleep replaces the last.
+    Sleep {
+        /// Wake in this long: 45m, 2h, 1d (minutes without a unit).
+        #[arg(long = "in", conflicts_with = "until", required_unless_present = "until")]
+        delay: Option<String>,
+        /// Wake at this time (RFC 3339 with its offset, such as 2026-11-14T15:00:00Z).
+        #[arg(long)]
+        until: Option<String>,
+        /// What to do when you wake up (comes back in the wake-up message).
+        #[arg(long, default_value = "")]
+        note: String,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
+    },
     /// Save a suggestion locally and link its session to the GitHub item and topic; never posts.
     Suggest {
         #[command(subcommand)]
@@ -971,6 +986,15 @@ async fn run() -> Result<()> {
             };
             let value = Client::new(&paths)?.json("POST", "/api/notes", Some(serde_json::json!({"repo":repo,"number":number,"body":body,"suggest":suggest,"suggest_reply_to":reply_to,"reply_to":reply_to_note,"session_id":session_id}))).await?;
             println!("{value}");
+            Ok(())
+        }
+        Command::Sleep { delay, until, note, session_id } => {
+            use launchpad_automation::schedules::{parse_minutes, parse_until};
+            let minutes = delay.as_deref().map(parse_minutes).transpose()?;
+            let at = until.as_deref().map(parse_until).transpose()?;
+            let value = Client::new(&paths)?.json("POST", "/api/sleep", Some(serde_json::json!({"session_id": session_id, "minutes": minutes, "at": at, "note": note}))).await?;
+            let when = value["ready_at"].as_i64().unwrap_or_default();
+            println!("{}", serde_json::json!({"sleeping_until": when, "schedule_id": value["id"], "next": "end your turn now: Launchpad wakes this session at that time, in this conversation"}));
             Ok(())
         }
         Command::Suggest { command } => suggest_command(&paths, command).await,

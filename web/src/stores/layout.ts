@@ -9,7 +9,7 @@ const storageKey = (workspace: string | null) => (workspace ? `launchpad.layout.
 
 export type Dock = { open: boolean; height: number; active: string | null };
 
-export type AgentGroup = "Needs you" | "Done" | "Running" | "Quota paused" | "Stopped" | "Interrupted" | "Failed" | "In terminal" | "Archived";
+export type AgentGroup = "Needs you" | "Done" | "Running" | "Quota paused" | "Sleeping" | "Stopped" | "Interrupted" | "Failed" | "In terminal" | "Archived";
 
 type LayoutStore = {
   pinned: string[];

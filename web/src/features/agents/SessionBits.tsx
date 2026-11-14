@@ -1,9 +1,9 @@
 import type { Session } from "@/gen/Session";
-import { age, ago } from "@/lib/format";
+import { age, ago, when } from "@/lib/format";
 import type { IconName } from "@/components/Icon";
 import { useRunnerTag } from "@/lib/burst";
 import { Badge, StatusBadge, type StatusTone } from "@/components/ui";
-import { isDone, isRunning, isUnseen } from "@/lib/sessionStatus";
+import { isDone, isRunning, isSleeping, isUnseen } from "@/lib/sessionStatus";
 
 /** "12:04" since `ms`. */
 export function elapsed(ms: number): string {
@@ -27,7 +27,10 @@ export function statusInfo(s: Session): { label: string; tone: StatusTone; icon:
     case "working":
       return { label: `Working ${elapsed(s.status_since)}`, tone: "running", icon: null };
     case "waiting":
-      return s.open_question ? { label: "Question", tone: "needs", icon: "alert" } : { label: `Done ${age(s.status_since)}`, tone: "done", icon: "okcircle" };
+      if (s.open_question) return { label: "Question", tone: "needs", icon: "alert" };
+      // Asleep (`launchpad sleep`): Home wakes it in the same conversation.
+      if (s.sleep) return { label: `Sleeping · until ${when(s.sleep.until)}`, tone: "idle", icon: "clock" };
+      return { label: `Done ${age(s.status_since)}`, tone: "done", icon: "okcircle" };
     case "background":
       return { label: `Background ${age(s.status_since)}`, tone: "running", icon: null };
     case "closed":
@@ -49,7 +52,7 @@ export function statusInfo(s: Session): { label: string; tone: StatusTone; icon:
 export function SessionStatus({ s }: { s: Session }) {
   const { label, tone, icon } = statusInfo(s);
   const where = useRunnerTag(s.runner_id);
-  const unseen = isUnseen(s) && ((isDone(s) && !s.open_question) || s.status === "error" || s.status === "interrupted");
+  const unseen = isUnseen(s) && ((isDone(s) && !s.open_question && !isSleeping(s)) || s.status === "error" || s.status === "interrupted");
   // The last turn's branches, files or conversation are not all on Home yet: its runner saves them, and retries.
   const unsaved = s.unsaved && !isRunning(s) && s.status !== "closed" ? s.unsaved : null;
   return (

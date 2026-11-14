@@ -119,6 +119,121 @@ pub async fn follow_up(
     create_target(app, spec, conditions, Some(id.to_string())).await
 }
 
+/// What an agent asks for with `launchpad sleep`: end its turn now and get a message in the same conversation later.
+#[derive(Clone, Debug, Deserialize)]
+pub struct SleepRequest {
+    pub session_id: String,
+    /// Wake in this many minutes…
+    #[serde(default)]
+    pub minutes: Option<u32>,
+    /// …or at this time (Unix ms).
+    #[serde(default)]
+    pub at: Option<i64>,
+    /// What to do when it wakes up, in the agent's words (it comes back in the wake-up message).
+    #[serde(default)]
+    pub note: String,
+}
+
+/// `launchpad sleep --in`: "45" or "45m" minutes, "2h" hours, "1d" days.
+pub fn parse_minutes(text: &str) -> Result<u32> {
+    let t = text.trim().to_ascii_lowercase();
+    let (number, unit) = match t.find(|c: char| !c.is_ascii_digit()) {
+        Some(i) => t.split_at(i),
+        None => (t.as_str(), "m"),
+    };
+    let n: u32 = number.parse().map_err(|_| anyhow::anyhow!("--in takes minutes, hours or days: 45m, 2h, 1d"))?;
+    let factor = match unit.trim() {
+        "m" | "min" | "mins" | "minute" | "minutes" => 1,
+        "h" | "hour" | "hours" => 60,
+        "d" | "day" | "days" => 1440,
+        _ => bail!("--in takes minutes, hours or days: 45m, 2h, 1d"),
+    };
+    n.checked_mul(factor).filter(|m| *m > 0).context("pick a delay from 1 minute to 1 year")
+}
+
+/// `launchpad sleep --until`: an RFC 3339 time ("2026-11-14T15:00:00Z", "2026-11-14T16:00:00+01:00"), as Unix ms.
+pub fn parse_until(text: &str) -> Result<i64> {
+    Ok(chrono::DateTime::parse_from_rfc3339(text.trim()).map_err(|_| anyhow::anyhow!("--until takes an RFC 3339 time with its offset, such as 2026-11-14T15:00:00Z"))?.timestamp_millis())
+}
+
+/// Whether a scheduled follow-up is a wake-up an agent asked for (`sleep`).
+pub fn is_wake(record: &ScheduledLaunch) -> bool {
+    record.resume_session_id.is_some() && record.spec.from.as_ref().is_some_and(|f| f.kind == launchpad_core::model::SenderKind::Wake)
+}
+
+/// The message that wakes an agent: Launchpad's own, with its note.
+fn wake_text(until: i64, note: &str) -> String {
+    let at = chrono::DateTime::from_timestamp_millis(until).map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string()).unwrap_or_default();
+    let note = note.trim();
+    let mut text = format!("Wake-up · You asked Launchpad to wake you at {at} (`launchpad sleep`). This is the same conversation: continue the task you paused.");
+    if !note.is_empty() {
+        let f = launchpad_core::senders::fence(note);
+        text.push_str(&format!("\n\nYour note:\n\n{f}\n{note}\n{f}"));
+    }
+    text
+}
+
+/// Home: the session asks to sleep (`launchpad sleep`, its own session only: `agent_auth`). Records a wake-up, a
+/// scheduled follow-up to the same session sent by the usual scheduler (it waits for the turn to end, for confirmed
+/// quota and for a free session), and marks the session as sleeping until then. A new sleep replaces the session's
+/// earlier wake-up; a follow-up the owner scheduled is kept and refuses it.
+pub async fn sleep(app: &App, q: SleepRequest) -> Result<ScheduledLaunch> {
+    let session = app.sessions.get(&q.session_id).context("no such session")?;
+    anyhow::ensure!(session.status != launchpad_core::model::SessionStatus::Closed, "this session is archived");
+    let condition = match (q.minutes, q.at) {
+        (Some(minutes), None) => LaunchDelay::In { minutes },
+        (None, Some(at)) => LaunchDelay::At { at },
+        _ => bail!("give either --in or --until"),
+    };
+    anyhow::ensure!(q.note.len() <= 4000, "the note is too long (at most 4000 bytes)");
+    for earlier in list(app).await? {
+        if earlier.resume_session_id.as_deref() == Some(q.session_id.as_str()) {
+            anyhow::ensure!(is_wake(&earlier), "this session already has a follow-up scheduled by the owner; it will receive that message instead");
+            anyhow::ensure!(earlier.status != ScheduleStatus::Starting, "the earlier wake-up is being sent now");
+            cancel_record(app, &earlier.id).await?;
+        }
+    }
+    let mut spec = session.launch_spec.clone();
+    spec.harness = Some(session.harness);
+    // Its own message, not a step in a chain: the hop count of the turn that went to sleep, so sleeping never meets
+    // the loop guard on its own.
+    let hops = launchpad_core::senders::hops_of(app, &session.id).await;
+    spec.from = Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, id: session.id.clone(), name: "Wake-up".into(), hops, ..Default::default() });
+    spec.target = session.project_id.clone().map(|project_id| Target::Project { project_id }).unwrap_or(Target::None);
+    let (_, until) = validate(app, &spec, std::slice::from_ref(&condition), Some(&session.id)).await?;
+    let until = until.context("no wake-up time")?;
+    spec.text = wake_text(until, &q.note);
+    let record = create_target(app, spec, vec![condition], Some(session.id.clone())).await?;
+    let sleep = launchpad_core::model::Sleep { until, note: q.note.trim().to_string(), schedule_id: record.id.clone() };
+    if let Err(e) = app.sessions.set_sleep(app, &session.id, Some(sleep)).await {
+        let _ = cancel_record(app, &record.id).await;
+        return Err(e);
+    }
+    Ok(record)
+}
+
+/// Home: a message woke the sleeping session before its wake-up (`Sessions::apply_replica` cleared its sleep): the
+/// wake-up goes, unless it is being sent now (then it is that message).
+pub fn woken(app: &App, session_id: &str, schedule_id: &str) {
+    let (app, session_id, schedule_id) = (app.clone(), session_id.to_string(), schedule_id.to_string());
+    tokio::spawn(async move {
+        let queued = list(&app).await.ok().and_then(|l| l.into_iter().find(|r| r.id == schedule_id)).is_some_and(|r| is_wake(&r) && r.status != ScheduleStatus::Starting);
+        if queued && let Err(e) = cancel_record(&app, &schedule_id).await {
+            tracing::debug!("wake-up of {session_id} after a message: {e:#}");
+        }
+    });
+}
+
+/// Clears the session's sleep when it names this wake-up (sent, cancelled or failed).
+async fn wake(app: &App, record: &ScheduledLaunch) {
+    let Some(id) = record.resume_session_id.as_deref().filter(|_| is_wake(record)) else { return };
+    if app.sessions.get(id).is_some_and(|s| s.sleep.as_ref().is_some_and(|z| z.schedule_id == record.id))
+        && let Err(e) = app.sessions.set_sleep(app, id, None).await
+    {
+        tracing::warn!("wake-up of {id}: {e:#}");
+    }
+}
+
 /// Checks a launch and its conditions; returns its title and the latest time or quota condition.
 async fn validate(
     app: &App,
@@ -128,7 +243,7 @@ async fn validate(
 ) -> Result<(String, Option<i64>)> {
     let title = if let Some(id) = resume_session_id {
         let s = app.sessions.get(id).context("no such session")?;
-        format!("Follow-up · {}", s.title)
+        if spec.from.as_ref().is_some_and(|f| f.kind == launchpad_core::model::SenderKind::Wake) { format!("Wake-up · {}", s.title) } else { format!("Follow-up · {}", s.title) }
     } else {
         spec.harness.context("pick a harness")?;
         if spec.target == Target::None {
@@ -371,8 +486,15 @@ pub async fn update(
 }
 
 pub async fn cancel(app: &App, id: &str) -> Result<()> {
+    let record = cancel_record(app, id).await?;
+    wake(app, &record).await;
+    Ok(())
+}
+
+/// Deletes a scheduled launch that is not starting; returns it.
+async fn cancel_record(app: &App, id: &str) -> Result<ScheduledLaunch> {
     let id = id.to_string();
-    app.state_db
+    let record = app.state_db
         .call(move |c| {
             let json: String = c
                 .query_row(
@@ -386,14 +508,16 @@ pub async fn cancel(app: &App, id: &str) -> Result<()> {
                 bail!("this agent is already starting; use Stop in its session");
             }
             c.execute("DELETE FROM scheduled_launch WHERE id = ?1", [id])?;
-            Ok(())
+            Ok(record)
         })
         .await?;
     changed(app);
-    Ok(())
+    Ok(record)
 }
 
 async fn finish(app: &App, mut record: ScheduledLaunch, error: Option<String>) -> Result<()> {
+    // Sent or failed: the agent sleeps no more (a failed wake-up shows on the session and in Today).
+    wake(app, &record).await;
     app.state_db
         .call(move |c| {
             if let Some(error) = error {
@@ -527,6 +651,11 @@ pub fn spawn(app: &App) {
             };
             for record in records {
                 let target = record.resume_session_id.as_ref().and_then(|id| app.sessions.get(id));
+                // An archived (or deleted) agent is not woken up: its wake-up goes.
+                if is_wake(&record) && record.status == ScheduleStatus::Queued && target.as_ref().is_none_or(|s| s.status == launchpad_core::model::SessionStatus::Closed) {
+                    if let Err(e) = cancel(&app, &record.id).await { tracing::debug!("wake-up of an archived agent: {e:#}"); }
+                    continue;
+                }
                 let (harness, spec) = target.as_ref()
                     .map(|s| (Some(s.harness), &s.launch_spec))
                     .unwrap_or((record.spec.harness, &record.spec));
@@ -600,6 +729,43 @@ mod tests {
             assert!(!ready(&record, 0, |_| session.dependency_done()));
         }
         assert!(!ready(&record, 0, |_| false)); // Missing or cancelled dependency.
+    }
+
+    #[test]
+    fn a_sleeping_agent_neither_needs_you_nor_counts_as_done() {
+        launchpad_harness::install();
+        let mut s: Session = serde_json::from_value(serde_json::json!({
+            "id": "a", "harness": "codex", "cwd": "/tmp", "title": "Wait for CI",
+            "status": "waiting", "status_since": 10, "live": false, "open_question": false,
+            "prompt": "task", "usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}, "started_at": 0, "last_seq": 0,
+            "launch_spec": {}, "seen_at": 0
+        })).unwrap();
+        assert!(s.needs_you() && s.dependency_done() && !s.sleeping());
+        s.sleep = Some(launchpad_core::model::Sleep { until: 100, note: "check CI".into(), schedule_id: "w".into() });
+        assert!(s.sleeping() && !s.needs_you() && !s.dependency_done());
+        s.open_question = true; // A question still needs you.
+        assert!(!s.sleeping() && s.needs_you());
+        let wake = ScheduledLaunch {
+            id: "w".into(), spec: LaunchSpec { from: Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, ..Default::default() }), ..Default::default() },
+            resume_session_id: Some("a".into()), conditions: vec![LaunchDelay::In { minutes: 5 }],
+            title: String::new(), created_at: 0, ready_at: Some(100), status: ScheduleStatus::Queued, error: None,
+        };
+        assert!(is_wake(&wake));
+        assert!(!is_wake(&ScheduledLaunch { spec: LaunchSpec::default(), ..wake }));
+    }
+
+    #[test]
+    fn sleep_times_parse() {
+        assert_eq!(parse_minutes("45").unwrap(), 45);
+        assert_eq!(parse_minutes("45m").unwrap(), 45);
+        assert_eq!(parse_minutes("2h").unwrap(), 120);
+        assert_eq!(parse_minutes(" 1D ").unwrap(), 1440);
+        assert!(parse_minutes("0m").is_err());
+        assert!(parse_minutes("1w").is_err());
+        assert!(parse_minutes("h").is_err());
+        assert_eq!(parse_until("1970-01-01T00:01:00Z").unwrap(), 60_000);
+        assert_eq!(parse_until("1970-01-01T01:01:00+01:00").unwrap(), 60_000);
+        assert!(parse_until("15:00").is_err());
     }
 
     #[test]

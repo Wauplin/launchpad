@@ -16,6 +16,9 @@ impl launchpad_core::ext::Extensions for Extensions {
     fn turn_saved(&self, app: &App, session: &Session) {
         crons::turn_saved(app, session);
     }
+    fn woken(&self, app: &App, session_id: &str, schedule_id: &str) {
+        launchpad_automation::schedules::woken(app, session_id, schedule_id);
+    }
     fn suggestion_instruction(&self, app: &App, session_id: &str) -> Option<String> {
         let text = format!("{}\n\n{}", launchpad_github::suggestions::instruction(app, session_id), launchpad_github::notes::instruction(app, session_id));
         Some(match launchpad_channels::connections::instruction(app, session_id) {

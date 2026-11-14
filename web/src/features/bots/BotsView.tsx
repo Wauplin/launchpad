@@ -39,7 +39,7 @@ import { api } from "@/lib/api";
 import { runAction } from "@/lib/actions";
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
 import { askTarget, botProfile, conversationOrder, botThread, currentSession, findThread, instructionsUpdated, MAIN_THREAD, rotationReason, threadSummary, useBots, useBotThreads, useBotTemplates } from "@/lib/bots";
-import { isQuotaPaused, isRunning } from "@/lib/sessionStatus";
+import { isQuotaPaused, isRunning, isSleeping } from "@/lib/sessionStatus";
 import { daemonUrl } from "@/lib/connection";
 import { age, ago, when } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
@@ -370,6 +370,7 @@ function statusOf(bot: Bot, all: Session[], thread: Session[], current: Session 
   if (current?.open_question) return { text: "Waiting for you · 1 question", tone: "text-attn" };
   if (current && isRunning(current)) return { text: `Working${step ? ` · ${step}` : ""} (${age(current.status_since)})`, tone: "text-work" };
   if (current && isQuotaPaused(current)) return { text: "Quota paused · continues when the quota allows", tone: "text-attn" };
+  if (current && isSleeping(current)) return { text: `Sleeping · wakes up ${when(current.sleep!.until)}`, tone: "text-ink-2" };
   if (bot.paused) return { text: "Paused · no trigger starts it; your messages still go through", tone: "text-ink-2" };
   if (current?.status === "error") return { text: "The last turn failed", tone: "text-gh-closed" };
   if (current?.status === "interrupted") return { text: "The last turn was interrupted", tone: "text-gh-closed" };

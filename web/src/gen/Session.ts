@@ -3,6 +3,7 @@ import type { HarnessKind } from "./HarnessKind";
 import type { LaunchSpec } from "./LaunchSpec";
 import type { QuotaPause } from "./QuotaPause";
 import type { SessionStatus } from "./SessionStatus";
+import type { Sleep } from "./Sleep";
 import type { Unsaved } from "./Unsaved";
 import type { Usage } from "./Usage";
 
@@ -55,4 +56,9 @@ last_message: string | null,
  * The work of the last turn (branches, plain folders, conversation) is not all on Home yet: shown as
  * saving, retried by its runner until it is (`turn_sync`).
  */
-unsaved?: Unsaved, };
+unsaved?: Unsaved, 
+/**
+ * Home: the agent asked Launchpad to wake it later (`launchpad sleep`). Kept by Home over the runner's records;
+ * cleared when the wake-up is sent, cancelled or fails.
+ */
+sleep?: Sleep, };

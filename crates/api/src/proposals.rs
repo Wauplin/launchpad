@@ -126,7 +126,7 @@ fn session_json(s: &Session) -> Value {
     json!({
         "id": s.id, "title": s.title, "status": s.status, "needs_you": s.needs_you(), "folder_id": s.project_id, "cwd": s.cwd,
         "harness": s.harness, "profile": s.launch_spec.profile, "started_at": s.started_at, "status_since": s.status_since,
-        "last_message": s.last_message, "open_question": s.open_question,
+        "last_message": s.last_message, "open_question": s.open_question, "sleeping_until": s.sleep.as_ref().filter(|_| s.sleeping()).map(|z| z.until),
         "runner_id": s.runner_id, "generation": s.generation, "ended_at": s.ended_at, "live": s.live, "bot": s.launch_spec.bot.as_ref().map(|b| &b.id),
     })
 }

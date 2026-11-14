@@ -12,6 +12,8 @@ import type { EarlierFacts } from "@/gen/EarlierFacts";
 import type { Session } from "@/gen/Session";
 import type { Predraft } from "@/gen/Predraft";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
+import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
+import { ActionButton } from "@/components/ActionButton";
 import type { SessionGitStatus } from "@/gen/SessionGitStatus";
 import { Icon } from "@/components/Icon";
 import { useComposer } from "@/stores/composer";
@@ -39,7 +41,6 @@ import { CurrentMachine, useTurnMachines } from "./RunsOn";
 import { Instructions } from "./EventRow";
 import { KeepFolder } from "@/features/projects/KeepFolder";
 import { runAction } from "@/lib/actions";
-import { ActionButton } from "@/components/ActionButton";
 
 /** A band under the header only for states that need words (an open question, a stop by you): the header's badge
  * already says Done, Failed, Interrupted or Archived, and quota pauses have their own band. */
@@ -100,10 +101,23 @@ export function FollowUpBands({ sessionId }: { sessionId: string }) {
   const schedules = useSchedules().data ?? [];
   const sessions = useSessions().data ?? [];
   const [busy, setBusy] = useState(false);
-  return <>{schedules.filter((q) => q.resume_session_id === sessionId).map((q) => <div key={q.id} className="flex flex-wrap items-center gap-2 border-b border-teal bg-teal-soft px-4 py-2 text-[12px] text-teal-ink">
+  return <>{schedules.filter((q) => q.resume_session_id === sessionId).map((q) => q.spec.from?.kind === "wake" ? <WakeBand key={q.id} q={q} /> : <div key={q.id} className="flex flex-wrap items-center gap-2 border-b border-teal bg-teal-soft px-4 py-2 text-[12px] text-teal-ink">
     <Icon name="clock" size={16} /><b>{q.status === "failed" ? "Follow-up needs attention" : "Follow-up scheduled"}</b><span className="min-w-0 flex-1">{conditionsSummary(q, sessions, schedules)}{q.error && ` · ${q.error}`}</span>
     <button className="btn btn-sm" disabled={busy || q.status === "starting"} onClick={async () => { setBusy(true); try { await api.delete(`/api/launch/schedules/${q.id}`); } catch (e) { toastError(e); } finally { setBusy(false); } }}>Cancel</button>
   </div>)}</>;
+}
+
+/** The wake-up an agent asked for (`launchpad sleep`): when, its note, Wake now and Cancel wake-up. */
+function WakeBand({ q }: { q: ScheduledLaunch }) {
+  const sessions = useSessions().data ?? [];
+  const note = sessions.find((s) => s.id === q.resume_session_id)?.sleep?.note;
+  const starting = q.status === "starting";
+  return <div className="flex flex-wrap items-center gap-2 border-b border-line bg-sunk px-4 py-2 text-[12px] text-ink-2">
+    <Icon name="clock" size={16} /><b>{q.status === "failed" ? "Wake-up failed" : `Sleeping until ${q.ready_at != null ? when(q.ready_at) : "its wake-up"}`}</b>
+    <span className="min-w-0 flex-1 truncate" title={note ?? undefined}>{q.error ?? (note ? `Then: ${note}` : "Launchpad wakes it in this conversation")}</span>
+    <ActionButton name="schedule.start" params={{ id: q.id }} icon={null} disabled={starting}>Wake now</ActionButton>
+    <ActionButton name="schedule.cancel" params={{ id: q.id }} icon={null} disabled={starting} consequence="The agent stays Done and is not woken up.">Cancel wake-up</ActionButton>
+  </div>;
 }
 
 export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff, showTrace }: { session: Session; rows: Row[]; earlier: EarlierFacts | null; localPr?: Predraft; reviewDiff: (main: boolean) => void; showTrace: () => void }) {

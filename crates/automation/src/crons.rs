@@ -1135,7 +1135,9 @@ pub fn turn_ended(app: &App, s: &Session) {
 }
 
 async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
-    if s.status == SessionStatus::QuotaPaused {
+    // A sleeping agent (`launchpad sleep`) has not finished: its run settles and its turn triggers routines when a
+    // later turn ends awake.
+    if s.status == SessionStatus::QuotaPaused || s.sleeping() {
         return Ok(());
     }
     let outcome = match s.status {
@@ -1204,7 +1206,7 @@ static UNSAVED_DONE: std::sync::LazyLock<std::sync::Mutex<std::collections::Hash
 /// back, unless the session moved on (a new turn, a question, Archive) or it came over an hour late.
 pub fn turn_saved(app: &App, s: &Session) {
     let Some(at) = UNSAVED_DONE.lock().unwrap().remove(&s.id) else { return };
-    if s.status != SessionStatus::Waiting || s.open_question || now_ms() - at > 3_600_000 {
+    if s.status != SessionStatus::Waiting || s.open_question || s.sleeping() || now_ms() - at > 3_600_000 {
         return;
     }
     let (app, s) = (app.clone(), s.clone());

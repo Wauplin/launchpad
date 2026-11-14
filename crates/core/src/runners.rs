@@ -1274,6 +1274,7 @@ pub(crate) fn placed_record(spec: &crate::model::LaunchSpec, id: &str, runner_id
         seen_at: now,
         last_message: None,
         unsaved: None,
+        sleep: None,
     })
 }
 

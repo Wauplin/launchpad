@@ -305,7 +305,7 @@ impl Sessions {
                 let mut st = c.prepare(
                     "SELECT id, harness, harness_session_id, project_id, cwd, title, status, status_since, open_question, model,
                             effort, prompt, usage_json, cost_usd, started_at, ended_at, last_seq, launch_spec_json, quota_pause_json, title_pending,
-                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json, title_refreshed
+                            seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json, title_refreshed, sleep_json
                      FROM session",
                 )?;
                 let rows = st
@@ -349,6 +349,7 @@ impl Sessions {
                             seen_at: r.get(20)?,
                             last_message: r.get::<_, Option<String>>(21)?.and_then(|m| message_preview(&m)),
                             unsaved: r.get::<_, Option<String>>(27)?.and_then(|v| serde_json::from_str(&v).ok()),
+                            sleep: r.get::<_, Option<String>>(29)?.and_then(|v| serde_json::from_str(&v).ok()),
                         })
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -562,13 +563,13 @@ impl Sessions {
     pub(crate) fn store(c: &rusqlite::Connection, s: &Session) -> Result<()> {
         c.execute(
             "INSERT INTO session (id, harness, harness_session_id, project_id, cwd, title, status, status_since,
-                open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json, title_refreshed)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)
+                open_question, model, effort, launch_spec_json, prompt, cost_usd, usage_json, started_at, ended_at, last_seq, quota_pause_json, title_pending, seen_at, last_message, archived_done, capacity_retry_count, capacity_retry_at, runner_id, generation, unsaved_json, title_refreshed, sleep_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)
              ON CONFLICT (id) DO UPDATE SET harness_session_id = ?3, project_id = ?4, cwd = ?5, title = ?6, status = ?7,
                 status_since = ?8, open_question = ?9, model = ?10, effort = ?11, cost_usd = ?14, usage_json = ?15,
                 ended_at = ?17, launch_spec_json = ?12, quota_pause_json = ?19, title_pending = ?20,
                 seen_at = ?21, archived_done = ?23, capacity_retry_count = ?24, capacity_retry_at = ?25,
-                runner_id = ?26, generation = ?27, unsaved_json = ?28, title_refreshed = ?29",
+                runner_id = ?26, generation = ?27, unsaved_json = ?28, title_refreshed = ?29, sleep_json = ?30",
             params![
                 s.id,
                 s.harness.as_str(),
@@ -599,6 +600,7 @@ impl Sessions {
                 s.generation,
                 s.unsaved.as_ref().map(serde_json::to_string).transpose()?,
                 s.title_refreshed,
+                s.sleep.as_ref().map(serde_json::to_string).transpose()?,
             ],
         )?;
         crate::replica::queue(c, &crate::replica::Item::Session { session: Box::new(s.without_bytes()) })?;
@@ -623,6 +625,8 @@ impl Sessions {
                     // Either side may have shown it to the owner.
                     if let Some(c) = &current {
                         s.seen_at = s.seen_at.max(c.seen_at);
+                        // A wake-up is Home's (`launchpad sleep`): runners never know of it.
+                        s.sleep = c.sleep.clone();
                         // Home's number is its last stored event (raised by `Item::Event`), so a trace through it
                         // always exists here, also right after a move (`MOVE_SEQ_GAP`) or before the events arrive.
                         s.last_seq = c.last_seq;
@@ -664,8 +668,13 @@ impl Sessions {
                         if let Some(b) = &newer {
                             s.launch_spec.bot = b.clone();
                         }
+                        // The same for a wake-up set or cleared meanwhile (`launchpad sleep`).
+                        let slept = recs.get(&s.id).map(|now| now.sleep.clone()).filter(|z| *z != s.sleep);
+                        if let Some(z) = &slept {
+                            s.sleep = z.clone();
+                        }
                         recs.insert(s.id.clone(), s.clone());
-                        newer.map(|_| Self::persist(&app.state_db, &s))
+                        (newer.is_some() || slept.is_some()).then(|| Self::persist(&app.state_db, &s))
                     };
                     if let Some(stored) = again {
                         stored.await?;
@@ -678,6 +687,13 @@ impl Sessions {
                         tracing::info!("generated topic name of {}: {e:#}", s.id);
                     }
                     let ended = current.as_ref().is_some_and(|c| c.status.is_running() && !s.status.is_running());
+                    // A message woke a sleeping agent before its wake-up: it sleeps no more, and its wake-up goes.
+                    if let Some(z) = s.sleep.clone().filter(|_| current.as_ref().is_some_and(|c| !c.status.is_running()) && s.status.is_running()) {
+                        if let Err(e) = self.set_sleep(app, &s.id, None).await {
+                            tracing::warn!("wake-up of {}: {e:#}", s.id);
+                        }
+                        crate::ext::extensions().woken(app, &s.id, &z.schedule_id);
+                    }
                     if ended {
                         self.replica_turn_ended(app, &s);
                     }
@@ -893,6 +909,14 @@ impl Sessions {
         let s = self.get(id).context("no such session")?;
         if s.seen_at >= s.status_since { return Ok(s); }
         let s = self.update(app, id, |s| s.seen_at = now_ms().max(s.status_since)).await?;
+        self.publish_counts(app);
+        Ok(s)
+    }
+
+    /// Home: sets or clears the wake-up an agent asked for (`launchpad sleep`, `schedules::sleep`). A sleeping agent
+    /// does not need you.
+    pub async fn set_sleep(&self, app: &App, id: &str, sleep: Option<crate::model::Sleep>) -> Result<Session> {
+        let s = self.update(app, id, |s| s.sleep = sleep).await?;
         self.publish_counts(app);
         Ok(s)
     }
@@ -1268,6 +1292,7 @@ impl Sessions {
                 seen_at: 0,
                 last_message: None,
                 unsaved: None,
+                sleep: None,
             };
             Self::persist(&app.state_db, &session).await?;
             let add_dirs = preview.add_dirs;

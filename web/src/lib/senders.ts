@@ -7,9 +7,9 @@ import type { MessageFrom } from "@/gen/MessageFrom";
 /** How Home's header starts (`senders::HEADER_START`). */
 const HEADER_START = "Message from ";
 
-/** A message from another bot or agent, an incoming hook or a bot channel (a routine run's message shows as a routine
- * instead). */
-export const fromOther = (from: MessageFrom | null | undefined): from is MessageFrom => !!from && (from.kind === "bot" || from.kind === "session" || from.kind === "hook" || from.kind === "channel");
+/** A message from another bot or agent, an incoming hook, a bot channel or the wake-up an agent asked for (a routine
+ * run's message shows as a routine instead). */
+export const fromOther = (from: MessageFrom | null | undefined): from is MessageFrom => !!from && (from.kind === "bot" || from.kind === "session" || from.kind === "hook" || from.kind === "channel" || from.kind === "wake");
 
 /** The paragraph Home adds after a channel message's fence (`delivery::Frame`): how to read and answer there. */
 const CHANNEL_HINT = "Read the channel with ";
@@ -33,11 +33,13 @@ export function withoutSender(text: string): string {
   return rest ? `${body}\n\n${rest}` : body;
 }
 
-const NOUN: Record<MessageFrom["kind"], string> = { bot: "bot", session: "agent", routine: "routine", hook: "hook", channel: "channel" };
+const NOUN: Record<MessageFrom["kind"], string> = { bot: "bot", session: "agent", routine: "routine", hook: "hook", channel: "channel", wake: "wake-up" };
 
-/** The line over a message from another bot or agent, a hook or a channel: "From bot Scout · not from you", "From hook
- * CI · not from you", "#release-train · Release", or "From Scout, accepted by you" for its card the owner accepted. */
+/** The line over a message from another bot or agent, a hook, a channel or a wake-up: "From bot Scout · not from you",
+ * "From hook CI · not from you", "#release-train · Release", "Wake-up it asked for · from Launchpad", or "From Scout,
+ * accepted by you" for its card the owner accepted. */
 export function senderLine(from: MessageFrom): string {
+  if (from.kind === "wake") return "Wake-up it asked for · from Launchpad";
   if (from.kind === "channel") return `${from.name.trim() || "A channel"} · ${from.by?.trim() || "a bot"}`;
   const name = from.name.trim() || (from.kind === "bot" ? "a bot" : from.kind === "hook" ? "a hook" : "an agent");
   if (from.card) return `From ${name}, ${from.accepted ? "accepted by you" : "accepted automatically"}`;

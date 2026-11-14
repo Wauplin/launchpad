@@ -100,6 +100,7 @@ Launchpad saves a temporary folder's files on Home at the end of every turn, exc
 - **Needs you** (first, with an amber count): an open question, or a finished, failed or interrupted session you have not seen yet.
 - **Running**: starting, working, or waiting on background commands.
 - **Quota paused**: held until subscription quota is available again.
+- **Sleeping**: the agent asked Launchpad to wake it later (see [Sleeping agents](#sleeping-agents)), soonest first.
 - **Done** (seen), **Stopped**, **Interrupted**, **Failed**, **In terminal** and **Archived** for local sessions. Routines and scheduled launches are on the **Schedules** page.
 
 Click a row to open its session, on its default view (a link that opened one session on Changes does not change the next ones); clicking the open session's row keeps it as it is. **Archive N seen, older than 3 d** under Done asks for a confirmation, then says how many it archived. The row's **⋯** holds **Stop** (while it runs) or **Archive**, **Mark unread** and **Pin** (pinned sessions show first). The filter field over the list matches the title, the prompt and the folder name, and also the messages sent to each agent and its answers. It does not search tool calls or reasoning. A quota-paused row shows when its quota resets; hover it for every window.
@@ -221,6 +222,10 @@ flowchart LR
 - Runs are claimed before they start and never repeated after a crash. A run more than one hour late or with unmet conditions is skipped, never caught up. The reason says why: Home was not running at the scheduled time, or the run waited an hour for a confirmed quota reading (it names the login and the last error). A due run that waits says why on the routine, and a run skipped for want of a quota reading counts as a failure (Today → Fix, `launchpad failures`, **When Launchpad fails** routines). **Run now** starts a run at once, whatever the trigger and conditions.
 - The **Morning brief** is a routine of Ask Launchpad (or of another bot): weekdays at 8:30 it writes in its thread what needs you and what was handled. Add it from Schedules and edit its time there.
 - **Send later…** delivers a message to an existing session at a later time. A follow-up that an agent scheduled arrives under a header that names that agent, like its other messages (see [Messages from other bots and agents](bots.md#messages-from-other-bots-and-agents)).
+
+### Sleeping agents
+
+An agent (a bot's thread included) that must wait a long time, for CI, a deploy, a review or a given hour, does not run `sleep` in its shell. It runs `launchpad sleep --in 2h --note "check CI on #123"` (or `--until 2026-11-14T15:00:00Z`) and ends its turn. Launchpad then shows it as **Sleeping · until 15:00** (grey): it does not need you, waits in no Today card, sends no Telegram notification, does not count as Done for agents that wait for it, and a routine run that sleeps is not settled yet. At that time Launchpad sends a wake-up message to the same session, so it continues the same conversation with its context. The message repeats the agent's note, and the bot chat shows it as **Wake-up it asked for · from Launchpad**. The wake-up is a scheduled follow-up like **Send later…**: it waits for a confirmed quota reading, it is claimed once and never sent twice, and it fails visibly. The session page shows a band with **Wake now** and **Cancel wake-up**. A new `launchpad sleep` replaces the last one. A message that reaches the agent first (yours, a bot's, a hook's) wakes it and cancels the wake-up. Archive cancels it too. An agent cannot sleep while you have scheduled a follow-up for it.
 
 ## Quota protection and costs
 
