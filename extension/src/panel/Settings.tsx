@@ -47,7 +47,7 @@ export function Settings({ state, back }: { state: ConnectionState; back: () => 
       <div className="x-sect" style={{ marginLeft: 4, marginTop: 16 }}>GitHub</div>
       <label className="x-setrow" style={{ cursor: "pointer" }}>
         <input type="checkbox" checked={state.prefill} onChange={(e) => void request("settings.prefill", { on: e.target.checked }).catch((err) => setError(err instanceof Error ? err.message : String(err)))} />
-        <span className="x-d"><b style={{ fontWeight: 500 }}>Prefill suggested comments</b><small>When you open a pull request or issue, an agent's suggested comment goes into GitHub's empty comment box. You still post it with GitHub's button.</small></span>
+        <span className="x-d"><b style={{ fontWeight: 500 }}>Prefill suggested comments</b><small>Off by default: suggested comments show in the item's timeline, with Post this comment. When on, the newest one also goes into GitHub's empty comment box when you open a pull request or issue; you still post it with GitHub's button.</small></span>
       </label>
 
       <Anchors />

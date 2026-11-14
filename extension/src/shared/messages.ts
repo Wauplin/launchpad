@@ -13,6 +13,8 @@ import type { Predraft } from "@/gen/Predraft";
 import type { Project } from "@/gen/Project";
 import type { FileAttachment } from "@/gen/FileAttachment";
 import type { GitHubRef } from "@/gen/GitHubRef";
+import type { ItemNote } from "@/gen/ItemNote";
+import type { NoteRecipient } from "@/gen/NoteRecipient";
 import type { Session } from "@/gen/Session";
 import type { SessionEventPage } from "@/gen/SessionEventPage";
 import type { Workspace } from "@/gen/Workspace";
@@ -49,8 +51,8 @@ export type ConnectionState = {
   workspace: string | null;
   /** Today's count of the current workspace (null before the first answer). */
   today: number | null;
-  /** Settings → GitHub: fill GitHub's comment box with an agent's suggested comment when an item page opens (on by
-   * default). Posting stays GitHub's own button. */
+  /** Settings → GitHub: fill GitHub's comment box with an agent's suggested comment when an item page opens (off by
+   * default: suggested comments show in the item's timeline with Post this comment). Posting stays GitHub's own button. */
   prefill: boolean;
   error: string | null;
 };
@@ -111,6 +113,8 @@ export type LocalPrDetail = { predraft: Predraft; status: string | null; head?: 
 export type ProfileBrief = { id: string; name: string; harness: string; subscription: boolean };
 /** What a launch of the GitHub layer does when its agent is done (`WhenDone`). */
 export type LaunchWhenDone = "read_only" | "local_pr";
+/** `note.write`'s answer: the note, and each agent it was sent to (with the error when the message failed). */
+export type NoteWriteResult = { note: ItemNote; sent: { recipient: NoteRecipient; error: string | null }[] };
 /** Push to this PR's answer. */
 export type PushResult = { ok: boolean; url: string; branch: string; head: string };
 
@@ -171,8 +175,19 @@ export type Requests = {
   "sessions": Req<{ bot?: string }, Session[]>;
   /** The newest events of a session (`events/page?tail=`). */
   "session.events": Req<{ id: string; tail?: number }, SessionEventPage>;
-  /** Deletes an agent's private note about a GitHub item (`note.delete`). */
+  /** Deletes a private note of a GitHub item's timeline (`note.delete`). */
   "note.delete": Req<{ id: string }, void>;
+  /** The owner's private note on a GitHub item (`note.write`, only from a trusted click of its Add button): stored in
+   * Launchpad only, then sent to the agents that wrote about the item (else its default bot). `workspace`: the page
+   * context's (default: the extension's). */
+  "note.write": Req<{ repo: string; number: number; body: string; workspace?: string | null; reply_to?: string | null }, NoteWriteResult>;
+  /** Post this comment (`suggestion.post`, a GitHub write): only from the confirm button of the timeline entry's own
+   * confirmation, on a trusted click. */
+  "suggestion.post": Req<{ id: string }, unknown>;
+  /** Saves the owner's edit of a waiting suggested comment (`suggestion.edit`) before Post. */
+  "suggestion.edit": Req<{ id: string; body: string }, unknown>;
+  /** Discards a suggestion (`suggestion.discard`). */
+  "suggestion.discard": Req<{ id: string }, void>;
   /** Stops a session's turn (`session.stop`). */
   "session.stop": Req<{ id: string }, void>;
   /** A feedback-ledger record of a suggestion (`suggestion.shown`, `.inserted`, `.posted-by-hand`, `.dismiss-comment`). */
@@ -194,8 +209,7 @@ export type Requests = {
   /** Publish (`local-pr.publish`, a GitHub write): only from the confirm button of the Publish dialog, with the commit
    * the dialog showed. */
   "localpr.publish": Req<{ id: string; remote_branch: string; draft: boolean; head: string; fork: boolean }, unknown>;
-  /** The selection the context menu sent, once (the panel takes it when it opens). There is no request that posts to
-   * GitHub: Launchpad's Post stays a click in Launchpad. */
+  /** The selection the context menu sent, once (the panel takes it when it opens). */
   "quote.take": Req<void, Quote | null>;
 };
 export type Kind = keyof Requests;

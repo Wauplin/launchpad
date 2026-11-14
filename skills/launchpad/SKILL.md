@@ -27,7 +27,7 @@ For a Local PR, replace `--repo` and `--number` with `--predraft <id>`. Its card
 
 ## Private notes about an item
 
-A note is for the owner only and is never posted: what the issue or pull request is about, what matters, risks, what to check or decide. Write Markdown to a file, then run `launchpad note --repo owner/repo --number 123 --body-file /path/to/note.md --session-id <session-id>`. A new note of the same bot (or session) about the same item replaces the earlier one, so keep it current rather than adding more. The Chrome extension shows notes on the item's page, under its description. Text meant to be posted on GitHub goes into a suggested comment instead; a triage run often writes both.
+Notes are a private timeline of an issue or pull request: the owner and the workspace's agents see them, never GitHub. The Chrome extension shows each note inside GitHub's own timeline, at the moment it was written. Write Markdown to a file, then run `launchpad note --repo owner/repo --number 123 --body-file /path/to/note.md --session-id <session-id>`. Each run appends a new note: write one when something new happened (new commits, new comments, the owner's note), keep it focused on what changed, and never repeat earlier notes. Text the owner could post on GitHub goes with the note: add `--suggest-file /path/to/comment.md` (a suggested comment, posted only by the owner's click; add `--reply-to <comment>` as for `suggest comment`). The owner can add a private note from GitHub; you then get a message quoting it with its note ID: answer with `--reply-to-note <id>` only when you have something useful, otherwise end with no_update.
 
 ## Connections
 

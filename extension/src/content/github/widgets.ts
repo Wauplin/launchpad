@@ -120,6 +120,24 @@ const STYLE = `
   border: 1px solid var(--borderColor-default, #d1d9e0); background: var(--bgColor-default, #ffffff); }
 .lp-pop textarea { min-height: 64px; resize: vertical; }
 .lp-pop select:focus-visible, .lp-pop textarea:focus-visible { outline: 2px solid var(--lp-teal); outline-offset: -1px; }
+/* The private timeline (timeline.ts): entries that look like GitHub's comments. */
+.lp-tl { display: flex; gap: 12px; align-items: flex-start; }
+.lp-tl + .lp-tl { margin-top: 16px; }
+.lp-tl-avatar { width: 40px; height: 40px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--borderColor-default, #d1d9e0); background: var(--bgColor-muted, #f6f8fa); }
+.lp-tl-avatar .lp-logo { width: 20px; height: 20px; }
+.lp-tl-box { flex: 1; min-width: 0; border: 1px solid color-mix(in srgb, var(--lp-teal) 45%, var(--borderColor-default, #d1d9e0)); border-radius: 6px; background: var(--bgColor-default, #ffffff); }
+.lp-tl-head { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 8px 4px 12px; font-size: 13px; border-radius: 6px 6px 0 0;
+  background: color-mix(in srgb, var(--lp-teal) 7%, var(--bgColor-muted, #f6f8fa)); border-bottom: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+.lp-tl-body { padding: 10px 12px; }
+.lp-tl-body > .lp-actions:first-child { margin-top: 0; }
+.lp-sugg { margin: 0 12px 12px; padding: 8px 10px; border: 1px dashed var(--lp-teal); border-radius: 6px; background: color-mix(in srgb, var(--lp-teal) 4%, var(--bgColor-default, #ffffff)); }
+.lp-tl-body > .lp-sugg { margin: 0; }
+.lp-tl textarea, .lp-notebox textarea { display: block; width: 100%; min-height: 96px; margin-top: 6px; resize: vertical; font: inherit; font-size: 13px; color: inherit; border-radius: 6px; padding: 6px 8px;
+  border: 1px solid var(--borderColor-default, #d1d9e0); background: var(--bgColor-default, #ffffff); }
+.lp-tl textarea:focus-visible, .lp-notebox textarea:focus-visible { outline: 2px solid var(--lp-teal); outline-offset: -1px; }
+.lp-notebox textarea { min-height: 64px; }
+.lp-tl a.lp-plain { color: var(--fgColor-accent, #0969da); text-decoration: none; }
 /* Agent Markdown (markdown.ts). */
 .lp-md { font-size: 14px; line-height: 1.5; color: var(--fgColor-default, #1f2328); word-break: break-word; font-weight: 400; }
 .lp-md > :first-child { margin-top: 0; }

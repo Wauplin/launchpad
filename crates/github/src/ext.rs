@@ -207,6 +207,12 @@ pub struct ExtSuggestion {
     pub event: String,
     /// A review's line comments (the extension's ghost comments on Files changed).
     pub lines: Vec<ExtLine>,
+    #[ts(type = "number")]
+    pub created_at: i64,
+    /// The bot's name, else the session's title, else the agent CLI.
+    pub author: String,
+    /// The text as written (without an issue-comment reply's link line): what Edit changes.
+    pub body: String,
 }
 
 /// One line comment of a suggested review, with what the owner did with it so far.
@@ -332,18 +338,36 @@ pub struct ExtDefaults {
     pub review: Option<ExtReviewChoice>,
 }
 
-/// A private note about the page's item (`crate::notes`).
+/// A private note about the page's item (`crate::notes`): one entry of the item's private timeline.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct ExtNote {
     pub id: String,
-    /// The bot's name, else the session's title.
+    /// The bot's name, else the session's title ("You" for the owner's).
     pub author: String,
     pub bot_id: Option<String>,
     pub session_id: Option<String>,
+    /// The owner's own private note.
+    pub by_owner: bool,
     /// Markdown.
     pub body: String,
     #[ts(type = "number")]
-    pub updated_at: i64,
+    pub created_at: i64,
+    /// A pull request's head when it was written.
+    pub head: Option<String>,
+    /// The note it answers.
+    pub reply_to: Option<String>,
+    /// The suggested comment it carries (the waiting ones are also in `ExtContext.suggestions`, with their text).
+    pub suggestion: Option<ExtNoteSuggestion>,
+}
+
+/// The state of a note's suggested comment.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ExtNoteSuggestion {
+    pub id: String,
+    /// `draft`, `inserted`, `posting`, `uncertain`, `posted`, `posted_by_hand`, or `discarded` (gone).
+    pub status: String,
+    /// The posted comment.
+    pub url: Option<String>,
 }
 
 /// What a pull request changes in files that decide what its CI runs (workflows, scripts, dependencies, build
@@ -372,7 +396,7 @@ pub struct ExtContext {
     pub workspace: Option<ExtWorkspace>,
     pub agents: Vec<ExtAgent>,
     pub suggestions: Vec<ExtSuggestion>,
-    /// The private notes of the workspace about this item (`launchpad note`), newest first.
+    /// The private timeline of the workspace about this item (`launchpad note`, the owner's `note.write`), oldest first.
     pub notes: Vec<ExtNote>,
     pub local_prs: Vec<ExtLocalPr>,
     pub branches: Vec<ExtBranch>,
@@ -671,7 +695,8 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
                 .iter()
                 .map(|c| ExtLine { part: crate::ledger::line_part(c), path: c.path.clone(), line: c.line, start_line: c.start_line, side: c.side.clone(), body: c.body.clone(), state: None })
                 .collect();
-            Some(ExtSuggestion { id: s.id.clone(), kind: s.kind.clone(), number: *number, head: s.head.clone(), comments, outdated, status: s.status.clone(), session_id: s.session_id.clone(), bot, reply_to: reply_to.clone(), text, attribution, event: s.event.clone(), lines })
+            let author = bot.clone().or_else(|| session.map(|x| x.title.clone())).unwrap_or_else(|| s.author.clone());
+            Some(ExtSuggestion { id: s.id.clone(), kind: s.kind.clone(), number: *number, head: s.head.clone(), comments, outdated, status: s.status.clone(), session_id: s.session_id.clone(), bot, reply_to: reply_to.clone(), text, attribution, event: s.event.clone(), lines, created_at: s.created_at, author, body: s.body.clone() })
         })
         .collect();
     let local_prs: Vec<ExtLocalPr> = match it.folder {
@@ -933,7 +958,7 @@ pub async fn push_to_pr(app: &App, repo: &str, number: u64, branch: &str, head: 
 }
 
 /// The default bot: the folder's setting, else the last bot used on the repository, else the workspace's Ask bot.
-async fn default_bot(app: &App, project: Option<&Project>, repo: Option<&str>, workspace: Option<&str>) -> Option<ExtBot> {
+pub(crate) async fn default_bot(app: &App, project: Option<&Project>, repo: Option<&str>, workspace: Option<&str>) -> Option<ExtBot> {
     let ws = workspace?;
     let bots = launchpad_core::bots::briefs(app, ws).await.ok()?;
     let pick = |b: &launchpad_core::bots::Brief, source: &str| ExtBot { id: b.id.clone(), name: b.name.clone(), slug: b.slug.clone(), source: source.into() };
@@ -989,12 +1014,17 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
     let s = state(&d, &uses, &item);
     (out.agents, out.suggestions, out.local_prs, out.today) = (s.agents, s.suggestions, s.local_prs, s.today);
     if let (Some(n), Some(w)) = (page.number, ws.as_deref()) {
-        out.notes = crate::notes::of_item(app, repo, n)
-            .await
-            .unwrap_or_default()
+        let notes: Vec<_> = crate::notes::of_item(app, repo, n).await.unwrap_or_default().into_iter().filter(|x| x.workspace_id.as_deref() == Some(w)).collect();
+        let all = if notes.iter().any(|x| x.suggestion_id.is_some()) { crate::suggestions::list(app).await.unwrap_or_default() } else { vec![] };
+        out.notes = notes
             .into_iter()
-            .filter(|x| x.workspace_id.as_deref() == Some(w))
-            .map(|x| ExtNote { id: x.id, author: x.author, bot_id: x.bot_id, session_id: x.session_id, body: x.body, updated_at: x.updated_at })
+            .map(|x| {
+                let suggestion = x.suggestion_id.map(|id| match all.iter().find(|s| s.id == id) {
+                    Some(s) => ExtNoteSuggestion { id, status: s.status.clone(), url: s.url.clone() },
+                    None => ExtNoteSuggestion { id, status: "discarded".into(), url: None },
+                });
+                ExtNote { id: x.id, author: x.author, bot_id: x.bot_id, session_id: x.session_id, by_owner: x.by_owner, body: x.body, created_at: x.created_at, head: x.head, reply_to: x.reply_to, suggestion }
+            })
             .collect();
     }
     out.branches = branches(app, folder.as_ref(), page.number).await;

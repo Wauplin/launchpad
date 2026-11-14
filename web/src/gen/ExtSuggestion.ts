@@ -42,4 +42,12 @@ event: string,
 /**
  * A review's line comments (the extension's ghost comments on Files changed).
  */
-lines: Array<ExtLine>, };
+lines: Array<ExtLine>, created_at: number, 
+/**
+ * The bot's name, else the session's title, else the agent CLI.
+ */
+author: string, 
+/**
+ * The text as written (without an issue-comment reply's link line): what Edit changes.
+ */
+body: string, };

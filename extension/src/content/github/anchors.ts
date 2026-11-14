@@ -173,7 +173,8 @@ export const ANCHORS = {
       { via: "aria", find: (p) => all("main h1, h1").find((h) => h.textContent?.includes(`#${p.number}`)) ?? null },
     ],
   },
-  /** The description (opening comment) of a pull request or issue: the private notes go right under it. */
+  /** The description (opening comment) of a pull request or issue: the private timeline goes right under it when no
+   * timeline item or comment form is found (timeline.ts). */
   "item-description": {
     label: "Pull request and issue description",
     kinds: ["pr_conversation", "issue"],
@@ -227,6 +228,33 @@ export const ANCHORS = {
       { via: "id", find: () => document.querySelector("textarea#new_comment_field") },
       { via: "data", find: () => all('[data-testid="issue-viewer-comments-container"] ~ * textarea, [data-testid="markdown-editor-comment-composer"] textarea, form[aria-label*="comment" i] textarea').at(-1) ?? null },
       { via: "aria", find: () => all('main textarea[placeholder*="comment" i], main textarea[aria-label*="comment" i], main textarea[aria-label="Markdown value"]').filter((t) => !t.closest(".js-inline-comment-form-container, .review-thread-reply, [data-launchpad]")).at(-1) ?? null },
+    ],
+  },
+  /** The items of a pull request's or issue's timeline (comments, reviews, events), each with a `relative-time`: the
+   * private notes go between them at their moment (timeline.ts, `timeOf`). */
+  "timeline-items": {
+    label: "Timeline items",
+    kinds: ["pr_conversation", "issue"],
+    place: "beforebegin",
+    strategies: [
+      // Classic conversation (pull requests): the timeline items of the discussion.
+      { via: "id", find: () => classicTimeline()[0] ?? null, all: () => classicTimeline() },
+      // React issues: the items of the timeline containers.
+      { via: "data", find: () => reactTimeline()[0] ?? null, all: () => reactTimeline() },
+      // Any layout: the children of the main column's container that holds its dated items.
+      { via: "aria", find: () => datedItems(all("main relative-time[datetime]"))[0] ?? null, all: () => datedItems(all("main relative-time[datetime]")) },
+    ],
+  },
+  /** The conversation's comment form at the bottom: the owner's private note box goes right above it. Absent when
+   * signed out of GitHub. */
+  "comment-form": {
+    label: "Comment form",
+    kinds: [],
+    place: "beforebegin",
+    strategies: [
+      { via: "id", find: () => document.querySelector("#new_comment_field")?.closest(".timeline-new-comment, form.js-new-comment-form, form") ?? null },
+      { via: "data", find: () => document.querySelector('[data-testid="markdown-editor-comment-composer"], [data-testid="issue-viewer-comment-composer"], [data-testid*="comment-composer" i]') },
+      { via: "aria", find: () => all('main textarea[placeholder*="comment" i], main textarea[aria-label*="comment" i], main textarea[aria-label="Markdown value"]').filter((t) => !t.closest(".js-inline-comment-form-container, .review-thread-reply, [data-launchpad]")).at(-1)?.closest("form") ?? null },
     ],
   },
   /** The reply box of the review thread of comment `p.comment` (`discussion_r…`), once GitHub opened it (Insert of a thread reply). */
@@ -452,6 +480,41 @@ export function rowSlot(row: Element): { el: Element; place: InsertPosition } {
 export function notificationSlot(row: Element): { el: Element; place: InsertPosition } | null {
   const meta = row.querySelector(".notification-list-item-link .f6, .notification-list-item-link .text-small");
   return meta ? { el: meta, place: "beforeend" } : null;
+}
+
+/** The moment of a timeline item (its first `relative-time`), in ms; null when it has none. */
+export function timeOf(item: Element): number | null {
+  const t = item.querySelector("relative-time[datetime]")?.getAttribute("datetime");
+  const ms = t ? Date.parse(t) : NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** Outside the timeline: the sidebar, the header, the merge box and Launchpad's own widgets. */
+const OUTSIDE = '#partial-discussion-sidebar, [data-testid="issue-viewer-metadata-pane"], .gh-header, [data-testid="issue-header"], #partial-discussion-header, .merge-pr, [data-launchpad], nav, header';
+
+function classicTimeline(): Element[] {
+  return all(".js-discussion .js-timeline-item").filter((e) => !e.closest(OUTSIDE) && !e.parentElement?.closest(".js-timeline-item") && timeOf(e) !== null);
+}
+
+function reactTimeline(): Element[] {
+  const times = all('[data-testid*="timeline" i] relative-time[datetime], [data-testid="issue-viewer-comments-container"] relative-time[datetime], [data-timeline-event-id] relative-time[datetime]');
+  return datedItems(times);
+}
+
+/** The children of the lowest element that holds every dated element (`times`), one per child, in page order. */
+function datedItems(times: Element[]): Element[] {
+  const inside = times.filter((t) => !t.closest(OUTSIDE));
+  if (inside.length < 2) return [];
+  let common: Element | null = inside[0].parentElement;
+  while (common && !inside.every((t) => common!.contains(t))) common = common.parentElement;
+  if (!common || common === document.body) return [];
+  const items: Element[] = [];
+  for (const t of inside) {
+    let el: Element = t;
+    while (el.parentElement && el.parentElement !== common) el = el.parentElement;
+    if (!items.includes(el)) items.push(el);
+  }
+  return items.length >= 2 ? items : [];
 }
 
 /** The comment element of a comment's header actions (`comments` anchor): what carries its anchor ID. */

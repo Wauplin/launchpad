@@ -1,11 +1,12 @@
-// I3 Insert into GitHub's box, and the in-page part of the feedback ledger (K1). A suggested comment shows as a banner
-// over GitHub's comment box (a reply to a review comment: over that thread's reply box); Insert writes its text, plus
+// I3 Insert into GitHub's box, and the in-page part of the feedback ledger (K1). A suggested comment shows in the item's
+// private timeline (timeline.ts); a reply to a review comment also shows as a banner over that thread's reply box, and
+// the conversation's comment box gets a banner once a suggestion was inserted or prefilled into it. Insert writes its text, plus
 // the attribution line after a blank line, into GitHub's own field the way typing does (`insertText`, so Ctrl+Z
 // removes it; the native value setter and an input event when the editor refuses), asking first when the box already
 // has text. Then it only OBSERVES that form: when GitHub's own button or Ctrl+Enter submits it, the final text is read
 // and sent as `suggestion.posted-by-hand`; Home confirms it from GitHub later. Nothing here ever calls click(), submit()
 // or requestSubmit() on GitHub's elements, and nothing is posted by the extension.
-// Prefill (on by default, Settings → GitHub): the newest suggested comment for the conversation's box goes into it on
+// Prefill (off by default, Settings → GitHub): the newest suggested comment for the conversation's box goes into it on
 // its own when the page shows it and the box is empty, once per tab, without moving the focus or the page. It claims
 // nothing on Home until GitHub's form is submitted (then `inserted` and `posted-by-hand`), so Launchpad's Post stays
 // possible meanwhile; a prefilled text left untouched is taken out again when the suggestion is discarded or posted
@@ -222,7 +223,9 @@ export function renderInsertBanners(page: ItemPage, ctx: ExtContext | null, refr
     // An empty box only: never over the owner's own text or GitHub's restored draft.
     if (box && !box.value.trim()) prefill(box, main);
   }
-  for (const s of [main, ...list.filter(threadOf)]) {
+  // The timeline shows the conversation's suggestion: its banner only follows a text in GitHub's box.
+  const mainBanner = main && (autoFill || inserted.has(main.id)) ? main : undefined;
+  for (const s of [mainBanner, ...list.filter(threadOf)]) {
     if (!s) continue;
     const id = `insert-${s.id}`;
     ids.add(id);

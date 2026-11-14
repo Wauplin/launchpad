@@ -107,10 +107,11 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
       {error && <p className="x-error">{error}</p>}
     </div>
 
-    {ctx.notes.length > 0 && <>
-      <div className="x-sect">Private notes</div>
-      {ctx.notes.map((n) => <NoteCard key={n.id} n={n} open={open} onError={setError} onDone={() => void load(true)} />)}
-    </>}
+    {page.repo && page.number ? <>
+      <div className="x-sect">Private timeline</div>
+      {ctx.notes.map((n) => <NoteCard key={n.id} n={n} ctx={ctx} open={open} onError={setError} onDone={() => void load(true)} />)}
+      <NoteBox repo={page.repo} number={page.number} ws={ws} onDone={() => void load(true)} />
+    </> : null}
 
     {ctx.suggestions.length > 0 && <>
       <div className="x-sect">Waiting for you</div>
@@ -145,8 +146,8 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
   </div>;
 }
 
-/** An agent's private note about the item (`launchpad note`): only the owner sees it; Delete asks first. */
-function NoteCard({ n, open, onError, onDone }: { n: ExtNote; open: (path: string) => void; onError: (e: string | null) => void; onDone: () => void }) {
+/** A note of the item's private timeline (an agent's `launchpad note`, or yours): only you see it; Delete asks first. */
+function NoteCard({ n, ctx, open, onError, onDone }: { n: ExtNote; ctx: ExtContext; open: (path: string) => void; onError: (e: string | null) => void; onDone: () => void }) {
   const [all, setAll] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const long = n.body.length > 600;
@@ -154,9 +155,14 @@ function NoteCard({ n, open, onError, onDone }: { n: ExtNote; open: (path: strin
     onError(null);
     try { await request("note.delete", { id: n.id }); onDone(); } catch (e) { onError(message(e)); } finally { setConfirm(false); }
   };
+  const answers = n.reply_to ? ctx.notes.find((x) => x.id === n.reply_to) : undefined;
+  const s = n.suggestion;
+  const waiting = s ? ctx.suggestions.find((x) => x.id === s.id) : undefined;
   return <div className="x-card">
-    <h3><span style={{ flex: 1 }}>{n.author}</span><span className="x-small x-faint">{ago(n.updated_at)}</span></h3>
+    <h3><span style={{ flex: 1 }}>{n.author}{answers ? <span className="x-small x-faint"> · answers {answers.by_owner ? "your note" : answers.author}</span> : null}</span><span className="x-small x-faint">{ago(n.created_at)}</span></h3>
     <p className="x-small" style={{ whiteSpace: "pre-wrap", ...(long && !all ? { maxHeight: "12em", overflow: "hidden" } : {}) }}>{n.body}</p>
+    {n.head && ctx.page.head && n.head !== ctx.page.head && <p className="x-small x-faint">Written at {n.head.slice(0, 7)}; the pull request is now at {ctx.page.head.slice(0, 7)}.</p>}
+    {s && <p className="x-small x-muted">{waiting ? "With a suggested comment: see Waiting for you below, or post it from the page." : s.status === "posted" || s.status === "posted_by_hand" ? "Its suggested comment was posted." : s.status === "discarded" ? "Its suggested comment was discarded." : `Suggested comment: ${s.status.replace(/_/g, " ")}.`}</p>}
     <div className="x-btns">
       {long && <button className="x-btn x-sm" onClick={() => setAll(!all)}>{all ? "Show less" : "Show all"}</button>}
       {n.session_id && <button className="x-btn x-sm x-link" onClick={() => open(`/agents?session=${encodeURIComponent(n.session_id!)}`)}>Agent</button>}
@@ -164,6 +170,32 @@ function NoteCard({ n, open, onError, onDone }: { n: ExtNote; open: (path: strin
         ? <><button className="x-btn x-sm x-danger" onClick={() => void remove()}>Delete note</button><button className="x-btn x-sm" onClick={() => setConfirm(false)}>Cancel</button></>
         : <button className="x-btn x-sm x-link" onClick={() => setConfirm(true)}>Delete…</button>}
     </div>
+  </div>;
+}
+
+/** Your private note to the item's agents (`note.write`): stored in Launchpad only, then sent to the agents that wrote
+ * about the item (else its default bot), who answer with a note when useful. */
+function NoteBox({ repo, number, ws, onDone }: { repo: string; number: number; ws: string; onDone: () => void }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ text: string; error: boolean } | null>(null);
+  useEffect(() => { setText(""); setStatus(null); }, [repo, number]);
+  const add = async (e: React.MouseEvent) => {
+    if (!e.nativeEvent.isTrusted || busy || !text.trim()) return;
+    setBusy(true); setStatus(null);
+    try {
+      const r = await request("note.write", { repo, number, body: text, workspace: ws || null });
+      const ok = r.sent.filter((x) => !x.error).map((x) => x.recipient.name);
+      const bad = r.sent.filter((x) => x.error).map((x) => `${x.recipient.name} (${x.error})`);
+      setText("");
+      setStatus({ text: r.sent.length ? [ok.length ? `Sent to ${ok.join(", ")}.` : "", bad.length ? `Not sent to ${bad.join(", ")}.` : ""].filter(Boolean).join(" ") : "Saved. No agent to tell about it.", error: !ok.length && !!bad.length });
+      onDone();
+    } catch (err) { setStatus({ text: message(err), error: true }); } finally { setBusy(false); }
+  };
+  return <div className="x-card">
+    <textarea className="x-field" rows={3} value={text} placeholder="A private note to your agents about this item. Only Launchpad keeps it." onChange={(e) => setText(e.target.value)} />
+    <div className="x-btns"><button className="x-btn x-sm x-pri" disabled={busy || !text.trim()} onClick={(e) => void add(e)}>{busy ? "Adding…" : "Add private note"}</button></div>
+    {status && <p className={status.error ? "x-error" : "x-small x-muted"} role="status">{status.text}</p>}
   </div>;
 }
 

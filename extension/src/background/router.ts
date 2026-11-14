@@ -3,7 +3,7 @@
 // with its own route and checks (there is no generic Home call), never its credentials or device routes.
 
 import { PAGE_ONLY, RequestError, type Answer, type Args, type Kind, type Message, type Result } from "../shared/messages";
-import { botMessage, bots, botThreads, deleteNote, events, launch, ledger, profiles, sessions, stop, takeQuote } from "./agents";
+import { botMessage, bots, botThreads, deleteNote, discardSuggestion, editSuggestion, events, launch, ledger, postSuggestion, profiles, sessions, stop, takeQuote, writeNote } from "./agents";
 import { clone, doneHandled, localPr, notifications, observed, publish, pushToPr, reviewChoice } from "./lists";
 import { anchorHealth, follow, pageContext, pageRows, peekContext, reportAnchors } from "./context";
 import { startEvents, stopEvents } from "./events";
@@ -33,7 +33,7 @@ const handlers: { [K in Kind]: Handler<K> } = {
     return current();
   },
   "settings.prefill": async ({ on }) => {
-    if (on) await removeLocal("prefill.off"); else await setLocal({ "prefill.off": true });
+    if (on) await setLocal({ "prefill.on": true }); else await removeLocal("prefill.on");
     update({ prefill: !!on });
     return current();
   },
@@ -66,6 +66,10 @@ const handlers: { [K in Kind]: Handler<K> } = {
   "session.events": (args) => events(args),
   "session.stop": (args) => stop(args),
   "note.delete": (args) => deleteNote(args),
+  "note.write": (args) => writeNote(args),
+  "suggestion.post": (args) => postSuggestion(args),
+  "suggestion.edit": (args) => editSuggestion(args),
+  "suggestion.discard": (args) => discardSuggestion(args),
   "suggestion.ledger": (args) => ledger(args),
   notifications: () => notifications(),
   "inbox.observed": (args) => observed(args),

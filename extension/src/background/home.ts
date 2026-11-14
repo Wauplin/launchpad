@@ -10,7 +10,7 @@ import { SPACE_ORIGIN, accessToken, clientId, homeStatus, refresh, signOut } fro
 import { pushState } from "./ports";
 import { local, removeLocal, removeSession, session, setLocal, setSession } from "./store";
 
-let state: ConnectionState = { phase: "signed-out", home: null, user: null, client_id: null, workspaces: [], workspace: null, today: null, prefill: true, error: null };
+let state: ConnectionState = { phase: "signed-out", home: null, user: null, client_id: null, workspaces: [], workspace: null, today: null, prefill: false, error: null };
 
 export const current = () => state;
 
@@ -22,9 +22,9 @@ export function update(patch: Partial<ConnectionState>) {
 
 /** Rebuilds the state from storage when the worker starts. */
 export async function load() {
-  const [home, device, user, workspace, id, prefillOff] = await Promise.all([local("home"), local("device"), local("hf.user"), local("workspace"), clientId(), local("prefill.off")]);
+  const [home, device, user, workspace, id, prefillOn] = await Promise.all([local("home"), local("device"), local("hf.user"), local("workspace"), clientId(), local("prefill.on")]);
   const phase = home && device ? "connecting" : user ? "signed-in" : "signed-out";
-  update({ phase, home: home && device ? home : null, user: user ?? null, client_id: id, workspace: workspace ?? null, prefill: !prefillOff });
+  update({ phase, home: home && device ? home : null, user: user ?? null, client_id: id, workspace: workspace ?? null, prefill: !!prefillOn });
   return !!(home && device);
 }
 

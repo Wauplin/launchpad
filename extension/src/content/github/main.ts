@@ -15,11 +15,11 @@ import { isItem } from "./item";
 import { clearLists, listsStale, renderLists } from "./lists";
 import { clearNotifications, notificationsStale, renderNotifications, watchNotificationForms } from "./notifications";
 import { observePage, watchNavigation } from "./navigation";
-import { renderNotes } from "./notes";
 import { pageOf, type Page } from "./page";
 import { renderRepoBadge } from "./repoBadge";
 import { renderRepoStrip } from "./repoStrip";
 import { renderSidebarBox } from "./sidebarBox";
+import { clearTimeline, renderTimeline } from "./timeline";
 import { unmount, unmountAll } from "./widgets";
 
 let page: Page = pageOf(location.href);
@@ -27,8 +27,8 @@ let context: ExtContext | null = null;
 /** The last context of each repository (lowercase `owner/name`): what the next page of it shows until Home answers. */
 const byRepo = new Map<string, ExtContext>();
 let phase: Phase | null = null;
-/** Settings → GitHub: fill GitHub's comment box with the agent's draft on its own. */
-let prefill = true;
+/** Settings → GitHub: fill GitHub's comment box with the agent's draft on its own (off by default). */
+let prefill = false;
 let generation = 0;
 /** Home's context for this page is on its way: the sidebar box keeps its space meanwhile. */
 let loading = false;
@@ -53,13 +53,13 @@ function render() {
     renderInsertBanners(page, ctx, refresh, prefill);
     if (ctx || (loading && phase !== "signed-out" && phase !== "revoked")) renderSidebarBox(page, ctx, refresh);
     else unmount("sidebar-box");
-    renderNotes(page, ctx, refresh);
+    renderTimeline(page, ctx, refresh);
     watch(renderComments(page, ctx, refresh), render);
     renderCiNote(page, ctx, refresh);
   } else {
     unmount("ci-note");
     unmount("sidebar-box");
-    unmount("item-notes");
+    clearTimeline();
     if (!isFiles(page)) watch([], render);
   }
 }
@@ -144,7 +144,7 @@ export function start() {
     state: (s) => {
       const was = phase;
       phase = s.phase;
-      prefill = s.prefill !== false;
+      prefill = s.prefill === true;
       if (s.phase === "online" && was !== "online") { notificationsStale(); listsStale(); if (page.kind === "notifications") render(); else void load(); }
       if (!s.home || s.phase === "revoked" || s.phase === "signed-out") { context = null; byRepo.clear(); clearLists(); clearNotifications(); closeAgentView(); unmountAll(); }
     },

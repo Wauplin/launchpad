@@ -21,6 +21,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/suggestions/{id}/posted-by-hand", post(posted_by_hand))
         .route("/api/suggestions/{id}/dismiss-comment", post(dismiss_comment))
         .route("/api/notes", get(notes).post(write_note))
+        .route("/api/notes/owner", post(write_owner_note))
         .route("/api/notes/{id}", axum::routing::delete(delete_note))
 }
 #[derive(serde::Deserialize)]
@@ -36,6 +37,42 @@ async fn notes(State(s): State<Ctx>, axum::extract::Query(q): axum::extract::Que
 /// `launchpad note`: an agent's own write (`agent_auth` checks the body's `session_id`).
 async fn write_note(State(s): State<Ctx>, Json(q): Json<launchpad_github::notes::Write>) -> ApiResult<Value> {
     Ok(Json(json!(launchpad_github::notes::write(&s.app, q).await?)))
+}
+/// `note.write`: the owner's private note on an item's timeline, then a message to each agent that wrote about the
+/// item in the workspace (its bot's thread of the item, else its session), else to the item's default bot. The owner's
+/// own click: an owner message (no sender header, no hop). A delivery that fails is reported, never fails the note.
+async fn write_owner_note(State(s): State<Ctx>, Json(q): Json<launchpad_github::notes::OwnerWrite>) -> ApiResult<Value> {
+    use launchpad_core::{bot_threads, bots, model::{GitHubRef, MessageContext}};
+    use launchpad_github::notes::{self, Recipient};
+    let app = &s.app;
+    let note = notes::write_owner(app, &q).await?;
+    let cached = launchpad_github::items::cached(app, format!("item:{}:{}", q.repo, q.number)).await.ok().flatten();
+    let pr = cached.as_ref().is_some_and(|v| v["headRefOid"].is_string());
+    let url = format!("https://github.com/{}/{}/{}", q.repo, if pr { "pull" } else { "issues" }, q.number);
+    let title = cached.as_ref().and_then(|v| v["title"].as_str()).map(str::to_string);
+    let refs = vec![GitHubRef { url: url.clone(), kind: if pr { "pr" } else { "issue" }.into(), repo: q.repo.clone(), number: Some(q.number), title }];
+    let text = notes::owner_message(app, &note, &url);
+    let mut sent = vec![];
+    for r in notes::recipients(app, &q.repo, q.number, &q.workspace).await.unwrap_or_default() {
+        let context = MessageContext { github_refs: refs.clone(), ..Default::default() };
+        let result = match &r {
+            Recipient::Bot { id, .. } => {
+                let to = bot_threads::route(bot_threads::Source::Items { refs: &refs });
+                bots::message_with(app, id, bots::Message { text: text.clone(), attachments: vec![], context, new_session: None, automatic: false, key: None, to }).await.map(|_| ())
+            }
+            Recipient::Session { id, .. } => match app.sessions.get(id) {
+                Some(x) if x.status != launchpad_core::model::SessionStatus::Closed => launchpad_core::runners::send_anywhere_with(app, id, &text, vec![], context, None).await,
+                Some(_) => Err(anyhow::anyhow!("archived")),
+                None => Err(anyhow::anyhow!("session not found")),
+            },
+        };
+        let error = result.err().map(|e| format!("{e:#}"));
+        if let Some(e) = &error {
+            tracing::warn!("Owner note {}: message to {r:?}: {e}", note.id);
+        }
+        sent.push(json!({"recipient": r, "error": error}));
+    }
+    Ok(Json(json!({"note": note, "sent": sent})))
 }
 /// `note.delete`: the owner's.
 async fn delete_note(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {

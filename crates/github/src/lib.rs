@@ -30,6 +30,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     suggestions::Suggestion::export_all(cfg)?;
     ledger::LedgerRecord::export_all(cfg)?;
     notes::ItemNote::export_all(cfg)?;
+    notes::Recipient::export_all(cfg)?;
     inbox::InboxSnapshot::export_all(cfg)?;
     inbox::ThreadPreview::export_all(cfg)?;
     ext::ExtContext::export_all(cfg)?;

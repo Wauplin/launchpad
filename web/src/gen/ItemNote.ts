@@ -2,14 +2,30 @@
 
 export type ItemNote = { id: string, repo: string, number: number, workspace_id: string | null, 
 /**
- * The session that wrote the last version.
+ * The session that wrote it (None: the owner's).
  */
 session_id: string | null, bot_id: string | null, 
 /**
- * The bot's name, else the session's title.
+ * The bot's name, else the session's title ("You" for the owner's).
  */
 author: string, 
 /**
+ * The owner's own private note (`note.write`).
+ */
+by_owner: boolean, 
+/**
  * Markdown.
  */
-body: string, created_at: number, updated_at: number, };
+body: string, created_at: number, 
+/**
+ * A pull request's head in Home's cache when the note was written.
+ */
+head: string | null, 
+/**
+ * The suggested comment it carries (`--suggest-file`).
+ */
+suggestion_id: string | null, 
+/**
+ * The note it answers (`--reply-to-note`).
+ */
+reply_to: string | null, };

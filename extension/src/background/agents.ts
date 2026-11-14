@@ -11,7 +11,7 @@ import type { GitHubRef } from "@/gen/GitHubRef";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import type { SessionEventPage } from "@/gen/SessionEventPage";
-import { QUOTE_TOPIC, RequestError, type BotList, type LaunchWhenDone, type LedgerAction, type ProfileBrief, type Quote } from "../shared/messages";
+import { QUOTE_TOPIC, RequestError, type BotList, type LaunchWhenDone, type LedgerAction, type NoteWriteResult, type ProfileBrief, type Quote } from "../shared/messages";
 import { current, homeJson } from "./home";
 import { pushEvent } from "./ports";
 
@@ -134,6 +134,34 @@ export async function stop(a: { id: string }) {
 
 export async function deleteNote(a: { id: string }) {
   await homeJson(`/api/notes/${id(a.id, "note")}`, { method: "DELETE" });
+}
+
+/** The owner's private note (`note.write`) in a workspace of this Home (the page's, else the extension's). */
+export function writeNote(a: { repo: string; number: number; body: string; workspace?: string | null; reply_to?: string | null }): Promise<NoteWriteResult> {
+  if (typeof a.repo !== "string" || !REPO.test(a.repo)) throw new RequestError("Not a repository");
+  const number = Number(a.number);
+  if (!Number.isInteger(number) || number < 1) throw new RequestError("Not an issue or pull request");
+  const body = String(a.body ?? "").trim();
+  if (!body || body.length > 65_536) throw new RequestError("A note holds 1–65536 characters");
+  const ws = a.workspace ? id(a.workspace, "workspace") : workspace();
+  if (!current().workspaces.some((w) => w.id === ws)) throw new RequestError("Not a workspace of this Home");
+  return homeJson<NoteWriteResult>("/api/notes/owner", { method: "POST", body: { repo: a.repo, number, workspace: ws, body, reply_to: a.reply_to ? id(a.reply_to, "note") : null } });
+}
+
+/** Post this comment, after the timeline entry's confirmation (`suggestion.post`). */
+export function postSuggestion(a: { id: string }) {
+  return homeJson(`/api/suggestions/${id(a.id, "suggestion")}/post`, { method: "POST", body: {} });
+}
+
+/** The owner's edit of a suggested comment's text (`suggestion.edit`; comments only, so the event stays COMMENT). */
+export function editSuggestion(a: { id: string; body: string }) {
+  const body = String(a.body ?? "");
+  if (!body.trim() || body.length > 65_536) throw new RequestError("A comment holds 1–65536 characters");
+  return homeJson(`/api/suggestions/${id(a.id, "suggestion")}`, { method: "PATCH", body: { body, event: "COMMENT" } });
+}
+
+export async function discardSuggestion(a: { id: string }) {
+  await homeJson(`/api/suggestions/${id(a.id, "suggestion")}`, { method: "DELETE" });
 }
 
 const LEDGER: readonly LedgerAction[] = ["shown", "inserted", "posted-by-hand", "dismiss-comment"];

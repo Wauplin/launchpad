@@ -29,7 +29,7 @@ others: Array<ExtFolder>,
  */
 workspace: ExtWorkspace | null, agents: Array<ExtAgent>, suggestions: Array<ExtSuggestion>, 
 /**
- * The private notes of the workspace about this item (`launchpad note`), newest first.
+ * The private timeline of the workspace about this item (`launchpad note`, the owner's `note.write`), oldest first.
  */
 notes: Array<ExtNote>, local_prs: Array<ExtLocalPr>, branches: Array<ExtBranch>, 
 /**

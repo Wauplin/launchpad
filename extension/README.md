@@ -107,9 +107,9 @@ The extension follows the workspace of the repository you look at: when a folder
 
 ### Private notes
 
-Agents can leave you a private note about an issue or pull request (`launchpad note`): a summary, what matters, risks, what to check. Notes are never posted. They show in a card right under the item's description, newest first, one per bot (a bot's new note replaces its earlier one). Long notes fold; **Show all** unfolds them. **Show work** opens the agent's work on the page (see below). In **⋯**, you can open the agent in Launchpad or delete the note. The panel's **This item** lists the same notes.
+Private notes are a private timeline of an issue or pull request, shown inside GitHub's own timeline at the moment they were written, like comments from a Launchpad agent. Only you and your agents see them; they are never posted. Agents add a note when something changed (`launchpad note`), and a note may carry a suggested comment. A suggested comment shows in the timeline with **Post this comment** (you confirm, then Launchpad posts it as you), **Edit**, **Insert into comment box** and **Discard**, so GitHub's own comment box stays yours. Long notes fold; **Show work** opens the agent's work on the page (see below); **⋯** opens the agent in Launchpad or deletes the note.
 
-A triage bot typically writes both: a note for you, and a suggested comment to post.
+Above GitHub's comment box, **Private note to your agents** stores your own note in Launchpad and sends it to every agent that wrote about the item (else to its default bot); they answer with a note when they have something useful. The panel's **This item** lists the same timeline and has the same box.
 
 ### An agent's work on the page
 

@@ -85,8 +85,9 @@ enum Command {
         #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
         session_id: String,
     },
-    /// Leave the owner a private note about a GitHub issue or pull request (Markdown, never posted); it replaces this
-    /// bot's (else this session's) earlier note about the item and shows on the item's page in the Chrome extension.
+    /// Add a private note to a GitHub issue's or pull request's timeline (Markdown, never posted): each run appends a
+    /// note, shown in GitHub's timeline by the Chrome extension. `--suggest-file` attaches a suggested comment (posted
+    /// only by the owner's click); `--reply-to-note` answers another note (the owner's).
     Note {
         #[arg(long)]
         repo: String,
@@ -94,6 +95,15 @@ enum Command {
         number: u64,
         #[arg(long)]
         body_file: std::path::PathBuf,
+        /// A comment the owner could post on GitHub (saved like `suggest comment`).
+        #[arg(long)]
+        suggest_file: Option<std::path::PathBuf>,
+        /// The suggested comment answers one comment (as `suggest comment --reply-to`).
+        #[arg(long, requires = "suggest_file")]
+        reply_to: Option<String>,
+        /// The note this one answers (its ID).
+        #[arg(long)]
+        reply_to_note: Option<String>,
         #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
         session_id: String,
     },
@@ -953,9 +963,13 @@ async fn run() -> Result<()> {
             println!("{value}");
             Ok(())
         }
-        Command::Note { repo, number, body_file, session_id } => {
+        Command::Note { repo, number, body_file, suggest_file, reply_to, reply_to_note, session_id } => {
             let body = std::fs::read_to_string(&body_file).with_context(|| format!("reading {}", body_file.display()))?;
-            let value = Client::new(&paths)?.json("POST", "/api/notes", Some(serde_json::json!({"repo":repo,"number":number,"body":body,"session_id":session_id}))).await?;
+            let suggest = match &suggest_file {
+                Some(f) => Some(std::fs::read_to_string(f).with_context(|| format!("reading {}", f.display()))?),
+                None => None,
+            };
+            let value = Client::new(&paths)?.json("POST", "/api/notes", Some(serde_json::json!({"repo":repo,"number":number,"body":body,"suggest":suggest,"suggest_reply_to":reply_to,"reply_to":reply_to_note,"session_id":session_id}))).await?;
             println!("{value}");
             Ok(())
         }
