@@ -28,7 +28,7 @@ const MODES = [
 
 export function SlackSetup({ v }: { v: VaultOverview }) {
   return (
-    <div className="grid gap-2.5">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-2.5">
       <p className="m-0 text-[12px] text-ink-3">Agents use Slack through <a className="text-teal-ink hover:underline" href="https://github.com/co42/slackline" target="_blank" rel="noreferrer">slackline</a>. Each mode is a separate Slack app with its own token, so a read-only agent cannot post even if it tries. Every launch gets read-only; pick Slack (write) in the composer's Tools when an agent must post.</p>
       {MODES.map((m) => <SlackMode key={m.id} v={v} mode={m} />)}
     </div>
@@ -69,7 +69,7 @@ function SlackMode({ v, mode }: { v: VaultOverview; mode: (typeof MODES)[number]
   const remove = () => api.delete(`/api/vault/entries/${mode.id}`).then(() => { setTest(null); toast(`Deleted ${template.name} from Home`); return qc.invalidateQueries({ queryKey: ["vault"] }); }, toastError);
   const odd = token.trim() && !token.trim().startsWith("xoxp-");
   return (
-    <div className="grid gap-2 rounded-card border border-line-2 bg-chrome p-2.5 text-[13px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-2 rounded-card border border-line-2 bg-chrome p-2.5 text-[13px]">
       <div className="flex flex-wrap items-center gap-2">
         <span className={`grid size-5 flex-none place-items-center rounded-full ${ready ? "bg-diff-add text-gh-open" : "border border-line bg-paper text-ink-3"}`} aria-hidden="true">{ready && <Icon name="check" size={12} />}</span>
         <b>Slack · {mode.title}</b>

@@ -15,8 +15,9 @@ let queryClient: QueryClient | null = null;
 export const demoQueryClient = () => queryClient!;
 
 export async function bootDemo(qc: QueryClient) {
-  // The tour and the demo exist only in the desktop layout; `?demo=phone` explores the phone shell (for screenshots and videos).
-  if (isPhone && demoChapter() !== "phone") { exitDemo("/"); return new Promise<never>(() => {}); }
+  // The tour exists only in the desktop layout. The phone explores the demo freely: `phone:explore` from Settings →
+  // Onboarding (with Exit demo), `?demo=phone` for screenshots and videos.
+  if (isPhone && !demoChapter().startsWith("phone")) { exitDemo("/"); return new Promise<never>(() => {}); }
   queryClient = qc;
   resetWorld();
   const Real = window.WebSocket;

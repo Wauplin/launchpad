@@ -1,5 +1,5 @@
-// Settings → Help → Onboarding: the tours, the chapter list with replay, and the setup checklist. The tour and
-// the demo exist only in the desktop layout; phones see the setup checklist only.
+// Settings → Help → Onboarding: the tours, the chapter list with replay, and the setup checklist. The tour exists
+// only in the desktop layout (its steps point at the laptop's parts); the phone explores the demo freely.
 
 import { Link } from "@tanstack/react-router";
 import { Icon } from "@/components/Icon";
@@ -16,7 +16,13 @@ export function OnboardingView() {
   const patch = usePatchOnboarding();
   const play = (entry: string) => { void patch({ welcome: "tour" }).catch(() => {}); enterDemo(entry); };
   return (
-    <SettingsPage title="Onboarding" intro={phone ? "Get Home ready for real work." : "Learn Launchpad on demo data. Nothing runs for real and nothing is saved, except which chapters you finished."}>
+    <SettingsPage title="Onboarding" intro="Learn Launchpad on demo data. Nothing runs for real and nothing is saved, except which chapters you finished.">
+      {phone && (
+        <Card title="Demo">
+          <button type="button" className="btn btn-demo w-fit" onClick={() => enterDemo("phone:explore")}><Icon name="play" size={12} />Explore the demo</button>
+          <p className="m-0 text-[12px] text-ink-3">The demo replaces Launchpad in this tab until you exit it: agents replay prerecorded runs and GitHub actions are simulated. The guided tours run on a computer, where they point at each part of the screen.</p>
+        </Card>
+      )}
       {!phone && (
         <Card title="Tours">
           <div className="flex flex-wrap gap-2">

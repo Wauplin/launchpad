@@ -7,6 +7,7 @@ import { useEffect, type ReactNode } from "react";
 import { Icon } from "@/components/Icon";
 import { ErrorState, Loading } from "@/components/ui";
 import { delegatedAccess } from "@/lib/deployment";
+import { usePhone } from "@/lib/phone";
 import { useConfig, useProjects } from "@/lib/queries";
 import { useRunners } from "@/lib/runners";
 import { useWorkspaces } from "@/lib/workspace";
@@ -49,6 +50,7 @@ export function HomeSetup() {
   const runners = useRunners().data ?? [];
   const workspaces = useWorkspaces().data ?? [];
   const showAddFolder = useAddFolder((s) => s.show);
+  const phone = usePhone();
   const github = useQuery({ queryKey: ["sign-in"], queryFn: () => api.get<SignInCheck[]>("/api/setup/sign-in"), staleTime: 60_000, enabled: !delegatedAccess() }).data;
   const burst = useBurst().data;
   const s = space.data;
@@ -80,7 +82,7 @@ export function HomeSetup() {
   const required = rows.filter((r) => r.required);
   const done = required.filter((r) => r.done).length;
   return (
-    <div className="grid gap-3">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
       <div className="grid gap-2 rounded-card border border-line bg-paper p-4">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="m-0 flex-1 text-[15px] font-semibold">{done === required.length ? "Home is ready" : `${done} of ${required.length} required steps done`}</h2>
@@ -99,13 +101,16 @@ export function HomeSetup() {
               {r.id === "workspaces" && !s && <span className="mt-1.5 grid gap-1.5">{workspaces.length > 0 && <span className="text-[12px]">{workspaces.map((w) => w.name).join(", ")}</span>}<WorkspaceCreator /></span>}
               {r.id === "runner" && !s && !r.done && <RunnerChoices burst={burst?.config.enabled ? burst.unavailable ?? "on" : "off"} />}
             </span>
-            <span className={`text-[12px] ${r.done ? "text-gh-open" : "text-ink-3"}`}>{r.done ? "Done" : r.skipped ? "Skipped" : "To do"}</span>
-            {r.action}
+            {/* The phone puts the state over the button, so the step's text keeps its width. */}
+            <span className={`flex flex-none gap-3 ${phone ? "flex-col items-end gap-1" : "items-center"}`}>
+              <span className={`text-[12px] ${r.done ? "text-gh-open" : "text-ink-3"}`}>{r.done ? "Done" : r.skipped ? "Skipped" : "To do"}</span>
+              {r.action}
+            </span>
           </li>
         ))}
       </ol>
       {vault && vault.templates.some((t) => t.id === "slack-read") && (
-        <section className="grid gap-2 rounded-card border border-line bg-paper p-4" aria-label="Slack for agents">
+        <section className="grid grid-cols-[minmax(0,1fr)] gap-2 rounded-card border border-line bg-paper p-4" aria-label="Slack for agents">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="m-0 flex-1 text-[15px] font-semibold">Slack for agents</h2>
             <span className={`text-[12px] ${slackReady(vault) ? "text-gh-open" : "text-ink-3"}`}>{slackReady(vault) ? "Done" : "Recommended · optional"}</span>

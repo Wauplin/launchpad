@@ -211,7 +211,7 @@ function BurstCard() {
         <span className="font-mono text-[12px]">{data.config.flavor}</span>
       </SettingRow>
       {data.runs.length === 0 ? <Empty icon="clock">No Burst job yet.</Empty> : (
-        <div className="grid gap-1.5">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-1.5">
           <b className="text-[12px] text-ink-3">Recent jobs</b>
           {data.runs.slice(0, 10).map((r) => (
             <div key={r.runner_id} className="flex flex-wrap items-center gap-2 text-[13px]">

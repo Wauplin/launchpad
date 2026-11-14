@@ -55,7 +55,7 @@ On a fresh install, a welcome dialog offers:
 
 ![A tour step on demo data](images/tour.webp)
 
-The tour runs in demo mode: a fictional organization with prerecorded agent runs. Nothing reaches Home, GitHub or your folders. A purple line at the top shows that you are in the demo, and **Exit demo** returns to the real app. You can replay any chapter later from **Settings → Onboarding**.
+The tour runs in demo mode: a fictional organization with prerecorded agent runs. Nothing reaches Home, GitHub or your folders. A purple line at the top shows that you are in the demo, and **Exit demo** returns to the real app. You can replay any chapter later from **Settings → Onboarding**. The guided tours run on a computer; on a phone, **Settings → Onboarding → Explore the demo** opens the same demo without the tour.
 
 ### Finish setup
 

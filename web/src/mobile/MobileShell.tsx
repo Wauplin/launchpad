@@ -6,6 +6,8 @@
 // components as the laptop shell; only the frame differs. Every action stays a visible button.
 
 import { recordingZoom } from "@/lib/zoom";
+import { demoChapter, isDemo } from "@/demo/mode";
+import { PhoneDemoStrip } from "@/onboarding/DemoChip";
 import { lazy, Suspense } from "react";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { Link, Outlet, useRouter, useRouterState } from "@tanstack/react-router";
@@ -134,6 +136,7 @@ export function MobileShell() {
     <PhoneBarContext.Provider value={bar}>
     <div className="flex h-dvh flex-col bg-paper pt-[env(safe-area-inset-top)]" style={viewport ? { position: "fixed", insetInline: 0, top: viewport.top, height: viewport.height } : recordingZoom() ? { height: `calc(100dvh / ${recordingZoom()})` } : undefined}>
       <IconSprite />
+      {isDemo && demoChapter() === "phone:explore" && <PhoneDemoStrip />}
       {/* Equal side columns keep every section title centered on the viewport; a wide right side (a tab page's button)
           takes the room it needs from the workspace name. */}
       {/* A detail page's bar: its ‹, title and ⋯ (portal), then the status button only while something needs a look. */}
