@@ -46,10 +46,11 @@ async fn write_owner_note(State(s): State<Ctx>, Json(q): Json<launchpad_github::
     use launchpad_github::notes::{self, Recipient};
     let app = &s.app;
     let note = notes::write_owner(app, &q).await?;
-    let cached = launchpad_github::items::cached(app, format!("item:{}:{}", q.repo, q.number)).await.ok().flatten();
-    let pr = cached.as_ref().is_some_and(|v| v["headRefOid"].is_string());
+    // Read live (never stored): whether it is a pull request, and its title, for the agents' message.
+    let item = launchpad_github::items::issue(app, &q.repo, q.number).await.map_err(|e| tracing::warn!("Owner note {}: reading {}#{}: {e:#}", note.id, q.repo, q.number)).ok();
+    let pr = item.as_ref().is_some_and(|v| v["pull_request"].is_object());
     let url = format!("https://github.com/{}/{}/{}", q.repo, if pr { "pull" } else { "issues" }, q.number);
-    let title = cached.as_ref().and_then(|v| v["title"].as_str()).map(str::to_string);
+    let title = item.as_ref().and_then(|v| v["title"].as_str()).map(str::to_string);
     let refs = vec![GitHubRef { url: url.clone(), kind: if pr { "pr" } else { "issue" }.into(), repo: q.repo.clone(), number: Some(q.number), title }];
     let text = notes::owner_message(app, &note, &url);
     let mut sent = vec![];

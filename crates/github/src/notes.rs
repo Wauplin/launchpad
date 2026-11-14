@@ -28,9 +28,6 @@ pub struct ItemNote {
     pub body: String,
     #[ts(type = "number")]
     pub created_at: i64,
-    /// A pull request's head in Home's cache when the note was written.
-    #[serde(default)]
-    pub head: Option<String>,
     /// The suggested comment it carries (`--suggest-file`).
     #[serde(default)]
     pub suggestion_id: Option<String>,
@@ -99,12 +96,6 @@ async fn check_reply(app: &App, repo: &str, number: u64, workspace: Option<&str>
     Ok(Some(id.to_string()))
 }
 
-/// A pull request's head in Home's cache (None for an issue or an item Home never read).
-async fn cached_head(app: &App, repo: &str, number: u64) -> Option<String> {
-    let v = crate::items::cached(app, format!("item:{repo}:{number}")).await.ok().flatten()?;
-    v["headRefOid"].as_str().map(str::to_string)
-}
-
 async fn save(app: &App, note: &ItemNote) -> Result<()> {
     let (id, key, text) = (note.id.clone(), item(&note.repo, note.number), serde_json::to_string(note)?);
     app.state_db
@@ -156,7 +147,6 @@ pub async fn write(app: &App, q: Write) -> Result<ItemNote> {
         by_owner: false,
         body: q.body,
         created_at: launchpad_core::util::now_ms(),
-        head: cached_head(app, &q.repo, q.number).await,
         suggestion_id,
         reply_to,
     };
@@ -185,7 +175,6 @@ pub async fn write_owner(app: &App, q: &OwnerWrite) -> Result<ItemNote> {
         by_owner: true,
         body: q.body.clone(),
         created_at: launchpad_core::util::now_ms(),
-        head: cached_head(app, &q.repo, q.number).await,
         suggestion_id: None,
         reply_to,
     };

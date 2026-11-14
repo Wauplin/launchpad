@@ -18,10 +18,6 @@ by_owner: boolean,
  */
 body: string, created_at: number, 
 /**
- * A pull request's head when it was written.
- */
-head: string | null, 
-/**
  * The note it answers.
  */
 reply_to: string | null, 

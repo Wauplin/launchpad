@@ -16,6 +16,12 @@ pub async fn pull(app: &App, repo: &str, n: u64) -> Result<Value> {
     app.github.get(&format!("/repos/{repo}/pulls/{n}")).await
 }
 
+/// The issue or pull request `n`, read from GitHub now (REST: `title`, `pull_request` for a pull request…).
+pub async fn issue(app: &App, repo: &str, n: u64) -> Result<Value> {
+    validate(repo)?;
+    app.github.get(&format!("/repos/{repo}/issues/{n}")).await
+}
+
 /// Posts `body` as a conversation comment.
 pub async fn comment(app: &App, repo: &str, n: u64, body: &str) -> Result<Value> {
     validate(repo)?;

@@ -329,8 +329,6 @@ pub struct ExtNote {
     pub body: String,
     #[ts(type = "number")]
     pub created_at: i64,
-    /// A pull request's head when it was written.
-    pub head: Option<String>,
     /// The note it answers.
     pub reply_to: Option<String>,
     /// The suggested comment it carries (the waiting ones are also in `ExtContext.suggestions`, with their text).
@@ -920,7 +918,7 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
                     Some(s) => ExtNoteSuggestion { id, status: s.status.clone(), url: s.url.clone() },
                     None => ExtNoteSuggestion { id, status: "discarded".into(), url: None },
                 });
-                ExtNote { id: x.id, author: x.author, bot_id: x.bot_id, session_id: x.session_id, by_owner: x.by_owner, body: x.body, created_at: x.created_at, head: x.head, reply_to: x.reply_to, suggestion }
+                ExtNote { id: x.id, author: x.author, bot_id: x.bot_id, session_id: x.session_id, by_owner: x.by_owner, body: x.body, created_at: x.created_at, reply_to: x.reply_to, suggestion }
             })
             .collect();
     }

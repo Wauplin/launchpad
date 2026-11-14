@@ -18,10 +18,6 @@ by_owner: boolean,
  */
 body: string, created_at: number, 
 /**
- * A pull request's head in Home's cache when the note was written.
- */
-head: string | null, 
-/**
  * The suggested comment it carries (`--suggest-file`).
  */
 suggestion_id: string | null, 

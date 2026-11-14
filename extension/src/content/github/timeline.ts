@@ -93,7 +93,7 @@ export function renderTimeline(page: ItemPage, ctx: ExtContext | null, refresh: 
     for (const g of groups) {
       const id = `${PREFIX}${g.entries[0]!.key}`;
       ids.add(id);
-      const key = JSON.stringify([page.url, ctx.page.head, g.entries.map((e) => [e.key, e.note?.body.length, e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, editing.has(e.suggestion?.id ?? ""), confirming.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key)])]);
+      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, editing.has(e.suggestion?.id ?? ""), confirming.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key)])]);
       const w = mount(id, key, g.anchor, g.place, "card");
       if (!w.fresh) continue;
       for (const e of g.entries) w.root.append(entry(w.root, page, ctx, ws, e, refresh));
@@ -119,8 +119,6 @@ function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | n
     const to = ctx.notes.find((x) => x.id === n.reply_to);
     if (to) head.append(h("span", { class: "lp-tag", text: `answers ${to.by_owner ? "your note" : to.author}` }));
   }
-  const written = n?.head ?? e.suggestion?.head ?? null;
-  if (written && ctx.page.head && written !== ctx.page.head) head.append(h("span", { class: "lp-tag", text: `head ${written.slice(0, 7)}`, title: `Written when the pull request's head was ${written.slice(0, 7)}; it is now at ${ctx.page.head.slice(0, 7)}` }));
   if (sessionId) head.append(button("Show work", () => openAgentView({ session_id: sessionId, title: agent?.title, bot: agent?.bot ?? author, running: agent ? running(agent) : undefined }, ws), { small: true, title: "What it was asked, its answers and its steps, here on the page" }));
   const menu: HTMLElement = more(root, n ? "Note" : "Suggested comment", () => [
     ...(sessionId ? [{ label: "Open the agent in Launchpad", hint: "Its full trace and thread", onSelect: () => open(agentPath({ session_id: sessionId }), ws) }] : []),
