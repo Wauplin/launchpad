@@ -56,6 +56,7 @@ impl launchpad_core::ext::Extensions for Extensions {
 pub async fn start(app: &App) -> Result<()> {
     launchpad_automation::start(app).await?;
     launchpad_channels::spawn(app);
+    launchpad_github::ledger::resume_checks(app);
     launchpad_setup::home_update::spawn(app);
     launchpad_setup::cli_update::spawn(app);
     Ok(())

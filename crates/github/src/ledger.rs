@@ -390,6 +390,26 @@ fn spawn_checks(app: &App, repo: String, number: u64) {
     });
 }
 
+/// Home, at start: the claims still pending from before the restart get their checks again, so each one is
+/// confirmed or becomes unconfirmed (nothing else reads an item's comments).
+pub fn resume_checks(app: &App) {
+    if !launchpad_core::home_git::here(app) {
+        return;
+    }
+    let app = app.clone();
+    tokio::spawn(async move {
+        let items = app.state_db.call(|c| Ok(c.prepare("SELECT DISTINCT repo, number FROM suggestion_ledger WHERE pending = 1")?.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?)).await;
+        match items {
+            Ok(items) => {
+                for (repo, number) in items {
+                    spawn_checks(&app, repo, number as u64);
+                }
+            }
+            Err(e) => tracing::warn!("feedback ledger: pending claims: {e:#}"),
+        }
+    });
+}
+
 async fn waiting(app: &App, repo: &str, number: u64) -> Result<bool> {
     let (repo, number) = (repo.to_lowercase(), number as i64);
     app.state_db.call(move |c| Ok(c.query_row("SELECT count(*) FROM suggestion_ledger WHERE pending = 1 AND repo = ?1 AND number = ?2", rusqlite::params![repo, number], |r| r.get::<_, i64>(0))? > 0)).await

@@ -727,7 +727,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                 modify(app, &r.id, move |r| {
                     let timing = r.schedule != f.schedule || r.time_zone != f.time_zone || r.trigger != f.trigger || r.paused != f.paused || undue(r);
                     if r.trigger != f.trigger {
-                                r.failure_seen = Some(now);
+                        r.failure_seen = Some(now);
                         r.channel_seen = Some(head);
                     }
                     r.title = f.title;
@@ -781,7 +781,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                     last_outcome: None,
                     runs: vec![],
                     history: vec![],
-                                failure_seen: None,
+                    failure_seen: None,
                     channel_seen: Some(head),
                     file: Some(path.clone()),
                     file_error: error,

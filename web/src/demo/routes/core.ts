@@ -41,8 +41,7 @@ function register(path: string, repo: string | null, workspaceId: string | null)
   return p;
 }
 
-const cloneSuggestions = () => [{ repo: `${ORG}/analytics`, notifications: 6 }, { repo: `${ORG}/design-system`, notifications: 2 }, { repo: `${ORG}/infra`, notifications: 0 }].filter((r) => !world.projects.some((p) => p.gh_repo === r.repo));
-route("GET", "/api/projects/clone", cloneSuggestions);
+const cloneSuggestions = () => [{ repo: `${ORG}/analytics` }, { repo: `${ORG}/design-system` }, { repo: `${ORG}/infra` }].filter((r) => !world.projects.some((p) => p.gh_repo === r.repo));
 route("POST", "/api/projects/clone/suggestions", cloneSuggestions);
 route("POST", "/api/projects/clone", ({ body }) => {
   const repo = String(body?.repo ?? "").replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
