@@ -6,21 +6,13 @@ import type { ExtReport } from "./ExtReport";
 import type { ExtSuggestion } from "./ExtSuggestion";
 
 /**
- * The state of one row of a list page (pull requests, issues, notifications).
+ * The state of one row of a list page (pull requests, issues).
  */
 export type ExtRow = { 
 /**
- * The item as asked: a number, or a notification thread ID.
+ * The item as asked: a number, or `owner/repo#number`.
  */
 item: string, repo: string | null, number: number | null, agents: Array<ExtAgent>, suggestions: Array<ExtSuggestion>, local_prs: Array<ExtLocalPr>, today: Array<string>, 
-/**
- * Its Inbox thread is unread (null: not in the Inbox).
- */
-unread: boolean | null, 
-/**
- * Its Inbox thread (Notifications: the thread of the row's item).
- */
-thread: string | null, 
 /**
  * The folder of its repository in this workspace (null: Not in Launchpad).
  */
@@ -29,11 +21,6 @@ folder: string | null,
  * The newest report about it.
  */
 report: ExtReport | null, 
-/**
- * A bot already merged, closed, approved or answered it (its report is newer than the thread's activity): Done
- * all handled marks it Done.
- */
-handled: boolean, 
 /**
  * Its pull request's Launchpad branch has commits GitHub does not have yet.
  */

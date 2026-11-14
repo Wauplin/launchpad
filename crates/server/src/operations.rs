@@ -44,15 +44,9 @@ pub async fn guard(State(s): State<Operations>, req: Request, next: Next) -> Res
     }
 }
 
-fn publication_path(path: &str) -> bool {
-    let parts: Vec<_> = path.split('/').collect();
-    matches!(parts.as_slice(), ["", "api", "items", _, _, _, "comment" | "review"] | ["", "api", "inbox", _, "reply"])
-}
-
 async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiError> {
     let path = req.uri().path().to_owned();
-    let publication = publication_path(&path);
-    let protected = publication || path == "/api/sessions"
+    let protected = path == "/api/sessions"
         || path
             .strip_prefix("/api/sessions/")
             .is_some_and(|p| p.split('/').count() == 2 && p.ends_with("/input"))
@@ -63,7 +57,6 @@ async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiEr
         return Ok(next.run(req).await);
     }
     let Some(id) = req.headers().get("Idempotency-Key") else {
-        if publication { return Err(ApiError::bad_request("GitHub posts require an Idempotency-Key")); }
         return Ok(next.run(req).await);
     };
     let id = id
@@ -101,16 +94,12 @@ async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiEr
             "This operation id was already used for a different request.",
         )),
         Claim::Uncertain => Err(ApiError::conflict(
-            "Delivery is uncertain after an interrupted request. Inspect the destination (GitHub for posts, Agents for launches and replies) before starting another attempt; this request will not be repeated.",
+            "Delivery is uncertain after an interrupted request. Inspect the destination (Agents for launches and replies) before starting another attempt; this request will not be repeated.",
         )),
         Claim::New => {
             let response = next
                 .run(Request::from_parts(parts, Body::from(bytes)))
                 .await;
-            if publication && response.headers().get("GitHub-Delivery").is_some_and(|v| v == "uncertain") {
-                // Leave the durable claim unresolved; neither this process nor a restart may repost it.
-                return Ok(response);
-            }
             let (mut parts, body) = response.into_parts();
             let bytes = to_bytes(body, LIMIT).await?;
             let text = String::from_utf8(bytes.to_vec())?;

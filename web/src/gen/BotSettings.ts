@@ -4,7 +4,7 @@ import type { PermissionMode } from "./PermissionMode";
 import type { ProposalMode } from "./ProposalMode";
 
 /**
- * `bot.toml`.
+ * `bot.toml`. Unknown keys are ignored, so files with removed keys (`inbox_done`) keep loading.
  */
 export type BotSettings = { name: string, 
 /**
@@ -26,11 +26,6 @@ folder?: string | null, permission_mode: PermissionMode, proposals: ProposalMode
  * What it may do with the Launchpad CLI tool: read, propose (the default) or admin.
  */
 launchpad: LaunchpadAccess, 
-/**
- * It may mark the owner's Inbox threads done itself, here and on GitHub (`launchpad inbox done`), without a
- * click. Off by default.
- */
-inbox_done?: boolean, 
 /**
  * Default tools of its sessions (`tool_defaults`): tool ID or `mcp:<server>` → on or off, over the
  * workspace's and the folder's defaults. Only tools granted to its workspace apply.

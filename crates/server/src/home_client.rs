@@ -220,8 +220,8 @@ async fn call_home(op: String, body: serde_json::Value) -> anyhow::Result<(u16, 
 }
 
 /// Requests about records Home owns, which a runner sends to Home: workspace changes (the runner keeps a copy
-/// for reading), routines and scheduled launches (only Home launches), Home Git, review drafts (`/api/review-state`, so they follow the owner to every window), and the context reads of the Launchpad CLI (only Home sees the sessions, schedules and
-/// Inbox of every runner). An agent's call goes with its session and Home checks it with the agent's access; the
+/// for reading), routines and scheduled launches (only Home launches), Home Git, review drafts (`/api/review-state`, so they follow the owner to every window), and the context reads of the Launchpad CLI (only Home sees the sessions and schedules of
+/// every runner). An agent's call goes with its session and Home checks it with the agent's access; the
 /// runner's own requests pass only Home's closed list (`runner_trust`).
 pub(crate) fn home_owned(path: &str) -> bool {
     path == "/api/workspaces" || path.starts_with("/api/workspaces/") || path.starts_with("/api/home-git/") || path.starts_with("/api/plain/") || path.starts_with("/api/knowledge/") || path.starts_with("/api/vault") || path == "/api/mcp" || path.starts_with("/api/mcp/")
@@ -233,7 +233,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || (path.starts_with("/api/sessions/") && (path.ends_with("/access") || path.ends_with("/machines")))
         || path == "/api/link" || path == "/api/suggestions" || path.starts_with("/api/suggestions/") || path == "/api/notes" || path.starts_with("/api/notes/") || path == "/api/sleep"
         || path == "/api/connections" || path.starts_with("/api/connections/") || path == "/api/outbox" || path.starts_with("/api/outbox/")
-        || path == "/api/today" || path == "/api/inbox/agent-done" || path.starts_with("/api/ext/")
+        || path == "/api/today" || path.starts_with("/api/ext/")
         || path == "/api/activity" || path.starts_with("/api/activity/") || path == "/api/settings/shared"
         || path == "/api/topics" || path.starts_with("/api/topics/")
         || path == "/api/review-state" || path == "/api/channels" || path.starts_with("/api/channels/")

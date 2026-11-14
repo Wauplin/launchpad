@@ -1,4 +1,4 @@
-//! GitHub REST and GraphQL client, with persistent conditional responses and rate limits.
+//! GitHub REST and GraphQL client with rate limits. Nothing it reads is stored: every call goes to GitHub.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,41 +11,16 @@ use ts_rs::TS;
 
 use crate::model::GitHubRef;
 use crate::shellenv::UserEnv;
-use crate::util::now_ms;
-
-type RecentItems = std::collections::HashMap<String, (i64, Vec<GhItem>)>;
 
 #[derive(Clone)]
 pub struct GitHub {
     env: UserEnv,
-    db: crate::db::Db,
     pub limits: Arc<RwLock<std::collections::HashMap<String, RateLimit>>>,
     http: reqwest::Client,
     api_origin: String,
     token: Arc<RwLock<Option<String>>>,
-    /// Recent items per repository, for `#` suggestions: (fetched_at, items).
-    recent: Arc<RwLock<RecentItems>>,
-}
-
-// An Inbox thread (a GitHub notification), listed by `launchpad-github` `inbox`.
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-pub struct Thread {
-    pub id: String,
-    pub repo: String,
-    pub title: String,
-    pub kind: String,
-    pub number: Option<u64>,
-    pub url: String,
-    pub subject_path: Option<String>,
-    pub reason: String,
-    pub unread: bool,
-    pub local_unread: bool,
-    pub updated_at: String,
-    pub state: Option<String>,
-    pub participants: Vec<String>,
-    pub participant_count: u64,
-    pub review_decision: Option<String>,
-    pub checks: Option<String>,
+    /// The signed-in login, read once per process (`login`).
+    login: Arc<RwLock<Option<String>>>,
 }
 
 /// An issue or a pull request, as shown in suggestions and context chips.
@@ -68,13 +43,6 @@ pub struct RateLimit {
     pub remaining: i64,
     pub reset_at: i64,
     pub retry_at: Option<i64>,
-}
-
-pub struct GhResponse {
-    pub value: Value,
-    pub not_modified: bool,
-    pub poll_interval: u64,
-    pub has_next: bool,
 }
 
 /// The request may have reached GitHub; retrying a publication could duplicate it.
@@ -127,15 +95,14 @@ fn send_error(e: reqwest::Error) -> anyhow::Error {
 }
 
 impl GitHub {
-    pub fn new(env: UserEnv, db: crate::db::Db) -> GitHub {
+    pub fn new(env: UserEnv) -> GitHub {
         GitHub {
             env,
-            db,
             limits: Arc::new(RwLock::new(Default::default())),
             http: crate::status::http_client(),
             api_origin: "https://api.github.com".into(),
             token: Arc::new(RwLock::new(None)),
-            recent: Arc::new(RwLock::new(Default::default())),
+            login: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -159,13 +126,7 @@ impl GitHub {
         Ok(t)
     }
 
-    pub async fn request(
-        &self,
-        method: reqwest::Method,
-        path: &str,
-        body: Option<Value>,
-        conditional: bool,
-    ) -> Result<GhResponse> {
+    pub async fn request(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value> {
         anyhow::ensure!(
             path.starts_with('/') && !path.starts_with("//") && safe_path(path),
             "invalid GitHub path"
@@ -175,28 +136,6 @@ impl GitHub {
             let until = limit.retry_at.unwrap_or(0).max(if limit.remaining == 0 { limit.reset_at } else { 0 });
             anyhow::ensure!(crate::util::now_ms()/1000 >= until, "GitHub {resource} rate limit; retry after {until}");
         }
-        let key = path.to_string();
-        let cached = if conditional {
-            self.db
-                .call(move |c| {
-                    use rusqlite::OptionalExtension;
-                    Ok(c.query_row(
-                        "SELECT etag,last_modified,json FROM gh_response WHERE url=?1",
-                        [&key],
-                        |r| {
-                            Ok((
-                                r.get::<_, Option<String>>(0)?,
-                                r.get::<_, Option<String>>(1)?,
-                                r.get::<_, String>(2)?,
-                            ))
-                        },
-                    )
-                    .optional()?)
-                })
-                .await?
-        } else {
-            None
-        };
         for attempt in 0..2 {
             let token = self.token(attempt > 0).await?;
             let mut req = self
@@ -210,16 +149,6 @@ impl GitHub {
             if let Some(body) = &body {
                 req = req.json(body);
             }
-            if let Some((etag, modified, _)) = &cached {
-                // Notifications explicitly use Last-Modified, including when both headers exist.
-                if path.starts_with("/notifications?") {
-                    if let Some(m) = modified {
-                        req = req.header("If-Modified-Since", m);
-                    }
-                } else if let Some(e) = etag {
-                    req = req.header("If-None-Match", e);
-                }
-            }
             let res = req.send().await.map_err(send_error)?;
             if res.status() == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
                 continue;
@@ -230,9 +159,6 @@ impl GitHub {
                     .and_then(|v| v.to_str().ok())
                     .map(str::to_string)
             };
-            let poll_interval = header("x-poll-interval")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(60);
             let retry = header("retry-after")
                 .and_then(|s| s.parse::<i64>().ok())
                 .map(|s| crate::util::now_ms() / 1000 + s);
@@ -250,17 +176,6 @@ impl GitHub {
                     },
                 );
             }
-            let etag = header("etag");
-            let modified = header("last-modified");
-            let has_next = header("link").is_some_and(|l| l.contains("rel=\"next\""));
-            if res.status() == reqwest::StatusCode::NOT_MODIFIED {
-                return Ok(GhResponse {
-                    value: serde_json::from_str(&cached.context("304 without cached response")?.2)?,
-                    not_modified: true,
-                    poll_interval,
-                    has_next,
-                });
-            }
             if !res.status().is_success() {
                 let status = res.status();
                 let error = anyhow::Error::new(res.error_for_status().unwrap_err())
@@ -270,41 +185,32 @@ impl GitHub {
                 } else { error });
             }
             let bytes = res.bytes().await.context(DeliveryUncertain)?;
-            let value = if bytes.is_empty() {
+            return Ok(if bytes.is_empty() {
                 Value::Null
             } else {
                 serde_json::from_slice(&bytes).context(DeliveryUncertain)?
-            };
-            if method == reqwest::Method::GET {
-                let key = path.to_string();
-                let json = serde_json::to_string(&value)?;
-                self.db.call(move |c| { c.execute("INSERT OR REPLACE INTO gh_response (url,etag,last_modified,json) VALUES (?1,?2,?3,?4)", rusqlite::params![key,etag,modified,json])?; Ok(()) }).await?;
-            }
-            return Ok(GhResponse {
-                value,
-                not_modified: false,
-                poll_interval,
-                has_next,
             });
         }
         bail!("GitHub {path}: unauthorized")
     }
 
     pub async fn get(&self, path: &str) -> Result<Value> {
-        Ok(self
-            .request(reqwest::Method::GET, path, None, true)
-            .await?
-            .value)
+        self.request(reqwest::Method::GET, path, None).await
     }
 
-    /// A missing explicit subscription does not mean the thread is ignored: watching a repo
-    /// can deliver notifications without a thread subscription.
-    pub async fn subscription(&self, id: &str) -> Result<Option<Value>> {
-        match self.get(&format!("/notifications/threads/{id}/subscription")).await {
-            Ok(v) => Ok(Some(v)),
-            Err(e) if e.downcast_ref::<reqwest::Error>().and_then(|e| e.status()) == Some(reqwest::StatusCode::NOT_FOUND) => Ok(None),
-            Err(e) => Err(e),
+    /// The signed-in GitHub login once `login` has read it, without a call.
+    pub async fn known_login(&self) -> Option<String> {
+        self.login.read().await.clone()
+    }
+
+    /// The signed-in GitHub login (`GET /user`), read once per process.
+    pub async fn login(&self) -> Result<String> {
+        if let Some(l) = self.login.read().await.clone() {
+            return Ok(l);
         }
+        let login = self.get("/user").await?["login"].as_str().context("GitHub /user without login")?.to_string();
+        *self.login.write().await = Some(login.clone());
+        Ok(login)
     }
 
     pub async fn graphql(&self, query: String) -> Result<Value> {
@@ -313,10 +219,8 @@ impl GitHub {
                 reqwest::Method::POST,
                 "/graphql",
                 Some(serde_json::json!({"query":query})),
-                false,
             )
-            .await?
-            .value;
+            .await?;
         // Keep partial data for inaccessible/deleted subjects; report errors if nothing succeeded.
         if v["data"].is_null() {
             bail!("GitHub GraphQL: {}", v["errors"]);
@@ -351,52 +255,28 @@ impl GitHub {
         })
     }
 
-    /// Recently updated issues and PRs of a repository (cached for 5 minutes), filtered by `q`
-    /// (a number prefix or words of the title).
+    /// Issues and pull requests of a repository matching `q` (a number, or words of the title), read live
+    /// from GitHub's search: the most recently updated ones when `q` is empty.
     pub async fn suggest(&self, repo: &str, q: &str) -> Result<Vec<GhItem>> {
-        let cached = self.recent.read().await.get(repo).cloned();
-        let items = match cached {
-            Some((at, items)) if now_ms() - at < 5 * 60_000 => items,
-            _ => {
-                let v = self
-                    .get(&format!(
-                        "/repos/{repo}/issues?state=all&sort=updated&direction=desc&per_page=100"
-                    ))
-                    .await?;
-                let items: Vec<GhItem> = v
-                    .as_array()
-                    .map(|a| a.iter().filter_map(|i| item_from_rest(repo, i)).collect())
-                    .unwrap_or_default();
-                self.recent
-                    .write()
-                    .await
-                    .insert(repo.to_string(), (now_ms(), items.clone()));
-                items
-            }
-        };
-        let q = q.trim().trim_start_matches('#').to_lowercase();
-        let mut out: Vec<GhItem> = if q.is_empty() {
-            items
-        } else if q.chars().all(|c| c.is_ascii_digit()) {
-            items
-                .into_iter()
-                .filter(|i| i.number.to_string().starts_with(&q))
-                .collect()
-        } else {
-            let words: Vec<&str> = q.split_whitespace().collect();
-            items
-                .into_iter()
-                .filter(|i| words.iter().all(|w| i.title.to_lowercase().contains(w)))
-                .collect()
-        };
-        // An exact number that is not in the recent list is fetched on demand.
-        if out.is_empty()
-            && let Ok(n) = q.parse::<u64>()
-            && let Ok(v) = self.get(&format!("/repos/{repo}/issues/{n}")).await {
-            out.extend(item_from_rest(repo, &v));
+        anyhow::ensure!(valid_repo(repo), "invalid repository");
+        let q = q.trim().trim_start_matches('#').trim();
+        if let Ok(n) = q.parse::<u64>() {
+            return Ok(match self.get(&format!("/repos/{repo}/issues/{n}")).await {
+                Ok(v) => item_from_rest(repo, &v).into_iter().collect(),
+                Err(_) => Vec::new(),
+            });
         }
-        out.truncate(12);
-        Ok(out)
+        let path = if q.is_empty() {
+            format!("/repos/{repo}/issues?state=all&sort=updated&direction=desc&per_page=12")
+        } else {
+            let query: String = format!("repo:{repo} {q} in:title").bytes()
+                .map(|b| if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') { (b as char).to_string() } else { format!("%{b:02X}") })
+                .collect();
+            format!("/search/issues?q={query}&sort=updated&order=desc&per_page=12")
+        };
+        let v = self.get(&path).await?;
+        let list = if q.is_empty() { &v } else { &v["items"] };
+        Ok(list.as_array().map(|a| a.iter().filter_map(|i| item_from_rest(repo, i)).take(12).collect()).unwrap_or_default())
     }
 }
 

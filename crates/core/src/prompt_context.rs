@@ -390,68 +390,6 @@ pub fn delivery_text(spec: &LaunchSpec) -> String {
     String::from_utf16_lossy(&units)
 }
 
-/// Search the persistent GitHub cache without issuing one remote request per registered repository.
-pub async fn github(app: &App, query: &str) -> Result<Vec<crate::model::GitHubRef>> {
-    ensure!(query.len() <= 512, "Search is too long");
-    let query = query.trim_start_matches('#').to_lowercase();
-    let rows: Vec<(String, String)> = app.cache_db.call(|c| {
-        let mut st = c.prepare("SELECT url,json FROM gh_response WHERE url GLOB 'project-items:*' OR url GLOB 'item:*' LIMIT 2000")?;
-        Ok(st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?)
-    }).await?;
-    let mut result = vec![];
-    let mut seen = HashSet::new();
-    for (key, json) in rows {
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&json) else {
-            continue;
-        };
-        let repo = key
-            .strip_prefix("project-items:")
-            .or_else(|| {
-                key.strip_prefix("item:")
-                    .and_then(|s| s.rsplit_once(':').map(|(r, _)| r))
-            })
-            .unwrap_or_default();
-        let items: Vec<&serde_json::Value> = if key.starts_with("item:") {
-            vec![&value]
-        } else {
-            value["prs"]
-                .as_array()
-                .into_iter()
-                .chain(value["issues"].as_array())
-                .flatten()
-                .collect()
-        };
-        for item in items {
-            let Some(url) = item["url"].as_str() else {
-                continue;
-            };
-            let number = item["number"].as_u64();
-            let title = item["title"].as_str().unwrap_or_default();
-            if !format!("{repo}#{} {title}", number.unwrap_or_default())
-                .to_lowercase()
-                .contains(&query)
-                || !seen.insert(url.to_string())
-            {
-                continue;
-            }
-            result.push(crate::model::GitHubRef {
-                url: url.into(),
-                repo: repo.into(),
-                number,
-                title: Some(title.into()),
-                kind: if item["__typename"] == "PullRequest" || url.contains("/pull/") {
-                    "pr"
-                } else {
-                    "issue"
-                }
-                .into(),
-            });
-        }
-    }
-    result.truncate(30);
-    Ok(result)
-}
-
 /// Contiguous matches first, then characters in order with shorter gaps preferred.
 fn match_score(value: &str, query: &str) -> Option<usize> {
     let value = value.to_lowercase();

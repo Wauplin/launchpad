@@ -1,6 +1,6 @@
 //! The Chrome extension's page context (`GET /api/ext/context`) and row states (`GET /api/ext/rows`): what Launchpad
-//! knows about a github.com page, answered from Home's records and cache.db only (never a GitHub API call on the
-//! request path), in one call per navigation. The extension's device is the owner, but each answer is narrowed to one
+//! knows about a github.com page, answered from Launchpad's own records only (never a GitHub API call on the request
+//! path), in one call per navigation. The extension's device is the owner, but each answer is narrowed to one
 //! workspace: the folder's for a repository in Launchpad, else the one the extension shows.
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -30,7 +30,6 @@ pub enum PageKind {
     PrFiles,
     PrCommits,
     Issue,
-    Notifications,
     ActionsRun,
     Compare,
     NewRelease,
@@ -55,15 +54,6 @@ pub struct ExtPage {
     /// An Actions run.
     #[ts(type = "number | null")]
     pub run: Option<u64>,
-    /// From Home's cache of the item (null when Home has not fetched it): its title, and for a pull request its head
-    /// commit and branch.
-    pub title: Option<String>,
-    pub head: Option<String>,
-    pub head_branch: Option<String>,
-    /// A pull request's branch repository (`owner/name`), from Home's cache.
-    pub head_repo: Option<String>,
-    /// The pull request's author lets maintainers push to its branch (null: unknown, or the same repository).
-    pub maintainer_can_modify: Option<bool>,
 }
 
 /// GitHub's top-level paths that are not owners.
@@ -75,15 +65,11 @@ const RESERVED: &[&str] = &[
 
 /// The page of a github.com URL. Anything else (another host, a malformed path) is `Other` without a repository.
 pub fn parse_page(url: &str) -> ExtPage {
-    let mut page = ExtPage { kind: PageKind::Other, repo: None, number: None, run: None, title: None, head: None, head_branch: None, head_repo: None, maintainer_can_modify: None };
+    let mut page = ExtPage { kind: PageKind::Other, repo: None, number: None, run: None };
     let Some(rest) = url.strip_prefix("https://github.com/").or_else(|| url.strip_prefix("https://www.github.com/")) else { return page };
     let path = rest.split(['?', '#']).next().unwrap_or("");
     let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
     match parts.as_slice() {
-        ["notifications", ..] => {
-            page.kind = PageKind::Notifications;
-            return page;
-        }
         [owner, name, rest @ ..] if !RESERVED.contains(&owner.to_ascii_lowercase().as_str()) => {
             let full = format!("{owner}/{}", name.strip_suffix(".git").unwrap_or(name));
             if !launchpad_core::github::valid_repo(&full) {
@@ -131,7 +117,8 @@ pub enum Relation {
     Origin,
     /// The folder's `upstream` is this repository (the folder is a clone of a fork of it).
     Upstream,
-    /// This repository is a fork of the folder's repository (the owner's fork, or a fork Home knows from its cache).
+    /// This repository is a fork of the folder's repository (the owner's repository of the same name, or a fork a
+    /// Local PR was published from).
     Fork,
 }
 
@@ -190,8 +177,6 @@ pub struct ExtSuggestion {
     /// The commit it was written for.
     pub head: Option<String>,
     pub comments: u32,
-    /// Line comments written for another commit than the pull request's head in Home's cache.
-    pub outdated: u32,
     /// `draft`, `inserted` (Insert put it into GitHub's box; GitHub's button posts it), `posting` or `uncertain`.
     pub status: String,
     pub session_id: Option<String>,
@@ -285,8 +270,8 @@ pub struct ExtReviewChoice {
     pub preset: Option<String>,
 }
 
-/// An agent's Launchpad branch that holds the pull request's head plus `ahead` commits: Push to this PR
-/// (`branch.push-to-pr`) can send it as a fast-forward.
+/// An agent's Launchpad branch of the pull request with `ahead` commits since the agent started: Push to this PR
+/// (`branch.push-to-pr`) sends it, as a fast-forward of the pull request's head only (checked on GitHub at the click).
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct ExtPushReady {
     pub branch: String,
@@ -311,14 +296,6 @@ pub struct ExtBranch {
     pub error: Option<String>,
     /// An agent branch Home does not push there yet, with the commits it would add (`branch.push-to-pr`).
     pub push_ready: Option<ExtPushReady>,
-}
-
-/// The Inbox thread of the page's item.
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-pub struct ExtInbox {
-    pub thread: String,
-    pub unread: bool,
-    pub reason: String,
 }
 
 /// The default bot of the extension's Ask on this page, and why it is the one.
@@ -370,20 +347,6 @@ pub struct ExtNoteSuggestion {
     pub url: Option<String>,
 }
 
-/// What a pull request changes in files that decide what its CI runs (workflows, scripts, dependencies, build
-/// files), from Home's cached files of its head: a note next to GitHub's Approve and run.
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-pub struct ExtCi {
-    /// The head these files are of.
-    pub head: String,
-    /// Files changed in all.
-    pub files: u32,
-    /// The workflow-relevant ones among them (at most 20).
-    pub relevant: Vec<String>,
-    /// More workflow-relevant files than listed.
-    pub more: u32,
-}
-
 /// One page's bundle.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct ExtContext {
@@ -402,22 +365,18 @@ pub struct ExtContext {
     pub branches: Vec<ExtBranch>,
     /// Today item IDs about this page (its item, its agents, its Local PRs; on repository pages, the repository).
     pub today: Vec<String>,
-    pub inbox: Option<ExtInbox>,
-    /// Unread Inbox threads of the repository.
-    pub inbox_unread: u32,
     pub defaults: ExtDefaults,
-    /// The GitHub login Home is signed in with (the owner's): comments that mention it are highlighted.
+    /// The GitHub login Home is signed in with (the owner's), once Home has read it: comments that mention it are
+    /// highlighted.
     pub login: Option<String>,
     /// Presets for messages to bots.
     pub presets: Vec<ExtPreset>,
-    /// A pull request page: its files that matter for CI, when Home has read them for its current head.
-    pub ci: Option<ExtCi>,
 }
 
-/// The state of one row of a list page (pull requests, issues, notifications).
+/// The state of one row of a list page (pull requests, issues).
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct ExtRow {
-    /// The item as asked: a number, or a notification thread ID.
+    /// The item as asked: a number, or `owner/repo#number`.
     pub item: String,
     pub repo: Option<String>,
     #[ts(type = "number | null")]
@@ -426,17 +385,10 @@ pub struct ExtRow {
     pub suggestions: Vec<ExtSuggestion>,
     pub local_prs: Vec<ExtLocalPr>,
     pub today: Vec<String>,
-    /// Its Inbox thread is unread (null: not in the Inbox).
-    pub unread: Option<bool>,
-    /// Its Inbox thread (Notifications: the thread of the row's item).
-    pub thread: Option<String>,
     /// The folder of its repository in this workspace (null: Not in Launchpad).
     pub folder: Option<String>,
     /// The newest report about it.
     pub report: Option<ExtReport>,
-    /// A bot already merged, closed, approved or answered it (its report is newer than the thread's activity): Done
-    /// all handled marks it Done.
-    pub handled: bool,
     /// Its pull request's Launchpad branch has commits GitHub does not have yet.
     pub push: Option<ExtBranch>,
 }
@@ -504,12 +456,16 @@ async fn reports(app: &App) -> Result<Vec<Report>> {
     Ok(out)
 }
 
-/// Report outcomes that mean a bot already dealt with the item.
-const HANDLED: &[&str] = &["merged", "closed", "approved", "commented"];
-
 impl Data {
     async fn load(app: &App) -> Result<Data> {
-        let login = crate::items::cached(app, "/user".into()).await.ok().flatten().and_then(|v| v["login"].as_str().map(str::to_string));
+        let login = app.github.known_login().await;
+        if login.is_none() {
+            // Read once per process, off the request path: the next answers have it.
+            let app = app.clone();
+            tokio::spawn(async move {
+                let _ = app.github.login().await;
+            });
+        }
         Ok(Data {
             projects: launchpad_core::projects::list(app).await?,
             workspaces: launchpad_core::workspace::list(app).await?,
@@ -546,12 +502,7 @@ fn same(a: &str, b: &str) -> bool {
 
 /// The folders of a repository with their relation; the best first (origin, upstream, fork; then the asked
 /// workspace; then the oldest).
-async fn folders(app: &App, d: &Data, repo: &str, prefer: Option<&str>) -> Vec<ExtFolder> {
-    // A fork Home knows: its cached repository record names its parent, or a Local PR was published from it.
-    let record = crate::items::cached(app, format!("/repos/{repo}")).await.ok().flatten();
-    let parent = record.as_ref().and_then(|v| v["parent"]["full_name"].as_str().map(str::to_string));
-    // The owner's repository of the same name counts as a fork only when the cache does not say it is none.
-    let not_fork = record.as_ref().is_some_and(|v| v["fork"] == false);
+fn folders(d: &Data, repo: &str, prefer: Option<&str>) -> Vec<ExtFolder> {
     let owner = repo.split('/').next().unwrap_or("");
     let name = repo.split('/').nth(1).unwrap_or("");
     let yours = d.login.as_deref().is_some_and(|l| same(l, owner));
@@ -564,9 +515,9 @@ async fn folders(app: &App, d: &Data, repo: &str, prefer: Option<&str>) -> Vec<E
         } else if p.gh_upstream.as_deref().is_some_and(|u| same(u, repo)) {
             Relation::Upstream
         } else if origin.is_some_and(|o| {
-            parent.as_deref().is_some_and(|x| same(x, o))
-                || d.predrafts.iter().any(|x| x.project_id == p.id && x.push_repo.as_deref().is_some_and(|f| same(f, repo)))
-                || (yours && !not_fork && !same(o, repo) && o.split('/').nth(1).is_some_and(|n| same(n, name)))
+            // A fork a Local PR was published from, or the owner's repository of the same name.
+            d.predrafts.iter().any(|x| x.project_id == p.id && x.push_repo.as_deref().is_some_and(|f| same(f, repo)))
+                || (yours && !same(o, repo) && o.split('/').nth(1).is_some_and(|n| same(n, name)))
         }) {
             Relation::Fork
         } else {
@@ -586,17 +537,6 @@ async fn folders(app: &App, d: &Data, repo: &str, prefer: Option<&str>) -> Vec<E
     }
     out.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| (Some(b.2.workspace_id.as_str()) == prefer).cmp(&(Some(a.2.workspace_id.as_str()) == prefer))).then(a.1.cmp(&b.1)));
     out.into_iter().map(|(_, _, f)| f).collect()
-}
-
-/// The page's item from Home's cache: title, head commit and head branch.
-async fn cached_item(app: &App, page: &mut ExtPage) {
-    let (Some(repo), Some(n)) = (&page.repo, page.number) else { return };
-    let Ok(Some(v)) = crate::items::cached(app, format!("item:{repo}:{n}")).await else { return };
-    page.title = v["title"].as_str().map(str::to_string);
-    page.head = v["headRefOid"].as_str().map(str::to_string);
-    page.head_branch = v["headRefName"].as_str().map(str::to_string);
-    page.head_repo = v["headRepository"]["nameWithOwner"].as_str().map(str::to_string);
-    page.maintainer_can_modify = v["maintainerCanModify"].as_bool();
 }
 
 /// What Launchpad has about one item (`number`) or a whole repository (None) in one workspace.
@@ -633,8 +573,6 @@ struct Item<'a> {
     number: Option<u64>,
     folder: Option<&'a ExtFolder>,
     workspace: Option<&'a str>,
-    head: Option<&'a str>,
-    head_branch: Option<&'a str>,
 }
 
 fn state(d: &Data, uses: &[Use], it: &Item) -> State {
@@ -682,10 +620,6 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
                 return None;
             }
             let comments = s.comments.len() as u32;
-            let outdated = match (&s.head, it.head) {
-                (Some(h), Some(head)) if it.number.is_some() && h != head => comments,
-                _ => 0,
-            };
             let session = s.session_id.as_deref().and_then(|id| d.all_sessions.iter().find(|x| x.id == id));
             // Another workspace's agent's suggestion is not this workspace's (its Post would be offered on the page).
             if let (Some(ws), Some(x)) = (it.workspace, session)
@@ -702,7 +636,7 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
                 .map(|c| ExtLine { part: crate::ledger::line_part(c), path: c.path.clone(), line: c.line, start_line: c.start_line, side: c.side.clone(), body: c.body.clone(), state: None })
                 .collect();
             let author = bot.clone().or_else(|| session.map(|x| x.title.clone())).unwrap_or_else(|| s.author.clone());
-            Some(ExtSuggestion { id: s.id.clone(), kind: s.kind.clone(), number: *number, head: s.head.clone(), comments, outdated, status: s.status.clone(), session_id: s.session_id.clone(), bot, reply_to: reply_to.clone(), text, attribution, event: s.event.clone(), lines, created_at: s.created_at, author, body: s.body.clone() })
+            Some(ExtSuggestion { id: s.id.clone(), kind: s.kind.clone(), number: *number, head: s.head.clone(), comments, status: s.status.clone(), session_id: s.session_id.clone(), bot, reply_to: reply_to.clone(), text, attribution, event: s.event.clone(), lines, created_at: s.created_at, author, body: s.body.clone() })
         })
         .collect();
     let local_prs: Vec<ExtLocalPr> = match it.folder {
@@ -710,7 +644,7 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
             .predrafts
             .iter()
             .filter(|p| p.project_id == f.id && !p.archived)
-            .filter(|p| local_pr_matches(p, it.number, it.head_branch))
+            .filter(|p| local_pr_matches(p, it.number))
             .map(|p| local_pr(d, p))
             .collect(),
         None => vec![],
@@ -760,9 +694,10 @@ async fn branches(app: &App, folder: Option<&ExtFolder>, number: Option<u64>) ->
     out
 }
 
-/// The agents' Launchpad branches of the folder that hold the pull request's head `pr_head` and more commits, and
-/// that Home does not push to GitHub yet (not followed): what Push to this PR would send.
-async fn push_ready(app: &App, f: &ExtFolder, agents: &[ExtAgent], followed: &[ExtBranch], number: u64, pr_head: &str, url: &str) -> Vec<ExtBranch> {
+/// The agents' Launchpad branches of the folder for pull request `number` with commits since they started, that Home
+/// does not push to GitHub yet (not followed): what Push to this PR would send. Whether they fast-forward the pull
+/// request's head is checked on GitHub at the click (`push_to_pr`).
+async fn push_ready(app: &App, f: &ExtFolder, agents: &[ExtAgent], followed: &[ExtBranch], number: u64, url: &str) -> Vec<ExtBranch> {
     if !launchpad_core::home_git::here(app) {
         return vec![];
     }
@@ -775,52 +710,12 @@ async fn push_ready(app: &App, f: &ExtFolder, agents: &[ExtAgent], followed: &[E
                 continue;
             }
             let Ok(Some(tip)) = launchpad_core::home_git::tip(app, &f.id, &format!("refs/heads/{}", w.branch)).await else { continue };
-            if tip == pr_head {
-                continue;
-            }
-            let Some(ahead) = launchpad_core::home_git::ahead(app, &f.id, pr_head, &tip).await.filter(|n| *n > 0) else { continue };
+            let Some(ahead) = launchpad_core::home_git::ahead(app, &f.id, &w.base_commit, &tip).await.filter(|n| *n > 0) else { continue };
             let push_ready = Some(ExtPushReady { branch: w.branch.clone(), ahead, head: tip.clone(), session_id: Some(a.session_id.clone()), title: Some(a.title.clone()) });
             out.push(ExtBranch { branch: w.branch, url: url.to_string(), head: Some(tip), not_on_github: false, error: None, push_ready });
         }
     }
     out
-}
-
-/// Whether a changed file decides what CI runs: workflows and actions, scripts, build and dependency files.
-fn ci_relevant(path: &str) -> bool {
-    let lower = path.to_ascii_lowercase();
-    let name = lower.rsplit('/').next().unwrap_or(&lower);
-    lower.starts_with(".github/")
-        || lower.starts_with("scripts/")
-        || lower.starts_with(".circleci/")
-        || lower.contains("/scripts/")
-        || [".sh", ".bash", ".ps1", ".bat", ".cmd"].iter().any(|e| name.ends_with(e))
-        || name.starts_with("dockerfile")
-        || name.starts_with("requirements")
-        || [
-            "makefile", "justfile", "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "pyproject.toml", "setup.py", "setup.cfg", "tox.ini", "noxfile.py",
-            "conftest.py", "uv.lock", "poetry.lock", "pipfile", "pipfile.lock", "cargo.toml", "cargo.lock", "build.rs", "go.mod", "go.sum", "gemfile", "gemfile.lock",
-            ".pre-commit-config.yaml", "docker-compose.yml", "docker-compose.yaml", ".gitlab-ci.yml", ".travis.yml", "action.yml", "action.yaml",
-        ]
-        .contains(&name)
-}
-
-/// The pull request's files that matter for CI, from Home's cached diff of its current head (never a GitHub call).
-async fn ci(app: &App, repo: &str, number: Option<u64>) -> Option<ExtCi> {
-    let n = number?;
-    let item = crate::items::cached(app, format!("item:{repo}:{n}")).await.ok().flatten()?;
-    let (base, head) = (&item["baseRefOid"], item["headRefOid"].as_str()?);
-    let project = launchpad_core::projects::for_repo(app, repo).await.ok().flatten().map(|p| p.id).unwrap_or_else(|| "api".into());
-    let mut diff = None;
-    for key in [project.as_str(), "api"] {
-        diff = crate::items::cached(app, format!("diff:{repo}:{base}:{}:{key}", serde_json::json!(head))).await.ok().flatten();
-        if diff.is_some() {
-            break;
-        }
-    }
-    let files: Vec<String> = diff?["files"].as_array()?.iter().filter_map(|f| f["filename"].as_str().map(str::to_string)).collect();
-    let relevant: Vec<String> = files.iter().filter(|f| ci_relevant(f)).cloned().collect();
-    Some(ExtCi { head: head.to_string(), files: files.len() as u32, more: relevant.len().saturating_sub(20) as u32, relevant: relevant.into_iter().take(20).collect() })
 }
 
 /// The owner's last step with each line comment of the page's suggested reviews (the feedback ledger).
@@ -834,23 +729,23 @@ async fn ledger_states(app: &App, suggestions: &mut [ExtSuggestion]) {
     }
 }
 
-/// `DiffSelection::lines`: the selected lines of a pull request's diff (Home's cached diff of its head, else read
-/// from GitHub), numbered, with `+`/`-`/space marks, and a first line naming the head when it moved since the owner
-/// selected them. None when the file or lines are not in the diff.
+/// `DiffSelection::lines`: the selected lines of a pull request's diff (read from GitHub at delivery), numbered, with
+/// `+`/`-`/space marks, and a first line naming the head when it moved since the owner selected them. None when the
+/// file or lines are not in the diff.
 pub async fn selection_lines(app: &App, sel: &DiffSelection) -> Option<String> {
-    let v = match crate::items::diff(app, &sel.repo, sel.number).await {
+    let (head, files) = match crate::items::diff(app, &sel.repo, sel.number).await {
         Ok(v) => v,
         Err(e) => {
             tracing::warn!("selection of {}#{}: {e:#}", sel.repo, sel.number);
             return None;
         }
     };
-    let file = v["files"].as_array()?.iter().find(|f| f["filename"].as_str() == Some(sel.path.as_str()))?;
+    let file = files.as_array()?.iter().find(|f| f["filename"].as_str() == Some(sel.path.as_str()))?;
     let picked = pick_lines(file["patch"].as_str()?, sel.side == "LEFT", sel.start, sel.end);
     if picked.is_empty() {
         return None;
     }
-    let head = v["head"].as_str().unwrap_or_default();
+    let head = head.as_str();
     let mut out = String::new();
     if let Some(h) = sel.head.as_deref().filter(|h| !head.is_empty() && !head.starts_with(*h)) {
         out.push_str(&format!("@@ read at {} (the owner selected the lines at {}: the numbers may have moved) @@\n", &head[..head.len().min(12)], &h[..h.len().min(12)]));
@@ -935,7 +830,7 @@ pub async fn push_to_pr(app: &App, repo: &str, number: u64, branch: &str, head: 
         ensure!(f.url.trim_end_matches('/') == url.trim_end_matches('/'), "{branch} already goes to {}", f.url);
     }
     let own = p.gh_repo.as_deref().is_some_and(|r| same(r, &head_repo));
-    let login = crate::items::cached(app, "/user".into()).await.ok().flatten().and_then(|u| u["login"].as_str().map(str::to_string));
+    let login = app.github.login().await.ok();
     let yours = login.is_some_and(|l| head_repo.split('/').next().is_some_and(|o| same(o, &l)));
     ensure!(own || yours || v["maintainer_can_modify"] == true, "the author of {label} does not let maintainers edit its branch: Home cannot push there");
     let remote = if own {
@@ -985,16 +880,15 @@ pub(crate) async fn default_bot(app: &App, project: Option<&Project>, repo: Opti
 /// folder and to choose among folders of several workspaces.
 pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<ExtContext> {
     let d = Data::load(app).await?;
-    let mut page = parse_page(url);
+    let page = parse_page(url);
     let asked = workspace.filter(|w| d.workspaces.iter().any(|x| x.id == *w));
     let mut found = match &page.repo {
-        Some(r) => folders(app, &d, r, asked).await,
+        Some(r) => folders(&d, r, asked),
         None => vec![],
     };
     let folder = (!found.is_empty()).then(|| found.remove(0));
     let others: Vec<ExtFolder> = found.into_iter().filter(|f| folder.as_ref().is_none_or(|x| x.workspace_id != f.workspace_id)).collect();
     let ws = folder.as_ref().map(|f| f.workspace_id.clone()).or(asked.map(str::to_string));
-    cached_item(app, &mut page).await;
     let project = folder.as_ref().and_then(|f| d.projects.iter().find(|p| p.id == f.id));
     let mut out = ExtContext {
         workspace: ws.as_deref().and_then(|w| d.workspace(w)),
@@ -1006,17 +900,14 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
         local_prs: vec![],
         branches: vec![],
         today: vec![],
-        inbox: None,
-        inbox_unread: 0,
         defaults: ExtDefaults { bot: default_bot(app, project, page.repo.as_deref(), ws.as_deref()).await, review: match page.repo.as_deref() { Some(r) => review_choice(app, r).await.unwrap_or(None), None => None } },
         login: d.login.clone(),
         presets: presets(app),
-        ci: None,
         page: page.clone(),
     };
     let Some(repo) = page.repo.as_deref() else { return Ok(out) };
     let uses = launchpad_core::ref_use::uses(app, repo).await.unwrap_or_default();
-    let item = Item { repo, number: page.number, folder: folder.as_ref(), workspace: ws.as_deref(), head: page.head.as_deref(), head_branch: page.head_branch.as_deref() };
+    let item = Item { repo, number: page.number, folder: folder.as_ref(), workspace: ws.as_deref() };
     let s = state(&d, &uses, &item);
     (out.agents, out.suggestions, out.local_prs, out.today) = (s.agents, s.suggestions, s.local_prs, s.today);
     if let (Some(n), Some(w)) = (page.number, ws.as_deref()) {
@@ -1034,19 +925,11 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
             .collect();
     }
     out.branches = branches(app, folder.as_ref(), page.number).await;
-    if page.kind.is_pr() && let (Some(f), Some(n), Some(head)) = (folder.as_ref(), page.number, page.head.as_deref()) {
+    if page.kind.is_pr() && let (Some(f), Some(n)) = (folder.as_ref(), page.number) {
         let url = format!("https://github.com/{repo}/pull/{n}");
-        out.branches.extend(push_ready(app, f, &out.agents, &out.branches, n, head, &url).await);
-    }
-    if page.kind.is_pr() {
-        out.ci = ci(app, repo, page.number).await;
+        out.branches.extend(push_ready(app, f, &out.agents, &out.branches, n, &url).await);
     }
     ledger_states(app, &mut out.suggestions).await;
-    let threads = crate::inbox::of(app).threads_of(app, Some(repo), &[]).await.unwrap_or_default();
-    out.inbox_unread = threads.iter().filter(|t| t.unread).count() as u32;
-    if let Some(n) = page.number {
-        out.inbox = threads.iter().find(|t| t.number == Some(n)).map(|t| ExtInbox { thread: t.id.clone(), unread: t.unread, reason: t.reason.clone() });
-    }
     Ok(out)
 }
 
@@ -1093,7 +976,7 @@ pub async fn set_review_choice(app: &App, repo: &str, workspace: &str, choice: E
 struct Wanted {
     item: String,
     repo: String,
-    number: Option<u64>,
+    number: u64,
 }
 
 /// `owner/repo#number`.
@@ -1103,34 +986,25 @@ fn item_ref(s: &str) -> Option<(String, u64)> {
     launchpad_core::github::valid_repo(repo).then(|| (repo.to_string(), n))
 }
 
-/// The row states of a list page: `items` are numbers on a repository's Pull requests or Issues page, thread IDs or
-/// `owner/repo#number` on Notifications (at most 100).
+/// The row states of a list page: `items` are numbers on a repository's Pull requests or Issues page, or
+/// `owner/repo#number` (at most 100).
 pub async fn rows(app: &App, url: &str, items: &[String], workspace: Option<&str>) -> Result<ExtRows> {
     let d = Data::load(app).await?;
     let page = parse_page(url);
     let asked = workspace.filter(|w| d.workspaces.iter().any(|x| x.id == *w));
     let items: Vec<&String> = items.iter().take(100).collect();
-    let wanted: Vec<Wanted> = match (&page.repo, page.kind) {
-        (_, PageKind::Notifications) => {
-            let ids: Vec<String> = items.iter().filter(|s| !s.contains('#')).map(|s| s.to_string()).collect();
-            let threads = if ids.is_empty() { vec![] } else { crate::inbox::of(app).threads_of(app, None, &ids).await.unwrap_or_default() };
-            items
-                .iter()
-                .filter_map(|s| match item_ref(s) {
-                    Some((repo, n)) => Some(Wanted { item: s.to_string(), repo, number: Some(n) }),
-                    None => threads.iter().find(|t| &&t.id == s).map(|t| Wanted { item: s.to_string(), repo: t.repo.clone(), number: t.number }),
-                })
-                .collect()
-        }
-        (Some(repo), _) => items.iter().filter_map(|s| s.parse::<u64>().ok().map(|n| Wanted { item: s.to_string(), repo: repo.clone(), number: Some(n) })).collect(),
-        (None, _) => vec![],
-    };
-    // Per repository: its folder, the items its sessions named, its Inbox threads and the branches Home pushes to its
-    // pull requests.
+    let wanted: Vec<Wanted> = items
+        .iter()
+        .filter_map(|s| match (item_ref(s), &page.repo) {
+            (Some((repo, n)), _) => Some(Wanted { item: s.to_string(), repo, number: n }),
+            (None, Some(repo)) => s.parse::<u64>().ok().filter(|n| *n > 0).map(|n| Wanted { item: s.to_string(), repo: repo.clone(), number: n }),
+            (None, None) => None,
+        })
+        .collect();
+    // Per repository: its folder, the items its sessions named and the branches Home pushes to its pull requests.
     struct PerRepo {
         folder: Option<ExtFolder>,
         uses: Vec<Use>,
-        threads: Vec<crate::inbox::Thread>,
         branches: Vec<ExtBranch>,
     }
     let mut by_repo: HashMap<String, PerRepo> = HashMap::new();
@@ -1138,153 +1012,61 @@ pub async fn rows(app: &App, url: &str, items: &[String], workspace: Option<&str
     for w in wanted {
         let key = w.repo.to_lowercase();
         if !by_repo.contains_key(&key) {
-            let folder = folders(app, &d, &w.repo, asked).await.into_iter().next();
+            let folder = folders(&d, &w.repo, asked).into_iter().next();
             let uses = launchpad_core::ref_use::uses(app, &w.repo).await.unwrap_or_default();
-            let threads = crate::inbox::of(app).threads_of(app, Some(&w.repo), &[]).await.unwrap_or_default();
             let branches = branches(app, folder.as_ref(), None).await;
-            by_repo.insert(key.clone(), PerRepo { folder, uses, threads, branches });
+            by_repo.insert(key.clone(), PerRepo { folder, uses, branches });
         }
         let r = &by_repo[&key];
         let ws = r.folder.as_ref().map(|f| f.workspace_id.as_str()).or(asked);
-        // A notification about something else than an issue or pull request (a release, a discussion) has no state.
-        let s = match w.number {
-            Some(n) => state(&d, &r.uses, &Item { repo: &w.repo, number: Some(n), folder: r.folder.as_ref(), workspace: ws, head: None, head_branch: None }),
-            None => State { agents: vec![], suggestions: vec![], local_prs: vec![], today: vec![] },
-        };
-        let thread = w.number.and_then(|n| r.threads.iter().filter(|t| t.number == Some(n)).max_by(|a, b| a.updated_at.cmp(&b.updated_at)));
-        let report = w.number.and_then(|n| d.report(&w.repo, n, ws));
-        let handled = handled(thread, report.as_ref());
-        let push = w.number.and_then(|n| r.branches.iter().find(|b| b.not_on_github && b.url.trim_end_matches('/').ends_with(&format!("/pull/{n}")))).cloned();
+        let n = w.number;
+        let s = state(&d, &r.uses, &Item { repo: &w.repo, number: Some(n), folder: r.folder.as_ref(), workspace: ws });
+        let report = d.report(&w.repo, n, ws);
+        let push = r.branches.iter().find(|b| b.not_on_github && b.url.trim_end_matches('/').ends_with(&format!("/pull/{n}"))).cloned();
         rows.push(ExtRow {
             item: w.item,
             repo: Some(w.repo.clone()),
-            number: w.number,
+            number: Some(n),
             agents: s.agents,
             suggestions: s.suggestions,
             local_prs: s.local_prs,
             today: s.today,
-            unread: thread.map(|t| t.unread),
-            thread: thread.map(|t| t.id.clone()),
             folder: r.folder.as_ref().filter(|f| Some(f.workspace_id.as_str()) == ws).map(|f| f.id.clone()),
             report,
-            handled,
             push,
         });
     }
     let folder = page.repo.as_ref().and_then(|r| by_repo.get(&r.to_lowercase())).and_then(|x| x.folder.clone());
     let folder = match (folder, &page.repo) {
         (Some(f), _) => Some(f),
-        (None, Some(r)) => folders(app, &d, r, asked).await.into_iter().next(),
+        (None, Some(r)) => folders(&d, r, asked).into_iter().next(),
         (None, None) => None,
     };
     let ws = folder.as_ref().map(|f| f.workspace_id.clone()).or(asked.map(str::to_string));
     Ok(ExtRows { workspace: ws.as_deref().and_then(|w| d.workspace(w)), folder, page, rows })
 }
 
-/// A thread of the Inbox that a bot's report already dealt with: the report says merged, closed, approved or
-/// commented, and nothing happened on the thread for more than an hour after it.
-fn handled(thread: Option<&crate::inbox::Thread>, report: Option<&ExtReport>) -> bool {
-    let (Some(t), Some(r)) = (thread, report) else { return false };
-    HANDLED.contains(&r.outcome.as_str()) && launchpad_core::today::parse_time(&t.updated_at) <= r.at + 3_600_000
-}
-
-/// Today's counts of a workspace as the notifications strip shows them.
-#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
-pub struct ExtTodayCounts {
-    /// Agents' questions and reports that ask you.
-    pub answer: u32,
-    /// Finished, failed or interrupted agents not seen yet.
-    pub review: u32,
-    /// Agent-written comments and reviews to post.
-    pub suggestions: u32,
-    /// Local PRs to publish.
-    pub local_prs: u32,
-    /// Everything that waits in Today.
-    pub total: u32,
-}
-
-/// An Inbox thread a bot already handled (Done all handled).
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-pub struct ExtHandled {
-    pub thread: String,
-    pub repo: String,
-    #[ts(type = "number")]
-    pub number: u64,
-    pub title: String,
-    pub outcome: String,
-    pub bot: Option<String>,
-}
-
-/// The notifications page's strip (N1) and the threads of Done all handled (N4).
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-pub struct ExtNotifications {
-    pub workspace: Option<ExtWorkspace>,
-    pub counts: ExtTodayCounts,
-    pub handled: Vec<ExtHandled>,
-    /// Threads marked Done, read or unsubscribed on github.com in the last day (recorded in Launchpad's Inbox).
-    pub observed: u32,
-}
-
-fn counts(today: &Today, ws: Option<&str>) -> ExtTodayCounts {
-    use launchpad_core::today::{Filter, Kind};
-    let mut c = ExtTodayCounts::default();
-    for i in today.items.iter().filter(|i| i.workspaces.is_empty() || ws.is_some_and(|w| i.workspaces.iter().any(|x| x == w))) {
-        c.total += 1;
-        if i.filter == Filter::Answer {
-            c.answer += 1;
-        }
-        match i.kind {
-            Kind::Finished | Kind::Failed => c.review += 1,
-            Kind::Suggestion => c.suggestions += 1,
-            Kind::LocalPr => c.local_prs += 1,
-            _ => {}
-        }
-    }
-    c
-}
-
-/// The strip of github.com/notifications for workspace `ws`: Today's counts and the Inbox threads of the workspace's
-/// repositories that a bot already handled.
-pub async fn notifications(app: &App, ws: Option<&str>) -> Result<ExtNotifications> {
-    let d = Data::load(app).await?;
-    let ws = ws.filter(|w| d.workspaces.iter().any(|x| x.id == *w));
-    let snapshot = crate::inbox::of(app).snapshot(app).await?;
-    let mut handled_threads = vec![];
-    if let Some(w) = ws {
-        let repos: HashSet<String> = launchpad_core::scope::repos(app, w).await.into_iter().collect();
-        for t in snapshot.threads.iter().filter(|t| repos.contains(&t.repo.to_lowercase())) {
-            let Some(n) = t.number else { continue };
-            let Some(r) = d.report(&t.repo, n, Some(w)) else { continue };
-            if handled(Some(t), Some(&r)) {
-                handled_threads.push(ExtHandled { thread: t.id.clone(), repo: t.repo.clone(), number: n, title: t.title.clone(), outcome: r.outcome, bot: r.bot });
-            }
-        }
-    }
-    Ok(ExtNotifications { workspace: ws.and_then(|w| d.workspace(w)), counts: counts(&d.today, ws), handled: handled_threads, observed: snapshot.observed.len() as u32 })
-}
-
-fn local_pr_matches(p: &Predraft, number: Option<u64>, head_branch: Option<&str>) -> bool {
+fn local_pr_matches(p: &Predraft, number: Option<u64>) -> bool {
     match number {
-        Some(n) => launchpad_core::predrafts::fixed_issues(&p.body).contains(&n)
-            || p.published_number == Some(n)
-            || head_branch.is_some_and(|b| p.remote_branch.as_deref() == Some(b) || p.branch == b),
+        Some(n) => launchpad_core::predrafts::fixed_issues(&p.body).contains(&n) || p.published_number == Some(n),
         None => p.is_open(),
     }
 }
 #[cfg(test)]
 mod item_link_tests {
     #[test]
-    fn unpublished_local_pr_matches_fixed_issue_and_pr_branch() {
+    fn local_pr_matches_fixed_issue_and_published_pr() {
         let mut p: super::Predraft = serde_json::from_value(serde_json::json!({
             "id":"p", "project_id":"f", "branch":"lp/fix", "base_branch":"main",
             "initial_base":"abc", "title":"Fix", "body":"Fixes #12. Closes #34",
             "notes":[], "archived":false, "default_remote_branch":"fix", "created_at":0
         })).unwrap();
-        assert!(super::local_pr_matches(&p, Some(12), None));
-        assert!(super::local_pr_matches(&p, Some(34), None));
-        assert!(!super::local_pr_matches(&p, Some(56), None));
-        assert!(super::local_pr_matches(&p, Some(56), Some("lp/fix")));
+        assert!(super::local_pr_matches(&p, Some(12)));
+        assert!(super::local_pr_matches(&p, Some(34)));
+        assert!(!super::local_pr_matches(&p, Some(56)));
+        p.published_number = Some(56);
+        assert!(super::local_pr_matches(&p, Some(56)));
         p.body.clear();
-        assert!(!super::local_pr_matches(&p, Some(12), None));
+        assert!(!super::local_pr_matches(&p, Some(12)));
     }
 }

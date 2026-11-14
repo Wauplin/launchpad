@@ -5,10 +5,10 @@
  */
 export type RoutineLaunch = { id: string, title: string, 
 /**
- * For example "Scheduled" or "GitHub, review requested: owner/repo#12".
+ * For example "Scheduled" or "Run now".
  */
 cause: string, 
 /**
- * The items behind an event (GitHub threads, a finished session), one per line.
+ * The items behind an event (a finished session, failures, channel messages), one per line.
  */
 context: string, };

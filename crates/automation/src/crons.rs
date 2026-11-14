@@ -1,13 +1,13 @@
 //! Routines (code: crons): runs that start on their own. A trigger starts a run: a 5-field cron schedule (local
-//! time), new GitHub activity in the Inbox, another agent's turn ending Done, a Launchpad failure, or new messages
-//! in a bot channel (`channel_trigger`). A routine of a bot sends its
+//! time), another agent's turn ending Done, a Launchpad failure, or new messages in a bot channel
+//! (`channel_trigger`). A routine of a bot sends its
 //! instructions to the bot's thread; any other routine launches the same spec as a new session.
 //!
 //! A bot's routines are defined by files of its store, `routines/<name>.toml` (`RoutineFile`): saving one here
 //! writes its file, and every write of the bot's files syncs the records (`sync_bot_files`). The records keep what
-//! files do not: runs, the next due time, the GitHub and failure watermarks. Other routines are records only.
+//! files do not: runs, the next due time, the failure and channel watermarks. Other routines are records only.
 //!
-//! Every run is claimed before it starts (`next_run_at` moves forward, the GitHub watermark advances, a history
+//! Every run is claimed before it starts (`next_run_at` moves forward, a watermark advances, a history
 //! entry is written), so a crash never repeats it, and a run more than one hour late is skipped. A run ends with
 //! a report, or with the final message `no_update`, which stays silent (no notification, not Needs you).
 use anyhow::{Context, Result, bail, ensure};
@@ -18,10 +18,10 @@ use ts_rs::TS;
 use crate::schedules::QuotaKind;
 use launchpad_core::{App, model::{LaunchSpec, RoutineLaunch, Session, SessionStatus, Target}, util::now_ms};
 
-/// Runs later than this (daemon stopped, old GitHub activity) are skipped instead of started.
+/// Runs later than this (daemon stopped, old failures) are skipped instead of started.
 pub(crate) const MISSED_GRACE_MS: i64 = 60 * 60_000;
 const RUNS_KEPT: usize = 50;
-/// Runs a routine started by events (GitHub, another agent's turn, failures) may start in an hour; a later event is
+/// Runs a routine started by events (another agent's turn, failures, channel messages) may start in an hour; a later event is
 /// skipped. Schedules are not limited: their cron sets their pace.
 pub const EVENT_RUNS_PER_HOUR: usize = 6;
 pub use launchpad_core::routines::{NO_UPDATE, TRIGGER_FORMS, instruction, is_no_update};
@@ -42,8 +42,6 @@ pub enum Trigger {
     /// The routine's `schedule`.
     #[default]
     Schedule,
-    /// New activity in the Inbox (GitHub notifications) of a repository: one of the workspace's when None.
-    Github { repo: Option<String>, events: Vec<GithubEvent> },
     /// A turn of another agent ended Done, in this folder (any folder of the workspace when None). Turns of bot
     /// threads count only with `include_bots`: by default a bot's answer never starts a routine.
     SessionDone {
@@ -67,43 +65,6 @@ pub enum Trigger {
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum GithubEvent {
-    ReviewRequested,
-    Mentioned,
-    Assigned,
-    /// Workflow runs GitHub notifies you about (by default, failed runs you triggered).
-    CiActivity,
-    Release,
-    /// Any new notification.
-    Any,
-}
-
-impl GithubEvent {
-    fn matches(self, kind: &str, reason: &str) -> bool {
-        match self {
-            Self::ReviewRequested => reason == "review_requested",
-            Self::Mentioned => reason == "mention" || reason == "team_mention",
-            Self::Assigned => reason == "assign",
-            Self::CiActivity => reason == "ci_activity" || kind == "CheckSuite",
-            Self::Release => kind == "Release",
-            Self::Any => true,
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::ReviewRequested => "review requested",
-            Self::Mentioned => "mentioned",
-            Self::Assigned => "assigned",
-            Self::CiActivity => "CI activity",
-            Self::Release => "new release",
-            Self::Any => "activity",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum RunOutcome {
     Running,
     /// The run ended with something to report.
@@ -121,7 +82,7 @@ pub enum RunOutcome {
 pub struct RoutineRun {
     #[ts(type = "number")]
     pub at: i64,
-    /// What started it, for example "Scheduled" or "Review requested: owner/repo#12".
+    /// What started it, for example "Scheduled" or "Run now".
     pub cause: String,
     pub session_id: Option<String>,
     pub outcome: RunOutcome,
@@ -171,9 +132,6 @@ pub struct CronAgent {
     /// Past runs with their outcome, oldest first.
     #[serde(default)]
     pub history: Vec<RoutineRun>,
-    /// GitHub trigger: the newest Inbox activity (`updated_at`) already handled.
-    #[serde(default)]
-    pub github_seen: Option<String>,
     /// Failure trigger: the newest failure (`Failure::seen_at`, Unix ms) already handled.
     #[serde(default)]
     #[ts(type = "number | null")]
@@ -388,13 +346,6 @@ pub(crate) async fn modify<T: Send + 'static>(
 pub(crate) fn validate_trigger(trigger: &Trigger, schedule: &str, zone: Option<&str>) -> Result<()> {
     match trigger {
         Trigger::Schedule => next_after(schedule, zone, now_ms()).map(|_| ()),
-        Trigger::Github { repo, events } => {
-            ensure!(!events.is_empty(), "pick at least one kind of GitHub activity");
-            if let Some(r) = repo {
-                ensure!(r.split('/').filter(|p| !p.is_empty()).count() == 2, "write the repository as owner/name");
-            }
-            Ok(())
-        }
         Trigger::SessionDone { .. } => Ok(()),
         Trigger::Failure { events } => {
             ensure!(!events.is_empty(), "pick at least one kind of failure");
@@ -469,7 +420,6 @@ pub async fn create(
         last_outcome: None,
         runs: vec![],
         history: vec![],
-        github_seen: None,
         failure_seen: None,
         channel_seen: None,
         file: None,
@@ -569,7 +519,6 @@ pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> 
             ensure!(!matches!(t, Trigger::Channel { .. }), "a channel trigger is for a bot's routines: add it on the bot's page");
             if t != r.trigger {
                 // A new trigger starts from now: never runs for activity or failures from before the change.
-                r.github_seen = Some(rfc3339(now));
                 r.failure_seen = Some(now);
             }
             r.trigger = t;
@@ -699,7 +648,7 @@ pub struct RoutineFile {
     pub conditions: Vec<CronCondition>,
 }
 
-const FILE_HEADER: &str = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), github, session_done, failure or channel.\n";
+const FILE_HEADER: &str = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), session_done, failure or channel.\n";
 
 pub fn render_file(f: &RoutineFile) -> Result<String> {
     Ok(format!("{FILE_HEADER}{}", toml::to_string(f)?))
@@ -778,8 +727,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                 modify(app, &r.id, move |r| {
                     let timing = r.schedule != f.schedule || r.time_zone != f.time_zone || r.trigger != f.trigger || r.paused != f.paused || undue(r);
                     if r.trigger != f.trigger {
-                        r.github_seen = Some(rfc3339(now));
-                        r.failure_seen = Some(now);
+                                r.failure_seen = Some(now);
                         r.channel_seen = Some(head);
                     }
                     r.title = f.title;
@@ -833,8 +781,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                     last_outcome: None,
                     runs: vec![],
                     history: vec![],
-                    github_seen: None,
-                    failure_seen: None,
+                                failure_seen: None,
                     channel_seen: Some(head),
                     file: Some(path.clone()),
                     file_error: error,
@@ -1052,7 +999,7 @@ pub async fn run_now(app: &App, id: &str) -> Result<Session> {
 }
 
 /// Starts an event run when the routine allows it; otherwise records why it was skipped. `hops`: the automatic
-/// messages in the chain of its message, itself included (1 for a schedule, GitHub or a failure).
+/// messages in the chain of its message, itself included (1 for a schedule or a failure).
 pub(crate) async fn on_event(app: &App, r: &CronAgent, cause: String, context: String, hops: u32) -> Result<()> {
     if let Some(why) = limit_reason(r, hops, now_ms()) {
         return skip(app, &r.id, cause, why).await;
@@ -1060,8 +1007,8 @@ pub(crate) async fn on_event(app: &App, r: &CronAgent, cause: String, context: S
     if let Some(why) = why_blocked(app, r).await? {
         return skip(app, &r.id, cause, why).await;
     }
-    // Automatic work needs confirmed quota; an event never waits for it here (schedules, GitHub and failures wait
-    // before they claim), so the run is missed.
+    // Automatic work needs confirmed quota; an event never waits for it here (schedules and failures wait before
+    // they claim), so the run is missed.
     if let Some(why) = quota_hold(app, r).await? {
         return skip_run(app, &r.id, cause, format!("automatic work needs confirmed quota: {why}"), true).await;
     }
@@ -1257,87 +1204,6 @@ async fn session_done(app: &App, s: &Session, records: &[CronAgent]) -> Result<(
     Ok(())
 }
 
-/// The repositories of a workspace's folders, lowercase.
-async fn workspace_repos(app: &App, workspace: Option<&str>) -> Result<Vec<String>> {
-    let Some(ws) = workspace else { return Ok(vec![]) };
-    Ok(launchpad_core::projects::list(app)
-        .await?
-        .into_iter()
-        .filter(|p| p.workspace_id.as_deref() == Some(ws))
-        .flat_map(|p| [p.gh_repo, p.gh_upstream])
-        .flatten()
-        .map(|r| r.to_lowercase())
-        .collect())
-}
-
-fn rfc3339(ms: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms).map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)).unwrap_or_default()
-}
-
-/// After each Inbox sync: starts GitHub routines with the new activity that matches them, one run for all of it.
-pub async fn inbox_synced(app: &App) {
-    if let Err(e) = inbox_synced_inner(app).await {
-        tracing::warn!("GitHub routines: {e:#}");
-    }
-}
-
-async fn inbox_synced_inner(app: &App) -> Result<()> {
-    let records: Vec<CronAgent> = list(app).await?.into_iter().filter(|r| r.active() && matches!(r.trigger, Trigger::Github { .. })).collect();
-    if records.is_empty() {
-        return Ok(());
-    }
-    let threads = launchpad_core::ext::extensions().inbox_threads(app).await?;
-    let now = now_ms();
-    for r in records {
-        let Trigger::Github { repo, events } = &r.trigger else { continue };
-        let repos = match repo {
-            Some(x) => vec![x.to_lowercase()],
-            None => workspace_repos(app, r.spec.workspace_id.as_deref()).await?,
-        };
-        let seen = r.github_seen.clone().unwrap_or_else(|| rfc3339(r.created_at));
-        let new: Vec<_> = threads
-            .iter()
-            .filter(|t| t.unread && t.updated_at > seen && repos.contains(&t.repo.to_lowercase()))
-            .filter_map(|t| events.iter().find(|e| e.matches(&t.kind, &t.reason)).map(|e| (t, *e)))
-            .collect();
-        let Some(newest) = new.iter().map(|(t, _)| t.updated_at.clone()).max() else { continue };
-        let stale = |t: &launchpad_core::github::Thread| chrono::DateTime::parse_from_rfc3339(&t.updated_at).is_ok_and(|d| now - d.timestamp_millis() > MISSED_GRACE_MS);
-        // Wait for a fresh quota reading, but never longer than an hour.
-        if new.iter().any(|(t, _)| !stale(t)) && quota_hold(app, &r).await?.is_some() {
-            continue;
-        }
-        let claimed = newest.clone();
-        let (record, ()) = modify(app, &r.id, move |r| {
-            ensure!(r.github_seen.as_deref().is_none_or(|s| s < claimed.as_str()), "already handled");
-            r.github_seen = Some(claimed);
-            r.last_check_at = Some(now);
-            Ok(())
-        })
-        .await?;
-        let fresh: Vec<_> = new.iter().filter(|(t, _)| !stale(t)).collect();
-        let cause = match fresh.as_slice() {
-            [(t, e)] => format!("GitHub, {}: {}{}", e.label(), t.repo, t.number.map(|n| format!("#{n}")).unwrap_or_default()),
-            [] => format!("GitHub activity ({})", new.len()),
-            many => format!("GitHub activity ({})", many.len()),
-        };
-        if fresh.is_empty() {
-            let (why, missed) = match quota_hold(app, &record).await? {
-                Some(held) => (format!("the activity is more than 1 hour old; it waited for the quota: {held}"), true),
-                None => ("the activity is more than 1 hour old".into(), false),
-            };
-            skip_run(app, &record.id, cause, why, missed).await?;
-            continue;
-        }
-        let context = fresh
-            .iter()
-            .map(|(t, e)| format!("- {}: {}{} “{}” ({}, {}) {}", e.label(), t.repo, t.number.map(|n| format!("#{n}")).unwrap_or_default(), t.title.replace('"', "'"), t.kind, t.reason, t.url))
-            .collect::<Vec<_>>()
-            .join("\n");
-        on_event(app, &record, cause, context, 1).await?;
-    }
-    Ok(())
-}
-
 /// Every 30 s on Home: notices new failures (`failures::collect`), then starts the failure routines that take
 /// some of them, one run for all of it. A routine whose bot is working waits (its failures stay unclaimed) until
 /// they are more than one hour old.
@@ -1512,8 +1378,10 @@ mod tests {
         };
         let text = render_file(&f).unwrap();
         assert_eq!(parse_file(&text).unwrap(), f);
-        let g = RoutineFile { trigger: Trigger::Github { repo: None, events: vec![GithubEvent::ReviewRequested] }, schedule: String::new(), conditions: vec![], paused: true, ..f.clone() };
+        let g = RoutineFile { trigger: Trigger::Failure { events: vec![crate::failures::FailureKind::Any] }, schedule: String::new(), conditions: vec![], paused: true, ..f.clone() };
         assert_eq!(parse_file(&render_file(&g).unwrap()).unwrap(), g);
+        // The removed GitHub trigger is an error of the file.
+        assert!(parse_file("title = \"x\"\ninstructions = \"y\"\ntrigger = { kind = \"github\", events = [\"any\"] }\n").is_err());
         // A hand-written file with the trigger inline and defaults left out.
         let hand = "title = \"CI\"\ninstructions = \"Fix it\"\ntrigger = { kind = \"failure\", events = [\"any\"] }\n";
         assert!(matches!(parse_file(hand).unwrap().trigger, Trigger::Failure { .. }));
@@ -1560,16 +1428,6 @@ mod tests {
         assert!(text.contains("include_bots = true"), "{text}");
         assert_eq!(parse_file(&text).unwrap(), with_bots);
         assert!(!render_file(&RoutineFile { trigger: Trigger::SessionDone { folder: None, include_bots: false }, ..with_bots }).unwrap().contains("include_bots"));
-    }
-
-    #[test]
-    fn github_events_match_notification_reasons() {
-        assert!(GithubEvent::ReviewRequested.matches("PullRequest", "review_requested"));
-        assert!(!GithubEvent::ReviewRequested.matches("PullRequest", "mention"));
-        assert!(GithubEvent::Mentioned.matches("Issue", "team_mention"));
-        assert!(GithubEvent::CiActivity.matches("CheckSuite", "subscribed"));
-        assert!(GithubEvent::Release.matches("Release", "subscribed"));
-        assert!(GithubEvent::Any.matches("Discussion", "comment"));
     }
 
     #[test]

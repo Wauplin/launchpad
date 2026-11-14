@@ -1,6 +1,6 @@
 //! Proposals: inert cards written by agents with the Launchpad CLI tool (`launchpad propose`), accepted by an
 //! owner click, or at once for one-time starts when the author is a bot in auto mode (`bot.toml` `proposals`).
-//! Ready cards name an owner action of the action list (merge, publish, post, send, run CI, Inbox done): the owner's click
+//! Ready cards name an owner action of the action list (merge, publish, post, send, run CI): the owner's click
 //! runs that action's own API call from the card, then marks the card started (`ran`); accepting never runs them.
 //! Like agent suggestions, the agent drafts and the owner publishes. Accepting claims the proposal
 //! durably before acting; a claim interrupted by a crash becomes Uncertain and is never retried

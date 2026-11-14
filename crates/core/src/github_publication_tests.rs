@@ -1,5 +1,6 @@
 //! Loopback fixtures only: never resolve credentials or contact GitHub.
 use super::*;
+use crate::util::now_ms;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub(crate) struct Mock {
@@ -59,9 +60,7 @@ pub(crate) async fn mock(f: impl Fn(&str) -> (u16, String) + Send + Sync + 'stat
 
 #[tokio::test]
 async fn publication_errors_distinguish_rejection_from_uncertain_delivery() {
-    let root = std::env::temp_dir().join(format!("lp-gh-errors-{}", uuid::Uuid::new_v4()));
-    let db = crate::db::open_cache(&root).unwrap();
-    let client = GitHub::new(UserEnv::from_vars(Default::default()), db);
+    let client = GitHub::new(UserEnv::from_vars(Default::default()));
     for (status, body, uncertain) in [
         (403, "{}", false),
         (422, "{}", false),
@@ -76,7 +75,6 @@ async fn publication_errors_distinguish_rejection_from_uncertain_delivery() {
                 reqwest::Method::POST,
                 "/repos/test/fixture/issues/1/comments",
                 Some(serde_json::json!({"body":"test"})),
-                false,
             )
             .await
             .err()
@@ -87,7 +85,7 @@ async fn publication_errors_distinguish_rejection_from_uncertain_delivery() {
     let gh = client.clone().with_test_origin(fixture.origin.clone());
     drop(fixture);
     let e = gh
-        .request(reqwest::Method::POST, "/test", None, false)
+        .request(reqwest::Method::POST, "/test", None)
         .await
         .err()
         .unwrap();
@@ -108,12 +106,9 @@ async fn publication_errors_distinguish_rejection_from_uncertain_delivery() {
         },
     );
     let e = gh
-        .request(reqwest::Method::POST, "/test", None, false)
+        .request(reqwest::Method::POST, "/test", None)
         .await
         .err()
         .unwrap();
     assert!(!delivery_uncertain(&e));
-    for suffix in ["", "-wal", "-shm"] {
-        let _ = std::fs::remove_file(format!("{}{suffix}", root.display()));
-    }
 }

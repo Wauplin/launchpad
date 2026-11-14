@@ -683,9 +683,9 @@ impl LaunchSpec {
 pub struct RoutineLaunch {
     pub id: String,
     pub title: String,
-    /// For example "Scheduled" or "GitHub, review requested: owner/repo#12".
+    /// For example "Scheduled" or "Run now".
     pub cause: String,
-    /// The items behind an event (GitHub threads, a finished session), one per line.
+    /// The items behind an event (a finished session, failures, channel messages), one per line.
     pub context: String,
 }
 
@@ -726,10 +726,6 @@ pub struct BotLaunch {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<PermissionMode>")]
     pub permission_mode: Option<PermissionMode>,
-    /// `inbox_done = true` in bot.toml (and more than read access): it may run `launchpad inbox done`.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    #[ts(optional, as = "Option<bool>")]
-    pub inbox_done: bool,
 }
 
 impl BotLaunch {
@@ -862,7 +858,7 @@ pub struct PullRequestRef {
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 pub struct GitHubRef {
     pub url: String,
-    /// `issue`, `pr`, `comment`, `review_comment` or another notification subject kind.
+    /// `issue`, `pr`, `comment` or `review_comment`.
     pub kind: String,
     pub repo: String,
     pub number: Option<u64>,

@@ -6,7 +6,7 @@ import type { RunOutcome } from "./RunOutcome";
  */
 export type RoutineRun = { at: number, 
 /**
- * What started it, for example "Scheduled" or "Review requested: owner/repo#12".
+ * What started it, for example "Scheduled" or "Run now".
  */
 cause: string, session_id: string | null, outcome: RunOutcome, 
 /**

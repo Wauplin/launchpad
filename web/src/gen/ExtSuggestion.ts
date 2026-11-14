@@ -12,10 +12,6 @@ export type ExtSuggestion = { id: string, kind: SuggestionKind, number: number,
  */
 head: string | null, comments: number, 
 /**
- * Line comments written for another commit than the pull request's head in Home's cache.
- */
-outdated: number, 
-/**
  * `draft`, `inserted` (Insert put it into GitHub's box; GitHub's button posts it), `posting` or `uncertain`.
  */
 status: string, session_id: string | null, 

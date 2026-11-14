@@ -625,7 +625,7 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     let pr = if let Some(v) = found {
         v
     } else {
-        app.github.request(Method::POST, &format!("/repos/{repo}/pulls"), Some(json!({"title":p.title,"body":body,"head":pr_head,"base":p.base_branch,"draft":q.draft})), false).await?.value
+        app.github.request(Method::POST, &format!("/repos/{repo}/pulls"), Some(json!({"title":p.title,"body":body,"head":pr_head,"base":p.base_branch,"draft":q.draft}))).await?
     };
     let _lock = app.predraft_lock.lock().await;
     p = get(app, id).await?;
@@ -685,7 +685,7 @@ pub async fn publish_set(app: &App, id: &str, q: PublishSet) -> Result<Vec<Predr
         let others: Vec<String> = published.iter().filter(|o| o.id != m.id).filter_map(|o| o.published_url.clone()).collect();
         let (Some(url), Some(number)) = (&m.published_url, m.published_number) else { continue };
         let Some(repo) = crate::git::github_repo(url.split("/pull/").next().unwrap_or_default()) else { continue };
-        if let Err(e) = app.github.request(Method::PATCH, &format!("/repos/{repo}/pulls/{number}"), Some(json!({"body": published_body(app, m, &others)})), false).await {
+        if let Err(e) = app.github.request(Method::PATCH, &format!("/repos/{repo}/pulls/{number}"), Some(json!({"body": published_body(app, m, &others)}))).await {
             tracing::warn!("link {url} to its change set: {e:#}");
         }
     }

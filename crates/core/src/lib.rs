@@ -114,7 +114,6 @@ pub struct App {
     pub paths: Arc<paths::Paths>,
     pub config: config::ConfigHandle,
     pub state_db: db::Db,
-    pub cache_db: db::Db,
     pub bus: events::Bus,
     pub env: shellenv::UserEnv,
     pub status: status::StatusHandle,
@@ -189,15 +188,19 @@ impl App {
             env = env.with_git_guard(git_safe::Guard::new(&paths.data_dir, paths.port, sandbox));
         }
         let state_db = db::open_state(&paths.state_db())?;
-        let cache_db = db::open_cache(&paths.cache_db())?;
+        // The GitHub mirror (`cache.db`) and the image proxy's files (`images/`) of older versions: Launchpad
+        // stores nothing it reads from GitHub now.
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(paths.data_dir.join(format!("cache.db{suffix}")));
+        }
+        let _ = std::fs::remove_dir_all(paths.data_dir.join("images"));
         let status = status::StatusHandle::new(bus.clone());
         let harnesses = harness::Registry::new(&env);
-        let github = github::GitHub::new(env.clone(), cache_db.clone());
+        let github = github::GitHub::new(env.clone());
         let app = App {
             paths,
             config,
             state_db,
-            cache_db,
             bus,
             env,
             status,
@@ -280,6 +283,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     sessions::Preview::export_all(cfg)?;
     start::StartPreview::export_all(cfg)?;
     github::GhItem::export_all(cfg)?;
+    github::RateLimit::export_all(cfg)?;
     terminals::TerminalInfo::export_all(cfg)?;
     terminals::TerminalFolders::export_all(cfg)?;
     code::CodeSources::export_all(cfg)?;

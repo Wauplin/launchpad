@@ -181,9 +181,9 @@ mod tests {
         assert_eq!(undo_call(actions::get("session.archive").unwrap(), &["s".into()], None, None, None).1, None);
         // A bot.toml field set alone is put back alone, a default included.
         let bot = actions::get("bot.update").unwrap();
-        let (before, undo) = undo_call(bot, &["b".into()], Some(&json!({"set": {"inbox_done": true}})), Some(&json!({"id": "b", "settings": {"name": "Scout", "proposals": "auto"}})), None);
-        assert_eq!(before, Some(json!({"set": {"inbox_done": false}})));
-        assert_eq!(undo.unwrap().body, Some(json!({"set": {"inbox_done": false}})));
+        let (before, undo) = undo_call(bot, &["b".into()], Some(&json!({"set": {"starters": ["Hi"]}})), Some(&json!({"id": "b", "settings": {"name": "Scout", "proposals": "auto"}})), None);
+        assert_eq!(before, Some(json!({"set": {"starters": []}})));
+        assert_eq!(undo.unwrap().body, Some(json!({"set": {"starters": []}})));
         // Routine files: the old text of a changed one, null for a new one (Undo deletes it).
         let files = json!({"files": {"routines/a.toml": "new a", "routines/b.toml": "b"}});
         let (_, undo) = undo_call(bot, &["b".into()], Some(&files), Some(&json!({"id": "b", "routines": {"routines/a.toml": "old a"}})), None);

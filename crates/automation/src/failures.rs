@@ -6,7 +6,7 @@
 //! Home checks every 30 s (`collect`) and keeps a feed of the last failures in memory. Failures with their own
 //! time (sessions, Burst runs, routine runs, restarts) are found again after a restart; the others (scheduled
 //! launches, runners) count from the first check after the start. Routines with a `failure` trigger read the feed
-//! after their watermark (`CronAgent::failure_seen`), claimed before the run like the GitHub trigger.
+//! after their watermark (`CronAgent::failure_seen`), claimed before the run.
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 

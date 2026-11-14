@@ -1,4 +1,4 @@
-//! Routes for projects, launch, sessions, GitHub inbox and settings helpers.
+//! Routes for projects, launch, sessions, GitHub link helpers and settings helpers.
 
 use axum::Json;
 use axum::Router;
@@ -72,13 +72,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/sessions/{id}/budget", post(set_budget))
         .route("/api/sessions/{id}/terminal", post(open_terminal))
         .route("/api/sessions/{id}/task-output", get(task_output))
-        .route("/api/inbox", get(inbox))
-        .route("/api/inbox/sync", post(inbox_sync))
-        .route("/api/inbox/restore", post(inbox_restore))
-        .route("/api/inbox/agent-done", post(inbox_agent_done))
-        .route("/api/inbox/{id}/preview", get(inbox_preview).post(inbox_refresh))
-        .route("/api/inbox/{id}/action", post(inbox_action))
-        .route("/api/inbox/{id}/reply", post(inbox_reply))
+        .route("/api/gh/limits", get(gh_limits))
         .route("/api/gh/resolve", post(gh_resolve))
         .route("/api/gh/{owner}/{repo}/suggest", get(gh_suggest))
 }
@@ -563,6 +557,11 @@ struct Resolve {
     url: String,
 }
 
+/// GitHub's rate limits as of the last call Home made.
+async fn gh_limits(State(s): State<Ctx>) -> ApiResult<std::collections::HashMap<String, launchpad_core::github::RateLimit>> {
+    Ok(Json(s.app.github.limits.read().await.clone()))
+}
+
 async fn gh_resolve(State(s): State<Ctx>, Json(b): Json<Resolve>) -> ApiResult<GitHubRef> {
     Ok(Json(s.app.github.resolve_link(&b.url).await.map_err(bad)?))
 }
@@ -582,101 +581,6 @@ async fn gh_suggest(
         return Err(ApiError::bad_request("not a GitHub owner and repository"));
     }
     Ok(Json(s.app.github.suggest(&full, q.q.as_deref().unwrap_or("")).await.map_err(bad)?))
-}
-
-async fn inbox(State(s): State<Ctx>) -> ApiResult<launchpad_github::inbox::InboxSnapshot> {
-    Ok(Json(launchpad_github::inbox::of(&s.app).snapshot(&s.app).await?))
-}
-async fn inbox_sync(State(s): State<Ctx>) -> ApiResult<Value> {
-    launchpad_github::inbox::of(&s.app).sync(&s.app).await.map_err(bad)?;
-    Ok(Json(json!({"ok":true})))
-}
-async fn inbox_preview(
-    State(s): State<Ctx>,
-    Path(id): Path<String>,
-) -> ApiResult<Option<launchpad_github::inbox::ThreadPreview>> {
-    Ok(Json(launchpad_github::inbox::of(&s.app).preview(&s.app, &id).await?))
-}
-#[derive(Deserialize)]
-struct PreviewRefresh { #[serde(default)] force: bool }
-async fn inbox_refresh(State(s): State<Ctx>, Path(id): Path<String>, Json(b):Json<PreviewRefresh>) -> ApiResult<Value> {
-    launchpad_github::inbox::of(&s.app).refresh_preview(&s.app, &id, b.force).await.map_err(bad)?;
-    Ok(Json(json!({"ok":true})))
-}
-#[derive(Deserialize)]
-struct InboxAction {
-    action: String,
-}
-async fn inbox_action(
-    State(s): State<Ctx>,
-    Path(id): Path<String>,
-    Json(b): Json<InboxAction>,
-) -> ApiResult<Value> {
-    launchpad_github::inbox::of(&s.app).action(&s.app, &id, &b.action)
-        .await
-        .map_err(bad)?;
-    Ok(Json(json!({"ok":true})))
-}
-async fn inbox_reply(
-    State(s): State<Ctx>,
-    Path(id): Path<String>,
-    Json(b): Json<Input>,
-) -> ApiResult<Value> {
-    launchpad_github::inbox::of(&s.app).reply(&s.app, &id, &b.text).await?;
-    Ok(Json(json!({"ok":true})))
-}
-
-#[derive(Deserialize)]
-struct InboxRestore { ids: Vec<String> }
-async fn inbox_restore(State(s): State<Ctx>, Json(b): Json<InboxRestore>) -> ApiResult<Value> {
-    launchpad_github::inbox::of(&s.app).restore(&s.app, b.ids).await.map_err(bad)?;
-    Ok(Json(json!({"ok":true})))
-}
-
-#[derive(Deserialize)]
-struct AgentDone { session_id: String, ids: Vec<String>, #[serde(default)] unsubscribe: bool }
-/// `launchpad inbox done|unsubscribe`: a bot session marks Inbox threads done, here and on GitHub, without the
-/// owner's click; with `unsubscribe`, it also mutes them on GitHub first, like the Unsubscribe button.
-/// Only for a bot whose bot.toml says `inbox_done = true` (and more than read access), checked on Home with
-/// the bot's current settings; only threads still in the Inbox. Each thread is marked like the Done button.
-async fn inbox_agent_done(State(s): State<Ctx>, Json(b): Json<AgentDone>) -> ApiResult<Value> {
-    let forbidden = |m: &str| ApiError::new(axum::http::StatusCode::FORBIDDEN, m.to_string());
-    let session = s.app.sessions.get(&b.session_id).ok_or_else(|| ApiError::not_found("no such session"))?;
-    if session.status == SessionStatus::Closed {
-        return Err(forbidden("this session is archived"));
-    }
-    let bot_id = session.launch_spec.bot.as_ref().map(|x| x.id.clone()).ok_or_else(|| forbidden("only a bot whose bot.toml says `inbox_done = true` may mark Inbox threads done; propose a ready card (`inbox.done`) instead"))?;
-    let bot = launchpad_core::bots::get(&s.app, &bot_id).await.map_err(|_| ApiError::not_found("the session's bot no longer exists"))?;
-    if bot.settings_error.is_some() || !bot.settings.inbox_done || bot.settings.launchpad == launchpad_core::vault::LaunchpadAccess::Read {
-        return Err(forbidden("this bot may not mark Inbox threads done: the owner sets `inbox_done = true` in its bot.toml (the bot's page: About → Access); propose a ready card (`inbox.done`) instead"));
-    }
-    if b.ids.is_empty() || b.ids.len() > 200 {
-        return Err(ApiError::bad_request("give 1 to 200 thread ids (from `launchpad inbox list`)"));
-    }
-    let action = if b.unsubscribe { "unsubscribe" } else { "done" };
-    let inbox = launchpad_github::inbox::of(&s.app);
-    let snap = inbox.snapshot(&s.app).await?;
-    let active: std::collections::HashSet<String> = snap.active_ids.into_iter().collect();
-    // Only threads of the repositories of the bot's workspace (`launchpad inbox list` shows them).
-    let ws = launchpad_core::scope::of_session(&s.app, &b.session_id).await.ok_or_else(|| forbidden("this session has no workspace"))?;
-    let repos = launchpad_core::scope::repos(&s.app, &ws).await;
-    let ours: std::collections::HashSet<String> = snap.threads.into_iter().filter(|t| repos.contains(&t.repo.to_lowercase())).map(|t| t.id).collect();
-    let mut results = Vec::new();
-    for id in b.ids {
-        let r = if !active.contains(&id) {
-            Err("not in the Inbox (unknown id, or already done)".to_string())
-        } else if !ours.contains(&id) {
-            Err("a thread of a repository outside this workspace's folders".to_string())
-        } else {
-            inbox.action(&s.app, &id, action).await.map_err(|e| format!("{e:#}"))
-        };
-        match &r {
-            Ok(()) => tracing::info!(session = %b.session_id, bot = %bot_id, thread = %id, action, "inbox thread marked done by a bot"),
-            Err(e) => tracing::warn!(session = %b.session_id, bot = %bot_id, thread = %id, action, "inbox {action} by a bot failed: {e}"),
-        }
-        results.push(match r { Ok(()) => json!({"id": id, "done": true}), Err(e) => json!({"id": id, "done": false, "error": e}) });
-    }
-    Ok(Json(json!(results)))
 }
 
 // ---------------------------------------------------------------- delayed launches

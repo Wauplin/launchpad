@@ -44,7 +44,7 @@ pub const ROUTINE_PATH: &str = "routines/weekly-tidy.toml";
 /// `routines/weekly-tidy.toml`: Sunday 03:00 in Home's time zone (`[home] time_zone`, else the host's). The
 /// routines crate checks and syncs it like any routine file.
 pub const ROUTINE: &str = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit
-# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), github, session_done, failure or channel.
+# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), session_done, failure or channel.
 title = \"Weekly tidy\"
 paused = true
 schedule = \"0 3 * * 0\"

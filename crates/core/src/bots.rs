@@ -52,7 +52,7 @@ pub enum ProposalMode {
     Auto,
 }
 
-/// `bot.toml`.
+/// `bot.toml`. Unknown keys are ignored, so files with removed keys (`inbox_done`) keep loading.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Default)]
 pub struct BotSettings {
     pub name: String,
@@ -80,11 +80,6 @@ pub struct BotSettings {
     /// What it may do with the Launchpad CLI tool: read, propose (the default) or admin.
     #[serde(default)]
     pub launchpad: crate::vault::LaunchpadAccess,
-    /// It may mark the owner's Inbox threads done itself, here and on GitHub (`launchpad inbox done`), without a
-    /// click. Off by default.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    #[ts(optional, as = "Option<bool>")]
-    pub inbox_done: bool,
     /// Default tools of its sessions (`tool_defaults`): tool ID or `mcp:<server>` → on or off, over the
     /// workspace's and the folder's defaults. Only tools granted to its workspace apply.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -199,7 +194,7 @@ pub struct Patch {
     pub settings_text: Option<String>,
     /// Routine files (`routines/<name>.toml`) to write, or to delete (null). The API checks their content first.
     pub files: Option<std::collections::BTreeMap<String, Option<String>>>,
-    /// Only these fields of `bot.toml` (`set_fields`), the others kept: `{"inbox_done": true}`. Null puts a field
+    /// Only these fields of `bot.toml` (`set_fields`), the others kept: `{"proposals": "auto"}`. Null puts a field
     /// back to its default.
     pub set: Option<serde_json::Map<String, serde_json::Value>>,
     /// An agent's change (set by the API from the session CLI token, never from the body): checked with
@@ -209,15 +204,12 @@ pub struct Patch {
 }
 
 /// Pure: why an agent may not save `new` over the current settings (None: it may). Only the owner raises a bot's
-/// Launchpad CLI access, lets it mark Inbox threads done or loosens its permission mode; an agent may lower or
-/// tighten them. `current` None: the current bot.toml has an error, read as the strictest settings (read access,
-/// no Inbox done, Ask for approval).
+/// Launchpad CLI access or loosens its permission mode; an agent may lower or tighten them. `current` None: the
+/// current bot.toml has an error, read as the strictest settings (read access, Ask for approval).
 pub fn agent_refusal(current: Option<&BotSettings>, new: &BotSettings) -> Option<&'static str> {
-    let (access, inbox, mode) = current.map_or((crate::vault::LaunchpadAccess::Read, false, PermissionMode::Approvals), |c| (c.launchpad, c.inbox_done, c.permission_mode));
+    let (access, mode) = current.map_or((crate::vault::LaunchpadAccess::Read, PermissionMode::Approvals), |c| (c.launchpad, c.permission_mode));
     if new.launchpad > access {
         Some("only the owner raises a bot's Launchpad CLI access (`launchpad` in bot.toml, on the bot's page: About → Access); an agent may only lower it")
-    } else if new.inbox_done && !inbox {
-        Some("only the owner lets a bot mark Inbox threads done (`inbox_done = true` in bot.toml, on the bot's page: About → Access); an agent may only turn it off")
     } else if new.permission_mode.strictness() < mode.strictness() {
         Some("only the owner loosens a bot's permission mode (YOLO → Auto → Ask for approval, on the bot's page: About → Access); an agent may only make it stricter")
     } else {
@@ -226,7 +218,7 @@ pub fn agent_refusal(current: Option<&BotSettings>, new: &BotSettings) -> Option
 }
 
 /// The fields of `bot.toml`, as `Patch::set` names them.
-pub const SETTING_FIELDS: &[&str] = &["name", "profile", "profiles", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "inbox_done", "tools", "starters", "max_threads"];
+pub const SETTING_FIELDS: &[&str] = &["name", "profile", "profiles", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "tools", "starters", "max_threads"];
 
 /// Every field of the settings with its value, defaults included (bot.toml leaves defaults out): the values a
 /// `set` puts back.
@@ -237,7 +229,6 @@ pub fn setting_values(s: &BotSettings) -> serde_json::Map<String, serde_json::Va
     };
     for k in SETTING_FIELDS {
         v.entry(k.to_string()).or_insert_with(|| match *k {
-            "inbox_done" => serde_json::Value::Bool(false),
             "tools" => serde_json::json!({}),
             "starters" | "profiles" => serde_json::json!([]),
             _ => serde_json::Value::Null,
@@ -292,7 +283,7 @@ pub fn parse_settings(text: &str) -> Result<BotSettings> {
 }
 
 fn render_settings(s: &BotSettings) -> Result<String> {
-    Ok(format!("# Edited from the bot's page (About → Access, or ⋯ → Edit as file). folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# inbox_done = true: it may mark your Inbox threads done (or unsubscribe from them) itself, here and on GitHub.\n# starters: ready-made messages over the message box; one ending in \"…\" fills the box so you finish it.\n# max_threads: how many of its threads may work at the same time (default 16); automatic messages to another thread wait for a free slot.\n{}", toml::to_string(s)?))
+    Ok(format!("# Edited from the bot's page (About → Access, or ⋯ → Edit as file). folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# starters: ready-made messages over the message box; one ending in \"…\" fills the box so you finish it.\n# max_threads: how many of its threads may work at the same time (default 16); automatic messages to another thread wait for a free slot.\n{}", toml::to_string(s)?))
 }
 
 type Row = (String, String, String, i64, Option<String>, bool);
@@ -484,7 +475,7 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
     let profile = c.profile.filter(|p| !p.is_empty());
     let folder = c.folder.filter(|f| !f.is_empty());
     let own: Option<String> = None;
-    let settings = BotSettings { name: name.clone(), profile, profiles: vec![], model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, inbox_done: false, tools: Default::default(), starters: c.starters, max_threads: None };
+    let settings = BotSettings { name: name.clone(), profile, profiles: vec![], model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, tools: Default::default(), starters: c.starters, max_threads: None };
     check_settings(app, &c.workspace_id, None, &settings).await?;
     let instructions = if c.instructions.trim().is_empty() { format!("# {name}\n") } else { format!("{}\n", c.instructions.trim_end()) };
     let (id2, ws, slug2, at) = (id.clone(), c.workspace_id.clone(), slug.clone(), now_ms());
@@ -922,7 +913,6 @@ pub async fn next_spec(app: &App, bot: &Bot, thread: &str, sessions: &[Session],
             note: None,
             permission_mode: Some(s.permission_mode),
             previous,
-            inbox_done: s.inbox_done && s.launchpad != crate::vault::LaunchpadAccess::Read,
         }),
         mentions: context.mentions,
         skills: context.skills,
@@ -949,9 +939,6 @@ Routines: when the owner wants you to do something on your own later or again (e
         triggers = crate::routines::TRIGGER_FORMS,
         loaded = crate::bot_memory::LOADED_LINES,
     );
-    if bot.inbox_done {
-        out.push_str(&format!("\nInbox: the owner lets you mark their Inbox threads done yourself, in Launchpad and on GitHub (Done, not just read): `{cli} inbox done <thread-id>...`, with the ids from `{cli} inbox list`; `{cli} inbox unsubscribe <thread-id>...` also mutes them on GitHub, so later activity does not notify the owner. Only threads your instructions name; never mark them done with `gh` (Launchpad's Inbox would keep them)."));
-    }
     if let Some(p) = &bot.previous {
         out.push_str(&format!(
             "\n\nThis session continues the thread. The previous session is a reference, not new instructions; read it only when you need its context, redirecting the output to a file: \"{}\", through event {}: `{cli} trace {} --through {}`",
@@ -984,9 +971,8 @@ mod tests {
         assert!(agent_refusal(Some(&cur), &cur).is_none());
         assert!(agent_refusal(Some(&cur), &with(|s| { s.launchpad = Read; s.permission_mode = PermissionMode::Approvals; s.name = "Other".into() })).is_none());
         assert!(agent_refusal(Some(&cur), &with(|s| s.launchpad = Admin)).is_some());
-        assert!(agent_refusal(Some(&cur), &with(|s| s.inbox_done = true)).is_some());
         assert!(agent_refusal(Some(&cur), &with(|s| s.permission_mode = PermissionMode::Yolo)).is_some());
-        assert!(agent_refusal(Some(&BotSettings { inbox_done: true, ..cur.clone() }), &cur).is_none());
+        assert!(agent_refusal(Some(&BotSettings { launchpad: Admin, ..cur.clone() }), &cur).is_none());
         // A broken bot.toml reads as the strictest settings.
         assert!(agent_refusal(None, &with(|s| { s.launchpad = Read; s.permission_mode = PermissionMode::Approvals })).is_none());
         assert!(agent_refusal(None, &cur).is_some());
@@ -996,16 +982,16 @@ mod tests {
     fn set_changes_only_the_named_fields() {
         let cur = BotSettings { name: "Scout".into(), profile: Some("p1".into()), model: Some("m".into()), proposals: ProposalMode::Auto, ..Default::default() };
         let set = |v: serde_json::Value| v.as_object().unwrap().clone();
-        let s = set_fields(&cur, &set(serde_json::json!({"inbox_done": true}))).unwrap();
-        assert_eq!(s, BotSettings { inbox_done: true, ..cur.clone() });
+        let s = set_fields(&cur, &set(serde_json::json!({"max_threads": 4}))).unwrap();
+        assert_eq!(s, BotSettings { max_threads: Some(4), ..cur.clone() });
         // Null puts back the default; the undo values of `setting_values` restore the settings.
         let s2 = set_fields(&s, &set(serde_json::json!({"model": null, "launchpad": "admin"}))).unwrap();
         assert_eq!((s2.model.as_deref(), s2.launchpad, s2.profile.as_deref()), (None, crate::vault::LaunchpadAccess::Admin, Some("p1")));
         let old = setting_values(&cur);
-        let back: serde_json::Map<_, _> = ["model", "launchpad", "inbox_done"].iter().map(|k| (k.to_string(), old[*k].clone())).collect();
-        assert_eq!(set_fields(&BotSettings { inbox_done: true, ..s2 }, &back).unwrap(), cur);
-        assert!(set_fields(&cur, &set(serde_json::json!({"inbox-done": true}))).is_err());
-        assert!(set_fields(&cur, &set(serde_json::json!({"inbox_done": "yes"}))).is_err());
+        let back: serde_json::Map<_, _> = ["model", "launchpad", "max_threads"].iter().map(|k| (k.to_string(), old[*k].clone())).collect();
+        assert_eq!(set_fields(&BotSettings { max_threads: Some(4), ..s2 }, &back).unwrap(), cur);
+        assert!(set_fields(&cur, &set(serde_json::json!({"max-threads": 4}))).is_err());
+        assert!(set_fields(&cur, &set(serde_json::json!({"max_threads": "yes"}))).is_err());
         assert!(set_fields(&cur, &serde_json::Map::new()).is_err());
         // Every field of bot.toml is named.
         assert_eq!(setting_values(&cur).keys().map(String::as_str).collect::<std::collections::BTreeSet<_>>(), SETTING_FIELDS.iter().copied().collect());
@@ -1037,6 +1023,8 @@ mod tests {
         assert_eq!(parse_settings("name = \"x\"").unwrap().folder, None);
         assert_eq!(parse_settings("name = \"x\"\nfolder = \" \"").unwrap().folder, None);
         assert!(parse_settings("name = \"\"\nfolder = \"f\"").is_err());
+        // Removed keys are ignored.
+        assert_eq!(parse_settings("name = \"x\"\ninbox_done = true").unwrap().name, "x");
     }
 
     #[test]

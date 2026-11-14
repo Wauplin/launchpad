@@ -15,12 +15,11 @@ use crate::paths::Paths;
 use std::collections::BTreeMap;
 
 /// Unknown keys are ignored, so files with removed keys and sections (`projects_root`, `remove_published_worktree`,
-/// `[commands]`, `[agents]`, `[voice]`) keep loading.
+/// `[commands]`, `[agents]`, `[voice]`, `[github] poll_interval_seconds`) keep loading.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
 pub struct Config {
     pub server: ServerConfig,
-    pub github: GitHub,
     pub worktrees: Worktrees,
     pub presets: Vec<Preset>,
     /// Named harness settings, selectable in the composer beside the base harnesses.
@@ -161,12 +160,6 @@ pub enum Billing {
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(default)]
-pub struct GitHub {
-    pub poll_interval_seconds: u64,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
-#[serde(default)]
 pub struct Worktrees {
     /// Clean task worktrees of idle sessions kept on disk; older ones are removed and restored on resume. 0: keep all.
     pub keep: u32,
@@ -195,12 +188,6 @@ fn preset_agent_default() -> bool {
     true
 }
 
-impl Default for GitHub {
-    fn default() -> Self {
-        GitHub { poll_interval_seconds: 60 }
-    }
-}
-
 /// Written on first start. Missing keys in a user file fall back to these values.
 /// Presets are user-defined only; missing presets and `presets = []` both mean none.
 pub const DEFAULT_CONFIG: &str = r#"presets = []                       # add your own prompt instructions in Settings
@@ -209,9 +196,6 @@ pub const DEFAULT_CONFIG: &str = r#"presets = []                       # add you
 bind = "127.0.0.1"                 # local CLI and browser listener
 auto_tailnet = true               # also listen on a discovered Tailscale IP
 # public_origin = "https://launchpad.example.com"  # restart daemon after changes
-
-[github]
-poll_interval_seconds = 60          # GitHub's X-Poll-Interval wins when larger
 
 [worktrees]
 keep = 15                           # clean task worktrees of idle agents kept on disk (0: keep all)
@@ -457,7 +441,7 @@ mod tests {
 
     #[test]
     fn removed_sections_still_load() {
-        let config: Config = toml::from_str("[commands]\nbrowser = \"xdg-open\"\n\n[agents]\nnotify = false\n").unwrap();
+        let config: Config = toml::from_str("[commands]\nbrowser = \"xdg-open\"\n\n[agents]\nnotify = false\n\n[github]\npoll_interval_seconds = 60\n").unwrap();
         assert_eq!(config, Config::default());
     }
 

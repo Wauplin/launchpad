@@ -16,7 +16,7 @@ detail: string,
  */
 workspaces: Array<string>, 
 /**
- * The record it is about: a session, proposal, Outbox message, suggestion, Local PR, Inbox thread, routine or runner ID.
+ * The record it is about: a session, proposal, Outbox message, suggestion, Local PR, routine or runner ID.
  */
 record: string, 
 /**

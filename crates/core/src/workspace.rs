@@ -1,6 +1,6 @@
 //! Workspaces: user-defined groups of projects. Every project belongs to exactly one workspace
-//! (`project.workspace_id`). A window always shows one workspace; its agents, scheduled launches, crons and inbox
-//! threads are the ones of its projects. There is always one: Home creates the first at its first start, and the
+//! (`project.workspace_id`). A window always shows one workspace; its agents, scheduled launches and crons are
+//! the ones of its projects. There is always one: Home creates the first at its first start, and the
 //! last one cannot be deleted.
 
 use anyhow::{Context, Result, bail};

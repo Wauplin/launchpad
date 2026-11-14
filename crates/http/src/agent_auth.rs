@@ -26,7 +26,7 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
         Some(LaunchpadAccess::Admin)
     } else if method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity" || channel_read(path)) {
         Some(LaunchpadAccess::Read)
-    } else if method == Method::POST && (path == "/api/proposals" || path == "/api/inbox/agent-done" || path == CHANNEL_POST) {
+    } else if method == Method::POST && (path == "/api/proposals" || path == CHANNEL_POST) {
         Some(LaunchpadAccess::Propose)
     } else {
         None
@@ -181,7 +181,7 @@ fn read_allowed(path: &str) -> bool {
 pub const KB_BODY_MAX: usize = 128 << 20;
 
 fn own_write(path: &str) -> bool {
-    matches!(path, "/api/link" | "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/notes" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/inbox/agent-done" | "/api/sleep" | CHANNEL_POST)
+    matches!(path, "/api/link" | "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/notes" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/sleep" | CHANNEL_POST)
 }
 
 async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
@@ -316,9 +316,9 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
     match (get, &p[1..]) {
         (true, ["status"] | ["context", "profiles" | "presets" | "hops"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
-        (false, ["link"] | ["sleep"] | ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["notes"] | ["connections", "send"] | ["inbox", "agent-done"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
+        (false, ["link"] | ["sleep"] | ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["notes"] | ["connections", "send"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
-        (true, ["context", "folders" | "bots" | "sessions" | "inbox" | "schedules" | "topics"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
+        (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
         (false, ["channels"] | ["channels", "dm"]) => Body,
         // The agent's own channels: Home resolves them in the session's workspace (`launchpad_channels::agent`).
         (true, ["channels", "agent"] | ["channels", "agent", "read"]) | (false, ["channels", "agent", "post"]) => Shared,
@@ -337,7 +337,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (_, ["workspaces", id]) => Workspace(id),
         (false, ["worktrees", id, "discard" | "fix"]) => Worktree(id),
         (_, ["tool-defaults", scope, id]) => Tools(scope, id),
-        (true, ["items" | "repo-meta" | "gh", owner, repo, ..]) => Repo(owner, repo),
+        (true, ["gh", owner, repo, ..]) => Repo(owner, repo),
         _ => Unscoped,
     }
 }
@@ -531,10 +531,6 @@ mod tests {
         }
         assert!(read_allowed("/api/context/folders"));
         assert!(own_write("/api/worktrees/finish"));
-        // Bots allowed by bot.toml mark Inbox threads done (Home checks the bot); read access never does.
-        assert!(own_write("/api/inbox/agent-done"));
-        assert_eq!(tool_need(&Method::POST, "/api/inbox/agent-done"), Some(LaunchpadAccess::Propose));
-        assert!(!own_write("/api/inbox/t/action"));
         // A bot writes its own memory like the knowledge base, at every access level (Home checks the bot).
         assert!(own_write("/api/bot-memory"));
         assert_eq!(tool_need(&Method::POST, "/api/bot-memory"), None);
@@ -557,7 +553,7 @@ mod tests {
         assert_eq!(names(&Method::GET, "/api/predrafts/p1"), LocalPr("p1"));
         assert_eq!(names(&Method::POST, "/api/worktrees/w1/discard"), Worktree("w1"));
         assert_eq!(names(&Method::PUT, "/api/tool-defaults/folder/f1"), Tools("folder", "f1"));
-        assert_eq!(names(&Method::GET, "/api/items/o/r/12"), Repo("o", "r"));
+        assert_eq!(names(&Method::GET, "/api/gh/o/r/suggest"), Repo("o", "r"));
         assert_eq!(names(&Method::PUT, "/api/channels/c1/members/b1"), Channel("c1"));
         assert_eq!(names(&Method::POST, "/api/channels/dm"), Body);
         assert_eq!(names(&Method::POST, "/api/link"), Shared);
@@ -577,7 +573,7 @@ mod tests {
             assert_eq!(names(&Method::GET, path), Shared, "{path}");
         }
         // Lists of every workspace's records and other machines' state.
-        for path in ["/api/sessions", "/api/sessions/search", "/api/bots", "/api/projects", "/api/workspaces", "/api/launch/crons", "/api/launch/schedules", "/api/inbox", "/api/worktrees", "/api/tool-defaults", "/api/suggestions", "/api/uploads/h", "/api/sessions//trace", "/api/x"] {
+        for path in ["/api/sessions", "/api/sessions/search", "/api/bots", "/api/projects", "/api/workspaces", "/api/launch/crons", "/api/launch/schedules", "/api/worktrees", "/api/tool-defaults", "/api/suggestions", "/api/uploads/h", "/api/sessions//trace", "/api/x"] {
             assert_eq!(names(&Method::GET, path), Unscoped, "{path}");
         }
         assert_eq!(names(&Method::POST, "/api/proposals"), Shared);
@@ -612,10 +608,10 @@ mod tests {
 
     #[test]
     fn admin_reaches_launchpad_records_only() {
-        for (m, path) in [(Method::PATCH, "/api/bots/b"), (Method::POST, "/api/bots/b/message"), (Method::POST, "/api/launch/crons"), (Method::DELETE, "/api/launch/crons/c"), (Method::POST, "/api/proposals/p/accept"), (Method::POST, "/api/sessions"), (Method::POST, "/api/sessions/s/input"), (Method::GET, "/api/inbox")] {
+        for (m, path) in [(Method::PATCH, "/api/bots/b"), (Method::POST, "/api/bots/b/message"), (Method::POST, "/api/launch/crons"), (Method::DELETE, "/api/launch/crons/c"), (Method::POST, "/api/proposals/p/accept"), (Method::POST, "/api/sessions"), (Method::POST, "/api/sessions/s/input")] {
             assert!(admin_allows(&m, path), "{m} {path}");
         }
-        for (m, path) in [(Method::POST, "/api/suggestions/s/post"), (Method::POST, "/api/predrafts/p/publish"), (Method::POST, "/api/outbox/o/send"), (Method::POST, "/api/items/o/r/1/merge"), (Method::PUT, "/api/vault/entries/github"), (Method::POST, "/api/vault/entries/codex/refresh"), (Method::PUT, "/api/vault/tools/x"), (Method::PUT, "/api/config"), (Method::POST, "/api/terminals"), (Method::POST, "/api/sessions/s/resume-paid"), (Method::POST, "/api/sessions/s/paid-usage"), (Method::POST, "/api/devices/pair"), (Method::POST, "/api/runners/r/approve"), (Method::GET, "/api/vault"), (Method::GET, "/api/devices"), (Method::POST, "/api/home-git/f/merge"), (Method::POST, "/api/inbox/t/reply"), (Method::POST, "/api/proposals/p/accept/"), (Method::POST, "/api/sessions//input")] {
+        for (m, path) in [(Method::POST, "/api/suggestions/s/post"), (Method::POST, "/api/predrafts/p/publish"), (Method::POST, "/api/outbox/o/send"), (Method::POST, "/api/items/o/r/1/run-ci"), (Method::PUT, "/api/vault/entries/github"), (Method::POST, "/api/vault/entries/codex/refresh"), (Method::PUT, "/api/vault/tools/x"), (Method::PUT, "/api/config"), (Method::POST, "/api/terminals"), (Method::POST, "/api/sessions/s/resume-paid"), (Method::POST, "/api/sessions/s/paid-usage"), (Method::POST, "/api/devices/pair"), (Method::POST, "/api/runners/r/approve"), (Method::GET, "/api/vault"), (Method::GET, "/api/devices"), (Method::POST, "/api/home-git/f/merge"), (Method::POST, "/api/proposals/p/accept/"), (Method::POST, "/api/sessions//input")] {
             assert!(!admin_allows(&m, path), "{m} {path}");
         }
         assert!(!admin_allows(&Method::GET, "/api/config"));
@@ -626,7 +622,7 @@ mod tests {
         let folder = actions::get("folder.set").unwrap();
         assert_eq!(unknown_field(folder, Some(&serde_json::json!({"worktree_setup": "x"}))).as_deref(), Some("worktree_setup"));
         assert!(unknown_field(folder, Some(&serde_json::json!({"when_done": "keep"}))).is_none());
-        assert!(unknown_field(actions::get("bot.update").unwrap(), Some(&serde_json::json!({"set": {"inbox_done": true}}))).is_none());
+        assert!(unknown_field(actions::get("bot.update").unwrap(), Some(&serde_json::json!({"set": {"max_threads": 4}}))).is_none());
         assert!(asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": true}})));
         assert!(!asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": false}})));
     }

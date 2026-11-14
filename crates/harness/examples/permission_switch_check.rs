@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     let config = core::config::ConfigHandle::load(&paths, bus.clone())?;
     let mut settings = config.get();
     // A profile has its own on-demand Codex event router, so the fixture needs no
-    // global services (quota monitors, CLI updates or GitHub synchronization).
+    // global services (quota monitors or CLI updates).
     settings.profiles.push(core::config::Profile {
         id: "permission-check".into(), name: "Permission check".into(),
         harness: HarnessKind::parse("codex").unwrap(),
@@ -41,15 +41,14 @@ async fn main() -> Result<()> {
     });
     config.save(settings)?;
     let state_db = core::db::open_state(&paths.state_db())?;
-    let cache_db = core::db::open_cache(&paths.cache_db())?;
     let env = core::shellenv::UserEnv::resolve().await;
     let status = core::status::StatusHandle::new(bus.clone());
     let app = core::App {
         runners: Default::default(),
         home_backups: Default::default(),
         proxy: Default::default(),
-        paths: Arc::new(paths.clone()), config, state_db, cache_db: cache_db.clone(), status,
-        harnesses: core::harness::Registry::new(&env), github: core::github::GitHub::new(env.clone(), cache_db), env, bus,
+        paths: Arc::new(paths.clone()), config, state_db, status,
+        harnesses: core::harness::Registry::new(&env), github: core::github::GitHub::new(env.clone()), env, bus,
         sessions: core::sessions::Sessions::new(), models: Default::default(), extras: Default::default(),
         suggestion_locks: Default::default(),
         predraft_lock: Arc::new(tokio::sync::Mutex::new(())), worktree_lock: Arc::new(tokio::sync::Mutex::new(())),

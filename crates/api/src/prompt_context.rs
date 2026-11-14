@@ -17,7 +17,6 @@ pub fn router() -> Router<Ctx> {
     Router::new()
         .route("/api/prompt/files", get(files))
         .route("/api/prompt/skills", get(skills))
-        .route("/api/prompt/github", get(github))
 }
 #[derive(Deserialize)]
 struct Search {
@@ -51,13 +50,3 @@ async fn skills(State(s): State<Ctx>, Query(q): Query<Skills>) -> ApiResult<Skil
     ))
 }
 
-async fn github(
-    State(s): State<Ctx>,
-    Query(q): Query<Search>,
-) -> ApiResult<Vec<launchpad_core::model::GitHubRef>> {
-    Ok(Json(
-        prompt_context::github(&s.app, &q.q)
-            .await
-            .map_err(|e| ApiError::bad_request(format!("{e:#}")))?,
-    ))
-}

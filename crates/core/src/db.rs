@@ -1,14 +1,12 @@
 //! SQLite behind a small actor: one thread owns each connection, callers send closures.
 //!
-//! - `state.db`: your data. Schema changes are SQL statements applied in order with `PRAGMA user_version`.
-//! - `cache.db`: GitHub mirror. If the schema hash changes, the file is deleted and rebuilt.
+//! `state.db` holds your data. Schema changes are SQL statements applied in order with `PRAGMA user_version`.
 
 use std::path::Path;
 use std::sync::mpsc;
 
 use anyhow::{Context, Result, anyhow};
 use rusqlite::Connection;
-use sha2::{Digest, Sha256};
 
 type Job = Box<dyn FnOnce(&mut Connection) + Send>;
 
@@ -34,10 +32,6 @@ fn thread(mut conn: Connection, name: &str) -> mpsc::Sender<Job> {
 }
 
 impl Db {
-    fn spawn(conn: Connection, name: &str) -> Db {
-        Db { tx: thread(conn, name), reader: None }
-    }
-
     /// Runs a read-only `f` on the reader connection (the main one when there is none).
     /// Use it for slow scans; it may not see a write that is still queued on the main thread.
     pub async fn read<R, F>(&self, f: F) -> Result<R>
@@ -152,10 +146,9 @@ const STATE_MIGRATIONS: &[&str] = &[
     ALTER TABLE session ADD COLUMN open_question INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE session ADD COLUMN last_seq INTEGER NOT NULL DEFAULT 0;
     CREATE INDEX session_started ON session (started_at);",
-    // 3: durable inbox triage overrides, scoped to a notification update time.
-    "CREATE TABLE inbox_override (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, action TEXT NOT NULL);",
-    // 4: inbox membership for threads observed unread or opened locally.
-    "CREATE TABLE inbox_active (id TEXT PRIMARY KEY);",
+    // 3 and 4: Inbox tables (removed with the Inbox; dropped at every start below).
+    "",
+    "",
     // 5: independently revocable browser devices (only credential hashes are persisted).
     "CREATE TABLE browser_device (
         id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
@@ -212,6 +205,9 @@ pub fn open_state(path: &Path) -> Result<Db> {
         "DROP TABLE IF EXISTS browser_action;
 DROP TABLE IF EXISTS browser_grant;
 DROP TABLE IF EXISTS browser_site;
+DROP TABLE IF EXISTS inbox_override;
+DROP TABLE IF EXISTS inbox_active;
+DROP TABLE IF EXISTS inbox_observed;
 CREATE TABLE IF NOT EXISTS scheduled_launch (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS draft_comment (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS item_note (id TEXT PRIMARY KEY, item TEXT NOT NULL, json TEXT NOT NULL);
@@ -280,7 +276,6 @@ CREATE INDEX IF NOT EXISTS channel_delivery_message ON channel_delivery (message
 CREATE INDEX IF NOT EXISTS channel_delivery_channel ON channel_delivery (channel_id, bot_id, state);
 CREATE TABLE IF NOT EXISTS github_ref_use (repo TEXT NOT NULL, number INTEGER NOT NULL, session_id TEXT NOT NULL, bot_id TEXT, at INTEGER NOT NULL, PRIMARY KEY (repo, number, session_id));
 CREATE INDEX IF NOT EXISTS github_ref_use_bot ON github_ref_use (repo, at) WHERE bot_id IS NOT NULL;
-CREATE TABLE IF NOT EXISTS inbox_observed (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, action TEXT NOT NULL, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS repo_choice (repo TEXT NOT NULL, what TEXT NOT NULL, json TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (repo, what));",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
@@ -387,45 +382,6 @@ CREATE TABLE IF NOT EXISTS repo_choice (repo TEXT NOT NULL, what TEXT NOT NULL, 
         .with_context(|| format!("open {} for reading", path.display()))?;
     reader.execute_batch("PRAGMA busy_timeout = 5000;")?;
     Ok(Db { tx: thread(conn, "state"), reader: Some(thread(reader, "state-read")) })
-}
-
-/// `cache.db` schema. Any change to this text rebuilds the cache from scratch.
-const CACHE_SCHEMA: &str = "
-CREATE TABLE gh_response (url TEXT PRIMARY KEY, etag TEXT, last_modified TEXT, json TEXT NOT NULL);
-CREATE TABLE inbox_thread (id TEXT PRIMARY KEY, updated_at TEXT NOT NULL, json TEXT NOT NULL);
-CREATE TABLE inbox_subscription (id TEXT PRIMARY KEY, subscribed INTEGER, ignored INTEGER, updated_at TEXT NOT NULL, checked_at INTEGER NOT NULL);
-CREATE TABLE inbox_preview (id TEXT PRIMARY KEY, fetched_at INTEGER NOT NULL, json TEXT NOT NULL);
-CREATE TABLE gh_notification (id TEXT PRIMARY KEY, repo TEXT, subject_type TEXT, subject_number INTEGER,
-    reason TEXT, unread INTEGER, updated_at TEXT, last_read_at TEXT, json TEXT NOT NULL);
-CREATE TABLE gh_item (repo TEXT, number INTEGER, kind TEXT, state TEXT, is_draft INTEGER, title TEXT,
-    author TEXT, updated_at TEXT, fetched_at INTEGER, json TEXT NOT NULL, PRIMARY KEY (repo, number));
-CREATE TABLE gh_timeline (repo TEXT, number INTEGER, fetched_at INTEGER, json TEXT NOT NULL,
-    PRIMARY KEY (repo, number));
-CREATE TABLE gh_diff (repo TEXT, number INTEGER, base_sha TEXT, head_sha TEXT, json TEXT NOT NULL,
-    PRIMARY KEY (repo, number, head_sha));
-CREATE TABLE gh_etag (url TEXT PRIMARY KEY, etag TEXT, last_modified TEXT, fetched_at INTEGER);
-CREATE TABLE image_cache (url TEXT PRIMARY KEY, path TEXT, content_type TEXT, fetched_at INTEGER);
-";
-
-pub fn open_cache(path: &Path) -> Result<Db> {
-    let hash = hex::encode(Sha256::digest(CACHE_SCHEMA.as_bytes()));
-    let current: Option<String> = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .ok()
-        .and_then(|c| c.query_row("SELECT value FROM meta WHERE key = 'schema_hash'", [], |r| r.get(0)).ok());
-    if current.as_deref() != Some(hash.as_str()) {
-        if path.exists() {
-            tracing::info!("cache.db: schema changed, rebuilding");
-        }
-        for suffix in ["", "-wal", "-shm"] {
-            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
-        }
-        let conn = open(path)?;
-        conn.execute_batch(CACHE_SCHEMA)?;
-        conn.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")?;
-        conn.execute("INSERT INTO meta (key, value) VALUES ('schema_hash', ?1)", [&hash])?;
-        return Ok(Db::spawn(conn, "cache"));
-    }
-    Ok(Db::spawn(open(path)?, "cache"))
 }
 
 #[cfg(test)]

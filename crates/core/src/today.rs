@@ -1,6 +1,6 @@
 //! Today: the decision list. Home computes, once for every window, phone and count, what waits for the owner in
-//! each workspace: questions, finished agents, Local PRs, proposals, drafts to send, GitHub suggestions and review
-//! requests, failed routines and outdated runners. The core adds its own records (sessions, Local PRs, runners);
+//! each workspace: questions, finished agents, Local PRs, proposals, drafts to send, GitHub suggestions, failed
+//! routines and outdated runners. The core adds its own records (sessions, Local PRs, runners);
 //! the crates above it add theirs through `ext::Extensions::today`. Each item names its main action from the
 //! action list (`actions::ACTIONS`). A bus event (`today`/`changed`) tells windows when the list changed.
 //!
@@ -31,7 +31,7 @@ pub enum Filter {
     Approve,
     /// Outbox drafts for other people.
     Send,
-    /// Suggestions to post and review requests.
+    /// Suggestions to post.
     Github,
     /// Failed routines, outdated runners, Home updates and agent CLI updates that did not install.
     Fix,
@@ -48,7 +48,6 @@ pub enum Kind {
     Proposal,
     Outbox,
     Suggestion,
-    ReviewRequest,
     Routine,
     Runner,
     /// A newer Launchpad for Home's Space (`launchpad_setup::home_update`).
@@ -102,7 +101,7 @@ pub struct Item {
     pub detail: String,
     /// The workspaces whose Today lists it; empty: every workspace.
     pub workspaces: Vec<String>,
-    /// The record it is about: a session, proposal, Outbox message, suggestion, Local PR, Inbox thread, routine or runner ID.
+    /// The record it is about: a session, proposal, Outbox message, suggestion, Local PR, routine or runner ID.
     pub record: String,
     /// The session that asked, finished, wrote or drafted it.
     pub session_id: Option<String>,
@@ -138,7 +137,6 @@ impl Item {
             Kind::Proposal => "proposal",
             Kind::Outbox => "outbox",
             Kind::Suggestion => "suggestion",
-            Kind::ReviewRequest => "review-request",
             Kind::Routine => "routine",
             Kind::Runner => "runner",
             Kind::HomeUpdate => "home-update",
@@ -364,7 +362,7 @@ pub async fn latest(app: &App) -> Result<std::sync::Arc<Today>> {
 }
 
 /// Bus topics whose changes can change the list.
-const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "inbox", "crons", "home_update", "cli_updates", "channels", "bots"];
+const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "crons", "home_update", "cli_updates", "channels", "bots"];
 
 /// What windows show of a waiting item: when it changes, they refetch.
 type ItemKey = (String, Vec<String>, Option<String>, String, String, Vec<String>);

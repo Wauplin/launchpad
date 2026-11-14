@@ -39,12 +39,6 @@ impl launchpad_core::ext::Extensions for Extensions {
     async fn channel_card(&self, app: &App, workspace: &str, card: serde_json::Value, bot: Option<&str>, apply: bool, by: &str) -> Result<serde_json::Value> {
         launchpad_channels::cards::card(app, workspace, card, bot, apply, by).await
     }
-    async fn inbox_synced(&self, app: &App) {
-        crons::inbox_synced(app).await;
-    }
-    async fn inbox_threads(&self, app: &App) -> Result<Vec<launchpad_core::github::Thread>> {
-        Ok(launchpad_github::inbox::of(app).list(app).await?.threads)
-    }
     async fn selection_lines(&self, app: &App, selection: &launchpad_core::model::DiffSelection) -> Option<String> {
         launchpad_github::ext::selection_lines(app, selection).await
     }
@@ -61,7 +55,6 @@ impl launchpad_core::ext::Extensions for Extensions {
 /// Starts the services of the crates above the core, after `App::start`.
 pub async fn start(app: &App) -> Result<()> {
     launchpad_automation::start(app).await?;
-    launchpad_github::spawn(app);
     launchpad_channels::spawn(app);
     launchpad_setup::home_update::spawn(app);
     launchpad_setup::cli_update::spawn(app);

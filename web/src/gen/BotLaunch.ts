@@ -42,8 +42,4 @@ note?: string,
  * The permission mode bot.toml gave the session at start: `bots::rotation` compares bot.toml with it, so a
  * mode the owner set on the session itself (Agents) keeps the thread going. None for older sessions.
  */
-permission_mode?: PermissionMode, 
-/**
- * `inbox_done = true` in bot.toml (and more than read access): it may run `launchpad inbox done`.
- */
-inbox_done?: boolean, };
+permission_mode?: PermissionMode, };

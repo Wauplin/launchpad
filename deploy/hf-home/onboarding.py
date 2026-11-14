@@ -54,7 +54,7 @@ SKIPPED = "home:skip:"  # + the ID of an optional step the owner skipped.
 STEPS = (
     ("huggingface", "Hugging Face", "Home's login for its private bucket.", True, None),
     ("key", "Credential key", "Encrypts every credential Home stores. Keep your copy safe.", True, None),
-    ("github", "GitHub", "Inbox, pull requests, private clones and publication.", True, None),
+    ("github", "GitHub", "Pull requests, private clones and publication.", True, None),
     ("identity", "Git identity", "The author of your agents' commits.", True, None),
     ("profile", "Agent profile", "A subscription login and the default model and effort.", True, None),
     ("workspaces", "Workspaces", "Groups of folders, for example Work and Side projects. Create at least one; add more any time.", True, None),
@@ -662,11 +662,6 @@ class Setup:
     async def github_done(self, _):
         self.save("github")
         await self.check_github()
-        if self.github["done"] and self.api:
-            try:
-                await self.api("POST", "/api/inbox/sync", {})
-            except Exception:
-                pass  # The next poll syncs the inbox.
 
     async def add_login(self, harness, secret, name=None):
         """Store a harness login in Home's vault; a profile without its login gets it, otherwise a new profile with the

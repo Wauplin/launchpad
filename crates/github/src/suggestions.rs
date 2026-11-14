@@ -27,7 +27,7 @@ pub struct ReplyTo {
     /// GitHub's comment ID (`#issuecomment-<id>`, `#discussion_r<id>` in its URL).
     #[ts(type = "number")]
     pub id: u64,
-    /// The comment's author login, when Home's cache knew the comment.
+    /// The comment's author login, when GitHub could be asked.
     pub author: Option<String>,
     pub url: String,
 }
@@ -51,7 +51,7 @@ impl ReplyTo {
     }
 }
 /// What `--reply-to` names: `issuecomment-<id>`, `discussion_r<id>`, a comment URL with one of them, a review thread's
-/// node ID (`PRRT_…`) or a bare comment ID (looked up in Home's cache of the item).
+/// node ID (`PRRT_…`) or a bare comment ID (looked up on GitHub).
 enum ReplyRef {
     Comment(Option<ReplyKind>, u64),
     Thread(String),
@@ -75,69 +75,65 @@ fn parse_reply(raw: &str) -> Result<ReplyRef> {
     anyhow::bail!("--reply-to takes issuecomment-<id>, discussion_r<id>, a comment URL, a review thread ID (PRRT_…) or a comment ID")
 }
 /// The comment ID at the end of a GitHub comment URL, with its kind.
-fn comment_of(url: &str) -> Option<(ReplyKind, u64)> {
+pub(crate) fn comment_of(url: &str) -> Option<(ReplyKind, u64)> {
     let (_, f) = url.rsplit_once('#')?;
     if let Some(n) = f.strip_prefix("issuecomment-") {
         return n.parse().ok().map(|n| (ReplyKind::IssueComment, n));
     }
     f.strip_prefix("discussion_r").and_then(|n| n.parse().ok()).map(|n| (ReplyKind::ReviewComment, n))
 }
-/// One comment of a cached item (a conversation comment or a review-thread comment).
-pub(crate) struct ItemComment {
-    pub kind: ReplyKind,
-    pub id: u64,
-    pub author: Option<String>,
-    pub url: String,
-    pub body: String,
-    pub created_at: String,
-}
-/// Every comment of a cached item (conversation comments and review-thread comments).
-pub(crate) fn item_comments(item: &serde_json::Value) -> Vec<ItemComment> {
-    let mut out = vec![];
-    let mut add = |c: &serde_json::Value| {
-        let Some(url) = c["url"].as_str() else { return };
-        if let Some((kind, id)) = comment_of(url) {
-            out.push(ItemComment { kind, id, author: c["author"]["login"].as_str().map(str::to_string), url: url.to_string(), body: c["body"].as_str().unwrap_or_default().to_string(), created_at: c["createdAt"].as_str().unwrap_or_default().to_string() });
-        }
+/// Comment `id` of `repo` read from GitHub now: its author and URL, when it belongs to item `number` (else an
+/// error). `Ok(None)`: GitHub has no such comment of that kind.
+async fn read_comment(app: &App, repo: &str, number: u64, kind: ReplyKind, id: u64) -> Result<Option<ReplyTo>> {
+    let (path, item) = match kind {
+        ReplyKind::IssueComment => (format!("/repos/{repo}/issues/comments/{id}"), ("issue_url", format!("/issues/{number}"))),
+        ReplyKind::ReviewComment => (format!("/repos/{repo}/pulls/comments/{id}"), ("pull_request_url", format!("/pulls/{number}"))),
     };
-    for e in item["timelineItems"]["nodes"].as_array().into_iter().flatten() {
-        if e["__typename"] == "IssueComment" {
-            add(e);
-        }
-    }
-    for t in item["reviewThreads"]["nodes"].as_array().into_iter().flatten() {
-        for c in t["comments"]["nodes"].as_array().into_iter().flatten() {
-            add(c);
-        }
-    }
-    out
-}
-/// The comment `raw` names on `repo#number`, with its author and URL from Home's cache of the item (fetched when
-/// older than a minute; a bare ID needs it).
-async fn resolve_reply(app: &App, repo: &str, number: u64, raw: &str) -> Result<ReplyTo> {
-    let wanted = parse_reply(raw)?;
-    let item = items::detail(app, repo, number, false).await.ok();
-    let comments = item.as_ref().map(item_comments).unwrap_or_default();
-    let (kind, id) = match &wanted {
-        ReplyRef::Comment(kind, id) => match kind.or_else(|| comments.iter().find(|c| c.id == *id).map(|c| c.kind)) {
-            Some(k) => (k, *id),
-            None => anyhow::bail!("comment {id} is not a comment of {repo}#{number} in Launchpad's cache: give issuecomment-<id> or discussion_r<id>"),
-        },
-        ReplyRef::Thread(node) => {
-            let thread = item.as_ref().and_then(|i| i["reviewThreads"]["nodes"].as_array()?.iter().find(|t| t["id"] == node.as_str()).cloned());
-            let first = thread.as_ref().and_then(|t| t["comments"]["nodes"][0]["url"].as_str().and_then(comment_of));
-            match first {
-                Some(c) => c,
-                None => anyhow::bail!("review thread {node} is not a thread of {repo}#{number} in Launchpad's cache"),
-            }
-        }
+    let v = match app.github.get(&path).await {
+        Ok(v) => v,
+        Err(e) if e.downcast_ref::<reqwest::Error>().and_then(|e| e.status()) == Some(reqwest::StatusCode::NOT_FOUND) => return Ok(None),
+        Err(e) => return Err(e),
     };
-    let known = comments.iter().find(|c| c.kind == kind && c.id == id);
-    let url = known.map(|c| c.url.clone()).unwrap_or_else(|| match kind {
+    ensure!(v[item.0].as_str().is_some_and(|u| u.ends_with(&item.1)), "comment {id} is not a comment of {repo}#{number}");
+    Ok(Some(ReplyTo { kind, id, author: v["user"]["login"].as_str().map(str::to_string), url: v["html_url"].as_str().map(str::to_string).unwrap_or_else(|| reply_url(repo, number, kind, id)) }))
+}
+fn reply_url(repo: &str, number: u64, kind: ReplyKind, id: u64) -> String {
+    match kind {
         ReplyKind::IssueComment => format!("https://github.com/{repo}/issues/{number}#issuecomment-{id}"),
         ReplyKind::ReviewComment => format!("https://github.com/{repo}/pull/{number}#discussion_r{id}"),
-    });
-    Ok(ReplyTo { kind, id, author: known.and_then(|c| c.author.clone()), url })
+    }
+}
+/// The comment `raw` names on `repo#number`, with its author and URL read from GitHub. A comment of a known kind
+/// that GitHub cannot be asked about keeps its URL without the author; a bare ID and a review thread need GitHub.
+async fn resolve_reply(app: &App, repo: &str, number: u64, raw: &str) -> Result<ReplyTo> {
+    match parse_reply(raw)? {
+        ReplyRef::Comment(Some(kind), id) => match read_comment(app, repo, number, kind, id).await {
+            Ok(Some(r)) => Ok(r),
+            Ok(None) => anyhow::bail!("GitHub has no comment {id} of that kind on {repo}#{number}"),
+            Err(e) if e.downcast_ref::<reqwest::Error>().is_some_and(|e| e.status().is_none()) => {
+                Ok(ReplyTo { kind, id, author: None, url: reply_url(repo, number, kind, id) })
+            }
+            Err(e) => Err(e),
+        },
+        ReplyRef::Comment(None, id) => {
+            for kind in [ReplyKind::IssueComment, ReplyKind::ReviewComment] {
+                if let Some(r) = read_comment(app, repo, number, kind, id).await? {
+                    return Ok(r);
+                }
+            }
+            anyhow::bail!("comment {id} is not a comment of {repo}#{number}: give issuecomment-<id> or discussion_r<id>")
+        }
+        ReplyRef::Thread(node) => {
+            let v = app.github.graphql(format!("query {{ node(id:{}) {{ ... on PullRequestReviewThread {{ pullRequest {{ number repository {{ nameWithOwner }} }} comments(first:1) {{ nodes {{ url author {{ login }} }} }} }} }} }}", json!(node))).await?;
+            let t = &v["node"];
+            let first = &t["comments"]["nodes"][0];
+            let same = t["pullRequest"]["number"].as_u64() == Some(number) && t["pullRequest"]["repository"]["nameWithOwner"].as_str().is_some_and(|r| r.eq_ignore_ascii_case(repo));
+            match first["url"].as_str().and_then(|u| comment_of(u).map(|c| (u, c))) {
+                Some((url, (kind, id))) if same => Ok(ReplyTo { kind, id, author: first["author"]["login"].as_str().map(str::to_string), url: url.to_string() }),
+                _ => anyhow::bail!("review thread {node} is not a thread of {repo}#{number}"),
+            }
+        }
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -489,24 +485,15 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
         }
         SuggestionTarget::GitHub { repo, number, reply_to } => {
             if s.kind == SuggestionKind::Review {
-                let current = items::detail(app, repo, *number, true).await?;
-                ensure!(
-                    current["__typename"] == "PullRequest",
-                    "reviews require a pull request"
-                );
-                if current["headRefOid"].as_str() != s.head.as_deref() {
+                let current = items::pull(app, repo, *number).await.context("reviews require a pull request")?;
+                if current["head"]["sha"].as_str() != s.head.as_deref() {
                     crate::ledger::outdated(app, &s).await;
                     anyhow::bail!("PR head changed; ask the agent for a fresh review");
                 }
-                ensure!(current["state"] == "OPEN", "pull request is no longer open");
+                ensure!(current["state"] == "open", "pull request is no longer open");
             }
             s.status = "posting".into();
             save(app, &s).await?;
-            let action = if s.kind == SuggestionKind::Review {
-                "review"
-            } else {
-                "comment"
-            };
             // The agent's attribution line ends what reaches GitHub; the draft keeps the text as written.
             let text = format!("{}{}", reply_to.as_ref().map(ReplyTo::prefix).unwrap_or_default(), s.body);
             let body = match launchpad_core::attribution::for_session(app, s.session_id.as_deref()) {
@@ -516,7 +503,8 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
             let result = match reply_to {
                 // A review thread's reply joins the thread (GitHub's review-comment reply API).
                 Some(r) if r.kind == ReplyKind::ReviewComment => items::reply(app, repo, *number, r.id, &body).await,
-                _ => items::mutate(app, repo, *number, action, json!({"body":body,"event":s.event,"commit_id":s.head,"comments":s.comments})).await,
+                _ if s.kind == SuggestionKind::Review => items::review(app, repo, *number, &json!({"body": body, "event": s.event, "commit_id": s.head, "comments": s.comments})).await,
+                _ => items::comment(app, repo, *number, &body).await,
             };
             match result {
                 Ok(v) => s.url = v["html_url"].as_str().map(str::to_string),
@@ -540,9 +528,9 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
         // The follow-ups run once, after the review is saved as posted: a failure stays on the card, never retried.
         let head = s.head.clone().unwrap_or_default();
         let followup = if s.run_ci {
-            items::mutate(app, repo, *number, "run-ci", json!({"head": head})).await.err().map(|e| format!("Running the workflows failed: {e:#}"))
+            items::approve_runs(app, repo, *number, &head).await.err().map(|e| format!("Running the workflows failed: {e:#}"))
         } else if let Some(method) = &s.merge {
-            items::mutate(app, repo, *number, "merge", json!({"sha": head, "merge_method": method})).await.err().map(|e| format!("The merge failed: {e:#}. Check the pull request on GitHub before merging from its page."))
+            items::merge(app, repo, *number, &head, method).await.err().map(|e| format!("The merge failed: {e:#}. Check the pull request on GitHub before merging it there."))
         } else {
             None
         };
@@ -561,72 +549,6 @@ pub fn instruction(app: &App, session: &str) -> String {
         "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes, and may add --comments-file <file.json> with inline line comments posted in the same review (a JSON array of {{path, line, side: RIGHT or LEFT for a removed line, start_line (optional, for a range), body}}; a body may hold a ```suggestion block); put each finding about specific lines in a line comment and keep the --body-file for the overall summary; an approving review may add --merge squash|merge|rebase (the owner's Post click then merges at that head), and a review may add --run-ci (Post also approves the head's GitHub Actions runs that wait for a maintainer). A comment that answers one comment adds --reply-to <issuecomment-<id>, discussion_r<id> or the comment's URL> (a review thread's comment gets its reply in that thread). Saving a suggestion links this session to the item and its repository#number workspace topic. Use `launchpad link --repo <owner/repo> --number <n> --session-id <id>` to link without a suggestion (optional --comment-url). Local PR bodies with Fixes #N or Closes #N link their session and show the Local PR on the issue in the extension. For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
         app.paths.cli_command()
     )
-}
-
-/// Posts the owner's combined review. A source suggestion is claimed before publication, so its other entry
-/// points cannot post a second review. Follow-ups run once after the review is known to have been posted.
-pub async fn submit_review(app: &App, repo: &str, number: u64, mut body: serde_json::Value) -> Result<serde_json::Value> {
-    let source = body["source"].as_str().map(str::to_owned);
-    let lock = app.suggestion_locks.get(source.as_deref().unwrap_or("owner-review"));
-    let _guard = lock.lock().await;
-    let mut suggestion = if let Some(id) = &source {
-        let s = get(app, id).await?;
-        ensure!(s.status == "draft", "publication already attempted; check GitHub");
-        ensure!(s.kind == SuggestionKind::Review && s.target == (SuggestionTarget::GitHub { repo: repo.to_string(), number, reply_to: None }), "review source belongs to another item");
-        ensure!(s.head.as_deref() == body["commit_id"].as_str(), "reviewed commit changed");
-        Some(s)
-    } else { None };
-    let current = items::detail(app, repo, number, true).await?;
-    ensure!(current["state"] == "OPEN" && current["headRefOid"] == body["commit_id"], "PR head changed or PR closed; inspect it again");
-    let merge = body["merge"].as_bool().unwrap_or(false);
-    let run_ci = body["run_ci"].as_bool().unwrap_or(false);
-    ensure!(!merge || body["event"] == "APPROVE", "only an approving review can merge");
-    ensure!(!(merge && run_ci), "choose merge or run CI");
-    if let Some(s) = &mut suggestion {
-        s.body = body["body"].as_str().unwrap_or_default().to_owned();
-        s.event = body["event"].as_str().unwrap_or_default().to_owned();
-        s.merge = merge.then(|| "squash".to_owned());
-        s.run_ci = run_ci;
-        s.status = "posting".into();
-        save(app, s).await?;
-        if let Some(line) = launchpad_core::attribution::for_session(app, s.session_id.as_deref()) {
-            body["body"] = json!(launchpad_core::attribution::sign(body["body"].as_str().unwrap_or_default(), &line, launchpad_core::attribution::Separator::Rule));
-        }
-    }
-    let result = items::mutate(app, repo, number, "review", body.clone()).await;
-    let mut result = match result {
-        Ok(v) => v,
-        Err(e) => {
-            // A refusal posted nothing: the source stays a draft. Only an incomplete delivery blocks it.
-            let uncertain = launchpad_core::github::delivery_uncertain(&e);
-            if let Some(s) = &mut suggestion {
-                s.status = if uncertain { "uncertain" } else { "draft" }.into();
-                save(app, s).await?;
-            }
-            return Err(e.context(if uncertain {
-                "Posting did not complete. Check GitHub before another attempt; it will not be retried automatically."
-            } else {
-                "GitHub did not accept the review. Nothing was posted; your review stays editable."
-            }));
-        }
-    };
-    if let Some(s) = &mut suggestion {
-        s.status = "posted".into();
-        s.url = result["html_url"].as_str().map(str::to_owned);
-        save(app, s).await?;
-        crate::ledger::posted_by_launchpad(app, s).await;
-    }
-    let followup = if merge {
-        items::mutate(app, repo, number, "merge", json!({"sha":body["commit_id"],"merge_method":"squash"})).await.err()
-    } else if run_ci {
-        items::mutate(app, repo, number, "run-ci", json!({"head":body["commit_id"]})).await.err()
-    } else { None };
-    if let Some(e) = followup {
-        let message = format!("Review posted. Follow-up failed: {e:#}. Check GitHub; it will not be retried.");
-        result["followup_error"] = json!(message);
-        if let Some(s) = &mut suggestion { s.followup_error = Some(message); save(app, s).await?; }
-    }
-    Ok(result)
 }
 
 #[cfg(test)]

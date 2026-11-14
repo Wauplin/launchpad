@@ -16,17 +16,4 @@ number: number | null,
 /**
  * An Actions run.
  */
-run: number | null, 
-/**
- * From Home's cache of the item (null when Home has not fetched it): its title, and for a pull request its head
- * commit and branch.
- */
-title: string | null, head: string | null, head_branch: string | null, 
-/**
- * A pull request's branch repository (`owner/name`), from Home's cache.
- */
-head_repo: string | null, 
-/**
- * The pull request's author lets maintainers push to its branch (null: unknown, or the same repository).
- */
-maintainer_can_modify: boolean | null, };
+run: number | null, };

@@ -354,11 +354,8 @@ async fn health(State(s): State<Ctx>) -> ApiResult<Value> {
     for t in launchpad_channels::telegram::statuses(app).await {
         if let Some(e) = t.error { add("connections", "Telegram failed".into(), Some(logs::redact(&e)), json!({"workspace": t.workspace_id})); }
     }
-    if let Ok(snap) = launchpad_github::inbox::of(app).snapshot(app).await {
-        if let Some(e) = snap.status.error { add("github", "Inbox sync failed".into(), Some(e), json!({"last_sync": snap.status.last_sync})); }
-        for (host, l) in snap.limits.iter().filter(|(_, l)| l.remaining <= 0 && l.reset_at * 1000 > now) {
-            add("github", format!("GitHub rate limit reached ({host})"), Some(format!("resets at {}", l.reset_at)), json!({}));
-        }
+    for (host, l) in app.github.limits.read().await.iter().filter(|(_, l)| l.remaining <= 0 && l.reset_at * 1000 > now) {
+        add("github", format!("GitHub rate limit reached ({host})"), Some(format!("resets at {}", l.reset_at)), json!({}));
     }
 
     let started = launchpad_automation::failures::started_at();

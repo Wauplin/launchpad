@@ -2,6 +2,6 @@
 
 export type GitHubRef = { url: string, 
 /**
- * `issue`, `pr`, `comment`, `review_comment` or another notification subject kind.
+ * `issue`, `pr`, `comment` or `review_comment`.
  */
 kind: string, repo: string, number: number | null, title: string | null, };

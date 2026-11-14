@@ -185,12 +185,6 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
-    /// Active GitHub inbox threads (JSON), optionally of one workspace's repositories, and `done` for bots
-    /// allowed to mark them done (`inbox_done = true` in bot.toml).
-    Inbox {
-        #[command(subcommand)]
-        command: Inbox,
-    },
     /// Scheduled launches and cron agents (JSON).
     Schedules {
         #[command(subcommand)]
@@ -369,32 +363,6 @@ enum Command {
     GenTypes {
         #[arg(default_value = "web/src/gen")]
         out: std::path::PathBuf,
-    },
-}
-
-#[derive(Subcommand)]
-enum Inbox {
-    List {
-        /// Workspace ID or name (default: every workspace).
-        #[arg(long)]
-        workspace: Option<String>,
-    },
-    /// Mark Inbox threads done, in Launchpad and on GitHub (only for a bot whose bot.toml says `inbox_done = true`).
-    Done {
-        #[arg(long, env = "LAUNCHPAD_SESSION_ID")]
-        session_id: String,
-        /// Thread ids, from `launchpad inbox list`.
-        #[arg(required = true)]
-        ids: Vec<String>,
-    },
-    /// Unsubscribe from Inbox threads on GitHub (mute) and mark them done, in Launchpad and on GitHub, like the
-    /// Unsubscribe button (only for a bot whose bot.toml says `inbox_done = true`).
-    Unsubscribe {
-        #[arg(long, env = "LAUNCHPAD_SESSION_ID")]
-        session_id: String,
-        /// Thread ids, from `launchpad inbox list`.
-        #[arg(required = true)]
-        ids: Vec<String>,
     },
 }
 
@@ -1018,19 +986,6 @@ async fn run() -> Result<()> {
         Command::Bots { command: ListOnly::List { workspace } } => context_command(&paths, "bots", workspace).await,
         Command::Profiles { command: ListOnly::List { .. } } => context_command(&paths, "profiles", None).await,
         Command::Presets { command: ListOnly::List { .. } } => context_command(&paths, "presets", None).await,
-        Command::Inbox { command: Inbox::List { workspace } } => context_command(&paths, "inbox", workspace).await,
-        Command::Inbox { command: cmd @ (Inbox::Done { .. } | Inbox::Unsubscribe { .. }) } => {
-            let (session_id, ids, unsubscribe) = match cmd {
-                Inbox::Done { session_id, ids } => (session_id, ids, false),
-                Inbox::Unsubscribe { session_id, ids } => (session_id, ids, true),
-                Inbox::List { .. } => unreachable!(),
-            };
-            let body = Client::new(&paths)?.json("POST", "/api/inbox/agent-done", Some(serde_json::json!({"session_id": session_id, "ids": ids, "unsubscribe": unsubscribe}))).await?;
-            println!("{}", serde_json::to_string_pretty(&body)?);
-            let failed = body.as_array().map_or(0, |r| r.iter().filter(|x| x["done"] != true).count());
-            anyhow::ensure!(failed == 0, "{failed} thread(s) not marked done");
-            Ok(())
-        }
         Command::Schedules { command: ListOnly::List { workspace } } => context_command(&paths, "schedules", workspace).await,
         Command::Sessions { command: Sessions::List { workspace } } => context_command(&paths, "sessions", workspace).await,
         Command::Sessions { command: Sessions::Show { session_id } } => context_command(&paths, &format!("sessions/{}", url_segment(&session_id)), None).await,

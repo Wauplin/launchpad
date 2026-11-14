@@ -27,7 +27,6 @@ pub fn router() -> Router<Ctx> {
         .route("/api/context/sessions/{id}", get(session))
         .route("/api/context/profiles", get(profiles))
         .route("/api/context/presets", get(presets))
-        .route("/api/context/inbox", get(inbox))
         .route("/api/context/schedules", get(schedules))
 }
 
@@ -159,22 +158,6 @@ async fn profiles(State(s): State<Ctx>) -> ApiResult<Value> {
 
 async fn presets(State(s): State<Ctx>) -> ApiResult<Value> {
     Ok(Json(json!(s.app.config.get().presets)))
-}
-
-async fn inbox(State(s): State<Ctx>, Query(q): Query<Scope>) -> ApiResult<Value> {
-    let ids = scope(&s, q.workspace.as_deref()).await?;
-    let repos: Option<Vec<String>> = match ids {
-        Some(ids) => Some(launchpad_core::projects::list(&s.app).await?.into_iter().filter(|p| ids.contains(&p.id)).flat_map(|p| [p.gh_repo, p.gh_upstream]).flatten().map(|r| r.to_lowercase()).collect()),
-        None => None,
-    };
-    let snap = launchpad_github::inbox::of(&s.app).snapshot(&s.app).await?;
-    let threads: Vec<Value> = snap.threads.into_iter()
-        .filter(|t| snap.active_ids.contains(&t.id))
-        .filter(|t| repos.as_ref().is_none_or(|r| r.contains(&t.repo.to_lowercase())))
-        .take(300)
-        .map(|t| json!({"id": t.id, "repo": t.repo, "number": t.number, "kind": t.kind, "title": t.title, "reason": t.reason, "unread": t.unread, "url": t.url, "updated_at": t.updated_at, "state": t.state}))
-        .collect();
-    Ok(Json(json!(threads)))
 }
 
 /// Scheduled launches and routines, by their workspace (a routine's bot's, a follow-up's session's, else the

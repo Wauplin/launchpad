@@ -21,7 +21,6 @@
 //! A failed listing or download is an error, never an empty answer: it stops pruning before it deletes anything,
 //! and a boot restore retries, then fails. Pruning also deletes nothing while the listing misses the backup just
 //! written or a manifest of the last day does not parse (`check_readable`).
-//! `cache.db` is not backed up: it is rebuilt from GitHub.
 //!
 //! Home Git: each mirror adds a bundle (`git/<folder-id>.bundle`) of its Launchpad branches and kept tips, minus
 //! what the folder's remote has (a full bundle without a remote). After a restore, a mirror is cloned from the

@@ -55,13 +55,11 @@ async fn put_config(State(s): State<Server>, Json(config): Json<Config>) -> ApiR
 #[serde(deny_unknown_fields)]
 struct GeneralPatch {
     presets: Option<Vec<launchpad_core::config::Preset>>,
-    github_poll_interval_seconds: Option<u64>,
     worktrees_keep: Option<u32>,
 }
 async fn patch_general_config(State(s): State<Server>, Json(patch): Json<GeneralPatch>) -> ApiResult<Value> {
     s.app.config.update(|config| {
         if let Some(value) = patch.presets { config.presets = value; }
-        if let Some(value) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = value.max(15); }
         if let Some(value) = patch.worktrees_keep { config.worktrees.keep = value; }
         Ok(())
     }).map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;
@@ -74,7 +72,6 @@ async fn patch_general_config(State(s): State<Server>, Json(patch): Json<General
 fn shared(config: &Config) -> Value {
     json!({
         "presets": config.presets,
-        "github_poll_interval_seconds": config.github.poll_interval_seconds,
         "worktrees_keep": config.worktrees.keep,
     })
 }
@@ -87,7 +84,6 @@ async fn get_shared(State(s): State<Server>) -> Json<Value> {
 #[serde(deny_unknown_fields)]
 struct SharedPatch {
     presets: Option<Vec<launchpad_core::config::Preset>>,
-    github_poll_interval_seconds: Option<u64>,
     worktrees_keep: Option<u32>,
 }
 
@@ -103,7 +99,6 @@ async fn patch_shared(State(s): State<Server>, Json(patch): Json<SharedPatch>) -
     }
     s.app.config.update(|config| {
         if let Some(presets) = patch.presets { config.presets = presets; }
-        if let Some(v) = patch.github_poll_interval_seconds { config.github.poll_interval_seconds = v.max(15); }
         if let Some(v) = patch.worktrees_keep { config.worktrees.keep = v; }
         Ok(())
     }).map_err(|e| crate::error::ApiError::bad_request(format!("{e:#}")))?;

@@ -13,7 +13,7 @@ use std::time::Duration;
 use anyhow::{Result, ensure};
 use launchpad_core::{App, attribution, util::now_ms};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::json;
 use ts_rs::TS;
 
 use crate::suggestions::{self, ReplyTo, Suggestion, SuggestionKind, SuggestionTarget};
@@ -375,8 +375,8 @@ pub async fn list(app: &App, suggestion: Option<&str>) -> Result<Vec<LedgerRecor
     load(app, suggestion).await
 }
 
-/// After a claim, Home refreshes the item a few times (20 s, 2 min, 10 min, then just after the hour), so its
-/// comments are read and the claim confirmed or left unconfirmed. Each refresh runs `confirm`.
+/// After a claim, Home reads the item's comments from GitHub a few times (20 s, 2 min, 10 min, then just after the
+/// hour), so the claim is confirmed or left unconfirmed (`confirm`).
 fn spawn_checks(app: &App, repo: String, number: u64) {
     let app = app.clone();
     tokio::spawn(async move {
@@ -385,11 +385,7 @@ fn spawn_checks(app: &App, repo: String, number: u64) {
             if !matches!(waiting(&app, &repo, number).await, Ok(true)) {
                 return;
             }
-            if let Err(e) = crate::items::detail(&app, &repo, number, true).await {
-                tracing::warn!("feedback ledger: refreshing {repo}#{number}: {e:#}");
-                // GitHub did not answer: the last pass still settles what waited an hour.
-                confirm_with(&app, &repo, number, None).await;
-            }
+            confirm(&app, &repo, number).await;
         }
     });
 }
@@ -399,45 +395,75 @@ async fn waiting(app: &App, repo: &str, number: u64) -> Result<bool> {
     app.state_db.call(move |c| Ok(c.query_row("SELECT count(*) FROM suggestion_ledger WHERE pending = 1 AND repo = ?1 AND number = ?2", rusqlite::params![repo, number], |r| r.get::<_, i64>(0))? > 0)).await
 }
 
-/// Called after every refresh of an item's comments: claims of that item find their comment (the owner's, created
-/// after the insert, close to the claimed text) or, an hour after the claim, become unconfirmed. Also marks the line
-/// comments of reviews written for an older head as outdated.
-pub async fn confirm(app: &App, repo: &str, number: u64, item: &Value) {
-    confirm_with(app, repo, number, Some(item)).await;
-    if let Some(head) = item["headRefOid"].as_str()
-        && let Ok(list) = suggestions::list(app).await
-    {
-        for s in list {
-            let same = matches!(&s.target, SuggestionTarget::GitHub { repo: r, number: n, .. } if r.eq_ignore_ascii_case(repo) && *n == number);
-            if same && s.status == "draft" && !s.comments.is_empty() && s.head.as_deref().is_some_and(|h| h != head) {
-                outdated(app, &s).await;
+async fn pending(app: &App, repo: &str, number: u64) -> Result<Vec<LedgerRecord>> {
+    let (repo, n) = (repo.to_lowercase(), number as i64);
+    let rows = app
+        .state_db
+        .call(move |c| Ok(c.prepare("SELECT json FROM suggestion_ledger WHERE pending = 1 AND repo = ?1 AND number = ?2")?.query_map(rusqlite::params![repo, n], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?))
+        .await?;
+    Ok(rows.iter().filter_map(|r| serde_json::from_str(r).ok()).collect())
+}
+
+/// When a claim's comment may have been created at the earliest: shortly before its insert or claim.
+fn since(r: &LedgerRecord) -> Option<i64> {
+    let claimed = r.last("posted_by_hand")?;
+    Some(r.last("inserted").unwrap_or(claimed).min(claimed) - 120_000)
+}
+
+/// One comment of an item on GitHub (a conversation comment or a review comment).
+struct Comment {
+    author: Option<String>,
+    url: String,
+    body: String,
+    created_at: String,
+}
+
+/// The item's conversation and review comments updated since `since` (Unix ms), read from GitHub now.
+async fn comments(app: &App, repo: &str, number: u64, since: i64) -> Result<Vec<Comment>> {
+    let since = chrono::DateTime::from_timestamp_millis(since).unwrap_or_default().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let mut out = vec![];
+    for (kind, path) in [("issue", format!("/repos/{repo}/issues/{number}/comments")), ("pull", format!("/repos/{repo}/pulls/{number}/comments"))] {
+        for page in 1..=10 {
+            let v = match app.github.get(&format!("{path}?since={since}&per_page=100&page={page}")).await {
+                Ok(v) => v,
+                // An issue has no review comments.
+                Err(e) if kind == "pull" && e.downcast_ref::<reqwest::Error>().and_then(|e| e.status()) == Some(reqwest::StatusCode::NOT_FOUND) => break,
+                Err(e) => return Err(e),
+            };
+            let list = v.as_array().cloned().unwrap_or_default();
+            out.extend(list.iter().filter_map(|c| {
+                Some(Comment { author: c["user"]["login"].as_str().map(str::to_string), url: c["html_url"].as_str()?.to_string(), body: c["body"].as_str().unwrap_or_default().to_string(), created_at: c["created_at"].as_str().unwrap_or_default().to_string() })
+            }));
+            if list.len() < 100 {
+                break;
             }
         }
     }
+    Ok(out)
 }
 
-async fn confirm_with(app: &App, repo: &str, number: u64, item: Option<&Value>) {
-    if !matches!(waiting(app, repo, number).await, Ok(true)) {
-        return;
-    }
-    let login = match crate::items::cached(app, "/user".into()).await.ok().flatten().and_then(|v| v["login"].as_str().map(str::to_string)) {
-        Some(l) => Some(l),
-        None => app.github.get("/user").await.ok().and_then(|v| v["login"].as_str().map(str::to_string)),
+/// The claims of an item find their comment on GitHub (the owner's, created after the insert, close to the claimed
+/// text) or, an hour after the claim, become unconfirmed. When GitHub does not answer, only the last step applies.
+async fn confirm(app: &App, repo: &str, number: u64) {
+    let earliest = match pending(app, repo, number).await {
+        Ok(records) => records.iter().filter_map(since).min(),
+        Err(e) => return logged("confirm", Err(e)),
     };
-    let comments = item.map(suggestions::item_comments).unwrap_or_default();
-    let (repo_l, n) = (repo.to_lowercase(), number as i64);
+    let Some(earliest) = earliest else { return };
+    let read = async { Ok::<_, anyhow::Error>((app.github.login().await?, comments(app, repo, number, earliest).await?)) };
+    let (login, comments) = match read.await {
+        Ok((login, comments)) => (Some(login), comments),
+        Err(e) => {
+            tracing::warn!("feedback ledger: reading {repo}#{number}: {e:#}");
+            (None, vec![])
+        }
+    };
     let _w = WRITE.lock().await;
-    let rows = app
-        .state_db
-        .call(move |c| Ok(c.prepare("SELECT json FROM suggestion_ledger WHERE pending = 1 AND repo = ?1 AND number = ?2")?.query_map(rusqlite::params![repo_l, n], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?))
-        .await;
-    let Ok(rows) = rows else { return };
+    let Ok(records) = pending(app, repo, number).await else { return };
     let mut changed = vec![];
     let mut taken: Vec<String> = vec![];
-    for row in rows {
-        let Ok(mut r) = serde_json::from_str::<LedgerRecord>(&row) else { continue };
-        let (Some(claimed), Some(text)) = (r.last("posted_by_hand"), r.final_text.clone()) else { continue };
-        let since = r.last("inserted").unwrap_or(claimed).min(claimed) - 120_000;
+    for mut r in records {
+        let (Some(claimed), Some(since), Some(text)) = (r.last("posted_by_hand"), since(&r), r.final_text.clone()) else { continue };
         let wanted = attribution::unsigned(&text).trim().to_string();
         let found = login.as_deref().and_then(|login| {
             comments

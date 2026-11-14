@@ -90,9 +90,6 @@ impl Paths {
     pub fn state_db(&self) -> PathBuf {
         self.data_dir.join("state.db")
     }
-    pub fn cache_db(&self) -> PathBuf {
-        self.data_dir.join("cache.db")
-    }
     pub fn token_file(&self) -> PathBuf {
         self.data_dir.join("token")
     }

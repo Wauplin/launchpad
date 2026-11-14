@@ -191,7 +191,7 @@ pub const LAUNCHPAD_TOOL: &str = "launchpad";
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum LaunchpadAccess {
-    /// Read Launchpad state: folders, bots, sessions and traces, profiles, presets, Inbox, schedules, proposals.
+    /// Read Launchpad state: folders, bots, sessions and traces, profiles, presets, schedules, proposals.
     Read,
     /// Read, and write inert proposals the owner starts with a click.
     #[default]

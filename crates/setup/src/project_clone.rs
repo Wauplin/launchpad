@@ -1,5 +1,5 @@
 //! Clone from GitHub: Home mirrors a GitHub repository and registers it as a Git folder (Folders → Add folder).
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
@@ -26,90 +26,37 @@ pub fn parse_repo(input: &str) -> Result<(String, String)> {
     }
 }
 
-/// A repository offered by Clone from GitHub. `notifications`: GitHub notification threads updated in the last 30 days.
+/// A repository offered by Clone from GitHub: one the owner pushed to recently.
 #[derive(Clone, Debug, Serialize, TS)]
 pub struct CloneSuggestion {
     pub repo: String,
-    pub notifications: u32,
 }
 
-/// Cached GitHub responses read by `suggestions` and written by `refresh_suggestions`. They use their own keys so the
-/// inbox's conditional requests are never affected.
-const NOTIFICATIONS: &str = "/notifications?all=true&per_page=50";
-const PUSHED: &str = "/user/repos?sort=pushed&per_page=30";
-const RECENT_DAYS: i64 = 30;
-
-/// Repositories from the GitHub cache, without the registered ones: repositories with recent notifications first
-/// (most threads, then latest activity), then the owner's recently pushed repositories, then other cached ones by name.
+/// The owner's recently pushed repositories without the registered ones, read from GitHub now, best effort (GitHub
+/// may be signed out or unreachable: no suggestions then).
 pub async fn suggestions(app: &App) -> Result<Vec<CloneSuggestion>> {
     let registered: HashSet<String> = launchpad_core::projects::list(app).await?.into_iter().filter_map(|p| p.gh_repo).map(|r| r.to_lowercase()).collect();
-    let (threads, cached, responses) = app
-        .cache_db
-        .call(|c| {
-            let mut stmt = c.prepare("SELECT id, json_extract(json, '$.repo'), updated_at FROM inbox_thread")?;
-            let threads = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, String>(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            let mut stmt = c.prepare("SELECT repo FROM gh_item WHERE repo IS NOT NULL")?;
-            let cached = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            let mut stmt = c.prepare("SELECT url, json FROM gh_response WHERE url IN (?1, ?2)")?;
-            let responses = stmt.query_map([NOTIFICATIONS, PUSHED], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?.collect::<rusqlite::Result<HashMap<_, _>>>()?;
-            Ok((threads, cached, responses))
-        })
-        .await?;
-    let json = |key: &str| responses.get(key).and_then(|j| serde_json::from_str::<Value>(j).ok()).and_then(|v| v.as_array().cloned()).unwrap_or_default();
-    let mut notifications: Vec<(String, String, String)> = threads.into_iter().filter_map(|(id, repo, at)| Some((id, repo?, at))).collect();
-    for n in json(NOTIFICATIONS) {
-        if let (Some(id), Some(repo), Some(at)) = (n["id"].as_str(), n["repository"]["full_name"].as_str(), n["updated_at"].as_str()) {
-            notifications.push((id.into(), repo.into(), at.into()));
-        }
-    }
-    let pushed: Vec<String> = json(PUSHED).iter().filter(|r| r["archived"].as_bool() != Some(true)).filter_map(|r| r["full_name"].as_str().map(str::to_string)).collect();
-    let cutoff = time::OffsetDateTime::now_utc().unix_timestamp() - RECENT_DAYS * 86_400;
-    Ok(rank(notifications, pushed, cached, &registered, cutoff))
-}
-
-/// `notifications`: (thread id, repo, RFC 3339 update time), possibly duplicated across sources.
-fn rank(notifications: Vec<(String, String, String)>, pushed: Vec<String>, cached: Vec<String>, registered: &HashSet<String>, cutoff: i64) -> Vec<CloneSuggestion> {
-    let at = |s: &str| time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).map(|t| t.unix_timestamp()).unwrap_or(0);
-    let mut seen_threads = HashSet::new();
-    // Lowercase repo -> (display name, recent thread count, latest update).
-    let mut active: HashMap<String, (String, u32, i64)> = HashMap::new();
-    let mut names = Vec::new();
-    for (id, repo, updated) in notifications {
-        names.push(repo.clone());
-        let t = at(&updated);
-        if t < cutoff || !seen_threads.insert(id) {
-            continue;
-        }
-        let entry = active.entry(repo.to_lowercase()).or_insert((repo, 0, 0));
-        entry.1 += 1;
-        entry.2 = entry.2.max(t);
-    }
-    let mut first: Vec<_> = active.into_values().collect();
-    first.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)).then(a.0.to_lowercase().cmp(&b.0.to_lowercase())));
-    let mut rest: Vec<String> = names.into_iter().chain(cached).collect();
-    rest.sort_by_key(|r| r.to_lowercase());
-    let mut out = Vec::new();
-    let mut taken = HashSet::new();
-    let candidates = first.into_iter().map(|(r, n, _)| (r, n)).chain(pushed.into_iter().map(|r| (r, 0))).chain(rest.into_iter().map(|r| (r, 0)));
-    for (repo, notifications) in candidates {
-        let key = repo.to_lowercase();
-        if parse_repo(&repo).is_ok() && !registered.contains(&key) && taken.insert(key) {
-            out.push(CloneSuggestion { repo, notifications });
-        }
-    }
-    out
-}
-
-/// Fetches the latest notifications and the owner's recently pushed repositories, best effort (GitHub may be
-/// signed out or unreachable), then returns `suggestions`.
-pub async fn refresh_suggestions(app: &App) -> Result<Vec<CloneSuggestion>> {
-    let fetch = |path: &'static str| async move {
-        if let Err(e) = tokio::time::timeout(Duration::from_secs(15), app.github.request(reqwest::Method::GET, path, None, false)).await.unwrap_or_else(|_| Err(anyhow::anyhow!("timed out"))) {
-            tracing::debug!("clone suggestions {path}: {e:#}");
+    let read = tokio::time::timeout(Duration::from_secs(15), app.github.get("/user/repos?sort=pushed&per_page=30")).await.unwrap_or_else(|_| Err(anyhow::anyhow!("timed out")));
+    let pushed = match read {
+        Ok(v) => v.as_array().cloned().unwrap_or_default(),
+        Err(e) => {
+            tracing::debug!("clone suggestions: {e:#}");
+            vec![]
         }
     };
-    tokio::join!(fetch(NOTIFICATIONS), fetch(PUSHED));
-    suggestions(app).await
+    Ok(pick(&pushed, &registered))
+}
+
+/// The repositories of GitHub's list that are not archived, valid and not registered yet, in its order.
+fn pick(pushed: &[Value], registered: &HashSet<String>) -> Vec<CloneSuggestion> {
+    let mut taken = HashSet::new();
+    pushed
+        .iter()
+        .filter(|r| r["archived"].as_bool() != Some(true))
+        .filter_map(|r| r["full_name"].as_str())
+        .filter(|r| parse_repo(r).is_ok() && !registered.contains(&r.to_lowercase()) && taken.insert(r.to_lowercase()))
+        .map(|repo| CloneSuggestion { repo: repo.to_string() })
+        .collect()
 }
 
 /// A GitHub repository as a Git folder of Home: Home mirrors it; runners clone it on first use. A repository
@@ -124,20 +71,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ranks_recent_notifications_then_pushed_then_cached() {
-        let n = |id: &str, repo: &str, at: &str| (id.to_string(), repo.to_string(), at.to_string());
-        let cutoff = time::OffsetDateTime::parse("2026-10-01T00:00:00Z", &time::format_description::well_known::Rfc3339).unwrap().unix_timestamp();
-        let notifications = vec![
-            n("1", "a/one", "2026-10-20T00:00:00Z"),
-            n("2", "b/two", "2026-10-21T00:00:00Z"),
-            n("3", "b/two", "2026-10-02T00:00:00Z"),
-            n("3", "B/Two", "2026-10-02T00:00:00Z"), // Same thread from the inbox cache and the live page.
-            n("4", "c/old", "2026-08-01T00:00:00Z"),
-            n("5", "d/mine", "2026-10-22T00:00:00Z"),
-        ];
+    fn suggests_pushed_repositories_not_registered_yet() {
+        let pushed = serde_json::json!([{"full_name": "a/one"}, {"full_name": "d/mine"}, {"full_name": "b/old", "archived": true}, {"full_name": "A/One"}, {"full_name": "bad"}]);
         let registered = HashSet::from(["d/mine".to_string()]);
-        let out = rank(notifications, vec!["e/pushed".into(), "a/one".into()], vec!["z/cached".into(), "bad".into()], &registered, cutoff);
-        let repos: Vec<_> = out.iter().map(|s| (s.repo.as_str(), s.notifications)).collect();
-        assert_eq!(repos, [("b/two", 2), ("a/one", 1), ("e/pushed", 0), ("c/old", 0), ("z/cached", 0)]);
+        let out = pick(pushed.as_array().unwrap(), &registered);
+        assert_eq!(out.iter().map(|s| s.repo.as_str()).collect::<Vec<_>>(), ["a/one"]);
     }
 }

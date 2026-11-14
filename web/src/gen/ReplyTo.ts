@@ -10,6 +10,6 @@ export type ReplyTo = { kind: ReplyKind,
  */
 id: number, 
 /**
- * The comment's author login, when Home's cache knew the comment.
+ * The comment's author login, when GitHub could be asked.
  */
 author: string | null, url: string, };

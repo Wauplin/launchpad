@@ -3,4 +3,4 @@
 /**
  * The kinds of GitHub pages the extension recognizes, from the URL alone.
  */
-export type ExtPageKind = "repo" | "pulls" | "issues" | "pr_conversation" | "pr_files" | "pr_commits" | "issue" | "notifications" | "actions_run" | "compare" | "new_release" | "other";
+export type ExtPageKind = "repo" | "pulls" | "issues" | "pr_conversation" | "pr_files" | "pr_commits" | "issue" | "actions_run" | "compare" | "new_release" | "other";

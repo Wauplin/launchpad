@@ -130,7 +130,7 @@ async fn create(State(s): State<Ctx>, agent: Option<axum::Extension<launchpad_ht
 async fn one(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Bot> {
     Ok(Json(bots::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?))
 }
-/// An agent's change never raises the bot's access or Inbox done, nor loosens its permission mode
+/// An agent's change never raises the bot's access nor loosens its permission mode
 /// (`bots::agent_refusal`).
 async fn update(State(s): State<Ctx>, Path(id): Path<String>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut p): Json<Patch>) -> ApiResult<Bot> {
     p.by_agent = agent.is_some();

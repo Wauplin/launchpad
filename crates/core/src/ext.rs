@@ -46,19 +46,13 @@ pub trait Extensions: Send + Sync {
     async fn channel_card(&self, _app: &App, _workspace: &str, _card: serde_json::Value, _bot: Option<&str>, _apply: bool, _by: &str) -> Result<serde_json::Value> {
         anyhow::bail!("bot channels are not available here")
     }
-    /// The Inbox finished a synchronization: routines with a GitHub trigger check for new activity.
-    async fn inbox_synced(&self, _app: &App) {}
-    /// The Inbox threads, as shown in the Inbox.
-    async fn inbox_threads(&self, _app: &App) -> Result<Vec<crate::github::Thread>> {
-        Ok(vec![])
-    }
-    /// Home: the lines of a pull request's diff a selection names (`DiffSelection::lines`), read from Home's cache or
-    /// GitHub, with a note when the pull request moved since; None when they cannot be read.
+    /// Home: the lines of a pull request's diff a selection names (`DiffSelection::lines`), read from GitHub at
+    /// delivery, with a note when the pull request moved since; None when they cannot be read.
     async fn selection_lines(&self, _app: &App, _selection: &crate::model::DiffSelection) -> Option<String> {
         None
     }
-    /// The Today items of the crates above the core (proposals, Outbox drafts, suggestions, review requests,
-    /// failed routines), waiting and handled (`today::Item::handled`).
+    /// The Today items of the crates above the core (proposals, Outbox drafts, suggestions, failed
+    /// routines), waiting and handled (`today::Item::handled`).
     async fn today(&self, _app: &App) -> Vec<crate::today::Item> {
         vec![]
     }
