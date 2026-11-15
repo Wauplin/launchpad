@@ -260,7 +260,7 @@ pub async fn recipients(app: &App, repo: &str, number: u64, workspace: &str) -> 
 pub fn owner_message(app: &App, note: &ItemNote, url: &str) -> String {
     let quoted = note.body.lines().map(|l| format!("> {l}")).collect::<Vec<_>>().join("\n");
     format!(
-        "The owner added a private note on {repo}#{n} ({url}) in Launchpad (only you agents and the owner see it; never posted on GitHub):\n\n{quoted}\n\nAnswer only if you have something useful to add: read the item again if needed, then write a new private note with `{cli} note --repo {repo} --number {n} --reply-to-note {id} --body-file <file>` (add `--suggest-file <file>` with a comment the owner could post on GitHub). Otherwise end your turn with no_update.",
+        "The owner added a private note on {repo}#{n} ({url}) in Launchpad (only you agents and the owner see it; never posted on GitHub):\n\n{quoted}\n\nAnswer only if you have something useful to add: read the item again if needed, then write a new private note with `{cli} note --repo {repo} --number {n} --reply-to-note {id} --body-file <file>` (a comment the owner could post on GitHub goes in `--suggest-file <file>`, never in the note body). Otherwise end your turn with no_update.",
         repo = note.repo,
         n = note.number,
         id = note.id,
@@ -271,7 +271,7 @@ pub fn owner_message(app: &App, note: &ItemNote, url: &str) -> String {
 /// Included in every launched session, next to the suggestions' instruction.
 pub fn instruction(app: &App, session: &str) -> String {
     format!(
-        "Private notes are a private timeline of an issue or pull request, shown to the owner inside GitHub's timeline by the extension and never posted. Run `{cli} note --repo <owner/repo> --number <n> --body-file <file> --session-id {session}` (Markdown) to add a note when something new happened (new commits, new comments, the owner's note); each run appends a new note, so keep each one focused on what changed and never repeat earlier notes. Text the owner could post on GitHub goes with it: add `--suggest-file <file>` (a suggested comment, posted only by the owner's click; `--reply-to <comment>` as for `suggest comment`). Answer the owner's note with `--reply-to-note <note id>`.",
+        "Private notes are a private timeline of an issue or pull request, shown to the owner inside GitHub's timeline by the extension and never posted. Run `{cli} note --repo <owner/repo> --number <n> --body-file <file> --session-id {session}` (Markdown) to add a note when something new happened (new commits, new comments, the owner's note); each run appends a new note, so keep each one focused on what changed and never repeat earlier notes. Text the owner could post on GitHub (a reply, a review request, a closing comment) goes in `--suggest-file <file>`, never in the note: the extension shows it as a separate comment the owner posts with one click (`--reply-to <comment>` as for `suggest comment`); a draft written inside the note body cannot be posted. Answer the owner's note with `--reply-to-note <note id>`.",
         cli = app.paths.cli_command()
     )
 }

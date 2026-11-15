@@ -95,7 +95,8 @@ enum Command {
         number: u64,
         #[arg(long)]
         body_file: std::path::PathBuf,
-        /// A comment the owner could post on GitHub (saved like `suggest comment`).
+        /// A comment the owner could post on GitHub (saved like `suggest comment`, shown under the note with Post); never
+        /// put such a draft in the note body.
         #[arg(long)]
         suggest_file: Option<std::path::PathBuf>,
         /// The suggested comment answers one comment (as `suggest comment --reply-to`).

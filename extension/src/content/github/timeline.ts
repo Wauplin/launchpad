@@ -2,9 +2,9 @@
 // (`launchpad note`, the owner's `note.write`) and the suggested comments that came without a note, each at its moment
 // between GitHub's timeline items (`timeline-items` anchor, `timeOf`), looking like a comment from a Launchpad agent.
 // Only the owner sees them: they live on Home and are drawn in closed shadow roots, never written into GitHub's page or
-// fields. A note's suggested comment shows nested, with Post this comment (Launchpad's `suggestion.post`, after a
-// confirmation in the entry, on a trusted click only), Edit (`suggestion.edit`), Insert into comment box (insert.ts)
-// and Discard. Above GitHub's comment form, the owner's box adds a private note and tells the agents about it.
+// fields. A suggested comment shows as its own section at the bottom of the entry, with Post this comment
+// (Launchpad's `suggestion.post`, after a confirmation in the entry, on a trusted click only), Edit (`suggestion.edit`),
+// Insert into comment box (insert.ts) and Discard. Above GitHub's comment form, the owner's box adds a private note and tells the agents about it.
 // Without timeline items, the entries go above the comment form, else under the description: nothing is lost.
 
 import type { ExtContext } from "@/gen/ExtContext";
@@ -136,19 +136,21 @@ function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | n
   }
   const err = errors.get(e.key);
   if (err) body.append(h("div", { class: "lp-error", text: err, attrs: { role: "alert" } }));
-  const card = h("div", { class: "lp-tl-box" }, head, body);
+  const card = h("div", { class: "lp-tl-box" }, head);
+  if (body.childNodes.length) card.append(body);
   const sugg = suggestionBlock(root, page, e, refresh);
-  if (sugg) (n ? card : body).append(sugg);
+  if (sugg) card.append(sugg);
   return h("div", { class: "lp-tl" }, h("div", { class: "lp-tl-avatar", attrs: { "aria-hidden": "true" } }, logo()), card);
 }
 
-/** The suggested comment of an entry: waiting (Post this comment, Edit, Insert, Discard) or its one-line state. */
+/** The suggested comment of an entry, as its own section at the bottom of the card: a header, the comment as GitHub
+ * would show it, and Post this comment (after a confirmation) with Edit, Insert and Discard; or its one-line state. */
 function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: () => void): HTMLElement | null {
   const s = e.suggestion;
   const state = e.note?.suggestion ?? null;
   if (!s) {
     if (!state) return null;
-    const line = h("div", { class: "lp-sugg lp-row" }, logo());
+    const line = h("div", { class: "lp-sugg lp-sugg-done lp-row" }, logo());
     if (state.status === "posted" || state.status === "posted_by_hand") {
       line.append(h("span", { class: "lp-grow", text: state.status === "posted" ? "Suggested comment posted" : "Suggested comment posted by you on GitHub" }));
       if (state.url?.startsWith("https://github.com/")) line.append(h("a", { class: "lp-plain", text: "View", attrs: { href: state.url } }));
@@ -158,8 +160,7 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
   const wrap = h("div", { class: "lp-sugg" });
   const to = s.reply_to ? ` · reply to ${s.reply_to.author ?? "a comment"}` : "";
   const status = s.status === "inserted" ? " · inserted into GitHub's box" : s.status === "posting" ? " · posting…" : s.status === "uncertain" ? " · posting may have failed: check GitHub" : "";
-  if (e.note) wrap.append(h("div", { class: "lp-row" }, logo(), h("strong", { class: "lp-grow", text: `Suggested comment${to}${status}` })));
-  else if (to || status) wrap.append(h("div", { class: "lp-muted", text: `${to || " "}${status}`.replace(/^ · /, "").trim() }));
+  wrap.append(h("div", { class: "lp-row" }, logo(), h("span", { class: "lp-title", text: "Suggested comment" }), h("span", { class: "lp-muted lp-grow", text: `${to}${status}` })));
   const draft = editing.get(s.id);
   if (draft !== undefined) {
     const area = field("Suggested comment", draft);
@@ -171,10 +172,10 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
     wrap.append(area, h("div", { class: "lp-actions" }, save, button("Cancel", () => { editing.delete(s.id); refresh(); }, { small: true })));
     return wrap;
   }
-  wrap.append(h("div", { attrs: { style: "margin-top: 6px" } }, markdown(s.text)));
+  wrap.append(h("div", { class: "lp-sugg-text" }, markdown(s.text)));
   if (s.status !== "draft" && s.status !== "inserted") return wrap;
   if (confirming.has(s.id)) {
-    const go = h("button", { class: "lp-btn lp-primary lp-small", text: "Post", attrs: { type: "button" } });
+    const go = h("button", { class: "lp-btn lp-primary", text: "Post", attrs: { type: "button" } });
     go.addEventListener("click", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -184,15 +185,13 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
       go.textContent = "Posting…";
       request("suggestion.post", { id: s.id }).then(() => { confirming.delete(s.id); errors.delete(e.key); refresh(); }).catch((x) => { errors.set(e.key, fail(x)); confirming.delete(s.id); refresh(); });
     });
-    wrap.append(h("div", { class: "lp-confirm", attrs: { style: "margin-top: 8px" }, text: `Launchpad posts this text to ${page.repo}#${page.number} as you${s.reply_to?.kind === "review_comment" ? ", in the review thread it answers" : ""}, with the attribution line.` }),
-      h("div", { class: "lp-actions" }, go, button("Cancel", () => { confirming.delete(s.id); refresh(); }, { small: true })));
+    wrap.append(h("div", { class: "lp-actions" },
+      h("span", { class: "lp-confirm lp-grow", text: `Post to ${page.repo}#${page.number} as you${s.reply_to?.kind === "review_comment" ? ", in the review thread it answers" : ""}, with the attribution line?`, attrs: { style: "white-space: normal" } }),
+      button("Cancel", () => { confirming.delete(s.id); refresh(); }), go));
     return wrap;
   }
   const actions = h("div", { class: "lp-actions" });
-  if (s.status === "draft") {
-    actions.append(button("Post this comment", () => { confirming.add(s.id); refresh(); }, { small: true, primary: true, title: "Launchpad posts it as you, after you confirm" }));
-    actions.append(button("Edit", () => { editing.set(s.id, s.body); refresh(); }, { small: true, title: "Change the text before posting it" }));
-  }
+  if (s.status === "draft") actions.append(button("Edit", () => { editing.set(s.id, s.body); refresh(); }, { small: true, title: "Change the text before posting it" }));
   const choice = h("div", { class: "lp-actions", attrs: { hidden: "" } });
   const insert = (mode?: "replace" | "append") => {
     choice.hidden = true;
@@ -205,7 +204,8 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
   };
   actions.append(button(s.status === "inserted" ? "Insert again" : "Insert into comment box", () => insert(), { small: true, title: "Puts the text into GitHub's box; you edit it and post it with GitHub's button" }));
   const discard: HTMLElement = button("Discard…", () => confirmDiscard(root, discard, s, refresh), { small: true });
-  actions.append(discard);
+  actions.append(discard, h("span", { class: "lp-grow" }));
+  if (s.status === "draft") actions.append(button("Post this comment", () => { confirming.add(s.id); refresh(); }, { primary: true, title: "Launchpad posts it as you, after you confirm" }));
   wrap.append(actions, choice);
   return wrap;
 }
