@@ -182,8 +182,8 @@ export type Requests = {
    * Launchpad only, then sent to the agents that wrote about the item (else its default bot). `workspace`: the page
    * context's (default: the extension's). */
   "note.write": Req<{ repo: string; number: number; body: string; workspace?: string | null; reply_to?: string | null }, NoteWriteResult>;
-  /** Post this comment (`suggestion.post`, a GitHub write): only from the confirm button of the timeline entry's own
-   * confirmation, on a trusted click. */
+  /** Post this comment (`suggestion.post`, a GitHub write): only from the timeline entry's button under the full
+   * comment, on a trusted click. */
   "suggestion.post": Req<{ id: string }, unknown>;
   /** Saves the owner's edit of a waiting suggested comment (`suggestion.edit`) before Post. */
   "suggestion.edit": Req<{ id: string; body: string }, unknown>;

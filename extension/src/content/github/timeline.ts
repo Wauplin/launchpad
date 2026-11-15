@@ -3,8 +3,8 @@
 // between GitHub's timeline items (`timeline-items` anchor, `timeOf`), looking like a comment from a Launchpad agent.
 // Only the owner sees them: they live on Home and are drawn in closed shadow roots, never written into GitHub's page or
 // fields. A suggested comment shows as its own section at the bottom of the entry, with Post this comment
-// (Launchpad's `suggestion.post`, after a confirmation in the entry, on a trusted click only), Edit (`suggestion.edit`),
-// Insert into comment box (insert.ts) and Discard. Above GitHub's comment form, the owner's box adds a private note and tells the agents about it.
+// (Launchpad's `suggestion.post`, in one trusted click), Edit (`suggestion.edit`), Insert into comment box (insert.ts)
+// and Discard. Above GitHub's comment form, the owner's box adds a private note and tells the agents about it.
 // Without timeline items, the entries go above the comment form, else under the description: nothing is lost.
 
 import type { ExtContext } from "@/gen/ExtContext";
@@ -27,8 +27,6 @@ const BOX = "note-box";
 const unfolded = new Set<string>();
 /** Suggestions being edited: their text so far. */
 const editing = new Map<string, string>();
-/** Suggestions whose Post asks for confirmation. */
-const confirming = new Set<string>();
 /** Errors of an entry's last action. */
 const errors = new Map<string, string>();
 /** The owner's note being typed, per page, and the last answer of Add private note. */
@@ -93,7 +91,7 @@ export function renderTimeline(page: ItemPage, ctx: ExtContext | null, refresh: 
     for (const g of groups) {
       const id = `${PREFIX}${g.entries[0]!.key}`;
       ids.add(id);
-      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, editing.has(e.suggestion?.id ?? ""), confirming.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key)])]);
+      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, editing.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key)])]);
       const w = mount(id, key, g.anchor, g.place, "card");
       if (!w.fresh) continue;
       for (const e of g.entries) w.root.append(entry(w.root, page, ctx, ws, e, refresh));
@@ -144,7 +142,7 @@ function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | n
 }
 
 /** The suggested comment of an entry, as its own section at the bottom of the card: a header, the comment as GitHub
- * would show it, and Post this comment (after a confirmation) with Edit, Insert and Discard; or its one-line state. */
+ * would show it, and Post this comment (one click) with Edit, Insert and Discard; or its one-line state. */
 function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: () => void): HTMLElement | null {
   const s = e.suggestion;
   const state = e.note?.suggestion ?? null;
@@ -174,22 +172,6 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
   }
   wrap.append(h("div", { class: "lp-sugg-text" }, markdown(s.text)));
   if (s.status !== "draft" && s.status !== "inserted") return wrap;
-  if (confirming.has(s.id)) {
-    const go = h("button", { class: "lp-btn lp-primary", text: "Post", attrs: { type: "button" } });
-    go.addEventListener("click", (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      // Only a real click of the owner posts (never a click the page synthesized).
-      if (!ev.isTrusted || go.disabled) return;
-      go.disabled = true;
-      go.textContent = "Posting…";
-      request("suggestion.post", { id: s.id }).then(() => { confirming.delete(s.id); errors.delete(e.key); refresh(); }).catch((x) => { errors.set(e.key, fail(x)); confirming.delete(s.id); refresh(); });
-    });
-    wrap.append(h("div", { class: "lp-actions" },
-      h("span", { class: "lp-confirm lp-grow", text: `Post to ${page.repo}#${page.number} as you${s.reply_to?.kind === "review_comment" ? ", in the review thread it answers" : ""}, with the attribution line?`, attrs: { style: "white-space: normal" } }),
-      button("Cancel", () => { confirming.delete(s.id); refresh(); }), go));
-    return wrap;
-  }
   const actions = h("div", { class: "lp-actions" });
   if (s.status === "draft") actions.append(button("Edit", () => { editing.set(s.id, s.body); refresh(); }, { small: true, title: "Change the text before posting it" }));
   const choice = h("div", { class: "lp-actions", attrs: { hidden: "" } });
@@ -205,7 +187,19 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
   actions.append(button(s.status === "inserted" ? "Insert again" : "Insert into comment box", () => insert(), { small: true, title: "Puts the text into GitHub's box; you edit it and post it with GitHub's button" }));
   const discard: HTMLElement = button("Discard…", () => confirmDiscard(root, discard, s, refresh), { small: true });
   actions.append(discard, h("span", { class: "lp-grow" }));
-  if (s.status === "draft") actions.append(button("Post this comment", () => { confirming.add(s.id); refresh(); }, { primary: true, title: "Launchpad posts it as you, after you confirm" }));
+  if (s.status === "draft") {
+    const go = h("button", { class: "lp-btn lp-primary", text: "Post this comment", attrs: { type: "button", title: `Launchpad posts it to ${page.repo}#${page.number} as you${s.reply_to?.kind === "review_comment" ? ", in the review thread it answers" : ""}, with the attribution line` } });
+    go.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      // Only a real click of the owner posts (never a click the page synthesized).
+      if (!ev.isTrusted || go.disabled) return;
+      go.disabled = true;
+      go.textContent = "Posting…";
+      request("suggestion.post", { id: s.id }).then(() => { errors.delete(e.key); refresh(); }).catch((x) => { errors.set(e.key, fail(x)); refresh(); });
+    });
+    actions.append(go);
+  }
   wrap.append(actions, choice);
   return wrap;
 }

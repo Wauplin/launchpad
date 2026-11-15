@@ -130,7 +130,6 @@ const STYLE = `
 .lp-sugg.lp-sugg-done { padding: 8px 12px; background: var(--bgColor-muted, #f6f8fa); }
 .lp-sugg-text { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--borderColor-default, #d1d9e0); border-radius: 6px; background: var(--bgColor-default, #ffffff); }
 .lp-sugg .lp-actions { flex-wrap: wrap; }
-.lp-sugg .lp-confirm { flex: 1 1 240px; }
 .lp-tl textarea, .lp-notebox textarea { display: block; width: 100%; min-height: 96px; margin-top: 6px; resize: vertical; font: inherit; font-size: 13px; color: inherit; border-radius: 6px; padding: 6px 8px;
   border: 1px solid var(--borderColor-default, #d1d9e0); background: var(--bgColor-default, #ffffff); }
 .lp-tl textarea:focus-visible, .lp-notebox textarea:focus-visible { outline: 2px solid var(--lp-teal); outline-offset: -1px; }
