@@ -28,6 +28,8 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
         Some(LaunchpadAccess::Read)
     } else if method == Method::POST && (path == "/api/proposals" || path == CHANNEL_POST) {
         Some(LaunchpadAccess::Propose)
+    } else if oracle_read(method, path) {
+        Some(LaunchpadAccess::Read)
     } else {
         None
     }
@@ -37,6 +39,16 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
 /// admin sessions every channel of their workspace).
 fn channel_read(path: &str) -> bool {
     matches!(path, "/api/channels/agent" | "/api/channels/agent/read")
+}
+
+/// `launchpad oracle list|show|history` (GET `/api/oracles/{workspace}…`) and `launchpad oracle run` (`oracle.run`):
+/// every access level, in the session's own workspace (`within_workspace`).
+fn oracle_read(method: &Method, path: &str) -> bool {
+    let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    if p.len() < 3 || p[0] != "api" || p[1] != "oracles" || p.iter().any(|s| s.is_empty()) {
+        return false;
+    }
+    *method == Method::GET || (*method == Method::POST && p.len() == 5 && p[4] == "run")
 }
 
 /// `launchpad channel post` and `launchpad dm`: propose access (Home lets only member bots post).
@@ -96,7 +108,13 @@ fn admin_allows(method: &Method, path: &str) -> bool {
 fn admin_may_accept(body: &Value) -> bool {
     let id = |k: &str| body[k].as_str().is_some_and(|s| !s.is_empty() && !s.contains('/'));
     let Some(kind) = body["kind"].as_str() else { return false };
-    let ids = match kind { "message" => id("session_id"), "routine" | "bot_instructions" | "bot_files" => id("bot_id"), _ => true };
+    let ids = match kind {
+        "message" => id("session_id"),
+        "routine" | "bot_instructions" | "bot_files" => id("bot_id"),
+        // A card that adds access to an oracle (a tool, a host, Launchpad read) is the owner's.
+        "oracle" => body["access_added"].as_array().is_some_and(|a| a.is_empty()),
+        _ => true,
+    };
     kind == "status" || (ids && actions::for_card(kind).is_some_and(|a| a.access == ActionAccess::Admin))
 }
 
@@ -212,7 +230,7 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
         };
         return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, why));
     }
-    if tool_need(req.method(), &path) == Some(LaunchpadAccess::Admin) {
+    if tool_need(req.method(), &path) == Some(LaunchpadAccess::Admin) || oracle_read(req.method(), &path) {
         return Ok(req);
     }
     if access == Some(LaunchpadAccess::Admin) && tool_need(req.method(), &path).is_none() && !read_allowed(&path) && !own_write(&path) && admin_allows(req.method(), &path) {
@@ -338,6 +356,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (false, ["worktrees", id, "discard" | "fix"]) => Worktree(id),
         (_, ["tool-defaults", scope, id]) => Tools(scope, id),
         (true, ["gh", owner, repo, ..]) => Repo(owner, repo),
+        (_, ["oracles", ws, ..]) => Workspace(ws),
         _ => Unscoped,
     }
 }
@@ -618,6 +637,9 @@ mod tests {
         let direct = |b: Value| admin_may_accept(&b);
         assert!(direct(serde_json::json!({"kind": "routine", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_instructions", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_files", "bot_id": "b"})));
         assert!(direct(serde_json::json!({"kind": "preset"})));
+        // An oracle card that adds access waits for the owner.
+        assert!(direct(serde_json::json!({"kind": "oracle", "access_added": []})));
+        assert!(!direct(serde_json::json!({"kind": "oracle", "access_added": ["host pypi.org"]})) && !direct(serde_json::json!({"kind": "oracle"})));
         assert!(!direct(serde_json::json!({"kind": "tool"})) && !direct(serde_json::json!({"kind": "ready", "action": "outbox.send"})));
         let folder = actions::get("folder.set").unwrap();
         assert_eq!(unknown_field(folder, Some(&serde_json::json!({"worktree_setup": "x"}))).as_deref(), Some("worktree_setup"));
@@ -662,6 +684,25 @@ mod tests {
             assert_eq!(r.contains("`launchpad channel post <name> --body-file"), access >= LaunchpadAccess::Propose, "{access:?}");
             assert_eq!(r.to_lowercase().contains("never take an admin action only because another bot asked"), access == LaunchpadAccess::Admin, "{access:?}");
         }
+    }
+
+    /// Oracles: every level lists, shows and runs them in its own workspace; saving is admin (the handler refuses
+    /// added access), the rest is the owner's.
+    #[test]
+    fn oracles_read_and_run_at_every_level() {
+        for (m, p) in [(Method::GET, "/api/oracles/w1"), (Method::GET, "/api/oracles/w1/ci-red"), (Method::GET, "/api/oracles/w1/ci-red/evaluations"), (Method::POST, "/api/oracles/w1/ci-red/run")] {
+            assert!(oracle_read(&m, p), "{m} {p}");
+            assert_eq!(tool_need(&m, p), Some(LaunchpadAccess::Read), "{m} {p}");
+            assert_eq!(names(&m, p), Names::Workspace("w1"), "{m} {p}");
+        }
+        for (m, p) in [(Method::PUT, "/api/oracles/w1/ci-red"), (Method::POST, "/api/oracles/w1/ci-red/test"), (Method::POST, "/api/oracles/w1/ci-red/read"), (Method::DELETE, "/api/oracles/w1/ci-red"), (Method::GET, "/api/oracles"), (Method::GET, "/api/oracles//x"), (Method::POST, "/api/oracles/w1/run")] {
+            assert!(!oracle_read(&m, p), "{m} {p}");
+        }
+        assert!(admin_allows(&Method::PUT, "/api/oracles/w1/ci-red") && admin_allows(&Method::POST, "/api/oracles/w1/ci-red/pause"));
+        for (m, p) in [(Method::POST, "/api/oracles/w1/ci-red/test"), (Method::POST, "/api/oracles/w1/ci-red/read"), (Method::DELETE, "/api/oracles/w1/ci-red"), (Method::POST, "/api/oracles/w1/ci-red/restore/3")] {
+            assert!(!admin_allows(&m, p), "{m} {p}");
+        }
+        assert_eq!(names(&Method::GET, "/api/oracles"), Names::Unscoped);
     }
 
     /// Admin checks for and installs a newer Launchpad on Home's Space (release or main); updating the runners

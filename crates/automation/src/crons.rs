@@ -75,6 +75,8 @@ pub enum RunOutcome {
     Failed,
     Interrupted,
     Stopped,
+    /// A gate check that started no run (`gates`): not a run, never counted as one.
+    Checked,
 }
 
 /// One due time, event or manual run, with what came of it.
@@ -106,6 +108,10 @@ pub struct RoutineRun {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub archived: bool,
+    /// A gated routine: the oracle check behind this entry (a run's evaluation, or the quiet checks it collapses).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub check: Option<crate::gates::Check>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -160,6 +166,14 @@ pub struct CronAgent {
     /// `unfinished_work`); a bot routine archives the run's own thread. Off by default.
     #[serde(default)]
     pub auto_archive: bool,
+    /// Only when an oracle says so (`gates`): schedule triggers only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub gate: Option<crate::gates::Gate>,
+    /// What the gate remembers between ticks (fire policy).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub gate_state: Option<crate::gates::GateState>,
     /// Why its due run has not started yet (for example no confirmed quota reading). Never stored: `list` fills it.
     #[serde(default, skip_deserializing)]
     pub waiting: Option<String>,
@@ -188,6 +202,14 @@ pub struct CronPatch {
     pub time_zone: Option<String>,
     #[serde(default)]
     pub auto_archive: Option<bool>,
+    /// A new gate, or null to remove it.
+    #[serde(default, deserialize_with = "some")]
+    pub gate: Option<Option<crate::gates::Gate>>,
+}
+
+/// A field that may be null: missing is None, null is Some(None).
+fn some<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> std::result::Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
 }
 
 /// A new routine of a bot.
@@ -206,6 +228,8 @@ pub struct BotRoutine {
     pub time_zone: Option<String>,
     #[serde(default)]
     pub auto_archive: bool,
+    #[serde(default)]
+    pub gate: Option<crate::gates::Gate>,
 }
 
 fn parse(schedule: &str) -> Result<croner::Cron> {
@@ -412,10 +436,12 @@ pub struct NewCron {
     pub time_zone: Option<String>,
     #[serde(default)]
     pub auto_archive: bool,
+    #[serde(default)]
+    pub gate: Option<crate::gates::Gate>,
 }
 
 pub async fn create(app: &App, new: NewCron) -> Result<CronAgent> {
-    let NewCron { spec, schedule, conditions, trigger, title, time_zone, auto_archive } = new;
+    let NewCron { spec, schedule, conditions, trigger, title, time_zone, auto_archive, gate } = new;
     let harness = spec.harness.context("pick a harness")?;
     if spec.target == Target::None {
         bail!("pick a project or a temporary folder");
@@ -430,6 +456,10 @@ pub async fn create(app: &App, new: NewCron) -> Result<CronAgent> {
     let time_zone = zone_for(app, time_zone)?;
     ensure!(!matches!(trigger, Trigger::Channel { .. }), "a channel trigger is for a bot's routines: add it on the bot's page");
     validate_trigger(&trigger, &schedule, time_zone.as_deref())?;
+    if let Some(g) = &gate {
+        crate::gates::check(g, &trigger)?;
+        crate::gates::check_oracle(app, launchpad_core::scope::of_spec(app, &spec).await.as_deref(), g).await?;
+    }
     let now = now_ms();
     let mut record = CronAgent {
         id: uuid::Uuid::new_v4().to_string(),
@@ -453,6 +483,8 @@ pub async fn create(app: &App, new: NewCron) -> Result<CronAgent> {
         file: None,
         file_error: None,
         auto_archive,
+        gate,
+        gate_state: None,
         waiting: None,
     };
     record.next_run_at = next_due(&record, now)?;
@@ -503,6 +535,7 @@ pub async fn create_for_bot(app: &App, bot_id: &str, r: BotRoutine) -> Result<Cr
         trigger: r.trigger,
         conditions: r.conditions,
         auto_archive: r.auto_archive,
+        gate: r.gate,
     };
     let text = render_file(&file)?;
     check_file(app, &bot, &text).await?;
@@ -538,7 +571,10 @@ pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> 
         Some(z) => Some(zone_for(app, Some(z))?),
         None => None,
     };
-    let (record, ()) = modify(app, id, move |r| {
+    if let Some(Some(g)) = &patch.gate {
+        crate::gates::check_oracle(app, launchpad_core::scope::of_spec(app, &current.spec).await.as_deref(), g).await?;
+    }
+    let (record, reset) = modify(app, id, move |r| {
         if let Some(s) = patch.schedule {
             r.schedule = normalize(&s);
         }
@@ -572,11 +608,30 @@ pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> 
             ensure!(!i.trim().is_empty(), "write what the bot does at each run");
             r.spec.text = i.trim().to_string();
         }
+        let mut reset = false;
+        if let Some(g) = patch.gate {
+            reset = gate_moved(&r.gate, &g);
+            r.gate = g;
+            if reset {
+                r.gate_state = None;
+            }
+        }
+        if let Some(g) = &r.gate {
+            crate::gates::check(g, &r.trigger)?;
+        }
         r.next_run_at = next_due(r, now)?;
-        Ok(())
+        Ok(reset)
     })
     .await?;
+    if reset {
+        crate::oracle_eval::forget_cursor(app, &crate::gates::consumer(id)).await?;
+    }
     Ok(record)
+}
+
+/// A gate on another oracle or with other parameters starts from scratch: no cursor, no fire state.
+fn gate_moved(old: &Option<crate::gates::Gate>, new: &Option<crate::gates::Gate>) -> bool {
+    old.as_ref().map(|g| (&g.oracle, &g.params)) != new.as_ref().map(|g| (&g.oracle, &g.params))
 }
 
 /// A bot routine's change: its file gets the record's definition with the patch, then the record follows it.
@@ -606,6 +661,9 @@ async fn update_file(app: &App, current: &CronAgent, bot_id: &str, path: &str, p
     if let Some(i) = patch.instructions {
         f.instructions = i.trim().to_string();
     }
+    if let Some(g) = patch.gate {
+        f.gate = g;
+    }
     let bot = launchpad_core::bots::get(app, bot_id).await?;
     crate::channel_trigger::resolve_trigger(app, &bot, &mut f.trigger).await?;
     let text = render_file(&f)?;
@@ -627,15 +685,16 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
 }
 
 async fn delete_record(app: &App, id: &str) -> Result<()> {
-    let id = id.to_string();
+    let key = id.to_string();
     app.state_db
         .call(move |c| {
-            if c.execute("DELETE FROM cron_agent WHERE id = ?1", [id])? == 0 {
+            if c.execute("DELETE FROM cron_agent WHERE id = ?1", [&key])? == 0 {
                 bail!("this routine no longer exists");
             }
             Ok(())
         })
         .await?;
+    crate::oracle_eval::forget_cursor(app, &crate::gates::consumer(id)).await?;
     changed(app);
     Ok(())
 }
@@ -685,6 +744,9 @@ pub struct RoutineFile {
     /// Archive each run's thread once the run ended Done with nothing waiting. Off when left out.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub auto_archive: bool,
+    /// Only when an oracle says so: `[gate]` (schedule triggers only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<crate::gates::Gate>,
 }
 
 const FILE_HEADER: &str = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), session_done, failure or channel.\n";
@@ -707,6 +769,9 @@ pub fn parse_file(text: &str) -> Result<RoutineFile> {
     }
     validate_conditions(&f.conditions)?;
     validate_trigger(&f.trigger, &f.schedule, f.time_zone.as_deref())?;
+    if let Some(g) = &f.gate {
+        crate::gates::check(g, &f.trigger)?;
+    }
     Ok(f)
 }
 
@@ -721,12 +786,15 @@ pub async fn check_file(app: &App, bot: &launchpad_core::bots::Bot, text: &str) 
     if let Trigger::Channel { channel, .. } = &f.trigger {
         crate::channel_trigger::check(app, bot, channel).await?;
     }
+    if let Some(g) = &f.gate {
+        crate::gates::check_oracle(app, Some(&bot.workspace_id), g).await?;
+    }
     Ok(f)
 }
 
 /// The definition a record holds, as a file.
 fn file_of(r: &CronAgent) -> RoutineFile {
-    RoutineFile { title: r.title.clone(), paused: r.paused, schedule: r.schedule.clone(), time_zone: r.time_zone.clone(), instructions: r.spec.text.clone(), trigger: r.trigger.clone(), conditions: r.conditions.clone(), auto_archive: r.auto_archive }
+    RoutineFile { title: r.title.clone(), paused: r.paused, schedule: r.schedule.clone(), time_zone: r.time_zone.clone(), instructions: r.spec.text.clone(), trigger: r.trigger.clone(), conditions: r.conditions.clone(), auto_archive: r.auto_archive, gate: r.gate.clone() }
 }
 
 /// `routines/<slug of the title>.toml`, not one of `taken`.
@@ -756,6 +824,11 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
     let head = crate::channel_trigger::head(app).await?;
     for (path, text) in &files {
         let parsed = check_file(app, &bot, text).await.map_err(|e| format!("{e:#}"));
+        if let (Some(r), Ok(f)) = (records.iter().find(|r| r.file.as_deref() == Some(path.as_str())), &parsed)
+            && gate_moved(&r.gate, &f.gate)
+        {
+            crate::oracle_eval::forget_cursor(app, &crate::gates::consumer(&r.id)).await?;
+        }
         match (records.iter().find(|r| r.file.as_deref() == Some(path.as_str())), parsed) {
             (Some(r), Ok(f)) => {
                 // An active schedule always has its next due time.
@@ -777,6 +850,10 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                     r.trigger = f.trigger;
                     r.conditions = f.conditions;
                     r.auto_archive = f.auto_archive;
+                    if gate_moved(&r.gate, &f.gate) {
+                        r.gate_state = None;
+                    }
+                    r.gate = f.gate;
                     r.file_error = None;
                     if timing {
                         r.next_run_at = next_due(r, now)?;
@@ -798,7 +875,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                 let (f, error) = match parsed {
                     Ok(f) => (f, None),
                     // Nothing good to run yet: a paused record that shows the error until the file is fixed.
-                    Err(e) => (RoutineFile { title: path.trim_start_matches(launchpad_core::bots::ROUTINES).to_string(), paused: true, schedule: String::new(), time_zone: None, instructions: String::new(), trigger: Trigger::Schedule, conditions: vec![], auto_archive: false }, Some(e)),
+                    Err(e) => (RoutineFile { title: path.trim_start_matches(launchpad_core::bots::ROUTINES).to_string(), paused: true, schedule: String::new(), time_zone: None, instructions: String::new(), trigger: Trigger::Schedule, conditions: vec![], auto_archive: false, gate: None }, Some(e)),
                 };
                 let spec = match bot_spec(app, &bot, f.instructions.clone()).await {
                     Ok(s) => s,
@@ -826,6 +903,8 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                     file: Some(path.clone()),
                     file_error: error,
                     auto_archive: f.auto_archive,
+                    gate: f.gate,
+                    gate_state: None,
                     waiting: None,
                 };
                 record.next_run_at = next_due(&record, now).unwrap_or(None);
@@ -890,6 +969,7 @@ fn summary(run: &RoutineRun) -> String {
         RunOutcome::Failed => "Failed",
         RunOutcome::Interrupted => "Interrupted",
         RunOutcome::Stopped => "Stopped",
+        RunOutcome::Checked => "Checked",
     };
     match &run.detail {
         Some(d) => format!("{what}: {d}"),
@@ -918,7 +998,7 @@ pub(crate) async fn skip(app: &App, id: &str, cause: String, reason: String) -> 
 /// `skip`, marked as a failure when `missed`.
 pub(crate) async fn skip_run(app: &App, id: &str, cause: String, reason: String, missed: bool) -> Result<()> {
     modify(app, id, move |r| {
-        push_run(r, RoutineRun { at: now_ms(), cause, session_id: None, outcome: RunOutcome::Skipped, detail: Some(reason), quiet_ok: false, missed, done_since: None, archived: false });
+        push_run(r, RoutineRun { at: now_ms(), cause, session_id: None, outcome: RunOutcome::Skipped, detail: Some(reason), quiet_ok: false, missed, done_since: None, archived: false, check: None });
         Ok(())
     })
     .await
@@ -935,7 +1015,7 @@ pub(crate) fn limit_reason(r: &CronAgent, hops: u32, now: i64) -> Option<String>
     if r.trigger == Trigger::Schedule {
         return None;
     }
-    let started = r.history.iter().filter(|x| x.outcome != RunOutcome::Skipped && now - x.at < 3_600_000).count();
+    let started = r.history.iter().filter(|x| !matches!(x.outcome, RunOutcome::Skipped | RunOutcome::Checked) && now - x.at < 3_600_000).count();
     (started >= EVENT_RUNS_PER_HOUR).then(|| format!("rate limit: {started} runs in the last hour (at most {EVENT_RUNS_PER_HOUR} for a routine started by events)"))
 }
 
@@ -970,22 +1050,38 @@ pub(crate) async fn why_blocked(app: &App, r: &CronAgent) -> Result<Option<Strin
 }
 
 /// Starts one run: claims a history entry, then sends the bot's message or launches the spec (sent once, never
-/// retried). `automatic` runs need confirmed quota.
-async fn start(app: &App, id: &str, cause: String, context: String, automatic: bool, hops: u32) -> Result<Session> {
+/// retried). `automatic` runs need confirmed quota. A gated run (`gate`) commits its oracle cursor and its fire state
+/// in the same transaction as the history entry, and may carry other instructions (`[gate.failed]`).
+async fn start(app: &App, id: &str, cause: String, context: String, automatic: bool, hops: u32, gate: Option<crate::gates::GateRun>) -> Result<Session> {
     let at = now_ms();
     // A run starts its own session (a bot routine: in a thread of its own), so nothing of it is unseen yet.
     let quiet_ok = true;
-    let (record, ()) = modify(app, id, {
+    let (check, state, cursor, instructions) = match gate {
+        Some(g) => (Some(g.check), Some(g.state), g.cursor, g.instructions),
+        None => (None, None, None, None),
+    };
+    let key = crate::gates::consumer(id);
+    let (record, ()) = modify_tx(app, id, {
         let cause = cause.clone();
-        move |r| {
+        move |c, r| {
             if automatic {
                 ensure!(r.active(), "paused");
             }
-            push_run(r, RoutineRun { at, cause, session_id: None, outcome: RunOutcome::Running, detail: None, quiet_ok, missed: false, done_since: None, archived: false });
+            push_run(r, RoutineRun { at, cause, session_id: None, outcome: RunOutcome::Running, detail: None, quiet_ok, missed: false, done_since: None, archived: false, check });
+            if let Some(s) = state {
+                r.gate_state = Some(s);
+            }
+            if let Some((ws, oracle, value, eval)) = &cursor {
+                crate::oracle_eval::commit_in(c, &key, ws, oracle, value, Some(eval), at)?;
+            }
             Ok(())
         }
     })
     .await?;
+    let record = match instructions {
+        Some(text) => CronAgent { spec: LaunchSpec { text, ..record.spec.clone() }, ..record },
+        None => record,
+    };
     let launch = RoutineLaunch { id: record.id.clone(), title: record.title.clone(), cause, context };
     let result = match &record.bot_id {
         Some(bot) => {
@@ -1026,6 +1122,65 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
     result
 }
 
+/// `modify` with the transaction, for changes of other tables that go with the record's (a gate's cursor).
+pub(crate) async fn modify_tx<T: Send + 'static>(
+    app: &App,
+    id: &str,
+    f: impl FnOnce(&rusqlite::Connection, &mut CronAgent) -> Result<T> + Send + 'static,
+) -> Result<(CronAgent, T)> {
+    let id = id.to_string();
+    let out = app
+        .state_db
+        .call(move |c| {
+            let tx = c.transaction()?;
+            let json: String = tx.query_row("SELECT json FROM cron_agent WHERE id = ?1", [&id], |r| r.get(0)).context("this routine no longer exists")?;
+            let mut record: CronAgent = serde_json::from_str(&json)?;
+            let out = f(&tx, &mut record)?;
+            tx.execute("UPDATE cron_agent SET json = ?2 WHERE id = ?1", params![id, serde_json::to_string(&record)?])?;
+            tx.commit()?;
+            Ok((record, out))
+        })
+        .await?;
+    changed(app);
+    Ok(out)
+}
+
+/// Claims a due occurrence of a schedule (its next due time moves on) and applies `f` in the same write.
+pub(crate) async fn claim_due(app: &App, id: &str, due: Option<i64>, now: i64, f: impl FnOnce(&mut CronAgent) + Send + 'static) -> Result<CronAgent> {
+    claim_due_tx(app, id, due, now, move |_, r| {
+        f(r);
+        Ok(())
+    })
+    .await
+}
+
+/// `claim_due` with the transaction.
+pub(crate) async fn claim_due_tx(app: &App, id: &str, due: Option<i64>, now: i64, f: impl FnOnce(&rusqlite::Connection, &mut CronAgent) -> Result<()> + Send + 'static) -> Result<CronAgent> {
+    Ok(modify_tx(app, id, move |c, r| {
+        if !r.active() || r.next_run_at != due {
+            bail!("already handled");
+        }
+        r.next_run_at = Some(next_after(&r.schedule, r.time_zone.as_deref(), now)?);
+        r.last_check_at = Some(now);
+        f(c, r)
+    })
+    .await?
+    .0)
+}
+
+/// A failure that starts no run (a gate that cannot be checked): one entry, its time updated while it repeats.
+pub(crate) fn push_or_merge_failure(r: &mut CronAgent, at: i64, detail: String) {
+    if let Some(last) = r.history.last_mut()
+        && last.outcome == RunOutcome::Failed
+        && last.session_id.is_none()
+        && last.detail.as_deref() == Some(detail.as_str())
+    {
+        last.at = at;
+        return;
+    }
+    push_run(r, RoutineRun { at, cause: "Scheduled".into(), session_id: None, outcome: RunOutcome::Failed, detail: Some(detail), quiet_ok: false, missed: false, done_since: None, archived: false, check: None });
+}
+
 /// Run now: ignores the conditions and the trigger.
 pub async fn run_now(app: &App, id: &str) -> Result<Session> {
     let record = get(app, id).await?;
@@ -1036,24 +1191,43 @@ pub async fn run_now(app: &App, id: &str) -> Result<Session> {
     }
     let app = app.clone();
     // Keep starting even if the browser disconnects while it waits for the response.
-    tokio::spawn(async move { start(&app, &record.id, "Run now".into(), String::new(), false, 0).await }).await?
+    tokio::spawn(async move { start(&app, &record.id, "Run now".into(), String::new(), false, 0, None).await }).await?
 }
 
 /// Starts an event run when the routine allows it; otherwise records why it was skipped. `hops`: the automatic
 /// messages in the chain of its message, itself included (1 for a schedule or a failure).
 pub(crate) async fn on_event(app: &App, r: &CronAgent, cause: String, context: String, hops: u32) -> Result<()> {
+    on_event_with(app, r, cause, context, hops, None).await.map(|_| ())
+}
+
+/// What came of an event: a run started, or why not.
+pub(crate) enum Started {
+    Run(String),
+    Skipped(String),
+    Failed(String),
+}
+
+/// `on_event` for a gated run (`gate`: its check, fire state and cursor, committed only when the run is claimed).
+pub(crate) async fn on_event_with(app: &App, r: &CronAgent, cause: String, context: String, hops: u32, gate: Option<crate::gates::GateRun>) -> Result<Started> {
     if let Some(why) = limit_reason(r, hops, now_ms()) {
-        return skip(app, &r.id, cause, why).await;
+        skip(app, &r.id, cause, why.clone()).await?;
+        return Ok(Started::Skipped(why));
     }
     if let Some(why) = why_blocked(app, r).await? {
-        return skip(app, &r.id, cause, why).await;
+        skip(app, &r.id, cause, why.clone()).await?;
+        return Ok(Started::Skipped(why));
     }
     // Automatic work needs confirmed quota; an event never waits for it here (schedules and failures wait before
     // they claim), so the run is missed.
     if let Some(why) = quota_hold(app, r).await? {
-        return skip_run(app, &r.id, cause, format!("automatic work needs confirmed quota: {why}"), true).await;
+        let why = format!("automatic work needs confirmed quota: {why}");
+        skip_run(app, &r.id, cause, why.clone(), true).await?;
+        return Ok(Started::Skipped(why));
     }
-    start(app, &r.id, cause, context, true, hops).await.map(|_| ())
+    Ok(match start(app, &r.id, cause, context, true, hops, gate).await {
+        Ok(s) => Started::Run(s.id),
+        Err(e) => Started::Failed(format!("{e:#}")),
+    })
 }
 
 /// Why the routine's automatic run waits for its quota now (`quota::hold_reason`): of the bot's thread
@@ -1069,7 +1243,15 @@ pub(crate) async fn quota_hold(app: &App, r: &CronAgent) -> Result<Option<String
 /// Why a routine's due occurrence waited, with that due time (Unix ms): the reason its late skip gives. In memory.
 static HELD: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, (i64, String)>>> = std::sync::LazyLock::new(Default::default);
 
+/// Keeps a due occurrence waiting for its quota (`list` shows why).
+pub(crate) fn hold(id: &str, due: i64, why: String) {
+    HELD.lock().unwrap().insert(id.to_string(), (due, why));
+}
+
 async fn tick(app: &App, record: CronAgent) -> Result<()> {
+    if let Some(gate) = record.gate.clone() {
+        return crate::gates::tick(app, record, gate).await;
+    }
     let now = now_ms();
     // Keep this occurrence due until the protected harness has a fresh reading.
     let held = quota_hold(app, &record).await?;
@@ -1099,7 +1281,7 @@ async fn tick(app: &App, record: CronAgent) -> Result<()> {
 
 /// Why a scheduled run more than an hour late is skipped, and whether that is a failure: it waited for its quota
 /// (`quota::hold_reason`), or Home started after the scheduled time (`home_started`, Unix ms).
-fn late_reason(due: i64, held: Option<String>, home_started: Option<i64>) -> (String, bool) {
+pub(crate) fn late_reason(due: i64, held: Option<String>, home_started: Option<i64>) -> (String, bool) {
     if let Some(why) = held {
         return (format!("waited an hour after the scheduled time: {why}"), true);
     }
@@ -1530,6 +1712,7 @@ mod tests {
             trigger: Trigger::Schedule,
             conditions: vec![CronCondition::QuotaLeft { window: QuotaKind::FiveHour, min_left_percent: 20 }],
             auto_archive: false,
+            gate: None,
         };
         let text = render_file(&f).unwrap();
         assert_eq!(parse_file(&text).unwrap(), f);
@@ -1553,7 +1736,7 @@ mod tests {
         let record = |trigger: Trigger, runs: Vec<(i64, RunOutcome)>| -> CronAgent {
             let mut r: CronAgent = serde_json::from_value(serde_json::json!({"id": "r1", "spec": {}, "title": "Review", "schedule": "", "conditions": [], "paused": false, "created_at": 0, "next_run_at": null, "last_check_at": null, "last_outcome": null, "runs": []})).unwrap();
             r.trigger = trigger;
-            r.history = runs.into_iter().map(|(at, outcome)| RoutineRun { at, cause: "x".into(), session_id: None, outcome, detail: None, quiet_ok: false, missed: false, done_since: None, archived: false }).collect();
+            r.history = runs.into_iter().map(|(at, outcome)| RoutineRun { at, cause: "x".into(), session_id: None, outcome, detail: None, quiet_ok: false, missed: false, done_since: None, archived: false, check: None }).collect();
             r
         };
         let done = Trigger::SessionDone { folder: None, include_bots: false };
@@ -1578,7 +1761,7 @@ mod tests {
     fn session_done_triggers_leave_bots_out_unless_asked() {
         let hand = "title = \"x\"\ninstructions = \"y\"\ntrigger = { kind = \"session_done\", folder = \"f1\" }\n";
         assert_eq!(parse_file(hand).unwrap().trigger, Trigger::SessionDone { folder: Some("f1".into()), include_bots: false });
-        let with_bots = RoutineFile { title: "x".into(), paused: false, schedule: String::new(), time_zone: None, instructions: "y".into(), trigger: Trigger::SessionDone { folder: None, include_bots: true }, conditions: vec![], auto_archive: false };
+        let with_bots = RoutineFile { title: "x".into(), paused: false, schedule: String::new(), time_zone: None, instructions: "y".into(), trigger: Trigger::SessionDone { folder: None, include_bots: true }, conditions: vec![], auto_archive: false, gate: None };
         let text = render_file(&with_bots).unwrap();
         assert!(text.contains("include_bots = true"), "{text}");
         assert_eq!(parse_file(&text).unwrap(), with_bots);
@@ -1617,7 +1800,7 @@ mod tests {
     fn auto_archive_takes_only_runs_that_ended_done_and_stayed_so() {
         let now = 50 * 3_600_000;
         let since = now - 60_000;
-        let run = |outcome: RunOutcome| RoutineRun { at: since - 1, cause: "Scheduled".into(), session_id: Some("s1".into()), outcome, detail: None, quiet_ok: true, missed: false, done_since: Some(since), archived: false };
+        let run = |outcome: RunOutcome| RoutineRun { at: since - 1, cause: "Scheduled".into(), session_id: Some("s1".into()), outcome, detail: None, quiet_ok: true, missed: false, done_since: Some(since), archived: false, check: None };
         let s = done_session("s1", since);
         assert!(auto_archive_ready(&run(RunOutcome::Report), &s, now));
         assert!(auto_archive_ready(&run(RunOutcome::NoUpdate), &s, now));

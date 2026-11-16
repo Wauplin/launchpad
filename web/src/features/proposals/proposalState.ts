@@ -69,6 +69,7 @@ export function proposalPurpose(p: Pick<Proposal, "body">, n: CardNames = {}): s
     case "ready": return `Your click: ${n.action?.(b.action) ?? b.action}`;
     case "report": return `${REPORT_OUTCOME[b.outcome]}${b.github ? ` · ${b.github}` : ""}`;
     case "status": return `Lists ${plural(b.session_ids.length, "agent")} to look at`;
+    case "oracle": return `${b.before == null ? "Saves a new" : "Changes the"} oracle ${b.slug}${b.access_added.length ? `; adds access: ${b.access_added.join(", ")}` : ""}`;
   }
 }
 
@@ -97,5 +98,6 @@ export function proposalReceipt(p: Pick<Proposal, "body" | "state" | "title" | "
     case "ready": return `Done: ${t}`;
     case "report": return `Replied: ${t}`;
     case "status": return `Seen: ${t}`;
+    case "oracle": return `Saved oracle ${t}`;
   }
 }

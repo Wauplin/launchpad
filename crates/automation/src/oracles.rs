@@ -186,6 +186,11 @@ pub fn parse_duration(v: &toml::Value) -> Result<i64> {
     Ok(n * ms)
 }
 
+/// `parse_duration` of a text (`2m`).
+pub fn duration_text(s: &str) -> Result<i64> {
+    parse_duration(&toml::Value::String(s.to_string()))
+}
+
 /// Parses a parameter spec (`"string:main"`).
 pub fn parse_param(name: &str, spec: &str) -> Result<ParamSpec> {
     let ok = name.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c == '_') && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');

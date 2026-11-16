@@ -78,6 +78,10 @@ pub enum ProposalBody {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         #[ts(optional, as = "Option<bool>")]
         auto_archive: bool,
+        /// Only when an oracle says so (`[gate]` of the routine file).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        gate: Option<crate::gates::Gate>,
     },
     /// A new BOT.md for a bot of the workspace. A shorthand: Home stores it as a `BotFiles` card (older cards still
     /// start as they are). Accepting fails when BOT.md changed since.
@@ -160,6 +164,26 @@ pub enum ProposalBody {
         #[serde(default = "mentions")]
         #[ts(type = "\"all\" | \"mentions\" | \"digest\" | \"muted\"")]
         mode: String,
+    },
+    /// A new oracle of the proposal's workspace, or a new version of one (`oracles/<slug>.py`, the whole file).
+    /// Accepting saves it, like `oracle.save`, and fails when the file changed since. Home fills in the diff and what
+    /// the new version adds to or removes from its access: a card that adds access waits for the owner.
+    Oracle {
+        slug: String,
+        /// The whole new file.
+        content: String,
+        /// The file's SHA-256 when the card was made, null for a new oracle (filled by Home).
+        #[serde(default)]
+        before: Option<String>,
+        /// The unified diff from the current file (filled by Home).
+        #[serde(default)]
+        patch: String,
+        /// Tools, hosts and Launchpad read access the new version adds (filled by Home).
+        #[serde(default)]
+        access_added: Vec<String>,
+        /// And removes (filled by Home).
+        #[serde(default)]
+        access_removed: Vec<String>,
     },
     /// A new tool in Home's registry. Adding it asks for nothing secret; the owner pastes the token after.
     /// Its token is always a new vault entry named like the tool, never an existing one.
@@ -332,7 +356,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     let mut result_id = None;
     // The shorthands become one bot-files card, so every change to a bot's files reads as a diff.
     match &body {
-        ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions, auto_archive } => {
+        ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions, auto_archive, gate } => {
             ensure!(!title.trim().is_empty(), "give the routine a name");
             // A channel trigger may name the channel (`#name`, `@bot` for a DM): the file keeps its ID.
             let mut trigger = trigger.clone();
@@ -341,7 +365,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             {
                 crate::channel_trigger::resolve_trigger(app, &bot, &mut trigger).await?;
             }
-            let f = crate::crons::RoutineFile { title: title.trim().into(), paused: false, schedule: schedule.clone(), time_zone: None, instructions: instructions.clone(), trigger, conditions: conditions.clone(), auto_archive: *auto_archive };
+            let f = crate::crons::RoutineFile { title: title.trim().into(), paused: false, schedule: schedule.clone(), time_zone: None, instructions: instructions.clone(), trigger, conditions: conditions.clone(), auto_archive: *auto_archive, gate: gate.clone() };
             let taken: Vec<String> = launchpad_core::bots::routine_files(app, bot_id).await.with_context(|| format!("no bot {bot_id} (see `bots list`)"))?.into_iter().map(|(p, _)| p).collect();
             let path = crate::crons::file_path_for(&f.title, &taken);
             body = ProposalBody::BotFiles { bot_id: bot_id.clone(), files: [(path, Some(crate::crons::render_file(&f)?))].into(), before: Default::default(), patches: Default::default() };
@@ -483,6 +507,12 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             ensure!(author.is_none() || bot.is_some() || matches!(body, ProposalBody::Channel { .. }), "only a bot joins a channel: this agent is not a bot's session");
             let checked = launchpad_core::ext::extensions().channel_card(app, ws, serde_json::to_value(&body)?, bot.as_deref(), false, "").await?;
             body = serde_json::from_value(checked)?;
+        }
+        ProposalBody::Oracle { slug, content, before, patch, access_added, access_removed } => {
+            let ws = workspace_id.as_deref().context("oracles belong to a workspace: propose from a session of that workspace")?;
+            let (b, p, added, removed) = oracle_card(app, ws, slug, content).await?;
+            ensure!(!p.is_empty(), "this is already the content of oracles/{slug}.py");
+            (*before, *patch, *access_added, *access_removed) = (b, p, added, removed);
         }
         ProposalBody::Preset { preset_id, label, text, .. } => {
             ensure!(!label.trim().is_empty(), "give the preset a label");
@@ -731,8 +761,8 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 spec.from = launch_sender(app, &p, manual, agent.as_deref()).await?;
                 Ok(crate::schedules::create(app, spec, conditions).await?.id)
             }
-            ProposalBody::Cron { spec, schedule, conditions, auto_archive } => Ok(crate::crons::create(app, crate::crons::NewCron { spec, schedule, conditions, trigger: Default::default(), title: None, time_zone, auto_archive }).await?.id),
-            ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions, auto_archive } => Ok(crate::crons::create_for_bot(app, &bot_id, crate::crons::BotRoutine { title, instructions, trigger, schedule, conditions, time_zone, auto_archive }).await?.id),
+            ProposalBody::Cron { spec, schedule, conditions, auto_archive } => Ok(crate::crons::create(app, crate::crons::NewCron { spec, schedule, conditions, trigger: Default::default(), title: None, time_zone, auto_archive, gate: None }).await?.id),
+            ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions, auto_archive, gate } => Ok(crate::crons::create_for_bot(app, &bot_id, crate::crons::BotRoutine { title, instructions, trigger, schedule, conditions, time_zone, auto_archive, gate }).await?.id),
             ProposalBody::BotInstructions { bot_id, instructions, before, .. } => {
                 let bot = launchpad_core::bots::get(app, &bot_id).await?;
                 ensure!(bot.instructions == before, "BOT.md changed since this proposal: ask {} again", bot.settings.name);
@@ -767,6 +797,23 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 let by = p.session_id.as_deref().map_or("owner".to_string(), |s| format!("session:{s}"));
                 let done = launchpad_core::ext::extensions().channel_card(app, &ws, serde_json::to_value(&p.body)?, bot.as_deref(), true, &by).await?;
                 Ok(done["id"].as_str().context("no channel")?.to_string())
+            }
+            ProposalBody::Oracle { slug, content, before, .. } => {
+                let ws = p.workspace_id.clone().context("this proposal has no workspace")?;
+                let (now, _, added, _) = oracle_card(app, &ws, &slug, &content).await?;
+                let current = crate::oracles::get(app, &ws, &slug).await.ok();
+                let applied = current.as_ref().is_some_and(|f| f.content == content);
+                ensure!(applied || now == before, "oracles/{slug}.py changed since this proposal: ask for a new card");
+                // An admin session accepts only a card that adds no access (`agent_auth` checks the card too).
+                ensure!(agent.is_none() || added.is_empty(), "this card adds access ({}): it waits for the owner's click", added.join(", "));
+                if !applied {
+                    let author = match agent.as_deref() {
+                        Some(a) => launchpad_core::kb::agent_author(app, a).await?,
+                        None => launchpad_core::kb::Author::owner(None),
+                    };
+                    crate::oracles::save(app, &ws, &slug, &content, author).await?;
+                }
+                Ok(slug)
             }
             ProposalBody::Status { .. } => bail!("a status card has nothing to start"),
             ProposalBody::Report { .. } => bail!("a report has nothing to start: mark it read or reply"),
@@ -809,6 +856,19 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
     p.updated_at = now_ms();
     save(app, &p).await?;
     Ok(p)
+}
+
+/// An oracle card's checks and what Home fills in: the current file's SHA-256 (None: new), the diff, and the access
+/// the new version adds and removes. The file must parse and name tools of Home's registry.
+async fn oracle_card(app: &App, ws: &str, slug: &str, content: &str) -> Result<(Option<String>, String, Vec<String>, Vec<String>)> {
+    ensure!(crate::oracles::valid_slug(slug), "slug: lowercase letters, digits, - and _ (at most 63), such as ci-red");
+    let meta = crate::oracles::check(app, content).await.context("the oracle file")?;
+    let current = crate::oracles::get(app, ws, slug).await.ok();
+    let old = current.as_ref().and_then(|f| f.oracle.meta.as_ref()).map(|m| m.access.clone());
+    let added = crate::oracles::widens(old.as_ref(), &meta.access);
+    let removed = crate::oracles::widens(Some(&meta.access), &old.unwrap_or_default());
+    let patch = launchpad_core::kb::unified(current.as_ref().map_or("", |f| f.content.as_str()), content);
+    Ok((current.map(|f| f.oracle.sha256), patch, added, removed))
 }
 
 /// A bot's BOT.md and routine files: path → (SHA-256, text).
@@ -992,7 +1052,7 @@ mod tests {
 
     #[test]
     fn accepted_schedules_take_the_browser_zone_once() {
-        let text = crate::crons::render_file(&crate::crons::RoutineFile { title: "Daily".into(), paused: false, schedule: "0 9 * * *".into(), time_zone: None, instructions: "Check".into(), trigger: Default::default(), conditions: vec![], auto_archive: false }).unwrap();
+        let text = crate::crons::render_file(&crate::crons::RoutineFile { title: "Daily".into(), paused: false, schedule: "0 9 * * *".into(), time_zone: None, instructions: "Check".into(), trigger: Default::default(), conditions: vec![], auto_archive: false, gate: None }).unwrap();
         let f = crate::crons::parse_file(&text).unwrap();
         let zoned = with_zone(text.clone(), &f, Some("Europe/Paris"));
         assert_eq!(crate::crons::parse_file(&zoned).unwrap().time_zone.as_deref(), Some("Europe/Paris"));

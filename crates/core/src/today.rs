@@ -33,7 +33,7 @@ pub enum Filter {
     Send,
     /// Suggestions to post.
     Github,
-    /// Failed routines, outdated runners, Home updates and agent CLI updates that did not install.
+    /// Failed routines, failing oracles, outdated runners, Home updates and agent CLI updates that did not install.
     Fix,
 }
 
@@ -58,6 +58,9 @@ pub enum Kind {
     /// A bot channel or DM where a bot asks the owner (`--ask-owner`) or mentions the owner (`@owner`): one per
     /// channel, until the owner posts there or reads past the newest ask (`launchpad_channels::today`).
     ChannelAsk,
+    /// An oracle whose evaluations fail (`launchpad_automation::oracle_eval::Streak`): one row per oracle, updated in
+    /// place, gone at its next good evaluation or until its next failure after Mark read.
+    Oracle,
 }
 
 /// Where an item belongs, resolved by `compute` into `Item::workspaces`. A window shows only its workspace: an
@@ -122,6 +125,7 @@ pub struct Item {
     #[ts(type = "number | null")]
     #[serde(default)]
     pub message: Option<i64>,
+    /// A channel ask: how many wait. A failing oracle: its failed evaluations in a row.
     #[serde(default)]
     pub count: Option<u32>,
     #[serde(skip)]
@@ -142,6 +146,7 @@ impl Item {
             Kind::HomeUpdate => "home-update",
             Kind::CliUpdate => "cli-update",
             Kind::ChannelAsk => "channel",
+            Kind::Oracle => "oracle",
         };
         Item { id: format!("{prefix}:{record}"), kind, filter, title: title.into(), detail: String::new(), workspaces: vec![], record: record.into(), session_id: None, action: None, github: None, at, outcome: None, grouped: vec![], message: None, count: None, place }
     }
@@ -362,7 +367,7 @@ pub async fn latest(app: &App) -> Result<std::sync::Arc<Today>> {
 }
 
 /// Bus topics whose changes can change the list.
-const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "crons", "home_update", "cli_updates", "channels", "bots"];
+const TOPICS: &[&str] = &["sessions", "predrafts", "runners", "projects", "workspaces", "proposals", "outbox", "suggestions", "crons", "home_update", "cli_updates", "channels", "bots", "oracles"];
 
 /// What windows show of a waiting item: when it changes, they refetch.
 type ItemKey = (String, Vec<String>, Option<String>, String, String, Vec<String>);

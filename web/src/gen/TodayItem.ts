@@ -47,4 +47,8 @@ grouped: Array<TodayItem>,
 /**
  * A channel ask: the newest unanswered message (what Reply answers) and how many wait.
  */
-message: number | null, count: number | null, };
+message: number | null, 
+/**
+ * A channel ask: how many wait. A failing oracle: its failed evaluations in a row.
+ */
+count: number | null, };

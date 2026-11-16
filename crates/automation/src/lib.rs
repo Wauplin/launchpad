@@ -5,8 +5,10 @@ pub mod activity;
 pub mod channel_trigger;
 pub mod crons;
 pub mod failures;
+pub mod gates;
 pub mod oracle_eval;
 pub mod oracle_helper;
+pub mod oracle_views;
 pub mod oracles;
 pub mod proposals;
 pub mod schedules;
@@ -63,5 +65,8 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     oracle_eval::Evaluation::export_all(cfg)?;
     oracle_eval::RunResult::export_all(cfg)?;
     oracle_eval::Streak::export_all(cfg)?;
+    oracle_views::ListItem::export_all(cfg)?;
+    oracle_views::Detail::export_all(cfg)?;
+    oracle_views::TestAnswer::export_all(cfg)?;
     Ok(())
 }

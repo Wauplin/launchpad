@@ -40,7 +40,7 @@ const STDOUT_MAX: usize = 1 << 20;
 /// The line the helper writes to stderr once it is imported: uv prepared the environment.
 const START_MARK: &str = "\u{1e}launchpad_oracle:start";
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "OracleOutcome")]
 pub enum Outcome {
@@ -101,8 +101,10 @@ pub enum CallerKind {
     Sleep,
     /// `launchpad oracle run` (id: the session).
     Cli,
-    /// The owner (Test, Run now).
+    /// The owner (Run from the oracle's page).
     Owner,
+    /// The owner's Test now (`oracle.test`): recorded, commits no cursor.
+    Test,
 }
 
 /// Who asked for an evaluation.

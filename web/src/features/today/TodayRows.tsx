@@ -50,6 +50,7 @@ export const LOOK: Record<TodayItem["kind"], { icon: IconName; color: string; na
   home_update: { icon: "download", color: "text-attn", name: "Update for Home" },
   cli_update: { icon: "download", color: "text-teal", name: "Agent CLI update" },
   channel_ask: { icon: "comment", color: "text-attn", name: "A bot asks you in a channel" },
+  oracle: { icon: "xcircle", color: "text-gh-closed", name: "Oracle whose evaluations fail" },
 };
 
 type RowProps = { item: TodayItem; expanded: boolean; toggle: (id: string) => void; highlight: boolean };
@@ -288,7 +289,7 @@ function LocalPrRow(p: RowProps) {
 }
 
 /** One-word Start labels for the phone's button column (the full label is the tooltip and the card's button). */
-const SHORT: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create", status: "", preset: "Save", tool: "Add", bot: "Create", routine: "Add", bot_instructions: "Apply", bot_files: "Apply", channel: "Create", channel_join: "Add", ready: "", report: "" };
+const SHORT: Record<Proposal["body"]["kind"], string> = { launch: "Start", message: "Send", schedule: "Schedule", cron: "Create", status: "", preset: "Save", tool: "Add", bot: "Create", routine: "Add", bot_instructions: "Apply", bot_files: "Apply", channel: "Create", channel_join: "Add", ready: "", report: "", oracle: "Save" };
 
 /** Start in one click when it is a plain start; ready, status and uncertain cards open first. */
 function ProposalRow({ p: proposal, ...p }: RowProps & { p: Proposal | undefined }) {
@@ -340,6 +341,19 @@ function RoutineRow(p: RowProps) {
   return <Row {...p}
     main={<Link className="btn btn-sm no-underline" to="/schedules" search={{ routine: item.record }} title="Open the routine">Open</Link>}
     menu={!!item.session_id && ((close) => <OpenAgent id={item.session_id!} close={close} />)} />;
+}
+
+/** A failing oracle: Open its page; Mark read hides the row until its next failure. */
+function OracleRow(p: RowProps) {
+  const { item } = p;
+  const workspace = item.workspaces[0] ?? "";
+  return <Row {...p}
+    main={<Link className="btn btn-sm no-underline" to="/schedules" search={{ tab: "oracles", oracle: item.record }} title="Open the oracle">Open</Link>}
+    menu={!!workspace && ((close) => <>
+      <ActionMenuItem name="oracle.test" params={{ workspace, slug: item.record }} body={{}} close={close} />
+      <ActionMenuItem name="oracle.pause" params={{ workspace, slug: item.record }} close={close} />
+      <ActionMenuItem name="oracle.mark-read" params={{ workspace, slug: item.record }} close={close} />
+    </>)} />;
 }
 
 function RunnerRow(p: RowProps) {
@@ -404,5 +418,6 @@ export const ItemRow = memo(function ItemRow({ proposal, suggestion, ...p }: Row
     case "home_update": return <RunnerRow {...p} />; // Opens Settings → Home and runners, where Update Home is.
     case "cli_update": return <CliUpdateRow {...p} />;
     case "channel_ask": return <ChannelAskRow {...p} />;
+    case "oracle": return <OracleRow {...p} />;
   }
 });

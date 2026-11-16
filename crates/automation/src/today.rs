@@ -63,7 +63,8 @@ pub async fn items(app: &App) -> Vec<Item> {
             if c.paused || c.bot_paused {
                 return None;
             }
-            let last = c.history.last()?;
+            // Gate checks are not runs: the last run decides.
+            let last = c.history.iter().rev().find(|x| x.outcome != RunOutcome::Checked)?;
             let what = match last.outcome {
                 RunOutcome::Failed => "failed",
                 RunOutcome::Interrupted => "was interrupted",
@@ -76,5 +77,55 @@ pub async fn items(app: &App) -> Vec<Item> {
         })),
         Err(e) => tracing::warn!("Today: routines: {e:#}"),
     }
+    if launchpad_core::home_git::here(app) {
+        match oracle_items(app).await {
+            Ok(items) => out.extend(items),
+            Err(e) => tracing::warn!("Today: oracles: {e:#}"),
+        }
+    }
     out
+}
+
+/// One Fix row per failing oracle (its open failure streak), updated in place: the count, the last error, its
+/// dominant class and the routines gated on it. A recovery or Mark read moves it to Done until the next failure.
+async fn oracle_items(app: &App) -> anyhow::Result<Vec<Item>> {
+    let mut out = vec![];
+    for s in crate::oracle_eval::streaks(app, None).await? {
+        let recovered = s.count == 0 && s.recovered_at.is_some();
+        if !s.open() && !recovered && s.read_at.is_none() {
+            continue;
+        }
+        let title = crate::oracles::get(app, &s.workspace_id, &s.oracle).await.ok().and_then(|f| f.oracle.meta).map(|m| m.title).unwrap_or_else(|| s.oracle.clone());
+        let place = Place::Workspace(Some(s.workspace_id.clone()));
+        let item = |at: i64, what: String| {
+            let mut i = Item::new(Kind::Oracle, Filter::Fix, &s.oracle, what, place.clone(), at);
+            i.id = format!("oracle:{}/{}", s.workspace_id, s.oracle);
+            i
+        };
+        if s.open() {
+            let users = crate::gates::users(app, &s.workspace_id, &s.oracle).await.unwrap_or_default();
+            let mut detail = match (&s.last_error, s.dominant()) {
+                (Some(e), Some(d)) if d != e.class => format!("{}: {} (mostly {})", e.class.as_str(), line(&e.message), d.as_str()),
+                (Some(e), _) => format!("{}: {}", e.class.as_str(), line(&e.message)),
+                (None, _) => "failed".into(),
+            };
+            match users.as_slice() {
+                [] => {}
+                [one] => detail.push_str(&format!(" · waiting: routine “{}”", one.title)),
+                many => detail.push_str(&format!(" · waiting: {} routines", many.len())),
+            }
+            let n = s.count;
+            let detail = format!("{n} failed evaluation{} · {detail}", if n == 1 { "" } else { "s" });
+            let mut i = item(s.last_at.unwrap_or(0), format!("Oracle “{title}” is failing")).detail(detail);
+            i.count = Some(s.count);
+            out.push(i);
+        } else if s.count > 0 {
+            // Marked read: Done until the next failure starts a new streak.
+            out.push(item(s.read_at.unwrap_or(0), format!("Oracle “{title}” is failing")).handled("Marked read"));
+        } else if let Some(at) = s.recovered_at {
+            let n = s.recovered_after;
+            out.push(item(at, format!("Oracle “{title}” recovered")).handled(format!("Recovered after {n} failed evaluation{}", if n == 1 { "" } else { "s" })));
+        }
+    }
+    Ok(out)
 }

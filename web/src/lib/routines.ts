@@ -28,6 +28,7 @@ export const OUTCOME: Record<RunOutcome, { label: string; tone: "ok" | "quiet" |
   failed: { label: "Failed", tone: "bad" },
   interrupted: { label: "Interrupted", tone: "bad" },
   stopped: { label: "Stopped", tone: "quiet" },
+  checked: { label: "Checked", tone: "quiet" },
 };
 
 /** Color of a run in the strip of recent runs. */
@@ -39,6 +40,7 @@ export const OUTCOME_CLASS: Record<RunOutcome, string> = {
   failed: "bg-gh-closed",
   interrupted: "bg-gh-closed",
   stopped: "bg-ink-3/40",
+  checked: "border border-line bg-sunk",
 };
 
 /** This browser's IANA time zone: schedules saved here run in it. */

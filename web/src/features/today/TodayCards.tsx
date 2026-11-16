@@ -33,7 +33,7 @@ import { isDone } from "@/lib/sessionStatus";
 import type { TodayItem } from "./data";
 
 export const ICON: Record<TodayItem["kind"], IconName> = {
-  question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", routine: "refresh", runner: "window", home_update: "download", cli_update: "download", channel_ask: "comment",
+  question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", routine: "refresh", runner: "window", home_update: "download", cli_update: "download", channel_ask: "comment", oracle: "xcircle",
 };
 
 
@@ -271,6 +271,11 @@ function CliUpdateCard({ item }: { item: TodayItem }) {
   </Card>;
 }
 
+/** A failing oracle: open its page (Schedules → Oracles). */
+function OracleCard({ item }: { item: TodayItem }) {
+  return <Card item={item}><div><Link className="btn btn-sm btn-primary no-underline" to="/schedules" search={{ tab: "oracles", oracle: item.record }}>Open oracle</Link></div></Card>;
+}
+
 /** A bot asks you in a channel, in the bot chat: open the channel to answer. */
 function ChannelAskCard({ item }: { item: TodayItem }) {
   return <Card item={item}><div><Link className="btn btn-sm btn-primary no-underline" to="/channels/$id" params={{ id: item.record }}>Open channel</Link></div></Card>;
@@ -290,5 +295,6 @@ export const ItemCard = memo(function ItemCard({ item, proposal, suggestion }: {
     case "home_update": return <HomeUpdateItemCard item={item} />;
     case "cli_update": return <CliUpdateCard item={item} />;
     case "channel_ask": return <ChannelAskCard item={item} />;
+    case "oracle": return <OracleCard item={item} />;
   }
 });
