@@ -413,13 +413,38 @@ async fn check_spec_value(app: &App, ws: &str, spec: &mut Value) -> Result<(), A
 /// that span every workspace are refused. A Local PR's text changes only by its own session. Requests to
 /// worktrees name the worktree's session, so Home relays them to its runner.
 pub async fn within_workspace(app: &App, id: &str, req: Request) -> Result<Request, ApiError> {
+    if names(req.method(), req.uri().path()) == Names::Shared {
+        return Ok(req);
+    }
+    let own = launchpad_core::scope::of_session(app, id).await.ok_or_else(|| ApiError::new(axum::http::StatusCode::FORBIDDEN, "this session has no workspace, so it reads and changes no workspace's records"))?;
+    within(app, &own, Some(id), req).await
+}
+
+/// An oracle token's request (`session_token::oracle_workspace`, Home only): what a read-level session of the
+/// workspace may read, GET only (never `oracle.run`, so an oracle never evaluates oracles), without the reads that
+/// need a session (its hop count, its bot's channels, Local PR `resolve`), narrowed to the workspace like a session's.
+pub async fn authorize_oracle(app: &App, ws: &str, req: Request) -> Result<Request, ApiError> {
+    if !oracle_may_read(req.method(), req.uri().path()) {
+        return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "an oracle's Launchpad token reads its workspace's state only (GET of the read level)"));
+    }
+    within(app, ws, None, req).await
+}
+
+/// Pure: what an oracle token may request.
+fn oracle_may_read(method: &Method, path: &str) -> bool {
+    let session_bound = path == "/api/context/hops" || path == "/api/predrafts/resolve" || path.starts_with("/api/channels");
+    *method == Method::GET && !session_bound && (tool_need(method, path) == Some(LaunchpadAccess::Read) || read_allowed(path) || oracle_read(method, path))
+}
+
+/// `within_workspace` with the workspace known: `session` is the caller's session (None: an oracle token).
+async fn within(app: &App, own: &str, session: Option<&str>, req: Request) -> Result<Request, ApiError> {
     use launchpad_core::scope;
     let path = req.uri().path().to_string();
     let target = names(req.method(), &path);
     if target == Names::Shared {
         return Ok(req);
     }
-    let own = scope::of_session(app, id).await.ok_or_else(|| ApiError::new(axum::http::StatusCode::FORBIDDEN, "this session has no workspace, so it reads and changes no workspace's records"))?;
+    let own = own.to_string();
     let check = |record: Option<String>, what: String| if scope::inside(&own, record.as_deref()) { Ok(()) } else { Err(outside(&what)) };
     let mut query: Option<Vec<(String, String)>> = None;
     match &target {
@@ -439,7 +464,7 @@ pub async fn within_workspace(app: &App, id: &str, req: Request) -> Result<Reque
             check(scope::of_predraft(app, p).await, format!("Local PR {p}"))?;
             if req.method() == Method::PATCH {
                 let pr = launchpad_core::predrafts::get(app, p).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
-                if pr.session_id.as_deref() != Some(id) {
+                if session.is_none() || pr.session_id.as_deref() != session {
                     return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "agents change only the Local PRs of their own session"));
                 }
             }
@@ -703,6 +728,17 @@ mod tests {
             assert!(!admin_allows(&m, p), "{m} {p}");
         }
         assert_eq!(names(&Method::GET, "/api/oracles"), Names::Unscoped);
+    }
+
+    /// An oracle token reads what a read-level session reads, GET only: never runs oracles, writes or diagnostics.
+    #[test]
+    fn oracle_tokens_only_read() {
+        for p in ["/api/status", "/api/context/sessions", "/api/context/folders", "/api/proposals", "/api/today", "/api/oracles/w1", "/api/oracles/w1/ci-red/evaluations", "/api/predrafts/p1", "/api/sessions/s1/trace"] {
+            assert!(oracle_may_read(&Method::GET, p), "{p}");
+        }
+        for (m, p) in [(Method::POST, "/api/oracles/w1/ci-red/run"), (Method::POST, "/api/proposals"), (Method::POST, "/api/kb"), (Method::GET, "/api/context/hops"), (Method::GET, "/api/channels/agent/read"), (Method::GET, "/api/logs"), (Method::GET, "/api/context/health"), (Method::GET, "/api/config"), (Method::GET, "/api/predrafts/resolve"), (Method::GET, "/api/sessions")] {
+            assert!(!oracle_may_read(&m, p), "{m} {p}");
+        }
     }
 
     /// Admin checks for and installs a newer Launchpad on Home's Space (release or main); updating the runners

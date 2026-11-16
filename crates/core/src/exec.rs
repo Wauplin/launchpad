@@ -100,8 +100,8 @@ impl Cmd {
         }
     }
 
-    /// Harness children also die with the daemon (`PR_SET_PDEATHSIG`).
-    pub(crate) fn child(mut self) -> Cmd {
+    /// Harness children (and oracle evaluations) also die with the daemon (`PR_SET_PDEATHSIG`).
+    pub fn child(mut self) -> Cmd {
         self.child = true;
         self
     }

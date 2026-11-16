@@ -525,6 +525,23 @@ async fn guard_inner(s: Server, mut req: Request, next: Next) -> Response {
         || (req.method() == Method::POST && launchpad_http::hook_path(path)) {
         return private_response(next.run(req).await, true);
     }
+    // An oracle evaluation's read token (`access.launchpad = "read"`): Home's memory only, one workspace, GET reads of
+    // the read level, revoked when the evaluation ends.
+    if let Some(t) = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "))
+        && t.starts_with(launchpad_core::session_token::ORACLE_PREFIX)
+    {
+        let ws = (s.app.paths.role == launchpad_core::role::Role::Home).then(|| launchpad_core::session_token::oracle_workspace(t)).flatten();
+        let Some(ws) = ws else {
+            return (StatusCode::UNAUTHORIZED, Json(json!({"error": "this oracle credential is no longer valid"}))).into_response();
+        };
+        return match crate::agent_auth::authorize_oracle(&s.app, &ws, req).await {
+            Ok(mut req) => {
+                req.extensions_mut().insert(Access { session: None, device: None, changes: s.auth.changes.subscribe() });
+                private_response(next.run(req).await, private)
+            }
+            Err(e) => e.into_response(),
+        };
+    }
     // Session-scoped CLI token: verify the durable generation and restrict the router surface before relays.
     if let Some(t) = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "))
         && t.starts_with("lp-session.")

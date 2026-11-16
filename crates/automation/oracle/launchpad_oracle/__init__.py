@@ -104,6 +104,10 @@ def _allowed(host: str, hosts: list[str]) -> bool:
     return False
 
 
+def _origin(url: Any) -> tuple:
+    return (url.scheme, (url.host or "").lower(), url.port)
+
+
 class Context:
     """What a check gets: params, event, cursor, now, http (and launchpad with Launchpad read access)."""
 
@@ -120,12 +124,17 @@ class Context:
         self.timeout: float = float(data.get("timeout") or 10)
         #: Hosts ctx.http may call ("*" = all, "*.example.com" = its subdomains).
         self.hosts: list[str] = list(data.get("hosts") or [])
-        #: With launchpad = "read": {"url": ..., "token": ...}; else None.
+        #: With launchpad = "read": {"url", "token", "workspace"} (also LAUNCHPAD_URL, LAUNCHPAD_TOKEN and
+        #: LAUNCHPAD_WORKSPACE): Home's read API for this workspace, through ctx.http with
+        #: ``Authorization: Bearer <token>``; else None.
         self.launchpad: dict | None = data.get("launchpad")
         self.refused: list[str] = []
+        self._home = _origin(httpx2.URL(self.launchpad["url"])) if self.launchpad and self.launchpad.get("url") else None
         self.http = httpx2.Client(timeout=self.timeout, event_hooks={"request": [self._check_host]})
 
     def _check_host(self, request: Any) -> None:
+        if self._home is not None and _origin(request.url) == self._home:
+            return
         host = request.url.host or ""
         if not _allowed(host, self.hosts):
             self.refused.append(host)

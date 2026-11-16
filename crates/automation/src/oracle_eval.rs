@@ -1,7 +1,8 @@
 //! Oracle evaluations on Home: `uv run --with <helper wheel> <file>` with an environment built from scratch (PATH, a
 //! temporary HOME, uv's folders under Home's data folder and the real tokens of the oracle's tools), at most
 //! `SLOTS` at once, one at a time per (file, parameters, cursor) with joining callers, a fresh result reused within
-//! `min_interval` (or a CLI caller's `max_age`), killed at the timeout (its whole process group).
+//! `min_interval` (or a CLI caller's `max_age`), killed at the timeout (its whole process group). The secrets an
+//! evaluation holds never reach its result (`redact`).
 //!
 //! Every evaluation is recorded (`oracle_eval`) with its callers and what came of it for each (`set_consequence`).
 //! Cursors belong to consumers (`oracle_cursor`): an evaluation only proposes one, the consumer commits it when
@@ -203,7 +204,7 @@ pub struct Input {
     pub hosts: Vec<String>,
     /// Seconds.
     pub timeout: f64,
-    /// `{"url", "token"}` with Launchpad read access.
+    /// `{"url", "token", "workspace"}` with Launchpad read access.
     pub launchpad: Option<Value>,
 }
 
@@ -255,13 +256,14 @@ async fn run_inner(file: &Path, wheel: &Path, cwd: &Path, input: &Input, env: BT
     if user.which("uv").is_none() {
         return RunResult::failed(ErrorClass::Env, "uv is not installed on this machine (oracles run with uv run)");
     }
-    let mut cmd = Cmd::new(&user, "uv", Some(cwd));
+    let mut cmd = Cmd::new(&user, "uv", Some(cwd)).child();
     cmd.args(["run", "--no-project", "--quiet", "--with"]).arg(wheel).arg("--script").arg(file);
     cmd.process_tree().stdin(Io::Piped).stdout(Io::Piped).stderr(Io::Piped);
     let mut proc = match cmd.spawn().await {
-        Ok(p) => p,
+        Ok(p) => Group(p),
         Err(e) => return RunResult::failed(ErrorClass::Env, format!("could not start uv: {e}")),
     };
+    let proc = &mut proc.0;
     if let Some(mut w) = proc.stdin.take() {
         let data = serde_json::to_vec(input).unwrap_or_default();
         tokio::spawn(async move {
@@ -342,6 +344,16 @@ async fn run_inner(file: &Path, wheel: &Path, cwd: &Path, input: &Input, env: BT
     };
     r.stderr_tail = stderr_tail;
     r
+}
+
+/// A running evaluation: dropped before it ended (a Home shutdown), its whole process group is killed.
+struct Group(launchpad_core::exec::Proc);
+
+impl Drop for Group {
+    fn drop(&mut self) {
+        // After `wait` the group is gone already and this only reaches the reaped child: harmless.
+        let _ = self.0.start_kill();
+    }
 }
 
 /// The end of stderr, without the helper's start line.
@@ -437,15 +449,28 @@ fn data(app: &App) -> PathBuf {
     app.paths.data_dir.join("oracles")
 }
 
-/// The process environment of an evaluation on Home, built from scratch: PATH, HOME, uv's folders, and the real
-/// token of each listed tool under its variables. A tool that is unknown, not granted to the workspace or without
-/// its token fails the evaluation (class access), like Launchpad read access (not available yet).
-async fn environment(app: &App, ws: &str, meta: &Meta, home: &Path) -> std::result::Result<(BTreeMap<String, String>, Vec<String>), EvalError> {
+/// What an evaluation on Home runs with.
+struct Prepared {
+    env: BTreeMap<String, String>,
+    /// Hosts ctx.http may call.
+    hosts: Vec<String>,
+    /// The secrets it holds (tool tokens, its Launchpad token): never recorded or shown (`redact`).
+    secrets: Vec<String>,
+    /// Launchpad read access: `{"url", "token", "workspace"}` for ctx.launchpad, and the token, revoked when dropped.
+    launchpad: Option<(Value, launchpad_core::session_token::OracleToken)>,
+}
+
+/// How long an oracle's Launchpad token lives at most (it is revoked when the evaluation ends).
+const TOKEN_MS: i64 = PREPARE_MS + oracles::MAX_TIMEOUT_MS + 60_000;
+
+/// The process environment of an evaluation on Home, built from scratch: PATH, HOME, uv's folders, the real token
+/// of each listed tool under its variables, and with `launchpad = "read"` Home's address and a read token of the
+/// workspace (`LAUNCHPAD_URL`, `LAUNCHPAD_TOKEN`, `LAUNCHPAD_WORKSPACE`). A tool that is unknown, not granted to the
+/// workspace or without its token fails the evaluation (class access).
+async fn environment(app: &App, ws: &str, meta: &Meta, home: &Path) -> std::result::Result<Prepared, EvalError> {
     let access = |m: String| EvalError { class: ErrorClass::Access, message: m };
-    if meta.access.launchpad == LaunchpadRead::Read {
-        return Err(access("launchpad = \"read\" is not available yet: remove it from access".into()));
-    }
     let base = data(app);
+    let mut secrets = vec![];
     let mut env = BTreeMap::new();
     env.insert("PATH".to_string(), app.env.get("PATH").unwrap_or("/usr/local/bin:/usr/bin:/bin").to_string());
     env.insert("HOME".into(), home.display().to_string());
@@ -467,9 +492,36 @@ async fn environment(app: &App, ws: &str, meta: &Meta, home: &Path) -> std::resu
             for var in &t.env {
                 env.insert(var.clone(), secret.clone());
             }
+            secrets.push(secret);
         }
     }
-    Ok((env, hosts_for(meta, &tools)))
+    let launchpad = (meta.access.launchpad == LaunchpadRead::Read).then(|| {
+        let token = launchpad_core::session_token::oracle_token(ws, TOKEN_MS);
+        let url = app.paths.base_url();
+        env.insert("LAUNCHPAD_URL".into(), url.clone());
+        env.insert("LAUNCHPAD_TOKEN".into(), token.value.clone());
+        env.insert("LAUNCHPAD_WORKSPACE".into(), ws.to_string());
+        secrets.push(token.value.clone());
+        (serde_json::json!({"url": url, "token": token.value, "workspace": ws}), token)
+    });
+    Ok(Prepared { env, hosts: hosts_for(meta, &tools), secrets, launchpad })
+}
+
+/// Pure: a result without the secrets an evaluation held (as text, also JSON-escaped, in every field), so tokens
+/// an oracle prints or puts in its evidence never reach records, the Today row or agents.
+fn redact(r: RunResult, secrets: &[String]) -> RunResult {
+    let secrets: Vec<&String> = secrets.iter().filter(|s| s.len() >= 8).collect();
+    let Ok(mut text) = serde_json::to_string(&r) else { return r };
+    if !secrets.iter().any(|s| text.contains(s.as_str()) || serde_json::to_string(s).is_ok_and(|j| text.contains(j.trim_matches('"')))) {
+        return r;
+    }
+    for s in secrets {
+        text = text.replace(s.as_str(), "[redacted]");
+        if let Ok(j) = serde_json::to_string(s) {
+            text = text.replace(j.trim_matches('"'), "[redacted]");
+        }
+    }
+    serde_json::from_str(&text).unwrap_or_else(|_| RunResult { duration_ms: r.duration_ms, ..RunResult::failed(ErrorClass::Contract, "the result held a secret of the oracle and could not be redacted") })
 }
 
 /// Runs content on Home (the owner's Test of a draft, or an evaluation), in a fresh temporary HOME.
@@ -480,7 +532,9 @@ async fn run_on_home(app: &App, ws: &str, slug: &str, content: &str, meta: &Meta
         Err(e) => return RunResult::failed(ErrorClass::Env, format!("temporary folder: {e:#}")),
     };
     let r = async {
-        let (env, hosts) = match environment(app, ws, meta, &home).await {
+        // Waits for a slot first, so a Launchpad token never ages in the queue.
+        let _slot = slots().acquire().await;
+        let p = match environment(app, ws, meta, &home).await {
             Ok(x) => x,
             Err(e) => return RunResult::failed(e.class, e.message),
         };
@@ -492,9 +546,10 @@ async fn run_on_home(app: &App, ws: &str, slug: &str, content: &str, meta: &Meta
         if let Err(e) = std::fs::write(&file, content) {
             return RunResult::failed(ErrorClass::Env, format!("temporary file: {e}"));
         }
-        (input.now, input.hosts, input.timeout) = (now_ms(), hosts, meta.timeout_ms as f64 / 1000.0);
-        let _slot = slots().acquire().await;
-        run_file(&file, &wheel, &home, &input, env).await
+        (input.now, input.hosts, input.timeout) = (now_ms(), p.hosts, meta.timeout_ms as f64 / 1000.0);
+        input.launchpad = p.launchpad.as_ref().map(|(v, _)| v.clone());
+        // The Launchpad token (`p.launchpad`) lives until here.
+        redact(run_file(&file, &wheel, &home, &input, p.env).await, &p.secrets)
     }
     .await;
     let _ = tokio::fs::remove_dir_all(&home).await;
@@ -506,11 +561,20 @@ fn slots() -> &'static tokio::sync::Semaphore {
     SLOTS_SEM.get_or_init(|| tokio::sync::Semaphore::new(SLOTS))
 }
 
-type Flight = tokio::sync::watch::Receiver<Option<std::result::Result<Arc<Evaluation>, String>>>;
+type Answer = tokio::sync::watch::Receiver<Option<std::result::Result<Arc<Evaluation>, String>>>;
 
-fn flights() -> &'static Mutex<HashMap<String, Flight>> {
-    static FLIGHTS: OnceLock<Mutex<HashMap<String, Flight>>> = OnceLock::new();
+fn flights() -> &'static Mutex<HashMap<String, Answer>> {
+    static FLIGHTS: OnceLock<Mutex<HashMap<String, Answer>>> = OnceLock::new();
     FLIGHTS.get_or_init(Default::default)
+}
+
+/// An evaluation in flight, by its key: removed from `flights` when dropped.
+struct Flight(String);
+
+impl Drop for Flight {
+    fn drop(&mut self) {
+        flights().lock().unwrap_or_else(|p| p.into_inner()).remove(&self.0);
+    }
 }
 
 /// The single-flight and reuse key: workspace, file, parameters and input cursor.
@@ -558,8 +622,9 @@ pub async fn evaluate(app: &App, req: Request) -> Result<Evaluation> {
                 let (req2, key2, file_sha, content) = (req.clone(), key.clone(), file.oracle.sha256.clone(), file.content.clone());
                 let (meta2, params2, cursor2) = (meta.clone(), params.clone(), cursor_in.clone());
                 tokio::spawn(async move {
+                    // Leaves the map however the run ends (a panic too), after its answer went out.
+                    let _flight = Flight(key2.clone());
                     let r = run_and_record(&app2, &req2, &key2, &file_sha, &content, &meta2, params2, cursor2).await;
-                    flights().lock().unwrap_or_else(|p| p.into_inner()).remove(&key2);
                     let _ = tx.send(Some(r.map(Arc::new).map_err(|e| format!("{e:#}"))));
                 });
                 (rx, false)
@@ -928,6 +993,16 @@ mod tests {
         assert_eq!(parse_output("", "", true).error.unwrap().class, ErrorClass::Contract);
         let big = format!("{{\"outcome\": \"false\", \"cursor\": \"{}\"}}", "x".repeat(MAX_CURSOR + 1));
         assert_eq!(parse_output(&big, "", true).error.unwrap().class, ErrorClass::Contract);
+    }
+
+    #[test]
+    fn secrets_never_reach_the_result() {
+        let mut r = parse_output("{\"outcome\": \"true\", \"summary\": \"token ghp_secret123\", \"items\": [{\"t\": \"ghp_secret123\"}], \"cursor\": \"x\"}", "", true);
+        r.stderr_tail = "Authorization: Bearer ghp_secret123".into();
+        let r = redact(r, &["ghp_secret123".into(), "short".into()]);
+        assert_eq!((r.summary.as_str(), r.stderr_tail.as_str(), r.items[0]["t"].as_str()), ("token [redacted]", "Authorization: Bearer [redacted]", Some("[redacted]")));
+        let quoted = redact(RunResult::failed(ErrorClass::Http, "bad \"tok\\en\"!!"), &["\"tok\\en\"!!".into()]);
+        assert_eq!(quoted.error.unwrap().message, "bad [redacted]");
     }
 
     #[test]
