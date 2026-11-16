@@ -178,6 +178,10 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["terminals"] });
     } else if (topic === "crons") {
       void queryClient.invalidateQueries({ queryKey: ["crons"] });
+    } else if (topic === "oracles") {
+      // An oracle changed or was evaluated: its list, page and history.
+      void queryClient.invalidateQueries({ queryKey: ["oracles"] });
+      void queryClient.invalidateQueries({ queryKey: ["oracle"] });
     } else if (topic === "bots") {
       // Messages waiting for a busy bot changed: only its chat's list; a thread was created, renamed or archived:
       // only the thread lists.

@@ -16,7 +16,7 @@ export const CI = "Read the failing CI runs of storefront's open pull requests s
 // ---------------------------------------------------------------- routine files
 
 /** What a routine file holds (Home's `crons::RoutineFile`). */
-export type RoutineDef = { title: string; paused: boolean; schedule: string; time_zone?: string; instructions: string; trigger: CronAgent["trigger"]; conditions: CronCondition[]; auto_archive?: boolean };
+export type RoutineDef = { title: string; paused: boolean; schedule: string; time_zone?: string; instructions: string; trigger: CronAgent["trigger"]; conditions: CronCondition[]; auto_archive?: boolean; gate?: CronAgent["gate"] };
 
 const HEADER = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), session_done, failure or channel.\n";
 const str = (v: string) => JSON.stringify(v);
@@ -27,11 +27,13 @@ const table = (o: Record<string, unknown>) => Object.entries(o).filter(([, v]) =
 export function routineToml(d: RoutineDef): string {
   const top = [`title = ${str(d.title)}`, d.paused ? "paused = true" : "", d.schedule ? `schedule = ${str(d.schedule)}` : "", d.time_zone ? `time_zone = ${str(d.time_zone)}` : "", `instructions = """\n${d.instructions}"""`].filter(Boolean).join("\n");
   const conditions = d.conditions.map((c) => `\n[[conditions]]\n${table(c)}\n`).join("");
-  return `${HEADER}${top}${d.auto_archive ? "\nauto_archive = true" : ""}\n\n[trigger]\n${table(d.trigger)}\n${conditions}`;
+  const g = d.gate;
+  const gate = g ? `\n[gate]\n${table({ oracle: g.oracle, run_on: g.run_on, fire: g.fire ?? undefined, cooldown: g.cooldown, remind: g.remind })}${g.params && Object.keys(g.params).length ? `\nparams = { ${Object.entries(g.params).map(([k, v]) => `${k} = ${value(v)}`).join(", ")} }` : ""}\n${g.failed ? `\n[gate.failed]\ninstructions = ${str(g.failed.instructions)}\n` : ""}` : "";
+  return `${HEADER}${top}${d.auto_archive ? "\nauto_archive = true" : ""}\n\n[trigger]\n${table(d.trigger)}\n${conditions}${gate}`;
 }
 
 /** The definition of a routine record, as its file holds it. */
-export const defOf = (c: CronAgent): RoutineDef => ({ title: c.title, paused: c.paused, schedule: c.schedule, ...(c.time_zone ? { time_zone: c.time_zone } : {}), instructions: c.spec.text, trigger: c.trigger, conditions: c.conditions, ...(c.auto_archive ? { auto_archive: true } : {}) });
+export const defOf = (c: CronAgent): RoutineDef => ({ title: c.title, paused: c.paused, schedule: c.schedule, ...(c.time_zone ? { time_zone: c.time_zone } : {}), instructions: c.spec.text, trigger: c.trigger, conditions: c.conditions, ...(c.auto_archive ? { auto_archive: true } : {}), ...(c.gate ? { gate: c.gate } : {}) });
 
 /** Reads the routine files the demo writes (and simple hand edits of them): keys, strings, `"""` strings, arrays,
  * `[trigger]` (or an inline `trigger = { … }`) and `[[conditions]]`. Throws the error a real Home would show. */
@@ -54,6 +56,8 @@ export function parseRoutineToml(text: string): RoutineDef {
     if (!line || line.startsWith("#")) continue;
     if (line === "[trigger]") { target = (out.trigger = {}) as Record<string, unknown>; continue; }
     if (line === "[[conditions]]") { target = {}; conditions.push(target); continue; }
+    if (line === "[gate]") { target = (out.gate = {}) as Record<string, unknown>; continue; }
+    if (line === "[gate.failed]") { target = ((out.gate as Record<string, unknown> ?? (out.gate = {})) as Record<string, unknown>).failed = {} as Record<string, unknown>; continue; }
     const m = line.match(/^([a-z_]+)\s*=\s*(.*)$/);
     if (!m) throw new Error(`routine file: cannot read line ${i + 1}`);
     if (m[2].startsWith("\"\"\"")) {
@@ -64,7 +68,7 @@ export function parseRoutineToml(text: string): RoutineDef {
       target[m[1]] = body.join("\n").replace(/^\n/, "");
     } else target[m[1]] = parse(m[2]);
   }
-  const d: RoutineDef = { title: String(out.title ?? "").trim(), paused: out.paused === true, schedule: String(out.schedule ?? ""), ...(out.time_zone ? { time_zone: String(out.time_zone) } : {}), instructions: String(out.instructions ?? "").trim(), trigger: (out.trigger as CronAgent["trigger"]) ?? { kind: "schedule" }, conditions: conditions as CronCondition[], ...(out.auto_archive === true ? { auto_archive: true } : {}) };
+  const d: RoutineDef = { title: String(out.title ?? "").trim(), paused: out.paused === true, schedule: String(out.schedule ?? ""), ...(out.time_zone ? { time_zone: String(out.time_zone) } : {}), instructions: String(out.instructions ?? "").trim(), trigger: (out.trigger as CronAgent["trigger"]) ?? { kind: "schedule" }, conditions: conditions as CronCondition[], ...(out.auto_archive === true ? { auto_archive: true } : {}), ...(out.gate ? { gate: out.gate as CronAgent["gate"] } : {}) };
   if (!d.title) throw new Error("routine file: give the routine a title");
   if (!d.instructions) throw new Error("routine file: write what the bot does at each run (instructions)");
   return d;

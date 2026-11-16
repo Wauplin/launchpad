@@ -362,7 +362,7 @@ export function applyRoutineFile(botId: string, path: string, text: string | nul
     try { d = parseRoutineToml(text); } catch (e) { throw new DemoError(400, `${path}: ${e instanceof Error ? e.message : String(e)}`); }
     if (d.trigger.kind === "schedule") nextRuns(d.schedule, 1);
     if (c) {
-      c.title = d.title; c.paused = d.paused; c.schedule = d.schedule; c.time_zone = d.time_zone; c.trigger = d.trigger; c.conditions = d.conditions; c.auto_archive = !!d.auto_archive; c.spec = { ...c.spec, text: d.instructions }; c.file_error = null;
+      c.title = d.title; c.paused = d.paused; c.schedule = d.schedule; c.time_zone = d.time_zone; c.trigger = d.trigger; c.conditions = d.conditions; c.auto_archive = !!d.auto_archive; c.spec = { ...c.spec, text: d.instructions }; c.file_error = null; if (d.gate) c.gate = d.gate; else delete c.gate;
       c.next_run_at = nextDue(c);
     } else {
       const bot = world.bots.find((b) => b.id === botId);
@@ -405,6 +405,7 @@ route("PATCH", "/api/launch/crons/:id", (r) => {
   if (r.body?.time_zone) c.time_zone = String(r.body.time_zone);
   if (r.body?.title != null) c.title = String(r.body.title).trim() || c.title;
   if (r.body?.instructions != null) c.spec = { ...c.spec, text: String(r.body.instructions).trim() };
+  if (r.body && "gate" in r.body) { if (r.body.gate) c.gate = r.body.gate; else delete c.gate; }
   c.next_run_at = nextDue(c);
   // A bot routine: saving writes its file, a version in the bot's history.
   if (c.file && c.bot_id) recordBotChange(c.bot_id, c.file, before, routineToml(defOf(c)));

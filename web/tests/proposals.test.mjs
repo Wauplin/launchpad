@@ -25,6 +25,11 @@ test("a compact card says what it does, and a handled one is a receipt", async (
   assert.equal(proposalReceipt({ body: routine, state: "dismissed", title: "Daily", replaced_by: null }), "Dismissed Daily");
   assert.equal(proposalReceipt({ body: routine, state: "proposed", title: "Daily", replaced_by: null }), null);
   assert.equal(proposalPurpose({ body: { kind: "report", outcome: "needs_you", github: "o/r#1", body: "" } }), "Needs you · o/r#1");
+  const oracle = { kind: "oracle", slug: "ci-red", content: "", before: null, patch: "", access_added: ["tool gh"], access_removed: [] };
+  assert.equal(proposalPurpose({ body: oracle }), "Saves a new oracle ci-red; adds access: tool gh");
+  assert.equal(proposalPurpose({ body: { ...oracle, before: "abc", access_added: [], access_removed: ["host pypi.org"] } }), "Changes the oracle ci-red; removes access: host pypi.org");
+  assert.equal(proposalReceipt({ body: oracle, state: "started", title: "CI red", replaced_by: null }), "Saved oracle CI red");
+  assert.equal(proposalPurpose({ body: { ...routine, gate: { oracle: "ci-red", run_on: ["true"], fire: "change" } } }, { bot: () => "Maintainer" }), "Adds a routine to Maintainer, run only when the oracle ci-red says so; it starts nothing now");
 });
 
 test("Start all covers only waiting cards that start something", () => {

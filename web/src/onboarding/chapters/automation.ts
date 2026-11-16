@@ -22,7 +22,8 @@ function fastForward() {
 
 export const automation: Chapter = {
   ...meta("automation"),
-  learned: ["Start later waits for a time, other agents or quota; all conditions must be met", "Repeat on a schedule creates a routine; Schedules lists every routine and scheduled launch", "Quota protection pauses agents before paid usage, and continues them when quota is back", "Send later delivers a message to an agent later"],
+  learned: ["Start later waits for a time, other agents or quota; all conditions must be met", "Repeat on a schedule creates a routine; Schedules lists every routine and scheduled launch",
+    "Oracles answer True, False or Failed; a routine gated on one runs only when it says so", "Quota protection pauses agents before paid usage, and continues them when quota is back", "Send later delivers a message to an agent later"],
   setup: () => useWorkspace.getState().switchTo(WS.acme),
   steps: [
     {
@@ -36,6 +37,11 @@ export const automation: Chapter = {
       title: "Schedules",
       body: "Repeat on a schedule turns a launch into a routine. Schedules lists every routine, with its last runs (Report, No update, Skipped, Failed), and every scheduled launch. Runs more than an hour late are skipped, never caught up. The morning brief is a routine of Ask Launchpad.",
       enter: () => useComposer.getState().setMinimized(true),
+    },
+    {
+      id: "automation.oracles", route: "/schedules?tab=oracles", anchor: "oracles.list",
+      title: "Oracles",
+      body: "An oracle is a small Python check that Home runs to answer True, False or Failed, like “CI is red on main”. A routine can run only when one says so: the Maintainer's “Fix red CI” checks every ten minutes and starts a run only when CI turns red; the other checks stay quiet. A failing oracle gets one row in Today. Ask Launchpad writes and tests new ones, and a card that adds access waits for your click.",
     },
     {
       id: "automation.quota", route: `/agents?session=${PAUSED}`, anchor: "session.primary",

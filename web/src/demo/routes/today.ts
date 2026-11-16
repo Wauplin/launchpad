@@ -120,6 +120,20 @@ function drafts(): Draft[] {
     const place = c.kind === "dm" ? `the DM with ${other}` : `#${c.name}`;
     out.push(item("channel_ask", "answer", c.id, `${a.author.name} ${a.ask_owner ? "asks" : "mentions"} you in ${place}`, { workspace: c.workspace_id }, a.created_at, { detail: asks.length > 1 ? `${asks.length} messages for you · ${line(a.text)}` : line(a.text), action: "channel.post", message: a.id, count: asks.length }));
   }
+  // Failing oracles (launchpad_automation::today): one Fix row per oracle, Done once read or recovered.
+  for (const o of world.oracles) {
+    const s = o.streak;
+    if (!s || o.oracle.paused) continue;
+    const title = o.oracle.meta?.title ?? o.oracle.slug;
+    const id = `oracle:${o.oracle.workspace_id}/${o.oracle.slug}`;
+    const place = { workspace: o.oracle.workspace_id };
+    const users = world.crons.filter((c) => c.gate?.oracle === o.oracle.slug);
+    if (s.count > 0 && s.read_at == null) {
+      const e = s.last_error;
+      out.push(item("oracle", "fix", o.oracle.slug, `Oracle “${title}” is failing`, place, s.last_at ?? 0, { id, count: s.count, detail: `${s.count} failed evaluations${e ? ` · ${e.class}: ${e.message}` : ""}${users.length === 1 ? ` · waiting: routine “${users[0].title}”` : users.length ? ` · waiting: ${users.length} routines` : ""}` }));
+    } else if (s.read_at != null && s.count > 0) out.push(item("oracle", "fix", o.oracle.slug, `Oracle “${title}” is failing`, place, s.read_at, { id, outcome: "Marked read" }));
+    else if (s.recovered_at != null) out.push(item("oracle", "fix", o.oracle.slug, `Oracle “${title}” recovered`, place, s.recovered_at, { id, outcome: `Recovered after ${s.recovered_after} failed evaluation${s.recovered_after === 1 ? "" : "s"}` }));
+  }
   for (const r of world.runners) {
     if (r.compat !== "outdated" && r.compat !== "incompatible") continue;
     out.push(item("runner", "fix", r.runner.id, `Update ${r.runner.name}`, { everywhere: true }, r.runner.last_seen_at ?? 0, { detail: r.compat === "outdated" ? "Runs another build: new sessions wait until you update it" : "Another protocol: it cannot connect until you update it" }));

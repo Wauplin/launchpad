@@ -19,6 +19,7 @@ import { useBots } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
 import { useChannelName } from "@/lib/channels";
 import { browserZone, channelTriggerOf, cronTitle, describeCron, triggerSummary } from "@/lib/routines";
+import { gateSummary } from "@/lib/oracles";
 import { PatchView } from "@/components/diff/DiffReview";
 import { useLayout } from "@/stores/layout";
 import { SessionStatus } from "@/features/agents/SessionBits";
@@ -114,6 +115,21 @@ function BotFilesBody({ body }: { body: Extract<Proposal["body"], { kind: "bot_f
   );
 }
 
+/** An oracle card: the file's diff and the access it adds (highlighted: only the owner gives more access) or removes. */
+function OracleBody({ body }: { body: Extract<Proposal["body"], { kind: "oracle" }> }) {
+  return (
+    <>
+      <span className="flex flex-wrap gap-1">
+        <Token icon="file">oracles/{body.slug}.py{body.before == null ? " · new" : ""}</Token>
+        {body.access_added.map((a) => <Token key={`+${a}`} tone="warn" title="Saving gives the oracle this access">+ {a}</Token>)}
+        {body.access_removed.map((a) => <Token key={`-${a}`} title="Saving removes this access">− {a}</Token>)}
+      </span>
+      {body.access_added.length > 0 && <p className="m-0 text-[12px] text-attn">Adds access: only you can accept it. Each tool puts its real token in the oracle's environment.</p>}
+      <div className="max-h-[320px] overflow-auto rounded-control border border-line"><PatchView patch={body.patch} path={`oracles/${body.slug}.py`} language="python" split={false} wrap /></div>
+    </>
+  );
+}
+
 /** A routine card: the bot, when it runs and what it does at each run. Adding it starts nothing now. */
 function RoutineBody({ body }: { body: Extract<Proposal["body"], { kind: "routine" }> }) {
   const bots = useBots().data ?? [];
@@ -125,6 +141,7 @@ function RoutineBody({ body }: { body: Extract<Proposal["body"], { kind: "routin
         <Token icon="refresh">Routine of {bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"}</Token>
         <Token title={cronTitle(body)}>{triggerSummary({ ...body, time_zone: browserZone() }, (id) => projects.find((p) => p.id === id)?.name ?? "a folder", channelName, bots.find((b) => b.id === body.bot_id)?.settings.name)}</Token>
         {body.auto_archive && <Token icon="archive">Archives each run thread that ends Done</Token>}
+        {body.gate && <Token icon="spark" title={body.gate.params ? Object.entries(body.gate.params).map(([k, v]) => `${k} = ${String(v)}`).join(" · ") : undefined}>{gateSummary(body.gate)}</Token>}
       </span>
       <p className="m-0 line-clamp-4 text-[12px] whitespace-pre-wrap text-ink-2">{body.instructions}</p>
     </>
@@ -360,7 +377,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
   const session = started && (p.body.kind === "launch" || p.body.kind === "message") ? sessions.find((s) => s.id === p.result_id) : undefined;
   const statusSessions = p.body.kind === "status" ? p.body.session_ids.map((id) => sessions.find((s) => s.id === id)).filter((s): s is Session => !!s) : [];
   return (
-    <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-card border bg-paper p-3 [overflow-wrap:anywhere] ${(p.body.kind === "cron" || p.body.kind === "routine" || (p.body.kind === "bot_files" && Object.keys(p.body.files).some((f) => f.startsWith("routines/")))) && !started ? "border-attn-line" : "border-line"}`}>
+    <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-card border bg-paper p-3 [overflow-wrap:anywhere] ${(p.body.kind === "cron" || p.body.kind === "routine" || (p.body.kind === "bot_files" && Object.keys(p.body.files).some((f) => f.startsWith("routines/"))) || (p.body.kind === "oracle" && p.body.access_added.length > 0)) && !started ? "border-attn-line" : "border-line"}`}>
       <div className="flex items-start gap-2">
         <Icon name={proposalIcon(p)} size={14} className="mt-0.5 flex-none text-ink-3" />
         <div className="min-w-0 flex-1">
@@ -382,11 +399,12 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
       {p.body.kind === "bot_files" && <BotFilesBody body={p.body} />}
       {p.body.kind === "channel" && <ChannelBody body={p.body} />}
       {p.body.kind === "channel_join" && <ChannelJoinBody body={p.body} />}
+      {p.body.kind === "oracle" && <OracleBody body={p.body} />}
       {p.body.kind === "ready" && <ReadyBody p={p} body={p.body} dismiss={() => void act("dismiss")} />}
       {p.body.kind === "report" && <ReportBody p={p} body={p.body} busy={busy} dismiss={() => void act("dismiss")} />}
       {statusSessions.length > 0 && <div className="grid">{statusSessions.map((s) => <SessionRow key={s.id} s={s} />)}</div>}
       {session && <SessionRow s={session} />}
-      {started && !session && p.body.kind !== "status" && p.body.kind !== "report" && <span className="text-[12px] text-gh-open"><Icon name="check" size={12} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "about" }}>About</Link></> : p.body.kind === "bot_files" ? <>Applied: see <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "about" }}>the bot</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : p.body.kind === "channel" || p.body.kind === "channel_join" ? <>{p.body.kind === "channel" ? "Channel created" : "Added"}: <Link className="underline" to="/channels/$id" params={{ id: p.result_id ?? "" }}>open the channel</Link></> : p.body.kind === "ready" ? "Done" : "Started"}</span>}
+      {started && !session && p.body.kind !== "status" && p.body.kind !== "report" && <span className="text-[12px] text-gh-open"><Icon name="check" size={12} /> {p.body.kind === "schedule" ? <>Scheduled: see <Link className="underline" to="/schedules" search={{ tab: "launches" }}>Schedules</Link></> : p.body.kind === "bot_instructions" ? <>Applied: see the bot's <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "about" }}>About</Link></> : p.body.kind === "bot_files" ? <>Applied: see <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }} search={{ panel: "about" }}>the bot</Link></> : p.body.kind === "cron" || p.body.kind === "routine" ? <>Routine added: see <Link className="underline" to="/schedules" search={{ routine: p.result_id ?? undefined }}>Schedules</Link></> : p.body.kind === "preset" ? "Preset saved: see Settings → Presets" : p.body.kind === "bot" ? <>Bot created. <Link className="underline" to="/bots/$id" params={{ id: p.result_id ?? "" }}>Send it its first task</Link>.</> : p.body.kind === "tool" ? <>Tool added. <Link className="underline" to="/settings/credentials" search={{ tool: p.result_id ?? undefined }}>Paste its token</Link> to use it.</> : p.body.kind === "channel" || p.body.kind === "channel_join" ? <>{p.body.kind === "channel" ? "Channel created" : "Added"}: <Link className="underline" to="/channels/$id" params={{ id: p.result_id ?? "" }}>open the channel</Link></> : p.body.kind === "oracle" ? <>Oracle saved: <Link className="underline" to="/schedules" search={{ tab: "oracles", oracle: p.body.slug }}>open it</Link></> : p.body.kind === "ready" ? "Done" : "Started"}</span>}
       {p.state === "replaced" && <span className="text-[12px] text-ink-3">{p.replaced_by ? "Replaced" : "Edited in the composer"}{p.replaced_by && <> · <Link to="/" search={{ card: `proposal:${p.replaced_by}` }} onClick={() => { if (p.workspace_id) useWorkspace.getState().switchTo(p.workspace_id); }} className="underline">View replacement</Link></>}</span>}
       {p.state === "dismissed" && p.body.kind !== "report" && <span className="text-[12px] text-ink-3">Dismissed</span>}
       {p.state === "failed" && p.error && <ErrorState error={p.error} />}
@@ -419,6 +437,7 @@ function receiptLink(p: Proposal): { to: string; params?: Record<string, string>
     case "channel": case "channel_join": return id ? { to: "/channels/$id", params: { id } } : null;
     case "bot_instructions": case "bot_files": return id ? { to: "/bots/$id", params: { id }, search: { panel: "about" } } : null;
     case "tool": return id ? { to: "/settings/credentials", search: { tool: id } } : null;
+    case "oracle": return { to: "/schedules", search: { tab: "oracles", oracle: p.body.slug } };
     default: return null;
   }
 }
@@ -468,7 +487,7 @@ export const ProposalLine = memo(function ProposalLine({ p, onReply }: { p: Prop
       : b.kind === "ready" && ready
         ? <ActionButton name={ready.name} params={ready.params} body={b.input} vars={{ ...READY_VARS, ...ready.params }} icon={phone ? null : undefined} onDone={() => ran().catch(toastError)} />
         : <button className="btn btn-sm" disabled={busy} onClick={() => void act("accept")}>{!phone && <Icon name="play" size={12} />}{busy ? "Starting…" : START[b.kind]}</button>;
-  const warn = (b.kind === "cron" || b.kind === "routine" || (b.kind === "bot_files" && Object.keys(b.files).some((f) => f.startsWith("routines/"))));
+  const warn = (b.kind === "cron" || b.kind === "routine" || (b.kind === "bot_files" && Object.keys(b.files).some((f) => f.startsWith("routines/"))) || (b.kind === "oracle" && b.access_added.length > 0));
   return (
     <article data-tour="proposal.card" data-tour-id={p.id} className={`group grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 rounded-card border bg-paper py-1.5 pr-1.5 pl-2.5 ${warn ? "border-attn-line" : "border-line"}`}>
       <div className="flex min-w-0 items-center gap-2">

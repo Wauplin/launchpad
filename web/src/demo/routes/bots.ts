@@ -118,13 +118,13 @@ route("POST", "/api/bots/:id/pause", ({ params, body }) => {
 });
 route("POST", "/api/bots/:id/routines", ({ params, body }) => {
   const b = botOf(params.id);
-  const r = body as { title?: string; instructions?: string; trigger?: CronAgent["trigger"]; schedule?: string; conditions?: CronAgent["conditions"]; time_zone?: string; auto_archive?: boolean };
+  const r = body as { title?: string; instructions?: string; trigger?: CronAgent["trigger"]; schedule?: string; conditions?: CronAgent["conditions"]; time_zone?: string; auto_archive?: boolean; gate?: CronAgent["gate"] };
   if (!r.title?.trim()) throw new DemoError(400, "give the routine a name");
   if (!r.instructions?.trim()) throw new DemoError(400, "write what the bot does at each run");
   const profile = profileOf(b);
   // Its definition is a new file of the bot, routines/<name>.toml.
   const file = routinePath(r.title, world.crons.filter((c) => c.bot_id === b.id && c.file).map((c) => c.file!));
-  const c = createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), text: r.instructions.trim(), workspace_id: b.workspace_id }, r.schedule ?? "", r.conditions ?? [], r.trigger ?? { kind: "schedule" }, { title: r.title.trim(), bot_id: b.id, bot_paused: b.paused, file, auto_archive: !!r.auto_archive, ...(r.time_zone ? { time_zone: r.time_zone } : {}) });
+  const c = createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), text: r.instructions.trim(), workspace_id: b.workspace_id }, r.schedule ?? "", r.conditions ?? [], r.trigger ?? { kind: "schedule" }, { title: r.title.trim(), bot_id: b.id, bot_paused: b.paused, file, auto_archive: !!r.auto_archive, ...(r.time_zone ? { time_zone: r.time_zone } : {}), ...(r.gate ? { gate: r.gate } : {}) });
   record(b, file, "", routineToml(defOf(c)));
   return c;
 });

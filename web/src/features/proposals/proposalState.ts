@@ -49,7 +49,7 @@ export function proposalPurpose(p: Pick<Proposal, "body">, n: CardNames = {}): s
     case "message": return `Sends a message to the agent “${n.session?.(b.session_id) ?? "an agent"}”`;
     case "schedule": return `Starts an agent in ${where(b.spec)} later, once ${b.conditions.length === 1 ? "its start condition holds" : `its ${plural(b.conditions.length, "start condition")} hold`}`;
     case "cron": return `Creates a routine that starts an agent in ${where(b.spec)}`;
-    case "routine": return `Adds a routine to ${n.bot?.(b.bot_id) ?? "a bot"}; it starts nothing now`;
+    case "routine": return `Adds a routine to ${n.bot?.(b.bot_id) ?? "a bot"}${b.gate ? `, run only when the oracle ${b.gate.oracle} says so` : ""}; it starts nothing now`;
     case "preset": return b.preset_id ? `Updates the preset “${b.label}”` : `Saves a new preset “${b.label}”`;
     case "tool": return `Adds the tool ${b.tool.name}${b.tool.hosts.length ? `; its token goes to ${b.tool.hosts.map((h) => h.host).join(", ")}` : ""}`;
     case "bot": return `Creates the bot ${b.name}; it starts nothing`;
@@ -69,7 +69,7 @@ export function proposalPurpose(p: Pick<Proposal, "body">, n: CardNames = {}): s
     case "ready": return `Your click: ${n.action?.(b.action) ?? b.action}`;
     case "report": return `${REPORT_OUTCOME[b.outcome]}${b.github ? ` · ${b.github}` : ""}`;
     case "status": return `Lists ${plural(b.session_ids.length, "agent")} to look at`;
-    case "oracle": return `${b.before == null ? "Saves a new" : "Changes the"} oracle ${b.slug}${b.access_added.length ? `; adds access: ${b.access_added.join(", ")}` : ""}`;
+    case "oracle": return `${b.before == null ? "Saves a new" : "Changes the"} oracle ${b.slug}${b.access_added.length ? `; adds access: ${b.access_added.join(", ")}` : ""}${b.access_removed.length ? `; removes access: ${b.access_removed.join(", ")}` : ""}`;
   }
 }
 

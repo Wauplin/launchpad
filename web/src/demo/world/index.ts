@@ -12,15 +12,19 @@ import { knowledgeWorld } from "./knowledge";
 import { botsWorld } from "./bots";
 import { connectionsWorld } from "./connections";
 import { channelsWorld } from "./channels";
+import { gatedRoutine, oracleCard, oraclesWorld } from "./oracles";
 import { WS } from "./ids";
 import { clock } from "../daemon";
 
-export type World = { topics: Topic[] } & ReturnType<typeof coreWorld> & ReturnType<typeof agentsWorld> & ReturnType<typeof githubWorld> & ReturnType<typeof codeWorld> & ReturnType<typeof settingsWorld> & ReturnType<typeof knowledgeWorld> & ReturnType<typeof botsWorld> & ReturnType<typeof connectionsWorld> & ReturnType<typeof channelsWorld>;
+export type World = { topics: Topic[] } & ReturnType<typeof coreWorld> & ReturnType<typeof agentsWorld> & ReturnType<typeof githubWorld> & ReturnType<typeof codeWorld> & ReturnType<typeof settingsWorld> & ReturnType<typeof knowledgeWorld> & ReturnType<typeof botsWorld> & ReturnType<typeof connectionsWorld> & ReturnType<typeof channelsWorld> & ReturnType<typeof oraclesWorld>;
 
 export let world: World = null as unknown as World;
 
 export function resetWorld() {
-  world = { topics: [], ...coreWorld(), ...agentsWorld(), ...githubWorld(), ...codeWorld(), ...settingsWorld(), ...knowledgeWorld(), ...botsWorld(), ...connectionsWorld(), ...channelsWorld() };
+  world = { topics: [], ...coreWorld(), ...agentsWorld(), ...githubWorld(), ...codeWorld(), ...settingsWorld(), ...knowledgeWorld(), ...botsWorld(), ...connectionsWorld(), ...channelsWorld(), ...oraclesWorld() };
+  // Oracles: the Maintainer's routine gated on CI, and Ask Launchpad's oracle card that adds a tool.
+  world.crons.push(gatedRoutine());
+  world.proposals.push(oracleCard());
   world.topics = [{ id: "demo-topic-launch", workspace_id: WS.acme, name: "Launch experience", naming: false, session_ids: world.sessions.filter((s) => s.project_id === world.projects.find((p) => p.workspace_id === WS.acme)?.id).slice(0, 4).map((s) => s.id) }];
   // A ready click from Ask Launchpad: the waiting workflows of a contributor's pull request, run only by your click.
   world.proposals.push({ id: "demo-prop-ready-ci", workspace_id: WS.acme, session_id: "demo-s-ask-acme", title: "Approve and run the workflows of storefront#119",

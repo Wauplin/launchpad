@@ -31,6 +31,8 @@ import { projectName, useProjects, useSession } from "@/lib/queries";
 import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
 import { isDone } from "@/lib/sessionStatus";
 import type { TodayItem } from "./data";
+import type { OracleTestAnswer } from "@/gen/OracleTestAnswer";
+import { OracleFailure, resultLine } from "@/features/schedules/Oracles";
 
 export const ICON: Record<TodayItem["kind"], IconName> = {
   question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", routine: "refresh", runner: "window", home_update: "download", cli_update: "download", channel_ask: "comment", oracle: "xcircle",
@@ -271,9 +273,24 @@ function CliUpdateCard({ item }: { item: TodayItem }) {
   </Card>;
 }
 
-/** A failing oracle: open its page (Schedules → Oracles). */
+/** A failing oracle: its error, first and last failure and what waits on it; open its page (Schedules → Oracles),
+ * test it now, pause it, or mark the row read until its next failure. */
 function OracleCard({ item }: { item: TodayItem }) {
-  return <Card item={item}><div><Link className="btn btn-sm btn-primary no-underline" to="/schedules" search={{ tab: "oracles", oracle: item.record }}>Open oracle</Link></div></Card>;
+  const qc = useQueryClient();
+  const workspace = item.workspaces[0] ?? "";
+  const params = { workspace, slug: item.record };
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["oracle", workspace, item.record] }), qc.invalidateQueries({ queryKey: ["today"] })]);
+  return <Card item={item} tone={item.outcome ? "border-line" : "border-danger/40"}>
+    {!item.outcome && workspace && <OracleFailure workspace={workspace} slug={item.record} />}
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Link className="btn btn-sm btn-primary no-underline" to="/schedules" search={{ tab: "oracles", oracle: item.record }}>Open oracle</Link>
+      {!item.outcome && workspace && <>
+        <ActionButton name="oracle.test" params={params} body={{}} onDone={async (a: OracleTestAnswer) => { toast(resultLine(a.result)); await refresh(); }} />
+        <ActionButton name="oracle.pause" params={params} onDone={refresh} />
+        <ActionButton name="oracle.mark-read" params={params} onDone={refresh} />
+      </>}
+    </div>
+  </Card>;
 }
 
 /** A bot asks you in a channel, in the bot chat: open the channel to answer. */

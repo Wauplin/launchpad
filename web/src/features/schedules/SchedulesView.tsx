@@ -26,8 +26,10 @@ import { useScope } from "@/lib/workspace";
 import { PhoneBar, PhoneHeader } from "@/mobile/PhoneHeader";
 import { phoneBack } from "@/mobile/back";
 import { BRIEF, BRIEF_TITLE, RoutineDetails, RunStrip } from "./Routines";
+import { NEW_ORACLE, OracleList, OraclePage, gateSummary, oracleView, type OracleView } from "./Oracles";
+import { useOracles } from "@/lib/oracles";
 
-type Tab = "routines" | "launches";
+type Tab = "routines" | "launches" | "oracles";
 
 /** The morning brief: a routine of a bot (the workspace's first, Ask Launchpad unless you changed it), weekdays at 8:30. */
 export function useCreateBrief() {
@@ -46,15 +48,16 @@ export function SchedulesView() {
   const phone = usePhone();
   const scope = useScope();
   const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as { routine?: string; launch?: string; tab?: Tab };
+  const search = useSearch({ strict: false }) as { routine?: string; launch?: string; tab?: Tab; oracle?: string; view?: string };
   const crons = useCrons();
   const schedules = useSchedules();
   const sessions = useSessions().data ?? [];
   const bots = useBots().data ?? [];
   const routines = (crons.data ?? []).filter((c) => scope.hasSpec(c.spec));
   const launches = (schedules.data ?? []).filter((l) => scope.hasSpec(l.spec));
-  const tab: Tab = search.tab ?? (search.launch ? "launches" : "routines");
-  const go = (s: { tab?: Tab; routine?: string; launch?: string }) => void navigate({ to: "/schedules", search: s as never });
+  const tab: Tab = search.tab ?? (search.launch ? "launches" : search.oracle ? "oracles" : "routines");
+  const go = (s: { tab?: Tab; routine?: string; launch?: string; oracle?: string; view?: string }, replace = false) => void navigate({ to: "/schedules", search: s as never, replace });
+  const oracles = useOracles(scope.workspace.id || null).data;
   const selected = routines.find((r) => r.id === search.routine);
   const launch = launches.find((l) => l.id === search.launch);
   const openSession = (id: string) => void navigate({ to: "/agents", search: { session: id } as never });
@@ -62,10 +65,18 @@ export function SchedulesView() {
   const hasBrief = routines.some((r) => !!r.bot_id && r.title === BRIEF_TITLE);
   const briefBot = askTarget(bots, scope.workspace.id);
   const next = routines.filter((r) => !r.paused && !r.bot_paused && r.next_run_at).reduce<number | null>((min, r) => min == null || r.next_run_at! < min ? r.next_run_at : min, null);
-  const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => void navigate({ to: "/schedules", search: { tab: t } as never, replace: true })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }]} />;
+  const failingOracles = (oracles ?? []).filter((o) => !!o.streak && o.streak.count > 0 && o.streak.read_at == null).length;
+  const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => void navigate({ to: "/schedules", search: { tab: t } as never, replace: true })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }, { id: "oracles", label: "Oracles", count: failingOracles || oracles?.length || undefined, countNeeds: failingOracles > 0, title: failingOracles ? `${failingOracles} failing` : undefined }]} />;
+  const newOracle = <button className="btn btn-sm btn-primary" data-tour="oracles.new" onClick={() => go({ tab: "oracles", oracle: NEW_ORACLE })}><Icon name="plus" size={12} />{phone ? "New" : "New oracle"}</button>;
   const header = phone
-    ? <PhoneHeader title="Schedules" details={<p className="m-0 text-[13px] text-ink-2">{INTRO}</p>} />
-    : <PageHeader title="Schedules" meta={next ? `Next run ${when(next)}` : undefined} intro={INTRO} tabs={tabs} actions={<NewButtons />} />;
+    ? <PhoneHeader title="Schedules" primary={tab === "oracles" ? newOracle : undefined} details={<p className="m-0 text-[13px] text-ink-2">{INTRO}</p>} />
+    : <PageHeader title="Schedules" meta={next ? `Next run ${when(next)}` : undefined} intro={INTRO} tabs={tabs} actions={tab === "oracles" ? newOracle : <NewButtons />} />;
+  // One oracle's page replaces the list (`?oracle=<slug>&view=<tab>`).
+  if (tab === "oracles" && search.oracle && scope.workspace.id) {
+    const slug = search.oracle;
+    const back = () => (phone ? phoneBack("/schedules?tab=oracles") : go({ tab: "oracles" }));
+    return <OraclePage workspace={scope.workspace.id} slug={slug} view={oracleView(search.view)} onView={(v: OracleView) => go({ tab: "oracles", oracle: slug, view: v === "definition" ? undefined : v }, true)} onBack={back} onSaved={(s) => go({ tab: "oracles", oracle: s }, true)} onDeleted={() => go({ tab: "oracles" }, true)} />;
+  }
   // The phone's ‹ goes one step back to the list instead of adding an entry.
   const closeDetail = () => (phone ? phoneBack(`/schedules?tab=${tab}`) : go({ tab }));
   const panel = selected
@@ -75,7 +86,7 @@ export function SchedulesView() {
   const error = crons.error ?? schedules.error;
   const list = <div className="grid w-full max-w-page grid-cols-[minmax(0,1fr)] gap-3 px-5 py-4" data-tour="schedules.page">
     {phone && tabs}
-    {loading ? <Loading what="schedules" /> : error ? <ErrorState error={error} onRetry={() => { void crons.refetch(); void schedules.refetch(); }} /> : tab === "routines" ? <>
+    {tab === "oracles" ? (scope.workspace.id ? <OracleList workspace={scope.workspace.id} onOpen={(slug) => go({ tab: "oracles", oracle: slug })} /> : <Loading what="oracles" />) : loading ? <Loading what="schedules" /> : error ? <ErrorState error={error} onRetry={() => { void crons.refetch(); void schedules.refetch(); }} /> : tab === "routines" ? <>
       {routines.length > 0 && <div className="grid grid-cols-[minmax(0,1fr)] overflow-hidden rounded-card border border-line" data-tour="schedules.routines">
         {routines.map((r) => <RoutineRow key={r.id} r={r} bot={bots.find((b) => b.id === r.bot_id)} selected={r.id === selected?.id} onClick={() => go({ tab, routine: r.id })} />)}
       </div>}
@@ -100,7 +111,7 @@ export function SchedulesView() {
 }
 
 /** The page explanation (ⓘ): what routines and scheduled launches are, and where to create them. */
-const INTRO = "Routines start on their own, on a schedule or an event; scheduled launches start once. New routine and Schedule a launch open the composer with the timing chosen; a bot gets routines from its Routines panel. Each run starts a new agent, or messages the bot's thread.";
+const INTRO = "Routines start on their own, on a schedule or an event; scheduled launches start once. New routine and Schedule a launch open the composer with the timing chosen; a bot gets routines from its Routines panel. Each run starts a new agent, or messages the bot's thread. Oracles are small Python checks that Home runs to answer True, False or Failed: a routine can run only when one says so.";
 
 /** New routine and Schedule a launch: the composer, with Repeat on a schedule or Start later already chosen. */
 function NewButtons() {
@@ -140,7 +151,7 @@ const RoutineRow = memo(function RoutineRow({ r, bot, selected, onClick }: { r: 
     {bot ? <BotAvatar name={bot.settings.name} size={28} /> : <span className="grid size-[28px] place-items-center rounded-card bg-teal-soft text-teal-ink"><Icon name="refresh" size={14} /></span>}
     <span className="min-w-0">
       <span className="block truncate text-[13px] font-semibold">{r.title}{owner && <span className="font-normal text-ink-3"> · {owner}</span>}</span>
-      <span className="block truncate text-[12px] text-ink-3" title={cronTitle(r)}>{triggerSummary(r, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder", channelName, bot?.settings.name)} · {routineState(r, bot?.settings.name)}</span>
+      <span className="block truncate text-[12px] text-ink-3" title={cronTitle(r)}>{triggerSummary(r, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder", channelName, bot?.settings.name)}{r.gate ? ` · ${gateSummary(r.gate)}` : ""} · {routineState(r, bot?.settings.name)}</span>
     </span>
     <RunStrip history={r.history} />
   </button>;

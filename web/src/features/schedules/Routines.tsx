@@ -23,9 +23,12 @@ import { api } from "@/lib/api";
 import { ago, when } from "@/lib/format";
 import { useChannelName, useChannels } from "@/lib/channels";
 import { useProjects } from "@/lib/queries";
+import { checkSummary } from "@/lib/oracles";
+import type { Gate } from "@/gen/Gate";
+import { GateFields, gateProblem, gateSummary } from "./Oracles";
 import { EVENT_RUNS_PER_HOUR, FAILURE_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, cronTitle, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
 
-export type RoutineDraft = { trigger: Trigger; schedule: string; conditions: CronCondition[]; auto_archive?: boolean };
+export type RoutineDraft = { trigger: Trigger; schedule: string; conditions: CronCondition[]; auto_archive?: boolean; gate?: Gate | null };
 
 const TONE = { ok: "done", quiet: "idle", bad: "failed", work: "running" } as const;
 
@@ -57,9 +60,9 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, botId, on
   const picked = t.kind === "channel" ? channels.find((c) => c.id === t.channel) : undefined;
   const member = picked?.members.find((m) => m.bot_id === botId);
   const direct = member?.mode === "all" || member?.mode === "mentions";
-  const valid = fieldsValid && (t.kind !== "failure" || t.events.length > 0) && (t.kind !== "channel" || !!t.channel);
+  const valid = fieldsValid && (t.kind !== "failure" || t.events.length > 0) && (t.kind !== "channel" || !!t.channel) && (t.kind !== "schedule" || !gateProblem(draft.gate));
   useEffect(() => onValidityChange(valid), [valid, onValidityChange]);
-  const kind = (k: Trigger["kind"]) => onChange({ ...draft, trigger: k === "schedule" ? { kind: "schedule" } : k === "failure" ? { kind: "failure", events: ["any"] } : k === "channel" ? { kind: "channel", channel: channels[0]?.id ?? "", mentions_only: false } : { kind: "session_done", folder: null, include_bots: false }, schedule: draft.schedule || DEFAULT_CRON.schedule });
+  const kind = (k: Trigger["kind"]) => onChange({ ...draft, trigger: k === "schedule" ? { kind: "schedule" } : k === "failure" ? { kind: "failure", events: ["any"] } : k === "channel" ? { kind: "channel", channel: channels[0]?.id ?? "", mentions_only: false } : { kind: "session_done", folder: null, include_bots: false }, schedule: draft.schedule || DEFAULT_CRON.schedule, gate: k === "schedule" ? draft.gate : null });
   const toggleFailure = (e: FailureKind) => t.kind === "failure" && onChange({ ...draft, trigger: { ...t, events: t.events.includes(e) ? t.events.filter((x) => x !== e) : [...t.events, e] } });
   // In a thread (a bot, Ask Launchpad), a run waits for the thread anyway: no "previous run" condition.
   const conditions = inThread ? draft.conditions.filter((c) => c.kind !== "previous_run_finished") : draft.conditions;
@@ -104,6 +107,7 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, botId, on
       </label>
       <p className="m-0 text-[12px] text-ink-3">Each time another agent finishes a turn (Done) there, a run starts with a reference to that agent's trace. Runs of routines never start other routines, and a routine started by events runs at most {EVENT_RUNS_PER_HOUR} times an hour.</p>
     </div>}
+    {t.kind === "schedule" && <GateFields workspace={workspaceId} gate={draft.gate ?? null} onChange={(gate) => onChange({ ...draft, gate })} />}
     <CronFields draft={{ schedule: draft.schedule, conditions }} harness={harness} schedule={t.kind === "schedule"} previousRun={!inThread} onChange={(c) => onChange({ ...draft, schedule: c.schedule, conditions: c.conditions })} onValidityChange={setFieldsValid} />
     <AutoArchiveField checked={!!draft.auto_archive} thread={inThread} onChange={(auto_archive) => onChange({ ...draft, auto_archive })} />
   </div>;
@@ -129,7 +133,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
   };
   const save = () => act(async () => {
     if (!edit) return;
-    await api.patch(`/api/launch/crons/${cron.id}`, { title: edit.title, trigger: edit.trigger, schedule: edit.schedule, conditions: edit.conditions, auto_archive: !!edit.auto_archive, time_zone: browserZone(), ...(cron.bot_id ? { instructions: edit.instructions } : {}) });
+    await api.patch(`/api/launch/crons/${cron.id}`, { title: edit.title, trigger: edit.trigger, schedule: edit.schedule, conditions: edit.conditions, auto_archive: !!edit.auto_archive, time_zone: browserZone(), gate: edit.trigger.kind === "schedule" ? edit.gate ?? null : null, ...(cron.bot_id ? { instructions: edit.instructions } : {}) });
     setEdit(null);
     toast("Routine saved");
   });
@@ -151,13 +155,14 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
         </div>
         {cron.file_error && <p className="m-0 rounded-control bg-attn-soft px-2 py-1 text-[12px] text-attn">{cron.file} cannot be used: {cron.file_error}. The routine keeps its last good definition{onEditFile ? "; fix it with Edit as file" : ""}.</p>}
         <p className="m-0 text-ink-2" title={cronTitle(cron)}>{triggerSummary(cron, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder", channelName, bot?.settings.name)}</p>
+        {cron.gate && <p className="m-0 text-[12px] text-ink-2"><Link to="/schedules" search={{ tab: "oracles", oracle: cron.gate.oracle }}>{gateSummary(cron.gate)}</Link>{cron.gate.params && Object.keys(cron.gate.params).length > 0 ? <span className="text-ink-3"> · {Object.entries(cron.gate.params).map(([k, v]) => `${k} = ${String(v)}`).join(" · ")}</span> : null}</p>}
         <p className="m-0 text-[12px] text-ink-3">{where}</p>
         {cron.auto_archive && <p className="m-0 text-[12px] text-ink-3">Archives each run {inThread ? "thread " : ""}that ends Done with nothing waiting.</p>}
         {cron.conditions.length > 0 && <ul className="m-0 list-disc pl-5 text-[12px] text-ink-2">{cron.conditions.map((c, i) => <li key={i}>{conditionSummary(c, cron.spec.harness, harnessName)}</li>)}</ul>}
         <p className="m-0 text-[12px] text-ink-3">{success ? `Last successful run ${ago(success.at)} (${success.outcome === "report" ? "report" : "nothing to report"}).` : "No successful run yet."}{cron.last_outcome && !cron.last_outcome.startsWith("Report") && !cron.last_outcome.startsWith("No update") ? ` Last: ${cron.last_outcome}.` : ""}{cron.waiting ? ` Due, waiting: ${cron.waiting}.` : ""}</p>
         <div className="flex flex-wrap items-center gap-2">
           <button className="btn btn-sm btn-primary" disabled={busy} title="Starts a run now, whatever the trigger and the conditions" onClick={() => void act(async () => { onOpen((await api.post<Session>(`/api/launch/crons/${cron.id}/run`)).id); })}><Icon name="play" size={12} />Run now</button>
-          <button className="btn btn-sm" disabled={busy} onClick={() => setEdit({ trigger: cron.trigger, schedule: cron.schedule, conditions: cron.conditions, auto_archive: cron.auto_archive, title: cron.title, instructions: cron.spec.text })}><Icon name="pencil" size={12} />Edit</button>
+          <button className="btn btn-sm" disabled={busy} onClick={() => setEdit({ trigger: cron.trigger, schedule: cron.schedule, conditions: cron.conditions, auto_archive: cron.auto_archive, gate: cron.gate ?? null, title: cron.title, instructions: cron.spec.text })}><Icon name="pencil" size={12} />Edit</button>
           <MoreMenu label={`More actions for ${cron.title}`} width={280}>{(close) => <>
             <MenuItem icon={<Icon name={cron.paused ? "play" : "stop"} size={14} />} label={cron.paused ? "Resume" : "Pause"} detail={cron.bot_paused ? "Resume the bot to resume its routines" : cron.paused ? "Runs start again from the next trigger" : "No run starts until you resume it"} disabled={busy || cron.bot_paused} onClick={() => { close(); void act(async () => { await api.patch(`/api/launch/crons/${cron.id}`, { paused: !cron.paused }); }); }} />
             {onEditFile && <MenuItem icon={<Icon name="file" size={14} />} label="Edit as file" detail={cron.file ?? undefined} onClick={() => { close(); onEditFile(); }} />}
@@ -171,7 +176,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
       <b className="text-[12px] text-ink-2">Runs ({cron.history.length})</b>
       {cron.history.length ? [...cron.history].reverse().map((r) => <button key={`${r.at}-${r.cause}`} disabled={!r.session_id} onClick={() => r.session_id && onOpen(r.session_id)} className="grid min-w-0 gap-0.5 rounded-control border border-line px-2 py-1.5 text-left text-[12px] hover:bg-chrome disabled:cursor-default disabled:hover:bg-transparent">
         <span className="flex min-w-0 items-center gap-2"><span className="min-w-0 flex-1 truncate" title={r.cause}>{when(r.at)} · {r.cause}</span><OutcomeBadge run={r} /></span>
-        {(r.detail || r.archived) && <span className="text-ink-3">{[r.detail, r.archived && "Archived automatically"].filter(Boolean).join(" · ")}</span>}
+        {r.outcome === "checked" ? <span className="text-ink-3">{checkSummary(r)}</span> : (r.detail || r.archived || r.check) && <span className="text-ink-3">{[r.detail, r.check && `${r.check.oracle}: ${r.check.outcome ?? "no answer"}${r.check.summary ? ` · ${r.check.summary}` : ""}`, r.archived && "Archived automatically"].filter(Boolean).join(" · ")}</span>}
       </button>) : <p className="m-0 text-[12px] text-ink-3">No run yet. Quiet runs show here as No update; they never notify you.</p>}
     </div>
     {!inThread && <div><b className="text-[12px] text-ink-2">Prompt of each run</b><pre className="mt-2 rounded-card border border-line p-3 text-[12px] whitespace-pre-wrap">{preview.data?.prompt ?? (preview.isError ? "Folder context is unavailable. Delete this routine and create it again with another folder." : "Loading…")}</pre></div>}
@@ -205,7 +210,8 @@ export function NewRoutine({ bot, harness, onDone }: { bot: Bot; harness: Harnes
   const add = async () => {
     setBusy(true);
     try {
-      await api.post<CronAgent>(`/api/bots/${bot.id}/routines`, { title: title.trim(), instructions: instructions.trim(), ...draft, time_zone: browserZone() });
+      const { gate, ...rest } = draft;
+      await api.post<CronAgent>(`/api/bots/${bot.id}/routines`, { title: title.trim(), instructions: instructions.trim(), ...rest, ...(gate && rest.trigger.kind === "schedule" ? { gate } : {}), time_zone: browserZone() });
       await qc.invalidateQueries({ queryKey: ["crons"] });
       toast(`Routine added to ${name}`);
       onDone();
