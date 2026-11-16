@@ -214,14 +214,14 @@ function OracleEditor({ workspace, detail, view, onView, onBack, onSaved, onDele
   </div>;
 }
 
-/** Saving this draft adds access: highlighted before the save (an agent can only propose it). */
+/** Saving this draft changes access: highlighted before the save (an admin bot adds hosts, Launchpad read and tools it holds; other tools only by a card). */
 function AccessNotice({ change, users }: { change: { added: string[]; removed: string[] }; users: number }) {
   return <div className="grid gap-1 rounded-card border border-attn-line bg-attn-soft px-3 py-2 text-[12px] text-ink-2" role="status">
     <b className="text-[13px] text-ink">Saving changes access</b>
     {change.added.map((a) => <span key={a}>+ {a}</span>)}
     {change.removed.map((a) => <span key={a} className="text-ink-3">− {a}</span>)}
     <span>Used by: {users ? plural(users, "routine") : "nothing yet"}</span>
-    <span className="text-ink-3">A bot can propose more access but never apply it. Narrowing access applies at once, for you and for admin bots.</span>
+    <span className="text-ink-3">Admin bots may add hosts, Launchpad read and tools they already hold; any other tool waits for your card. Narrowing access applies at once.</span>
   </div>;
 }
 

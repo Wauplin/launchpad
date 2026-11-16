@@ -96,7 +96,7 @@ An oracle reaches nothing until its file says so. `access` takes three keys, eac
 - `hosts`: other hosts `ctx.http` may call, such as `["pypi.org"]`. `*.example.com` allows its subdomains; `"*"` allows every host.
 - `launchpad`: `"none"` (the default) or `"read"`. With `"read"`, Home gives each evaluation its own token for Home's read API (`LAUNCHPAD_URL`, `LAUNCHPAD_TOKEN` and `LAUNCHPAD_WORKSPACE` in the environment, and `ctx.launchpad`). It reads what a read-level agent of this workspace reads, with GET requests only, and never runs oracles. Home keeps it in memory and revokes it when the evaluation ends.
 
-Oracle code is trusted: it runs on Home with real tokens, outside the agents' jail and proxy. That is why only you widen an oracle's access (see [Who may do what](#who-may-do-what)). The host check of `ctx.http` keeps honest code on its hosts; it is not a sandbox.
+Oracle code is trusted: it runs on Home with real tokens, outside the agents' jail and proxy. That is why only you give an oracle a tool that the bot does not already hold (see [Who may do what](#who-may-do-what)). The host check of `ctx.http` keeps honest code on its hosts; it is not a sandbox.
 
 ## Cursors
 
@@ -168,10 +168,10 @@ An oracle's page shows its slug, who edited it last, its Python version and its 
 | Who | What |
 | --- | --- |
 | You | Everything: create, edit, test drafts, pause, mark read, restore and delete. Delete asks again when routines are gated on the oracle. |
-| Admin bots | Save code and dependency changes directly (`launchpad oracle save`), pause and resume. A version that adds a tool, a host or Launchpad read is refused: it must be a card for you. The bot's chat shows each change as a receipt. |
+| Admin bots | Save oracles directly (`launchpad oracle save`), pause and resume. A save may add hosts, Launchpad read and the tools the bot's own session already holds. A version that adds any other tool is refused: it must be a card for you. The bot's chat shows each change as a receipt. |
 | Other agents | List, read, run and test drafts in their own jail, and propose an oracle with a card. |
 
-An **oracle card** (`launchpad propose oracle`) holds the slug and the whole file. It shows the diff, the access it adds (amber) or removes, and **Apply**. An admin session may accept a card only when it adds no access. Oracle cards never start on their own, even for a bot in auto mode.
+An **oracle card** (`launchpad propose oracle`) holds the slug and the whole file. It shows the diff, the access it adds (amber) or removes, and **Apply**. An admin session may accept a card on the same terms: never one that adds a tool its session does not hold. Oracle cards never start on their own, even for a bot in auto mode.
 
 ## CLI
 

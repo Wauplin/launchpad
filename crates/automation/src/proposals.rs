@@ -167,7 +167,8 @@ pub enum ProposalBody {
     },
     /// A new oracle of the proposal's workspace, or a new version of one (`oracles/<slug>.py`, the whole file).
     /// Accepting saves it, like `oracle.save`, and fails when the file changed since. Home fills in the diff and what
-    /// the new version adds to or removes from its access: a card that adds access waits for the owner.
+    /// the new version adds to or removes from its access: a card that gives the oracle a tool the accepting admin
+    /// session does not hold waits for the owner.
     Oracle {
         slug: String,
         /// The whole new file.
@@ -804,8 +805,15 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 let current = crate::oracles::get(app, &ws, &slug).await.ok();
                 let applied = current.as_ref().is_some_and(|f| f.content == content);
                 ensure!(applied || now == before, "oracles/{slug}.py changed since this proposal: ask for a new card");
-                // An admin session accepts only a card that adds no access (`agent_auth` checks the card too).
-                ensure!(agent.is_none() || added.is_empty(), "this card adds access ({}): it waits for the owner's click", added.join(", "));
+                // An admin session accepts a card that adds hosts or Launchpad read, but a tool only when its own
+                // session holds it (`agent_auth::oracle_access_beyond_admin` checks the card too).
+                if let Some(a) = agent.as_deref()
+                    && added.iter().any(|x| x.starts_with("tool "))
+                {
+                    let held = launchpad_core::vault::session_tools(app, a).await?;
+                    let refused: Vec<&String> = added.iter().filter(|x| x.strip_prefix("tool ").is_some_and(|t| !held.iter().any(|h| h == t))).collect();
+                    ensure!(refused.is_empty(), "this card gives the oracle a tool your session does not hold ({}): it waits for the owner's click", refused.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+                }
                 if !applied {
                     let author = match agent.as_deref() {
                         Some(a) => launchpad_core::kb::agent_author(app, a).await?,

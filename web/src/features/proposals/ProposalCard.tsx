@@ -115,7 +115,7 @@ function BotFilesBody({ body }: { body: Extract<Proposal["body"], { kind: "bot_f
   );
 }
 
-/** An oracle card: the file's diff and the access it adds (highlighted: only the owner gives more access) or removes. */
+/** An oracle card: the file's diff and the access it adds (highlighted: a tool the accepting session does not hold waits for the owner) or removes. */
 function OracleBody({ body }: { body: Extract<Proposal["body"], { kind: "oracle" }> }) {
   return (
     <>

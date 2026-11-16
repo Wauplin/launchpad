@@ -103,7 +103,7 @@ The composer's **Tools** option starts from these defaults for the chosen folder
 
 Home sends notifications through the Telegram chat of each session's workspace, wherever the session runs: a runner forwards the notification of a session that finishes, fails or is interrupted to Home. There are no desktop notifications. Routines, scheduled launches and the morning brief run on Home's schedule, on a runner when one takes the run, otherwise on Burst ([Routines](bots.md#routines)).
 
-[Oracles](oracles.md) are the one kind of code Home runs itself: each evaluation is a short `uv run` of the oracle's Python file on Home, outside any jail, with the real tokens of the tools the oracle lists in its environment (no proxy and no placeholders) and at most 16 at once. That is why only you widen an oracle's access. Home needs `uv` on its PATH; the Space image includes it. Agents test drafts on their runner, in their own jail, with `launchpad oracle test`.
+[Oracles](oracles.md) are the one kind of code Home runs itself: each evaluation is a short `uv run` of the oracle's Python file on Home, outside any jail, with the real tokens of the tools the oracle lists in its environment (no proxy and no placeholders) and at most 16 at once. That is why only you give an oracle a tool that the bot writing it does not already hold. Home needs `uv` on its PATH; the Space image includes it. Agents test drafts on their runner, in their own jail, with `launchpad oracle test`.
 
 ## Move a session
 

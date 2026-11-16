@@ -848,15 +848,8 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
     };
     // Granted tools that are on (`tool_defaults`), and their credentials.
     let off = req.off(app).await?;
-    let mut tools_out: Vec<Tool> = vec![];
-    for t in tools(app).await? {
-        if !t.granted(req.workspace_id.as_deref()) || off.contains(&t.id) {
-            continue;
-        }
-        if let Some(other) = host_conflict(&tools_out, &t) {
-            tracing::info!("tool {}: left out, {} already sends its token to the same host", t.id, other.id);
-            continue;
-        }
+    let tools_out = lease_tool_list(app, req, &off).await?;
+    for t in &tools_out {
         if let Some(cid) = &t.credential {
             match secret(app, cid).await? {
                 Some((Kind::Token, value)) => {
@@ -869,7 +862,6 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
                 _ => tracing::info!("tool {}: no token {cid:?} in the vault", t.id),
             }
         }
-        tools_out.push(t);
     }
     let home = app.config.get().home.clone();
     let launchpad = launchpad_level(app, tools_out.iter().any(|t| t.id == LAUNCHPAD_TOOL), req.bot_id.as_deref()).await;
@@ -886,6 +878,32 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         mcp: crate::mcp::granted(app, req.workspace_id.as_deref(), &off).await?,
         launchpad,
     })
+}
+
+/// The tools of Home's registry a lease of this request holds: granted to its workspace, on (`off`), without a
+/// host conflict.
+async fn lease_tool_list(app: &App, req: &LeaseRequest, off: &[String]) -> Result<Vec<Tool>> {
+    let mut out: Vec<Tool> = vec![];
+    for t in tools(app).await? {
+        if !t.granted(req.workspace_id.as_deref()) || off.iter().any(|o| o == &t.id) {
+            continue;
+        }
+        if let Some(other) = host_conflict(&out, &t) {
+            tracing::info!("tool {}: left out, {} already sends its token to the same host", t.id, other.id);
+            continue;
+        }
+        out.push(t);
+    }
+    Ok(out)
+}
+
+/// Home: the IDs of the tools a session Home placed holds (`grant`'s rule, from its own record): an admin session
+/// may give an oracle a tool only when it already holds it.
+pub async fn session_tools(app: &App, session_id: &str) -> Result<Vec<String>> {
+    let s = app.sessions.get(session_id).context("Home has no record of this session")?;
+    let req = crate::contain::request(app, &s).await?;
+    let off = req.off(app).await?;
+    Ok(lease_tool_list(app, &req, &off).await?.into_iter().map(|t| t.id).collect())
 }
 
 /// The Launchpad CLI access a lease gives: none without the tool, propose for other agents, a bot's from its

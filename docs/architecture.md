@@ -232,7 +232,7 @@ Every action that a button, a proposal card, the Launchpad CLI or the admin rule
 
 Actions that reach GitHub or other people, money, credentials or the machine are owner actions. They have a confirmation or an undo.
 
-Oracles follow the same list: `oracle.run` is a read at every level, `oracle.save`, `oracle.pause` and `oracle.resume` are admin (an agent's save never widens access), and `oracle.test`, `oracle.mark-read`, `oracle.restore` and `oracle.delete` are the owner's. An `oracle` card runs `oracle.save`; admin accepts it only when it adds no access.
+Oracles follow the same list: `oracle.run` is a read at every level, `oracle.save`, `oracle.pause` and `oracle.resume` are admin (an agent's save may add hosts and Launchpad read, and only the tools its own session holds), and `oracle.test`, `oracle.mark-read`, `oracle.restore` and `oracle.delete` are the owner's. An `oracle` card runs `oracle.save`; admin accepts it on the same terms.
 
 The front door records every successful direct admin action of a session (`crates/server/src/activity.rs`) in Home's activity list (`crates/automation/src/activity.rs`): the action, its body, the values before (read through the action's GET route) and the undo call (the undo action with the old values, or a delete of the created record). The bot chat shows each entry as a Changed line whose record name links to its page. Shared settings (`GET/PATCH /api/settings/shared`) are the part of `config.toml` that `settings.set` may change; every `config.toml` write goes through `ConfigHandle::update`, which reads, changes and saves under one lock.
 

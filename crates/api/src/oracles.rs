@@ -1,7 +1,7 @@
 //! Oracles on Home (`launchpad_automation::oracles`, `oracle_eval`): list, show, evaluations, versions, and the
 //! actions of the action list (`oracle.*`). Runners forward every `/api/oracles…` request to Home, which checks an
-//! agent's workspace (`agent_auth::within_workspace`) and its access: every level reads and runs, admin saves code
-//! but never adds access (a card waits for the owner), the rest is the owner's.
+//! agent's workspace (`agent_auth::within_workspace`) and its access: every level reads and runs, admin saves (adding hosts,
+//! Launchpad read and only the tools its session holds; other tools wait for the owner's card), the rest is the owner's.
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
@@ -105,16 +105,19 @@ struct Save {
     content: String,
 }
 
-/// An agent (admin) saves code and dependencies, never more access than the oracle has (`oracles::widens`).
+/// An agent (admin) saves an oracle and may add hosts and Launchpad read, but a tool only when its own session holds
+/// it (`oracles::widens`, `agent_auth::oracle_access_beyond_admin`): the oracle gets that tool's real token.
 async fn save(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(b): Json<Save>) -> ApiResult<Oracle> {
-    if agent.is_some() {
+    if let Some(a) = &agent {
         let meta = oracles::check(&s.app, &b.content).await.map_err(bad)?;
         let old = oracles::get(&s.app, &ws, &slug).await.ok().and_then(|f| f.oracle.meta).map(|m| m.access);
         let added = oracles::widens(old.as_ref(), &meta.access);
-        if !added.is_empty() {
+        let held = if added.iter().any(|x| x.starts_with("tool ")) { launchpad_core::vault::session_tools(&s.app, &a.0.0).await.map_err(bad)? } else { vec![] };
+        let refused = launchpad_http::agent_auth::oracle_access_beyond_admin(&added, &held);
+        if !refused.is_empty() {
             return Err(forbidden(format!(
-                "this version adds access ({}): only the owner gives an oracle more access. Propose it with `launchpad propose oracle --title \"…\" --spec-file o.json` ({{\"slug\": \"{slug}\", \"content\": \"<the whole file>\"}})",
-                added.join(", ")
+                "this version gives the oracle a tool this session does not hold ({}): only the owner gives it that token. Propose it with `launchpad propose oracle --title \"…\" --spec-file o.json` ({{\"slug\": \"{slug}\", \"content\": \"<the whole file>\"}})",
+                refused.join(", ")
             )));
         }
     }

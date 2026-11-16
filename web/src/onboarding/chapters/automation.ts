@@ -41,7 +41,7 @@ export const automation: Chapter = {
     {
       id: "automation.oracles", route: "/schedules?tab=oracles", anchor: "oracles.list",
       title: "Oracles",
-      body: "An oracle is a small Python check that Home runs to answer True, False or Failed, like “CI is red on main”. A routine can run only when one says so: the Maintainer's “Fix red CI” checks every ten minutes and starts a run only when CI turns red; the other checks stay quiet. A failing oracle gets one row in Today. Ask Launchpad writes and tests new ones, and a card that adds access waits for your click.",
+      body: "An oracle is a small Python check that Home runs to answer True, False or Failed, like “CI is red on main”. A routine can run only when one says so: the Maintainer's “Fix red CI” checks every ten minutes and starts a run only when CI turns red; the other checks stay quiet. A failing oracle gets one row in Today. Ask Launchpad writes and tests new ones, and a card that gives an oracle a tool the bot does not hold waits for your click.",
     },
     {
       id: "automation.quota", route: `/agents?session=${PAUSED}`, anchor: "session.primary",

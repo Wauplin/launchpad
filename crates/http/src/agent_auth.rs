@@ -105,17 +105,27 @@ fn admin_allows(method: &Method, path: &str) -> bool {
 /// Whether accepting a card of this body runs an action admin may run directly: accepting a card is running its
 /// action (`actions::for_card`). Tool cards and ready cards are owner actions and wait for the owner. A status
 /// card only lists sessions.
-fn admin_may_accept(body: &Value) -> bool {
+fn admin_may_accept(body: &Value, held: &[String]) -> bool {
     let id = |k: &str| body[k].as_str().is_some_and(|s| !s.is_empty() && !s.contains('/'));
     let Some(kind) = body["kind"].as_str() else { return false };
     let ids = match kind {
         "message" => id("session_id"),
         "routine" | "bot_instructions" | "bot_files" => id("bot_id"),
-        // A card that adds access to an oracle (a tool, a host, Launchpad read) is the owner's.
-        "oracle" => body["access_added"].as_array().is_some_and(|a| a.is_empty()),
+        // A card that gives an oracle a tool the accepting session does not hold is the owner's.
+        "oracle" => body["access_added"].as_array().is_some_and(|a| {
+            let added: Vec<String> = a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+            added.len() == a.len() && oracle_access_beyond_admin(&added, held).is_empty()
+        }),
         _ => true,
     };
     kind == "status" || (ids && actions::for_card(kind).is_some_and(|a| a.access == ActionAccess::Admin))
+}
+
+/// What of the access a new oracle version adds (`oracles::widens`: "tool <id>", "host <name>", "every host (*)",
+/// "Launchpad read") an admin session may not give it: hosts and Launchpad read are admin's to add, a tool only when
+/// the session already holds it (`held`, `vault::session_tools`), since the oracle gets that tool's real token.
+pub fn oracle_access_beyond_admin(added: &[String], held: &[String]) -> Vec<String> {
+    added.iter().filter(|a| a.strip_prefix("tool ").is_some_and(|t| !held.iter().any(|h| h == t))).cloned().collect()
 }
 
 /// A proposal's body, from Home's state (a runner forwards the accept to Home, which checks it there).
@@ -239,9 +249,14 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
         }
         // A runner forwards the accept to Home, which checks the card.
         if app.paths.role == launchpad_core::role::Role::Home && let Some(pid) = path.strip_prefix("/api/proposals/").and_then(|r| r.strip_suffix("/accept")) {
-            let direct = proposal_body(app, pid).await.as_ref().is_some_and(admin_may_accept);
+            let body = proposal_body(app, pid).await;
+            let held = match &body {
+                Some(b) if b["kind"] == "oracle" => launchpad_core::vault::session_tools(app, id).await.unwrap_or_default(),
+                _ => vec![],
+            };
+            let direct = body.as_ref().is_some_and(|b| admin_may_accept(b, &held));
             if !direct {
-                return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "admin access cannot run this card's action directly (tools and ready cards): it waits for the owner's click"));
+                return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "admin access cannot run this card's action directly (tool cards, ready cards, oracles given a tool this session does not hold): it waits for the owner's click"));
             }
         }
         let (parts, body) = req.into_parts();
@@ -661,12 +676,17 @@ mod tests {
             assert!(!admin_allows(&m, path), "{m} {path}");
         }
         assert!(!admin_allows(&Method::GET, "/api/config"));
-        let direct = |b: Value| admin_may_accept(&b);
+        let direct = |b: Value| admin_may_accept(&b, &[]);
         assert!(direct(serde_json::json!({"kind": "routine", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_instructions", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_files", "bot_id": "b"})));
         assert!(direct(serde_json::json!({"kind": "preset"})));
-        // An oracle card that adds access waits for the owner.
+        // An oracle card that gives a tool the accepting session does not hold waits for the owner.
         assert!(direct(serde_json::json!({"kind": "oracle", "access_added": []})));
-        assert!(!direct(serde_json::json!({"kind": "oracle", "access_added": ["host pypi.org"]})) && !direct(serde_json::json!({"kind": "oracle"})));
+        assert!(direct(serde_json::json!({"kind": "oracle", "access_added": ["host pypi.org", "every host (*)", "Launchpad read"]})));
+        assert!(!direct(serde_json::json!({"kind": "oracle", "access_added": ["tool gh"]})) && !direct(serde_json::json!({"kind": "oracle"})));
+        let held = ["gh".to_string()];
+        assert!(admin_may_accept(&serde_json::json!({"kind": "oracle", "access_added": ["tool gh", "host pypi.org"]}), &held));
+        assert!(!admin_may_accept(&serde_json::json!({"kind": "oracle", "access_added": ["tool gh", "tool hf"]}), &held));
+        assert_eq!(oracle_access_beyond_admin(&["tool gh".into(), "tool hf".into(), "Launchpad read".into()], &held), vec!["tool hf"]);
         assert!(!direct(serde_json::json!({"kind": "tool"})) && !direct(serde_json::json!({"kind": "ready", "action": "outbox.send"})));
         let folder = actions::get("folder.set").unwrap();
         assert_eq!(unknown_field(folder, Some(&serde_json::json!({"worktree_setup": "x"}))).as_deref(), Some("worktree_setup"));

@@ -68,8 +68,8 @@ pub enum OracleCommand {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
-    /// Create an oracle or change its file (admin access). A version that adds access (a tool, a host, Launchpad
-    /// read) is refused: propose it with `launchpad propose oracle`.
+    /// Create an oracle or change its file (admin access). A version that gives the oracle a tool this session does
+    /// not hold is refused: propose it with `launchpad propose oracle`.
     Save {
         #[arg(long)]
         file: PathBuf,
