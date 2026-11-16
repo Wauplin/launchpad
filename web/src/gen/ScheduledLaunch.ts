@@ -15,4 +15,8 @@ conditions: Array<LaunchDelay>, title: string, created_at: number,
 /**
  * Latest time or quota condition, resolved once at scheduling time (Unix milliseconds).
  */
-ready_at: number | null, status: ScheduleStatus, error: string | null, };
+ready_at: number | null, 
+/**
+ * Starts at this time at the latest, even when its conditions do not hold yet (a wake-up's `--timeout`).
+ */
+deadline?: number, status: ScheduleStatus, error: string | null, };

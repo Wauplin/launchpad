@@ -26,13 +26,94 @@ pub enum LaunchDelay {
     At {
         at: i64,
     },
+    /// Every agent is in one of `states` (none: Done, `Session::dependency_done`).
     Agents {
         session_ids: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        #[ts(as = "Option<Vec<AgentState>>", optional)]
+        states: Vec<AgentState>,
     },
     Quota {
         harness: HarnessKind,
         window: QuotaKind,
     },
+}
+
+/// A state an `agents` condition waits for; an agent matches when it is in any of the condition's states.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentState {
+    /// Done and nothing asked, or archived after a Done turn (`Session::dependency_done`; a sleeping agent is not Done).
+    Done,
+    /// An open question waits for the owner.
+    Asking,
+    /// Failed or Interrupted.
+    Failed,
+    /// The owner stopped its turn.
+    Stopped,
+    QuotaPaused,
+    /// It sleeps itself (`launchpad sleep`).
+    Sleeping,
+    Archived,
+    /// Starting, working or running a background command.
+    Working,
+}
+
+impl AgentState {
+    pub const ALL: [AgentState; 8] = [AgentState::Done, AgentState::Asking, AgentState::Failed, AgentState::Stopped, AgentState::QuotaPaused, AgentState::Sleeping, AgentState::Archived, AgentState::Working];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AgentState::Done => "done",
+            AgentState::Asking => "asking",
+            AgentState::Failed => "failed",
+            AgentState::Stopped => "stopped",
+            AgentState::QuotaPaused => "quota_paused",
+            AgentState::Sleeping => "sleeping",
+            AgentState::Archived => "archived",
+            AgentState::Working => "working",
+        }
+    }
+
+    /// `launchpad sleep --state`.
+    pub fn parse(text: &str) -> Result<AgentState> {
+        let t = text.trim().to_ascii_lowercase().replace('-', "_");
+        AgentState::ALL.into_iter().find(|s| s.as_str() == t).with_context(|| {
+            format!("unknown agent state {text:?}: use {}", AgentState::ALL.map(AgentState::as_str).join(", "))
+        })
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            AgentState::Done => "Done",
+            AgentState::Asking => "asking a question",
+            AgentState::Failed => "failed or interrupted",
+            AgentState::Stopped => "stopped",
+            AgentState::QuotaPaused => "quota paused",
+            AgentState::Sleeping => "sleeping",
+            AgentState::Archived => "archived",
+            AgentState::Working => "working",
+        }
+    }
+
+    pub fn of(self, s: &Session) -> bool {
+        use launchpad_core::model::SessionStatus as S;
+        match self {
+            AgentState::Done => s.dependency_done(),
+            AgentState::Asking => s.open_question && s.status != S::Closed,
+            AgentState::Failed => matches!(s.status, S::Error | S::Interrupted),
+            AgentState::Stopped => s.status == S::Stopped,
+            AgentState::QuotaPaused => s.status == S::QuotaPaused,
+            AgentState::Sleeping => s.sleeping(),
+            AgentState::Archived => s.status == S::Closed,
+            AgentState::Working => s.status.is_running(),
+        }
+    }
+}
+
+/// Whether an agent is in one of `states` (none: Done).
+pub fn agent_matches(s: &Session, states: &[AgentState]) -> bool {
+    if states.is_empty() { s.dependency_done() } else { states.iter().any(|state| state.of(s)) }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
@@ -56,6 +137,10 @@ pub struct ScheduledLaunch {
     pub created_at: i64,
     /// Latest time or quota condition, resolved once at scheduling time (Unix milliseconds).
     pub ready_at: Option<i64>,
+    /// Starts at this time at the latest, even when its conditions do not hold yet (a wake-up's `--timeout`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub deadline: Option<i64>,
     pub status: ScheduleStatus,
     pub error: Option<String>,
 }
@@ -89,7 +174,7 @@ pub async fn create(
     spec: LaunchSpec,
     conditions: Vec<LaunchDelay>,
 ) -> Result<ScheduledLaunch> {
-    create_target(app, spec, conditions, None).await
+    create_target(app, spec, conditions, None, None).await
 }
 
 /// `from`: the agent that schedules it (stamped by Home, `senders`); its text then arrives under its header.
@@ -116,7 +201,7 @@ pub async fn follow_up(
         .project_id
         .map(|project_id| Target::Project { project_id })
         .unwrap_or(Target::None);
-    create_target(app, spec, conditions, Some(id.to_string())).await
+    create_target(app, spec, conditions, Some(id.to_string()), None).await
 }
 
 /// What an agent asks for with `launchpad sleep`: end its turn now and get a message in the same conversation later.
@@ -129,6 +214,12 @@ pub struct SleepRequest {
     /// …or at this time (Unix ms).
     #[serde(default)]
     pub at: Option<i64>,
+    /// …and once all of these hold (the conditions of a scheduled launch: other agents' states, a quota reset…).
+    #[serde(default)]
+    pub conditions: Vec<LaunchDelay>,
+    /// Wake at the latest this many minutes from now, even when the conditions do not hold yet.
+    #[serde(default)]
+    pub timeout_minutes: Option<u32>,
     /// What to do when it wakes up, in the agent's words (it comes back in the wake-up message).
     #[serde(default)]
     pub note: String,
@@ -151,6 +242,20 @@ pub fn parse_minutes(text: &str) -> Result<u32> {
     n.checked_mul(factor).filter(|m| *m > 0).context("pick a delay from 1 minute to 1 year")
 }
 
+/// `launchpad sleep --quota`: `<harness>:five_hour` or `<harness>:weekly` (also `5h`, `week`).
+/// Returns the condition as JSON (Home checks the harness).
+pub fn parse_quota(text: &str) -> Result<serde_json::Value> {
+    let usage = "--quota takes <harness>:five_hour or <harness>:weekly, such as claude:five_hour";
+    let (harness, window) = text.trim().split_once(':').context(usage)?;
+    let window = match window.trim().to_ascii_lowercase().as_str() {
+        "five_hour" | "5h" | "five-hour" => QuotaKind::FiveHour,
+        "weekly" | "week" | "7d" => QuotaKind::Weekly,
+        _ => bail!("{usage}"),
+    };
+    anyhow::ensure!(!harness.trim().is_empty(), "{usage}");
+    Ok(serde_json::json!({"kind": "quota", "harness": harness.trim().to_ascii_lowercase(), "window": window}))
+}
+
 /// `launchpad sleep --until`: an RFC 3339 time ("2026-11-14T15:00:00Z", "2026-11-14T16:00:00+01:00"), as Unix ms.
 pub fn parse_until(text: &str) -> Result<i64> {
     Ok(chrono::DateTime::parse_from_rfc3339(text.trim()).map_err(|_| anyhow::anyhow!("--until takes an RFC 3339 time with its offset, such as 2026-11-14T15:00:00Z"))?.timestamp_millis())
@@ -161,11 +266,41 @@ pub fn is_wake(record: &ScheduledLaunch) -> bool {
     record.resume_session_id.is_some() && record.spec.from.as_ref().is_some_and(|f| f.kind == launchpad_core::model::SenderKind::Wake)
 }
 
-/// The message that wakes an agent: Launchpad's own, with its note.
-fn wake_text(until: i64, note: &str) -> String {
-    let at = chrono::DateTime::from_timestamp_millis(until).map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string()).unwrap_or_default();
+fn utc(at: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(at).map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string()).unwrap_or_default()
+}
+
+/// The conditions other than time, in words: "“Fix CI” (1a2b3c4d) is Done", "the claude 5-hour quota resets".
+fn describe(app: &App, conditions: &[LaunchDelay]) -> String {
+    let mut parts = Vec::new();
+    for c in conditions {
+        match c {
+            LaunchDelay::Agents { session_ids, states } => {
+                let names: Vec<String> = session_ids.iter().map(|id| {
+                    let short: String = id.chars().take(8).collect();
+                    app.sessions.get(id).map_or_else(|| format!("agent {short}"), |s| format!("“{}” ({short})", s.title))
+                }).collect();
+                let states = if states.is_empty() { "Done".to_string() } else { states.iter().map(|s| s.label()).collect::<Vec<_>>().join(" or ") };
+                let verb = if names.len() == 1 { "is" } else { "are each" };
+                parts.push(format!("{} {verb} {states}", names.join(" and ")));
+            }
+            LaunchDelay::Quota { harness, window } => parts.push(format!("the {} {} quota resets", harness.as_str(), if *window == QuotaKind::FiveHour { "5-hour" } else { "weekly" })),
+            LaunchDelay::In { .. } | LaunchDelay::At { .. } => {}
+        }
+    }
+    parts.join(" and ")
+}
+
+/// The message that wakes an agent: Launchpad's own, with what it waited for and its note.
+fn wake_text(until: Option<i64>, waits: &str, deadline: Option<i64>, note: &str) -> String {
+    let when = match (until, waits.is_empty()) {
+        (Some(at), true) => format!("at {}", utc(at)),
+        (Some(at), false) => format!("once {waits}, not before {}", utc(at)),
+        (None, _) => format!("once {waits}"),
+    };
+    let timeout = deadline.map(|d| format!(" (at the latest at {})", utc(d))).unwrap_or_default();
     let note = note.trim();
-    let mut text = format!("Wake-up · You asked Launchpad to wake you at {at} (`launchpad sleep`). This is the same conversation: continue the task you paused.");
+    let mut text = format!("Wake-up · You asked Launchpad to wake you {when}{timeout} (`launchpad sleep`). This is the same conversation: continue the task you paused.");
     if !note.is_empty() {
         let f = launchpad_core::senders::fence(note);
         text.push_str(&format!("\n\nYour note:\n\n{f}\n{note}\n{f}"));
@@ -173,20 +308,59 @@ fn wake_text(until: i64, note: &str) -> String {
     text
 }
 
+/// The answer to `launchpad sleep`: the wake-up, what it waits for and whether its conditions hold already (it then
+/// goes as soon as the turn ends).
+#[derive(Clone, Debug, Serialize)]
+pub struct SleepAnswer {
+    #[serde(flatten)]
+    pub launch: ScheduledLaunch,
+    pub waits: String,
+    pub already_met: bool,
+}
+
 /// Home: the session asks to sleep (`launchpad sleep`, its own session only: `agent_auth`). Records a wake-up, a
-/// scheduled follow-up to the same session sent by the usual scheduler (it waits for the turn to end, for confirmed
-/// quota and for a free session), and marks the session as sleeping until then. A new sleep replaces the session's
-/// earlier wake-up; a follow-up the owner scheduled is kept and refuses it.
-pub async fn sleep(app: &App, q: SleepRequest) -> Result<ScheduledLaunch> {
+/// scheduled follow-up to the same session sent by the usual scheduler once its conditions hold (the conditions of
+/// a scheduled launch: a delay, a time, other agents of its workspace in a state, a quota reset; at the latest at
+/// its timeout; it also waits for the turn to end, for confirmed quota and for a free session), and marks the
+/// session as sleeping until then. A new sleep replaces the session's earlier wake-up; a follow-up the owner
+/// scheduled is kept and refuses it.
+pub async fn sleep(app: &App, q: SleepRequest) -> Result<SleepAnswer> {
     let session = app.sessions.get(&q.session_id).context("no such session")?;
     anyhow::ensure!(session.status != launchpad_core::model::SessionStatus::Closed, "this session is archived");
-    let condition = match (q.minutes, q.at) {
-        (Some(minutes), None) => LaunchDelay::In { minutes },
-        (None, Some(at)) => LaunchDelay::At { at },
-        _ => bail!("give either --in or --until"),
-    };
+    let mut conditions = q.conditions;
+    if let Some(minutes) = q.minutes { conditions.push(LaunchDelay::In { minutes }); }
+    if let Some(at) = q.at { conditions.push(LaunchDelay::At { at }); }
+    anyhow::ensure!(!conditions.is_empty(), "give --in, --until, --agents or --quota");
+    anyhow::ensure!(conditions.len() <= 10, "at most 10 conditions");
     anyhow::ensure!(q.note.len() <= 4000, "the note is too long (at most 4000 bytes)");
-    for earlier in list(app).await? {
+    let deadline = match q.timeout_minutes {
+        None => None,
+        Some(m) => {
+            anyhow::ensure!((1..=525_600).contains(&m), "pick a timeout from 1 minute to 1 year");
+            anyhow::ensure!(conditions.iter().any(|c| matches!(c, LaunchDelay::Agents { .. } | LaunchDelay::Quota { .. })), "--timeout goes with --agents or --quota (a time alone needs none)");
+            Some(now_ms() + i64::from(m) * 60_000)
+        }
+    };
+    // Workspaces are a boundary for agents: it waits only for agents of its own workspace, never for itself.
+    let own = launchpad_core::scope::of_session(app, &session.id).await;
+    for c in &conditions {
+        if let LaunchDelay::Agents { session_ids, .. } = c {
+            anyhow::ensure!(session_ids.len() <= 50, "wait for at most 50 agents");
+            for id in session_ids {
+                anyhow::ensure!(id != &session.id, "a wake-up cannot wait for its own session");
+                anyhow::ensure!(app.sessions.get(id).is_some(), "no agent {id}: give session IDs of this workspace (`launchpad sessions list`)");
+                match &own {
+                    Some(ws) => launchpad_core::scope::ensure_inside(ws, launchpad_core::scope::of_session(app, id).await.as_deref(), &format!("agent {id}"))?,
+                    None => bail!("this session has no workspace, so it cannot wait for other agents"),
+                }
+            }
+        }
+    }
+    let scheduled = list(app).await?;
+    if deadline.is_none() && let Some(other) = sleep_cycle(&session.id, &conditions, &scheduled) {
+        bail!("agent {other} sleeps until this session changes state: both would sleep forever; wait for its sleeping state, or for other agents");
+    }
+    for earlier in scheduled {
         if earlier.resume_session_id.as_deref() == Some(q.session_id.as_str()) {
             anyhow::ensure!(is_wake(&earlier), "this session already has a follow-up scheduled by the owner; it will receive that message instead");
             anyhow::ensure!(earlier.status != ScheduleStatus::Starting, "the earlier wake-up is being sent now");
@@ -200,16 +374,43 @@ pub async fn sleep(app: &App, q: SleepRequest) -> Result<ScheduledLaunch> {
     let hops = launchpad_core::senders::hops_of(app, &session.id).await;
     spec.from = Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, id: session.id.clone(), name: "Wake-up".into(), hops, ..Default::default() });
     spec.target = session.project_id.clone().map(|project_id| Target::Project { project_id }).unwrap_or(Target::None);
-    let (_, until) = validate(app, &spec, std::slice::from_ref(&condition), Some(&session.id)).await?;
-    let until = until.context("no wake-up time")?;
-    spec.text = wake_text(until, &q.note);
-    let record = create_target(app, spec, vec![condition], Some(session.id.clone())).await?;
-    let sleep = launchpad_core::model::Sleep { until, note: q.note.trim().to_string(), schedule_id: record.id.clone() };
+    let (_, until) = validate(app, &spec, &conditions, Some(&session.id)).await?;
+    let waits = describe(app, &conditions);
+    spec.text = wake_text(until, &waits, deadline, &q.note);
+    let already_met = conditions_hold(&conditions, until, now_ms(), |id, states| app.sessions.get(id).is_some_and(|s| agent_matches(&s, states)));
+    let record = create_target(app, spec, conditions, Some(session.id.clone()), deadline).await?;
+    let sleep = launchpad_core::model::Sleep { until, waits: waits.clone(), deadline, note: q.note.trim().to_string(), schedule_id: record.id.clone() };
     if let Err(e) = app.sessions.set_sleep(app, &session.id, Some(sleep)).await {
         let _ = cancel_record(app, &record.id).await;
         return Err(e);
     }
-    Ok(record)
+    Ok(SleepAnswer { launch: record, waits, already_met })
+}
+
+/// Pure: the agent through which a new wake-up of `own` would wait for itself: each agent it waits for sleeps until
+/// another one changes state, and so on back to `own` (sleeping agents are never Done, so neither would wake).
+/// Waiting for an agent's `sleeping` state breaks the loop.
+fn sleep_cycle(own: &str, conditions: &[LaunchDelay], scheduled: &[ScheduledLaunch]) -> Option<String> {
+    let edges = |conditions: &[LaunchDelay]| -> Vec<String> {
+        conditions.iter().filter_map(|c| match c {
+            LaunchDelay::Agents { session_ids, states } if !states.contains(&AgentState::Sleeping) => Some(session_ids.clone()),
+            _ => None,
+        }).flatten().collect()
+    };
+    let mut pending: Vec<(String, String)> = edges(conditions).into_iter().map(|id| (id.clone(), id)).collect();
+    let mut seen = std::collections::HashSet::new();
+    while let Some((id, first)) = pending.pop() {
+        if id == own {
+            return Some(first);
+        }
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        if let Some(wake) = scheduled.iter().find(|r| r.resume_session_id.as_deref() == Some(id.as_str()) && is_wake(r) && r.deadline.is_none()) {
+            pending.extend(edges(&wake.conditions).into_iter().map(|next| (next, first.clone())));
+        }
+    }
+    None
 }
 
 /// Home: a message woke the sleeping session before its wake-up (`Sessions::apply_replica` cleared its sleep): the
@@ -275,7 +476,7 @@ async fn validate(
                 }
                 Some(*at)
             }
-            LaunchDelay::Agents { session_ids } => {
+            LaunchDelay::Agents { session_ids, .. } => {
                 if session_ids.is_empty() {
                     bail!("pick at least one agent");
                 }
@@ -329,6 +530,7 @@ async fn create_target(
     spec: LaunchSpec,
     conditions: Vec<LaunchDelay>,
     resume_session_id: Option<String>,
+    deadline: Option<i64>,
 ) -> Result<ScheduledLaunch> {
     let (title, ready_at) = validate(app, &spec, &conditions, resume_session_id.as_ref()).await?;
     let now = now_ms();
@@ -342,7 +544,7 @@ async fn create_target(
         );
         anyhow::ensure!(
             !conditions.iter().any(
-                |c| matches!(c, LaunchDelay::Agents { session_ids } if session_ids.contains(id))
+                |c| matches!(c, LaunchDelay::Agents { session_ids, .. } if session_ids.contains(id))
             ),
             "a follow-up cannot wait for its own session"
         );
@@ -355,6 +557,7 @@ async fn create_target(
         resume_session_id,
         created_at: now,
         ready_at,
+        deadline,
         status: ScheduleStatus::Queued,
         error: None,
     };
@@ -434,7 +637,7 @@ pub async fn update(
     let mut pending: Vec<&String> = conditions
         .iter()
         .flat_map(|c| match c {
-            LaunchDelay::Agents { session_ids } => session_ids.iter().collect(),
+            LaunchDelay::Agents { session_ids, .. } => session_ids.iter().collect(),
             _ => Vec::new(),
         })
         .collect();
@@ -446,7 +649,7 @@ pub async fn update(
         }
         if let Some(other) = scheduled.iter().find(|s| &s.id == dep) {
             for c in &other.conditions {
-                if let LaunchDelay::Agents { session_ids } = c {
+                if let LaunchDelay::Agents { session_ids, .. } = c {
                     pending.extend(session_ids);
                 }
             }
@@ -537,7 +740,11 @@ async fn finish(app: &App, mut record: ScheduledLaunch, error: Option<String>) -
     Ok(())
 }
 
-async fn run(app: &App, record: ScheduledLaunch, automatic: bool) -> Result<Session> {
+async fn run(app: &App, mut record: ScheduledLaunch, automatic: bool) -> Result<Session> {
+    if let Some(line) = wake_early(app, &record, automatic) {
+        record.spec.text.push_str("\n\n");
+        record.spec.text.push_str(line);
+    }
     // A stable session id makes crash recovery unambiguous, even before the harness attaches.
     let result = if let Some(id) = &record.resume_session_id {
         send_follow_up(app, id, &record, automatic)
@@ -606,18 +813,35 @@ pub async fn start_now(app: &App, id: &str) -> Result<Session> {
     tokio::spawn(async move { run(&app, record, false).await }).await?
 }
 
-fn ready(record: &ScheduledLaunch, now: i64, done: impl Fn(&str) -> bool) -> bool {
-    if record.status != ScheduleStatus::Queued {
-        return false;
-    }
-    !record.conditions.is_empty()
-        && record.ready_at.is_none_or(|at| at <= now)
-        && record.conditions.iter().all(|c| match c {
-            LaunchDelay::Agents { session_ids } => {
-                !session_ids.is_empty() && session_ids.iter().all(|id| done(id))
+/// Whether every condition holds: the resolved time (`ready_at`) passed and every agent of each `agents` condition
+/// is in one of its states (`matches`: a missing agent never matches).
+fn conditions_hold(conditions: &[LaunchDelay], ready_at: Option<i64>, now: i64, matches: impl Fn(&str, &[AgentState]) -> bool) -> bool {
+    !conditions.is_empty()
+        && ready_at.is_none_or(|at| at <= now)
+        && conditions.iter().all(|c| match c {
+            LaunchDelay::Agents { session_ids, states } => {
+                !session_ids.is_empty() && session_ids.iter().all(|id| matches(id, states))
             }
             _ => true,
         })
+}
+
+/// A queued record starts once its conditions hold, or at its deadline.
+fn ready(record: &ScheduledLaunch, now: i64, matches: impl Fn(&str, &[AgentState]) -> bool) -> bool {
+    record.status == ScheduleStatus::Queued
+        && (record.deadline.is_some_and(|d| d <= now) || conditions_hold(&record.conditions, record.ready_at, now, matches))
+}
+
+/// What a wake-up says when it goes before its conditions hold: its timeout passed, or the owner woke it.
+fn wake_early(app: &App, record: &ScheduledLaunch, automatic: bool) -> Option<&'static str> {
+    if !is_wake(record) || conditions_hold(&record.conditions, record.ready_at, now_ms(), |id, states| app.sessions.get(id).is_some_and(|s| agent_matches(&s, states))) {
+        return None;
+    }
+    Some(if automatic {
+        "Your timeout passed before these conditions held: check the agents again (`launchpad sessions show <id>`) and sleep again if you still need to wait."
+    } else {
+        "The owner woke you before these conditions held (Wake now): check the agents again (`launchpad sessions show <id>`)."
+    })
 }
 
 pub async fn recover(app: &App) -> Result<()> {
@@ -671,8 +895,8 @@ pub fn spawn(app: &App) {
                 }) {
                     continue;
                 }
-                if ready(&record, now_ms(), |id| {
-                    app.sessions.get(id).is_some_and(|s| s.dependency_done())
+                if ready(&record, now_ms(), |id, states| {
+                    app.sessions.get(id).is_some_and(|s| agent_matches(&s, states))
                 }) {
                     match claim(&app, &record.id, false).await {
                         Ok(record) => {
@@ -706,29 +930,29 @@ mod tests {
         })).unwrap();
         let record = ScheduledLaunch {
             id: "q".into(), spec: LaunchSpec::default(), resume_session_id: None,
-            conditions: vec![LaunchDelay::Agents { session_ids: vec!["a".into()] }],
-            title: String::new(), created_at: 0, ready_at: None,
+            conditions: vec![LaunchDelay::Agents { session_ids: vec!["a".into()], states: vec![] }],
+            title: String::new(), created_at: 0, ready_at: None, deadline: None,
             status: ScheduleStatus::Queued, error: None,
         };
-        assert!(ready(&record, 0, |_| session.dependency_done()));
+        assert!(ready(&record, 0, |_, states| agent_matches(&session, states)));
         session.open_question = true; // Stopped for a question: not done.
-        assert!(!ready(&record, 0, |_| session.dependency_done()));
+        assert!(!ready(&record, 0, |_, states| agent_matches(&session, states)));
         session.open_question = false;
         session.change_status(SessionStatus::Closed);
         assert!(!session.needs_you());
         // The same saved state is used after restarting the daemon.
         session = serde_json::from_str(&serde_json::to_string(&session).unwrap()).unwrap();
-        assert!(ready(&record, 0, |_| session.dependency_done()));
+        assert!(ready(&record, 0, |_, states| agent_matches(&session, states)));
         session.change_status(SessionStatus::Closed);
-        assert!(session.dependency_done());
+        assert!(agent_matches(&session, &[]));
         for status in [SessionStatus::Working, SessionStatus::Stopped, SessionStatus::Error,
             SessionStatus::Interrupted, SessionStatus::QuotaPaused, SessionStatus::InTerminal] {
             session.change_status(status);
-            assert!(!session.dependency_done());
+            assert!(!agent_matches(&session, &[]));
             session.change_status(SessionStatus::Closed);
-            assert!(!ready(&record, 0, |_| session.dependency_done()));
+            assert!(!ready(&record, 0, |_, states| agent_matches(&session, states)));
         }
-        assert!(!ready(&record, 0, |_| false)); // Missing or cancelled dependency.
+        assert!(!ready(&record, 0, |_, _| false)); // Missing or cancelled dependency.
     }
 
     #[test]
@@ -741,14 +965,14 @@ mod tests {
             "launch_spec": {}, "seen_at": 0
         })).unwrap();
         assert!(s.needs_you() && s.dependency_done() && !s.sleeping());
-        s.sleep = Some(launchpad_core::model::Sleep { until: 100, note: "check CI".into(), schedule_id: "w".into() });
+        s.sleep = Some(launchpad_core::model::Sleep { until: Some(100), waits: String::new(), deadline: None, note: "check CI".into(), schedule_id: "w".into() });
         assert!(s.sleeping() && !s.needs_you() && !s.dependency_done());
         s.open_question = true; // A question still needs you.
         assert!(!s.sleeping() && s.needs_you());
         let wake = ScheduledLaunch {
             id: "w".into(), spec: LaunchSpec { from: Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, ..Default::default() }), ..Default::default() },
             resume_session_id: Some("a".into()), conditions: vec![LaunchDelay::In { minutes: 5 }],
-            title: String::new(), created_at: 0, ready_at: Some(100), status: ScheduleStatus::Queued, error: None,
+            title: String::new(), created_at: 0, ready_at: Some(100), deadline: None, status: ScheduleStatus::Queued, error: None,
         };
         assert!(is_wake(&wake));
         assert!(!is_wake(&ScheduledLaunch { spec: LaunchSpec::default(), ..wake }));
@@ -776,39 +1000,139 @@ mod tests {
             resume_session_id: None,
             conditions: vec![LaunchDelay::Agents {
                 session_ids: vec!["a".into(), "b".into()],
+                states: vec![],
             }],
             title: String::new(),
             created_at: 0,
             ready_at: None,
+            deadline: None,
             status: ScheduleStatus::Queued,
             error: None,
         };
-        assert!(!ready(&r, 100, |id| id == "a"));
-        assert!(ready(&r, 100, |_| true));
+        assert!(!ready(&r, 100, |id, _| id == "a"));
+        assert!(ready(&r, 100, |_, _| true));
         r.status = ScheduleStatus::Starting;
-        assert!(!ready(&r, 100, |_| true));
+        assert!(!ready(&r, 100, |_, _| true));
         r.status = ScheduleStatus::Queued;
         r.conditions = vec![LaunchDelay::Agents {
             session_ids: vec![],
+            states: vec![],
         }];
-        assert!(!ready(&r, 100, |_| true));
+        assert!(!ready(&r, 100, |_, _| true));
         r.conditions = vec![];
-        assert!(!ready(&r, 100, |_| true));
+        assert!(!ready(&r, 100, |_, _| true));
         r.conditions = vec![LaunchDelay::Quota {
             harness: launchpad_core::model::HarnessKind::new("codex"),
             window: QuotaKind::FiveHour,
         }];
         r.ready_at = Some(101);
-        assert!(!ready(&r, 100, |_| true));
-        assert!(ready(&r, 101, |_| false));
+        assert!(!ready(&r, 100, |_, _| true));
+        assert!(ready(&r, 101, |_, _| false));
         // Combined conditions: the reset time and the agent must both be satisfied.
         r.conditions.push(LaunchDelay::Agents {
             session_ids: vec!["a".into()],
+            states: vec![],
         });
-        assert!(!ready(&r, 101, |_| false));
-        assert!(!ready(&r, 100, |_| true));
-        assert!(ready(&r, 101, |id| id == "a"));
+        assert!(!ready(&r, 101, |_, _| false));
+        assert!(!ready(&r, 100, |_, _| true));
+        assert!(ready(&r, 101, |id, _| id == "a"));
         r.status = ScheduleStatus::Failed;
-        assert!(!ready(&r, 102, |_| true));
+        assert!(!ready(&r, 102, |_, _| true));
+    }
+
+    fn agent(status: &str) -> Session {
+        launchpad_harness::install();
+        serde_json::from_value(serde_json::json!({
+            "id": "a", "harness": "codex", "cwd": "/tmp", "title": "Fix CI",
+            "status": status, "status_since": 10, "live": false, "open_question": false,
+            "prompt": "task", "usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0}, "started_at": 0, "last_seq": 0,
+            "launch_spec": {}, "seen_at": 0
+        })).unwrap()
+    }
+
+    #[test]
+    fn agent_states_match_like_their_names() {
+        use AgentState as A;
+        let matching = |s: &Session| A::ALL.into_iter().filter(|st| st.of(s)).collect::<Vec<_>>();
+        assert_eq!(matching(&agent("waiting")), vec![A::Done]);
+        assert_eq!(matching(&agent("working")), vec![A::Working]);
+        assert_eq!(matching(&agent("background")), vec![A::Working]);
+        assert_eq!(matching(&agent("error")), vec![A::Failed]);
+        assert_eq!(matching(&agent("interrupted")), vec![A::Failed]);
+        assert_eq!(matching(&agent("stopped")), vec![A::Stopped]);
+        assert_eq!(matching(&agent("quota_paused")), vec![A::QuotaPaused]);
+        assert_eq!(matching(&agent("closed")), vec![A::Archived]);
+        let mut s = agent("waiting");
+        s.open_question = true;
+        assert_eq!(matching(&s), vec![A::Asking]);
+        s.open_question = false;
+        s.sleep = Some(launchpad_core::model::Sleep { until: None, waits: "x".into(), deadline: None, note: String::new(), schedule_id: "w".into() });
+        assert_eq!(matching(&s), vec![A::Sleeping]);
+        // No states: Done, and an agent archived after Done still counts.
+        assert!(!agent_matches(&s, &[]) && agent_matches(&s, &[A::Failed, A::Sleeping]));
+        let mut s = agent("waiting");
+        s.change_status(launchpad_core::model::SessionStatus::Closed);
+        assert!(agent_matches(&s, &[]) && agent_matches(&s, &[A::Done]) && agent_matches(&s, &[A::Archived]));
+        for st in A::ALL {
+            assert_eq!(A::parse(st.as_str()).unwrap(), st);
+        }
+        assert_eq!(A::parse(" Quota-Paused ").unwrap(), A::QuotaPaused);
+        assert!(A::parse("finished").is_err());
+    }
+
+    #[test]
+    fn a_deadline_starts_a_record_whose_conditions_do_not_hold() {
+        let mut r = ScheduledLaunch {
+            id: "w".into(), spec: LaunchSpec::default(), resume_session_id: Some("me".into()),
+            conditions: vec![LaunchDelay::Agents { session_ids: vec!["a".into()], states: vec![AgentState::Failed, AgentState::Asking] }],
+            title: String::new(), created_at: 0, ready_at: None, deadline: Some(200), status: ScheduleStatus::Queued, error: None,
+        };
+        // The states reach the check; any of them is enough.
+        assert!(ready(&r, 100, |_, states| states.contains(&AgentState::Asking)));
+        assert!(!ready(&r, 100, |_, states| states.contains(&AgentState::Done)));
+        assert!(ready(&r, 200, |_, _| false));
+        r.status = ScheduleStatus::Starting;
+        assert!(!ready(&r, 300, |_, _| true));
+        // Older records (no states, no deadline) still read.
+        let old: LaunchDelay = serde_json::from_str(r#"{"kind":"agents","session_ids":["a"]}"#).unwrap();
+        assert!(matches!(old, LaunchDelay::Agents { ref states, .. } if states.is_empty()));
+        assert_eq!(serde_json::to_string(&old).unwrap(), r#"{"kind":"agents","session_ids":["a"]}"#);
+        let sleep: launchpad_core::model::Sleep = serde_json::from_str(r#"{"until":100,"note":"n","schedule_id":"w"}"#).unwrap();
+        assert_eq!((sleep.until, sleep.deadline, sleep.waits.as_str()), (Some(100), None, ""));
+    }
+
+    #[test]
+    fn two_agents_cannot_sleep_until_each_other_is_done() {
+        let wake = |id: &str, waits_for: &str, states: Vec<AgentState>, deadline: Option<i64>| ScheduledLaunch {
+            id: format!("w-{id}"),
+            spec: LaunchSpec { from: Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, ..Default::default() }), ..Default::default() },
+            resume_session_id: Some(id.into()),
+            conditions: vec![LaunchDelay::Agents { session_ids: vec![waits_for.into()], states }],
+            title: String::new(), created_at: 0, ready_at: None, deadline, status: ScheduleStatus::Queued, error: None,
+        };
+        let me = |states: Vec<AgentState>| vec![LaunchDelay::Agents { session_ids: vec!["b".into()], states }];
+        // b sleeps until c is Done, c until me: me waiting for b closes the loop.
+        let scheduled = vec![wake("b", "c", vec![], None), wake("c", "me", vec![AgentState::Done, AgentState::Failed], None)];
+        assert_eq!(sleep_cycle("me", &me(vec![]), &scheduled).as_deref(), Some("b"));
+        // Waiting for b's sleeping state, or b's own timeout, breaks it.
+        assert_eq!(sleep_cycle("me", &me(vec![AgentState::Sleeping]), &scheduled), None);
+        assert_eq!(sleep_cycle("me", &me(vec![]), &[wake("b", "c", vec![], Some(5)), scheduled[1].clone()]), None);
+        // A follow-up the owner scheduled is not a sleep.
+        let mut owner = scheduled[1].clone();
+        owner.spec.from = None;
+        assert_eq!(sleep_cycle("me", &me(vec![]), &[scheduled[0].clone(), owner]), None);
+        // Loops elsewhere end.
+        assert_eq!(sleep_cycle("me", &me(vec![]), &[wake("b", "c", vec![], None), wake("c", "b", vec![], None)]), None);
+    }
+
+    #[test]
+    fn sleep_quota_and_wake_texts() {
+        assert_eq!(parse_quota("claude:five_hour").unwrap(), serde_json::json!({"kind": "quota", "harness": "claude", "window": "five_hour"}));
+        assert_eq!(parse_quota(" Codex:week ").unwrap()["window"], "weekly");
+        assert!(parse_quota("claude").is_err() && parse_quota("claude:daily").is_err() && parse_quota(":5h").is_err());
+        assert_eq!(wake_text(Some(60_000), "", None, ""), "Wake-up · You asked Launchpad to wake you at 1970-01-01 00:01 UTC (`launchpad sleep`). This is the same conversation: continue the task you paused.");
+        let text = wake_text(None, "“Fix CI” (a) is Done", Some(120_000), "review it");
+        assert!(text.starts_with("Wake-up · You asked Launchpad to wake you once “Fix CI” (a) is Done (at the latest at 1970-01-01 00:02 UTC)"), "{text}");
+        assert!(text.ends_with("review it\n```"), "{text}");
     }
 }

@@ -38,6 +38,7 @@ import { withPresets } from "@/lib/presets";
 import { AskCard } from "./AskCard";
 import { CurrentMachine, useTurnMachines } from "./RunsOn";
 import { Instructions } from "./EventRow";
+import { sleepUntil } from "@/lib/sessionStatus";
 import { KeepFolder } from "@/features/projects/KeepFolder";
 import { runAction } from "@/lib/actions";
 
@@ -109,10 +110,11 @@ export function FollowUpBands({ sessionId }: { sessionId: string }) {
 /** The wake-up an agent asked for (`launchpad sleep`): when, its note, Wake now and Cancel wake-up. */
 function WakeBand({ q }: { q: ScheduledLaunch }) {
   const sessions = useSessions().data ?? [];
-  const note = sessions.find((s) => s.id === q.resume_session_id)?.sleep?.note;
+  const sleep = sessions.find((s) => s.id === q.resume_session_id)?.sleep;
+  const note = sleep?.note;
   const starting = q.status === "starting";
   return <div className="flex flex-wrap items-center gap-2 border-b border-line bg-sunk px-4 py-2 text-[12px] text-ink-2">
-    <Icon name="clock" size={16} /><b>{q.status === "failed" ? "Wake-up failed" : `Sleeping until ${q.ready_at != null ? when(q.ready_at) : "its wake-up"}`}</b>
+    <Icon name="clock" size={16} /><b>{q.status === "failed" ? "Wake-up failed" : `Sleeping ${sleep ? sleepUntil(sleep) : q.ready_at != null ? `until ${when(q.ready_at)}` : "until its wake-up"}`}</b>
     <span className="min-w-0 flex-1 truncate" title={note ?? undefined}>{q.error ?? (note ? `Then: ${note}` : "Launchpad wakes it in this conversation")}</span>
     <ActionButton name="schedule.start" params={{ id: q.id }} icon={null} disabled={starting}>Wake now</ActionButton>
     <ActionButton name="schedule.cancel" params={{ id: q.id }} icon={null} disabled={starting} consequence="The agent stays Done and is not woken up.">Cancel wake-up</ActionButton>

@@ -2,6 +2,7 @@ import { when } from "@/lib/format";
 import { memo, useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
+import type { AgentState } from "@/gen/AgentState";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import type { Session } from "@/gen/Session";
 import type { HarnessKind } from "@/gen/HarnessKind";
@@ -30,8 +31,24 @@ export function dependencyAgent(id: string, sessions: Session[], schedules: Sche
   if (launch) return scheduledDependency(launch);
 }
 
+/** The states an `agents` condition can wait for (`AgentState` in Rust); none means Done. */
+export const AGENT_STATES: { state: AgentState; label: string }[] = [
+  { state: "done", label: "Done" },
+  { state: "asking", label: "asking a question" },
+  { state: "failed", label: "failed or interrupted" },
+  { state: "stopped", label: "stopped" },
+  { state: "quota_paused", label: "quota paused" },
+  { state: "sleeping", label: "sleeping" },
+  { state: "archived", label: "archived" },
+  { state: "working", label: "working" },
+];
+
+function statesLabel(states: AgentState[] | undefined): string {
+  return states?.length ? states.map((s) => AGENT_STATES.find((x) => x.state === s)?.label ?? s).join(" or ") : "Done";
+}
+
 function conditionLabel(delay: LaunchDelay, sessions: Session[], schedules: ScheduledLaunch[]): string | null {
-  if (delay.kind === "agents") return `When ${delay.session_ids.map((id) => dependencyAgent(id, sessions, schedules)?.title ?? "missing or cancelled agent").join(" and ")} ${delay.session_ids.length === 1 ? "is" : "are"} Done`;
+  if (delay.kind === "agents") return `When ${delay.session_ids.map((id) => dependencyAgent(id, sessions, schedules)?.title ?? "missing or cancelled agent").join(" and ")} ${delay.session_ids.length === 1 ? "is" : "are each"} ${statesLabel(delay.states)}`;
   if (delay.kind === "quota") return `${delay.harness} ${delay.window === "five_hour" ? "5h" : "weekly"} reset`;
   return null;
 }
@@ -58,7 +75,7 @@ export function conditionsError(conditions: LaunchDelay[]): string | null {
 const KINDS: { kind: LaunchDelay["kind"]; label: string }[] = [
   { kind: "in", label: "After a delay" },
   { kind: "at", label: "At a date and time" },
-  { kind: "agents", label: "After agents are Done" },
+  { kind: "agents", label: "After agents are Done (or another state)" },
   { kind: "quota", label: "When a quota resets" },
 ];
 
@@ -87,7 +104,17 @@ const AgentChoice = memo(function AgentChoice({ session, checked, toggle }: { se
   </label>;
 });
 
-function AgentPicker({ ids, exclude, onChange }: { ids: string[]; exclude?: string | null; onChange: (ids: string[]) => void }) {
+function StatePicker({ states, onChange }: { states: AgentState[]; onChange: (states: AgentState[]) => void }) {
+  const chosen = states.length ? states : ["done" as AgentState];
+  return <fieldset className="grid gap-1">
+    <legend className="text-[12px] text-ink-2">Each agent is in one of these states</legend>
+    <div className="flex flex-wrap gap-x-3 gap-y-1">{AGENT_STATES.map(({ state, label }) => <label key={state} className="flex cursor-pointer items-center gap-1.5 text-[12px]">
+      <input type="checkbox" className="accent-teal" checked={chosen.includes(state)} onChange={() => { const next = chosen.includes(state) ? chosen.filter((s) => s !== state) : [...chosen, state]; onChange(next.length === 1 && next[0] === "done" ? [] : next); }} />{label}
+    </label>)}</div>
+  </fieldset>;
+}
+
+function AgentPicker({ ids, states, exclude, onChange }: { ids: string[]; states: AgentState[]; exclude?: string | null; onChange: (ids: string[]) => void }) {
   const all = useSessions();
   const scheduled = useSchedules();
   const [filter, setFilter] = useState("");
@@ -111,7 +138,7 @@ function AgentPicker({ ids, exclude, onChange }: { ids: string[]; exclude?: stri
       </div>
       {!sessions.length && <div className="p-2 text-[12px] text-ink-3">{all.isLoading || scheduled.isLoading ? "Loading agents…" : "No matching agents."}</div>}
     </div>
-    <p className="text-[12px] text-ink-3">{ids.length} selected · Starts when all selected agents are Done (waiting for input). Scheduled agents must launch and reach Done first. Cancelled, archived or interrupted agents do not count as Done.</p>
+    <p className="text-[12px] text-ink-3">{ids.length} selected · {states.length ? `Starts when each selected agent is ${statesLabel(states)}.` : "Starts when all selected agents are Done (waiting for input). Scheduled agents must launch and reach Done first. Cancelled, archived or interrupted agents do not count as Done."}</p>
   </div>;
 }
 
@@ -143,7 +170,10 @@ function ConditionEditor({ delay, run, exclude, onChange, onRemove }: { delay: L
       <label className="flex items-center gap-2 text-[12px]"><input aria-label="Delay in minutes" className="field-input w-24" type="number" min={1} max={525600} step={1} value={delay.minutes || ""} onChange={(e) => onChange({ kind: "in", minutes: Number(e.target.value) })} />minutes after you click Schedule or Save</label>
     </>}
     {delay.kind === "at" && <><input aria-label="Start date and time" type="datetime-local" className="field-input" value={localDate(delay.at)} onChange={(e) => onChange({ kind: "at", at: e.target.value ? new Date(e.target.value).getTime() : 0 })} /><p className="text-[12px] text-ink-3">Your local time · {Intl.DateTimeFormat().resolvedOptions().timeZone}{tz?.differs && delay.at > 0 && <> · server: {serverTimeOf(tz, delay.at) ?? "a different time zone"} ({tz.label})</>}</p></>}
-    {delay.kind === "agents" && <AgentPicker ids={delay.session_ids} exclude={exclude} onChange={(session_ids) => onChange({ kind: "agents", session_ids })} />}
+    {delay.kind === "agents" && <>
+      <AgentPicker ids={delay.session_ids} states={delay.states ?? []} exclude={exclude} onChange={(session_ids) => onChange({ ...delay, session_ids })} />
+      <StatePicker states={delay.states ?? []} onChange={(states) => onChange(states.length ? { ...delay, states } : { kind: "agents", session_ids: delay.session_ids })} />
+    </>}
     {delay.kind === "quota" && <>
       <div className="grid grid-cols-2 gap-2">
         <select aria-label="Quota provider" className="field-input" value={delay.harness} onChange={(e) => onChange({ ...delay, harness: e.target.value as HarnessKind })}>{quotaHarnesses.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}</select>

@@ -601,7 +601,7 @@ async fn follow_up(State(s): State<Ctx>, Path(id): Path<String>, agent: Option<a
 }
 /// `launchpad sleep`: an agent asks Home to wake its own session later (`agent_auth` lets a CLI token name only its
 /// session; Home only, runners forward it).
-async fn sleep(State(s): State<Ctx>, Json(b): Json<schedules::SleepRequest>) -> ApiResult<ScheduledLaunch> {
+async fn sleep(State(s): State<Ctx>, Json(b): Json<schedules::SleepRequest>) -> ApiResult<schedules::SleepAnswer> {
     if s.app.paths.role != launchpad_core::role::Role::Home {
         return Err(bad(anyhow::anyhow!("only Home schedules wake-ups")));
     }

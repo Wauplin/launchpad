@@ -1,9 +1,9 @@
 import type { Session } from "@/gen/Session";
-import { age, ago, when } from "@/lib/format";
+import { age, ago } from "@/lib/format";
 import type { IconName } from "@/components/Icon";
 import { useRunnerTag } from "@/lib/burst";
 import { Badge, StatusBadge, type StatusTone } from "@/components/ui";
-import { isDone, isRunning, isSleeping, isUnseen } from "@/lib/sessionStatus";
+import { isDone, isRunning, isSleeping, isUnseen, sleepUntil } from "@/lib/sessionStatus";
 
 /** "12:04" since `ms`. */
 export function elapsed(ms: number): string {
@@ -29,7 +29,7 @@ export function statusInfo(s: Session): { label: string; tone: StatusTone; icon:
     case "waiting":
       if (s.open_question) return { label: "Question", tone: "needs", icon: "alert" };
       // Asleep (`launchpad sleep`): Home wakes it in the same conversation.
-      if (s.sleep) return { label: `Sleeping · until ${when(s.sleep.until)}`, tone: "idle", icon: "clock" };
+      if (s.sleep) return { label: `Sleeping · ${sleepUntil(s.sleep)}`, tone: "idle", icon: "clock" };
       return { label: `Done ${age(s.status_since)}`, tone: "done", icon: "okcircle" };
     case "background":
       return { label: `Background ${age(s.status_since)}`, tone: "running", icon: null };

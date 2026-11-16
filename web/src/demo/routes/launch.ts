@@ -6,6 +6,8 @@ import type { CronAgent } from "@/gen/CronAgent";
 import { botTarget } from "./bots";
 import type { CronCondition } from "@/gen/CronCondition";
 import type { LaunchDelay } from "@/gen/LaunchDelay";
+import type { AgentState } from "@/gen/AgentState";
+import { dependencyDone, isRunning, isSleeping } from "@/lib/sessionStatus";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { Preview } from "@/gen/Preview";
 import type { StartPart } from "@/gen/StartPart";
@@ -260,12 +262,26 @@ function startSchedule(l: ScheduledLaunch): Session {
   return launch(l.spec);
 }
 
+/** The same states as `AgentState::of` in Rust. */
+function inState(s: Session, state: AgentState): boolean {
+  switch (state) {
+    case "done": return dependencyDone(s);
+    case "asking": return s.open_question && s.status !== "closed";
+    case "failed": return s.status === "error" || s.status === "interrupted";
+    case "stopped": return s.status === "stopped";
+    case "quota_paused": return s.status === "quota_paused";
+    case "sleeping": return isSleeping(s);
+    case "archived": return s.status === "closed";
+    case "working": return isRunning(s);
+  }
+}
+
 const met = (l: ScheduledLaunch, c: LaunchDelay) => {
   switch (c.kind) {
     case "in": return clock.now() >= l.created_at + c.minutes * 60_000;
     case "at": return clock.now() >= c.at;
     case "quota": { const t = quotaReset(c.harness, c.window); return t != null && clock.now() >= t; }
-    case "agents": return c.session_ids.every((id) => { const s = session(id); return !!s && (s.status === "waiting" || (s.status === "closed" && s.archived_done)); });
+    case "agents": return c.session_ids.every((id) => { const s = session(id); return !!s && (c.states?.length ? c.states.some((state) => inState(s, state)) : dependencyDone(s)); });
   }
 };
 

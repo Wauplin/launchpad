@@ -18,7 +18,7 @@ import type { Predraft } from "@/gen/Predraft";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { workTags, WorkTagPill, type WorkTag } from "./workTag";
 import { HarnessMark } from "@/components/HarnessMark";
-import { isRunning, isDone, isQuotaPaused, isSleeping, isStopped, isUnseen, needsYou } from "@/lib/sessionStatus";
+import { isRunning, isDone, isQuotaPaused, isSleeping, isStopped, isUnseen, needsYou, sleepOrder } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useProjects, useSession, useSessions } from "@/lib/queries";
@@ -205,7 +205,7 @@ export function AgentsView() {
   const needIds = new Set(needs.map((s) => s.id));
   const local = filtered.filter((s) => !needIds.has(s.id));
   // Asleep (`launchpad sleep`): the next to wake up first.
-  const sleeping = local.filter(isSleeping).sort((a, b) => (a.sleep?.until ?? 0) - (b.sleep?.until ?? 0));
+  const sleeping = local.filter(isSleeping).sort((a, b) => sleepOrder(a) - sleepOrder(b));
   const done = local.filter((s) => isDone(s) && !isSleeping(s)).sort(newest);
   const running = local.filter((s) => isRunning(s)).sort(order);
   const quotaPaused = local.filter(isQuotaPaused).sort(order);

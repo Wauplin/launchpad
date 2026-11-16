@@ -192,13 +192,20 @@ pub struct Session {
     pub sleep: Option<Sleep>,
 }
 
-/// A wake-up an agent asked for: Home sends the session a message at `until` (its scheduled follow-up `schedule_id`),
-/// in the same conversation.
+/// A wake-up an agent asked for: Home sends the session a message once its conditions hold (its scheduled follow-up
+/// `schedule_id`: a time, other agents' states, a quota reset), in the same conversation.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 pub struct Sleep {
-    /// When Home wakes it (Unix ms).
-    #[ts(type = "number")]
-    pub until: i64,
+    /// Its time condition (Unix ms): the latest of its delay, date and quota reset; None when it waits only for agents.
+    #[ts(type = "number | null")]
+    pub until: Option<i64>,
+    /// What else it waits for, in words ("Fix CI is Done"); empty for a time alone.
+    #[serde(default)]
+    pub waits: String,
+    /// Home wakes it at this time at the latest, even when its conditions do not hold yet (`--timeout`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub deadline: Option<i64>,
     /// What the agent said it will do when it wakes up.
     pub note: String,
     /// The scheduled follow-up that wakes it (Wake now: `schedule.start`, Cancel: `schedule.cancel`).

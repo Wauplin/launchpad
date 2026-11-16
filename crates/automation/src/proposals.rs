@@ -554,7 +554,7 @@ async fn check_scope(app: &App, ws: &str, body: &mut ProposalBody) -> Result<()>
         ProposalBody::Schedule { spec, conditions } => {
             scope::check_spec(app, ws, spec).await?;
             for c in conditions.iter() {
-                if let crate::schedules::LaunchDelay::Agents { session_ids } = c {
+                if let crate::schedules::LaunchDelay::Agents { session_ids, .. } = c {
                     for id in session_ids {
                         session(id.clone()).await?;
                     }

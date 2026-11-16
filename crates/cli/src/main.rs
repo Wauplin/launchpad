@@ -117,14 +117,33 @@ enum Command {
         number: u64,
     },
     /// End this turn and have Launchpad wake this session later, in the same conversation: instead of a long `sleep` in
-    /// the shell. Run it, then end your turn; the wake-up message brings back your note. A new sleep replaces the last.
+    /// the shell or polling. Wake after a delay or at a time, or once other agents of this workspace reach a state
+    /// (`--agents`, Done by default), or once a quota window resets; every condition given must hold (the conditions
+    /// of a scheduled launch). Run it, then end your turn; the wake-up message brings back your note. A new sleep
+    /// replaces the last.
+    ///
+    /// Examples: `sleep --in 30m`; `sleep --until 2026-11-14T15:00:00Z`; `sleep --agents <id1>,<id2> --timeout 2h`;
+    /// `sleep --agents <id> --state done,failed,asking`; `sleep --quota claude:five_hour`.
     Sleep {
         /// Wake in this long: 45m, 2h, 1d (minutes without a unit).
-        #[arg(long = "in", conflicts_with = "until", required_unless_present = "until")]
+        #[arg(long = "in", required_unless_present_any = ["until", "agents", "quota"])]
         delay: Option<String>,
         /// Wake at this time (RFC 3339 with its offset, such as 2026-11-14T15:00:00Z).
         #[arg(long)]
         until: Option<String>,
+        /// Wake once each of these agents (session IDs of this workspace, comma-separated) is in one of `--state`.
+        #[arg(long, value_delimiter = ',')]
+        agents: Vec<String>,
+        /// The states that count for `--agents` (any of them): done (default; Done, or archived after Done), asking,
+        /// failed (or interrupted), stopped, quota_paused, sleeping, archived, working.
+        #[arg(long, value_delimiter = ',', requires = "agents")]
+        state: Vec<String>,
+        /// Wake once a quota window resets: <harness>:five_hour or <harness>:weekly, such as claude:five_hour.
+        #[arg(long)]
+        quota: Option<String>,
+        /// With `--agents` or `--quota`: wake at the latest after this long, even when the conditions do not hold: 45m, 2h, 1d.
+        #[arg(long)]
+        timeout: Option<String>,
         /// What to do when you wake up (comes back in the wake-up message).
         #[arg(long, default_value = "")]
         note: String,
@@ -970,13 +989,27 @@ async fn run() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&value)?);
             Ok(())
         }
-        Command::Sleep { delay, until, note, session_id } => {
-            use launchpad_automation::schedules::{parse_minutes, parse_until};
+        Command::Sleep { delay, until, agents, state, quota, timeout, note, session_id } => {
+            use launchpad_automation::schedules::{AgentState, parse_minutes, parse_quota, parse_until};
             let minutes = delay.as_deref().map(parse_minutes).transpose()?;
             let at = until.as_deref().map(parse_until).transpose()?;
-            let value = Client::new(&paths)?.json("POST", "/api/sleep", Some(serde_json::json!({"session_id": session_id, "minutes": minutes, "at": at, "note": note}))).await?;
-            let when = value["ready_at"].as_i64().unwrap_or_default();
-            println!("{}", serde_json::json!({"sleeping_until": when, "schedule_id": value["id"], "next": "end your turn now: Launchpad wakes this session at that time, in this conversation"}));
+            let timeout_minutes = timeout.as_deref().map(parse_minutes).transpose()?;
+            let mut conditions = Vec::new();
+            let agents: Vec<String> = agents.into_iter().map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect();
+            if !agents.is_empty() {
+                let states = state.iter().map(|s| AgentState::parse(s)).collect::<Result<Vec<_>>>()?;
+                conditions.push(serde_json::json!({"kind": "agents", "session_ids": agents, "states": states}));
+            }
+            if let Some(q) = &quota {
+                conditions.push(parse_quota(q)?);
+            }
+            let value = Client::new(&paths)?.json("POST", "/api/sleep", Some(serde_json::json!({"session_id": session_id, "minutes": minutes, "at": at, "conditions": conditions, "timeout_minutes": timeout_minutes, "note": note}))).await?;
+            let next = if value["already_met"].as_bool() == Some(true) {
+                "end your turn now: the conditions already hold, so Launchpad wakes this session as soon as this turn ends"
+            } else {
+                "end your turn now: Launchpad wakes this session once the conditions hold, in this conversation"
+            };
+            println!("{}", serde_json::json!({"sleeping_until": value["ready_at"], "waits_for": value["waits"], "timeout": value["deadline"], "already_met": value["already_met"], "schedule_id": value["id"], "next": next}));
             Ok(())
         }
         Command::Suggest { command } => suggest_command(&paths, command).await,
