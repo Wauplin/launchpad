@@ -227,12 +227,33 @@ fn full(status: StatusCode, text: &str) -> Response<Body> {
 }
 
 /// `Proxy-Authorization: Basic base64(lp:<key>)`.
-fn proxy_key(req: &Request<Incoming>) -> Option<String> {
+fn proxy_key(headers: &hyper::HeaderMap) -> Option<String> {
     use base64::Engine;
-    let v = req.headers().get(hyper::header::PROXY_AUTHORIZATION)?.to_str().ok()?;
+    let v = headers.get(hyper::header::PROXY_AUTHORIZATION)?.to_str().ok()?;
     let b = base64::engine::general_purpose::STANDARD.decode(v.strip_prefix("Basic ")?.trim()).ok()?;
     let text = String::from_utf8(b).ok()?;
     Some(text.split_once(':')?.1.to_string())
+}
+
+/// Challenge before opening a tunnel: libcurl's anyauth sends credentials only after a 407.
+/// Unknown and revoked keys must never silently fall back to anonymous traffic.
+fn connect_session(
+    proxy: &Proxy,
+    headers: &hyper::HeaderMap,
+) -> Result<Arc<Active>, Box<Response<Body>>> {
+    proxy_key(headers)
+        .and_then(|key| proxy.by_key(&key))
+        .ok_or_else(|| {
+            let mut response = full(
+                StatusCode::PROXY_AUTHENTICATION_REQUIRED,
+                "Launchpad proxy authentication required",
+            );
+            response.headers_mut().insert(
+                hyper::header::PROXY_AUTHENTICATE,
+                hyper::header::HeaderValue::from_static("Basic realm=\"Launchpad\""),
+            );
+            Box::new(response)
+        })
 }
 
 fn credential_for(active: &Active, host: &str) -> Option<(String, Auth)> {
@@ -248,16 +269,19 @@ async fn handle(inner: Arc<Inner>, req: Request<Incoming>) -> Result<Response<Bo
             Some((h, p)) => (h.to_string(), p.parse::<u16>().unwrap_or(443)),
             None => (authority.clone(), 443),
         };
-        let active = proxy_key(&req).and_then(|k| proxy.by_key(&k));
-        let intercept = port == 443 && active.as_ref().is_some_and(|a| credential_for(a, &host).is_some());
+        let active = match connect_session(&proxy, req.headers()) {
+            Ok(active) => active,
+            Err(response) => return Ok(*response),
+        };
+        let intercept = port == 443 && credential_for(&active, &host).is_some();
         tokio::spawn(async move {
             let upgraded = match hyper::upgrade::on(req).await {
                 Ok(u) => u,
                 Err(e) => return tracing::debug!("proxy upgrade: {e}"),
             };
-            let result = match (intercept, active) {
-                (true, Some(active)) => intercept_tls(inner, active, host.clone(), TokioIo::new(upgraded)).await,
-                _ => tunnel(upgraded, &host, port).await,
+            let result = match intercept {
+                true => intercept_tls(inner, active, host.clone(), TokioIo::new(upgraded)).await,
+                false => tunnel(upgraded, &host, port).await,
             };
             if let Err(e) = result {
                 tracing::debug!("proxy {host}:{port}: {e:#}");
@@ -769,3 +793,51 @@ async fn plain_http_out(req: Request<Incoming>) -> Result<Response<Body>> {
     Ok(res.map(|b| b.map_err(std::io::Error::other).boxed()))
 }
 
+#[cfg(test)]
+mod authentication_tests {
+    use super::*;
+    use base64::Engine;
+
+    #[test]
+    fn connect_challenges_until_a_live_session_key_is_supplied() {
+        let proxy = Proxy::default();
+        let active = proxy.register(Lease {
+            id: "test".into(),
+            session_id: "session".into(),
+            generation: 0,
+            credentials: vec![],
+            tools: vec![],
+            login: None,
+            git_name: None,
+            git_email: None,
+            relayed: false,
+            mcp: vec![],
+            launchpad: None,
+        });
+        let mut headers = hyper::HeaderMap::new();
+        let challenge = |headers: &hyper::HeaderMap| {
+            let response = connect_session(&proxy, headers)
+                .err()
+                .expect("must challenge before tunneling");
+            assert_eq!(response.status(), StatusCode::PROXY_AUTHENTICATION_REQUIRED);
+            assert_eq!(
+                response.headers()[hyper::header::PROXY_AUTHENTICATE],
+                "Basic realm=\"Launchpad\""
+            );
+        };
+        challenge(&headers); // First request from Git/libcurl anyauth.
+        for invalid in ["Basic !!!", "Bearer ignored", "Basic bHA6dW5rbm93bg=="] {
+            headers.insert(hyper::header::PROXY_AUTHORIZATION, invalid.parse().unwrap());
+            challenge(&headers);
+        }
+        let auth = format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!("lp:{}", active.key))
+        );
+        headers.insert(hyper::header::PROXY_AUTHORIZATION, auth.parse().unwrap());
+        let resolved = connect_session(&proxy, &headers).expect("authenticated retry");
+        assert!(Arc::ptr_eq(&active, &resolved));
+        proxy.drop_session("session");
+        challenge(&headers);
+    }
+}
