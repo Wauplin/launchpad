@@ -4,7 +4,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/Icon";
 import { MenuItem } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
@@ -169,6 +169,7 @@ function OracleEditor({ workspace, detail, view, onView, onBack, onSaved, onDele
     meta ? dependencySummary(meta) : null,
     o!.paused ? "paused" : null,
   ].filter(Boolean) : null;
+  const metaText = metaLine && <span>{metaLine.map((m, i) => <Fragment key={i}>{i > 0 && " · "}{m}</Fragment>)}</span>;
   const saveButton = <button className="btn btn-sm btn-primary" disabled={busy || !dirty || !slugOk} title={!slugOk ? "Give the oracle a slug: lowercase letters, digits, - and _" : undefined} onClick={() => void save()}><Icon name="check" size={12} />{busy ? "Saving…" : "Save"}</button>;
   // ⋯ of the page (laptop) and of the phone bar: the same entries.
   const menuItems = (close: () => void) => <>
@@ -201,11 +202,11 @@ function OracleEditor({ workspace, detail, view, onView, onBack, onSaved, onDele
     {view === "versions" && detail && <VersionsTab workspace={workspace} slug={detail.oracle.slug} />}
   </div>;
   if (phone) return <div className="flex h-full min-h-0 flex-col">
-    <PhoneHeader title={title} onBack={onBack} backLabel="Back to oracles" subtitle={metaLine && <span className="flex flex-wrap gap-x-1.5">{metaLine.map((m, i) => <span key={i}>{m}</span>)}</span>} primary={dirty ? saveButton : undefined} actions={detail ? menuItems : undefined} />
+    <PhoneHeader title={title} onBack={onBack} backLabel="Back to oracles" subtitle={metaText} primary={dirty ? saveButton : undefined} actions={detail ? menuItems : undefined} />
     <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
   </div>;
   return <div className="flex h-full min-h-0 flex-col">
-    <PageHeader title={title} meta={metaLine ? metaLine.map((m, i) => <span key={i}>{i > 0 && "· "}{m}</span>) : "A Python check that Home runs to answer True, False or Failed"} actions={<>{saveButton}{menu}</>} tabs={tabs} />
+    <PageHeader title={title} meta={metaText ?? "A Python check that Home runs to answer True, False or Failed"} actions={<>{saveButton}{menu}</>} tabs={tabs} />
     <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
   </div>;
 }
