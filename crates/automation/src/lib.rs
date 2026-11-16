@@ -5,6 +5,9 @@ pub mod activity;
 pub mod channel_trigger;
 pub mod crons;
 pub mod failures;
+pub mod oracle_eval;
+pub mod oracle_helper;
+pub mod oracles;
 pub mod proposals;
 pub mod schedules;
 pub mod today;
@@ -24,6 +27,7 @@ pub async fn start(app: &App) -> Result<()> {
         tracing::warn!("bot routine files: {e:#}");
     }
     schedules::spawn(app);
+    oracle_eval::spawn(app);
     crons::spawn(app);
     Ok(())
 }
@@ -55,5 +59,9 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     crons::CronAgent::export_all(cfg)?;
     proposals::Proposal::export_all(cfg)?;
     activity::Activity::export_all(cfg)?;
+    oracles::OracleFile::export_all(cfg)?;
+    oracle_eval::Evaluation::export_all(cfg)?;
+    oracle_eval::RunResult::export_all(cfg)?;
+    oracle_eval::Streak::export_all(cfg)?;
     Ok(())
 }

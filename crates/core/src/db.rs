@@ -276,7 +276,13 @@ CREATE INDEX IF NOT EXISTS channel_delivery_message ON channel_delivery (message
 CREATE INDEX IF NOT EXISTS channel_delivery_channel ON channel_delivery (channel_id, bot_id, state);
 CREATE TABLE IF NOT EXISTS github_ref_use (repo TEXT NOT NULL, number INTEGER NOT NULL, session_id TEXT NOT NULL, bot_id TEXT, at INTEGER NOT NULL, PRIMARY KEY (repo, number, session_id));
 CREATE INDEX IF NOT EXISTS github_ref_use_bot ON github_ref_use (repo, at) WHERE bot_id IS NOT NULL;
-CREATE TABLE IF NOT EXISTS repo_choice (repo TEXT NOT NULL, what TEXT NOT NULL, json TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (repo, what));",
+CREATE TABLE IF NOT EXISTS repo_choice (repo TEXT NOT NULL, what TEXT NOT NULL, json TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (repo, what));
+CREATE TABLE IF NOT EXISTS oracle (workspace_id TEXT NOT NULL, slug TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, changed_by TEXT NOT NULL, changed_at INTEGER NOT NULL, paused INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (workspace_id, slug));
+CREATE TABLE IF NOT EXISTS oracle_eval (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, oracle TEXT NOT NULL, file_sha TEXT NOT NULL, flight_key TEXT NOT NULL, outcome TEXT NOT NULL, created_at INTEGER NOT NULL, consequence TEXT, json TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS oracle_eval_oracle ON oracle_eval (workspace_id, oracle, created_at);
+CREATE INDEX IF NOT EXISTS oracle_eval_flight ON oracle_eval (flight_key, created_at);
+CREATE TABLE IF NOT EXISTS oracle_cursor (consumer TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, oracle TEXT NOT NULL, cursor TEXT NOT NULL, evaluation_id TEXT, committed_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS oracle_streak (workspace_id TEXT NOT NULL, oracle TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (workspace_id, oracle));",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
     // additive columns directly, like the unversioned tables above.

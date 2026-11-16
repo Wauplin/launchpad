@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::model::{BotHandoff, BotLaunch, FileAttachment, ContextProject, LaunchSpec, MessageContext, PermissionMode, Session, SessionStatus, Target, WorktreeOptions};
-use crate::plain::{self, Meta, Update};
+use crate::plain;
 use crate::{App, util::now_ms};
 
 pub const INSTRUCTIONS: &str = "BOT.md";
@@ -417,30 +417,7 @@ pub async fn routine_files(app: &App, id: &str) -> Result<Vec<(String, String)>>
 /// Writes (or deletes, None) the files of a bot's store as the owner, each change with its history. Unchanged
 /// files are skipped. Nothing else follows: callers publish and sync.
 pub async fn write_store(app: &App, store_id: &str, files: Vec<(String, Option<String>)>) -> Result<()> {
-    let tree = plain::tree(app, store_id).await?;
-    let mut updates = vec![];
-    for (path, body) in files {
-        let exists = tree.files.iter().any(|f| f.path == path);
-        let old = text_of(app, &tree.files, &path).await;
-        let Some(body) = body else {
-            if exists {
-                let (added, removed) = crate::kb::counts(&old, "");
-                updates.push((Update { path, sha256: None, size: 0, executable: false }, Some(Meta { author: crate::kb::Author::owner(None), added: Some(added), removed: Some(removed) })));
-            }
-            continue;
-        };
-        if old == body && exists {
-            continue;
-        }
-        let data = body.into_bytes();
-        let sha = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(&data));
-        plain::write_blob(app, &sha, &data).await?;
-        let (added, removed) = crate::kb::counts(&old, &String::from_utf8_lossy(&data));
-        updates.push((Update { path, sha256: Some(sha), size: data.len() as u64, executable: false }, Some(Meta { author: crate::kb::Author::owner(None), added: Some(added), removed: Some(removed) })));
-    }
-    if !updates.is_empty() {
-        plain::record(app, store_id, None, updates).await?;
-    }
+    plain::write_texts(app, store_id, files, crate::kb::Author::owner(None)).await?;
     Ok(())
 }
 

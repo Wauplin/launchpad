@@ -46,6 +46,9 @@ pub async fn of_store(app: &App, store: &str) -> Option<String> {
     if let Some(bot) = crate::bots::id_of(store) {
         return of_bot(app, bot).await;
     }
+    if let Some(ws) = crate::plain::oracle_workspace_of(store) {
+        return Some(ws.to_string());
+    }
     let folder = store.strip_prefix("tmp-").unwrap_or(store);
     if let Some(ws) = of_project(app, folder).await {
         return Some(ws);

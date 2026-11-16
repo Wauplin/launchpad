@@ -160,6 +160,13 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
             tx.execute("DELETE FROM channel WHERE workspace_id = ?1", [&id])?;
             tx.execute("DELETE FROM topic_session WHERE topic_id IN (SELECT id FROM topic WHERE workspace_id = ?1)", [&id])?;
             tx.execute("DELETE FROM topic WHERE workspace_id = ?1", [&id])?;
+            // Its oracles, their evaluations, cursors and failure streaks (`launchpad_automation::oracles`).
+            for t in ["oracle", "oracle_eval", "oracle_cursor", "oracle_streak"] {
+                tx.execute(&format!("DELETE FROM {t} WHERE workspace_id = ?1"), [&id])?;
+            }
+            let oracles = crate::plain::oracle_store(&id);
+            tx.execute("DELETE FROM plain_file WHERE store = ?1", [&oracles])?;
+            tx.execute("DELETE FROM plain_state WHERE store = ?1", [&oracles])?;
             tx.execute("DELETE FROM workspace WHERE id = ?1", [&id])?;
             tx.commit()?;
             Ok(())

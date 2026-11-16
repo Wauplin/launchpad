@@ -256,7 +256,7 @@ fn diff_lines<'a>(old: &'a str, new: &'a str) -> Vec<D<'a>> {
 }
 
 /// Lines added and removed.
-pub(crate) fn counts(old: &str, new: &str) -> (u32, u32) {
+pub fn counts(old: &str, new: &str) -> (u32, u32) {
     diff_lines(old, new).iter().fold((0, 0), |(a, r), d| match d {
         D::Add(_) => (a + 1, r),
         D::Del(_) => (a, r + 1),
@@ -450,7 +450,7 @@ async fn apply_locked(app: &App, place: &Place<'_>, author: Author, ops: Vec<Op>
 }
 
 /// Home: the author of a session's writes, from Home's own records.
-pub(crate) async fn agent_author(app: &App, session_id: &str) -> Result<Author> {
+pub async fn agent_author(app: &App, session_id: &str) -> Result<Author> {
     let s = app.sessions.get(session_id).context("no such session")?;
     let runner = match &s.runner_id {
         Some(r) => crate::runners::list(app).await.ok().and_then(|l| l.into_iter().find(|x| &x.runner.id == r)).map(|x| x.runner.name),

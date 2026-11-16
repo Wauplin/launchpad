@@ -1525,14 +1525,17 @@ name = "launchpad-automation"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "chrono-tz",
  "croner",
+ "hex",
  "launchpad-core",
  "launchpad-harness",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "toml",
  "tracing",

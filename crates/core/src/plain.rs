@@ -31,6 +31,18 @@ use crate::util::now_ms;
 const KEEP_MS: i64 = 30 * 24 * 3600 * 1000;
 /// Prefix of a temporary folder's store.
 const TEMP_PREFIX: &str = "tmp-";
+/// Prefix of a workspace's oracle store (`oracles/<slug>.py`, written only by `launchpad_automation::oracles`).
+const ORACLE_PREFIX: &str = "oracles-";
+
+/// The store of a workspace's oracles.
+pub fn oracle_store(workspace_id: &str) -> String {
+    format!("{ORACLE_PREFIX}{workspace_id}")
+}
+
+/// The workspace of an oracle store.
+pub fn oracle_workspace_of(store: &str) -> Option<&str> {
+    store.strip_prefix(ORACLE_PREFIX)
+}
 
 /// The store of a temporary folder.
 pub fn temp_store(project_id: &str) -> String {
@@ -159,6 +171,10 @@ async fn ensure_store(app: &App, id: &str) -> Result<()> {
         ensure!(crate::bots::exists(app, bot).await?, "no such bot");
         return Ok(());
     }
+    if let Some(ws) = oracle_workspace_of(id) {
+        crate::workspace::get(app, ws).await?;
+        return Ok(());
+    }
     // Created by its first sync: the folder's record may reach Home later than its first turn.
     if temp_of(id).is_some() {
         return Ok(());
@@ -237,6 +253,7 @@ pub async fn commit(app: &App, id: &str, session: Option<&str>, updates: Vec<Upd
     ensure_store(app, id).await?;
     ensure!(crate::kb::workspace_of(id).is_none(), "the knowledge base is written with launchpad kb");
     ensure!(crate::bots::id_of(id).is_none(), "a bot's files change on its page (About, or ⋯ → Edit as file)");
+    ensure!(oracle_workspace_of(id).is_none(), "oracles change in Schedules → Oracles, with launchpad oracle save, or through a card");
     if let Some(s) = session
         && temp_of(id).is_none()
     {
@@ -280,6 +297,39 @@ pub(crate) async fn record(app: &App, id: &str, session: Option<&str>, updates: 
         None => app.bus.publish("plain", "changed", serde_json::json!({"id": id, "version": version})),
     }
     Ok(version)
+}
+
+/// Home: writes (or deletes, None) text files of a store that only Home writes (a bot's files, a workspace's
+/// oracles), each change with its history and author. Unchanged files are skipped. Nothing else follows: callers
+/// publish and sync. Returns whether something changed.
+pub async fn write_texts(app: &App, store_id: &str, files: Vec<(String, Option<String>)>, author: crate::kb::Author) -> Result<bool> {
+    let tree = tree(app, store_id).await?;
+    let mut updates = vec![];
+    for (path, body) in files {
+        let exists = tree.files.iter().any(|f| f.path == path);
+        let old = crate::bots::text_of(app, &tree.files, &path).await;
+        let meta = |added, removed| Some(Meta { author: author.clone(), added: Some(added), removed: Some(removed) });
+        let Some(body) = body else {
+            if exists {
+                let (added, removed) = crate::kb::counts(&old, "");
+                updates.push((Update { path, sha256: None, size: 0, executable: false }, meta(added, removed)));
+            }
+            continue;
+        };
+        if old == body && exists {
+            continue;
+        }
+        let data = body.into_bytes();
+        let sha = hex::encode(Sha256::digest(&data));
+        write_blob(app, &sha, &data).await?;
+        let (added, removed) = crate::kb::counts(&old, &String::from_utf8_lossy(&data));
+        updates.push((Update { path, sha256: Some(sha), size: data.len() as u64, executable: false }, meta(added, removed)));
+    }
+    if updates.is_empty() {
+        return Ok(false);
+    }
+    record(app, store_id, None, updates).await?;
+    Ok(true)
 }
 
 /// Previous versions and deleted files of the last 30 days, newest first.
