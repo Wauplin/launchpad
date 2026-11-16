@@ -1,10 +1,10 @@
 //! Home updates on a Hugging Face Space. Home reads its Space's Dockerfile (written by `deploy/hf-home/deploy.sh`)
 //! to know what it installs: a release tag, or CI's package of a `main` commit (`main-build` prerelease). Every hour
 //! (and on Check for updates) it looks for a newer one on the same channel; a newer one becomes a Today card. Update
-//! Home, an owner click, commits the newer Dockerfile to the Space with Home's own Hugging Face login: the Space
-//! rebuilds and restarts with it. The click can also update the runners: the record (`home_update` in `state.db`,
-//! saved in the backup before the commit) survives the restart, and the new Home asks each connected runner with
-//! another build to update itself (`self_update`), once per runner, for 24 hours.
+//! Home, an owner click or an admin agent's request, commits the newer Dockerfile to the Space with Home's own
+//! Hugging Face login: the Space rebuilds and restarts with it. It can also update the runners: the record
+//! (`home_update` in `state.db`, saved in the backup before the commit) survives the restart, and the new Home asks
+//! each connected runner with another build to update itself (`self_update`), once per runner, for 24 hours.
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -367,14 +367,14 @@ async fn check_space(app: &App) -> (HomeUpdate, Option<Space>) {
     (u, space)
 }
 
-/// Update Home: the owner's click with the version it showed, an admin agent's request (`launchpad home update`)
-/// or a ready card. Without `version`, the newest of the channel; `channel` switches between releases and main.
+/// Update Home: the owner's click with the version it showed, an admin agent's request (`launchpad home update
+/// [--update_runners true]`) or a ready card. Without `version`, the newest of the channel; `channel` switches between releases and main.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Start {
     pub version: Option<String>,
     pub channel: Option<Channel>,
-    /// Only the owner's button sets it (it is not an input of the action, `launchpad_core::actions`).
+    /// Then update the runners: the owner's button, or an admin agent's request when the owner asked for it.
     #[serde(default)]
     pub update_runners: bool,
 }

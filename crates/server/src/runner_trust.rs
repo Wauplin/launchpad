@@ -198,6 +198,8 @@ mod tests {
             ("POST", "/api/predrafts/p1/publish"),
             ("POST", "/api/predrafts/p1/merge-local"),
             ("POST", "/api/home/update"),
+            ("POST", "/api/runners/r1/update"),
+            ("DELETE", "/api/runners/r1/update"),
             ("PATCH", "/api/settings/shared"),
             ("PATCH", "/api/bots/b"),
             ("POST", "/api/proposals"),

@@ -19,8 +19,8 @@ pub enum ActionEffect {
     Outside,
     /// Money, credentials or the machine: the owner's click only.
     Machine,
-    /// Installs a newer Launchpad on Home's Space (Home restarts; agents continue on their runners). Admin may run
-    /// it when the owner asks; it has a confirmation and no undo.
+    /// Installs a newer Launchpad on Home's Space, or Home's build on a runner (it restarts; agents continue). Admin
+    /// may run it when the owner asks; it has a confirmation and no undo.
     Installs,
 }
 
@@ -162,6 +162,10 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "proposal.recheck", route: "/api/proposals/{id}/recheck", label: "Check again", icon: Some("refresh"), help: "Validate a card again", effect: Checks, ..A },
     // Runners.
     Action { name: "runner.takes-sessions", method: "PUT", route: "/api/runner/guard", label: "Takes new sessions", help: "In a runner's own window: whether Home starts new sessions there (paused: none; running sessions continue)", input: &[f("paused", Bool)], access: Owner, ..A },
+    // A runner with another build than Home's updates itself to Home's build (`launchpad_core::self_update`). Admin
+    // runs it when the owner asks, like a Home update.
+    Action { name: "runner.update", route: "/api/runners/{id}/update", label: "Update", icon: Some("download"), help: "Update a connected runner that runs another build than Home (id from `runners list`, compat outdated) to Home's build: it downloads and checks Home's executable, waits until none of its agents is in a turn (yours too, when you run there) and restarts in place; its sessions continue after the restart. For a runner that is already on Home's build it is refused", confirm: Some("Installs Home's build on {name} and restarts it as soon as none of its agents is in a turn. Its open terminals close; its sessions continue after the restart."), effect: Installs, ..A },
+    Action { name: "runner.cancel-update", method: "DELETE", route: "/api/runners/{id}/update", label: "Cancel", icon: Some("x"), help: "Cancel a runner update that still waits for its agents", confirm: Some("Cancels the update of {name}, which still waits for its agents."), ..A },
     Action { name: "runner.check-network", route: "/api/runners/{id}/network-check", label: "Check network", icon: Some("refresh"), help: "Check a runner's sandbox network: capture, DNS, UDP policy, IPv4 and IPv6, runner CA", effect: Checks, access: Owner, ..A },
     // Agent CLI updates on the runners (`launchpad_setup::cli_update`). Installing on a machine is the owner's
     // click; agents may check and mark results read.
@@ -171,10 +175,9 @@ pub const ACTIONS: &[Action] = &[
     Action { name: "cli-update.dismiss", route: "/api/cli-updates/{id}/dismiss", label: "Mark read", icon: Some("check"), help: "Remove an agent CLI update from Today (a major version: skip it)", ..A },
     Action { name: "cli-update.auto", method: "PUT", route: "/api/cli-updates/auto", label: "Update automatically", help: "Turn automatic updates of one agent CLI on or off on every runner", input: &[f("harness", Text), f("on", Bool)], confirm: Some("Changes whether the runners update this CLI on their own."), effect: Machine, access: Owner, ..A },
     // Home updates (a Home on a Hugging Face Space: `launchpad_setup::home_update`). Admin runs them when the owner
-    // asks. Updating the runners afterwards stays the owner's: the button's `update_runners` field is not an input
-    // here, so an agent's request or a ready card cannot set it (`agent_auth` refuses fields outside the input).
+    // asks, with `update_runners` when the owner also asked for the runners (as the button's Then update the runners).
     Action { name: "home.check-update", route: "/api/home/update/check", label: "Check for updates", icon: Some("refresh"), help: "Check whether a newer Launchpad exists for Home's Space (release or main, as deployed): deployed, latest and available", effect: Checks, ..A },
-    Action { name: "home.update", route: "/api/home/update", label: "Update Home", icon: Some("download"), help: "Install a newer Launchpad on Home's Space: the newest of the deployed channel, or of `channel` (release or main); `version`, when given, must be that newest one (from home check-update). The call returns once the Space starts its build; Home restarts a few minutes later, while agents continue on their runners: wait, then check again", input: &[opt("version", Text), opt("channel", Text)], confirm: Some("Home's Space installs {version}, rebuilds and restarts: Home is unavailable for a few minutes. Running agents continue on their runners."), effect: Installs, ready: true, ..A },
+    Action { name: "home.update", route: "/api/home/update", label: "Update Home", icon: Some("download"), help: "Install a newer Launchpad on Home's Space: the newest of the deployed channel, or of `channel` (release or main); `version`, when given, must be that newest one (from home check-update); `update_runners` true: once the new Home runs, it updates each connected runner on another build to it (each once no agent there is in a turn, for 24 hours). The call returns once the Space starts its build; Home restarts a few minutes later, while agents continue on their runners: wait, then check again", input: &[opt("version", Text), opt("channel", Text), opt("update_runners", Bool)], confirm: Some("Home's Space installs {version}, rebuilds and restarts: Home is unavailable for a few minutes. Running agents continue on their runners."), effect: Installs, ready: true, ..A },
     // Bot channels and DMs (`launchpad_channels::channel`). A post from an agent's token posts as its bot, only in a
     // channel it is a member of. Members and new channels are admin (recorded with Undo); the rest is the owner's.
     Action { name: "channel.post", route: "/api/channels/{id}/messages", label: "Send", icon: Some("send"), help: "Post the owner's own message in a bot channel or DM (bots post with `launchpad channel post` and `launchpad dm`); it wakes the bots it mentions and the members in mode all", input: &[f("text", Text), opt("reply_to", Json), opt("ask_owner", Bool)], effect: Starts, access: Owner, ..A },

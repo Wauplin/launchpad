@@ -90,9 +90,9 @@ async fn access_of(app: &App, id: &str) -> Option<LaunchpadAccess> {
 }
 
 /// Admin access: reads (except the closed list) and the `Admin` actions of the action list
-/// (`launchpad_core::actions`). GitHub, the Outbox, connections, credentials, devices, terminals, hosts, runners,
-/// setup fixes, backups, Burst and config.toml (except the shared settings list, `settings.set`) are never `Admin`
-/// actions, whatever the access.
+/// (`launchpad_core::actions`). GitHub, the Outbox, connections, credentials, devices, terminals, hosts, runners
+/// (except updating one to Home's build, `runner.update`), setup fixes, backups, Burst and config.toml (except the
+/// shared settings list, `settings.set`) are never `Admin` actions, whatever the access.
 fn admin_allows(method: &Method, path: &str) -> bool {
     if *method == Method::GET {
         let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
@@ -334,6 +334,8 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
     match (get, &p[1..]) {
         (true, ["status"] | ["context", "profiles" | "presets" | "hops"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
+        // Runner updates are Launchpad-wide, like Home's (only `runner.update` and its cancel are admin actions).
+        (false, ["runners", _, "update"]) => Shared,
         (false, ["link"] | ["sleep"] | ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["notes"] | ["connections", "send"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
         (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics" | "notes"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
@@ -745,26 +747,39 @@ mod tests {
         }
     }
 
-    /// Admin checks for and installs a newer Launchpad on Home's Space (release or main); updating the runners
-    /// afterwards stays the owner's (the button's `update_runners` is not an input), and the owner's routes of
-    /// Home and runners stay closed.
+    /// Admin checks for and installs a newer Launchpad on Home's Space (release or main), with the runners when the
+    /// owner asks (`update_runners`), and updates one runner to Home's build (or cancels that update); the owner's
+    /// other routes of Home and runners stay closed, and a runner's own update route stays the owner's.
     #[test]
-    fn admin_updates_home_but_not_the_runners() {
+    fn admin_updates_home_and_runners() {
         assert!(admin_allows(&Method::POST, "/api/home/update/check"));
         assert!(admin_allows(&Method::POST, "/api/home/update"));
         assert!(!admin_allows(&Method::GET, "/api/home/update"));
-        for (m, path) in [(Method::POST, "/api/home/update/"), (Method::POST, "/api/home/backup"), (Method::POST, "/api/runner/update"), (Method::POST, "/api/runners/r/update")] {
+        assert!(admin_allows(&Method::POST, "/api/runners/r/update") && admin_allows(&Method::DELETE, "/api/runners/r/update"));
+        assert_eq!(names(&Method::POST, "/api/runners/r/update"), Names::Shared);
+        for (m, path) in [(Method::POST, "/api/home/update/"), (Method::POST, "/api/home/backup"), (Method::POST, "/api/runner/update"), (Method::DELETE, "/api/runner/update"), (Method::POST, "/api/runners//update"), (Method::POST, "/api/runners/r/update/"), (Method::GET, "/api/runners/r/status"), (Method::POST, "/api/runners/r/approve"), (Method::DELETE, "/api/runners/r"), (Method::POST, "/api/runners/r/network-check")] {
             assert!(!admin_allows(&m, path), "{m} {path}");
+        }
+        for (m, path) in [(Method::GET, "/api/runners/r/update"), (Method::POST, "/api/runners/r/approve")] {
+            assert_eq!(names(&m, path), Names::Unscoped, "{m} {path}");
         }
         let update = actions::get("home.update").unwrap();
         assert!(update.ready && update.confirm.is_some());
         assert!(unknown_field(update, Some(&serde_json::json!({"channel": "main"}))).is_none());
         assert!(unknown_field(update, Some(&serde_json::json!({"version": "v2026.11.09.1", "channel": "release"}))).is_none());
-        assert_eq!(unknown_field(update, Some(&serde_json::json!({"channel": "main", "update_runners": true}))).as_deref(), Some("update_runners"));
+        assert!(unknown_field(update, Some(&serde_json::json!({"channel": "main", "update_runners": true}))).is_none());
+        assert_eq!(unknown_field(update, Some(&serde_json::json!({"update_runners": true, "force": true}))).as_deref(), Some("force"));
+        let runner = actions::get("runner.update").unwrap();
+        assert!(runner.access == ActionAccess::Admin && runner.effect == actions::ActionEffect::Installs && runner.confirm.is_some() && !runner.ready);
+        assert_eq!(unknown_field(runner, Some(&serde_json::json!({"all": true}))), None, "no input: the handler takes no body");
         let reference = launchpad_core::launchpad_cli::cli_reference("launchpad", None, LaunchpadAccess::Admin);
-        assert!(reference.contains("`launchpad home update [--version <text>] [--channel <text>]`") && reference.contains("`launchpad home check-update`"));
+        assert!(reference.contains("`launchpad home update [--version <text>] [--channel <text>] [--update_runners <true|false>]`") && reference.contains("`launchpad home check-update`"));
+        assert!(reference.contains("`launchpad runner update <id>`") && reference.contains("`launchpad runner cancel-update <id>`"));
         let owner_only = reference.split("Only the owner's click runs these").nth(1).unwrap().split("Propose a ready card").next().unwrap();
-        assert!(!owner_only.contains("Home's Space"), "{owner_only}");
+        assert!(!owner_only.contains("Home's Space") && !owner_only.contains("Home's build"), "{owner_only}");
+        for access in [LaunchpadAccess::Read, LaunchpadAccess::Propose] {
+            assert!(!launchpad_core::launchpad_cli::cli_reference("launchpad", None, access).contains("runner update"), "{access:?}");
+        }
     }
 
     /// Every action has a route that resolves to it, a CLI reference line exactly when admin may run it, and a
