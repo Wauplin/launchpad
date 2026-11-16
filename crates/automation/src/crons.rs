@@ -1636,7 +1636,7 @@ mod tests {
         asking.open_question = true;
         assert!(!auto_archive_ready(&run(RunOutcome::Report), &asking, now));
         let mut asleep = s.clone();
-        asleep.sleep = Some(launchpad_core::model::Sleep { until: now + 1, note: String::new(), schedule_id: "z".into() });
+        asleep.sleep = Some(launchpad_core::model::Sleep { until: Some(now + 1), waits: String::new(), deadline: None, note: String::new(), schedule_id: "z".into() });
         assert!(!auto_archive_ready(&run(RunOutcome::Report), &asleep, now));
         let mut unsaved = s.clone();
         unsaved.unsaved = Some(launchpad_core::model::Unsaved { since, attempts: 1, note: Some("push refused".into()) });
