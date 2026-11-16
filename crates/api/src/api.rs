@@ -632,12 +632,10 @@ async fn cancel_schedule(State(s): State<Ctx>, Path(id): Path<String>) -> ApiRes
 async fn start_schedule(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Session> { Ok(Json(schedules::start_now(&s.app, &id).await.map_err(bad)?)) }
 
 // ---------------------------------------------------------------- cron agents
-use launchpad_automation::crons::{self, CronAgent, CronCondition, CronPatch};
+use launchpad_automation::crons::{self, CronAgent, CronPatch};
 
-#[derive(Deserialize)]
-struct CronRequest { spec: LaunchSpec, #[serde(default)] schedule: String, conditions: Vec<CronCondition>, #[serde(default)] trigger: crons::Trigger, #[serde(default)] title: Option<String>, #[serde(default)] time_zone: Option<String> }
 async fn crons(State(s): State<Ctx>) -> ApiResult<Vec<CronAgent>> { Ok(Json(crons::list(&s.app).await?)) }
-async fn create_cron(State(s): State<Ctx>, Json(b): Json<CronRequest>) -> ApiResult<CronAgent> { Ok(Json(crons::create(&s.app, b.spec, b.schedule, b.conditions, b.trigger, b.title, b.time_zone).await.map_err(bad)?)) }
+async fn create_cron(State(s): State<Ctx>, Json(b): Json<crons::NewCron>) -> ApiResult<CronAgent> { Ok(Json(crons::create(&s.app, b).await.map_err(bad)?)) }
 /// One routine, with a bot routine's instructions (`spec.text`) as `instructions`, the key its edits use.
 async fn get_cron(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
     let c = crons::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;

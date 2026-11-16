@@ -97,6 +97,15 @@ pub struct RoutineRun {
     #[serde(default)]
     #[ts(skip)]
     pub missed: bool,
+    /// The session's `status_since` when the run ended Done (report or no update): an auto archive applies only while
+    /// the session keeps that state (`auto_archive_ready`), so a session the owner continued is never archived.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub done_since: Option<i64>,
+    /// The routine archived the run's session (or its bot thread) on its own (`CronAgent.auto_archive`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub archived: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -147,6 +156,10 @@ pub struct CronAgent {
     /// Why its file cannot be used (a hand edit with an error): the routine keeps its last good definition.
     #[serde(default)]
     pub file_error: Option<String>,
+    /// Archive each run's session once it ended Done with its work saved and nothing waiting (`auto_archive_ready`,
+    /// `unfinished_work`); a bot routine archives the run's own thread. Off by default.
+    #[serde(default)]
+    pub auto_archive: bool,
     /// Why its due run has not started yet (for example no confirmed quota reading). Never stored: `list` fills it.
     #[serde(default, skip_deserializing)]
     pub waiting: Option<String>,
@@ -173,6 +186,8 @@ pub struct CronPatch {
     /// The editing browser's time zone.
     #[serde(default)]
     pub time_zone: Option<String>,
+    #[serde(default)]
+    pub auto_archive: Option<bool>,
 }
 
 /// A new routine of a bot.
@@ -189,6 +204,8 @@ pub struct BotRoutine {
     /// The browser's time zone.
     #[serde(default)]
     pub time_zone: Option<String>,
+    #[serde(default)]
+    pub auto_archive: bool,
 }
 
 fn parse(schedule: &str) -> Result<croner::Cron> {
@@ -379,15 +396,26 @@ fn normalize(schedule: &str) -> String {
     schedule.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-pub async fn create(
-    app: &App,
-    spec: LaunchSpec,
-    schedule: String,
-    conditions: Vec<CronCondition>,
-    trigger: Trigger,
-    title: Option<String>,
-    time_zone: Option<String>,
-) -> Result<CronAgent> {
+/// A new routine that launches a spec (`routine.create`, cron cards).
+#[derive(Debug, Deserialize)]
+pub struct NewCron {
+    pub spec: LaunchSpec,
+    #[serde(default)]
+    pub schedule: String,
+    pub conditions: Vec<CronCondition>,
+    #[serde(default)]
+    pub trigger: Trigger,
+    #[serde(default)]
+    pub title: Option<String>,
+    /// The browser's time zone.
+    #[serde(default)]
+    pub time_zone: Option<String>,
+    #[serde(default)]
+    pub auto_archive: bool,
+}
+
+pub async fn create(app: &App, new: NewCron) -> Result<CronAgent> {
+    let NewCron { spec, schedule, conditions, trigger, title, time_zone, auto_archive } = new;
     let harness = spec.harness.context("pick a harness")?;
     if spec.target == Target::None {
         bail!("pick a project or a temporary folder");
@@ -424,6 +452,7 @@ pub async fn create(
         channel_seen: None,
         file: None,
         file_error: None,
+        auto_archive,
         waiting: None,
     };
     record.next_run_at = next_due(&record, now)?;
@@ -473,6 +502,7 @@ pub async fn create_for_bot(app: &App, bot_id: &str, r: BotRoutine) -> Result<Cr
         instructions: r.instructions.trim().to_string(),
         trigger: r.trigger,
         conditions: r.conditions,
+        auto_archive: r.auto_archive,
     };
     let text = render_file(&file)?;
     check_file(app, &bot, &text).await?;
@@ -531,6 +561,9 @@ pub async fn update(app: &App, id: &str, patch: CronPatch) -> Result<CronAgent> 
         if let Some(p) = patch.paused {
             r.paused = p;
         }
+        if let Some(a) = patch.auto_archive {
+            r.auto_archive = a;
+        }
         if let Some(t) = patch.title {
             r.title = t.trim().to_string();
         }
@@ -563,6 +596,9 @@ async fn update_file(app: &App, current: &CronAgent, bot_id: &str, path: &str, p
     }
     if let Some(p) = patch.paused {
         f.paused = p;
+    }
+    if let Some(a) = patch.auto_archive {
+        f.auto_archive = a;
     }
     if let Some(t) = patch.title {
         f.title = t.trim().to_string();
@@ -646,6 +682,9 @@ pub struct RoutineFile {
     pub trigger: Trigger,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conditions: Vec<CronCondition>,
+    /// Archive each run's thread once the run ended Done with nothing waiting. Off when left out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_archive: bool,
 }
 
 const FILE_HEADER: &str = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), session_done, failure or channel.\n";
@@ -687,7 +726,7 @@ pub async fn check_file(app: &App, bot: &launchpad_core::bots::Bot, text: &str) 
 
 /// The definition a record holds, as a file.
 fn file_of(r: &CronAgent) -> RoutineFile {
-    RoutineFile { title: r.title.clone(), paused: r.paused, schedule: r.schedule.clone(), time_zone: r.time_zone.clone(), instructions: r.spec.text.clone(), trigger: r.trigger.clone(), conditions: r.conditions.clone() }
+    RoutineFile { title: r.title.clone(), paused: r.paused, schedule: r.schedule.clone(), time_zone: r.time_zone.clone(), instructions: r.spec.text.clone(), trigger: r.trigger.clone(), conditions: r.conditions.clone(), auto_archive: r.auto_archive }
 }
 
 /// `routines/<slug of the title>.toml`, not one of `taken`.
@@ -737,6 +776,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                     r.spec.text = f.instructions;
                     r.trigger = f.trigger;
                     r.conditions = f.conditions;
+                    r.auto_archive = f.auto_archive;
                     r.file_error = None;
                     if timing {
                         r.next_run_at = next_due(r, now)?;
@@ -758,7 +798,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                 let (f, error) = match parsed {
                     Ok(f) => (f, None),
                     // Nothing good to run yet: a paused record that shows the error until the file is fixed.
-                    Err(e) => (RoutineFile { title: path.trim_start_matches(launchpad_core::bots::ROUTINES).to_string(), paused: true, schedule: String::new(), time_zone: None, instructions: String::new(), trigger: Trigger::Schedule, conditions: vec![] }, Some(e)),
+                    Err(e) => (RoutineFile { title: path.trim_start_matches(launchpad_core::bots::ROUTINES).to_string(), paused: true, schedule: String::new(), time_zone: None, instructions: String::new(), trigger: Trigger::Schedule, conditions: vec![], auto_archive: false }, Some(e)),
                 };
                 let spec = match bot_spec(app, &bot, f.instructions.clone()).await {
                     Ok(s) => s,
@@ -785,6 +825,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                     channel_seen: Some(head),
                     file: Some(path.clone()),
                     file_error: error,
+                    auto_archive: f.auto_archive,
                     waiting: None,
                 };
                 record.next_run_at = next_due(&record, now).unwrap_or(None);
@@ -877,7 +918,7 @@ pub(crate) async fn skip(app: &App, id: &str, cause: String, reason: String) -> 
 /// `skip`, marked as a failure when `missed`.
 pub(crate) async fn skip_run(app: &App, id: &str, cause: String, reason: String, missed: bool) -> Result<()> {
     modify(app, id, move |r| {
-        push_run(r, RoutineRun { at: now_ms(), cause, session_id: None, outcome: RunOutcome::Skipped, detail: Some(reason), quiet_ok: false, missed });
+        push_run(r, RoutineRun { at: now_ms(), cause, session_id: None, outcome: RunOutcome::Skipped, detail: Some(reason), quiet_ok: false, missed, done_since: None, archived: false });
         Ok(())
     })
     .await
@@ -940,7 +981,7 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
             if automatic {
                 ensure!(r.active(), "paused");
             }
-            push_run(r, RoutineRun { at, cause, session_id: None, outcome: RunOutcome::Running, detail: None, quiet_ok, missed: false });
+            push_run(r, RoutineRun { at, cause, session_id: None, outcome: RunOutcome::Running, detail: None, quiet_ok, missed: false, done_since: None, archived: false });
             Ok(())
         }
     })
@@ -1096,6 +1137,7 @@ async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
     };
     let records = list(app).await?;
     let mut was_run = false;
+    let since = s.status_since;
     for r in records.iter().filter(|r| r.history.iter().any(|x| x.outcome == RunOutcome::Running && x.session_id.as_deref() == Some(&s.id))) {
         was_run = true;
         let sid = s.id.clone();
@@ -1104,6 +1146,9 @@ async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
             if let Some(run) = r.history.iter_mut().rev().find(|x| x.outcome == RunOutcome::Running && x.session_id.as_deref() == Some(&sid)) {
                 run.outcome = outcome;
                 quiet_ok = run.quiet_ok;
+                if matches!(outcome, RunOutcome::Report | RunOutcome::NoUpdate) {
+                    run.done_since = Some(since);
+                }
                 let run = run.clone();
                 r.last_outcome = Some(summary(&run));
             }
@@ -1132,6 +1177,10 @@ async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
             }
         }
     }
+    if was_run {
+        // A run whose work is already on Home may go at once; else at `turn_saved` or the 30-second pass.
+        auto_archive_soon(app);
+    }
     if was_run || s.status != SessionStatus::Waiting || s.open_question {
         return Ok(());
     }
@@ -1152,6 +1201,7 @@ static UNSAVED_DONE: std::sync::LazyLock<std::sync::Mutex<std::collections::Hash
 /// Home: the work of a session's last turn reached Home. Starts the `session_done` routines its turn end held
 /// back, unless the session moved on (a new turn, a question, Archive) or it came over an hour late.
 pub fn turn_saved(app: &App, s: &Session) {
+    auto_archive_soon(app);
     let Some(at) = UNSAVED_DONE.lock().unwrap().remove(&s.id) else { return };
     if s.status != SessionStatus::Waiting || s.open_question || s.sleeping() || now_ms() - at > 3_600_000 {
         return;
@@ -1200,6 +1250,106 @@ async fn session_done(app: &App, s: &Session, records: &[CronAgent]) -> Result<(
             s.last_seq
         );
         on_event(app, r, cause, context, hops + 1).await?;
+    }
+    Ok(())
+}
+
+/// How long after its run ended Done a session may still be archived on its own: a merge that takes longer, or work
+/// left waiting, keeps it visible for good.
+const AUTO_ARCHIVE_WINDOW_MS: i64 = 24 * 3_600_000;
+
+/// Whether a routine run's session ended Done and still is exactly as the run left it, with nothing waiting in it:
+/// a report or no update, the same Done state since (`done_since`, so a session the owner continued, resumed,
+/// stopped or brought back never goes), no question, not asleep, no quota pause or capacity retry, its work saved on
+/// Home (no `unsaved` mark), within `AUTO_ARCHIVE_WINDOW_MS`. Failed, interrupted, stopped, sleeping and waiting
+/// sessions stay. Worktrees are checked after this (`away::unfinished_work`).
+fn auto_archive_ready(run: &RoutineRun, s: &Session, now: i64) -> bool {
+    matches!(run.outcome, RunOutcome::Report | RunOutcome::NoUpdate)
+        && !run.archived
+        && run.session_id.as_deref() == Some(s.id.as_str())
+        && run.done_since.is_some_and(|d| d == s.status_since && now - d <= AUTO_ARCHIVE_WINDOW_MS)
+        && s.status == SessionStatus::Waiting
+        && !s.open_question
+        && s.sleep.is_none()
+        && s.quota_pause.is_none()
+        && s.capacity_retry_at.is_none()
+        && s.unsaved.is_none()
+}
+
+/// Whether a bot thread holds only this routine's run: the thread the run started (`routine:<file>`, never Main),
+/// open, and with no session but the run's. A thread the owner continued, or any other thread of the bot, stays.
+fn own_run_thread(thread: &launchpad_core::bot_threads::BotThread, sessions: &[Session], file: &str, session_id: &str) -> bool {
+    thread.id != launchpad_core::bot_threads::MAIN
+        && thread.archived_at.is_none()
+        && thread.key.as_deref() == Some(format!("routine:{file}").as_str())
+        && matches!(sessions, [only] if only.id == session_id)
+}
+
+/// One auto-archive pass at a time.
+static ARCHIVING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn auto_archive_soon(app: &App) {
+    if launchpad_core::role::Role::Runner == app.paths.role {
+        return;
+    }
+    let app = app.clone();
+    tokio::spawn(async move {
+        if let Err(e) = auto_archive(&app).await {
+            tracing::warn!("routine auto archive: {e:#}");
+        }
+    });
+}
+
+/// Home: archives the sessions of finished runs of routines with `auto_archive` (`auto_archive_ready`, then no
+/// waiting work in their worktrees). A bot routine archives the run's own thread only (`own_run_thread`), another
+/// routine only a session it launched. Each run is claimed (`archived`) before its archive, never tried again.
+async fn auto_archive(app: &App) -> Result<()> {
+    let _pass = ARCHIVING.lock().await;
+    let now = now_ms();
+    for r in list(app).await?.into_iter().filter(|r| r.auto_archive) {
+        for run in r.history.iter().filter(|x| x.done_since.is_some_and(|d| now - d <= AUTO_ARCHIVE_WINDOW_MS) && !x.archived) {
+            let Some(s) = run.session_id.as_deref().and_then(|id| app.sessions.get(id)) else { continue };
+            // Work that waits, or a check that failed, keeps it.
+            if !auto_archive_ready(run, &s, now) || !matches!(launchpad_core::away::unfinished_work(app, &s.id).await, Ok(None)) {
+                continue;
+            }
+            // Only the routine's own session: a bot routine's run in its own thread, another routine's launch.
+            let thread = match (&r.bot_id, &s.launch_spec.bot) {
+                (Some(bot), Some(b)) if b.id == *bot => {
+                    let file = r.file.clone().unwrap_or_else(|| r.id.clone());
+                    let Some(t) = launchpad_core::bot_threads::get(app, bot, b.thread_id()).await?.filter(|t| own_run_thread(t, &launchpad_core::bot_threads::sessions(app, bot, b.thread_id()), &file, &s.id)) else { continue };
+                    Some((bot.clone(), t.id))
+                }
+                (None, None) if s.launch_spec.routine.as_ref().is_some_and(|l| l.id == r.id) => None,
+                _ => continue,
+            };
+            let (at, sid) = (run.at, s.id.clone());
+            let claimed = modify(app, &r.id, move |r| {
+                let Some(x) = r.history.iter_mut().find(|x| x.at == at && x.session_id.as_deref() == Some(sid.as_str()) && !x.archived) else { return Ok(false) };
+                x.archived = true;
+                Ok(true)
+            })
+            .await?
+            .1;
+            if !claimed {
+                continue;
+            }
+            let done = match &thread {
+                Some((bot, id)) => launchpad_core::bot_threads::archive(app, bot, id, true).await.map(|_| ()),
+                None => launchpad_core::runners::session_action(app, &s.id, "close").await,
+            };
+            if let Err(e) = done {
+                tracing::warn!("auto archive of {} ({}): {e:#}", s.id, r.title);
+                let (at, sid, why) = (run.at, s.id.clone(), format!("{e:#}"));
+                modify(app, &r.id, move |r| {
+                    if let Some(x) = r.history.iter_mut().find(|x| x.at == at && x.session_id.as_deref() == Some(sid.as_str())) {
+                        x.detail = Some(format!("not archived: {why}"));
+                    }
+                    Ok(())
+                })
+                .await?;
+            }
+        }
     }
     Ok(())
 }
@@ -1292,6 +1442,10 @@ pub fn spawn(app: &App) {
                     if let Err(e) = crate::channel_trigger::check_all(&app).await {
                         tracing::warn!("channel routines: {e:#}");
                     }
+                    // Runs whose merge or save finished after their turn ended.
+                    if let Err(e) = auto_archive(&app).await {
+                        tracing::warn!("routine auto archive: {e:#}");
+                    }
                 });
             }
             let records = match list(&app).await {
@@ -1375,6 +1529,7 @@ mod tests {
             instructions: "Look at what changed.\nReport in a few lines.".into(),
             trigger: Trigger::Schedule,
             conditions: vec![CronCondition::QuotaLeft { window: QuotaKind::FiveHour, min_left_percent: 20 }],
+            auto_archive: false,
         };
         let text = render_file(&f).unwrap();
         assert_eq!(parse_file(&text).unwrap(), f);
@@ -1398,7 +1553,7 @@ mod tests {
         let record = |trigger: Trigger, runs: Vec<(i64, RunOutcome)>| -> CronAgent {
             let mut r: CronAgent = serde_json::from_value(serde_json::json!({"id": "r1", "spec": {}, "title": "Review", "schedule": "", "conditions": [], "paused": false, "created_at": 0, "next_run_at": null, "last_check_at": null, "last_outcome": null, "runs": []})).unwrap();
             r.trigger = trigger;
-            r.history = runs.into_iter().map(|(at, outcome)| RoutineRun { at, cause: "x".into(), session_id: None, outcome, detail: None, quiet_ok: false, missed: false }).collect();
+            r.history = runs.into_iter().map(|(at, outcome)| RoutineRun { at, cause: "x".into(), session_id: None, outcome, detail: None, quiet_ok: false, missed: false, done_since: None, archived: false }).collect();
             r
         };
         let done = Trigger::SessionDone { folder: None, include_bots: false };
@@ -1423,11 +1578,96 @@ mod tests {
     fn session_done_triggers_leave_bots_out_unless_asked() {
         let hand = "title = \"x\"\ninstructions = \"y\"\ntrigger = { kind = \"session_done\", folder = \"f1\" }\n";
         assert_eq!(parse_file(hand).unwrap().trigger, Trigger::SessionDone { folder: Some("f1".into()), include_bots: false });
-        let with_bots = RoutineFile { title: "x".into(), paused: false, schedule: String::new(), time_zone: None, instructions: "y".into(), trigger: Trigger::SessionDone { folder: None, include_bots: true }, conditions: vec![] };
+        let with_bots = RoutineFile { title: "x".into(), paused: false, schedule: String::new(), time_zone: None, instructions: "y".into(), trigger: Trigger::SessionDone { folder: None, include_bots: true }, conditions: vec![], auto_archive: false };
         let text = render_file(&with_bots).unwrap();
         assert!(text.contains("include_bots = true"), "{text}");
         assert_eq!(parse_file(&text).unwrap(), with_bots);
         assert!(!render_file(&RoutineFile { trigger: Trigger::SessionDone { folder: None, include_bots: false }, ..with_bots }).unwrap().contains("include_bots"));
+    }
+
+    #[test]
+    fn auto_archive_is_off_by_default_and_round_trips_in_files() {
+        // Older records and files have no field: off.
+        let r: CronAgent = serde_json::from_value(serde_json::json!({"id": "r1", "spec": {}, "title": "Review", "schedule": "", "conditions": [], "paused": false, "created_at": 0, "next_run_at": null, "last_check_at": null, "last_outcome": null, "runs": []})).unwrap();
+        assert!(!r.auto_archive);
+        let f = parse_file("title = \"x\"\ninstructions = \"y\"\nschedule = \"0 9 * * *\"\n").unwrap();
+        assert!(!f.auto_archive);
+        // Off stays out of the file (existing files keep their text); on round-trips.
+        assert!(!render_file(&f).unwrap().contains("auto_archive"));
+        let on = RoutineFile { auto_archive: true, ..f };
+        let text = render_file(&on).unwrap();
+        assert!(text.contains("auto_archive = true"), "{text}");
+        assert_eq!(parse_file(&text).unwrap(), on);
+        assert_ne!(file_of(&CronAgent { auto_archive: true, ..r.clone() }), file_of(&r));
+        let old_run: RoutineRun = serde_json::from_value(serde_json::json!({"at": 1, "cause": "x", "session_id": "s", "outcome": "report", "detail": null})).unwrap();
+        assert_eq!((old_run.done_since, old_run.archived), (None, false));
+    }
+
+    fn done_session(id: &str, since: i64) -> Session {
+        launchpad_harness::install();
+        serde_json::from_value(serde_json::json!({
+            "id": id, "harness": "codex", "cwd": "/tmp/x", "title": "run", "status": "waiting", "status_since": since,
+            "live": false, "open_question": false, "prompt": "p", "usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0},
+            "started_at": 0, "last_seq": 1, "launch_spec": {}, "seen_at": 0
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn auto_archive_takes_only_runs_that_ended_done_and_stayed_so() {
+        let now = 50 * 3_600_000;
+        let since = now - 60_000;
+        let run = |outcome: RunOutcome| RoutineRun { at: since - 1, cause: "Scheduled".into(), session_id: Some("s1".into()), outcome, detail: None, quiet_ok: true, missed: false, done_since: Some(since), archived: false };
+        let s = done_session("s1", since);
+        assert!(auto_archive_ready(&run(RunOutcome::Report), &s, now));
+        assert!(auto_archive_ready(&run(RunOutcome::NoUpdate), &s, now));
+        // Failed, interrupted, stopped and still running runs stay.
+        for o in [RunOutcome::Failed, RunOutcome::Interrupted, RunOutcome::Stopped, RunOutcome::Running, RunOutcome::Skipped] {
+            assert!(!auto_archive_ready(&run(o), &s, now), "{o:?}");
+        }
+        // Already archived once, another session, or a run that never ended Done.
+        assert!(!auto_archive_ready(&RoutineRun { archived: true, ..run(RunOutcome::Report) }, &s, now));
+        assert!(!auto_archive_ready(&run(RunOutcome::Report), &done_session("s2", since), now));
+        assert!(!auto_archive_ready(&RoutineRun { done_since: None, ..run(RunOutcome::Report) }, &s, now));
+        // The session moved on since (the owner continued it, or brought it back): it stays.
+        assert!(!auto_archive_ready(&run(RunOutcome::Report), &done_session("s1", since + 5), now));
+        // Waiting for input, asleep, quota paused, retrying, or its work not saved on Home yet.
+        let mut asking = s.clone();
+        asking.open_question = true;
+        assert!(!auto_archive_ready(&run(RunOutcome::Report), &asking, now));
+        let mut asleep = s.clone();
+        asleep.sleep = Some(launchpad_core::model::Sleep { until: now + 1, note: String::new(), schedule_id: "z".into() });
+        assert!(!auto_archive_ready(&run(RunOutcome::Report), &asleep, now));
+        let mut unsaved = s.clone();
+        unsaved.unsaved = Some(launchpad_core::model::Unsaved { since, attempts: 1, note: Some("push refused".into()) });
+        assert!(!auto_archive_ready(&run(RunOutcome::Report), &unsaved, now));
+        let mut retry = s.clone();
+        retry.capacity_retry_at = Some(now + 1);
+        assert!(!auto_archive_ready(&run(RunOutcome::Report), &retry, now));
+        for status in [SessionStatus::Error, SessionStatus::Interrupted, SessionStatus::Stopped, SessionStatus::Working, SessionStatus::Closed, SessionStatus::QuotaPaused] {
+            let mut other = s.clone();
+            other.status = status;
+            assert!(!auto_archive_ready(&run(RunOutcome::Report), &other, now), "{status:?}");
+        }
+        // Too old: a merge that took longer keeps it visible.
+        assert!(!auto_archive_ready(&run(RunOutcome::Report), &s, since + AUTO_ARCHIVE_WINDOW_MS + 1));
+    }
+
+    #[test]
+    fn auto_archive_takes_only_the_run_s_own_bot_thread() {
+        let thread = |id: &str, key: Option<&str>, archived: bool| launchpad_core::bot_threads::BotThread { id: id.into(), bot_id: "b".into(), key: key.map(str::to_string), title: "t".into(), created_at: 0, archived_at: archived.then_some(1) };
+        let one = [done_session("s1", 1)];
+        let own = thread("t1", Some("routine:routines/daily.toml"), false);
+        assert!(own_run_thread(&own, &one, "routines/daily.toml", "s1"));
+        // Another routine's thread, a channel's, the owner's, Main, an archived one.
+        assert!(!own_run_thread(&own, &one, "routines/other.toml", "s1"));
+        assert!(!own_run_thread(&thread("t1", Some("channel:c"), false), &one, "routines/daily.toml", "s1"));
+        assert!(!own_run_thread(&thread("t1", None, false), &one, "routines/daily.toml", "s1"));
+        assert!(!own_run_thread(&thread(launchpad_core::bot_threads::MAIN, Some("routine:routines/daily.toml"), false), &one, "routines/daily.toml", "s1"));
+        assert!(!own_run_thread(&thread("t1", Some("routine:routines/daily.toml"), true), &one, "routines/daily.toml", "s1"));
+        // A thread with another session (the owner started a new session there), or not the run's session.
+        assert!(!own_run_thread(&own, &[done_session("s0", 0), done_session("s1", 1)], "routines/daily.toml", "s1"));
+        assert!(!own_run_thread(&own, &one, "routines/daily.toml", "s9"));
     }
 
     #[test]

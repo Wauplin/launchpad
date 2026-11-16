@@ -7,7 +7,11 @@ import type { ReportOutcome } from "./ReportOutcome";
 import type { Tool } from "./Tool";
 import type { Trigger } from "./Trigger";
 
-export type ProposalBody = { "kind": "launch", spec: LaunchSpec, } | { "kind": "message", session_id: string, text: string, } | { "kind": "schedule", spec: LaunchSpec, conditions: Array<LaunchDelay>, } | { "kind": "cron", spec: LaunchSpec, schedule: string, conditions: Array<CronCondition>, } | { "kind": "status", session_ids: Array<string>, } | { "kind": "preset", preset_id?: string, label: string, text: string, agent: boolean, } | { "kind": "bot", name: string, 
+export type ProposalBody = { "kind": "launch", spec: LaunchSpec, } | { "kind": "message", session_id: string, text: string, } | { "kind": "schedule", spec: LaunchSpec, conditions: Array<LaunchDelay>, } | { "kind": "cron", spec: LaunchSpec, schedule: string, conditions: Array<CronCondition>, 
+/**
+ * Archive each run's session once it ended Done with nothing waiting (`CronAgent.auto_archive`).
+ */
+auto_archive?: boolean, } | { "kind": "status", session_ids: Array<string>, } | { "kind": "preset", preset_id?: string, label: string, text: string, agent: boolean, } | { "kind": "bot", name: string, 
 /**
  * BOT.md.
  */
@@ -19,7 +23,11 @@ folder?: string, } | { "kind": "routine", bot_id: string, title: string,
 /**
  * What the bot does at each run.
  */
-instructions: string, trigger: Trigger, schedule: string, conditions: Array<CronCondition>, } | { "kind": "bot_instructions", bot_id: string, instructions: string, 
+instructions: string, trigger: Trigger, schedule: string, conditions: Array<CronCondition>, 
+/**
+ * Archive each run's session once it ended Done with nothing waiting (`CronAgent.auto_archive`).
+ */
+auto_archive?: boolean, } | { "kind": "bot_instructions", bot_id: string, instructions: string, 
 /**
  * BOT.md when the proposal was made (filled by Home).
  */

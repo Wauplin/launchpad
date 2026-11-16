@@ -305,6 +305,44 @@ pub async fn worktrees(app: &App, s: &Session) -> Result<Vec<WorktreeInfo>> {
     Ok(out)
 }
 
+/// Home: why the session's worktrees still hold work that waits (a merge waiting or stopped, commits not on Home or
+/// not merged and in no Local PR, saved leftovers), from Home's records and branches; None when nothing waits. A
+/// routine's auto archive (`crons::auto_archive`) needs None, so pending work never counts as a success.
+pub async fn unfinished_work(app: &App, session_id: &str) -> Result<Option<String>> {
+    for w in records(app, session_id).await? {
+        if w.state == WorktreeState::Discarded {
+            continue;
+        }
+        if let Some(why) = waiting_work(&info(app, w, None).await) {
+            return Ok(Some(why));
+        }
+    }
+    Ok(None)
+}
+
+/// `unfinished_work` for one worktree.
+pub fn waiting_work(i: &WorktreeInfo) -> Option<String> {
+    let w = &i.worktree;
+    if let Some(m) = &w.merge {
+        let phase = match m.phase {
+            crate::worktrees::MergePhase::Waiting => "waits",
+            crate::worktrees::MergePhase::Conflict => "has a conflict",
+            crate::worktrees::MergePhase::Failed => "failed",
+        };
+        return Some(format!("the merge of {} {phase}", w.branch));
+    }
+    if w.push_note.is_some() || w.held_at.is_some() || i.unpushed {
+        return Some(format!("{} has commits that are not on Home", w.branch));
+    }
+    if w.leftovers.is_some() {
+        return Some(format!("{} left uncommitted files on Home", w.branch));
+    }
+    if i.ahead > 0 && w.predraft_id.is_none() && w.pull_request.is_none() {
+        return Some(format!("{} has {} commits that are not merged", w.branch, i.ahead));
+    }
+    None
+}
+
 /// Every worktree of away sessions, for Review → Agent branches.
 pub async fn all_worktrees(app: &App) -> Vec<WorktreeInfo> {
     let mut out = vec![];
@@ -448,7 +486,31 @@ pub async fn local_pr(app: &App, s: &Session, cwd: &str, title: Option<String>) 
 
 #[cfg(test)]
 mod tests {
-    use super::is_unpushed;
+    use super::{is_unpushed, waiting_work};
+    use crate::worktrees::{MergePhase, MergeRequest, TaskWorktree, WorktreeInfo};
+
+    fn info(ahead: u32, unpushed: bool, change: impl FnOnce(&mut TaskWorktree)) -> WorktreeInfo {
+        let mut w: TaskWorktree = serde_json::from_value(serde_json::json!({"id": "w", "sessions": ["s"], "project_id": "p", "repo": "", "root": "/w", "branch": "lp/x", "base_branch": "main", "base_commit": "b", "primary": true, "state": "active", "merge": null, "merged": null, "predraft_id": null, "cleanup_note": null, "created_at": 0})).unwrap();
+        change(&mut w);
+        WorktreeInfo { worktree: w, project_name: "p".into(), path: "/w".into(), exists: true, dirty_files: 0, ahead, behind: 0, unpushed, head: None, away: None, on_home: true }
+    }
+
+    #[test]
+    fn pending_merges_and_unmerged_commits_are_waiting_work() {
+        // Merged (nothing ahead) or no commits: nothing waits.
+        assert_eq!(waiting_work(&info(0, false, |_| {})), None);
+        // Commits held by a Local PR or pushed to a pull request: they wait in their own card.
+        assert_eq!(waiting_work(&info(2, false, |w| w.predraft_id = Some("pr".into()))), None);
+        // Commits nobody merged, a merge that waits or failed, pushes not on Home, leftovers: work waits.
+        assert!(waiting_work(&info(2, false, |_| {})).unwrap().contains("2 commits that are not merged"));
+        for phase in [MergePhase::Waiting, MergePhase::Conflict, MergePhase::Failed] {
+            let merge = MergeRequest { phase, reason: String::new(), by_agent: true, head: None, agent_retries: 0, requested_at: 0 };
+            assert!(waiting_work(&info(0, false, |w| w.merge = Some(merge))).unwrap().starts_with("the merge of lp/x"));
+        }
+        assert!(waiting_work(&info(0, true, |_| {})).is_some());
+        assert!(waiting_work(&info(0, false, |w| w.push_note = Some("refused".into()))).is_some());
+        assert!(waiting_work(&info(0, false, |w| w.leftovers = Some(crate::worktrees::Leftovers { branch: "lp-scratch/x".into(), files: 1 }))).is_some());
+    }
 
     #[test]
     fn unpushed_compares_the_runner_tip_with_home() {

@@ -16,7 +16,7 @@ export const CI = "Read the failing CI runs of storefront's open pull requests s
 // ---------------------------------------------------------------- routine files
 
 /** What a routine file holds (Home's `crons::RoutineFile`). */
-export type RoutineDef = { title: string; paused: boolean; schedule: string; time_zone?: string; instructions: string; trigger: CronAgent["trigger"]; conditions: CronCondition[] };
+export type RoutineDef = { title: string; paused: boolean; schedule: string; time_zone?: string; instructions: string; trigger: CronAgent["trigger"]; conditions: CronCondition[]; auto_archive?: boolean };
 
 const HEADER = "# A routine of this bot: its runs are messages to the bot's thread. Saved from the bot's page; a hand edit\n# applies at once. trigger.kind: schedule (with schedule, a 5-field cron), session_done, failure or channel.\n";
 const str = (v: string) => JSON.stringify(v);
@@ -27,11 +27,11 @@ const table = (o: Record<string, unknown>) => Object.entries(o).filter(([, v]) =
 export function routineToml(d: RoutineDef): string {
   const top = [`title = ${str(d.title)}`, d.paused ? "paused = true" : "", d.schedule ? `schedule = ${str(d.schedule)}` : "", d.time_zone ? `time_zone = ${str(d.time_zone)}` : "", `instructions = """\n${d.instructions}"""`].filter(Boolean).join("\n");
   const conditions = d.conditions.map((c) => `\n[[conditions]]\n${table(c)}\n`).join("");
-  return `${HEADER}${top}\n\n[trigger]\n${table(d.trigger)}\n${conditions}`;
+  return `${HEADER}${top}${d.auto_archive ? "\nauto_archive = true" : ""}\n\n[trigger]\n${table(d.trigger)}\n${conditions}`;
 }
 
 /** The definition of a routine record, as its file holds it. */
-export const defOf = (c: CronAgent): RoutineDef => ({ title: c.title, paused: c.paused, schedule: c.schedule, ...(c.time_zone ? { time_zone: c.time_zone } : {}), instructions: c.spec.text, trigger: c.trigger, conditions: c.conditions });
+export const defOf = (c: CronAgent): RoutineDef => ({ title: c.title, paused: c.paused, schedule: c.schedule, ...(c.time_zone ? { time_zone: c.time_zone } : {}), instructions: c.spec.text, trigger: c.trigger, conditions: c.conditions, ...(c.auto_archive ? { auto_archive: true } : {}) });
 
 /** Reads the routine files the demo writes (and simple hand edits of them): keys, strings, `"""` strings, arrays,
  * `[trigger]` (or an inline `trigger = { … }`) and `[[conditions]]`. Throws the error a real Home would show. */
@@ -64,7 +64,7 @@ export function parseRoutineToml(text: string): RoutineDef {
       target[m[1]] = body.join("\n").replace(/^\n/, "");
     } else target[m[1]] = parse(m[2]);
   }
-  const d: RoutineDef = { title: String(out.title ?? "").trim(), paused: out.paused === true, schedule: String(out.schedule ?? ""), ...(out.time_zone ? { time_zone: String(out.time_zone) } : {}), instructions: String(out.instructions ?? "").trim(), trigger: (out.trigger as CronAgent["trigger"]) ?? { kind: "schedule" }, conditions: conditions as CronCondition[] };
+  const d: RoutineDef = { title: String(out.title ?? "").trim(), paused: out.paused === true, schedule: String(out.schedule ?? ""), ...(out.time_zone ? { time_zone: String(out.time_zone) } : {}), instructions: String(out.instructions ?? "").trim(), trigger: (out.trigger as CronAgent["trigger"]) ?? { kind: "schedule" }, conditions: conditions as CronCondition[], ...(out.auto_archive === true ? { auto_archive: true } : {}) };
   if (!d.title) throw new Error("routine file: give the routine a title");
   if (!d.instructions) throw new Error("routine file: write what the bot does at each run (instructions)");
   return d;

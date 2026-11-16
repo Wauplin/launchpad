@@ -454,7 +454,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       if (editing) {
         if (cron) {
           // A routine replaces the scheduled agent.
-          const r = await api.post<CronAgent>("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, time_zone: browserZone() });
+          const r = await api.post<CronAgent>("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, auto_archive: !!cron.auto_archive, time_zone: browserZone() });
           await api.delete(`/api/launch/schedules/${editing}`).catch(toastError);
           setCron(null);
           discard();
@@ -479,7 +479,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         return;
       }
       if (cron) {
-        const r = await api.post<CronAgent>("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, time_zone: browserZone() });
+        const r = await api.post<CronAgent>("/api/launch/crons", { spec, schedule: cron.schedule, conditions: cron.conditions, auto_archive: !!cron.auto_archive, time_zone: browserZone() });
         setCron(null);
         discard();
         void queryClient.invalidateQueries({ queryKey: ["crons"] });

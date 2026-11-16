@@ -9,7 +9,7 @@ import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { Choice, Choices, ConfirmButton, MenuSection, MoreMenu, StatusBadge } from "@/components/ui";
 import { MenuItem } from "@/components/Popover";
-import { CronFields, DEFAULT_CRON, conditionSummary } from "@/features/launch/CronSelector";
+import { AutoArchiveField, CronFields, DEFAULT_CRON, conditionSummary } from "@/features/launch/CronSelector";
 import type { Bot } from "@/gen/Bot";
 import type { CronAgent } from "@/gen/CronAgent";
 import type { CronCondition } from "@/gen/CronCondition";
@@ -25,7 +25,7 @@ import { useChannelName, useChannels } from "@/lib/channels";
 import { useProjects } from "@/lib/queries";
 import { EVENT_RUNS_PER_HOUR, FAILURE_EVENTS, OUTCOME, OUTCOME_CLASS, browserZone, cronTitle, lastSuccess, routineState, triggerSummary } from "@/lib/routines";
 
-export type RoutineDraft = { trigger: Trigger; schedule: string; conditions: CronCondition[] };
+export type RoutineDraft = { trigger: Trigger; schedule: string; conditions: CronCondition[]; auto_archive?: boolean };
 
 const TONE = { ok: "done", quiet: "idle", bad: "failed", work: "running" } as const;
 
@@ -105,6 +105,7 @@ export function TriggerFields({ draft, harness, workspaceId, inThread, botId, on
       <p className="m-0 text-[12px] text-ink-3">Each time another agent finishes a turn (Done) there, a run starts with a reference to that agent's trace. Runs of routines never start other routines, and a routine started by events runs at most {EVENT_RUNS_PER_HOUR} times an hour.</p>
     </div>}
     <CronFields draft={{ schedule: draft.schedule, conditions }} harness={harness} schedule={t.kind === "schedule"} previousRun={!inThread} onChange={(c) => onChange({ ...draft, schedule: c.schedule, conditions: c.conditions })} onValidityChange={setFieldsValid} />
+    <AutoArchiveField checked={!!draft.auto_archive} thread={inThread} onChange={(auto_archive) => onChange({ ...draft, auto_archive })} />
   </div>;
 }
 
@@ -128,7 +129,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
   };
   const save = () => act(async () => {
     if (!edit) return;
-    await api.patch(`/api/launch/crons/${cron.id}`, { title: edit.title, trigger: edit.trigger, schedule: edit.schedule, conditions: edit.conditions, time_zone: browserZone(), ...(cron.bot_id ? { instructions: edit.instructions } : {}) });
+    await api.patch(`/api/launch/crons/${cron.id}`, { title: edit.title, trigger: edit.trigger, schedule: edit.schedule, conditions: edit.conditions, auto_archive: !!edit.auto_archive, time_zone: browserZone(), ...(cron.bot_id ? { instructions: edit.instructions } : {}) });
     setEdit(null);
     toast("Routine saved");
   });
@@ -151,11 +152,12 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
         {cron.file_error && <p className="m-0 rounded-control bg-attn-soft px-2 py-1 text-[12px] text-attn">{cron.file} cannot be used: {cron.file_error}. The routine keeps its last good definition{onEditFile ? "; fix it with Edit as file" : ""}.</p>}
         <p className="m-0 text-ink-2" title={cronTitle(cron)}>{triggerSummary(cron, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder", channelName, bot?.settings.name)}</p>
         <p className="m-0 text-[12px] text-ink-3">{where}</p>
+        {cron.auto_archive && <p className="m-0 text-[12px] text-ink-3">Archives each run {inThread ? "thread " : ""}that ends Done with nothing waiting.</p>}
         {cron.conditions.length > 0 && <ul className="m-0 list-disc pl-5 text-[12px] text-ink-2">{cron.conditions.map((c, i) => <li key={i}>{conditionSummary(c, cron.spec.harness, harnessName)}</li>)}</ul>}
         <p className="m-0 text-[12px] text-ink-3">{success ? `Last successful run ${ago(success.at)} (${success.outcome === "report" ? "report" : "nothing to report"}).` : "No successful run yet."}{cron.last_outcome && !cron.last_outcome.startsWith("Report") && !cron.last_outcome.startsWith("No update") ? ` Last: ${cron.last_outcome}.` : ""}{cron.waiting ? ` Due, waiting: ${cron.waiting}.` : ""}</p>
         <div className="flex flex-wrap items-center gap-2">
           <button className="btn btn-sm btn-primary" disabled={busy} title="Starts a run now, whatever the trigger and the conditions" onClick={() => void act(async () => { onOpen((await api.post<Session>(`/api/launch/crons/${cron.id}/run`)).id); })}><Icon name="play" size={12} />Run now</button>
-          <button className="btn btn-sm" disabled={busy} onClick={() => setEdit({ trigger: cron.trigger, schedule: cron.schedule, conditions: cron.conditions, title: cron.title, instructions: cron.spec.text })}><Icon name="pencil" size={12} />Edit</button>
+          <button className="btn btn-sm" disabled={busy} onClick={() => setEdit({ trigger: cron.trigger, schedule: cron.schedule, conditions: cron.conditions, auto_archive: cron.auto_archive, title: cron.title, instructions: cron.spec.text })}><Icon name="pencil" size={12} />Edit</button>
           <MoreMenu label={`More actions for ${cron.title}`} width={280}>{(close) => <>
             <MenuItem icon={<Icon name={cron.paused ? "play" : "stop"} size={14} />} label={cron.paused ? "Resume" : "Pause"} detail={cron.bot_paused ? "Resume the bot to resume its routines" : cron.paused ? "Runs start again from the next trigger" : "No run starts until you resume it"} disabled={busy || cron.bot_paused} onClick={() => { close(); void act(async () => { await api.patch(`/api/launch/crons/${cron.id}`, { paused: !cron.paused }); }); }} />
             {onEditFile && <MenuItem icon={<Icon name="file" size={14} />} label="Edit as file" detail={cron.file ?? undefined} onClick={() => { close(); onEditFile(); }} />}
@@ -169,7 +171,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
       <b className="text-[12px] text-ink-2">Runs ({cron.history.length})</b>
       {cron.history.length ? [...cron.history].reverse().map((r) => <button key={`${r.at}-${r.cause}`} disabled={!r.session_id} onClick={() => r.session_id && onOpen(r.session_id)} className="grid min-w-0 gap-0.5 rounded-control border border-line px-2 py-1.5 text-left text-[12px] hover:bg-chrome disabled:cursor-default disabled:hover:bg-transparent">
         <span className="flex min-w-0 items-center gap-2"><span className="min-w-0 flex-1 truncate" title={r.cause}>{when(r.at)} · {r.cause}</span><OutcomeBadge run={r} /></span>
-        {r.detail && <span className="text-ink-3">{r.detail}</span>}
+        {(r.detail || r.archived) && <span className="text-ink-3">{[r.detail, r.archived && "Archived automatically"].filter(Boolean).join(" · ")}</span>}
       </button>) : <p className="m-0 text-[12px] text-ink-3">No run yet. Quiet runs show here as No update; they never notify you.</p>}
     </div>
     {!inThread && <div><b className="text-[12px] text-ink-2">Prompt of each run</b><pre className="mt-2 rounded-card border border-line p-3 text-[12px] whitespace-pre-wrap">{preview.data?.prompt ?? (preview.isError ? "Folder context is unavailable. Delete this routine and create it again with another folder." : "Loading…")}</pre></div>}

@@ -24,7 +24,15 @@ pub enum ProposalBody {
     /// A new agent that starts when every condition is met.
     Schedule { spec: LaunchSpec, conditions: Vec<LaunchDelay> },
     /// A repeating agent (cron, in the time zone of the browser that accepts it, else `[home] time_zone`).
-    Cron { spec: LaunchSpec, schedule: String, conditions: Vec<CronCondition> },
+    Cron {
+        spec: LaunchSpec,
+        schedule: String,
+        conditions: Vec<CronCondition>,
+        /// Archive each run's session once it ended Done with nothing waiting (`CronAgent.auto_archive`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        auto_archive: bool,
+    },
     /// A list of sessions to look at; nothing to start.
     Status { session_ids: Vec<String> },
     /// A new preset, or new values for the preset `preset_id`. Proposals never delete presets.
@@ -66,6 +74,10 @@ pub enum ProposalBody {
         schedule: String,
         #[serde(default)]
         conditions: Vec<CronCondition>,
+        /// Archive each run's session once it ended Done with nothing waiting (`CronAgent.auto_archive`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(optional, as = "Option<bool>")]
+        auto_archive: bool,
     },
     /// A new BOT.md for a bot of the workspace. A shorthand: Home stores it as a `BotFiles` card (older cards still
     /// start as they are). Accepting fails when BOT.md changed since.
@@ -320,7 +332,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     let mut result_id = None;
     // The shorthands become one bot-files card, so every change to a bot's files reads as a diff.
     match &body {
-        ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions } => {
+        ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions, auto_archive } => {
             ensure!(!title.trim().is_empty(), "give the routine a name");
             // A channel trigger may name the channel (`#name`, `@bot` for a DM): the file keeps its ID.
             let mut trigger = trigger.clone();
@@ -329,7 +341,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             {
                 crate::channel_trigger::resolve_trigger(app, &bot, &mut trigger).await?;
             }
-            let f = crate::crons::RoutineFile { title: title.trim().into(), paused: false, schedule: schedule.clone(), time_zone: None, instructions: instructions.clone(), trigger, conditions: conditions.clone() };
+            let f = crate::crons::RoutineFile { title: title.trim().into(), paused: false, schedule: schedule.clone(), time_zone: None, instructions: instructions.clone(), trigger, conditions: conditions.clone(), auto_archive: *auto_archive };
             let taken: Vec<String> = launchpad_core::bots::routine_files(app, bot_id).await.with_context(|| format!("no bot {bot_id} (see `bots list`)"))?.into_iter().map(|(p, _)| p).collect();
             let path = crate::crons::file_path_for(&f.title, &taken);
             body = ProposalBody::BotFiles { bot_id: bot_id.clone(), files: [(path, Some(crate::crons::render_file(&f)?))].into(), before: Default::default(), patches: Default::default() };
@@ -719,8 +731,8 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 spec.from = launch_sender(app, &p, manual, agent.as_deref()).await?;
                 Ok(crate::schedules::create(app, spec, conditions).await?.id)
             }
-            ProposalBody::Cron { spec, schedule, conditions } => Ok(crate::crons::create(app, spec, schedule, conditions, Default::default(), None, time_zone).await?.id),
-            ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions } => Ok(crate::crons::create_for_bot(app, &bot_id, crate::crons::BotRoutine { title, instructions, trigger, schedule, conditions, time_zone }).await?.id),
+            ProposalBody::Cron { spec, schedule, conditions, auto_archive } => Ok(crate::crons::create(app, crate::crons::NewCron { spec, schedule, conditions, trigger: Default::default(), title: None, time_zone, auto_archive }).await?.id),
+            ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions, auto_archive } => Ok(crate::crons::create_for_bot(app, &bot_id, crate::crons::BotRoutine { title, instructions, trigger, schedule, conditions, time_zone, auto_archive }).await?.id),
             ProposalBody::BotInstructions { bot_id, instructions, before, .. } => {
                 let bot = launchpad_core::bots::get(app, &bot_id).await?;
                 ensure!(bot.instructions == before, "BOT.md changed since this proposal: ask {} again", bot.settings.name);
@@ -980,7 +992,7 @@ mod tests {
 
     #[test]
     fn accepted_schedules_take_the_browser_zone_once() {
-        let text = crate::crons::render_file(&crate::crons::RoutineFile { title: "Daily".into(), paused: false, schedule: "0 9 * * *".into(), time_zone: None, instructions: "Check".into(), trigger: Default::default(), conditions: vec![] }).unwrap();
+        let text = crate::crons::render_file(&crate::crons::RoutineFile { title: "Daily".into(), paused: false, schedule: "0 9 * * *".into(), time_zone: None, instructions: "Check".into(), trigger: Default::default(), conditions: vec![], auto_archive: false }).unwrap();
         let f = crate::crons::parse_file(&text).unwrap();
         let zoned = with_zone(text.clone(), &f, Some("Europe/Paris"));
         assert_eq!(crate::crons::parse_file(&zoned).unwrap().time_zone.as_deref(), Some("Europe/Paris"));

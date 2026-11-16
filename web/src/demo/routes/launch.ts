@@ -346,13 +346,13 @@ export function applyRoutineFile(botId: string, path: string, text: string | nul
     try { d = parseRoutineToml(text); } catch (e) { throw new DemoError(400, `${path}: ${e instanceof Error ? e.message : String(e)}`); }
     if (d.trigger.kind === "schedule") nextRuns(d.schedule, 1);
     if (c) {
-      c.title = d.title; c.paused = d.paused; c.schedule = d.schedule; c.time_zone = d.time_zone; c.trigger = d.trigger; c.conditions = d.conditions; c.spec = { ...c.spec, text: d.instructions }; c.file_error = null;
+      c.title = d.title; c.paused = d.paused; c.schedule = d.schedule; c.time_zone = d.time_zone; c.trigger = d.trigger; c.conditions = d.conditions; c.auto_archive = !!d.auto_archive; c.spec = { ...c.spec, text: d.instructions }; c.file_error = null;
       c.next_run_at = nextDue(c);
     } else {
       const bot = world.bots.find((b) => b.id === botId);
       if (!bot) throw new DemoError(400, "this bot no longer exists");
       const profile = world.config.profiles.find((x) => x.id === bot.settings.profile);
-      createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: bot.settings.profile ?? null, target: botTarget(bot), text: d.instructions, workspace_id: bot.workspace_id }, d.schedule, d.conditions, d.trigger, { title: d.title, paused: d.paused, bot_id: bot.id, bot_paused: bot.paused, file: path, ...(d.time_zone ? { time_zone: d.time_zone } : {}) });
+      createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: bot.settings.profile ?? null, target: botTarget(bot), text: d.instructions, workspace_id: bot.workspace_id }, d.schedule, d.conditions, d.trigger, { title: d.title, paused: d.paused, bot_id: bot.id, bot_paused: bot.paused, file: path, auto_archive: !!d.auto_archive, ...(d.time_zone ? { time_zone: d.time_zone } : {}) });
     }
   }
   recordBotChange(botId, path, before, text);
@@ -367,7 +367,7 @@ export function createCron(spec: LaunchSpec, expr: string, conditions: CronCondi
   if (!spec.text.trim()) throw new DemoError(400, "the prompt is empty");
   if (trigger.kind === "schedule") nextRuns(expr, 1);
   if (trigger.kind === "failure" && !trigger.events.length) throw new DemoError(400, "pick at least one kind of failure");
-  const c: CronAgent = { id: demoId("demo-cron"), spec, title: titleOf(spec.text), schedule: expr.trim(), trigger, bot_id: null, bot_paused: false, conditions, paused: false, created_at: clock.now(), next_run_at: null, last_check_at: null, last_outcome: null, runs: [], history: [], failure_seen: null, channel_seen: null, file: null, file_error: null, waiting: null, ...extra };
+  const c: CronAgent = { id: demoId("demo-cron"), spec, title: titleOf(spec.text), schedule: expr.trim(), trigger, bot_id: null, bot_paused: false, conditions, paused: false, created_at: clock.now(), next_run_at: null, last_check_at: null, last_outcome: null, runs: [], history: [], failure_seen: null, channel_seen: null, file: null, file_error: null, auto_archive: false, waiting: null, ...extra };
   c.next_run_at = nextDue(c);
   world.crons = [...world.crons, c];
   publishCrons();
@@ -376,7 +376,7 @@ export function createCron(spec: LaunchSpec, expr: string, conditions: CronCondi
 
 route("GET", "/api/launch/crons", () => world.crons);
 route("GET", "/api/launch/crons/next", (r) => nextRuns(r.query.get("schedule") ?? "", 3));
-route("POST", "/api/launch/crons", (r) => createCron({ ...defaultSpec(), ...(r.body?.spec as LaunchSpec) }, String(r.body?.schedule ?? ""), r.body?.conditions ?? [], r.body?.trigger ?? { kind: "schedule" }, { ...(r.body?.title ? { title: String(r.body.title) } : {}), ...(r.body?.time_zone ? { time_zone: String(r.body.time_zone) } : {}) }));
+route("POST", "/api/launch/crons", (r) => createCron({ ...defaultSpec(), ...(r.body?.spec as LaunchSpec) }, String(r.body?.schedule ?? ""), r.body?.conditions ?? [], r.body?.trigger ?? { kind: "schedule" }, { auto_archive: !!r.body?.auto_archive, ...(r.body?.title ? { title: String(r.body.title) } : {}), ...(r.body?.time_zone ? { time_zone: String(r.body.time_zone) } : {}) }));
 route("PATCH", "/api/launch/crons/:id", (r) => {
   const c = cronOf(r.params.id);
   const before = c.file ? routineToml(defOf(c)) : null;
@@ -385,6 +385,7 @@ route("PATCH", "/api/launch/crons/:id", (r) => {
   if (c.trigger.kind === "schedule") nextRuns(c.schedule, 1);
   if (r.body?.conditions) c.conditions = r.body.conditions;
   if (r.body?.paused != null) c.paused = !!r.body.paused;
+  if (r.body?.auto_archive != null) c.auto_archive = !!r.body.auto_archive;
   if (r.body?.time_zone) c.time_zone = String(r.body.time_zone);
   if (r.body?.title != null) c.title = String(r.body.title).trim() || c.title;
   if (r.body?.instructions != null) c.spec = { ...c.spec, text: String(r.body.instructions).trim() };
@@ -443,7 +444,7 @@ route("POST", "/api/proposals/:id/accept", (r) => {
     const spec = "spec" in b ? { ...b.spec, allow_paid_usage: false } : null;
     if (b.kind === "launch") p.result_id = launch(spec!, p.result_id ?? undefined).id;
     else if (b.kind === "schedule") p.result_id = schedule(spec!, b.conditions, null, p.title).id;
-    else if (b.kind === "cron") p.result_id = createCron(spec!, b.schedule, b.conditions).id;
+    else if (b.kind === "cron") p.result_id = createCron(spec!, b.schedule, b.conditions, undefined, { auto_archive: !!b.auto_archive }).id;
     else if (b.kind === "message") { sendMessage(found(b.session_id), b.text, `${p.id}-msg`); p.result_id = b.session_id; }
     else if (b.kind === "tool") p.result_id = b.tool.id;
     else if (b.kind === "channel") p.result_id = createChannel(p.workspace_id ?? "", b.name, b.purpose, b.members).id;
@@ -476,7 +477,7 @@ route("POST", "/api/proposals/:id/accept", (r) => {
       const bot = world.bots.find((x) => x.id === b.bot_id);
       if (!bot) throw new DemoError(400, "this bot no longer exists");
       const profile = world.config.profiles.find((x) => x.id === bot.settings.profile);
-      p.result_id = createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: bot.settings.profile ?? null, target: botTarget(bot), text: b.instructions, workspace_id: bot.workspace_id }, b.schedule, b.conditions, b.trigger, { title: b.title, bot_id: bot.id, bot_paused: bot.paused }).id;
+      p.result_id = createCron({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: bot.settings.profile ?? null, target: botTarget(bot), text: b.instructions, workspace_id: bot.workspace_id }, b.schedule, b.conditions, b.trigger, { title: b.title, bot_id: bot.id, bot_paused: bot.paused, auto_archive: !!b.auto_archive }).id;
     }
     p.state = "started";
     p.error = null;

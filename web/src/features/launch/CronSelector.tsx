@@ -7,7 +7,7 @@ import { useHarnessName, useHarnessInfo } from "@/components/HarnessMark";
 import { api } from "@/lib/api";
 import { browserZone } from "@/lib/routines";
 
-export type CronDraft = { schedule: string; conditions: CronCondition[] };
+export type CronDraft = { schedule: string; conditions: CronCondition[]; auto_archive?: boolean };
 
 export const DEFAULT_CRON: CronDraft = { schedule: "0 9 * * 1-5", conditions: [{ kind: "previous_run_finished" }, { kind: "quota_left", window: "five_hour", min_left_percent: 20 }] };
 
@@ -66,6 +66,16 @@ export function CronFields({ draft, harness, onChange, onValidityChange, schedul
   </div>;
 }
 
+/** The routine's Archive when done setting (`auto_archive`, off by default). `thread`: a bot routine, whose runs are threads. */
+export function AutoArchiveField({ checked, thread = false, onChange }: { checked: boolean; thread?: boolean; onChange: (checked: boolean) => void }) {
+  return <div className="grid gap-1">
+    <label className="flex min-h-7 w-fit cursor-pointer items-center gap-1.5 text-[13px] text-ink-2 select-none">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="accent-teal" />Archive each run {thread ? "thread " : ""}when it ends Done
+    </label>
+    <p className="m-0 text-[12px] text-ink-3">Only a run that ended Done with its work saved and nothing waiting: no question, no unmerged commits outside a Local PR, no merge that waits or failed. Failed, interrupted, stopped and sleeping runs, and runs you continued, stay.</p>
+  </div>;
+}
+
 export function CronSelector({ cron, harness, onChange, onValidityChange }: { cron: CronDraft | null; harness: HarnessKind | null; onChange: (cron: CronDraft | null) => void; onValidityChange: (valid: boolean) => void }) {
   const supportsQuota = useHarnessInfo(harness)?.capabilities.quota ?? false;
   useEffect(() => { if (!cron) onValidityChange(true); }, [cron, onValidityChange]);
@@ -76,6 +86,7 @@ export function CronSelector({ cron, harness, onChange, onValidityChange }: { cr
     </select>
     {cron && <div className="grid gap-2 rounded-card border border-line bg-chrome p-2.5">
       <CronFields draft={cron} harness={harness} onChange={onChange} onValidityChange={onValidityChange} />
+      <AutoArchiveField checked={!!cron.auto_archive} onChange={(auto_archive) => onChange({ ...cron, auto_archive })} />
       <p className="text-[12px] text-ink-3">Each run starts a new agent with this prompt and ends with a short report, or stays silent when there is nothing to report. Runs appear in Agents like other agents; the routine is listed in Schedules.</p>
     </div>}
   </div>;

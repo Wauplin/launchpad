@@ -12,4 +12,8 @@ cause: string, session_id: string | null, outcome: RunOutcome,
 /**
  * Why it was skipped or failed.
  */
-detail: string | null, };
+detail: string | null, 
+/**
+ * The routine archived the run's session (or its bot thread) on its own (`CronAgent.auto_archive`).
+ */
+archived?: boolean, };

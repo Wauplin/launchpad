@@ -55,6 +55,11 @@ file: string | null,
  */
 file_error: string | null, 
 /**
+ * Archive each run's session once it ended Done with its work saved and nothing waiting (`auto_archive_ready`,
+ * `unfinished_work`); a bot routine archives the run's own thread. Off by default.
+ */
+auto_archive: boolean, 
+/**
  * Why its due run has not started yet (for example no confirmed quota reading). Never stored: `list` fills it.
  */
 waiting: string | null, };
