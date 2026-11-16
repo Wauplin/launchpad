@@ -706,25 +706,24 @@ pub struct BotLaunch {
     pub slug: String,
     /// BOT.md, the owner's instructions. Cleared in session lists.
     pub instructions: String,
-    /// The bot's thread this session belongs to (`bot_thread.id`, `bots::MAIN` for its main conversation). Empty in
-    /// sessions from before bots had several threads: read as main (`BotLaunch::thread_id`).
+    /// The bot's thread this session is (`bot_thread.id`). Empty in sessions from before bots had several threads:
+    /// read as `bot_threads::LEGACY` (`BotLaunch::thread_id`).
     #[serde(skip_serializing_if = "String::is_empty")]
     #[ts(optional, as = "Option<String>")]
     pub thread: String,
-    /// The thread's previous session, referenced by its trace (never inlined).
+    /// The session of the thread this one continues, referenced by its trace (never inlined).
     pub previous: Option<BotHandoff>,
     /// The version of BOT.md (`bots::version`) the session started from or last received in a message: when
     /// BOT.md changed since, Home adds the new one to the next message (`bots::with_new_instructions`).
     #[serde(skip_serializing_if = "String::is_empty")]
     #[ts(optional, as = "Option<String>")]
     pub version: String,
-    /// Why this session of the thread started (`bots::rotation`: first, profile, folder, model, effort,
-    /// permissions, archived; new: the owner's Start a new session, with `note`).
+    /// Why this session started (`bots::rotation`: first; or why it continues the thread of `previous`: profile,
+    /// folder, model, effort, permissions, archived; new: older sessions the owner started, with `note`).
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<String>")]
     pub reason: Option<String>,
-    /// The owner's own words for a new session they asked for (Start a new session on the bot page), shown in the
-    /// chat's divider.
+    /// The owner's own words for a new session of older sessions (Start a new session, removed), shown in the chat.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<String>")]
     pub note: Option<String>,
@@ -736,9 +735,9 @@ pub struct BotLaunch {
 }
 
 impl BotLaunch {
-    /// Its thread's ID: `main` for sessions from before bots had several threads.
+    /// Its thread's ID: `bot_threads::LEGACY` for sessions from before bots had several threads.
     pub fn thread_id(&self) -> &str {
-        if self.thread.is_empty() { "main" } else { &self.thread }
+        if self.thread.is_empty() { crate::bot_threads::LEGACY } else { &self.thread }
     }
 }
 

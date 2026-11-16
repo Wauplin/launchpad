@@ -21,8 +21,10 @@ export type ChatSession = {
   folder: string | null;
   /** Why it started (`BotLaunch.reason`: profile, folder, model, effort, permissions, archived, new, first). */
   reason?: string | null;
-  /** The owner's words for a new session they asked for (`BotLaunch.note`). */
+  /** The owner's words for a new session they asked for (`BotLaunch.note`, older sessions). */
   note?: string | null;
+  /** The title of the session whose thread this one continues (`BotLaunch.previous`), else null. */
+  previous?: string | null;
   /** Starting, working or background: its last turn without an end gets the working line. */
   running: boolean;
   rows: TraceRow[];
@@ -42,7 +44,7 @@ export type ChatCard = { kind: "proposal" | "ready" | "changed"; id: string; ses
 export type StepReceipt = { id: string; receipt: string; text: string };
 
 export type ChatItem = { key: string; v: string } & (
-  | { t: "divider"; sessionId: string; index: number; at: number; reason: string | null }
+  | { t: "divider"; sessionId: string; index: number; at: number; reason: string | null; previous: string | null }
   /** `instructions`: the message carried the new BOT.md (Home adds it after BOT.md changed), left out of `text`. */
   | { t: "user"; text: string; images: ImageAttachment[]; queued: boolean; instructions: boolean }
   /** A message from another bot or agent (Home's header and fence left out of `text`): never the owner's bubble. */
@@ -92,7 +94,7 @@ function stepLines(rows: TraceRow[]): string[] {
   return out;
 }
 
-/** Why a session of the thread started (`bots::rotation`), for its divider. */
+/** Why a session continues another thread (`bots::rotation`), for its divider. */
 export const ROTATION_REASONS: Record<string, string> = {
   profile: "the profile changed",
   folder: "the folder changed",
@@ -133,7 +135,7 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
     // Event keys (`e<seq>`) repeat across sessions: every item key names its session.
     const k = (key: string) => `${s.id}/${key}`;
     const reason = why(sessions[si - 1], s);
-    out.push({ key: k("div"), v: reason ?? "", t: "divider", sessionId: s.id, index: first + si + 1, at: s.started_at, reason });
+    out.push({ key: k("div"), v: reason ?? "", t: "divider", sessionId: s.id, index: first + si + 1, at: s.started_at, reason, previous: s.previous ?? null });
 
     // Turns: a message starts one, a turn end closes it.
     const turns: Turn[] = [];

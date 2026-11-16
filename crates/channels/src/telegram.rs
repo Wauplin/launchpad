@@ -572,8 +572,8 @@ async fn handle(app: &App, workspace: &str, msg: &Value) -> Result<()> {
         },
     };
     let name = bot.settings.name.clone();
-    // The owner's own message: the bot's main thread, like its page's default.
-    let to = launchpad_core::bot_threads::route(launchpad_core::bot_threads::Source::Owner { thread: None });
+    // The owner's own message: the bot's Telegram thread.
+    let to = launchpad_core::bot_threads::route(launchpad_core::bot_threads::Source::Telegram);
     let sent = crate::hooks::deliver(app, crate::hooks::Target::Bot { id: bot.id.clone() }, to, format!("{body}{FROM_TELEGRAM}"), false, true).await;
     match sent {
         Ok(d) if d.queued => {

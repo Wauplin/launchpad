@@ -35,7 +35,7 @@ async function projects() {
   return folders.list;
 }
 
-/** A bot's threads (`GET /api/bots/<id>/threads`): main first, then the newest. */
+/** A bot's threads (`GET /api/bots/<id>/threads`): the newest first. */
 export function botThreads(a: { bot: string }): Promise<BotThread[]> {
   return homeJson<BotThread[]>(`/api/bots/${id(a.bot, "bot")}/threads`);
 }
@@ -73,12 +73,12 @@ const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 /** A message to one of a bot's threads: the one named (`thread`, from the panel's thread picker), a new one
  * (`new_thread`: New conversation), else the thread of the GitHub item it names (the page's buttons: the same item
  * continues its conversation, other items run in parallel; several items start a new thread). */
-export async function botMessage(a: { bot: string; text: string; github_refs?: GitHubRef[]; attachments?: FileAttachment[]; new_session?: boolean; reason?: string; key: string; selection?: DiffSelection; thread?: string; new_thread?: boolean }): Promise<Session> {
+export async function botMessage(a: { bot: string; text: string; github_refs?: GitHubRef[]; attachments?: FileAttachment[]; key: string; selection?: DiffSelection; thread?: string; new_thread?: boolean }): Promise<Session> {
   const bot = id(a.bot, "bot");
   const text = String(a.text ?? "").slice(0, 60_000);
   const sel = selection(a.selection);
   const where = a.new_thread ? { new_thread: true } : a.thread ? { thread: id(a.thread, "thread") } : { item_thread: true };
-  const body = { text, attachments: files(a.attachments), context: { github_refs: refs(a.github_refs), ...(sel ? { selection: sel } : {}) }, new_session: !!a.new_session, reason: a.reason ? String(a.reason).slice(0, 120) : null, ...where };
+  const body = { text, attachments: files(a.attachments), context: { github_refs: refs(a.github_refs), ...(sel ? { selection: sel } : {}) }, ...where };
   return homeJson<Session>(`/api/bots/${bot}/message`, { method: "POST", body, idempotency_key: id(a.key, "message") });
 }
 

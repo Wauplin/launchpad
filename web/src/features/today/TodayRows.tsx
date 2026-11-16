@@ -27,6 +27,7 @@ import { useSessionWorktrees } from "@/features/agents/Worktrees";
 import { MessageCard, useOutboxMessages } from "@/features/outbox/MessageCard";
 import { ProposalCard, proposalIcon, runProposalAction, START } from "@/features/proposals/ProposalCard";
 import { SuggestionCard } from "@/features/suggestions/Suggestions";
+import { launchThread } from "@/lib/bots";
 import { runAction, type ActionName } from "@/lib/actions";
 import { api } from "@/lib/api";
 import { ago } from "@/lib/format";
@@ -146,8 +147,8 @@ const OpenAgent = ({ id, close }: { id: string; close: () => void }) => {
 /** A bot's session opens the bot's chat (bots talk there; the trace stays in Agents). */
 const OpenChat = ({ bot, close }: { bot: { id: string; name: string; thread?: string }; close?: () => void }) => {
   const phone = usePhone();
-  // The session's thread of the bot (main needs no `?thread=`).
-  const search = bot.thread && bot.thread !== "main" ? { thread: bot.thread } : {};
+  // The session's thread of the bot.
+  const search = { thread: launchThread(bot) };
   return close ? <Go close={close} icon="spark" label={`Open the chat of ${bot.name}`} go={(n) => n({ to: "/bots/$id", params: { id: bot.id }, search } as never)} />
     : <Link className="btn btn-sm no-underline" to="/bots/$id" params={{ id: bot.id }} search={search as never} title={`Open the chat of ${bot.name}`}>{phone ? "Open" : "Open chat"}</Link>;
 };

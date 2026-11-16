@@ -75,7 +75,7 @@ async fn write_owner_note(State(s): State<Ctx>, Json(q): Json<launchpad_github::
         let result = match &r {
             Recipient::Bot { id, .. } => {
                 let to = bot_threads::route(bot_threads::Source::Items { refs: &refs });
-                bots::message_with(app, id, bots::Message { text: text.clone(), attachments: vec![], context, new_session: None, automatic: false, key: None, to }).await.map(|_| ())
+                bots::message_with(app, id, bots::Message { text: text.clone(), attachments: vec![], context, automatic: false, key: None, to }).await.map(|_| ())
             }
             Recipient::Session { id, .. } => match app.sessions.get(id) {
                 Some(x) if x.status != launchpad_core::model::SessionStatus::Closed => launchpad_core::runners::send_anywhere_with(app, id, &text, vec![], context, None).await,

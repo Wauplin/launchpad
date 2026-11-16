@@ -103,14 +103,14 @@ export const ask: Chapter = {
     },
     {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",
-      title: "A thread, many sessions",
-      body: "The chat shows the whole thread, with a divider at each new session; older messages load as you scroll up. Messages go to the current session. A new session starts when its profile, folder, model, effort or permission mode changes (the divider says why), or when you pick Start a new session in ⋯, with a reason the divider shows; it reads the previous trace only when it needs it. After you edit BOT.md, “Instructions updated” over the message box means your next message brings the new one, in the same session. A routine run with nothing to report is one quiet line.",
+      title: "A thread, one session",
+      body: "The chat shows the whole thread: one session, its older messages loading as you scroll up. When the bot's profile, folder, model, effort or permission mode changed, or the thread was archived, your next message continues in a new thread that references this one (its divider says why); it reads the previous trace only when it needs it. After you edit BOT.md, “Instructions updated” over the message box means your next message brings the new one, in the same session. A routine run with nothing to report is one quiet line.",
       tryIt: { text: "ask the Maintainer for the refund test.", done: () => botSessions().some((s) => (world.events[s.id] ?? []).some((e) => (e.body.kind === "user_message" && e.body.text.toLowerCase().includes("refund")) || e.body.kind === "ask_answered")), doIt: () => api.post(`/api/bots/${BOT}/message`, { text: "Prepare the refund end-to-end test as a Local PR." }) },
     },
     {
       id: "ask.bot-threads", route: BOT_ROUTE, anchor: "bots.threads",
       title: "Several threads at once",
-      body: "A bot works on several conversations in parallel. Your messages go to the thread shown, Main by default. A review asked from the Chrome extension gets the pull request's own thread, each channel, hook and agent gets one, and each routine run starts a new one, so none of them blocks your chat. The chips switch threads; All threads searches them and starts a New thread. The line under the name sums them up, and ⋯ renames or archives the thread shown. At most 16 threads work at once (Threads at once in Access): automatic messages to another thread wait for a free slot, yours never wait.",
+      body: "A bot works on several conversations in parallel. Each thread is one session. The page opens on the thread you looked at last, and your messages go to the thread shown; New thread, first in the bar, starts another with your next message. A review asked from the Chrome extension gets the pull request's own thread, each channel, hook, agent and Telegram gets one, and each routine run starts a new one, so none of them blocks your chat. The chips switch threads; All threads searches them. The line under the name sums them up, and ⋯ renames or archives the thread shown. At most 16 threads work at once (Threads at once in Access): automatic messages to another thread wait for a free slot, yours never wait.",
     },
     {
       id: "ask.bot-answer", route: BOT_ROUTE, anchor: "chat.answering",
@@ -130,7 +130,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-about", route: BOT_ROUTE, anchor: "bots.about",
       title: "About the bot",
-      body: "The chat is the page; the line under the name says what the bot does now, or when it runs next. About opens a drawer with what defines it, top to bottom: BOT.md, Triggers, Memory (its own notes, loaded at the start of each session, up to 100 lines), Access and Versions (every version of its files for 30 days, with Restore). This device remembers whether it was open. ⋯ holds New thread, Rename and Archive for the thread shown, Pause all triggers, Start a new session, Open current session in Agents, Edit as file and Delete. On the phone, ⓘ opens About as a page and the threads button lists the threads.",
+      body: "The chat is the page; the line under the name says what the bot does now, or when it runs next. About opens a drawer with what defines it, top to bottom: BOT.md, Triggers, Memory (its own notes, loaded at the start of each session, up to 100 lines), Access and Versions (every version of its files for 30 days, with Restore). This device remembers whether it was open. ⋯ holds New thread, Rename and Archive for the thread shown, Pause all triggers, Open this thread in Agents, Edit as file and Delete. On the phone, + starts a new thread, ⓘ opens About as a page and the threads button lists the threads.",
     },
     {
       id: "ask.bot-routines", route: `${BOT_ROUTE}?panel=about`, anchor: "bots.triggers",

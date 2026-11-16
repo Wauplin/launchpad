@@ -1,6 +1,7 @@
 // Bots: named, persistent agents of a workspace, stored by Home as files (BOT.md, bot.toml). A bot has several
-// threads (its parallel conversations): a thread is the chain of sessions whose launch spec names the bot and the
-// thread (`launch_spec.bot.thread`, "main" when empty); the newest one that is not archived is its current session.
+// threads (its parallel conversations): a thread is one session whose launch spec names the bot and the thread
+// (`launch_spec.bot.thread`; empty in sessions from before threads: the legacy thread `main`). Threads from before
+// a thread was one session may hold several: only the newest counts.
 // Ask Launchpad and the Librarian are two of them: Home creates each once per workspace.
 
 import { useQuery } from "@tanstack/react-query";
@@ -28,25 +29,51 @@ export const librarianOf = (bots: Bot[] | undefined, ws: string | null) => bots?
 
 export const botOf = (s: Session) => s.launch_spec.bot?.id ?? null;
 
-/** The main thread: the owner's default conversation with a bot. */
-export const MAIN_THREAD = "main";
+/** The thread of sessions from before bots had several threads. */
+const LEGACY_THREAD = "main";
 
-/** The thread of a bot session (older sessions: main). */
-export const threadOf = (s: Session) => s.launch_spec.bot?.thread || MAIN_THREAD;
+/** The thread of a bot launch. */
+export const launchThread = (b: { thread?: string | null }) => b.thread || LEGACY_THREAD;
 
-/** The bot's sessions (of one thread when `thread` is given), oldest first. */
-export const botThread = (sessions: Session[], id: string, thread?: string) => sessions.filter((s) => botOf(s) === id && (thread === undefined || threadOf(s) === thread)).sort((a, b) => a.started_at - b.started_at);
+/** The thread of a bot session. */
+export const threadOf = (s: Session) => launchThread(s.launch_spec.bot ?? {});
 
-/** The bot's threads (main first, then the newest), archived ones with `archived`. */
+/** The bot's sessions, oldest first; with `thread`, that thread's session (its newest) alone. */
+export const botThread = (sessions: Session[], id: string, thread?: string) => {
+  const list = sessions.filter((s) => botOf(s) === id && (thread === undefined || threadOf(s) === thread)).sort((a, b) => a.started_at - b.started_at);
+  return thread === undefined ? list : list.slice(-1);
+};
+
+/** The thread the bot page opens on this device: the last one the owner looked at (browser storage; the demo keeps
+ * nothing). */
+const LAST_THREAD_KEY = (bot: string) => `launchpad.bot-thread.${bot}`;
+export const lastThread = (bot: string) => (window.__lpDemo ? null : localStorage.getItem(LAST_THREAD_KEY(bot)));
+export const rememberThread = (bot: string, thread: string) => { if (!window.__lpDemo) localStorage.setItem(LAST_THREAD_KEY(bot), thread); };
+
+/** The thread to open when none is named: the last one seen on this device while it is still open, else the one
+ * whose session the owner saw last, else the most recent; null when the bot has none (a new thread). */
+export function landingThread(bot: string, threads: BotThread[], sessions: Session[]): string | null {
+  const open = new Set(threads.map((t) => t.id));
+  const remembered = lastThread(bot);
+  if (remembered && open.has(remembered)) return remembered;
+  const mine = sessions.filter((s) => botOf(s) === bot && open.has(threadOf(s)));
+  const seen = mine.filter((s) => s.seen_at > 0).sort((a, b) => b.seen_at - a.seen_at)[0];
+  if (seen) return threadOf(seen);
+  const recent = mine.sort((a, b) => b.status_since - a.status_since)[0];
+  return recent ? threadOf(recent) : threads[0]?.id ?? null;
+}
+
+/** The bot's threads (the newest first), archived ones with `archived`. */
 export const useBotThreads = (id: string | null | undefined, archived = false) => useQuery({ queryKey: ["bot-threads", id, archived], queryFn: () => api.get<BotThread[]>(`/api/bots/${id}/threads${archived ? "?archived=true" : ""}`), enabled: !!id, staleTime: 15_000, retry: false });
 
 /** The thread a `?thread=` value names: a thread ID, or a routing key such as `channel:<id>` (links from a channel). */
 export const findThread = (threads: BotThread[] | undefined, value: string | undefined) => value ? threads?.find((t) => t.id === value || t.key === value) ?? null : null;
 
-/** The current session of each thread of a bot's sessions, by thread. */
+/** The open session of each thread of a bot's sessions (each thread's newest, unless archived), by thread. */
 export function threadCurrents(sessions: Session[]): Map<string, Session> {
   const out = new Map<string, Session>();
-  for (const s of [...sessions].sort((a, b) => a.started_at - b.started_at)) if (s.status !== "closed") out.set(threadOf(s), s);
+  for (const s of [...sessions].sort((a, b) => a.started_at - b.started_at)) out.set(threadOf(s), s);
+  for (const [t, s] of out) if (s.status === "closed") out.delete(t);
   return out;
 }
 
@@ -58,10 +85,11 @@ export function threadSummary(sessions: Session[]): { working: number; needs: nu
 
 export const currentSession = (thread: Session[]) => [...thread].reverse().find((s) => s.status !== "closed") ?? null;
 
-/** Why the next message starts a new session (the same rule as Home's `bots::rotation`), or null. `profile` is
+/** Why the next message continues in a new thread (the same rule as Home's `bots::rotation`), or null. `profile` is
  * the bot's profile: its model and effort apply when bot.toml names none. */
 export function rotationReason(bot: Bot, current: Session | null, profile: { id: string; model: string | null; effort: string | null } | null): string | null {
   if (!current) return null;
+  if (current.status === "closed") return "This thread is archived";
   if (!bot.settings.profile && bot.settings.profiles?.includes(current.launch_spec.profile ?? "")) {
     // Keep the selected fallback for this session, including its model defaults.
     profile = { id: current.launch_spec.profile!, model: current.launch_spec.model ?? null, effort: current.launch_spec.effort ?? null };
@@ -97,7 +125,7 @@ export function botState(sessions: Session[]): BotState {
   return "idle";
 }
 
-/** The state of one thread (its sessions). */
+/** The state of one thread (its session). */
 export function threadState(thread: Session[]): BotState {
   const s = currentSession(thread);
   if (!s) return thread.length ? "idle" : "new";

@@ -287,7 +287,7 @@ export function agentsWorld() {
 
   // Ask Launchpad: the Acme bot's thread, with a short prerecorded conversation.
   add({ id: "demo-s-ask-acme", title: "What is running in Acme right now?", project: P.ask, harness: "claude", minutesAgo: 35, cwd: `${TMP}/tmp-1105-whats-running-in-acme`,
-    spec: { profile: "claude-max", workspace_id: WS.acme, text: "What is running in Acme right now?", bot: { id: "demo-bot-ask-acme", name: "Ask Launchpad", slug: "ask-launchpad", instructions: "", previous: null, version: botVersion(ASK_DEFAULT), reason: "first" } },
+    spec: { profile: "claude-max", workspace_id: WS.acme, text: "What is running in Acme right now?", bot: { id: "demo-bot-ask-acme", name: "Ask Launchpad", slug: "ask-launchpad", instructions: "", previous: null, version: botVersion(ASK_DEFAULT), reason: "first", thread: "demo-thread-ask-acme" } },
     events: [
       user("What is running in Acme right now?", false),
       ...tool("Bash", "launchpad sessions list --workspace Acme", "[{\"title\":\"Add a dark-mode toggle to the header\",\"status\":\"working\"},{\"title\":\"Speed up invoice PDF rendering\",\"status\":\"working\"},{\"title\":\"Run the load test on the invoices API\",\"status\":\"background\"}, …]"),
@@ -302,7 +302,7 @@ export function agentsWorld() {
     ] });
   // Bots: the Maintainer of storefront, one session in its thread (its definition is in world/bots.ts).
   add({ id: "demo-s-bot-maintainer", title: "What changed in checkout this week", project: P.storefront, harness: "claude", minutesAgo: 70, seen: true, worktree: "maintainer-checkout-week",
-    spec: { text: "What changed in checkout this week, and is anything still risky?", bot: { id: "demo-bot-maintainer", name: "Maintainer", slug: "maintainer", instructions: "", previous: null, version: botVersion(MAINTAINER_BOT_MD_PREV), reason: "first" } },
+    spec: { text: "What changed in checkout this week, and is anything still risky?", bot: { id: "demo-bot-maintainer", name: "Maintainer", slug: "maintainer", instructions: "", previous: null, version: botVersion(MAINTAINER_BOT_MD_PREV), reason: "first", thread: "demo-thread-maintainer" } },
     events: [
       user("What changed in checkout this week, and is anything still risky?"),
       ...tool("Bash", "git log --since=7.days --oneline -- src/checkout", "a41c9e2 Poll the order in the checkout e2e test\n7f03b11 Verify Stripe webhooks before saving"),
@@ -327,7 +327,7 @@ export function agentsWorld() {
         options: [{ label: "Yes, as a Local PR", description: "A new branch with the test, for your review" }, { label: "Not now", description: "I note it in my memory and stop here" }] }] },
       status("waiting"),
     ], patch: { open_question: true } });
-  // A second thread of the Maintainer, in parallel with its main one: the review of #120 the owner asked for from the
+  // A second thread of the Maintainer, in parallel with the first: the review of #120 the owner asked for from the
   // Chrome extension (its thread follows the pull request; world/bots.ts `PR_THREAD`).
   add({ id: "demo-s-bot-maintainer-120", title: "Review #120 Add gift cards at checkout", project: P.storefront, harness: "claude", minutesAgo: 18, seen: true, worktree: "maintainer-review-120",
     spec: { text: "Review this pull request: acme-labs/storefront#120", github_refs: [{ url: "https://github.com/acme-labs/storefront/pull/120", kind: "pr", repo: "acme-labs/storefront", number: 120, title: "Add gift cards at checkout" }],

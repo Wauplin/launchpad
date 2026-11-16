@@ -44,7 +44,7 @@ export function Connected({ state, open }: { state: ConnectionState; open: (s: S
   const onItem = !!page && (ITEM_KINDS as readonly string[]).includes(page.kind) && !!page.repo && !!page.number;
   const [view, setView] = useState<Tab>("chat");
   const [bot, setBot] = useState<string | null>(null);
-  // The chat's thread of that bot (null: its main thread); This item's Continue opens the item's thread.
+  // The chat's thread of that bot (null: its most recent thread); This item's Continue opens the item's thread.
   const [thread, setThread] = useState<string | null>(null);
   // Leaving a GitHub item goes back to the chat.
   useEffect(() => { if (!onItem) setView((v) => (v === "item" ? "chat" : v)); }, [onItem]);

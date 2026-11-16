@@ -15,12 +15,12 @@ slug: string,
  */
 instructions: string, 
 /**
- * The bot's thread this session belongs to (`bot_thread.id`, `bots::MAIN` for its main conversation). Empty in
- * sessions from before bots had several threads: read as main (`BotLaunch::thread_id`).
+ * The bot's thread this session is (`bot_thread.id`). Empty in sessions from before bots had several threads:
+ * read as `bot_threads::LEGACY` (`BotLaunch::thread_id`).
  */
 thread?: string, 
 /**
- * The thread's previous session, referenced by its trace (never inlined).
+ * The session of the thread this one continues, referenced by its trace (never inlined).
  */
 previous: BotHandoff | null, 
 /**
@@ -29,13 +29,12 @@ previous: BotHandoff | null,
  */
 version?: string, 
 /**
- * Why this session of the thread started (`bots::rotation`: first, profile, folder, model, effort,
- * permissions, archived; new: the owner's Start a new session, with `note`).
+ * Why this session started (`bots::rotation`: first; or why it continues the thread of `previous`: profile,
+ * folder, model, effort, permissions, archived; new: older sessions the owner started, with `note`).
  */
 reason?: string, 
 /**
- * The owner's own words for a new session they asked for (Start a new session on the bot page), shown in the
- * chat's divider.
+ * The owner's own words for a new session of older sessions (Start a new session, removed), shown in the chat.
  */
 note?: string, 
 /**

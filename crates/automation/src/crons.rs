@@ -1100,7 +1100,7 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
             let context = launchpad_core::model::MessageContext { from: Some(routine_sender(&record, hops)), ..Default::default() };
             let file = record.file.clone().unwrap_or_else(|| record.id.clone());
             let to = launchpad_core::bot_threads::route(launchpad_core::bot_threads::Source::Routine { file: &file, title: &record.title });
-            launchpad_core::bots::message_with(app, bot, launchpad_core::bots::Message { text: bot_message(&record, &launch), attachments: vec![], context, new_session: None, automatic, key: None, to }).await
+            launchpad_core::bots::message_with(app, bot, launchpad_core::bots::Message { text: bot_message(&record, &launch), attachments: vec![], context, automatic, key: None, to }).await
         }
         None => {
             let spec = LaunchSpec { routine: Some(launch), from: Some(routine_sender(&record, hops)), ..record.spec.clone() };
@@ -1359,7 +1359,6 @@ async fn turn_ended_inner(app: &App, s: &Session) -> Result<()> {
             // only while the thread is still just that run (a routine's own thread, one session, nothing asked or
             // running), so a thread the owner continued is never archived.
             if let Some(b) = &s.launch_spec.bot
-                && b.thread_id() != launchpad_core::bot_threads::MAIN
                 && launchpad_core::bot_threads::get(app, &b.id, b.thread_id()).await.ok().flatten().is_some_and(|t| t.archived_at.is_none() && t.key.as_deref().is_some_and(|k| k.starts_with("routine:")))
                 && let [only] = launchpad_core::bot_threads::sessions(app, &b.id, b.thread_id()).as_slice()
                 && only.id == s.id
@@ -1470,11 +1469,10 @@ fn auto_archive_ready(run: &RoutineRun, s: &Session, now: i64) -> bool {
         && s.unsaved.is_none()
 }
 
-/// Whether a bot thread holds only this routine's run: the thread the run started (`routine:<file>`, never Main),
-/// open, and with no session but the run's. A thread the owner continued, or any other thread of the bot, stays.
+/// Whether a bot thread holds only this routine's run: the thread the run started (`routine:<file>`),
+/// open, and with no session but the run's (older threads may hold several). A thread the owner continued, or any other thread of the bot, stays.
 fn own_run_thread(thread: &launchpad_core::bot_threads::BotThread, sessions: &[Session], file: &str, session_id: &str) -> bool {
-    thread.id != launchpad_core::bot_threads::MAIN
-        && thread.archived_at.is_none()
+    thread.archived_at.is_none()
         && thread.key.as_deref() == Some(format!("routine:{file}").as_str())
         && matches!(sessions, [only] if only.id == session_id)
 }
@@ -1854,13 +1852,12 @@ mod tests {
         let one = [done_session("s1", 1)];
         let own = thread("t1", Some("routine:routines/daily.toml"), false);
         assert!(own_run_thread(&own, &one, "routines/daily.toml", "s1"));
-        // Another routine's thread, a channel's, the owner's, Main, an archived one.
+        // Another routine's thread, a channel's, the owner's, an archived one.
         assert!(!own_run_thread(&own, &one, "routines/other.toml", "s1"));
         assert!(!own_run_thread(&thread("t1", Some("channel:c"), false), &one, "routines/daily.toml", "s1"));
         assert!(!own_run_thread(&thread("t1", None, false), &one, "routines/daily.toml", "s1"));
-        assert!(!own_run_thread(&thread(launchpad_core::bot_threads::MAIN, Some("routine:routines/daily.toml"), false), &one, "routines/daily.toml", "s1"));
         assert!(!own_run_thread(&thread("t1", Some("routine:routines/daily.toml"), true), &one, "routines/daily.toml", "s1"));
-        // A thread with another session (the owner started a new session there), or not the run's session.
+        // An older thread with another session, or not the run's session.
         assert!(!own_run_thread(&own, &[done_session("s0", 0), done_session("s1", 1)], "routines/daily.toml", "s1"));
         assert!(!own_run_thread(&own, &one, "routines/daily.toml", "s9"));
     }

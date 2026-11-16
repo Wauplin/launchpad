@@ -1,11 +1,14 @@
 //! A bot's threads: its parallel conversations. The bot (BOT.md, bot.toml, memory, routines, access) is shared;
-//! a thread is one chain of sessions with its own rotation and its own previous-session reference
-//! (`BotLaunch.thread`). Home keeps a row per thread (`bot_thread`: its routing key and a readable title);
-//! `main` is the owner's default conversation and always exists.
+//! a thread is one session (`BotLaunch.thread`). Home keeps a row per thread (`bot_thread`: its routing key and a
+//! readable title). There is no default thread: the owner's message without a thread starts a new one. A thread
+//! whose session is archived counts as archived. When a thread's session cannot go on (archived, or the bot's
+//! profile, folder, model, effort or permission mode changed), its next message continues in a new thread with the
+//! same key and title that references it (`bots::message_with`).
 //!
 //! `route` (pure) decides where a message goes from its source: the owner's selected thread, a GitHub item's thread,
-//! a channel's, a hook's, another agent's (one per sender session), or a new thread (each routine run, the owner's
-//! New thread, the extension's New conversation). `resolve` turns that into a thread ID, creating its row.
+//! a channel's, a hook's, another agent's (one per sender session), Telegram's, or a new thread (each routine run,
+//! the owner's New thread or message without a thread, the extension's New conversation). `resolve` turns that into a
+//! thread ID, creating its row.
 
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{OptionalExtension, params};
@@ -15,10 +18,10 @@ use ts_rs::TS;
 use crate::model::{GitHubRef, Session, SessionStatus};
 use crate::{App, util::now_ms};
 
-/// The owner's default conversation with a bot.
-pub const MAIN: &str = "main";
+/// The thread of sessions from before bots had several threads (`BotLaunch::thread_id`).
+pub const LEGACY: &str = "main";
 /// Its title.
-pub const MAIN_TITLE: &str = "Main";
+const LEGACY_TITLE: &str = "Main";
 /// `max_threads` of bot.toml when it names none: threads of one bot that may work at the same time.
 pub const DEFAULT_MAX_THREADS: u32 = 16;
 
@@ -39,8 +42,10 @@ pub struct BotThread {
 /// Where a message to a bot comes from.
 #[derive(Clone, Copy, Debug)]
 pub enum Source<'a> {
-    /// The owner, in the bot page, the Ask panel or Telegram: the thread shown (None: main).
+    /// The owner, in the bot page or the Ask panel: the thread shown (None: a new thread).
     Owner { thread: Option<&'a str> },
+    /// The owner's Telegram chat: one thread per bot.
+    Telegram,
     /// The owner's New thread, the extension's New conversation.
     NewThread,
     /// The extension, about GitHub items: one item has its own thread; several start a new one.
@@ -58,7 +63,7 @@ pub enum Source<'a> {
 /// The thread a message goes to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum To {
-    /// An existing thread (main included).
+    /// An existing thread.
     Thread(String),
     /// The open thread with this key, else a new one with this title.
     Key { key: String, title: String },
@@ -69,7 +74,11 @@ pub enum To {
 /// Pure: the thread a message from `source` goes to.
 pub fn route(source: Source) -> To {
     match source {
-        Source::Owner { thread } => To::Thread(thread.filter(|t| !t.is_empty()).unwrap_or(MAIN).to_string()),
+        Source::Owner { thread } => match thread.filter(|t| !t.is_empty()) {
+            Some(t) => To::Thread(t.to_string()),
+            None => To::New { key: None, title: String::new() },
+        },
+        Source::Telegram => To::Key { key: "telegram".into(), title: "Telegram".into() },
         Source::NewThread => To::New { key: None, title: String::new() },
         Source::Items { refs } => {
             let items: Vec<&GitHubRef> = refs.iter().filter(|r| r.number.is_some() && !r.repo.is_empty()).collect();
@@ -120,27 +129,40 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<BotThread> {
 
 const COLUMNS: &str = "bot_id, id, key, title, created_at, archived_at";
 
-/// The main thread's row exists (it is created on first use).
-async fn ensure_main(app: &App, bot: &str) -> Result<()> {
+/// The row of the legacy thread exists when sessions from before threads name it (older Homes created it on use).
+async fn ensure_legacy(app: &App, bot: &str) -> Result<()> {
+    if !crate::bots::all_sessions(app, bot).iter().any(|s| of(s) == Some(LEGACY)) {
+        return Ok(());
+    }
     let bot = bot.to_string();
-    app.state_db.call(move |c| Ok(c.execute("INSERT OR IGNORE INTO bot_thread (bot_id, id, key, title, created_at) VALUES (?1, ?2, NULL, ?3, ?4)", params![bot, MAIN, MAIN_TITLE, now_ms()])?)).await?;
+    app.state_db.call(move |c| Ok(c.execute("INSERT OR IGNORE INTO bot_thread (bot_id, id, key, title, created_at) VALUES (?1, ?2, NULL, ?3, ?4)", params![bot, LEGACY, LEGACY_TITLE, now_ms()])?)).await?;
     Ok(())
 }
 
-/// A bot's threads, main first, then the newest; archived ones only with `archived`.
+/// A bot's threads, newest first; archived ones (the row, or its session) only with `archived`. A thread whose
+/// session is archived shows with that time as `archived_at`.
 pub async fn list(app: &App, bot: &str, archived: bool) -> Result<Vec<BotThread>> {
-    ensure_main(app, bot).await?;
-    let bot = bot.to_string();
-    app.state_db.call(move |c| {
-        let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM bot_thread WHERE bot_id = ?1 AND (?2 OR archived_at IS NULL) ORDER BY id != 'main', created_at DESC"))?;
-        let rows = st.query_map(params![bot, archived], row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+    ensure_legacy(app, bot).await?;
+    let b = bot.to_string();
+    let rows = app.state_db.call(move |c| {
+        let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM bot_thread WHERE bot_id = ?1 AND (?2 OR archived_at IS NULL) ORDER BY created_at DESC"))?;
+        let rows = st.query_map(params![b, archived], row)?.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
-    }).await
+    }).await?;
+    Ok(rows.into_iter().filter_map(|mut t| {
+        if t.archived_at.is_none() && let Some(s) = session(app, bot, &t.id).filter(|s| s.status == SessionStatus::Closed) {
+            if !archived {
+                return None;
+            }
+            t.archived_at = Some(s.status_since);
+        }
+        Some(t)
+    }).collect())
 }
 
 pub async fn get(app: &App, bot: &str, id: &str) -> Result<Option<BotThread>> {
-    if id == MAIN {
-        ensure_main(app, bot).await?;
+    if id == LEGACY {
+        ensure_legacy(app, bot).await?;
     }
     let (bot, id) = (bot.to_string(), id.to_string());
     app.state_db.call(move |c| Ok(c.query_row(&format!("SELECT {COLUMNS} FROM bot_thread WHERE bot_id = ?1 AND id = ?2"), params![bot, id], row).optional()?)).await
@@ -156,7 +178,8 @@ pub async fn titles(app: &App) -> Result<std::collections::HashMap<(String, Stri
 }
 
 /// The thread ID a message goes to: an existing thread (an archived one comes back), the open thread with the key,
-/// or a new thread. `fallback` names a new thread without a title (the message's first line).
+/// or a new thread. `fallback` names a new thread without a title (the message's first line). Whether the thread's
+/// session can take the message is `bots::message_with`'s decision (else it continues in a new thread, `follow_up`).
 pub async fn resolve(app: &App, bot: &str, to: &To, fallback: &str) -> Result<String> {
     let lock = THREADS.get(bot);
     let _held = lock.lock().await;
@@ -192,6 +215,18 @@ pub async fn peek(app: &App, bot: &str, to: &To) -> Result<Option<String>> {
     }
 }
 
+/// A new thread that continues `thread` (its session cannot go on): the same key and title, and `thread` leaves the
+/// thread bar (archived). Returns the new thread's ID.
+pub async fn follow_up(app: &App, bot: &str, thread: &str) -> Result<String> {
+    let lock = THREADS.get(bot);
+    let _held = lock.lock().await;
+    let t = get(app, bot, thread).await?.context("this thread no longer exists")?;
+    let id = insert(app, bot, t.key.clone(), &t.title).await?;
+    // Its key now routes to the new thread.
+    set_archived(app, bot, thread, true).await?;
+    Ok(id)
+}
+
 async fn insert(app: &App, bot: &str, key: Option<String>, title: &str) -> Result<String> {
     let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
     let title = match short(title) {
@@ -222,10 +257,9 @@ async fn set_archived(app: &App, bot: &str, id: &str, archived: bool) -> Result<
     Ok(())
 }
 
-/// Archive (or bring back) a thread: it leaves the thread bar, and its open session is archived. Main stays; a
-/// thread at work is stopped first.
+/// Archive (or bring back) a thread: it leaves the thread bar, and its open session is archived (brought back with
+/// it). A thread at work is stopped first.
 pub async fn archive(app: &App, bot: &str, id: &str, archived: bool) -> Result<BotThread> {
-    ensure!(id != MAIN, "the main thread cannot be archived");
     get(app, bot, id).await?.context("this thread no longer exists")?;
     if archived {
         let open = sessions(app, bot, id).into_iter().filter(|s| s.status != SessionStatus::Closed).collect::<Vec<_>>();
@@ -235,6 +269,8 @@ pub async fn archive(app: &App, bot: &str, id: &str, archived: bool) -> Result<B
         for s in open {
             crate::runners::session_action(app, &s.id, "close").await?;
         }
+    } else if let Some(s) = session(app, bot, id).filter(|s| s.status == SessionStatus::Closed) {
+        crate::runners::session_action(app, &s.id, "unarchive").await?;
     }
     set_archived(app, bot, id, archived).await?;
     get(app, bot, id).await?.context("this thread no longer exists")
@@ -250,25 +286,33 @@ pub fn of(s: &Session) -> Option<&str> {
     s.launch_spec.bot.as_ref().map(|b| b.thread_id())
 }
 
-/// The sessions of one thread of a bot, oldest first.
+/// The sessions of one thread of a bot, oldest first: one, except in threads from before a thread was one session
+/// (`session` takes the newest).
 pub fn sessions(app: &App, bot: &str, thread: &str) -> Vec<Session> {
     let mut list: Vec<Session> = app.sessions.list().into_iter().filter(|s| s.launch_spec.bot.as_ref().is_some_and(|b| b.id == bot && b.thread_id() == thread)).collect();
     list.sort_by_key(|s| s.started_at);
     list
 }
 
-/// The open session (newest not archived) of each thread of a bot.
+/// The session of a thread: its newest (older threads may hold several; only the newest counts).
+pub fn session(app: &App, bot: &str, thread: &str) -> Option<Session> {
+    sessions(app, bot, thread).pop()
+}
+
+/// The session of a thread while it is not archived.
+pub fn open_session(app: &App, bot: &str, thread: &str) -> Option<Session> {
+    session(app, bot, thread).filter(|s| s.status != SessionStatus::Closed)
+}
+
+/// The open session of each thread of a bot (each thread's newest session, when not archived).
 pub fn open_sessions(app: &App, bot: &str) -> Vec<Session> {
-    let mut open: std::collections::HashMap<String, Session> = Default::default();
+    let mut newest: std::collections::HashMap<String, Session> = Default::default();
     for s in crate::bots::all_sessions(app, bot) {
-        if s.status == SessionStatus::Closed {
-            continue;
-        }
-        let t = of(&s).unwrap_or(MAIN).to_string();
+        let t = of(&s).unwrap_or(LEGACY).to_string();
         // Oldest first: the newest wins.
-        open.insert(t, s);
+        newest.insert(t, s);
     }
-    open.into_values().collect()
+    newest.into_values().filter(|s| s.status != SessionStatus::Closed).collect()
 }
 
 /// Pure: why a message that would wake `thread` waits for a free slot, or None. `working`: the threads whose open
@@ -282,6 +326,6 @@ pub fn cap_reason(working: &[String], thread: Option<&str>, max: u32, name: &str
 
 /// Why an automatic message to `thread` (None: a new thread) waits for a free slot now, or None.
 pub fn at_cap(app: &App, bot: &crate::bots::Bot, thread: Option<&str>) -> Option<String> {
-    let working: Vec<String> = open_sessions(app, &bot.id).iter().filter(|s| s.status.is_running()).map(|s| of(s).unwrap_or(MAIN).to_string()).collect();
+    let working: Vec<String> = open_sessions(app, &bot.id).iter().filter(|s| s.status.is_running()).map(|s| of(s).unwrap_or(LEGACY).to_string()).collect();
     cap_reason(&working, thread, bot.max_threads(), &bot.settings.name)
 }

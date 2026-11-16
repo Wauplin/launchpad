@@ -19,7 +19,7 @@ use ts_rs::TS;
 
 use launchpad_core::App;
 use launchpad_core::bot_threads::{self, Source, To};
-use launchpad_core::model::{FileAttachment, MessageContext, MessageFrom, SenderKind, Session, SessionStatus};
+use launchpad_core::model::{FileAttachment, MessageContext, MessageFrom, SenderKind, Session};
 use launchpad_core::senders::fence;
 use launchpad_core::util::now_ms;
 
@@ -287,13 +287,13 @@ fn key_of(t: &Target, thread: &str) -> String {
 
 /// The thread of an entry.
 fn thread_of(q: &Queued) -> &str {
-    q.thread.as_deref().unwrap_or(bot_threads::MAIN)
+    q.thread.as_deref().unwrap_or(bot_threads::LEGACY)
 }
 
 /// The open session of the entry's thread.
 fn current(app: &App, q: &Queued) -> Option<Session> {
     match &q.target {
-        Target::Bot { id } => bot_threads::sessions(app, id, thread_of(q)).into_iter().rev().find(|s| s.status != SessionStatus::Closed),
+        Target::Bot { id } => bot_threads::open_session(app, id, thread_of(q)),
     }
 }
 
@@ -307,7 +307,7 @@ async fn send(app: &App, q: &Queued) -> Result<Session> {
         Target::Bot { id } => {
             let context = MessageContext { from: q.from.clone(), ..q.context.clone().unwrap_or_default() };
             let to = To::Thread(thread_of(q).to_string());
-            launchpad_core::bots::message_with(app, id, launchpad_core::bots::Message { text: q.text.clone(), attachments: q.attachments.clone(), context, new_session: None, automatic: q.automatic, key: None, to }).await
+            launchpad_core::bots::message_with(app, id, launchpad_core::bots::Message { text: q.text.clone(), attachments: q.attachments.clone(), context, automatic: q.automatic, key: None, to }).await
         }
     }
 }

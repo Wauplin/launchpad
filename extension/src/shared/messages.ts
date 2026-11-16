@@ -162,8 +162,8 @@ export type Requests = {
   "bots": Req<void, BotList>;
   /** A message to a bot's thread (`bot.message`); returns its session. `key` is the idempotency key (one per Send).
    * `github_refs` names the GitHub item or comment by reference; the bot reads the content itself. */
-  "bot.message": Req<{ bot: string; text: string; github_refs?: GitHubRef[]; attachments?: FileAttachment[]; new_session?: boolean; reason?: string; key: string; /** Lines of a pull request's diff (Ask about these lines): a reference, Home reads the lines. */ selection?: DiffSelection; /** The bot's thread (the panel's picker); none: the thread of the one GitHub item named (several: a new one). */ thread?: string; /** A new thread (New conversation). */ new_thread?: boolean }, Session>;
-  /** A bot's threads (main first, then the newest). */
+  "bot.message": Req<{ bot: string; text: string; github_refs?: GitHubRef[]; attachments?: FileAttachment[]; key: string; /** Lines of a pull request's diff (Ask about these lines): a reference, Home reads the lines. */ selection?: DiffSelection; /** The bot's thread (the panel's picker); none: the thread of the one GitHub item named (several: a new one). */ thread?: string; /** A new thread (New conversation). */ new_thread?: boolean }, Session>;
+  /** A bot's threads (the newest first). */
   "bot.threads": Req<{ bot: string }, BotThread[]>;
   /** Home's profiles (id, name, CLI), for a launch's picker. */
   "profiles": Req<void, ProfileBrief[]>;

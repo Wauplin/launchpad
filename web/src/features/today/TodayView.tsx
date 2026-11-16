@@ -14,6 +14,7 @@ import { Empty, ErrorState, FilterChip, FilterChips, Loading, PageHeader } from 
 import { useProposalList } from "@/features/proposals/ProposalCard";
 import { StartAll } from "@/features/proposals/ProposalList";
 import { useSuggestionList } from "@/features/suggestions/data";
+import { launchThread } from "@/lib/bots";
 import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { useWorkspaces } from "@/lib/workspace";
@@ -122,7 +123,7 @@ export function TodayView() {
     if (loading || error || !settled || !sessions || !search.card?.startsWith("session:") || shown.some((i) => i.id === search.card)) return;
     const id = search.card.slice("session:".length);
     const bot = sessions.find((x) => x.id === id)?.launch_spec.bot;
-    const to = bot ? { to: "/bots/$id", params: { id: bot.id }, search: bot.thread && bot.thread !== "main" ? { thread: bot.thread } : {} } : { to: "/agents", search: { session: id } };
+    const to = bot ? { to: "/bots/$id", params: { id: bot.id }, search: { thread: launchThread(bot) } } : { to: "/agents", search: { session: id } };
     if (phone) { void navigate({ to: "/", search: {}, replace: true }).then(() => navigate(to as never)); }
     else void navigate({ ...(to as object), replace: true } as never);
   }, [loading, error, settled, sessions, search.card, shown, navigate, phone]);

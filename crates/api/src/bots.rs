@@ -36,20 +36,19 @@ pub fn router() -> Router<Ctx> {
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct ThreadQuery {
-    /// The thread (None: main).
+    /// The thread (None: a new thread).
     thread: Option<String>,
     /// Archived threads too.
     archived: bool,
 }
 
-/// "What it sees at start" of the next new session of a thread of the bot (`?thread=`, main by default): its
-/// instructions and first prompt, in labelled parts (its next message stands for the typed text).
+/// "What it sees at start" of a new thread of the bot, or of the thread that would continue `?thread=` (its
+/// session referenced): its instructions and first prompt, in labelled parts (its next message stands for the typed text).
 async fn start_preview(State(s): State<Ctx>, Path(id): Path<String>, axum::extract::Query(q): axum::extract::Query<ThreadQuery>) -> ApiResult<StartPreview> {
     let app = &s.app;
     let bot = bots::get(app, &id).await.map_err(bad)?;
-    let thread = q.thread.unwrap_or_else(|| bot_threads::MAIN.to_string());
-    let sessions = bot_threads::sessions(app, &id, &thread);
-    let spec = bots::next_spec(app, &bot, &thread, &sessions, "(your next message)".into(), vec![], Default::default()).await.map_err(bad)?;
+    let previous = q.thread.as_deref().and_then(|t| bot_threads::session(app, &id, t));
+    let spec = bots::next_spec(app, &bot, "", previous.as_ref(), "(your next message)".into(), vec![], Default::default()).await.map_err(bad)?;
     Ok(Json(preview(app, &spec).await.map_err(bad)?))
 }
 
@@ -159,13 +158,7 @@ struct Message {
     /// Folders, GitHub links and agent traces, as in an agent's message box.
     #[serde(default)]
     context: MessageContext,
-    /// Start a new session of the thread (with a reference to the previous one).
-    #[serde(default)]
-    new_session: bool,
-    /// The owner's reason for that new session, shown in the chat's divider.
-    #[serde(default)]
-    reason: Option<String>,
-    /// The owner's thread it goes to (the one the bot page shows); None: main. Agents always write in their own.
+    /// The owner's thread it goes to (the one the bot page shows); None: a new thread. Agents always write in their own.
     #[serde(default)]
     thread: Option<String>,
     /// A new thread (New thread on the bot page, New conversation in the extension).
@@ -206,12 +199,12 @@ async fn message(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::ht
             return Ok(Json(json!({"queued": true, "thread": thread, "status": launchpad_channels::hooks::QUEUED_SLOT})));
         }
     }
-    let msg = bots::Message { text: m.text, attachments: m.attachments, context: m.context, new_session: m.new_session.then(|| m.reason.unwrap_or_default()), automatic: agent.is_some(), key, to };
+    let msg = bots::Message { text: m.text, attachments: m.attachments, context: m.context, automatic: agent.is_some(), key, to };
     let session = bots::message_with(app, &id, msg).await.map_err(bad)?;
     Ok(Json(serde_json::to_value(session).map_err(|e| bad(e.into()))?))
 }
 
-/// The bot's threads: main first, then the newest (archived ones with `?archived=true`).
+/// The bot's threads, newest first (archived ones with `?archived=true`).
 async fn threads(State(s): State<Ctx>, Path(id): Path<String>, axum::extract::Query(q): axum::extract::Query<ThreadQuery>) -> ApiResult<Vec<BotThread>> {
     bots::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
     Ok(Json(bot_threads::list(&s.app, &id, q.archived).await.map_err(bad)?))

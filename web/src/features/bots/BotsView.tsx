@@ -3,7 +3,7 @@
 // page: its chat (one thread at a time, `?thread=`, features/chat/BotChat.tsx) is the page, with the thread bar
 // under the header (features/chat/BotThreads.tsx; a sheet on the phone); About (a drawer on the laptop, a page
 // opened from ⓘ on the phone) holds what defines the bot: BOT.md, Triggers, Memory, Access and Versions; ⋯ holds New
-// thread, Rename and Archive the thread, Pause all triggers, Start a new session, Profile and model, Open in Agents, Edit as file and
+// thread, Rename and Archive the thread, Pause all triggers, Profile and model, Open in Agents, Edit as file and
 // Delete. Creating saves; the first task is a separate Send.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,7 +18,6 @@ import { toast, toastError } from "@/components/Toast";
 import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, IconButton, Loading, MoreMenu, PageHeader, Tabs } from "@/components/ui";
 import { PatchView } from "@/components/diff/DiffReview";
 import { BotChat, BotModelChoice } from "@/features/chat/BotChat";
-import { nextSessionKey, useNextSession } from "@/features/chat/nextSession";
 import { NEW_THREAD, ThreadBar, ThreadList, useThreadRows, type ThreadRow } from "@/features/chat/BotThreads";
 import { BotConversationRow } from "./BotConversationRow";
 import { ArchivedChannelRow, ChannelConversationRow } from "@/features/channels/ChannelRows";
@@ -38,7 +37,7 @@ import type { VaultOverview } from "@/gen/VaultOverview";
 import { api } from "@/lib/api";
 import { runAction } from "@/lib/actions";
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
-import { askTarget, botProfile, conversationOrder, botThread, currentSession, findThread, instructionsUpdated, MAIN_THREAD, rotationReason, threadSummary, useBots, useBotThreads, useBotTemplates } from "@/lib/bots";
+import { askTarget, botProfile, conversationOrder, botThread, currentSession, findThread, instructionsUpdated, landingThread, rememberThread, rotationReason, threadSummary, useBots, useBotThreads, useBotTemplates } from "@/lib/bots";
 import { isQuotaPaused, isRunning, isSleeping, sleepUntil } from "@/lib/sessionStatus";
 import { daemonUrl } from "@/lib/connection";
 import { age, ago, when } from "@/lib/format";
@@ -253,11 +252,14 @@ function BotPageOf({ id }: { id: string }) {
   const search = useSearch({ strict: false }) as { panel?: string; thread?: string };
   const navigate = useNavigate();
   // The thread shown: `?thread=` (a thread ID, or a routing key such as `channel:<id>` from a channel's link), `new`
-  // for New thread, else main. A key without an open thread shows main; an ID not listed (archived, or just
-  // created) still shows its sessions.
+  // for New thread, else the thread the owner looked at last (`landingThread`), else a new thread. A key without an
+  // open thread lands the same way; an ID not listed (archived, or just created) still shows its session.
   const threads = useBotThreads(id);
   const named = findThread(threads.data, search.thread);
-  const threadId = search.thread === NEW_THREAD ? NEW_THREAD : named?.id ?? (search.thread && !search.thread.includes(":") ? search.thread : MAIN_THREAD);
+  const landing = useMemo(() => (threads.data ? landingThread(id, threads.data, sessions) : null), [id, threads.data, sessions]);
+  const threadId = search.thread === NEW_THREAD ? NEW_THREAD : named?.id ?? (search.thread && !search.thread.includes(":") ? search.thread : landing ?? NEW_THREAD);
+  // The thread shown is the one this device opens next time.
+  useEffect(() => { if (threadId !== NEW_THREAD && (search.thread || threads.data)) rememberThread(id, threadId); }, [id, threadId]); // eslint-disable-line react-hooks/exhaustive-deps
   const all = useMemo(() => botThread(sessions, id), [sessions, id]);
   const thread = useMemo(() => (threadId === NEW_THREAD ? [] : botThread(sessions, id, threadId)), [sessions, id, threadId]);
   const current = currentSession(thread);
@@ -269,11 +271,11 @@ function BotPageOf({ id }: { id: string }) {
     setThreadsOpen(false);
     const q = new URLSearchParams();
     if (search.panel && !phone) q.set("panel", search.panel);
-    if (t !== MAIN_THREAD) q.set("thread", t);
+    q.set("thread", t);
     const to = `/bots/${id}${q.size ? `?${q}` : ""}`;
     if (phone && search.panel && backInstalled()) { phoneBackTo((path, s) => path === `/bots/${id}` && !s.has("panel"), to, to); return; }
     if (phone && replaceUnderOverlays(to)) return;
-    void navigate({ to: "/bots/$id", params: { id }, search: { ...(search.panel ? { panel: search.panel } : {}), ...(t !== MAIN_THREAD ? { thread: t } : {}) } as never, replace: true });
+    void navigate({ to: "/bots/$id", params: { id }, search: { ...(search.panel ? { panel: search.panel } : {}), thread: t } as never, replace: true });
   };
   // The URL's ?panel= is the only source of the open About (older links name a panel: they open About too). The
   // laptop opens it again when it was open the last time on this device; the phone shows the chat first, and opening
@@ -295,7 +297,6 @@ function BotPageOf({ id }: { id: string }) {
   const routines = (useCrons().data ?? []).filter((c) => c.bot_id === id);
   const profiles = useProfiles();
   const where = useRunnerTag(current?.runner_id);
-  const [asking, setAsking] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [file, setFile] = useState<string | null>(null);
@@ -304,34 +305,30 @@ function BotPageOf({ id }: { id: string }) {
   if (bots.error) return <ErrorState error={bots.error} onRetry={() => void bots.refetch()} />;
   if (!bot) return <div className="flex h-full flex-col"><PageHeader title="Bot" /><Empty fill icon="spark" action={<Link to="/bots" className="btn btn-sm">All bots</Link>}>This bot no longer exists.</Empty></div>;
   const profile = botProfile(bot, profiles);
-  const rotation = rotationReason(bot, current, profile);
+  // The thread's session as it is (archived included): its next message may continue in a new thread.
+  const rotation = rotationReason(bot, thread.at(-1) ?? null, profile);
   const status = statusOf(bot, all, thread, current, routines, step);
   const shownThread = rows.find((r) => r.t.id === threadId)?.t ?? null;
-  const threadTitle = threadId === NEW_THREAD ? "New thread" : shownThread?.title ?? "Main";
+  const threadTitle = threadId === NEW_THREAD ? "New thread" : shownThread?.title ?? "Thread";
   const statusLine = <span className={`min-w-0 truncate ${status.tone}`} title={where && where.tone !== "quiet" ? where.title : undefined} data-tour="bots.status">{status.text}{where && where.tone !== "quiet" ? ` · ${where.label}` : ""}</span>;
-  const menu = (close: () => void) => <BotMenu bot={bot} all={all} thread={thread} threadRow={rows.find((r) => r.t.id === threadId) ?? null} current={current} rotation={rotation} close={close}
-    onNewSession={() => setAsking(true)} onEditFile={() => setFile("bot.toml")} onNewThread={() => selectThread(NEW_THREAD)} onRename={() => setRenaming(true)} onModel={() => setChoosing(true)} onArchived={() => selectThread(MAIN_THREAD)} />;
+  const menu = (close: () => void) => <BotMenu bot={bot} all={all} thread={thread} threadRow={rows.find((r) => r.t.id === threadId) ?? null} current={current} close={close}
+    onEditFile={() => setFile("bot.toml")} onNewThread={() => selectThread(NEW_THREAD)} onRename={() => setRenaming(true)} onModel={() => setChoosing(true)}
+    onArchived={() => selectThread(rows.find((r) => r.t.id !== threadId)?.t.id ?? NEW_THREAD)} />;
   const chat = <BotChat key={threadId} bot={bot} threadId={threadId} thread={thread} rotation={rotation} needsProfile={!profile} openSettings={() => setAbout(true)} onStep={setStep}
-    onStarted={(s) => { const t = s.launch_spec.bot?.thread; if (threadId === NEW_THREAD && t) { void threads.refetch(); selectThread(t); } }}
-    intro={<p className="m-0 text-[13px] text-ink-2">{threadId === NEW_THREAD ? `Send ${bot.settings.name} the first message of this new thread: it runs next to its other threads.` : threadId === MAIN_THREAD ? `Send ${bot.settings.name} its first task.` : "This thread has no message yet."}</p>} />;
+    onStarted={(s) => { const t = s.launch_spec.bot?.thread; if (t && t !== threadId) { void threads.refetch(); selectThread(t); } }}
+    intro={<p className="m-0 text-[13px] text-ink-2">{threadId !== NEW_THREAD ? "This thread has no message yet." : rows.length ? `Send ${bot.settings.name} the first message of this new thread: it runs next to its other threads.` : `Send ${bot.settings.name} its first task.`}</p>} />;
   const sections = <AboutSections bot={bot} current={current} routines={routines} onEditFile={setFile} openThread={(key) => { const t = rows.find((r) => r.t.key === key); if (t) selectThread(t.t.id); else toast("No thread yet: it starts with the first message"); }} threadKeys={new Set(rows.map((r) => r.t.key).filter(Boolean) as string[])} />;
   const dialogs = <>
     {renaming && shownThread && <RenameThreadDialog bot={bot} thread={shownThread} onClose={() => setRenaming(false)} />}
     {threadsOpen && <Sheet title={`Threads of ${bot.settings.name}`} onClose={() => setThreadsOpen(false)}><ThreadList bot={bot} rows={rows} selected={threadId} onSelect={selectThread} /></Sheet>}
-    {asking && <NewSessionDialog bot={bot} onClose={() => setAsking(false)} onStart={(reason) => {
-      useNextSession.getState().set(nextSessionKey(bot.id, threadId), { reason, after: current?.id ?? null });
-      setAsking(false);
-      // On the phone, back to the chat, where the message box shows it: the sheet and About leave history with it.
-      if (phone && about) phoneBackTo((path, q) => path === `/bots/${bot.id}` && !q.has("panel"), `/bots/${bot.id}${search.thread ? `?thread=${encodeURIComponent(search.thread)}` : ""}`);
-    }} />}
     {choosing && <Dialog title="Profile and model" onClose={() => setChoosing(false)}><BotModelChoice bot={bot} current={current} /></Dialog>}
     {file && <FilesDialog bot={bot} routines={routines} path={file} onPath={setFile} onClose={() => setFile(null)} />}
   </>;
   const more = <MoreMenu label={`More actions for ${bot.settings.name}`} width={300}>{menu}</MoreMenu>;
   if (phone) {
-    const info = <><IconButton icon="comment" label={`Threads of ${bot.settings.name} (${rows.length})`} data-tour="bots.threads" onClick={() => setThreadsOpen(true)} /><IconButton icon="info" label={`About ${bot.settings.name}`} data-tour="bots.about" onClick={() => setAbout(true)} /></>;
+    const info = <><IconButton icon="plus" label="New thread" data-tour="bots.new-thread" onClick={() => selectThread(NEW_THREAD)} /><IconButton icon="comment" label={`Threads of ${bot.settings.name} (${rows.length})`} data-tour="bots.threads" onClick={() => setThreadsOpen(true)} /><IconButton icon="info" label={`About ${bot.settings.name}`} data-tour="bots.about" onClick={() => setAbout(true)} /></>;
     // The chat's bar names the thread shown when the bot has others.
-    const many = rows.length > 1 || threadId !== MAIN_THREAD;
+    const many = rows.length > 1 || (threadId === NEW_THREAD && rows.length > 0);
     return <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
       {about
         ? <PhoneBar title={`About ${bot.settings.name}`} onBack={() => setAbout(false)} backLabel="Back to the chat" end={more} />
@@ -351,7 +348,7 @@ function BotPageOf({ id }: { id: string }) {
         actions={<><button className={`btn btn-sm ${about ? "border-teal/40 bg-teal-soft text-teal-ink" : ""}`} aria-pressed={about} data-tour="bots.about" title={`What defines ${bot.settings.name}: BOT.md, triggers, memory, access and versions`} onClick={() => setAbout(!about)}><Icon name="info" size={12} />About</button>{more}</>} />
       {/* Always the split view, so the chat (and a draft in its message box) stays mounted when About opens or closes. */}
       <SplitView storageKey="launchpad.bot-about-width" sideLabel="About" initial={380} min={320} maxRatio={0.5} main={<div className="flex h-full min-h-0 flex-col">
-        {(rows.length > 1 || threadId !== MAIN_THREAD) && <ThreadBar bot={bot} rows={rows} selected={threadId} onSelect={selectThread} />}
+        <ThreadBar bot={bot} rows={rows} selected={threadId} onSelect={selectThread} />
         {chat}
       </div>} side={about ? drawer : null} />
       {dialogs}
@@ -381,16 +378,13 @@ function statusOf(bot: Bot, all: Session[], thread: Session[], current: Session 
   return { text: next ? `Idle · next: ${next.title} ${when(next.next_run_at!)}` : "Idle", tone: "text-ink-3" };
 }
 
-/** ⋯ of the bot page (header on the laptop, About on the phone). `thread`: the sessions of the thread shown; `all`:
+/** ⋯ of the bot page (header on the laptop, About on the phone). `thread`: the session of the thread shown; `all`:
  * every session of the bot. */
-function BotMenu({ bot, all, thread, threadRow, current, rotation, close, onNewSession, onEditFile, onNewThread, onRename, onModel, onArchived }: { bot: Bot; all: Session[]; thread: Session[]; threadRow: ThreadRow | null; current: Session | null; rotation: string | null; close: () => void; onNewSession: () => void; onEditFile: () => void; onNewThread: () => void; onRename: () => void; onModel: () => void; onArchived: () => void }) {
+function BotMenu({ bot, all, thread, threadRow, current, close, onEditFile, onNewThread, onRename, onModel, onArchived }: { bot: Bot; all: Session[]; thread: Session[]; threadRow: ThreadRow | null; current: Session | null; close: () => void; onEditFile: () => void; onNewThread: () => void; onRename: () => void; onModel: () => void; onArchived: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const running = all.some(isRunning);
-  const other = threadRow && threadRow.t.id !== MAIN_THREAD ? threadRow.t : null;
-  // A new session starts only between turns; with no open session (or a changed profile, folder, model…) the next
-  // message starts one anyway.
-  const newDetail = !current ? "Your next message starts one anyway" : rotation ? `${rotation}: your next message starts one anyway` : isRunning(current) ? "Wait for the turn to end, or Stop it" : "The next message starts it, with your reason";
+  const other = threadRow?.t ?? null;
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["bots"] }), qc.invalidateQueries({ queryKey: ["crons"] })]);
   return <>
     <MenuItem icon={<Icon name="plus" size={14} />} label="New thread" detail="A conversation next to the others; your next message starts it" onClick={() => { close(); onNewThread(); }} />
@@ -401,9 +395,8 @@ function BotMenu({ bot, all, thread, threadRow, current, rotation, close, onNewS
     <ActionMenuItem name="bot.pause" params={{ id: bot.id }} body={{ paused: !bot.paused }} close={close} icon={bot.paused ? "play" : "stop"}
       label={bot.paused ? "Resume all triggers" : "Pause all triggers"} detail={bot.paused ? "Routines and hooks start runs again" : "Routines and hooks start nothing; your messages still go through"}
       onDone={() => refresh().then(() => toast(bot.paused ? `${bot.settings.name} resumed` : `${bot.settings.name} paused: no trigger starts it`))} />
-    <MenuItem icon={<Icon name="plus" size={14} />} label="Start a new session…" detail={newDetail} disabled={!current || !!rotation || isRunning(current)} onClick={() => { close(); onNewSession(); }} />
     <MenuItem icon={<Icon name="sliders" size={14} />} label="Profile and model…" detail={bot.settings.model ? `Model ${bot.settings.model}` : "Automatic unless you choose one"} onClick={() => { close(); onModel(); }} />
-    <MenuItem icon={<Icon name="agents" size={14} />} label="Open current session in Agents" detail={current ? "Its trace, terminal and files" : "No open session"} disabled={!current} onClick={() => { close(); if (current) void navigate({ to: "/agents", search: { session: current.id } as never }); }} />
+    <MenuItem icon={<Icon name="agents" size={14} />} label="Open this thread in Agents" detail={current ? "Its session's trace, terminal and files" : "No open session"} disabled={!current} onClick={() => { close(); if (current) void navigate({ to: "/agents", search: { session: current.id } as never }); }} />
     <MenuItem icon={<Icon name="file" size={14} />} label="Edit as file" detail="bot.toml and its routine files" onClick={() => { close(); onEditFile(); }} />
     {running
       ? <MenuItem icon={<Icon name="trash" size={14} />} label="Delete bot" detail="Stop its session first" disabled onClick={() => {}} />
@@ -444,21 +437,6 @@ function RenameThreadDialog({ bot, thread, onClose }: { bot: Bot; thread: { id: 
   </Dialog>;
 }
 
-/** ⋯ → Start a new session: a short reason; the next message starts the session and its divider shows the reason. */
-function NewSessionDialog({ bot, onClose, onStart }: { bot: Bot; onClose: () => void; onStart: (reason: string) => void }) {
-  const [reason, setReason] = useState("");
-  return <Dialog title="Start a new session" onClose={onClose}>
-    <p className="m-0 text-[13px] text-ink-2">Your next message starts a new session of this thread of {bot.settings.name}. It reads the previous session's trace only when it needs it.</p>
-    <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Why (optional, shown in the chat)
-      <input className="field-input font-normal" maxLength={120} value={reason} placeholder="Fresh context for the release" autoFocus onChange={(e) => setReason(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onStart(reason.trim()); }} />
-    </label>
-    <div className="flex justify-end gap-2">
-      <button className="btn btn-sm btn-ghost" onClick={onClose}>Cancel</button>
-      <button className="btn btn-sm btn-primary" onClick={() => onStart(reason.trim())}>Start with my next message</button>
-    </div>
-  </Dialog>;
-}
-
 /** ⋯ → Edit as file: bot.toml or one of its routine files. Saving checks it; the bot and its routines follow. */
 function FilesDialog({ bot, routines, path, onPath, onClose }: { bot: Bot; routines: CronAgent[]; path: string; onPath: (p: string) => void; onClose: () => void }) {
   const qc = useQueryClient();
@@ -470,7 +448,7 @@ function FilesDialog({ bot, routines, path, onPath, onClose }: { bot: Bot; routi
     try {
       await runAction<Bot>("bot.update", { id: bot.id }, path === "bot.toml" ? { settings_text: t } : { files: { [path]: t } });
       await Promise.all([qc.invalidateQueries({ queryKey: ["bots"] }), qc.invalidateQueries({ queryKey: ["crons"] })]);
-      toast(path === "bot.toml" ? "Saved: a new profile, folder, model, effort or permission mode starts a new session" : "Saved: the routine follows its file");
+      toast(path === "bot.toml" ? "Saved: a new profile, folder, model, effort or permission mode applies to new threads" : "Saved: the routine follows its file");
       return true;
     } catch (e) { toastError(e); return false; }
   };
@@ -709,7 +687,7 @@ function SettingsForm({ bot, onClose }: { bot: Bot; onClose: () => void }) {
     try {
       await runAction<Bot>("bot.update", { id: bot.id }, { settings: s });
       await qc.invalidateQueries({ queryKey: ["bots"] });
-      toast(s.profile !== bot.settings.profile || (s.folder ?? null) !== (bot.settings.folder ?? null) || s.model !== bot.settings.model || s.effort !== bot.settings.effort || s.permission_mode !== bot.settings.permission_mode ? "Saved: the next message starts a new session" : "Saved");
+      toast(s.profile !== bot.settings.profile || (s.folder ?? null) !== (bot.settings.folder ?? null) || s.model !== bot.settings.model || s.effort !== bot.settings.effort || s.permission_mode !== bot.settings.permission_mode ? "Saved: it applies to new threads; an open thread continues in a new one with its next message" : "Saved");
       onClose();
     } catch (e) { toastError(e); }
   };

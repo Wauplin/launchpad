@@ -15,6 +15,9 @@ export const BOT = "demo-bot-maintainer";
 /** The Maintainer's second thread: a review the owner started from the Chrome extension (world/agents.ts
  * `demo-s-bot-maintainer-120`), next to its main thread. */
 export const PR_THREAD = "demo-thread-pr120";
+/** The Maintainer's thread with the owner (its main demo conversation) and Ask Launchpad's. */
+export const MAINTAINER_THREAD = "demo-thread-maintainer";
+export const ASK_THREAD = "demo-thread-ask-acme";
 export const ASK_BOT = "demo-bot-ask-acme";
 export const LIBRARIAN_BOT = "demo-bot-librarian-acme";
 /** Two more bots of Acme that talk with the Maintainer in its channels (world/channels.ts); they never ran here. */
@@ -93,12 +96,13 @@ export function botsWorld() {
   ];
   // A hook message waiting for the Maintainer's turn to end (a grey row at the bottom of its chat, with Cancel).
   const botQueued: Record<string, QueuedMessage[]> = {
-    [BOT]: [{ n: 1, at: clock.ago(2), source: "hook", text: "The incoming hook \"Nightly CI\" received a request: { \"workflow\": \"checkout-e2e\", \"conclusion\": \"failure\" }", thread: "main", slot: false }],
+    [BOT]: [{ n: 1, at: clock.ago(2), source: "hook", text: "The incoming hook \"Nightly CI\" received a request: { \"workflow\": \"checkout-e2e\", \"conclusion\": \"failure\" }", thread: MAINTAINER_THREAD, slot: false }],
   };
-  // Each bot's threads (Home's `bot_thread` rows): main, and the Maintainer's review of #120 from the extension.
+  // Each bot's threads (Home's `bot_thread` rows), one session each: the owner's, and the Maintainer's review of #120 from the extension.
   const thread = (bot: string, id: string, title: string, key: string | null, minutes: number): BotThread => ({ bot_id: bot, id, key, title, created_at: clock.ago(minutes), archived_at: null });
   const botThreads: Record<string, BotThread[]> = {
-    [BOT]: [thread(BOT, "main", "Main", null, 60 * 26), thread(BOT, PR_THREAD, "PR #120 · Add gift cards at checkout", "github:acme-labs/storefront#120", 18)],
+    [BOT]: [thread(BOT, MAINTAINER_THREAD, "What changed in checkout this week", null, 70), thread(BOT, PR_THREAD, "PR #120 · Add gift cards at checkout", "github:acme-labs/storefront#120", 18)],
+    [ASK_BOT]: [thread(ASK_BOT, ASK_THREAD, "What is running in Acme right now?", null, 35)],
   };
   return { bots, botChanges, activity, botQueued, botMemory, botThreads };
 }

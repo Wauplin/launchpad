@@ -6,7 +6,7 @@
 // only button, so it is the primary one.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouterState } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Bot } from "@/gen/Bot";
 import type { Predraft } from "@/gen/Predraft";
@@ -90,23 +90,29 @@ export function CommandField() {
   const ref = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 96)}px`; }, [text]);
   const panel = useAskPanel();
+  const navigate = useNavigate();
   const shots = useMessageAttachments(true);
   const { files, reading } = shots;
 
   const ask = async () => {
     if (!bot || busy) return;
     const t = text.trim();
-    // An empty Ask opens the chat.
+    // An empty Ask opens the chat (the thread the owner looked at last).
     if (!t && !files.length) { if (!ctx.botId) panel.show(bot.id); return; }
     if (reading) return;
     setBusy(true);
     try {
-      await runAction("bot.message", { id: bot.id }, { text: ctx.line ? `${t}\n\n(I am looking at ${ctx.line}.)` : t, attachments: files });
+      // On the bot's own page: the thread it shows; elsewhere a new thread.
+      const shown = ctx.botId && typeof search.thread === "string" ? search.thread : null;
+      const where = shown && shown !== "new" && !shown.includes(":") ? { thread: shown } : {};
+      const started = await runAction<Session>("bot.message", { id: bot.id }, { text: ctx.line ? `${t}\n\n(I am looking at ${ctx.line}.)` : t, attachments: files, ...where });
       setText("");
       shots.clear();
       await qc.invalidateQueries({ queryKey: ["sessions"] });
-      // On the bot's own page, its chat is already there.
-      if (!ctx.botId) panel.show(bot.id);
+      const thread = started?.launch_spec?.bot?.thread ?? null;
+      // On the bot's own page, its chat is already there: it shows the message's thread.
+      if (!ctx.botId) panel.show(bot.id, thread);
+      else if (thread && thread !== shown) void navigate({ to: "/bots/$id", params: { id: bot.id }, search: { thread } as never, replace: true });
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
   // Pasted screenshots join the launch's attachments.

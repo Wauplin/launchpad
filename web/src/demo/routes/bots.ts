@@ -25,25 +25,22 @@ const botOf = (id: string) => {
 const changed = (b: Bot) => { b.version += 1; publish("bots", "changed", { id: b.id }); };
 const record = (b: Bot, path: string, before: string, after: string) => recordBotChange(b.id, path, before || null, after);
 const threadOf = (s: { launch_spec: LaunchSpec }) => s.launch_spec.bot?.thread || "main";
-/** The sessions of one thread of a bot, oldest first. */
-const thread = (id: string, t = "main") => world.sessions.filter((s) => s.launch_spec.bot?.id === id && threadOf(s) === t).sort((a, b) => a.started_at - b.started_at);
-/** A bot's thread rows (Home's `bot_thread`), main created on first use. */
-const threadsOf = (id: string): BotThread[] => {
-  const list = world.botThreads[id] ??= [];
-  if (!list.some((t) => t.id === "main")) list.unshift({ bot_id: id, id: "main", key: null, title: "Main", created_at: clock.now(), archived_at: null });
-  return list;
+/** The sessions of one thread of a bot, oldest first (one per thread). */
+const thread = (id: string, t: string) => world.sessions.filter((s) => s.launch_spec.bot?.id === id && threadOf(s) === t).sort((a, b) => a.started_at - b.started_at);
+/** A bot's thread rows (Home's `bot_thread`). */
+const threadsOf = (id: string): BotThread[] => (world.botThreads[id] ??= []);
+const newThread = (b: Bot, key: string | null, title: string) => {
+  const t: BotThread = { bot_id: b.id, id: `demo-thread-${Math.random().toString(36).slice(2, 10)}`, key, title: title.replace(/\s+/g, " ").trim().slice(0, 80) || "New thread", created_at: clock.now(), archived_at: null };
+  threadsOf(b.id).push(t);
+  threadsChanged(b.id);
+  return t.id;
 };
 const threadsChanged = (id: string) => publish("bots", "threads", { id });
 /** The thread a message goes to (Home's `bot_threads::route` and `resolve`). */
 function resolveThread(b: Bot, body: { thread?: string | null; new_thread?: boolean; item_thread?: boolean; context?: MessageContext }, text: string): string {
   const list = threadsOf(b.id);
-  const create = (key: string | null, title: string) => {
-    const t: BotThread = { bot_id: b.id, id: `demo-thread-${Math.random().toString(36).slice(2, 10)}`, key, title: title.replace(/\s+/g, " ").trim().slice(0, 80) || "New thread", created_at: clock.now(), archived_at: null };
-    list.push(t);
-    threadsChanged(b.id);
-    return t.id;
-  };
-  if (body.new_thread) return create(null, text.split("\n")[0] ?? "");
+  const create = (key: string | null, title: string) => newThread(b, key, title);
+  if (body.new_thread || !body.thread && !body.item_thread) return create(null, text.split("\n")[0] ?? "");
   if (body.item_thread) {
     const items = (body.context?.github_refs ?? []).filter((r) => r.number != null);
     const keys = [...new Set(items.map((r) => `github:${r.repo.toLowerCase()}#${r.number}`))];
@@ -52,7 +49,7 @@ function resolveThread(b: Bot, body: { thread?: string | null; new_thread?: bool
     const r = items[0];
     return open?.id ?? create(keys[0], r.title ? `${r.kind === "pr" ? "PR " : r.kind === "issue" ? "Issue " : ""}#${r.number} · ${r.title}` : `${r.repo}#${r.number}`);
   }
-  const t = list.find((x) => x.id === (body.thread || "main"));
+  const t = list.find((x) => x.id === body.thread);
   if (!t) throw new DemoError(400, "this thread no longer exists");
   t.archived_at = null;
   return t.id;
@@ -134,7 +131,7 @@ route("DELETE", "/api/bots/:id", ({ params }) => {
   publish("bots", "changed", { id: params.id });
   return { ok: true };
 });
-route("GET", "/api/bots/:id/threads", ({ params, query }) => { botOf(params.id); const all = query.get("archived") === "true"; return [...threadsOf(params.id)].filter((t) => all || t.archived_at == null).sort((a, b) => Number(b.id === "main") - Number(a.id === "main") || b.created_at - a.created_at); });
+route("GET", "/api/bots/:id/threads", ({ params, query }) => { botOf(params.id); const all = query.get("archived") === "true"; return [...threadsOf(params.id)].map((t) => { const s = thread(params.id, t.id).at(-1); return t.archived_at == null && s?.status === "closed" ? { ...t, archived_at: s.status_since } : t; }).filter((t) => all || t.archived_at == null).sort((a, b) => b.created_at - a.created_at); });
 route("PATCH", "/api/bots/:id/threads/:thread", ({ params, body }) => {
   const t = threadsOf(params.id).find((x) => x.id === params.thread);
   if (!t) throw new DemoError(400, "this thread no longer exists");
@@ -145,11 +142,11 @@ route("PATCH", "/api/bots/:id/threads/:thread", ({ params, body }) => {
   return t;
 });
 route("POST", "/api/bots/:id/threads/:thread/archive", ({ params, body }) => {
-  if (params.thread === "main") throw new DemoError(400, "the main thread cannot be archived");
   const t = threadsOf(params.id).find((x) => x.id === params.thread);
   if (!t) throw new DemoError(400, "this thread no longer exists");
   const archived = (body as { archived?: boolean })?.archived !== false;
   if (archived) for (const s of thread(params.id, t.id).filter((x) => x.status !== "closed")) setStatus(s.id, "closed");
+  else { const s = thread(params.id, t.id).at(-1); if (s?.status === "closed") setStatus(s.id, "waiting"); }
   t.archived_at = archived ? clock.now() : null;
   threadsChanged(params.id);
   return t;
@@ -157,7 +154,8 @@ route("POST", "/api/bots/:id/threads/:thread/archive", ({ params, body }) => {
 route("GET", "/api/bots/:id/start-preview", ({ params, query }) => {
   const b = botOf(params.id);
   const profile = profileOf(b);
-  const previous = thread(b.id, query.get("thread") ?? "main").at(-1);
+  const t = query.get("thread");
+  const previous = t ? thread(b.id, t).at(-1) : undefined;
   return startPreview({ ...defaultSpec(), harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), workspace_id: b.workspace_id, text: "(your next message)",
     bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: b.instructions, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } });
 });
@@ -176,17 +174,16 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
   const b = botOf(params.id);
   const text = withContext(String((body as { text?: string })?.text ?? ""), (body as { context?: MessageContext })?.context).trim();
   if (!text) throw new DemoError(400, "the message is empty");
-  const threadId = resolveThread(b, body as never, text);
-  const sessions = thread(b.id, threadId);
-  const current = [...sessions].reverse().find((s) => s.status !== "closed");
+  let threadId = resolveThread(b, body as never, text);
+  const current = thread(b.id, threadId).at(-1);
   const profile = profileOf(b);
-  // Home's `bots::rotation`: a new profile, model or permission mode starts a new session.
-  const reason = !current ? (sessions.length ? "archived" : "first")
+  // Home's `bots::rotation`: archived, or a new profile, model or permission mode, continues in a new thread.
+  const reason = !current ? null
+    : current.status === "closed" ? "archived"
     : current.launch_spec.profile !== (profile?.id ?? null) ? "profile"
     : (current.launch_spec.model ?? null) !== (b.settings.model ?? profile?.model ?? null) ? "model"
     : (current.launch_spec.bot?.permission_mode ?? current.launch_spec.permission_mode) !== b.settings.permission_mode ? "permissions" : null;
-  const fresh = !!(body as { new_session?: boolean }).new_session;
-  if (current && !fresh && !reason) {
+  if (current && !reason) {
     // BOT.md changed since the session read it: the new one goes after the typed text (`bots::with_new_instructions`).
     const v = botVersion(b.instructions);
     const bot = current.launch_spec.bot;
@@ -197,10 +194,16 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
     sendMessage(current, changedText, `${current.id}-${current.last_seq + 1}`);
     return session(current.id);
   }
-  if (current) setStatus(current.id, "closed");
-  const previous = sessions.at(-1);
+  // `bot_threads::follow_up`: a new thread with the same key and title; the old one leaves the bar.
+  if (current) {
+    if (current.status !== "closed") setStatus(current.id, "closed");
+    const old = threadsOf(b.id).find((t) => t.id === threadId);
+    threadId = newThread(b, old?.key ?? null, old?.title ?? "");
+    if (old) old.archived_at = clock.now();
+  }
+  const previous = current;
   const spec = { harness: profile?.harness ?? "claude", profile: profile?.id ?? null, target: botTarget(b), worktree: !b.settings.folder || world.projects.find((p) => p.id === b.settings.folder)?.plain ? null : { base: null, when_done: "keep" }, workspace_id: b.workspace_id, text,
     model: b.settings.model ?? profile?.model ?? null, permission_mode: b.settings.permission_mode,
-    bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", thread: threadId, version: botVersion(b.instructions), reason: fresh && !reason ? "new" : reason ?? "first", note: fresh ? String((body as { reason?: string }).reason ?? "").trim().slice(0, 120) || undefined : undefined, permission_mode: b.settings.permission_mode, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
+    bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", thread: threadId, version: botVersion(b.instructions), reason: reason ?? "first", permission_mode: b.settings.permission_mode, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
   return launch(spec, undefined, b.slug === "ask-launchpad" ? pickReply(text, true) : undefined);
 });

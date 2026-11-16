@@ -5,11 +5,12 @@
 //! `memory/` (its own notes, `bot_memory`). Runners mirror the store read-only into its sessions (`$LAUNCHPAD_BOT`).
 //! Ask Launchpad is a bot like the others, created once per workspace (`ask_bot`).
 //!
-//! A bot has several threads (`bot_threads`): each a chain of sessions with `LaunchSpec.bot` set and the same
-//! `BotLaunch.thread`. A message goes to the newest open session of its thread (`bot_threads::route` picks the
-//! thread from the message's source); a new session starts when there is none, when the bot's profile or folder
-//! changed, or on the owner's click. It references the thread's previous session's trace, never an inlined
-//! transcript. At most `max_threads` threads work at once: automatic messages to another thread wait for a slot.
+//! A bot has several threads (`bot_threads`): each one session with `LaunchSpec.bot` set and its
+//! `BotLaunch.thread`. A message goes to the session of its thread (`bot_threads::route` picks the thread from the
+//! message's source); a thread without a session starts one. When the session cannot go on (archived, or the bot's
+//! profile, folder, model, effort or permission mode changed), the message continues in a new thread
+//! (`bot_threads::follow_up`) whose session references the previous one's trace, never an inlined transcript. At
+//! most `max_threads` threads work at once: automatic messages to another thread wait for a slot.
 
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{OptionalExtension, params};
@@ -622,7 +623,7 @@ pub fn all_sessions(app: &App, id: &str) -> Vec<Session> {
     list
 }
 
-/// The current session of a thread, as `rotation` compares it with the bot's settings: its status, and the
+/// The session of a thread, as `rotation` compares it with the bot's settings: its status, and the
 /// profile, folder (None for a temporary folder), model, effort and permission mode bot.toml gave it at start.
 #[derive(Clone, Copy, Debug)]
 pub struct Current<'a> {
@@ -648,7 +649,7 @@ impl<'a> Current<'a> {
     }
 }
 
-/// Why the next message starts a new session, or None to continue the current one. `bot` holds the values a new
+/// Why the next message continues in a new thread, or None to continue the thread's session. `bot` holds the values a new
 /// session would get (its profile, and the model and effort of bot.toml or else of the profile).
 pub fn rotation(bot: &BotSettings, current: Option<Current>) -> Option<&'static str> {
     let Some(c) = current else { return Some("first") };
@@ -730,7 +731,7 @@ pub fn quota_hold(app: &App, bot: &Bot, thread: Option<&str>) -> Option<String> 
     let config = app.config.get();
     let profile = launch_profile(app, &config, &bot.settings)?;
     if let Some(t) = thread
-        && let Some(c) = crate::bot_threads::sessions(app, &bot.id, t).into_iter().rev().find(|x| x.status != SessionStatus::Closed)
+        && let Some(c) = crate::bot_threads::open_session(app, &bot.id, t)
         && (c.launch_spec.profile.as_deref() == Some(profile.id.as_str()) || (bot.settings.profile.is_none() && c.launch_spec.profile.as_ref().is_some_and(|id| bot.settings.profiles.contains(id))))
     {
         return crate::quota::hold_reason(app, c.harness, &c.launch_spec);
@@ -748,14 +749,14 @@ pub async fn effective_folder(app: &App, s: &BotSettings) -> Result<Option<crate
     }
 }
 
-/// Sends the owner's message to a thread of the bot (None: main): to its open session, or to a new one.
-pub async fn message(app: &App, id: &str, thread: Option<&str>, text: String, attachments: Vec<FileAttachment>, context: MessageContext, new_session: bool) -> Result<Session> {
+/// Sends the owner's message to a thread of the bot (None: a new thread).
+pub async fn message(app: &App, id: &str, thread: Option<&str>, text: String, attachments: Vec<FileAttachment>, context: MessageContext) -> Result<Session> {
     let to = crate::bot_threads::route(crate::bot_threads::Source::Owner { thread });
-    message_with(app, id, Message { text, attachments, context, new_session: new_session.then(String::new), automatic: false, key: None, to }).await
+    message_with(app, id, Message { text, attachments, context, automatic: false, key: None, to }).await
 }
 
-/// One lock per bot: two messages to the same bot never both decide to start a new session of a thread, and the
-/// check of its free slots and the launch stay together.
+/// One lock per bot: two messages to the same bot never both decide to start a session of a thread, and the check
+/// of its free slots and the launch stay together.
 static MESSAGES: std::sync::LazyLock<crate::locks::Locks> = std::sync::LazyLock::new(Default::default);
 
 /// A message to a bot (`message_with`).
@@ -764,8 +765,6 @@ pub struct Message {
     pub attachments: Vec<FileAttachment>,
     /// Folders, GitHub links, agent traces, as in an agent's message box; `from` names a sender other than the owner.
     pub context: MessageContext,
-    /// The owner asked for a new session of the thread, with their reason (may be empty).
-    pub new_session: Option<String>,
     /// Routines, hooks, channels, other agents: refused while the bot is paused, and they need confirmed quota and a
     /// free slot (`bot_threads::at_cap`).
     pub automatic: bool,
@@ -782,9 +781,10 @@ pub struct Message {
 /// session, or into the launch of a new one. `context.from`, set only by Home's own code (`senders`), names a sender
 /// other than the owner: the message arrives under its header. The bot's lock (`MESSAGES`) covers the choice of
 /// thread and session and a new session's launch, so concurrent messages never start two sessions of one thread; a
-/// message to the open session is sent after the lock is released.
+/// message to the open session is sent after the lock is released. A session that cannot go on (`rotation`) makes
+/// the message continue in a new thread (`bot_threads::follow_up`); the returned session names it.
 pub async fn message_with(app: &App, id: &str, m: Message) -> Result<Session> {
-    let Message { text, attachments, context, new_session, automatic, key, to } = m;
+    let Message { text, attachments, context, automatic, key, to } = m;
     ensure!(!text.trim().is_empty() || !attachments.is_empty() || !context.is_empty(), "the message is empty");
     if let Some(f) = &context.from {
         crate::senders::guard_from(f)?;
@@ -803,21 +803,17 @@ pub async fn message_with(app: &App, id: &str, m: Message) -> Result<Session> {
     if automatic && let Some(why) = crate::bot_threads::at_cap(app, &bot, crate::bot_threads::peek(app, id, &to).await?.as_deref()) {
         bail!("{why}");
     }
-    let thread_id = crate::bot_threads::resolve(app, id, &to, text.lines().find(|l| !l.trim().is_empty()).unwrap_or_default()).await?;
-    let sessions = crate::bot_threads::sessions(app, id, &thread_id);
-    let current = sessions.iter().rev().find(|x| x.status != SessionStatus::Closed);
+    let mut thread_id = crate::bot_threads::resolve(app, id, &to, text.lines().find(|l| !l.trim().is_empty()).unwrap_or_default()).await?;
+    let current = crate::bot_threads::session(app, id, &thread_id);
     let profile = if s.profile.is_none() && !s.profiles.is_empty() {
-        current.and_then(|c| config.profiles.iter().find(|p| Some(&p.id) == c.launch_spec.profile.as_ref() && s.profiles.contains(&p.id))).unwrap_or(profile)
+        current.as_ref().and_then(|c| config.profiles.iter().find(|p| Some(&p.id) == c.launch_spec.profile.as_ref() && s.profiles.contains(&p.id))).unwrap_or(profile)
     } else { profile };
     let folder = effective_folder(app, s).await?.map(|p| p.id);
     let resolved = BotSettings { profile: Some(profile.id.clone()), model: s.model.clone().or_else(|| profile.model.clone()), effort: s.effort.clone().or_else(|| profile.effort.clone()), folder, ..s.clone() };
-    let reason = match current {
-        None if !sessions.is_empty() => Some("archived"),
-        c => rotation(&resolved, c.map(Current::of)),
-    };
-    match (new_session.is_some(), reason) {
-        (false, None) => {
-            let c = current.expect("a current session");
+    let reason = rotation(&resolved, current.as_ref().map(Current::of));
+    match reason {
+        None => {
+            let c = current.as_ref().expect("a current session");
             // Automatic work needs confirmed quota (`quota::hold_reason`); a new session waits for it in its start.
             if automatic && let Some(why) = crate::quota::hold_reason(app, c.harness, &c.launch_spec) {
                 bail!("{} waits for its quota: {why}", s.name);
@@ -829,23 +825,26 @@ pub async fn message_with(app: &App, id: &str, m: Message) -> Result<Session> {
             crate::ref_use::record(app, &c, Some(id), &refs).await;
             return app.sessions.get(&c).context("the bot's session disappeared");
         }
-        _ => {
-            if let Some(c) = current {
-                ensure!(!c.status.is_running(), "{} is working in this thread: wait for its turn to end, or Stop it, before a new session", s.name);
-                crate::runners::session_action(app, &c.id, "close").await?;
+        Some(_) => {
+            // The thread's session cannot go on: the message continues in a new thread that references it.
+            if let Some(c) = &current {
+                ensure!(!c.status.is_running(), "{} is working in this thread: wait for its turn to end, or Stop it, first", s.name);
+                if c.status != SessionStatus::Closed {
+                    crate::runners::session_action(app, &c.id, "close").await?;
+                }
+                thread_id = crate::bot_threads::follow_up(app, id, &thread_id).await?;
             }
         }
     }
     let from = context.from.clone();
-    let mut spec = next_spec(app, &bot, &thread_id, &sessions, text, attachments, context).await?;
+    let mut spec = next_spec(app, &bot, &thread_id, current.as_ref(), text, attachments, context).await?;
     // The first message of the new session, from another bot or agent: under its header, like `runners::deliver`.
     if let Some(f) = from {
         spec.text = crate::senders::wrap(&f, &spec.text);
         spec.from = Some(f);
     }
     if let Some(b) = &mut spec.bot {
-        b.reason = Some(if new_session.is_some() && reason.is_none() { "new" } else { reason.unwrap_or("first") }.to_string());
-        b.note = note_of(new_session);
+        b.reason = reason.map(str::to_string);
     }
     let session = key.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let started = crate::runners::launch_anywhere(app, spec, session, automatic).await;
@@ -853,20 +852,14 @@ pub async fn message_with(app: &App, id: &str, m: Message) -> Result<Session> {
     started
 }
 
-/// The owner's reason for a new session: one line, at most 120 characters, None when empty.
-fn note_of(note: Option<String>) -> Option<String> {
-    let line = note?.split_whitespace().collect::<Vec<_>>().join(" ");
-    (!line.is_empty()).then(|| line.chars().take(120).collect())
-}
-
-/// The launch of a new session of a thread: the bot's settings, BOT.md and its version, and the thread's previous
-/// session to reference. `sessions` is the thread's sessions, oldest first.
-pub async fn next_spec(app: &App, bot: &Bot, thread: &str, sessions: &[Session], text: String, attachments: Vec<FileAttachment>, context: MessageContext) -> Result<LaunchSpec> {
+/// The launch of a thread's session: the bot's settings, BOT.md and its version, and the session of the thread it
+/// continues (`previous`) to reference.
+pub async fn next_spec(app: &App, bot: &Bot, thread: &str, previous: Option<&Session>, text: String, attachments: Vec<FileAttachment>, context: MessageContext) -> Result<LaunchSpec> {
     let s = &bot.settings;
     let config = app.config.get();
     let profile = launch_profile(app, &config, s).context("choose a profile for this bot on its page (About → Access)")?;
     let folder = effective_folder(app, s).await?;
-    let previous = sessions.last().map(|p| BotHandoff { session_id: p.id.clone(), title: p.title.clone(), through_seq: p.last_seq });
+    let previous = previous.map(|p| BotHandoff { session_id: p.id.clone(), title: p.title.clone(), through_seq: p.last_seq });
     Ok(LaunchSpec {
         text,
         attachments,
@@ -1005,15 +998,7 @@ mod tests {
     }
 
     #[test]
-    fn the_reason_for_a_new_session_is_one_short_line() {
-        assert_eq!(note_of(None), None);
-        assert_eq!(note_of(Some("  \n ".into())), None);
-        assert_eq!(note_of(Some(" Fresh\n context  ".into())).as_deref(), Some("Fresh context"));
-        assert_eq!(note_of(Some("é".repeat(200))).map(|n| n.chars().count()), Some(120));
-    }
-
-    #[test]
-    fn a_new_session_starts_when_the_thread_cannot_continue() {
+    fn a_thread_continues_elsewhere_when_its_session_cannot_go_on() {
         let bot = BotSettings { profile: Some("a".into()), folder: Some("f".into()), model: Some("m".into()), ..Default::default() };
         let cur = |status, profile, folder| Current { status, profile, folder, model: Some("m"), effort: None, permission_mode: PermissionMode::default() };
         assert_eq!(rotation(&bot, None), Some("first"));
