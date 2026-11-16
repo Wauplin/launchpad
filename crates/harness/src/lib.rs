@@ -3,6 +3,7 @@
 
 pub mod acp;
 pub mod claude;
+mod claude_quota;
 pub mod codex;
 pub mod opencode;
 

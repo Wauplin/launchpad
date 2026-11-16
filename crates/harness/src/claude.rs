@@ -3,7 +3,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use launchpad_core::util::now_ms;
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -977,10 +976,10 @@ impl harness::Harness for Adapter {
         )
     }
     fn spawn_quota(&self, app: &App, account: launchpad_core::quota::QuotaAccount) -> Option<tokio::task::JoinHandle<()>> {
-        Some(spawn_quota(app, account))
+        Some(crate::claude_quota::spawn_quota(app, account))
     }
     async fn read_quota_now(&self, app: &App, account: launchpad_core::quota::QuotaAccount) -> Result<launchpad_core::quota::QuotaPair> {
-        read_quota_now(app, &account).await
+        crate::claude_quota::read_quota_now(app, &account).await
     }
     async fn native_trace(&self, app: &App, session: &Session) -> Result<Vec<harness::trace::TraceFile>> {
         let id = harness::trace::conversation(session)?;
@@ -1116,302 +1115,13 @@ impl harness::Harness for Adapter {
         Ok(harness::TitleReply { title, cost_unavailable, cost_usd: if cost_unavailable { None } else { value["total_cost_usd"].as_f64().filter(|c| c.is_finite() && *c >= 0.0) }, error })
     }
 }
-/// Quota from a Claude `rate_limit_event` (fractions and Unix seconds).
+/// Quota from a Claude `rate_limit_event` of a running session.
 pub fn rate_limit_event(app: &App, account: &str, info: &Value) {
-    let windows = &info["unifiedWindows"];
-    let win = |k: &str| -> Option<launchpad_core::status::QuotaWindow> {
-        let w = &windows[k];
-        Some(launchpad_core::status::QuotaWindow {
-            used_percent: w["utilization"].as_f64()? * 100.0,
-            resets_at: Some(w["resetsAt"].as_i64()?),
-        })
-    };
-    let (five, week) = (win("five_hour"), win("seven_day"));
+    let (five, week) = crate::claude_quota::windows_of(info);
     if five.is_none() && week.is_none() {
         return;
     }
     launchpad_core::quota::session_reading(app, account, five, week);
-}
-
-/// Polls the usage of one login of Home's vault: Home's copy of it (`vault::login_home`) carries its token
-/// (`claude setup-token`) and its own `CLAUDE_CONFIG_DIR`, never the machine's `~/.claude`.
-///
-/// A `claude setup-token` token only allows model requests: the usage endpoint refuses it (403) and Claude Code's
-/// `get_usage` finds no plan limits for it, so the endpoint is then asked only hourly. Readings come from running
-/// sessions (`rate_limit_event`) and, while automatic work waits for one (`quota::want_reading`), from a
-/// one-token model request (`probe_with_token`), at most every 10 minutes and never while the last reading shows
-/// a used-up window that has not reset (so it cannot be paid extra usage).
-fn spawn_quota(app: &App, account: launchpad_core::quota::QuotaAccount) -> tokio::task::JoinHandle<()> {
-    use std::time::{Duration, Instant};
-    let a = app.clone();
-    tokio::spawn(async move {
-        let client = launchpad_core::status::http_client();
-        let mut rate_limit_delay = 0;
-        let vault_token = account.env.iter().find(|(k, _)| k == "CLAUDE_CODE_OAUTH_TOKEN").map(|(_, v)| v.clone());
-        let mut last_poll: Option<Instant> = None;
-        // The usage endpoint answered 429 or refused the token: not before then.
-        let mut backoff_until: Option<Instant> = None;
-        let mut probe_at = Instant::now();
-        let mut demanded = false;
-        // Running sessions also report readings (`rate_limit_event`): a failed check keeps a recent one.
-        let recent = |a: &App| launchpad_core::quota::reading(a, &account.key).quota_at.is_some_and(|at| now_ms() - at < 10 * 60_000);
-        loop {
-            let due = backoff_until.is_none_or(|t| Instant::now() >= t)
-                && last_poll.is_none_or(|t| t.elapsed() >= Duration::from_secs(if launchpad_core::quota::monitoring(&a, &account.key) { 180 } else { 300 }));
-            if due {
-                last_poll = Some(Instant::now());
-                backoff_until = None;
-                let mut result = match &vault_token {
-                    Some(token) => usage_with_token(&client, token).await,
-                    None => Err(anyhow::anyhow!("this login has no token in Home's vault")),
-                };
-                // Expired or rejected tokens: Claude Code reads usage itself and refreshes its own token.
-                if let Err(e) = &result
-                    && e.downcast_ref::<UsageRateLimited>().is_none()
-                    && e.downcast_ref::<UsageRefused>().is_none()
-                {
-                    tracing::info!("claude usage endpoint ({}): {e:#}; asking Claude Code", account.key);
-                    result = claude_code_usage(&a, &account.env).await.map_err(|cc| anyhow::anyhow!("{e:#}; Claude Code: {cc:#}"));
-                }
-                match result {
-                    Ok((five, week)) => {
-                        rate_limit_delay = 0;
-                        a.status.update_quota(&account.key, five, week);
-                    }
-                    Err(e) => {
-                        tracing::info!("claude usage ({}): {e:#}", account.key);
-                        if !recent(&a) {
-                            a.status.quota_error(&account.key, format!("{e:#}"));
-                        }
-                        if let Some(limit) = e.downcast_ref::<UsageRateLimited>() {
-                            rate_limit_delay = if rate_limit_delay == 0 { 300 } else { (rate_limit_delay * 2).min(1800) };
-                            backoff_until = Some(Instant::now() + Duration::from_secs(rate_limit_delay.max(limit.retry_after)));
-                        } else if e.downcast_ref::<UsageRefused>().is_some() {
-                            backoff_until = Some(Instant::now() + Duration::from_secs(3600));
-                        } else {
-                            rate_limit_delay = 0;
-                        }
-                    }
-                }
-            }
-            if demanded && Instant::now() >= probe_at && let Some(token) = &vault_token {
-                let q = launchpad_core::quota::reading(&a, &account.key);
-                if probe_allowed(&q, now_ms()) {
-                    probe_at = Instant::now() + Duration::from_secs(600);
-                    match probe_with_token(&client, token).await {
-                        Ok((five, week)) => {
-                            tracing::info!("claude quota ({}) read with a one-token request", account.key);
-                            a.status.update_quota(&account.key, five, week);
-                        }
-                        Err(e) => {
-                            tracing::info!("claude quota request ({}): {e:#}", account.key);
-                            let previous = q.quota_error.filter(|p| !p.contains("quota request")).map(|p| format!("{p}; ")).unwrap_or_default();
-                            if !recent(&a) {
-                                a.status.quota_error(&account.key, format!("{previous}quota request: {e:#}"));
-                            }
-                            if let Some(limit) = e.downcast_ref::<UsageRateLimited>() {
-                                probe_at = probe_at.max(Instant::now() + Duration::from_secs(limit.retry_after));
-                            }
-                        }
-                    }
-                }
-            }
-            demanded = loop {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                if launchpad_core::quota::take_demand(&account.key) { break true; }
-                if backoff_until.is_none_or(|t| Instant::now() >= t)
-                    && last_poll.is_none_or(|t| t.elapsed() >= Duration::from_secs(if launchpad_core::quota::monitoring(&a, &account.key) { 180 } else { 300 }))
-                {
-                    break false;
-                }
-            };
-        }
-    })
-}
-
-/// The owner's Refresh of a vault login: a one-token request (`probe_with_token`) checks the token and reads the
-/// quota. While a window is used up and has not reset, that request could be paid extra usage: only the usage
-/// endpoint is asked then (a `claude setup-token` token cannot read it, so the token stays unchecked).
-async fn read_quota_now(app: &App, account: &launchpad_core::quota::QuotaAccount) -> Result<QuotaPair> {
-    let token = account.env.iter().find(|(k, _)| k == "CLAUDE_CODE_OAUTH_TOKEN").map(|(_, v)| v.clone()).context("this login has no token in Home's vault")?;
-    let client = launchpad_core::status::http_client();
-    let now = now_ms();
-    let q = launchpad_core::quota::reading(app, &account.key);
-    let Some(used_up) = launchpad_core::quota::exhausted(&q).into_iter().find(|b| b.resets_at.is_none_or(|r| r > now / 1000)) else {
-        return probe_with_token(&client, &token).await;
-    };
-    match usage_with_token(&client, &token).await {
-        Ok(pair) => Ok(pair),
-        Err(e) if launchpad_core::vault::login_refused(&format!("{e:#}")) => Err(e),
-        Err(_) => {
-            let reset = used_up.resets_at.map(|r| format!(" (resets in {} min)", (r - now / 1000).max(60) / 60)).unwrap_or_default();
-            bail!("the {} quota is used up{reset}: Home sent no model request, which could use extra usage, so the token was not checked", used_up.window.to_lowercase())
-        }
-    }
-}
-
-/// A one-token request may read the quota: no fresh reading, and no used-up window that has not reset (a
-/// request then could be paid extra usage).
-fn probe_allowed(q: &launchpad_core::status::QuotaStatus, now: i64) -> bool {
-    !launchpad_core::quota::available(q, now)
-        && launchpad_core::quota::exhausted(q).iter().all(|b| b.resets_at.is_some_and(|r| r <= now / 1000))
-}
-
-#[derive(Debug)]
-struct UsageRateLimited { what: &'static str, retry_after: u64 }
-
-impl std::fmt::Display for UsageRateLimited {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.retry_after > 0 {
-            write!(f, "{} returned 429 (Retry-After: {} seconds); backing off", self.what, self.retry_after)
-        } else {
-            write!(f, "{} returned 429; backing off", self.what)
-        }
-    }
-}
-
-impl std::error::Error for UsageRateLimited {}
-
-/// The usage endpoint refused the token (403), with the reason it gave.
-#[derive(Debug)]
-struct UsageRefused { reason: String }
-
-impl std::fmt::Display for UsageRefused {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "usage endpoint returned 403 Forbidden")?;
-        if !self.reason.is_empty() { write!(f, " ({})", self.reason)?; }
-        write!(f, ": this token cannot read usage (a claude setup-token token only allows model requests)")
-    }
-}
-
-impl std::error::Error for UsageRefused {}
-
-type QuotaPair = (Option<launchpad_core::status::QuotaWindow>, Option<launchpad_core::status::QuotaWindow>);
-
-fn retry_after(res: &reqwest::Response) -> u64 {
-    res.headers().get(reqwest::header::RETRY_AFTER).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0)
-}
-
-/// The `error.message` of an Anthropic error body, cut short.
-fn error_message(body: &str) -> String {
-    let message = serde_json::from_str::<Value>(body).ok().and_then(|v| v["error"]["message"].as_str().map(str::to_string)).unwrap_or_else(|| body.trim().to_string());
-    message.chars().take(200).collect()
-}
-
-async fn usage_with_token(client: &reqwest::Client, token: &str) -> Result<QuotaPair> {
-    let res = client
-        .get("https://api.anthropic.com/api/oauth/usage")
-        .bearer_auth(token)
-        .header("Content-Type", "application/json")
-        .header("anthropic-beta", "oauth-2025-04-20")
-        .send()
-        .await?;
-    let code = res.status();
-    if code == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        let retry_after = retry_after(&res);
-        return Err(UsageRateLimited { what: "usage endpoint", retry_after }.into());
-    }
-    if code == reqwest::StatusCode::FORBIDDEN {
-        return Err(UsageRefused { reason: error_message(&res.text().await.unwrap_or_default()) }.into());
-    }
-    if !code.is_success() {
-        bail!("usage endpoint returned {code}: {}", error_message(&res.text().await.unwrap_or_default()));
-    }
-    usage_windows(&res.json().await?)
-}
-
-/// Reads the quota from the rate-limit headers of a one-token model request, as Claude Code's own quota check
-/// does. It uses a sliver of the included quota.
-async fn probe_with_token(client: &reqwest::Client, token: &str) -> Result<QuotaPair> {
-    let res = client
-        .post("https://api.anthropic.com/v1/messages")
-        .bearer_auth(token)
-        .header("anthropic-version", "2023-06-01")
-        .header("anthropic-beta", "oauth-2025-04-20")
-        .json(&json!({
-            "model": "claude-haiku-5-5",
-            "max_tokens": 1,
-            "system": "You are Claude Code, Anthropic's official CLI for Claude.",
-            "messages": [{"role": "user", "content": "quota"}],
-        }))
-        .send()
-        .await?;
-    let code = res.status();
-    // A refused request (429 at the limit) still carries the windows.
-    if let Some(pair) = unified_windows(res.headers()) {
-        return Ok(pair);
-    }
-    if code == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        let retry_after = retry_after(&res);
-        return Err(UsageRateLimited { what: "model request", retry_after }.into());
-    }
-    bail!("model request returned {code} without both quota windows: {}", error_message(&res.text().await.unwrap_or_default()))
-}
-
-/// The 5-hour and weekly windows of the `anthropic-ratelimit-unified-*` headers (fractions and Unix seconds).
-/// Both utilizations are required; a missing reset means the window has not started.
-fn unified_windows(headers: &reqwest::header::HeaderMap) -> Option<QuotaPair> {
-    let get = |name: String| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim).map(str::to_string);
-    let win = |w: &str| -> Option<launchpad_core::status::QuotaWindow> {
-        let used = get(format!("anthropic-ratelimit-unified-{w}-utilization"))?.parse::<f64>().ok().filter(|u| u.is_finite() && *u >= 0.0)?;
-        let resets_at = get(format!("anthropic-ratelimit-unified-{w}-reset")).and_then(|r| r.parse::<i64>().ok()).filter(|r| *r > 0);
-        Some(launchpad_core::status::QuotaWindow { used_percent: used * 100.0, resets_at })
-    };
-    Some((Some(win("5h")?), Some(win("7d")?)))
-}
-
-/// Asks Claude Code for its structured `/usage` data (`get_usage` control request). No model request is made;
-/// Claude Code authenticates and refreshes its own OAuth token, which Launchpad never does.
-async fn claude_code_usage(app: &App, env: &[(String, String)]) -> Result<QuotaPair> {
-    // Runs in Home's copy of the login (`vault::login_home`), never in the machine's home folder, whose
-    // `.claude/settings.json` Claude Code would read as project settings.
-    let cwd = env.iter().find(|(k, _)| k == "CLAUDE_CONFIG_DIR").map(|(_, v)| std::path::PathBuf::from(v));
-    let mut child = launchpad_core::procs::child_command(&app.env.with(env), "claude", cwd.as_deref())
-        .args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--strict-mcp-config"])
-        .stdin(launchpad_core::exec::Io::Piped)
-        .stdout(launchpad_core::exec::Io::Piped)
-        .stderr(launchpad_core::exec::Io::Null)
-        .spawn()
-        .await
-        .context("start claude")?;
-    let mut stdin = child.stdin.take().context("claude stdin")?;
-    let request = json!({"type": "control_request", "request_id": "launchpad-usage", "request": {"subtype": "get_usage", "skip_behaviors": true}});
-    stdin.write_all(format!("{request}\n").as_bytes()).await?;
-    let mut lines = BufReader::new(child.stdout.take().context("claude stdout")?).lines();
-    let read = async {
-        while let Some(line) = lines.next_line().await? {
-            let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
-            let r = &msg["response"];
-            if msg["type"] != "control_response" || r["request_id"] != "launchpad-usage" { continue; }
-            if r["subtype"] != "success" {
-                bail!("{}", r["error"].as_str().unwrap_or("get_usage failed"));
-            }
-            let data = &r["response"];
-            if data["rate_limits_available"] == false { bail!("plan rate limits are not available for this login"); }
-            return usage_windows(&data["rate_limits"]);
-        }
-        bail!("no usage response")
-    };
-    let result = tokio::time::timeout(std::time::Duration::from_secs(30), read).await.unwrap_or_else(|_| Err(anyhow::anyhow!("timed out")));
-    drop(stdin);
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await;
-    result
-}
-
-/// `five_hour` and `seven_day` of a usage response. `resets_at` is null while a window has not started.
-fn usage_windows(body: &Value) -> Result<QuotaPair> {
-    let win = |k: &str| -> Option<launchpad_core::status::QuotaWindow> {
-        let w = &body[k];
-        let resets_at = match &w["resets_at"] {
-            Value::Null => None,
-            v => Some(time::OffsetDateTime::parse(v.as_str()?, &time::format_description::well_known::Rfc3339).ok()?.unix_timestamp()),
-        };
-        Some(launchpad_core::status::QuotaWindow { used_percent: w["utilization"].as_f64()?, resets_at })
-    };
-    let five = win("five_hour").context("missing or invalid five_hour usage window")?;
-    let week = win("seven_day").context("missing or invalid seven_day usage window")?;
-    anyhow::ensure!([&five, &week].iter().all(|w| w.used_percent.is_finite() && w.used_percent >= 0.0), "invalid quota utilization");
-    Ok((Some(five), Some(week)))
 }
 
 /// `settings.json` with `attribution.pr` set to Launchpad's line (other settings and `attribution.commit` kept).
@@ -1511,58 +1221,6 @@ mod permission_tests {
         assert_eq!(reply.cost_usd, None);
     }
 
-    #[test]
-    fn rate_limit_headers_give_both_windows() {
-        use reqwest::header::{HeaderMap, HeaderValue};
-        let mut h = HeaderMap::new();
-        h.insert("anthropic-ratelimit-unified-5h-utilization", HeaderValue::from_static("0.25"));
-        h.insert("anthropic-ratelimit-unified-5h-reset", HeaderValue::from_static("1762800000"));
-        assert!(unified_windows(&h).is_none());
-        h.insert("anthropic-ratelimit-unified-7d-utilization", HeaderValue::from_static("1.0"));
-        let (five, week) = unified_windows(&h).unwrap();
-        assert_eq!(five.unwrap(), launchpad_core::status::QuotaWindow { used_percent: 25.0, resets_at: Some(1762800000) });
-        // A window without a reset has not started.
-        assert_eq!(week.unwrap(), launchpad_core::status::QuotaWindow { used_percent: 100.0, resets_at: None });
-        h.insert("anthropic-ratelimit-unified-7d-utilization", HeaderValue::from_static("NaN"));
-        assert!(unified_windows(&h).is_none());
-        assert_eq!(error_message(r#"{"type":"error","error":{"type":"permission_error","message":"OAuth token does not meet scope requirement user:profile"}}"#), "OAuth token does not meet scope requirement user:profile");
-    }
-
-    #[test]
-    fn one_token_requests_never_run_against_a_used_up_window() {
-        use launchpad_core::status::{QuotaStatus, QuotaWindow};
-        let now = 10_000_000;
-        let mut q = QuotaStatus { quota_at: Some(now - 3_600_000), five_hour: Some(QuotaWindow { used_percent: 40.0, resets_at: None }), weekly: Some(QuotaWindow { used_percent: 40.0, resets_at: None }), ..Default::default() };
-        assert!(probe_allowed(&q, now));
-        q.quota_at = Some(now);
-        assert!(!probe_allowed(&q, now)); // Fresh: nothing to read.
-        q.quota_at = Some(now - 3_600_000);
-        q.five_hour = Some(QuotaWindow { used_percent: 100.0, resets_at: Some(now / 1000 + 60) });
-        assert!(!probe_allowed(&q, now));
-        q.five_hour = Some(QuotaWindow { used_percent: 100.0, resets_at: Some(now / 1000 - 60) });
-        assert!(probe_allowed(&q, now)); // The window reset since.
-        assert!(probe_allowed(&QuotaStatus::default(), now));
-    }
-
-    #[test]
-    fn usage_readings_require_both_valid_windows() {
-        let valid = json!({"five_hour": {"utilization": 100, "resets_at": null}, "seven_day": {"utilization": 0, "resets_at": "2026-10-20T10:00:00Z"}});
-        let (five, week) = usage_windows(&valid).unwrap();
-        assert_eq!(five.unwrap().used_percent, 100.0);
-        assert!(week.unwrap().resets_at.is_some());
-        for invalid in [json!({}), json!({"five_hour": valid["five_hour"]}),
-            json!({"five_hour": valid["five_hour"], "seven_day": null})] {
-            assert!(usage_windows(&invalid).is_err());
-        }
-        for utilization in [json!(-1), json!("0")] {
-            let mut invalid = valid.clone();
-            invalid["five_hour"]["utilization"] = utilization;
-            assert!(usage_windows(&invalid).is_err());
-        }
-        let mut invalid = valid;
-        invalid["seven_day"]["resets_at"] = json!("invalid date");
-        assert!(usage_windows(&invalid).is_err());
-    }
     #[test]
     fn auto_permissions_use_the_native_classifier_without_bypass_flags() {
         assert_eq!(permission_args(PermissionMode::Auto), ["--permission-mode", "auto"]);

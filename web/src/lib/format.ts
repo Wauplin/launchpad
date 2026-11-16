@@ -59,7 +59,7 @@ export function month(ms: number): string {
   return `${d.toLocaleDateString("en-US", { month: "long" })}${d.getFullYear() === new Date().getFullYear() ? "" : ` ${d.getFullYear()}`}`;
 }
 
-/** Quota reset (Unix seconds, rounded to the minute: the usage endpoint returns times like 13:29:59.7). */
+/** Quota reset (Unix seconds, rounded to the minute: providers return times like 13:29:59.7). */
 export const formatReset = (unixSeconds: number): string => when(Math.round(unixSeconds / 60) * 60_000);
 
 /** "resets today 16:40", or "not started" for a quota window without usage since its last reset. */

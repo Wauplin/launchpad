@@ -194,7 +194,7 @@ function EntryRow({ id, name, detail, note, updatedAt, onDone }: { id: string; n
 }
 
 /** A harness login of the vault. Refresh (the row's main action) refreshes a Codex login on Home now or checks a
- * Claude token with a one-token request, then reads the quota again; the result shows under the row. When the
+ * Claude token with a one-word Haiku request (unless a valid reading exists), then reads the quota again; the result shows under the row. When the
  * provider refused the login (Refresh, or Home's last quota reading), Home's own sign-in starts for this login on a
  * Space and replaces it in place. */
 function LoginRow({ id, name, detail, harness, harnessName, note, updatedAt, onDone }: { id: string; name: string; detail: string; harness: string; harnessName: string; note?: string; updatedAt: number; onDone: () => unknown }) {

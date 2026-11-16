@@ -1389,8 +1389,8 @@ mod tests {
         assert!(login_refused("model request returned 401 Unauthorized without both quota windows: OAuth token has expired"));
         assert!(login_refused("codex: {\"code\":-32603,\"message\":\"token_expired\"}"));
         // A setup-token cannot read usage (403), a rate limit or a number that contains 401 is not a refusal.
-        assert!(!login_refused("usage endpoint returned 403 Forbidden: this token cannot read usage (a claude setup-token token only allows model requests)"));
-        assert!(!login_refused("usage endpoint returned 429; backing off"));
+        assert!(!login_refused("quota probe (claude -p with Haiku) failed: the request failed (HTTP 429): rate limited"));
+        assert!(login_refused("the request failed (HTTP 401): Invalid bearer token"));
         assert!(!login_refused("model request returned 500: request 14012 failed"));
     }
 

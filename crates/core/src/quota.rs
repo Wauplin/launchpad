@@ -72,10 +72,18 @@ pub fn blockers(app: &App, harness: HarnessKind, spec: &LaunchSpec) -> Vec<Quota
     exhausted(&reading_for(app, harness, spec))
 }
 
+/// How long a complete reading confirms capacity: 10 minutes while both windows are below 80 % used (running
+/// sessions report newer readings anyway, and a probe costs quota), else 90 seconds. A window's reset ends it
+/// earlier (`available`).
+pub fn valid_ms(s: &QuotaStatus) -> i64 {
+    let roomy = [&s.five_hour, &s.weekly].into_iter().all(|w| w.as_ref().is_some_and(|w| w.used_percent < 80.0));
+    if roomy { 10 * 60_000 } else { 90_000 }
+}
+
 pub fn available(s: &QuotaStatus, now: i64) -> bool {
     s.quota_error.is_none()
         && s.quota_at
-            .is_some_and(|at| (0..=90_000).contains(&(now - at)))
+            .is_some_and(|at| (0..=valid_ms(s)).contains(&(now - at)))
         && [&s.five_hour, &s.weekly].into_iter().all(|w| {
             w.as_ref().is_some_and(|w| {
                 w.used_percent.is_finite()
@@ -190,6 +198,25 @@ pub fn take_demand(key: &str) -> bool {
     DEMAND.lock().unwrap().remove(key)
 }
 
+/// A quota pause waits for a reading: it was held without one (no blockers), or every window it waits for has
+/// reset (a minute ago, so the provider's reset has happened). A blocker without a known reset never asks: a
+/// model request could then be paid extra usage.
+pub fn pause_wants_reading(p: &crate::model::QuotaPause, now: i64) -> bool {
+    p.phase == crate::model::QuotaPausePhase::Paused
+        && p.blockers.iter().all(|b| b.resets_at.is_some_and(|r| now / 1000 >= r.saturating_add(60)))
+}
+
+/// Home: a protected session of this login is paused for its quota and wants a reading now
+/// (`pause_wants_reading`), so it can continue.
+pub fn paused_wanting(app: &App, account: &str, now: i64) -> bool {
+    app.sessions.list().iter().any(|s| {
+        s.status == SessionStatus::QuotaPaused
+            && s.quota_pause.as_ref().is_some_and(|p| pause_wants_reading(p, now))
+            && protected(app, s.harness, &s.launch_spec)
+            && { let key = crate::profiles::account(app, s.harness, &s.launch_spec); resolve_vault_key(&key).unwrap_or(key) == account }
+    })
+}
+
 /// A protected session of this login is running or paused: poll it more often.
 pub fn monitoring(app: &App, account: &str) -> bool {
     app.sessions.list().iter().any(|s| {
@@ -256,8 +283,8 @@ fn resolve_vault_key(key: &str) -> Option<String> {
 }
 
 /// A reading reported by a running session (Claude's `rate_limit_event`). Vault logins are monitored on Home
-/// for every runner, so a runner also sends complete readings to Home: they keep the quota known while the
-/// usage endpoint refuses Home's polls (429).
+/// for every runner, so a runner also sends complete readings to Home: they keep the quota known without a probe
+/// (`Harness::spawn_quota`).
 pub fn session_reading(app: &App, account: &str, five: Option<crate::status::QuotaWindow>, week: Option<crate::status::QuotaWindow>) {
     if !account.starts_with("vault:") {
         app.status.update_quota(account, five, week);
@@ -436,6 +463,24 @@ mod tests {
     }
 
     #[test]
+    fn quota_pauses_ask_for_a_reading_only_after_their_resets() {
+        let mut p = crate::model::QuotaPause {
+            phase: crate::model::QuotaPausePhase::Paused,
+            blockers: vec![], message: "go".into(), images: vec![], client_id: None, error: None, messages: vec![],
+        };
+        let now = 1_000_000;
+        assert!(pause_wants_reading(&p, now)); // Held without a reading.
+        p.blockers.push(QuotaBlock { window: "5-hour".into(), resets_at: Some(now / 1000 - 30) });
+        assert!(!pause_wants_reading(&p, now));
+        assert!(pause_wants_reading(&p, now + 30_000));
+        p.blockers.push(QuotaBlock { window: "Weekly".into(), resets_at: None });
+        assert!(!pause_wants_reading(&p, now + 30_000));
+        p.blockers.pop();
+        p.phase = crate::model::QuotaPausePhase::Resuming;
+        assert!(!pause_wants_reading(&p, now + 30_000));
+    }
+
+    #[test]
     fn incomplete_readings_cannot_clear_exhaustion() {
         let mut s = QuotaStatus::default();
         update_reading(&mut s, Some(QuotaWindow { used_percent: 100.0, resets_at: None }), Some(QuotaWindow { used_percent: 0.0, resets_at: None }));
@@ -464,8 +509,8 @@ mod tests {
         q.quota_at = Some(now - 30 * 60_000);
         q.five_hour = window(10.0);
         q.weekly = window(10.0);
-        q.quota_error = Some("usage endpoint returned 403 Forbidden".into());
-        assert_eq!(hold_text("Claude", "vault:a", &q, now).unwrap(), "no confirmed Claude quota reading for vault:a (profile claude): last reading 30 min ago; usage endpoint returned 403 Forbidden");
+        q.quota_error = Some("quota probe failed".into());
+        assert_eq!(hold_text("Claude", "vault:a", &q, now).unwrap(), "no confirmed Claude quota reading for vault:a (profile claude): last reading 30 min ago; quota probe failed");
         q.quota_error = None;
         q.quota_at = Some(now);
         assert_eq!(hold_text("Claude", "vault:a", &q, now), None);
@@ -493,6 +538,17 @@ mod tests {
         s.weekly.as_mut().unwrap().used_percent = 0.0;
         assert!(available(&s, now));
         assert!(!available(&s, now + 90_001));
+        // Plenty of room: a reading stays valid 10 minutes, unless a window resets first.
+        s.five_hour.as_mut().unwrap().used_percent = 50.0;
+        s.five_hour.as_mut().unwrap().resets_at = Some(now / 1000 + 3600);
+        s.weekly.as_mut().unwrap().resets_at = None;
+        assert!(available(&s, now + 9 * 60_000));
+        assert!(!available(&s, now + 10 * 60_000 + 1));
+        s.five_hour.as_mut().unwrap().resets_at = Some(now / 1000 + 60);
+        assert!(!available(&s, now + 2 * 60_000));
+        s.five_hour.as_mut().unwrap().resets_at = Some(1100);
+        s.five_hour.as_mut().unwrap().used_percent = 99.9;
+        s.weekly.as_mut().unwrap().resets_at = Some(1200);
         s.quota_error = Some("unavailable".into());
         assert!(!available(&s, now));
         s.quota_error = None;
