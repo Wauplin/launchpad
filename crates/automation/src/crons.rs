@@ -987,8 +987,16 @@ fn push_run(r: &mut CronAgent, run: RoutineRun) {
         r.runs.drain(..extra);
     }
     r.history.push(run);
-    let extra = r.history.len().saturating_sub(RUNS_KEPT);
-    r.history.drain(..extra);
+    trim_history(&mut r.history);
+}
+
+/// Pure: keeps `RUNS_KEPT` entries, dropping the oldest gate check before a run (never the newest entry), so quiet
+/// checks never push out a run that has not settled yet.
+pub(crate) fn trim_history(history: &mut Vec<RoutineRun>) {
+    while history.len() > RUNS_KEPT {
+        let i = history[..history.len() - 1].iter().position(|x| x.outcome == RunOutcome::Checked).unwrap_or(0);
+        history.remove(i);
+    }
 }
 
 pub(crate) async fn skip(app: &App, id: &str, cause: String, reason: String) -> Result<()> {
@@ -1056,9 +1064,9 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
     let at = now_ms();
     // A run starts its own session (a bot routine: in a thread of its own), so nothing of it is unseen yet.
     let quiet_ok = true;
-    let (check, state, cursor, instructions) = match gate {
-        Some(g) => (Some(g.check), Some(g.state), g.cursor, g.instructions),
-        None => (None, None, None, None),
+    let (check, state, cursor, instructions, evaluated) = match gate {
+        Some(g) => (Some(g.check), Some(g.state), g.cursor, g.instructions, Some(g.gate)),
+        None => (None, None, None, None, None),
     };
     let key = crate::gates::consumer(id);
     let (record, ()) = modify_tx(app, id, {
@@ -1068,11 +1076,15 @@ async fn start(app: &App, id: &str, cause: String, context: String, automatic: b
                 ensure!(r.active(), "paused");
             }
             push_run(r, RoutineRun { at, cause, session_id: None, outcome: RunOutcome::Running, detail: None, quiet_ok, missed: false, done_since: None, archived: false, check });
-            if let Some(s) = state {
-                r.gate_state = Some(s);
-            }
-            if let Some((ws, oracle, value, eval)) = &cursor {
-                crate::oracle_eval::commit_in(c, &key, ws, oracle, value, Some(eval), at)?;
+            // A gate changed since the evaluation (its file was saved meanwhile) starts from scratch: nothing of the
+            // old one is kept.
+            if evaluated.as_ref().is_some_and(|g| crate::gates::same_gate(r, g)) {
+                if let Some(s) = state {
+                    r.gate_state = Some(s);
+                }
+                if let Some((ws, oracle, value, eval)) = &cursor {
+                    crate::oracle_eval::commit_in(c, &key, ws, oracle, value, Some(eval), at)?;
+                }
             }
             Ok(())
         }

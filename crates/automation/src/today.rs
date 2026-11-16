@@ -95,7 +95,12 @@ async fn oracle_items(app: &App) -> anyhow::Result<Vec<Item>> {
         if !s.open() && !recovered && s.read_at.is_none() {
             continue;
         }
-        let title = crate::oracles::get(app, &s.workspace_id, &s.oracle).await.ok().and_then(|f| f.oracle.meta).map(|m| m.title).unwrap_or_else(|| s.oracle.clone());
+        let file = crate::oracles::get(app, &s.workspace_id, &s.oracle).await.ok();
+        // A paused oracle waits for nobody (like a paused routine): its row comes back when it is resumed.
+        if s.open() && file.as_ref().is_some_and(|f| f.oracle.paused) {
+            continue;
+        }
+        let title = file.and_then(|f| f.oracle.meta).map(|m| m.title).unwrap_or_else(|| s.oracle.clone());
         let place = Place::Workspace(Some(s.workspace_id.clone()));
         let item = |at: i64, what: String| {
             let mut i = Item::new(Kind::Oracle, Filter::Fix, &s.oracle, what, place.clone(), at);

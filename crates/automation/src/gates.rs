@@ -232,6 +232,11 @@ pub struct Check {
     pub since: i64,
 }
 
+/// Whether the routine still has this gate's oracle and parameters (its state and cursor belong to them).
+pub(crate) fn same_gate(r: &CronAgent, g: &Gate) -> bool {
+    r.gate.as_ref().is_some_and(|x| x.oracle == g.oracle && x.params == g.params)
+}
+
 /// The cursor key of a routine's gate.
 pub fn consumer(routine_id: &str) -> String {
     format!("routine:{routine_id}")
@@ -239,6 +244,8 @@ pub fn consumer(routine_id: &str) -> String {
 
 /// What a fired run carries into its claim (`crons::start`).
 pub(crate) struct GateRun {
+    /// The gate it evaluated: the claim keeps the state and cursor only while the routine still has it.
+    pub gate: Gate,
     pub check: Check,
     pub state: GateState,
     /// (workspace, oracle, cursor, evaluation): committed in the claim.
@@ -268,6 +275,7 @@ pub(crate) fn push_check(history: &mut Vec<RoutineRun>, at: i64, check: Check) -
     let check = Check { since: at, ..check };
     let run = RoutineRun { at, cause: "Scheduled".into(), session_id: None, outcome: RunOutcome::Checked, detail: Some(describe(&check)), quiet_ok: false, missed: false, done_since: None, archived: false, check: Some(check) };
     history.push(run.clone());
+    crons::trim_history(history);
     run
 }
 
@@ -460,6 +468,7 @@ pub(crate) async fn tick(app: &App, record: CronAgent, gate: Gate) -> Result<()>
             let record = crons::claim_due(app, &id, due, now, coalesced).await?;
             let title = oracles::get(app, &e.workspace_id, &e.oracle).await.ok().and_then(|f| f.oracle.meta).map(|m| m.title).unwrap_or_else(|| e.oracle.clone());
             let run = GateRun {
+                gate: gate.clone(),
                 check: check_of(&e, &format!("fired: {why}"), now),
                 state: state.after(d, e.outcome, fingerprint.as_deref(), now, true),
                 cursor: e.cursor_proposed.clone().map(|c| (e.workspace_id.clone(), e.oracle.clone(), c, e.id.clone())),
@@ -489,9 +498,12 @@ pub(crate) async fn tick(app: &App, record: CronAgent, gate: Gate) -> Result<()>
                 coalesced(r);
                 push_check(&mut r.history, now, check);
                 r.last_outcome = r.history.last().and_then(|x| x.detail.clone()).map(|d| format!("Checked: {d}"));
-                r.gate_state = Some(next);
-                if let Some(cur) = &commit {
-                    oracle_eval::commit_in(c, &key, &ws2, &oracle, cur, Some(&eid), now)?;
+                // A gate changed since the evaluation starts from scratch (see `crons::start`).
+                if same_gate(r, &gate) {
+                    r.gate_state = Some(next);
+                    if let Some(cur) = &commit {
+                        oracle_eval::commit_in(c, &key, &ws2, &oracle, cur, Some(&eid), now)?;
+                    }
                 }
                 Ok(())
             })
@@ -637,5 +649,14 @@ mod tests {
         assert_eq!(last.detail.as_deref(), Some("3 checks · False · not routed"));
         push_check(&mut h, 40, c(Outcome::True, "no change"));
         assert_eq!(h.len(), 2);
+        // Alternating checks never grow the history past its cap, and never push out a run.
+        let run = RoutineRun { at: 45, cause: "Scheduled".into(), session_id: Some("s1".into()), outcome: RunOutcome::Running, detail: None, quiet_ok: true, missed: false, done_since: None, archived: false, check: None };
+        h.push(run);
+        for i in 0..200 {
+            push_check(&mut h, 50 + i, c(if i % 2 == 0 { Outcome::False } else { Outcome::True }, "x"));
+        }
+        assert_eq!(h.len(), 50);
+        assert!(h.iter().any(|x| x.session_id.as_deref() == Some("s1")));
+        assert_eq!(h.last().unwrap().at, 249);
     }
 }

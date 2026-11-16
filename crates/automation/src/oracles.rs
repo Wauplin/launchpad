@@ -169,7 +169,7 @@ pub fn script_block(src: &str) -> Result<Option<String>> {
 pub fn parse_duration(v: &toml::Value) -> Result<i64> {
     if let Some(n) = v.as_integer() {
         ensure!(n >= 0, "a duration is not negative");
-        return Ok(n * 1000);
+        return n.checked_mul(1000).context("this duration is too long");
     }
     let s = v.as_str().context("a duration is a string like \"2m\" or a number of seconds")?.trim();
     let split = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
@@ -183,7 +183,7 @@ pub fn parse_duration(v: &toml::Value) -> Result<i64> {
         "d" => 86_400_000,
         u => bail!("unknown duration unit {u:?} in {s:?}: use ms, s, m, h or d"),
     };
-    Ok(n * ms)
+    n.checked_mul(ms).with_context(|| format!("duration {s:?} is too long"))
 }
 
 /// `parse_duration` of a text (`2m`).
