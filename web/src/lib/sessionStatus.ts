@@ -1,6 +1,6 @@
 import type { Session } from "@/gen/Session";
 import type { Sleep } from "@/gen/Sleep";
-import { when } from "@/lib/format";
+import { when } from "./format.ts";
 export const isDone = (s: Session) => s.status === "waiting";
 /** Archived Done sessions still satisfy scheduled agent dependencies; an open question does not. */
 export const dependencyDone = (s: Session) => (isDone(s) && !s.open_question && !s.sleep) || (s.status === "closed" && s.archived_done);
