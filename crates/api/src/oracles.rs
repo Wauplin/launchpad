@@ -161,8 +161,10 @@ async fn mark_read(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)
 
 #[derive(Deserialize)]
 struct Test {
+    /// None (not given): the saved oracle runs with the parameters of its last evaluation (Test now from Today or
+    /// the list, which know no parameters).
     #[serde(default)]
-    params: Map<String, Value>,
+    params: Option<Map<String, Value>>,
     /// A draft to run instead of the saved file (not recorded).
     #[serde(default)]
     content: Option<String>,
@@ -171,20 +173,29 @@ struct Test {
 }
 
 /// The owner's Test now: a draft runs without records; the saved oracle is evaluated and recorded as a test (it
-/// counts for the failure row: a good answer clears it), committing no cursor. A paused oracle runs like a draft.
+/// counts for the failure row: a good answer clears it), committing no cursor, with the parameters of its last
+/// evaluation when the request gives none. A paused oracle runs like a draft.
 async fn test(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, Json(t): Json<Test>) -> ApiResult<TestAnswer> {
     let saved = match &t.content {
         Some(_) => None,
         None => Some(oracles::get(&s.app, &ws, &slug).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?),
     };
+    let params = match t.params {
+        Some(p) => p,
+        None if t.content.is_none() => match oracle_eval::history(&s.app, &ws, Some(&slug), false, None, 1).await.map_err(bad)?.into_iter().next() {
+            Some(e) => e.params.as_object().cloned().unwrap_or_default(),
+            None => Map::new(),
+        },
+        None => Map::new(),
+    };
     if let Some(content) = t.content.as_deref().or(saved.as_ref().filter(|f| f.oracle.paused).map(|f| f.content.as_str())) {
-        let result = oracle_eval::test_draft(&s.app, &ws, &slug, content, &t.params, t.cursor).await.map_err(bad)?;
+        let result = oracle_eval::test_draft(&s.app, &ws, &slug, content, &params, t.cursor).await.map_err(bad)?;
         return Ok(Json(TestAnswer { result, evaluation_id: None }));
     }
     let req = oracle_eval::Request {
         workspace_id: ws,
         oracle: slug,
-        params: t.params,
+        params,
         caller: Caller { kind: CallerKind::Test, id: None, name: Some("Test now".into()) },
         event: json!({"kind": "owner"}),
         cursor_key: None,
@@ -211,9 +222,10 @@ struct Run {
     max_age: Option<String>,
 }
 
-/// Pure: a named cursor's key, `cli:<workspace>:<name>` (lowercase letters, digits, - and _).
-fn cursor_key(ws: &str, name: &str) -> Option<String> {
-    oracles::valid_slug(name).then(|| format!("cli:{ws}:{name}"))
+/// Pure: a named cursor's key, `cli:<workspace>:<oracle>:<name>` (lowercase letters, digits, - and _): one cursor
+/// per oracle, so a name used with two oracles never feeds one's cursor to the other.
+fn cursor_key(ws: &str, slug: &str, name: &str) -> Option<String> {
+    oracles::valid_slug(name).then(|| format!("cli:{ws}:{slug}:{name}"))
 }
 
 /// `launchpad oracle run`: every access level of the workspace, and the owner. A named cursor is the caller's own
@@ -223,7 +235,7 @@ async fn run(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, age
         return Err(ApiError::bad_request("give either a named cursor or since, not both"));
     }
     let key = match r.cursor.as_deref() {
-        Some(n) => Some(cursor_key(&ws, n).ok_or_else(|| ApiError::bad_request("a cursor name uses lowercase letters, digits, - and _"))?),
+        Some(n) => Some(cursor_key(&ws, &slug, n).ok_or_else(|| ApiError::bad_request("a cursor name uses lowercase letters, digits, - and _"))?),
         None => None,
     };
     let max_age_ms = match r.max_age.as_deref() {
@@ -251,8 +263,8 @@ async fn run(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, age
 mod tests {
     #[test]
     fn named_cursors_are_per_workspace() {
-        assert_eq!(super::cursor_key("w1", "triage").as_deref(), Some("cli:w1:triage"));
-        assert_eq!(super::cursor_key("w1", "Triage"), None);
-        assert_eq!(super::cursor_key("w1", "a:b"), None);
+        assert_eq!(super::cursor_key("w1", "ci-red", "triage").as_deref(), Some("cli:w1:ci-red:triage"));
+        assert_eq!(super::cursor_key("w1", "ci-red", "Triage"), None);
+        assert_eq!(super::cursor_key("w1", "ci-red", "a:b"), None);
     }
 }

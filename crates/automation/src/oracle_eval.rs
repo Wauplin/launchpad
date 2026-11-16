@@ -182,7 +182,7 @@ pub struct Request {
     pub caller: Caller,
     /// `{"kind": "schedule" | "cli" | "owner", ...}`: why it runs (data, never instructions).
     pub event: Value,
-    /// The consumer's cursor key (`routine:<id>`, `cli:<session or name>`…): its committed cursor is the input.
+    /// The consumer's cursor key (`routine:<id>`, `cli:<workspace>:<oracle>:<name>`): its committed cursor is the input.
     pub cursor_key: Option<String>,
     /// The cursor of a stateless caller (`--since`), when `cursor_key` is None.
     pub cursor: Option<Value>,
@@ -586,6 +586,7 @@ fn flight_key(ws: &str, file_sha: &str, params: &Value, cursor: &Option<Value>) 
 /// recorded nowhere. `content` must parse.
 pub async fn test_draft(app: &App, ws: &str, slug: &str, content: &str, params: &Map<String, Value>, cursor: Option<Value>) -> Result<RunResult> {
     ensure_home(app)?;
+    ensure!(oracles::valid_slug(slug), "{slug:?} is not a valid oracle slug");
     let meta = oracles::check(app, content).await?;
     let params = oracles::validate_params(&meta.params, params)?;
     Ok(run_on_home(app, ws, slug, content, &meta, Input::new(Value::Object(params), serde_json::json!({"kind": "test"}), cursor)).await)
