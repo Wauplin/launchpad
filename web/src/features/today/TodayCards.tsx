@@ -32,7 +32,7 @@ import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
 import { isDone } from "@/lib/sessionStatus";
 import type { TodayItem } from "./data";
 import type { OracleTestAnswer } from "@/gen/OracleTestAnswer";
-import { OracleFailure, resultLine } from "@/features/schedules/Oracles";
+import { OracleFailure, resultLine } from "@/features/schedules/OracleFailure";
 
 export const ICON: Record<TodayItem["kind"], IconName> = {
   question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", routine: "refresh", runner: "window", home_update: "download", cli_update: "download", channel_ask: "comment", oracle: "xcircle",
@@ -273,8 +273,8 @@ function CliUpdateCard({ item }: { item: TodayItem }) {
   </Card>;
 }
 
-/** A failing oracle: its error, first and last failure and what waits on it; open its page (Schedules → Oracles),
- * test it now, pause it, or mark the row read until its next failure. */
+/** A failing oracle: its error, first and last failure and what waits on it; Open oracle (Schedules → Oracles), and
+ * in ⋯ Test now, Pause oracle and Mark read (until its next failure). */
 function OracleCard({ item }: { item: TodayItem }) {
   const qc = useQueryClient();
   const workspace = item.workspaces[0] ?? "";
@@ -284,11 +284,11 @@ function OracleCard({ item }: { item: TodayItem }) {
     {!item.outcome && workspace && <OracleFailure workspace={workspace} slug={item.record} />}
     <div className="flex flex-wrap items-center gap-1.5">
       <Link className="btn btn-sm btn-primary no-underline" to="/schedules" search={{ tab: "oracles", oracle: item.record }}>Open oracle</Link>
-      {!item.outcome && workspace && <>
-        <ActionButton name="oracle.test" params={params} body={{}} onDone={async (a: OracleTestAnswer) => { toast(resultLine(a.result)); await refresh(); }} />
-        <ActionButton name="oracle.pause" params={params} onDone={refresh} />
-        <ActionButton name="oracle.mark-read" params={params} onDone={refresh} />
-      </>}
+      {!item.outcome && workspace && <MoreMenu label="More actions">{(close) => <>
+        <ActionMenuItem name="oracle.test" params={params} body={{}} close={close} detail="Runs it again with the parameters of its last evaluation" onDone={async (a: OracleTestAnswer) => { toast(resultLine(a.result)); await refresh(); }} />
+        <ActionMenuItem name="oracle.pause" params={params} close={close} onDone={refresh} />
+        <ActionMenuItem name="oracle.mark-read" params={params} close={close} detail="Until its next failure" onDone={refresh} />
+      </>}</MoreMenu>}
     </div>
   </Card>;
 }

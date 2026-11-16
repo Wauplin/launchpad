@@ -29,6 +29,7 @@ import { useKeptDraft, versionOf } from "@/lib/keptDraft";
 import { gateSummary, OUTCOME_LABEL, OUTCOME_SQUARE, OUTCOME_TONE, STARTER, accessChange, accessOf, accessSummary, dependencySummary, failing, paramLabel, paramsOf, plural, useOracle, useOracleEvaluations, useOracleTools, useOracles, withAccess, type OracleTool } from "@/lib/oracles";
 import { usePhone } from "@/lib/phone";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
+import { resultLine } from "./OracleFailure";
 
 export { gateSummary };
 
@@ -116,18 +117,12 @@ const OracleRow = memo(function OracleRow({ item, tools, workspace, onOpen }: { 
     <span className="flex items-center gap-3">
       <span className="hidden sm:flex"><OutcomeSquares recent={item.recent} /></span>
       <RowActions width={phone ? 0 : undefined} label={`More actions for ${o.meta?.title ?? o.slug}`} main={phone ? undefined : <button className="btn btn-sm" onClick={() => onOpen(o.slug)}>Open</button>} more={(close) => <>
-        <ActionMenuItem name="oracle.test" params={{ workspace, slug: o.slug }} body={{}} close={close} onDone={(a: OracleTestAnswer) => toast(resultLine(a.result))} />
+        <ActionMenuItem name="oracle.test" params={{ workspace, slug: o.slug }} body={{}} close={close} detail="With the parameters of its last evaluation" onDone={(a: OracleTestAnswer) => toast(resultLine(a.result))} />
         {o.paused ? <ActionMenuItem name="oracle.resume" params={{ workspace, slug: o.slug }} close={close} /> : <ActionMenuItem name="oracle.pause" params={{ workspace, slug: o.slug }} close={close} />}
       </>} />
     </span>
   </div>;
 });
-
-/** "True · tests.yml on 4be1c2a: failure" */
-export function resultLine(r: Pick<OracleRunResult, "outcome" | "summary" | "error">): string {
-  const what = r.outcome === "failed" && r.error ? `${r.error.class}: ${r.error.message}` : r.summary;
-  return `${OUTCOME_LABEL[r.outcome]}${what ? ` · ${what}` : ""}`;
-}
 
 // ---------------------------------------------------------------- one oracle
 
@@ -175,12 +170,14 @@ function OracleEditor({ workspace, detail, view, onView, onBack, onSaved, onDele
     o!.paused ? "paused" : null,
   ].filter(Boolean) : null;
   const saveButton = <button className="btn btn-sm btn-primary" disabled={busy || !dirty || !slugOk} title={!slugOk ? "Give the oracle a slug: lowercase letters, digits, - and _" : undefined} onClick={() => void save()}><Icon name="check" size={12} />{busy ? "Saving…" : "Save"}</button>;
-  const menu = detail && <MoreMenu label={`More actions for ${title}`} width={300}>{(close) => <>
+  // ⋯ of the page (laptop) and of the phone bar: the same entries.
+  const menuItems = (close: () => void) => <>
     {draft.text !== saved && <MenuItem icon={<Icon name="x" size={14} />} label="Discard changes" detail="Back to the saved file" onClick={() => { close(); draft.setText(saved); }} />}
     {o!.paused ? <ActionMenuItem name="oracle.resume" params={{ workspace, slug: o!.slug }} close={close} onDone={() => qc.invalidateQueries({ queryKey: ["oracle", workspace, o!.slug] })} />
       : <ActionMenuItem name="oracle.pause" params={{ workspace, slug: o!.slug }} close={close} detail={users.length ? `Gated routines then record quiet checks: ${users.map((u) => `“${u.title}”`).join(", ")}` : "Nothing evaluates it until you resume it"} onDone={() => qc.invalidateQueries({ queryKey: ["oracle", workspace, o!.slug] })} />}
     <MenuSection><ActionButton name="oracle.delete" params={{ workspace, slug: o!.slug }} body={{ force: users.length > 0 }} consequence={users.length ? `Delete ${o!.slug}? Routines gated on it fail until you change their gate: ${users.map((u) => `“${u.title}”`).join(", ")}. Its file stays restorable 30 days.` : `Delete ${o!.slug} with its evaluations? Its file stays restorable 30 days.`} confirmLabel="Delete oracle" onDone={async () => { close(); await qc.invalidateQueries({ queryKey: ["oracles"] }); onDeleted(); }}>Delete</ActionButton></MenuSection>
-  </>}</MoreMenu>;
+  </>;
+  const menu = detail && <MoreMenu label={`More actions for ${title}`} width={300}>{menuItems}</MoreMenu>;
   const tabs = <Tabs label="Oracle" value={view} onChange={onView} tour="oracles.tabs" items={[
     { id: "definition", label: "Definition" },
     { id: "access", label: "Access", count: draftAccess ? draftAccess.tools.length + draftAccess.hosts.length + (draftAccess.launchpad === "read" ? 1 : 0) || undefined : undefined },
@@ -204,10 +201,7 @@ function OracleEditor({ workspace, detail, view, onView, onBack, onSaved, onDele
     {view === "versions" && detail && <VersionsTab workspace={workspace} slug={detail.oracle.slug} />}
   </div>;
   if (phone) return <div className="flex h-full min-h-0 flex-col">
-    <PhoneHeader title={title} onBack={onBack} backLabel="Back to oracles" subtitle={metaLine && <span className="flex flex-wrap gap-x-1.5">{metaLine.map((m, i) => <span key={i}>{m}</span>)}</span>} primary={dirty ? saveButton : undefined} actions={detail ? (close) => <>
-      {o!.paused ? <ActionMenuItem name="oracle.resume" params={{ workspace, slug: o!.slug }} close={close} /> : <ActionMenuItem name="oracle.pause" params={{ workspace, slug: o!.slug }} close={close} />}
-      <MenuSection><ActionButton name="oracle.delete" params={{ workspace, slug: o!.slug }} body={{ force: users.length > 0 }} confirmLabel="Delete oracle" onDone={async () => { close(); await qc.invalidateQueries({ queryKey: ["oracles"] }); onDeleted(); }}>Delete</ActionButton></MenuSection>
-    </> : undefined} />
+    <PhoneHeader title={title} onBack={onBack} backLabel="Back to oracles" subtitle={metaLine && <span className="flex flex-wrap gap-x-1.5">{metaLine.map((m, i) => <span key={i}>{m}</span>)}</span>} primary={dirty ? saveButton : undefined} actions={detail ? menuItems : undefined} />
     <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
   </div>;
   return <div className="flex h-full min-h-0 flex-col">
@@ -497,7 +491,8 @@ export function GateFields({ workspace, gate, onChange }: { workspace: string | 
   const params = picked?.oracle.meta?.params ?? [];
   const problem = gateProblem(gate);
   const set = (p: Partial<Gate>) => gate && onChange({ ...gate, ...p });
-  const toggle = (o: OracleOutcome) => gate && set({ run_on: gate.run_on.includes(o) ? gate.run_on.filter((x) => x !== o) : [...gate.run_on, o] });
+  // Leaving Failed out drops its instructions too (Home refuses [gate.failed] without "failed" in run_on).
+  const toggle = (o: OracleOutcome) => gate && (gate.run_on.includes(o) ? set({ run_on: gate.run_on.filter((x) => x !== o), ...(o === "failed" ? { failed: undefined } : {}) }) : set({ run_on: [...gate.run_on, o] }));
   const OUT: { o: OracleOutcome; on: string; off: string }[] = [
     { o: "true", on: "Start a run, with the routine's instructions and the evidence", off: "Stay silent: recorded as a check; no thread, no quota" },
     { o: "false", on: "Start a run, with the routine's instructions and the evidence", off: "Stay silent: recorded as a check; no thread, no quota" },
@@ -541,21 +536,5 @@ export function GateFields({ workspace, gate, onChange }: { workspace: string | 
       {problem && <p role="alert" className="m-0 text-[12px] text-gh-closed">{problem}</p>}
       <p className="m-0 text-[12px] text-ink-3">Each due time evaluates the oracle first. Outcomes left off are quiet checks: no thread, no session, no quota.</p>
     </>}
-  </div>;
-}
-
-
-/** A Today card's details of a failing oracle: the error, first and last failure, what waits on it. */
-export function OracleFailure({ workspace, slug }: { workspace: string; slug: string }) {
-  const d = useOracle(workspace, slug).data;
-  const bots = useBots().data ?? [];
-  const s = d?.streak;
-  if (!d || !s) return null;
-  const classes = Object.entries(s.classes).sort((a, b) => b[1] - a[1]);
-  return <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12px]">
-    <span className="text-ink-3">Error</span><span className="break-words">{s.last_error ? <><b>{s.last_error.class}</b> · {s.last_error.message}</> : "—"}{classes.length > 0 && <span className="text-ink-3"> ({classes.map(([c, n]) => `${n} ${c}`).join(", ")} of {s.count})</span>}</span>
-    <span className="text-ink-3">First / last</span><span>{s.first_at ? when(s.first_at) : "—"} / {s.last_at ? when(s.last_at) : "—"}</span>
-    <span className="text-ink-3">Waiting on it</span><span>{d.used_by.length ? d.used_by.map((u) => `${bots.find((b) => b.id === u.bot_id)?.settings.name ?? "Routine"} “${u.title}”${u.run_on.includes("failed") ? " (repair run on Failed)" : " (quiet while it fails)"}`).join(", ") : "nothing"}</span>
-    {s.last_good_at && <><span className="text-ink-3">Last good</span><span>{ago(s.last_good_at)}</span></>}
   </div>;
 }

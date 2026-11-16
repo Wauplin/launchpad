@@ -4,7 +4,8 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { OracleFailure } from "@/features/schedules/Oracles";
+import { OracleFailure, resultLine } from "@/features/schedules/OracleFailure";
+import type { OracleTestAnswer } from "@/gen/OracleTestAnswer";
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ChannelPage } from "@/gen/ChannelPage";
 import type { Proposal } from "@/gen/Proposal";
@@ -352,9 +353,9 @@ function OracleRow(p: RowProps) {
     main={<Link className="btn btn-sm no-underline" to="/schedules" search={{ tab: "oracles", oracle: item.record }} title="Open the oracle">Open</Link>}
     details={!!workspace && !item.outcome ? <OracleFailure workspace={workspace} slug={item.record} /> : undefined}
     menu={!!workspace && ((close) => <>
-      <ActionMenuItem name="oracle.test" params={{ workspace, slug: item.record }} body={{}} close={close} onDone={(a: { result: { outcome: string; summary: string; error: { class: string; message: string } | null } }) => toast(`${a.result.outcome === "true" ? "True" : a.result.outcome === "false" ? "False" : "Failed"}${a.result.error ? ` · ${a.result.error.class}: ${a.result.error.message}` : a.result.summary ? ` · ${a.result.summary}` : ""}`)} />
+      <ActionMenuItem name="oracle.test" params={{ workspace, slug: item.record }} body={{}} close={close} detail="Runs it again with the parameters of its last evaluation" onDone={(a: OracleTestAnswer) => toast(resultLine(a.result))} />
       <ActionMenuItem name="oracle.pause" params={{ workspace, slug: item.record }} close={close} />
-      <ActionMenuItem name="oracle.mark-read" params={{ workspace, slug: item.record }} close={close} />
+      <ActionMenuItem name="oracle.mark-read" params={{ workspace, slug: item.record }} close={close} detail="Until its next failure" />
     </>)} />;
 }
 
