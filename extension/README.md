@@ -121,7 +121,7 @@ Private notes are a private timeline of an issue or pull request, shown inside G
 
 A note you have not read yet has a **New** tag. Opening the item's page counts as reading its notes once the page was visible in a focused window for 1.5 s: lists, notifications and the panel then stop flagging them.
 
-Above GitHub's comment box, **Private note to your agents** stores your own note in Launchpad and sends it to every agent that wrote about the item (else to its default bot); they answer with a note when they have something useful. The panel's **This item** lists the same timeline and has the same box.
+Above GitHub's comment box, **Private note to your agents** stores your own note in Launchpad and sends it to every agent that wrote about the item (else to its default bot); they answer with a note when they have something useful. The panel's **This item** lists the same timeline and has the same box. **Ctrl+Enter** (**Cmd+Enter** on a Mac) in either box adds the note.
 
 Notes link to each other with a note's link (⋯ → **Copy link**, or `url` of `launchpad notes` for agents): `https://github.com/owner/repo/issues/123#lp-note-<id>`. The link shows the note's author ("Reviewer's note"); a click scrolls to that note on this page and marks it, or opens the other item's page at that note. Each note lists the notes of the item that reference it (**Referenced in**), and an answer's "answers …" tag links to the note it answers. Like GitHub's comments, `#123`, `owner/repo#123`, `@login` and GitHub URLs (`#123 (comment)`, `#123 (review)`, short commits) show as links.
 

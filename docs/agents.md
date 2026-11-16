@@ -51,7 +51,7 @@ Folder pages and every **▶** button open the composer too. The composer opens 
 - **Preview prompt** shows exactly what the agent will receive.
 - **What it sees at start**, next to Preview prompt, shows the agent's instructions file (the knowledge base, the Launchpad CLI reference, the attribution rule) and its first prompt, in labelled parts with their line counts. Launchpad builds them like a real start, without starting anything.
 
-The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the **Launch** button while you collect more context; its **▾** menu starts a new agent instead or discards the draft. **Discard** in the composer keeps the draft 10 seconds behind **Undo**.
+**Ctrl+Enter** (**Cmd+Enter** on a Mac) in the prompt does what the main button says (**Launch**, **Schedule**, **Save**…). The draft is saved as you type. **Minimize** keeps it as a "draft" badge on the **Launch** button while you collect more context; its **▾** menu starts a new agent instead or discards the draft. **Discard** in the composer keeps the draft 10 seconds behind **Undo**.
 
 On a laptop, the composer, the Ask panel and the terminal dock are closed when a window opens: a kept draft waits as the "draft" badge, and each panel opens only when you open it. They stay open while you move between pages.
 

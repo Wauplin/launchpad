@@ -610,7 +610,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             repo={repo}
             projectId={target?.id}
             relativePaths={!spec.worktree}
-
+            onSubmit={() => void launch()}
           />
           <input ref={attachmentInput} type="file" multiple hidden onChange={(e) => { void addAttachments(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
           {/* The attach row sits under the text, so no line passes under the button. */}

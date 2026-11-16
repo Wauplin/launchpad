@@ -209,7 +209,7 @@ function NoteBox({ repo, number, ws, onDone }: { repo: string; number: number; w
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ text: string; error: boolean } | null>(null);
   useEffect(() => { setText(""); setStatus(null); }, [repo, number]);
-  const add = async (e: React.MouseEvent) => {
+  const add = async (e: React.SyntheticEvent) => {
     if (!e.nativeEvent.isTrusted || busy || !text.trim()) return;
     setBusy(true); setStatus(null);
     try {
@@ -220,8 +220,9 @@ function NoteBox({ repo, number, ws, onDone }: { repo: string; number: number; w
     } catch (err) { setStatus({ text: message(err), error: true }); } finally { setBusy(false); }
   };
   return <div className="x-card">
-    <textarea className="x-field" rows={3} value={text} placeholder="A private note to your agents about this item. Only Launchpad keeps it." onChange={(e) => setText(e.target.value)} />
-    <div className="x-btns"><button className="x-btn x-sm x-pri" disabled={busy || !text.trim()} onClick={(e) => void add(e)}>{busy ? "Adding…" : "Add private note"}</button></div>
+    <textarea className="x-field" rows={3} value={text} placeholder="A private note to your agents about this item. Only Launchpad keeps it." onChange={(e) => setText(e.target.value)}
+      onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) { e.preventDefault(); void add(e); } }} />
+    <div className="x-btns"><button className="x-btn x-sm x-pri" title="Ctrl+Enter in the box adds it too" disabled={busy || !text.trim()} onClick={(e) => void add(e)}>{busy ? "Adding…" : "Add private note"}</button></div>
     {status && <p className={status.error ? "x-error" : "x-small x-muted"} role="status">{status.text}</p>}
   </div>;
 }

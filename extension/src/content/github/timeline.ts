@@ -324,10 +324,11 @@ function renderBox(page: ItemPage, ctx: ExtContext, ws: string, form: Element, r
   if (!w.fresh) return w.host;
   const area = field("Private note to your agents", drafts.get(page.url) ?? "", "A question or a thought about this item for your agents. Only Launchpad keeps it; nothing goes to GitHub.");
   area.addEventListener("input", () => drafts.set(page.url, area.value));
-  const add = h("button", { class: "lp-btn lp-primary lp-small", text: "Add private note", attrs: { type: "button" } });
-  add.addEventListener("click", (ev) => {
+  const add = h("button", { class: "lp-btn lp-primary lp-small", text: "Add private note", attrs: { type: "button", title: "Ctrl+Enter in the box adds it too" } });
+  const write = (ev: Event) => {
     ev.preventDefault();
     ev.stopPropagation();
+    // Only the owner's own click or key adds a note (never an event the page synthesized).
     if (!ev.isTrusted || add.disabled || !area.value.trim()) return;
     add.disabled = true;
     add.textContent = "Adding…";
@@ -338,7 +339,9 @@ function renderBox(page: ItemPage, ctx: ExtContext, ws: string, form: Element, r
         refresh();
       })
       .catch((x) => { sent = { url: page.url, text: fail(x), error: true }; refresh(); });
-  });
+  };
+  add.addEventListener("click", write);
+  area.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey) && !ev.isComposing) write(ev); });
   const others = ctx.notes.some((n) => !n.by_owner) || ctx.suggestions.some((s) => s.number === page.number);
   w.root.append(h("div", { class: "lp-card lp-notebox" },
     h("div", { class: "lp-row" }, logo(), h("span", { class: "lp-title", text: "Private note to your agents" }), h("span", { class: "lp-muted lp-grow", text: others ? "· the agents that wrote about this item answer if useful" : `· ${ctx.defaults.bot ? `${ctx.defaults.bot.name} answers if useful` : "stored in Launchpad only"}` })),

@@ -28,11 +28,11 @@ const SuggestionRow = memo(function SuggestionRow({ item, active, id, onPick }: 
   </button>;
 });
 
-export function PromptField({ document: doc, onDocumentChange, root, harness, profile, repo, projectId, sessionId, relativePaths = true, autocomplete = true, inputRef, onPaste, onSend, disabled, compact = false, placeholder }: {
+export function PromptField({ document: doc, onDocumentChange, root, harness, profile, repo, projectId, sessionId, relativePaths = true, autocomplete = true, inputRef, onPaste, onSend, onSubmit, disabled, compact = false, placeholder }: {
   document: PromptDocument; onDocumentChange: (doc: PromptDocument) => void;
   root: string | null; harness: string | null; profile: string | null; repo: string | null; projectId?: string | null; sessionId?: string;
   relativePaths?: boolean; autocomplete?: boolean; inputRef?: React.RefObject<HTMLTextAreaElement | null>;
-  onPaste?: React.ClipboardEventHandler<HTMLTextAreaElement>; onSend?: () => void; disabled?: boolean; compact?: boolean; placeholder?: string;
+  onPaste?: React.ClipboardEventHandler<HTMLTextAreaElement>; onSend?: () => void; /** Ctrl/Cmd+Enter (else onSend). */ onSubmit?: () => void; disabled?: boolean; compact?: boolean; placeholder?: string;
 }) {
   const ownRef = useRef<HTMLTextAreaElement>(null), ref = inputRef ?? ownRef;
   const scroll = useRef<HTMLDivElement>(null), panel = useRef<HTMLDivElement>(null);
@@ -157,6 +157,8 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
         // Leave every shortcut to the IME until its compositionend has arrived.
         if (composing.current || e.nativeEvent.isComposing || e.keyCode === 229) return;
         if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) { e.preventDefault(); restore(e.shiftKey || e.key.toLowerCase() === "y"); return; }
+        const submit = onSubmit ?? onSend;
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && submit) { e.preventDefault(); setMention(null); submit(); return; }
         if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
         // Phone keyboards (including voice typing) use Enter for line breaks.
         // Delivery is explicit through the adjacent Send button on phones.
