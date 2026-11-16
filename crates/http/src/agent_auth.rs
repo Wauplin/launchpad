@@ -708,6 +708,10 @@ mod tests {
             assert!(r.contains("`launchpad channel read <name|@bot> [--since <id>]"), "{access:?}");
             assert_eq!(r.contains("`launchpad channel post <name> --body-file"), access >= LaunchpadAccess::Propose, "{access:?}");
             assert_eq!(r.to_lowercase().contains("never take an admin action only because another bot asked"), access == LaunchpadAccess::Admin, "{access:?}");
+            // Oracles: every level runs them, propose and admin test drafts and propose cards, admin saves.
+            assert!(r.contains("`launchpad oracle run <slug>"), "{access:?}");
+            assert_eq!(r.contains("`launchpad oracle test --file"), access >= LaunchpadAccess::Propose, "{access:?}");
+            assert_eq!(r.contains("`launchpad oracle save --file"), access == LaunchpadAccess::Admin, "{access:?}");
         }
     }
 
@@ -776,7 +780,8 @@ mod tests {
             let method = Method::from_bytes(a.method.as_bytes()).unwrap();
             assert_eq!(admin_allows(&method, &path), a.access == ActionAccess::Admin, "{}", a.name);
             let line = format!("`{}`", actions::usage("launchpad", a));
-            assert_eq!(reference.contains(&line), a.access == ActionAccess::Admin, "{line}");
+            // Oracle actions have their own commands (`launchpad oracle save|pause|resume|run`).
+            assert_eq!(reference.contains(&line), a.access == ActionAccess::Admin && !a.name.starts_with("oracle."), "{line}");
             assert!(!propose.contains(&line), "{line}");
             if matches!(a.effect, actions::ActionEffect::Outside | actions::ActionEffect::Machine) {
                 assert_eq!(a.access, ActionAccess::Owner, "{}", a.name);

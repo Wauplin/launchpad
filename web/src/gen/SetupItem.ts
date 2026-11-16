@@ -6,6 +6,6 @@ import type { MissingPart } from "./MissingPart";
 
 export type SetupItem = { 
 /**
- * `home`, `jail`, `netcap`, `harnesses`, `vault_login` or `vault_git`.
+ * `home`, `jail`, `netcap`, `harnesses`, `uv`, `vault_login` or `vault_git`.
  */
 id: string, title: string, importance: Importance, state: ItemState, why: string, found: Array<Found>, missing: Array<MissingPart>, };

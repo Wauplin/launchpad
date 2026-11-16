@@ -143,6 +143,7 @@ async fn session(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Valu
     let mut v = session_json(&x);
     v["prompt"] = json!(x.launch_spec.text.chars().take(4000).collect::<String>());
     v["usage"] = json!(x.usage);
+    v["workspace_id"] = json!(launchpad_core::kb::workspace_of_session(&s.app, &x.id).await);
     Ok(Json(crate::diagnostics::session_detail(&s, &x, v).await))
 }
 

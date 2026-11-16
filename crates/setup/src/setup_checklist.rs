@@ -52,7 +52,7 @@ pub struct MissingPart {
 
 #[derive(Clone, Debug, Serialize, TS)]
 pub struct SetupItem {
-    /// `home`, `jail`, `netcap`, `harnesses`, `vault_login` or `vault_git`.
+    /// `home`, `jail`, `netcap`, `harnesses`, `uv`, `vault_login` or `vault_git`.
     pub id: String,
     pub title: String,
     pub importance: Importance,
@@ -187,6 +187,23 @@ fn harnesses(app: &App) -> SetupItem {
     it
 }
 
+/// uv, for `launchpad oracle test`: agents test oracle drafts with `uv run` in their jail (Home runs saved oracles
+/// with its own uv).
+async fn uv(env: &UserEnv) -> SetupItem {
+    let mut it = item("uv", "uv", Importance::Recommended, "Agents test oracle drafts here with `launchpad oracle test`, which runs them with uv.");
+    match run(env, "uv", &["--version"]).await {
+        Some((true, out, _)) => {
+            it.state = ItemState::Ready;
+            it.found.push(found("Version", first_line(&out).trim_start_matches("uv ").to_string(), Some("uv --version".into())));
+        }
+        _ => it.missing.push(part("install", "Install uv", Some("Installs uv in ~/.local/bin for your user (no password).".into()), Some(UV_INSTALL.into()), false)),
+    }
+    it
+}
+
+/// The installer of uv, for the owner to copy.
+const UV_INSTALL: &str = "curl -LsSf https://astral.sh/uv/install.sh | sh";
+
 // ---------------------------------------------------------------- Vault
 
 /// Home's vault (entries without values) and agents' Git identity. `None`: Home is unreachable.
@@ -258,11 +275,12 @@ fn required_left(items: &[SetupItem]) -> u32 {
 pub async fn checklist(app: &App) -> Checklist {
     let env = app.env.clone();
     let vm = app.config.get().runner.boundary == launchpad_core::config::Boundary::Vm;
-    let (jail_item, capture, vault) = tokio::join!(async { if vm { None } else { Some(jail(&env).await) } }, netcap(), vault_view());
+    let (jail_item, capture, vault, uv_item) = tokio::join!(async { if vm { None } else { Some(jail(&env).await) } }, netcap(), vault_view(), uv(&env));
     let mut items = vec![home(app)];
     items.extend(jail_item);
     items.push(capture);
     items.push(harnesses(app));
+    items.push(uv_item);
     items.push(vault_logins(app, vault.as_ref().map(|v| v.0.as_slice())));
     items.push(vault_git(vault.as_ref()));
     let left = required_left(&items);

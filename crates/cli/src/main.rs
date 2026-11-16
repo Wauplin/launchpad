@@ -5,6 +5,7 @@
 mod extensions;
 #[cfg(target_os = "linux")]
 mod netcap;
+mod oracle;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -307,11 +308,21 @@ enum Command {
         #[command(flatten)]
         post: ChannelPostArgs,
     },
+    /// Oracles of this session's workspace: small Python checks Home runs to answer True, False or Failed (`list`,
+    /// `show`, `run`, `history`; `test --file` runs a draft here in your jail; `save` at admin access). `run` and
+    /// `test` exit 0 True, 1 False, 2 Failed, 3 for a CLI error.
+    Oracle {
+        /// Workspace ID (default: this session's workspace).
+        #[arg(long, global = true)]
+        workspace: Option<String>,
+        #[command(subcommand)]
+        command: oracle::OracleCommand,
+    },
     /// The hop count to send with `X-Launchpad-Hops` when this session calls an incoming hook of Launchpad (for agents).
     Hops,
     /// Store an inert proposal for the owner to start with a click; never starts anything.
     Propose {
-        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-files", "bot-instructions", "channel", "ready", "report"])]
+        #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-files", "bot-instructions", "channel", "oracle", "ready", "report"])]
         kind: String,
         #[arg(long)]
         title: String,
@@ -1078,6 +1089,16 @@ async fn run() -> Result<()> {
             do_action(&paths, &format!("channel.{verb}"), &args).await
         }
         Command::Dm { bot, post } => channel_post(&paths, format!("@{}", bot.trim_start_matches('@')), post).await,
+        Command::Oracle { workspace, command } => {
+            let code = match oracle::command(&paths, workspace, command).await {
+                Ok(code) => code,
+                Err(e) => {
+                    eprintln!("Error: {e:#}");
+                    oracle::ERROR_EXIT
+                }
+            };
+            std::process::exit(code)
+        }
         Command::Hops => {
             let v = Client::new(&paths)?.json("GET", "/api/context/hops", None).await?;
             println!("{}", v["hops"].as_u64().context("Home did not return a hop count")?);

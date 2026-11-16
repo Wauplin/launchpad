@@ -20,6 +20,7 @@ use crate::error::{ApiError, ApiResult};
 pub fn router() -> Router<Ctx> {
     Router::new()
         .route("/api/oracles/{workspace}", get(list))
+        .route("/api/oracles/{workspace}/_tools", get(tools))
         .route("/api/oracles/{workspace}/{slug}", get(show).put(save).delete(remove))
         .route("/api/oracles/{workspace}/{slug}/evaluations", get(evaluations))
         .route("/api/oracles/{workspace}/{slug}/versions", get(versions))
@@ -50,6 +51,20 @@ async fn author(s: &Ctx, agent: &Option<Extension<AgentSession>>) -> Result<Auth
 async fn list(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Vec<ListItem>> {
     launchpad_core::workspace::get(&s.app, &ws).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
     Ok(Json(oracle_views::list(&s.app, &ws).await.map_err(bad)?))
+}
+
+/// The tools granted to the workspace, without secrets: what an oracle's `access.tools` may name, with the hosts
+/// that receive each token (the Access tab, and `launchpad oracle test`, which allows the same hosts).
+async fn tools(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Vec<Value>> {
+    launchpad_core::workspace::get(&s.app, &ws).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    let tools = launchpad_core::vault::tools(&s.app).await.map_err(bad)?;
+    Ok(Json(
+        tools
+            .iter()
+            .filter(|t| t.granted(Some(&ws)) && t.id != launchpad_core::vault::LAUNCHPAD_TOOL)
+            .map(|t| json!({"id": t.id, "name": t.name, "env": t.env, "hosts": t.hosts.iter().map(|h| h.host.to_ascii_lowercase()).collect::<Vec<_>>()}))
+            .collect(),
+    ))
 }
 
 async fn show(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>) -> ApiResult<Detail> {
