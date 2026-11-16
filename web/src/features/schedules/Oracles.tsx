@@ -4,13 +4,14 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/Icon";
 import { MenuItem } from "@/components/Popover";
 import { toast, toastError } from "@/components/Toast";
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
 import { Badge, Choice, Choices, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, MenuSection, MoreMenu, PageHeader, RowActions, StatusBadge, Tabs, Token } from "@/components/ui";
 import { PatchView } from "@/components/diff/DiffReview";
+import { highlight, type Tokens } from "@/features/code/highlight";
 import type { Change } from "@/gen/Change";
 import type { Gate } from "@/gen/Gate";
 import type { Oracle } from "@/gen/Oracle";
@@ -28,6 +29,7 @@ import { ago, when } from "@/lib/format";
 import { useKeptDraft, versionOf } from "@/lib/keptDraft";
 import { gateSummary, OUTCOME_LABEL, OUTCOME_SQUARE, OUTCOME_TONE, STARTER, accessChange, accessOf, accessSummary, dependencySummary, failing, paramLabel, paramsOf, plural, useOracle, useOracleEvaluations, useOracleTools, useOracles, withAccess, type OracleTool } from "@/lib/oracles";
 import { usePhone } from "@/lib/phone";
+import { useTheme } from "@/stores/theme";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { resultLine } from "./OracleFailure";
 
@@ -222,11 +224,32 @@ function AccessNotice({ change, users }: { change: { added: string[]; removed: s
   </div>;
 }
 
-/** A text area for the oracle's file, as tall as its text up to a limit. */
+/** A text area for the oracle's file, as tall as its text up to a limit, with Python colors drawn behind its
+ * transparent text. While a new reply is on its way, lines the last colors do not match show plain. */
 function CodeArea({ value, onChange, label }: { value: string; onChange: (t: string) => void; label: string }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const under = useRef<HTMLPreElement>(null);
+  const theme = useTheme((s) => s.theme);
+  const [tokens, setTokens] = useState<Tokens | null>(null);
   useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight + 2, 720)}px`; }, [value]);
-  return <textarea ref={ref} aria-label={label} wrap="off" className="field-input min-h-[240px] resize-none overflow-x-auto py-1.5 font-mono text-[12px] leading-5" value={value} onChange={(e) => onChange(e.target.value)} spellCheck={false} />;
+  useEffect(() => {
+    let active = true;
+    const timer = setTimeout(() => void highlight("oracle", value, "python", theme).then((t) => { if (active && t) setTokens(t); }), 150);
+    return () => { active = false; clearTimeout(timer); };
+  }, [value, theme]);
+  const lines = useMemo(() => value.split("\n").map((line, i) => {
+    const toks = tokens?.[i];
+    if (!toks || toks.map((t) => t[0]).join("") !== line) return line;
+    return toks.map(([text, color], j) => <span key={j} style={color ? { color } : undefined}>{text}</span>);
+  }), [value, tokens]);
+  const colored = tokens != null;
+  const sync = () => { const a = ref.current, b = under.current; if (a && b) { b.scrollTop = a.scrollTop; b.scrollLeft = a.scrollLeft; } };
+  return <div className="relative grid">
+    {colored && <pre ref={under} aria-hidden className="lp-code-under pointer-events-none absolute inset-0 m-0 overflow-hidden rounded-control border border-transparent bg-paper px-2.5 py-1.5 font-mono text-[12px] leading-5 whitespace-pre text-ink">
+      {lines.map((l, i) => <Fragment key={i}>{l}{"\n"}</Fragment>)}
+    </pre>}
+    <textarea ref={ref} aria-label={label} wrap="off" className={`field-input min-h-[240px] resize-none overflow-x-auto py-1.5 font-mono text-[12px] leading-5 ${colored ? "relative bg-transparent text-transparent caret-ink" : ""}`} value={value} onChange={(e) => onChange(e.target.value)} onScroll={sync} spellCheck={false} />
+  </div>;
 }
 
 function DefinitionTab({ workspace, detail, text, onText, slug }: { workspace: string; detail: OracleDetail | null; text: string; onText: (t: string) => void; slug: string }) {

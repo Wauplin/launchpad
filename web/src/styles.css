@@ -476,11 +476,13 @@ button {
 }
 
 /* Phone fields at 16 px, so iOS never zooms in on focus. Outside the layers on purpose: a text-[12px] or text-[13px]
-   utility on a field (code values, editors) must not win on the phone; the laptop keeps its sizes. */
+   utility on a field (code values, editors) must not win on the phone; the laptop keeps its sizes. The colored layer under
+   a code editor's transparent text (lp-code-under) follows its field. */
 .lp-phone input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]),
 .lp-phone textarea,
 .lp-phone select,
-.lp-phone [contenteditable="true"] {
+.lp-phone [contenteditable="true"],
+.lp-phone .lp-code-under {
   font-size: 16px;
 }
 /* Phone touch targets: 44 px at least, also where a feature forces a smaller size (size-6!, h-[22px]!): min sizes win
