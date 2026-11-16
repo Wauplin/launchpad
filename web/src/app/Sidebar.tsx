@@ -7,7 +7,7 @@ import { archivedOf, channelsOf, useChannels } from "@/lib/channels";
 import { ChannelLink } from "@/features/channels/ChannelRows";
 import { WorkspaceMenu } from "@/features/workspaces/WorkspaceMenu";
 import { Link } from "@tanstack/react-router";
-import { memo, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import type { Project } from "@/gen/Project";
 import { isRunning, isQuotaPaused, needsYou } from "@/lib/sessionStatus";
 import type { Session } from "@/gen/Session";
@@ -18,7 +18,7 @@ import { useSessions } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
 import { useSetupSummary } from "@/features/setup/summary";
 import { useOnboarding, usePatchOnboarding } from "@/onboarding/data";
-import { useSidebar, type SidebarGroup } from "@/stores/sidebar";
+import { ordered, useSidebarOrder, useSidebar, type SidebarGroup } from "@/stores/sidebar";
 
 /** A corner mark of an icon in the narrow sidebar: an amber count, or a state dot. */
 type Mark = { count: number } | "needs" | "paused" | "running" | "new" | null;
@@ -139,13 +139,41 @@ const BotLink = memo(function BotLink({ bot, thread, narrow }: { bot: Bot; threa
 /** A small label over a part of the Bots group (Channels, Bot DMs). */
 const SubLabel = ({ children }: { children: ReactNode }) => <div className="mt-1.5 px-[9px] pb-0.5 text-[11px] font-semibold text-ink-3">{children}</div>;
 
+/** Reorder controls stay outside navigation links and work with touch and keyboard. */
+function ReorderRow({ id, name, ids, list, children }: { id: string; name: string; ids: string[]; list: string; children: ReactNode }) {
+  const move = useSidebarOrder((s) => s.move);
+  const index = ids.indexOf(id);
+  const [over, setOver] = useState(false);
+  const format = "application/x-launchpad-sidebar";
+  return <div className={`flex items-center rounded-control ${over ? "bg-teal-soft" : ""}`}
+    onDragOver={(event) => { if (event.dataTransfer.types.includes(format)) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setOver(true); } }}
+    onDragLeave={() => setOver(false)}
+    onDrop={(event) => {
+      setOver(false);
+      const value = event.dataTransfer.getData(format);
+      try { const source = JSON.parse(value); if (source.list === list) { event.preventDefault(); move(list, ids, source.id, id); } } catch { /* Ignore unrelated drops. */ }
+    }}>
+    <button type="button" draggable className="iconbtn cursor-grab" aria-label={`Drag ${name} to reorder`} title={`Drag ${name} to reorder`}
+      onDragStart={(event) => { event.dataTransfer.setData(format, JSON.stringify({ list, id })); event.dataTransfer.effectAllowed = "move"; }}
+      onDragEnd={() => setOver(false)}><span aria-hidden>⋮⋮</span></button>
+    <div className="min-w-0 flex-1">{children}</div>
+    <button type="button" className="iconbtn" disabled={index === 0} aria-label={`Move ${name} up`} title={`Move ${name} up`} onClick={() => move(list, ids, id, ids[index - 1])}>↑</button>
+    <button type="button" className="iconbtn" disabled={index === ids.length - 1} aria-label={`Move ${name} down`} title={`Move ${name} down`} onClick={() => move(list, ids, id, ids[index + 1])}>↓</button>
+  </div>;
+}
+
 /** Bots of the workspace (Ask Launchpad among them), then its channels and bot DMs. Collapsed: one state dot (and the
  * amber dot of a channel that asks you); their proposals wait in Today, and a channel only when a bot asks you there. */
 function BotList({ sessions, narrow }: { sessions: Session[]; narrow: boolean }) {
   const scope = useScope();
-  const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
+  const [reordering, setReordering] = useState(false);
+  const orders = useSidebarOrder((s) => s.orders);
+  const botList = `${scope.workspace.id}:bots`;
+  const channelList = `${scope.workspace.id}:channels`;
+  const bots = ordered((useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id), orders[botList]);
   const allChannels = useChannels().data;
-  const { channels, dms } = channelsOf(allChannels, scope.workspace.id);
+  const { channels: unsortedChannels, dms } = channelsOf(allChannels, scope.workspace.id);
+  const channels = ordered(unsortedChannels, orders[channelList]);
   const archived = archivedOf(allChannels, scope.workspace.id).length;
   const asks = useChannelAsks();
   if (narrow) return (
@@ -162,10 +190,10 @@ function BotList({ sessions, narrow }: { sessions: Session[]; narrow: boolean })
     {asks.size > 0 && <span className="size-[7px] rounded-full bg-attn" title="A channel message asks you" />}
   </span>;
   return (
-    <Group id="bots" to="/bots" label="Bots" tour="sidebar.bots" end={summary} actions={<Link to="/bots" search={{ new: true } as never} className="iconbtn" title="New bot" aria-label="New bot"><Icon name="plus" size={14} /></Link>}>
-      {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} />)}
+    <Group id="bots" to="/bots" label="Bots" tour="sidebar.bots" end={summary} actions={<><button type="button" className="iconbtn" aria-label={reordering ? "Finish reordering" : "Reorder bots and channels"} title={reordering ? "Finish reordering" : "Reorder bots and channels"} aria-pressed={reordering} onClick={() => { setReordering(!reordering); if (useSidebar.getState().collapsed.bots) useSidebar.getState().toggle("bots"); }}><Icon name={reordering ? "check" : "sliders"} size={14} /></button><Link to="/bots" search={{ new: true } as never} className="iconbtn" title="New bot" aria-label="New bot"><Icon name="plus" size={14} /></Link></>}>
+      {bots.map((b) => reordering ? <ReorderRow key={b.id} id={b.id} name={b.settings.name} ids={bots.map((bot) => bot.id)} list={botList}><BotLink bot={b} thread={botThread(sessions, b.id)} /></ReorderRow> : <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} />)}
       {bots.length === 0 && <Link to="/bots" search={{ new: true } as never} className="mx-[9px] my-1 text-[12px] text-teal-ink no-underline hover:underline">+ New bot</Link>}
-      {channels.length > 0 && <div className="flex flex-col gap-px" data-tour="sidebar.channels"><SubLabel>Channels</SubLabel>{channels.map((c) => <ChannelLink key={c.id} c={c} />)}</div>}
+      {channels.length > 0 && <div className="flex flex-col gap-px" data-tour="sidebar.channels"><SubLabel>Channels</SubLabel>{channels.map((c) => reordering ? <ReorderRow key={c.id} id={c.id} name={c.name} ids={channels.map((channel) => channel.id)} list={channelList}><ChannelLink c={c} /></ReorderRow> : <ChannelLink key={c.id} c={c} />)}</div>}
       {dms.length > 0 && <div className="flex flex-col gap-px" data-tour={channels.length ? undefined : "sidebar.channels"}><SubLabel>Bot DMs</SubLabel>{dms.map((c) => <ChannelLink key={c.id} c={c} />)}</div>}
       {archived > 0 && <Link to="/bots" search={{ archived: true } as never} className="mt-1 flex h-[28px] items-center gap-2 rounded-control px-[9px] text-[12px] text-ink-3 no-underline hover:bg-sunk hover:text-ink" data-tour="sidebar.archived"><span className="min-w-0 flex-1 truncate">Archived channels</span><Count n={archived} /></Link>}
     </Group>
