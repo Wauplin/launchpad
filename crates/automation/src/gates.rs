@@ -369,6 +369,11 @@ pub async fn users(app: &App, ws: &str, slug: &str) -> Result<Vec<CronAgent>> {
     Ok(out)
 }
 
+/// Pure: whether an evaluation already started a run of this routine.
+fn started_run(r: &CronAgent, evaluation: &str) -> bool {
+    r.history.iter().any(|x| x.outcome != RunOutcome::Checked && x.check.as_ref().is_some_and(|c| c.evaluation_id.as_deref() == Some(evaluation)))
+}
+
 fn caller(r: &CronAgent) -> Caller {
     Caller { kind: CallerKind::Routine, id: Some(r.id.clone()), name: Some(r.title.clone()) }
 }
@@ -446,7 +451,11 @@ pub(crate) async fn tick(app: &App, record: CronAgent, gate: Gate) -> Result<()>
     };
     let state = record.gate_state.clone().unwrap_or_default();
     let fingerprint = e.fingerprint.clone();
-    let d = decide(&gate, &state, e.outcome, fingerprint.as_deref(), now);
+    let d = match decide(&gate, &state, e.outcome, fingerprint.as_deref(), now) {
+        // A result reused within the oracle's min_interval is not a new outcome: it starts one run at most.
+        Decision::Fire(_) if started_run(&record, &e.id) => Decision::Quiet("this answer already started a run"),
+        d => d,
+    };
     let coalesced = move |r: &mut CronAgent| {
         let n = due.map(|d| passed(r, d, now)).unwrap_or(0);
         if n > 0 {
