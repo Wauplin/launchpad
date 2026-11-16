@@ -176,3 +176,13 @@ button.x-count { all: unset; cursor: pointer; display: inline-block; min-width: 
 button.x-count:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 1px; }
 .x-task[role="group"] { cursor: default; align-items: center; }
 .x-chip.x-ghost { cursor: pointer; font: inherit; font-size: 12.5px; }
+
+/* Today: rows whose text is the main button, with a compact secondary control after it */
+.x-sect.x-sect-act { display: flex; align-items: center; gap: 8px; }
+.x-sect.x-sect-act > span { flex: 1; }
+.x-sect.x-sect-act > button { all: unset; cursor: pointer; text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; color: var(--color-teal-ink); }
+.x-sect.x-sect-act > button:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 1px; }
+button.x-hit { all: unset; cursor: pointer; }
+.x-task .x-hit:focus-visible { outline: 2px solid var(--color-teal); outline-offset: 2px; border-radius: 4px; }
+.x-num { flex: none; font-size: 12px; font-weight: 600; color: var(--color-ink-2); background: var(--color-chrome); border-radius: 999px; padding: 0 6px; }
+.x-age { flex: none; white-space: nowrap; }

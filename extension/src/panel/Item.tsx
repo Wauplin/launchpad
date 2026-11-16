@@ -165,7 +165,7 @@ function NoteCard({ n, ctx, open, onError, onDone }: { n: ExtNote; ctx: ExtConte
   const s = n.suggestion;
   const waiting = s ? ctx.suggestions.find((x) => x.id === s.id) : undefined;
   return <div className="x-card">
-    <h3><span style={{ flex: 1 }}>{n.author}{answers ? <span className="x-small x-faint"> · answers {answers.by_owner ? "your note" : answers.author}</span> : null}</span><span className="x-small x-faint">{ago(n.created_at)}</span></h3>
+    <h3><span style={{ flex: 1 }}>{n.author}{answers ? <span className="x-small x-faint"> · answers {answers.by_owner ? "your note" : answers.author}</span> : null}</span>{n.unread && <span className="x-status x-s-need">New</span>}<span className="x-small x-faint">{ago(n.created_at)}</span></h3>
     <p className="x-small" style={{ whiteSpace: "pre-wrap", ...(long && !all ? { maxHeight: "12em", overflow: "hidden" } : {}) }}>{n.body}</p>
     {s && <p className="x-small x-muted">{waiting ? "With a suggested comment: see Waiting for you below, or post it from the page." : s.status === "posted" || s.status === "posted_by_hand" ? "Its suggested comment was posted." : s.status === "discarded" ? "Its suggested comment was discarded." : `Suggested comment: ${s.status.replace(/_/g, " ")}.`}</p>}
     <div className="x-btns">

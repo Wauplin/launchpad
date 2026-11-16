@@ -24,4 +24,8 @@ reply_to: string | null,
 /**
  * The suggested comment it carries (the waiting ones are also in `ExtContext.suggestions`, with their text).
  */
-suggestion: ExtNoteSuggestion | null, };
+suggestion: ExtNoteSuggestion | null, 
+/**
+ * An agent's note the owner has not seen yet (`note.read`).
+ */
+unread: boolean, };

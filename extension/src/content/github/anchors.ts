@@ -60,27 +60,21 @@ export const ANCHORS = {
       } },
       // Older layouts: the repository header's name.
       { via: "id", find: (p) => all('#repository-container-header strong[itemprop="name"]').find((s) => linksRepo(s.querySelector("a"), p)) ?? null },
-      // Every page of a repository: the global header's breadcrumbs, ending with the repository (after its link).
+      // Every page of a repository: the global header's breadcrumbs, ending with the repository. The badge goes after
+      // the whole breadcrumb (and GitHub's ▾ of the repository right after it), in the header's flex row: inside the
+      // breadcrumb's last item it sat on the item's text baseline, lower than the name.
       { via: "aria", find: (p) => {
         for (const nav of all('nav[aria-label="Breadcrumbs"], nav[aria-label="Page context"]')) {
           const links = nav.querySelectorAll("a[href]");
-          const last = links[links.length - 1] ?? null;
-          if (linksRepo(last, p)) return last;
+          if (!linksRepo(links[links.length - 1] ?? null, p)) continue;
+          let next = nav.nextElementSibling;
+          while (next?.hasAttribute("data-launchpad")) next = next.nextElementSibling;
+          const menu = next && (next.matches("button, details, [aria-haspopup]") || next.querySelector(":scope > button, :scope > [aria-haspopup]")) && (next.textContent?.trim() ?? "") === "";
+          return menu ? next : nav;
         }
         return null;
       } },
       { via: "text", find: (p) => all("header a[href]").find((a) => linksRepo(a, p) && same(a.textContent?.trim() ?? "", p.repo.split("/")[1])) ?? null },
-    ],
-  },
-  /** The repository's tabs (Code, Issues, Pull requests…): the "+2 local" count (L1). */
-  "repo-tabs": {
-    label: "Repository tabs",
-    kinds: REPO_KINDS,
-    place: "beforeend",
-    strategies: [
-      { via: "id", find: () => document.querySelector("nav.js-repo-nav") },
-      { via: "aria", find: () => document.querySelector('nav[aria-label="Repository"]') },
-      { via: "text", find: (p) => all("nav").find((n) => all("a[href]", n).some((a) => same(pathOf(a), `/${p.repo}/pulls`) && /pull requests/i.test(a.textContent ?? ""))) ?? null },
     ],
   },
   /** The rows of a Pull requests or Issues list (row chips, L2). */
@@ -119,17 +113,6 @@ export const ANCHORS = {
       { via: "aria", find: (p) => listRows(p)[0]?.closest("ul, ol, [role=list]") ?? null },
     ],
   },
-  /** The Pull requests tab of the repository: "+2 local" after its count (L1). */
-  "pr-tab": {
-    label: "Pull requests tab",
-    kinds: REPO_KINDS,
-    place: "afterend",
-    strategies: [
-      { via: "data", find: () => document.querySelector('nav[aria-label="Repository"] a[data-tab-item="pull-requests"], a[data-tab-item="i2pull-requests-tab"]') },
-      { via: "id", find: () => document.querySelector("a#pull-requests-tab") },
-      { via: "text", find: (p) => all("nav a[href]").find((a) => same(pathOf(a), `/${p.repo}/pulls`) && /pull requests/i.test(a.textContent ?? "")) ?? null },
-    ],
-  },
   /** The top of a repository's content, under its tabs: the Launchpad strip (R2). */
   "repo-content": {
     label: "Repository content",
@@ -138,6 +121,17 @@ export const ANCHORS = {
     strategies: [
       { via: "id", find: () => document.querySelector("#repo-content-pjax-container") ?? document.querySelector("#repo-content-turbo-frame") },
       { via: "aria", find: () => document.querySelector('main[id="js-repo-pjax-container"], main') },
+    ],
+  },
+  /** Each row of github.com/notifications (row chip, notes mark and hover actions on its repository line). */
+  "notification-rows": {
+    label: "Notification rows",
+    kinds: ["notifications"],
+    place: "beforeend",
+    strategies: [
+      { via: "data", find: () => document.querySelector("li[data-notification-id]"), all: () => all("li[data-notification-id]") },
+      { via: "id", find: () => document.querySelector(".notifications-list-item"), all: () => all(".notifications-list-item") },
+      { via: "aria", find: () => notificationRows()[0] ?? null, all: () => notificationRows() },
     ],
   },
   /** The title of an issue or pull request (live agent cards, I5). */
@@ -406,6 +400,18 @@ document.addEventListener("focusin", (e) => {
 function listRows(p: Params): Element[] {
   const rows = all("main li").filter((li) => all("a[href]", li).some((a) => new RegExp(`^/${p.repo.replace(/[.]/g, "\\.")}/(pull|issues)/\\d+$`, "i").test(pathOf(a))));
   return rows.filter((r) => !rows.some((o) => o !== r && r.contains(o)));
+}
+
+/** Rows of the notifications list found by their links (GitHub adds `notification_referrer_id`). */
+function notificationRows(): Element[] {
+  return all('a[href*="notification_referrer_id"]').map((a) => a.closest("li")).filter((x): x is HTMLLIElement => !!x);
+}
+
+/** Where a notification row's marks go: the end of its repository line ("owner/repo #123"), so the row keeps its
+ * height. Unknown layouts get nothing rather than a taller row. */
+export function notificationSlot(row: Element): { el: Element; place: InsertPosition } | null {
+  const meta = row.querySelector(".notification-list-item-link .f6, .notification-list-item-link .text-small");
+  return meta ? { el: meta, place: "beforeend" } : null;
 }
 
 /** The item a list row links to: its repository and number, from the row's link (never its text). */

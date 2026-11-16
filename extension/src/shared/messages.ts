@@ -7,6 +7,7 @@ import type { DiffSelection } from "@/gen/DiffSelection";
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtReviewChoice } from "@/gen/ExtReviewChoice";
 import type { ExtRows } from "@/gen/ExtRows";
+import type { ExtUnreadNotes } from "@/gen/ExtUnreadNotes";
 import type { Predraft } from "@/gen/Predraft";
 import type { Project } from "@/gen/Project";
 import type { FileAttachment } from "@/gen/FileAttachment";
@@ -15,6 +16,7 @@ import type { ItemNote } from "@/gen/ItemNote";
 import type { NoteRecipient } from "@/gen/NoteRecipient";
 import type { Session } from "@/gen/Session";
 import type { SessionEventPage } from "@/gen/SessionEventPage";
+import type { TodayItem } from "@/gen/TodayItem";
 import type { Workspace } from "@/gen/Workspace";
 
 /** Where the extension is connected. Never holds a credential. */
@@ -101,7 +103,7 @@ export type LedgerAction = "shown" | "inserted" | "posted-by-hand" | "dismiss-co
 export type TabCommand = { type: "insert"; suggestion: string };
 
 /** `GET /api/predrafts/{id}`: what the Publish dialog needs (the commit shown is the one published). */
-export type LocalPrDetail = { predraft: Predraft; status: string | null; head?: string; default_remote_branch?: string; base_ahead: number; project_missing?: boolean; change_set?: { id: string; title: string; published_url: string | null; merged: boolean }[] };
+export type LocalPrDetail = { predraft: Predraft; status: string | null; head?: string; default_remote_branch?: string; base_ahead: number; project_missing?: boolean; change_set?: { id: string; title: string; published_url: string | null; merged: boolean }[]; /** `<short sha> <subject>`, newest first. */ commits?: string[]; files?: { filename: string; status: string; patch?: string }[] };
 
 /** A profile of Home (an agent CLI with its login), for the launch popovers; never its environment. */
 export type ProfileBrief = { id: string; name: string; harness: string; subscription: boolean };
@@ -182,6 +184,14 @@ export type Requests = {
    * Launchpad only, then sent to the agents that wrote about the item (else its default bot). `workspace`: the page
    * context's (default: the extension's). */
   "note.write": Req<{ repo: string; number: number; body: string; workspace?: string | null; reply_to?: string | null }, NoteWriteResult>;
+  /** `note.read`: the agents' notes of an item were shown (its page, 1.5 s in a focused tab), or Mark read in the
+   * panel; without repo and number, every note of the workspace. `workspace`: the page context's (default: the
+   * extension's). */
+  "note.read": Req<{ repo?: string | null; number?: number | null; workspace?: string | null }, { marked: number }>;
+  /** The items with unread private notes of the extension's workspace's agents, newest first. */
+  "notes.unread": Req<void, ExtUnreadNotes[]>;
+  /** Today's items of the extension's workspace (`GET /api/today`), in the order to decide them. */
+  "today": Req<void, TodayItem[]>;
   /** Post this comment (`suggestion.post`, a GitHub write): only from the timeline entry's button under the full
    * comment, on a trusted click. */
   "suggestion.post": Req<{ id: string }, unknown>;

@@ -10,9 +10,10 @@ import { request } from "../../shared/messages";
 import { findAnchor, findAnchors, rowChecked, rowItem, rowSlot } from "./anchors";
 import { open } from "./item";
 import type { Page } from "./page";
-import { chipButton, chipOf, hoverWith, RowStates } from "./rows";
+import { chipButton, chipOf, hoverWith, notesTag, RowStates } from "./rows";
 import { targetPopover, type Target } from "./target";
-import { button, h, logo, more, mount, popover, unmount, type MenuEntry } from "./widgets";
+import { markdown } from "./markdown";
+import { button, caret, h, logo, more, mount, popover, unmount, type MenuEntry } from "./widgets";
 
 const SECTION = "local-prs";
 const BAR = "selection-bar";
@@ -59,7 +60,12 @@ function renderSection(page: Page, ctx: ExtContext | null, refresh: () => void) 
   w.root.append(section);
 }
 
-function prRow(root: ShadowRoot, p: ExtLocalPr, ws: string, refresh: () => void) {
+/** Local PRs whose details are unfolded in this tab (kept across re-renders of their row). */
+const unfolded = new Set<string>();
+
+/** One Local PR: title, its line of facts, Publish… and ⋯; Details unfolds its description, commits and files,
+ * read from Home when first opened (`localpr.detail`), so the owner sees what it holds without leaving GitHub. */
+export function prRow(root: ShadowRoot, p: ExtLocalPr, ws: string, refresh: () => void) {
   const meta = [`${p.branch} → ${p.base_branch}`, p.author ? `by ${p.author}` : null, p.notes ? `${p.notes} note${p.notes === 1 ? "" : "s"} waiting` : null, p.set ? `change set of ${p.set + 1}` : null, p.pushed_head ? "publication did not finish" : null].filter(Boolean).join(" · ");
   const publish: HTMLButtonElement = button("Publish…", () => publishPopover(root, publish, p, refresh), { small: true, title: "Push the reviewed commit and open the pull request on GitHub (you confirm first)" });
   const entries = (): MenuEntry[] => [
@@ -70,9 +76,56 @@ function prRow(root: ShadowRoot, p: ExtLocalPr, ws: string, refresh: () => void)
     { separator: true },
     { label: "Discard…", hint: "From its page in Launchpad", onSelect: () => open(`/predrafts/${encodeURIComponent(p.id)}`, ws) },
   ];
-  return h("div", { class: "lp-section-row" },
-    h("div", { class: "lp-grow" }, h("div", { class: "lp-grow", text: p.title, title: p.title, attrs: { style: "font-weight:600" } }), h("div", { class: "lp-muted lp-grow", text: meta, title: meta })),
+  const details = h("div", { class: "lp-more-info", attrs: { hidden: "" } });
+  const toggle = h("button", { class: "lp-toggle", title: "Show its description, commits and files", attrs: { type: "button", "aria-expanded": "false" } }, h("span", { class: "lp-clip", text: p.title }), caret());
+  const show = (on: boolean) => {
+    toggle.setAttribute("aria-expanded", String(on));
+    details.hidden = !on;
+    if (on) unfolded.add(p.id); else unfolded.delete(p.id);
+    if (on && !details.childNodes.length) fillDetails(details, p);
+  };
+  toggle.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); show(toggle.getAttribute("aria-expanded") !== "true"); });
+  const row = h("div", { class: "lp-section-row" },
+    h("div", { class: "lp-grow" }, toggle, h("div", { class: "lp-muted lp-grow", text: meta, title: meta })),
     publish, more(root, "Local PR", entries));
+  if (unfolded.has(p.id)) show(true);
+  return h("div", { class: "lp-pr" }, row, details);
+}
+
+/** Lines added and removed in a file's patch. */
+function counts(patch = "") {
+  let add = 0, del = 0;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) add++;
+    else if (line.startsWith("-") && !line.startsWith("---")) del++;
+  }
+  return { add, del };
+}
+
+function fillDetails(box: HTMLElement, p: ExtLocalPr) {
+  box.append(h("div", { class: "lp-muted", text: "Reading the Local PR…" }));
+  void request("localpr.detail", { id: p.id }).then((d) => {
+    box.replaceChildren();
+    const files = d.files ?? [];
+    const commits = d.commits ?? [];
+    const total = files.reduce((t, f) => { const c = counts(f.patch); return { add: t.add + c.add, del: t.del + c.del }; }, { add: 0, del: 0 });
+    const running = ["working", "starting", "background"].includes(d.status ?? "");
+    const facts: [string, string][] = [
+      ["Reviewed commit", d.head ? d.head.slice(0, 8) : "none yet"],
+      ["Changes", `${files.length} file${files.length === 1 ? "" : "s"} · +${total.add} −${total.del} · ${commits.length} commit${commits.length === 1 ? "" : "s"}`],
+      ...(d.base_ahead > 0 ? [["Base", `${p.base_branch} moved ${d.base_ahead} commit${d.base_ahead === 1 ? "" : "s"} ahead`] as [string, string]] : []),
+      ...(running ? [["Agent", "still working on it"] as [string, string]] : []),
+      ...(d.change_set?.length ? [["Change set", d.change_set.map((c) => c.title).join(", ")] as [string, string]] : []),
+    ];
+    box.append(h("div", { class: "lp-kv" }, ...facts.flatMap(([k, v]) => [h("span", { text: k }), h("span", { text: v })])));
+    const body = d.predraft.body.trim();
+    box.append(body ? markdown(body) : h("div", { class: "lp-muted", text: "No description." }));
+    if (commits.length) box.append(h("div", {}, h("div", { class: "lp-label", text: "Commits" }), ...commits.slice(0, 12).map((c) => h("div", { class: "lp-mono lp-clip", text: c, title: c })), commits.length > 12 ? h("div", { class: "lp-muted", text: `and ${commits.length - 12} more` }) : null));
+    if (files.length) box.append(h("div", {}, h("div", { class: "lp-label", text: "Files" }), ...files.slice(0, 20).map((f) => {
+      const c = counts(f.patch);
+      return h("div", { class: "lp-row" }, h("span", { class: "lp-mono lp-grow", text: f.filename, title: `${f.filename} (${f.status})` }), h("span", { class: "lp-muted", text: `+${c.add} −${c.del}` }));
+    }), files.length > 20 ? h("div", { class: "lp-muted", text: `and ${files.length - 20} more files` }) : null));
+  }).catch((e) => { box.replaceChildren(h("div", { class: "lp-error", text: e instanceof Error ? e.message : String(e) })); });
 }
 
 /** The Publish dialog: options, then a confirmation that names the commit; only the confirm click publishes. */
@@ -140,7 +193,7 @@ export function publishPopover(root: ShadowRoot, anchor: HTMLElement, p: ExtLoca
 function renderRows(page: Page, ctx: ExtContext | null, st: RowStates) {
   const found = findAnchors("list-items", { repo: page.repo!, number: null });
   const rows = (found?.els ?? []).map((el) => ({ el, item: rowItem(el) })).filter((r) => r.item && r.item.repo.toLowerCase() === page.repo!.toLowerCase());
-  const data = rows.length && ctx?.folder ? st.get(page.url, rows.map((r) => String(r.item!.number))) : null;
+  const data = rows.length && ctx ? st.get(page.url, rows.map((r) => String(r.item!.number))) : null;
   const ws = ctx?.folder?.workspace_id ?? ctx?.workspace?.id ?? null;
   const next = new Set<string>();
   for (const { el, item } of rows) {
@@ -150,10 +203,13 @@ function renderRows(page: Page, ctx: ExtContext | null, st: RowStates) {
     const chip = state ? chipOf(state, ws) : null;
     const target: Target = { repo: item!.repo, number: item!.number, kind: item!.kind, title: item!.title };
     const slot = rowSlot(el);
-    const w = mount(id, JSON.stringify([chip?.text, chip?.tone, !!ctx, ctx?.defaults.review, ctx?.defaults.bot?.id]), slot.el, slot.place);
+    const notes = state?.notes.total ? state.notes : null;
+    const w = mount(id, JSON.stringify([chip?.text, chip?.tone, notes?.total, notes?.unread, !!ctx, ctx?.defaults.review, ctx?.defaults.bot?.id]), slot.el, slot.place);
     hoverWith(el, w);
     if (!w.fresh) continue;
     if (chip) w.root.append(chipButton(chip));
+    const tag = state ? notesTag(state, item!.url) : null;
+    if (tag) w.root.append(tag);
     if (ctx) {
       const review = item!.kind === "pr";
       const choice = ctx.defaults.review;

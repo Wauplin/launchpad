@@ -9,14 +9,13 @@ import logoUrl from "../../../public/icons/48.png?inline";
 const TEAL = { light: "#0d7266", lightInk: "#0a5c52", dark: "#0d7266", darkInk: "#79d7c6" };
 
 const STYLE = `
-:host { all: initial; display: inline-flex; vertical-align: middle; position: relative; margin: 0 4px;
+:host { all: initial; display: inline-flex; vertical-align: middle; align-self: center; position: relative; margin: 0 4px;
   font: 500 12px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
   color: var(--fgColor-default, var(--color-fg-default, #1f2328));
   --lp-teal: ${TEAL.light}; --lp-ink: ${TEAL.lightInk}; }
 :host([data-dark]) { --lp-teal: ${TEAL.dark}; --lp-ink: ${TEAL.darkInk}; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-:host([data-block="strip"]) { display: block; max-width: 1280px; margin: 12px auto 0; padding: 0 32px; font-weight: 400; font-size: 13px; }
 .lp-chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; max-width: 360px; padding: 0 8px 0 6px; border-radius: 999px;
   border: 1px solid var(--borderColor-default, var(--color-border-default, #d1d9e0));
   background: var(--bgColor-muted, var(--color-canvas-subtle, #f6f8fa)); color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
@@ -42,7 +41,12 @@ const STYLE = `
 .lp-sep { height: 1px; margin: 4px 0; background: var(--borderColor-muted, var(--color-border-muted, #d1d9e0b3)); }
 :host([data-block]) { display: block; margin: 0 0 16px; font-weight: 400; font-size: 13px; }
 :host([data-block="card"]) { margin: 8px 0 16px; }
+/* After :host([data-block]): the strip lines up with GitHub's content column (container-xl, 32 px padding). */
+:host([data-block="strip"]) { display: block; max-width: 1280px; margin: 12px auto 0; padding: 0 32px; font-weight: 400; font-size: 13px; }
 :host([data-block="banner"]) { margin: 0 0 8px; }
+/* Popovers and menus live in one fixed host on <body> (overlayRoot): GitHub's list rows use content-visibility: auto, which
+   clips a fixed element inside them. */
+:host([data-block="overlay"]) { display: block; position: fixed; top: 0; left: 0; width: 0; height: 0; margin: 0; z-index: 2147483000; }
 .lp-box, .lp-card, .lp-banner { display: block; border: 1px solid var(--borderColor-default, var(--color-border-default, #d1d9e0)); border-radius: 6px;
   background: var(--bgColor-default, var(--color-canvas-default, #ffffff)); padding: 10px 12px; }
 .lp-box { border-top: 2px solid var(--lp-teal); }
@@ -96,10 +100,39 @@ const STYLE = `
 .lp-tag:hover { background: var(--control-transparent-bgColor-hover, #818b981f); }
 .lp-hover { display: inline-flex; align-items: center; gap: 2px; }
 :host([data-hover]:not([data-show])) .lp-hover { visibility: hidden; }
+/* Notification rows keep GitHub's height: the marks sit on the repository line, 18–20 px high. */
+:host([data-notification]) { height: 20px; margin: 0 0 0 8px; gap: 4px; white-space: nowrap; }
+:host([data-notification]) .lp-hover { height: 20px; }
+:host([data-notification]) .lp-hover > .lp-btn { height: 20px; padding: 0 6px; font-size: 11px; }
+:host([data-notification]) .lp-hover > .lp-more { width: 20px; height: 20px; }
+:host([data-notification]) .lp-tag { height: 18px; padding: 0 6px; font-size: 11px; }
+/* Private notes of an item: teal when one is unread, quiet otherwise. */
+.lp-tag.lp-notes { color: var(--fgColor-muted, #59636e); }
+.lp-tag.lp-notes.lp-unread { color: #ffffff; background: var(--lp-teal); border-color: var(--lp-teal); font-weight: 600; }
+.lp-tag.lp-notes.lp-unread:hover { filter: brightness(1.08); background: var(--lp-teal); }
+.lp-tag + .lp-tag { margin-left: 4px; }
+.lp-new { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #ffffff; background: var(--lp-teal); }
+/* Expandable parts (the repository strip, Local PR rows). */
+.lp-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; font: inherit; color: var(--fgColor-default, #1f2328); cursor: pointer; white-space: nowrap; }
+.lp-toggle:hover { color: var(--fgColor-accent, #0969da); }
+.lp-toggle .lp-caret { transition: transform .12s; }
+.lp-toggle[aria-expanded="true"] .lp-caret { transform: rotate(180deg); }
+.lp-toggle:focus-visible { outline: 2px solid var(--focus-outlineColor, var(--lp-teal)); outline-offset: 1px; border-radius: 4px; }
+.lp-details { flex-basis: 100%; display: grid; gap: 0; margin-top: 2px; border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+.lp-detail-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; min-width: 0; }
+.lp-detail-row + .lp-detail-row { border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+.lp-detail-row > .lp-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.lp-clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-more-info { padding: 4px 12px 12px; display: grid; gap: 8px; }
+.lp-more-info .lp-md { font-size: 13px; max-height: 18em; overflow: auto; }
+.lp-kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: 12px; }
+.lp-kv > :nth-child(odd) { color: var(--fgColor-muted, #59636e); }
+.lp-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .lp-section { border: 1px solid var(--borderColor-default, #d1d9e0); border-top: 2px solid var(--lp-teal); border-radius: 6px; margin: 0 0 16px; background: var(--bgColor-default, #ffffff); }
 .lp-section-head { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: var(--bgColor-muted, #f6f8fa); border-bottom: 1px solid var(--borderColor-muted, #d1d9e0b3); border-radius: 6px 6px 0 0; }
 .lp-section-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
-.lp-section-row + .lp-section-row { border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+.lp-section-row + .lp-section-row, .lp-pr + .lp-pr { border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+.lp-pr .lp-toggle { font-weight: 600; max-width: 100%; }
 .lp-pop label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .lp-pop input[type="text"] { width: 100%; font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: inherit; border-radius: 6px; padding: 5px 8px;
   border: 1px solid var(--borderColor-default, #d1d9e0); background: var(--bgColor-default, #ffffff); }
@@ -253,6 +286,28 @@ export function unmountAll() {
   document.querySelectorAll(`[${HOST_ATTR}]`).forEach((el) => el.remove());
 }
 
+/** The overlay host on <body> where popovers and menus go (created again when GitHub replaced the body). */
+let overlay: { host: HTMLElement; root: ShadowRoot } | null = null;
+function overlayRoot(): ShadowRoot {
+  if (!overlay || !overlay.host.isConnected) {
+    const host = document.createElement("launchpad-mark");
+    host.setAttribute(HOST_ATTR, "overlay");
+    host.setAttribute("data-block", "overlay");
+    const shadow = host.attachShadow({ mode: "closed" });
+    shadow.append(h("style", { text: STYLE }));
+    roots.set(host, shadow);
+    document.body.append(host);
+    overlay = { host, root: shadow };
+  }
+  overlay.host.toggleAttribute("data-dark", dark());
+  return overlay.root;
+}
+
+/** Closes the open popover or menu, if any (a navigation). */
+export function closeOverlays() {
+  for (const close of [...openNow]) close();
+}
+
 export type MenuEntry =
   | { label: string; hint?: string; disabled?: boolean; onSelect?: () => void }
   | { note: string }
@@ -260,11 +315,16 @@ export type MenuEntry =
 
 /** A menu under `button` (in the same shadow root), closed by a choice, Escape, a click elsewhere or scrolling. */
 const open = new WeakMap<ShadowRoot, () => void>();
+/** At most one popover or menu is open on the page. */
+const openNow = new Set<() => void>();
+/** A pointer down inside the widget that opened it, or inside the overlay, does not close it. */
+const inside = (e: Event, root: ShadowRoot) => { const path = e.composedPath(); return path.includes(root.host) || (!!overlay && path.includes(overlay.host)); };
 
 export function openMenu(root: ShadowRoot, button: HTMLElement, title: string, entries: MenuEntry[]) {
-  open.get(root)?.();
+  closeOverlays();
   const close = () => {
     open.delete(root);
+    openNow.delete(close);
     menu.remove();
     button.setAttribute("aria-expanded", "false");
     document.removeEventListener("pointerdown", outside, true);
@@ -272,7 +332,7 @@ export function openMenu(root: ShadowRoot, button: HTMLElement, title: string, e
     window.removeEventListener("resize", close);
     document.removeEventListener("keydown", key, true);
   };
-  const outside = (e: Event) => { if (!e.composedPath().includes(root.host)) close(); };
+  const outside = (e: Event) => { if (!inside(e, root)) close(); };
   const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); close(); button.focus(); } };
   const items = entries.map((e) => {
     if ("separator" in e) return h("div", { class: "lp-sep", attrs: { role: "separator" } });
@@ -287,8 +347,9 @@ export function openMenu(root: ShadowRoot, button: HTMLElement, title: string, e
   const r = button.getBoundingClientRect();
   menu.style.top = `${Math.round(r.bottom + 4)}px`;
   menu.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 348)))}px`;
-  root.append(menu);
+  overlayRoot().append(menu);
   open.set(root, close);
+  openNow.add(close);
   button.setAttribute("aria-expanded", "true");
   document.addEventListener("pointerdown", outside, true);
   window.addEventListener("scroll", close, true);
@@ -366,22 +427,24 @@ export function button(text: string, onClick: () => void, opts: { primary?: bool
 
 /** A popover in `root` under `anchor` (closed by Escape, a click elsewhere, or its own `close`). */
 export function popover(root: ShadowRoot, anchor: HTMLElement, label: string, build: (close: () => void) => HTMLElement[]) {
-  open.get(root)?.();
+  closeOverlays();
   const close = () => {
     open.delete(root);
+    openNow.delete(close);
     pop.remove();
     document.removeEventListener("pointerdown", outside, true);
     document.removeEventListener("keydown", key, true);
   };
-  const outside = (e: Event) => { if (!e.composedPath().includes(root.host)) close(); };
+  const outside = (e: Event) => { if (!inside(e, root)) close(); };
   const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); close(); anchor.focus(); } };
   const pop = h("div", { class: "lp-pop", attrs: { role: "dialog", "aria-label": label } }, h("div", { class: "lp-head", attrs: { style: "padding:0" } }, logo(), h("span", { text: label })), ...build(close));
   const r = anchor.getBoundingClientRect();
   const below = r.bottom + 6 + 260 < window.innerHeight;
   pop.style.top = below ? `${Math.round(r.bottom + 6)}px` : `${Math.max(8, Math.round(r.top - 266))}px`;
   pop.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - 356)))}px`;
-  root.append(pop);
+  overlayRoot().append(pop);
   open.set(root, close);
+  openNow.add(close);
   document.addEventListener("pointerdown", outside, true);
   document.addEventListener("keydown", key, true);
   return close;

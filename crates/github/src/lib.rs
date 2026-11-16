@@ -20,5 +20,6 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     notes::Recipient::export_all(cfg)?;
     ext::ExtContext::export_all(cfg)?;
     ext::ExtRows::export_all(cfg)?;
+    ext::ExtUnreadNotes::export_all(cfg)?;
     Ok(())
 }

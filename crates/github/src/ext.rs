@@ -33,6 +33,8 @@ pub enum PageKind {
     ActionsRun,
     Compare,
     NewRelease,
+    /// github.com/notifications.
+    Notifications,
     Other,
 }
 
@@ -70,6 +72,7 @@ pub fn parse_page(url: &str) -> ExtPage {
     let path = rest.split(['?', '#']).next().unwrap_or("");
     let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
     match parts.as_slice() {
+        ["notifications", ..] => page.kind = PageKind::Notifications,
         [owner, name, rest @ ..] if !RESERVED.contains(&owner.to_ascii_lowercase().as_str()) => {
             let full = format!("{owner}/{}", name.strip_suffix(".git").unwrap_or(name));
             if !launchpad_core::github::valid_repo(&full) {
@@ -333,6 +336,8 @@ pub struct ExtNote {
     pub reply_to: Option<String>,
     /// The suggested comment it carries (the waiting ones are also in `ExtContext.suggestions`, with their text).
     pub suggestion: Option<ExtNoteSuggestion>,
+    /// An agent's note the owner has not seen yet (`note.read`).
+    pub unread: bool,
 }
 
 /// The state of a note's suggested comment.
@@ -389,6 +394,38 @@ pub struct ExtRow {
     pub report: Option<ExtReport>,
     /// Its pull request's Launchpad branch has commits GitHub does not have yet.
     pub push: Option<ExtBranch>,
+    /// The agents' private notes about it in this workspace (the owner's own left out), and how many are unread.
+    pub notes: ExtNoteCount,
+}
+
+/// The agents' private notes about an item: how many, how many the owner has not seen, and who wrote the newest.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+pub struct ExtNoteCount {
+    pub total: u32,
+    pub unread: u32,
+    /// The author of the newest note (a bot's name, else the session's title).
+    pub author: Option<String>,
+    #[ts(type = "number | null")]
+    pub newest_at: Option<i64>,
+}
+
+/// An item with unread private notes of the workspace's agents (the panel's Unread notes).
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ExtUnreadNotes {
+    pub repo: String,
+    #[ts(type = "number")]
+    pub number: u64,
+    /// `pr` or `issue` when a launch named the item (else unknown: GitHub's `/issues/<n>` opens a pull request too).
+    pub kind: Option<String>,
+    /// The item's title as a launch recorded it, when one did.
+    pub title: Option<String>,
+    pub unread: u32,
+    /// The authors of the unread notes, newest first, each once.
+    pub authors: Vec<String>,
+    /// The first line of the newest unread note.
+    pub excerpt: String,
+    #[ts(type = "number")]
+    pub newest_at: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -914,11 +951,12 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
         out.notes = notes
             .into_iter()
             .map(|x| {
+                let unread = x.unread();
                 let suggestion = x.suggestion_id.map(|id| match all.iter().find(|s| s.id == id) {
                     Some(s) => ExtNoteSuggestion { id, status: s.status.clone(), url: s.url.clone() },
                     None => ExtNoteSuggestion { id, status: "discarded".into(), url: None },
                 });
-                ExtNote { id: x.id, author: x.author, bot_id: x.bot_id, session_id: x.session_id, by_owner: x.by_owner, body: x.body, created_at: x.created_at, reply_to: x.reply_to, suggestion }
+                ExtNote { id: x.id, author: x.author, bot_id: x.bot_id, session_id: x.session_id, by_owner: x.by_owner, body: x.body, created_at: x.created_at, reply_to: x.reply_to, suggestion, unread }
             })
             .collect();
     }
@@ -1006,6 +1044,7 @@ pub async fn rows(app: &App, url: &str, items: &[String], workspace: Option<&str
         branches: Vec<ExtBranch>,
     }
     let mut by_repo: HashMap<String, PerRepo> = HashMap::new();
+    let notes = crate::notes::all(app).await.unwrap_or_default();
     let mut rows = vec![];
     for w in wanted {
         let key = w.repo.to_lowercase();
@@ -1032,6 +1071,7 @@ pub async fn rows(app: &App, url: &str, items: &[String], workspace: Option<&str
             folder: r.folder.as_ref().filter(|f| Some(f.workspace_id.as_str()) == ws).map(|f| f.id.clone()),
             report,
             push,
+            notes: note_count(&notes, &w.repo, n, ws),
         });
     }
     let folder = page.repo.as_ref().and_then(|r| by_repo.get(&r.to_lowercase())).and_then(|x| x.folder.clone());
@@ -1042,6 +1082,61 @@ pub async fn rows(app: &App, url: &str, items: &[String], workspace: Option<&str
     };
     let ws = folder.as_ref().map(|f| f.workspace_id.clone()).or(asked.map(str::to_string));
     Ok(ExtRows { workspace: ws.as_deref().and_then(|w| d.workspace(w)), folder, page, rows })
+}
+
+/// The agents' notes of `repo#number` in workspace `ws`.
+fn note_count(notes: &[crate::notes::ItemNote], repo: &str, number: u64, ws: Option<&str>) -> ExtNoteCount {
+    let Some(ws) = ws else { return ExtNoteCount::default() };
+    let mut out = ExtNoteCount::default();
+    for n in notes.iter().filter(|n| !n.by_owner && n.number == number && same(&n.repo, repo) && n.workspace_id.as_deref() == Some(ws)) {
+        out.total += 1;
+        out.unread += n.unread() as u32;
+        if out.newest_at.is_none_or(|t| n.created_at > t) {
+            out.newest_at = Some(n.created_at);
+            out.author = Some(n.author.clone());
+        }
+    }
+    out
+}
+
+/// The items with unread notes of the workspace's agents, newest first (at most 100).
+pub async fn unread_notes(app: &App, workspace: &str) -> Result<Vec<ExtUnreadNotes>> {
+    let notes = crate::notes::all(app).await?;
+    let mut by_item: HashMap<String, Vec<&crate::notes::ItemNote>> = HashMap::new();
+    for n in notes.iter().filter(|n| n.unread() && n.workspace_id.as_deref() == Some(workspace)) {
+        by_item.entry(format!("{}#{}", n.repo.to_lowercase(), n.number)).or_default().push(n);
+    }
+    if by_item.is_empty() {
+        return Ok(vec![]);
+    }
+    let sessions = app.sessions.list();
+    let mut out: Vec<ExtUnreadNotes> = by_item
+        .into_values()
+        .map(|mut list| {
+            list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            let newest = list[0];
+            let named = sessions.iter().flat_map(|s| s.launch_spec.github_refs.iter()).find(|r| r.number == Some(newest.number) && same(&r.repo, &newest.repo));
+            let mut authors: Vec<String> = vec![];
+            for n in &list {
+                if !authors.contains(&n.author) {
+                    authors.push(n.author.clone());
+                }
+            }
+            ExtUnreadNotes {
+                repo: newest.repo.clone(),
+                number: newest.number,
+                kind: named.map(|r| r.kind.clone()).filter(|k| k == "pr" || k == "issue"),
+                title: named.and_then(|r| r.title.clone()),
+                unread: list.len() as u32,
+                authors,
+                excerpt: launchpad_core::today::line(&newest.body),
+                newest_at: newest.created_at,
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| b.newest_at.cmp(&a.newest_at));
+    out.truncate(100);
+    Ok(out)
 }
 
 fn local_pr_matches(p: &Predraft, number: Option<u64>) -> bool {

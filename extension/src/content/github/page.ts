@@ -13,6 +13,7 @@ export function pageOf(href: string): Page {
   const url = new URL(href);
   const page: Page = { kind: "other", repo: null, number: null, url: href };
   if (url.origin !== "https://github.com") return page;
+  if (/^\/notifications(\/|$)/.test(url.pathname)) return { ...page, kind: "notifications" };
   const [owner, name, ...rest] = url.pathname.split("/").filter(Boolean);
   if (!owner || !name || RESERVED.has(owner.toLowerCase()) || !NAME.test(owner) || !NAME.test(name) || name === "." || name === "..") return page;
   page.repo = `${owner}/${name.replace(/\.git$/, "")}`;

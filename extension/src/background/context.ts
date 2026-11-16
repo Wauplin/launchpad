@@ -116,7 +116,7 @@ export async function reportAnchors(checks: Record<string, Omit<AnchorCheck, "at
 }
 
 /** Anchors of features the extension no longer has: older checks of them are left out of Settings. */
-const RETIRED = new Set(["notification-list", "notification-rows", "ci-approval"]);
+const RETIRED = new Set(["notification-list", "ci-approval", "pr-tab", "repo-tabs"]);
 
 export async function anchorHealth(): Promise<AnchorHealth> {
   const all: AnchorHealth["anchors"] = (await local("anchors")) ?? {};

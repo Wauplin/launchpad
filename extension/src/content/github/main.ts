@@ -1,4 +1,4 @@
-// The GitHub layer's loop: at each navigation, the page kind from the URL, the widgets rendered at once from the last
+// The GitHub layer's loop (notifications.ts has its own, from row states only): at each navigation, the page kind from the URL, the widgets rendered at once from the last
 // context of the same repository (so the badge shows within GitHub's render), then Home's context for this page
 // through the worker (cached there 30 s), then the widgets again. Bus changes arrive as the worker's `ext.context`
 // topic. Widgets are idempotent: renders only change what changed.
@@ -12,13 +12,14 @@ import { clearFiles, isFiles, renderFiles } from "./files";
 import { insertFromPanel, onInserted, renderInsertBanners } from "./insert";
 import { isItem } from "./item";
 import { clearLists, listsStale, renderLists } from "./lists";
+import { clearNotifications, notificationsStale, renderNotifications } from "./notifications";
 import { observePage, watchNavigation } from "./navigation";
 import { pageOf, type Page } from "./page";
 import { renderRepoBadge } from "./repoBadge";
 import { renderRepoStrip } from "./repoStrip";
 import { renderSidebarBox } from "./sidebarBox";
 import { clearTimeline, renderTimeline } from "./timeline";
-import { unmount, unmountAll } from "./widgets";
+import { closeOverlays, unmount, unmountAll } from "./widgets";
 
 let page: Page = pageOf(location.href);
 let context: ExtContext | null = null;
@@ -35,6 +36,10 @@ let loading = false;
 const connected = () => phase === "online" || phase === "offline" || phase === "starting";
 
 function render() {
+  if (page.kind === "notifications") {
+    if (connected()) renderNotifications(page, render); else clearNotifications();
+    return;
+  }
   renderRepoBadge(page, context, refresh);
   renderRepoStrip(page, context, refresh);
   if (connected()) renderLists(page, context, render, refresh); else clearLists();
@@ -83,9 +88,12 @@ async function load(fresh = false) {
 function navigated() {
   page = pageOf(location.href);
   closeAgentView();
-  beginPage(page.kind, page.repo ? { repo: page.repo, number: page.number } : null);
+  closeOverlays();
+  beginPage(page.kind, page.repo ? { repo: page.repo, number: page.number } : page.kind === "notifications" ? { repo: "", number: null } : null);
   context = page.repo ? byRepo.get(page.repo.toLowerCase()) ?? null : null;
   clearLists();
+  if (page.kind === "notifications") { generation++; unmountAll(); clearNotifications(); render(); observePage(render); return; }
+  clearNotifications();
   if (!page.repo) { generation++; unmountAll(); return; }
   render();
   observePage(render);
@@ -134,19 +142,20 @@ export function start() {
       const was = phase;
       phase = s.phase;
       prefill = s.prefill === true;
-      if (s.phase === "online" && was !== "online") { listsStale(); void load(); }
-      if (!s.home || s.phase === "revoked" || s.phase === "signed-out") { context = null; byRepo.clear(); clearLists(); closeAgentView(); unmountAll(); }
+      if (s.phase === "online" && was !== "online") { listsStale(); notificationsStale(); if (page.kind === "notifications") render(); else void load(); }
+      if (!s.home || s.phase === "revoked" || s.phase === "signed-out") { context = null; byRepo.clear(); clearLists(); clearNotifications(); closeAgentView(); unmountAll(); }
     },
     event: (e) => {
       const urls = (e.payload as { urls?: string[] | "*" } | null)?.urls;
       // Rows are not cached by the worker: any change of Home's records asks again.
       listsStale();
-      if (page.kind === "pulls" || page.kind === "issues") render();
+      notificationsStale();
+      if (page.kind === "pulls" || page.kind === "issues" || page.kind === "notifications") render();
       const here = new URL(page.url);
       here.hash = "";
       if (urls === "*" || (Array.isArray(urls) && urls.includes(here.toString()))) void load();
     },
-    resync: () => { listsStale(); void load(true); },
+    resync: () => { listsStale(); notificationsStale(); if (page.kind === "notifications") render(); else void load(true); },
   });
   navigated();
   whileLoading();

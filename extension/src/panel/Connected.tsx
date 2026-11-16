@@ -1,6 +1,6 @@
-// Connected: the header (workspace, Today's count, Settings) and three tabs: Chat (a bot about the current page, on any
-// site), This item (on a GitHub pull request or issue: what Launchpad has about it) and Agents (the workspace's agents).
-// Everything heavy opens in Launchpad.
+// Connected: the header (workspace, Today's count, Settings) and four tabs: Chat (a bot about the current page, on any
+// site), This item (on a GitHub pull request or issue: what Launchpad has about it), Today (the agents' unread notes and
+// the workspace's Today items) and Agents (the workspace's agents). Everything heavy opens in Launchpad.
 
 import { useEffect, useState } from "react";
 import type { ConnectionState } from "../shared/messages";
@@ -10,10 +10,12 @@ import { pageOf } from "../content/github/page";
 import { Agents } from "./Agents";
 import { Chat } from "./Chat";
 import { ITEM_KINDS, Item } from "./Item";
+import { Today } from "./Today";
 import type { Screen } from "./main";
 import { useActiveTab } from "./tab";
 
-export function Header({ state, open }: { state: ConnectionState; open: (s: Screen) => void }) {
+/** `showToday`: the amber count opens the Today tab. */
+export function Header({ state, open, showToday }: { state: ConnectionState; open: (s: Screen) => void; showToday: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const choose = (id: string) => {
     setError(null);
@@ -24,7 +26,7 @@ export function Header({ state, open }: { state: ConnectionState; open: (s: Scre
     <header className="x-top">
       <img className="x-logo" src={chrome.runtime.getURL("icons/48.png")} alt="" />
       <span className="x-title">Launchpad</span>
-      {today !== null && today > 0 && <button className="x-count x-today" title={`Today: ${today} waiting for you. Open Today in Launchpad`} onClick={() => void request("open", { path: `/?ws=${encodeURIComponent(state.workspace ?? "")}` })}>{today}</button>}
+      {today !== null && today > 0 && <button className="x-count x-today" title={`Today: ${today} waiting for you`} onClick={showToday}>{today}</button>}
       {state.workspaces.length > 0 && <select className="x-ws" aria-label="Workspace" title="The extension's workspace: its Today count shows on the toolbar button" value={state.workspace ?? ""} onChange={(e) => choose(e.target.value)}>
         {state.workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
       </select>}
@@ -34,7 +36,7 @@ export function Header({ state, open }: { state: ConnectionState; open: (s: Scre
   </>;
 }
 
-type Tab = "chat" | "item" | "agents";
+type Tab = "chat" | "item" | "today" | "agents";
 
 export function Connected({ state, open }: { state: ConnectionState; open: (s: Screen) => void }) {
   const tab = useActiveTab();
@@ -47,9 +49,9 @@ export function Connected({ state, open }: { state: ConnectionState; open: (s: S
   // Leaving a GitHub item goes back to the chat.
   useEffect(() => { if (!onItem) setView((v) => (v === "item" ? "chat" : v)); }, [onItem]);
 
-  const tabs: [Tab, string][] = [["chat", "Chat"], ...(onItem ? [["item", "This item"] as [Tab, string]] : []), ["agents", "Agents"]];
+  const tabs: [Tab, string][] = [["chat", "Chat"], ...(onItem ? [["item", "This item"] as [Tab, string]] : []), ["today", "Today"], ["agents", "Agents"]];
   return <div className="x-app">
-    <Header state={state} open={open} />
+    <Header state={state} open={open} showToday={() => setView("today")} />
     {state.phase === "starting" && <div className="x-banner x-off" style={{ margin: "0 12px 6px" }}><span className="x-spin" /><span>Home is starting…</span></div>}
     {state.phase === "offline" && <div className="x-banner x-warn" style={{ margin: "0 12px 6px" }}><Icon name="warn" size={14} /><span>Home does not answer. Trying again…</span></div>}
     {state.phase === "connecting" && <div className="x-banner x-off" style={{ margin: "0 12px 6px" }}><span className="x-spin" /><span>Connecting…</span></div>}
@@ -58,6 +60,7 @@ export function Connected({ state, open }: { state: ConnectionState; open: (s: S
     </nav>
     {view === "item" && onItem && tab && page
       ? <Item state={state} tab={tab} page={page} chatWith={(id, t) => { setBot(id); setThread(t ?? null); setView("chat"); }} />
+      : view === "today" ? <Today state={state} tab={tab} />
       : view === "agents" ? <Agents state={state} />
       : <Chat state={state} tab={tab} botId={bot} setBotId={setBot} threadId={thread} setThreadId={setThread} />}
   </div>;

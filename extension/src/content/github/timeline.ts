@@ -33,6 +33,11 @@ const errors = new Map<string, string>();
 const drafts = new Map<string, string>();
 let sent: { url: string; text: string; error: boolean } | null = null;
 
+/** Notes that were unread when this tab showed them: they keep a New tag while the tab stays on the page. */
+const fresh = new Set<string>();
+/** The pending `note.read` of the page (its item and unread notes), and its timer. */
+let reading: { key: string; timer: ReturnType<typeof setInterval> } | null = null;
+
 const WAITING = ["draft", "inserted", "posting", "uncertain"];
 const ago = (at: number) => { const e = elapsed(at); return e === "now" ? "now" : `${e} ago`; };
 const fail = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -67,8 +72,33 @@ function placeEntries(items: (number | null)[], at: number[]): { before: number;
   return groups;
 }
 
+/** The agents' unread notes of the page count as read once the page was visible in a focused window for 1.5 s (the
+ * same rule as Launchpad's seen sessions): `note.read`, so lists, notifications and the panel stop flagging them. */
+function readSoon(page: ItemPage, ctx: ExtContext, ws: string | null) {
+  const unread = ctx.notes.filter((n) => n.unread);
+  for (const n of unread) fresh.add(n.id);
+  if (!unread.length || !ws) return;
+  const key = `${page.repo}#${page.number} ${unread.map((n) => n.id).join(",")}`;
+  if (reading?.key === key) return;
+  stopReading();
+  let shown = 0;
+  const timer = setInterval(() => {
+    shown = document.visibilityState === "visible" && document.hasFocus() ? shown + 500 : 0;
+    if (shown < 1500) return;
+    stopReading();
+    void request("note.read", { repo: page.repo, number: page.number, workspace: ws }).catch((e) => console.warn("Launchpad: note.read", e));
+  }, 500);
+  reading = { key, timer };
+}
+
+function stopReading() {
+  if (reading) clearInterval(reading.timer);
+  reading = null;
+}
+
 export function renderTimeline(page: ItemPage, ctx: ExtContext | null, refresh: () => void) {
   const ws = ctx ? ctx.folder?.workspace_id ?? ctx.workspace?.id ?? null : null;
+  if (ctx) readSoon(page, ctx, ws); else stopReading();
   const form = findAnchor("comment-form", { repo: page.repo, number: page.number });
   const box = ctx && ws && form ? renderBox(page, ctx, ws, form.el, refresh) : (unmount(BOX), null);
   const entries = ctx ? entriesOf(ctx, page.number) : [];
@@ -91,7 +121,7 @@ export function renderTimeline(page: ItemPage, ctx: ExtContext | null, refresh: 
     for (const g of groups) {
       const id = `${PREFIX}${g.entries[0]!.key}`;
       ids.add(id);
-      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, editing.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key)])]);
+      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, fresh.has(e.key), e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, editing.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key)])]);
       const w = mount(id, key, g.anchor, g.place, "card");
       if (!w.fresh) continue;
       for (const e of g.entries) w.root.append(entry(w.root, page, ctx, ws, e, refresh));
@@ -101,6 +131,8 @@ export function renderTimeline(page: ItemPage, ctx: ExtContext | null, refresh: 
 }
 
 export function clearTimeline() {
+  stopReading();
+  fresh.clear();
   unmount(BOX);
   for (const el of document.querySelectorAll<HTMLElement>(`[data-launchpad^="${PREFIX}"]`)) el.remove();
 }
@@ -113,6 +145,7 @@ function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | n
   const author = n ? n.author : e.suggestion!.author;
   const what = n ? "private note" : "suggests a comment";
   const head = h("div", { class: "lp-tl-head" }, h("span", { class: "lp-grow" }, h("strong", { text: author }), h("span", { class: "lp-muted", text: ` · ${what} · ${ago(e.at)}` })));
+  if (n && fresh.has(n.id)) head.append(h("span", { class: "lp-new", text: "New", title: "You had not read this note yet" }));
   if (n?.reply_to) {
     const to = ctx.notes.find((x) => x.id === n.reply_to);
     if (to) head.append(h("span", { class: "lp-tag", text: `answers ${to.by_owner ? "your note" : to.author}` }));

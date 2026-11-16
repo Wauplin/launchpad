@@ -9,7 +9,10 @@ import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { FileAttachment } from "@/gen/FileAttachment";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { Project } from "@/gen/Project";
+import type { ExtUnreadNotes } from "@/gen/ExtUnreadNotes";
 import type { Session } from "@/gen/Session";
+import type { Today } from "@/gen/Today";
+import type { TodayItem } from "@/gen/TodayItem";
 import type { SessionEventPage } from "@/gen/SessionEventPage";
 import { QUOTE_TOPIC, RequestError, type BotList, type LaunchWhenDone, type LedgerAction, type NoteWriteResult, type ProfileBrief, type Quote } from "../shared/messages";
 import { current, homeJson } from "./home";
@@ -134,6 +137,30 @@ export async function stop(a: { id: string }) {
 
 export async function deleteNote(a: { id: string }) {
   await homeJson(`/api/notes/${id(a.id, "note")}`, { method: "DELETE" });
+}
+
+/** `note.read`: the agents' notes of one item (its page showed them), or every note of the workspace (Mark all read),
+ * in the page's workspace, else the extension's. */
+export async function readNotes(a: { repo?: string | null; number?: number | null; workspace?: string | null }): Promise<{ marked: number }> {
+  const ws = a.workspace ? id(a.workspace, "workspace") : workspace();
+  if (!current().workspaces.some((w) => w.id === ws)) throw new RequestError("Not a workspace of this Home");
+  if (a.repo == null && a.number == null) return homeJson<{ marked: number }>("/api/notes/read", { method: "POST", body: { workspace: ws } });
+  if (typeof a.repo !== "string" || !REPO.test(a.repo)) throw new RequestError("Not a repository");
+  const number = Number(a.number);
+  if (!Number.isInteger(number) || number < 1) throw new RequestError("Not an issue or pull request");
+  return homeJson<{ marked: number }>("/api/notes/read", { method: "POST", body: { workspace: ws, repo: a.repo, number } });
+}
+
+/** The items with unread notes of the workspace's agents (`GET /api/ext/notes/unread`), newest first. */
+export function unreadNotes(): Promise<ExtUnreadNotes[]> {
+  return homeJson<ExtUnreadNotes[]>(`/api/ext/notes/unread?workspace=${encodeURIComponent(workspace())}`);
+}
+
+/** Today's items of the extension's workspace (shared ones count in every workspace, like the web app's `inWorkspace`). */
+export async function todayItems(): Promise<TodayItem[]> {
+  const ws = workspace();
+  const today = await homeJson<Today>("/api/today");
+  return today.items.filter((i) => !i.workspaces.length || i.workspaces.includes(ws));
 }
 
 /** The owner's private note (`note.write`) in a workspace of this Home (the page's, else the extension's). */

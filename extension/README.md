@@ -85,15 +85,26 @@ The extension follows the workspace of the repository you look at: when a folder
 
 - **Badge** next to the repository name: **In Launchpad · Work / folder**, **Your fork of …**, **Fork of … in Launchpad**, or **Not in Launchpad**. Its menu opens the folder or its Files in Launchpad.
 - A repository with no folder offers **Add to Launchpad** (Clone from GitHub into a workspace you pick) and **Ask without cloning** (a bot answers with the repository as context, without a clone).
-- **Strip** on the Code page: the folder's suggestions waiting for you, Local PRs to publish, branches that GitHub does not have yet, and **Launch** (ask a bot with the repository as context).
-- **+N local** after the Pull requests tab: the folder's open Local PRs.
+- **Strip** on the Code page: agents working, the folder's suggestions waiting for you, Local PRs to publish, branches that GitHub does not have yet, and **Launch** (ask a bot with the repository as context). Click **N suggestions to post** to unfold them: each shows its item, its kind, its author and the start of its text, with **Open item** (a comment waits in the item's timeline with **Post this comment**) or **Open in Launchpad** (a review is posted from its card). Click **N Local PRs to publish** to unfold the Local PRs, each with **Publish…** and its details (see below).
+- The extension adds nothing to GitHub's tab bar: an extra element there makes GitHub fold every tab into its **More** menu.
 
 ### Pull requests and Issues lists
 
-- **Local PRs** section above GitHub's pull requests: the Local PRs of the folder that are not on GitHub yet, with **Publish…** (the same options and confirmation as in Launchpad, naming the reviewed commit) and links to review, merge or discard them in Launchpad.
-- One chip per row, by priority: needs you, working, a bot's report (such as “merged”), commits to push, Not in Launchpad.
+- **Local PRs** section above GitHub's pull requests: the Local PRs of the folder that are not on GitHub yet, with **Publish…** (the same options and confirmation as in Launchpad, naming the reviewed commit) and links to review, merge or discard them in Launchpad. Click a Local PR's title to unfold its details without leaving GitHub: the reviewed commit, the number of files, lines and commits, whether its base moved, its description, its commits and its files with their added and removed lines.
+- One chip per row, by priority: needs you, working, a bot's report (such as “merged”), commits to push.
+- A notes tag when your agents wrote private notes about the item: a teal **2 new notes** while one is unread, a quiet **2 notes** once you read them. A click opens the item.
 - On hover, a row offers **Review with agent** (pull requests) or **Ask** (issues). The popover has the bot, an optional preset and a note. Review with agent remembers its bot and preset per repository.
 - When you select rows with GitHub's checkboxes, a bar offers one agent for all of them.
+
+### Notifications
+
+On github.com/notifications, each row keeps GitHub's height: the marks sit at the end of its repository line (“owner/repo #123”).
+
+- The row's chip, as on the lists (an agent asks you, works or finished, a review or reply ready, a bot's report).
+- The notes tag: a teal **N new notes** while your agents' private notes about the item are unread (you have not opened its page since), a quiet **N notes** once you read them.
+- On hover, **Review with agent** (pull requests) or **Ask** (issues): pick the bot and write your message (a review request, a question…), and the bot starts on the item. **⋯** has **Ask a bot…**, **Draft a reply…** and, for a repository not in Launchpad, **Add to Launchpad**.
+
+The extension only reads the list to find each row's item. It never marks, archives or clicks anything there.
 
 ### Pull request and issue conversation
 
@@ -107,6 +118,8 @@ The extension follows the workspace of the repository you look at: when a folder
 ### Private notes
 
 Private notes are a private timeline of an issue or pull request, shown inside GitHub's own timeline at the moment they were written, like comments from a Launchpad agent. Only you and your agents see them; they are never posted. Agents add a note when something changed (`launchpad note`), and a note may carry a suggested comment. A suggested comment shows as its own highlighted section at the bottom of its note, rendered like a GitHub comment, with **Post this comment** (one click: Launchpad posts it as you, with the attribution line), **Edit**, **Insert into comment box** and **Discard**, so GitHub's own comment box stays yours. Long notes fold; **Show work** opens the agent's work on the page (see below); **⋯** opens the agent in Launchpad or deletes the note.
+
+A note you have not read yet has a **New** tag. Opening the item's page counts as reading its notes once the page was visible in a focused window for 1.5 s: lists, notifications and the panel then stop flagging them.
 
 Above GitHub's comment box, **Private note to your agents** stores your own note in Launchpad and sends it to every agent that wrote about the item (else to its default bot); they answer with a note when they have something useful. The panel's **This item** lists the same timeline and has the same box.
 
@@ -142,10 +155,11 @@ Home pushes only to the pull request's own repository, your own fork, or a fork 
 
 ## Side panel
 
-The side panel has a header with the workspace picker and Settings, then three tabs.
+The side panel has a header with Today's count, the workspace picker and Settings, then up to four tabs. Click the amber count to open the **Today** tab.
 
 - **Chat**: talk to a bot of the workspace about the page or anything else. The workspace's Ask bot comes first; pick another one above the box. The **This tab** chip attaches the page: when you send, the extension reads the page once (readable text, URL and your selection) and attaches it as `page.md`. Remove the chip to send without it. Starters: **Summarize this page**, **Explain my selection**, **Find…**. The chat is one of the bot's threads in Launchpad (Main by default); pick another thread above the box, or **New conversation** to start a new thread with your next message. While the bot works, the chat shows its step with **Stop**; a question shows with **Answer in Launchpad**.
 - **This item** (on GitHub pull requests and issues): the bot's thread for this item and its state, with **Continue** to open it in Chat, the item's private timeline with the **Add private note** box, and the same facts and buttons as the page's box: agents with **Stop**, suggestions with **Insert**, **Show on Files changed** and **Review in Launchpad**, Local PRs, and the branch with **Push to this PR…** (a confirm step in the panel). Use it when a mark does not show on the page.
+- **Today**: first **Unread notes**, the items your agents wrote private notes about that you have not read yet (item, how many, who and the start of the newest note). Click one to open the item on GitHub (in the current tab when it shows GitHub); the check mark marks it read, and **Mark all read** marks every note of the workspace. Then the workspace's Today, grouped like Launchpad's Today page (To answer, To review, To approve, To send, GitHub, To fix). Click a card to open it in Launchpad, where you decide; the GitHub mark opens its item on GitHub.
 - **Agents**: the workspace's agents of the last day, grouped as Needs you, Running and Earlier today.
 - **Settings**: the connection and Hugging Face account, the OAuth client ID, **Prefill suggested comments** (off by default), text size (100–150%), **GitHub anchors** (“3 of 4 work”, naming the places the extension could not find on GitHub's pages) and **Disconnect**.
 

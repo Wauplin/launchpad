@@ -2,6 +2,7 @@
 import type { ExtAgent } from "./ExtAgent";
 import type { ExtBranch } from "./ExtBranch";
 import type { ExtLocalPr } from "./ExtLocalPr";
+import type { ExtNoteCount } from "./ExtNoteCount";
 import type { ExtReport } from "./ExtReport";
 import type { ExtSuggestion } from "./ExtSuggestion";
 
@@ -24,4 +25,8 @@ report: ExtReport | null,
 /**
  * Its pull request's Launchpad branch has commits GitHub does not have yet.
  */
-push: ExtBranch | null, };
+push: ExtBranch | null, 
+/**
+ * The agents' private notes about it in this workspace (the owner's own left out), and how many are unread.
+ */
+notes: ExtNoteCount, };

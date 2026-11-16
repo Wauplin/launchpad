@@ -24,4 +24,9 @@ suggestion_id: string | null,
 /**
  * The note it answers (`--reply-to-note`).
  */
-reply_to: string | null, };
+reply_to: string | null, 
+/**
+ * When the owner saw it (`note.read`: its item's page shown, or Mark read in the extension's panel); None:
+ * unread. The owner's own notes are seen when written.
+ */
+seen_at: number | null, };

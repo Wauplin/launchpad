@@ -22,6 +22,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/suggestions/{id}/dismiss-comment", post(dismiss_comment))
         .route("/api/notes", get(notes).post(write_note))
         .route("/api/notes/owner", post(write_owner_note))
+        .route("/api/notes/read", post(read_notes))
         .route("/api/notes/{id}", axum::routing::delete(delete_note))
 }
 #[derive(serde::Deserialize)]
@@ -74,6 +75,11 @@ async fn write_owner_note(State(s): State<Ctx>, Json(q): Json<launchpad_github::
         sent.push(json!({"recipient": r, "error": error}));
     }
     Ok(Json(json!({"note": note, "sent": sent})))
+}
+/// `note.read`: the owner saw the agents' notes of an item, or marks every note of the workspace read.
+async fn read_notes(State(s): State<Ctx>, Json(q): Json<launchpad_github::notes::Read>) -> ApiResult<Value> {
+    let marked = launchpad_github::notes::mark_read(&s.app, &q).await.map_err(|e| crate::ApiError::bad_request(format!("{e:#}")))?;
+    Ok(Json(json!({"marked": marked})))
 }
 /// `note.delete`: the owner's.
 async fn delete_note(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {

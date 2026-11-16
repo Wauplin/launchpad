@@ -1,11 +1,12 @@
 //! The Chrome extension's routes on Home (`launchpad_github::ext`): `GET /api/ext/context?url=&workspace=`,
-//! `GET /api/ext/rows?url=&items=&workspace=` (items: comma-separated numbers or `owner/repo#number`) and the
+//! `GET /api/ext/rows?url=&items=&workspace=` (items: comma-separated numbers or `owner/repo#number`),
+//! `GET /api/ext/notes/unread?workspace=` (items with unread private notes of the workspace's agents) and the
 //! owner's action `github.review-choice`. Reads come from Launchpad's own records only.
 //! Runners forward `/api/ext/*` to Home; agents never reach them (`agent_auth`).
 use axum::extract::{Query, State};
 use axum::routing::{get, put};
 use axum::{Json, Router};
-use launchpad_github::ext::{self, ExtContext, ExtReviewChoice, ExtRows};
+use launchpad_github::ext::{self, ExtContext, ExtReviewChoice, ExtRows, ExtUnreadNotes};
 use serde::Deserialize;
 
 use crate::Ctx;
@@ -15,6 +16,7 @@ pub fn router() -> Router<Ctx> {
     Router::new()
         .route("/api/ext/context", get(context))
         .route("/api/ext/rows", get(rows))
+        .route("/api/ext/notes/unread", get(unread_notes))
         .route("/api/ext/review-choice", put(review_choice))
 }
 
@@ -52,6 +54,16 @@ async fn rows(State(s): State<Ctx>, Query(q): Query<Q>) -> ApiResult<ExtRows> {
     github_url(&q.url)?;
     let items: Vec<String> = q.items.split(',').map(str::trim).filter(|i| item_ok(i)).map(str::to_string).collect();
     Ok(Json(ext::rows(&s.app, &q.url, &items, q.workspace.as_deref()).await?))
+}
+
+#[derive(Deserialize)]
+struct Ws {
+    workspace: String,
+}
+
+/// The items with unread notes of the workspace's agents (the panel's Unread notes).
+async fn unread_notes(State(s): State<Ctx>, Query(q): Query<Ws>) -> ApiResult<Vec<ExtUnreadNotes>> {
+    Ok(Json(ext::unread_notes(&s.app, &q.workspace).await?))
 }
 
 #[derive(Deserialize)]

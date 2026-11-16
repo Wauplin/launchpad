@@ -1,7 +1,8 @@
-// Row states of list pages (Pull requests, Issues): one `rows` request for the visible rows, refetched when the set of
-// rows changes or Home's records change (`ext.context`), and the row chip: at most one per row, by priority: needs you
-// (amber) › working (blue) › a bot's report (green) › commits to push. A row's
-// hover action shows only while the pointer is on the row (or it has focus); it never replaces GitHub's controls.
+// Row states of list pages (Pull requests, Issues, Notifications): one `rows` request for the visible rows, refetched
+// when the set of rows changes or Home's records change (`ext.context`), and the row chip: at most one per row, by
+// priority: needs you (amber) › working (blue) › a bot's report (green) › commits to push. Next to it, the notes tag
+// when agents wrote private notes about the item: teal "2 new notes" while one is unread, quiet "2 notes" after. A
+// row's hover action shows only while the pointer is on the row (or it has focus); it never replaces GitHub's controls.
 
 import type { ExtRow } from "@/gen/ExtRow";
 import type { ExtRows } from "@/gen/ExtRows";
@@ -38,6 +39,20 @@ export function chipOf(row: ExtRow, ws: string | null): Chip | null {
 export function chipButton(c: Chip) {
   const b = h("button", { class: `lp-tag lp-${c.tone}`, title: c.title, attrs: { type: "button" } }, h("span", { text: c.text }));
   b.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); c.go(); });
+  return b;
+}
+
+/** The notes tag of a row (null: no agent wrote a note about it); a click opens the item, where the notes are. */
+export function notesTag(row: ExtRow, url: string): HTMLButtonElement | null {
+  const n = row.notes;
+  if (!n.total) return null;
+  const plural = (k: number) => (k === 1 ? "" : "s");
+  const text = n.unread ? `${n.unread} new note${plural(n.unread)}` : `${n.total} note${plural(n.total)}`;
+  const title = n.unread
+    ? `${n.author ?? "An agent"}${n.total > 1 ? " and others" : ""} wrote private notes you have not read yet. Open the item to read them.`
+    : `${n.total} private note${plural(n.total)} of your agents about this item (read). Open the item to see them.`;
+  const b = h("button", { class: `lp-tag lp-notes${n.unread ? " lp-unread" : ""}`, title, attrs: { type: "button" } }, h("span", { text }));
+  b.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); location.assign(url); });
   return b;
 }
 

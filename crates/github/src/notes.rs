@@ -34,6 +34,18 @@ pub struct ItemNote {
     /// The note it answers (`--reply-to-note`).
     #[serde(default)]
     pub reply_to: Option<String>,
+    /// When the owner saw it (`note.read`: its item's page shown, or Mark read in the extension's panel); None:
+    /// unread. The owner's own notes are seen when written.
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub seen_at: Option<i64>,
+}
+
+impl ItemNote {
+    /// An agent's note the owner has not seen yet.
+    pub fn unread(&self) -> bool {
+        !self.by_owner && self.seen_at.is_none()
+    }
 }
 
 #[derive(Deserialize)]
@@ -149,6 +161,7 @@ pub async fn write(app: &App, q: Write) -> Result<ItemNote> {
         created_at: launchpad_core::util::now_ms(),
         suggestion_id,
         reply_to,
+        seen_at: None,
     };
     save(app, &note).await?;
     if let Err(e) = launchpad_core::ref_use::link(app, &q.session_id, &q.repo, q.number, None).await {
@@ -177,9 +190,69 @@ pub async fn write_owner(app: &App, q: &OwnerWrite) -> Result<ItemNote> {
         created_at: launchpad_core::util::now_ms(),
         suggestion_id: None,
         reply_to,
+        seen_at: Some(launchpad_core::util::now_ms()),
     };
     save(app, &note).await?;
     Ok(note)
+}
+
+/// Every note of every item (old rows of another shape are left out). The table stays small: one row per note.
+pub async fn all(app: &App) -> Result<Vec<ItemNote>> {
+    app.state_db
+        .call(|c| {
+            let mut q = c.prepare("SELECT json FROM item_note")?;
+            let rows = q.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows.iter().filter_map(|j| serde_json::from_str(j).ok()).collect())
+        })
+        .await
+}
+
+/// What `note.read` marks: the notes of one item, or every note of the workspace.
+#[derive(Deserialize)]
+pub struct Read {
+    pub workspace: String,
+    #[serde(default)]
+    pub repo: Option<String>,
+    #[serde(default)]
+    pub number: Option<u64>,
+}
+
+/// `note.read`: the owner saw the agents' notes of an item (its page showed them), or Mark all read. Returns how many
+/// notes it marked; nothing changes (and no event) when none was unread.
+pub async fn mark_read(app: &App, q: &Read) -> Result<usize> {
+    let notes = match (&q.repo, q.number) {
+        (Some(repo), Some(n)) => {
+            crate::items::validate(repo)?;
+            of_item(app, repo, n).await?
+        }
+        (None, None) => all(app).await?,
+        _ => anyhow::bail!("give both repo and number, or neither"),
+    };
+    let now = launchpad_core::util::now_ms();
+    let marked: Vec<(String, String)> = notes
+        .into_iter()
+        .filter(|n| n.unread() && n.workspace_id.as_deref() == Some(q.workspace.as_str()))
+        .filter_map(|mut n| {
+            n.seen_at = Some(now);
+            serde_json::to_string(&n).ok().map(|j| (n.id, j))
+        })
+        .collect();
+    let count = marked.len();
+    if count == 0 {
+        return Ok(0);
+    }
+    app.state_db
+        .call(move |c| {
+            let tx = c.transaction()?;
+            for (id, json) in &marked {
+                tx.execute("UPDATE item_note SET json=?2 WHERE id=?1", rusqlite::params![id, json])?;
+            }
+            tx.commit()?;
+            Ok(())
+        })
+        .await?;
+    app.bus.publish("notes", "changed", json!({"repo": q.repo, "number": q.number, "read": count}));
+    Ok(count)
 }
 
 /// The owner deletes a note.

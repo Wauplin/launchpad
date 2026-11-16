@@ -3,7 +3,7 @@
 // with its own route and checks (there is no generic Home call), never its credentials or device routes.
 
 import { PAGE_ONLY, RequestError, type Answer, type Args, type Kind, type Message, type Result } from "../shared/messages";
-import { botMessage, bots, botThreads, deleteNote, discardSuggestion, editSuggestion, events, launch, ledger, postSuggestion, profiles, sessions, stop, takeQuote, writeNote } from "./agents";
+import { botMessage, bots, botThreads, deleteNote, discardSuggestion, editSuggestion, events, launch, ledger, postSuggestion, profiles, readNotes, sessions, stop, takeQuote, todayItems, unreadNotes, writeNote } from "./agents";
 import { clone, localPr, publish, pushToPr, reviewChoice } from "./lists";
 import { anchorHealth, follow, pageContext, pageRows, peekContext, reportAnchors } from "./context";
 import { startEvents, stopEvents } from "./events";
@@ -67,6 +67,9 @@ const handlers: { [K in Kind]: Handler<K> } = {
   "session.stop": (args) => stop(args),
   "note.delete": (args) => deleteNote(args),
   "note.write": (args) => writeNote(args),
+  "note.read": (args) => readNotes(args),
+  "notes.unread": () => unreadNotes(),
+  today: () => todayItems(),
   "suggestion.post": (args) => postSuggestion(args),
   "suggestion.edit": (args) => editSuggestion(args),
   "suggestion.discard": (args) => discardSuggestion(args),
