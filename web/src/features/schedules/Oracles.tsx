@@ -12,6 +12,7 @@ import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
 import { Badge, Choice, Choices, ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, Loading, MenuSection, MoreMenu, PageHeader, RowActions, StatusBadge, Tabs, Token } from "@/components/ui";
 import { PatchView } from "@/components/diff/DiffReview";
 import { highlight, type Tokens } from "@/features/code/highlight";
+import { MAX_HIGHLIGHT_LINE } from "@/features/code/limits";
 import type { Change } from "@/gen/Change";
 import type { Gate } from "@/gen/Gate";
 import type { Oracle } from "@/gen/Oracle";
@@ -225,7 +226,8 @@ function AccessNotice({ change, users }: { change: { added: string[]; removed: s
 }
 
 /** A text area for the oracle's file, as tall as its text up to a limit, with Python colors drawn behind its
- * transparent text. While a new reply is on its way, lines the last colors do not match show plain. */
+ * transparent text. While a new reply is on its way, lines the last colors do not match show plain. Lines too long to
+ * color (a pasted data blob) go to the highlighter empty, so they stay plain and the rest of the file keeps its colors. */
 function CodeArea({ value, onChange, label }: { value: string; onChange: (t: string) => void; label: string }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const under = useRef<HTMLPreElement>(null);
@@ -234,7 +236,8 @@ function CodeArea({ value, onChange, label }: { value: string; onChange: (t: str
   useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight + 2, 720)}px`; }, [value]);
   useEffect(() => {
     let active = true;
-    const timer = setTimeout(() => void highlight("oracle", value, "python", theme).then((t) => { if (active && t) setTokens(t); }), 150);
+    const colorable = value.split("\n").map((l) => l.length > MAX_HIGHLIGHT_LINE ? "" : l).join("\n");
+    const timer = setTimeout(() => void highlight("oracle", colorable, "python", theme).then((t) => { if (active && t) setTokens(t); }), 150);
     return () => { active = false; clearTimeout(timer); };
   }, [value, theme]);
   const lines = useMemo(() => value.split("\n").map((line, i) => {
