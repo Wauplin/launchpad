@@ -39,7 +39,7 @@ A runner is a Linux machine (Linux 5.9 or newer) that runs agents in a bubblewra
 
 On a Mac, create a Linux VM runner with `packaging/local-vm.sh <Home address>` (Multipass). Home refuses runners on other systems.
 
-A runner's own window (its address on that machine) shows only its status: the link to Home, **Takes new sessions**, an update notice when its build differs from Home's, and its checklist. The checklist checks the link to Home, the jail, the network capture, the agent CLIs, the agent logins in Home's vault and the Git identity of agents. A missing part shows a command: copy it, run it in a terminal on that machine, then click **Check again**. Launchpad never runs these commands itself. Launch, review and change settings on Home.
+A runner's own window (its address on that machine) shows only its status: the link to Home, **Takes new sessions**, an update notice when its build differs from Home's, and its checklist. The checklist checks the link to Home, the jail, the network capture, the agent CLIs, `uv` (recommended, for oracle tests), the agent logins in Home's vault and the Git identity of agents. A missing part shows a command: copy it, run it in a terminal on that machine, then click **Check again**. Launchpad never runs these commands itself. Launch, review and change settings on Home.
 
 ## First run
 

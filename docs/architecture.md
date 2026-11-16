@@ -145,6 +145,12 @@ A launch with direct traces also groups its sources (`topics::group`, Home, befo
 
 Scoped agent reads use Home’s `/api/context/topics` through `launchpad topics list|show`. They expose source indexes and cutoff trace commands only in the caller’s workspace; owner topic routes remain closed to agents. The shared UI offers expandable source previews, topic Launch and a Summarize prompt that asks an agent to read the traces and cite its sources.
 
+## Oracles
+
+An oracle (`crates/automation`) is a Python file of a workspace that answers True, False or Failed; see [Oracles](oracles.md). `oracles.rs` parses and stores the files: only Home writes the store `oracles-<workspace>`, so every change has an author, a diff and Restore. `oracle_eval.rs` evaluates them on Home only: `uv run --with <bundled helper wheel> --script`, 16 slots, one flight per (workspace, file hash, params, cursor) that later callers join, reuse within `min_interval`, an environment built from scratch with the listed tools' real tokens, and the process group killed at the timeout. The helper (`crates/automation/oracle/launchpad_oracle/`, built into a wheel by `oracle_helper.rs`) ships inside the binary. With `launchpad = "read"`, each evaluation gets a token minted in Home's memory (`session_token::oracle_token`) that `agent_auth::authorize_oracle` limits to the GETs of a read-level session of that workspace, revoked when the evaluation ends. Every secret the evaluation held is redacted from its result before it is stored.
+
+Each evaluation records its callers and what each did with the answer. Cursors belong to consumers (`oracle_cursor`: `routine:<id>` or `cli:<workspace>:<oracle>:<name>`) and commit only when the consumer acts; `oracle_streak` keeps each oracle's failure streak. Gates (`gates.rs`) are an optional `[gate]` of routines with a schedule trigger: each due tick evaluates first, then `decide` (pure) picks a run or a quiet check (`RunOutcome::Checked`), and a run commits the cursor and the gate state in its claim transaction (`crons::start`). The routes (`crates/api/src/oracles.rs`, `/api/oracles/{workspace}…`) are Home-owned; the CLI is `crates/cli/src/oracle.rs`, whose `oracle test` runs a draft through the same `run_file` in the agent's jail.
+
 ## Storage
 
 | Store | Content | Lifetime |
@@ -158,6 +164,7 @@ Scoped agent reads use Home’s `/api/context/topics` through `launchpad topics 
 | Bots (`bots.rs`, `bot_memory.rs`) | `bot` rows on Home; `BOT.md`, `bot.toml` and `memory/` stored like a plain folder (store `bot-<id>`), with history; a read-only mirror on runners for open bot sessions; readable copies in the bucket | Home; changes restorable 30 days |
 | Ask Launchpad (`ask_bot.rs`) | a normal bot, created once per workspace; the Launchpad CLI tool, added once to the tool registry (`seeded` rows record both) | Home |
 | Librarian (`librarian.rs`) | a normal bot, created once per workspace (existing and new) with its paused `routines/weekly-tidy.toml`; a `seeded` row records it | Home |
+| Oracles (`oracles.rs`, `oracle_eval.rs`) | Files `oracles/<slug>.py` stored like a plain folder (store `oracles-<workspace>`, history with author); tables `oracle` (authors, paused), `oracle_eval`, `oracle_cursor` and `oracle_streak` in `state.db` | Home only; evaluations kept 30 days, at most 2,000 per oracle |
 | Vault (`vault.rs`) | Credentials (write-only), tools, leases, access log, in `state.db` | Home only |
 
 Posting a suggestion claims it before the GitHub write and records success before any merge or CI follow-up; follow-ups never retry. Local PR line notes store path, line and side separately from their text.
@@ -225,11 +232,13 @@ Every action that a button, a proposal card, the Launchpad CLI or the admin rule
 
 Actions that reach GitHub or other people, money, credentials or the machine are owner actions. They have a confirmation or an undo.
 
+Oracles follow the same list: `oracle.run` is a read at every level, `oracle.save`, `oracle.pause` and `oracle.resume` are admin (an agent's save never widens access), and `oracle.test`, `oracle.mark-read`, `oracle.restore` and `oracle.delete` are the owner's. An `oracle` card runs `oracle.save`; admin accepts it only when it adds no access.
+
 The front door records every successful direct admin action of a session (`crates/server/src/activity.rs`) in Home's activity list (`crates/automation/src/activity.rs`): the action, its body, the values before (read through the action's GET route) and the undo call (the undo action with the old values, or a delete of the created record). The bot chat shows each entry as a Changed line whose record name links to its page. Shared settings (`GET/PATCH /api/settings/shared`) are the part of `config.toml` that `settings.set` may change; every `config.toml` write goes through `ConfigHandle::update`, which reads, changes and saves under one lock.
 
 ## Decision list
 
-Home computes, once for every window, phone and count, what waits for the owner: the Today list (`crates/core/src/today.rs`). `today::compute` collects the core's items (sessions with `Session::needs_you()`, unpublished Local PRs, outdated runners) and the items of the feature crates through `ext::Extensions::today` (proposals and failed routines, Outbox drafts, GitHub suggestions, Home updates, agent CLI updates). Each item names its filter (Answer, Review, Approve, Send, GitHub, Fix), its record (plus `owner/repo#number` for GitHub items) and the main action of its row from the action list. The page shows one compact row per item (`web/src/features/today/TodayRows.tsx`); the bot chat shows the same items as cards (`TodayCards.tsx`). Handled items of the last 30 days form the Done list.
+Home computes, once for every window, phone and count, what waits for the owner: the Today list (`crates/core/src/today.rs`). `today::compute` collects the core's items (sessions with `Session::needs_you()`, unpublished Local PRs, outdated runners) and the items of the feature crates through `ext::Extensions::today` (proposals, failed routines and failing oracles, Outbox drafts, GitHub suggestions, Home updates, agent CLI updates). Each item names its filter (Answer, Review, Approve, Send, GitHub, Fix), its record (plus `owner/repo#number` for GitHub items) and the main action of its row from the action list. The page shows one compact row per item (`web/src/features/today/TodayRows.tsx`); the bot chat shows the same items as cards (`TodayCards.tsx`). Handled items of the last 30 days form the Done list.
 
 - **Workspaces**: Home resolves each item's place (folder, session, launch, repository) to workspaces with the same rules as the UI's `useScope()`. An item with no workspace is not listed, except what is shared: outdated runners, Home updates, tool or preset proposals without a workspace, Outbox messages without a session.
 - **API and event**: `GET /api/today` (`crates/api/src/today.rs`, optional `?workspace=`) is Home-owned; runners forward it. A background task recomputes the list after relevant bus events, at most every 1.5 s, and publishes `today`/`changed` when the waiting items changed. Session updates recompute only when the set of sessions that need you changed. - **Counts**: the sidebar, the workspace menu, the phone, the window title and the app badge read only this list.
@@ -242,7 +251,7 @@ crates/
 ├── harness/     launchpad-harness: the Claude Code, Codex and OpenCode adapters, and the ACP client
 ├── channels/    launchpad-channels: connections, the Outbox, Telegram, incoming hooks, bot channels and DMs
 ├── github/      launchpad-github: Suggestions and their ledger, the extension's context, private notes, item links
-├── automation/  launchpad-automation: routines (crons), scheduled launches, proposals
+├── automation/  launchpad-automation: routines (crons), scheduled launches, proposals, oracles and gates
 ├── setup/       launchpad-setup: setup checklist, clone from GitHub, onboarding progress
 ├── http/        launchpad-http: API error type, route state (Ctx), session CLI token checks
 ├── api/         launchpad-api: the JSON routes that need only the App

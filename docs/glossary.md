@@ -14,7 +14,11 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Thread | session chain | One conversation of a bot: a chain of sessions with its own context. A bot has a **Main** thread and one per GitHub item, channel, hook or agent that messages it, one per routine run and the ones you start with **New thread**. Several threads work at once, up to `max_threads`. In the Chrome extension, **New conversation** starts one. Not a GitHub review thread. |
 | Topic | tag, label, project group | A named collection of related agent sessions in one workspace, across folders. A session can belong to several topics; archiving keeps its membership. |
 | Routine | cron, cron agent, repeating agent | Work that starts on its own again and again: on a schedule, when another agent is done, when Launchpad fails or on a new channel message. A bot's routine is a file of the bot (`routines/<name>.toml`). "Cron" stays in the code (`crons.rs`, `/api/launch/crons`) and names only the schedule format. |
-| Schedules | Cron group, Scheduled group | The one page with Routines · Scheduled launches. |
+| Schedules | Cron group, Scheduled group | The one page with Routines · Scheduled launches · Oracles. |
+| Oracle | probe, sensor, watcher, condition script | A small Python file of a workspace (`oracles/<slug>.py`) that Home runs with `uv` to answer True, False or Failed, with evidence. Failed means it could not answer, never False. |
+| Gate | filter, guard, trigger condition | A routine's "Only when an oracle says": the oracle answers before each scheduled run, and the run starts only for the outcomes and fire policy the gate names. |
+| Check | skipped run, silent run, no-op | A tick of a gated routine that starts no run: no thread, session or quota, one grey line in the routine's history (consecutive checks collapse). Not **Skipped**, which means a run that should have started. |
+| Oracle condition | oracle wait | Planned, not available yet: an oracle as a start condition of a scheduled launch or of `launchpad sleep`. Today only routine gates use oracles. |
 | Knowledge | memory, notes, wiki | The knowledge base of a workspace: notes and media that are the memory agents share (bots also keep their own). The Librarian bot tends it. |
 | Home Git | Git server, mirror | Home's copy of every Git folder, with the Launchpad branches. Runners clone from it and push to it. |
 | Suggestion | agent draft, Agent draft banner, suggested comment | A comment or review written by an agent, posted with a click. |

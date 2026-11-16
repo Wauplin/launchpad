@@ -28,7 +28,7 @@ A runner's own window shows only its status:
 - **Home**: Home's address, with **Open Home**, and whether the runner is connected.
 - **Takes new sessions**: **Yes**, or **Paused**: Home starts no new session there, and its running sessions continue. Home shows the state next to the runner.
 - An update notice, with **Update**, when its build differs from Home's (see [Versions](#versions)).
-- **Setup**: the runner's checklist: the link to Home, the agent jail, the network capture, the agent CLIs, the agent logins in Home's vault and the Git identity of agents. A missing part shows a fixed command: copy it, run it in a terminal on that machine, then click **Check again**. Launchpad never runs these commands.
+- **Setup**: the runner's checklist: the link to Home, the agent jail, the network capture, the agent CLIs, `uv` (recommended: agents test [oracle](oracles.md) drafts with it), the agent logins in Home's vault and the Git identity of agents. A missing part shows a fixed command: copy it, run it in a terminal on that machine, then click **Check again**. Launchpad never runs these commands.
 
 Everything else (launches, sessions, settings) happens in Home's windows. A runner starts only the sessions Home sends it: its own window and the `launchpad` CLI of that machine cannot launch there, and that CLI cannot change Home's records through the runner either. On Burst and on a [Local VM](#local-vm), agents run as the runner's own user, so the runner keeps its sign-in token in memory only: there is no runner window sign-in (`launchpad url`) and no owner CLI there. Use Home's window. Agents' own CLI calls work as everywhere.
 
@@ -102,6 +102,8 @@ The composer's **Tools** option starts from these defaults for the chosen folder
 ## Notifications and routines
 
 Home sends notifications through the Telegram chat of each session's workspace, wherever the session runs: a runner forwards the notification of a session that finishes, fails or is interrupted to Home. There are no desktop notifications. Routines, scheduled launches and the morning brief run on Home's schedule, on a runner when one takes the run, otherwise on Burst ([Routines](bots.md#routines)).
+
+[Oracles](oracles.md) are the one kind of code Home runs itself: each evaluation is a short `uv run` of the oracle's Python file on Home, outside any jail, with the real tokens of the tools the oracle lists in its environment (no proxy and no placeholders) and at most 16 at once. That is why only you widen an oracle's access. Home needs `uv` on its PATH; the Space image includes it. Agents test drafts on their runner, in their own jail, with `launchpad oracle test`.
 
 ## Move a session
 
