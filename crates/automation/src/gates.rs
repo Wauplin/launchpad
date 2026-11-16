@@ -484,7 +484,20 @@ pub(crate) async fn tick(app: &App, record: CronAgent, gate: Gate) -> Result<()>
                 instructions: (e.outcome == Outcome::Failed).then(|| gate.failed.as_ref().map(|f| f.instructions.clone())).flatten(),
             };
             let cause = format!("Scheduled · {}: {}", e.oracle, outcome_word(Some(e.outcome)));
-            let started = crons::on_event_with(app, &record, cause, evidence(&title, &e, why), 1, Some(run)).await?;
+            let started = match crons::on_event_with(app, &record, cause, evidence(&title, &e, why), 1, Some(run)).await {
+                Ok(s) => s,
+                // The occurrence is claimed: say why nothing started (a routine without a harness, a bot gone…).
+                Err(err) => {
+                    let why = format!("{err:#}");
+                    let detail = format!("gate: the run could not start: {why}");
+                    let _ = crons::modify(app, &id, move |r| {
+                        crons::push_or_merge_failure(r, now, detail);
+                        Ok(())
+                    })
+                    .await;
+                    crons::Started::Failed(why)
+                }
+            };
             let (consequence, detail) = match started {
                 crons::Started::Run(s) => ("fired", Some(format!("run {s} · {why}"))),
                 crons::Started::Skipped(r) => ("skipped", Some(r)),
