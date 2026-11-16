@@ -561,6 +561,8 @@ fn tls_for(inner: &Inner, host: &str) -> Result<Arc<rustls::ServerConfig>> {
     let key = rcgen::KeyPair::generate()?;
     let mut params = rcgen::CertificateParams::new(vec![host.to_string()])?;
     params.distinguished_name.push(rcgen::DnType::CommonName, host);
+    // OpenSSL's strict verification (Python 3.13's default) refuses a leaf without an Authority Key Identifier.
+    params.use_authority_key_identifier_extension = true;
     params.not_before = rcgen::date_time_ymd(2024, 1, 1);
     params.not_after = rcgen::date_time_ymd(2044, 1, 1);
     let cert = params.signed_by(&key, &ca.issuer)?;

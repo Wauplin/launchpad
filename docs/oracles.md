@@ -169,7 +169,7 @@ An oracle's page shows its slug, who edited it last, its Python version and its 
 | --- | --- |
 | You | Everything: create, edit, test drafts, pause, mark read, restore and delete. Delete asks again when routines are gated on the oracle. |
 | Admin bots | Save oracles directly (`launchpad oracle save`), pause and resume. A save may add hosts, Launchpad read and the tools the bot's own session already holds. A version that adds any other tool is refused: it must be a card for you. The bot's chat shows each change as a receipt. |
-| Other agents | List, read, run and test drafts in their own jail, and propose an oracle with a card. |
+| Other agents | List, read, run, test drafts on Home (on the same terms as an admin save), and propose an oracle with a card. |
 
 An **oracle card** (`launchpad propose oracle`) holds the slug and the whole file. It shows the diff, the access it adds (amber) or removes, and **Apply**. An admin session may accept a card on the same terms: never one that adds a tool its session does not hold. Oracle cards never start on their own, even for a bot in auto mode.
 
@@ -183,11 +183,11 @@ Agents and you use `launchpad oracle`. The workspace is the session's, or `--wor
 | `launchpad oracle show <slug>` | One oracle with its file, parameters and access. |
 | `launchpad oracle history <slug> [--failed] [--limit 20]` | Its recent evaluations, with their callers. |
 | `launchpad oracle run <slug> [--param k=v]… [--cursor <name> \| --since <value>] [--max-age 2m] [--json]` | Runs it on Home. `--cursor` names your own cursor for this oracle, which moves only on True or False. `--since` runs once from a cursor value. `--max-age` accepts a fresh answer (never fresher than `min_interval`). |
-| `launchpad oracle test --file <path> [--param k=v]… [--cursor <value>] [--json]` | Runs a draft in the agent's own jail, never on Home, and records nothing (see below). |
+| `launchpad oracle test --file <path> [--slug <slug>] [--param k=v]… [--cursor <value>] [--json]` | Runs a draft on Home and records nothing (see below). |
 | `launchpad oracle save --file <path> [--slug <slug>]` | Admin: saves the file (the slug defaults to the file name). |
 | `launchpad oracle pause <slug>`, `launchpad oracle resume <slug>` | Admin. |
 | `launchpad propose oracle --title "…" --spec-file o.json` | Proposes an oracle card; the file holds `{"slug": "ci-red", "content": "<the whole file>"}`. |
 
 The exit code of `run` and `test` is the outcome: `0` True, `1` False, `2` Failed. Every CLI error exits `3`, so `1` and `2` always mean an answer.
 
-`oracle test` runs the draft with `uv run` on the agent's runner, with the session's own tools (through its proxy) and the same helper. It notes on stderr when a listed tool is not granted to the workspace (the oracle would fail on Home) and that Launchpad read access is not available in a local test (`ctx.launchpad` is `None`). The runner needs `uv`: its setup checklist recommends it, with the command that installs it.
+`oracle test` sends the draft to Home, which runs it like a saved oracle: real tokens in its environment, direct HTTPS calls, Launchpad read when it asks for it. Nothing runs in the agent's jail or through its runner's proxy. Since the draft's code holds real tokens, an agent's draft follows the terms of an admin save: hosts and Launchpad read are fine, and a tool only when the saved oracle of its slug (the file name by default) has it or the agent's own session holds it. A draft with any other tool is refused: test it without, or propose it. Your own Test on the oracle page has no such limit.

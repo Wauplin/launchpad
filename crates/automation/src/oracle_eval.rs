@@ -239,7 +239,7 @@ impl RunResult {
     }
 }
 
-// ---------------------------------------------------------------- one run (no App: Home and `oracle test`)
+// ---------------------------------------------------------------- one run (no App)
 
 /// Runs an oracle file once: `uv run --no-project --with <wheel> --script <file>` in `cwd`, with exactly `env`
 /// (it must hold PATH and HOME), the input on stdin, killed (process group) after `PREPARE_MS` without the
@@ -414,22 +414,6 @@ pub fn hosts_for(meta: &Meta, tools: &[launchpad_core::vault::Tool]) -> Vec<Stri
     }
     hosts.dedup();
     hosts
-}
-
-/// `launchpad oracle test` on a runner: runs a draft file with this process's helper wheel (written into
-/// `wheel_dir`), in a scratch folder, with `env` as given (the agent's own environment and tokens). Records
-/// nothing.
-pub async fn test_file(file: &Path, wheel_dir: &Path, params: Map<String, Value>, cursor: Option<Value>, hosts: Vec<String>, env: BTreeMap<String, String>) -> Result<RunResult> {
-    let content = std::fs::read_to_string(file).with_context(|| format!("read {}", file.display()))?;
-    let meta = oracles::parse(&content)?;
-    let params = oracles::validate_params(&meta.params, &params)?;
-    let wheel = crate::oracle_helper::write_wheel(wheel_dir)?;
-    let cwd = scratch()?;
-    let file = std::fs::canonicalize(file)?;
-    let input = Input { params: Value::Object(params), event: serde_json::json!({"kind": "test"}), cursor, now: now_ms(), hosts, timeout: meta.timeout_ms as f64 / 1000.0, launchpad: None };
-    let r = run_file(&file, &wheel, &cwd, &input, env).await;
-    let _ = std::fs::remove_dir_all(&cwd);
-    Ok(r)
 }
 
 fn scratch() -> Result<PathBuf> {

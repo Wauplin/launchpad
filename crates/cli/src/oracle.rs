@@ -1,10 +1,9 @@
-//! `launchpad oracle …`: the oracles of a workspace (`/api/oracles/{workspace}…` on Home), and `oracle test`, which
-//! runs a draft with `uv run` here, in the agent's own jail, never on Home and without records.
+//! `launchpad oracle …`: the oracles of a workspace (`/api/oracles/{workspace}…` on Home). `oracle test` sends a
+//! draft to Home, which runs it like a saved oracle, without records.
 //!
 //! `run` and `test` exit with the outcome: 0 True, 1 False, 2 Failed; any other code (3) is a CLI error that never
 //! reached the oracle.
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
@@ -44,11 +43,14 @@ pub enum OracleCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Run a draft file here, in your own jail, with `uv run` and your session's tools; records nothing. Exit 0 True,
-    /// 1 False, 2 Failed.
+    /// Run a draft file on Home, like a saved oracle, without records. Exit 0 True, 1 False, 2 Failed.
     Test {
         #[arg(long)]
         file: PathBuf,
+        /// The oracle's slug (default: the file name without `.py`): the draft gets the tools and Launchpad read
+        /// the saved oracle of that slug has.
+        #[arg(long)]
+        slug: Option<String>,
         /// A parameter, `name=value` (repeat it).
         #[arg(long = "param")]
         params: Vec<String>,
@@ -110,8 +112,8 @@ pub async fn command(paths: &Paths, workspace: Option<String>, command: OracleCo
             }
             Ok(exit_code(&e))
         }
-        OracleCommand::Test { file, params, cursor, json } => {
-            let r = test(paths, workspace, &file, &params, cursor.as_deref()).await?;
+        OracleCommand::Test { file, slug, params, cursor, json } => {
+            let r = test(paths, workspace, &file, slug, &params, cursor.as_deref()).await?;
             if json {
                 print_json(&r)?;
             } else {
@@ -135,13 +137,7 @@ pub async fn command(paths: &Paths, workspace: Option<String>, command: OracleCo
         OracleCommand::Resume { slug } => paused(paths, workspace, &slug, "resume").await,
         OracleCommand::Save { file, slug } => {
             let content = std::fs::read_to_string(&file).with_context(|| format!("read {}", file.display()))?;
-            let slug = match slug {
-                Some(s) => s,
-                None => file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
-            };
-            if !oracles::valid_slug(&slug) {
-                bail!("{slug:?} is not a valid oracle slug (lowercase letters, digits, - and _): name it with --slug");
-            }
+            let slug = slug_of(&file, slug)?;
             oracles::parse(&content).with_context(|| format!("{} is not a valid oracle", file.display()))?;
             let (client, ws) = scoped(paths, workspace).await?;
             let o = client.json("PUT", &oracle_path(&ws, &slug, ""), Some(json!({"content": content}))).await?;
@@ -295,44 +291,29 @@ fn evaluation(e: &Value) -> Value {
     })
 }
 
-/// `oracle test`: the draft runs here with uv, this session's environment as it is (its tools' variables and the
-/// proxy that adds their tokens) and the helper this binary carries. Records nothing.
-async fn test(paths: &Paths, workspace: Option<String>, file: &std::path::Path, params: &[String], cursor: Option<&str>) -> Result<Value> {
+/// The slug named with `--slug`, else the file name without `.py`.
+fn slug_of(file: &std::path::Path, slug: Option<String>) -> Result<String> {
+    let slug = match slug {
+        Some(s) => s,
+        None => file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+    };
+    if !oracles::valid_slug(&slug) {
+        bail!("{slug:?} is not a valid oracle slug (lowercase letters, digits, - and _): name it with --slug");
+    }
+    Ok(slug)
+}
+
+/// `oracle test`: Home runs the draft like a saved oracle (`oracle.test` with `content`), with the real tokens of
+/// its tools as environment variables and direct HTTPS, and records nothing. An agent's draft gets only the tools
+/// and Launchpad read that the saved oracle of its slug has. Returns the run's result.
+async fn test(paths: &Paths, workspace: Option<String>, file: &std::path::Path, slug: Option<String>, params: &[String], cursor: Option<&str>) -> Result<Value> {
     let content = std::fs::read_to_string(file).with_context(|| format!("read {}", file.display()))?;
-    let meta = oracles::parse(&content).with_context(|| format!("{} is not a valid oracle", file.display()))?;
-    let params = oracles::parse_param_args(params)?;
-    let env: BTreeMap<String, String> = std::env::vars().collect();
-    if launchpad_core::shellenv::UserEnv::from_vars(env.clone()).which("uv").is_none() {
-        bail!("uv is not installed on this machine: `oracle test` runs the draft with `uv run` in your jail. Install it (`curl -LsSf https://astral.sh/uv/install.sh | sh`) or ask the owner to (the runner's setup checklist names it)");
-    }
-    let mut hosts = meta.access.hosts.clone();
-    if !meta.access.tools.is_empty() {
-        let tools = async {
-            let (client, ws) = scoped(paths, workspace).await?;
-            client.json("GET", &format!("/api/oracles/{}/_tools", url_segment(&ws)), None).await
-        }
-        .await;
-        match tools {
-            Ok(list) => {
-                for id in &meta.access.tools {
-                    match list.as_array().into_iter().flatten().find(|t| t["id"].as_str() == Some(id)) {
-                        Some(t) => hosts.extend(t["hosts"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string)),
-                        None => eprintln!("Note: the tool {id} is not granted to this workspace: on Home this oracle fails (class access)."),
-                    }
-                }
-            }
-            Err(e) => eprintln!("Note: could not read the workspace's tools ({e:#}): ctx.http allows only access.hosts here."),
-        }
-        eprintln!("Note: tool tokens come from this session's environment (your own tools); on Home the oracle gets the real tokens of {}.", meta.access.tools.join(", "));
-    }
-    if meta.access.launchpad == oracles::LaunchpadRead::Read {
-        eprintln!("Note: Launchpad read access is not available in a local test: ctx.launchpad is None here. On Home the oracle gets a read token of its workspace.");
-    }
-    hosts.sort();
-    hosts.dedup();
-    let wheel_dir = std::env::temp_dir().join("launchpad-oracle-helper");
-    let r = launchpad_automation::oracle_eval::test_file(file, &wheel_dir, params, cursor.map(json_or_text), hosts, env).await?;
-    Ok(serde_json::to_value(r)?)
+    oracles::parse(&content).with_context(|| format!("{} is not a valid oracle", file.display()))?;
+    let slug = slug_of(file, slug)?;
+    let body = json!({"content": content, "params": oracles::parse_param_args(params)?, "cursor": cursor.map(json_or_text)});
+    let (client, ws) = scoped(paths, workspace).await?;
+    let answer = client.json("POST", &oracle_path(&ws, &slug, "/test"), Some(body)).await?;
+    Ok(answer["result"].clone())
 }
 
 #[cfg(test)]

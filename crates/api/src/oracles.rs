@@ -1,7 +1,8 @@
 //! Oracles on Home (`launchpad_automation::oracles`, `oracle_eval`): list, show, evaluations, versions, and the
 //! actions of the action list (`oracle.*`). Runners forward every `/api/oracles…` request to Home, which checks an
-//! agent's workspace (`agent_auth::within_workspace`) and its access: every level reads and runs, admin saves (adding hosts,
-//! Launchpad read and only the tools its session holds; other tools wait for the owner's card), the rest is the owner's.
+//! agent's workspace (`agent_auth::within_workspace`) and its access: every level reads and runs, propose tests
+//! drafts (`launchpad oracle test`) and admin saves, both adding hosts, Launchpad read and only the tools the saved
+//! oracle has or its session holds (other tools wait for the owner's card), the rest is the owner's.
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
@@ -54,7 +55,7 @@ async fn list(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Vec<Lis
 }
 
 /// The tools granted to the workspace, without secrets: what an oracle's `access.tools` may name, with the hosts
-/// that receive each token (the Access tab, and `launchpad oracle test`, which allows the same hosts).
+/// that receive each token (the Access tab).
 async fn tools(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Vec<Value>> {
     launchpad_core::workspace::get(&s.app, &ws).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
     let tools = launchpad_core::vault::tools(&s.app).await.map_err(bad)?;
@@ -177,8 +178,26 @@ struct Test {
 
 /// The owner's Test now: a draft runs without records; the saved oracle is evaluated and recorded as a test (it
 /// counts for the failure row: a good answer clears it), committing no cursor, with the parameters of its last
-/// evaluation when the request gives none. A paused oracle runs like a draft.
-async fn test(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, Json(t): Json<Test>) -> ApiResult<TestAnswer> {
+/// evaluation when the request gives none. A paused oracle runs like a draft. An agent (`launchpad oracle test`)
+/// only runs drafts, on the terms of an admin save: hosts and Launchpad read, and a tool only when the saved oracle
+/// of that slug has it or the agent's session holds it, since the draft's code gets the real token.
+async fn test(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(t): Json<Test>) -> ApiResult<TestAnswer> {
+    if let Some(a) = &agent {
+        let Some(content) = &t.content else {
+            return Err(forbidden("agents test drafts (`launchpad oracle test --file`); run a saved oracle with `launchpad oracle run`".into()));
+        };
+        let meta = oracles::check(&s.app, content).await.map_err(bad)?;
+        let old = oracles::get(&s.app, &ws, &slug).await.ok().and_then(|f| f.oracle.meta).map(|m| m.access);
+        let added = oracles::widens(old.as_ref(), &meta.access);
+        let held = if added.iter().any(|x| x.starts_with("tool ")) { launchpad_core::vault::session_tools(&s.app, &a.0.0).await.map_err(bad)? } else { vec![] };
+        let refused = launchpad_http::agent_auth::oracle_access_beyond_admin(&added, &held);
+        if !refused.is_empty() {
+            return Err(forbidden(format!(
+                "this draft uses a tool that neither the saved oracle {slug} nor this session holds ({}): only the owner gives it that token. Test it without, or propose it with `launchpad propose oracle`",
+                refused.join(", ")
+            )));
+        }
+    }
     let saved = match &t.content {
         Some(_) => None,
         None => Some(oracles::get(&s.app, &ws, &slug).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?),

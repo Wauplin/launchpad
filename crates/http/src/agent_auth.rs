@@ -30,6 +30,8 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
         Some(LaunchpadAccess::Propose)
     } else if oracle_read(method, path) {
         Some(LaunchpadAccess::Read)
+    } else if oracle_test(method, path) {
+        Some(LaunchpadAccess::Propose)
     } else {
         None
     }
@@ -49,6 +51,13 @@ fn oracle_read(method: &Method, path: &str) -> bool {
         return false;
     }
     *method == Method::GET || (*method == Method::POST && p.len() == 5 && p[4] == "run")
+}
+
+/// `launchpad oracle test` (`oracle.test` with a draft): propose access, in the session's own workspace; Home runs
+/// an agent's draft only within the saved oracle's access.
+fn oracle_test(method: &Method, path: &str) -> bool {
+    let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    *method == Method::POST && p.len() == 5 && p[..2] == ["api", "oracles"] && p[4] == "test" && !p.iter().any(|s| s.is_empty())
 }
 
 /// `launchpad channel post` and `launchpad dm`: propose access (Home lets only member bots post).
@@ -240,7 +249,7 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
         };
         return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, why));
     }
-    if tool_need(req.method(), &path) == Some(LaunchpadAccess::Admin) || oracle_read(req.method(), &path) {
+    if tool_need(req.method(), &path) == Some(LaunchpadAccess::Admin) || oracle_read(req.method(), &path) || oracle_test(req.method(), &path) {
         return Ok(req);
     }
     if access == Some(LaunchpadAccess::Admin) && tool_need(req.method(), &path).is_none() && !read_allowed(&path) && !own_write(&path) && admin_allows(req.method(), &path) {
@@ -737,8 +746,8 @@ mod tests {
         }
     }
 
-    /// Oracles: every level lists, shows and runs them in its own workspace; saving is admin (the handler refuses
-    /// added access), the rest is the owner's.
+    /// Oracles: every level lists, shows and runs them in its own workspace; propose tests drafts and saving is
+    /// admin (the handlers refuse added access), the rest is the owner's.
     #[test]
     fn oracles_read_and_run_at_every_level() {
         for (m, p) in [(Method::GET, "/api/oracles/w1"), (Method::GET, "/api/oracles/w1/ci-red"), (Method::GET, "/api/oracles/w1/ci-red/evaluations"), (Method::POST, "/api/oracles/w1/ci-red/run")] {
@@ -748,6 +757,11 @@ mod tests {
         }
         for (m, p) in [(Method::PUT, "/api/oracles/w1/ci-red"), (Method::POST, "/api/oracles/w1/ci-red/test"), (Method::POST, "/api/oracles/w1/ci-red/read"), (Method::DELETE, "/api/oracles/w1/ci-red"), (Method::GET, "/api/oracles"), (Method::GET, "/api/oracles//x"), (Method::POST, "/api/oracles/w1/run")] {
             assert!(!oracle_read(&m, p), "{m} {p}");
+        }
+        assert_eq!(tool_need(&Method::POST, "/api/oracles/w1/ci-red/test"), Some(LaunchpadAccess::Propose));
+        assert_eq!(names(&Method::POST, "/api/oracles/w1/ci-red/test"), Names::Workspace("w1"));
+        for (m, p) in [(Method::GET, "/api/oracles/w1/ci-red/test"), (Method::POST, "/api/oracles/w1//test"), (Method::POST, "/api/oracles/w1/ci-red/run"), (Method::POST, "/api/oracles/w1/ci-red/test/x")] {
+            assert!(!oracle_test(&m, p), "{m} {p}");
         }
         assert!(admin_allows(&Method::PUT, "/api/oracles/w1/ci-red") && admin_allows(&Method::POST, "/api/oracles/w1/ci-red/pause"));
         for (m, p) in [(Method::POST, "/api/oracles/w1/ci-red/test"), (Method::POST, "/api/oracles/w1/ci-red/read"), (Method::DELETE, "/api/oracles/w1/ci-red"), (Method::POST, "/api/oracles/w1/ci-red/restore/3")] {

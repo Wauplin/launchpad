@@ -1,6 +1,5 @@
 //! The `launchpad_oracle` helper, shipped inside the binary (`oracle/launchpad_oracle/__init__.py`) and built into
-//! a wheel at runtime for `uv run --with <wheel>`: on Home for evaluations, on a runner for `launchpad oracle test`
-//! in an agent's jail. Its version carries the source's hash, so uv never reuses an older build from its cache.
+//! a wheel at runtime for `uv run --with <wheel>` on Home, for evaluations and tests. Its version carries the source's hash, so uv never reuses an older build from its cache.
 
 use std::path::{Path, PathBuf};
 
