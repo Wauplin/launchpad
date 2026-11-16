@@ -175,9 +175,9 @@ export function writeNote(a: { repo: string; number: number; body: string; works
   return homeJson<NoteWriteResult>("/api/notes/owner", { method: "POST", body: { repo: a.repo, number, workspace: ws, body, reply_to: a.reply_to ? id(a.reply_to, "note") : null } });
 }
 
-/** Post this comment, from the timeline entry's button (`suggestion.post`). */
-export function postSuggestion(a: { id: string }) {
-  return homeJson(`/api/suggestions/${id(a.id, "suggestion")}/post`, { method: "POST", body: {} });
+/** Post this comment, or Comment and close (`close`), from the timeline entry's buttons (`suggestion.post`). */
+export function postSuggestion(a: { id: string; close?: boolean }) {
+  return homeJson(`/api/suggestions/${id(a.id, "suggestion")}/post`, { method: "POST", body: { close: a.close === true } });
 }
 
 /** The owner's edit of a suggested comment's text (`suggestion.edit`; comments only, so the event stays COMMENT). */

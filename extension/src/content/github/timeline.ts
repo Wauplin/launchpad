@@ -3,7 +3,7 @@
 // between GitHub's timeline items (`timeline-items` anchor, `timeOf`), looking like a comment from a Launchpad agent.
 // Only the owner sees them: they live on Home and are drawn in closed shadow roots, never written into GitHub's page or
 // fields. A suggested comment shows as its own section at the bottom of the entry, with Post this comment
-// (Launchpad's `suggestion.post`, in one trusted click), Edit (`suggestion.edit`), Insert into comment box (insert.ts)
+// (Launchpad's `suggestion.post`, in one trusted click; Comment and close adds `close`), Edit (`suggestion.edit`), Insert into comment box (insert.ts)
 // and Discard. Above GitHub's comment form, the owner's box adds a private note and tells the agents about it.
 // Without timeline items, the entries go above the comment form, else under the description: nothing is lost.
 // Notes link to other notes with their link (`#lp-note-<id>`, refs.ts): a link to a note of this item scrolls to it and
@@ -255,7 +255,7 @@ function noteButton(label: string, page: ItemPage, id: string, cls: string) {
 }
 
 /** The suggested comment of an entry, as its own section at the bottom of the card: a header, the comment as GitHub
- * would show it, and Post this comment (one click) with Edit, Insert and Discard; or its one-line state. */
+ * would show it, and Post this comment (one click; Comment and close also closes the item) with Edit, Insert and Discard; or its one-line state. */
 function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: () => void): HTMLElement | null {
   const s = e.suggestion;
   const state = e.note?.suggestion ?? null;
@@ -301,17 +301,22 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
   const discard: HTMLElement = button("Discard…", () => confirmDiscard(root, discard, s, refresh), { small: true });
   actions.append(discard, h("span", { class: "lp-grow" }));
   if (s.status === "draft") {
-    const go = h("button", { class: "lp-btn lp-primary", text: "Post this comment", attrs: { type: "button", title: `Launchpad posts it to ${page.repo}#${page.number} as you${s.reply_to?.kind === "review_comment" ? ", in the review thread it answers" : ""}, with the attribution line` } });
-    go.addEventListener("click", (ev) => {
+    const what = page.kind === "issue" ? "issue" : "pull request";
+    const where = `${page.repo}#${page.number} as you${s.reply_to?.kind === "review_comment" ? ", in the review thread it answers" : ""}, with the attribution line`;
+    const close = h("button", { class: "lp-btn", text: "Comment and close", attrs: { type: "button", title: `Launchpad posts it to ${where}, then closes the ${what}${page.kind === "issue" ? "" : " without merging it"}` } });
+    const go = h("button", { class: "lp-btn lp-primary", text: "Post this comment", attrs: { type: "button", title: `Launchpad posts it to ${where}` } });
+    const post = (btn: HTMLButtonElement, busy: string, withClose: boolean) => (ev: Event) => {
       ev.preventDefault();
       ev.stopPropagation();
       // Only a real click of the owner posts (never a click the page synthesized).
-      if (!ev.isTrusted || go.disabled) return;
-      go.disabled = true;
-      go.textContent = "Posting…";
-      request("suggestion.post", { id: s.id }).then(() => { errors.delete(e.key); refresh(); }).catch((x) => { errors.set(e.key, fail(x)); refresh(); });
-    });
-    actions.append(go);
+      if (!ev.isTrusted || btn.disabled) return;
+      go.disabled = close.disabled = true;
+      btn.textContent = busy;
+      request("suggestion.post", { id: s.id, close: withClose }).then(() => { errors.delete(e.key); refresh(); }).catch((x) => { errors.set(e.key, fail(x)); refresh(); });
+    };
+    close.addEventListener("click", post(close, "Closing…", true));
+    go.addEventListener("click", post(go, "Posting…", false));
+    actions.append(close, go);
   }
   wrap.append(actions, choice);
   return wrap;

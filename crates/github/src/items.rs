@@ -22,6 +22,12 @@ pub async fn issue(app: &App, repo: &str, n: u64) -> Result<Value> {
     app.github.get(&format!("/repos/{repo}/issues/{n}")).await
 }
 
+/// Closes issue or pull request `n` (without merging). Only the owner's Comment and close of a suggestion calls it.
+pub async fn close(app: &App, repo: &str, n: u64) -> Result<Value> {
+    validate(repo)?;
+    app.github.request(Method::PATCH, &format!("/repos/{repo}/issues/{n}"), Some(json!({"state": "closed"}))).await
+}
+
 /// Posts `body` as a conversation comment.
 pub async fn comment(app: &App, repo: &str, n: u64, body: &str) -> Result<Value> {
     validate(repo)?;

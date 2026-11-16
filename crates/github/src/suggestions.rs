@@ -412,7 +412,8 @@ pub async fn discard(app: &App, id: &str) -> Result<()> {
         .publish("suggestions", "discarded", json!({"id":s.id}));
     Ok(())
 }
-pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
+/// The owner's Post: `close` (Comment and close) also closes the issue or pull request once the comment is posted.
+pub async fn post(app: &App, id: &str, close: bool) -> Result<Suggestion> {
     let lock = app.suggestion_locks.get(id);
     let _guard = lock.lock().await;
     let mut s = get(app, id).await?;
@@ -422,6 +423,7 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
         s.status == "draft",
         "publication already attempted; check GitHub before discarding or creating another suggestion"
     );
+    ensure!(!close || (s.kind == SuggestionKind::Comment && matches!(s.target, SuggestionTarget::GitHub { .. })), "only a comment on a GitHub issue or pull request can close it");
     match &s.target {
         SuggestionTarget::Predraft { id } => {
             let _predraft = app.predraft_lock.lock().await;
@@ -530,7 +532,9 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
     if let SuggestionTarget::GitHub { repo, number, .. } = &s.target {
         // The follow-ups run once, after the review is saved as posted: a failure stays on the card, never retried.
         let head = s.head.clone().unwrap_or_default();
-        let followup = if s.run_ci {
+        let followup = if close {
+            items::close(app, repo, *number).await.err().map(|e| format!("Closing it failed: {e:#}. Close it on GitHub."))
+        } else if s.run_ci {
             items::approve_runs(app, repo, *number, &head).await.err().map(|e| format!("Running the workflows failed: {e:#}"))
         } else if let Some(method) = &s.merge {
             items::merge(app, repo, *number, &head, method).await.err().map(|e| format!("The merge failed: {e:#}. Check the pull request on GitHub before merging it there."))
@@ -540,7 +544,7 @@ pub async fn post(app: &App, id: &str) -> Result<Suggestion> {
         if let Some(error) = followup {
             s.followup_error = Some(error.clone());
             save(app, &s).await?;
-            anyhow::bail!("The review was posted. {error}");
+            anyhow::bail!("The {} was posted. {error}", if s.kind == SuggestionKind::Review { "review" } else { "comment" });
         }
     }
     Ok(s)

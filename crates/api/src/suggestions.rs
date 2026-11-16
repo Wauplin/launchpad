@@ -152,6 +152,13 @@ async fn discard(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Valu
     suggestions::discard(&s.app, &id).await?;
     Ok(Json(json!({"ok":true})))
 }
-async fn publish(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
-    Ok(Json(json!(suggestions::post(&s.app, &id).await?)))
+#[derive(serde::Deserialize, Default)]
+struct Publish {
+    /// Comment and close: also close the issue or pull request once the comment is posted.
+    #[serde(default)]
+    close: bool,
+}
+async fn publish(State(s): State<Ctx>, Path(id): Path<String>, body: Option<Json<Publish>>) -> ApiResult<Value> {
+    let close = body.map(|Json(b)| b.close).unwrap_or_default();
+    Ok(Json(json!(suggestions::post(&s.app, &id, close).await?)))
 }

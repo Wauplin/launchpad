@@ -194,8 +194,8 @@ export type Requests = {
   /** Today's items of the extension's workspace (`GET /api/today`), in the order to decide them. */
   "today": Req<void, TodayItem[]>;
   /** Post this comment (`suggestion.post`, a GitHub write): only from the timeline entry's button under the full
-   * comment, on a trusted click. */
-  "suggestion.post": Req<{ id: string }, unknown>;
+   * comment, on a trusted click; `close` (Comment and close) also closes the issue or pull request after posting. */
+  "suggestion.post": Req<{ id: string; close?: boolean }, unknown>;
   /** Saves the owner's edit of a waiting suggested comment (`suggestion.edit`) before Post. */
   "suggestion.edit": Req<{ id: string; body: string }, unknown>;
   /** Discards a suggestion (`suggestion.discard`). */
