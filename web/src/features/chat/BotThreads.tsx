@@ -15,6 +15,7 @@ import { Popover } from "@/components/Popover";
 import { FilterChip, FilterChips } from "@/components/ui";
 import { botThread, MAIN_THREAD, threadState, useBotThreads, type BotState } from "@/lib/bots";
 import { age } from "@/lib/format";
+import { usePhone } from "@/lib/phone";
 
 /** The `?thread=` value of a thread the owner starts with their next message. */
 export const NEW_THREAD = "new";
@@ -63,9 +64,10 @@ export function ThreadBar({ bot, rows, selected, onSelect }: { bot: Bot; rows: T
   </div>;
 }
 
-/** Every thread with a search (the laptop's All threads, the phone's Threads sheet), New thread first, then the
- * archived threads behind a toggle, each with Bring back. */
+/** Every thread with a search (the laptop's All threads, the phone's Threads sheet, where the search is not focused
+ * so the keyboard stays closed), New thread first, then the archived threads behind a toggle, each with Bring back. */
 export function ThreadList({ bot, rows, selected, onSelect }: { bot: Bot; rows: ThreadRow[]; selected: string; onSelect: (thread: string) => void }) {
+  const phone = usePhone();
   const [query, setQuery] = useState("");
   const [archived, setArchived] = useState(false);
   const old = useBotThreads(archived ? bot.id : null, true).data?.filter((t) => t.archived_at != null) ?? [];
@@ -73,7 +75,7 @@ export function ThreadList({ bot, rows, selected, onSelect }: { bot: Bot; rows: 
   const list = q ? rows.filter((r) => r.t.title.toLowerCase().includes(q)) : rows;
   const qc = useQueryClient();
   return <div className="grid gap-1 p-1.5">
-    {rows.length > 6 && <input className="field-input" placeholder="Search threads" aria-label="Search threads" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />}
+    {rows.length > 6 && <input className="field-input" placeholder="Search threads" aria-label="Search threads" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus={!phone} />}
     <button className="flex min-h-9 items-center gap-2 rounded-control px-2 text-left text-[13px] hover:bg-sunk" aria-pressed={selected === NEW_THREAD} onClick={() => onSelect(NEW_THREAD)} data-tour="bots.new-thread">
       <Icon name="plus" size={12} className="flex-none text-ink-3" /><span className="min-w-0 flex-1 truncate">New thread</span><span className="text-[12px] text-ink-3">your next message starts it</span>
     </button>
