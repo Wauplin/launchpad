@@ -59,12 +59,20 @@ pub struct Predraft {
     /// Local PRs opened by the same session: reviewed and published together, linked to each other.
     #[serde(default)]
     pub change_set: Option<String>,
+    /// When the owner linked a pull request opened outside Launchpad (`link_pr`): Home never pushes to it.
+    #[serde(default)]
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub linked_at: Option<i64>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 pub struct LocalMerge {
-    /// The merged commit, now the tip of the base branch.
+    /// The merged commit: the tip of the base branch, or GitHub's merge commit (`github`).
     pub head: String,
     pub at: i64,
+    /// Merged through its pull request on GitHub (merge, squash or rebase), read from GitHub.
+    #[serde(default)]
+    pub github: bool,
 }
 impl Predraft {
     /// Still a Local PR under review: not discarded, published or merged.
@@ -139,6 +147,12 @@ async fn user_fork(app: &App, mirror: &Path) -> Result<String> {
     let v = app.github.get(&format!("/repos/{fork}")).await.with_context(|| format!("fork {fork} not found; fork {origin} on GitHub first"))?;
     ensure!(v["fork"].as_bool() == Some(true), "{fork} is not a fork of {origin}");
     Ok(fork)
+}
+/// `link_pr`: the pull request (number, `#n`, `owner/repo#n` or its URL) and the commit the owner reviewed.
+#[derive(Deserialize)]
+pub struct LinkPr {
+    pub pr: String,
+    pub head: String,
 }
 #[derive(Deserialize)]
 pub struct MergeLocal {
@@ -322,6 +336,7 @@ async fn create_record(app: &App, q: Create) -> Result<Predraft> {
         created_at: crate::util::now_ms(),
         remote_sync_note: None,
         merged: None,
+        linked_at: None,
     };
     save(app, &p).await?;
     Ok(p)
@@ -329,6 +344,10 @@ async fn create_record(app: &App, q: Create) -> Result<Predraft> {
 /// Launch instructions for an agent that works on a Local PR's branch.
 pub fn instruction(app: &App, p: &Predraft) -> String {
     match &p.published_url {
+        Some(url) if p.linked_at.is_some() => format!(
+            "You are continuing Local PR {} (branch `{}`), linked to {url}, a pull request opened outside Launchpad. Commit your work on this branch; Launchpad pushes it to Home, but Home does not push it to that pull request. Do not open another pull request. Comments and reviews still go through `launchpad suggest`; never post them yourself.",
+            p.id, p.branch
+        ),
         Some(url) => format!(
             "You are continuing Local PR {} (branch `{}`), published as {url}. Commit your work on this branch; Launchpad pushes it to Home and Home pushes it to the pull request. Never force-push or rewrite commits that are already pushed. Do not open another pull request. Comments and reviews still go through `launchpad suggest`; never post them yourself.",
             p.id, p.branch
@@ -381,6 +400,7 @@ pub async fn update_anywhere(app: &App, id: &str, q: Patch) -> Result<Predraft> 
 pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     ensure_home(app)?;
     let mut p = get(app, id).await?;
+    let mut github_error: Option<String> = None;
     if let Some(project) = crate::projects::get(app, &p.project_id).await? {
         if fetch {
             crate::home_git::ensure(app, &project).await?;
@@ -388,6 +408,14 @@ pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
         }
         if let Some(merged) = close_if_contained(app, id).await? {
             p = merged;
+        }
+        // A published Local PR follows its pull request: merged on GitHub, merged here. A failed read is shown.
+        if p.published_url.is_some() && p.merged.is_none() && !p.archived && sync_due(id, fetch) {
+            match sync_github(app, id).await {
+                Ok(Some(changed)) => p = changed,
+                Ok(None) => {}
+                Err(e) => github_error = Some(format!("{e:#}")),
+            }
         }
     }
     let status = p.session_id.as_ref().and_then(|id| app.sessions.get(id)).map(|s| s.status.as_str().to_string());
@@ -405,6 +433,7 @@ pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     if p.archived {
         return Ok(json!({"predraft":p,"status":status,"files":[],"commits":[],"base_ahead":0,"change_set":set}));
     }
+    let github_error = github_error.map(|e| format!("Could not read the pull request's state on GitHub: {e}"));
     let merge_base = git(app, &dir, &["merge-base", &base, &head]).await?;
     let patch = git(app, &dir, &["-c", "core.quotepath=false", "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--find-renames", &format!("{base}...{head}"), "--"]).await?;
     let commits = git(app, &dir, &["log", "--format=%h %s", &format!("{base}..{head}"), "--"]).await?;
@@ -412,7 +441,7 @@ pub async fn detail(app: &App, id: &str, fetch: bool) -> Result<Value> {
     let remote = p.remote_branch.clone().unwrap_or_else(|| p.default_remote_branch.clone());
     // A published Local PR: whether GitHub has the branch's commit on Home yet.
     let github = if p.published_url.is_some() { crate::home_git::follow_status(app, &p.project_id, &p.branch).await? } else { None };
-    Ok(json!({"predraft":p,"status":status,"github":github,"head":head,"base":merge_base,"base_ahead":ahead,"commits":commits.lines().collect::<Vec<_>>(),"files":crate::diff::parse_diff(&patch),"project_id":project.id,"fallback":false,"default_remote_branch":remote,"change_set":set}))
+    Ok(json!({"predraft":p,"status":status,"github":github,"github_error":github_error,"head":head,"base":merge_base,"base_ahead":ahead,"commits":commits.lines().collect::<Vec<_>>(),"files":crate::diff::parse_diff(&patch),"project_id":project.id,"fallback":false,"default_remote_branch":remote,"change_set":set}))
 }
 /// The other Local PRs of the same change set, with their folders and the commit shown (`head`, the one Publish
 /// all publishes).
@@ -479,7 +508,7 @@ pub async fn merge_local(app: &App, id: &str, q: MergeLocal) -> Result<Predraft>
     match crate::home_git::merge(app, &project, &p.branch, &q.head, &p.base_branch).await? {
         crate::home_git::MergeOutcome::Merged { head, note } => {
             p.remote_sync_note = Some(note);
-            p.merged = Some(LocalMerge { head, at: crate::util::now_ms() });
+            p.merged = Some(LocalMerge { head, at: crate::util::now_ms(), github: false });
             save(app, &p).await?;
             Ok(p)
         }
@@ -493,7 +522,7 @@ fn mark_merged(list: Vec<Predraft>, project_id: &str, branch: &str, head: &str, 
     list.into_iter()
         .filter(|p| p.project_id == project_id && p.branch == branch && p.is_open())
         .map(|mut p| {
-            p.merged = Some(LocalMerge { head: head.to_string(), at });
+            p.merged = Some(LocalMerge { head: head.to_string(), at, github: false });
             p
         })
         .collect()
@@ -531,7 +560,7 @@ async fn close_if_contained(app: &App, id: &str) -> Result<Option<Predraft>> {
     let mut p = get(app, id).await?;
     let Some(head) = contained_head(app, &p).await else { return Ok(None) };
     tracing::info!("Local PR {} is part of {} already: marked merged", p.id, p.base_branch);
-    p.merged = Some(LocalMerge { head, at: crate::util::now_ms() });
+    p.merged = Some(LocalMerge { head, at: crate::util::now_ms(), github: false });
     save(app, &p).await?;
     Ok(Some(p))
 }
@@ -544,6 +573,286 @@ pub async fn close_contained(app: &App) -> Result<()> {
         }
     }
     Ok(())
+}
+/// What Home reads of a pull request on GitHub (`GET /repos/{repo}/pulls/{n}`) to link and reconcile a Local PR.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PrFacts {
+    pub(crate) number: u64,
+    pub(crate) url: String,
+    /// `owner/name` of the repository the pull request is in, and its base branch.
+    pub(crate) base_repo: String,
+    pub(crate) base_ref: String,
+    pub(crate) head_sha: String,
+    pub(crate) head_ref: String,
+    /// `owner/name` of the head branch's repository; None when GitHub no longer has it (a deleted fork).
+    pub(crate) head_repo: Option<String>,
+    pub(crate) closed: bool,
+    /// When GitHub merged it (merge, squash or rebase), in milliseconds, with its merge commit.
+    pub(crate) merged_at: Option<i64>,
+    pub(crate) merge_commit: Option<String>,
+}
+/// Pure: the facts of a pull request answer; a malformed answer is an error, never an unmerged pull request.
+pub(crate) fn pr_facts(v: &Value) -> Result<PrFacts> {
+    let text = |p: &str| v.pointer(p).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
+    let need = |p: &str| text(p).with_context(|| format!("GitHub's answer has no {p}"));
+    let merged_at = match v.get("merged_at") {
+        Some(Value::String(t)) => Some(time::OffsetDateTime::parse(t, &time::format_description::well_known::Rfc3339).context("GitHub's merged_at is not a time")?.unix_timestamp() * 1000),
+        Some(Value::Null) | None => None,
+        Some(_) => anyhow::bail!("GitHub's merged_at is not a time"),
+    };
+    ensure!(merged_at.is_some() || v["merged"].as_bool() != Some(true), "GitHub says merged without merged_at");
+    let state = need("/state")?;
+    ensure!(state == "open" || state == "closed", "GitHub's pull request state {state:?} is unknown");
+    let head_sha = need("/head/sha")?;
+    ensure!(head_sha.len() == 40 && head_sha.bytes().all(|b| b.is_ascii_hexdigit()), "GitHub's head commit is not a commit ID");
+    Ok(PrFacts {
+        number: v["number"].as_u64().context("GitHub's answer has no number")?,
+        url: need("/html_url")?,
+        base_repo: need("/base/repo/full_name")?,
+        base_ref: need("/base/ref")?,
+        head_sha,
+        head_ref: need("/head/ref")?,
+        head_repo: text("/head/repo/full_name"),
+        closed: state == "closed",
+        merged_at,
+        merge_commit: text("/merge_commit_sha"),
+    })
+}
+/// Pure: the pull request number the owner gave (`5369`, `#5369`, `owner/repo#5369` or its GitHub URL), which must
+/// be in the folder's repository `origin`.
+pub(crate) fn parse_pr_ref(input: &str, origin: &str) -> Result<u64> {
+    let s = input.trim();
+    let (repo, number) = if let Some(rest) = s.strip_prefix("https://github.com/") {
+        let parts: Vec<&str> = rest.split(['/', '#', '?']).collect();
+        ensure!(parts.len() >= 4 && parts[2] == "pull", "not a pull request URL: {s}");
+        (Some(format!("{}/{}", parts[0], parts[1])), parts[3])
+    } else if let Some((repo, n)) = s.split_once('#').filter(|(r, _)| !r.is_empty()) {
+        (Some(repo.to_string()), n)
+    } else {
+        (None, s.trim_start_matches('#'))
+    };
+    if let Some(repo) = repo {
+        ensure!(repo.eq_ignore_ascii_case(origin), "{repo} is not this folder's repository ({origin})");
+    }
+    let n: u64 = number.parse().with_context(|| format!("not a pull request number: {s}"))?;
+    ensure!(n > 0, "not a pull request number: {s}");
+    Ok(n)
+}
+/// Pure: whether `p` may be linked to pull request `number` of `origin`. `Ok(true)`: it is linked to it already (the
+/// same link again changes nothing).
+pub(crate) fn link_state(p: &Predraft, origin: &str, number: u64) -> Result<bool> {
+    ensure!(!p.archived, "this Local PR was discarded");
+    if let Some(url) = &p.published_url {
+        let same = p.published_number == Some(number) && published_repo(url).is_some_and(|r| r.eq_ignore_ascii_case(origin));
+        ensure!(same, "this Local PR is already published as {url}; it cannot be linked to another pull request");
+        return Ok(true);
+    }
+    ensure!(p.merged.is_none(), "this Local PR is already merged on Home");
+    ensure!(p.pushed_head.is_none(), "a publication of this Local PR has started: retry Publish, or Unlock it, before linking a pull request");
+    Ok(false)
+}
+/// Pure: the strict checks of a link. The pull request is `number` of the folder's repository, targets the Local PR's
+/// base branch, and its head is exactly the commit the owner reviewed, which is the branch's tip on Home.
+pub(crate) fn check_link(p: &Predraft, origin: &str, number: u64, pr: &PrFacts, reviewed: &str, tip: &str) -> Result<()> {
+    ensure!(pr.number == number, "GitHub answered pull request #{} for #{number}", pr.number);
+    ensure!(pr.base_repo.eq_ignore_ascii_case(origin), "#{number} is a pull request of {}, not of this folder's repository {origin}", pr.base_repo);
+    ensure!(published_repo(&pr.url).is_some_and(|r| r.eq_ignore_ascii_case(origin)), "GitHub's URL {} is not in {origin}", pr.url);
+    ensure!(pr.base_ref == p.base_branch, "#{number} targets {}, but this Local PR targets {}", pr.base_ref, p.base_branch);
+    ensure!(reviewed == tip, "the branch changed since review; review again");
+    ensure!(pr.head_sha == tip, "#{number}'s head is {}, but this Local PR's branch is at {} on Home: they must be the same commit", short(&pr.head_sha), short(tip));
+    Ok(())
+}
+fn short(c: &str) -> &str {
+    &c[..12.min(c.len())]
+}
+/// `owner/name` of a GitHub pull request URL.
+fn published_repo(url: &str) -> Option<String> {
+    crate::git::github_repo(url.split("/pull/").next()?)
+}
+/// Pure: the link fields `link_pr` writes. Home pushed nothing and follows nothing: `pushed_head` stays None.
+pub(crate) fn apply_link(p: &mut Predraft, origin: &str, pr: &PrFacts, at: i64) {
+    p.published_url = Some(pr.url.clone());
+    p.published_number = Some(pr.number);
+    p.remote_branch = Some(pr.head_ref.clone());
+    p.push_repo = pr.head_repo.clone().filter(|r| !r.eq_ignore_ascii_case(origin));
+    p.linked_at = Some(at);
+    p.remote_sync_note = Some(format!("Linked to {} ({}), opened outside Launchpad: Home pushes nothing to it.", pr.url, pr.head_ref));
+}
+/// What GitHub's state of a published Local PR's pull request changes in the record.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Sync {
+    /// Open, or already recorded.
+    Nothing,
+    Merged(LocalMerge),
+    /// Shown on the Local PR (closed without merging, or merged without the newer commits of the branch).
+    Note(String),
+}
+/// Pure: the change for a published Local PR. `contained`: the branch on Home has no commit beyond the pull
+/// request's head (else the merge on GitHub left newer work out, and the record stays published with a note).
+pub(crate) fn github_sync(p: &Predraft, pr: &PrFacts, contained: bool) -> Sync {
+    if p.archived || p.merged.is_some() || p.published_url.is_none() {
+        return Sync::Nothing;
+    }
+    let note = match pr.merged_at {
+        Some(at) if contained => return Sync::Merged(LocalMerge { head: pr.merge_commit.clone().unwrap_or_else(|| pr.head_sha.clone()), at, github: true }),
+        Some(_) => format!("{} was merged on GitHub at {}, but {} has newer commits on Home that are not in it: open a new Local PR for them.", pr.url, short(&pr.head_sha), p.branch),
+        None if pr.closed => format!("{} was closed on GitHub without merging.", pr.url),
+        None => return Sync::Nothing,
+    };
+    if p.remote_sync_note.as_deref() == Some(note.as_str()) { Sync::Nothing } else { Sync::Note(note) }
+}
+/// GitHub's pull request `number` of `repo`, read live.
+async fn read_pr(app: &App, repo: &str, number: u64) -> Result<PrFacts> {
+    ensure!(crate::github::valid_repo(repo), "invalid repository {repo}");
+    let v = app.github.get(&format!("/repos/{repo}/pulls/{number}")).await.with_context(|| format!("read {repo}#{number} on GitHub"))?;
+    pr_facts(&v).with_context(|| format!("read {repo}#{number} on GitHub"))
+}
+/// Whether the branch's tip on Home is part of the pull request's head: the same commit, else GitHub's comparison
+/// (a commit GitHub does not have is newer work, never part of it). Other errors are errors.
+async fn tip_in_pr(app: &App, repo: &str, tip: Option<&str>, pr: &PrFacts) -> Result<bool> {
+    let Some(tip) = tip else { return Ok(true) };
+    if tip == pr.head_sha {
+        return Ok(true);
+    }
+    match app.github.get(&format!("/repos/{repo}/compare/{tip}...{}", pr.head_sha)).await {
+        Ok(v) => Ok(matches!(v["status"].as_str(), Some("ahead" | "identical"))),
+        Err(e) if e.chain().filter_map(|c| c.downcast_ref::<reqwest::Error>()).any(|r| matches!(r.status(), Some(reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::UNPROCESSABLE_ENTITY))) => Ok(false),
+        Err(e) => Err(e.context("compare the branch with the pull request on GitHub")),
+    }
+}
+/// Stops Home's pushes of the branch to a merged pull request (any follow of the branch whose pull request it is),
+/// after a push in flight.
+async fn stop_follow(app: &App, p: &Predraft) -> Result<()> {
+    let Some(url) = &p.published_url else { return Ok(()) };
+    if crate::home_git::unfollow(app, &p.project_id, &p.branch, url).await? {
+        tracing::info!("Local PR {}: {url} merged, Home stops pushing {}", p.id, p.branch);
+    }
+    Ok(())
+}
+/// Owner click (`local-pr.link-pr`): links a pull request opened outside Launchpad to an open Local PR, after the strict
+/// checks of `check_link` against GitHub's live answer. Reads GitHub only: no push, no pull request, no follow. A
+/// merged pull request marks the Local PR merged at once. Serialized with Publish and Unlock; the same link again
+/// changes nothing; a Local PR published or linked elsewhere, or with an unfinished publication, is refused.
+pub async fn link_pr(app: &App, id: &str, q: LinkPr) -> Result<Predraft> {
+    ensure_home(app)?;
+    let publication = app.suggestion_locks.get(&format!("predraft-publish:{id}"));
+    let _publication = publication.lock().await;
+    let p = get(app, id).await?;
+    let project = crate::projects::get(app, &p.project_id).await?.context("folder not found")?;
+    ensure!(project.home_git, "{} is not a Git folder of Home", project.name);
+    let origin = push_target(&crate::home_git::mirror(app, &p.project_id), None).await?.repo;
+    let number = parse_pr_ref(&q.pr, &origin)?;
+    if link_state(&p, &origin, number)? {
+        return Ok(sync_locked(app, id).await?.unwrap_or(p));
+    }
+    let tip = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await?.context("the branch is not on Home")?;
+    ensure!(tip == q.head, "the branch changed since review; review again");
+    let pr = read_pr(app, &origin, number).await?;
+    check_link(&p, &origin, number, &pr, &q.head, &tip)?;
+    let _lock = app.predraft_lock.lock().await;
+    let mut p = get(app, id).await?;
+    ensure!(!link_state(&p, &origin, number)?, "this Local PR changed while GitHub was read; try again");
+    let tip = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await?.context("the branch is not on Home")?;
+    check_link(&p, &origin, number, &pr, &q.head, &tip)?;
+    apply_link(&mut p, &origin, &pr, crate::util::now_ms());
+    // Its head is the branch's tip: a merged pull request holds all of the branch.
+    match github_sync(&p, &pr, true) {
+        Sync::Merged(m) => p.merged = Some(m),
+        Sync::Note(n) => p.remote_sync_note = Some(n),
+        Sync::Nothing => {}
+    }
+    save(app, &p).await?;
+    drop(_lock);
+    tracing::info!("Local PR {id} linked to {} by the owner", pr.url);
+    if pr.merged_at.is_some() {
+        stop_follow(app, &p).await?;
+    }
+    Ok(p)
+}
+/// Reconciles a published Local PR with its pull request on GitHub: merged there (merge, squash or rebase) marks it
+/// merged, keeping its GitHub link, and stops Home's pushes to it. Returns the changed record. A failed read changes
+/// nothing and is returned as an error, never taken as "not merged".
+pub async fn sync_github(app: &App, id: &str) -> Result<Option<Predraft>> {
+    ensure_home(app)?;
+    let publication = app.suggestion_locks.get(&format!("predraft-publish:{id}"));
+    let _publication = publication.lock().await;
+    sync_locked(app, id).await
+}
+/// `sync_github` under the publication lock.
+async fn sync_locked(app: &App, id: &str) -> Result<Option<Predraft>> {
+    let p = get(app, id).await?;
+    let (Some(url), false, None) = (&p.published_url, p.archived, &p.merged) else { return Ok(None) };
+    let repo = published_repo(url).with_context(|| format!("{url} is not a GitHub pull request"))?;
+    let number = match p.published_number {
+        Some(n) => n,
+        None => url.split("/pull/").nth(1).and_then(|n| n.split(['/', '#', '?']).next()).and_then(|n| n.parse().ok()).with_context(|| format!("no pull request number in {url}"))?,
+    };
+    let pr = read_pr(app, &repo, number).await?;
+    ensure!(pr.number == number && pr.base_repo.eq_ignore_ascii_case(&repo), "GitHub answered {}#{} for {url}", pr.base_repo, pr.number);
+    // Merged on GitHub: Home never pushes there again, whatever the record says next.
+    if pr.merged_at.is_some() {
+        stop_follow(app, &p).await?;
+    }
+    let tip = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await?;
+    let contained = pr.merged_at.is_some() && tip_in_pr(app, &repo, tip.as_deref(), &pr).await?;
+    let _lock = app.predraft_lock.lock().await;
+    let mut p = get(app, id).await?;
+    // The branch moved while GitHub was read: the next check decides.
+    if crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await? != tip || p.published_url.as_deref() != Some(url.as_str()) {
+        return Ok(None);
+    }
+    match github_sync(&p, &pr, contained) {
+        Sync::Nothing => return Ok(None),
+        Sync::Merged(m) => {
+            tracing::info!("Local PR {id}: {url} merged on GitHub");
+            p.merged = Some(m);
+        }
+        Sync::Note(n) => p.remote_sync_note = Some(n),
+    }
+    save(app, &p).await?;
+    Ok(Some(p))
+}
+/// When Home last read a Local PR's pull request for a page read (`detail`), by Local PR ID.
+static LAST_SYNC: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, i64>>> = std::sync::LazyLock::new(Default::default);
+/// A page read reads GitHub at most every 2 minutes per Local PR; Refresh always does.
+const READ_SYNC_MS: i64 = 2 * 60_000;
+fn sync_due(id: &str, force: bool) -> bool {
+    let now = crate::util::now_ms();
+    let mut last = LAST_SYNC.lock().unwrap_or_else(|e| e.into_inner());
+    if !force && last.get(id).is_some_and(|t| now - t < READ_SYNC_MS) {
+        return false;
+    }
+    last.insert(id.to_string(), now);
+    true
+}
+/// Home, every 30 minutes: reconciles every published Local PR that is not merged yet with GitHub. Failures are
+/// logged and change nothing.
+pub async fn sync_published(app: &App) -> Result<()> {
+    ensure_home(app)?;
+    for p in list(app).await?.into_iter().filter(|p| p.published_url.is_some() && !p.archived && p.merged.is_none()) {
+        if crate::projects::get(app, &p.project_id).await?.is_none() {
+            continue;
+        }
+        if let Err(e) = sync_github(app, &p.id).await {
+            tracing::warn!("Local PR {}: GitHub state not read: {e:#}", p.id);
+        }
+    }
+    Ok(())
+}
+pub fn spawn(app: &App) {
+    if !crate::home_git::here(app) {
+        return;
+    }
+    let app = app.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
+        loop {
+            tick.tick().await;
+            if let Err(e) = sync_published(&app).await {
+                tracing::warn!("Local PRs on GitHub: {e:#}");
+            }
+        }
+    });
 }
 pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     ensure_home(app)?;

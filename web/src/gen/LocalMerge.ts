@@ -2,6 +2,10 @@
 
 export type LocalMerge = { 
 /**
- * The merged commit, now the tip of the base branch.
+ * The merged commit: the tip of the base branch, or GitHub's merge commit (`github`).
  */
-head: string, at: number, };
+head: string, at: number, 
+/**
+ * Merged through its pull request on GitHub (merge, squash or rebase), read from GitHub.
+ */
+github: boolean, };

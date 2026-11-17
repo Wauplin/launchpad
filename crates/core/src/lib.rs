@@ -235,6 +235,7 @@ impl App {
         harness::spawn_model_refresh(&app);
         projects::spawn(&app);
         home_git::spawn(&app);
+        predrafts::spawn(&app);
         plain::spawn(&app);
         kb::spawn(&app);
         if let Err(e) = projects::forget_disk_folders(&app).await {

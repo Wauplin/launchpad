@@ -78,7 +78,7 @@ export function githubWorld() {
       id: "demo-pr-prices", project_id: P.storefront, root: WT.prices, branch: "lp/format-prices", initial_base: DEMO_COMMITS.storefrontPrev, created_at: clock.ago(60 * 24),
       title: "Format prices in the visitor's locale", body: "`formatMoney` now uses the browser's locale by default instead of `en-US`.",
       notes: [{ path: null, text: "Keep `en-US` for server-side rendering, where there is no navigator." }],
-      merged: { head: DEMO_COMMITS.pricesMerged, at: clock.ago(60 * 20) },
+      merged: { head: DEMO_COMMITS.pricesMerged, at: clock.ago(60 * 20), github: false },
     }),
   ];
   const suggestions: Suggestion[] = [{

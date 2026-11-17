@@ -468,6 +468,23 @@ pub async fn set_follow(app: &App, project_id: &str, branch: &str, follow: &Foll
     }).await
 }
 
+/// Stops following `branch` when its follow pushes to pull request `url` (a merged one), waiting for a push in
+/// flight (`forward`'s lock). Returns whether a follow was removed.
+pub async fn unfollow(app: &App, project_id: &str, branch: &str, url: &str) -> Result<bool> {
+    let lock = app.suggestion_locks.get(&format!("home-git-forward:{project_id}:{branch}"));
+    let _lock = lock.lock().await;
+    let Some(f) = follow(app, project_id, branch).await? else { return Ok(false) };
+    if !f.url.trim_end_matches('/').eq_ignore_ascii_case(url.trim_end_matches('/')) {
+        return Ok(false);
+    }
+    let (p, b) = (project_id.to_string(), branch.to_string());
+    app.state_db.call(move |c| {
+        c.execute("DELETE FROM git_follow WHERE project_id = ?1 AND branch = ?2", [p, b])?;
+        Ok(())
+    }).await?;
+    Ok(true)
+}
+
 pub async fn follow(app: &App, project_id: &str, branch: &str) -> Result<Option<Follow>> {
     let (p, b) = (project_id.to_string(), branch.to_string());
     let json: Option<String> = app.state_db.call(move |c| {

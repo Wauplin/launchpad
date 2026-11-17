@@ -5,13 +5,14 @@ import { useNavigate } from "@tanstack/react-router";
 import type { Predraft } from "@/gen/Predraft";
 import { Icon, type IconName } from "@/components/Icon";
 import { openGitHubItem } from "@/lib/githubLinks";
-import { githubPr } from "./localPrState";
+import { githubPr, publishedText } from "./localPrState";
 
 export { githubPr, localPrOf } from "./localPrState";
 
 /** The label, icon and color of a Local PR: its GitHub pull request once published, else its local state. */
 export function localPrLook(p: Predraft): { label: string; icon: IconName; color: string; title: string } {
   const pr = githubPr(p);
+  if (pr && p.merged) return { label: `PR #${pr.number} · merged`, icon: "pr-merged", color: "text-gh-merged", title: `Merged on GitHub as ${pr.repo}#${pr.number}: open the pull request on GitHub` };
   if (pr) return { label: `PR #${pr.number} · published`, icon: "pr", color: "text-gh-open", title: `Published as ${pr.repo}#${pr.number}: open the pull request on GitHub` };
   if (p.merged) return { label: "Local PR · merged", icon: "pr-merged", color: "text-gh-merged", title: `Merged into ${p.base_branch} on Home: open the Local PR` };
   if (p.archived) return { label: "Local PR · discarded", icon: "pr-local", color: "text-ink-3", title: "Discarded: open the Local PR" };
@@ -44,7 +45,7 @@ export function LocalPrChip({ pr, className = "" }: { pr: Predraft; className?: 
 /** One line on the Local PR for cards and next steps. */
 export function localPrText(p: Predraft): string {
   const pr = githubPr(p);
-  if (pr) return `Published as ${pr.repo}#${pr.number}. New commits on this branch reach it through Home.`;
+  if (pr) return `${p.merged ? "Merged" : "Published"} as ${pr.repo}#${pr.number}. ${publishedText(p)}`;
   if (p.merged) return `Its Local PR was merged into ${p.base_branch}.`;
   return `In the Local PR “${p.title}”, not published to GitHub yet.`;
 }

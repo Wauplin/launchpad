@@ -26,4 +26,8 @@ merged: LocalMerge | null,
 /**
  * Local PRs opened by the same session: reviewed and published together, linked to each other.
  */
-change_set: string | null, };
+change_set: string | null, 
+/**
+ * When the owner linked a pull request opened outside Launchpad (`link_pr`): Home never pushes to it.
+ */
+linked_at?: number, };

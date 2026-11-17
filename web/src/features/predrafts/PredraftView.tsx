@@ -3,6 +3,8 @@
 // Description · Changes · Commits. Line notes from Changes and general notes go to the agent as feedback.
 
 import { LocalPrChip } from "./LocalPrLink";
+import { localPrStatus, publishedText } from "./localPrState";
+import { ago } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { Popover } from "@/components/Popover";
 import { Icon } from "@/components/Icon";
@@ -31,7 +33,7 @@ import { runAction } from "@/lib/actions";
 import { GitHubSyncNote, type FollowStatus } from "@/features/agents/Worktrees";
 import { projectName, useProjects } from "@/lib/queries";
 type Member = { id: string; title: string; folder: string; branch: string; head: string | null; published_url: string | null; merged: boolean };
-type Detail = Diff & { predraft: Predraft; status: string | null; github?: FollowStatus | null; commits: string[]; base_ahead: number; default_remote_branch: string; project_missing?: boolean; change_set?: Member[] };
+type Detail = Diff & { predraft: Predraft; status: string | null; github?: FollowStatus | null; github_error?: string | null; commits: string[]; base_ahead: number; default_remote_branch: string; project_missing?: boolean; change_set?: Member[] };
 type View = "description" | "files" | "commits";
 const RUNNING = ["starting", "working", "background", "in_terminal"];
 
@@ -117,9 +119,10 @@ function Review({ id }: { id: string }) {
   if (!p || !q.data) return <Loading what="the Local PR" />;
   const d = q.data;
   if (d.project_missing) return <Orphan p={p} running={RUNNING.includes(d.status ?? "")} onDiscarded={() => void qc.invalidateQueries({ queryKey: ["predrafts"] })} />;
-  const active = !p.archived && !p.published_url && !p.merged;
+  const status = localPrStatus(p);
+  const active = status === "open";
   const running = RUNNING.includes(d.status ?? "");
-  const [state, tone]: [string, BadgeTone] = p.archived ? ["Discarded", "done"] : p.published_url ? ["Published", "ok"] : p.merged ? ["Merged", "ok"] : running ? ["Agent working", "work"] : d.status === "waiting" ? ["Ready for review", "teal"] : d.status === "error" || d.status === "interrupted" ? ["Agent needs attention", "danger"] : ["Local review", "neutral"];
+  const [state, tone]: [string, BadgeTone] = status === "discarded" ? ["Discarded", "done"] : status === "merged" ? ["Merged", "ok"] : status === "published" ? ["Published", "ok"] : running ? ["Agent working", "work"] : d.status === "waiting" ? ["Ready for review", "teal"] : d.status === "error" || d.status === "interrupted" ? ["Agent needs attention", "danger"] : ["Local review", "neutral"];
   const refresh = () => void run(async () => { qc.setQueryData(["predrafts", id], await api.post<Detail>(`/api/predrafts/${id}/refresh`)); });
   const all = allNotes();
   const sendNotes = () => run(async () => { await save(); await api.post(`/api/predrafts/${id}/feedback`); setNotes([]); }, "Notes sent to the agent");
@@ -132,6 +135,7 @@ function Review({ id }: { id: string }) {
   </>;
   const publishButton = (className: string, small = false) => <ConfirmButton tone="publish" small={small} className={`btn-primary ${className}`} disabled={busy || running || !d.head || !remote.trim()} consequence={`Home pushes the reviewed commit ${d.head?.slice(0, 8) ?? ""} as ${remote.trim()} to ${fork ? "your fork" : "origin"} and creates ${draft ? "a GitHub draft" : "a"} PR on GitHub.`} confirmLabel="Push and create PR" onConfirm={() => run(async () => { await save(); await runAction("local-pr.publish", { id }, { remote_branch: remote, draft, head: d.head, fork }); await saved.clear(); setPublishing(false); }, "Local PR published")}>Publish</ConfirmButton>;
   const mergeButton = (className: string) => <ConfirmButton tone="publish" small={false} className={className} disabled={busy || running || !d.head} consequence={`Home pushes the reviewed commit to ${p.base_branch} on the folder's remote, then fast-forwards ${p.base_branch} on Home; if the remote refuses the push, nothing is merged. If ${p.base_branch} moved, ask the agent to rebase first.`} confirmLabel={`Merge into ${p.base_branch}`} onConfirm={() => run(async () => { await runAction("local-pr.merge", { id }, { head: d.head }); await saved.clear(); }, `Merged into ${p.base_branch}`)}>Merge</ConfirmButton>;
+  const linkForm = <LinkPr id={id} head={d.head} disabled={busy || running} run={run} />;
   const discardButton = <ConfirmButton small={false} disabled={busy || running} consequence="Deletes the branch on Home. Its tip stays restorable from the folder page for 30 days." confirmLabel="Discard" onConfirm={() => run(() => api.post(`/api/predrafts/${id}/discard`), "Local PR discarded")}>Discard</ConfirmButton>;
   const headerActions = <>
     {p.session_id && <button className="btn btn-sm" onClick={() => { show(p.session_id!); void navigate({ to: "/agents", search: phone ? { session: p.session_id! } : {} }); }}>Open agent</button>}
@@ -153,8 +157,9 @@ function Review({ id }: { id: string }) {
     {phone ? <><PhoneHeader title={p.title} subtitle={`Local PR · ${state}`} onBack={() => phoneBack("/?filter=review")} backLabel="Back" actions={<>{headerActions}<button className="btn btn-sm" disabled={busy} onClick={refresh}>Refresh</button></>} details={<p className="break-all font-mono text-[12px] text-ink-3">{p.branch} → {p.base_branch}</p>} /><div className="px-3">{tabs}</div></>
       : <PageHeader title={p.title} meta={meta} actions={headerActions} tabs={tabs} />}
     {/* Published: the pull request is reviewed and merged on its page; there is nothing left to publish or merge here. */}
-    {p.published_url && <div className="border-b border-line-2 px-5 py-2 text-[12px]"><div className="flex flex-wrap items-center gap-2"><LocalPrChip pr={p} /><span className="min-w-0 flex-1 text-ink-3">New commits of agents on this branch reach the pull request through Home. Review and merge it on its page.</span><button className="btn btn-sm" onClick={() => openGitHub(p.published_url!)}><Icon name="ext" size={12} />Open on GitHub</button></div><GitHubSyncNote status={d.github} className="mt-1" /></div>}
-    {p.merged && <div className="border-b border-line-2 px-5 py-2 text-[12px] text-ink-2">Merged into <span className="font-mono">{p.base_branch}</span> on Home at <span className="font-mono">{p.merged.head.slice(0, 8)}</span>.</div>}
+    {p.published_url && <div className="border-b border-line-2 px-5 py-2 text-[12px]"><div className="flex flex-wrap items-center gap-2"><LocalPrChip pr={p} /><span className="min-w-0 flex-1 text-ink-3">{publishedText(p)}{p.merged ? "" : " Review and merge it on its page."}</span><button className="btn btn-sm" onClick={() => openGitHub(p.published_url!)}><Icon name="ext" size={12} />Open on GitHub</button></div>{!p.merged && <GitHubSyncNote status={d.github} className="mt-1" />}</div>}
+    {p.merged && <div className="border-b border-line-2 px-5 py-2 text-[12px] text-ink-2">{p.merged.github ? <>Merged into <span className="font-mono">{p.base_branch}</span> on GitHub {ago(p.merged.at)} (<span className="font-mono">{p.merged.head.slice(0, 8)}</span>).</> : <>Merged into <span className="font-mono">{p.base_branch}</span> on Home at <span className="font-mono">{p.merged.head.slice(0, 8)}</span>.</>}</div>}
+    {d.github_error && <div className="flex items-center gap-1.5 border-b border-attn-line bg-attn-soft px-5 py-2 text-[12px] text-attn"><Icon name="alert" size={12} /><span className="min-w-0 flex-1">{d.github_error}</span></div>}
     {active && d.base_ahead > 0 && <div className="grid gap-1 border-b border-attn-line bg-attn-soft px-5 py-2 text-[12px] text-attn">
       <span className="flex items-center gap-1.5"><Icon name="alert" size={12} />Base moved: {p.base_branch} is {d.base_ahead} commits ahead of this branch. Review against the refreshed base before publishing.</span>
     </div>}
@@ -193,15 +198,25 @@ function Review({ id }: { id: string }) {
         (Publish for a GitHub folder, else Merge) with the branch options in its sheet, and the rest in ⋯. */}
     {active && (phone ? <div data-tour="predraft.actions" className="phone-publish-bar flex items-center gap-2 border-t border-line p-3">
       {github ? <button className={`btn flex-1 ${all.length ? "" : "btn-primary"}`} disabled={busy || running || !d.head} onClick={() => setPublishing(true)}>Publish</button> : mergeButton("flex-1")}
-      <PhoneActions label="Local PR actions" closeOnAction={false}>{github ? <>{mergeButton("")}{discardButton}</> : discardButton}</PhoneActions>
+      <PhoneActions label="Local PR actions" closeOnAction={false}>{github ? <>{mergeButton("")}{linkForm}{discardButton}</> : discardButton}</PhoneActions>
       {publishing && <Sheet title="Publish on GitHub" onClose={() => setPublishing(false)}><div className="grid gap-3 p-4">{publishFields}{publishButton("")}</div></Sheet>}
     </div> : <div data-tour="predraft.actions" className="phone-publish-bar flex flex-wrap items-center gap-2 border-t border-line p-3">
       {github && <Popover viewport label="Publish on GitHub" align="left" width={360} trigger={({ toggle }) => <button className={`btn ${all.length ? "" : "btn-primary"}`} disabled={busy || running || !d.head} onClick={toggle}>Publish…</button>}>
         {() => <div className="grid gap-3 p-3"><b className="text-[12px]">Branch and publication options</b>{publishFields}<div className="flex justify-end">{publishButton("", true)}</div></div>}
       </Popover>}
       {mergeButton("")}
-      <Popover viewport label="Local PR actions" align="right" width={300} trigger={({ toggle }) => <button className="iconbtn" aria-label="Local PR actions" onClick={toggle}><Icon name="more" size={16} /></button>}>{() => discardButton}</Popover>
+      <Popover viewport label="Local PR actions" align="right" width={300} trigger={({ toggle }) => <button className="iconbtn" aria-label="Local PR actions" onClick={toggle}><Icon name="more" size={16} /></button>}>{() => <div className="grid gap-2 p-1">{github && linkForm}{discardButton}</div>}</Popover>
     </div>)}
+  </div>;
+}
+
+/** Link a pull request opened outside Launchpad (for example with gh) to this Local PR: Home checks it on GitHub
+ * (folder's repository, base branch, head = the commit shown here) and pushes nothing. */
+function LinkPr({ id, head, disabled, run }: { id: string; head: string | null | undefined; disabled: boolean; run: (action: () => Promise<unknown>, done?: string) => Promise<void> }) {
+  const [pr, setPr] = useState("");
+  return <div className="grid gap-2">
+    <input aria-label="Pull request number or URL" className="field-input" value={pr} onChange={(e) => setPr(e.target.value)} placeholder="Existing pull request: number or URL" />
+    <ConfirmButton tone="publish" disabled={disabled || !head || !pr.trim()} consequence={`Home reads this pull request on GitHub and links it when it is in this folder's repository, targets the same base branch and its head is ${head?.slice(0, 8) ?? ""}. Nothing is pushed or posted.`} confirmLabel="Link" onConfirm={() => run(async () => { await runAction("local-pr.link-pr", { id }, { pr: pr.trim(), head }); setPr(""); }, "Pull request linked")}>Link existing pull request</ConfirmButton>
   </div>;
 }
 

@@ -42,8 +42,8 @@ starters?: Array<string>,
  */
 max_threads?: number, 
 /**
- * The owner lets it publish its own Local PRs as draft pull requests on GitHub (`launchpad pr publish`), only in
- * a turn that answers the owner's own message (`predrafts::agent_publish_refusal`). Off by default; only the
+ * The owner lets it publish its own Local PRs as draft pull requests on GitHub (`launchpad pr publish`, checked by
+ * `predrafts::agent_publish_refusal`); when to publish is the bot's call, from its instructions. Off by default; only the
  * owner turns it on (`agent_refusal`).
  */
 publish_drafts?: boolean, };

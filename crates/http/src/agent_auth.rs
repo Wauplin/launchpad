@@ -632,6 +632,11 @@ mod tests {
             assert_eq!(bot_publish(&Method::POST, path), None, "{path}");
         }
         assert_eq!(bot_publish(&Method::GET, "/api/predrafts/p/publish"), None);
+        // Linking a pull request to a Local PR is the owner's click (or a ready card), never an agent's, at any access.
+        assert_eq!(tool_need(&Method::POST, "/api/predrafts/p/link-pr"), None);
+        assert!(!admin_allows(&Method::POST, "/api/predrafts/p/link-pr"));
+        assert!(!own_write("/api/predrafts/p/link-pr"));
+        assert!(actions::get("local-pr.link-pr").is_some_and(|a| a.access == ActionAccess::Owner && a.ready));
         // A bot writes its own memory like the knowledge base, at every access level (Home checks the bot).
         assert!(own_write("/api/bot-memory"));
         assert_eq!(tool_need(&Method::POST, "/api/bot-memory"), None);

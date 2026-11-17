@@ -327,7 +327,7 @@ mod tests {
         // Publication claimed but not done (`pushed_head` only) still waits.
         assert!(local_pr_waits(&launchpad_core::predrafts::Predraft { pushed_head: Some("h".into()), ..p.clone() }, None).is_some());
         assert!(local_pr_waits(&launchpad_core::predrafts::Predraft { archived: true, ..p.clone() }, None).is_none());
-        assert!(local_pr_waits(&launchpad_core::predrafts::Predraft { merged: Some(launchpad_core::predrafts::LocalMerge { head: "h".into(), at: 1 }), ..p.clone() }, None).is_none());
+        assert!(local_pr_waits(&launchpad_core::predrafts::Predraft { merged: Some(launchpad_core::predrafts::LocalMerge { head: "h".into(), at: 1, github: false }), ..p.clone() }, None).is_none());
         let published = launchpad_core::predrafts::Predraft { published_url: Some("https://github.com/o/r/pull/1".into()), ..p.clone() };
         let follow = |behind: bool, error: Option<&str>| launchpad_core::home_git::FollowStatus { url: String::new(), head: Some("h".into()), forwarded: Some("h".into()), behind, error: error.map(str::to_string) };
         assert!(local_pr_waits(&published, Some(&follow(false, None))).is_none());

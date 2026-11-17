@@ -134,9 +134,20 @@ route("POST", "/api/predrafts/:id/:action", ({ params, body }) => {
       githubDemo(`pushed ${p.remote_branch} and opened ${body?.draft ? "a draft " : ""}PR #${number}`);
       return savePredraft(p);
     }
+    case "link-pr": {
+      if (!open || p.pushed_head) throw new DemoError(400, "this Local PR is not open");
+      const repo = world.projects.find((x) => x.id === p.project_id)?.gh_repo;
+      const number = Number(String(body?.pr ?? "").match(/(\d+)\s*$/)?.[1]);
+      if (!repo || !number) throw new DemoError(400, "not a pull request of this folder's repository");
+      p.published_number = number;
+      p.published_url = `https://github.com/${repo}/pull/${number}`;
+      p.linked_at = clock.now();
+      githubDemo(`read PR #${number} and linked it; nothing was pushed`);
+      return savePredraft(p);
+    }
     case "merge-local": {
       if (!open) throw new DemoError(400, "this Local PR is not open");
-      p.merged = { head: String(body?.head ?? fakeSha(p.id)), at: clock.now() };
+      p.merged = { head: String(body?.head ?? fakeSha(p.id)), at: clock.now(), github: false };
       toast(`Demo: merged ${p.branch} into ${p.base_branch} on Home. Nothing was pushed and GitHub was not contacted.`);
       return savePredraft(p);
     }
