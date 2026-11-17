@@ -11,7 +11,7 @@ In a Launchpad worktree, `launchpad pr create --title "Concrete change" --body-f
 
 The description starts with the problem and resulting behavior. Add validation and material limitations. Keep paragraphs and list items on single lines. Do not claim checks that were not run.
 
-`launchpad pr list` lists the Local PRs of your workspace. `pr update` changes only the Local PRs of your own session. A bot whose owner turned on Publish drafts (`publish_drafts` in `bot.toml`) publishes one of its own Local PRs as a draft pull request with `launchpad pr publish --head <checked commit> [--id <Local PR>] [--remote-branch <name>]`, when its instructions say so (the owner or another agent may ask); without the setting Home refuses and the owner publishes it (a ready card with action `local-pr.publish`).
+`launchpad pr list` lists the Local PRs of your workspace. `pr update` changes only the Local PRs of your own session. A bot publishes one of its own Local PRs as a draft pull request with `launchpad pr publish --head <checked commit> [--id <Local PR>] [--remote-branch <name>]`, when its instructions say so (the owner or another agent may ask); other agents cannot, and the owner publishes it (a ready card with action `local-pr.publish`).
 
 Review feedback arrives in the same agent session. Address each note, commit changes, and update the local description again. Leave publication to the owner.
 

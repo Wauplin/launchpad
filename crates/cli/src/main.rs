@@ -1034,8 +1034,8 @@ enum Pr {
     Show,
     /// List local PRs, including published and archived records.
     List,
-    /// Publish a Local PR of this bot as a draft pull request on GitHub, at the commit you checked. Only for a bot
-    /// whose owner turned on Publish drafts, in a turn that answers the owner's own request.
+    /// Publish a Local PR of this bot as a draft pull request on GitHub, at the commit you checked. Only a bot's own
+    /// Local PRs.
     Publish {
         /// The Local PR (default: the one of the current worktree).
         #[arg(long)]

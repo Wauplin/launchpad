@@ -96,12 +96,6 @@ pub struct BotSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<u32>")]
     pub max_threads: Option<u32>,
-    /// The owner lets it publish its own Local PRs as draft pull requests on GitHub (`launchpad pr publish`, checked by
-    /// `predrafts::agent_publish_refusal`); when to publish is the bot's call, from its instructions. Off by default; only the
-    /// owner turns it on (`agent_refusal`).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    #[ts(optional, as = "Option<bool>")]
-    pub publish_drafts: bool,
 }
 
 /// The profile a bot runs with: its own, or the default when bot.toml names none.
@@ -214,10 +208,8 @@ pub struct Patch {
 /// Launchpad CLI access or loosens its permission mode; an agent may lower or tighten them. `current` None: the
 /// current bot.toml has an error, read as the strictest settings (read access, Ask for approval).
 pub fn agent_refusal(current: Option<&BotSettings>, new: &BotSettings) -> Option<&'static str> {
-    let (access, mode, publish) = current.map_or((crate::vault::LaunchpadAccess::Read, PermissionMode::Approvals, false), |c| (c.launchpad, c.permission_mode, c.publish_drafts));
-    if new.publish_drafts && !publish {
-        Some("only the owner lets a bot publish draft pull requests (`publish_drafts` in bot.toml, on the bot's page: About → Access); an agent may only turn it off")
-    } else if new.launchpad > access {
+    let (access, mode) = current.map_or((crate::vault::LaunchpadAccess::Read, PermissionMode::Approvals), |c| (c.launchpad, c.permission_mode));
+    if new.launchpad > access {
         Some("only the owner raises a bot's Launchpad CLI access (`launchpad` in bot.toml, on the bot's page: About → Access); an agent may only lower it")
     } else if new.permission_mode.strictness() < mode.strictness() {
         Some("only the owner loosens a bot's permission mode (YOLO → Auto → Ask for approval, on the bot's page: About → Access); an agent may only make it stricter")
@@ -227,7 +219,7 @@ pub fn agent_refusal(current: Option<&BotSettings>, new: &BotSettings) -> Option
 }
 
 /// The fields of `bot.toml`, as `Patch::set` names them.
-pub const SETTING_FIELDS: &[&str] = &["name", "profile", "profiles", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "tools", "starters", "max_threads", "publish_drafts"];
+pub const SETTING_FIELDS: &[&str] = &["name", "profile", "profiles", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "tools", "starters", "max_threads"];
 
 /// Every field of the settings with its value, defaults included (bot.toml leaves defaults out): the values a
 /// `set` puts back.
@@ -461,7 +453,7 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
     let profile = c.profile.filter(|p| !p.is_empty());
     let folder = c.folder.filter(|f| !f.is_empty());
     let own: Option<String> = None;
-    let settings = BotSettings { name: name.clone(), profile, profiles: vec![], model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, tools: Default::default(), starters: c.starters, max_threads: None, publish_drafts: false };
+    let settings = BotSettings { name: name.clone(), profile, profiles: vec![], model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, tools: Default::default(), starters: c.starters, max_threads: None };
     check_settings(app, &c.workspace_id, None, &settings).await?;
     let instructions = if c.instructions.trim().is_empty() { format!("# {name}\n") } else { format!("{}\n", c.instructions.trim_end()) };
     let (id2, ws, slug2, at) = (id.clone(), c.workspace_id.clone(), slug.clone(), now_ms());
@@ -911,7 +903,7 @@ pub fn instruction(bot: &BotLaunch, cli: &str) -> String {
 Your folder: `$LAUNCHPAD_BOT` is a read-only copy of your files: BOT.md, bot.toml, `routines/<name>.toml` (your routines) and `memory/`, your own notes. Your instructions hold these notes as they were at start (\"Your memory\", up to {loaded} lines; when they say it was cut, read the rest before you answer anything it may cover). Write them with `{cli} bot memory write <file>` (content on stdin, or `--file <file>`; paths are relative to `memory/`, for example `notes.md`), `{cli} bot memory append <file> <text>` and `{cli} bot memory rm <file>`; `{cli} bot memory list` and `{cli} bot memory read <file>` read them. Keep them short and current: the owner's preferences and the few facts a later session needs, and what the owner asks you to remember. They are not a journal: never record your runs, what you did, or what went well or failed (the thread and its traces keep that); most turns write nothing. Facts other agents need (shared facts about people, projects, how-tos) go in the workspace knowledge base ($LAUNCHPAD_KB) instead.\n\
 Work: prepare changes for the owner's review by default (branches, Local PRs, suggestions); act directly on GitHub or elsewhere only when the owner explicitly asks. Unless your Launchpad CLI access is admin, you cannot edit BOT.md, bot.toml or your routines. When your instructions or routines should change (the owner asked, or you learned how they like the work done), propose the whole new files as one card and tell the owner it waits for their click: `{cli} propose bot-files --title \"<what changes>\" --spec-file files.json`, where the file holds {{\"bot_id\": \"{id}\", \"files\": {{\"BOT.md\": \"<the whole new BOT.md>\", \"routines/<name>.toml\": \"<the whole new routine file>\"}}}} (only the files that change; null deletes a routine; start from your copies in `$LAUNCHPAD_BOT`). The owner sees one diff per file. Changes to bot.toml (profile, folder, permissions, Launchpad CLI access) are the owner's, on the bot's page (About → Access) (or yours at admin access, when the owner asks).\n\
 Folders: find the workspace's folders and what they hold with `{cli} folders list` and your notes; when a task needs one, add a worktree of it to this session with `{cli} work add-project --session-id $LAUNCHPAD_SESSION_ID --project <name>`, which prints the folder to edit. Such an added folder never merges on your request (`work finish` opens a Local PR of it instead): merging and publishing it are the owner's.\n\
-Publishing: to open a pull request for one of your Local PRs, run `{cli} pr publish --head <the branch commit you checked> [--id <Local PR>]` (a draft pull request; Home refuses it unless the owner turned on Publish drafts for you in bot.toml, `publish_drafts`, About → Access). Decide whether to publish from your instructions (BOT.md), whoever asks: the owner or another bot or agent. When it is refused, tell the owner why and file a ready card with `{cli} propose ready` (action local-pr.publish), which waits for their click.\n\
+Publishing: to open a pull request for one of your Local PRs, run `{cli} pr publish --head <the branch commit you checked> [--id <Local PR>]` (a draft pull request from the folder's own remote; Home publishes only your own Local PRs, and marking it ready for review or merging stay the owner's). Decide whether to publish from your instructions (BOT.md), whoever asks: the owner or another bot or agent. When Home refuses it, tell the owner why and file a ready card with `{cli} propose ready` (action local-pr.publish), which waits for their click.\n\
 Routines: when the owner wants you to do something on your own later or again (every morning, when CI fails, when another agent is done), propose a routine for yourself and tell the owner it waits for their click: `{cli} propose routine --title \"Daily check\" --spec-file routine.json`, where the file holds {{\"bot_id\": \"{id}\", \"title\": \"Daily check\", \"instructions\": \"<what you do at each run>\", \"trigger\": {triggers}, \"schedule\": \"30 8 * * 1-5\" (schedule trigger only), \"conditions\": []}}; it becomes a card with your new file `routines/<name>.toml`. To change or delete routines, propose their files with `bot-files` as above (the same fields in TOML; your copies in `$LAUNCHPAD_BOT/routines/` show the format). Each run starts a thread of its own, with a message starting with “Routine”; end it with a short report, or with exactly `no_update` when there is nothing to report.",
         name = bot.name,
         instructions = bot.instructions.trim(),
@@ -952,8 +944,6 @@ mod tests {
         assert!(agent_refusal(Some(&cur), &with(|s| { s.launchpad = Read; s.permission_mode = PermissionMode::Approvals; s.name = "Other".into() })).is_none());
         assert!(agent_refusal(Some(&cur), &with(|s| s.launchpad = Admin)).is_some());
         assert!(agent_refusal(Some(&cur), &with(|s| s.permission_mode = PermissionMode::Yolo)).is_some());
-        assert!(agent_refusal(Some(&cur), &with(|s| s.publish_drafts = true)).is_some());
-        assert!(agent_refusal(Some(&BotSettings { publish_drafts: true, ..cur.clone() }), &cur).is_none());
         assert!(agent_refusal(Some(&BotSettings { launchpad: Admin, ..cur.clone() }), &cur).is_none());
         // A broken bot.toml reads as the strictest settings.
         assert!(agent_refusal(None, &with(|s| { s.launchpad = Read; s.permission_mode = PermissionMode::Approvals })).is_none());

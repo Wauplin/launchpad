@@ -661,12 +661,11 @@ function AccessSection({ bot }: { bot: Bot }) {
     `${access.label.toLowerCase()}${(s.proposals ?? "manual") === "auto" ? " (auto proposals)" : ""}`,
     tools.length ? tools.map((t) => t.name).join(", ") : "no tools",
     `up to ${s.max_threads ?? 16} threads at once`,
-    s.publish_drafts ? "publishes draft pull requests" : null,
   ].filter(Boolean);
   return <Section title="Access" tour="bots.settings" action={!editing && <button className="btn btn-sm" onClick={() => setEditing(true)}><Icon name="pencil" size={12} />Edit</button>}>
     {bot.folder_unused && <p className="m-0 rounded-control bg-attn-soft px-2 py-1 text-[12px] text-attn" data-tour="bots.plain-folder">{bot.folder_unused}</p>}
     {editing ? <SettingsForm bot={bot} onClose={() => setEditing(false)} /> : <>
-      <p className="m-0 text-[13px] text-ink-2" title="Profile · model · folder · permission mode · Launchpad CLI access · tools · threads at once · publishing">{parts.join(" · ")}</p>
+      <p className="m-0 text-[13px] text-ink-2" title="Profile · model · folder · permission mode · Launchpad CLI access · tools · threads at once">{parts.join(" · ")}</p>
       <button className="btn btn-sm w-fit" data-tour="bots.start-preview" title="The instructions and first prompt of its next new session, as Launchpad builds them" onClick={() => setPreview(true)}><Icon name="eye" size={12} />What it sees at start</button>
     </>}
     {preview && <StartPreviewDialog queryKey={["bot", bot.id, bot.version]} load={() => api.get<StartPreview>(`/api/bots/${bot.id}/start-preview`)} subject={`${bot.settings.name}'s next session`} onClose={() => setPreview(false)} />}
@@ -745,10 +744,6 @@ function SettingsForm({ bot, onClose }: { bot: Bot; onClose: () => void }) {
         {PROPOSAL_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
       </select>
       <span className="font-normal text-ink-3">{PROPOSAL_MODES.find((m) => m.id === (s.proposals ?? "manual"))?.detail}</span>
-    </label>
-    <label className="flex items-start gap-2 text-[12px] text-ink-2">
-      <input type="checkbox" className="mt-0.5" checked={!!s.publish_drafts} onChange={(e) => setS({ ...s, publish_drafts: e.target.checked || undefined })} />
-      <span><span className="font-semibold">Publish draft pull requests</span><br /><span className="text-ink-3">It publishes its own Local PRs as draft pull requests on GitHub, as you, at the commit it checked, when its instructions say so (asked by you or another bot). Marking one ready for review and merging stay yours.</span></span>
     </label>
     <div className="grid gap-1">
       <span className="text-[12px] font-semibold text-ink-2">Default tools</span>

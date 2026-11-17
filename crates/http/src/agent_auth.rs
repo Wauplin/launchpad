@@ -60,9 +60,8 @@ fn oracle_test(method: &Method, path: &str) -> bool {
     *method == Method::POST && p.len() == 5 && p[..2] == ["api", "oracles"] && p[4] == "test" && !p.iter().any(|s| s.is_empty())
 }
 
-/// `launchpad pr publish` (`POST /api/predrafts/{id}/publish`): the Local PR's ID. Propose access; Home lets only a
-/// bot whose owner turned on `publish_drafts` publish its own Local PRs as drafts, in a turn that answers the owner
-/// (`predrafts::agent_publish_refusal`).
+/// `launchpad pr publish` (`POST /api/predrafts/{id}/publish`): the Local PR's ID. Propose access; Home lets every
+/// bot publish its own Local PRs as drafts (`predrafts::agent_publish_refusal`).
 fn bot_publish<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
     let id = path.strip_prefix("/api/predrafts/")?.strip_suffix("/publish")?;
     (*method == Method::POST && !id.is_empty() && !id.contains('/')).then_some(id)
@@ -636,7 +635,7 @@ mod tests {
         }
         assert!(read_allowed("/api/context/folders"));
         assert!(own_write("/api/worktrees/finish"));
-        // `launchpad pr publish`: propose access, then Home's own check of the bot's `publish_drafts`; never the
+        // `launchpad pr publish`: propose access, then Home's own check (a bot's own Local PR, as a draft); never the
         // other publication routes.
         assert_eq!(bot_publish(&Method::POST, "/api/predrafts/p/publish"), Some("p"));
         assert_eq!(tool_need(&Method::POST, "/api/predrafts/p/publish"), Some(LaunchpadAccess::Propose));

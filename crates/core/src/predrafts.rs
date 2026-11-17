@@ -947,9 +947,8 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
     Ok(p)
 }
 /// Home: why an agent may not publish Local PR `id` with this `launchpad pr publish` request (`POST
-/// /api/predrafts/{id}/publish`, checked by `agent_auth` before `publish`). Only a thread of a bot whose owner turned
-/// on `publish_drafts` in its bot.toml publishes, only a Local PR of one of that bot's sessions and only as a draft
-/// from the folder's own remote. When to publish is the bot's call, from its instructions (whoever asked it).
+/// /api/predrafts/{id}/publish`, checked by `agent_auth` before `publish`). Every bot publishes, only a Local PR of
+/// one of its own sessions and only as a draft from the folder's own remote. When to publish is the bot's call, from its instructions (whoever asked it).
 /// `publish` then checks the reviewed head like the owner's Publish.
 pub async fn agent_publish_refusal(app: &App, session_id: &str, id: &str, body: &Value) -> Result<()> {
     let s = app.sessions.get(session_id).context("Home has no record of this session")?;
@@ -957,7 +956,7 @@ pub async fn agent_publish_refusal(app: &App, session_id: &str, id: &str, body: 
         Some(b) => crate::bots::get(app, &b.id).await.ok(),
         None => None,
     };
-    let allowed = bot.as_ref().is_some_and(|b| b.settings_error.is_none() && b.settings.publish_drafts);
+    let allowed = bot.is_some();
     let p = get(app, id).await?;
     let author_bot = p.session_id.as_deref().and_then(|a| app.sessions.get(a)).and_then(|a| a.launch_spec.bot).map(|b| b.id);
     let own = bot.as_ref().is_some_and(|b| author_bot.as_deref() == Some(b.id.as_str()));
@@ -970,7 +969,7 @@ pub async fn agent_publish_refusal(app: &App, session_id: &str, id: &str, body: 
 /// Pure: `agent_publish_refusal`'s decision.
 fn publish_refusal(allowed: bool, own: bool, body: &Value) -> Option<&'static str> {
     if !allowed {
-        Some("only a bot whose owner turned on Publish drafts (`publish_drafts = true` in bot.toml, on the bot's page: About → Access) publishes Local PRs; ask the owner to publish it, or file a ready card with `launchpad propose ready` (action local-pr.publish)")
+        Some("only bots publish Local PRs; ask the owner to publish it, or file a ready card with `launchpad propose ready` (action local-pr.publish)")
     } else if !own {
         Some("a bot publishes only the Local PRs of its own sessions")
     } else if body["draft"] != Value::Bool(true) || body["fork"] == Value::Bool(true) {
