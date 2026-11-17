@@ -41,11 +41,17 @@ function register(path: string, repo: string | null, workspaceId: string | null)
   return p;
 }
 
-const cloneSuggestions = () => [{ repo: `${ORG}/analytics` }, { repo: `${ORG}/design-system` }, { repo: `${ORG}/infra` }].filter((r) => !world.projects.some((p) => p.gh_repo === r.repo));
+/** The demo's organization behind an IP allow list: cloning it offers an exit route (`exit routes` in settings.ts). */
+const LOCKED_ORG = "acme-vault";
+const cloneSuggestions = () => [{ repo: `${ORG}/analytics` }, { repo: `${ORG}/design-system` }, { repo: `${ORG}/infra` }, { repo: `${LOCKED_ORG}/ledger` }].filter((r) => !world.projects.some((p) => p.gh_repo === r.repo));
 route("POST", "/api/projects/clone/suggestions", cloneSuggestions);
 route("POST", "/api/projects/clone", ({ body }) => {
   const repo = String(body?.repo ?? "").replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new DemoError(400, "Expected owner/repo or a GitHub URL.");
+  const owner = repo.split("/")[0].toLowerCase();
+  const routed = world.config.egress.find((r) => r.github_org?.toLowerCase() === owner);
+  if (owner === LOCKED_ORG && !routed) throw new DemoError(400, `${LOCKED_ORG} has an IP allow list enabled: GitHub refuses Home's address. Send this organization's GitHub traffic through a runner that can reach it (an exit route). (git fetch: The requested URL returned error: 403)`);
+  if (routed && !world.runners.some((x) => x.connected && x.runner.name.toLowerCase() === routed.via.toLowerCase())) throw new DemoError(400, `git fetch: ${routed.github_org} is reached only through runner ${routed.via}, which is offline (route ${routed.name}).`);
   const p = register(`${ROOT}/${repo.split("/")[1]}`, repo, body?.workspace_id ?? null);
   githubDemo(`cloned ${repo} (simulated, no files were downloaded)`);
   return p;

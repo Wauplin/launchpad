@@ -6,7 +6,7 @@ import { meta } from "./meta";
 
 export const home: Chapter = {
   ...meta("home"),
-  learned: ["Home keeps every record and credential; runners run the agents and show only their status", "Burst runs a session on an HF Job when no runner is online, with no token inside", "Logins and tokens are saved once on Home; agents use them without holding them"],
+  learned: ["Home keeps every record and credential; runners run the agents and show only their status", "Burst runs a session on an HF Job when no runner is online, with no token inside", "An exit route sends an organization behind an IP allow list through the one runner it accepts", "Logins and tokens are saved once on Home; agents use them without holding them"],
   steps: [
     {
       id: "home.runners", route: "/settings/runners", anchor: "settings.runners",
@@ -17,6 +17,11 @@ export const home: Chapter = {
       id: "home.burst", route: "/settings/runners", anchor: "settings.burst",
       title: "Burst when the laptop sleeps",
       body: "When no runner is online, Home runs the session on Burst: a small HF Job that holds no token and stops after the turn. Your next message starts a new one. A monthly cap bounds the cost.",
+    },
+    {
+      id: "home.egress", route: "/settings/runners", anchor: "settings.egress",
+      title: "Exit routes",
+      body: "Some GitHub organizations accept only allow-listed addresses. An exit route sends one organization's traffic out through a runner that has such an address, for Home, Burst and your other runners; tokens stay where they are added. While that runner is offline, those requests fail at once, and everything else keeps working.",
     },
     {
       id: "home.vault", route: "/settings/credentials", anchor: "settings.vault",

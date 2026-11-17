@@ -44,6 +44,12 @@ export function coreWorld() {
     ],
     home: { backup: "", git_name: "", git_email: "", burst: { enabled: true, monthly_cap_usd: 20, flavor: "cpu-basic" }, cli_updates: {}, time_zone: "" },
     runner: { boundary: "jail" },
+    // Exit routes: Acme's GitHub organization accepts only allow-listed addresses, which the laptop has; an internal
+    // dashboard is reachable only from the desktop, which is off.
+    egress: [
+      { name: ORG, github_org: ORG, urls: [], via: "laptop" },
+      { name: "grafana", github_org: null, urls: ["https://grafana.acme.ts.net/"], via: "desktop" },
+    ],
   };
   const status: Status = {
     env: "demo",

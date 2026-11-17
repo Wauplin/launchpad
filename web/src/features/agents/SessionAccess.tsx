@@ -34,7 +34,7 @@ export function SessionAccess({ session }: { session: Session }) {
     else grouped.set(key, { a, n: 1 });
   }
   return (
-    <div className="mt-3 grid gap-2 border-t border-line-2 pt-3 text-[12px]">
+    <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-2 border-t border-line-2 pt-3 text-[12px]">
       <b className="text-[11px] font-semibold tracking-wider text-ink-3 uppercase">Credentials</b>
       {tools.length > 0 && (
         <span className="flex flex-wrap items-center gap-1">
@@ -45,13 +45,14 @@ export function SessionAccess({ session }: { session: Session }) {
       )}
       <span className="text-ink-3">{lease ? `Green: tools this agent can use with Home's tokens. ${lease.revoked_at ? `Lease ended ${ago(lease.revoked_at)}.` : `Lease renewed ${ago(lease.renewed_at)}.`} To change them, stop this agent and launch a new one.` : "This agent holds no lease."}</span>
       {log.length > 0 && (
-        <details>
+        <details className="min-w-0">
           <summary className="cursor-pointer text-ink-2">Requests that received a token · {log.length}</summary>
-          <ul className="mt-1 grid gap-0.5">
+          <ul className="mt-1 grid grid-cols-[minmax(0,1fr)] gap-0.5">
             {[...grouped.values()].slice(0, 60).map(({ a, n }) => (
               <li key={`${a.at}-${a.path}`} className="flex gap-2">
                 <span className="w-[70px] shrink-0 text-ink-3">{ago(a.at)}</span>
-                <span className="min-w-0 flex-1 truncate font-mono text-[11px]" title={`${a.method} https://${a.host}${a.path} → ${a.status}`}>{a.action ? <b className="font-sans text-[12px]">{a.action}</b> : `${a.method} ${a.host}${a.path}`}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[11px]" title={`${a.method} https://${a.host}${a.path} → ${a.status}${a.via ? ` via ${a.via}` : ""}`}>{a.action ? <b className="font-sans text-[12px]">{a.action}</b> : `${a.method} ${a.host}${a.path}`}</span>
+                {a.via && <span className="shrink-0 text-ink-3" title={`Went through exit runner ${a.via}`}>via {a.via}</span>}
                 <span className={a.status >= 400 ? "text-danger-ink" : "text-ink-3"}>{a.status}{n > 1 ? ` · ×${n}` : ""}</span>
               </li>
             ))}

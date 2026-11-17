@@ -3,6 +3,8 @@
 
 import { toast } from "@/components/Toast";
 import type { Config } from "@/gen/Config";
+import type { ExitRoute } from "@/gen/ExitRoute";
+import type { ExitRouteState } from "@/gen/ExitRouteState";
 import type { LoginCheck } from "@/gen/LoginCheck";
 import type { QuotaStatus } from "@/gen/QuotaStatus";
 import type { SignInCheck } from "@/gen/SignInCheck";
@@ -10,6 +12,7 @@ import type { ProfileSpend } from "@/gen/ProfileSpend";
 import { clock, DemoError, notInDemo, onClock, publish, route, type DemoRequest } from "../daemon";
 import { world } from "../world";
 import { demoNetworkCheck, seeded } from "../world/settings";
+import { ORG } from "../world/ids";
 
 const configResponse = () => ({ config: world.config, error: null, remote: false });
 
@@ -133,6 +136,33 @@ const inRange = (req: DemoRequest) => {
 };
 route("GET", "/api/analytics/runs", (req) => { const ok = inRange(req); return world.agentRuns.filter((r) => ok(r.started_at)); });
 
+// Exit routes: their states follow the demo's runners (the laptop is online; the desktop is off and not paired here).
+const egressSince: Record<string, number> = {};
+const exitRoutes = (): ExitRouteState[] => world.config.egress.map((r) => {
+  const runner = world.runners.find((x) => x.runner.id === r.via || x.runner.name.toLowerCase() === r.via.toLowerCase());
+  const online = !!runner?.connected;
+  egressSince[r.name] ??= online ? clock.ago(60 * 26) : clock.ago(60 * 3 + 12);
+  const prefixes = r.github_org ? [`https://github.com/${r.github_org}/`, `https://api.github.com/repos/${r.github_org}/`, `https://api.github.com/orgs/${r.github_org}/`, `https://codeload.github.com/${r.github_org}/`, `https://raw.githubusercontent.com/${r.github_org}/`, `https://uploads.github.com/repos/${r.github_org}/`, "https://api.github.com/graphql", "https://api.github.com/search/"] : r.urls;
+  return { name: r.name, kind: r.github_org ? "github_org" : "urls", github_org: r.github_org, urls: r.urls, prefixes, exit: runner?.runner.name ?? r.via, exit_id: runner?.runner.id ?? (r.via === "desktop" ? "demo-runner-desktop" : null), online, since: egressSince[r.name], last_error: null };
+});
+const egressList = () => ({ routes: world.config.egress, states: exitRoutes() });
+route("GET", "/api/egress", egressList);
+route("GET", "/api/context/egress", exitRoutes);
+route("PUT", "/api/egress", ({ body }) => {
+  const routes = (body?.routes ?? []) as ExitRoute[];
+  const names = new Set<string>();
+  for (const r of routes) {
+    if (!/^[a-z0-9._-]{1,40}$/.test(r.name) || names.has(r.name)) throw new DemoError(400, `route name ${JSON.stringify(r.name)}: 1 to 40 lowercase letters, digits, '.', '_' or '-', unique`);
+    names.add(r.name);
+    if (!r.github_org === !r.urls?.length) throw new DemoError(400, `route ${r.name}: a GitHub organization or URL prefixes, not both`);
+    if (!r.via?.trim()) throw new DemoError(400, `route ${r.name}: choose its exit runner`);
+  }
+  world.config.egress = routes.map((r) => ({ name: r.name, github_org: r.github_org || null, urls: r.urls ?? [], via: r.via.trim() }));
+  for (const k of Object.keys(egressSince)) if (!names.has(k)) delete egressSince[k];
+  publish("egress", "changed", null);
+  return egressList();
+});
+
 // Home and runners: the demo is a Home with the owner's laptop runner and recent Burst jobs.
 route("GET", "/api/runners", () => world.runners);
 route("GET", "/api/runners/:id/status", () => ({ ...world.status, role: "runner", runner_update: null }));
@@ -244,7 +274,13 @@ route("PUT", "/api/vault/tools/:id", notInDemo);
 route("DELETE", "/api/vault/tools/:id", notInDemo);
 route("PUT", "/api/vault/identity", notInDemo);
 route("POST", "/api/vault/leases/:id/revoke", notInDemo);
-route("GET", "/api/sessions/:id/access", () => []);
+// The access log: the audit session ran on Burst while the laptop slept, so its GitHub calls of the organization went
+// through the laptop's exit route ("via laptop").
+route("GET", "/api/sessions/:id/access", ({ params }) => params.id !== "demo-s-audit" ? [] : [
+  { at: clock.ago(60 * 9 - 4), session_id: params.id, host: "api.github.com", method: "GET", path: `/repos/${ORG}/storefront/pulls`, status: 200, action: null, via: "laptop" },
+  { at: clock.ago(60 * 9 - 6), session_id: params.id, host: "api.github.com", method: "POST", path: "/graphql", status: 200, action: "GraphQL query pullRequest", via: "laptop" },
+  { at: clock.ago(60 * 9 - 9), session_id: params.id, host: "api.github.com", method: "GET", path: "/user", status: 200, action: null, via: null },
+]);
 
 // ---------------------------------------------------------------- devices and pairing
 

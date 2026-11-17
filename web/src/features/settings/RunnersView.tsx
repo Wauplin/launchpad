@@ -24,6 +24,7 @@ import { canSelfUpdate, UpdateRunnerButton } from "./RunnerUpdate";
 import { networkDiffers, RunnerNetwork } from "./RunnerNetwork";
 import { HomeUpdateCard } from "./HomeUpdateCard";
 import { CliUpdatesCard } from "./CliUpdates";
+import { ExitRoutesCard } from "./ExitRoutes";
 
 export function RunnersView() {
   return <HomeRunners />;
@@ -165,6 +166,7 @@ function HomeRunners() {
               </div>
             )}
           </Card>
+          <ExitRoutesCard />
           <BurstCard />
           <CliUpdatesCard />
         </>

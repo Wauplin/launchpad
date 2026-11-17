@@ -5,6 +5,7 @@ import { phoneBack } from "@/mobile/back";
 // A project: running agents, Local PRs, worktrees and all agents.
 
 import { openExternal } from "@/lib/platform";
+import { routeOfFolder, useEgress } from "@/lib/egress";
 import { memo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Session } from "@/gen/Session";
@@ -41,6 +42,7 @@ export function ProjectPage() {
   const phone = usePhone();
   const { id } = useParams({ strict: false }) as { id: string };
   const p = useProject(id);
+  const egress = useEgress().data?.states ?? [];
   const sessions = (useSessions().data ?? []).filter((s) => s.project_id === id);
   const worktrees = (useCodeSources(p?.id).data?.worktrees ?? []).filter((w) => !w.main);
   const predrafts = (useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<Predraft[]>("/api/predrafts") }).data ?? []).filter((d) => d.project_id === id);
@@ -55,6 +57,10 @@ export function ProjectPage() {
   const waiting = sessions.filter(needsYou).length;
   const open = predrafts.filter(isOpenLocalPr).length;
   const counts = `${running} running · ${waiting} waiting · ${open} Local PR${open === 1 ? "" : "s"}`;
+  // A folder whose remote takes an exit route: Home's git and GitHub calls go through that runner.
+  const exit = routeOfFolder(egress, p.gh_repo, p.remote_url);
+  const through = exit ? `Through ${exit.exit} · ${exit.online ? "online" : "offline"}` : null;
+  const throughTitle = exit ? `Exit route ${exit.name}: this folder's GitHub traffic leaves through runner ${exit.exit}${exit.online ? "" : ", which is offline: fetches, merges and publishing fail until it is back"}` : undefined;
   const buttons = <>
     {p.gh_repo && (
       <button className="btn" title="Open on GitHub" onClick={() => openExternal(`https://github.com/${p.gh_repo}`)}>
@@ -70,11 +76,12 @@ export function ProjectPage() {
   </>;
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="folder.page">
-      {phone ? <PhoneHeader title={p.name} onBack={() => phoneBack("/projects")} backLabel="Back" primary={<LaunchButton ctx={{ projectId: p.id }} />} subtitle={counts} actions={<div className="ml-auto flex gap-1.5">{buttons}</div>}
+      {phone ? <PhoneHeader title={p.name} onBack={() => phoneBack("/projects")} backLabel="Back" primary={<LaunchButton ctx={{ projectId: p.id }} />} subtitle={through ? <>{counts} · <span className={exit?.online ? "whitespace-nowrap" : "whitespace-nowrap text-attn"} title={throughTitle}>{through}</span></> : counts} actions={<div className="ml-auto flex gap-1.5">{buttons}</div>}
         details={<div className="grid gap-2"><span className="break-all font-mono text-[12px] text-ink-3">{p.path}</span><Description p={p} />{p.is_temp && <p className="m-0 text-[13px] text-ink-2">{TEMP_INTRO}</p>}</div>} />
         : <PageHeader title={p.name} introId="temp-folder" intro={p.is_temp ? TEMP_INTRO : undefined} tabs={tabs} actions={<>{buttons}<LaunchButton ctx={{ projectId: p.id }} /></>} meta={<>
           <span className="truncate font-mono" title={p.path}>{p.path}</span>
           <span>· {counts}</span>
+          {through && <span className={exit?.online ? "whitespace-nowrap" : "whitespace-nowrap text-attn"} title={throughTitle}>· {through}</span>}
           {p.description && <span className="truncate">· {p.description}</span>}
         </>} />}
       <div className="min-h-0 flex-1 overflow-y-auto">

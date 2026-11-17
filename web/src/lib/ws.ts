@@ -140,6 +140,8 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["proposals"] });
     } else if (topic === "runners") {
       void queryClient.invalidateQueries({ queryKey: ["runners"] });
+    } else if (topic === "egress") {
+      void queryClient.invalidateQueries({ queryKey: ["egress"] });
     } else if (topic === "home_update") {
       void queryClient.invalidateQueries({ queryKey: ["home-update"] });
     } else if (topic === "cli_updates") {
