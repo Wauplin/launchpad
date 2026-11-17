@@ -104,9 +104,12 @@ async fn git_with_input(app: &App, dir: &Path, args: &[&str], input: Option<Vec<
     if let Some(input) = input {
         cmd.stdin_bytes(input);
     }
-    // Exit routes: git sends each route's URL prefixes to the exit bridge by itself (`egress::git_args`).
-    let routes = if here(app) { crate::egress::git_args() } else { vec![] };
-    cmd.process_tree().args(&routes).args(args).stdin(Io::Null)
+    // Exit routes: git sends each route's URL prefixes to the exit bridge by itself (`egress::git_env`).
+    let routes = if here(app) { crate::egress::git_env() } else { vec![] };
+    for (k, v) in &routes {
+        cmd.env(k, v);
+    }
+    cmd.process_tree().args(args).stdin(Io::Null)
         .env("GIT_TERMINAL_PROMPT", "0").env("GIT_ASKPASS", "true")
         .env("GCM_INTERACTIVE", "Never").env("SSH_ASKPASS", "true").env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes");
     let out = tokio::time::timeout(Duration::from_secs(secs), cmd.output()).await

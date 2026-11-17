@@ -142,7 +142,7 @@ impl GitHub {
         // Exit routes: an organization behind an IP allow list goes through its exit runner. An offline exit fails
         // here, before anything is sent (never DeliveryUncertain).
         let url = reqwest::Url::parse(&format!("{}{path}", self.api_origin)).context("invalid GitHub path")?;
-        let (http, _) = ROUTED.pick(&self.http, &url).map_err(|m| anyhow::anyhow!("GitHub {path}: {m}"))?;
+        let (http, via) = ROUTED.pick(&self.http, &url).map_err(|m| anyhow::anyhow!("GitHub {path}: {m}"))?;
         for attempt in 0..2 {
             let token = self.token(attempt > 0).await?;
             let mut req = http
@@ -155,7 +155,12 @@ impl GitHub {
             if let Some(body) = &body {
                 req = req.json(body);
             }
-            let res = req.send().await.map_err(send_error)?;
+            let res = match req.send().await {
+                Ok(r) => r,
+                // The exit refused or could not connect: nothing was sent, and the bridge says why.
+                Err(e) if via.is_some() && let Some(m) = crate::egress::refusal(&e) => bail!("GitHub {path}: {m}"),
+                Err(e) => return Err(send_error(e)),
+            };
             if res.status() == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
                 continue;
             }

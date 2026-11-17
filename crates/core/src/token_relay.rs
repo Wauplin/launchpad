@@ -106,7 +106,11 @@ pub async fn upstream(app: &App, runner_id: &str, lease_id: &str, host: &str, me
     } else {
         reqwest::Body::wrap_stream(body)
     };
-    let res = client.request(reqwest::Method::from_bytes(method.as_bytes())?, url).headers(out).body(body).send().await.with_context(|| host.to_string())?;
+    let res = match client.request(reqwest::Method::from_bytes(method.as_bytes())?, url).headers(out).body(body).send().await {
+        Ok(r) => r,
+        Err(e) if via.is_some() && let Some(m) = crate::egress::refusal(&e) => return Ok(text_reply(503, m)),
+        Err(e) => return Err(anyhow::Error::new(e).context(host.to_string())),
+    };
     let status = res.status().as_u16();
     let headers: Vec<(String, String)> = res.headers().iter().filter(|(k, _)| !crate::proxy::HOP.contains(&k.as_str())).filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string()))).collect();
     let (body, response_bytes): (ByteStream, Option<bytes::Bytes>) = if read_res {

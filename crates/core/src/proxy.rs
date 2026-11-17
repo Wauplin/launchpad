@@ -722,6 +722,7 @@ async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target:
     };
     let res = match client.request(m, url).headers(headers).body(body).send().await {
         Ok(r) => r,
+        Err(e) if via.is_some() && let Some(m) = crate::egress::refusal(&e) => return offline(host, &m),
         Err(e) => return full(StatusCode::BAD_GATEWAY, &format!("Launchpad proxy: {host}: {e}")),
     };
     let status = res.status().as_u16();

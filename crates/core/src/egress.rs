@@ -108,9 +108,12 @@ fn parse_prefix(u: &str) -> Result<reqwest::Url, String> {
         return Err(format!("{u}: no user, query or fragment"));
     }
     let host = url.host_str().unwrap_or_default();
-    let ip = host.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().is_ok();
-    if !(ip || crate::vault::dns_name(host)) {
+    let ip = host.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().ok();
+    if !(ip.is_some() || crate::vault::dns_name(host)) {
         return Err(format!("{u}: {host} is not a host name"));
+    }
+    if host == "localhost" || ip.is_some_and(exit_refuses) {
+        return Err(format!("{u}: an exit runner never opens its own loopback, link-local or metadata addresses"));
     }
     Ok(url)
 }
@@ -437,6 +440,15 @@ pub fn last_refusal(max_age_ms: i64) -> Option<String> {
     (crate::util::now_ms() - r.0 <= max_age_ms).then_some(r.2)
 }
 
+/// Why a request through the bridge could not connect: reqwest says only "unsuccessful tunnel", so this is the
+/// bridge's refusal of the last 10 seconds (the one message, or the exit's dial error), for a connect error only.
+pub fn refusal(e: &reqwest::Error) -> Option<String> {
+    if !e.is_connect() {
+        return None;
+    }
+    last_refusal(10_000)
+}
+
 /// The loopback CONNECT bridge (started on first use): its port and the secret of its proxy credentials.
 pub fn bridge() -> Result<(u16, String)> {
     let b = BRIDGE.get_or_init(|| {
@@ -449,7 +461,15 @@ pub fn bridge() -> Result<(u16, String)> {
             let s = secret.clone();
             tokio::spawn(async move {
                 loop {
-                    let Ok((stream, _)) = listener.accept().await else { continue };
+                    let stream = match listener.accept().await {
+                        Ok((stream, _)) => stream,
+                        Err(e) => {
+                            // Out of descriptors and the like: wait instead of spinning.
+                            tracing::debug!("exit bridge: accept: {e}");
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            continue;
+                        }
+                    };
                     let s = s.clone();
                     tokio::spawn(async move {
                         if let Err(e) = serve_bridge(stream, &s).await {
@@ -475,15 +495,12 @@ pub fn proxy_url(route: &str) -> Result<String> {
     Ok(format!("http://{route}:{secret}@127.0.0.1:{port}"))
 }
 
-/// Home's git: `-c` arguments that send each route's git prefixes to the bridge (offline routes too, so the bridge
-/// refuses them with the one message).
-pub fn git_args() -> Vec<String> {
-    let routes = states();
-    if routes.is_empty() {
-        return vec![];
-    }
-    let mut out = vec![];
-    for s in routes {
+/// Home's git: `GIT_CONFIG_COUNT`/`KEY_n`/`VALUE_n` variables that send each route's git prefixes to the bridge
+/// (offline routes too, so the bridge refuses them with the one message). Variables, not `-c`, so the bridge's secret
+/// never shows in a process list.
+pub fn git_env() -> Vec<(String, String)> {
+    let mut pairs = vec![];
+    for s in states() {
         let Ok(proxy) = proxy_url(&s.name) else { continue };
         let mut prefixes = vec![];
         match &s.github_org {
@@ -495,11 +512,17 @@ pub fn git_args() -> Vec<String> {
         }
         prefixes.dedup();
         for p in prefixes {
-            out.push("-c".into());
-            out.push(format!("http.{p}.proxy={proxy}"));
-            out.push("-c".into());
-            out.push(format!("http.{p}.proxyAuthMethod=basic"));
+            pairs.push((format!("http.{p}.proxy"), proxy.clone()));
+            pairs.push((format!("http.{p}.proxyAuthMethod"), "basic".to_string()));
         }
+    }
+    if pairs.is_empty() {
+        return vec![];
+    }
+    let mut out = vec![("GIT_CONFIG_COUNT".to_string(), pairs.len().to_string())];
+    for (i, (k, v)) in pairs.into_iter().enumerate() {
+        out.push((format!("GIT_CONFIG_KEY_{i}"), k));
+        out.push((format!("GIT_CONFIG_VALUE_{i}"), v));
     }
     out
 }
@@ -508,31 +531,96 @@ fn constant_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// A CONNECT target and the `route:secret` of its `Proxy-Authorization: Basic`.
-type Connect = (String, u16, Option<(String, String)>);
+/// A request to the bridge: its target, the `route:secret` of its `Proxy-Authorization: Basic`, and for a plain
+/// `http://` request (proxies get those in absolute form, not as CONNECT) its head rewritten for the destination.
+#[derive(Debug, PartialEq)]
+struct BridgeRequest {
+    host: String,
+    port: u16,
+    auth: Option<(String, String)>,
+    forward: Option<String>,
+}
 
-/// Parses a CONNECT head.
-fn parse_connect(head: &str) -> Option<Connect> {
-    let mut lines = head.split("\r\n");
-    let mut first = lines.next()?.split(' ');
-    if first.next()? != "CONNECT" {
-        return None;
-    }
-    let authority = first.next()?;
-    let (host, port) = authority.rsplit_once(':')?;
-    let port = port.parse().ok()?;
+/// Parses the head of a request to the bridge: `CONNECT host:port`, or `METHOD http://host[:port]/path`, whose head
+/// becomes origin-form without the proxy's headers and with `Connection: close` (one request per connection, so no
+/// later request on it goes to this destination).
+fn parse_head(head: &str) -> Option<BridgeRequest> {
+    let mut lines = head.trim_end_matches("\r\n").split("\r\n");
+    let first = lines.next()?;
+    let mut parts = first.split(' ');
+    let (method, target, version) = (parts.next()?, parts.next()?, parts.next()?);
     let mut auth = None;
+    let mut kept = vec![];
+    let mut has_host = false;
     for l in lines {
-        if let Some((k, v)) = l.split_once(':')
-            && k.trim().eq_ignore_ascii_case("proxy-authorization")
-            && let Some(b) = v.trim().strip_prefix("Basic ")
-        {
+        let (k, v) = l.split_once(':')?;
+        let k = k.trim().to_ascii_lowercase();
+        if k == "proxy-authorization" {
+            let b = v.trim().strip_prefix("Basic ")?;
             let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b.trim()).ok()?;
-            let text = String::from_utf8(decoded).ok()?;
-            auth = text.split_once(':').map(|(r, s)| (r.to_string(), s.to_string()));
+            auth = String::from_utf8(decoded).ok()?.split_once(':').map(|(r, s)| (r.to_string(), s.to_string()));
+        } else if !matches!(k.as_str(), "proxy-connection" | "connection" | "keep-alive") {
+            has_host |= k == "host";
+            kept.push(l);
         }
     }
-    Some((host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase(), port, auth))
+    let unbracket = |h: &str| h.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+    if method == "CONNECT" {
+        let (host, port) = target.rsplit_once(':')?;
+        return Some(BridgeRequest { host: unbracket(host), port: port.parse().ok()?, auth, forward: None });
+    }
+    let url = reqwest::Url::parse(target).ok()?;
+    if url.scheme() != "http" || !version.starts_with("HTTP/1.") {
+        return None;
+    }
+    let host = url.host_str()?;
+    let port = url.port_or_known_default()?;
+    let mut out = format!("{method} {}{} {version}\r\n", url.path(), url.query().map(|q| format!("?{q}")).unwrap_or_default());
+    if !has_host {
+        out.push_str(&match url.port() {
+            Some(p) => format!("Host: {host}:{p}\r\n"),
+            None => format!("Host: {host}\r\n"),
+        });
+    }
+    for l in kept {
+        out.push_str(l);
+        out.push_str("\r\n");
+    }
+    out.push_str("Connection: close\r\n\r\n");
+    Some(BridgeRequest { host: unbracket(host), port, auth, forward: Some(out) })
+}
+
+/// The answer of a forwarded request with `connection: close` added to its first head, so the client never sends
+/// another request on this connection.
+fn closing(down: ByteStream) -> ByteStream {
+    Box::pin(futures_util::stream::unfold((down, Some(Vec::<u8>::new())), |(mut down, mut head)| async move {
+        loop {
+            let Some(buf) = head.as_mut() else {
+                let part = down.next().await?;
+                return Some((part, (down, None)));
+            };
+            match down.next().await {
+                Some(Ok(part)) => {
+                    buf.extend_from_slice(&part);
+                    if let Some(i) = buf.windows(2).position(|w| w == b"\r\n") {
+                        let mut out = buf[..i + 2].to_vec();
+                        out.extend_from_slice(b"connection: close\r\n");
+                        out.extend_from_slice(&buf[i + 2..]);
+                        return Some((Ok(bytes::Bytes::from(out)), (down, None)));
+                    }
+                    if buf.len() > 16 * 1024 {
+                        let out = std::mem::take(buf);
+                        return Some((Ok(bytes::Bytes::from(out)), (down, None)));
+                    }
+                }
+                Some(Err(e)) => return Some((Err(e), (down, None))),
+                None => {
+                    let out = head.take().unwrap_or_default();
+                    return (!out.is_empty()).then(|| (Ok(bytes::Bytes::from(out)), (down, None)));
+                }
+            }
+        }
+    }))
 }
 
 async fn serve_bridge(mut stream: tokio::net::TcpStream, secret: &str) -> Result<()> {
@@ -552,34 +640,33 @@ async fn serve_bridge(mut stream: tokio::net::TcpStream, secret: &str) -> Result
     let head = String::from_utf8_lossy(&buf[..end]).to_string();
     let rest = buf[end..].to_vec();
     let answer = |status: &str, text: &str| format!("HTTP/1.1 {status}\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}", text.len());
-    let Some((host, port, auth)) = parse_connect(&head) else {
-        stream.write_all(answer("400 Bad Request", "Launchpad exit bridge: CONNECT host:port only").as_bytes()).await?;
+    let Some(BridgeRequest { host, port, auth, forward }) = parse_head(&head) else {
+        stream.write_all(answer("400 Bad Request", "Launchpad exit bridge: CONNECT host:port, or an http:// URL").as_bytes()).await?;
         return Ok(());
     };
     let route = match auth {
         Some((route, s)) if constant_eq(s.as_bytes(), secret.as_bytes()) => route,
         _ => {
-            stream.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\nproxy-authenticate: Basic realm=\"Launchpad exit\"\r\ncontent-length: 0\r\n\r\n").await?;
+            stream.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\nproxy-authenticate: Basic realm=\"Launchpad exit\"\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await?;
             return Ok(());
         }
     };
-    let refuse = |text: String| {
-        *LAST_REFUSAL.lock().unwrap_or_else(|p| p.into_inner()) = Some((crate::util::now_ms(), route.clone(), text.clone()));
-        text
-    };
     let (rd, mut wr) = stream.into_split();
+    let mut first = forward.clone().map(String::into_bytes).unwrap_or_default();
+    first.extend_from_slice(&rest);
     let mut upload = read_stream(rd);
-    if !rest.is_empty() {
-        let first: ByteStream = Box::pin(futures_util::stream::once(async move { Ok(bytes::Bytes::from(rest)) }));
+    if !first.is_empty() {
+        let first: ByteStream = Box::pin(futures_util::stream::once(async move { Ok(bytes::Bytes::from(first)) }));
         upload = Box::pin(first.chain(upload));
     }
     match carry(&route, &host, port, upload).await {
+        Ok(down) if forward.is_some() => write_stream(closing(down), wr).await,
         Ok(down) => {
             wr.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await?;
             write_stream(down, wr).await;
         }
-        Err(e) => {
-            let text = refuse(e);
+        Err(text) => {
+            *LAST_REFUSAL.lock().unwrap_or_else(|p| p.into_inner()) = Some((crate::util::now_ms(), route.clone(), text.clone()));
             wr.write_all(answer("503 Service Unavailable", &text).as_bytes()).await?;
         }
     }
@@ -653,12 +740,19 @@ pub async fn connect(route: &str, host: &str, port: u16) -> std::result::Result<
     Ok(ours)
 }
 
-/// Connects from this machine, for the exit: link-local and metadata addresses stay refused (`netcap::refused`);
-/// private and tailnet addresses are allowed, since reaching them is the point of a route.
+/// Addresses the exit never opens: link-local and metadata addresses (`netcap::refused`, on any port), and the
+/// exit machine's own loopback, where its daemons listen. Private and tailnet addresses are allowed, since reaching
+/// them is the point of a route.
+fn exit_refuses(ip: std::net::IpAddr) -> bool {
+    let ip = ip.to_canonical();
+    ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() || crate::netcap::refused(ip, 0)
+}
+
+/// Connects from this machine, for the exit (`exit_refuses`).
 async fn connect_tcp(host: &str, port: u16) -> std::result::Result<tokio::net::TcpStream, String> {
     let connect = async {
         let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host, port)).await?.collect();
-        let allowed: Vec<std::net::SocketAddr> = addrs.iter().copied().filter(|a| !crate::netcap::refused(a.ip(), a.port())).collect();
+        let allowed: Vec<std::net::SocketAddr> = addrs.iter().copied().filter(|a| !exit_refuses(a.ip())).collect();
         if allowed.is_empty() {
             return Err(std::io::Error::from_raw_os_error(libc::EACCES));
         }
@@ -669,8 +763,8 @@ async fn connect_tcp(host: &str, port: u16) -> std::result::Result<tokio::net::T
             let _ = s.set_nodelay(true);
             Ok(s)
         }
-        Ok(Err(e)) => Err(format!("errno {}: connect {host}:{port}: {e}", crate::netcap::errno_of(&e))),
-        Err(_) => Err(format!("errno {}: connect {host}:{port}: timed out", libc::ETIMEDOUT)),
+        Ok(Err(e)) => Err(format!("errno {}: {e}", crate::netcap::errno_of(&e))),
+        Err(_) => Err(format!("errno {}: timed out after 30 seconds", libc::ETIMEDOUT)),
     }
 }
 
@@ -729,6 +823,15 @@ struct Pending {
 static PENDING: std::sync::LazyLock<Mutex<HashMap<u64, Pending>>> = std::sync::LazyLock::new(Default::default);
 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
+/// Removes a pending dial when dropped.
+struct Forget(u64);
+
+impl Drop for Forget {
+    fn drop(&mut self) {
+        PENDING.lock().unwrap_or_else(|p| p.into_inner()).remove(&self.0);
+    }
+}
+
 /// Home: asks a route's exit to connect to `host:port` and returns its bytes; `upload` goes to the connection.
 /// Waits 30 seconds at most, less when the exit disconnects.
 pub async fn open(app: &App, route: &str, host: &str, port: u16, upload: ByteStream) -> Result<ByteStream> {
@@ -742,12 +845,16 @@ pub async fn open(app: &App, route: &str, host: &str, port: u16, upload: ByteStr
     let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let (tx, mut rx) = tokio::sync::oneshot::channel();
     PENDING.lock().unwrap_or_else(|p| p.into_inner()).insert(id, Pending { exit: exit.clone(), upload: Some(upload), tx });
+    // The dial goes with this call, also when its caller gives up (a cancelled exchange drops this future).
+    let _forget = Forget(id);
     app.runners.send_to(&exit, crate::runners::proto::ToRunner::Dial { id, route: route.into(), host: host.into(), port });
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
     let result = loop {
         tokio::select! {
-            r = &mut rx => break r.unwrap_or_else(|_| Err("the dial was dropped".into())),
+            r = &mut rx => break r
+                .unwrap_or_else(|_| Err("the dial was dropped".into()))
+                .map_err(|e| format!("runner {} could not connect to {host}:{port} (route {route}): {e}", s.exit)),
             _ = tick.tick() => {
                 if !app.runners.connected(&exit) {
                     break Err(offline_message(&s, host));
@@ -758,7 +865,6 @@ pub async fn open(app: &App, route: &str, host: &str, port: u16, upload: ByteStr
             }
         }
     };
-    PENDING.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
     match result {
         Ok(down) => {
             tracing::info!("exit route {route}: {host}:{port} through {}", s.exit);
@@ -922,7 +1028,7 @@ mod tests {
         assert!(validate(&[r("a", Some("a"), &["https://x.example/"], "x")]).is_err());
         assert!(validate(&[r("a", None, &[], "x")]).is_err());
         assert!(validate(&[r("a", Some("a"), &[], " ")]).is_err());
-        for bad in ["ftp://x.example/", "https://u:p@x.example/", "https://x.example/?a=1", "https://x.example/#f", "https://bad_host/"] {
+        for bad in ["ftp://x.example/", "https://u:p@x.example/", "https://x.example/?a=1", "https://x.example/#f", "https://bad_host/", "http://127.0.0.1:7320/", "http://localhost:3000/", "http://169.254.169.254/", "http://[::1]/"] {
             assert!(validate(&[r("a", None, &[bad], "x")]).is_err(), "{bad}");
         }
     }
@@ -941,11 +1047,27 @@ mod tests {
     }
 
     #[test]
-    fn connect_head() {
+    fn bridge_heads() {
         let auth = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "org:s3cret");
         let head = format!("CONNECT GitHub.com:443 HTTP/1.1\r\nHost: github.com:443\r\nProxy-Authorization: Basic {auth}\r\n\r\n");
-        assert_eq!(parse_connect(&head), Some(("github.com".into(), 443, Some(("org".into(), "s3cret".into())))));
-        assert_eq!(parse_connect("GET / HTTP/1.1\r\n\r\n"), None);
-        assert_eq!(parse_connect("CONNECT [::1]:22 HTTP/1.1\r\n\r\n"), Some(("::1".into(), 22, None)));
+        assert_eq!(parse_head(&head), Some(BridgeRequest { host: "github.com".into(), port: 443, auth: Some(("org".into(), "s3cret".into())), forward: None }));
+        assert_eq!(parse_head("GET / HTTP/1.1\r\n\r\n"), None);
+        assert_eq!(parse_head("GET https://x.example/ HTTP/1.1\r\n\r\n"), None);
+        assert_eq!(parse_head("CONNECT [::1]:22 HTTP/1.1\r\n\r\n").map(|r| (r.host, r.port, r.auth)), Some(("::1".into(), 22, None)));
+        // A plain http:// request: origin form, without the proxy's headers, one request per connection.
+        let get = format!("GET http://Grafana.ts.net:3000/api/health?x=1 HTTP/1.1\r\nhost: grafana.ts.net:3000\r\nproxy-authorization: Basic {auth}\r\nConnection: keep-alive\r\naccept: */*\r\n\r\n");
+        let r = parse_head(&get).unwrap();
+        assert_eq!((r.host.as_str(), r.port, r.auth.is_some()), ("grafana.ts.net", 3000, true));
+        assert_eq!(r.forward.as_deref(), Some("GET /api/health?x=1 HTTP/1.1\r\nhost: grafana.ts.net:3000\r\naccept: */*\r\nConnection: close\r\n\r\n"));
+        let r = parse_head("POST http://10.0.0.2/x HTTP/1.1\r\ncontent-length: 2\r\n\r\n").unwrap();
+        assert_eq!(r.forward.as_deref(), Some("POST /x HTTP/1.1\r\nHost: 10.0.0.2\r\ncontent-length: 2\r\nConnection: close\r\n\r\n"));
+    }
+
+    #[tokio::test]
+    async fn forwarded_answers_close() {
+        let parts = ["HTTP/1.1 200", " OK\r\nconnection: keep-alive\r\n\r\nhi"].map(|p| Ok(bytes::Bytes::from(p)));
+        let down: ByteStream = Box::pin(futures_util::stream::iter(parts));
+        let out: Vec<bytes::Bytes> = futures_util::TryStreamExt::try_collect(closing(down)).await.unwrap();
+        assert_eq!(String::from_utf8(out.concat()).unwrap(), "HTTP/1.1 200 OK\r\nconnection: close\r\nconnection: keep-alive\r\n\r\nhi");
     }
 }

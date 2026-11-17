@@ -278,6 +278,7 @@ impl ToolBox {
                 Ok(r) => r,
                 Err(e) if refused(&e) => return Err(permission(format!("tools.http refuses {host}: it resolves to an address that is not public"))),
                 Err(e) if e.is_timeout() || self.remaining().is_zero() => return Err(Reply::Stop { class: ErrorClass::Timeout, message: "the oracle's timeout passed during a call".into() }),
+                Err(e) if via.is_some() && let Some(m) = launchpad_core::egress::refusal(&e) => return Err(raise(ExcType::OSError, ErrorClass::Http, m)),
                 Err(e) => return Err(raise(ExcType::OSError, ErrorClass::Http, format!("{host}: {}", error_chain(&e)))),
             };
             let status = res.status().as_u16();
