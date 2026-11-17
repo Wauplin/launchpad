@@ -18,7 +18,7 @@ import { toast, toastError } from "@/components/Toast";
 import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, IconButton, Loading, MoreMenu, PageHeader, Tabs } from "@/components/ui";
 import { PatchView } from "@/components/diff/DiffReview";
 import { BotChat, BotModelChoice } from "@/features/chat/BotChat";
-import { NEW_THREAD, ThreadBar, ThreadList, useThreadRows, type ThreadRow } from "@/features/chat/BotThreads";
+import { ArchiveThreadButton, NEW_THREAD, ThreadBar, ThreadList, useThreadRows, type ThreadRow } from "@/features/chat/BotThreads";
 import { BotConversationRow } from "./BotConversationRow";
 import { ArchivedChannelRow, ChannelConversationRow } from "@/features/channels/ChannelRows";
 import { NewChannel } from "@/features/channels/NewChannel";
@@ -311,9 +311,12 @@ function BotPageOf({ id }: { id: string }) {
   const shownThread = rows.find((r) => r.t.id === threadId)?.t ?? null;
   const threadTitle = threadId === NEW_THREAD ? "New thread" : shownThread?.title ?? "Thread";
   const statusLine = <span className={`min-w-0 truncate ${status.tone}`} title={where && where.tone !== "quiet" ? where.title : undefined} data-tour="bots.status">{status.text}{where && where.tone !== "quiet" ? ` · ${where.label}` : ""}</span>;
+  // After an Archive (⋯ or the chat's own button), the most recent other thread shows, else a new one.
+  const afterArchive = () => selectThread(rows.find((r) => r.t.id !== threadId)?.t.id ?? NEW_THREAD);
   const menu = (close: () => void) => <BotMenu bot={bot} all={all} thread={thread} threadRow={rows.find((r) => r.t.id === threadId) ?? null} current={current} close={close}
     onEditFile={() => setFile("bot.toml")} onNewThread={() => selectThread(NEW_THREAD)} onRename={() => setRenaming(true)} onModel={() => setChoosing(true)}
-    onArchived={() => selectThread(rows.find((r) => r.t.id !== threadId)?.t.id ?? NEW_THREAD)} />;
+    onArchived={afterArchive} />;
+  const archiveThread = shownThread && threadId !== NEW_THREAD ? <ArchiveThreadButton bot={bot} thread={shownThread} sessions={thread} onDone={afterArchive} /> : null;
   const chat = <BotChat key={threadId} bot={bot} threadId={threadId} thread={thread} rotation={rotation} needsProfile={!profile} openSettings={() => setAbout(true)} onStep={setStep}
     onStarted={(s) => { const t = s.launch_spec.bot?.thread; if (t && t !== threadId) { void threads.refetch(); selectThread(t); } }}
     intro={<p className="m-0 text-[13px] text-ink-2">{threadId !== NEW_THREAD ? "This thread has no message yet." : rows.length ? `Send ${bot.settings.name} the first message of this new thread: it runs next to its other threads.` : `Send ${bot.settings.name} its first task.`}</p>} />;
@@ -326,7 +329,7 @@ function BotPageOf({ id }: { id: string }) {
   </>;
   const more = <MoreMenu label={`More actions for ${bot.settings.name}`} width={300}>{menu}</MoreMenu>;
   if (phone) {
-    const info = <><IconButton icon="plus" label="New thread" data-tour="bots.new-thread" onClick={() => selectThread(NEW_THREAD)} /><IconButton icon="comment" label={`Threads of ${bot.settings.name} (${rows.length})`} data-tour="bots.threads" onClick={() => setThreadsOpen(true)} /><IconButton icon="info" label={`About ${bot.settings.name}`} data-tour="bots.about" onClick={() => setAbout(true)} /></>;
+    const info = <><IconButton icon="plus" label="New thread" data-tour="bots.new-thread" onClick={() => selectThread(NEW_THREAD)} /><IconButton icon="comment" label={`Threads of ${bot.settings.name} (${rows.length})`} data-tour="bots.threads" onClick={() => setThreadsOpen(true)} />{archiveThread}<IconButton icon="info" label={`About ${bot.settings.name}`} data-tour="bots.about" onClick={() => setAbout(true)} /></>;
     // The chat's bar names the thread shown when the bot has others.
     const many = rows.length > 1 || (threadId === NEW_THREAD && rows.length > 0);
     return <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
@@ -348,7 +351,7 @@ function BotPageOf({ id }: { id: string }) {
         actions={<><button className={`btn btn-sm ${about ? "border-teal/40 bg-teal-soft text-teal-ink" : ""}`} aria-pressed={about} data-tour="bots.about" title={`What defines ${bot.settings.name}: BOT.md, triggers, memory, access and versions`} onClick={() => setAbout(!about)}><Icon name="info" size={12} />About</button>{more}</>} />
       {/* Always the split view, so the chat (and a draft in its message box) stays mounted when About opens or closes. */}
       <SplitView storageKey="launchpad.bot-about-width" sideLabel="About" initial={380} min={320} maxRatio={0.5} main={<div className="flex h-full min-h-0 flex-col">
-        <ThreadBar bot={bot} rows={rows} selected={threadId} onSelect={selectThread} />
+        <ThreadBar bot={bot} rows={rows} selected={threadId} onSelect={selectThread} archive={archiveThread} />
         {chat}
       </div>} side={about ? drawer : null} />
       {dialogs}

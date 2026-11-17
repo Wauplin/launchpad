@@ -2,21 +2,24 @@
 // channel, hook, agent or Telegram, one per routine run). The bot page shows one thread at a time (`?thread=`, the
 // only place that state lives); switching replaces the history entry, like tabs. On the laptop a bar under the
 // header: New thread first (one click), then the most recent threads, each with its state dot, then All threads
-// with a search; on the phone a New thread button and a sheet from the chat's bar. Rename and Archive are in the
-// page's ⋯.
+// with a search, and a quiet Archive of the thread shown at the end; on the phone a New thread button, a sheet and an
+// Archive button (with its confirmation in a popover) in the chat's bar. Rename and Archive are also in the page's ⋯.
 
 import { useQueryClient } from "@tanstack/react-query";
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import type { Bot } from "@/gen/Bot";
 import type { BotThread } from "@/gen/BotThread";
 import type { Session } from "@/gen/Session";
 import { ActionButton } from "@/components/ActionButton";
 import { Icon } from "@/components/Icon";
 import { Popover } from "@/components/Popover";
-import { FilterChip, FilterChips } from "@/components/ui";
+import { toastError } from "@/components/Toast";
+import { ConfirmButton, FilterChip, FilterChips, IconButton } from "@/components/ui";
+import { actionConfirm, runAction } from "@/lib/actions";
 import { botThread, threadState, useBotThreads, type BotState } from "@/lib/bots";
 import { age } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
+import { isRunning } from "@/lib/sessionStatus";
 
 /** The `?thread=` value of a thread the owner starts with their next message. */
 export const NEW_THREAD = "new";
@@ -45,7 +48,7 @@ export const ThreadDot = ({ state }: { state: BotState }) => <span className={`s
 const RECENT = 5;
 
 /** The laptop's thread bar under the header: New thread (one click), the most recent threads, then All threads. */
-export function ThreadBar({ bot, rows, selected, onSelect }: { bot: Bot; rows: ThreadRow[]; selected: string; onSelect: (thread: string) => void }) {
+export function ThreadBar({ bot, rows, selected, onSelect, archive }: { bot: Bot; rows: ThreadRow[]; selected: string; onSelect: (thread: string) => void; archive?: ReactNode }) {
   const shown = useMemo(() => {
     const recent = rows.slice(0, RECENT);
     const sel = rows.find((r) => r.t.id === selected);
@@ -54,7 +57,7 @@ export function ThreadBar({ bot, rows, selected, onSelect }: { bot: Bot; rows: T
   return <div className="flex min-h-10 flex-none items-center gap-1.5 border-b border-line-2 px-5 py-1.5" data-tour="bots.threads">
     {/* Shown pressed while the new thread is the one shown (its first message starts it). */}
     <button className={`btn btn-sm flex-none ${selected === NEW_THREAD ? "border-teal bg-teal-soft text-teal-ink" : ""}`} aria-pressed={selected === NEW_THREAD} title="Start a new thread: your next message starts it, next to the others" onClick={() => onSelect(NEW_THREAD)} data-tour="bots.new-thread"><Icon name="plus" size={12} />New thread</button>
-    <FilterChips label={`Threads of ${bot.settings.name}`} className="min-w-0 flex-1 flex-nowrap overflow-hidden">
+    <FilterChips label={`Threads of ${bot.settings.name}`} className="min-w-0 flex-1 flex-nowrap! overflow-hidden">
       {shown.map((r) => <FilterChip key={r.t.id} active={r.t.id === selected} title={`${r.t.title} · ${STATE_LABEL[r.state]}`} onClick={() => onSelect(r.t.id)}>
         <ThreadDot state={r.state} /><span className="max-w-[180px] truncate">{r.t.title}</span>
       </FilterChip>)}
@@ -62,6 +65,7 @@ export function ThreadBar({ bot, rows, selected, onSelect }: { bot: Bot; rows: T
     <Popover align="right" width={340} viewport label="All threads" trigger={({ open, toggle }) => <button className="btn btn-sm flex-none" aria-expanded={open} aria-haspopup="dialog" onClick={toggle}>All threads ({rows.length})</button>}>
       {(close) => <ThreadList bot={bot} rows={rows} selected={selected} onSelect={(t) => { close(); onSelect(t); }} />}
     </Popover>
+    {archive}
   </div>;
 }
 
@@ -102,3 +106,40 @@ const ThreadItem = memo(function ThreadItem({ r, active, onSelect }: { r: Thread
     <span className="flex-none text-[12px] text-ink-3">{r.state === "new" ? STATE_LABEL.new : `${STATE_LABEL[r.state]} · ${age(r.last)}`}</span>
   </button>;
 });
+
+/** Archive of the thread shown, in the chat itself (the same action as ⋯ → Archive this thread): on the laptop a quiet
+ * button at the end of the thread bar that asks inline (ConfirmButton); on the phone an icon of the chat's bar whose
+ * popover asks (it closes first: closing pops its history entry, so the page's switch to another thread stays). Disabled while the thread works. `onDone` runs after the lists refreshed (the page then shows another
+ * thread). */
+export function ArchiveThreadButton({ bot, thread, sessions, onDone }: { bot: Bot; thread: BotThread; sessions: Session[]; onDone: () => void }) {
+  const phone = usePhone();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const running = sessions.some(isRunning);
+  const params = { id: bot.id, thread: thread.id };
+  const consequence = actionConfirm("bot.thread-archive", params) ?? "Archives this thread and its open session.";
+  const archive = async () => {
+    setBusy(true);
+    try {
+      await runAction("bot.thread-archive", params, { archived: true });
+      await Promise.all([qc.invalidateQueries({ queryKey: ["bot-threads"] }), qc.invalidateQueries({ queryKey: ["sessions"] })]);
+      onDone();
+    } catch (e) { toastError(e); }
+    finally { setBusy(false); }
+  };
+  const title = running ? "Stop its turn first to archive this thread" : `Archive “${thread.title}”: ${consequence}`;
+  if (!phone)
+    return <span className="flex flex-none items-center" data-tour="bots.archive-thread">
+      <ConfirmButton className="btn-ghost text-ink-3" icon="archive" disabled={running || busy} title={title} consequence="Archive this thread?" confirmLabel="Archive" onConfirm={archive}>{busy ? "Archiving…" : "Archive"}</ConfirmButton>
+    </span>;
+  return <Popover align="right" width={300} viewport label="Archive this thread" trigger={({ open, toggle }) => <IconButton icon="archive" label={running ? title : "Archive this thread"} disabled={running || busy} aria-expanded={open} aria-haspopup="dialog" data-tour="bots.archive-thread" onClick={toggle} />}>
+    {(close) => <div className="grid gap-2 p-3" role="group" aria-live="polite">
+      <p className="m-0 text-[13px] font-semibold">Archive “{thread.title}”?</p>
+      <p className="m-0 text-[13px] text-ink-2">{consequence}</p>
+      <div className="flex justify-end gap-2">
+        <button type="button" className="btn btn-sm btn-ghost" onClick={close}>Cancel</button>
+        <button type="button" className="btn btn-sm btn-danger" autoFocus onClick={() => { close(); void archive(); }}><Icon name="archive" size={12} />Archive</button>
+      </div>
+    </div>}
+  </Popover>;
+}
