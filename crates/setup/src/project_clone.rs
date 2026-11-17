@@ -63,7 +63,16 @@ fn pick(pushed: &[Value], registered: &HashSet<String>) -> Vec<CloneSuggestion> 
 /// already in another workspace becomes a second folder.
 pub async fn clone_to_home(app: &App, input: &str, workspace_id: &str) -> Result<Project> {
     let (owner, repo) = parse_repo(input)?;
-    launchpad_core::projects::register_remote(app, &repo, &format!("https://github.com/{owner}/{repo}.git"), workspace_id).await
+    let result = launchpad_core::projects::register_remote(app, &repo, &format!("https://github.com/{owner}/{repo}.git"), workspace_id).await;
+    // An organization behind an IP allow list refuses Home's address, and git hides why: say it, so Clone from
+    // GitHub can offer an exit route (Settings → Home and runners → Exit routes).
+    if let Err(e) = &result
+        && !format!("{e:#}").contains("IP allow list")
+        && app.github.ip_allow_listed(&format!("{owner}/{repo}")).await
+    {
+        anyhow::bail!("{owner} has an IP allow list enabled: GitHub refuses Home's address. Send this organization's GitHub traffic through a runner that can reach it (an exit route). ({e:#})");
+    }
+    result
 }
 
 #[cfg(test)]

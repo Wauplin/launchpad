@@ -104,12 +104,21 @@ async fn git_with_input(app: &App, dir: &Path, args: &[&str], input: Option<Vec<
     if let Some(input) = input {
         cmd.stdin_bytes(input);
     }
-    cmd.process_tree().args(args).stdin(Io::Null)
+    // Exit routes: git sends each route's URL prefixes to the exit bridge by itself (`egress::git_args`).
+    let routes = if here(app) { crate::egress::git_args() } else { vec![] };
+    cmd.process_tree().args(&routes).args(args).stdin(Io::Null)
         .env("GIT_TERMINAL_PROMPT", "0").env("GIT_ASKPASS", "true")
         .env("GCM_INTERACTIVE", "Never").env("SSH_ASKPASS", "true").env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes");
     let out = tokio::time::timeout(Duration::from_secs(secs), cmd.output()).await
         .with_context(|| format!("git {} timed out after {secs} seconds", args.first().copied().unwrap_or_default()))??;
-    ensure!(out.status.success(), "git {}: {}", args.first().copied().unwrap_or_default(), String::from_utf8_lossy(&out.stderr).trim());
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        // git shows only "503 from proxy after CONNECT": the bridge's own refusal says why.
+        if !routes.is_empty() && stderr.contains("from proxy after CONNECT") && let Some(why) = crate::egress::last_refusal(60_000) {
+            bail!("git {}: {why}", args.first().copied().unwrap_or_default());
+        }
+        bail!("git {}: {}", args.first().copied().unwrap_or_default(), stderr.trim());
+    }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 

@@ -78,6 +78,9 @@ pub async fn serve(app: App, api: Router<Ctx>) -> Result<()> {
     let _ = ROUTER.set(router.clone());
     if app.paths.role == launchpad_core::role::Role::Runner {
         home_client::spawn(app.clone(), router.clone());
+    } else {
+        // Exit routes: the states of their exits, kept current for Home's own requests and the runners.
+        launchpad_core::egress::spawn(&app);
     }
     burst::spawn(server_for_burst.clone());
     retention::spawn(&app);

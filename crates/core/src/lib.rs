@@ -14,6 +14,7 @@ pub mod compose;
 pub mod config;
 pub mod db;
 pub mod drafts;
+pub mod egress;
 pub mod events;
 pub mod exec;
 pub mod git;
@@ -265,6 +266,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     std::fs::write(cfg.out_dir().join("actions.ts"), actions::typescript())?;
     predrafts::Predraft::export_all(cfg)?;
     config::Config::export_all(cfg)?;
+    egress::RouteState::export_all(cfg)?;
     burst::BurstOverview::export_all(cfg)?;
     mcp::McpServer::export_all(cfg)?;
     status::Status::export_all(cfg)?;

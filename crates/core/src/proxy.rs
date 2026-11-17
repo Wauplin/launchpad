@@ -43,6 +43,9 @@ pub struct Access {
     pub status: u16,
     /// What it did, when known: "opened PR #3421", "GraphQL mutation …".
     pub action: Option<String>,
+    /// The exit runner it went through (`egress`), when an exit route matched.
+    #[serde(default)]
+    pub via: Option<String>,
 }
 
 /// A lease held in memory for one session.
@@ -325,6 +328,23 @@ impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> Stream for 
 /// Opens a TCP connection to `host:port`: from this machine on a runner, from Home on Burst. Errors are errnos
 /// for the agent.
 async fn connect_out(host: &str, port: u16) -> std::result::Result<Box<dyn Stream>, i32> {
+    // A whole host of an exit route goes through its exit runner (`egress`); its exit connects directly.
+    match crate::egress::way_host(host, port) {
+        crate::egress::Way::Direct => {}
+        crate::egress::Way::Offline(m) => {
+            tracing::debug!("{host}:{port}: {m}");
+            return Err(libc::ENETUNREACH);
+        }
+        crate::egress::Way::Exit { route, .. } => {
+            return match crate::egress::connect(&route, host, port).await {
+                Ok(s) => Ok(Box::new(s)),
+                Err(e) => {
+                    tracing::debug!("{host}:{port} through route {route}: {e}");
+                    Err(libc::ENETUNREACH)
+                }
+            };
+        }
+    }
     if crate::home_link::burst().is_some() {
         return through_home(host, port).await.map(|s| Box::new(s) as Box<dyn Stream>);
     }
@@ -591,9 +611,21 @@ async fn intercept_tls<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin +
     Ok(())
 }
 
-static CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
-    reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).no_proxy().http1_only().build().expect("proxy HTTP client")
-});
+fn proxy_client(b: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    b.redirect(reqwest::redirect::Policy::none()).no_proxy().http1_only()
+}
+
+static CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| proxy_client(reqwest::Client::builder()).build().expect("proxy HTTP client"));
+
+/// The proxy's clients through exit routes (`egress`): the bridge carries the TLS stream to the exit runner, the
+/// token stays here.
+static ROUTED: crate::egress::Clients = crate::egress::Clients::new(proxy_client);
+
+fn offline(host: &str, message: &str) -> Response<Body> {
+    let mut r = full(StatusCode::SERVICE_UNAVAILABLE, &format!("Launchpad proxy: {host}: {message}\n"));
+    r.headers_mut().insert(hyper::header::CONTENT_TYPE, hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"));
+    r
+}
 
 pub(crate) const HOP: &[&str] = &["connection", "proxy-connection", "keep-alive", "proxy-authorization", "proxy-authenticate", "te", "trailer", "transfer-encoding", "upgrade", "host"];
 
@@ -676,7 +708,19 @@ async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target:
         reqwest::Body::wrap_stream(http_body_util::BodyDataStream::new(req.into_body()))
     };
     let Ok(m) = reqwest::Method::from_bytes(method.as_bytes()) else { return full(StatusCode::BAD_REQUEST, "bad method") };
-    let res = match CLIENT.request(m, url).headers(headers).body(body).send().await {
+    // Exit routes: the request goes through the route's exit runner, or is refused at once while it is offline.
+    let (client, via) = match ROUTED.pick(&CLIENT, &url) {
+        Ok(c) => c,
+        Err(message) => {
+            if credential.is_some()
+                && let (Some(active), Some(app)) = (&active, inner.app.get())
+            {
+                crate::contain::record_access(app, Access { at: crate::util::now_ms(), session_id: active.session_id.clone(), host: host.into(), method, path, status: 503, action: None, via: None });
+            }
+            return offline(host, &message);
+        }
+    };
+    let res = match client.request(m, url).headers(headers).body(body).send().await {
         Ok(r) => r,
         Err(e) => return full(StatusCode::BAD_GATEWAY, &format!("Launchpad proxy: {host}: {e}")),
     };
@@ -700,7 +744,7 @@ async fn forward(inner: &Inner, active: Option<Arc<Active>>, host: &str, target:
         && let (Some(active), Some(app)) = (active, inner.app.get())
     {
         let action = crate::vault::describe(host, &method, &path, request_bytes.as_deref(), response_bytes.as_deref());
-        crate::contain::record_access(app, Access { at: crate::util::now_ms(), session_id: active.session_id.clone(), host: host.into(), method, path, status, action });
+        crate::contain::record_access(app, Access { at: crate::util::now_ms(), session_id: active.session_id.clone(), host: host.into(), method, path, status, action, via });
     }
     out.body(body).unwrap_or_else(|e| full(StatusCode::BAD_GATEWAY, &format!("{e}")))
 }
@@ -759,7 +803,14 @@ async fn plain_http(req: Request<Incoming>) -> Response<Body> {
         }
     }
     let body = reqwest::Body::wrap_stream(http_body_util::BodyDataStream::new(req.into_body()));
-    match CLIENT.request(m, &url).headers(headers).body(body).send().await {
+    let client = match reqwest::Url::parse(&url) {
+        Ok(u) => match ROUTED.pick(&CLIENT, &u) {
+            Ok((c, _)) => c,
+            Err(message) => return offline(u.host_str().unwrap_or_default(), &message),
+        },
+        Err(e) => return full(StatusCode::BAD_REQUEST, &format!("bad target: {e}")),
+    };
+    match client.request(m, &url).headers(headers).body(body).send().await {
         Ok(res) => {
             let mut out = Response::builder().status(res.status().as_u16());
             for (k, v) in res.headers() {

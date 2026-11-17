@@ -86,6 +86,9 @@ fn safe_path(path: &str) -> bool {
     }
 }
 
+/// Home's GitHub client through exit routes (`status::http_client`'s settings).
+static ROUTED: crate::egress::Clients = crate::egress::Clients::new(|b| b.user_agent(concat!("launchpad/", env!("CARGO_PKG_VERSION"))).timeout(Duration::from_secs(20)));
+
 pub fn delivery_uncertain(e: &anyhow::Error) -> bool {
     e.downcast_ref::<DeliveryUncertain>().is_some()
 }
@@ -136,11 +139,14 @@ impl GitHub {
             let until = limit.retry_at.unwrap_or(0).max(if limit.remaining == 0 { limit.reset_at } else { 0 });
             anyhow::ensure!(crate::util::now_ms()/1000 >= until, "GitHub {resource} rate limit; retry after {until}");
         }
+        // Exit routes: an organization behind an IP allow list goes through its exit runner. An offline exit fails
+        // here, before anything is sent (never DeliveryUncertain).
+        let url = reqwest::Url::parse(&format!("{}{path}", self.api_origin)).context("invalid GitHub path")?;
+        let (http, _) = ROUTED.pick(&self.http, &url).map_err(|m| anyhow::anyhow!("GitHub {path}: {m}"))?;
         for attempt in 0..2 {
             let token = self.token(attempt > 0).await?;
-            let mut req = self
-                .http
-                .request(method.clone(), format!("{}{path}", self.api_origin))
+            let mut req = http
+                .request(method.clone(), url.clone())
                 .bearer_auth(&token)
                 .header("Accept", "application/vnd.github+json")
                 .header("User-Agent", "launchpad")
@@ -192,6 +198,20 @@ impl GitHub {
             });
         }
         bail!("GitHub {path}: unauthorized")
+    }
+
+    /// Whether GitHub refuses `owner/name` to this daemon's address because its organization has an IP allow list
+    /// (GitHub says so in the body of its 403, which git does not show). Read live, for the Clone offer.
+    pub async fn ip_allow_listed(&self, repo: &str) -> bool {
+        if !valid_repo(repo) {
+            return false;
+        }
+        let Ok(url) = reqwest::Url::parse(&format!("{}/repos/{repo}", self.api_origin)) else { return false };
+        let Ok((http, _)) = ROUTED.pick(&self.http, &url) else { return false };
+        let Ok(token) = self.token(false).await else { return false };
+        let res = http.get(url).bearer_auth(token).header("Accept", "application/vnd.github+json").header("User-Agent", "launchpad").timeout(Duration::from_secs(20)).send().await;
+        let Ok(res) = res else { return false };
+        res.status() == reqwest::StatusCode::FORBIDDEN && res.text().await.is_ok_and(|t| t.contains("IP allow list"))
     }
 
     pub async fn get(&self, path: &str) -> Result<Value> {

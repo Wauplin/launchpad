@@ -5,6 +5,9 @@
 //! - `Lease`: a request of a relayed lease (Burst): Home adds the token (`launchpad_core::token_relay`).
 //! - `Mcp`: a call to an MCP server of Home, through the gateway (`launchpad_core::mcp`).
 //! - `Tcp`: a connection of a Burst agent, which leaves from Home (`launchpad_core::token_relay::tcp`).
+//! - `Egress`: a runner's connection through an exit route: Home dials the exit and splices
+//!   (`launchpad_core::egress::for_runner`).
+//! - `Dialed`: the exit runner's end of a dial Home asked for (`launchpad_core::egress::dialed`).
 
 use axum::body::Body;
 use axum::http::{Request, header};
@@ -26,6 +29,8 @@ pub(crate) async fn run(s: Server, runner_id: String, id: u64, target: HttpTarge
         HttpTarget::Lease { lease_id, host } => launchpad_core::token_relay::upstream(&s.app, &runner_id, &lease_id, &host, &method, &path, headers, body).await,
         HttpTarget::Mcp { lease_id, server } => launchpad_core::mcp::gateway(&s.app, &runner_id, &lease_id, &server, &method, headers, body).await,
         HttpTarget::Tcp { host, port } => launchpad_core::token_relay::tcp(&s.app, &runner_id, &host, port, body).await,
+        HttpTarget::Egress { route, host, port } => launchpad_core::egress::for_runner(&s.app, &runner_id, &route, &host, port, body).await,
+        HttpTarget::Dialed { id } => launchpad_core::egress::dialed(&runner_id, id, &headers, body),
     };
     let out = s.app.runners.clone();
     let reply = result.unwrap_or_else(|e| {

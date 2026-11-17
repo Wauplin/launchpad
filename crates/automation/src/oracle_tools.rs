@@ -223,7 +223,10 @@ impl ToolBox {
         };
         log.call = format!("GET {}", shown(&url, t));
         match self.fetch(url, headers, credential).await {
-            Ok((status, body)) => {
+            Ok((status, body, via)) => {
+                if let Some(exit) = via {
+                    log.call = format!("{} via {exit}", log.call);
+                }
                 log.status = Some(status);
                 log.bytes = body.len() as u64;
                 Reply::Value(response(status, &body, self.calls.len()))
@@ -233,8 +236,11 @@ impl ToolBox {
     }
 
     /// GETs `url`, following redirects (each hop checked again), with the credential only on its own host. The
-    /// shared client resolves host names through `Checked`, so it connects only to the addresses it checked.
-    async fn fetch(&mut self, mut url: reqwest::Url, headers: Vec<(String, String)>, credential: Option<(String, String)>) -> Result<(u16, Vec<u8>), Reply> {
+    /// shared client resolves host names through `Checked`, so it connects only to the addresses it checked. A URL of
+    /// an exit route (`egress`) goes through its exit runner, which resolves and checks the host instead (Home's
+    /// public-address rule does not apply to it); while that exit is offline the call raises OSError. The answer's
+    /// last element names the exit of the last hop.
+    async fn fetch(&mut self, mut url: reqwest::Url, headers: Vec<(String, String)>, credential: Option<(String, String)>) -> Result<(u16, Vec<u8>, Option<String>), Reply> {
         let trusted = self.trusted_hosts().await;
         set_trusted(&trusted);
         let own = self.own_hosts();
@@ -245,12 +251,21 @@ impl ToolBox {
             if own.contains(&host) || own.iter().any(|o| host.strip_suffix('.') == Some(o.as_str())) {
                 return Err(permission(format!("tools.http does not call Home itself ({host})")));
             }
-            if let Ok(ip) = host.parse::<IpAddr>()
+            let (hop_client, via) = match launchpad_core::egress::way(&url) {
+                launchpad_core::egress::Way::Direct => (client.clone(), None),
+                launchpad_core::egress::Way::Offline(m) => return Err(raise(ExcType::OSError, ErrorClass::Http, m)),
+                launchpad_core::egress::Way::Exit { route, exit } => match ROUTED.pick(&client, &url) {
+                    Ok((c, _)) => (c, Some(exit)),
+                    Err(m) => return Err(raise(ExcType::OSError, ErrorClass::Http, format!("{m} (route {route})"))),
+                },
+            };
+            if via.is_none()
+                && let Ok(ip) = host.parse::<IpAddr>()
                 && !public_ip(ip)
             {
                 return Err(permission(format!("tools.http refuses {host}: not a public address")));
             }
-            let mut req = client.get(url.clone()).timeout(self.remaining());
+            let mut req = hop_client.get(url.clone()).timeout(self.remaining());
             for (k, v) in &headers {
                 req = req.header(k.as_str(), v.as_str());
             }
@@ -293,7 +308,7 @@ impl ToolBox {
                     Err(e) => return Err(raise(ExcType::OSError, ErrorClass::Http, format!("{host}: {}", error_chain(&e)))),
                 }
             }
-            return Ok((status, body));
+            return Ok((status, body, via));
         }
         Err(raise(ExcType::OSError, ErrorClass::Http, format!("more than {MAX_REDIRECTS} redirects")))
     }
@@ -462,6 +477,14 @@ impl reqwest::dns::Resolve for Checked {
         })
     }
 }
+
+/// The oracle client's settings without its resolver, for URLs of exit routes: Home never resolves a routed host,
+/// the exit does (and checks it against the route).
+fn routed_client(b: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    b.redirect(reqwest::redirect::Policy::none()).no_proxy().user_agent(concat!("Launchpad-Oracle/", env!("CARGO_PKG_VERSION")))
+}
+
+static ROUTED: launchpad_core::egress::Clients = launchpad_core::egress::Clients::new(routed_client);
 
 /// The one HTTP client of oracle tools: no proxy, no cookies, no redirects of its own (`fetch` follows them), the
 /// checking resolver. Built once, on a thread with a large stack (loading the system's root certificates recurses).
@@ -706,6 +729,7 @@ pub fn launchpad_path(op: &str, args: &Map<String, Value>, ws: &str) -> Result<S
         "activity.list" => "/api/activity".into(),
         "profiles.list" => "/api/context/profiles".into(),
         "presets.list" => "/api/context/presets".into(),
+        "egress.list" => "/api/context/egress".into(),
         "topics.list" => "/api/context/topics".into(),
         "topics.show" => format!("/api/context/topics?{}", q(&[("id", str_arg("topic")?)])),
         "oracle.list" => format!("/api/oracles/{ws}"),
@@ -1133,6 +1157,8 @@ mod tests {
     fn launchpad_commands_map_to_read_routes() {
         let args = |v: Value| -> Map<String, Value> { serde_json::from_value(v).unwrap() };
         assert_eq!(launchpad_path("sessions.list", &Map::new(), "w1").unwrap(), "/api/context/sessions");
+        assert_eq!(launchpad_path("egress.list", &Map::new(), "w1").unwrap(), "/api/context/egress");
+        assert!(launchpad_path("egress.list", &args(serde_json::json!({"route": "x"})), "w1").is_err());
         assert_eq!(launchpad_path("oracle.history", &args(serde_json::json!({"slug": "ci-red", "failed": true, "limit": 5})), "w1").unwrap(), "/api/oracles/w1/ci-red/evaluations?failed=true&limit=5");
         assert_eq!(launchpad_path("notes", &args(serde_json::json!({"repo": "a/b", "number": 3})), "w1").unwrap(), "/api/context/notes?repo=a%2Fb&number=3");
         assert!(launchpad_path("sessions.show", &args(serde_json::json!({"session_id": "../config"})), "w1").is_err());

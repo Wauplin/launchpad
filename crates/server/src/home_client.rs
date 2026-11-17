@@ -631,7 +631,8 @@ async fn serve(app: &App, router: &Router, out: &tokio::sync::mpsc::UnboundedSen
                             })?;
                         }
                     }
-                    Ok(ToRunner::Settings { worktrees_keep }) => {
+                    Ok(ToRunner::Settings { worktrees_keep, egress }) => {
+                        launchpad_core::egress::set_states(egress, home_link::load(&app.paths).map(|l| l.id));
                         if app.config.get().worktrees.keep != worktrees_keep {
                             app.config.update(|config| {
                                 config.worktrees.keep = worktrees_keep;
@@ -653,6 +654,8 @@ async fn serve(app: &App, router: &Router, out: &tokio::sync::mpsc::UnboundedSen
                     Ok(ToRunner::Spend { entries }) => launchpad_core::spend::apply_home(app, entries),
                     Ok(ToRunner::RenewLeases { login }) => launchpad_core::contain::renew_soon(app, &login),
                     Ok(ToRunner::Refuse { reason }) => return Ok(Some(reason)),
+                    // Home asks this runner, the exit of a route, to connect (`egress::dial`).
+                    Ok(ToRunner::Dial { id, route, host, port }) => { tokio::spawn(launchpad_core::egress::dial(id, route, host, port)); }
                     Ok(msg @ (ToRunner::HttpHead { .. } | ToRunner::HttpBody { .. } | ToRunner::HttpAck { .. } | ToRunner::HttpCancel { .. })) => http_from_home(msg),
                     Ok(ToRunner::WsOpen { id, path }) => crate::terminals::open_for_home(app, id, &path, out.clone()),
                     Ok(ToRunner::WsFrame { id, text, data }) => crate::terminals::frame_from_home(id, text, data),

@@ -209,6 +209,11 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
+    /// Exit routes with their exit runners' states: online or offline, since when (JSON).
+    Egress {
+        #[command(subcommand)]
+        command: ListOnly,
+    },
     /// Prompt presets (JSON).
     Presets {
         #[command(subcommand)]
@@ -1165,6 +1170,7 @@ async fn run() -> Result<()> {
         Command::Bots { command: ListOnly::List { workspace } } => context_command(&paths, "bots", workspace).await,
         Command::Profiles { command: ListOnly::List { .. } } => context_command(&paths, "profiles", None).await,
         Command::Presets { command: ListOnly::List { .. } } => context_command(&paths, "presets", None).await,
+        Command::Egress { command: ListOnly::List { .. } } => context_command(&paths, "egress", None).await,
         Command::Schedules { command: ListOnly::List { workspace } } => context_command(&paths, "schedules", workspace).await,
         Command::Sessions { command: Sessions::List { workspace } } => context_command(&paths, "sessions", workspace).await,
         Command::Sessions { command: Sessions::Show { session_id } } => context_command(&paths, &format!("sessions/{}", url_segment(&session_id)), None).await,

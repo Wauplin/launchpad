@@ -7,4 +7,8 @@ export type Access = { at: number, session_id: string, host: string, method: str
 /**
  * What it did, when known: "opened PR #3421", "GraphQL mutation …".
  */
-action: string | null, };
+action: string | null, 
+/**
+ * The exit runner it went through (`egress`), when an exit route matched.
+ */
+via: string | null, };

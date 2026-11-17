@@ -377,7 +377,7 @@ pub async fn gateway(app: &App, runner_id: &str, lease_id: &str, server: &str, m
     let res = r.send().await.with_context(|| format!("reach {}", s.name))?;
     let status = res.status().as_u16();
     for tool in calls {
-        crate::contain::record_access(app, crate::proxy::Access { at: now_ms(), session_id: req.session_id.clone(), host: format!("MCP {}", s.name), method: "tools/call".into(), path: tool, status, action: None });
+        crate::contain::record_access(app, crate::proxy::Access { at: now_ms(), session_id: req.session_id.clone(), host: format!("MCP {}", s.name), method: "tools/call".into(), path: tool, status, action: None, via: None });
     }
     let headers: Vec<(String, String)> = res.headers().iter().filter(|(k, _)| !crate::proxy::HOP.contains(&k.as_str()) && k.as_str() != "content-length").filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string()))).collect();
     let ctype = res.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();

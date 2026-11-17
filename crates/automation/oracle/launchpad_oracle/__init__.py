@@ -244,6 +244,7 @@ class _Launchpad:
         self.activity = _List("activity")
         self.profiles = _List("profiles")
         self.presets = _List("presets")
+        self.egress = _List("egress")
         self.sessions = _Sessions()
         self.topics = _Topics()
         self.oracle = _Oracle()

@@ -26,6 +26,8 @@ pub struct Config {
     pub profiles: Vec<Profile>,
     pub home: HomeConfig,
     pub runner: RunnerConfig,
+    /// Exit routes (`[[egress]]`): URLs that leave through one runner (`egress`). The owner's only (`egress.set`).
+    pub egress: Vec<crate::egress::ExitRoute>,
 }
 
 /// Runner role settings.
@@ -206,6 +208,7 @@ impl Config {
     pub fn validate(&self) -> Result<()> {
         self.server.bind.parse::<std::net::IpAddr>().context("server.bind must be an IP address")?;
         self.server.origin()?;
+        crate::egress::validate(&self.egress).map_err(anyhow::Error::msg)?;
         let mut ids = std::collections::HashSet::new();
         for v in &self.profiles {
             anyhow::ensure!(

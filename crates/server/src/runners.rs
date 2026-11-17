@@ -262,9 +262,9 @@ fn profiles(s: &Server) -> ToRunner {
     ToRunner::Profiles { profiles: s.app.config.get().profiles }
 }
 
-/// Home's settings that runners apply (Settings → Disk cleanup).
+/// Home's settings that runners apply (Settings → Disk cleanup) and the exit routes with their exits' states.
 fn settings(s: &Server) -> ToRunner {
-    ToRunner::Settings { worktrees_keep: s.app.config.get().worktrees.keep }
+    ToRunner::Settings { worktrees_keep: s.app.config.get().worktrees.keep, egress: launchpad_core::egress::states() }
 }
 
 const PING: std::time::Duration = std::time::Duration::from_secs(25);
@@ -349,12 +349,14 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
             _ = &mut writer => break,
             delivered = bus.recv() => {
                 // Workspaces and Git folders are Home's: every runner gets each new snapshot.
-                let (w, f, p) = match delivered {
-                    Ok(d) => (d.text.contains(r#""topic":"workspaces""#), d.text.contains(r#""topic":"projects""#), d.text.contains(r#""topic":"config""#)),
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => (true, true, true),
-                    Err(_) => (false, false, false),
+                let (w, f, p, e) = match delivered {
+                    Ok(d) => (d.text.contains(r#""topic":"workspaces""#), d.text.contains(r#""topic":"projects""#), d.text.contains(r#""topic":"config""#), d.text.contains(r#""topic":"egress""#)),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => (true, true, true, true),
+                    Err(_) => (false, false, false, false),
                 };
                 if p && (!send(profiles(&s)) || !send(settings(&s)) || !send(ToRunner::Spend { entries: launchpad_core::spend::for_runners(&s.app) })) { break }
+                // Exit routes and their exits' states (`egress`): every runner routes by them.
+                if e && !p && !send(settings(&s)) { break }
                 if w && !send(workspaces(&s).await) { break }
                 if f && let Some(f) = folders(&s).await && !send(f) { break }
             }

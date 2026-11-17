@@ -8,6 +8,7 @@ mod channels;
 mod code;
 mod connections;
 mod diagnostics;
+mod egress;
 mod ext;
 mod items;
 mod kb_http;
@@ -50,4 +51,5 @@ pub fn router() -> Router<Ctx> {
         .merge(diagnostics::router())
         .merge(ext::router())
         .merge(oracles::router())
+        .merge(egress::router())
 }

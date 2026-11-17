@@ -120,7 +120,7 @@ async fn access_of(app: &App, id: &str) -> Option<LaunchpadAccess> {
 fn admin_allows(method: &Method, path: &str) -> bool {
     if *method == Method::GET {
         let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-        const CLOSED: &[&str] = &["config", "devices", "terminals", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "connections", "outbox", "review-state", "topics", "plain", "kb", "knowledge", "code", "ext"];
+        const CLOSED: &[&str] = &["config", "devices", "terminals", "vault", "git", "handoff", "runners", "runner", "setup", "burst", "home", "connections", "outbox", "review-state", "topics", "plain", "kb", "knowledge", "code", "ext", "egress"];
         return p.first() == Some(&"api") && p.get(1).is_some_and(|a| !CLOSED.contains(a));
     }
     actions::find(method.as_str(), path).is_some_and(|a| a.access == ActionAccess::Admin)
@@ -388,7 +388,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
     }
     let get = *method == Method::GET;
     match (get, &p[1..]) {
-        (true, ["status"] | ["context", "profiles" | "presets" | "hops"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
+        (true, ["status"] | ["context", "profiles" | "presets" | "hops" | "egress"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
         // Runner updates are Launchpad-wide, like Home's (only `runner.update` and its cancel are admin actions).
         (false, ["runners", _, "update"]) => Shared,
@@ -693,7 +693,7 @@ mod tests {
         for path in ["/api/context/sessions", "/api/context/folders", "/api/context/notes", "/api/proposals", "/api/today", "/api/activity", "/api/predrafts"] {
             assert_eq!(names(&Method::GET, path), Listed, "{path}");
         }
-        for path in ["/api/context/presets", "/api/context/hops", "/api/status", "/api/settings/shared", "/api/context/health", "/api/logs", "/api/predrafts/resolve"] {
+        for path in ["/api/context/presets", "/api/context/hops", "/api/context/egress", "/api/status", "/api/settings/shared", "/api/context/health", "/api/logs", "/api/predrafts/resolve"] {
             assert_eq!(names(&Method::GET, path), Shared, "{path}");
         }
         // Lists of every workspace's records and other machines' state.
@@ -725,7 +725,7 @@ mod tests {
         }
         assert_eq!(tool_need(&Method::GET, "/api/context/sessions/s1"), Some(LaunchpadAccess::Read));
         // The owner's routes with secrets or machine state stay closed, whatever the access.
-        for path in ["/api/burst", "/api/runners", "/api/vault/leases", "/api/connections", "/api/connections/telegram/w1", "/api/home/backup", "/api/config"] {
+        for path in ["/api/burst", "/api/runners", "/api/vault/leases", "/api/connections", "/api/connections/telegram/w1", "/api/home/backup", "/api/config", "/api/egress"] {
             assert!(!admin_allows(&Method::GET, path), "{path}");
         }
     }
@@ -735,7 +735,7 @@ mod tests {
         for (m, path) in [(Method::PATCH, "/api/bots/b"), (Method::POST, "/api/bots/b/message"), (Method::POST, "/api/launch/crons"), (Method::DELETE, "/api/launch/crons/c"), (Method::POST, "/api/proposals/p/accept"), (Method::POST, "/api/sessions"), (Method::POST, "/api/sessions/s/input")] {
             assert!(admin_allows(&m, path), "{m} {path}");
         }
-        for (m, path) in [(Method::POST, "/api/suggestions/s/post"), (Method::POST, "/api/predrafts/p/publish"), (Method::POST, "/api/outbox/o/send"), (Method::POST, "/api/items/o/r/1/run-ci"), (Method::PUT, "/api/vault/entries/github"), (Method::POST, "/api/vault/entries/codex/refresh"), (Method::PUT, "/api/vault/tools/x"), (Method::PUT, "/api/config"), (Method::POST, "/api/terminals"), (Method::POST, "/api/sessions/s/resume-paid"), (Method::POST, "/api/sessions/s/paid-usage"), (Method::POST, "/api/devices/pair"), (Method::POST, "/api/runners/r/approve"), (Method::GET, "/api/vault"), (Method::GET, "/api/devices"), (Method::POST, "/api/home-git/f/merge"), (Method::POST, "/api/proposals/p/accept/"), (Method::POST, "/api/sessions//input")] {
+        for (m, path) in [(Method::POST, "/api/suggestions/s/post"), (Method::POST, "/api/predrafts/p/publish"), (Method::POST, "/api/outbox/o/send"), (Method::POST, "/api/items/o/r/1/run-ci"), (Method::PUT, "/api/vault/entries/github"), (Method::POST, "/api/vault/entries/codex/refresh"), (Method::PUT, "/api/vault/tools/x"), (Method::PUT, "/api/config"), (Method::POST, "/api/terminals"), (Method::POST, "/api/sessions/s/resume-paid"), (Method::POST, "/api/sessions/s/paid-usage"), (Method::POST, "/api/devices/pair"), (Method::POST, "/api/runners/r/approve"), (Method::GET, "/api/vault"), (Method::GET, "/api/devices"), (Method::POST, "/api/home-git/f/merge"), (Method::POST, "/api/proposals/p/accept/"), (Method::POST, "/api/sessions//input"), (Method::PUT, "/api/egress")] {
             assert!(!admin_allows(&m, path), "{m} {path}");
         }
         assert!(!admin_allows(&Method::GET, "/api/config"));

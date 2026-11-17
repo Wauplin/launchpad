@@ -117,6 +117,7 @@ class _Launchpad:
     activity: _List
     profiles: _List
     presets: _List
+    egress: _List
     sessions: _Sessions
     topics: _Topics
     oracle: _Oracle

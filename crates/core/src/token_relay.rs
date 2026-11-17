@@ -45,9 +45,18 @@ async fn lease(app: &App, runner_id: &str, lease_id: &str) -> Result<Lease> {
     Ok(l)
 }
 
-static CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
-    reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).http1_only().connect_timeout(std::time::Duration::from_secs(30)).build().expect("relay HTTP client")
-});
+fn relay_client(b: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    b.redirect(reqwest::redirect::Policy::none()).http1_only().connect_timeout(std::time::Duration::from_secs(30))
+}
+
+static CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| relay_client(reqwest::Client::builder()).build().expect("relay HTTP client"));
+
+/// The relay's clients through exit routes (`egress`).
+static ROUTED: crate::egress::Clients = crate::egress::Clients::new(relay_client);
+
+fn text_reply(status: u16, text: String) -> HttpReply {
+    HttpReply { status, headers: vec![("content-type".into(), "text/plain".into())], body: Box::pin(futures_util::stream::once(async move { Ok(bytes::Bytes::from(text)) })) }
+}
 
 /// Sends one relayed request to `https://<host><target>` with the lease's token for that host.
 #[allow(clippy::too_many_arguments)]
@@ -72,6 +81,15 @@ pub async fn upstream(app: &App, runner_id: &str, lease_id: &str, host: &str, me
     }
     crate::proxy::add_auth(&mut out, &mut url, &auth, &secret);
     let path = url.path().to_string();
+    // Exit routes: the token stays here, the exit only carries the TLS stream. An offline exit answers at once.
+    let (client, via) = match ROUTED.pick(&CLIENT, &url) {
+        Ok(c) => c,
+        Err(message) => {
+            let access = crate::proxy::Access { at: crate::util::now_ms(), session_id: lease.session_id.clone(), host: host.into(), method: method.into(), path, status: 503, action: None, via: None };
+            crate::contain::record_access(app, access);
+            return Ok(text_reply(503, message));
+        }
+    };
     let (read_req, read_res) = crate::proxy::wants_body(host, method, &path);
     let sign = crate::attribution::signs_github(host, method, &path);
     let mut request_bytes = None;
@@ -88,7 +106,7 @@ pub async fn upstream(app: &App, runner_id: &str, lease_id: &str, host: &str, me
     } else {
         reqwest::Body::wrap_stream(body)
     };
-    let res = CLIENT.request(reqwest::Method::from_bytes(method.as_bytes())?, url).headers(out).body(body).send().await.with_context(|| host.to_string())?;
+    let res = client.request(reqwest::Method::from_bytes(method.as_bytes())?, url).headers(out).body(body).send().await.with_context(|| host.to_string())?;
     let status = res.status().as_u16();
     let headers: Vec<(String, String)> = res.headers().iter().filter(|(k, _)| !crate::proxy::HOP.contains(&k.as_str())).filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string()))).collect();
     let (body, response_bytes): (ByteStream, Option<bytes::Bytes>) = if read_res {
@@ -99,7 +117,7 @@ pub async fn upstream(app: &App, runner_id: &str, lease_id: &str, host: &str, me
         (Box::pin(res.bytes_stream().map(|r| r.map_err(std::io::Error::other))), None)
     };
     let action = crate::vault::describe(host, method, &path, request_bytes.as_deref(), response_bytes.as_deref());
-    let access = crate::proxy::Access { at: crate::util::now_ms(), session_id: lease.session_id.clone(), host: host.into(), method: method.into(), path, status, action };
+    let access = crate::proxy::Access { at: crate::util::now_ms(), session_id: lease.session_id.clone(), host: host.into(), method: method.into(), path, status, action, via };
     crate::contain::record_access(app, access);
     Ok(HttpReply { status, headers, body })
 }
@@ -109,6 +127,16 @@ pub async fn upstream(app: &App, runner_id: &str, lease_id: &str, host: &str, me
 pub async fn tcp(app: &App, runner_id: &str, host: &str, port: u16, body: ByteStream) -> Result<HttpReply> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     anyhow::ensure!(crate::runners::is_burst(app, runner_id).await, "errno {}: only Burst runners send their traffic through Home", libc::EACCES);
+    // A whole host of an exit route goes through its exit, which checks the target: Home neither resolves it nor
+    // applies its public-address rule.
+    match crate::egress::way_host(host, port) {
+        crate::egress::Way::Direct => {}
+        crate::egress::Way::Offline(m) => anyhow::bail!("errno {}: {m}", libc::ENETUNREACH),
+        crate::egress::Way::Exit { route, .. } => {
+            let down = crate::egress::open(app, &route, host, port, body).await.map_err(|e| anyhow::anyhow!("errno {}: {e:#}", libc::ENETUNREACH))?;
+            return Ok(HttpReply { status: 200, headers: vec![], body: down });
+        }
+    }
     let addrs: Vec<std::net::SocketAddr> = match host.parse::<std::net::IpAddr>() {
         Ok(ip) => vec![std::net::SocketAddr::new(ip, port)],
         Err(_) => tokio::net::lookup_host((host, port)).await.map_err(|e| anyhow::anyhow!("errno {}: {host}: {e}", libc::EHOSTUNREACH))?.collect(),

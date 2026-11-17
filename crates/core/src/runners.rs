@@ -588,6 +588,13 @@ pub mod proto {
         /// A TCP connection Home opens to a public address for a Burst runner (its agents' traffic): status 200
         /// once connected, then the request body goes to the connection and its bytes come back as the answer.
         Tcp { host: String, port: u16 },
+        /// A connection through an exit route (`egress`), from a runner that is not the route's exit: Home dials the
+        /// exit and splices both streams (status 200 once connected, 503 with the message when refused).
+        Egress { route: String, host: String, port: u16 },
+        /// The far end of Home's `ToRunner::Dial`, from the exit runner: its request body is the bytes from the
+        /// destination, Home's answer body the bytes to send there. Header `x-launchpad-dial-error` when the exit
+        /// could not connect.
+        Dialed { id: u64 },
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -656,7 +663,15 @@ pub mod proto {
         Profiles { profiles: Vec<crate::config::Profile> },
         /// Home's settings a runner applies to its own work: how many idle task worktrees it keeps (`[worktrees] keep`,
         /// Settings → Disk cleanup), on connect and after each change.
-        Settings { worktrees_keep: u32 },
+        Settings {
+            worktrees_keep: u32,
+            /// The exit routes with their exits' states (`egress`), also after each change.
+            #[serde(default)]
+            egress: Vec<crate::egress::RouteState>,
+        },
+        /// The exit runner of a route connects to `host:port` and answers with an `HttpTarget::Dialed { id }`
+        /// exchange (`egress::dial`).
+        Dial { id: u64, route: String, host: String, port: u16 },
         /// Entries of Home's spending ledger (`spend.rs`): all that runners need on connect and after a
         /// configuration change, each new one as Home stores it.
         Spend { entries: Vec<crate::spend::Entry> },
