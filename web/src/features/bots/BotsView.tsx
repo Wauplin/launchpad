@@ -661,7 +661,7 @@ function AccessSection({ bot }: { bot: Bot }) {
     `${access.label.toLowerCase()}${(s.proposals ?? "manual") === "auto" ? " (auto proposals)" : ""}`,
     tools.length ? tools.map((t) => t.name).join(", ") : "no tools",
     `up to ${s.max_threads ?? 16} threads at once`,
-    s.publish_drafts ? "publishes draft pull requests when you ask" : null,
+    s.publish_drafts ? "publishes draft pull requests" : null,
   ].filter(Boolean);
   return <Section title="Access" tour="bots.settings" action={!editing && <button className="btn btn-sm" onClick={() => setEditing(true)}><Icon name="pencil" size={12} />Edit</button>}>
     {bot.folder_unused && <p className="m-0 rounded-control bg-attn-soft px-2 py-1 text-[12px] text-attn" data-tour="bots.plain-folder">{bot.folder_unused}</p>}
@@ -748,7 +748,7 @@ function SettingsForm({ bot, onClose }: { bot: Bot; onClose: () => void }) {
     </label>
     <label className="flex items-start gap-2 text-[12px] text-ink-2">
       <input type="checkbox" className="mt-0.5" checked={!!s.publish_drafts} onChange={(e) => setS({ ...s, publish_drafts: e.target.checked || undefined })} />
-      <span><span className="font-semibold">Publish draft pull requests</span><br /><span className="text-ink-3">When your own message asks it, it publishes its own Local PRs as draft pull requests on GitHub, as you, at the commit it checked. Never from a routine, hook, channel or another agent's message; marking one ready for review and merging stay yours.</span></span>
+      <span><span className="font-semibold">Publish draft pull requests</span><br /><span className="text-ink-3">It publishes its own Local PRs as draft pull requests on GitHub, as you, at the commit it checked, when its instructions say so (asked by you or another bot). Marking one ready for review and merging stay yours.</span></span>
     </label>
     <div className="grid gap-1">
       <span className="text-[12px] font-semibold text-ink-2">Default tools</span>

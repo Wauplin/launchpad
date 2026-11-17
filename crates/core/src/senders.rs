@@ -85,44 +85,6 @@ pub async fn hops_of(app: &App, session_id: &str) -> u32 {
     }
 }
 
-/// Home: whether the session's current turn answers the owner's own message: its last delivered message (else its
-/// launch) has no other sender. A routine run, a hook, a channel, a wake-up or another agent's message is not the owner
-/// asking; what only the owner may ask for in a turn checks it (`predrafts::agent_publish_refusal`).
-pub async fn owner_asked(app: &App, session_id: &str) -> bool {
-    let id = session_id.to_string();
-    let rows: Vec<String> = app
-        .state_db
-        .call(move |c| {
-            let mut q = c.prepare("SELECT json FROM session_event WHERE session_id = ?1 AND kind IN ('user_message', 'message_delivered') ORDER BY seq DESC LIMIT 40")?;
-            let rows = q.query_map([id], |r| r.get(0))?.collect::<Result<Vec<String>, _>>()?;
-            Ok(rows)
-        })
-        .await
-        .unwrap_or_default();
-    let events: Vec<EventBody> = rows.iter().filter_map(|j| serde_json::from_str(j).ok()).collect();
-    let last = answered_owner(&events);
-    match last {
-        Some(owner) => owner,
-        None => app.sessions.get(session_id).is_some_and(|s| s.launch_spec.from.is_none() && s.launch_spec.routine.is_none()),
-    }
-}
-
-/// Pure: whether the newest message the agent received (events newest first) is the owner's; a queued message
-/// counts once delivered. None: no message yet.
-fn answered_owner(events: &[EventBody]) -> Option<bool> {
-    let mut delivered = std::collections::HashSet::new();
-    for e in events {
-        match e {
-            EventBody::MessageDelivered { client_id } => {
-                delivered.insert(client_id.as_str());
-            }
-            EventBody::UserMessage { queued, client_id, from, .. } if !queued || delivered.contains(client_id.as_str()) => return Some(from.is_none()),
-            _ => {}
-        }
-    }
-    None
-}
-
 /// Home: the sender of a message an agent session sends (its bot, else the session), from Home's record of it, one
 /// hop after the message its turn answers. Refused past the loop guard.
 pub async fn agent(app: &App, session_id: &str) -> Result<MessageFrom> {
@@ -187,19 +149,6 @@ pub fn delivered(body: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn owner_asked_reads_the_newest_delivered_message() {
-        let msg = |id: &str, queued, from: Option<SenderKind>| EventBody::UserMessage { text: String::new(), client_id: id.into(), queued, images: vec![], from: from.map(|kind| MessageFrom { kind, hops: 1, ..Default::default() }) };
-        let delivered = |id: &str| EventBody::MessageDelivered { client_id: id.into() };
-        assert_eq!(answered_owner(&[]), None);
-        // Newest first: the owner's message, after a routine run.
-        assert_eq!(answered_owner(&[msg("b", false, None), msg("a", false, Some(SenderKind::Routine))]), Some(true));
-        assert_eq!(answered_owner(&[msg("b", false, Some(SenderKind::Hook)), msg("a", false, None)]), Some(false));
-        // The owner's message still queued behind a bot's turn is not what the turn answers; once delivered it is.
-        assert_eq!(answered_owner(&[msg("b", true, None), msg("a", false, Some(SenderKind::Bot))]), Some(false));
-        assert_eq!(answered_owner(&[delivered("b"), msg("b", true, None), msg("a", false, Some(SenderKind::Bot))]), Some(true));
-    }
 
     #[test]
     fn fences_are_longer_than_any_backtick_run() {

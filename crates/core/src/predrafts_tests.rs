@@ -73,16 +73,15 @@ fn a_branch_contained_in_its_base_reads_as_merged() {
 }
 
 #[test]
-fn bots_publish_only_their_own_drafts_when_the_owner_asked() {
+fn bots_publish_only_their_own_drafts() {
     use super::publish_refusal;
     let draft = serde_json::json!({"remote_branch": "fix", "draft": true, "head": "abc"});
-    assert_eq!(publish_refusal(true, true, &draft, true), None);
-    // Not turned on, another bot's Local PR, or a turn a routine, hook or agent started.
-    assert!(publish_refusal(false, true, &draft, true).is_some());
-    assert!(publish_refusal(true, false, &draft, true).is_some());
-    assert!(publish_refusal(true, true, &draft, false).is_some());
+    assert_eq!(publish_refusal(true, true, &draft), None);
+    // Not turned on, or another bot's Local PR.
+    assert!(publish_refusal(false, true, &draft).is_some());
+    assert!(publish_refusal(true, false, &draft).is_some());
     // Ready for review or from a fork stays the owner's.
-    assert!(publish_refusal(true, true, &serde_json::json!({"remote_branch": "fix", "draft": false, "head": "abc"}), true).is_some());
-    assert!(publish_refusal(true, true, &serde_json::json!({"remote_branch": "fix", "head": "abc"}), true).is_some());
-    assert!(publish_refusal(true, true, &serde_json::json!({"remote_branch": "fix", "draft": true, "fork": true, "head": "abc"}), true).is_some());
+    assert!(publish_refusal(true, true, &serde_json::json!({"remote_branch": "fix", "draft": false, "head": "abc"})).is_some());
+    assert!(publish_refusal(true, true, &serde_json::json!({"remote_branch": "fix", "head": "abc"})).is_some());
+    assert!(publish_refusal(true, true, &serde_json::json!({"remote_branch": "fix", "draft": true, "fork": true, "head": "abc"})).is_some());
 }

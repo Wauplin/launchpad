@@ -639,10 +639,9 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
 }
 /// Home: why an agent may not publish Local PR `id` with this `launchpad pr publish` request (`POST
 /// /api/predrafts/{id}/publish`, checked by `agent_auth` before `publish`). Only a thread of a bot whose owner turned
-/// on `publish_drafts` in its bot.toml publishes, only a Local PR of one of that bot's sessions, only as a draft from
-/// the folder's own remote, and only in a turn that answers the owner's own message (`senders::owner_asked`): a
-/// routine, hook, channel or another agent never makes it publish. `publish` then checks the reviewed head like the
-/// owner's Publish.
+/// on `publish_drafts` in its bot.toml publishes, only a Local PR of one of that bot's sessions and only as a draft
+/// from the folder's own remote. When to publish is the bot's call, from its instructions (whoever asked it).
+/// `publish` then checks the reviewed head like the owner's Publish.
 pub async fn agent_publish_refusal(app: &App, session_id: &str, id: &str, body: &Value) -> Result<()> {
     let s = app.sessions.get(session_id).context("Home has no record of this session")?;
     let bot = match &s.launch_spec.bot {
@@ -653,23 +652,20 @@ pub async fn agent_publish_refusal(app: &App, session_id: &str, id: &str, body: 
     let p = get(app, id).await?;
     let author_bot = p.session_id.as_deref().and_then(|a| app.sessions.get(a)).and_then(|a| a.launch_spec.bot).map(|b| b.id);
     let own = bot.as_ref().is_some_and(|b| author_bot.as_deref() == Some(b.id.as_str()));
-    let owner_asked = crate::senders::owner_asked(app, session_id).await;
-    if let Some(why) = publish_refusal(allowed, own, body, owner_asked) {
+    if let Some(why) = publish_refusal(allowed, own, body) {
         anyhow::bail!("{why}");
     }
     Ok(())
 }
 
 /// Pure: `agent_publish_refusal`'s decision.
-fn publish_refusal(allowed: bool, own: bool, body: &Value, owner_asked: bool) -> Option<&'static str> {
+fn publish_refusal(allowed: bool, own: bool, body: &Value) -> Option<&'static str> {
     if !allowed {
         Some("only a bot whose owner turned on Publish drafts (`publish_drafts = true` in bot.toml, on the bot's page: About → Access) publishes Local PRs; ask the owner to publish it, or file a ready card with `launchpad propose ready` (action local-pr.publish)")
     } else if !own {
         Some("a bot publishes only the Local PRs of its own sessions")
     } else if body["draft"] != Value::Bool(true) || body["fork"] == Value::Bool(true) {
         Some("a bot publishes only draft pull requests from the folder's own remote (draft: true, no fork); the owner marks it ready for review")
-    } else if !owner_asked {
-        Some("a bot publishes only in a turn that answers the owner's own message: a routine run, hook, channel or another agent's message never publishes")
     } else {
         None
     }
