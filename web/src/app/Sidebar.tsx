@@ -1,4 +1,5 @@
 import { useKnowledgeUnseen } from "@/lib/knowledge";
+import { botTone } from "@/components/BotAvatar";
 import { useChannelAsks, useTodayCount } from "@/features/today/data";
 import { botInitial, botState, botThread, threadSummary, useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
@@ -122,12 +123,12 @@ const BotLink = memo(function BotLink({ bot, thread, narrow }: { bot: Bot; threa
   const needs = threadSummary(thread).needs;
   if (narrow) return (
     <Link to="/bots/$id" params={{ id: bot.id }} title={bot.settings.name} aria-label={bot.settings.name} className="mx-auto grid size-[31px] flex-none place-items-center rounded-control no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)]" }}>
-      <span className="relative grid size-[18px] place-items-center rounded-sm bg-teal-soft text-[11px] font-semibold text-teal-ink">{botInitial(bot.settings.name)}<Corner mark={state === "needs" || state === "paused" || state === "running" ? state : null} /></span>
+      <span className={`relative grid size-[18px] place-items-center rounded-sm text-[11px] font-semibold ${botTone(bot.settings.name)}`}>{botInitial(bot.settings.name)}<Corner mark={state === "needs" || state === "paused" || state === "running" ? state : null} /></span>
     </Link>
   );
   return (
     <Link to="/bots/$id" params={{ id: bot.id }} className="flex h-[28px] items-center gap-2 rounded-control px-[9px] text-[13px] text-ink no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)] font-semibold" }}>
-      <span className="grid size-[16px] flex-none place-items-center rounded-sm bg-teal-soft text-[11px] font-semibold text-teal-ink" aria-hidden>{botInitial(bot.settings.name)}</span>
+      <span className={`grid size-[16px] flex-none place-items-center rounded-sm text-[11px] font-semibold ${botTone(bot.settings.name)}`} aria-hidden>{botInitial(bot.settings.name)}</span>
       <span className="min-w-0 flex-1 truncate">{bot.settings.name}</span>
       {state === "needs" && (needs > 1 ? <Count n={needs} needs title={`${needs} threads need you`} /> : <span className="size-[7px] rounded-full bg-attn" title="Needs you" />)}
       {state === "paused" && <span className="size-[7px] rounded-full border border-attn" title="Quota paused" />}

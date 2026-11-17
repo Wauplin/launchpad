@@ -37,6 +37,24 @@
   --color-demo: #6f42c1;
   --color-demo-soft: #f1eafc;
 
+  /* Identity colors of bots in chats and lists (lib/bots.ts identityTone): a soft background and its ink. */
+  --color-id-0: #0a5c52;
+  --color-id-0-soft: #e2f1ee;
+  --color-id-1: #1d5596;
+  --color-id-1-soft: #e3eefb;
+  --color-id-2: #5b3aa3;
+  --color-id-2-soft: #efe8fb;
+  --color-id-3: #9c2a4b;
+  --color-id-3-soft: #fbe6ec;
+  --color-id-4: #7a4e12;
+  --color-id-4-soft: #f7ecdc;
+  --color-id-5: #2c6a2e;
+  --color-id-5-soft: #e4f3e4;
+  --color-id-6: #155e75;
+  --color-id-6-soft: #e0f0f6;
+  --color-id-7: #8e3f22;
+  --color-id-7-soft: #f7e8e1;
+
   /* Sizes (CLAUDE.md, UI rules): text only 11/12/13/15/18 px as text-[Npx] (Tailwind's text-xs… are removed here, so
      they do nothing; `pnpm ui-check` lists them), corners rounded-control (6 px: buttons, fields, menu items) and
      rounded-card (10 px: cards, panels, dialogs), page bodies max-w-page and reading columns max-w-text. */
@@ -84,6 +102,22 @@
   --color-danger-ink: #ff939a;
   --color-demo: #c3a0ff;
   --color-demo-soft: #2c2142;
+  --color-id-0: #79d7c6;
+  --color-id-0-soft: #14332e;
+  --color-id-1: #8cbcf5;
+  --color-id-1-soft: #172c46;
+  --color-id-2: #c3a8f3;
+  --color-id-2-soft: #2a2142;
+  --color-id-3: #f19bb5;
+  --color-id-3-soft: #3a1d27;
+  --color-id-4: #e2bc78;
+  --color-id-4-soft: #33270f;
+  --color-id-5: #93d596;
+  --color-id-5-soft: #18301b;
+  --color-id-6: #7fd0e8;
+  --color-id-6-soft: #12303a;
+  --color-id-7: #eda68a;
+  --color-id-7-soft: #3a2219;
 }
 
 :root {

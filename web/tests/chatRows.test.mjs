@@ -102,6 +102,20 @@ test("a message from another bot shows its sender, without Home's header and fen
   assert.equal(senderLine(channel), "#release-train · Release");
 });
 
+test("a sender's header names it and its provenance; each name keeps one identity color", async () => {
+  const { senderParts } = await import("../src/lib/senders.ts");
+  const { identityTone, initialOf, IDENTITY_TONES } = await import("../src/lib/identity.ts");
+  assert.deepEqual(senderParts({ kind: "bot", id: "b2", name: "Scout", hops: 1 }), { name: "Scout", tag: "bot · not from you" });
+  assert.deepEqual(senderParts({ kind: "session", id: "s", name: "", hops: 1 }), { name: "An agent", tag: "agent · not from you" });
+  assert.deepEqual(senderParts({ kind: "bot", id: "b2", name: "Scout", hops: 1, card: "p1", accepted: true }), { name: "Scout", tag: "bot · card accepted by you" });
+  assert.deepEqual(senderParts({ kind: "channel", id: "c1", name: "#release-train", by: "Release", hops: 2 }), { name: "Release", tag: "in #release-train" });
+  assert.equal(identityTone("Scout"), identityTone("  scout "));
+  const tones = new Set(["Ask Launchpad", "Librarian", "Scout", "Release", "Docs", "Hubert.js Bot", "Hubert.py Bot", "Triage"].map(identityTone));
+  assert.ok(tones.size >= 4 && [...tones].every((t) => t >= 0 && t < IDENTITY_TONES));
+  assert.equal(initialOf(" élan"), "É");
+  assert.equal(initialOf("", "B"), "B");
+});
+
 test("a turn's changes become receipts on its steps line; a turn without one keeps them as rows", () => {
   const cards = [
     { kind: "changed", id: "bot4", session_id: "a", at: 90, v: "", text: "Created memory/checkout.md · +3 −0", receipt: "noted in its memory" },

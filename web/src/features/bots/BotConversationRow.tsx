@@ -2,6 +2,7 @@
 // and its time, bold while unseen, with an amber count when it needs you. BOT.md's first line shows only for a bot
 // that never ran.
 
+import { botTone } from "@/components/BotAvatar";
 import { Link } from "@tanstack/react-router";
 import { memo } from "react";
 import { Count } from "@/components/ui";
@@ -30,7 +31,7 @@ export const BotConversationRow = memo(function BotConversationRow({ bot, thread
   const working = workingThreads > 0;
   const line = working ? `Working${workingThreads > 1 ? ` on ${workingThreads} threads` : ""}${last?.last_message ? ` · ${last.last_message}` : "…"}` : last?.last_message ?? (thread.length ? "No message yet" : botJob(bot) || "No instructions yet");
   return <Link to="/bots/$id" params={{ id: bot.id }} className={`grid min-h-[60px] grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-x-3 px-3 py-2 no-underline hover:bg-sunk ${className}`} aria-label={`${bot.settings.name}, ${STATE_LABEL[state]}`}>
-    <span className="relative grid size-9 place-items-center rounded-card bg-teal-soft text-[15px] font-semibold text-teal-ink" aria-hidden>
+    <span className={`relative grid size-9 place-items-center rounded-card text-[15px] font-semibold ${botTone(bot.settings.name)}`} aria-hidden>
       {botInitial(bot.settings.name)}
       <span className={`absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-paper ${DOT[state]}`} title={STATE_LABEL[state]} />
     </span>

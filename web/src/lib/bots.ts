@@ -11,6 +11,7 @@ import type { BotThread } from "@/gen/BotThread";
 import type { Session } from "@/gen/Session";
 import { api } from "./api";
 import { isQuotaPaused, isRunning, needsYou } from "./sessionStatus";
+import { initialOf } from "./identity";
 
 /** The owner's bot messages this window sent: a chat follows only its own message into a new thread. */
 export const sentHere = new Set<string>();
@@ -154,7 +155,7 @@ export function botJob(bot: Bot): string {
   return body[0] ?? "";
 }
 
-export const botInitial = (name: string) => (name.trim()[0] ?? "B").toUpperCase();
+export const botInitial = (name: string) => initialOf(name);
 
 /** The bot the top-bar Ask field talks to by default: the oldest bot of the workspace with admin Launchpad CLI
  * access (Ask Launchpad unless you changed it), else the oldest bot. Any bot can take that role. */

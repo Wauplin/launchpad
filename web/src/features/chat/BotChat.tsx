@@ -21,7 +21,7 @@ import type { QueuedMessage } from "@/gen/QueuedMessage";
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
 import type { Session } from "@/gen/Session";
 import type { Suggestion } from "@/gen/Suggestion";
-import { BotAvatar } from "@/components/BotAvatar";
+import { BotAvatar, OwnerAvatar, SourceAvatar, botInk } from "@/components/BotAvatar";
 import { useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { ImageThumb } from "@/components/ImageViewer";
@@ -34,7 +34,8 @@ import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextC
 import { withPresets } from "@/lib/presets";
 import { ApiError } from "@/lib/api";
 import { abandonOperation } from "@/lib/operations";
-import { senderLine } from "@/lib/senders";
+import { senderParts } from "@/lib/senders";
+import { ChatMessage, MESSAGE_INDENT, SenderTag } from "./Message";
 import { instructionsUpdated, sentHere, showAccepted } from "@/lib/bots";
 import { useMarkSeen, useWindowFocused } from "@/features/agents/useSeen";
 import { buildRows } from "@/features/agents/rows";
@@ -314,7 +315,7 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
                 const extra = item.t === "card" && item.kind === "ready" && data ? bySuggestion.get((data as TodayItem).record) : undefined;
                 return (
                   <div key={it.key} data-index={it.index} ref={v.measureElement} className="absolute top-0 right-0 left-0" style={{ transform: `translateY(${it.start}px)` }}>
-                    <ChatRow item={item} data={data} extra={extra} canContinue={item.key === continueKey} botId={bot.id} quietWork={!!onStep} />
+                    <ChatRow item={item} data={data} extra={extra} canContinue={item.key === continueKey} botId={bot.id} botName={bot.settings.name} quietWork={!!onStep} />
                   </div>
                 );
               })}
@@ -364,38 +365,35 @@ function PendingRow({ item, botId }: { item: Extract<ChatItem, { t: "pending" }>
   const stuck = item.state === "failed" || item.state === "uncertain";
   const images = item.files.filter((f) => isImageAttachment(f.data_url));
   const others = item.files.filter((f) => !isImageAttachment(f.data_url));
-  return <div className="group grid justify-items-end gap-1 py-1.5" data-tour="chat.pending">
-    <div className={`max-w-[85%] rounded-card rounded-br-sm bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap ${stuck ? "" : "opacity-70"}`}>
-      {item.text}
-      {images.length > 0 && <div className="flex flex-wrap gap-2">{images.map((image, i) => <ImageThumb key={i} src={attachmentSrc(image.data_url)} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />)}</div>}
-      {others.length > 0 && <span className="mt-1 block text-[11px] text-ink-3">{others.map((f) => f.name).join(", ")}</span>}
-    </div>
-    {stuck
-      ? <div className="flex max-w-[85%] items-center gap-2 text-[12px] text-gh-closed">
+  return <ChatMessage tour="chat.pending" look="owner" faded={!stuck} avatar={<OwnerAvatar />} name="You" after={stuck
+      ? <div className="flex max-w-full items-center gap-2 text-[12px] text-gh-closed">
         <Icon name="xcircle" size={12} className="flex-none" />
         <span className="min-w-0 flex-1 break-words">{item.state === "failed" ? "Not sent" : "Not confirmed"}: {item.error}</span>
         <RowActions width={0} label="More actions" main={<ActionButton name="bot.retry-send" params={{ id: botId, send: item.id }} icon={null} onDone={refresh} />}
           more={(close) => <ActionMenuItem name="bot.remove-send" params={{ id: botId, send: item.id }} close={close} onDone={refresh} detail="It is never sent" />} />
       </div>
-      : <span className="flex items-center gap-1.5 text-[11px] text-ink-3" role="status"><Icon name="clock" size={12} />{PENDING[item.state] ?? item.state}</span>}
-  </div>;
+      : <span className="flex items-center gap-1.5 text-[11px] text-ink-3" role="status"><Icon name="clock" size={12} />{PENDING[item.state] ?? item.state}</span>}>
+    <div className="whitespace-pre-wrap">{item.text}</div>
+    {images.length > 0 && <div className="flex flex-wrap gap-2">{images.map((image, i) => <ImageThumb key={i} src={attachmentSrc(image.data_url)} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />)}</div>}
+    {others.length > 0 && <span className="mt-1 block text-[11px] text-ink-3">{others.map((f) => f.name).join(", ")}</span>}
+  </ChatMessage>;
 }
 
 type RowData = Proposal | TodayItem | ChangeRecord | readonly (ChangeRecord | undefined)[] | undefined;
 
-const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, quietWork }: { item: ChatItem; data: RowData; extra: Suggestion | undefined; canContinue: boolean; botId: string; quietWork: boolean }) {
+const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, botName, quietWork }: { item: ChatItem; data: RowData; extra: Suggestion | undefined; canContinue: boolean; botId: string; botName: string; quietWork: boolean }) {
   switch (item.t) {
     case "divider":
       return <div className="pt-4 pb-2"><Separator>
         <span>{item.index > 1 ? `Session ${item.index} · started` : "Started"} {when(item.at)}{item.previous ? ` · continues “${item.previous}”` : ""}{item.reason ? ` because ${item.reason}` : ""}</span>
       </Separator></div>;
     case "user":
-      return <div className="flex py-1.5"><div className="ml-auto max-w-[85%] rounded-card rounded-br-sm bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap">
-        {item.text}
+      return <ChatMessage look="owner" avatar={<OwnerAvatar />} name="You">
+        {item.text && <div className="whitespace-pre-wrap">{item.text}</div>}
         {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <ImageThumb key={i} src={src} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />; })}</div>}
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
         {item.instructions && <span className="mt-1 flex items-center gap-1 text-[11px] text-ink-3" title="BOT.md changed since this session last read it: the new BOT.md went with this message"><Icon name="file" size={12} />With your updated BOT.md</span>}
-      </div></div>;
+      </ChatMessage>;
     case "from":
       return <FromRow item={item} />;
     case "wake":
@@ -407,7 +405,10 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, q
     case "quiet":
       return <div className="flex items-center gap-1.5 py-1 text-[12px] text-ink-3" title="The run had nothing to report: no notification"><Icon name="refresh" size={12} /><span className="truncate"><RoutineName title={item.title} /> · {item.cause}{item.at ? ` · ${when(item.at)}` : ""} · no update</span></div>;
     case "answer":
-      return <div className="py-1.5 text-[13px]"><AssistantRow text={item.text} streaming={item.streaming} /></div>;
+      return <ChatMessage look="bot" avatar={<BotAvatar name={botName} />} name={<span className={botInk(botName)}>{botName}</span>}
+        tag={item.streaming ? <SenderTag><span className="text-work">writing…</span></SenderTag> : undefined}>
+        <AssistantRow text={item.text} streaming={item.streaming} />
+      </ChatMessage>;
     case "steps":
       return <StepsRow item={item} records={(data ?? []) as readonly (ChangeRecord | undefined)[]} />;
     case "ask":
@@ -428,7 +429,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, q
     case "pending":
       return <PendingRow item={item} botId={botId} />;
   }
-}, (a, b) => a.item.key === b.item.key && a.item.v === b.item.v && a.data === b.data && a.extra === b.extra && a.canContinue === b.canContinue && a.botId === b.botId && a.quietWork === b.quietWork);
+}, (a, b) => a.item.key === b.item.key && a.item.v === b.item.v && a.data === b.data && a.extra === b.extra && a.canContinue === b.canContinue && a.botId === b.botId && a.botName === b.botName && a.quietWork === b.quietWork);
 
 /** A proposal as a compact line; a question report's Reply aims the chat's message box at it. */
 function ProposalRow({ p }: { p: Proposal }) {
@@ -490,29 +491,29 @@ function ReceiptLink({ record, children }: { record: ChangeRecord | undefined; c
   return link ? <Link {...link} className={NAME_LINK}>{children}</Link> : <>{children}</>;
 }
 
-/** A message from another bot or agent, or an incoming hook (Home stamped its sender): on the left under the sender's
- * mark and name, never as your bubble. */
+const FROM_ICON = { session: "agents", hook: "download", channel: "comment", wake: "sun", routine: "refresh", bot: "agents" } as const;
+
+/** A message from another bot or agent, a hook or a channel (Home stamped its sender): under the sender's mark and
+ * name with "not from you", in a dashed bubble, never as yours. */
 function FromRow({ item }: { item: Extract<ChatItem, { t: "from" }> }) {
   const f = item.from;
-  const line = senderLine(f);
-  return <div className="flex items-start gap-2 py-1.5" data-tour="chat.from">
-    {f.kind === "bot" ? <BotAvatar name={f.name} size={24} /> : <span className="grid size-6 flex-none place-items-center rounded-card bg-sunk text-ink-3" aria-hidden><Icon name={f.kind === "hook" ? "download" : f.kind === "channel" ? "comment" : "agents"} size={12} /></span>}
-    <div className="min-w-0 max-w-[85%] rounded-card rounded-tl-sm border border-line px-2.5 py-[7px] text-[13px]">
-      <div className="mb-0.5 text-[11px] text-ink-3" title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">
-        {f.kind === "bot"
-          ? <Link to="/bots/$id" params={{ id: f.id }} className={NAME_LINK}>{line}</Link>
-          : f.kind === "hook"
-            ? <Link to="/settings/connections" className={NAME_LINK}>{line}</Link>
-            : f.kind === "channel"
-              ? <Link to="/channels/$id" params={{ id: f.id }} className={NAME_LINK}>{line}</Link>
-              : <Link to="/agents" search={{ session: f.id }} className={NAME_LINK}>{line}</Link>}
-      </div>
-      <div className="break-words whitespace-pre-wrap">{item.text}</div>
-      {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
-      {item.queued && <span className="text-[11px] text-ink-3">queued: read after the current step</span>}
-      {item.instructions && <span className="mt-1 flex items-center gap-1 text-[11px] text-ink-3" title="BOT.md changed since this session last read it: the new BOT.md went with this message"><Icon name="file" size={12} />With your updated BOT.md</span>}
-    </div>
-  </div>;
+  const { name, tag } = senderParts(f);
+  const bot = f.kind === "bot" || (f.kind === "channel" && !!f.by?.trim());
+  const link = f.kind === "bot"
+    ? <Link to="/bots/$id" params={{ id: f.id }} className={NAME_LINK}>{name}</Link>
+    : f.kind === "hook"
+      ? <Link to="/settings/connections" className={NAME_LINK}>{name}</Link>
+      : f.kind === "channel"
+        ? <Link to="/channels/$id" params={{ id: f.id }} className={NAME_LINK}>{name}</Link>
+        : <Link to="/agents" search={{ session: f.id }} className={NAME_LINK}>{name}</Link>;
+  return <ChatMessage tour="chat.from" look="other" avatar={bot ? <BotAvatar name={name} /> : <SourceAvatar icon={FROM_ICON[f.kind]} />}
+    name={<span className={bot ? botInk(name) : "text-ink"}>{link}</span>}
+    tag={<SenderTag title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">{tag}</SenderTag>}>
+    <div className="break-words whitespace-pre-wrap">{item.text}</div>
+    {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
+    {item.queued && <span className="text-[11px] text-ink-3">queued: read after the current step</span>}
+    {item.instructions && <span className="mt-1 flex items-center gap-1 text-[11px] text-ink-3" title="BOT.md changed since this session last read it: the new BOT.md went with this message"><Icon name="file" size={12} />With your updated BOT.md</span>}
+  </ChatMessage>;
 }
 
 const WAKE_EARLY = { timeout: "its timeout passed first", owner: "you woke it early" } as const;
@@ -598,7 +599,7 @@ function ActivityText({ a }: { a: Activity }) {
  * itself stays in Agents. */
 function StepsRow({ item, records }: { item: Extract<ChatItem, { t: "steps" }>; records: readonly (ChangeRecord | undefined)[] }) {
   const [open, setOpen] = useState(false);
-  return <div className="py-1">
+  return <div className={`py-1 ${MESSAGE_INDENT}`}>
     <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-3" data-tour={item.changes.length ? "chat.changed" : undefined}>
       <button className="chat-tap flex flex-none items-center gap-1 hover:text-ink" aria-expanded={open} title="The work behind this answer, one line per step" onClick={() => setOpen(!open)}>
         <Icon name="chev" size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />{stepsLabel(item.count, item.durationMs)}
@@ -622,7 +623,7 @@ function AskLive({ item }: { item: Extract<ChatItem, { t: "ask" }> }) {
 
 function EndedRow({ item, canContinue }: { item: Extract<ChatItem, { t: "ended" }>; canContinue: boolean }) {
   const [busy, setBusy] = useState(false);
-  return <div className="flex flex-wrap items-center gap-2 py-1.5 text-[12px] text-gh-closed">
+  return <div className={`flex flex-wrap items-center gap-2 py-1.5 text-[12px] text-gh-closed ${MESSAGE_INDENT}`}>
     <Icon name="xcircle" size={12} />
     <span className="min-w-0 flex-1 break-words">{item.error ? `The turn failed: ${item.error}` : "The turn was interrupted."}</span>
     {canContinue && <button className="btn btn-sm" disabled={busy} title="Continue the unfinished task" onClick={() => { setBusy(true); void runAction("session.resume", { id: item.sessionId }, { continue_turn: true }).catch(toastError).finally(() => setBusy(false)); }}>Continue</button>}
@@ -651,7 +652,7 @@ function WorkingRow({ item, quiet }: { item: Extract<ChatItem, { t: "working" }>
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 5_000); return () => clearInterval(t); }, []);
   if (!s || !isRunning(s)) return null;
   const label = s.status === "starting" ? "Starting" : s.status === "background" ? "Background work" : "Working";
-  return <div className="flex items-center gap-2 py-1.5 text-[12px] text-work" role="status" aria-label={quiet ? label : undefined}>
+  return <div className={`flex items-center gap-2 py-1.5 text-[12px] text-work ${MESSAGE_INDENT}`} role="status" aria-label={quiet ? label : undefined}>
     <span className="lp-spin" />
     {!quiet && <span className="min-w-0 truncate">{`${label}${item.step ? ` · ${item.step}` : ""} · ${age(s.status_since)}`}</span>}
     <Link to="/agents" search={{ session: s.id }} className="shrink-0 text-inherit underline underline-offset-2" title="Open this thread's session in Agents: its trace, terminal and files">View running agent</Link>

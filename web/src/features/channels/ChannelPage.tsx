@@ -9,7 +9,8 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
-import { BotAvatar } from "@/components/BotAvatar";
+import { BotAvatar, OwnerAvatar, botInk } from "@/components/BotAvatar";
+import { ChatMessage } from "@/features/chat/Message";
 import { Icon } from "@/components/Icon";
 import { ImageThumb } from "@/components/ImageViewer";
 import { Markdown } from "@/components/Markdown";
@@ -215,25 +216,22 @@ function MessageList({ channel, messages, lines, byId, more, loadingMore, onOlde
 const firstLine = (t: string) => t.trim().split("\n").find((l) => l.trim()) ?? "";
 const NAME_LINK = "text-inherit no-underline hover:underline";
 
-/** One message: its author's mark and name, the time, what it answers, its text and its deliveries. */
+/** One message (`ChatMessage`, like the bot chat): its author's mark and name, the time, what it answers, its text
+ * and files in the bubble, its deliveries under it. */
 const MessageRow = memo(function MessageRow({ m, lines, reply, quoted }: { m: ChannelMessage; lines: DeliveryLine[] | undefined; reply: ChannelMessage | null; quoted: boolean }) {
   const owner = m.author.kind === "owner";
   const mentionsYou = !owner && m.mentions.includes("owner");
   const today = new Date(m.created_at).toDateString() === new Date().toDateString();
-  return <div className="flex items-start gap-2.5 py-2" data-tour="channel.message">
-    {owner ? <span className="grid size-7 flex-none place-items-center rounded-card bg-sunk text-[13px] font-semibold text-ink-2" aria-hidden>Y</span> : <BotAvatar name={m.author.name} size={28} />}
-    <div className="grid min-w-0 flex-1 gap-0.5">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] text-ink-3">
-        {m.author.kind === "bot" ? <Link to="/bots/$id" params={{ id: m.author.id }} className={`font-semibold text-ink ${NAME_LINK}`}>{m.author.name}</Link> : <b className="font-semibold text-ink">{owner ? "You" : m.author.name}</b>}
-        <span title={`${when(m.created_at)} · message ${m.id} · hop ${m.hops}`}>{today ? time(m.created_at) : ago(m.created_at)}</span>
-        {m.ask_owner ? <Badge tone="attn">Asks you</Badge> : mentionsYou ? <Badge tone="attn">Mentions you</Badge> : null}
-      </div>
-      {quoted && <div className="truncate text-[12px] text-ink-3" title={reply ? reply.text : undefined}>↳ Reply to {reply ? `${reply.author.kind === "owner" ? "you" : reply.author.name}: ${firstLine(reply.text)}` : `message ${m.reply_to}`}</div>}
-      {m.text.trim() ? <Markdown text={m.text} className="text-[13px]" /> : null}
-      {m.files.length > 0 && <MessageFiles m={m} />}
-      {lines?.map((l, i) => <Delivery key={i} l={l} channel={m.channel_id} />)}
-    </div>
-  </div>;
+  const name = owner ? "You" : m.author.name;
+  return <ChatMessage tour="channel.message" look={owner ? "owner" : "bot"} avatar={owner ? <OwnerAvatar /> : <BotAvatar name={name} />}
+    name={<span className={owner ? "text-ink" : botInk(name)}>{m.author.kind === "bot" ? <Link to="/bots/$id" params={{ id: m.author.id }} className={NAME_LINK}>{name}</Link> : name}</span>}
+    tag={m.ask_owner ? <Badge tone="attn">Asks you</Badge> : mentionsYou ? <Badge tone="attn">Mentions you</Badge> : null}
+    time={<span title={`${when(m.created_at)} · message ${m.id} · hop ${m.hops}`}>{today ? time(m.created_at) : ago(m.created_at)}</span>}
+    after={!!lines?.length && <div className="grid w-full min-w-0 gap-0.5">{lines.map((l, i) => <Delivery key={i} l={l} channel={m.channel_id} />)}</div>}>
+    {quoted && <div className="mb-1 truncate border-l-2 border-line pl-2 text-[12px] text-ink-3" title={reply ? reply.text : undefined}>↳ Reply to {reply ? `${reply.author.kind === "owner" ? "you" : reply.author.name}: ${firstLine(reply.text)}` : `message ${m.reply_to}`}</div>}
+    {m.text.trim() ? <Markdown text={m.text} className="text-[13px]" /> : null}
+    {m.files.length > 0 && <MessageFiles m={m} />}
+  </ChatMessage>;
 }, (a, b) => a.m === b.m && a.reply === b.reply && a.quoted === b.quoted && JSON.stringify(a.lines) === JSON.stringify(b.lines));
 
 const SHOWN_IMAGES = ["image/png", "image/jpeg", "image/webp", "image/gif"];

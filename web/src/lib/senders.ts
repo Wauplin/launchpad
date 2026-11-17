@@ -54,3 +54,14 @@ export function senderLine(from: MessageFrom): string {
   if (from.card) return `From ${name}, ${from.accepted ? "accepted by you" : "accepted automatically"}`;
   return from.name.trim() ? `From ${NOUN[from.kind]} ${name} · not from you` : `From ${name} · not from you`;
 }
+
+/** The name and the provenance tag over a message from another bot or agent, a hook or a channel, for the chat's
+ * message header: { name: "Scout", tag: "bot · not from you" }; a channel message names its author and the channel
+ * ({ name: "Release", tag: "in #release-train" }), a card the owner accepted says so. */
+export function senderParts(from: MessageFrom): { name: string; tag: string } {
+  if (from.kind === "wake") return { name: "Launchpad", tag: "wake-up it asked for" };
+  if (from.kind === "channel") return { name: from.by?.trim() || "A bot", tag: `in ${from.name.trim() || "a channel"}` };
+  const name = from.name.trim() || (from.kind === "bot" ? "A bot" : from.kind === "hook" ? "A hook" : "An agent");
+  if (from.card) return { name, tag: `${NOUN[from.kind]} · ${from.accepted ? "card accepted by you" : "card accepted automatically"}` };
+  return { name, tag: `${NOUN[from.kind]} · not from you` };
+}
