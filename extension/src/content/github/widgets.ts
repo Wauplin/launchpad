@@ -142,7 +142,7 @@ const STYLE = `
   box-shadow: var(--shadow-floating-large, 0 8px 24px rgba(140, 149, 159, .2)); font-size: 13px; }
 .lp-pop { position: fixed; z-index: 2147483000; width: 340px; padding: 12px; border-radius: 12px; font-size: 13px; font-weight: 400;
   background: var(--overlay-bgColor, var(--bgColor-default, #ffffff)); border: 1px solid var(--borderColor-default, #d1d9e0);
-  box-shadow: var(--shadow-floating-large, 0 8px 24px rgba(140, 149, 159, .2)); display: grid; gap: 8px; }
+  box-shadow: var(--shadow-floating-large, 0 8px 24px rgba(140, 149, 159, .2)); display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; overflow-wrap: anywhere; }
 .lp-pop select, .lp-pop textarea { width: 100%; font: inherit; font-size: 13px; color: inherit; border-radius: 6px; padding: 5px 8px;
   border: 1px solid var(--borderColor-default, #d1d9e0); background: var(--bgColor-default, #ffffff); }
 .lp-pop textarea { min-height: 64px; resize: vertical; }

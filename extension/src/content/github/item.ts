@@ -93,8 +93,13 @@ export function dotClass(a: ExtAgent) {
 
 /** The item's title as the page shows it: page text, shown in our popovers only, never sent to Home or an agent. */
 export function itemTitle(p: { repo: string; number: number }): string | null {
-  const text = findAnchor("item-title", { repo: p.repo, number: p.number })?.el.textContent?.replace(/\s+/g, " ").trim() ?? "";
-  return text.replace(new RegExp(`\\s*#${p.number}$`), "").slice(0, 300) || null;
+  const el = findAnchor("item-title", { repo: p.repo, number: p.number })?.el;
+  // The heading itself when the anchor is a whole header (the new pull request header also holds the branch line).
+  const heading = el?.matches("h1, h2") ? el : el?.querySelector(".markdown-title, bdi, h1, h2") ?? el;
+  const text = heading?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+  // The number follows the title: cut there, so the line after it never joins.
+  const at = text.search(new RegExp(`\\s*#${p.number}(?!\\d)`));
+  return (at >= 0 ? text.slice(0, at) : text).trim().slice(0, 300) || null;
 }
 
 /** The reference of the item, or of one of its comments (`issuecomment-…`, `discussion_r…`): by URL and number only
