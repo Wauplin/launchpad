@@ -6,7 +6,7 @@ import type { SuggestionKind } from "./SuggestionKind";
 /**
  * A suggestion (agent-written comment or review) waiting to be posted.
  */
-export type ExtSuggestion = { id: string, kind: SuggestionKind, number: number, 
+export type ExtSuggestion = { merge: string | null, run_ci: boolean, id: string, kind: SuggestionKind, number: number,
 /**
  * The commit it was written for.
  */

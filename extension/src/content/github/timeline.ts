@@ -13,6 +13,7 @@
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtNote } from "@/gen/ExtNote";
 import type { ExtSuggestion } from "@/gen/ExtSuggestion";
+import { submitSuggestion } from "./suggestionAction";
 import { request, sentSummary } from "../../shared/messages";
 import { openAgentView } from "./agentView";
 import { findAnchor, findAnchors, timeOf } from "./anchors";
@@ -33,6 +34,7 @@ const unfolded = new Set<string>();
 const editing = new Map<string, string>();
 /** Errors of an entry's last action. */
 const errors = new Map<string, string>();
+const pending = new Set<string>();
 /** The owner's note being typed, per page, and the last answer of Add private note. */
 const drafts = new Map<string, string>();
 let sent: { url: string; text: string; error: boolean } | null = null;
@@ -63,7 +65,7 @@ function entriesOf(ctx: ExtContext, number: number): Entry[] {
   const carried = new Set(ctx.notes.map((n) => n.suggestion?.id).filter((x): x is string => !!x));
   const out: Entry[] = ctx.notes.map((n) => ({ key: n.id, at: n.created_at, note: n, suggestion: n.suggestion ? ctx.suggestions.find((s) => s.id === n.suggestion!.id) ?? null : null }));
   for (const s of ctx.suggestions) {
-    if (s.kind !== "comment" || s.number !== number || carried.has(s.id) || !WAITING.includes(s.status)) continue;
+    if (s.number !== number || carried.has(s.id) || !WAITING.includes(s.status)) continue;
     out.push({ key: s.id, at: s.created_at, note: null, suggestion: s });
   }
   return out.sort((a, b) => a.at - b.at);
@@ -175,7 +177,7 @@ export function renderTimeline(page: ItemPage, ctx: ExtContext | null, refresh: 
     for (const g of groups) {
       const id = `${PREFIX}${g.entries[0]!.key}`;
       ids.add(id);
-      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, fresh.has(e.key), e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, editing.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key), refs.get(e.key)?.map((r) => r.id)]), ctx.notes.map((n) => n.id)]);
+      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, fresh.has(e.key), e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, e.suggestion?.lines, e.suggestion?.event, e.suggestion?.head, e.suggestion?.merge, e.suggestion?.run_ci, pending.has(e.suggestion?.id ?? ""), editing.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key), refs.get(e.key)?.map((r) => r.id)]), ctx.notes.map((n) => n.id)]);
       const w = mount(id, key, g.anchor, g.place, "card");
       if (!w.fresh) continue;
       for (const e of g.entries) w.root.append(entry(w.root, page, ctx, ws, e, refs.get(e.key) ?? [], refresh));
@@ -271,7 +273,7 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
   const wrap = h("div", { class: "lp-sugg" });
   const to = s.reply_to ? ` · reply to ${s.reply_to.author ?? "a comment"}` : "";
   const status = s.status === "inserted" ? " · inserted into GitHub's box" : s.status === "posting" ? " · posting…" : s.status === "uncertain" ? " · posting may have failed: check GitHub" : "";
-  wrap.append(h("div", { class: "lp-row" }, logo(), h("span", { class: "lp-title", text: "Suggested comment" }), h("span", { class: "lp-muted lp-grow", text: `${to}${status}` })));
+  wrap.append(h("div", { class: "lp-row" }, logo(), h("span", { class: "lp-title", text: s.kind === "review" ? `Suggested review · ${s.event}` : "Suggested comment" }), h("span", { class: "lp-muted lp-grow", text: `${to}${status}` })));
   const draft = editing.get(s.id);
   if (draft !== undefined) {
     const area = field("Suggested comment", draft);
@@ -284,9 +286,10 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
     return wrap;
   }
   wrap.append(h("div", { class: "lp-sugg-text" }, markdown(s.text, { here: { repo: page.repo, number: page.number } })));
+  if (s.kind === "review") for (const line of s.lines.filter((l) => l.state !== "dismissed")) wrap.append(h("div", { class: "lp-sugg-text" }, h("strong", { text: `${line.path}:${line.line}` }), markdown(line.body)));
   if (s.status !== "draft" && s.status !== "inserted") return wrap;
   const actions = h("div", { class: "lp-actions" });
-  if (s.status === "draft") actions.append(button("Edit", () => { editing.set(s.id, s.body); refresh(); }, { small: true, title: "Change the text before posting it" }));
+  if (s.kind === "comment" && s.status === "draft") actions.append(button("Edit", () => { editing.set(s.id, s.body); refresh(); }, { small: true, title: "Change the text before posting it" }));
   const choice = h("div", { class: "lp-actions", attrs: { hidden: "" } });
   const insert = (mode?: "replace" | "append") => {
     choice.hidden = true;
@@ -297,26 +300,31 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
       } else { errors.set(e.key, fail(x)); refresh(); }
     });
   };
-  actions.append(button(s.status === "inserted" ? "Insert again" : "Insert into comment box", () => insert(), { small: true, title: "Puts the text into GitHub's box; you edit it and post it with GitHub's button" }));
+  if (s.kind === "comment") actions.append(button(s.status === "inserted" ? "Insert again" : "Insert into comment box", () => insert(), { small: true, title: "Puts the text into GitHub's box; you edit it and post it with GitHub's button" }));
   const discard: HTMLElement = button("Discard…", () => confirmDiscard(root, discard, s, refresh), { small: true });
   actions.append(discard, h("span", { class: "lp-grow" }));
   if (s.status === "draft") {
     const what = page.kind === "issue" ? "issue" : "pull request";
     const where = `${page.repo}#${page.number} as you${s.reply_to?.kind === "review_comment" ? ", in the review thread it answers" : ""}, with the attribution line`;
-    const close = h("button", { class: "lp-btn", text: "Comment and close", attrs: { type: "button", title: `Launchpad posts it to ${where}, then closes the ${what}${page.kind === "issue" ? "" : " without merging it"}` } });
-    const go = h("button", { class: "lp-btn lp-primary", text: "Post this comment", attrs: { type: "button", title: `Launchpad posts it to ${where}` } });
+    const close = h("button", { class: "lp-btn", text: page.kind === "issue" ? "Comment and close" : "Comment and close without merging", attrs: { type: "button", title: `Launchpad posts it to ${where}, then closes the ${what}${page.kind === "issue" ? "" : " without merging it"}` } });
+    const go = h("button", { class: "lp-btn lp-primary", text: s.kind === "review" ? s.merge ? "Post review and merge" : s.run_ci ? "Post review and run CI" : "Post review" : "Post this comment", attrs: { type: "button", title: `Launchpad posts it to ${where}` } });
     const post = (btn: HTMLButtonElement, busy: string, withClose: boolean) => (ev: Event) => {
       ev.preventDefault();
       ev.stopPropagation();
       // Only a real click of the owner posts (never a click the page synthesized).
-      if (!ev.isTrusted || btn.disabled) return;
+      if (!ev.isTrusted || btn.disabled || pending.has(s.id)) return;
+      const consequence = withClose ? `Post this comment to ${page.repo}#${page.number} as you and close the ${what}${page.kind === "issue" ? "" : " WITHOUT merging"}?` : s.merge ? `Post this review and merge ${page.repo}#${page.number} using ${s.merge} at reviewed commit ${s.head}?` : s.run_ci ? "Post this review and approve waiting CI runs? The pull request’s code will run in the repository’s CI." : `Post this ${s.kind} to ${page.repo}#${page.number} as you?`;
+      if (!window.confirm(consequence)) return;
+      pending.add(s.id);
       go.disabled = close.disabled = true;
       btn.textContent = busy;
-      request("suggestion.post", { id: s.id, close: withClose }).then(() => { errors.delete(e.key); refresh(); }).catch((x) => { errors.set(e.key, fail(x)); refresh(); });
+      submitSuggestion(s, withClose, (args) => request("suggestion.post", args)).then(() => { errors.delete(e.key); }).catch((x) => { errors.set(e.key, fail(x)); window.alert(fail(x)); }).finally(() => { pending.delete(s.id); refresh(); });
     };
     close.addEventListener("click", post(close, "Closing…", true));
-    go.addEventListener("click", post(go, "Posting…", false));
-    actions.append(close, go);
+    go.addEventListener("click", post(go, s.merge ? "Posting and merging…" : "Posting…", false));
+    go.disabled = close.disabled = pending.has(s.id);
+    if (s.kind === "comment") actions.append(close);
+    actions.append(go);
   }
   wrap.append(actions, choice);
   return wrap;

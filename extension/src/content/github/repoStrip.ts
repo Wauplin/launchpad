@@ -45,9 +45,9 @@ function suggestionRow(root: ShadowRoot, repo: string, s: ExtSuggestion, ws: str
   const review = s.kind === "review";
   const what = review ? `Review${s.comments ? ` · ${s.comments} line comment${s.comments === 1 ? "" : "s"}` : ""}${s.event && s.event !== "COMMENT" ? ` · ${s.event.toLowerCase().replace("_", " ")}` : ""}` : s.reply_to ? "Reply" : "Comment";
   const text = s.body.replace(/\s+/g, " ").trim();
-  // A comment is posted from the item's timeline (Post this comment); a review from its card in Launchpad.
+  // Comments and reviews can be posted from the item's timeline.
   const go = review
-    ? button("Open in Launchpad", () => open(suggestionPath(s.id), ws), { small: true, title: "Its card in Today posts the review" })
+    ? button("Open item", () => { location.assign(itemUrl(repo, s)); }, { small: true, title: "Post the review in the item’s timeline" })
     : button("Open item", () => { location.assign(itemUrl(repo, s)); }, { small: true, title: "The comment waits in the item's timeline, with Post this comment" });
   const menu = more(root, "Suggestion", () => [
     review ? { label: "Open the item on GitHub", onSelect: () => { location.assign(itemUrl(repo, s)); } } : { label: "Open in Launchpad", hint: "Its card in Today", onSelect: () => open(suggestionPath(s.id), ws) },

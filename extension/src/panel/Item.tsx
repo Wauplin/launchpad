@@ -140,7 +140,7 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
         <div className="x-btns">
           {s.kind === "comment" && s.status !== "inserted" && <button className="x-btn x-sm" onClick={() => void insert(s)}>Insert</button>}
           {s.kind === "review" && page.kind !== "pr_files" && s.lines.length > 0 && <button className="x-btn x-sm" onClick={files}>Show on Files changed</button>}
-          {s.kind === "review" && <button className="x-btn x-sm" title="Its card in Launchpad's Today: Post or Discard" onClick={() => open(`/?card=${encodeURIComponent(`suggestion:${s.id}`)}`)}>Open in Today</button>}
+          {s.kind === "review" && <button className="x-btn x-sm" title="Post or discard in Launchpad; also available in the GitHub timeline" onClick={() => open(`/?card=${encodeURIComponent(`suggestion:${s.id}`)}`)}>Open in Today</button>}
           {s.session_id && <button className="x-btn x-sm x-link" onClick={() => open(`/agents?session=${encodeURIComponent(s.session_id!)}`)}>Agent</button>}
         </div>
       </div>)}

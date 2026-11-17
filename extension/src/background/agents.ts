@@ -175,7 +175,7 @@ export function writeNote(a: { repo: string; number: number; body: string; works
   return homeJson<NoteWriteResult>("/api/notes/owner", { method: "POST", body: { repo: a.repo, number, workspace: ws, body, reply_to: a.reply_to ? id(a.reply_to, "note") : null } });
 }
 
-/** Post this comment, or Comment and close (`close`), from the timeline entry's buttons (`suggestion.post`). */
+/** Post a comment or review (including its saved merge/CI follow-up), or Comment and close (`close`), from the timeline entry's buttons (`suggestion.post`). */
 export function postSuggestion(a: { id: string; close?: boolean }) {
   return homeJson(`/api/suggestions/${id(a.id, "suggestion")}/post`, { method: "POST", body: { close: a.close === true } });
 }

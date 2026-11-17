@@ -7,7 +7,7 @@
 import type { ExtRow } from "@/gen/ExtRow";
 import type { ExtRows } from "@/gen/ExtRows";
 import { request } from "../../shared/messages";
-import { agentPath, elapsed, open, running, suggestionPath, who } from "./item";
+import { agentPath, elapsed, open, running, who } from "./item";
 import { h, type Widget } from "./widgets";
 
 export type Chip = { text: string; tone: "need" | "run" | "ok" | "quiet"; title: string; go: () => void };
@@ -21,7 +21,7 @@ export function chipOf(row: ExtRow, ws: string | null): Chip | null {
   const asks = row.agents.find((a) => a.open_question);
   if (asks) return { text: `${who(asks)} asks you`, tone: "need", title: asks.title, go: () => open(agentPath(asks), ws) };
   const review = row.suggestions.find((s) => s.kind === "review" && s.status === "draft");
-  if (review && n !== null) return { text: `Review ready${review.comments ? ` · ${review.comments} comment${review.comments === 1 ? "" : "s"}` : ""}`, tone: "need", title: `${review.bot ?? "An agent"} wrote a review for you to post: its card in Launchpad's Today posts it`, go: () => open(suggestionPath(review.id), ws) };
+  if (review && n !== null) return { text: `Review ready${review.comments ? ` · ${review.comments} comment${review.comments === 1 ? "" : "s"}` : ""}`, tone: "need", title: `${review.bot ?? "An agent"} wrote a review for you to post: open the item to post it`, go: () => { location.assign(`https://github.com/${repo}/pull/${n}`); } };
   const reply = row.suggestions.find((s) => s.kind === "comment" && s.status === "draft");
   if (reply && n !== null) return { text: `Reply ready${reply.bot ? ` · ${reply.bot}` : ""}`, tone: "need", title: "A suggested comment: open the item and Insert it", go: () => { location.assign(`https://github.com/${repo}/issues/${n}`); } }; // GitHub sends /issues/<n> of a pull request to its page.
   const report = row.report;
