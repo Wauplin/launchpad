@@ -114,3 +114,30 @@ test("a turn's changes become receipts on its steps line; a turn without one kee
   const running = chatRows([session("a", [user("hi"), tools("Bash")], { running: true })], cards);
   assert.deepEqual(kinds(running), ["divider", "user", "card", "card", "working"]);
 });
+
+test("a wake-up is one quiet line with Home's message kept for Details; a sleeping session ends with its state", async () => {
+  const { sleepKey } = await import("../src/features/chat/chatRows.ts");
+  const wake = { kind: "wake", id: "a", name: "", hops: 0 };
+  const text = "Wake-up · You asked Launchpad to wake you at 2026-11-17 15:00 UTC (`launchpad sleep`). This is the same conversation: continue the task you paused.\n\nYour note:\n\n```\nre-run CI\n```";
+  const sleep = { until: 1000, waits: "", note: "re-run CI", schedule_id: "s1" };
+  const rows = [user("watch CI"), answer("Sleeping."), end(10), { ...user(text), from: wake, ts: 500 }, tools("Bash"), answer("CI is green."), end(600)];
+  const items = chatRows([session("a", rows, { sleep })]);
+  assert.deepEqual(kinds(items), ["divider", "user", "answer", "wake", "answer", "steps", "sleeping"]);
+  assert.equal(items[3].at, 500);
+  assert.equal(items[3].text, text);
+  // Nothing claims what it waited for happened, unless Home's early line says why it woke.
+  assert.equal(items[3].early, null);
+  const timeout = chatRows([session("a", [{ ...user(`${text}\n\nYour timeout passed before these conditions held: check the agents again.`), from: wake }, end(5)])]);
+  assert.equal(timeout[1].early, "timeout");
+  const owner = chatRows([session("a", [{ ...user(`${text}\n\nThe owner woke you before these conditions held (Wake now): check.`), from: wake }, end(5)])]);
+  assert.equal(owner[1].early, "owner");
+  // The same words from anyone else stay their message.
+  assert.equal(chatRows([session("a", [user(`${text}\n\nThe owner woke you before these conditions held`), end(5)])])[1].t, "user");
+  // A changed sleep is a new version of its row, though the status stays Done; a running session shows no sleep.
+  const again = chatRows([session("a", rows, { sleep: { ...sleep, note: "merge" } })]);
+  assert.equal(again.at(-1).key, items.at(-1).key);
+  assert.notEqual(again.at(-1).v, items.at(-1).v);
+  assert.notEqual(sleepKey(sleep), sleepKey({ ...sleep, deadline: 2000 }));
+  assert.equal(chatRows([session("a", rows, { sleep, running: true })]).some((i) => i.t === "sleeping"), false);
+  assert.equal(new Set(items.map((i) => i.key)).size, items.length);
+});

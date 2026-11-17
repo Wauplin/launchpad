@@ -59,10 +59,10 @@ import { useKeptDraft } from "@/lib/keptDraft";
 import { NEW_THREAD } from "./BotThreads";
 import { useCrons, useSession, useHarnessDefaults } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
-import { isRunning } from "@/lib/sessionStatus";
+import { isRunning, isSleeping, sleepUntil } from "@/lib/sessionStatus";
 import { sendPresence } from "@/lib/ws";
 import { QuickChips } from "./QuickChips";
-import { chatRows, stepsLabel, type ChatCard, type ChatItem, type ChatSession } from "./chatRows";
+import { chatRows, sleepKey, stepsLabel, type ChatCard, type ChatItem, type ChatSession } from "./chatRows";
 
 /** A record behind a change receipt: a knowledge-base change, a change of the bot's own files, or a direct change. */
 type ChangeRecord = { kind: "kb"; c: Change } | { kind: "bot"; c: Change; botId: string } | { kind: "act"; a: Activity };
@@ -180,9 +180,10 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
     if (!rows) { rows = foldTrace(buildRows(log), s.launch_spec.text, presets); folded.set(log, rows); }
     return {
       id: s.id, started_at: s.started_at, profile: s.launch_spec.profile, folder: s.launch_spec.target.kind === "temp" ? null : s.project_id, reason: s.launch_spec.bot?.reason ?? null, note: s.launch_spec.bot?.note ?? null, previous: s.launch_spec.bot?.previous?.title ?? null,
-      running: isRunning(s), rows, firstTs: log.events[0]?.ts ?? null, partial: !!log.earlier, changes: s.status !== "closed",
+      running: isRunning(s), rows, firstTs: log.events[0]?.ts ?? null, partial: !!log.earlier, changes: s.status !== "closed", sleep: isSleeping(s) ? s.sleep : null,
     };
-  }), [ready.map((s) => `${s.id}:${s.status}`).join(), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
+    // A sleep starts, changes or ends without a new status (Done stays Done): it is part of the key.
+  }), [ready.map((s) => `${s.id}:${s.status}:${s.open_question ? "q" : ""}:${s.sleep ? sleepKey(s.sleep) : ""}`).join(), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
   const first = ready[0] ? thread.indexOf(ready[0]) : 0;
   // Hook and Telegram messages waiting for the turn to end: grey rows after the chat, each with Cancel.
   const queued = useQuery({ queryKey: ["bot-queued", bot.id], queryFn: () => api.get<QueuedMessage[]>(`/api/bots/${bot.id}/queued`), retry: false }).data;
@@ -233,7 +234,7 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
   // Continue only on the last turn of the current session, when it failed or was interrupted.
   const continueKey = useMemo(() => {
     if (!current || (current.status !== "error" && current.status !== "interrupted")) return null;
-    const last = items.findLast((i) => i.t === "ended" || i.t === "user" || i.t === "from" || i.t === "answer" || i.t === "routine");
+    const last = items.findLast((i) => i.t === "ended" || i.t === "user" || i.t === "from" || i.t === "wake" || i.t === "answer" || i.t === "routine");
     return last?.t === "ended" && last.sessionId === current.id ? last.key : null;
   }, [items, current]);
 
@@ -353,6 +354,10 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, q
       </div></div>;
     case "from":
       return <FromRow item={item} />;
+    case "wake":
+      return <WakeRow item={item} />;
+    case "sleeping":
+      return <SleepingRow item={item} />;
     case "routine":
       return <div className="py-1.5"><Separator><span className="flex min-w-0 items-center gap-1.5" title="A routine started this run"><Icon name="refresh" size={12} className="flex-none" /><span className="min-w-0">Routine “<RoutineName title={item.title} />” · {item.cause}</span></span></Separator></div>;
     case "quiet":
@@ -460,6 +465,54 @@ function FromRow({ item }: { item: Extract<ChatItem, { t: "from" }> }) {
       {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
       {item.queued && <span className="text-[11px] text-ink-3">queued: read after the current step</span>}
       {item.instructions && <span className="mt-1 flex items-center gap-1 text-[11px] text-ink-3" title="BOT.md changed since this session last read it: the new BOT.md went with this message"><Icon name="file" size={12} />With your updated BOT.md</span>}
+    </div>
+  </div>;
+}
+
+const WAKE_EARLY = { timeout: "its timeout passed first", owner: "you woke it early" } as const;
+
+/** The wake-up the agent asked for (`launchpad sleep`): one quiet line, "Woken up · today 15:00", never a claim that
+ * what it waited for happened (only Home's own words: its timeout, or your Wake now). Launchpad's message to the
+ * agent (when, how to continue, its note) is behind Details. */
+function WakeRow({ item }: { item: Extract<ChatItem, { t: "wake" }> }) {
+  const [open, setOpen] = useState(false);
+  return <div className="py-1" data-tour="chat.wake">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] text-ink-3">
+      <Icon name="sun" size={12} className="flex-none" />
+      <span className="text-ink-2">Woken up</span>
+      {item.at != null && <span title={when(item.at)}>· {when(item.at)}</span>}
+      {item.early && <span>· {WAKE_EARLY[item.early]}</span>}
+      {item.queued && <span>· waiting for the current step</span>}
+      <button className="chat-tap flex flex-none items-center gap-1 hover:text-ink" aria-expanded={open} title="The message Launchpad sent to wake it" onClick={() => setOpen(!open)}>
+        · <Icon name="chev" size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />Details
+      </button>
+    </div>
+    {open && <div className="mt-1 border-l-2 border-line-2 pl-3 font-mono text-[11px] break-words whitespace-pre-wrap text-ink-3">{item.text}</div>}
+  </div>;
+}
+
+/** The session sleeps now: "Sleeping until today 15:00", its note, Wake now and Cancel wake-up behind Details. */
+function SleepingRow({ item }: { item: Extract<ChatItem, { t: "sleeping" }> }) {
+  const [open, setOpen] = useState(false);
+  const z = item.sleep;
+  const until = sleepUntil(z);
+  return <div className="py-1.5" data-tour="chat.sleeping">
+    <div className="rounded-card bg-sunk px-2.5 py-1.5 text-[12px] text-ink-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+        <Icon name="moon" size={12} className="flex-none text-ink-3" />
+        <span className="min-w-0 break-words"><b className="font-semibold">Sleeping</b>{until ? ` ${until}` : ""}</span>
+        <button className="chat-tap ml-auto flex flex-none items-center gap-1 text-ink-3 hover:text-ink" aria-expanded={open} title="Its note, and what you can do" onClick={() => setOpen(!open)}>
+          <Icon name="chev" size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />Details
+        </button>
+      </div>
+      {open && <div className="mt-1.5 grid gap-1.5 border-t border-line-2 pt-1.5">
+        <span className="text-ink-3">Launchpad wakes it in this conversation{z.deadline != null ? ", at the latest at its timeout even if it still waits" : ""}.</span>
+        {z.note.trim() && <span className="break-words whitespace-pre-wrap"><span className="text-ink-3">Then: </span>{z.note.trim()}</span>}
+        <div className="flex flex-wrap items-center gap-2">
+          <ActionButton name="schedule.start" params={{ id: z.schedule_id }} icon={null}>Wake now</ActionButton>
+          <ActionButton name="schedule.cancel" params={{ id: z.schedule_id }} icon={null} consequence="The agent stays Done and is not woken up.">Cancel wake-up</ActionButton>
+        </div>
+      </div>}
     </div>
   </div>;
 }

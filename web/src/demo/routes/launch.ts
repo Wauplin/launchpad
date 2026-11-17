@@ -20,7 +20,7 @@ import { clock, DemoError, notInDemo, onClock, publish, route } from "../daemon"
 import { predraftRoot } from "../world/github";
 import { playScenario } from "../player";
 import { pickScenario } from "../scenarios";
-import { appendEvent, defaultSpec, demoId, publishSession, refreshCounts, session } from "../store";
+import { appendEvent, defaultSpec, demoId, publishSession, refreshCounts, session, updateSession } from "../store";
 import { world } from "../world";
 import { demoSession, FOLDER, MODELS, PROFILE, SUMMARY_INSTRUCTION, taskWorktree } from "../world/agents";
 import { P, ROOT, TMP } from "../world/ids";
@@ -235,6 +235,9 @@ route("PATCH", "/api/launch/schedules/:id", (r) => {
   return next;
 });
 route("DELETE", "/api/launch/schedules/:id", (r) => {
+  const l = world.schedules.find((x) => x.id === r.params.id);
+  // Cancelling a wake-up ends the sleep (`schedules::wake`): the agent stays Done.
+  if (l?.resume_session_id && session(l.resume_session_id)?.sleep?.schedule_id === l.id) updateSession(l.resume_session_id, { sleep: undefined });
   world.schedules = world.schedules.filter((l) => l.id !== r.params.id);
   publishSchedules();
   return { ok: true };
@@ -256,6 +259,12 @@ function startSchedule(l: ScheduledLaunch): Session {
   publishSchedules();
   if (l.resume_session_id) {
     const s = found(l.resume_session_id);
+    if (l.spec.from?.kind === "wake") {
+      // A wake-up (Wake now): Home's message under its sender, without its sleep (`schedules::wake`).
+      updateSession(s.id, { sleep: undefined });
+      appendEvent(s.id, { kind: "user_message", text: `${l.spec.text}\n\nThe owner woke you before these conditions held (Wake now): check the agents again (\`launchpad sessions show <id>\`).`, client_id: `${l.id}-msg`, queued: false, images: [], from: l.spec.from });
+      return session(s.id)!;
+    }
     sendMessage(s, l.spec.text, `${l.id}-msg`);
     return session(s.id)!;
   }

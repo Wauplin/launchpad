@@ -33,6 +33,15 @@ export function withoutSender(text: string): string {
   return rest ? `${body}\n\n${rest}` : body;
 }
 
+/** Whether a wake-up went before its conditions held, from the line Home adds then (`schedules::wake_early`): its
+ * timeout passed, or the owner's Wake now. Null otherwise (also for older wake-ups), so nothing claims the
+ * conditions held. */
+export function wakeEarly(text: string): "timeout" | "owner" | null {
+  if (text.includes("\n\nYour timeout passed before these conditions held")) return "timeout";
+  if (text.includes("\n\nThe owner woke you before these conditions held")) return "owner";
+  return null;
+}
+
 const NOUN: Record<MessageFrom["kind"], string> = { bot: "bot", session: "agent", routine: "routine", hook: "hook", channel: "channel", wake: "wake-up" };
 
 /** The line over a message from another bot or agent, a hook, a channel or a wake-up: "From bot Scout · not from you",

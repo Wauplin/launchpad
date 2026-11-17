@@ -8,7 +8,8 @@ import type { Row } from "../agents/rows.ts";
 import type { TraceRow } from "../agents/traceRows.ts";
 import type { MessageFrom } from "@/gen/MessageFrom";
 import { isNoUpdate, routineMessage } from "../../lib/routines.ts";
-import { fromOther, withoutSender } from "../../lib/senders.ts";
+import type { Sleep } from "@/gen/Sleep";
+import { fromOther, wakeEarly, withoutSender } from "../../lib/senders.ts";
 
 type AskRow = Extract<Row, { t: "ask" }>;
 
@@ -34,6 +35,8 @@ export type ChatSession = {
   partial: boolean;
   /** Show the Changes card (branch and Merge) after its last turn. */
   changes: boolean;
+  /** Its wake-up while it sleeps (`isSleeping`: Done, no question, `launchpad sleep`), else null. */
+  sleep?: Sleep | null;
 };
 
 /** Something written during a session, placed at the turn that wrote it: a proposal, a ready click, a change.
@@ -49,6 +52,11 @@ export type ChatItem = { key: string; v: string } & (
   | { t: "user"; text: string; images: ImageAttachment[]; queued: boolean; instructions: boolean }
   /** A message from another bot or agent (Home's header and fence left out of `text`): never the owner's bubble. */
   | { t: "from"; text: string; images: ImageAttachment[]; queued: boolean; instructions: boolean; from: MessageFrom }
+  /** The wake-up the agent asked for (`from.kind` wake): one quiet line, Launchpad's message to it behind Details.
+   * `early`: it went before its conditions held (its timeout, or your Wake now), as Home's message says. */
+  | { t: "wake"; at: number | null; early: "timeout" | "owner" | null; text: string; queued: boolean }
+  /** The session sleeps now (after its last turn): what it waits for, its note and schedule behind Details. */
+  | { t: "sleeping"; sessionId: string; sleep: Sleep }
   | { t: "routine"; title: string; cause: string }
   | { t: "quiet"; title: string; cause: string; at: number | null }
   | { t: "answer"; text: string; streaming: boolean }
@@ -180,7 +188,8 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
       if (routine && t.end && !t.end.error && !t.end.interrupted && answer && !answer.streaming && isNoUpdate(answer.text)) {
         out.push({ key: k(`q:${t.key}`), v: "", t: "quiet", title: routine.title, cause: routine.cause, at: t.end.ts });
       } else {
-        if (routine) out.push({ key: k(`r:${t.key}`), v: t.user!.queued ? "q" : "", t: "routine", title: routine.title, cause: routine.cause });
+        if (t.user?.from?.kind === "wake") out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "wake", at: t.user.ts ?? null, early: wakeEarly(t.user.text), text: t.user.text, queued: t.user.queued });
+        else if (routine) out.push({ key: k(`r:${t.key}`), v: t.user!.queued ? "q" : "", t: "routine", title: routine.title, cause: routine.cause });
         else if (t.user && fromOther(t.user.from)) { const m = withoutInstructions(withoutSender(t.user.text)); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "from", text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions, from: t.user.from }); }
         else if (t.user) { const m = withoutInstructions(t.user.text); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "user", text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions }); }
         if (answer) out.push({ key: k(answer.key), v: `${answer.text.length}${answer.streaming ? "s" : ""}`, t: "answer", text: answer.text, streaming: answer.streaming });
@@ -200,9 +209,13 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
     if (!turns.length) for (const c of after) out.push({ key: `c:${c.kind}:${c.id}`, v: c.v, t: "card", kind: c.kind, id: c.id, text: c.text ?? null });
     if (s.running && (!turns.length || turns[turns.length - 1].end)) out.push({ key: k("w"), v: "", t: "working", sessionId: s.id, step: null });
     if (s.changes) out.push({ key: k("ch"), v: "", t: "changes", sessionId: s.id });
+    if (s.sleep && !s.running) out.push({ key: k(`z:${s.sleep.schedule_id}`), v: sleepKey(s.sleep), t: "sleeping", sessionId: s.id, sleep: s.sleep });
   });
   return out;
 }
+
+/** What a sleep shows: a new version of its row whenever one of its fields changes (the session's status stays Done). */
+export const sleepKey = (z: Sleep): string => [z.schedule_id, z.until ?? "", z.waits, z.deadline ?? "", z.note].join("|");
 
 /** "7 steps · 41 s", "12 steps · 3 min" (whole minutes from one minute on: a quiet line, not a timer). */
 export function stepsLabel(count: number, ms: number | null): string {

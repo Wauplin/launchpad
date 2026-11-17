@@ -19,7 +19,7 @@ export type Call = {
 
 export type Row = { key: string; v: string } & (
   /** `from`: another bot or agent, or a routine, sent it (stamped by Home); null for the owner's messages. */
-  | { t: "user"; text: string; queued: boolean; images: ImageAttachment[]; from?: MessageFrom | null }
+  | { t: "user"; text: string; queued: boolean; images: ImageAttachment[]; from?: MessageFrom | null; ts?: number }
   | { t: "assistant"; text: string; streaming: boolean }
   | { t: "reasoning"; text: string }
   | { t: "tools"; calls: Call[] }
@@ -49,7 +49,7 @@ export function buildRows(log: SessionLog): Row[] {
     const key = `e${e.seq}`;
     switch (b.kind) {
       case "user_message":
-        rows.push({ key, v: "", t: "user", text: b.text, images: b.images ?? [], queued: b.queued && !delivered.has(b.client_id), from: b.from ?? null });
+        rows.push({ key, v: "", t: "user", text: b.text, images: b.images ?? [], queued: b.queued && !delivered.has(b.client_id), from: b.from ?? null, ts: e.ts });
         break;
       case "assistant_message":
         rows.push({ key, v: String(b.text.length), t: "assistant", text: b.text, streaming: false });
