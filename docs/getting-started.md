@@ -82,7 +82,7 @@ See [Profiles](agents.md#profiles) for the details.
 
 Launchpad starts with no workspace: create one in the **Workspace** step of **Finish setup**, or in the **Add folder** dialog, which offers it when there is none. The menu at the top of the sidebar lists your workspaces (see [Workspaces](agents.md#workspaces)). Open **Folders** in the sidebar and click **Add folder**. It has two tabs:
 
-- **Clone from GitHub**: Home keeps a mirror of the repository, and runners clone it on first use. Suggestions list the repositories you pushed to recently, read from GitHub; you can also type any `owner/repo`.
+- **Clone from GitHub**: Home keeps a mirror of the repository, and runners clone it on first use. Suggestions list the repositories you pushed to recently, read from GitHub; you can also type any `owner/repo`. An organization that accepts only allow-listed addresses needs an [exit route](exit-routes.md), which the dialog offers.
 - **New plain folder**: a folder without Git, whose files Home stores.
 
 Every folder is stored by Home, so agents run in it on any runner. The sidebar lists **Bots** first (its chevron collapses the group on this device), then Today, Agents, Schedules, Knowledge and Folders. The sidebar button next to Settings collapses the sidebar to icons on this device (counts become badges on the icons, and names show on hover); click it again to expand it. The Folders page lists the folders of the workspace and its temporary folders.

@@ -9,6 +9,7 @@
 - [Remote access and phones](remote-access.md): pairing, Tailscale, the phone layout, notifications and a self-hosted Home.
 - [Hugging Face](hugging-face.md): open models, trace copies in the Home bucket and Home in a Space.
 - [Home and runners](home-and-runners.md): one Home that keeps records, runners and Burst that run agents, how sessions move and how work is saved.
+- [Exit routes](exit-routes.md): reach a GitHub organization behind an IP allow list, or a tailnet service, through one runner that can reach it.
 - [Knowledge](knowledge.md): the knowledge base of each workspace, the memory agents share.
 - [Bots](bots.md): persistent agents with parallel threads, their instructions in `BOT.md` and their notes in the knowledge base.
 - [Oracles](oracles.md): small Python checks that Home runs to answer True, False or Failed, the gates of routines, their Today row and the `launchpad oracle` CLI.

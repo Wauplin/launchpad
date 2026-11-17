@@ -53,6 +53,8 @@ time_zone = ""                      # IANA zone (Europe/Paris) of routines saved
 boundary = "jail"                   # runner only: jail (bubblewrap), or vm inside a dedicated Local VM, where agents may use Docker
 ```
 
+Exit routes are `[[egress]]` entries of Home's `config.toml` (`name`, `github_org` or `urls`, `via`), edited in Settings → Home and runners → Exit routes; see [Exit routes](exit-routes.md). Agents cannot change them.
+
 Credentials and tools live in Home's database, never in `config.toml`: edit them in Settings → Credentials and tools. A profile's `login` names a harness login of Home's vault (default: the harness's default login, the first one by name, then by ID; agents and quota readings use the same one).
 
 Each `[[presets]]` entry has `id`, `label`, `text` and two independent availability flags: `bots` (defaults to `false`) and `agent` (defaults to `true`). Enable either or both in Settings → Presets. Agent availability covers the composer, steering and Send later. Presets are Home's: a runner reads them from Home when it starts an agent, so a launch that names presets fails visibly while Home cannot answer.
@@ -114,6 +116,7 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad work finish\|add-project` | Request a worktree merge (only when the launch chose Merge) or open a Local PR, or add another Git folder of the workspace to a task (used by agents) |
 | `launchpad trace <session> [--through <seq>]` | Print the stored trace of a session |
 | `launchpad folders\|sessions\|profiles\|presets\|schedules\|proposals list` | Read Launchpad state as JSON (an agent reads only its own workspace) |
+| `launchpad egress list` | List the [exit routes](exit-routes.md) as JSON, with whether each exit runner is online (shared by every workspace) |
 | `launchpad channel list\|read\|post`, `launchpad dm <bot>` | Bot channels for bots: list the workspace's channels and the bot's DMs, read messages, post in a channel or a DM ([Commands for bots](channels.md#cli-commands-for-bots)). `launchpad channel join <name>` files a card that asks you to add the bot. `launchpad channel create\|add-member\|set-mode\|remove-member` need admin access |
 | `launchpad today` | Print what waits for the owner (the [Today](today.md) list) as JSON |
 | `launchpad activity list` | List what sessions with admin access changed directly, with the values before |

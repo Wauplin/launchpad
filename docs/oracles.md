@@ -155,7 +155,7 @@ An oracle imports `tools` from `launchpad_oracle`. A tool that is not in the hea
 
 | In the oracle | Reaches | Credential |
 | --- | --- | --- |
-| `tools.http.get(url)` | Any public http(s) address | None |
+| `tools.http.get(url)` | Any public http(s) address, and the URLs of [exit routes](exit-routes.md) | None |
 | `tools.github.get("/repos/…")` | `https://api.github.com` + the endpoint | The registry tool `gh`, added by Home |
 | `tools.huggingface.get("/api/…")` | `https://huggingface.co` + the endpoint | The registry tool `hf`, added by Home |
 | `tools.slack.search.messages("to:me")`, `tools.slack.channels.history(…)`… | Slack, through the read commands of the [slackline](https://github.com/co42/slackline) CLI | The registry tool `slack-read`, given to slackline by Home |
@@ -187,6 +187,7 @@ A GET to any public address, never with a credential: public APIs and pages such
 - `url` is absolute, `http://` or `https://`, any port, without a user name or password. `params` are added to its query string.
 - `headers` may set any request header except `Authorization`, `Proxy-Authorization`, `Cookie`, `Host` and the connection headers (`ValueError`). Credentials come only from tools: a secret written in an oracle file would be readable by every agent of the workspace.
 - **Public addresses only.** Home resolves the host and refuses it with `PermissionError` when an address is not public: loopback, private, link-local, carrier-grade NAT, multicast, unspecified, documentation ranges, cloud metadata and their IPv4-mapped forms. It connects only to the address it checked. Home's own address is refused too.
+- **Exit routes.** A URL of an [exit route](exit-routes.md) goes through the route's exit runner, which resolves the host and connects only to the route's targets, so tailnet and private addresses of a route work. Home does not apply its public-address rule to it. The call log shows “via <exit>”. While the exit is offline, the call raises `OSError` with the route's message.
 - **Registry hosts are trusted by name.** The hosts of the tools of Home's registry (`api.github.com`, `huggingface.co`, `slack.com`…) are reached whatever they resolve to, still without a credential.
 - Redirects are followed up to 5 times, and each hop is checked again. No cookies are kept. Home sends `User-Agent: Launchpad-Oracle/<version>` unless the oracle sets its own.
 
@@ -199,6 +200,7 @@ A GET on GitHub's REST API, `https://api.github.com` + `endpoint`, with the toke
 - `endpoint` starts with `/` and may hold a query string, which `params` extends. A scheme, a host, `//`, a `.` or `..` segment, a fragment, a backslash or a control character is refused (`ValueError`), so the token only goes to `api.github.com`.
 - Home sends `Authorization: Bearer <token>`, `Accept: application/vnd.github+json` and `X-GitHub-Api-Version: 2022-11-28`. Set `Accept` yourself for another format, such as `application/vnd.github.diff` for a pull request's diff as text.
 - A redirect to another host (a log or archive download) is followed without the token, under the rules of `tools.http`.
+- A repository of an organization with an [exit route](exit-routes.md) is read through the route's exit runner, with the token added on Home. The call log shows “via <exit>”; while the exit is offline, the call raises `OSError`.
 - Only GET is possible, so an oracle cannot write to GitHub, whatever the token's scopes. GraphQL, which needs POST, is not available.
 
 ### tools.huggingface
@@ -242,6 +244,7 @@ Launchpad commands mirror the CLI's read commands, for the oracle's own workspac
 | `topics.list()`, `topics.show(topic)` | `launchpad topics list\|show` |
 | `oracle.list()`, `oracle.show(slug)`, `oracle.history(slug, failed=False, limit=20)` | `launchpad oracle list\|show\|history` |
 | `notes(repo, number)` | `launchpad notes --repo --number` |
+| `egress.list()` | `launchpad egress list`: the [exit routes](exit-routes.md) with whether their exit runner is online (shared by every workspace) |
 
 Each returns the same JSON as the CLI, as Python values. Session times such as `status_since` are Unix milliseconds. An error, such as an unknown session, raises `RuntimeError` with Launchpad's message.
 
@@ -255,7 +258,7 @@ Monty has no class inheritance, so the tools raise built-in exceptions. Home rem
 | --- | --- | --- |
 | `PermissionError` | The tool is not in the header, not granted to the workspace or has no token; a private address or Home itself; a Launchpad route outside the read level | `access` |
 | `ValueError` | A bad argument: an endpoint that does not start with `/`, a refused header, an invalid Slack ID, a limit out of range | `script` |
-| `OSError` | A DNS, TCP or TLS failure, a reset connection, more than 5 redirects, a redirect to an address tools do not follow | `http` |
+| `OSError` | A DNS, TCP or TLS failure, a reset connection, more than 5 redirects, a redirect to an address tools do not follow, an exit route whose exit runner is offline or could not connect | `http` |
 | `RuntimeError` | A Slack or Launchpad command answered an error | `http` |
 
 An oracle may catch these to decide what an error means, for example an `OSError` on an optional source. `raise_for_status()` and `failed()` cannot be caught. Running out of time during a tool call and running out of a budget (see [Limits](#limits)) are not exceptions either: they end the evaluation at once, with class `timeout` or `limit`.
@@ -445,6 +448,8 @@ instructions = "The slack-to-me oracle fails. Find out why and tell me."
 ```
 
 A tick that starts no run is a **check**: no thread, no session and no quota, recorded as a grey entry in the routine's history. Consecutive checks with the same answer collapse into one line, such as “143 checks · False since 09:00 · not routed”. A run that starts gets the evidence in its message, fenced and marked as data from outside Launchpad, never as your instructions. Quota, the loop guard, the thread cap and the routine limits apply to gated runs as to any run. Failed never counts as a change: True, then Failed, then True again starts nothing new.
+
+To run a routine only while an exit runner is online, gate it on an oracle that reads `tools.launchpad.egress.list()` (example in [Exit routes](exit-routes.md#oracles)).
 
 The gate's oracle must exist when you save the routine: apply the oracle card first. A gate naming an oracle that is gone, or with wrong parameters, makes the run fail with the reason, shown on the routine and in Today → Fix. A paused or broken oracle turns each tick into a quiet check.
 

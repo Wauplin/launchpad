@@ -10,7 +10,7 @@ Sign in with `gh auth login` on the machine that runs the daemon. Launchpad read
 
 - Name an item in a prompt (a link, or `#` in the composer, which searches the folder's repository on GitHub as you type) or add it as context. The agent gets the item's repository, number and link, and reads it with its own tools.
 - **Review with agent** (from the extension) gives an agent the PR and review instructions. The agent writes its review as a suggestion.
-- Clone from GitHub suggests the repositories you pushed to recently, read from GitHub when the dialog opens; you can also type any `owner/repo`.
+- Clone from GitHub suggests the repositories you pushed to recently, read from GitHub when the dialog opens; you can also type any `owner/repo`. When GitHub refuses Home's address because the organization has an IP allow list, the dialog offers **Add route and clone**: an [exit route](exit-routes.md) through a runner that GitHub accepts.
 
 ## Continue a pull request
 

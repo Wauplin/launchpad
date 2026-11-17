@@ -46,4 +46,6 @@ One word per concept, and one concept per word, in every button, tooltip, toast,
 | Demo | sandbox, playground | The fake world the tour runs on. Nothing in it is real or saved; Exit demo reloads the real app. |
 | Home | server, main daemon, Home daemon | The one daemon that keeps every record, credential, folder and branch and serves the app. It runs no agents. |
 | Runner | worker, host, agent machine | A Linux machine (or Local VM, or Burst job) that runs agents for Home. Its own window shows only its status. "This computer" is not used. |
+| Exit route | egress, proxy route, exit node | A setting of Settings → Home and runners: the URLs of a GitHub organization, or URL prefixes, that leave through one runner instead of the machine that sends them. Used for an organization behind an IP allow list or a service on your tailnet. Never "exit node", which is Tailscale's own feature. See [Exit routes](exit-routes.md). |
+| Exit runner | exit, gateway runner, exit node | The one runner an exit route sends its URLs through ("Through" in the form). It must be one of your machine runners, never Burst. While it is offline, the route's requests fail at once. |
 | Saving · Not on Home | unsynced, pending, dirty | The marks of a session whose last turn is not on Home yet: Saving while the runner sends it, Not on Home (amber) when that failed and it retries. |
