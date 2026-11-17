@@ -9,6 +9,7 @@ import { FollowUpAgent } from "./FollowUpAgent";
 import { useProfile } from "@/lib/profiles";
 import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsageToggle, RunSettingsChip } from "./SessionSummary";
 import { BotChip, Tabs } from "@/components/ui";
+import { routineOf } from "@/lib/routines";
 import { SubagentsPanel, subagents } from "./SubagentsPanel";
 import { GitPanel } from "./GitPanel";
 import { ProcessesPanel } from "./ProcessesPanel";
@@ -380,7 +381,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
         {renaming && <div className="session-heading flex min-w-0 items-center gap-1">{titleEl}</div>}
         <span className="session-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3 tabular-nums">
           <SessionStatus s={s} />
-          {s.launch_spec.bot && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} search={{ thread: launchThread(s.launch_spec.bot) } as never} className="flex min-w-0 max-w-[40%] shrink-0 no-underline" aria-label={`Open the chat of ${s.launch_spec.bot.name}`}><BotChip name={s.launch_spec.bot.name} className="max-w-full" /></Link>}
+          {s.launch_spec.bot && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} search={{ thread: launchThread(s.launch_spec.bot) } as never} className="flex min-w-0 max-w-[40%] shrink-0 no-underline" aria-label={`Open the chat of ${s.launch_spec.bot.name}`}><BotChip name={s.launch_spec.bot.name} routine={routineOf(s)} className="max-w-full" /></Link>}
           {localPr && <LocalPrChip pr={localPr} />}
           <SessionTopics sessionId={s.id} open={topicsOpen} onClose={() => setTopicsOpen(false)} />
           <button className="session-details min-w-0 flex-1 truncate text-left" aria-label="Session details" onClick={() => setDetailsOpen(true)}>{place} <Icon name="chev" size={12} /></button>
@@ -397,7 +398,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <div className="session-heading flex min-w-0 flex-1 basis-56 items-center gap-2">
             <HarnessMark harness={s.harness} size={16} />
-            {s.launch_spec.bot && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} search={{ thread: launchThread(s.launch_spec.bot) } as never} className="flex min-w-0 max-w-[40%] shrink-0 no-underline hover:opacity-80" aria-label={`Open ${s.launch_spec.bot.name}`}><BotChip name={s.launch_spec.bot.name} className="max-w-full" /></Link>}
+            {s.launch_spec.bot && <Link to="/bots/$id" params={{ id: s.launch_spec.bot.id }} search={{ thread: launchThread(s.launch_spec.bot) } as never} className="flex min-w-0 max-w-[40%] shrink-0 no-underline hover:opacity-80" aria-label={`Open ${s.launch_spec.bot.name}`}><BotChip name={s.launch_spec.bot.name} routine={routineOf(s)} className="max-w-full" /></Link>}
             {titleEl}
             {!renaming && <SessionStatus s={s} />}
           </div>

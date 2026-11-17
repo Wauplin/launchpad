@@ -7,6 +7,7 @@ import type { CronAgent } from "@/gen/CronAgent";
 import type { FailureKind } from "@/gen/FailureKind";
 import type { RoutineRun } from "@/gen/RoutineRun";
 import type { RunOutcome } from "@/gen/RunOutcome";
+import type { Session } from "@/gen/Session";
 import type { Trigger } from "@/gen/Trigger";
 
 export const FAILURE_EVENTS: { id: FailureKind; label: string }[] = [
@@ -147,3 +148,8 @@ export function routineMessage(text: string): { title: string; cause: string; bo
 
 /** Whether a final message means "nothing to report" (the same rule as Home's `crons::is_no_update`). */
 export const isNoUpdate = (text: string | null | undefined) => !!text && text.trim().replace(/^[`*".\s]+|[`*".\s]+$/g, "").toLowerCase() === "no_update";
+
+/** The title of the routine that started a session: a routine's own launch (`launch_spec.routine`), or a bot routine's
+ * run, whose thread's first message comes from the routine (`launch_spec.from`). Null for every other session. */
+export const routineOf = (s: Session): string | null =>
+  s.launch_spec.routine?.title ?? (s.launch_spec.from?.kind === "routine" ? s.launch_spec.from.name || "routine" : null);

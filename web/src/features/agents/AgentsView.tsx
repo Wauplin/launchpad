@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { openExternal } from "@/lib/platform";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { BotChip, ConfirmButton, Empty, MoreMenu } from "@/components/ui";
+import { BotChip, ConfirmButton, RoutineMark, Empty, MoreMenu } from "@/components/ui";
 import { ActionMenuItem } from "@/components/ActionButton";
 import { MenuItem } from "@/components/Popover";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -23,7 +23,7 @@ import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useProjects, useSession, useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
-import { isNoUpdate } from "@/lib/routines";
+import { isNoUpdate, routineOf } from "@/lib/routines";
 import { sendPresence } from "@/lib/ws";
 import { isCollapsed, useLayout, type AgentGroup } from "@/stores/layout";
 import { SessionPane, type View } from "./SessionPane";
@@ -65,6 +65,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, tag,
   const quotaLine = s.quota_pause?.error ?? (lastReset !== null ? `resets ${formatReset(lastReset)}` : quotaDetail);
   const line = s.quota_pause ? quotaLine || "Waiting for a quota update" : isNoUpdate(s.last_message) ? "No update (a routine with nothing to report)" : s.last_message ?? (s.usage.cost_usd != null ? `$${s.usage.cost_usd.toFixed(2)}` : "");
   const full = s.quota_pause ? quotaDetail || line : line;
+  const routine = routineOf(s);
   return (
     <div className="group relative" data-tour="agents.row" data-tour-id={s.id}>
       <button
@@ -76,7 +77,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, tag,
           <HarnessMark harness={s.harness} size={18} />
         </span>
         <span className={`flex min-w-0 items-center gap-1.5 text-[13px] leading-[1.35] ${dim ? "font-medium text-ink-2" : needs ? "font-semibold" : "font-medium"}`} title={s.title}>
-          {s.launch_spec.bot && <BotChip name={s.launch_spec.bot.name} />}
+          {s.launch_spec.bot ? <BotChip name={s.launch_spec.bot.name} routine={routine} /> : routine && <RoutineMark routine={routine} />}
           <span className="min-w-0 truncate">{pinned ? "★ " : ""}{s.title}</span>
         </span>
         <span className="flex items-center gap-1 text-[12px] whitespace-nowrap text-ink-3">

@@ -83,7 +83,7 @@ You can also ask Ask Launchpad: "Create a bot that watches the Xet changelog." I
 
 ## Threads
 
-A bot has several threads: parallel conversations about different things. Each thread is one session. The session is a normal agent session (listed in Agents too, with a small teal chip of the bot's name before its title, also in the session header, where it links to the bot's thread). The bot's instructions, settings, memory and routines are shared by all its threads, but each thread knows only its own conversation, so the bot passes facts between threads through its memory, the knowledge base or its folder.
+A bot has several threads: parallel conversations about different things. Each thread is one session. The session is a normal agent session (listed in Agents too, with a small teal chip of the bot's name before its title, also in the session header, where it links to the bot's thread; a thread that a routine started shows a small repeat icon inside the chip, before the bot's name, and other routine runs show the same icon before their title). The bot's instructions, settings, memory and routines are shared by all its threads, but each thread knows only its own conversation, so the bot passes facts between threads through its memory, the knowledge base or its folder.
 
 There is no default thread. The bot's page opens on the thread you looked at last on this device, else the one whose session you saw last, else the most recent one; a bot without threads opens a new one. Home picks the thread of each message from where the message comes from:
 

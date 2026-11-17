@@ -296,9 +296,16 @@ export function Token({ tone = "neutral", icon, children, title, className = "" 
   );
 }
 
-/** The bot a session belongs to, as a small chip before its title (Agents list, session header). Teal like every bot mark. */
-export function BotChip({ name, className = "" }: { name: string; className?: string }) {
-  return <span title={`This session belongs to ${name}'s thread`} className={`inline-flex h-4 max-w-[45%] shrink-0 items-center rounded px-1.5 align-[1px] text-[11px] font-semibold whitespace-nowrap bg-teal-soft text-teal-ink ${className}`}><span className="truncate">{name}</span></span>;
+/** The bot a session belongs to, as a small chip before its title (Agents list, session header). Teal like every bot mark.
+ * `routine`: the title of the routine that started the session, shown as a small repeat icon before the name. */
+export function BotChip({ name, routine, className = "" }: { name: string; routine?: string | null; className?: string }) {
+  const title = routine ? `Started by the routine “${routine}” of ${name}` : `This session belongs to ${name}'s thread`;
+  return <span title={title} aria-label={routine ? `${name}, routine run` : undefined} className={`inline-flex h-4 max-w-[45%] shrink-0 items-center gap-1 rounded px-1.5 align-[1px] text-[11px] font-semibold whitespace-nowrap bg-teal-soft text-teal-ink ${className}`}>{routine && <Icon name="refresh" size={12} />}<span className="truncate">{name}</span></span>;
+}
+
+/** A routine run that is no bot's session, as a small repeat icon before its title (Agents list). */
+export function RoutineMark({ routine }: { routine: string }) {
+  return <span title={`Started by the routine “${routine}”`} aria-label="Routine run" className="inline-flex shrink-0 text-teal-ink"><Icon name="refresh" size={12} /></span>;
 }
 
 export type SettingScope = "device" | "all";

@@ -300,6 +300,16 @@ export function agentsWorld() {
       say("I proposed two things; nothing starts until you press its button:\n\n1. **Fix the empty-cart 500 in the invoices API**: issue #77 mentions you, and the fix looks small.\n2. **Weekly docs link check**: a repeating agent every Monday at 09:00 that reports broken links in docs.\n\nBoth cards are below."),
       ...end(1), status("waiting"),
     ] });
+  // A run of the Maintainer's daily check routine, in a thread of its own: the Agents list marks it with the routine icon.
+  add({ id: "demo-s-bot-maintainer-daily", title: "Daily check", project: P.storefront, harness: "claude", minutesAgo: 50, seen: true,
+    spec: { text: routineText("Daily check", "Scheduled", DAILY), from: { kind: "routine", id: "demo-routine-daily", name: "Daily check", hops: 1 },
+      bot: { id: "demo-bot-maintainer", name: "Maintainer", slug: "maintainer", instructions: "", previous: null, version: botVersion(MAINTAINER_BOT_MD), reason: "first", thread: "demo-thread-daily" } },
+    events: [
+      user(routineText("Daily check", "Scheduled", DAILY), false),
+      ...tool("Bash", "git log --since=1.day --oneline", "a1b2c3d Wait for the order request in the checkout test"),
+      say("One change since yesterday: the checkout test now waits for the order request. Nothing else needs you."),
+      ...end(1),
+    ] });
   // Bots: the Maintainer of storefront, one session in its thread (its definition is in world/bots.ts).
   add({ id: "demo-s-bot-maintainer", title: "What changed in checkout this week", project: P.storefront, harness: "claude", minutesAgo: 70, seen: true, worktree: "maintainer-checkout-week",
     spec: { text: "What changed in checkout this week, and is anything still risky?", bot: { id: "demo-bot-maintainer", name: "Maintainer", slug: "maintainer", instructions: "", previous: null, version: botVersion(MAINTAINER_BOT_MD_PREV), reason: "first", thread: "demo-thread-maintainer" } },
@@ -409,13 +419,13 @@ export function agentsWorld() {
     id: "demo-routine-daily", title: "Daily check", schedule: "0 9 * * 1-5", trigger: { kind: "schedule" }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 6),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: DAILY, workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
-    next_run_at: nextAt(9, 0), last_check_at: clock.ago(50), last_outcome: "No update", runs: ["demo-s-bot-maintainer"], failure_seen: null, channel_seen: null, file: "routines/daily-check.toml", file_error: null, auto_archive: false, waiting: null,
+    next_run_at: nextAt(9, 0), last_check_at: clock.ago(50), last_outcome: "No update", runs: ["demo-s-bot-maintainer-daily"], failure_seen: null, channel_seen: null, file: "routines/daily-check.toml", file_error: null, auto_archive: false, waiting: null,
     history: [run(day * 5 + 50, "report", "demo-s-bot-maintainer"), run(day * 4 + 50, "no_update", "demo-s-bot-maintainer"), run(day * 3 + 50, "no_update", "demo-s-bot-maintainer"), run(day + 50, "report", "demo-s-bot-maintainer"), run(50, "no_update", "demo-s-bot-maintainer")],
   }, {
     id: "demo-routine-ci", title: "CI failures", schedule: "0 7 * * 1-5", trigger: { kind: "schedule" }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 6),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: CI, workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
-    next_run_at: nextAt(7, 0), last_check_at: clock.ago(40), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], failure_seen: null, channel_seen: null, file: "routines/ci-failures.toml", file_error: null, auto_archive: false, waiting: null,
+    next_run_at: nextAt(7, 0), last_check_at: clock.ago(40), last_outcome: "Report", runs: ["demo-s-bot-maintainer-daily"], failure_seen: null, channel_seen: null, file: "routines/ci-failures.toml", file_error: null, auto_archive: false, waiting: null,
     history: [run(day * 2 + 40, "report", "demo-s-bot-maintainer"), run(day + 40, "skipped", null, "Scheduled", "Maintainer was working"), run(40, "report", "demo-s-bot-maintainer")],
   }, {
     // The Maintainer follows #release-train: the channel wakes it when it is mentioned, and this routine (a channel
@@ -423,7 +433,7 @@ export function agentsWorld() {
     id: "demo-routine-train", title: "Release questions", schedule: "", trigger: { kind: "channel", channel: "demo-chan-release-train", mentions_only: false }, bot_id: "demo-bot-maintainer", bot_paused: false, paused: false, created_at: clock.ago(day * 4),
     spec: defaultSpec({ harness: "claude", profile: "claude-max", target: { kind: "project", project_id: P.storefront }, text: TRAIN_ROUTINE, workspace_id: WS.acme }),
     conditions: [{ kind: "quota_left", window: "five_hour", min_left_percent: 20 }],
-    next_run_at: null, last_check_at: clock.ago(1), last_outcome: "Report", runs: ["demo-s-bot-maintainer"], failure_seen: null, channel_seen: 46, file: "routines/release-questions.toml", file_error: null, auto_archive: false, waiting: null,
+    next_run_at: null, last_check_at: clock.ago(1), last_outcome: "Report", runs: ["demo-s-bot-maintainer-daily"], failure_seen: null, channel_seen: 46, file: "routines/release-questions.toml", file_error: null, auto_archive: false, waiting: null,
     history: [run(179, "no_update", "demo-s-bot-maintainer", "#release-train, the owner (message 40)"), run(52, "report", "demo-s-bot-maintainer", "#release-train: 2 new messages")],
   }, {
     // The Librarian's weekly tidy, created paused with the bot (`librarian::ROUTINE`): Sunday 03:00 in Home's time zone.
