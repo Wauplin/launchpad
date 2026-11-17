@@ -4,7 +4,7 @@ GitHub's own website owns notifications, issues and pull requests; the [Chrome e
 
 Sign in with `gh auth login` on the machine that runs the daemon. Launchpad reads the token with `gh auth token` and calls the GitHub REST and GraphQL APIs directly, only when a feature needs the answer, and stores no response. Settings → GitHub shows the login and the rate limit.
 
-**Rule: nothing reaches GitHub without your click.** Agents can write comments, reviews and pull requests, but they stay local until you publish them. Once a branch is on GitHub, agents you launch on it push their commits to it (see [Continue a pull request](#continue-a-pull-request)).
+**Rule: nothing reaches GitHub without your click.** Agents can write comments, reviews and pull requests, but they stay local until you publish them. The one exception is yours to turn on: a bot with [Publish draft pull requests](bots.md#publish-draft-pull-requests) publishes its own Local PRs as drafts when your own message asks it to. Once a branch is on GitHub, agents you launch on it push their commits to it (see [Continue a pull request](#continue-a-pull-request)).
 
 ## Issues and pull requests as context
 

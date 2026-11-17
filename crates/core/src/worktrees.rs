@@ -1318,15 +1318,61 @@ pub async fn finish(app: &App, session_id: &str) -> Result<String> {
     for w in &records {
         ready_to_finish(app, w).await?;
     }
+    // Merge covers only the folders the launch named; a folder the agent added itself becomes a Local PR.
+    let session = app.sessions.get(session_id).context("no such session")?;
+    let target = target_folder(app, &session).await;
+    let (named, added): (Vec<_>, Vec<_>) = records.into_iter().partition(|w| launch_named(&session.launch_spec, target.as_deref(), &w.project_id));
     let mut lines = vec![];
-    for w in &records {
+    for w in &named {
         request_merge(app, &w.id, true, None).await?;
         lines.push(format!("- {} into {}", w.branch, w.base_branch.as_deref().unwrap_or_default()));
     }
-    Ok(format!(
-        "Merge requested:\n{}\nLaunchpad pushes your branches to Home and merges them there after your turn ends. End your turn now and report the merge as requested, not as done. Do not merge yourself.",
-        lines.join("\n")
-    ))
+    let mut prs = vec![];
+    for w in added {
+        let p = open_local_pr(app, session_id, w).await?;
+        prs.push(format!("- {} into {}: Local PR {}", p.branch, p.base_branch, p.id));
+    }
+    let mut text = String::new();
+    if !lines.is_empty() {
+        text.push_str(&format!("Merge requested:\n{}\nLaunchpad pushes your branches to Home and merges them there after your turn ends. ", lines.join("\n")));
+    }
+    if !prs.is_empty() {
+        text.push_str(&format!(
+            "Not merged, since this launch did not name their folders (you added them): Local PRs opened for the owner's review instead:\n{}\nSet each one's title and description with `{} pr update --title \"…\" --body-file <file>` in its worktree. ",
+            prs.join("\n"),
+            app.paths.cli_command()
+        ));
+    }
+    text.push_str("End your turn now and report the merge as requested and the Local PRs as opened for review, not as merged. Do not merge or open a pull request yourself.");
+    Ok(text)
+}
+
+/// Pure: whether a launch named this folder for its work: the folder it runs in (`target`) or an editable context
+/// folder. An agent's Merge covers only these, never a folder it added itself (`work add-project`), so a launch's
+/// When done never reaches the base branch of another repository.
+pub fn launch_named(spec: &crate::model::LaunchSpec, target: Option<&str>, project_id: &str) -> bool {
+    target == Some(project_id) || spec.context_projects.iter().any(|c| c.editable && c.project_id == project_id)
+}
+
+/// The folder a session's launch runs in, from its launch spec.
+async fn target_folder(app: &App, s: &Session) -> Option<String> {
+    use crate::model::Target;
+    match &s.launch_spec.target {
+        Target::Project { project_id } | Target::Predraft { project_id } => Some(project_id.clone()),
+        Target::ExistingPredraft { predraft_id } => crate::predrafts::get(app, predraft_id).await.ok().map(|p| p.project_id),
+        Target::SessionFolder { session_id } => app.sessions.get(session_id).and_then(|s| s.project_id),
+        Target::Temp | Target::None => None,
+    }
+}
+
+/// Pushes a worktree's branch to Home and opens (or finds) its Local PR, in the session's change set.
+async fn open_local_pr(app: &App, session_id: &str, mut w: TaskWorktree) -> Result<crate::predrafts::Predraft> {
+    ready_to_finish(app, &w).await?;
+    push_unlocked(app, &mut w).await.context("push the branch to Home")?;
+    let title = app.sessions.get(session_id).map(|s| s.title).filter(|t| !t.trim().is_empty());
+    let p = crate::predrafts::open_for_branch(app, &w.project_id, &w.branch, w.base_branch.as_deref(), Some(session_id), title).await?;
+    mark_predraft(app, &w.id, &p.id).await?;
+    Ok(p)
 }
 
 async fn ready_to_finish(app: &App, w: &TaskWorktree) -> Result<()> {
@@ -1342,13 +1388,10 @@ async fn ready_to_finish(app: &App, w: &TaskWorktree) -> Result<()> {
 /// Local PR. The session's other branches join the same change set when they become Local PRs.
 async fn finish_local_pr(app: &App, session_id: &str, publish: Option<bool>) -> Result<String> {
     let all = for_session(app, session_id).await?;
-    let mut w = all.iter().find(|w| w.primary && w.state == WorktreeState::Active).cloned().context("this session has no Launchpad worktree to turn into a Local PR")?;
+    let w = all.iter().find(|w| w.primary && w.state == WorktreeState::Active).cloned().context("this session has no Launchpad worktree to turn into a Local PR")?;
     ensure!(w.pull_request.is_none(), "this branch continues a pull request: push your commits instead of opening a Local PR");
-    ready_to_finish(app, &w).await?;
-    push_unlocked(app, &mut w).await.context("push the branch to Home")?;
-    let title = app.sessions.get(session_id).map(|s| s.title).filter(|t| !t.trim().is_empty());
-    let p = crate::predrafts::open_for_branch(app, &w.project_id, &w.branch, w.base_branch.as_deref(), Some(session_id), title).await?;
-    mark_predraft(app, &w.id, &p.id).await?;
+    let root = w.root.clone();
+    let p = open_local_pr(app, session_id, w).await?;
     let others: Vec<String> = all.iter().filter(|o| !o.primary && o.state == WorktreeState::Active).map(|o| format!("`{}`", o.branch)).collect();
     let then = match publish {
         Some(draft) => format!(
@@ -1360,7 +1403,7 @@ async fn finish_local_pr(app: &App, session_id: &str, publish: Option<bool>) -> 
     };
     let mut text = format!(
         "Local PR opened on Home from branch `{}` (id {}), based on `{}`. Now set its title and description: write the description to a file, then run `{} pr update --title \"…\" --body-file <file>` in `{}`. {then}",
-        p.branch, p.id, p.base_branch, app.paths.cli_command(), w.root
+        p.branch, p.id, p.base_branch, app.paths.cli_command(), root
     );
     if !others.is_empty() {
         text.push_str(&format!(" The branches of your other worktrees ({}) can join the same change set: run `{} pr create` in each of them.", others.join(", "), app.paths.cli_command()));
@@ -1686,8 +1729,14 @@ pub async fn check_merge_request(app: &App, project: &Project, session_id: Optio
     ensure!(w.base_branch.as_deref() == Some(base), "{branch} is based on {}, not {base}", w.base_branch.as_deref().unwrap_or("no branch"));
     ensure!(w.pull_request.is_none(), "this branch continues a pull request: merge it on GitHub");
     if by_agent {
-        let when_done = s.launch_spec.worktree.map(|o| o.when_done).unwrap_or_default();
+        let when_done = s.launch_spec.worktree.as_ref().map(|o| o.when_done).unwrap_or_default();
         ensure!(when_done == crate::model::WhenDone::Merge, "this launch did not choose Merge when done: the owner merges from Launchpad");
+        let target = target_folder(app, &s).await;
+        ensure!(
+            launch_named(&s.launch_spec, target.as_deref(), &project.id),
+            "this launch did not name {} (the agent added it): an agent's Merge covers only the launch's own folders, so the owner merges or publishes this branch from Launchpad",
+            project.name
+        );
         let workspace = crate::kb::workspace_of_session(app, sid).await;
         ensure!(workspace.is_some() && project.workspace_id == workspace, "{} is not in this session's workspace", project.name);
     }
@@ -1866,6 +1915,21 @@ pub async fn sizes(app: &App) -> Result<HashMap<String, u64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_merges_only_named_folders() {
+        use crate::model::{ContextProject, LaunchSpec};
+        let ctx = |id: &str, editable| ContextProject { project_id: id.into(), branch: None, editable };
+        let spec = LaunchSpec { context_projects: vec![ctx("docs", true), ctx("ref", false)], ..Default::default() };
+        // The launch's own folder and its editable context folders merge on the agent's request.
+        assert!(launch_named(&spec, Some("app"), "app"));
+        assert!(launch_named(&spec, Some("app"), "docs"));
+        // A read-only context folder or one the agent added (`work add-project`) never does.
+        assert!(!launch_named(&spec, Some("app"), "ref"));
+        assert!(!launch_named(&spec, Some("app"), "upstream"));
+        // A bot in a temporary folder names no folder of its own.
+        assert!(!launch_named(&LaunchSpec::default(), None, "upstream"));
+    }
 
     #[test]
     fn held_pushes_wait_for_home_tip() {

@@ -932,6 +932,19 @@ enum Pr {
     Show,
     /// List local PRs, including published and archived records.
     List,
+    /// Publish a Local PR of this bot as a draft pull request on GitHub, at the commit you checked. Only for a bot
+    /// whose owner turned on Publish drafts, in a turn that answers the owner's own request.
+    Publish {
+        /// The Local PR (default: the one of the current worktree).
+        #[arg(long)]
+        id: Option<String>,
+        /// The branch's commit you checked (40 characters); refused when the branch moved since.
+        #[arg(long)]
+        head: String,
+        /// The branch name on GitHub (default: the Local PR's default remote branch).
+        #[arg(long)]
+        remote_branch: Option<String>,
+    },
 }
 async fn pr_command(paths: &Paths, command: Pr) -> Result<()> {
     let client = Client::new(paths)?;
@@ -948,6 +961,17 @@ async fn pr_command(paths: &Paths, command: Pr) -> Result<()> {
         Pr::Update { title, body_file } => {
             let p = resolve().await?;
             client.json("PATCH", &format!("/api/predrafts/{}", id(&p)?), Some(serde_json::json!({"title":title,"body":body_file.map(std::fs::read_to_string).transpose()?}))).await?
+        }
+        Pr::Publish { id: pr, head, remote_branch } => {
+            let pr = match pr {
+                Some(pr) => pr,
+                None => id(&resolve().await?)?,
+            };
+            let remote_branch = match remote_branch {
+                Some(b) => b,
+                None => client.json("GET", &format!("/api/predrafts/{pr}"), None).await?["default_remote_branch"].as_str().context("default remote branch")?.to_string(),
+            };
+            client.json("POST", &format!("/api/predrafts/{pr}/publish"), Some(serde_json::json!({"remote_branch": remote_branch, "draft": true, "head": head}))).await?
         }
     };
     println!("{}", serde_json::to_string_pretty(&body)?);

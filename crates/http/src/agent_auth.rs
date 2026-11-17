@@ -30,7 +30,7 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
         Some(LaunchpadAccess::Propose)
     } else if oracle_read(method, path) {
         Some(LaunchpadAccess::Read)
-    } else if oracle_test(method, path) {
+    } else if oracle_test(method, path) || bot_publish(method, path).is_some() {
         Some(LaunchpadAccess::Propose)
     } else {
         None
@@ -58,6 +58,14 @@ fn oracle_read(method: &Method, path: &str) -> bool {
 fn oracle_test(method: &Method, path: &str) -> bool {
     let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     *method == Method::POST && p.len() == 5 && p[..2] == ["api", "oracles"] && p[4] == "test" && !p.iter().any(|s| s.is_empty())
+}
+
+/// `launchpad pr publish` (`POST /api/predrafts/{id}/publish`): the Local PR's ID. Propose access; Home lets only a
+/// bot whose owner turned on `publish_drafts` publish its own Local PRs as drafts, in a turn that answers the owner
+/// (`predrafts::agent_publish_refusal`).
+fn bot_publish<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
+    let id = path.strip_prefix("/api/predrafts/")?.strip_suffix("/publish")?;
+    (*method == Method::POST && !id.is_empty() && !id.contains('/')).then_some(id)
 }
 
 /// `launchpad channel post` and `launchpad dm`: propose access (Home lets only member bots post).
@@ -294,6 +302,17 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
         }
         return Ok(Request::from_parts(parts, Body::from(bytes)));
     }
+    if let Some(pr) = bot_publish(req.method(), &path) {
+        // A runner forwards it to Home (every Local PR call goes there), which decides from its own records.
+        if app.paths.role != launchpad_core::role::Role::Home {
+            return Ok(req);
+        }
+        let (parts, body) = req.into_parts();
+        let bytes = to_bytes(body, 1 << 20).await.map_err(|_| denied())?;
+        let value: Value = serde_json::from_slice(&bytes).map_err(|_| denied())?;
+        launchpad_core::predrafts::agent_publish_refusal(app, id, pr, &value).await.map_err(|e| ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("{e:#}")))?;
+        return Ok(Request::from_parts(parts, Body::from(bytes)));
+    }
     if let Some(why) = channel_refusal(req.method(), &path) {
         return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, why));
     }
@@ -378,7 +397,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (_, ["launch", "schedules", id, ..]) => Schedule(id),
         (_, ["proposals", id, ..]) => Proposal(id),
         (_, ["projects", id] | ["projects", id, "branches"]) => Folder(id),
-        (_, ["predrafts", id] | ["predrafts", id, "record"]) => LocalPr(id),
+        (_, ["predrafts", id] | ["predrafts", id, "record"]) | (false, ["predrafts", id, "publish"]) => LocalPr(id),
         (_, ["workspaces", id]) => Workspace(id),
         (false, ["worktrees", id, "discard" | "fix"]) => Worktree(id),
         (_, ["tool-defaults", scope, id]) => Tools(scope, id),
@@ -605,6 +624,14 @@ mod tests {
         }
         assert!(read_allowed("/api/context/folders"));
         assert!(own_write("/api/worktrees/finish"));
+        // `launchpad pr publish`: propose access, then Home's own check of the bot's `publish_drafts`; never the
+        // other publication routes.
+        assert_eq!(bot_publish(&Method::POST, "/api/predrafts/p/publish"), Some("p"));
+        assert_eq!(tool_need(&Method::POST, "/api/predrafts/p/publish"), Some(LaunchpadAccess::Propose));
+        for path in ["/api/predrafts/p/publish-set", "/api/predrafts/p/merge-local", "/api/predrafts//publish", "/api/predrafts/p/x/publish"] {
+            assert_eq!(bot_publish(&Method::POST, path), None, "{path}");
+        }
+        assert_eq!(bot_publish(&Method::GET, "/api/predrafts/p/publish"), None);
         // A bot writes its own memory like the knowledge base, at every access level (Home checks the bot).
         assert!(own_write("/api/bot-memory"));
         assert_eq!(tool_need(&Method::POST, "/api/bot-memory"), None);
@@ -624,6 +651,7 @@ mod tests {
         assert_eq!(names(&Method::GET, "/api/sessions/s1/trace"), Session("s1"));
         assert_eq!(names(&Method::GET, "/api/context/sessions/s1"), Session("s1"));
         assert_eq!(names(&Method::PATCH, "/api/predrafts/p1"), LocalPr("p1"));
+        assert_eq!(names(&Method::POST, "/api/predrafts/p1/publish"), LocalPr("p1"));
         assert_eq!(names(&Method::GET, "/api/predrafts/p1"), LocalPr("p1"));
         assert_eq!(names(&Method::POST, "/api/worktrees/w1/discard"), Worktree("w1"));
         assert_eq!(names(&Method::PUT, "/api/tool-defaults/folder/f1"), Tools("folder", "f1"));
