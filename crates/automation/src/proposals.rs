@@ -772,7 +772,11 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
                 spec.from = launch_sender(app, &p, manual, agent.as_deref()).await?;
                 Ok(crate::schedules::create(app, spec, conditions).await?.id)
             }
-            ProposalBody::Cron { spec, schedule, conditions, auto_archive } => Ok(crate::crons::create(app, crate::crons::NewCron { spec, schedule, conditions, trigger: Default::default(), title: None, time_zone, auto_archive, gate: None }).await?.id),
+            ProposalBody::Cron { spec, schedule, conditions, auto_archive } => {
+                // Like a launch card: the owner's click makes it the owner's routine, else its author's.
+                let created_by = launch_sender(app, &p, manual, agent.as_deref()).await?;
+                Ok(crate::crons::create(app, crate::crons::NewCron { spec, schedule, conditions, trigger: Default::default(), title: None, time_zone, auto_archive, gate: None, created_by }).await?.id)
+            }
             ProposalBody::Routine { bot_id, title, instructions, trigger, schedule, conditions, auto_archive, gate } => Ok(crate::crons::create_for_bot(app, &bot_id, crate::crons::BotRoutine { title, instructions, trigger, schedule, conditions, time_zone, auto_archive, gate }).await?.id),
             ProposalBody::BotInstructions { bot_id, instructions, before, .. } => {
                 let bot = launchpad_core::bots::get(app, &bot_id).await?;

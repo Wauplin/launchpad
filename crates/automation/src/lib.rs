@@ -14,6 +14,7 @@ pub mod oracle_views;
 pub mod oracles;
 pub mod proposals;
 pub mod schedules;
+pub mod task_archive;
 pub mod today;
 
 use anyhow::Result;

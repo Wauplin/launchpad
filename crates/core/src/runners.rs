@@ -1329,6 +1329,33 @@ pub async fn session_action(app: &App, id: &str, action: &str) -> Result<()> {
     }
 }
 
+/// Home: an automatic Archive (`task_archive`) that happens only while the session is still Done since `since` with
+/// nothing running: its runner checks it under the session's action lock (`Sessions::close_if_done`, the close
+/// route's `if_done_since`). An away runner's session is checked on Home's record (it cannot start a turn there).
+/// False when the session changed; an error when the outcome is not known.
+pub async fn archive_if_done(app: &App, id: &str, since: i64) -> Result<bool> {
+    match app.sessions.get(id).and_then(|s| s.runner_id).filter(|_| app.paths.role == crate::role::Role::Home) {
+        Some(r) if !app.runners.connected(&r) => {
+            let lock = place_lock(app, id);
+            let _place = lock.lock().await;
+            if !app.sessions.get(id).is_some_and(|s| crate::sessions::still_done(&s, since)) {
+                return Ok(false);
+            }
+            archive_away(app, id).await?;
+            Ok(true)
+        }
+        Some(r) => {
+            let body = serde_json::json!({ "if_done_since": since }).to_string();
+            let (status, body) = app.runners.request(&r, "POST", &format!("/api/sessions/{id}/close"), Some(body)).await?;
+            if status == 409 {
+                return Ok(false);
+            }
+            answer::<serde_json::Value>(status, &body).map(|_| true)
+        }
+        None => crate::sessions::archive_if_done(app, id, since).await,
+    }
+}
+
 /// A message to a session wherever it runs, placed like the owner's messages (`place`). `files` are
 /// attachments the session's machine stores.
 pub async fn send_anywhere(app: &App, id: &str, text: &str, files: Vec<crate::model::FileAttachment>, key: Option<String>) -> Result<()> {

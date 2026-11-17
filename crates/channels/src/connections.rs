@@ -277,6 +277,26 @@ pub async fn outbox(app: &App) -> Result<Vec<OutboxMessage>> {
         .await
 }
 
+/// Home: an Outbox message of the session that is not sent or discarded (a draft, a send in progress or uncertain),
+/// in words; None when nothing waits.
+pub async fn outbox_waiting_for(app: &App, session_id: &str) -> Result<Option<String>> {
+    let rows: Vec<String> = app
+        .state_db
+        .call(|c| {
+            let mut st = c.prepare("SELECT json FROM outbox_message")?;
+            let rows = st.query_map([], |r| r.get::<_, String>(0))?.collect::<std::result::Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+        .await?;
+    for json in rows {
+        let m: OutboxMessage = serde_json::from_str(&json)?;
+        if m.session_id.as_deref() == Some(session_id) && !matches!(m.status, OutboxStatus::Sent | OutboxStatus::Discarded) {
+            return Ok(Some(format!("Outbox message {} is {:?}", m.id, m.status)));
+        }
+    }
+    Ok(None)
+}
+
 async fn get(app: &App, id: &str) -> Result<OutboxMessage> {
     let key = id.to_string();
     let json: Option<String> = app

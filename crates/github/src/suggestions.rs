@@ -282,6 +282,17 @@ pub async fn list(app: &App) -> Result<Vec<Suggestion>> {
         })
         .await
 }
+/// Home: a Suggestion of the session that the owner has not posted yet (a draft, a claimed or uncertain post, one
+/// inserted on GitHub but not seen posted), in words; None when every one is posted. Discarded ones are deleted.
+pub async fn waiting_for(app: &App, session_id: &str) -> Result<Option<String>> {
+    Ok(list(app).await?.into_iter().find(|s| s.session_id.as_deref() == Some(session_id) && !is_posted(&s.status)).map(|s| format!("Suggestion {} is {}", s.id, s.status)))
+}
+
+/// Pure: the owner posted it (from Launchpad or by hand).
+pub fn is_posted(status: &str) -> bool {
+    matches!(status, "posted" | "posted_by_hand")
+}
+
 pub(crate) async fn get(app: &App, id: &str) -> Result<Suggestion> {
     list(app)
         .await?
@@ -587,5 +598,18 @@ mod tests {
             assert!(validate_comments(&review, &[bad]).is_err());
         }
         assert!(validate_comments(&review, &[LineComment { body: " ".into(), ..c("a", 1, "RIGHT", None) }]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod waiting_tests {
+    #[test]
+    fn only_posted_suggestions_are_done() {
+        for status in ["posted", "posted_by_hand"] {
+            assert!(super::is_posted(status));
+        }
+        for status in ["draft", "posting", "uncertain", "inserted"] {
+            assert!(!super::is_posted(status));
+        }
     }
 }

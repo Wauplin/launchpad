@@ -50,6 +50,12 @@ impl launchpad_core::ext::Extensions for Extensions {
         out.extend(launchpad_setup::cli_update::today_items(app).await);
         out
     }
+    async fn waiting_on_owner(&self, app: &App, session_id: &str) -> Result<Option<String>> {
+        if let Some(why) = launchpad_github::suggestions::waiting_for(app, session_id).await? {
+            return Ok(Some(why));
+        }
+        launchpad_channels::connections::outbox_waiting_for(app, session_id).await
+    }
     async fn oracle_read(&self, app: &App, ws: &str, path: &str) -> Result<(u16, String)> {
         launchpad_server::oracle_read(app, ws, path).await
     }

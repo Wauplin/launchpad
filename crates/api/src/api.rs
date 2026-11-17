@@ -474,8 +474,18 @@ async fn answer(State(s): State<Ctx>, Path(id): Path<String>, Json(b): Json<Answ
     Ok(Json(json!({"ok": true})))
 }
 
-async fn close(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
-    launchpad_core::sessions::archive(&s.app, &id).await.map_err(bad)?;
+/// Archive. With `{"if_done_since": <status_since>}` (Home's automatic archive, `task_archive`), only while the
+/// session is still Done since then with nothing running; 409 when it changed.
+async fn close(State(s): State<Ctx>, Path(id): Path<String>, body: axum::body::Bytes) -> ApiResult<Value> {
+    let since = serde_json::from_slice::<Value>(&body).ok().and_then(|v| v["if_done_since"].as_i64());
+    match since {
+        Some(since) => {
+            if !launchpad_core::sessions::archive_if_done(&s.app, &id, since).await.map_err(bad)? {
+                return Err(ApiError::new(axum::http::StatusCode::CONFLICT, "the agent changed since it was Done: not archived"));
+            }
+        }
+        None => launchpad_core::sessions::archive(&s.app, &id).await.map_err(bad)?,
+    }
     Ok(Json(json!({"ok": true})))
 }
 
@@ -635,7 +645,11 @@ async fn start_schedule(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResu
 use launchpad_automation::crons::{self, CronAgent, CronPatch};
 
 async fn crons(State(s): State<Ctx>) -> ApiResult<Vec<CronAgent>> { Ok(Json(crons::list(&s.app).await?)) }
-async fn create_cron(State(s): State<Ctx>, Json(b): Json<crons::NewCron>) -> ApiResult<CronAgent> { Ok(Json(crons::create(&s.app, b).await.map_err(bad)?)) }
+/// Home stamps who creates it (`CronAgent.created_by`): the agent session whose CLI sent it, else the owner.
+async fn create_cron(State(s): State<Ctx>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut b): Json<crons::NewCron>) -> ApiResult<CronAgent> {
+    b.created_by = sender(&s, agent).await?;
+    Ok(Json(crons::create(&s.app, b).await.map_err(bad)?))
+}
 /// One routine, with a bot routine's instructions (`spec.text`) as `instructions`, the key its edits use.
 async fn get_cron(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
     let c = crons::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;

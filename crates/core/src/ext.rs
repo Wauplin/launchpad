@@ -56,6 +56,12 @@ pub trait Extensions: Send + Sync {
     async fn today(&self, _app: &App) -> Vec<crate::today::Item> {
         vec![]
     }
+    /// Home: what an agent left for the owner in the crates above the core (Suggestions not posted, Outbox messages
+    /// not sent or uncertain), in words; None when nothing waits. An automatic archive (`task_archive`) needs
+    /// `Ok(None)`: an error, or no crates installed, keeps the session.
+    async fn waiting_on_owner(&self, _app: &App, _session_id: &str) -> Result<Option<String>> {
+        anyhow::bail!("Suggestions and the Outbox are not available here")
+    }
     /// Home: a GET of Home's own API (`path` with its query) as a read-level principal of workspace `ws`, in process
     /// (an oracle's `tools.launchpad`): the same routes and checks as a read-level session of that workspace
     /// (`agent_auth::authorize_oracle`), no token, nothing over the network. The status and the body.

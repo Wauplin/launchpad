@@ -637,6 +637,9 @@ impl Sessions {
                         s.launch_spec.bot = c.launch_spec.bot.clone();
                         s.launch_spec.tools_off = c.launch_spec.tools_off.clone();
                         s.launch_spec.tools_on = c.launch_spec.tools_on.clone();
+                        // Who started it is Home's stamp (`senders`, `task_archive::bot_origin`), never a runner's.
+                        s.launch_spec.from = c.launch_spec.from.clone();
+                        s.launch_spec.routine = c.launch_spec.routine.clone();
                         // Home created the launch's topic: the runner writes only its generated name, once.
                         let generated = s.launch_spec.topic_naming.as_ref().and_then(|n| n.name.clone());
                         s.launch_spec.topic_naming = c.launch_spec.topic_naming.clone().map(|mut n| {
@@ -2268,6 +2271,19 @@ impl Sessions {
         Ok(())
     }
 
+    /// Archive only while the session is still exactly as an automatic archive saw it (`task_archive`): Done since
+    /// `since`, no question, sleep, quota pause or capacity retry, and nothing running (`is_busy`), checked under its
+    /// action lock, so a message that started a turn in between is never stopped. False when it changed.
+    pub async fn close_if_done(&self, app: &App, id: &str, since: i64) -> Result<bool> {
+        let _action = self.action_lock(id).await;
+        let s = self.get(id).context("no such session")?;
+        if !still_done(&s, since) || self.is_busy(&s) {
+            return Ok(false);
+        }
+        self.close_locked(app, id).await?;
+        Ok(true)
+    }
+
     /// The undo of Archive: the session comes back Done (Stopped when it was not Done when archived) and seen,
     /// without a process. Its next message resumes it and brings back what Archive cleaned up (`reattach`).
     pub async fn unarchive(&self, app: &App, id: &str) -> Result<Session> {
@@ -2916,13 +2932,31 @@ pub fn shorten(s: &str, max: usize) -> String {
 /// removal, a temporary folder whose agents are all archived is deleted). Resume restores worktrees.
 pub async fn archive(app: &App, id: &str) -> Result<()> {
     app.sessions.close(app, id).await?;
+    after_close(app, id);
+    Ok(())
+}
+
+/// `archive` only while the session is still Done since `since` with nothing running (`Sessions::close_if_done`).
+pub async fn archive_if_done(app: &App, id: &str, since: i64) -> Result<bool> {
+    if !app.sessions.close_if_done(app, id, since).await? {
+        return Ok(false);
+    }
+    after_close(app, id);
+    Ok(true)
+}
+
+/// Pure: the session is Done since `since` and nothing waits in it (no question, sleep, quota pause, capacity retry).
+pub fn still_done(s: &Session, since: i64) -> bool {
+    s.status == SessionStatus::Waiting && s.status_since == since && !s.open_question && s.sleep.is_none() && s.quota_pause.is_none() && s.capacity_retry_at.is_none()
+}
+
+fn after_close(app: &App, id: &str) {
     let (app, id) = (app.clone(), id.to_string());
     tokio::spawn(async move {
         crate::plain::after_archive(&app, &id).await;
         crate::worktrees::after_archive(&app, &id).await;
         crate::projects::after_archive(&app, &id).await;
     });
-    Ok(())
 }
 
 /// The first-prompt note of a session in a temporary folder.

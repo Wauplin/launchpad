@@ -177,6 +177,12 @@ pub struct CronAgent {
     /// Why its due run has not started yet (for example no confirmed quota reading). Never stored: `list` fills it.
     #[serde(default, skip_deserializing)]
     pub waiting: Option<String>,
+    /// Who created it when not the owner: the agent session or bot whose CLI created it (`routine.create`), or the
+    /// author of a card accepted without the owner's click. Stamped by Home at creation, never from a request body;
+    /// None for the owner's and older routines. Its runs count as that bot's launches (`task_archive`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub created_by: Option<launchpad_core::model::MessageFrom>,
 }
 
 impl CronAgent {
@@ -438,10 +444,13 @@ pub struct NewCron {
     pub auto_archive: bool,
     #[serde(default)]
     pub gate: Option<crate::gates::Gate>,
+    /// Who creates it when not the owner (`CronAgent.created_by`), set by Home: never read from a request body.
+    #[serde(skip)]
+    pub created_by: Option<launchpad_core::model::MessageFrom>,
 }
 
 pub async fn create(app: &App, new: NewCron) -> Result<CronAgent> {
-    let NewCron { spec, schedule, conditions, trigger, title, time_zone, auto_archive, gate } = new;
+    let NewCron { spec, schedule, conditions, trigger, title, time_zone, auto_archive, gate, created_by } = new;
     let harness = spec.harness.context("pick a harness")?;
     if spec.target == Target::None {
         bail!("pick a project or a temporary folder");
@@ -486,6 +495,7 @@ pub async fn create(app: &App, new: NewCron) -> Result<CronAgent> {
         gate,
         gate_state: None,
         waiting: None,
+        created_by,
     };
     record.next_run_at = next_due(&record, now)?;
     insert(app, &record).await?;
@@ -906,6 +916,7 @@ pub async fn sync_bot_files(app: &App, bot_id: &str) -> Result<()> {
                     gate: f.gate,
                     gate_state: None,
                     waiting: None,
+                    created_by: None,
                 };
                 record.next_run_at = next_due(&record, now).unwrap_or(None);
                 insert(app, &record).await?;
@@ -1395,6 +1406,7 @@ static UNSAVED_DONE: std::sync::LazyLock<std::sync::Mutex<std::collections::Hash
 /// back, unless the session moved on (a new turn, a question, Archive) or it came over an hour late.
 pub fn turn_saved(app: &App, s: &Session) {
     auto_archive_soon(app);
+    crate::task_archive::soon(app);
     let Some(at) = UNSAVED_DONE.lock().unwrap().remove(&s.id) else { return };
     if s.status != SessionStatus::Waiting || s.open_question || s.sleeping() || now_ms() - at > 3_600_000 {
         return;
@@ -1637,6 +1649,10 @@ pub fn spawn(app: &App) {
                     // Runs whose merge or save finished after their turn ended.
                     if let Err(e) = auto_archive(&app).await {
                         tracing::warn!("routine auto archive: {e:#}");
+                    }
+                    // Bots' tasks that finished cleanly, also once their merge or publication completed.
+                    if let Err(e) = crate::task_archive::pass(&app).await {
+                        tracing::warn!("archive of bots' finished tasks: {e:#}");
                     }
                 });
             }
