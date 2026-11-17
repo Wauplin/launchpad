@@ -75,7 +75,7 @@ export function TempProjectCard({ p, row }: { p: Project; row?: boolean }) {
     <div className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 px-4 py-3 ${row ? "border-b border-line-2 last:border-0" : "rounded-card border border-line"}`}>
       <div className="flex min-w-0 items-center gap-3">
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <span className="truncate font-mono text-[13px] font-semibold" title={p.path}>{p.name.replace(/^tmp-\d{4}-/, "") || p.name}</span>
+          <span className="truncate font-mono text-[13px] font-semibold" title={p.path}>{p.name.replace(/^tmp-\d{4}-|-[0-9a-f]{8}$/g, "") || p.name}</span>
           <span className="truncate text-[12px] text-ink-3">{open.length ? `${open.length} open agent${open.length > 1 ? "s" : ""}` : "No open agent"} · created {ago(p.created_at)}</span>
         </div>
         <RowActions label={`More actions for ${p.name}`} menuWidth={280} main={<LaunchButton small ctx={{ projectId: p.id }} primary={false} title={`Launch an agent in ${p.name}`} />} more={(close) => <>{row && <div className="grid gap-1.5 p-2"><b className="text-[12px]">Keep as folder</b><KeepFolder p={p} disabled={running} title={running ? "Wait for its agent to finish" : undefined} /></div>}<MenuSection><ConfirmButton icon="trash" consequence={`Deletes ${p.path} from disk${open.length ? " and stops its agents" : ""}. Home keeps a copy of its files 30 days, for a resume.`} confirmLabel="Delete files" onConfirm={() => api.delete(`/api/projects/${p.id}`).then(() => {

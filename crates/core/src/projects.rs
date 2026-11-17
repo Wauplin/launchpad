@@ -54,16 +54,7 @@ pub(crate) async fn apply_replica(app: &App, runner_id: &str, n: u64, item: crat
         .call(move |c| {
             let tx = c.transaction()?;
             match item {
-                crate::replica::Item::Project { project: p } if p.is_temp => {
-                    // A folder of this Home itself, or of another runner, is never overwritten.
-                    let owner: Option<Option<String>> = tx.query_row("SELECT runner_id FROM project WHERE id = ?1", [&p.id], |r| r.get(0)).optional()?;
-                    if owner.as_ref().is_none_or(|o| o.as_deref() == Some(runner.as_str())) {
-                        tx.execute(&format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0, 0)
-                            ON CONFLICT (id) DO UPDATE SET name = ?2, path = ?3, remote_url = ?4, gh_repo = ?5, gh_upstream = ?6, description = ?7, is_temp = ?8,
-                            pinned = ?9, worktree_setup = ?11, when_done = ?12, workspace_id = ?13"),
-                            params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, runner])?;
-                    }
-                }
+                crate::replica::Item::Project { project: p } if p.is_temp => store_runner_temp(&tx, &runner, &p)?,
                 crate::replica::Item::ForgetProject { id } => {
                     tx.execute("DELETE FROM project WHERE id = ?1 AND runner_id = ?2", params![id, runner])?;
                 }
@@ -75,6 +66,25 @@ pub(crate) async fn apply_replica(app: &App, runner_id: &str, n: u64, item: crat
         })
         .await?;
     app.bus.publish("projects", "changed", serde_json::Value::Null);
+    Ok(())
+}
+
+/// Home: stores a runner's temporary folder. A folder of this Home itself, or of another runner, is never
+/// overwritten. Its path is the runner's own, and every runner (every Burst job above all) uses the same data
+/// folder, so another runner's folder may already hold it on Home (names of older runners repeat, `create_temp`):
+/// this one then gets `<path>#<id>` on Home instead of failing on `project.path`, which would stop the runner's
+/// replication with it.
+fn store_runner_temp(c: &rusqlite::Connection, runner: &str, p: &Project) -> Result<()> {
+    let owner: Option<Option<String>> = c.query_row("SELECT runner_id FROM project WHERE id = ?1", [&p.id], |r| r.get(0)).optional()?;
+    if owner.as_ref().is_some_and(|o| o.as_deref() != Some(runner)) {
+        return Ok(());
+    }
+    let taken = c.query_row("SELECT count(*) FROM project WHERE path = ?1 AND id != ?2", params![p.path, p.id], |r| r.get::<_, i64>(0))? > 0;
+    let path = if taken { format!("{}#{}", p.path, p.id) } else { p.path.clone() };
+    c.execute(&format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 0, 0)
+        ON CONFLICT (id) DO UPDATE SET name = ?2, path = ?3, remote_url = ?4, gh_repo = ?5, gh_upstream = ?6, description = ?7, is_temp = ?8,
+        pinned = ?9, worktree_setup = ?11, when_done = ?12, workspace_id = ?13"),
+        params![p.id, p.name, path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, runner])?;
     Ok(())
 }
 
@@ -619,13 +629,20 @@ pub fn temp_root(app: &App) -> PathBuf {
     app.paths.data_dir.join("tmp")
 }
 
-/// Creates `<data_dir>/tmp/tmp-<MMDD>-<slug>` and registers it as a temporary folder of a workspace. Its files
-/// are saved on Home at every turn end (`plain::temp_store`); this disk's copy is deleted when its last agent
+/// Creates `<data_dir>/tmp/tmp-<MMDD>-<slug>-<id8>` and registers it as a temporary folder of a workspace. Its
+/// files are saved on Home at every turn end (`plain::temp_store`); this disk's copy is deleted when its last agent
 /// is archived, Home's 30 days later, unless the owner keeps it as a folder (`promote`).
 pub async fn create_temp(app: &App, prompt: &str, workspace_id: &str) -> Result<Project> {
     let (month, day) = crate::util::local_month_day();
-    let base = format!("tmp-{month:02}{day:02}-{}", crate::compose::slug_from(prompt));
-    temp_at(app, &base, workspace_id, uuid::Uuid::new_v4().to_string()).await
+    let id = uuid::Uuid::new_v4().to_string();
+    temp_at(app, &temp_base(month, day, &crate::compose::slug_from(prompt), &id), workspace_id, id).await
+}
+
+/// A new temporary folder's name. It carries the folder's ID: runners share no disk but use the same data folder
+/// (every Burst job above all), so a name from the date and prompt alone repeats on another runner (a routine's
+/// daily run, the same prompt sent again), and Home keeps every runner's temporary folders by path.
+fn temp_base(month: u32, day: u32, slug: &str, id: &str) -> String {
+    format!("tmp-{month:02}{day:02}-{slug}-{}", id.split('-').next().unwrap_or(id))
 }
 
 /// Creates `<data_dir>/tmp/<base>` (or `<base>-2`, …) and registers it as the temporary folder `id`.
@@ -869,6 +886,39 @@ async fn move_dir(old: &Path, new: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn temporary_folder_names_carry_their_id() {
+        assert_eq!(super::temp_base(11, 7, "routine-auto-update-home", "a8379e35-d7bf-4db8-97ea-69b4d27206fe"), "tmp-1107-routine-auto-update-home-a8379e35");
+    }
+
+    /// Two runners (two Burst jobs) with a temporary folder at the same path: Home keeps both, the second under
+    /// `<path>#<id>`, so the runner's replication goes on (it once stopped on `UNIQUE constraint failed: project.path`).
+    #[tokio::test]
+    async fn home_keeps_temporary_folders_of_two_runners_at_one_path() {
+        let file = std::env::temp_dir().join(format!("launchpad-temp-paths-{}.db", uuid::Uuid::new_v4()));
+        let db = crate::db::open_state(&file).unwrap();
+        db.call(|c| {
+            let path = "/home/user/.local/share/launchpad-runner/tmp/tmp-1117-update-your-own-instructions";
+            let folder = |id: &str| super::Project {
+                id: id.into(), name: "tmp".into(), path: path.into(), remote_url: None, gh_repo: None, gh_upstream: None, description: String::new(), is_temp: true, pinned: false,
+                created_at: 0, worktree_setup: String::new(), when_done: Default::default(), workspace_id: None, runner_id: None, home_git: false, plain: false, bot: None,
+            };
+            super::store_runner_temp(c, "r1", &folder("p1"))?;
+            super::store_runner_temp(c, "r2", &folder("p2"))?;
+            // Updates of either keep their place; another runner never overwrites a folder.
+            super::store_runner_temp(c, "r2", &folder("p2"))?;
+            super::store_runner_temp(c, "r1", &folder("p2"))?;
+            let rows: Vec<(String, String, String)> =
+                c.prepare("SELECT id, path, runner_id FROM project ORDER BY id")?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+            assert_eq!(rows, vec![("p1".into(), path.into(), "r1".into()), ("p2".into(), format!("{path}#p2"), "r2".into())]);
+            Ok(())
+        })
+        .await
+        .unwrap();
+        drop(db);
+        let _ = std::fs::remove_file(file);
+    }
+
     #[test]
     fn folders_follow_only_network_remotes() {
         for ok in ["", "https://github.com/o/r.git", "ssh://git@host/o/r", "git@github.com:o/r.git", "host:r"] {

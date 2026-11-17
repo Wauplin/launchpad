@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
  * runner. Files become a plain folder; a Git repository becomes a Git folder. */
 export function KeepFolder({ p, disabled, title }: { p: Project; disabled?: boolean; title?: string }) {
   const qc = useQueryClient();
-  const [name, setName] = useState(p.name.replace(/^tmp-\d{4}-/, ""));
+  const [name, setName] = useState(p.name.replace(/^tmp-\d{4}-|-[0-9a-f]{8}$/g, ""));
   const keep = useMutation({
     mutationFn: () => api.post<Project>(`/api/projects/${p.id}/promote`, { name: name.trim() }),
     onSuccess: (np) => {

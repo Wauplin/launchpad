@@ -376,9 +376,19 @@ pub async fn reverse(headers: axum::http::HeaderMap, ws: axum::extract::WebSocke
     })
 }
 
-/// A Burst runner with no Home connection for this long stops (its job ends): the same idle timeout as an HF
-/// Sandbox's default.
-const BURST_IDLE: Duration = Duration::from_secs(10 * 60);
+/// A Burst runner with no Home connection for this long stops (its job ends). Longer than a Home update (the
+/// Space builds, restarts and restores its backup), so the agents on it outlive Home's restarts.
+const BURST_IDLE: Duration = Duration::from_secs(30 * 60);
+/// Without Home for this long, a Burst runner stops even while an agent works there or records wait for Home.
+const BURST_IDLE_BUSY: Duration = Duration::from_secs(3 * 3600);
+/// How often a Burst runner without Home checks whether it stops.
+const BURST_CHECK: Duration = Duration::from_secs(60);
+
+/// Whether a Burst runner without Home since `away` stops now. `waiting`: an agent works there, or records
+/// (session states, events, folders) wait for Home, which a stop would lose.
+fn burst_stops(away: Duration, waiting: bool) -> bool {
+    away >= if waiting { BURST_IDLE_BUSY } else { BURST_IDLE }
+}
 
 /// A Burst runner: Home Git and plain-folder requests to `127.0.0.1:<port>` go through the tunnel.
 async fn local_relay() -> anyhow::Result<()> {
@@ -420,13 +430,18 @@ pub fn spawn(app: App, router: Router) {
             let mut last = tokio::time::Instant::now();
             loop {
                 home_link::set_state(&app, Some(url.clone()), TunnelState::Connecting, Some("waiting for Home".into()), None);
-                let next = tokio::time::timeout_at(last + BURST_IDLE, async { REVERSE.1.lock().await.recv().await }).await;
-                let socket = match next {
-                    Ok(Some(s)) => s,
-                    Ok(None) => return,
-                    Err(_) => {
-                        tracing::info!("no connection from Home for {} minutes: this Burst runner stops", BURST_IDLE.as_secs() / 60);
-                        std::process::exit(0);
+                let socket = loop {
+                    match tokio::time::timeout(BURST_CHECK, async { REVERSE.1.lock().await.recv().await }).await {
+                        Ok(Some(s)) => break s,
+                        Ok(None) => return,
+                        Err(_) => {
+                            let busy = app.sessions.list().iter().any(|s| app.sessions.is_busy(s));
+                            let waiting = busy || launchpad_core::replica::backlog(&app).await.unwrap_or(0) > 0;
+                            if burst_stops(last.elapsed(), waiting) {
+                                tracing::info!("no connection from Home for {} minutes: this Burst runner stops", last.elapsed().as_secs() / 60);
+                                std::process::exit(0);
+                            }
+                        }
                     }
                 };
                 let (tx, rx) = crate::wire::axum(socket);
@@ -761,5 +776,17 @@ mod tests {
             assert!(super::home_owned(p), "{p}");
         }
         assert!(!super::home_owned("/api/channelsx"));
+    }
+
+    /// A Home update takes more than ten minutes: an idle Burst runner waits half an hour for Home, and one whose
+    /// agent works or whose records wait for Home waits three hours.
+    #[test]
+    fn burst_runners_outlive_a_home_restart() {
+        use std::time::Duration;
+        let min = |m: u64| Duration::from_secs(m * 60);
+        assert!(!super::burst_stops(min(15), false));
+        assert!(super::burst_stops(min(30), false));
+        assert!(!super::burst_stops(min(60), true));
+        assert!(super::burst_stops(min(180), true));
     }
 }
