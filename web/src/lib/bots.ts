@@ -4,12 +4,24 @@
 // a thread was one session may hold several: only the newest counts.
 // Ask Launchpad and the Librarian are two of them: Home creates each once per workspace.
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import type { Bot } from "@/gen/Bot";
+import type { BotSend } from "@/gen/BotSend";
 import type { BotThread } from "@/gen/BotThread";
 import type { Session } from "@/gen/Session";
 import { api } from "./api";
 import { isQuotaPaused, isRunning, needsYou } from "./sessionStatus";
+
+/** The owner's bot messages this window sent: a chat follows only its own message into a new thread. */
+export const sentHere = new Set<string>();
+
+/** Shows a message Home accepted (`bot.message` with `accept`) at once, as a bubble in its thread's chat, before
+ * Home's list of accepted messages (`GET /api/bots/{id}/sends`) refreshes. */
+export function showAccepted(qc: QueryClient, sent: BotSend) {
+  sentHere.add(sent.id);
+  qc.setQueryData<BotSend[]>(["bot-sends", sent.bot_id], (old) => (old ?? []).some((m) => m.id === sent.id) ? old : [...(old ?? []), sent]);
+  void qc.invalidateQueries({ queryKey: ["bot-sends", sent.bot_id] });
+}
 
 /** Ready-made bots the New bot form starts from (Ask Launchpad, the Librarian). */
 export type BotTemplate = { id: string; name: string; instructions: string; starters?: string[] };

@@ -43,7 +43,7 @@ export function AskPanel() {
       </div>
       {bot
         ? <BotChat key={`${bot.id}/${threadId}`} view="ask" bot={bot} threadId={threadId} thread={thread} rotation={rotationReason(bot, thread.at(-1) ?? null, profile)} needsProfile={!profile}
-            onStarted={(s) => { const t = s.launch_spec.bot?.thread; if (t && t !== threadId) { rememberThread(bot.id, t); setThread(t); } }}
+            onThread={(t) => { if (t !== threadId) { rememberThread(bot.id, t); setThread(t); } }}
             openSettings={() => void navigate({ to: "/bots/$id", params: { id: bot.id }, search: { panel: "about" } as never })}
             intro={<p className="m-0 text-[13px] text-ink-2">Ask {bot.settings.name} about your agents, folders and Local PRs, or to change Launchpad for you. Its answers end in cards you start with one click; each change it makes shows as a line that links to what changed.</p>} />
         : <div className="grid flex-1 place-items-center p-6 text-center text-[13px] text-ink-2"><div>This workspace has no bot. <Link to="/bots" className="underline">Create one</Link> to ask it things.</div></div>}

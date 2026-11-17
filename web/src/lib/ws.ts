@@ -183,9 +183,9 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["oracles"] });
       void queryClient.invalidateQueries({ queryKey: ["oracle"] });
     } else if (topic === "bots") {
-      // Messages waiting for a busy bot changed: only its chat's list; a thread was created, renamed or archived:
-      // only the thread lists.
-      void queryClient.invalidateQueries({ queryKey: ev.type === "queued" ? ["bot-queued"] : ev.type === "threads" ? ["bot-threads"] : ["bots"] });
+      // Messages waiting for a busy bot changed: only its chat's list; the owner's accepted messages moved on: only
+      // their list; a thread was created, renamed or archived: only the thread lists.
+      void queryClient.invalidateQueries({ queryKey: ev.type === "queued" ? ["bot-queued"] : ev.type === "sends" ? ["bot-sends"] : ev.type === "threads" ? ["bot-threads"] : ["bots"] });
     } else if (topic === "drafts") {
       useComposer.getState().remoteChanged(ev.payload as { workspace: string | null; revision: number; client: string | null });
     } else if (topic === "schedules") {

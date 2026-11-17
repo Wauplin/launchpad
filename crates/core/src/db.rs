@@ -260,6 +260,8 @@ CREATE TABLE IF NOT EXISTS incoming_hook (id TEXT PRIMARY KEY, secret_hash TEXT 
 CREATE TABLE IF NOT EXISTS bot_thread (bot_id TEXT NOT NULL, id TEXT NOT NULL, key TEXT, title TEXT NOT NULL, created_at INTEGER NOT NULL, archived_at INTEGER, PRIMARY KEY (bot_id, id));
 CREATE INDEX IF NOT EXISTS bot_thread_key ON bot_thread (bot_id, key);
 CREATE TABLE IF NOT EXISTS queued_message (n INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL, at INTEGER NOT NULL, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS bot_send (id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, thread TEXT NOT NULL, asked_thread TEXT NOT NULL, state TEXT NOT NULL, error TEXT, session_id TEXT, json TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS bot_send_thread ON bot_send (bot_id, thread, state, created_at);
 CREATE TABLE IF NOT EXISTS seeded (key TEXT PRIMARY KEY, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS task_archive (session_id TEXT PRIMARY KEY, at INTEGER NOT NULL, outcome TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS activity (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, created_at INTEGER NOT NULL, json TEXT NOT NULL);

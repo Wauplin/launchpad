@@ -46,13 +46,17 @@ pub async fn guard(State(s): State<Operations>, req: Request, next: Next) -> Res
 
 async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiError> {
     let path = req.uri().path().to_owned();
+    let bot_message = path
+        .strip_prefix("/api/bots/")
+        .is_some_and(|p| p.split('/').count() == 2 && p.ends_with("/message"));
     let protected = path == "/api/sessions"
         || path
             .strip_prefix("/api/sessions/")
             .is_some_and(|p| p.split('/').count() == 2 && p.ends_with("/input"))
-        || path
-            .strip_prefix("/api/bots/")
-            .is_some_and(|p| p.split('/').count() == 2 && p.ends_with("/message"));
+        || bot_message;
+    // The owner's bot message is stored by its ID before anything is sent (`launchpad_channels::sends`): a retry
+    // after an interrupted request runs again and gets the stored message, never a second one.
+    let replayable = bot_message && req.extensions().get::<launchpad_http::AgentSession>().is_none();
     if req.method() != Method::POST || !protected {
         return Ok(next.run(req).await);
     }
@@ -93,10 +97,10 @@ async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiEr
         Claim::Mismatch => Err(ApiError::conflict(
             "This operation id was already used for a different request.",
         )),
-        Claim::Uncertain => Err(ApiError::conflict(
+        Claim::Uncertain if !replayable => Err(ApiError::conflict(
             "Delivery is uncertain after an interrupted request. Inspect the destination (Agents for launches and replies) before starting another attempt; this request will not be repeated.",
         )),
-        Claim::New => {
+        Claim::New | Claim::Uncertain => {
             let response = next
                 .run(Request::from_parts(parts, Body::from(bytes)))
                 .await;

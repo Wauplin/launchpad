@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Bot } from "@/gen/Bot";
+import type { BotSend } from "@/gen/BotSend";
 import type { Predraft } from "@/gen/Predraft";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
@@ -16,7 +17,7 @@ import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { LaunchSplitButton, openOptions } from "@/features/launch/LaunchButton";
 import { runAction } from "@/lib/actions";
-import { askTarget, useBots } from "@/lib/bots";
+import { askTarget, showAccepted, useBots } from "@/lib/bots";
 import { attachmentSrc, pastedImages } from "@/lib/attachments";
 import { ImageThumb } from "@/components/ImageViewer";
 import { ATTACH_LIMITS, useMessageAttachments } from "@/features/agents/MessageAttachments";
@@ -105,11 +106,12 @@ export function CommandField() {
       // On the bot's own page: the thread it shows; elsewhere a new thread.
       const shown = ctx.botId && typeof search.thread === "string" ? search.thread : null;
       const where = shown && shown !== "new" && !shown.includes(":") ? { thread: shown } : {};
-      const started = await runAction<Session>("bot.message", { id: bot.id }, { text: ctx.line ? `${t}\n\n(I am looking at ${ctx.line}.)` : t, attachments: files, ...where });
+      // Home stores the message and answers at once (`accept`): the chat shows it while the bot starts.
+      const sent = await runAction<BotSend>("bot.message", { id: bot.id }, { text: ctx.line ? `${t}\n\n(I am looking at ${ctx.line}.)` : t, attachments: files, ...where, accept: true });
       setText("");
       shots.clear();
-      await qc.invalidateQueries({ queryKey: ["sessions"] });
-      const thread = started?.launch_spec?.bot?.thread ?? null;
+      showAccepted(qc, sent);
+      const thread = sent.thread;
       // On the bot's own page, its chat is already there: it shows the message's thread.
       if (!ctx.botId) panel.show(bot.id, thread);
       else if (thread && thread !== shown) void navigate({ to: "/bots/$id", params: { id: bot.id }, search: { thread } as never, replace: true });

@@ -1382,7 +1382,11 @@ impl Sessions {
                 }
             }
             if !prepared {
-                if this.get(&id2).is_some_and(|s| s.status == SessionStatus::Starting) { sink.set_status(SessionStatus::Error).await; }
+                if let Some(s) = this.get(&id2).filter(|s| s.status == SessionStatus::Starting) {
+                    // The first message stays in the conversation, before its failure (its ID is the session's).
+                    sink.emit(EventBody::UserMessage { text: prompt.clone(), client_id: id2.clone(), queued: false, images: images.clone(), from: s.launch_spec.from.clone() }).await;
+                    sink.set_status(SessionStatus::Error).await;
+                }
                 let _ = stopped.send(());
                 this.inner.setups.lock().unwrap().remove(&id2);
                 return;
@@ -1440,7 +1444,7 @@ impl Sessions {
         if protected && (!crate::quota::blockers(app, harness, &session.launch_spec).is_empty() || (automatic && !crate::quota::available(&crate::quota::reading_for(app, harness, &session.launch_spec), now_ms()))) {
             // No process holds the lease until the quota allows the start (`continue_quota` takes it again).
             if start.is_ok() && self.live(id).is_none() { crate::contain::release(app, id).await; }
-            if let Err(e) = self.hold_input(app, id, &prompt, images, session.launch_spec.from.clone()).await {
+            if let Err(e) = self.hold_input(app, id, &prompt, images, session.launch_spec.from.clone(), Some(id.to_string())).await {
                 sink.fail(&format!("{e:#}")).await;
             }
             return;
@@ -1454,7 +1458,8 @@ impl Sessions {
         };
         match attached {
             Ok(live) => {
-                let client_id = uuid::Uuid::new_v4().to_string();
+                // The first message's ID is the session's: the bot chat matches it to the message Home accepted.
+                let client_id = id.to_string();
                 sink.emit(EventBody::UserMessage { text: prompt.clone(), client_id: client_id.clone(), queued: false, images: images.clone(), from: session.launch_spec.from.clone() }).await;
                 sink.set_status(SessionStatus::Working).await;
                 let sent = match crate::attachments::for_harness(app, id, &images).await {
@@ -1466,6 +1471,8 @@ impl Sessions {
                 }
             }
             Err(e) => {
+                // The first message stays in the conversation, before its failure.
+                sink.emit(EventBody::UserMessage { text: prompt, client_id: id.to_string(), queued: false, images, from: session.launch_spec.from.clone() }).await;
                 sink.fail(&format!("could not start {}: {e:#}", harness.display())).await
             }
         }
@@ -1600,10 +1607,10 @@ impl Sessions {
     }
 
     /// Hold an input without sending it to a harness. This also covers launches at exhausted quota.
-    async fn hold_input(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, from: Option<crate::model::MessageFrom>) -> Result<()> {
+    async fn hold_input(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, from: Option<crate::model::MessageFrom>, client_id: Option<String>) -> Result<()> {
         self.inner.quota_stops.lock().unwrap().remove(id);
         let s = self.get(id).context("no such session")?;
-        let client_id = uuid::Uuid::new_v4().to_string();
+        let client_id = client_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         self.update(app, id, |s| s.quota_pause = Some(QuotaPause {
             phase: QuotaPausePhase::Paused, blockers: crate::quota::blockers(app, s.harness, &s.launch_spec),
             message: text.into(), images: images.clone(), client_id: Some(client_id.clone()), error: None, messages: vec![],
@@ -2077,7 +2084,7 @@ impl Sessions {
         }
         if protected && !self.quota_blockers(app, &s).is_empty() {
             if s.status.is_running() || s.open_question { bail!("Included quota exhausted; wait for quota to reset before sending input or answering this question."); }
-            self.hold_input(app, id, text, images, from).await?;
+            self.hold_input(app, id, text, images, from, client_id).await?;
             return Ok(());
         }
         anyhow::ensure!(

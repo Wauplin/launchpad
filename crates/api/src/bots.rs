@@ -8,6 +8,7 @@ use launchpad_core::bot_threads::{self, BotThread, Source};
 use launchpad_core::bots::{self, Bot, Create, Patch};
 use launchpad_core::model::{FileAttachment, LaunchSpec, MessageContext, Target};
 use launchpad_core::start::{self, StartPreview};
+use launchpad_channels::sends;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -19,6 +20,9 @@ pub fn router() -> Router<Ctx> {
         .route("/api/bots", get(list).post(create))
         .route("/api/bots/{id}", get(one).patch(update).delete(remove))
         .route("/api/bots/{id}/message", post(message))
+        .route("/api/bots/{id}/sends", get(sends))
+        .route("/api/bots/{id}/sends/{send}", axum::routing::delete(remove_send))
+        .route("/api/bots/{id}/sends/{send}/retry", post(retry_send))
         .route("/api/bots/{id}/threads", get(threads))
         .route("/api/bots/{id}/threads/{thread}", axum::routing::patch(rename_thread))
         .route("/api/bots/{id}/threads/{thread}/archive", post(archive_thread))
@@ -168,11 +172,17 @@ struct Message {
     /// other items run in parallel); several items start a new thread.
     #[serde(default)]
     item_thread: bool,
+    /// The owner's message: answer with its receipt (`sends::BotSend`) as soon as Home stored it, instead of the
+    /// session once it was sent (the bot chat; the extension waits for the session).
+    #[serde(default)]
+    accept: bool,
 }
 
 /// The owner's message, or an agent's (`launchpad bot message`): Home stamps the agent as its sender from its own
 /// record (`senders::agent`), never from the body, and a paused bot refuses it like a routine's. A window's
 /// Idempotency-Key (claimed by the server's retry protection) becomes the message's or the new session's id.
+/// The owner's message is stored on Home first and sent in the background (`launchpad_channels::sends`): with
+/// `accept` the answer is its receipt at once, else the session once it was sent.
 /// The owner's message goes to the thread they name (`thread`, `new_thread`, `item_thread`); an agent's to its own
 /// thread of the bot (one per sender session), queued while the bot works in as many threads as `max_threads`
 /// allows (`{"queued": true, …}` instead of the session).
@@ -187,21 +197,45 @@ async fn message(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::ht
         None => Source::Owner { thread: m.thread.as_deref() },
     };
     let to = bot_threads::route(source);
-    if agent.is_some() {
-        // The loop guard refuses it now rather than once a slot is free.
-        if let Some(f) = &m.context.from {
-            launchpad_core::senders::guard_from(f).map_err(bad)?;
+    if agent.is_none() {
+        let sent = sends::accept(app, &id, to, m.text, m.attachments, m.context, key).await.map_err(bad)?;
+        if m.accept {
+            return Ok(Json(serde_json::to_value(sent).map_err(|e| bad(e.into()))?));
         }
-        let bot = bots::get(app, &id).await.map_err(bad)?;
-        if !bot.paused && bot_threads::at_cap(app, &bot, bot_threads::peek(app, &id, &to).await.map_err(bad)?.as_deref()).is_some() {
-            let thread = bot_threads::resolve(app, &id, &to, m.text.lines().next().unwrap_or_default()).await.map_err(bad)?;
-            launchpad_channels::hooks::queue_for_slot(app, &id, thread.clone(), m.text, m.attachments, m.context).await.map_err(bad)?;
-            return Ok(Json(json!({"queued": true, "thread": thread, "status": launchpad_channels::hooks::QUEUED_SLOT})));
-        }
+        let session = sends::wait(app, &sent.id).await.map_err(bad)?;
+        return Ok(Json(serde_json::to_value(session).map_err(|e| bad(e.into()))?));
     }
-    let msg = bots::Message { text: m.text, attachments: m.attachments, context: m.context, automatic: agent.is_some(), key, to };
+    // An agent's message: automatic, sent now (or queued for a free slot).
+    // The loop guard refuses it now rather than once a slot is free.
+    if let Some(f) = &m.context.from {
+        launchpad_core::senders::guard_from(f).map_err(bad)?;
+    }
+    let bot = bots::get(app, &id).await.map_err(bad)?;
+    if !bot.paused && bot_threads::at_cap(app, &bot, bot_threads::peek(app, &id, &to).await.map_err(bad)?.as_deref()).is_some() {
+        let thread = bot_threads::resolve(app, &id, &to, m.text.lines().next().unwrap_or_default()).await.map_err(bad)?;
+        launchpad_channels::hooks::queue_for_slot(app, &id, thread.clone(), m.text, m.attachments, m.context).await.map_err(bad)?;
+        return Ok(Json(json!({"queued": true, "thread": thread, "status": launchpad_channels::hooks::QUEUED_SLOT})));
+    }
+    let msg = bots::Message { text: m.text, attachments: m.attachments, context: m.context, automatic: true, key, to };
     let session = bots::message_with(app, &id, msg).await.map_err(bad)?;
     Ok(Json(serde_json::to_value(session).map_err(|e| bad(e.into()))?))
+}
+
+/// The owner's messages Home accepted for the bot and has not shown in a session yet (waiting, sending, failed,
+/// uncertain, or sent in the last half hour), oldest first.
+async fn sends(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Vec<sends::BotSend>> {
+    Ok(Json(sends::list(&s.app, &id).await.map_err(bad)?))
+}
+
+/// Retry: a failed or uncertain message is sent again, with the same ID.
+async fn retry_send(State(s): State<Ctx>, Path((id, send)): Path<(String, String)>) -> ApiResult<sends::BotSend> {
+    Ok(Json(sends::retry(&s.app, &id, &send).await.map_err(bad)?))
+}
+
+/// Remove: a message not sent (waiting, failed or uncertain) is deleted and never sent.
+async fn remove_send(State(s): State<Ctx>, Path((id, send)): Path<(String, String)>) -> ApiResult<Value> {
+    sends::remove(&s.app, &id, &send).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
 }
 
 /// The bot's threads, newest first (archived ones with `?archived=true`).

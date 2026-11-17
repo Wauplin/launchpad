@@ -9,6 +9,7 @@ pub mod connections;
 pub mod delivery;
 pub mod digest;
 pub mod hooks;
+pub mod sends;
 pub mod telegram;
 pub mod today;
 
@@ -21,6 +22,8 @@ pub fn spawn(app: &App) {
     // Daily digests of bot channels: Home only, never on runners.
     if launchpad_core::vault::here(app) {
         digest::spawn(app);
+        // The owner's bot messages Home accepted: sent in the background, in order per thread.
+        sends::spawn(app);
     }
 }
 
@@ -33,6 +36,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     hooks::Hook::export_all(cfg)?;
     hooks::CreatedHook::export_all(cfg)?;
     hooks::QueuedMessage::export_all(cfg)?;
+    sends::BotSend::export_all(cfg)?;
     channel::Channel::export_all(cfg)?;
     channel::ChannelPage::export_all(cfg)?;
     channel::ChannelPosted::export_all(cfg)?;

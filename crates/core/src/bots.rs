@@ -554,6 +554,7 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
         let tx = c.transaction()?;
         tx.execute("DELETE FROM bot WHERE id = ?1", [&id2])?;
         tx.execute("DELETE FROM queued_message WHERE target = 'bot:' || ?1 OR target LIKE 'bot:' || ?1 || ':%'", [&id2])?;
+        tx.execute("DELETE FROM bot_send WHERE bot_id = ?1", [&id2])?;
         crate::bot_threads::delete_all(&tx, &id2)?;
         tx.execute("DELETE FROM plain_file WHERE store = ?1", [&st])?;
         tx.execute("DELETE FROM plain_state WHERE store = ?1", [&st])?;

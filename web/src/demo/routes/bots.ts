@@ -2,6 +2,8 @@
 // message to a bot without an open session launches one that replays a prerecorded scenario.
 
 import type { Bot } from "@/gen/Bot";
+import type { BotSend } from "@/gen/BotSend";
+import type { Session } from "@/gen/Session";
 import type { BotThread } from "@/gen/BotThread";
 import type { BotSettings } from "@/gen/BotSettings";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
@@ -170,7 +172,17 @@ route("DELETE", "/api/bots/:id/queued/:n", ({ params }) => {
 route("GET", "/api/bots/:id/history", ({ params }) => (world.botChanges[params.id] ?? []).map(({ patch: _patch, ...c }) => c));
 route("GET", "/api/bots/:id/history/:change", ({ params }) => ({ patch: (world.botChanges[params.id] ?? []).find((c) => c.id === Number(params.change))?.patch ?? "" }));
 route("POST", "/api/bots/:id/restore/:change", () => { throw new DemoError(400, "Demo: restoring a version works on a real Home."); });
-route("POST", "/api/bots/:id/message", ({ params, body }) => {
+// The owner's message is stored, then sent (Home: `launchpad_channels::sends`); the demo sends it at once, so the
+// list of accepted messages stays empty and `accept` answers with a receipt that is already sent.
+route("GET", "/api/bots/:id/sends", () => []);
+route("POST", "/api/bots/:id/message", (r) => {
+  const s = sendBotMessage(r as never);
+  const body = r.body as { accept?: boolean; text?: string } | undefined;
+  if (!body?.accept) return s;
+  const thread = s.launch_spec.bot?.thread ?? "";
+  return { id: s.id, bot_id: r.params.id, thread, asked_thread: thread, text: String(body.text ?? ""), attachments: [], state: "sent", error: null, session_id: s.id, created_at: clock.now(), updated_at: clock.now() } satisfies BotSend;
+});
+function sendBotMessage({ params, body }: { params: Record<string, string>; body: unknown }): Session {
   const b = botOf(params.id);
   const text = withContext(String((body as { text?: string })?.text ?? ""), (body as { context?: MessageContext })?.context).trim();
   if (!text) throw new DemoError(400, "the message is empty");
@@ -192,7 +204,7 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
     // A message instead of an answer (Cancel on “Answering: …”): the bot reads it and drops its question.
     if (current.open_question) { current.open_question = false; publishSession(current); }
     sendMessage(current, changedText, `${current.id}-${current.last_seq + 1}`);
-    return session(current.id);
+    return session(current.id)!;
   }
   // `bot_threads::follow_up`: a new thread with the same key and title; the old one leaves the bar.
   if (current) {
@@ -206,4 +218,4 @@ route("POST", "/api/bots/:id/message", ({ params, body }) => {
     model: b.settings.model ?? profile?.model ?? null, permission_mode: b.settings.permission_mode,
     bot: { id: b.id, name: b.settings.name, slug: b.slug, instructions: "", thread: threadId, version: botVersion(b.instructions), reason: reason ?? "first", permission_mode: b.settings.permission_mode, previous: previous ? { session_id: previous.id, title: previous.title, through_seq: previous.last_seq } : null } } as Partial<LaunchSpec> as LaunchSpec;
   return launch(spec, undefined, b.slug === "ask-launchpad" ? pickReply(text, true) : undefined);
-});
+}

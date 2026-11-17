@@ -126,6 +126,8 @@ pub async fn collect_garbage(app: &crate::App) -> Result<()> {
         // Files of bot channel messages, and channel deliveries that wait in the queue.
         queries.push("SELECT files FROM channel_message WHERE files != '[]'".into());
         queries.push("SELECT json FROM queued_message WHERE json LIKE '%upload:%'".into());
+        // The owner's bot messages Home accepted (`bot_send`): their files until they are pruned.
+        queries.push("SELECT json FROM bot_send WHERE json LIKE '%upload:%'".into());
         for query in queries {
             let Ok(mut stmt) = c.prepare(&query) else { continue };
             let mut rows = stmt.query([])?;

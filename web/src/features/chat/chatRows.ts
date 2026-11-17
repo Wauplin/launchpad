@@ -3,6 +3,9 @@
 // cards written during the turn; a routine run that ends with `no_update` is one quiet line. Each session of the
 // thread starts with a divider. Pure, so it is tested (tests/chatRows.test.mjs).
 
+import type { BotSend } from "@/gen/BotSend";
+import type { BotSendState } from "@/gen/BotSendState";
+import type { FileAttachment } from "@/gen/FileAttachment";
 import type { ImageAttachment } from "@/gen/ImageAttachment";
 import type { Row } from "../agents/rows.ts";
 import type { TraceRow } from "../agents/traceRows.ts";
@@ -69,6 +72,8 @@ export type ChatItem = { key: string; v: string } & (
   | { t: "working"; sessionId: string; step: string | null }
   /** A hook or Telegram message waiting for the bot's turn to end (after every other row). */
   | { t: "queued"; n: number; at: number; source: string; text: string; slot: boolean }
+  /** Your message Home accepted that no loaded session shows yet (`pendingRows`): its bubble, with how far it got. */
+  | { t: "pending"; id: string; text: string; files: FileAttachment[]; state: BotSendState; error: string | null }
 );
 
 type Turn = {
@@ -212,6 +217,16 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
     if (s.sleep && !s.running) out.push({ key: k(`z:${s.sleep.schedule_id}`), v: sleepKey(s.sleep), t: "sleeping", sessionId: s.id, sleep: s.sleep });
   });
   return out;
+}
+
+/** Your messages to this thread that Home accepted (`GET /api/bots/{id}/sends`) and no loaded session shows yet,
+ * oldest first, for after the chat. A message keeps its ID in its session (a new session's first message has the
+ * session's ID), so its bubble gives way to the session's own message once it arrives: never two bubbles. */
+export function pendingRows(sends: readonly BotSend[], sessions: ChatSession[], threadId: string): ChatItem[] {
+  const shown = new Set(sessions.flatMap((s) => s.rows.flatMap((r) => (r.t === "user" && r.clientId ? [r.clientId] : []))));
+  return sends
+    .filter((m) => m.thread === threadId && !shown.has(m.id))
+    .map((m): ChatItem => ({ key: `p:${m.id}`, v: `${m.state}:${m.error ?? ""}`, t: "pending", id: m.id, text: m.text, files: m.attachments, state: m.state, error: m.error }));
 }
 
 /** What a sleep shows: a new version of its row whenever one of its fields changes (the session's status stays Done). */

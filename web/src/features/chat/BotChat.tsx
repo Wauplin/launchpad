@@ -14,10 +14,11 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Bot } from "@/gen/Bot";
+import type { BotSend } from "@/gen/BotSend";
 import type { Change } from "@/gen/Change";
 import type { Proposal } from "@/gen/Proposal";
 import type { QueuedMessage } from "@/gen/QueuedMessage";
-import { ActionButton } from "@/components/ActionButton";
+import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
 import type { Session } from "@/gen/Session";
 import type { Suggestion } from "@/gen/Suggestion";
 import { BotAvatar } from "@/components/BotAvatar";
@@ -34,7 +35,7 @@ import { withPresets } from "@/lib/presets";
 import { ApiError } from "@/lib/api";
 import { abandonOperation } from "@/lib/operations";
 import { senderLine } from "@/lib/senders";
-import { instructionsUpdated } from "@/lib/bots";
+import { instructionsUpdated, sentHere, showAccepted } from "@/lib/bots";
 import { useMarkSeen, useWindowFocused } from "@/features/agents/useSeen";
 import { buildRows } from "@/features/agents/rows";
 import { foldTrace } from "@/features/agents/traceRows";
@@ -53,7 +54,7 @@ import { ACTIONS } from "@/gen/actions";
 import type { Activity } from "@/gen/Activity";
 import { activityLine, activityLink, activityParts, activityReceipt, useActivity } from "./activity";
 import { api } from "@/lib/api";
-import { attachmentSrc, pastedImages } from "@/lib/attachments";
+import { attachmentSrc, isImageAttachment, pastedImages } from "@/lib/attachments";
 import { age, ago, when } from "@/lib/format";
 import { useKeptDraft } from "@/lib/keptDraft";
 import { NEW_THREAD } from "./BotThreads";
@@ -62,7 +63,7 @@ import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
 import { isRunning, isSleeping, sleepUntil } from "@/lib/sessionStatus";
 import { sendPresence } from "@/lib/ws";
 import { QuickChips } from "./QuickChips";
-import { chatRows, sleepKey, stepsLabel, type ChatCard, type ChatItem, type ChatSession } from "./chatRows";
+import { chatRows, pendingRows, sleepKey, stepsLabel, type ChatCard, type ChatItem, type ChatSession } from "./chatRows";
 
 /** A record behind a change receipt: a knowledge-base change, a change of the bot's own files, or a direct change. */
 type ChangeRecord = { kind: "kb"; c: Change } | { kind: "bot"; c: Change; botId: string } | { kind: "act"; a: Activity };
@@ -115,7 +116,7 @@ function botFileReceipt(c: Change): string {
   return `${c.new_sha256 ? (c.sha256 ? "changed" : "added") : "deleted"} ${what}`;
 }
 
-export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSettings, intro, view = "bot", onStep, onStarted }: {
+export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSettings, intro, view = "bot", onStep, onThread }: {
   bot: Bot;
   /** Which view shows the chat (a bot page, the Ask panel), for the sessions this window reports on screen. */
   view?: string;
@@ -123,8 +124,9 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
   threadId: string;
   /** The thread's session (none yet: empty; older threads: their newest). */
   thread: Session[];
-  /** A message started a session (a new thread's first message, or a thread continued in a new one: the page shows its thread). */
-  onStarted?: (session: Session) => void;
+  /** Your message went to another thread than the one shown (New thread's first message, or a thread that continues
+   * in a new one): the page shows that thread. */
+  onThread?: (thread: string) => void;
   /** Why the next message continues in a new thread (archived, or the profile or folder changed…), or null. */
   rotation: string | null;
   needsProfile: boolean;
@@ -187,10 +189,19 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
   const first = ready[0] ? thread.indexOf(ready[0]) : 0;
   // Hook and Telegram messages waiting for the turn to end: grey rows after the chat, each with Cancel.
   const queued = useQuery({ queryKey: ["bot-queued", bot.id], queryFn: () => api.get<QueuedMessage[]>(`/api/bots/${bot.id}/queued`), retry: false }).data;
+  // Your messages Home accepted that no loaded session shows yet: their bubbles, with how far each got.
+  const sends = useQuery({ queryKey: ["bot-sends", bot.id], queryFn: () => api.get<BotSend[]>(`/api/bots/${bot.id}/sends`), retry: false }).data;
   const items = useMemo(() => [
     ...chatRows(sessions, cards, first),
+    ...pendingRows(sends ?? [], sessions, threadId),
     ...(queued ?? []).filter((m) => m.thread === threadId).map((m): ChatItem => ({ t: "queued", key: `queued/${m.n}`, v: `${m.slot}`, n: m.n, at: m.at, source: m.source, text: m.text, slot: m.slot })),
-  ], [sessions, cards, first, queued, threadId]);
+  ], [sessions, cards, first, sends, queued, threadId]);
+  // A message sent from this thread that continued in a new one (its session could not go on): the chat follows it.
+  const followed = useRef(new Set<string>());
+  useEffect(() => {
+    const moved = (sends ?? []).find((m) => m.asked_thread === threadId && m.thread !== threadId && sentHere.has(m.id) && !followed.current.has(m.id));
+    if (moved) { followed.current.add(moved.id); onThread?.(moved.thread); }
+  }, [sends, threadId, onThread]);
   const step = useMemo(() => { const w = items.findLast((i) => i.t === "working"); return w?.t === "working" ? w.step : null; }, [items]);
   // The records behind each steps line's receipts, one stable array per line (rows are memoized on it).
   // A line keeps its array while its records are the same, so a streaming answer elsewhere never redraws it.
@@ -293,9 +304,9 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
           if (el.scrollTop < 150) loadMore();
         }}>
         <div className="mx-auto w-full max-w-text">
-          {thread.length === 0 ? <div className="py-8">{intro}</div> : <>
+          {thread.length === 0 && !items.length ? <div className="py-8">{intro}</div> : <>
             {more && <div className="flex justify-center pt-2"><button className="btn btn-sm" disabled={loadingMore} onClick={loadMore}>{loadingMore ? "Loading…" : "Load earlier messages"}</button></div>}
-            {sessions.length === 0 && <div className="p-6 text-center text-[13px] text-ink-3">Loading…</div>}
+            {thread.length > 0 && sessions.length === 0 && <div className="p-6 text-center text-[13px] text-ink-3">Loading…</div>}
             <div style={{ height: total, position: "relative" }}>
               {v.getVirtualItems().map((it) => {
                 const item = items[it.index];
@@ -312,7 +323,7 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
           <div className="h-3" />
         </div>
       </div>
-      <BotComposer bot={bot} threadId={threadId} onStarted={onStarted} current={current} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} reply={reply} skipped={!reportWaits && ask && ask.request_id === skipped ? ask : null}
+      <BotComposer bot={bot} threadId={threadId} onThread={onThread} current={current} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} reply={reply} skipped={!reportWaits && ask && ask.request_id === skipped ? ask : null}
         onCancelReply={() => { if (reply?.kind === "report") setReport(null); else if (reply) setSkipped(reply.request_id); }} onUnskip={() => setSkipped(null)}
         onSent={() => { atBottom.current = true; setReport(null); }} />
     </div>
@@ -335,6 +346,39 @@ function QueuedRow({ item, botId }: { item: Extract<ChatItem, { t: "queued" }>; 
     </span>
     <ActionButton name="bot.cancel-queued" params={{ id: botId, n: String(item.n) }} icon={null} onDone={() => qc.invalidateQueries({ queryKey: ["bot-queued", botId] })} />
   </div></div>;
+}
+
+/** How far your accepted message got (`BotSend.state`), under its bubble until its session shows it. */
+const PENDING: Record<string, string> = {
+  waiting: "Queued: sent once the bot can take it",
+  sending: "Sending…",
+  sent: "Starting…",
+};
+
+/** Your message Home accepted, before its session shows it: a faded bubble that says how far it got (queued,
+ * sending, starting), replaced by the session's own message once the bot gets it; a failed or uncertain one keeps
+ * its bubble with why, Retry, and Remove in ⋯. */
+function PendingRow({ item, botId }: { item: Extract<ChatItem, { t: "pending" }>; botId: string }) {
+  const qc = useQueryClient();
+  const refresh = () => qc.invalidateQueries({ queryKey: ["bot-sends", botId] });
+  const stuck = item.state === "failed" || item.state === "uncertain";
+  const images = item.files.filter((f) => isImageAttachment(f.data_url));
+  const others = item.files.filter((f) => !isImageAttachment(f.data_url));
+  return <div className="group grid justify-items-end gap-1 py-1.5" data-tour="chat.pending">
+    <div className={`max-w-[85%] rounded-card rounded-br-sm bg-sunk px-2.5 py-[7px] text-[13px] whitespace-pre-wrap ${stuck ? "" : "opacity-70"}`}>
+      {item.text}
+      {images.length > 0 && <div className="flex flex-wrap gap-2">{images.map((image, i) => <ImageThumb key={i} src={attachmentSrc(image.data_url)} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />)}</div>}
+      {others.length > 0 && <span className="mt-1 block text-[11px] text-ink-3">{others.map((f) => f.name).join(", ")}</span>}
+    </div>
+    {stuck
+      ? <div className="flex max-w-[85%] items-center gap-2 text-[12px] text-gh-closed">
+        <Icon name="xcircle" size={12} className="flex-none" />
+        <span className="min-w-0 flex-1 break-words">{item.state === "failed" ? "Not sent" : "Not confirmed"}: {item.error}</span>
+        <RowActions width={0} label="More actions" main={<ActionButton name="bot.retry-send" params={{ id: botId, send: item.id }} icon={null} onDone={refresh} />}
+          more={(close) => <ActionMenuItem name="bot.remove-send" params={{ id: botId, send: item.id }} close={close} onDone={refresh} detail="It is never sent" />} />
+      </div>
+      : <span className="flex items-center gap-1.5 text-[11px] text-ink-3" role="status"><Icon name="clock" size={12} />{PENDING[item.state] ?? item.state}</span>}
+  </div>;
 }
 
 type RowData = Proposal | TodayItem | ChangeRecord | readonly (ChangeRecord | undefined)[] | undefined;
@@ -381,6 +425,8 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, q
       return <WorkingRow item={item} quiet={quietWork} />;
     case "queued":
       return <QueuedRow item={item} botId={botId} />;
+    case "pending":
+      return <PendingRow item={item} botId={botId} />;
   }
 }, (a, b) => a.item.key === b.item.key && a.item.v === b.item.v && a.data === b.data && a.extra === b.extra && a.canContinue === b.canContinue && a.botId === b.botId && a.quietWork === b.quietWork);
 
@@ -615,8 +661,8 @@ function WorkingRow({ item, quiet }: { item: Extract<ChatItem, { t: "working" }>
 
 const firstLine = (t: string) => t.trim().split("\n")[0] ?? "";
 
-function BotComposer({ bot, threadId, onStarted, current, rotation, needsProfile, openSettings, reply, skipped, onCancelReply, onUnskip, onSent }: {
-  bot: Bot; threadId: string; onStarted?: (session: Session) => void; current: Session | null; rotation: string | null; needsProfile: boolean;
+function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile, openSettings, reply, skipped, onCancelReply, onUnskip, onSent }: {
+  bot: Bot; threadId: string; onThread?: (thread: string) => void; current: Session | null; rotation: string | null; needsProfile: boolean;
   openSettings: () => void;
   /** What the box answers (the open question, or a question report), else null: a normal message. */
   reply: Reply | null;
@@ -658,10 +704,10 @@ function BotComposer({ bot, threadId, onStarted, current, rotation, needsProfile
   const skip = !answering && skipped && !skipped.permission && !!current?.open_question && !!current.live ? skipped : null;
   // Cancel needs a harness that takes the message while the skipped question's turn goes on.
   const canSkip = !!harness?.capabilities.messages_while_running;
-  // Typed text never grants a permission; a harness that cannot take messages while it works waits for the turn end
-  // (also when the owner cancelled answering an open question to send a message instead).
+  // Typed text never grants a permission. A harness that cannot take messages while it works gets yours at the turn's
+  // end: Home keeps it queued meanwhile (also when the owner cancelled answering an open question to send a message).
   const busyTurn = !ask && !!current && isRunning(current) && !!harness && !harness.capabilities.messages_while_running;
-  const blocked = (!!ask && ask.permission) || busyTurn;
+  const blocked = !!ask && ask.permission;
   const context = answering ? EMPTY_CONTEXT : storedContext;
   const presets = answering ? [] : selectedPresets.filter((id) => botPresets.some((p) => p.id === id));
   const withContext = hasMessageContext(context);
@@ -672,31 +718,36 @@ function BotComposer({ bot, threadId, onStarted, current, rotation, needsProfile
     try {
       if (ask && current) {
         await runAction("session.answer", { id: current.id }, { request_id: ask.request_id, answers: Array(ask.count).fill(t || "See the attachments in my next message.") });
-        if (files.length) await runAction("bot.message", { id: bot.id }, { text: "", attachments: files, ...where });
+        if (files.length) await accepted(await runAction<BotSend>("bot.message", { id: bot.id }, { text: "", attachments: files, ...where, accept: true }));
       } else if (report) {
         const next = await runAction<Proposal>("proposal.reply", { id: report.id }, { text: t });
         qc.setQueryData<Proposal[]>(["proposals"], (old) => old?.map((x) => (x.id === next.id ? next : x)));
         if (next.state === "failed") throw new Error(next.error ?? "The reply was not sent");
-        if (files.length) await runAction("bot.message", { id: bot.id }, { text: "", attachments: files, ...where });
+        if (files.length) await accepted(await runAction<BotSend>("bot.message", { id: bot.id }, { text: "", attachments: files, ...where, accept: true }));
       } else {
         // A cancelled question still waits in the harness, which would hold the message behind it: close it as
         // skipped (never a permission: those keep Allow and Deny), then send the message.
         if (skip && current) await runAction("session.answer", { id: current.id }, { request_id: skip.request_id, answers: Array(skip.count).fill("No answer: the owner skipped this question and sent a message instead.") });
         const message = JSON.stringify({ text: t, attachments: files, context: withContext ? context : null });
-        const body = unconfirmed?.message === message ? unconfirmed.body : { text: t, attachments: files, ...where, ...(withContext ? { context } : {}) };
-        let started: Session | null = null;
-        try { started = await runAction<Session>("bot.message", { id: bot.id }, body); }
+        // Home stores the message and answers at once (`accept`); the bot starts or continues in the background.
+        const body = unconfirmed?.message === message ? unconfirmed.body : { text: t, attachments: files, ...where, ...(withContext ? { context } : {}), accept: true };
+        let sent: BotSend;
+        try { sent = await runAction<BotSend>("bot.message", { id: bot.id }, body); }
         catch (e) { setUnconfirmed(e instanceof ApiError && e.operationCompleted ? null : { path: messagePath, body, message }); throw e; }
         setUnconfirmed(null);
-        if (started?.id) onStarted?.(started);
+        await accepted(sent);
         setContext(EMPTY_CONTEXT);
         setPresets([]);
       }
       setText("");
       attachments.clear();
       onSent();
-      await qc.invalidateQueries({ queryKey: ["sessions"] });
     } catch (e) { toastError(e); } finally { setBusy(false); }
+  };
+  // The accepted message shows at once (its bubble, in its thread), before Home's list refreshes.
+  const accepted = async (sent: BotSend) => {
+    showAccepted(qc, sent);
+    if (sent.thread !== threadId) onThread?.(sent.thread);
   };
   if (needsProfile)
     return <div className="border-t border-line-2 p-2.5"><div className="flex items-center gap-2 rounded-control bg-attn-soft px-3 py-2 text-[13px] text-attn">This bot has no profile.<button className="btn btn-sm ml-auto" onClick={openSettings}>Choose a profile</button></div></div>;
@@ -724,7 +775,7 @@ function BotComposer({ bot, threadId, onStarted, current, rotation, needsProfile
         {!text && !files.length && !withContext && !presets.length && !answering && !blocked && !busy && <QuickChips starters={bot.settings.starters ?? []} onSend={(t) => void send(t)} onFill={(t) => { setText(t); requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } }); }} />}
         <div className="session-message-input flex items-end gap-2 rounded-control border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
           <textarea ref={ref} rows={1} value={text} disabled={busy || blocked} aria-label={`Message ${bot.settings.name}`}
-            placeholder={busyTurn ? `${bot.settings.name} is working: Stop it or wait for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? "Type your answer…" : `Message ${bot.settings.name}…`}
+            placeholder={busyTurn ? `${bot.settings.name} is working: your message waits for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? "Type your answer…" : `Message ${bot.settings.name}…`}
             onChange={(e) => setText(e.target.value)}
             onPaste={(e) => { if (!acceptsImages || busy) return; const pasted = pastedImages(e); if (pasted) void attachments.add(pasted); }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chatRows, stepsLabel } from "../src/features/chat/chatRows.ts";
+import { chatRows, pendingRows, stepsLabel } from "../src/features/chat/chatRows.ts";
 
 let n = 0;
 const user = (text) => ({ key: `e${++n}`, v: "", t: "user", text, images: [], queued: false });
@@ -140,4 +140,20 @@ test("a wake-up is one quiet line with Home's message kept for Details; a sleepi
   assert.notEqual(sleepKey(sleep), sleepKey({ ...sleep, deadline: 2000 }));
   assert.equal(chatRows([session("a", rows, { sleep, running: true })]).some((i) => i.t === "sleeping"), false);
   assert.equal(new Set(items.map((i) => i.key)).size, items.length);
+});
+
+test("an accepted message is one bubble: pending until its session shows the message with its ID", () => {
+  const send = (id, state, extra = {}) => ({ id, bot_id: "b", thread: "t1", asked_thread: "t1", text: `message ${id}`, attachments: [], state, error: null, session_id: null, created_at: 0, updated_at: 0, ...extra });
+  const sends = [send("m1", "sent", { session_id: "s" }), send("m2", "sending"), send("m3", "failed", { error: "no runner" }), send("x", "waiting", { thread: "t2" })];
+  // A new thread before its session exists: the bubbles alone, in order, each with how far it got.
+  const before = pendingRows(sends, [], "t1");
+  assert.deepEqual(before.map((i) => [i.t, i.id, i.state]), [["pending", "m1", "sent"], ["pending", "m2", "sending"], ["pending", "m3", "failed"]]);
+  assert.equal(before[2].error, "no runner");
+  // The session's first message carries the accepted ID: it replaces the bubble, never a second one.
+  const s = session("s", [{ ...user("message m1"), clientId: "m1" }]);
+  const after = [...chatRows([s]), ...pendingRows(sends, [s], "t1")];
+  assert.deepEqual(after.map((i) => i.t), ["divider", "user", "pending", "pending"]);
+  assert.deepEqual(after.filter((i) => i.t === "pending").map((i) => i.id), ["m2", "m3"]);
+  // A state change gives the row a new version (rows are memoized on it).
+  assert.notEqual(pendingRows([send("m2", "sending")], [], "t1")[0].v, pendingRows([send("m2", "sent")], [], "t1")[0].v);
 });

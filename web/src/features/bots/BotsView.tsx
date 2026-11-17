@@ -318,7 +318,7 @@ function BotPageOf({ id }: { id: string }) {
     onArchived={afterArchive} />;
   const archiveThread = shownThread && threadId !== NEW_THREAD ? <ArchiveThreadButton bot={bot} thread={shownThread} sessions={thread} onDone={afterArchive} /> : null;
   const chat = <BotChat key={threadId} bot={bot} threadId={threadId} thread={thread} rotation={rotation} needsProfile={!profile} openSettings={() => setAbout(true)} onStep={setStep}
-    onStarted={(s) => { const t = s.launch_spec.bot?.thread; if (t && t !== threadId) { void threads.refetch(); selectThread(t); } }}
+    onThread={(t) => { if (t !== threadId) { void threads.refetch(); selectThread(t); } }}
     intro={<p className="m-0 text-[13px] text-ink-2">{threadId !== NEW_THREAD ? "This thread has no message yet." : rows.length ? `Send ${bot.settings.name} the first message of this new thread: it runs next to its other threads.` : `Send ${bot.settings.name} its first task.`}</p>} />;
   const sections = <AboutSections bot={bot} current={current} routines={routines} onEditFile={setFile} openThread={(key) => { const t = rows.find((r) => r.t.key === key); if (t) selectThread(t.t.id); else toast("No thread yet: it starts with the first message"); }} threadKeys={new Set(rows.map((r) => r.t.key).filter(Boolean) as string[])} />;
   const dialogs = <>
