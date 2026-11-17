@@ -641,8 +641,9 @@ function ChangesRow({ sessionId }: { sessionId: string }) {
   </div></div>;
 }
 
-/** The turn at work, with Stop. `quiet`: the page's header already says what it works on and since when, so the row
- * shows only the spinner and Stop. */
+/** The turn at work, with View running agent (this thread's session in Agents) and Stop. `quiet`: the page's header
+ * already says what it works on and since when, so the row shows only the spinner, the link and Stop. The row exists
+ * only once the session record does: a message still waiting for its launch is a pending bubble, never a link. */
 function WorkingRow({ item, quiet }: { item: Extract<ChatItem, { t: "working" }>; quiet: boolean }) {
   const s = useSession(item.sessionId);
   const [busy, setBusy] = useState(false);
@@ -652,7 +653,9 @@ function WorkingRow({ item, quiet }: { item: Extract<ChatItem, { t: "working" }>
   const label = s.status === "starting" ? "Starting" : s.status === "background" ? "Background work" : "Working";
   return <div className="flex items-center gap-2 py-1.5 text-[12px] text-work" role="status" aria-label={quiet ? label : undefined}>
     <span className="lp-spin" />
-    <span className="min-w-0 flex-1 truncate">{quiet ? "" : `${label}${item.step ? ` · ${item.step}` : ""} · ${age(s.status_since)}`}</span>
+    {!quiet && <span className="min-w-0 truncate">{`${label}${item.step ? ` · ${item.step}` : ""} · ${age(s.status_since)}`}</span>}
+    <Link to="/agents" search={{ session: s.id }} className="shrink-0 text-inherit underline underline-offset-2" title="Open this thread's session in Agents: its trace, terminal and files">View running agent</Link>
+    <span className="flex-1" />
     <button className="btn btn-sm" disabled={busy} title="Stop: interrupt the bot" onClick={() => { setBusy(true); void runAction("session.stop", { id: s.id }).catch(toastError).finally(() => setBusy(false)); }}><Icon name="stop" size={12} />Stop</button>
   </div>;
 }
