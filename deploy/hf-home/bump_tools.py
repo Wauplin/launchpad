@@ -1,7 +1,8 @@
 """Bumps the agent CLI and oracle tool pins of Home's image and Burst jobs in release.json to the newest release of the
 same major version (semver; for 0.x the same minor), like runners do on their own (launchpad_setup::cli_update): agent
-CLIs from npm, Monty (pydantic-monty-runtime) and Ruff from PyPI, slackline from its GitHub releases. A new major
-version is only reported; pass --major to pin it. Run it from the repository root, review the diff, then commit:
+CLIs from npm, Ruff from PyPI, slackline from its GitHub releases. A new major version is only reported; pass --major
+to pin it. Monty's worker is not bumped here: it speaks the protocol of the monty crates Home is built with, so its pin
+changes only together with theirs (`crates/automation/Cargo.toml`). Run it from the repository root, review the diff, then commit:
 the next release (or main package) builds the image with the new pins.
 
     python3 deploy/hf-home/bump_tools.py [--major] [--dry-run]
@@ -13,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 PACKAGES = {"claude": "@anthropic-ai/claude-code", "codex": "@openai/codex", "opencode": "opencode-ai"}
-PYPI = {"monty": "pydantic-monty-runtime", "ruff": "ruff"}
+PYPI = {"ruff": "ruff"}
 GITHUB = {"slackline": "co42/slackline"}
 RELEASE = Path(__file__).with_name("release.json")
 SEMVER = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?")

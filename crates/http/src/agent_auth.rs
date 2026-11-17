@@ -54,7 +54,7 @@ fn oracle_read(method: &Method, path: &str) -> bool {
 }
 
 /// `launchpad oracle test` (`oracle.test` with a draft): propose access, in the session's own workspace; Home runs
-/// an agent's draft only within the saved oracle's access.
+/// an agent's draft only with the credentialed tools its own session holds.
 fn oracle_test(method: &Method, path: &str) -> bool {
     let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     *method == Method::POST && p.len() == 5 && p[..2] == ["api", "oracles"] && p[4] == "test" && !p.iter().any(|s| s.is_empty())

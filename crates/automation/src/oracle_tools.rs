@@ -241,7 +241,8 @@ impl ToolBox {
         let client = client().map_err(|e| raise(ExcType::OSError, ErrorClass::Http, e))?;
         for _hop in 0..=MAX_REDIRECTS {
             let host = url.host_str().unwrap_or_default().trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
-            if own.contains(&host) {
+            // `home.example.` is the same host as `home.example`.
+            if own.contains(&host) || own.iter().any(|o| host.strip_suffix('.') == Some(o.as_str())) {
                 return Err(permission(format!("tools.http does not call Home itself ({host})")));
             }
             if let Ok(ip) = host.parse::<IpAddr>()
@@ -377,6 +378,9 @@ impl ToolBox {
         self.received += body.len() as u64;
         if body.len() > MAX_BODY {
             return Err(Reply::Stop { class: ErrorClass::Limit, message: format!("a response is larger than {} MiB", MAX_BODY >> 20) });
+        }
+        if self.received > MAX_TOTAL {
+            return Err(Reply::Stop { class: ErrorClass::Limit, message: format!("more than {} MiB received", MAX_TOTAL >> 20) });
         }
         Ok((status, body))
     }
@@ -853,7 +857,7 @@ fn slack_value(name: &str, kind: Arg, v: &Value) -> Result<Option<String>, Strin
         }
         Arg::Time => {
             let s = text(v)?;
-            let relative = s.len() >= 2 && s[..s.len() - 1].chars().all(|c| c.is_ascii_digit()) && s.ends_with(['s', 'm', 'h', 'd', 'w']);
+            let relative = s.len() >= 2 && s.ends_with(['s', 'm', 'h', 'd', 'w']) && s[..s.len() - 1].chars().all(|c| c.is_ascii_digit());
             let iso = s.len() <= 40 && s.starts_with(|c: char| c.is_ascii_digit()) && s.chars().all(|c| c.is_ascii_digit() || "-:.+TZ ".contains(c));
             if !(relative || iso || s == "today" || s == "yesterday") {
                 return Err(format!("{name} {s:?} is an ISO time, a relative time such as 2h or 3d, today or a datetime"));
@@ -931,21 +935,26 @@ async fn run_slackline(bin: &std::path::Path, argv: &[String], token: &str, rema
     }
     let mut cmd = tokio::process::Command::new(bin);
     cmd.args(argv).env_clear().envs(slackline_env(token, &home)).current_dir("/").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true).process_group(0);
-    let run = async {
-        let mut child = match cmd.spawn() {
-            Ok(c) => c,
-            Err(e) => return SlackRun::Start(e.to_string()),
-        };
-        let pid = child.id();
-        let kill_group = move || {
-            if let Some(p) = pid {
-                // SAFETY: kill(2) on the process group this call created; no memory is touched.
-                unsafe {
-                    libc::kill(-(p as i32), libc::SIGKILL);
-                }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&home);
+            return SlackRun::Start(e.to_string());
+        }
+    };
+    // The process group this call created: killed however the call ends (an answer, too much output, the deadline),
+    // so nothing slackline started outlives it.
+    let pid = child.id();
+    let kill_group = move || {
+        if let Some(p) = pid {
+            // SAFETY: kill(2) on the process group this call created; no memory is touched.
+            unsafe {
+                libc::kill(-(p as i32), libc::SIGKILL);
             }
-        };
-        let (mut out, mut err) = (child.stdout.take(), child.stderr.take());
+        }
+    };
+    let (mut out, mut err) = (child.stdout.take(), child.stderr.take());
+    let run = async {
         let read_out = async {
             let mut buf = Vec::new();
             if let Some(o) = out.as_mut() {
@@ -956,6 +965,8 @@ async fn run_slackline(bin: &std::path::Path, argv: &[String], token: &str, rema
                         Ok(n) => {
                             buf.extend_from_slice(&chunk[..n]);
                             if buf.len() > MAX_BODY {
+                                // Stop it at once: stderr's reader waits for the process to end.
+                                kill_group();
                                 return None;
                             }
                         }
@@ -982,11 +993,9 @@ async fn run_slackline(bin: &std::path::Path, argv: &[String], token: &str, rema
             buf
         };
         let (out, err) = tokio::join!(read_out, read_err);
-        let Some(out) = out else {
-            kill_group();
-            return SlackRun::TooLarge;
-        };
+        let Some(out) = out else { return SlackRun::TooLarge };
         let status = child.wait().await;
+        // What slackline left running in its group goes too.
         kill_group();
         match status {
             Ok(s) if s.success() => SlackRun::Out(out),
@@ -1000,7 +1009,11 @@ async fn run_slackline(bin: &std::path::Path, argv: &[String], token: &str, rema
     };
     let r = match tokio::time::timeout(remaining, run).await {
         Ok(r) => r,
-        Err(_) => SlackRun::Timeout,
+        Err(_) => {
+            // The deadline: the child is not reaped yet, so the group is still this call's.
+            kill_group();
+            SlackRun::Timeout
+        }
     };
     let _ = std::fs::remove_dir_all(&home);
     r
@@ -1079,6 +1092,7 @@ mod tests {
             ("channels.info", serde_json::json!({"channel": "a b"})),
             ("channels.info", serde_json::json!({"channel": "@file"}).as_object().map(|_| serde_json::json!({"channel": "x".repeat(10_000)})).unwrap()),
             ("channels.history", serde_json::json!({"channel": "C1", "after": "--before=x"})),
+            ("channels.history", serde_json::json!({"channel": "C1", "after": "2é"})),
             ("messages.replies", serde_json::json!({"channel": "C1", "thread_ts": "-1"})),
             ("search.messages", serde_json::json!({"query": "x".repeat(10_000)})),
             ("search.messages", serde_json::json!({"query": "x", "limit": 101})),

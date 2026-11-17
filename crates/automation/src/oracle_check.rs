@@ -347,8 +347,12 @@ fn signature_here(src: &str) -> std::result::Result<Signature, Problem> {
     if let Some(v) = &ps.kwarg {
         return Err(at(src, v.range, format!("check takes no **{}: name each parameter", v.name.as_str())));
     }
+    // Home passes every argument by keyword.
+    if let Some(p) = ps.posonlyargs.first() {
+        return Err(at(src, p.range, "check takes no positional-only parameters (`/`): Home passes every argument by name".into()));
+    }
     let mut sig = Signature { params: vec![], cursor: false, now: false };
-    for p in ps.posonlyargs.iter().chain(ps.args.iter()).chain(ps.kwonlyargs.iter()) {
+    for p in ps.args.iter().chain(ps.kwonlyargs.iter()) {
         let name = p.parameter.name.as_str().to_string();
         let Some(ann) = &p.parameter.annotation else {
             return Err(at(src, p.range, format!("parameter {name} needs a type annotation (str, int, float, bool, or one of them | None)")));
@@ -465,6 +469,7 @@ mod tests {
             ("label: str = None", "not a str"),
             ("items: list", "its type is str"),
             ("x: int = True", "not a int"),
+            ("repo: str, /", "positional-only"),
         ] {
             let e = sig(params).unwrap_err();
             assert!(e.message.contains(needle), "{params}: {}", e.message);

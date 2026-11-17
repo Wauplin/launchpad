@@ -494,6 +494,21 @@ pub async fn guard(State(s): State<Server>, req: Request, next: Next) -> Respons
 }
 
 async fn guard_inner(s: Server, mut req: Request, next: Next) -> Response {
+    // An oracle's in-process read (`tools.launchpad`, `oracle_read`): Home's own request with the oracle's workspace
+    // as a request extension, which no network request carries. Read level, that workspace, GET only; checked
+    // first, so none of the entries below (public, runner, Git, hook paths) ever sees it.
+    if let Some(launchpad_http::OracleReader(ws)) = req.extensions().get::<launchpad_http::OracleReader>().cloned() {
+        if s.app.paths.role != launchpad_core::role::Role::Home {
+            return (StatusCode::FORBIDDEN, Json(json!({"error": "oracles run on Home"}))).into_response();
+        }
+        return match crate::agent_auth::authorize_oracle(&s.app, &ws, req).await {
+            Ok(mut req) => {
+                req.extensions_mut().insert(Access { session: None, device: None, changes: s.auth.changes.subscribe() });
+                private_response(next.run(req).await, false)
+            }
+            Err(e) => e.into_response(),
+        };
+    }
     // A Burst runner's only entry: Home dials it through the HF Jobs proxy (another Host), with the runner's
     // own credential, checked by the handler.
     if req.uri().path() == "/api/runner/reverse" && launchpad_core::home_link::burst().is_some() {
@@ -524,20 +539,6 @@ async fn guard_inner(s: Server, mut req: Request, next: Next) -> Response {
     if crate::runners::runner_path(path) || crate::burst::runner_path(path) || crate::git_http::git_path(path) || crate::plain_http::runner_request(s.app.paths.role, path, req.headers())
         || (req.method() == Method::POST && launchpad_http::hook_path(path)) {
         return private_response(next.run(req).await, true);
-    }
-    // An oracle's in-process read (`tools.launchpad`, `oracle_read`): Home's own request with the oracle's workspace
-    // as a request extension, which no network request carries. Read level, that workspace, GET only.
-    if let Some(launchpad_http::OracleReader(ws)) = req.extensions().get::<launchpad_http::OracleReader>().cloned() {
-        if s.app.paths.role != launchpad_core::role::Role::Home {
-            return (StatusCode::FORBIDDEN, Json(json!({"error": "oracles run on Home"}))).into_response();
-        }
-        return match crate::agent_auth::authorize_oracle(&s.app, &ws, req).await {
-            Ok(mut req) => {
-                req.extensions_mut().insert(Access { session: None, device: None, changes: s.auth.changes.subscribe() });
-                private_response(next.run(req).await, private)
-            }
-            Err(e) => e.into_response(),
-        };
     }
     // Session-scoped CLI token: verify the durable generation and restrict the router surface before relays.
     if let Some(t) = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "))
