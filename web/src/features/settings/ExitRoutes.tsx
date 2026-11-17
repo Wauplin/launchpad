@@ -11,16 +11,11 @@ import type { ExitRouteState } from "@/gen/ExitRouteState";
 import { Badge, Choice, Choices, ConfirmButton, ErrorState, Loading, MenuSection, RowActions, SettingRow, humanError } from "@/components/ui";
 import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
-import { freeName, routeKind, routeName, routeTarget, saveRoutes, useEgress, useExitRunners } from "@/lib/egress";
+import { freeName, isRunner, routeKind, routeName, routeTarget, saveRoutes, useEgress, useExitRunners } from "@/lib/egress";
 import { ago, when } from "@/lib/format";
 import { useKeptDraft, versionOf } from "@/lib/keptDraft";
 import { Card } from "./SettingsView";
 
-/** Online or offline, and since when. */
-function stateLine(s: ExitRouteState): string {
-  const since = s.since ? ` since ${ago(s.since)}` : "";
-  return s.online ? `online${since}` : `offline${since}`;
-}
 
 export function ExitRoutesCard() {
   const qc = useQueryClient();
@@ -58,19 +53,20 @@ export function ExitRoutesCard() {
 
 function RouteRow({ route, state, onEdit, onDelete }: { route: ExitRoute; state?: ExitRouteState; onEdit: () => void; onDelete: () => Promise<unknown> }) {
   const target = routeTarget(route);
+  const since = state?.since ? `${state.online ? "Online" : "Offline"} since ${when(state.since)}` : undefined;
   return (
     <div className="group flex items-center gap-2 border-b border-line-2 py-2.5 text-[13px] first:pt-0 last:border-b-0 last:pb-0">
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <b className="truncate">{route.name}</b>
-          {state && (state.online
-            ? <Badge tone="ok" dot title={state.since ? `Online since ${when(state.since)}` : undefined}>online</Badge>
-            : <Badge dot title={state.since ? `Offline since ${when(state.since)}` : undefined}>offline</Badge>)}
+          {state && (state.online ? <Badge tone="ok" dot title={since}>online</Badge> : <Badge dot title={since}>offline</Badge>)}
         </span>
         <span className="text-[12px] text-ink-3">
-          {state ? routeKind(state) : route.github_org ? "GitHub organization" : "URL prefixes"}{route.github_org ? "" : ` · ${target}`} · <span className="whitespace-nowrap">through <b className="font-semibold text-ink-2">{state?.exit ?? route.via}</b></span>{state && <> · <span className="whitespace-nowrap">{stateLine(state)}</span></>}
+          <span className="break-all" title={state?.prefixes.join("\n")}>{routeKind(route)}</span>
+          {" · "}<span className="whitespace-nowrap">through <b className="font-semibold text-ink-2">{state?.exit ?? route.via}</b></span>
+          {state && !state.online && state.since && <> · <span className="whitespace-nowrap" title={since}>offline since {ago(state.since)}</span></>}
         </span>
-        {state?.last_error && <span className="text-[12px] text-attn">{state.last_error}</span>}
+        {state?.last_error && <span className="text-[12px] break-words text-attn">{state.last_error.charAt(0).toUpperCase() + state.last_error.slice(1)}</span>}
       </span>
       <RowActions
         label={`More actions for route ${route.name}`}
@@ -138,7 +134,7 @@ export function RouteForm({ routes, route, onDone }: { routes: ExitRoute[]; rout
       </SettingRow>
       {f.kind === "github_org" ? (
         <SettingRow label="Organization" htmlFor="egress-org" hint="Its git, API, raw and upload addresses. GraphQL and search too while the runner is online.">
-          <input id="egress-org" className="field-input w-full max-w-80 font-mono text-[12px]" placeholder="huggingface-internal" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={f.org} onChange={(e) => set({ org: e.target.value.replace(/^https?:\/\/github\.com\//, "").split("/")[0] })} />
+          <input id="egress-org" className="field-input w-full max-w-80 font-mono text-[12px]" placeholder="acme-internal" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={f.org} onChange={(e) => set({ org: e.target.value.replace(/^https?:\/\/github\.com\//, "").split("/")[0] })} />
         </SettingRow>
       ) : (
         <SettingRow label="URL prefixes" htmlFor="egress-urls" hint="One per line, at most 20. https://host/ sends the whole host.">
@@ -149,7 +145,7 @@ export function RouteForm({ routes, route, onDone }: { routes: ExitRoute[]; rout
         {runners.length > 0 && (
           <Choices label="Exit runner">
             {runners.map((r) => (
-              <Choice key={r.name} active={f.via.toLowerCase() === r.name.toLowerCase()} onClick={() => set({ via: r.name })} title={r.online ? "Connected now" : "Not connected now"}>
+              <Choice key={r.name} active={!!f.via && isRunner(r, f.via)} onClick={() => set({ via: r.name })} title={r.online ? "Connected now" : "Not connected now"}>
                 <span className={`size-1.5 rounded-full ${r.online ? "bg-gh-open" : "bg-ink-3"}`} aria-hidden="true" />
                 {r.name}
               </Choice>
@@ -158,7 +154,7 @@ export function RouteForm({ routes, route, onDone }: { routes: ExitRoute[]; rout
         )}
       </SettingRow>
       <SettingRow label="Name" htmlFor="egress-name" hint="Named in errors and logs.">
-        <input id="egress-name" className="field-input w-full max-w-80 font-mono text-[12px]" placeholder={suggested || "huggingface-internal"} autoCapitalize="off" autoCorrect="off" spellCheck={false} value={f.name} onChange={(e) => set({ name: e.target.value.toLowerCase() })} />
+        <input id="egress-name" className="field-input w-full max-w-80 font-mono text-[12px]" placeholder={suggested || (f.kind === "github_org" ? "acme-internal" : "grafana.example.ts.net")} autoCapitalize="off" autoCorrect="off" spellCheck={false} value={f.name} onChange={(e) => set({ name: e.target.value.toLowerCase() })} />
       </SettingRow>
       {error && <span className="pt-2 text-[12px] text-danger-ink">{error}</span>}
       <span className="flex flex-wrap items-center gap-2 pt-3">

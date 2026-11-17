@@ -62,7 +62,7 @@ export function CloneFromGitHub({ workspace, onDone }: { workspace: Workspace | 
       {matches.length > 0 && (
         <div className="grid rounded-control border border-line bg-paper">
           {matches.slice(0, SHOWN).map((r) => (
-            <div key={r.repo} className="flex min-h-9 items-center gap-2 border-b border-line-2 px-3 text-[13px] last:border-0">
+            <div key={r.repo} className="flex min-h-9 items-center gap-2 border-b border-line-2 px-3 py-1 text-[13px] last:border-0">
               <span className="truncate font-mono text-[12px]">{r.repo}</span>
               <button className="btn btn-sm ml-auto" disabled={!!cloning || !workspace} onClick={() => void clone(r.repo)}>
                 <Icon name="plus" size={12} />

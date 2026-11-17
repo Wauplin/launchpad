@@ -42,17 +42,24 @@ export function freeName(base: string, routes: ExitRoute[], except?: string): st
   for (let n = 2; ; n++) if (!taken.has(`${base.slice(0, 37)}-${n}`)) return `${base.slice(0, 37)}-${n}`;
 }
 
-/** What a route covers, in words: "GitHub organization · 8 prefixes", "2 URL prefixes", "Whole host · 443". */
-export function routeKind(s: ExitRouteState): string {
-  if (s.kind === "github_org") return `GitHub organization · ${s.prefixes.length} prefixes`;
-  if (s.urls.length === 1) {
-    try {
-      const u = new URL(s.urls[0]);
-      if (u.pathname === "/" || u.pathname === "") return `Whole host · ${u.port || (u.protocol === "http:" ? "80" : "443")}`;
-    } catch { /* Shown as a prefix below. */ }
-    return "1 URL prefix";
+/** What a route covers, in words: "GitHub organization", "All of grafana.example.ts.net", "3 URL prefixes on
+ * api.example.com". Its prefixes, one per line, go in a tooltip. */
+export function routeKind(r: { github_org: string | null; urls: string[] }): string {
+  if (r.github_org) return "GitHub organization";
+  // Host names without ports: two ports of one machine count as one host.
+  const hosts = new Set<string>();
+  for (const u of r.urls) {
+    try { hosts.add(new URL(u).hostname); } catch { hosts.add(u); }
   }
-  return `${s.urls.length} URL prefixes`;
+  if (r.urls.length === 1) {
+    try {
+      const url = new URL(r.urls[0]);
+      if (url.pathname === "/" || url.pathname === "") return `All of ${url.host}`;
+    } catch { /* Shown as typed. */ }
+    return r.urls[0];
+  }
+  const [host] = hosts;
+  return hosts.size === 1 ? `${r.urls.length} URL prefixes on ${host}` : `${r.urls.length} URL prefixes on ${hosts.size} hosts`;
 }
 
 /** The thing a route reaches, as a title: the organization, or the host of its first URL. */
@@ -70,10 +77,15 @@ export function saveRoutes(qc: ReturnType<typeof useQueryClient>, routes: ExitRo
 }
 
 /** The machine runners an exit can be (never Burst), connected first, plus `current` when it names no runner. */
-export function useExitRunners(current?: string): { name: string; online: boolean }[] {
+export function useExitRunners(current?: string): { name: string; id: string | null; online: boolean }[] {
   const runners = (useRunners().data ?? []).filter((r) => r.runner.state === "approved" && !r.runner.burst);
-  const out = runners.map((r) => ({ name: r.runner.name, online: r.connected })).sort((a, b) => Number(b.online) - Number(a.online));
-  if (current && !out.some((r) => r.name.toLowerCase() === current.toLowerCase() || runners.some((x) => x.runner.id === current))) out.push({ name: current, online: false });
+  const out: { name: string; id: string | null; online: boolean }[] = runners.map((r) => ({ name: r.runner.name, id: r.runner.id, online: r.connected })).sort((a, b) => Number(b.online) - Number(a.online));
+  if (current && !out.some((r) => isRunner(r, current))) out.push({ name: current, id: null, online: false });
   return out;
+}
+
+/** Whether a route's `via` (a runner's name, any case, or its ID) names this runner. */
+export function isRunner(r: { name: string; id: string | null }, via: string): boolean {
+  return r.name.toLowerCase() === via.toLowerCase() || r.id === via;
 }
 
