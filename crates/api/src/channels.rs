@@ -22,9 +22,13 @@ pub fn router() -> Router<Ctx> {
         .route("/api/channels/agent", get(agent_list))
         .route("/api/channels/agent/read", get(agent_read))
         .route("/api/channels/agent/post", post(agent_post))
+        // One file per request (at most 5 MB, sent in base64), so each tunnel message from a runner stays small.
+        .route("/api/channels/agent/upload", post(agent_upload).layer(axum::extract::DefaultBodyLimit::max(crate::agent_auth::CHANNEL_UPLOAD_MAX)))
+        .route("/api/channels/agent/file", get(agent_file))
         .route("/api/channels/{id}", get(one).patch(edit).delete(remove))
         .route("/api/channels/{id}/messages", get(messages).post(post_message))
         .route("/api/channels/{id}/messages/{message}/deliveries", get(deliveries))
+        .route("/api/channels/{id}/messages/{message}/files/{index}", get(owner_file))
         .route("/api/channels/{id}/read", post(read))
         .route("/api/channels/{id}/pause", post(pause))
         .route("/api/channels/{id}/block", post(block))
@@ -122,11 +126,67 @@ struct AgentPost {
     channel: String,
     #[serde(flatten)]
     post: Post,
+    /// Messages whose files this post forwards.
+    #[serde(default)]
+    forward: Vec<i64>,
 }
 
 async fn agent_post(State(s): State<Ctx>, agent: Option<Extension<AgentSession>>, Json(p): Json<AgentPost>) -> ApiResult<Value> {
     let session = agent_of(agent)?;
-    Ok(Json(agent::post(&s.app, &session, &p.channel, p.post).await.map_err(forbidden)?))
+    Ok(Json(agent::post(&s.app, &session, &p.channel, p.post, &p.forward).await.map_err(forbidden)?))
+}
+
+#[derive(Deserialize)]
+struct AgentUpload {
+    name: String,
+    #[serde(default)]
+    mime: String,
+    /// The bytes, in base64.
+    data: String,
+}
+
+async fn agent_upload(State(s): State<Ctx>, agent: Option<Extension<AgentSession>>, Json(u): Json<AgentUpload>) -> ApiResult<Value> {
+    let session = agent_of(agent)?;
+    Ok(Json(agent::upload(&s.app, &session, &u.name, &u.mime, &u.data).await.map_err(forbidden)?))
+}
+
+#[derive(Deserialize)]
+struct AgentFile {
+    channel: String,
+    message: i64,
+    #[serde(default)]
+    index: usize,
+}
+
+async fn agent_file(State(s): State<Ctx>, agent: Option<Extension<AgentSession>>, Query(q): Query<AgentFile>) -> ApiResult<Value> {
+    let session = agent_of(agent)?;
+    Ok(Json(agent::file(&s.app, &session, &q.channel, q.message, q.index).await.map_err(forbidden)?))
+}
+
+/// A file of a channel message for the owner's window: always a download (`attachment`, no sniffing), so a file
+/// written by a bot never renders as a page of Launchpad's origin.
+async fn owner_file(State(s): State<Ctx>, Path((id, message, index)): Path<(String, i64, usize)>, agent: Option<Extension<AgentSession>>) -> Result<axum::response::Response, ApiError> {
+    use axum::http::header;
+    use axum::response::IntoResponse;
+    if agent.is_some() {
+        return Err(ApiError::bad_request("agents download files with `launchpad channel files <channel> <message id>`"));
+    }
+    let m = channel::message(&s.app, message).await.map_err(bad)?.filter(|m| m.channel_id == id).ok_or_else(|| ApiError::not_found(format!("message {message} is not in this channel")))?;
+    let f = m.files.get(index).ok_or_else(|| ApiError::not_found("no such file"))?;
+    let bytes = launchpad_core::attachments::read(&f.reference).map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    let ascii: String = f.name.chars().map(|c| if c.is_ascii_alphanumeric() || ".-_ ".contains(c) { c } else { '_' }).collect();
+    let disposition = format!("attachment; filename=\"{ascii}\"");
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_string()),
+            (header::CONTENT_DISPOSITION, disposition),
+            (header::CACHE_CONTROL, "private, max-age=31536000, immutable".into()),
+            (header::HeaderName::from_static("x-content-type-options"), "nosniff".into()),
+            (header::CONTENT_SECURITY_POLICY, "sandbox".into()),
+        ],
+        bytes,
+    )
+        .into_response())
 }
 
 /// An agent's refusal (not a bot, not a member, another workspace, blocked) or a bad request.

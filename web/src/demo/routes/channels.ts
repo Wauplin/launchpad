@@ -64,7 +64,7 @@ route("POST", "/api/channels/:id/messages", ({ params, body }) => {
   const mentions = [...new Set([...text.matchAll(/(?:^|[\s(])@([a-z0-9-]+)/gi)].map((x) => x[1].toLowerCase()).map((s) => (s === "owner" || s === "you" ? "owner" : slugs.get(s))).filter((x): x is string => !!x))];
   const id = Math.max(0, ...world.channelMessages.map((m) => m.id)) + 1;
   const now = clock.now();
-  const m: ChannelMessage = { id, channel_id: c.id, author: { kind: "owner", id: "owner", name: "You" }, session_id: null, turn: null, text, mentions, reply_to: typeof body?.reply_to === "number" ? body.reply_to : null, hops: 0, ask_owner: false, created_at: now };
+  const m: ChannelMessage = { id, channel_id: c.id, author: { kind: "owner", id: "owner", name: "You" }, session_id: null, turn: null, text, mentions, reply_to: typeof body?.reply_to === "number" ? body.reply_to : null, hops: 0, ask_owner: false, created_at: now, files: [] };
   world.channelMessages.push(m);
   c.reset_at = now;
   c.owner_read = id;

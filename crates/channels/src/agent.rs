@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use launchpad_core::App;
 
-use crate::channel::{self, BotInfo, Kind, MemberRow, Post, Poster, Row};
+use crate::channel::{self, BotInfo, ChannelFile, Kind, MemberRow, NewFile, Post, Poster, Row};
 
 /// A channel as an agent names it.
 #[derive(Debug, PartialEq, Eq)]
@@ -200,10 +200,18 @@ pub async fn read(app: &App, session: &str, key: &str, since: Option<i64>, limit
             if m.ask_owner {
                 v["ask_owner"] = json!(true);
             }
+            if !m.files.is_empty() {
+                v["files"] = json!(m.files.iter().map(|f| json!({"name": f.name, "mime": f.mime, "size": f.size})).collect::<Vec<_>>());
+            }
             v
         })
         .collect();
-    let mut out = json!({"channel": handle(&r, &members, &bots, me.bot.as_deref()), "id": r.id, "kind": r.kind, "messages": list, "more_before": more});
+    let handle = handle(&r, &members, &bots, me.bot.as_deref());
+    let with_files = messages.iter().any(|m| !m.files.is_empty());
+    let mut out = json!({"channel": handle, "id": r.id, "kind": r.kind, "messages": list, "more_before": more});
+    if with_files {
+        out["files_hint"] = json!(format!("download a message's files with `launchpad channel files {handle} <message id>`; forward them with `--forward <message id>`"));
+    }
     if !r.purpose.is_empty() {
         out["purpose"] = json!(r.purpose);
     }
@@ -219,12 +227,73 @@ pub async fn read(app: &App, session: &str, key: &str, since: Option<i64>, limit
     Ok(out)
 }
 
-/// `launchpad channel post` and `launchpad dm`: the caller's bot posts (a DM is created on first use). Home stamps
-/// the author from its own session record; `channel::post` checks membership, blocks and the archive.
-pub async fn post(app: &App, session: &str, key: &str, p: Post) -> Result<Value> {
+/// How long a file an agent uploaded (`upload`) may be attached to its posts.
+const UPLOAD_MS: i64 = 3600 * 1000;
+
+/// `(session, sha256)` → when the session uploaded it: a post attaches only its own uploads (or forwarded files).
+static UPLOADED: std::sync::LazyLock<std::sync::Mutex<HashMap<(String, String), i64>>> = std::sync::LazyLock::new(Default::default);
+
+fn uploaded_by(session: &str, reference: &str) -> bool {
+    let Some(hash) = launchpad_core::attachments::hash_of(reference) else { return false };
+    let now = launchpad_core::util::now_ms();
+    UPLOADED.lock().unwrap().get(&(session.to_string(), hash.to_string())).is_some_and(|at| now - *at < UPLOAD_MS)
+}
+
+/// `launchpad channel post --attach` and `launchpad dm --attach`: one file of the bot's next post, stored on Home
+/// (`attachments::store`: at most 5 MB). Only a bot's session uploads; the reference it gets back is attachable only
+/// by that session, for an hour.
+pub async fn upload(app: &App, session: &str, name: &str, mime: &str, data: &str) -> Result<Value> {
+    use base64::Engine;
     let me = caller(app, session).await?;
     ensure!(me.bot.is_some(), NOT_A_BOT);
-    channel::check_text(&p.text)?;
+    ensure!(data.len() <= 7 * 1024 * 1024, "each file must be 5 MB or smaller");
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data.trim()).context("the file is not valid base64")?;
+    let reference = launchpad_core::attachments::store(&bytes, mime).await?;
+    let hash = launchpad_core::attachments::hash_of(&reference).context("invalid attachment reference")?.to_string();
+    let now = launchpad_core::util::now_ms();
+    let mut up = UPLOADED.lock().unwrap();
+    up.retain(|_, at| now - *at < UPLOAD_MS);
+    up.insert((me.session.clone(), hash), now);
+    Ok(json!({"name": channel::file_name(name), "reference": reference, "size": bytes.len()}))
+}
+
+/// The files of message `id` that the caller may forward: a message of a channel of its workspace that it reads
+/// (its bot is a member, or it has admin access).
+async fn forwardable(app: &App, me: &Caller, id: i64) -> Result<Vec<ChannelFile>> {
+    let refused = format!("message {id} is not in a channel you read: forward files only from your own channels and DMs");
+    let m = channel::message(app, id).await?.with_context(|| refused.clone())?;
+    let r = channel::load(app, &m.channel_id).await.with_context(|| refused.clone())?;
+    ensure!(r.workspace_id == me.workspace, "{refused}");
+    let member = match &me.bot {
+        Some(bot) => channel::members_of(app, &r.id).await?.iter().any(|x| &x.bot_id == bot),
+        None => false,
+    };
+    ensure!(member || me.admin, "{refused}");
+    ensure!(!m.files.is_empty(), "message {id} has no files");
+    Ok(m.files)
+}
+
+/// Pure: whether every file a post names is one the session may attach (its own upload, or a forwarded one).
+fn attachable(files: &[NewFile], allowed: impl Fn(&str) -> bool) -> Result<()> {
+    for f in files {
+        ensure!(allowed(&f.reference), "{} was not uploaded by this session: attach files with `--attach <path>` or forward them with `--forward <message id>`", channel::file_name(&f.name));
+    }
+    Ok(())
+}
+
+/// `launchpad channel post` and `launchpad dm`: the caller's bot posts (a DM is created on first use). Home stamps
+/// the author from its own session record; `channel::post` checks membership, blocks and the archive. `p.files` are
+/// the session's own uploads (`upload`); `forward` adds the files of earlier messages it reads (`forwardable`).
+pub async fn post(app: &App, session: &str, key: &str, mut p: Post, forward: &[i64]) -> Result<Value> {
+    let me = caller(app, session).await?;
+    ensure!(me.bot.is_some(), NOT_A_BOT);
+    attachable(&p.files, |r| uploaded_by(&me.session, r))?;
+    for id in forward {
+        p.files.extend(forwardable(app, &me, *id).await?.into_iter().map(|f| NewFile { name: f.name, reference: f.reference }));
+    }
+    if p.files.is_empty() {
+        channel::check_text(&p.text)?;
+    }
     let bots = channel::bots(app).await?;
     let r = resolve(app, &me, key, &bots, true).await?;
     let members = channel::members_of(app, &r.id).await?;
@@ -242,18 +311,61 @@ pub async fn post(app: &App, session: &str, key: &str, p: Post) -> Result<Value>
         })
         .collect();
     let m = &posted.message;
-    Ok(json!({
+    let mut out = json!({
         "channel": handle(&r, &members, &bots, me.bot.as_deref()),
         "message": m.id,
         "hops": m.hops,
         "mentions": m.mentions.iter().map(|x| slug(x)).collect::<Vec<_>>(),
         "deliveries": deliveries,
-    }))
+    });
+    if !m.files.is_empty() {
+        out["files"] = json!(m.files.iter().map(|f| json!({"name": f.name, "size": f.size})).collect::<Vec<_>>());
+    }
+    Ok(out)
+}
+
+/// `launchpad channel files`: file `index` of message `message` in a channel the caller reads (like `read`), with
+/// its bytes in base64 and the message's file count. One file per call, so each answer stays small.
+pub async fn file(app: &App, session: &str, key: &str, message: i64, index: usize) -> Result<Value> {
+    use base64::Engine;
+    let me = caller(app, session).await?;
+    let bots = channel::bots(app).await?;
+    let r = resolve(app, &me, key, &bots, false).await?;
+    let members = channel::members_of(app, &r.id).await?;
+    let member = me.bot.as_deref().is_some_and(|b| members.iter().any(|m| m.bot_id == b));
+    if !member && !me.admin {
+        match me.bot {
+            None => bail!("only member bots read channels: this agent is not a bot's session"),
+            Some(_) => bail!("{}", channel::not_member(&r)),
+        }
+    }
+    let m = channel::message(app, message).await?.filter(|m| m.channel_id == r.id).with_context(|| format!("message {message} is not in this channel"))?;
+    ensure!(!m.files.is_empty(), "message {message} has no files");
+    let f: &ChannelFile = m.files.get(index).with_context(|| format!("message {message} has {} files", m.files.len()))?;
+    let bytes = launchpad_core::attachments::read(&f.reference)?;
+    Ok(json!({"message": message, "index": index, "count": m.files.len(), "name": f.name, "mime": f.mime, "size": bytes.len(), "data": base64::engine::general_purpose::STANDARD.encode(bytes)}))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_post_attaches_only_the_sessions_own_uploads() {
+        let f = |r: &str| NewFile { name: "a/b/report.pdf".into(), reference: r.into() };
+        let mine = format!("upload:application/pdf;{}", "a".repeat(64));
+        let other = format!("upload:application/pdf;{}", "b".repeat(64));
+        assert!(attachable(&[f(&mine)], |r| r == mine).is_ok());
+        let e = attachable(&[f(&mine), f(&other)], |r| r == mine).unwrap_err().to_string();
+        assert!(e.starts_with("report.pdf was not uploaded by this session"), "{e}");
+        // The in-memory record names the session and the bytes, never only the reference text.
+        let now = launchpad_core::util::now_ms();
+        UPLOADED.lock().unwrap().insert(("s1".into(), "a".repeat(64)), now);
+        assert!(uploaded_by("s1", &mine) && uploaded_by("s1", &format!("upload:image/png;{}", "a".repeat(64))));
+        assert!(!uploaded_by("s2", &mine) && !uploaded_by("s1", &other) && !uploaded_by("s1", "upload:x"));
+        UPLOADED.lock().unwrap().insert(("s3".into(), "a".repeat(64)), now - UPLOAD_MS);
+        assert!(!uploaded_by("s3", &mine));
+    }
 
     #[test]
     fn agents_name_channels_and_dms() {

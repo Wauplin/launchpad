@@ -294,14 +294,16 @@ enum Command {
         #[command(subcommand)]
         command: ListOnly,
     },
-    /// Bot channels of this session's workspace (for bots): `list`, `read <name|@bot>`, `post <name> --body-file m.md`,
+    /// Bot channels of this session's workspace (for bots): `list`, `read <name|@bot>`, `post <name> --body-file m.md
+    /// [--attach <file>]… [--forward <message id>]…`, `files <name|@bot> <message id>` (downloads a message's files),
     /// `join <name>` (a card the owner accepts); and the short verbs of channel actions (`channel create <name>
     /// --purpose … --members a,b`, `channel add-member|set-mode|remove-member`, admin access).
     Channel {
         #[command(subcommand)]
         command: ChannelCommand,
     },
-    /// Write to another bot of this workspace in your DM with it (created on first use; for bots).
+    /// Write to another bot of this workspace in your DM with it (created on first use; for bots). Send files with
+    /// `--attach <file>` (repeat it) and forward the files of an earlier message with `--forward <message id>`.
     Dm {
         /// The other bot: its slug or name, with or without `@`.
         bot: String,
@@ -626,12 +628,24 @@ enum ChannelCommand {
         #[arg(long, default_value_t = 50)]
         limit: u32,
     },
-    /// Post your bot's message (Markdown, at most 8 KB; `@<bot slug>` wakes a bot, `@owner` asks the owner).
+    /// Post your bot's message (Markdown, at most 8 KB; `@<bot slug>` wakes a bot, `@owner` asks the owner), with
+    /// files: `--attach <file>` (repeat it) and `--forward <message id>` (the files of a message you read).
     Post {
         /// The channel's name, or `@<bot>` for your DM with it.
         channel: String,
         #[command(flatten)]
         post: ChannelPostArgs,
+    },
+    /// Download the files of a message (`files` in `channel read`) into a folder (default: a new folder under /tmp) and
+    /// print their paths (JSON). Forward them with `--attach <path>`, or all of them with `--forward <message id>`.
+    Files {
+        /// The channel's name, or `@<bot>` for your DM with it.
+        channel: String,
+        /// The message ID.
+        message: i64,
+        /// Where to write the files (created when missing).
+        #[arg(long)]
+        dir: Option<std::path::PathBuf>,
     },
     /// Ask to join a named channel of this workspace: files a card "<your bot> asks to join #<name>" that the owner
     /// accepts (only member bots read and post).
@@ -652,9 +666,17 @@ enum ChannelCommand {
 
 #[derive(clap::Args)]
 struct ChannelPostArgs {
-    /// The message file (`-` reads stdin).
+    /// The message file (`-` reads stdin). Optional when the post carries files.
     #[arg(long)]
-    body_file: std::path::PathBuf,
+    body_file: Option<std::path::PathBuf>,
+    /// A file to send with the message (at most 5 MB; up to 10 files, 20 MB together). Repeat it for several. A
+    /// file you received is listed with its local path: attach that path to forward it.
+    #[arg(long = "attach", value_name = "FILE")]
+    attach: Vec<std::path::PathBuf>,
+    /// Forward the files of an earlier message (its ID, from `channel read` or a delivery) of a channel or DM your
+    /// bot reads. Repeat it for several.
+    #[arg(long = "forward", value_name = "MESSAGE_ID")]
+    forward: Vec<i64>,
     /// The message this one answers.
     #[arg(long)]
     reply_to: Option<i64>,
@@ -665,13 +687,88 @@ struct ChannelPostArgs {
     session_id: String,
 }
 
-/// `launchpad channel post` and `launchpad dm`: Home posts as this session's bot.
+/// The largest file `--attach` sends (Home refuses larger ones too).
+const CHANNEL_FILE_MAX: u64 = 5 * 1024 * 1024;
+
+/// Pure: the MIME type Home stores a file under, from its extension (images Launchpad shows, else a few text and
+/// document types, else `application/octet-stream`).
+fn file_mime(path: &std::path::Path) -> &'static str {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "pdf" => "application/pdf",
+        "json" => "application/json",
+        "zip" => "application/zip",
+        "gz" | "tgz" => "application/gzip",
+        "csv" => "text/csv",
+        "md" | "markdown" => "text/markdown",
+        "txt" | "log" | "rs" | "py" | "ts" | "tsx" | "js" | "toml" | "yaml" | "yml" | "sh" | "diff" | "patch" | "html" | "css" | "xml" | "svg" => "text/plain",
+        _ => "application/octet-stream",
+    }
+}
+
+/// `launchpad channel post` and `launchpad dm`: Home posts as this session's bot. Each `--attach` file goes to Home
+/// first (one request per file, `/api/channels/agent/upload`); the post names the stored references.
 async fn channel_post(paths: &Paths, channel: String, a: ChannelPostArgs) -> Result<()> {
-    let file = (a.body_file.as_os_str() != "-").then_some(a.body_file.as_path());
-    let text = String::from_utf8(read_input(file)?).context("the message is not UTF-8 text")?;
-    let body = serde_json::json!({"session_id": a.session_id, "channel": channel, "text": text, "reply_to": a.reply_to, "ask_owner": a.ask_owner});
-    let v = Client::new(paths)?.json("POST", "/api/channels/agent/post", Some(body)).await?;
+    use base64::Engine;
+    anyhow::ensure!(a.body_file.is_some() || !a.attach.is_empty() || !a.forward.is_empty(), "give the message with --body-file <file> (or attach files with --attach <file>, --forward <message id>)");
+    let text = match &a.body_file {
+        Some(f) => String::from_utf8(read_input((f.as_os_str() != "-").then_some(f.as_path()))?).context("the message is not UTF-8 text")?,
+        None => String::new(),
+    };
+    let client = Client::new(paths)?;
+    let mut files = vec![];
+    for path in &a.attach {
+        let meta = std::fs::metadata(path).with_context(|| format!("read {}", path.display()))?;
+        anyhow::ensure!(meta.is_file(), "{} is not a file", path.display());
+        anyhow::ensure!(meta.len() <= CHANNEL_FILE_MAX, "{} is larger than 5 MB: send a smaller file", path.display());
+        let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+        let body = serde_json::json!({"session_id": a.session_id, "name": name, "mime": file_mime(path), "data": base64::engine::general_purpose::STANDARD.encode(&bytes)});
+        let up = client.json("POST", "/api/channels/agent/upload", Some(body)).await.with_context(|| format!("upload {}", path.display()))?;
+        files.push(serde_json::json!({"name": up["name"], "reference": up["reference"]}));
+    }
+    let body = serde_json::json!({"session_id": a.session_id, "channel": channel, "text": text, "reply_to": a.reply_to, "ask_owner": a.ask_owner, "files": files, "forward": a.forward});
+    let v = client.json("POST", "/api/channels/agent/post", Some(body)).await?;
     println!("{}", serde_json::to_string_pretty(&v)?);
+    Ok(())
+}
+
+/// Pure: the file name `channel files` writes: the last path part with only safe characters, numbered when a
+/// message carries two files of one name.
+fn download_name(name: &str, index: usize, taken: &std::collections::HashSet<String>) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let clean: String = base.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).take(120).collect();
+    let clean = if clean.trim_matches('.').is_empty() { format!("file-{index}") } else { clean };
+    if taken.contains(&clean) { format!("{index}-{clean}") } else { clean }
+}
+
+/// `launchpad channel files`: each file of a message, one request per file, written into `dir`.
+async fn channel_files(paths: &Paths, channel: String, message: i64, dir: Option<std::path::PathBuf>) -> Result<()> {
+    use base64::Engine;
+    let client = Client::new(paths)?;
+    let dir = dir.unwrap_or_else(|| std::env::temp_dir().join("launchpad-channel-files").join(message.to_string()));
+    std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    let (mut out, mut taken) = (vec![], std::collections::HashSet::new());
+    let mut index = 0usize;
+    loop {
+        let (m, i) = (message.to_string(), index.to_string());
+        let v = client.json("GET", &query("/api/channels/agent/file", &[("channel", channel.as_str()), ("message", m.as_str()), ("index", i.as_str())]), None).await?;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(v["data"].as_str().context("Home sent no file")?)?;
+        let name = download_name(v["name"].as_str().unwrap_or("file"), index, &taken);
+        let path = dir.join(&name);
+        std::fs::write(&path, &bytes).with_context(|| format!("write {}", path.display()))?;
+        taken.insert(name.clone());
+        out.push(serde_json::json!({"name": v["name"], "path": path, "size": bytes.len()}));
+        index += 1;
+        if index >= v["count"].as_u64().unwrap_or(0) as usize {
+            break;
+        }
+    }
+    println!("{}", serde_json::to_string_pretty(&serde_json::json!({"message": message, "files": out}))?);
     Ok(())
 }
 
@@ -1098,6 +1195,7 @@ async fn run() -> Result<()> {
         Command::Channel { command: ChannelCommand::List } => list_command(&paths, "/api/channels/agent", None).await,
         Command::Channel { command: ChannelCommand::Read { channel, since, limit } } => channel_read(&paths, channel, since, limit).await,
         Command::Channel { command: ChannelCommand::Post { channel, post } } => channel_post(&paths, channel, post).await,
+        Command::Channel { command: ChannelCommand::Files { channel, message, dir } } => channel_files(&paths, channel, message, dir).await,
         Command::Channel { command: ChannelCommand::Join { channel, mode, note, session_id } } => {
             let mut body = serde_json::json!({"kind": "channel_join", "channel": channel});
             if let Some(m) = mode {
@@ -1344,6 +1442,20 @@ mod proposal_tests {
     use super::*;
 
     #[test]
+    fn channel_files_get_a_type_and_a_safe_local_name() {
+        assert_eq!(file_mime(std::path::Path::new("shot.PNG")), "image/png");
+        assert_eq!(file_mime(std::path::Path::new("notes.md")), "text/markdown");
+        assert_eq!(file_mime(std::path::Path::new("logo.svg")), "text/plain");
+        assert_eq!(file_mime(std::path::Path::new("archive")), "application/octet-stream");
+        let mut taken = std::collections::HashSet::new();
+        assert_eq!(download_name("../../etc/passwd", 0, &taken), "passwd");
+        assert_eq!(download_name("my report (v2).pdf", 1, &taken), "my_report__v2_.pdf");
+        assert_eq!(download_name("..", 2, &taken), "file-2");
+        taken.insert("a.txt".to_string());
+        assert_eq!(download_name("a.txt", 3, &taken), "3-a.txt");
+    }
+
+    #[test]
     fn proposal_cli_accepts_replacement_without_a_note_and_lists_by_workspace() {
         let cli = Cli::try_parse_from(["launchpad", "propose", "launch", "--title", "Refined", "--spec-file", "spec.json", "--replaces", "old-id"]).unwrap();
         assert!(matches!(cli.command, Command::Propose { replaces: Some(id), note: None, .. } if id == "old-id"));
@@ -1369,6 +1481,11 @@ mod proposal_tests {
         let cli = Cli::try_parse_from(["launchpad", "channel", "post", "release-train", "--body-file", "m.md", "--reply-to", "4", "--ask-owner", "--session-id", "s1"]).unwrap();
         assert!(matches!(cli.command, Command::Channel { command: ChannelCommand::Post { post: ChannelPostArgs { reply_to: Some(4), ask_owner: true, .. }, .. } }));
         assert!(matches!(Cli::try_parse_from(["launchpad", "channel", "add-member", "c1", "b1", "--mode", "all"]).unwrap().command, Command::Channel { command: ChannelCommand::Verb(_) }));
+        // Files: --attach and --forward repeat, and replace --body-file.
+        let cli = Cli::try_parse_from(["launchpad", "dm", "@release", "--attach", "a.pdf", "--attach", "/tmp/b.png", "--forward", "41", "--session-id", "s1"]).unwrap();
+        assert!(matches!(cli.command, Command::Dm { post: ChannelPostArgs { body_file: None, attach, forward, .. }, .. } if attach.len() == 2 && forward == [41]));
+        let cli = Cli::try_parse_from(["launchpad", "channel", "files", "release-train", "41", "--dir", "out"]).unwrap();
+        assert!(matches!(cli.command, Command::Channel { command: ChannelCommand::Files { channel, message: 41, dir: Some(_) } } if channel == "release-train"));
         assert!(matches!(Cli::try_parse_from(["launchpad", "channel", "join", "#release-train", "--mode", "all", "--session-id", "s1"]).unwrap().command, Command::Channel { command: ChannelCommand::Join { channel, mode: Some(m), .. } } if channel == "#release-train" && m == "all"));
         assert!(matches!(Cli::try_parse_from(["launchpad", "propose", "channel", "--title", "New channel", "--spec-file", "c.json"]).unwrap().command, Command::Propose { kind, .. } if kind == "channel"));
         let args = |a: &[&str]| channel_create_args(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());

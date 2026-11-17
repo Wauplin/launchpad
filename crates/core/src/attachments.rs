@@ -75,6 +75,33 @@ pub async fn store(bytes: &[u8], mime: &str) -> Result<String> {
     Ok(reference)
 }
 
+/// `(mime, size)` of a stored reference (`upload:<mime>;<sha256>`) whose bytes this machine holds.
+pub fn stored(reference: &str) -> Result<(String, u64)> {
+    let (mime, hash) = parse_ref(reference).context("invalid attachment reference")?;
+    let meta = std::fs::metadata(uploads_dir()?.join(hash)).context("the uploaded file is no longer available; attach it again")?;
+    Ok((mime.to_string(), meta.len()))
+}
+
+/// The SHA-256 of a stored reference.
+pub fn hash_of(reference: &str) -> Option<&str> {
+    parse_ref(reference).map(|(_, hash)| hash)
+}
+
+/// The bytes of a stored reference (any type), for its owner's download or an agent allowed to read it.
+pub fn read(reference: &str) -> Result<Vec<u8>> {
+    ensure!(parse_ref(reference).is_some(), "invalid attachment reference");
+    decode(reference, false)
+}
+
+/// The same stored bytes as a file kept on disk (`prepare`), never native image input: an image reference becomes
+/// `application/octet-stream`, so every harness gets a local copy it can read and forward.
+pub fn as_file(reference: &str) -> String {
+    match parse_ref(reference) {
+        Some((mime, hash)) if mime.starts_with("image/") => format!("upload:application/octet-stream;{hash}"),
+        _ => reference.to_string(),
+    }
+}
+
 /// Bytes of a stored image for display (`GET /api/uploads/{hash}`). Only images are served, never other types.
 pub fn read_image(hash: &str, mime: &str) -> Result<Vec<u8>> {
     ensure!(IMAGE_TYPES.contains(&mime), "only images can be shown");
@@ -96,6 +123,9 @@ pub async fn collect_garbage(app: &crate::App) -> Result<()> {
         queries.push("SELECT launch_spec_json FROM session WHERE harness_session_id IS NULL".into());
         // Message images are references: the chat shows them from here.
         queries.push("SELECT json FROM session_event WHERE kind = 'user_message' AND json LIKE '%upload:%'".into());
+        // Files of bot channel messages, and channel deliveries that wait in the queue.
+        queries.push("SELECT files FROM channel_message WHERE files != '[]'".into());
+        queries.push("SELECT json FROM queued_message WHERE json LIKE '%upload:%'".into());
         for query in queries {
             let Ok(mut stmt) = c.prepare(&query) else { continue };
             let mut rows = stmt.query([])?;
@@ -373,6 +403,15 @@ pub async fn for_message(app: &crate::App, id: &str, text: &str, files: &[FileAt
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn as_file_keeps_the_bytes_and_drops_native_image_input() {
+        let h = "c".repeat(64);
+        assert_eq!(super::as_file(&format!("upload:image/png;{h}")), format!("upload:application/octet-stream;{h}"));
+        assert_eq!(super::as_file(&format!("upload:application/pdf;{h}")), format!("upload:application/pdf;{h}"));
+        assert_eq!(super::hash_of(&format!("upload:text/plain;{h}")), Some(h.as_str()));
+        assert_eq!(super::hash_of("upload:text/plain;../x"), None);
+    }
+
     #[test]
     fn cleanup_finds_the_hashes_of_references_in_json() {
         let a = "a".repeat(64);

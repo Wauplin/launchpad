@@ -341,7 +341,9 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
     let (method, path) = (req.method().to_string(), req.uri().path_and_query().map(|p| p.to_string()).unwrap_or_default());
     let agent = req.extensions().get::<AgentCall>().map(|a| a.0.clone());
     let (parts, body) = req.into_parts();
-    let bytes = match axum::body::to_bytes(body, 1 << 20).await {
+    // A channel file upload carries one file of at most 5 MB (`agent_auth::CHANNEL_UPLOAD_MAX`); the rest is small.
+    let limit = if parts.uri.path() == launchpad_http::agent_auth::CHANNEL_UPLOAD { launchpad_http::agent_auth::CHANNEL_UPLOAD_MAX } else { 1 << 20 };
+    let bytes = match axum::body::to_bytes(body, limit).await {
         Ok(b) => b,
         Err(e) => return crate::error::ApiError::bad_request(format!("{e}")).into_response(),
     };

@@ -59,7 +59,14 @@ pub fn lines(list: &[&ChannelMessage], time: impl Fn(i64) -> String) -> (Vec<Str
     let mut bytes = 0;
     for m in list.iter().rev() {
         let who = if m.author.kind == AuthorKind::Owner { "the owner".to_string() } else { m.author.name.split_whitespace().collect::<Vec<_>>().join(" ") };
-        let mark = if m.ask_owner { " (asks the owner)" } else { "" };
+        let asks = if m.ask_owner { " (asks the owner)" } else { "" };
+        // Files are not delivered with a digest: `launchpad channel files <channel> <id>` downloads them.
+        let files = match m.files.len() {
+            0 => String::new(),
+            1 => " (1 file)".into(),
+            n => format!(" ({n} files)"),
+        };
+        let mark = format!("{asks}{files}");
         let line = format!("- {} · {who} · {}{mark}: {}", m.id, time(m.created_at), channel::preview(&m.text));
         if out.len() == MAX_LINES || bytes + line.len() + 1 > MAX_BYTES {
             break;
@@ -253,7 +260,7 @@ async fn one(app: &App, ch: &Row, member: &MemberRow, members: &[MemberRow], bot
     let title = delivery::channel_title(ch, members, bots);
     let from = MessageFrom { kind: SenderKind::Channel, id: ch.id.clone(), name: title, by: Some("daily digest".into()), hops: hops.unwrap_or(0), ..Default::default() };
     let part = ChannelPart { channel: ch.id.clone(), first, last: newest.id, deliveries: vec![id], digest: true };
-    match hooks::deliver_channel(app, &member.bot_id, body, automatic, from, part, |_| String::new()).await {
+    match hooks::deliver_channel(app, &member.bot_id, body, automatic, from, part, vec![], |_| String::new()).await {
         Ok(Outcome::Sent(s)) => delivery::update(app, vec![id], "sent", None, Some(s.id), None).await,
         Ok(Outcome::Queued(why)) => delivery::after_enqueue(app, "UPDATE channel_delivery SET reason = ?2 WHERE id = ?1 AND state = 'queued' AND session_id IS NULL", id, why.into()).await,
         Ok(Outcome::Joined(_)) => {}
@@ -280,6 +287,7 @@ mod tests {
             hops: 1,
             ask_owner: false,
             created_at: 0,
+            files: vec![],
         }
     }
 

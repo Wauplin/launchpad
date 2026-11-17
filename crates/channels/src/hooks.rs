@@ -335,11 +335,13 @@ pub async fn deliver_from(app: &App, target: Target, to: To, text: String, autom
 /// quota is not confirmed), or joined to the entry of an earlier message of the same channel that still waits.
 /// `combined` builds the joined entry's new text from its message range. Its delivery rows are written before.
 /// Each channel or DM has its own thread of the bot (`bot_threads::Source::Channel`), so channels run in parallel.
-pub async fn deliver_channel(app: &App, bot_id: &str, text: String, automatic: bool, from: MessageFrom, part: ChannelPart, combined: impl FnOnce(&ChannelPart) -> String + Send + 'static) -> Result<Outcome> {
+/// `attachments`: the message's files (references to Home's uploads); a joined entry carries its newest message's.
+#[allow(clippy::too_many_arguments)]
+pub async fn deliver_channel(app: &App, bot_id: &str, text: String, automatic: bool, from: MessageFrom, part: ChannelPart, attachments: Vec<FileAttachment>, combined: impl FnOnce(&ChannelPart) -> String + Send + 'static) -> Result<Outcome> {
     let target = Target::Bot { id: bot_id.into() };
     let to = bot_threads::route(Source::Channel { id: &part.channel, title: &from.name });
     let thread = resolve(app, &target, &to, &from.name).await?;
-    let q = Queued { target, thread: Some(thread), context: None, attachments: vec![], text, automatic, telegram: false, from: Some(from), channel: Some(part) };
+    let q = Queued { target, thread: Some(thread), context: None, attachments, text, automatic, telegram: false, from: Some(from), channel: Some(part) };
     Ok(enqueue(app, q, Some(Box::new(combined))).await?.0)
 }
 
@@ -434,6 +436,8 @@ fn join(w: &mut Queued, q: &Queued, combine: Combine<'_>) -> i64 {
     c.last = c.last.max(part.last);
     c.deliveries.extend(&part.deliveries);
     w.text = combine(c);
+    // The text quotes the newest message: the entry carries its files (earlier ones: `launchpad channel files`).
+    w.attachments = q.attachments.clone();
     // The newest sender, with the highest hop of the bots' messages it carries (an owner's message restarts at 0).
     let prev = w.from.as_ref().map_or(0, |f| f.hops);
     w.from = q.from.clone();
@@ -708,6 +712,14 @@ mod tests {
         let owner = Queued { automatic: false, from: from(0), channel: part(43, 11), ..serde_json::from_str(&serde_json::to_string(&q).unwrap()).unwrap() };
         join(&mut w, &owner, Box::new(|c: &ChannelPart| c.last.to_string()));
         assert_eq!((w.text.as_str(), w.from.as_ref().unwrap().hops, w.automatic), ("43", 0, false));
+        // The entry quotes its newest message, so it carries that message's files.
+        let file = FileAttachment { name: "report.pdf".into(), data_url: format!("upload:application/pdf;{}", "a".repeat(64)) };
+        let with_file = Queued { attachments: vec![file.clone()], channel: part(44, 12), ..serde_json::from_str(&serde_json::to_string(&owner).unwrap()).unwrap() };
+        join(&mut w, &with_file, Box::new(|c: &ChannelPart| c.last.to_string()));
+        assert_eq!(w.attachments.iter().map(|a| a.data_url.clone()).collect::<Vec<_>>(), vec![file.data_url.clone()]);
+        let plain = Queued { attachments: vec![], channel: part(45, 13), ..serde_json::from_str(&serde_json::to_string(&owner).unwrap()).unwrap() };
+        join(&mut w, &plain, Box::new(|c: &ChannelPart| c.last.to_string()));
+        assert!(w.attachments.is_empty());
     }
 
     #[test]

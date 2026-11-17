@@ -11,6 +11,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
 import { BotAvatar } from "@/components/BotAvatar";
 import { Icon } from "@/components/Icon";
+import { ImageThumb } from "@/components/ImageViewer";
 import { Markdown } from "@/components/Markdown";
 import { MenuItem } from "@/components/Popover";
 import { toastError } from "@/components/Toast";
@@ -20,11 +21,14 @@ import { ChannelComposer } from "./ChannelComposer";
 import { ChannelMembers } from "./ChannelMembers";
 import { useWindowFocused } from "@/features/agents/useSeen";
 import type { Channel } from "@/gen/Channel";
+import type { ChannelFile } from "@/gen/ChannelFile";
 import type { ChannelMessage } from "@/gen/ChannelMessage";
 import type { ChannelPage as Page } from "@/gen/ChannelPage";
 import { runAction } from "@/lib/actions";
 import { useUserActive } from "@/lib/activity";
 import { api } from "@/lib/api";
+import { attachmentSrc } from "@/lib/attachments";
+import { daemonAsset } from "@/lib/connection";
 import { deliveryLines, loopFooter, loopSkip, type DeliveryLine } from "@/lib/channels";
 import { ago, time, when } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
@@ -225,11 +229,38 @@ const MessageRow = memo(function MessageRow({ m, lines, reply, quoted }: { m: Ch
         {m.ask_owner ? <Badge tone="attn">Asks you</Badge> : mentionsYou ? <Badge tone="attn">Mentions you</Badge> : null}
       </div>
       {quoted && <div className="truncate text-[12px] text-ink-3" title={reply ? reply.text : undefined}>↳ Reply to {reply ? `${reply.author.kind === "owner" ? "you" : reply.author.name}: ${firstLine(reply.text)}` : `message ${m.reply_to}`}</div>}
-      <Markdown text={m.text} className="text-[13px]" />
+      {m.text.trim() ? <Markdown text={m.text} className="text-[13px]" /> : null}
+      {m.files.length > 0 && <MessageFiles m={m} />}
       {lines?.map((l, i) => <Delivery key={i} l={l} channel={m.channel_id} />)}
     </div>
   </div>;
 }, (a, b) => a.m === b.m && a.reply === b.reply && a.quoted === b.quoted && JSON.stringify(a.lines) === JSON.stringify(b.lines));
+
+const SHOWN_IMAGES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
+/** "820 B", "14 KB", "2.3 MB". */
+function fileSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** A message's files: images as thumbnails (a click opens them), every file as a download link with its size. */
+function MessageFiles({ m }: { m: ChannelMessage }) {
+  const href = (i: number) => daemonAsset(`/api/channels/${encodeURIComponent(m.channel_id)}/messages/${m.id}/files/${i}`);
+  return <div className="flex flex-wrap items-start gap-2 pt-1" data-tour="channel.files">
+    {m.files.map((f: ChannelFile, i) => (
+      <div key={i} className="grid max-w-full gap-1 rounded-control border border-line bg-chrome p-1.5">
+        {SHOWN_IMAGES.includes(f.mime) && <ImageThumb src={attachmentSrc(f.reference)} name={f.name} className="h-24 max-w-48 object-contain" />}
+        <a href={href(i)} download={f.name} className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink no-underline hover:underline" title={`Download ${f.name}`}>
+          <Icon name="file" size={12} className="flex-none text-ink-3" />
+          <span className="max-w-48 truncate">{f.name}</span>
+          <span className="flex-none text-ink-3">{fileSize(f.size)}</span>
+        </a>
+      </div>
+    ))}
+  </div>;
+}
 
 /** Why a delivery waits, from its row's reason (`hooks::QUEUED_*` on Home): "Docs is busy · message queued (1)". */
 function queuedLine(bot: string, reason: string | null | undefined, what: string): string {

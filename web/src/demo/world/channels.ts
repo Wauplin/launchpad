@@ -38,7 +38,7 @@ export function channelsWorld() {
   const release = { kind: "bot" as const, id: RELEASE_BOT, name: "Release" };
   const maintainer = { kind: "bot" as const, id: BOT, name: "Maintainer" };
   const msg = (id: number, channel_id: string, author: ChannelMessage["author"], minutesAgo: number, text: string, extra: Partial<ChannelMessage> = {}): ChannelMessage => ({
-    id, channel_id, author, session_id: null, turn: null, text, mentions: [], reply_to: null, hops: author.kind === "owner" ? 0 : 1, ask_owner: false, created_at: clock.ago(minutesAgo), ...extra,
+    id, channel_id, author, session_id: null, turn: null, text, mentions: [], reply_to: null, hops: author.kind === "owner" ? 0 : 1, ask_owner: false, created_at: clock.ago(minutesAgo), files: [], ...extra,
   });
   const channelMessages: ChannelMessage[] = [
     msg(10, SPRING_SALE, owner, 60 * 24 * 41, "@docs the sale ends tonight: take the banner down tomorrow morning.", { mentions: [DOCS_BOT] }),
@@ -47,7 +47,7 @@ export function channelsWorld() {
     msg(21, TRIAGE, maintainer, 60 * 5, "@owner #131 asks for PayPal in the checkout. Do we want it on the roadmap, or should I close it as out of scope?", { mentions: ["owner"], ask_owner: true }),
     msg(22, TRIAGE, maintainer, 60 * 4, "@owner #133 reports a crash on Safari 17 that I cannot reproduce. Ask the reporter for a recording?", { mentions: ["owner"] }),
     msg(31, DM_MAINTAINER_RELEASE, release, 52, "Is #121 safe to include? CI was red yesterday.", { mentions: [] }),
-    msg(32, DM_MAINTAINER_RELEASE, maintainer, 47, "Red was a flaky test, fixed in #120. Safe.", { reply_to: 31, hops: 2 }),
+    msg(32, DM_MAINTAINER_RELEASE, maintainer, 47, "Red was a flaky test, fixed in #120. Safe. The failing run's log is attached.", { reply_to: 31, hops: 2, files: [{ name: "ci-run-1182.log", reference: `upload:text/plain;${"7".repeat(64)}`, mime: "text/plain", size: 1835 }] }),
     msg(33, DM_MAINTAINER_RELEASE, owner, 25, "Wait for my merge of #121 first."),
     msg(34, DM_MAINTAINER_RELEASE, release, 21, "Thanks, tagging at 10:00 once #121 is merged."),
     msg(40, RELEASE_TRAIN, owner, 60 * 3, "@release cut 2.4 this morning, without #118.", { mentions: [RELEASE_BOT] }),

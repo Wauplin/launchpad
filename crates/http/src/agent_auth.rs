@@ -26,7 +26,7 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
         Some(LaunchpadAccess::Admin)
     } else if method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity" || channel_read(path)) {
         Some(LaunchpadAccess::Read)
-    } else if method == Method::POST && (path == "/api/proposals" || path == CHANNEL_POST) {
+    } else if method == Method::POST && (path == "/api/proposals" || path == CHANNEL_POST || path == CHANNEL_UPLOAD) {
         Some(LaunchpadAccess::Propose)
     } else if oracle_read(method, path) {
         Some(LaunchpadAccess::Read)
@@ -40,7 +40,7 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
 /// `launchpad channel list` and `launchpad channel read`: every access level (Home lets only member bots read, and
 /// admin sessions every channel of their workspace).
 fn channel_read(path: &str) -> bool {
-    matches!(path, "/api/channels/agent" | "/api/channels/agent/read")
+    matches!(path, "/api/channels/agent" | "/api/channels/agent/read" | "/api/channels/agent/file")
 }
 
 /// `launchpad oracle list|show|history` (GET `/api/oracles/{workspace}…`) and `launchpad oracle run` (`oracle.run`):
@@ -71,10 +71,17 @@ fn bot_publish<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
 /// `launchpad channel post` and `launchpad dm`: propose access (Home lets only member bots post).
 const CHANNEL_POST: &str = "/api/channels/agent/post";
 
+/// `launchpad channel post --attach` and `launchpad dm --attach`: one file of the bot's post, before the post
+/// (propose access, like the post; Home accepts it only from a bot's session).
+pub const CHANNEL_UPLOAD: &str = "/api/channels/agent/upload";
+
+/// The largest request body of a channel file upload: a 5 MB file in base64, with its name and type.
+pub const CHANNEL_UPLOAD_MAX: usize = 8 << 20;
+
 /// Why an agent may not use one of the owner's channel routes (None: not one of them). Agents read and post through
 /// `/api/channels/agent…`; creating channels and changing members are admin actions.
 fn channel_refusal(method: &Method, path: &str) -> Option<&'static str> {
-    if !(path == "/api/channels" || path.starts_with("/api/channels/")) || channel_read(path) || path == CHANNEL_POST {
+    if !(path == "/api/channels" || path.starts_with("/api/channels/")) || channel_read(path) || path == CHANNEL_POST || path == CHANNEL_UPLOAD {
         return None;
     }
     Some(if *method == Method::GET {
@@ -227,7 +234,7 @@ fn read_allowed(path: &str) -> bool {
 pub const KB_BODY_MAX: usize = 128 << 20;
 
 fn own_write(path: &str) -> bool {
-    matches!(path, "/api/link" | "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/notes" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/sleep" | CHANNEL_POST)
+    matches!(path, "/api/link" | "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/notes" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/sleep" | CHANNEL_POST | CHANNEL_UPLOAD)
 }
 
 async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
@@ -329,7 +336,12 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
     if patch { return Ok(req); }
     if req.method() != Method::POST || !(own_write(&path) || path == "/api/predrafts") { return Err(denied()); }
     let (parts, body) = req.into_parts();
-    let bytes = to_bytes(body, if path == "/api/kb" || path == "/api/bot-memory" { KB_BODY_MAX } else { 1 << 20 }).await.map_err(|_| denied())?;
+    let limit = match path.as_str() {
+        "/api/kb" | "/api/bot-memory" => KB_BODY_MAX,
+        CHANNEL_UPLOAD => CHANNEL_UPLOAD_MAX,
+        _ => 1 << 20,
+    };
+    let bytes = to_bytes(body, limit).await.map_err(|_| denied())?;
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| denied())?;
     if path == "/api/predrafts" {
         if !owns_cwd(app, id, value["cwd"].as_str().unwrap_or_default()).await
@@ -385,7 +397,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics" | "notes"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
         (false, ["channels"] | ["channels", "dm"]) => Body,
         // The agent's own channels: Home resolves them in the session's workspace (`launchpad_channels::agent`).
-        (true, ["channels", "agent"] | ["channels", "agent", "read"]) | (false, ["channels", "agent", "post"]) => Shared,
+        (true, ["channels", "agent"] | ["channels", "agent", "read" | "file"]) | (false, ["channels", "agent", "post" | "upload"]) => Shared,
         (_, ["channels", "agent", ..]) => Unscoped,
         (_, ["channels", id, ..]) => Channel(id),
         (true, ["context", "sessions", id]) => Session(id),
@@ -673,6 +685,11 @@ mod tests {
         assert_eq!(names(&Method::GET, "/api/channels"), Listed);
         assert_eq!(names(&Method::GET, "/api/channels/agent/messages"), Unscoped);
         assert_eq!(names(&Method::GET, "/api/channels/agent/post"), Unscoped);
+        // Channel files: Home resolves the channel in the caller's workspace (`launchpad_channels::agent`).
+        assert_eq!(names(&Method::GET, "/api/channels/agent/file"), Shared);
+        assert_eq!(names(&Method::POST, "/api/channels/agent/upload"), Shared);
+        assert_eq!(names(&Method::POST, "/api/channels/agent/file"), Unscoped);
+        assert_eq!(names(&Method::GET, "/api/channels/agent/upload"), Unscoped);
         for path in ["/api/context/sessions", "/api/context/folders", "/api/context/notes", "/api/proposals", "/api/today", "/api/activity", "/api/predrafts"] {
             assert_eq!(names(&Method::GET, path), Listed, "{path}");
         }
@@ -753,6 +770,15 @@ mod tests {
         assert_eq!(tool_need(&Method::POST, "/api/channels/agent/post"), Some(LaunchpadAccess::Propose));
         assert!(read_allowed("/api/channels/agent") && read_allowed("/api/channels/agent/read") && !read_allowed("/api/channels") && !read_allowed("/api/channels/c1"));
         assert!(own_write("/api/channels/agent/post") && !own_write("/api/channels/c1/messages") && !own_write("/api/channels/dm"));
+        // Files: uploading is a propose-level own write (the body names the session), downloading a read.
+        assert_eq!(tool_need(&Method::POST, "/api/channels/agent/upload"), Some(LaunchpadAccess::Propose));
+        assert_eq!(tool_need(&Method::GET, "/api/channels/agent/file"), Some(LaunchpadAccess::Read));
+        assert!(own_write("/api/channels/agent/upload") && read_allowed("/api/channels/agent/file") && !read_allowed("/api/channels/agent/upload"));
+        assert_eq!(channel_refusal(&Method::POST, "/api/channels/agent/upload"), None);
+        assert_eq!(channel_refusal(&Method::GET, "/api/channels/agent/file"), None);
+        // The owner's download of a message's file stays closed to agents.
+        assert!(channel_refusal(&Method::GET, "/api/channels/c1/messages/4/files/0").is_some_and(|w| w.contains("launchpad channel read")));
+        assert!(!oracle_may_read(&Method::GET, "/api/channels/agent/file"));
         assert_eq!(tool_need(&Method::GET, "/api/channels/agent/post"), None);
         assert_eq!(tool_need(&Method::POST, "/api/channels/agent/read"), None);
         for (m, p) in [(Method::GET, "/api/channels/agent"), (Method::GET, "/api/channels/agent/read"), (Method::POST, "/api/channels/agent/post")] {

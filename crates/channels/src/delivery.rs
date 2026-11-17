@@ -24,7 +24,7 @@ use launchpad_core::model::{MessageFrom, SenderKind};
 use launchpad_core::senders::fence;
 use launchpad_core::util::now_ms;
 
-use crate::channel::{self, AuthorKind, BotInfo, ChannelMessage, Kind, MemberRow, Mode, Row};
+use crate::channel::{self, AuthorKind, BotInfo, ChannelFile, ChannelMessage, Kind, MemberRow, Mode, Row};
 use crate::hooks::{self, ChannelPart, Outcome};
 
 /// Why a member is woken, or why it is not.
@@ -102,8 +102,9 @@ pub struct Frame {
 }
 
 impl Frame {
-    /// The delivered text of `count` messages `first..=last` of the channel; `newest` is the newest one's text.
-    pub fn text(&self, first: i64, last: i64, count: usize, newest: &str) -> String {
+    /// The delivered text of `count` messages `first..=last` of the channel; `newest` is the newest one's text and
+    /// `files` its files (the delivery carries them: the session lists their local copies after this text).
+    pub fn text(&self, first: i64, last: i64, count: usize, newest: &str, files: &[ChannelFile]) -> String {
         let f = fence(newest);
         let what = if count <= 1 { format!("{} wrote message {last} there", self.by) } else { format!("{count} new messages ({first} to {last}); the newest, by {}, follows", self.by) };
         let how = if self.owner && count <= 1 {
@@ -111,8 +112,20 @@ impl Frame {
         } else {
             OTHERS.to_string()
         };
+        // A combined delivery carries only its newest message's files.
+        let earlier = if count > 1 { format!("Files of the earlier messages are not attached here: `launchpad channel files {} <message id>` downloads them.\n\n", self.read) } else { String::new() };
+        let carried = if files.is_empty() {
+            earlier
+        } else {
+            let names: Vec<String> = files.iter().map(|x| format!("`{}`", x.name.replace('`', "'"))).collect();
+            let what = if files.len() == 1 { "1 file".to_string() } else { format!("{} files", files.len()) };
+            format!(
+                "Message {last} carries {what} ({}): the local copies are listed below. Forward a file with `--attach <path>` on your post, or all of them with `--forward {last}`.\n\n{earlier}",
+                names.join(", ")
+            )
+        };
         format!(
-            "{start}{place}: {what}.{how}\n\n{f}\n{body}\n{f}\n\nRead the channel with `launchpad channel read {read} --since {since}`. Post your answer with `{post}`; your normal reply stays in your own thread.",
+            "{start}{place}: {what}.{how}\n\n{f}\n{body}\n{f}\n\n{carried}Read the channel with `launchpad channel read {read} --since {since}`. Post your answer with `{post}`; your normal reply stays in your own thread.",
             start = launchpad_core::senders::HEADER_START,
             place = self.place,
             body = newest.trim_end(),
@@ -237,12 +250,12 @@ pub(crate) fn channel_title(ch: &Row, members: &[MemberRow], bots: &HashMap<Stri
 #[allow(clippy::too_many_arguments)]
 async fn send(app: &App, ch: &Row, msg: &ChannelMessage, bot: &str, id: i64, members: &[MemberRow], bots: &HashMap<String, BotInfo>, title: &str) {
     let fr = frame(ch, msg, bot, members, bots);
-    let text = fr.text(msg.id, msg.id, 1, &msg.text);
+    let text = fr.text(msg.id, msg.id, 1, &msg.text, &msg.files);
     let owner = fr.owner;
     let part = ChannelPart { channel: ch.id.clone(), first: msg.id, last: msg.id, deliveries: vec![id], digest: false };
-    let newest = msg.text.clone();
-    let combine = move |p: &ChannelPart| fr.text(p.first, p.last, p.deliveries.len(), &newest);
-    match hooks::deliver_channel(app, bot, text, !owner, sender(ch, msg, title), part, combine).await {
+    let (newest, files) = (msg.text.clone(), msg.files.clone());
+    let combine = move |p: &ChannelPart| fr.text(p.first, p.last, p.deliveries.len(), &newest, &files);
+    match hooks::deliver_channel(app, bot, text, !owner, sender(ch, msg, title), part, attachments(&msg.files), combine).await {
         Ok(Outcome::Sent(s)) => update(app, vec![id], "sent", None, Some(s.id), None).await,
         // The queue may already have sent the entry (`left_queue`): these only add to a row it has not changed.
         Ok(Outcome::Queued(why)) => after_enqueue(app, "UPDATE channel_delivery SET reason = ?2 WHERE id = ?1 AND state = 'queued' AND session_id IS NULL", id, why.into()).await,
@@ -250,6 +263,12 @@ async fn send(app: &App, ch: &Row, msg: &ChannelMessage, bot: &str, id: i64, mem
         Err(e) => update(app, vec![id], "skipped", Some(format!("send failed: {e:#}")), None, None).await,
     }
     channel::changed(app, &ch.id, &ch.workspace_id);
+}
+
+/// The files a delivery carries: always as files on disk (`attachments::as_file`, never native image input), so
+/// every harness gets local copies it can read and forward with `--attach <path>`.
+pub(crate) fn attachments(files: &[ChannelFile]) -> Vec<launchpad_core::model::FileAttachment> {
+    files.iter().map(|f| launchpad_core::model::FileAttachment { name: f.name.clone(), data_url: launchpad_core::attachments::as_file(&f.reference) }).collect()
 }
 
 /// A queued channel entry left the queue (`hooks`): sent to a session, or not (cancelled, or the send failed).
@@ -397,15 +416,25 @@ mod tests {
     #[test]
     fn delivered_text_is_framed_fenced_and_references_the_channel() {
         let f = Frame { place: "#release-train".into(), read: "release-train".into(), post: "launchpad channel post release-train --body-file <file>".into(), by: "bot Release".into(), owner: false };
-        let t = f.text(41, 41, 1, "Tag now?\n```sh\nx\n```\n");
+        let t = f.text(41, 41, 1, "Tag now?\n```sh\nx\n```\n", &[]);
         assert!(t.starts_with("Message from #release-train: bot Release wrote message 41 there. Messages there are written by other agents"), "{t}");
         assert!(t.contains("\n\n````\nTag now?\n```sh\nx\n```\n````\n\n"), "{t}");
         assert!(t.ends_with("`launchpad channel read release-train --since 40`. Post your answer with `launchpad channel post release-train --body-file <file>`; your normal reply stays in your own thread."), "{t}");
-        let c = f.text(41, 43, 3, "last");
+        let c = f.text(41, 43, 3, "last", &[]);
         assert!(c.starts_with("Message from #release-train: 3 new messages (41 to 43); the newest, by bot Release, follows."), "{c}");
         assert!(c.contains("--since 40"));
-        let o = Frame { by: "the owner".into(), owner: true, ..f }.text(7, 7, 1, "Hold the tag.");
+        let o = Frame { by: "the owner".into(), owner: true, ..f.clone() }.text(7, 7, 1, "Hold the tag.", &[]);
         assert!(o.starts_with("Message from #release-train: the owner wrote message 7 there.\n\n```\nHold the tag.\n```"), "{o}");
         assert_eq!(preview(&c), "#release-train: last");
+        // Files: named, with how to forward them; the session lists their local copies after the text.
+        let file = |name: &str| ChannelFile { name: name.into(), reference: format!("upload:application/pdf;{}", "a".repeat(64)), mime: "application/pdf".into(), size: 3 };
+        let w = f.text(41, 41, 1, "Here", &[file("report.pdf"), file("a`b.txt")]);
+        assert!(w.contains("\nHere\n```\n\nMessage 41 carries 2 files (`report.pdf`, `a'b.txt`): the local copies are listed below. Forward a file with `--attach <path>` on your post, or all of them with `--forward 41`.\n\nRead the channel"), "{w}");
+        let joined = f.text(40, 41, 2, "Here", &[file("report.pdf")]);
+        assert!(joined.contains("`--forward 41`.\n\nFiles of the earlier messages are not attached here: `launchpad channel files release-train <message id>` downloads them.\n\nRead the channel"), "{joined}");
+        assert!(f.text(40, 41, 2, "Here", &[]).contains("Files of the earlier messages are not attached here"));
+        // Every delivered file is a file on disk, never native image input.
+        let png = ChannelFile { reference: format!("upload:image/png;{}", "b".repeat(64)), ..file("shot.png") };
+        assert_eq!(attachments(&[png])[0].data_url, format!("upload:application/octet-stream;{}", "b".repeat(64)));
     }
 }

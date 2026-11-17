@@ -129,6 +129,53 @@ pub struct Author {
     pub name: String,
 }
 
+/// A file of a channel message: its bytes stored once on Home (`launchpad_core::attachments::store`), named by its
+/// reference (`upload:<mime>;<sha256>`). Bots get a local copy with the delivery (`delivery`) or with
+/// `launchpad channel files`; the owner's window shows it on the channel page.
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
+pub struct ChannelFile {
+    pub name: String,
+    pub reference: String,
+    pub mime: String,
+    #[ts(type = "number")]
+    pub size: u64,
+}
+
+/// At most this many files per message (each at most 5 MB, 20 MB together: `attachments::validate`).
+pub const MAX_FILES: usize = 10;
+
+/// A file a post names: a stored reference and the name it shows (Home reads its type and size).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct NewFile {
+    pub name: String,
+    pub reference: String,
+}
+
+/// Pure: a file name as a message shows it: the last path part, without control characters, at most 120 characters.
+pub fn file_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let clean: String = base.chars().filter(|c| !c.is_control()).take(120).collect();
+    let clean = clean.trim();
+    if clean.is_empty() || clean == "." || clean == ".." { "file".into() } else { clean.to_string() }
+}
+
+/// The files of a post as the message stores them: each reference must be stored on Home, at most `MAX_FILES`,
+/// at most 20 MB together; a file named twice (same bytes and name) is kept once.
+pub fn resolve_files(files: Vec<NewFile>) -> Result<Vec<ChannelFile>> {
+    let mut out: Vec<ChannelFile> = vec![];
+    for f in files {
+        let (mime, size) = launchpad_core::attachments::stored(&f.reference)?;
+        let file = ChannelFile { name: file_name(&f.name), reference: f.reference, mime, size };
+        if !out.contains(&file) {
+            out.push(file);
+        }
+    }
+    ensure!(out.len() <= MAX_FILES, "a message carries at most {MAX_FILES} files");
+    let as_attachments: Vec<launchpad_core::model::FileAttachment> = out.iter().map(|f| launchpad_core::model::FileAttachment { name: f.name.clone(), data_url: f.reference.clone() }).collect();
+    launchpad_core::attachments::validate(&as_attachments)?;
+    Ok(out)
+}
+
 #[derive(Clone, Debug, Serialize, TS)]
 pub struct ChannelMessage {
     #[ts(type = "number")]
@@ -148,6 +195,9 @@ pub struct ChannelMessage {
     pub ask_owner: bool,
     #[ts(type = "number")]
     pub created_at: i64,
+    /// Its files (none for most messages).
+    #[serde(default)]
+    pub files: Vec<ChannelFile>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -417,7 +467,7 @@ async fn view(app: &App, r: Row, bots: &HashMap<String, BotInfo>) -> Result<Chan
         .state_db
         .call(move |c| {
             let last = c
-                .query_row("SELECT id, created_at, author_kind, author_name, text FROM channel_message WHERE channel_id = ?1 ORDER BY id DESC LIMIT 1", [&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+                .query_row("SELECT id, created_at, author_kind, author_name, CASE WHEN trim(text) = '' AND files != '[]' THEN 'Sent ' || json_array_length(files) || CASE json_array_length(files) WHEN 1 THEN ' file' ELSE ' files' END ELSE text END FROM channel_message WHERE channel_id = ?1 ORDER BY id DESC LIMIT 1", [&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
                 .optional()?;
             let unread = c.query_row("SELECT count(*) FROM channel_message WHERE channel_id = ?1 AND id > ?2", params![id, read], |r| r.get(0))?;
             let attention = c.query_row(
@@ -505,9 +555,10 @@ pub(crate) fn message_row(r: &rusqlite::Row) -> rusqlite::Result<ChannelMessage>
         hops: r.get(10)?,
         ask_owner: r.get(11)?,
         created_at: r.get(12)?,
+        files: serde_json::from_str(&r.get::<_, String>(13)?).unwrap_or_default(),
     })
 }
-pub(crate) const MESSAGE: &str = "id, channel_id, author_kind, author_id, author_name, session_id, turn, text, mentions, reply_to, hops, ask_owner, created_at";
+pub(crate) const MESSAGE: &str = "id, channel_id, author_kind, author_id, author_name, session_id, turn, text, mentions, reply_to, hops, ask_owner, created_at, files";
 
 /// Messages of a channel, oldest first: after `since` (the oldest first), or else the newest ones before `before`;
 /// at most `limit` (1 to 200, 50 by default). Also says whether older ones exist.
@@ -567,6 +618,11 @@ pub async fn deliveries(app: &App, message_ids: Vec<i64>) -> Result<Vec<ChannelD
         .await
 }
 
+/// One message by its ID (message IDs are unique across channels).
+pub async fn message(app: &App, message: i64) -> Result<Option<ChannelMessage>> {
+    app.state_db.call(move |c| Ok(c.query_row(&format!("SELECT {MESSAGE} FROM channel_message WHERE id = ?1"), [message], message_row).optional()?)).await
+}
+
 /// Whether the message is one of the channel's.
 pub async fn has_message(app: &App, id: &str, message: i64) -> Result<bool> {
     let cid = id.to_string();
@@ -597,6 +653,10 @@ pub struct Post {
     /// A bot asks the owner (CHN-07).
     #[serde(default)]
     pub ask_owner: bool,
+    /// Files stored on Home (an agent's are checked by `agent::post`: uploaded by its session or forwarded from a
+    /// message it may read).
+    #[serde(default)]
+    pub files: Vec<NewFile>,
 }
 
 /// The seq of the message the session's current turn answers.
@@ -632,7 +692,12 @@ pub async fn post(app: &App, id: &str, poster: Poster, mut p: Post) -> Result<Ch
     if matches!(poster, Poster::Session(_)) {
         p.text = without_attribution(&p.text);
     }
-    check_text(&p.text)?;
+    let files = resolve_files(std::mem::take(&mut p.files))?;
+    if files.is_empty() {
+        check_text(&p.text)?;
+    } else {
+        ensure!(p.text.len() <= MAX_TEXT, "a message is at most {} KB", MAX_TEXT / 1024);
+    }
     let ch = load(app, id).await?;
     let label = match ch.kind {
         Kind::Channel => format!("#{}", ch.name),
@@ -672,6 +737,7 @@ pub async fn post(app: &App, id: &str, poster: Poster, mut p: Post) -> Result<Ch
         hops,
         ask_owner: p.ask_owner && !owner,
         created_at: now,
+        files,
     };
     let m = msg.clone();
     let new_id: i64 = app
@@ -679,8 +745,8 @@ pub async fn post(app: &App, id: &str, poster: Poster, mut p: Post) -> Result<Ch
         .call(move |c| {
             let tx = c.transaction()?;
             tx.execute(
-                "INSERT INTO channel_message (channel_id, author_kind, author_id, author_name, session_id, turn, text, mentions, reply_to, hops, ask_owner, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                params![m.channel_id, text_of(m.author.kind), m.author.id, m.author.name, m.session_id, m.turn, m.text, serde_json::to_string(&m.mentions).unwrap_or_default(), m.reply_to, m.hops, m.ask_owner, m.created_at],
+                "INSERT INTO channel_message (channel_id, author_kind, author_id, author_name, session_id, turn, text, mentions, reply_to, hops, ask_owner, created_at, files) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![m.channel_id, text_of(m.author.kind), m.author.id, m.author.name, m.session_id, m.turn, m.text, serde_json::to_string(&m.mentions).unwrap_or_default(), m.reply_to, m.hops, m.ask_owner, m.created_at, serde_json::to_string(&m.files).unwrap_or_else(|_| "[]".into())],
             )?;
             let id = tx.last_insert_rowid();
             if owner {
