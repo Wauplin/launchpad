@@ -412,6 +412,28 @@ mod tests {
         assert_eq!(super::hash_of("upload:text/plain;../x"), None);
     }
 
+    /// What a channel delivery hands the receiving runner: the stored bytes under a non-image reference, so
+    /// `prepare` writes them as a local file (never native image input) and the bytes come back unchanged.
+    #[test]
+    fn a_delivered_channel_file_keeps_its_bytes_as_a_file() {
+        let dir = std::env::temp_dir().join(format!("lp-attachments-test-{}", uuid::Uuid::new_v4()));
+        super::init(&dir);
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.extend((0..4096u32).map(|i| (i % 251) as u8));
+        let stored = rt.block_on(super::store(&png, "image/png")).unwrap();
+        assert!(super::is_image(&stored));
+        let delivered = super::as_file(&stored);
+        assert!(!super::is_image(&delivered), "prepare must write it to disk");
+        assert_eq!(super::stored(&delivered).unwrap(), ("application/octet-stream".to_string(), png.len() as u64));
+        assert_eq!(super::read(&delivered).unwrap(), png);
+        let files = [crate::model::FileAttachment { name: "shot.png".into(), data_url: delivered }];
+        super::validate(&files).unwrap();
+        // Over 5 MB is refused at the store, so no delivery ever carries it.
+        assert!(rt.block_on(super::store(&vec![0u8; 5 * 1024 * 1024 + 1], "application/octet-stream")).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn cleanup_finds_the_hashes_of_references_in_json() {
         let a = "a".repeat(64);

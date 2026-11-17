@@ -779,6 +779,9 @@ mod tests {
         // The owner's download of a message's file stays closed to agents.
         assert!(channel_refusal(&Method::GET, "/api/channels/c1/messages/4/files/0").is_some_and(|w| w.contains("launchpad channel read")));
         assert!(!oracle_may_read(&Method::GET, "/api/channels/agent/file"));
+        // The largest file (5 MB) fits one upload request with room for its name, type and session.
+        let b64 = (5 * 1024 * 1024usize).div_ceil(3) * 4;
+        assert!(b64 + 4096 < CHANNEL_UPLOAD_MAX && CHANNEL_UPLOAD_MAX > (1 << 20));
         assert_eq!(tool_need(&Method::GET, "/api/channels/agent/post"), None);
         assert_eq!(tool_need(&Method::POST, "/api/channels/agent/read"), None);
         for (m, p) in [(Method::GET, "/api/channels/agent"), (Method::GET, "/api/channels/agent/read"), (Method::POST, "/api/channels/agent/post")] {
