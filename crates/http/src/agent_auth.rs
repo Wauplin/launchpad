@@ -120,21 +120,22 @@ fn admin_may_accept(body: &Value, held: &[String]) -> bool {
     let ids = match kind {
         "message" => id("session_id"),
         "routine" | "bot_instructions" | "bot_files" => id("bot_id"),
-        // A card that gives an oracle a tool the accepting session does not hold is the owner's.
-        "oracle" => body["access_added"].as_array().is_some_and(|a| {
-            let added: Vec<String> = a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
-            added.len() == a.len() && oracle_access_beyond_admin(&added, held).is_empty()
+        // An oracle card is admin's on the terms of its own save: every credentialed tool of the file is one the
+        // accepting session holds; another waits for the owner.
+        "oracle" => body["tools"].as_array().is_some_and(|a| {
+            let tools: Vec<String> = a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect();
+            tools.len() == a.len() && oracle_tools_not_held(&tools, held).is_empty()
         }),
         _ => true,
     };
     kind == "status" || (ids && actions::for_card(kind).is_some_and(|a| a.access == ActionAccess::Admin))
 }
 
-/// What of the access a new oracle version adds (`oracles::widens`: "tool <id>", "host <name>", "every host (*)",
-/// "Launchpad read") an admin session may not give it: hosts and Launchpad read are admin's to add, a tool only when
-/// the session already holds it (`held`, `vault::session_tools`), since the oracle gets that tool's real token.
-pub fn oracle_access_beyond_admin(added: &[String], held: &[String]) -> Vec<String> {
-    added.iter().filter(|a| a.strip_prefix("tool ").is_some_and(|t| !held.iter().any(|h| h == t))).cloned().collect()
+/// The oracle tools of a file (`tools = [...]`: github, huggingface, slack need a registry tool; http and launchpad
+/// none) whose registry tool an agent's session does not hold (`held`, `vault::session_tools`): an agent saves,
+/// tests or accepts an oracle only with the tokens it already holds.
+pub fn oracle_tools_not_held(tools: &[String], held: &[String]) -> Vec<String> {
+    tools.iter().filter(|t| launchpad_core::vault::oracle_registry_tool(t).is_some_and(|id| !held.iter().any(|h| h == id))).cloned().collect()
 }
 
 /// A proposal's body, from Home's state (a runner forwards the accept to Home, which checks it there).
@@ -265,7 +266,7 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
             };
             let direct = body.as_ref().is_some_and(|b| admin_may_accept(b, &held));
             if !direct {
-                return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "admin access cannot run this card's action directly (tool cards, ready cards, oracles given a tool this session does not hold): it waits for the owner's click"));
+                return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "admin access cannot run this card's action directly (tool cards, ready cards, oracles with a tool this session does not hold): it waits for the owner's click"));
             }
         }
         let (parts, body) = req.into_parts();
@@ -446,23 +447,26 @@ pub async fn within_workspace(app: &App, id: &str, req: Request) -> Result<Reque
     within(app, &own, Some(id), req).await
 }
 
-/// An oracle token's request (`session_token::oracle_workspace`, Home only): what a read-level session of the
-/// workspace may read, GET only (never `oracle.run`, so an oracle never evaluates oracles), without the reads that
-/// need a session (its hop count, its bot's channels, Local PR `resolve`), narrowed to the workspace like a session's.
+/// An oracle's `tools.launchpad` (Home only, in process: `launchpad_server::oracle_read`): what a read-level session
+/// of the workspace may read, GET only (never `oracle.run`, so an oracle never evaluates oracles), without the reads
+/// that need a session (its hop count, its bot's channels, Local PR `resolve`), narrowed to the workspace like a
+/// session's. No token: the principal is a request extension the network cannot set.
 pub async fn authorize_oracle(app: &App, ws: &str, req: Request) -> Result<Request, ApiError> {
     if !oracle_may_read(req.method(), req.uri().path()) {
-        return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "an oracle's Launchpad token reads its workspace's state only (GET of the read level)"));
+        return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("tools.launchpad reads only this workspace's state (GET routes of the read level): {} {} is outside it", req.method(), req.uri().path())));
     }
     within(app, ws, None, req).await
 }
 
-/// Pure: what an oracle token may request.
+/// Pure: what an oracle may read through `tools.launchpad`.
 fn oracle_may_read(method: &Method, path: &str) -> bool {
     let session_bound = path == "/api/context/hops" || path == "/api/predrafts/resolve" || path.starts_with("/api/channels");
-    *method == Method::GET && !session_bound && (tool_need(method, path) == Some(LaunchpadAccess::Read) || read_allowed(path) || oracle_read(method, path))
+    // An oracle never runs or tests oracles.
+    let evaluates = path.starts_with("/api/oracles/") && (path.ends_with("/run") || path.ends_with("/test"));
+    *method == Method::GET && !session_bound && !evaluates && (tool_need(method, path) == Some(LaunchpadAccess::Read) || read_allowed(path) || oracle_read(method, path))
 }
 
-/// `within_workspace` with the workspace known: `session` is the caller's session (None: an oracle token).
+/// `within_workspace` with the workspace known: `session` is the caller's session (None: an oracle).
 async fn within(app: &App, own: &str, session: Option<&str>, req: Request) -> Result<Request, ApiError> {
     use launchpad_core::scope;
     let path = req.uri().path().to_string();
@@ -688,14 +692,15 @@ mod tests {
         let direct = |b: Value| admin_may_accept(&b, &[]);
         assert!(direct(serde_json::json!({"kind": "routine", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_instructions", "bot_id": "b"})) && direct(serde_json::json!({"kind": "bot_files", "bot_id": "b"})));
         assert!(direct(serde_json::json!({"kind": "preset"})));
-        // An oracle card that gives a tool the accepting session does not hold waits for the owner.
-        assert!(direct(serde_json::json!({"kind": "oracle", "access_added": []})));
-        assert!(direct(serde_json::json!({"kind": "oracle", "access_added": ["host pypi.org", "every host (*)", "Launchpad read"]})));
-        assert!(!direct(serde_json::json!({"kind": "oracle", "access_added": ["tool gh"]})) && !direct(serde_json::json!({"kind": "oracle"})));
+        // An oracle card with a credentialed tool the accepting session does not hold waits for the owner.
+        assert!(direct(serde_json::json!({"kind": "oracle", "tools": []})));
+        assert!(direct(serde_json::json!({"kind": "oracle", "tools": ["http", "launchpad"]})));
+        assert!(!direct(serde_json::json!({"kind": "oracle", "tools": ["github"]})) && !direct(serde_json::json!({"kind": "oracle"})));
         let held = ["gh".to_string()];
-        assert!(admin_may_accept(&serde_json::json!({"kind": "oracle", "access_added": ["tool gh", "host pypi.org"]}), &held));
-        assert!(!admin_may_accept(&serde_json::json!({"kind": "oracle", "access_added": ["tool gh", "tool hf"]}), &held));
-        assert_eq!(oracle_access_beyond_admin(&["tool gh".into(), "tool hf".into(), "Launchpad read".into()], &held), vec!["tool hf"]);
+        assert!(admin_may_accept(&serde_json::json!({"kind": "oracle", "tools": ["github", "http"]}), &held));
+        assert!(!admin_may_accept(&serde_json::json!({"kind": "oracle", "tools": ["github", "huggingface"]}), &held));
+        assert!(!admin_may_accept(&serde_json::json!({"kind": "oracle", "tools": ["slack"]}), &["slack-write".to_string()]));
+        assert_eq!(oracle_tools_not_held(&["github".into(), "huggingface".into(), "launchpad".into()], &held), vec!["huggingface"]);
         assert!(!direct(serde_json::json!({"kind": "tool"})) && !direct(serde_json::json!({"kind": "ready", "action": "outbox.send"})));
         let folder = actions::get("folder.set").unwrap();
         assert_eq!(unknown_field(folder, Some(&serde_json::json!({"worktree_setup": "x"}))).as_deref(), Some("worktree_setup"));
@@ -770,13 +775,14 @@ mod tests {
         assert_eq!(names(&Method::GET, "/api/oracles"), Names::Unscoped);
     }
 
-    /// An oracle token reads what a read-level session reads, GET only: never runs oracles, writes or diagnostics.
+    /// T10: an oracle's `tools.launchpad` reads what a read-level session reads, GET only: never runs oracles,
+    /// writes, the configuration, session-bound routes or diagnostics.
     #[test]
-    fn oracle_tokens_only_read() {
+    fn oracle_tools_only_read() {
         for p in ["/api/status", "/api/context/sessions", "/api/context/folders", "/api/proposals", "/api/today", "/api/oracles/w1", "/api/oracles/w1/ci-red/evaluations", "/api/predrafts/p1", "/api/sessions/s1/trace"] {
             assert!(oracle_may_read(&Method::GET, p), "{p}");
         }
-        for (m, p) in [(Method::POST, "/api/oracles/w1/ci-red/run"), (Method::POST, "/api/proposals"), (Method::POST, "/api/kb"), (Method::GET, "/api/context/hops"), (Method::GET, "/api/channels/agent/read"), (Method::GET, "/api/logs"), (Method::GET, "/api/context/health"), (Method::GET, "/api/config"), (Method::GET, "/api/predrafts/resolve"), (Method::GET, "/api/sessions")] {
+        for (m, p) in [(Method::POST, "/api/oracles/w1/ci-red/run"), (Method::GET, "/api/oracles/w1/ci-red/run"), (Method::GET, "/api/oracles/w1/ci-red/test"), (Method::POST, "/api/proposals"), (Method::POST, "/api/kb"), (Method::GET, "/api/context/hops"), (Method::GET, "/api/channels/agent/read"), (Method::GET, "/api/logs"), (Method::GET, "/api/context/health"), (Method::GET, "/api/config"), (Method::GET, "/api/predrafts/resolve"), (Method::GET, "/api/sessions")] {
             assert!(!oracle_may_read(&m, p), "{m} {p}");
         }
     }

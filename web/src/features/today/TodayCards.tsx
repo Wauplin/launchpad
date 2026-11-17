@@ -32,7 +32,7 @@ import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
 import { isDone } from "@/lib/sessionStatus";
 import type { TodayItem } from "./data";
 import type { OracleTestAnswer } from "@/gen/OracleTestAnswer";
-import { OracleFailure, resultLine } from "@/features/schedules/OracleFailure";
+import { OracleFailure, brokenItem, resultLine } from "@/features/schedules/OracleFailure";
 
 export const ICON: Record<TodayItem["kind"], IconName> = {
   question: "alert", finished: "check", failed: "xcircle", local_pr: "pr-local", proposal: "spark", outbox: "send", suggestion: "comment", routine: "refresh", runner: "window", home_update: "download", cli_update: "download", channel_ask: "comment", oracle: "xcircle",
@@ -273,10 +273,12 @@ function CliUpdateCard({ item }: { item: TodayItem }) {
   </Card>;
 }
 
-/** A failing oracle: its error, first and last failure and what waits on it; Open oracle (Schedules → Oracles), and
- * in ⋯ Test now, Pause oracle and Mark read (until its next failure). */
+/** A failing oracle: its error, failing call, first and last failure and what waits on it; Open oracle (Schedules →
+ * Oracles), and in ⋯ Test now, Pause oracle and Mark read (until its next failure). A broken oracle shows its problems
+ * and only has Pause in ⋯: it does not run until it is saved again. */
 function OracleCard({ item }: { item: TodayItem }) {
   const qc = useQueryClient();
+  const isBroken = brokenItem(item);
   const workspace = item.workspaces[0] ?? "";
   const params = { workspace, slug: item.record };
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["oracle", workspace, item.record] }), qc.invalidateQueries({ queryKey: ["today"] })]);
@@ -285,9 +287,9 @@ function OracleCard({ item }: { item: TodayItem }) {
     <div className="flex flex-wrap items-center gap-1.5">
       <Link className="btn btn-sm btn-primary no-underline" to="/schedules" search={{ tab: "oracles", oracle: item.record }}>Open oracle</Link>
       {!item.outcome && workspace && <MoreMenu label="More actions">{(close) => <>
-        <ActionMenuItem name="oracle.test" params={params} body={{}} close={close} detail="Runs it again with the parameters of its last evaluation" onDone={async (a: OracleTestAnswer) => { toast(resultLine(a.result)); await refresh(); }} />
+        {!isBroken && <ActionMenuItem name="oracle.test" params={params} body={{}} close={close} detail="Runs it again with the parameters of its last evaluation" onDone={async (a: OracleTestAnswer) => { toast(resultLine(a.result)); await refresh(); }} />}
         <ActionMenuItem name="oracle.pause" params={params} close={close} onDone={refresh} />
-        <ActionMenuItem name="oracle.mark-read" params={params} close={close} detail="Until its next failure" onDone={refresh} />
+        {!isBroken && <ActionMenuItem name="oracle.mark-read" params={params} close={close} detail="Until its next failure" onDone={refresh} />}
       </>}</MoreMenu>}
     </div>
   </Card>;

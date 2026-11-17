@@ -157,7 +157,8 @@ pub fn for_runners(app: &App) -> Vec<Entry> {
 /// Runner: entries from Home's ledger (other machines' costs, and its own once Home stored them).
 pub fn apply_home(app: &App, entries: Vec<Entry>) {
     let now = now_ms();
-    let added = app.sessions.spend_entries(|l| entries.into_iter().fold(false, |added, e| l.insert(e, now) || added));
+    // Every entry is inserted (no short circuit): `added` says whether one was new.
+    let added = app.sessions.spend_entries(|l| entries.into_iter().map(|e| l.insert(e, now)).filter(|new| *new).count() > 0);
     if added {
         publish(app);
     }

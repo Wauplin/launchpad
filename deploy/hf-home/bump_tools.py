@@ -1,6 +1,7 @@
-"""Bumps the agent CLI pins of Home's image and Burst jobs in release.json to the newest npm release of the same major
-version (semver; for 0.x the same minor), like runners do on their own (launchpad_setup::cli_update). A new major version
-is only reported; pass --major to pin it. Run it from the repository root, review the diff, then commit:
+"""Bumps the agent CLI and oracle tool pins of Home's image and Burst jobs in release.json to the newest release of the
+same major version (semver; for 0.x the same minor), like runners do on their own (launchpad_setup::cli_update): agent
+CLIs from npm, Monty (pydantic-monty-runtime) and Ruff from PyPI, slackline from its GitHub releases. A new major
+version is only reported; pass --major to pin it. Run it from the repository root, review the diff, then commit:
 the next release (or main package) builds the image with the new pins.
 
     python3 deploy/hf-home/bump_tools.py [--major] [--dry-run]
@@ -12,6 +13,8 @@ import urllib.request
 from pathlib import Path
 
 PACKAGES = {"claude": "@anthropic-ai/claude-code", "codex": "@openai/codex", "opencode": "opencode-ai"}
+PYPI = {"monty": "pydantic-monty-runtime", "ruff": "ruff"}
+GITHUB = {"slackline": "co42/slackline"}
 RELEASE = Path(__file__).with_name("release.json")
 SEMVER = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?")
 
@@ -49,6 +52,34 @@ def npm(path, accept="application/json"):
         return json.load(r)
 
 
+def get(url):
+    req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "launchpad-bump-tools"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.load(r)
+
+
+def pypi_versions(doc):
+    """(latest, versions) of a PyPI project's JSON: its current version and every release with a file left unyanked."""
+    versions = [v for v, files in doc["releases"].items() if any(not f.get("yanked") for f in files)]
+    return doc["info"]["version"], versions
+
+
+def github_versions(releases):
+    """(latest, versions) of a GitHub releases list: the newest published, stable semver tag, without its "v"."""
+    versions = [r["tag_name"].removeprefix("v") for r in releases if not r.get("draft") and not r.get("prerelease")]
+    ok = [v for v in versions if parse(v) and not parse(v)[3]]
+    return (max(ok, key=lambda v: key(parse(v))) if ok else None), versions
+
+
+def releases(tool):
+    """(latest, versions) of a tool's source; versions is None when only latest was read (npm, until a major shows)."""
+    if tool in PACKAGES:
+        return npm(PACKAGES[tool].replace("/", "%2F") + "/latest")["version"], None
+    if tool in PYPI:
+        return pypi_versions(get(f"https://pypi.org/pypi/{PYPI[tool]}/json"))
+    return github_versions(get(f"https://api.github.com/repos/{GITHUB[tool]}/releases?per_page=100"))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--major", action="store_true", help="also pin new major versions")
@@ -56,12 +87,12 @@ def main():
     args = ap.parse_args()
     data = json.loads(RELEASE.read_text())
     changed = False
-    for tool, package in PACKAGES.items():
+    for tool in [*PACKAGES, *PYPI, *GITHUB]:
         pinned = data["tools"][tool]
-        latest = npm(package.replace("/", "%2F") + "/latest")["version"]
-        auto, major = plan(pinned, latest)
-        if major:
-            versions = npm(package.replace("/", "%2F"), "application/vnd.npm.install-v1+json")["versions"].keys()
+        latest, versions = releases(tool)
+        auto, major = plan(pinned, latest or "", versions or ())
+        if major and versions is None:
+            versions = npm(PACKAGES[tool].replace("/", "%2F"), "application/vnd.npm.install-v1+json")["versions"].keys()
             auto, major = plan(pinned, latest, versions)
         target = major if major and args.major else auto
         if major and not args.major:

@@ -1112,7 +1112,18 @@ async fn run() -> Result<()> {
             anyhow::ensure!(body.is_object(), "the spec file must hold a JSON object");
             body["kind"] = serde_json::Value::String(kind.replace('-', "_"));
             let session_id = session_id.or_else(|| std::env::var("LAUNCHPAD_SESSION_ID").ok());
-            let created = Client::new(&paths)?.json("POST", "/api/proposals", Some(serde_json::json!({"title": title, "note": note, "replaces": replaces, "body": body, "session_id": session_id}))).await?;
+            let created = Client::new(&paths)?.json("POST", "/api/proposals", Some(serde_json::json!({"title": title, "note": note, "replaces": replaces, "body": body, "session_id": session_id}))).await;
+            // An oracle card the pre-check refuses is not filed: its errors, exit 3 like `oracle save` and `oracle test`.
+            let created = match created {
+                Err(e) if kind == "oracle" => {
+                    eprintln!("Error: {e:#}");
+                    std::process::exit(oracle::ERROR_EXIT)
+                }
+                r => r?,
+            };
+            if kind == "oracle" {
+                oracle::print_warnings(&created["body"]["warnings"]);
+            }
             println!("Proposal {} saved (state: {}).", created["id"].as_str().unwrap_or("?"), created["state"].as_str().unwrap_or("unknown"));
             if let Some(error) = created["error"].as_str() { println!("Error: {error}"); }
             Ok(())

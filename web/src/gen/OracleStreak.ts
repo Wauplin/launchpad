@@ -12,7 +12,11 @@ count: number, first_at: number | null, last_at: number | null,
 /**
  * Failures of this streak by class.
  */
-classes: { [key in string]: number }, last_error: OracleError | null, last_good_at: number | null, 
+classes: { [key in string]: number }, last_error: OracleError | null, 
+/**
+ * The call of the call log the last error points at (`github GET /repos/… · HTTP 404`).
+ */
+last_call: string | null, last_good_at: number | null, 
 /**
  * Mark read: hides the row until the next failure, which starts a new streak.
  */

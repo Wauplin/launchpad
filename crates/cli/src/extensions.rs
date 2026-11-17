@@ -50,6 +50,9 @@ impl launchpad_core::ext::Extensions for Extensions {
         out.extend(launchpad_setup::cli_update::today_items(app).await);
         out
     }
+    async fn oracle_read(&self, app: &App, ws: &str, path: &str) -> Result<(u16, String)> {
+        launchpad_server::oracle_read(app, ws, path).await
+    }
 }
 
 /// Starts the services of the crates above the core, after `App::start`.

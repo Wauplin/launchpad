@@ -122,7 +122,8 @@ pub async fn check_oracle(app: &App, ws: Option<&str>, gate: &Gate) -> Result<()
         Ok(f) => f,
         Err(_) => bail!("no oracle {} in this workspace: apply the oracle card first (or save the oracle), then the routine", gate.oracle),
     };
-    if let Some(meta) = &file.oracle.meta {
+    // A broken oracle keeps the gate: its ticks are quiet checks until the oracle is saved again.
+    if let Some(meta) = file.oracle.meta.as_ref().filter(|_| !file.oracle.broken()) {
         oracles::validate_params(&meta.params, &gate.params).map_err(|e| anyhow::anyhow!("gate.params: {e:#}"))?;
     }
     Ok(())
@@ -312,7 +313,12 @@ pub fn evidence(title: &str, e: &Evaluation, why: &str) -> String {
     });
     if let Some(err) = &e.error {
         v["error"] = serde_json::json!({"class": err.class, "message": err.message});
-        v["stderr_tail"] = Value::String(e.stderr_tail.clone());
+        if let Some(c) = err.call.and_then(|i| e.calls.get(i)) {
+            v["failing_call"] = serde_json::json!({"tool": c.tool, "call": c.call, "outcome": c.outcome});
+        }
+        let start = e.log.len().saturating_sub(4096);
+        let start = (start..=e.log.len()).find(|i| e.log.is_char_boundary(*i)).unwrap_or(e.log.len());
+        v["log"] = Value::String(e.log[start..].to_string());
     }
     let json = serde_json::to_string_pretty(&v).unwrap_or_default();
     let f = launchpad_core::senders::fence(&json);
@@ -431,8 +437,9 @@ pub(crate) async fn tick(app: &App, record: CronAgent, gate: Gate) -> Result<()>
         Some((_, e, _)) => e,
         None => match evaluate(app, &record, &gate, ws.as_deref(), due).await {
             Ok(e) => e,
-            Err(Unevaluated::Paused) => {
-                let check = Check { oracle: gate.oracle.clone(), outcome: None, evaluation_id: None, summary: String::new(), fingerprint: None, error: None, why: "oracle paused".into(), count: 1, since: now };
+            Err(Unevaluated::Quiet(why)) => {
+                // A paused or broken oracle: a quiet check (no thread, session or quota) until it is resumed or fixed.
+                let check = Check { oracle: gate.oracle.clone(), outcome: None, evaluation_id: None, summary: String::new(), fingerprint: None, error: None, why, count: 1, since: now };
                 crons::claim_due(app, &id, due, now, move |r| {
                     push_check(&mut r.history, now, check);
                 })
@@ -538,7 +545,8 @@ pub(crate) async fn tick(app: &App, record: CronAgent, gate: Gate) -> Result<()>
 }
 
 enum Unevaluated {
-    Paused,
+    /// Paused or broken: a quiet check, with why.
+    Quiet(String),
     Error(String),
 }
 
@@ -546,7 +554,10 @@ async fn evaluate(app: &App, r: &CronAgent, gate: &Gate, ws: Option<&str>, due: 
     let ws = ws.ok_or_else(|| Unevaluated::Error("the routine has no workspace".into()))?;
     let file = oracles::get(app, ws, &gate.oracle).await.map_err(|_| Unevaluated::Error(format!("no oracle {} in this workspace", gate.oracle)))?;
     if file.oracle.paused {
-        return Err(Unevaluated::Paused);
+        return Err(Unevaluated::Quiet("oracle paused".into()));
+    }
+    if let Some(why) = file.oracle.broken_reason() {
+        return Err(Unevaluated::Quiet(format!("oracle broken: {why}")));
     }
     let req = oracle_eval::Request {
         workspace_id: ws.to_string(),

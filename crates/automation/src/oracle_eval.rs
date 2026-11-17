@@ -1,45 +1,43 @@
-//! Oracle evaluations on Home: `uv run --with <helper wheel> <file>` with an environment built from scratch (PATH, a
-//! temporary HOME, uv's folders under Home's data folder and the real tokens of the oracle's tools), at most
-//! `SLOTS` at once, one at a time per (file, parameters, cursor) with joining callers, a fresh result reused within
-//! `min_interval` (or a CLI caller's `max_age`), killed at the timeout (its whole process group). The secrets an
-//! evaluation holds never reach its result (`redact`).
+//! Oracle evaluations on Home: one path for every caller (gate ticks, `launchpad oracle run`, the owner's Test,
+//! agents' `launchpad oracle test`). A draft is pre-checked first (`oracle_check::precheck`); a saved oracle runs as
+//! stored. The file runs in a fresh Monty worker (`oracle_monty`), then `check` is called with the checked
+//! arguments (plus `cursor` and `now` when it asks for them); each tool call suspends the worker and Home runs it
+//! (`oracle_tools`). At most `SLOTS` at once; a saved oracle shares one evaluation per (file, parameters, cursor)
+//! with joining callers and reuses an answer within `min_interval`. The secrets an evaluation used never reach its
+//! result (`redact`).
 //!
-//! Every evaluation is recorded (`oracle_eval`) with its callers and what came of it for each (`set_consequence`).
-//! Cursors belong to consumers (`oracle_cursor`): an evaluation only proposes one, the consumer commits it when
-//! it acts (`commit`, or `commit_in` inside the consumer's own claim). Each oracle keeps its failure streak
-//! (`oracle_streak`) for its Today row. A Home restart drops evaluations in flight: they only read.
+//! Every evaluation of a saved oracle is recorded (`oracle_eval`) with its callers, what came of it for each
+//! (`set_consequence`), its log and its call log. Cursors belong to consumers (`oracle_cursor`): an evaluation only
+//! proposes one, the consumer commits it when it acts (`commit`, or `commit_in` inside the consumer's own claim).
+//! Each oracle keeps its failure streak (`oracle_streak`) for its Today row. A Home restart drops evaluations in
+//! flight: they only read.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use launchpad_core::App;
-use launchpad_core::exec::{Cmd, Io};
-use launchpad_core::shellenv::UserEnv;
 use launchpad_core::util::now_ms;
+use monty_pool::{Checkout, PoolError, ResumeValue, TurnEvent};
+use monty_types::{ExcType, MontyException, MontyObject, NamedValues};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use ts_rs::TS;
 
-use crate::oracles::{self, LaunchpadRead, MAX_CURSOR, MAX_EVIDENCE, Meta};
+use crate::oracle_monty;
+use crate::oracle_tools::{CallLog, Reply, ToolBox};
+use crate::oracles::{self, MAX_CURSOR, MAX_EVIDENCE, Meta, Problem};
 
 /// Evaluations running at once on Home.
 pub const SLOTS: usize = 16;
-/// How long uv may take to prepare an environment (resolve and install) before the oracle's timeout starts.
-pub const PREPARE_MS: i64 = 120_000;
 /// Evaluations are kept this long, and at most `KEEP_PER_ORACLE` per oracle.
 const KEEP_MS: i64 = 30 * 86_400_000;
 const KEEP_PER_ORACLE: i64 = 2000;
-/// Bytes of stderr kept with an evaluation, and of stdout read at most.
-const STDERR_TAIL: usize = 4096;
-const STDOUT_MAX: usize = 1 << 20;
-/// The line the helper writes to stderr once it is imported: uv prepared the environment.
-const START_MARK: &str = "\u{1e}launchpad_oracle:start";
+/// The log (`print`) kept with an evaluation.
+pub const MAX_LOG: usize = 64 << 10;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -55,19 +53,21 @@ pub enum Outcome {
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "OracleErrorClass")]
 pub enum ErrorClass {
-    /// A host ctx.http refuses, a tool not granted to the workspace or without its token.
+    /// A tool missing from the header, not granted, without a token, or refused (a private address, a route outside
+    /// the read level).
     Access,
-    /// An HTTP error the snippet raised or did not handle (status, DNS, TLS, timeout of a request).
+    /// `raise_for_status()` on a 4xx or 5xx, a connection error, a Slack or Launchpad command error.
     Http,
-    /// Killed at the oracle's timeout.
+    /// The evaluation ran past its timeout, tool calls included.
     Timeout,
-    /// uv could not prepare the environment (resolution, install, Python).
-    Env,
-    /// An uncaught exception.
+    /// A budget ran out: memory, tool calls, response size or bytes received.
+    Limit,
+    /// An exception in the code (also the interpreter stopping). Evaluations of the older format recorded `env`.
+    #[serde(alias = "env")]
     Script,
-    /// No result, an invalid one, or a cursor or evidence over its cap.
+    /// `check` returned something other than a verdict or a bool, or broke a size limit of its evidence or cursor.
     Contract,
-    /// The snippet called failed(reason).
+    /// The oracle called failed(reason).
     Declared,
 }
 
@@ -77,7 +77,7 @@ impl ErrorClass {
             ErrorClass::Access => "access",
             ErrorClass::Http => "http",
             ErrorClass::Timeout => "timeout",
-            ErrorClass::Env => "env",
+            ErrorClass::Limit => "limit",
             ErrorClass::Script => "script",
             ErrorClass::Contract => "contract",
             ErrorClass::Declared => "declared",
@@ -90,6 +90,9 @@ impl ErrorClass {
 pub struct EvalError {
     pub class: ErrorClass,
     pub message: String,
+    /// The call of the call log it points at (`raise_for_status()`, a tool's error).
+    #[serde(default)]
+    pub call: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
@@ -98,13 +101,13 @@ pub struct EvalError {
 pub enum CallerKind {
     /// A routine's gate (id: the routine).
     Routine,
-    /// A sleeping agent's oracle condition (Phase 2; id: the session).
+    /// A sleeping agent's oracle condition (later; id: the session).
     Sleep,
     /// `launchpad oracle run` (id: the session).
     Cli,
-    /// The owner (Run from the oracle's page).
+    /// The owner (`oracle.run` from a window).
     Owner,
-    /// The owner's Test now (`oracle.test`): recorded, commits no cursor.
+    /// The owner's Test of the saved file (`oracle.test`): recorded, commits no cursor.
     Test,
 }
 
@@ -134,7 +137,7 @@ pub struct CallerUse {
     pub detail: Option<String>,
 }
 
-/// One evaluation.
+/// One evaluation of a saved oracle.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(rename = "OracleEvaluation")]
 pub struct Evaluation {
@@ -145,6 +148,7 @@ pub struct Evaluation {
     pub file_sha: String,
     #[ts(type = "Record<string, unknown>")]
     pub params: Value,
+    /// Why it ran (`{"kind": "schedule" | "cli" | "owner"}`): recorded, never given to the code.
     #[ts(type = "Record<string, unknown>")]
     pub event: Value,
     /// The consumer whose cursor it read (None: stateless).
@@ -161,7 +165,12 @@ pub struct Evaluation {
     pub links: Vec<String>,
     #[ts(type = "unknown[]")]
     pub items: Vec<Value>,
-    pub stderr_tail: String,
+    /// What `print()` wrote (at most 64 KB).
+    #[serde(default)]
+    pub log: String,
+    /// Every tool call, in order.
+    #[serde(default)]
+    pub calls: Vec<CallLog>,
     #[ts(type = "number")]
     pub duration_ms: i64,
     #[ts(type = "number")]
@@ -177,45 +186,22 @@ pub struct Evaluation {
 pub struct Request {
     pub workspace_id: String,
     pub oracle: String,
-    /// Given parameters (strings from `--param` or typed values), checked with `oracles::validate_params`.
+    /// Given arguments (strings from `--param` or typed values), checked with `oracles::validate_params`.
     pub params: Map<String, Value>,
     pub caller: Caller,
-    /// `{"kind": "schedule" | "cli" | "owner", ...}`: why it runs (data, never instructions).
+    /// `{"kind": "schedule" | "cli" | "owner", ...}`: why it runs (recorded, never given to the code).
     pub event: Value,
     /// The consumer's cursor key (`routine:<id>`, `cli:<workspace>:<oracle>:<name>`): its committed cursor is the input.
     pub cursor_key: Option<String>,
     /// The cursor of a stateless caller (`--since`), when `cursor_key` is None.
     pub cursor: Option<Value>,
-    /// A CLI caller accepts a result this fresh.
+    /// A CLI caller accepts a result this fresh (never fresher than `min_interval` allows to be called again).
     pub max_age_ms: Option<i64>,
     /// The owner's Test: never reuse a recent result (still joins one in flight).
     pub force: bool,
 }
 
-/// What the helper reads on stdin.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Input {
-    pub params: Value,
-    pub event: Value,
-    pub cursor: Option<Value>,
-    /// Milliseconds since the epoch.
-    pub now: i64,
-    /// Hosts ctx.http may call (`*`, `*.example.com`).
-    pub hosts: Vec<String>,
-    /// Seconds.
-    pub timeout: f64,
-    /// `{"url", "token", "workspace"}` with Launchpad read access.
-    pub launchpad: Option<Value>,
-}
-
-impl Input {
-    /// An input with these parameters, event and cursor (no hosts, now, 10 s).
-    pub fn new(params: Value, event: Value, cursor: Option<Value>) -> Input {
-        Input { params, event, cursor, now: now_ms(), hosts: vec![], timeout: oracles::DEFAULT_TIMEOUT_MS as f64 / 1000.0, launchpad: None }
-    }
-}
-
-/// The result of one `uv run`, without records.
+/// The result of one run, without records.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(rename = "OracleRunResult")]
 pub struct RunResult {
@@ -226,273 +212,243 @@ pub struct RunResult {
     pub links: Vec<String>,
     #[ts(type = "unknown[]")]
     pub items: Vec<Value>,
+    /// The proposed cursor (None: keep it; `null`: reset it).
     #[ts(type = "unknown")]
     pub cursor: Option<Value>,
-    pub stderr_tail: String,
+    pub log: String,
+    pub calls: Vec<CallLog>,
     #[ts(type = "number")]
     pub duration_ms: i64,
 }
 
 impl RunResult {
-    fn failed(class: ErrorClass, message: impl Into<String>) -> RunResult {
-        RunResult { outcome: Outcome::Failed, error: Some(EvalError { class, message: message.into() }), summary: String::new(), fingerprint: None, links: vec![], items: vec![], cursor: None, stderr_tail: String::new(), duration_ms: 0 }
+    pub fn failed(class: ErrorClass, message: impl Into<String>) -> RunResult {
+        RunResult { outcome: Outcome::Failed, error: Some(EvalError { class, message: message.into(), call: None }), summary: String::new(), fingerprint: None, links: vec![], items: vec![], cursor: None, log: String::new(), calls: vec![], duration_ms: 0 }
+    }
+
+    fn from_error(e: EvalError) -> RunResult {
+        RunResult { error: Some(e), ..RunResult::failed(ErrorClass::Script, "") }
     }
 }
 
-// ---------------------------------------------------------------- one run (no App)
+// ---------------------------------------------------------------- one run (Monty)
 
-/// Runs an oracle file once: `uv run --no-project --with <wheel> --script <file>` in `cwd`, with exactly `env`
-/// (it must hold PATH and HOME), the input on stdin, killed (process group) after `PREPARE_MS` without the
-/// helper's start, or `input.timeout` after it.
-pub async fn run_file(file: &Path, wheel: &Path, cwd: &Path, input: &Input, env: BTreeMap<String, String>) -> RunResult {
-    let started = Instant::now();
-    let mut r = run_inner(file, wheel, cwd, input, env).await;
-    r.duration_ms = started.elapsed().as_millis() as i64;
-    r
-}
-
-async fn run_inner(file: &Path, wheel: &Path, cwd: &Path, input: &Input, env: BTreeMap<String, String>) -> RunResult {
-    let user = UserEnv::from_vars(env);
-    if user.which("uv").is_none() {
-        return RunResult::failed(ErrorClass::Env, "uv is not installed on this machine (oracles run with uv run)");
+/// Pure: the answer `launchpad_oracle._finish` returns (JSON), checked: a verdict or a bool, a summary, fingerprint
+/// and links of their types, items JSON, evidence within 32 KB and a cursor within 4 KB.
+pub fn decide(answer: &str) -> RunResult {
+    let contract = |m: String| RunResult::failed(ErrorClass::Contract, m);
+    let Ok(v) = serde_json::from_str::<Value>(answer) else { return contract("check's answer could not be read".into()) };
+    if v["kind"] == "contract" {
+        return contract(v["message"].as_str().unwrap_or("check returned something other than a verdict").to_string());
     }
-    let mut cmd = Cmd::new(&user, "uv", Some(cwd)).child();
-    cmd.args(["run", "--no-project", "--quiet", "--with"]).arg(wheel).arg("--script").arg(file);
-    cmd.process_tree().stdin(Io::Piped).stdout(Io::Piped).stderr(Io::Piped);
-    let mut proc = match cmd.spawn().await {
-        Ok(p) => Group(p),
-        Err(e) => return RunResult::failed(ErrorClass::Env, format!("could not start uv: {e}")),
+    let outcome = match v["value"] {
+        Value::Bool(true) => Outcome::True,
+        Value::Bool(false) => Outcome::False,
+        _ => return contract(format!("verdict's value is True or False, not {}", v["value"])),
     };
-    let proc = &mut proc.0;
-    if let Some(mut w) = proc.stdin.take() {
-        let data = serde_json::to_vec(input).unwrap_or_default();
-        tokio::spawn(async move {
-            let _ = w.write_all(&data).await;
-            let _ = w.shutdown().await;
-        });
-    }
-    let (start_tx, mut start_rx) = tokio::sync::watch::channel(false);
-    let mut stdout = proc.stdout.take();
-    let out_task = tokio::spawn(async move {
-        let mut buf = Vec::new();
-        if let Some(r) = stdout.as_mut() {
-            let mut chunk = [0u8; 8192];
-            while let Ok(n) = r.read(&mut chunk).await {
-                if n == 0 {
-                    break;
-                }
-                if buf.len() < STDOUT_MAX {
-                    buf.extend_from_slice(&chunk[..n]);
-                }
-            }
-        }
-        buf
-    });
-    let mut stderr = proc.stderr.take();
-    let err_task = tokio::spawn(async move {
-        let mut tail: Vec<u8> = Vec::new();
-        let mut seen = false;
-        if let Some(r) = stderr.as_mut() {
-            let mut chunk = [0u8; 8192];
-            while let Ok(n) = r.read(&mut chunk).await {
-                if n == 0 {
-                    break;
-                }
-                tail.extend_from_slice(&chunk[..n]);
-                if !seen && String::from_utf8_lossy(&tail).contains(START_MARK) {
-                    seen = true;
-                    let _ = start_tx.send(true);
-                }
-                if tail.len() > 4 * STDERR_TAIL {
-                    tail.drain(..tail.len() - 2 * STDERR_TAIL);
-                }
-            }
-        }
-        tail
-    });
-    let timeout = Duration::from_millis((input.timeout * 1000.0) as u64);
-    let mut deadline = tokio::time::Instant::now() + Duration::from_millis(PREPARE_MS as u64);
-    let mut began = false;
-    let mut killed = None;
-    loop {
-        tokio::select! {
-            _ = proc.wait() => break,
-            changed = start_rx.changed(), if !began => {
-                if changed.is_ok() && *start_rx.borrow() {
-                    began = true;
-                    deadline = tokio::time::Instant::now() + timeout;
-                }
-            }
-            _ = tokio::time::sleep_until(deadline) => {
-                let _ = proc.kill().await;
-                killed = Some(if began {
-                    EvalError { class: ErrorClass::Timeout, message: format!("no answer within {} s: killed", timeout.as_secs_f64()) }
-                } else {
-                    EvalError { class: ErrorClass::Env, message: format!("uv did not prepare the environment within {} s", PREPARE_MS / 1000) }
-                });
-                break;
-            }
-        }
-    }
-    let collect = |t: tokio::task::JoinHandle<Vec<u8>>| async move { tokio::time::timeout(Duration::from_secs(2), t).await.ok().and_then(|r| r.ok()).unwrap_or_default() };
-    let (out, err) = (collect(out_task).await, collect(err_task).await);
-    let stderr_tail = tail_text(&err);
-    let began = began || String::from_utf8_lossy(&err).contains(START_MARK);
-    let mut r = match killed {
-        Some(e) => RunResult::failed(e.class, e.message),
-        None => parse_output(&String::from_utf8_lossy(&out), &stderr_tail, began),
+    let Some(summary) = v["summary"].as_str().map(str::to_string) else { return contract("verdict's summary is a str".into()) };
+    let fingerprint = match &v["fingerprint"] {
+        Value::Null => None,
+        Value::String(s) => Some(s.clone()),
+        x => return contract(format!("verdict's fingerprint is a str or None, not {x}")),
     };
-    r.stderr_tail = stderr_tail;
-    r
-}
-
-/// A running evaluation: dropped before it ended (a Home shutdown), its whole process group is killed.
-struct Group(launchpad_core::exec::Proc);
-
-impl Drop for Group {
-    fn drop(&mut self) {
-        // After `wait` the group is gone already and this only reaches the reaped child: harmless.
-        let _ = self.0.start_kill();
-    }
-}
-
-/// The end of stderr, without the helper's start line.
-fn tail_text(err: &[u8]) -> String {
-    let text = String::from_utf8_lossy(err);
-    let lines: Vec<&str> = text.lines().filter(|l| !l.contains(START_MARK)).collect();
-    let joined = lines.join("\n");
-    let cut = joined.len().saturating_sub(STDERR_TAIL);
-    let start = (cut..=joined.len()).find(|i| joined.is_char_boundary(*i)).unwrap_or(joined.len());
-    joined[start..].trim().to_string()
-}
-
-/// The result from the last line of stdout, checked: an outcome, a known error class, a cursor and evidence
-/// within their caps. Without one, why: a traceback (script), uv's own error (env), or no `run(check)` (contract).
-pub fn parse_output(stdout: &str, stderr_tail: &str, began: bool) -> RunResult {
-    let last = stdout.lines().rev().map(str::trim).find(|l| !l.is_empty());
-    let Some(v) = last.and_then(|l| serde_json::from_str::<Value>(l).ok()).filter(|v| v.get("outcome").is_some()) else {
-        let last_line = stderr_tail.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string();
-        if stderr_tail.contains("Traceback (most recent call last)") {
-            return RunResult::failed(ErrorClass::Script, if last_line.is_empty() { "the oracle raised an exception".to_string() } else { last_line });
-        }
-        if !began {
-            // uv's own error, on one line.
-            let text: String = stderr_tail.lines().map(|l| l.trim().trim_start_matches(['×', '╰', '─', '▶', ' '])).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ").chars().take(500).collect();
-            return RunResult::failed(ErrorClass::Env, if text.is_empty() { "uv could not run the oracle".to_string() } else { text });
-        }
-        return RunResult::failed(ErrorClass::Contract, "the oracle wrote no result: does the file end with run(check)?");
+    let links = match &v["links"] {
+        Value::Null => vec![],
+        Value::Array(a) if a.iter().all(Value::is_string) => a.iter().filter_map(|l| l.as_str().map(str::to_string)).collect(),
+        _ => return contract("verdict's links is a list of str".into()),
     };
-    let outcome = match v["outcome"].as_str() {
-        Some("true") => Outcome::True,
-        Some("false") => Outcome::False,
-        Some("failed") => {
-            let class = serde_json::from_value(v["error"]["class"].clone()).unwrap_or(ErrorClass::Contract);
-            let message: String = v["error"]["message"].as_str().unwrap_or("failed").chars().take(2000).collect();
-            return RunResult::failed(class, message);
-        }
-        _ => return RunResult::failed(ErrorClass::Contract, "the result's outcome is not true, false or failed"),
+    let items = match &v["items"] {
+        Value::Null => vec![],
+        Value::Array(a) => a.clone(),
+        _ => return contract("verdict's items is a list".into()),
     };
-    let cursor = v.get("cursor").cloned().filter(|c| !c.is_null());
-    if cursor.as_ref().is_some_and(|c| c.to_string().len() > MAX_CURSOR) {
-        return RunResult::failed(ErrorClass::Contract, format!("the cursor is larger than {MAX_CURSOR} bytes"));
-    }
-    let summary = v["summary"].as_str().unwrap_or("").to_string();
-    let fingerprint = v["fingerprint"].as_str().map(str::to_string);
-    let links: Vec<String> = v["links"].as_array().map(|a| a.iter().filter_map(|l| l.as_str().map(str::to_string)).collect()).unwrap_or_default();
-    let items = v["items"].as_array().cloned().unwrap_or_default();
+    let cursor = if v["cursor_set"] == Value::Bool(true) {
+        match &v["cursor"] {
+            Value::Null => Some(Value::Null),
+            Value::String(s) if s.len() <= MAX_CURSOR => Some(Value::String(s.clone())),
+            Value::String(_) => return contract(format!("the cursor is larger than {MAX_CURSOR} bytes")),
+            x => return contract(format!("the cursor is a str or None, not {x}")),
+        }
+    } else {
+        None
+    };
     if serde_json::json!([summary, fingerprint, links, items]).to_string().len() > MAX_EVIDENCE {
-        return RunResult::failed(ErrorClass::Contract, format!("the evidence is larger than {MAX_EVIDENCE} bytes"));
+        return contract(format!("the evidence (summary, fingerprint, links and items) is larger than {} KB", MAX_EVIDENCE >> 10));
     }
-    RunResult { outcome, error: None, summary, fingerprint, links, items, cursor, stderr_tail: String::new(), duration_ms: 0 }
+    RunResult { outcome, error: None, summary, fingerprint, links, items, cursor, log: String::new(), calls: vec![], duration_ms: 0 }
 }
 
-/// Hosts ctx.http may call: the oracle's own, then its tools' (the hosts that receive their tokens).
-pub fn hosts_for(meta: &Meta, tools: &[launchpad_core::vault::Tool]) -> Vec<String> {
-    let mut hosts = meta.access.hosts.clone();
-    for t in tools.iter().filter(|t| meta.access.tools.contains(&t.id)) {
-        hosts.extend(t.hosts.iter().map(|h| h.host.to_ascii_lowercase()));
+/// Pure: the cursor `check` receives: a committed string as is, None as None, any other committed JSON as its text.
+pub fn cursor_arg(c: &Option<Value>) -> Value {
+    match c {
+        None | Some(Value::Null) => Value::Null,
+        Some(Value::String(s)) => Value::String(s.clone()),
+        Some(v) => Value::String(v.to_string()),
     }
-    hosts.dedup();
-    hosts
 }
 
-fn scratch() -> Result<PathBuf> {
-    let dir = std::env::temp_dir().join(format!("launchpad-oracle-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
+/// Pure: the class and message of an exception that ended the code. An error a tool raised keeps the tool's class
+/// (`raised`); the interpreter's own limits are `limit` or `timeout`; anything else is `script`, with its line.
+pub fn classify(exc: &MontyException, raised: &[(ExcType, String, ErrorClass, usize)]) -> EvalError {
+    let message = exc.message().unwrap_or_default();
+    if let Some((_, _, class, call)) = raised.iter().rev().find(|(t, m, _, _)| *t == exc.exc_type() && m == message) {
+        return EvalError { class: *class, message: exc.summary(), call: Some(*call) };
+    }
+    let limit = |m: String| EvalError { class: ErrorClass::Limit, message: m, call: None };
+    if message.starts_with("suspension limit") {
+        return limit("more tool calls and imports than an evaluation allows".into());
+    }
+    if message.starts_with("sleep limit exceeded") {
+        return limit("time.sleep is not available: an oracle checks once and never waits".into());
+    }
+    if exc.exc_type() == ExcType::MemoryError {
+        return limit(format!("memory: {message}"));
+    }
+    if exc.exc_type() == ExcType::TimeoutError && message.contains("time limit exceeded") {
+        return EvalError { class: ErrorClass::Timeout, message: "the oracle ran past its timeout".into(), call: None };
+    }
+    let line = exc.traceback().iter().rev().find(|f| f.filename.starts_with("<python-input-")).map(|f| f.start.line);
+    EvalError { class: ErrorClass::Script, message: match line { Some(l) => format!("line {l}: {}", exc.summary()), None => exc.summary() }, call: None }
 }
 
-// ---------------------------------------------------------------- Home
-
-fn ensure_home(app: &App) -> Result<()> {
-    ensure!(launchpad_core::home_git::here(app), "oracles run on Home");
-    Ok(())
+/// What a run holds while it goes.
+struct Run {
+    tools: ToolBox,
+    /// The errors Home raised into the code: type, message, class and call index.
+    raised: Vec<(ExcType, String, ErrorClass, usize)>,
+    deadline: tokio::time::Instant,
 }
 
-fn data(app: &App) -> PathBuf {
-    app.paths.data_dir.join("oracles")
-}
-
-/// What an evaluation on Home runs with.
-struct Prepared {
-    env: BTreeMap<String, String>,
-    /// Hosts ctx.http may call.
-    hosts: Vec<String>,
-    /// The secrets it holds (tool tokens, its Launchpad token): never recorded or shown (`redact`).
-    secrets: Vec<String>,
-    /// Launchpad read access: `{"url", "token", "workspace"}` for ctx.launchpad, and the token, revoked when dropped.
-    launchpad: Option<(Value, launchpad_core::session_token::OracleToken)>,
-}
-
-/// How long an oracle's Launchpad token lives at most (it is revoked when the evaluation ends).
-const TOKEN_MS: i64 = PREPARE_MS + oracles::MAX_TIMEOUT_MS + 60_000;
-
-/// The process environment of an evaluation on Home, built from scratch: PATH, HOME, uv's folders, the real token
-/// of each listed tool under its variables, and with `launchpad = "read"` Home's address and a read token of the
-/// workspace (`LAUNCHPAD_URL`, `LAUNCHPAD_TOKEN`, `LAUNCHPAD_WORKSPACE`). A tool that is unknown, not granted to the
-/// workspace or without its token fails the evaluation (class access).
-async fn environment(app: &App, ws: &str, meta: &Meta, home: &Path) -> std::result::Result<Prepared, EvalError> {
-    let access = |m: String| EvalError { class: ErrorClass::Access, message: m };
-    let base = data(app);
-    let mut secrets = vec![];
-    let mut env = BTreeMap::new();
-    env.insert("PATH".to_string(), app.env.get("PATH").unwrap_or("/usr/local/bin:/usr/bin:/bin").to_string());
-    env.insert("HOME".into(), home.display().to_string());
-    env.insert("UV_CACHE_DIR".into(), base.join("uv-cache").display().to_string());
-    env.insert("UV_PYTHON_INSTALL_DIR".into(), base.join("uv-python").display().to_string());
-    env.insert("LANG".into(), "C.UTF-8".into());
-    env.insert("PYTHONUNBUFFERED".into(), "1".into());
-    let tools = launchpad_core::vault::tools(app).await.map_err(|e| access(format!("Home's tool registry: {e:#}")))?;
-    for id in &meta.access.tools {
-        let t = tools.iter().find(|t| &t.id == id).ok_or_else(|| access(format!("there is no tool {id} in Home's registry")))?;
-        if !t.granted(Some(ws)) {
-            return Err(access(format!("the tool {} is not granted to this workspace (Settings → Credentials and tools)", t.name)));
-        }
-        if let Some(cid) = &t.credential {
-            let secret = match launchpad_core::vault::secret(app, cid).await {
-                Ok(Some((launchpad_core::vault::Kind::Token, s))) => s,
-                _ => return Err(access(format!("the tool {} has no token in Home's vault (Settings → Credentials and tools)", t.name))),
-            };
-            for var in &t.env {
-                env.insert(var.clone(), secret.clone());
+/// Feeds and resumes until the code completes, answering every suspension; Err ends the evaluation.
+async fn drive(co: &mut Checkout, first: Result<TurnEvent, PoolError>, run: &mut Run, on_print: monty_pool::OnPrint<'_>) -> std::result::Result<MontyObject, EvalError> {
+    let timeout = || EvalError { class: ErrorClass::Timeout, message: "the oracle ran past its timeout".into(), call: None };
+    let mut ev = first;
+    loop {
+        let event = match ev {
+            Ok(e) => e,
+            Err(PoolError::Runtime(exc)) => return Err(classify(&exc, &run.raised)),
+            Err(PoolError::Timeout { .. } | PoolError::CpuLimit { .. }) => return Err(timeout()),
+            Err(PoolError::Crashed { .. }) => return Err(EvalError { class: ErrorClass::Script, message: "the interpreter stopped".into(), call: None }),
+            Err(e) => return Err(EvalError { class: ErrorClass::Script, message: format!("the interpreter: {e}"), call: None }),
+        };
+        let answer = match event {
+            TurnEvent::Complete(v) => return Ok(v),
+            TurnEvent::OsCall { function_name, args, system_sleep, .. } => match system_sleep {
+                Some(_) => ResumeValue::Return(MontyObject::none()),
+                None => oracle_monty::os_answer(&function_name, oracle_monty::module_of(&args).as_deref()),
+            },
+            TurnEvent::FunctionCall { function_name, args, .. } => {
+                let text = |i: usize| args.arg(i).and_then(|a| a.as_str().map(str::to_string)).unwrap_or_default();
+                match function_name.as_str() {
+                    "call" => match run.tools.call(&text(0), &text(1), &text(2)).await {
+                        Reply::Value(v) => ResumeValue::Return(v),
+                        Reply::Raise { exc, message, class } => {
+                            run.raised.push((exc, message.clone(), class, run.tools.calls.len().saturating_sub(1)));
+                            ResumeValue::Error(MontyException::new(exc, Some(message)))
+                        }
+                        Reply::Stop { class, message } => return Err(EvalError { class, message, call: run.tools.calls.len().checked_sub(1) }),
+                    },
+                    "fail" => {
+                        let class = if text(0) == "http" { ErrorClass::Http } else { ErrorClass::Declared };
+                        let call = args.arg(2).and_then(|a| a.as_int()).filter(|n| *n >= 0).map(|n| n as usize);
+                        let mut message: String = text(1).chars().take(2000).collect();
+                        if class == ErrorClass::Http
+                            && let Some(c) = call.and_then(|c| run.tools.calls.get(c))
+                        {
+                            message = format!("{message} ({} {})", c.tool, c.call);
+                        }
+                        return Err(EvalError { class, message, call });
+                    }
+                    _ => ResumeValue::NotFound,
+                }
             }
-            secrets.push(secret);
-        }
+            TurnEvent::NameLookup { .. } => {
+                ev = match tokio::time::timeout_at(run.deadline, Box::pin(co.resume_name_lookup(None::<MontyObject>, on_print))).await {
+                    Ok(r) => r,
+                    Err(_) => return Err(timeout()),
+                };
+                continue;
+            }
+            TurnEvent::ResolveFutures { .. } => return Err(EvalError { class: ErrorClass::Script, message: "asyncio is not available to oracles".into(), call: None }),
+        };
+        ev = match tokio::time::timeout_at(run.deadline, Box::pin(co.resume(answer, on_print))).await {
+            Ok(r) => r,
+            Err(_) => return Err(timeout()),
+        };
     }
-    let launchpad = (meta.access.launchpad == LaunchpadRead::Read).then(|| {
-        let token = launchpad_core::session_token::oracle_token(ws, TOKEN_MS);
-        let url = app.paths.base_url();
-        env.insert("LAUNCHPAD_URL".into(), url.clone());
-        env.insert("LAUNCHPAD_TOKEN".into(), token.value.clone());
-        env.insert("LAUNCHPAD_WORKSPACE".into(), ws.to_string());
-        secrets.push(token.value.clone());
-        (serde_json::json!({"url": url, "token": token.value, "workspace": ws}), token)
-    });
-    Ok(Prepared { env, hosts: hosts_for(meta, &tools), secrets, launchpad })
 }
 
-/// Pure: a result without the secrets an evaluation held (as text, also JSON-escaped, in every field), so tokens
-/// an oracle prints or puts in its evidence never reach records, the Today row or agents.
+/// The feed that calls `check` with its arguments, then returns its answer as JSON.
+const CALL: &str = "import launchpad_oracle as __launchpad_oracle\n__launchpad_oracle._finish(check, __launchpad_in)";
+
+/// Runs an oracle file once in a fresh Monty worker: the file, then `check(**params)` (with `cursor` and `now` when
+/// it asks for them). Waits for one of `SLOTS` first; the timeout counts from the start of the run, tool calls
+/// included. Records nothing. Runs in its own task, so it never shares a deep stack with its caller.
+pub async fn run(app: &App, ws: &str, content: &str, meta: &Meta, params: &Map<String, Value>, cursor: &Option<Value>, seed: &str) -> RunResult {
+    let (app, ws, content, meta, params, cursor, seed) = (app.clone(), ws.to_string(), content.to_string(), meta.clone(), params.clone(), cursor.clone(), seed.to_string());
+    tokio::spawn(async move { run_task(&app, &ws, &content, &meta, &params, &cursor, &seed).await }).await.unwrap_or_else(|_| RunResult::failed(ErrorClass::Script, "the evaluation stopped"))
+}
+
+async fn run_task(app: &App, ws: &str, content: &str, meta: &Meta, params: &Map<String, Value>, cursor: &Option<Value>, seed: &str) -> RunResult {
+    let _slot = slot().await;
+    let started = Instant::now();
+    let now = now_ms();
+    let timeout = Duration::from_millis(meta.timeout_ms as u64);
+    let deadline = tokio::time::Instant::now() + timeout;
+    let log = Arc::new(Mutex::new(String::new()));
+    let mut run = Run { tools: ToolBox::new(app, ws, &meta.tools, started + timeout), raised: vec![], deadline };
+    let mut r = match run_inner(app, content, meta, params, cursor, seed, now, &mut run, log.clone()).await {
+        Ok(answer) => decide(&answer),
+        Err(e) => RunResult::from_error(e),
+    };
+    r.log = log.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    r.calls = std::mem::take(&mut run.tools.calls);
+    r.duration_ms = started.elapsed().as_millis() as i64;
+    redact(r, &run.tools.secrets)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_inner(app: &App, content: &str, meta: &Meta, params: &Map<String, Value>, cursor: &Option<Value>, seed: &str, now: i64, run: &mut Run, log: Arc<Mutex<String>>) -> std::result::Result<String, EvalError> {
+    let script = |m: String| EvalError { class: ErrorClass::Script, message: m, call: None };
+    let pool = oracle_monty::pool(app).await.map_err(|e| script(format!("{e:#}")))?;
+    let session = oracle_monty::session(Duration::from_millis(meta.timeout_ms as u64), now, seed, false);
+    let mut co = match tokio::time::timeout_at(run.deadline, Box::pin(pool.checkout(&session))).await {
+        Ok(Ok(c)) => c,
+        Ok(Err(e)) => return Err(script(format!("the interpreter could not start: {e}"))),
+        Err(_) => return Err(EvalError { class: ErrorClass::Timeout, message: "the oracle ran past its timeout".into(), call: None }),
+    };
+    let mut on_print = monty_pool::on_print_sync(move |_, text| {
+        let mut l = log.lock().unwrap_or_else(|p| p.into_inner());
+        if l.len() < MAX_LOG {
+            let room = MAX_LOG - l.len();
+            let cut = (0..=room.min(text.len())).rev().find(|i| text.is_char_boundary(*i)).unwrap_or(0);
+            l.push_str(&text[..cut]);
+        }
+    });
+    let first = match tokio::time::timeout_at(run.deadline, Box::pin(co.feed(content.to_string(), NamedValues::new(), vec![], true, &mut on_print))).await {
+        Ok(r) => r,
+        Err(_) => return Err(EvalError { class: ErrorClass::Timeout, message: "the oracle ran past its timeout".into(), call: None }),
+    };
+    drive(&mut co, first, run, &mut on_print).await?;
+    let mut kwargs = params.clone();
+    if meta.cursor {
+        kwargs.insert("cursor".into(), cursor_arg(cursor));
+    }
+    let input = serde_json::json!({"kwargs": kwargs, "now": meta.now.then(|| now as f64 / 1000.0)});
+    let mut inputs = NamedValues::new();
+    inputs.push("__launchpad_in", MontyObject::string(input.to_string()));
+    let second = match tokio::time::timeout_at(run.deadline, Box::pin(co.feed(CALL, inputs, vec![], true, &mut on_print))).await {
+        Ok(r) => r,
+        Err(_) => return Err(EvalError { class: ErrorClass::Timeout, message: "the oracle ran past its timeout".into(), call: None }),
+    };
+    let answer = drive(&mut co, second, run, &mut on_print).await?;
+    // The worker serves this evaluation only (max one checkout per worker): dropping the checkout ends it.
+    drop(co);
+    answer.as_ref().as_str().map(str::to_string).ok_or_else(|| EvalError { class: ErrorClass::Contract, message: "check's answer could not be read".into(), call: None })
+}
+
+/// Pure: a result without the secrets an evaluation used (as text, also JSON-escaped, in every field), so a token
+/// an API echoes never reaches records, the Today row or agents.
 fn redact(r: RunResult, secrets: &[String]) -> RunResult {
     let secrets: Vec<&String> = secrets.iter().filter(|s| s.len() >= 8).collect();
     let Ok(mut text) = serde_json::to_string(&r) else { return r };
@@ -508,36 +464,16 @@ fn redact(r: RunResult, secrets: &[String]) -> RunResult {
     serde_json::from_str(&text).unwrap_or_else(|_| RunResult { duration_ms: r.duration_ms, ..RunResult::failed(ErrorClass::Contract, "the result held a secret of the oracle and could not be redacted") })
 }
 
-/// Runs content on Home (the owner's Test of a draft, or an evaluation), in a fresh temporary HOME.
-/// `input` holds the parameters, event and cursor; the hosts, time and timeout are set here.
-async fn run_on_home(app: &App, ws: &str, slug: &str, content: &str, meta: &Meta, mut input: Input) -> RunResult {
-    let home = match scratch() {
-        Ok(h) => h,
-        Err(e) => return RunResult::failed(ErrorClass::Env, format!("temporary folder: {e:#}")),
-    };
-    let r = async {
-        // Waits for a slot first, so a Launchpad token never ages in the queue.
-        let _slot = slots().acquire().await;
-        let p = match environment(app, ws, meta, &home).await {
-            Ok(x) => x,
-            Err(e) => return RunResult::failed(e.class, e.message),
-        };
-        let wheel = match crate::oracle_helper::write_wheel(&data(app)) {
-            Ok(w) => w,
-            Err(e) => return RunResult::failed(ErrorClass::Env, format!("the launchpad_oracle wheel: {e:#}")),
-        };
-        let file = home.join(format!("{slug}.py"));
-        if let Err(e) = std::fs::write(&file, content) {
-            return RunResult::failed(ErrorClass::Env, format!("temporary file: {e}"));
-        }
-        (input.now, input.hosts, input.timeout) = (now_ms(), p.hosts, meta.timeout_ms as f64 / 1000.0);
-        input.launchpad = p.launchpad.as_ref().map(|(v, _)| v.clone());
-        // The Launchpad token (`p.launchpad`) lives until here.
-        redact(run_file(&file, &wheel, &home, &input, p.env).await, &p.secrets)
-    }
-    .await;
-    let _ = tokio::fs::remove_dir_all(&home).await;
-    r
+// ---------------------------------------------------------------- Home
+
+fn ensure_home(app: &App) -> Result<()> {
+    ensure!(launchpad_core::home_git::here(app), "oracles run on Home");
+    Ok(())
+}
+
+/// One of the `SLOTS` evaluations (and type checks) at once; more wait.
+pub async fn slot() -> tokio::sync::SemaphorePermit<'static> {
+    slots().acquire().await.expect("never closed")
 }
 
 fn slots() -> &'static tokio::sync::Semaphore {
@@ -566,25 +502,32 @@ fn flight_key(ws: &str, file_sha: &str, params: &Value, cursor: &Option<Value>) 
     hex::encode(Sha256::digest(serde_json::json!([ws, file_sha, params, cursor]).to_string().as_bytes()))
 }
 
-/// The owner's Test of a draft on Home (Schedules → Oracles): the same environment and limits as an evaluation,
-/// recorded nowhere. `content` must parse.
-pub async fn test_draft(app: &App, ws: &str, slug: &str, content: &str, params: &Map<String, Value>, cursor: Option<Value>) -> Result<RunResult> {
+/// A draft's run on Home (the owner's Test of unsaved changes, `launchpad oracle test`): pre-checked
+/// (`oracle_check::Refused` when refused), then run exactly like the saved oracle would run, recorded nowhere and
+/// sharing nothing. Returns the result and the type warnings.
+pub async fn test_draft(app: &App, ws: &str, content: &str, params: &Map<String, Value>, cursor: Option<Value>) -> Result<(RunResult, Vec<Problem>)> {
     ensure_home(app)?;
-    ensure!(oracles::valid_slug(slug), "{slug:?} is not a valid oracle slug");
-    let meta = oracles::check(app, content).await?;
-    let params = oracles::validate_params(&meta.params, params)?;
-    Ok(run_on_home(app, ws, slug, content, &meta, Input::new(Value::Object(params), serde_json::json!({"kind": "test"}), cursor)).await)
+    oracle_monty::pool(app).await?;
+    let checked = crate::oracle_check::precheck(app, content).await?;
+    let params = oracles::validate_params(&checked.meta.params, params)?;
+    let seed = format!("draft_{}", uuid::Uuid::new_v4().simple());
+    Ok((run(app, ws, &checked.content, &checked.meta, &params, &cursor, &seed).await, checked.warnings))
 }
 
 /// Evaluates a saved oracle for a consumer: reuses a fresh result, joins one in flight, or runs it (one of `SLOTS`).
-/// The run continues in its own task when the caller goes away. An error means it never reached the oracle (unknown,
-/// paused, a file with an error, bad parameters); everything else is an `Evaluation`, Failed ones included.
+/// The run continues in its own task when the caller goes away. An error means it never reached the oracle
+/// (unknown, paused, broken, bad arguments, no interpreter on Home); everything else is an `Evaluation`, Failed
+/// ones included.
 pub async fn evaluate(app: &App, req: Request) -> Result<Evaluation> {
     ensure_home(app)?;
     let file = oracles::get(app, &req.workspace_id, &req.oracle).await?;
     ensure!(!file.oracle.paused, "the oracle {} is paused", req.oracle);
-    let Some(meta) = file.oracle.meta.clone() else { bail!("the oracle {} has an error: {}", req.oracle, file.oracle.error.unwrap_or_default()) };
+    if let Some(why) = file.oracle.broken_reason() {
+        bail!("the oracle {} is broken and is not evaluated until it is saved again: {why}", req.oracle);
+    }
+    let meta = file.oracle.meta.clone().context("the oracle has no definition")?;
     let params = Value::Object(oracles::validate_params(&meta.params, &req.params)?);
+    oracle_monty::pool(app).await?;
     let cursor_in = match &req.cursor_key {
         Some(k) => cursor(app, k).await?,
         None => req.cursor.clone(),
@@ -626,10 +569,12 @@ pub async fn evaluate(app: &App, req: Request) -> Result<Evaluation> {
 
 #[allow(clippy::too_many_arguments)]
 async fn run_and_record(app: &App, req: &Request, key: &str, file_sha: &str, content: &str, meta: &Meta, params: Value, cursor_in: Option<Value>) -> Result<Evaluation> {
-    let r = run_on_home(app, &req.workspace_id, &req.oracle, content, meta, Input::new(params.clone(), req.event.clone(), cursor_in.clone())).await;
+    let id = format!("ev_{}", uuid::Uuid::new_v4().simple());
+    let args = params.as_object().cloned().unwrap_or_default();
+    let r = run(app, &req.workspace_id, content, meta, &args, &cursor_in, &id).await;
     let at = now_ms();
     let e = Evaluation {
-        id: format!("ev_{}", uuid::Uuid::new_v4().simple()),
+        id,
         workspace_id: req.workspace_id.clone(),
         oracle: req.oracle.clone(),
         file_sha: file_sha.into(),
@@ -644,7 +589,8 @@ async fn run_and_record(app: &App, req: &Request, key: &str, file_sha: &str, con
         fingerprint: r.fingerprint,
         links: r.links,
         items: r.items,
-        stderr_tail: r.stderr_tail,
+        log: r.log,
+        calls: r.calls,
         duration_ms: r.duration_ms,
         created_at: at,
         callers: vec![CallerUse { caller: req.caller.clone(), at, how: "started".into(), consequence: None, detail: None }],
@@ -660,7 +606,10 @@ async fn run_and_record(app: &App, req: &Request, key: &str, file_sha: &str, con
             )?;
             let prev: Option<String> = tx.query_row("SELECT json FROM oracle_streak WHERE workspace_id = ?1 AND oracle = ?2", params![row.workspace_id, row.oracle], |r| r.get(0)).optional()?;
             let prev = prev.and_then(|j| serde_json::from_str::<Streak>(&j).ok()).unwrap_or_else(|| Streak::new(&row.workspace_id, &row.oracle));
-            let next = prev.next(row.outcome, row.error.as_ref(), row.created_at);
+            let mut next = prev.next(row.outcome, row.error.as_ref(), row.created_at);
+            if let Some(c) = row.error.as_ref().and_then(|e| e.call).and_then(|i| row.calls.get(i)) {
+                next.last_call = Some(format!("{} {} · {}", c.tool, c.call, c.outcome));
+            }
             tx.execute(
                 "INSERT INTO oracle_streak (workspace_id, oracle, json) VALUES (?1, ?2, ?3) ON CONFLICT (workspace_id, oracle) DO UPDATE SET json = ?3",
                 params![row.workspace_id, row.oracle, serde_json::to_string(&next)?],
@@ -833,6 +782,9 @@ pub struct Streak {
     /// Failures of this streak by class.
     pub classes: BTreeMap<String, u32>,
     pub last_error: Option<EvalError>,
+    /// The call of the call log the last error points at (`github GET /repos/… · HTTP 404`).
+    #[serde(default)]
+    pub last_call: Option<String>,
     #[ts(type = "number | null")]
     pub last_good_at: Option<i64>,
     /// Mark read: hides the row until the next failure, which starts a new streak.
@@ -846,7 +798,7 @@ pub struct Streak {
 
 impl Streak {
     pub fn new(ws: &str, oracle: &str) -> Streak {
-        Streak { workspace_id: ws.into(), oracle: oracle.into(), count: 0, first_at: None, last_at: None, classes: BTreeMap::new(), last_error: None, last_good_at: None, read_at: None, recovered_at: None, recovered_after: 0 }
+        Streak { workspace_id: ws.into(), oracle: oracle.into(), count: 0, first_at: None, last_at: None, classes: BTreeMap::new(), last_error: None, last_call: None, last_good_at: None, read_at: None, recovered_at: None, recovered_after: 0 }
     }
 
     /// Failing and not marked read: its Today row shows.
@@ -882,6 +834,7 @@ impl Streak {
                 let class = error.map(|e| e.class).unwrap_or(ErrorClass::Script);
                 *s.classes.entry(class.as_str().to_string()).or_default() += 1;
                 s.last_error = error.cloned();
+                s.last_call = None;
             }
             Outcome::True | Outcome::False => {
                 if s.count > 0 {
@@ -965,43 +918,76 @@ pub fn spawn(app: &App) {
 mod tests {
     use super::*;
 
+    fn answer(v: Value) -> RunResult {
+        decide(&v.to_string())
+    }
+
     #[test]
-    fn output_parsing() {
-        let r = parse_output("noise\n{\"outcome\": \"true\", \"summary\": \"red\", \"fingerprint\": \"abc\", \"links\": [\"https://x\"], \"items\": [1], \"cursor\": {\"v\": 2}}\n", "", true);
-        assert_eq!((r.outcome, r.summary.as_str(), r.fingerprint.as_deref(), r.cursor), (Outcome::True, "red", Some("abc"), Some(serde_json::json!({"v": 2}))));
-        let r = parse_output("{\"outcome\": \"failed\", \"error\": {\"class\": \"http\", \"message\": \"401\"}}", "", true);
-        assert_eq!(r.error.unwrap().class, ErrorClass::Http);
-        let r = parse_output("{\"outcome\": \"failed\", \"error\": {\"class\": \"weird\"}}", "", true);
-        assert_eq!(r.error.unwrap().class, ErrorClass::Contract);
-        assert_eq!(parse_output("", "Traceback (most recent call last):\n  x\nKeyError: 'a'", true).error.unwrap().message, "KeyError: 'a'");
-        assert_eq!(parse_output("", "error: No solution found", false).error.unwrap().class, ErrorClass::Env);
-        assert_eq!(parse_output("", "", true).error.unwrap().class, ErrorClass::Contract);
-        let big = format!("{{\"outcome\": \"false\", \"cursor\": \"{}\"}}", "x".repeat(MAX_CURSOR + 1));
-        assert_eq!(parse_output(&big, "", true).error.unwrap().class, ErrorClass::Contract);
+    fn decides_the_answer() {
+        let r = answer(serde_json::json!({"kind": "verdict", "value": true, "summary": "red", "fingerprint": "abc", "links": ["https://x"], "items": [1], "cursor": "c2", "cursor_set": true}));
+        assert_eq!((r.outcome, r.summary.as_str(), r.fingerprint.as_deref(), r.cursor), (Outcome::True, "red", Some("abc"), Some(Value::from("c2"))));
+        let r = answer(serde_json::json!({"kind": "verdict", "value": false, "summary": "", "fingerprint": null, "links": null, "items": null, "cursor": null, "cursor_set": false}));
+        assert_eq!((r.outcome, r.cursor, r.links.len()), (Outcome::False, None, 0));
+        // An explicit cursor=None resets it.
+        assert_eq!(answer(serde_json::json!({"kind": "verdict", "value": false, "summary": "", "cursor": null, "cursor_set": true})).cursor, Some(Value::Null));
+        for bad in [
+            serde_json::json!({"kind": "contract", "message": "check returned int"}),
+            serde_json::json!({"kind": "verdict", "value": "yes", "summary": ""}),
+            serde_json::json!({"kind": "verdict", "value": true, "summary": 1}),
+            serde_json::json!({"kind": "verdict", "value": true, "summary": "", "links": [1]}),
+            serde_json::json!({"kind": "verdict", "value": true, "summary": "", "cursor": 5, "cursor_set": true}),
+            serde_json::json!({"kind": "verdict", "value": true, "summary": "", "cursor": "x".repeat(MAX_CURSOR + 1), "cursor_set": true}),
+            serde_json::json!({"kind": "verdict", "value": true, "summary": "x".repeat(MAX_EVIDENCE)}),
+        ] {
+            assert_eq!(answer(bad.clone()).error.unwrap().class, ErrorClass::Contract, "{bad}");
+        }
+    }
+
+    /// T14: an error a tool raised keeps its class even when the code catches and re-raises it; other exceptions are
+    /// script errors with their line; Monty's limits are limit or timeout.
+    #[test]
+    fn classifies_exceptions() {
+        let raised = vec![(ExcType::PermissionError, "tools.slack is not in this oracle's header".to_string(), ErrorClass::Access, 0)];
+        let e = classify(&MontyException::new(ExcType::PermissionError, Some("tools.slack is not in this oracle's header".into())), &raised);
+        assert_eq!((e.class, e.call), (ErrorClass::Access, Some(0)));
+        assert_eq!(classify(&MontyException::new(ExcType::KeyError, Some("'a'".into())), &raised).class, ErrorClass::Script);
+        assert_eq!(classify(&MontyException::new(ExcType::RuntimeError, Some("suspension limit 250 exceeded".into())), &[]).class, ErrorClass::Limit);
+        assert_eq!(classify(&MontyException::new(ExcType::TimeoutError, Some("sleep limit exceeded: 5s > 0ns".into())), &[]).class, ErrorClass::Limit);
+        assert_eq!(classify(&MontyException::new(ExcType::MemoryError, Some("memory limit exceeded".into())), &[]).class, ErrorClass::Limit);
+        assert_eq!(classify(&MontyException::new(ExcType::TimeoutError, Some("feed time limit exceeded: 10s > 10s".into())), &[]).class, ErrorClass::Timeout);
+        // The code's own TimeoutError stays a script error.
+        assert_eq!(classify(&MontyException::new(ExcType::TimeoutError, Some("mine".into())), &[]).class, ErrorClass::Script);
+    }
+
+    #[test]
+    fn cursor_arguments() {
+        assert_eq!(cursor_arg(&None), Value::Null);
+        assert_eq!(cursor_arg(&Some(Value::from("1.5"))), Value::from("1.5"));
+        assert_eq!(cursor_arg(&Some(serde_json::json!({"v": 2}))), Value::from("{\"v\":2}"));
     }
 
     #[test]
     fn secrets_never_reach_the_result() {
-        let mut r = parse_output("{\"outcome\": \"true\", \"summary\": \"token ghp_secret123\", \"items\": [{\"t\": \"ghp_secret123\"}], \"cursor\": \"x\"}", "", true);
-        r.stderr_tail = "Authorization: Bearer ghp_secret123".into();
+        let mut r = answer(serde_json::json!({"kind": "verdict", "value": true, "summary": "token ghp_secret123", "items": [{"t": "ghp_secret123"}]}));
+        r.log = "Authorization: Bearer ghp_secret123".into();
         let r = redact(r, &["ghp_secret123".into(), "short".into()]);
-        assert_eq!((r.summary.as_str(), r.stderr_tail.as_str(), r.items[0]["t"].as_str()), ("token [redacted]", "Authorization: Bearer [redacted]", Some("[redacted]")));
-        let quoted = redact(RunResult::failed(ErrorClass::Http, "bad \"tok\\en\"!!"), &["\"tok\\en\"!!".into()]);
-        assert_eq!(quoted.error.unwrap().message, "bad [redacted]");
+        assert_eq!((r.summary.as_str(), r.log.as_str(), r.items[0]["t"].as_str()), ("token [redacted]", "Authorization: Bearer [redacted]", Some("[redacted]")));
     }
 
     #[test]
     fn failure_streaks() {
-        let http = EvalError { class: ErrorClass::Http, message: "401".into() };
+        let http = EvalError { class: ErrorClass::Http, message: "401".into(), call: None };
         let s = Streak::new("w", "o").next(Outcome::Failed, Some(&http), 10).next(Outcome::Failed, Some(&http), 20);
         assert_eq!((s.count, s.first_at, s.last_at, s.open()), (2, Some(10), Some(20), true));
         assert_eq!(s.dominant(), Some(ErrorClass::Http));
         let read = Streak { read_at: Some(25), ..s.clone() };
         assert!(!read.open());
         // The next failure after Mark read starts a new streak.
-        let again = read.next(Outcome::Failed, Some(&EvalError { class: ErrorClass::Timeout, message: "t".into() }), 30);
+        let again = read.next(Outcome::Failed, Some(&EvalError { class: ErrorClass::Timeout, message: "t".into(), call: None }), 30);
         assert_eq!((again.count, again.first_at, again.open(), again.dominant()), (1, Some(30), true, Some(ErrorClass::Timeout)));
         let ok = s.next(Outcome::False, None, 40);
         assert_eq!((ok.count, ok.recovered_at, ok.recovered_after, ok.last_good_at, ok.open()), (0, Some(40), 2, Some(40), false));
+        // An older evaluation's env class reads as script.
+        assert_eq!(serde_json::from_str::<ErrorClass>("\"env\"").unwrap(), ErrorClass::Script);
     }
 }

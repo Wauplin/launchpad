@@ -4,7 +4,7 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { OracleFailure, resultLine } from "@/features/schedules/OracleFailure";
+import { OracleFailure, brokenItem, resultLine } from "@/features/schedules/OracleFailure";
 import type { OracleTestAnswer } from "@/gen/OracleTestAnswer";
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ChannelPage } from "@/gen/ChannelPage";
@@ -53,7 +53,7 @@ export const LOOK: Record<TodayItem["kind"], { icon: IconName; color: string; na
   home_update: { icon: "download", color: "text-attn", name: "Update for Home" },
   cli_update: { icon: "download", color: "text-teal", name: "Agent CLI update" },
   channel_ask: { icon: "comment", color: "text-attn", name: "A bot asks you in a channel" },
-  oracle: { icon: "xcircle", color: "text-gh-closed", name: "Oracle whose evaluations fail" },
+  oracle: { icon: "xcircle", color: "text-gh-closed", name: "Oracle that fails or is broken" },
 };
 
 type RowProps = { item: TodayItem; expanded: boolean; toggle: (id: string) => void; highlight: boolean };
@@ -346,17 +346,19 @@ function RoutineRow(p: RowProps) {
     menu={!!item.session_id && ((close) => <OpenAgent id={item.session_id!} close={close} />)} />;
 }
 
-/** A failing oracle: Open its page; Mark read hides the row until its next failure. */
+/** A failing oracle: Open its page; Mark read hides the row until its next failure. A broken one (its file does not
+ * pass the pre-check) only has Pause: it does not run until it is saved again. */
 function OracleRow(p: RowProps) {
   const { item } = p;
   const workspace = item.workspaces[0] ?? "";
+  const isBroken = brokenItem(item);
   return <Row {...p}
     main={<Link className="btn btn-sm no-underline" to="/schedules" search={{ tab: "oracles", oracle: item.record }} title="Open the oracle">Open</Link>}
     details={!!workspace && !item.outcome ? <OracleFailure workspace={workspace} slug={item.record} /> : undefined}
     menu={!!workspace && ((close) => <>
-      <ActionMenuItem name="oracle.test" params={{ workspace, slug: item.record }} body={{}} close={close} detail="Runs it again with the parameters of its last evaluation" onDone={(a: OracleTestAnswer) => toast(resultLine(a.result))} />
+      {!isBroken && <ActionMenuItem name="oracle.test" params={{ workspace, slug: item.record }} body={{}} close={close} detail="Runs it again with the parameters of its last evaluation" onDone={(a: OracleTestAnswer) => toast(resultLine(a.result))} />}
       <ActionMenuItem name="oracle.pause" params={{ workspace, slug: item.record }} close={close} />
-      <ActionMenuItem name="oracle.mark-read" params={{ workspace, slug: item.record }} close={close} detail="Until its next failure" />
+      {!isBroken && <ActionMenuItem name="oracle.mark-read" params={{ workspace, slug: item.record }} close={close} detail="Until its next failure" />}
     </>)} />;
 }
 

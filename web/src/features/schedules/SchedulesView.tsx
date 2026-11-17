@@ -27,7 +27,7 @@ import { PhoneBar, PhoneHeader } from "@/mobile/PhoneHeader";
 import { phoneBack } from "@/mobile/back";
 import { BRIEF, BRIEF_TITLE, RoutineDetails, RunStrip } from "./Routines";
 import { NEW_ORACLE, OracleList, OraclePage, gateSummary, oracleView, type OracleView } from "./Oracles";
-import { useOracles } from "@/lib/oracles";
+import { broken, failing, useOracles } from "@/lib/oracles";
 
 type Tab = "routines" | "launches" | "oracles";
 
@@ -65,8 +65,8 @@ export function SchedulesView() {
   const hasBrief = routines.some((r) => !!r.bot_id && r.title === BRIEF_TITLE);
   const briefBot = askTarget(bots, scope.workspace.id);
   const next = routines.filter((r) => !r.paused && !r.bot_paused && r.next_run_at).reduce<number | null>((min, r) => min == null || r.next_run_at! < min ? r.next_run_at : min, null);
-  const failingOracles = (oracles ?? []).filter((o) => !!o.streak && o.streak.count > 0 && o.streak.read_at == null).length;
-  const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => void navigate({ to: "/schedules", search: { tab: t } as never, replace: true })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }, { id: "oracles", label: "Oracles", count: failingOracles || oracles?.length || undefined, countNeeds: failingOracles > 0, title: failingOracles ? `${failingOracles} failing` : undefined }]} />;
+  const failingOracles = (oracles ?? []).filter((o) => broken(o.oracle) || failing(o.streak)).length;
+  const tabs = <Tabs label="Schedules" value={tab} onChange={(t) => void navigate({ to: "/schedules", search: { tab: t } as never, replace: true })} tour="schedules.tabs" items={[{ id: "routines", label: "Routines", count: routines.length || undefined }, { id: "launches", label: "Scheduled launches", count: launches.length || undefined }, { id: "oracles", label: "Oracles", count: failingOracles || oracles?.length || undefined, countNeeds: failingOracles > 0, title: failingOracles ? `${failingOracles} failing or broken` : undefined }]} />;
   const newOracle = <button className="btn btn-sm btn-primary" data-tour="oracles.new" onClick={() => go({ tab: "oracles", oracle: NEW_ORACLE })}><Icon name="plus" size={12} />{phone ? "New" : "New oracle"}</button>;
   const header = phone
     ? <PhoneHeader title="Schedules" primary={tab === "oracles" ? newOracle : undefined} details={<p className="m-0 text-[13px] text-ink-2">{INTRO}</p>} />

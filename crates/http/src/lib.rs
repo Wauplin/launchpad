@@ -39,3 +39,9 @@ pub fn hook_path(path: &str) -> bool {
 /// Messages it sends are stamped as its (`launchpad_core::senders`), never as the owner's.
 #[derive(Clone, Debug)]
 pub struct AgentSession(pub String);
+
+/// An oracle's in-process read of Home's API (`tools.launchpad`): the workspace of the oracle. Only Home's own code
+/// sets it on a request it builds (`launchpad_server::oracle_read`); a request from the network never carries it.
+/// The guard checks it with `agent_auth::authorize_oracle` (read level, that workspace, GET only).
+#[derive(Clone, Debug)]
+pub struct OracleReader(pub String);

@@ -897,8 +897,47 @@ async fn lease_tool_list(app: &App, req: &LeaseRequest, off: &[String]) -> Resul
     Ok(out)
 }
 
-/// Home: the IDs of the tools a session Home placed holds (`grant`'s rule, from its own record): an admin session
-/// may give an oracle a tool only when it already holds it.
+/// The registry tool behind an oracle tool (`tools = [...]` of an oracle's header): github uses gh, huggingface
+/// hf and slack slack-read (never slack-write). http and launchpad need no token (None).
+pub fn oracle_registry_tool(oracle_tool: &str) -> Option<&'static str> {
+    match oracle_tool {
+        "github" => Some("gh"),
+        "huggingface" => Some("hf"),
+        "slack" => Some(SLACK_READ),
+        _ => None,
+    }
+}
+
+/// Home: the token of a registry tool for an oracle of workspace `ws`, read in Home's process only (never written
+/// to a file or an environment Home does not control). Err: why the oracle cannot use it (not in the registry, not
+/// granted to the workspace, no token in the vault).
+pub async fn oracle_token(app: &App, ws: &str, registry_id: &str) -> std::result::Result<String, String> {
+    let tools = tools(app).await.map_err(|e| format!("Home's tool registry: {e:#}"))?;
+    let t = tools.iter().find(|t| t.id == registry_id).ok_or_else(|| format!("the tool {registry_id} is not in Home's registry (Settings → Credentials and tools)"))?;
+    if !t.granted(Some(ws)) {
+        return Err(format!("the tool {} ({registry_id}) is not granted to this workspace (Settings → Credentials and tools)", t.name));
+    }
+    let cid = t.credential.as_deref().ok_or_else(|| format!("the tool {} has no credential", t.name))?;
+    match secret(app, cid).await {
+        Ok(Some((Kind::Token, s))) if !s.is_empty() => Ok(s),
+        _ => Err(format!("the tool {} ({registry_id}) has no token in Home's vault (Settings → Credentials and tools)", t.name)),
+    }
+}
+
+/// The host names of every tool of Home's registry: an oracle's `tools.http` reaches them whatever they resolve to
+/// (still without a credential), since the registry, not the oracle, decides they are trusted.
+pub async fn registry_hosts(app: &App) -> Vec<String> {
+    let mut out: Vec<String> = tools(app).await.map(|ts| ts.iter().flat_map(|t| t.hosts.iter().map(|h| h.host.to_ascii_lowercase())).collect()).unwrap_or_default();
+    for t in templates() {
+        out.extend(t.hosts.iter().map(|h| h.host.to_ascii_lowercase()));
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Home: the IDs of the tools a session Home placed holds (`grant`'s rule, from its own record): an agent saves,
+/// tests or accepts an oracle only with the credentialed tools its own session holds.
 pub async fn session_tools(app: &App, session_id: &str) -> Result<Vec<String>> {
     let s = app.sessions.get(session_id).context("Home has no record of this session")?;
     let req = crate::contain::request(app, &s).await?;

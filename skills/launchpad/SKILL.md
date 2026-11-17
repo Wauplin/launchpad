@@ -49,10 +49,29 @@ To wait for agents you launched or messaged, run `launchpad sleep --agents <ids>
 
 An oracle is a small Python check that Home runs to answer True, False or Failed, with a summary, a fingerprint and links (for example "CI is red on main"). Routines use them as gates (they run only when the oracle says so), and you can run them yourself instead of polling an API:
 
-- `launchpad oracle list`, `launchpad oracle show <slug>` (its file, parameters and access), `launchpad oracle history <slug> [--failed] [--limit 20]`.
-- `launchpad oracle run <slug> --param repo=owner/name [--cursor <name>] [--max-age 2m] [--json]` runs it on Home. The exit code is the outcome: 0 True, 1 False, 2 Failed (the check itself failed: never read it as False), 3 a CLI error. `--cursor` names your own cursor, which moves on only when the answer is True or False; `--max-age` reuses an answer that fresh.
+- `launchpad oracle list`, `launchpad oracle show <slug>` (its file, parameters, tools and type warnings; a broken oracle shows why), `launchpad oracle history <slug> [--failed] [--limit 20] [--calls]` (`--calls` adds each evaluation's call log).
+- `launchpad oracle run <slug> --param repo=owner/name [--cursor <name> | --since <value>] [--max-age 2m] [--json]` runs it on Home. The exit code is the outcome: 0 True, 1 False, 2 Failed (the check itself failed: never read it as False), 3 a CLI error (an unknown or broken oracle, a bad parameter). `--cursor` names your own cursor, which moves on only when the answer is True or False; `--max-age` reuses an answer that fresh.
 
-To write one, first look for an existing oracle. A new oracle is one file: a PEP 723 block (`# /// script` … `# ///`) with `requires-python`, `dependencies` and `[tool.launchpad]` (`title`, `description`, `params` such as `{ repo = "repo", branch = "string:main" }`, optional `min_interval` and `timeout`, and `access = { tools = ["gh"], hosts = ["pypi.org"], launchpad = "read" }`, each none by default), then code that imports `from launchpad_oracle import Context, run, verdict, failed`, defines `def check(ctx: Context)` returning `verdict(<bool>, summary=…, fingerprint=…, links=[…], cursor=…)` or calling `failed("why")`, and ends with `run(check)`. `ctx.http` is an httpx2 client that calls only the allowed hosts; a tool's token is in the environment under its variable (`os.environ["GH_TOKEN"]`). Keep it literal and deterministic: no model calls. Test the draft with `launchpad oracle test --file o.py --param …` (Home runs it like a saved oracle and records nothing; it may use hosts, Launchpad read and a tool that the saved oracle of its slug, by default the file name, has or your session holds), then propose it with `launchpad propose oracle --title "…" --spec-file o.json`, where the file holds `{"slug": "ci-red", "content": "<the whole file>"}`. At admin access, `launchpad oracle save --file ci-red.py` saves it directly, also when it adds hosts, Launchpad read or a tool the session itself holds; a version that gives the oracle another tool is refused: that one stays a card for the owner. A routine card or routine file takes a `gate`: `{"oracle": "ci-red", "params": {…}, "run_on": ["true"], "fire": "change"}` (`fire` is required: `change` or `every`; optional `cooldown`, `remind` and `failed.instructions`).
+To write one, first look for an existing oracle. A new oracle is one Python file that Home runs in Monty, a Python subset with part of the standard library (no class inheritance, no packages, no files, environment, sockets or sleep). It starts with a header block:
+
+```python
+# /// oracle
+# title = "CI red on a branch"
+# description = "Is the latest completed run of a workflow on this branch a failure?"
+# tools = ["github"]
+# min_interval = "2m"
+# ///
+from launchpad_oracle import tools, verdict
+
+def check(repo: str, branch: str = "main", workflow: str = "tests.yml"):
+    runs = tools.github.get(f"/repos/{repo}/actions/workflows/{workflow}/runs", params={"branch": branch, "status": "completed", "per_page": 1}).raise_for_status().json["workflow_runs"]
+    if not runs:
+        return verdict(False, summary=f"no completed run of {workflow} on {branch} yet")
+    last = runs[0]
+    return verdict(last["conclusion"] == "failure", summary=f"{workflow} @ {last['head_sha'][:7]}: {last['conclusion']}", fingerprint=last["head_sha"], links=[last["html_url"]])
+```
+
+The header holds `title`, `description`, `tools` (any of http, github, huggingface, slack, launchpad), `min_interval` (at least 1m) and `timeout` (at most 60s), nothing else. The arguments of `check` are the parameters: annotate each with `str`, `int`, `float` or `bool` (or one of them `| None`), with literal defaults; add `cursor: str | None` and `now: datetime` when you need them (Home gives those). Return `verdict(<bool>, summary=…, fingerprint=…, links=[…], items=[…], cursor=…)`, or True or False, and call `failed("why")` when you cannot decide. Tools are the only way out: `tools.http.get(url)` (public addresses, no credential), `tools.github.get("/repos/…")`, `tools.huggingface.get("/api/…")`, `tools.slack.search.messages("to:me")` and slackline's other read commands (or `tools.slack.get("conversations.info", params=…)`), and `tools.launchpad.sessions.list()`, `.today()` and the other read commands of this CLI (or `tools.launchpad.get("/api/…")`). Each `.get` returns a Response with `status_code`, `text`, `json` and `raise_for_status()`; Home adds the token and logs every call. `launchpad oracle show` links the whole interface. Keep it literal and deterministic: no model calls. Test the draft with `launchpad oracle test --file o.py --param …`: Home pre-checks it (Ruff, the signature of `check`, what Monty supports), prints each error with its line (exit 3) and type warnings, then runs it exactly like the saved oracle would and records nothing (`--json` adds the log and the call log). A draft may use github, huggingface or slack only when your own session holds that tool. Then propose it with `launchpad propose oracle --title "…" --spec-file o.json`, where the file holds `{"slug": "ci-red", "content": "<the whole file>"}`. At admin access, `launchpad oracle save --file ci-red.py` saves it directly when your session holds every credentialed tool it uses; otherwise it stays a card for the owner. A routine card or routine file takes a `gate`: `{"oracle": "ci-red", "params": {…}, "run_on": ["true"], "fire": "change"}` (`fire` is required: `change` or `every`; optional `cooldown`, `remind` and `failed.instructions`).
 
 ## Task worktrees
 

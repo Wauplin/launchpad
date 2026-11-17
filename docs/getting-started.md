@@ -15,7 +15,7 @@ A private Space needs nothing on your machines. Run the one-line install from th
 
 ### Self-hosted on Linux
 
-You need Rust 1.93 or newer and Node 24 with pnpm (through Corepack).
+You need Rust 1.98 or newer and Node 24 with pnpm (through Corepack).
 
 ```sh
 git clone https://github.com/Wauplin/launchpad.git

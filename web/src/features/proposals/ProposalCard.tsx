@@ -19,7 +19,7 @@ import { useBots } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
 import { useChannelName } from "@/lib/channels";
 import { browserZone, channelTriggerOf, cronTitle, describeCron, triggerSummary } from "@/lib/routines";
-import { gateSummary } from "@/lib/oracles";
+import { LEAK_WARNING, gateSummary, problemText } from "@/lib/oracles";
 import { PatchView } from "@/components/diff/DiffReview";
 import { useLayout } from "@/stores/layout";
 import { SessionStatus } from "@/features/agents/SessionBits";
@@ -115,16 +115,20 @@ function BotFilesBody({ body }: { body: Extract<Proposal["body"], { kind: "bot_f
   );
 }
 
-/** An oracle card: the file's diff and the access it adds (highlighted: a tool the accepting session does not hold waits for the owner) or removes. */
+/** An oracle card: the file's diff, the tools it adds (highlighted: a credentialed tool the accepting session does not
+ * hold waits for the owner) or removes, the leak warning (a credentialed tool with http) and the type warnings. */
 function OracleBody({ body }: { body: Extract<Proposal["body"], { kind: "oracle" }> }) {
   return (
     <>
       <span className="flex flex-wrap gap-1">
         <Token icon="file">oracles/{body.slug}.py{body.before == null ? " · new" : ""}</Token>
-        {body.access_added.map((a) => <Token key={`+${a}`} tone="warn" title="Saving gives the oracle this access">+ {a}</Token>)}
-        {body.access_removed.map((a) => <Token key={`-${a}`} title="Saving removes this access">− {a}</Token>)}
+        {body.tools.filter((t) => !body.tools_added.includes(t)).map((t) => <Token key={t} title="A tool it already uses">{t}</Token>)}
+        {body.tools_added.map((t) => <Token key={`+${t}`} tone="warn" title="Saving lets the oracle call this tool">+ {t}</Token>)}
+        {body.tools_removed.map((t) => <Token key={`-${t}`} title="Saving removes this tool">− {t}</Token>)}
       </span>
-      {body.access_added.length > 0 && <p className="m-0 text-[12px] text-attn">Adds access: only you can accept it. Each tool puts its real token in the oracle's environment.</p>}
+      {body.tools_added.length > 0 && <p className="m-0 text-[12px] text-attn">Adds {body.tools_added.length === 1 ? "a tool" : "tools"}: a credentialed one waits for you unless the accepting session holds it.</p>}
+      {body.can_leak && <p className="m-0 text-[12px] text-attn">With http and a credentialed tool, this oracle {LEAK_WARNING}.</p>}
+      {body.warnings.length > 0 && <div className="grid gap-0.5 text-[12px] text-ink-2"><span className="text-ink-3">Type warnings (they do not block a save)</span>{body.warnings.map((w, i) => <code key={i} className="font-mono text-[11px] break-words">{problemText(w)}</code>)}</div>}
       <div className="max-h-[320px] overflow-auto rounded-control border border-line"><PatchView patch={body.patch} path={`oracles/${body.slug}.py`} language="python" split={false} wrap /></div>
     </>
   );
@@ -377,7 +381,7 @@ export const ProposalCard = memo(function ProposalCard({ p, onAccepted, anchor =
   const session = started && (p.body.kind === "launch" || p.body.kind === "message") ? sessions.find((s) => s.id === p.result_id) : undefined;
   const statusSessions = p.body.kind === "status" ? p.body.session_ids.map((id) => sessions.find((s) => s.id === id)).filter((s): s is Session => !!s) : [];
   return (
-    <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-card border bg-paper p-3 [overflow-wrap:anywhere] ${(p.body.kind === "cron" || p.body.kind === "routine" || (p.body.kind === "bot_files" && Object.keys(p.body.files).some((f) => f.startsWith("routines/"))) || (p.body.kind === "oracle" && p.body.access_added.length > 0)) && !started ? "border-attn-line" : "border-line"}`}>
+    <article id={anchor ? `proposal-${p.id}` : undefined} data-tour="proposal.card" data-tour-id={p.id} tabIndex={-1} className={`grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-card border bg-paper p-3 [overflow-wrap:anywhere] ${(p.body.kind === "cron" || p.body.kind === "routine" || (p.body.kind === "bot_files" && Object.keys(p.body.files).some((f) => f.startsWith("routines/"))) || (p.body.kind === "oracle" && (p.body.tools_added.length > 0 || p.body.can_leak))) && !started ? "border-attn-line" : "border-line"}`}>
       <div className="flex items-start gap-2">
         <Icon name={proposalIcon(p)} size={14} className="mt-0.5 flex-none text-ink-3" />
         <div className="min-w-0 flex-1">
@@ -487,7 +491,7 @@ export const ProposalLine = memo(function ProposalLine({ p, onReply }: { p: Prop
       : b.kind === "ready" && ready
         ? <ActionButton name={ready.name} params={ready.params} body={b.input} vars={{ ...READY_VARS, ...ready.params }} icon={phone ? null : undefined} onDone={() => ran().catch(toastError)} />
         : <button className="btn btn-sm" disabled={busy} onClick={() => void act("accept")}>{!phone && <Icon name="play" size={12} />}{busy ? "Starting…" : START[b.kind]}</button>;
-  const warn = (b.kind === "cron" || b.kind === "routine" || (b.kind === "bot_files" && Object.keys(b.files).some((f) => f.startsWith("routines/"))) || (b.kind === "oracle" && b.access_added.length > 0));
+  const warn = (b.kind === "cron" || b.kind === "routine" || (b.kind === "bot_files" && Object.keys(b.files).some((f) => f.startsWith("routines/"))) || (b.kind === "oracle" && (b.tools_added.length > 0 || b.can_leak)));
   return (
     <article data-tour="proposal.card" data-tour-id={p.id} className={`group grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 rounded-card border bg-paper py-1.5 pr-1.5 pl-2.5 ${warn ? "border-attn-line" : "border-line"}`}>
       <div className="flex min-w-0 items-center gap-2">

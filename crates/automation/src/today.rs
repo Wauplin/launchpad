@@ -87,10 +87,33 @@ pub async fn items(app: &App) -> Vec<Item> {
 }
 
 /// One Fix row per failing oracle (its open failure streak), updated in place: the count, the last error, its
-/// dominant class and the routines gated on it. A recovery or Mark read moves it to Done until the next failure.
+/// dominant class, the failing call and the routines gated on it. A recovery or Mark read moves it to Done until the
+/// next failure. A broken oracle (its stored file no longer passes the pre-check) has the same row, saying why, until
+/// it is saved again. Paused oracles have none.
 async fn oracle_items(app: &App) -> anyhow::Result<Vec<Item>> {
     let mut out = vec![];
+    let mut broken = std::collections::HashSet::new();
+    for w in launchpad_core::workspace::list(app).await? {
+        for o in crate::oracles::list(app, &w.id).await.unwrap_or_default() {
+            let Some(why) = o.broken_reason().filter(|_| !o.paused) else { continue };
+            broken.insert((w.id.clone(), o.slug.clone()));
+            let title = o.meta.as_ref().map(|m| m.title.clone()).unwrap_or_else(|| o.slug.clone());
+            let users = crate::gates::users(app, &w.id, &o.slug).await.unwrap_or_default();
+            let mut detail = format!("broken: {}", line(&why));
+            match users.as_slice() {
+                [] => {}
+                [one] => detail.push_str(&format!(" · waiting: routine “{}”", one.title)),
+                many => detail.push_str(&format!(" · waiting: {} routines", many.len())),
+            }
+            let mut i = Item::new(Kind::Oracle, Filter::Fix, &o.slug, format!("Oracle “{title}” is broken"), Place::Workspace(Some(w.id.clone())), o.changed_at.unwrap_or(0)).detail(detail);
+            i.id = format!("oracle:{}/{}", w.id, o.slug);
+            out.push(i);
+        }
+    }
     for s in crate::oracle_eval::streaks(app, None).await? {
+        if broken.contains(&(s.workspace_id.clone(), s.oracle.clone())) {
+            continue;
+        }
         let recovered = s.count == 0 && s.recovered_at.is_some();
         if !s.open() && !recovered && s.read_at.is_none() {
             continue;
@@ -118,6 +141,9 @@ async fn oracle_items(app: &App) -> anyhow::Result<Vec<Item>> {
                 [] => {}
                 [one] => detail.push_str(&format!(" · waiting: routine “{}”", one.title)),
                 many => detail.push_str(&format!(" · waiting: {} routines", many.len())),
+            }
+            if let Some(c) = &s.last_call {
+                detail.push_str(&format!(" · call: {}", line(c)));
             }
             let n = s.count;
             let detail = format!("{n} failed evaluation{} · {detail}", if n == 1 { "" } else { "s" });

@@ -4,6 +4,8 @@ import type { CronCondition } from "./CronCondition";
 import type { Gate } from "./Gate";
 import type { LaunchDelay } from "./LaunchDelay";
 import type { LaunchSpec } from "./LaunchSpec";
+import type { OracleProblem } from "./OracleProblem";
+import type { OracleTool } from "./OracleTool";
 import type { ReportOutcome } from "./ReportOutcome";
 import type { Tool } from "./Tool";
 import type { Trigger } from "./Trigger";
@@ -78,7 +80,7 @@ members: Array<ChannelCardMember>, } | { "kind": "channel_join",
  */
 channel: string, channel_name: string, bot_id: string, bot_name: string, mode: "all" | "mentions" | "digest" | "muted", } | { "kind": "oracle", slug: string, 
 /**
- * The whole new file.
+ * The whole new file (formatted by the pre-check when filed).
  */
 content: string, 
 /**
@@ -90,13 +92,21 @@ before: string | null,
  */
 patch: string, 
 /**
- * Tools, hosts and Launchpad read access the new version adds (filled by Home).
+ * The tools of the new file (filled by Home).
  */
-access_added: Array<string>, 
+tools: Array<OracleTool>, 
 /**
- * And removes (filled by Home).
+ * The tools the new version adds and removes (filled by Home).
  */
-access_removed: Array<string>, } | { "kind": "tool", tool: Tool, 
+tools_added: Array<OracleTool>, tools_removed: Array<OracleTool>, 
+/**
+ * A credentialed tool together with http: it can send what it reads to any public address (filled by Home).
+ */
+can_leak: boolean, 
+/**
+ * Type warnings of the file (filled by Home).
+ */
+warnings: Array<OracleProblem>, } | { "kind": "tool", tool: Tool, 
 /**
  * Where the owner creates the token.
  */

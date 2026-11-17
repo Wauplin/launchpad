@@ -1115,7 +1115,7 @@ pub async fn unread_notes(app: &App, workspace: &str) -> Result<Vec<ExtUnreadNot
     let mut out: Vec<ExtUnreadNotes> = by_item
         .into_values()
         .map(|mut list| {
-            list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            list.sort_by_key(|a| std::cmp::Reverse(a.created_at));
             let newest = list[0];
             let named = sessions.iter().flat_map(|s| s.launch_spec.github_refs.iter()).find(|r| r.number == Some(newest.number) && same(&r.repo, &newest.repo));
             let mut authors: Vec<String> = vec![];
@@ -1136,7 +1136,7 @@ pub async fn unread_notes(app: &App, workspace: &str) -> Result<Vec<ExtUnreadNot
             }
         })
         .collect();
-    out.sort_by(|a, b| b.newest_at.cmp(&a.newest_at));
+    out.sort_by_key(|a| std::cmp::Reverse(a.newest_at));
     out.truncate(100);
     Ok(out)
 }

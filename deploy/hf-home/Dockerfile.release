@@ -40,6 +40,6 @@ COPY --from=release /src/deploy/hf-home/main.py /src/deploy/hf-home/onboarding.p
 ENV PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/home/user
 WORKDIR /opt/home
 USER user
-RUN claude --version && codex --version && opencode --version && gh --version && hf version && uvx --version && cargo clippy --version && pnpm --version && jq --version && chromium --version
+RUN claude --version && codex --version && opencode --version && gh --version && hf version && uvx --version && monty --version && ruff --version && slackline --version && cargo clippy --version && pnpm --version && jq --version && chromium --version
 EXPOSE 7860
 ENTRYPOINT ["/usr/bin/tini", "--", "python", "main.py"]

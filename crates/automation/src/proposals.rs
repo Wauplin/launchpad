@@ -166,12 +166,13 @@ pub enum ProposalBody {
         mode: String,
     },
     /// A new oracle of the proposal's workspace, or a new version of one (`oracles/<slug>.py`, the whole file).
-    /// Accepting saves it, like `oracle.save`, and fails when the file changed since. Home fills in the diff and what
-    /// the new version adds to or removes from its access: a card that gives the oracle a tool the accepting admin
-    /// session does not hold waits for the owner.
+    /// Filing pre-checks the file (a refused file is not filed) and keeps its formatted text. Accepting saves it,
+    /// like `oracle.save`, and fails when the file changed since. Home fills in the diff, the file's tools, the tools
+    /// it adds and removes, whether it can send what it reads out (a credentialed tool with http) and the type
+    /// warnings: a card with a credentialed tool the accepting admin session does not hold waits for the owner.
     Oracle {
         slug: String,
-        /// The whole new file.
+        /// The whole new file (formatted by the pre-check when filed).
         content: String,
         /// The file's SHA-256 when the card was made, null for a new oracle (filled by Home).
         #[serde(default)]
@@ -179,12 +180,20 @@ pub enum ProposalBody {
         /// The unified diff from the current file (filled by Home).
         #[serde(default)]
         patch: String,
-        /// Tools, hosts and Launchpad read access the new version adds (filled by Home).
+        /// The tools of the new file (filled by Home).
         #[serde(default)]
-        access_added: Vec<String>,
-        /// And removes (filled by Home).
+        tools: Vec<crate::oracles::Tool>,
+        /// The tools the new version adds and removes (filled by Home).
         #[serde(default)]
-        access_removed: Vec<String>,
+        tools_added: Vec<crate::oracles::Tool>,
+        #[serde(default)]
+        tools_removed: Vec<crate::oracles::Tool>,
+        /// A credentialed tool together with http: it can send what it reads to any public address (filled by Home).
+        #[serde(default)]
+        can_leak: bool,
+        /// Type warnings of the file (filled by Home).
+        #[serde(default)]
+        warnings: Vec<crate::oracles::Problem>,
     },
     /// A new tool in Home's registry. Adding it asks for nothing secret; the owner pastes the token after.
     /// Its token is always a new vault entry named like the tool, never an existing one.
@@ -509,11 +518,12 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
             let checked = launchpad_core::ext::extensions().channel_card(app, ws, serde_json::to_value(&body)?, bot.as_deref(), false, "").await?;
             body = serde_json::from_value(checked)?;
         }
-        ProposalBody::Oracle { slug, content, before, patch, access_added, access_removed } => {
+        ProposalBody::Oracle { slug, content, before, patch, tools, tools_added, tools_removed, can_leak, warnings } => {
             let ws = workspace_id.as_deref().context("oracles belong to a workspace: propose from a session of that workspace")?;
-            let (b, p, added, removed) = oracle_card(app, ws, slug, content).await?;
-            ensure!(!p.is_empty(), "this is already the content of oracles/{slug}.py");
-            (*before, *patch, *access_added, *access_removed) = (b, p, added, removed);
+            let card = oracle_card(app, ws, slug, content).await?;
+            ensure!(!card.patch.is_empty(), "this is already the content of oracles/{slug}.py");
+            *content = card.content;
+            (*before, *patch, *tools, *tools_added, *tools_removed, *can_leak, *warnings) = (card.before, card.patch, card.tools, card.added, card.removed, card.can_leak, card.warnings);
         }
         ProposalBody::Preset { preset_id, label, text, .. } => {
             ensure!(!label.trim().is_empty(), "give the preset a label");
@@ -801,18 +811,16 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
             }
             ProposalBody::Oracle { slug, content, before, .. } => {
                 let ws = p.workspace_id.clone().context("this proposal has no workspace")?;
-                let (now, _, added, _) = oracle_card(app, &ws, &slug, &content).await?;
                 let current = crate::oracles::get(app, &ws, &slug).await.ok();
                 let applied = current.as_ref().is_some_and(|f| f.content == content);
-                ensure!(applied || now == before, "oracles/{slug}.py changed since this proposal: ask for a new card");
-                // An admin session accepts a card that adds hosts or Launchpad read, but a tool only when its own
-                // session holds it (`agent_auth::oracle_access_beyond_admin` checks the card too).
-                if let Some(a) = agent.as_deref()
-                    && added.iter().any(|x| x.starts_with("tool "))
-                {
+                ensure!(applied || current.map(|f| f.oracle.sha256) == before, "oracles/{slug}.py changed since this proposal: ask for a new card");
+                // An admin session accepts a card on the terms of its own save: every credentialed tool of the file is
+                // one its own session holds (`agent_auth::admin_may_accept` checks the card too).
+                if let Some(a) = agent.as_deref() {
+                    let tools = crate::oracles::meta_of(&content).map(|m| m.tools).unwrap_or_default();
                     let held = launchpad_core::vault::session_tools(app, a).await?;
-                    let refused: Vec<&String> = added.iter().filter(|x| x.strip_prefix("tool ").is_some_and(|t| !held.iter().any(|h| h == t))).collect();
-                    ensure!(refused.is_empty(), "this card gives the oracle a tool your session does not hold ({}): it waits for the owner's click", refused.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+                    let refused: Vec<&str> = crate::oracles::credentialed(&tools).iter().filter(|t| !t.registry().is_some_and(|id| held.iter().any(|h| h == id))).map(|t| t.name()).collect();
+                    ensure!(refused.is_empty(), "this oracle uses a tool your session does not hold ({}): the card waits for the owner's click", refused.join(", "));
                 }
                 if !applied {
                     let author = match agent.as_deref() {
@@ -866,17 +874,29 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
     Ok(p)
 }
 
-/// An oracle card's checks and what Home fills in: the current file's SHA-256 (None: new), the diff, and the access
-/// the new version adds and removes. The file must parse and name tools of Home's registry.
-async fn oracle_card(app: &App, ws: &str, slug: &str, content: &str) -> Result<(Option<String>, String, Vec<String>, Vec<String>)> {
+/// What Home fills in an oracle card: the pre-checked (formatted) file, the current file's SHA-256 (None: new), the
+/// diff, the file's tools and the tools it adds and removes, the leak warning and the type warnings. A file the
+/// pre-check refuses is not filed (the error lists each problem with its line).
+struct OracleCard {
+    content: String,
+    before: Option<String>,
+    patch: String,
+    tools: Vec<crate::oracles::Tool>,
+    added: Vec<crate::oracles::Tool>,
+    removed: Vec<crate::oracles::Tool>,
+    can_leak: bool,
+    warnings: Vec<crate::oracles::Problem>,
+}
+
+async fn oracle_card(app: &App, ws: &str, slug: &str, content: &str) -> Result<OracleCard> {
     ensure!(crate::oracles::valid_slug(slug), "slug: lowercase letters, digits, - and _ (at most 63), such as ci-red");
-    let meta = crate::oracles::check(app, content).await.context("the oracle file")?;
+    let checked = crate::oracle_check::precheck(app, content).await?;
     let current = crate::oracles::get(app, ws, slug).await.ok();
-    let old = current.as_ref().and_then(|f| f.oracle.meta.as_ref()).map(|m| m.access.clone());
-    let added = crate::oracles::widens(old.as_ref(), &meta.access);
-    let removed = crate::oracles::widens(Some(&meta.access), &old.unwrap_or_default());
-    let patch = launchpad_core::kb::unified(current.as_ref().map_or("", |f| f.content.as_str()), content);
-    Ok((current.map(|f| f.oracle.sha256), patch, added, removed))
+    let old = current.as_ref().and_then(|f| f.oracle.meta.as_ref()).map(|m| m.tools.clone()).unwrap_or_default();
+    let (added, removed) = crate::oracles::tools_diff(&old, &checked.meta.tools);
+    let patch = launchpad_core::kb::unified(current.as_ref().map_or("", |f| f.content.as_str()), &checked.content);
+    let can_leak = crate::oracles::can_leak(&checked.meta.tools);
+    Ok(OracleCard { before: current.map(|f| f.oracle.sha256), patch, tools: checked.meta.tools, added, removed, can_leak, warnings: checked.warnings, content: checked.content })
 }
 
 /// A bot's BOT.md and routine files: path → (SHA-256, text).

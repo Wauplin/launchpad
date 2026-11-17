@@ -6,11 +6,18 @@ use axum::response::{IntoResponse, Response};
 pub struct ApiError {
     pub status: StatusCode,
     pub message: String,
+    /// Fields added to the JSON body next to `error` (such as an oracle pre-check's `problems`).
+    pub detail: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 impl ApiError {
     pub fn new(status: StatusCode, message: impl Into<String>) -> ApiError {
-        ApiError { status, message: message.into() }
+        ApiError { status, message: message.into(), detail: None }
+    }
+    /// The same error with these fields in its JSON body.
+    pub fn with_detail(mut self, detail: serde_json::Map<String, serde_json::Value>) -> ApiError {
+        self.detail = Some(detail);
+        self
     }
     pub fn bad_request(message: impl Into<String>) -> ApiError {
         ApiError::new(StatusCode::BAD_REQUEST, message)
@@ -33,7 +40,9 @@ impl<E: Into<anyhow::Error>> From<E> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, axum::Json(serde_json::json!({ "error": self.message }))).into_response()
+        let mut body = self.detail.unwrap_or_default();
+        body.insert("error".into(), serde_json::Value::String(self.message));
+        (self.status, axum::Json(serde_json::Value::Object(body))).into_response()
     }
 }
 

@@ -497,7 +497,7 @@ impl Sessions {
 
     pub fn list(&self) -> Vec<Session> {
         let mut v: Vec<Session> = self.inner.records.lock().unwrap().values().cloned().collect();
-        v.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        v.sort_by_key(|a| std::cmp::Reverse(a.started_at));
         v
     }
 

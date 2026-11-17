@@ -114,7 +114,7 @@ You are the reviewer of step <N> (<title>) of <plan>. First read /tmp/lp-steps/<
 
 Review the step's code: `git log <base_N>..HEAD -- . ':!README.md' ':!docs'` (the docs agent of the previous step may commit prose at the same time; ignore it). Check it against the plan, the owner's answers and AGENTS.md: safety rules, crate layering, the action list, the decision list, no harness branches, UI rules, demo and tour. Check the "Done when" yourself. Fix what you find and commit.
 
-Run the CI set once at the end: `cargo +1.93.1 clippy --workspace --all-targets --locked -- -D warnings`, `cargo test`, `(cd web && pnpm typecheck)`, `(cd web && pnpm lint:hooks)` and the matching `pnpm test:<name>`. For UI changes, take the screenshots the docs agent will use: `node web/scripts/shots.mjs --views 100,120,150,phone --out /tmp/lp-steps/<name>/shots/step<N> <pages>`, in demo mode and with real data. Write your report to /tmp/lp-steps/<name>/step<N>-review.md.
+Run the CI set once at the end: `cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings`, `cargo test`, `(cd web && pnpm typecheck)`, `(cd web && pnpm lint:hooks)` and the matching `pnpm test:<name>`. For UI changes, take the screenshots the docs agent will use: `node web/scripts/shots.mjs --views 100,120,150,phone --out /tmp/lp-steps/<name>/shots/step<N> <pages>`, in demo mode and with real data. Write your report to /tmp/lp-steps/<name>/step<N>-review.md.
 ```
 
 ## Template: Docs

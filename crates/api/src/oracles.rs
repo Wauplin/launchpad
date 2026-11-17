@@ -1,15 +1,17 @@
-//! Oracles on Home (`launchpad_automation::oracles`, `oracle_eval`): list, show, evaluations, versions, and the
-//! actions of the action list (`oracle.*`). Runners forward every `/api/oracles…` request to Home, which checks an
-//! agent's workspace (`agent_auth::within_workspace`) and its access: every level reads and runs, propose tests
-//! drafts (`launchpad oracle test`) and admin saves, both adding hosts, Launchpad read and only the tools the saved
-//! oracle has or its session holds (other tools wait for the owner's card), the rest is the owner's.
+//! Oracles on Home (`launchpad_automation::oracles`, `oracle_eval`): list, show, evaluations, versions, the tools
+//! and interface, and the actions of the action list (`oracle.*`). Runners forward every `/api/oracles…` request to
+//! Home, which checks an agent's workspace (`agent_auth::within_workspace`) and its access: every level reads and
+//! runs, propose tests drafts (`launchpad oracle test`) and admin saves, both only with the credentialed tools
+//! (github, huggingface, slack) the agent's own session holds; the rest is the owner's. A file the pre-check refuses
+//! answers 422 with each problem (`problems`).
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use launchpad_automation::gates;
+use launchpad_automation::oracle_check::Refused;
 use launchpad_automation::oracle_eval::{self, Caller, CallerKind, Evaluation};
-use launchpad_automation::oracle_views::{self, Detail, ListItem, TestAnswer};
-use launchpad_automation::oracles::{self, Oracle};
+use launchpad_automation::oracle_views::{self, Detail, ListItem, TestAnswer, ToolInfo};
+use launchpad_automation::oracles::{self, Oracle, Saved, Tool};
 use launchpad_core::kb::Author;
 use launchpad_http::AgentSession;
 use serde::Deserialize;
@@ -22,6 +24,7 @@ pub fn router() -> Router<Ctx> {
     Router::new()
         .route("/api/oracles/{workspace}", get(list))
         .route("/api/oracles/{workspace}/_tools", get(tools))
+        .route("/api/oracles/{workspace}/_interface", get(interface))
         .route("/api/oracles/{workspace}/{slug}", get(show).put(save).delete(remove))
         .route("/api/oracles/{workspace}/{slug}/evaluations", get(evaluations))
         .route("/api/oracles/{workspace}/{slug}/versions", get(versions))
@@ -34,7 +37,13 @@ pub fn router() -> Router<Ctx> {
         .route("/api/oracles/{workspace}/{slug}/run", post(run))
 }
 
+/// A refused pre-check answers 422 with its problems; other errors 400.
 fn bad(e: anyhow::Error) -> ApiError {
+    if let Some(r) = e.downcast_ref::<Refused>() {
+        let mut detail = Map::new();
+        detail.insert("problems".into(), serde_json::to_value(&r.problems).unwrap_or_default());
+        return ApiError::new(axum::http::StatusCode::UNPROCESSABLE_ENTITY, r.to_string()).with_detail(detail);
+    }
     ApiError::bad_request(format!("{e:#}"))
 }
 
@@ -49,23 +58,37 @@ async fn author(s: &Ctx, agent: &Option<Extension<AgentSession>>) -> Result<Auth
     }
 }
 
+/// The credentialed tools of a file (its header) that an agent's session does not hold: an agent saves, tests or
+/// accepts an oracle only with the tools it already holds (`vault::session_tools`).
+async fn not_held(s: &Ctx, session: &str, content: &str) -> Result<Vec<Tool>, ApiError> {
+    let Ok(h) = oracles::header(content) else { return Ok(vec![]) };
+    let need = oracles::credentialed(&h.tools);
+    if need.is_empty() {
+        return Ok(vec![]);
+    }
+    let held = launchpad_core::vault::session_tools(&s.app, session).await.map_err(bad)?;
+    Ok(need.into_iter().filter(|t| !t.registry().is_some_and(|id| held.iter().any(|h| h == id))).collect())
+}
+
+fn names(tools: &[Tool]) -> String {
+    tools.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")
+}
+
 async fn list(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Vec<ListItem>> {
     launchpad_core::workspace::get(&s.app, &ws).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
     Ok(Json(oracle_views::list(&s.app, &ws).await.map_err(bad)?))
 }
 
-/// The tools granted to the workspace, without secrets: what an oracle's `access.tools` may name, with the hosts
-/// that receive each token (the Access tab).
-async fn tools(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Vec<Value>> {
+/// The five tools an oracle may list, with what each reaches, its registry tool and whether this workspace may use
+/// it (granted, with a token), without secrets (the Tools tab).
+async fn tools(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Vec<ToolInfo>> {
     launchpad_core::workspace::get(&s.app, &ws).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
-    let tools = launchpad_core::vault::tools(&s.app).await.map_err(bad)?;
-    Ok(Json(
-        tools
-            .iter()
-            .filter(|t| t.granted(Some(&ws)) && t.id != launchpad_core::vault::LAUNCHPAD_TOOL)
-            .map(|t| json!({"id": t.id, "name": t.name, "env": t.env, "hosts": t.hosts.iter().map(|h| h.host.to_ascii_lowercase()).collect::<Vec<_>>()}))
-            .collect(),
-    ))
+    Ok(Json(oracle_views::tools(&s.app, &ws).await))
+}
+
+/// The whole interface of `launchpad_oracle` (its `.pyi`), the one Home's type checker reads.
+async fn interface(Path(_ws): Path<String>) -> ([(axum::http::HeaderName, &'static str); 1], &'static str) {
+    ([(axum::http::header::CONTENT_TYPE, "text/x-python; charset=utf-8")], launchpad_automation::oracle_monty::STUB)
 }
 
 async fn show(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>) -> ApiResult<Detail> {
@@ -106,24 +129,20 @@ struct Save {
     content: String,
 }
 
-/// An agent (admin) saves an oracle and may add hosts and Launchpad read, but a tool only when its own session holds
-/// it (`oracles::widens`, `agent_auth::oracle_access_beyond_admin`): the oracle gets that tool's real token.
-async fn save(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(b): Json<Save>) -> ApiResult<Oracle> {
+/// Saves an oracle: pre-checked, then stored formatted. An admin agent saves only a file whose credentialed tools
+/// its own session holds; another file is a card for the owner.
+async fn save(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(b): Json<Save>) -> ApiResult<Saved> {
     if let Some(a) = &agent {
-        let meta = oracles::check(&s.app, &b.content).await.map_err(bad)?;
-        let old = oracles::get(&s.app, &ws, &slug).await.ok().and_then(|f| f.oracle.meta).map(|m| m.access);
-        let added = oracles::widens(old.as_ref(), &meta.access);
-        let held = if added.iter().any(|x| x.starts_with("tool ")) { launchpad_core::vault::session_tools(&s.app, &a.0.0).await.map_err(bad)? } else { vec![] };
-        let refused = launchpad_http::agent_auth::oracle_access_beyond_admin(&added, &held);
+        let refused = not_held(&s, &a.0.0, &b.content).await?;
         if !refused.is_empty() {
             return Err(forbidden(format!(
-                "this version gives the oracle a tool this session does not hold ({}): only the owner gives it that token. Propose it with `launchpad propose oracle --title \"…\" --spec-file o.json` ({{\"slug\": \"{slug}\", \"content\": \"<the whole file>\"}})",
-                refused.join(", ")
+                "this oracle uses a tool this session does not hold ({}): only the owner gives it that token. Propose it with `launchpad propose oracle --title \"…\" --spec-file o.json` ({{\"slug\": \"{slug}\", \"content\": \"<the whole file>\"}})",
+                names(&refused)
             )));
         }
     }
     let by = author(&s, &agent).await?;
-    Ok(Json(oracles::save(&s.app, &ws, &slug, &b.content, by).await.map_err(bad)?))
+    Ok(Json(Box::pin(oracles::save(&s.app, &ws, &slug, &b.content, by)).await.map_err(bad)?))
 }
 
 #[derive(Deserialize, Default)]
@@ -169,50 +188,53 @@ struct Test {
     /// the list, which know no parameters).
     #[serde(default)]
     params: Option<Map<String, Value>>,
-    /// A draft to run instead of the saved file (not recorded).
+    /// A draft to run instead of the saved file (pre-checked, recorded nowhere).
     #[serde(default)]
     content: Option<String>,
     #[serde(default)]
     cursor: Option<Value>,
 }
 
-/// The owner's Test now: a draft runs without records; the saved oracle is evaluated and recorded as a test (it
-/// counts for the failure row: a good answer clears it), committing no cursor, with the parameters of its last
-/// evaluation when the request gives none. A paused oracle runs like a draft. An agent (`launchpad oracle test`)
-/// only runs drafts, on the terms of an admin save: hosts and Launchpad read, and a tool only when the saved oracle
-/// of that slug has it or the agent's session holds it, since the draft's code gets the real token.
+/// Test: a draft is pre-checked, then runs exactly like the saved oracle would, recorded nowhere. The owner's Test
+/// of the saved file is recorded as a test (it ends a failure streak on True or False) and commits no cursor, with
+/// the parameters of its last evaluation when the request gives none; a paused one runs without records. An agent
+/// (`launchpad oracle test`) only runs drafts, and only with the credentialed tools its own session holds: a draft
+/// never inherits the tools of the saved oracle of the same slug.
 async fn test(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(t): Json<Test>) -> ApiResult<TestAnswer> {
+    if !oracles::valid_slug(&slug) {
+        return Err(ApiError::bad_request(format!("{slug:?} is not a valid oracle slug")));
+    }
     if let Some(a) = &agent {
         let Some(content) = &t.content else {
             return Err(forbidden("agents test drafts (`launchpad oracle test --file`); run a saved oracle with `launchpad oracle run`".into()));
         };
-        let meta = oracles::check(&s.app, content).await.map_err(bad)?;
-        let old = oracles::get(&s.app, &ws, &slug).await.ok().and_then(|f| f.oracle.meta).map(|m| m.access);
-        let added = oracles::widens(old.as_ref(), &meta.access);
-        let held = if added.iter().any(|x| x.starts_with("tool ")) { launchpad_core::vault::session_tools(&s.app, &a.0.0).await.map_err(bad)? } else { vec![] };
-        let refused = launchpad_http::agent_auth::oracle_access_beyond_admin(&added, &held);
+        let refused = not_held(&s, &a.0.0, content).await?;
         if !refused.is_empty() {
-            return Err(forbidden(format!(
-                "this draft uses a tool that neither the saved oracle {slug} nor this session holds ({}): only the owner gives it that token. Test it without, or propose it with `launchpad propose oracle`",
-                refused.join(", ")
-            )));
+            return Err(forbidden(format!("this draft uses a tool this session does not hold ({}): test it without, or propose it with `launchpad propose oracle` for the owner", names(&refused))));
         }
     }
-    let saved = match &t.content {
-        Some(_) => None,
-        None => Some(oracles::get(&s.app, &ws, &slug).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?),
-    };
+    if let Some(content) = &t.content {
+        let params = t.params.unwrap_or_default();
+        let (result, warnings) = Box::pin(oracle_eval::test_draft(&s.app, &ws, content, &params, t.cursor)).await.map_err(bad)?;
+        return Ok(Json(TestAnswer { result, evaluation_id: None, warnings }));
+    }
+    let saved = oracles::get(&s.app, &ws, &slug).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    if let Some(why) = saved.oracle.broken_reason() {
+        return Err(ApiError::bad_request(format!("the oracle {slug} is broken and does not run until it is saved again: {why}")));
+    }
     let params = match t.params {
         Some(p) => p,
-        None if t.content.is_none() => match oracle_eval::history(&s.app, &ws, Some(&slug), false, None, 1).await.map_err(bad)?.into_iter().next() {
+        None => match oracle_eval::history(&s.app, &ws, Some(&slug), false, None, 1).await.map_err(bad)?.into_iter().next() {
             Some(e) => e.params.as_object().cloned().unwrap_or_default(),
             None => Map::new(),
         },
-        None => Map::new(),
     };
-    if let Some(content) = t.content.as_deref().or(saved.as_ref().filter(|f| f.oracle.paused).map(|f| f.content.as_str())) {
-        let result = oracle_eval::test_draft(&s.app, &ws, &slug, content, &params, t.cursor).await.map_err(bad)?;
-        return Ok(Json(TestAnswer { result, evaluation_id: None }));
+    if saved.oracle.paused {
+        let meta = saved.oracle.meta.clone().ok_or_else(|| ApiError::bad_request("the oracle has no definition"))?;
+        let params = oracles::validate_params(&meta.params, &params).map_err(bad)?;
+        let seed = format!("test_{}", uuid::Uuid::new_v4().simple());
+        let result = Box::pin(oracle_eval::run(&s.app, &ws, &saved.content, &meta, &params, &t.cursor, &seed)).await;
+        return Ok(Json(TestAnswer { result, evaluation_id: None, warnings: vec![] }));
     }
     let req = oracle_eval::Request {
         workspace_id: ws,
@@ -225,7 +247,7 @@ async fn test(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, ag
         max_age_ms: None,
         force: true,
     };
-    let e = oracle_eval::evaluate(&s.app, req).await.map_err(bad)?;
+    let e = Box::pin(oracle_eval::evaluate(&s.app, req)).await.map_err(bad)?;
     Ok(Json(TestAnswer::of(&e)))
 }
 
@@ -269,7 +291,7 @@ async fn run(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, age
         None => Caller { kind: CallerKind::Owner, id: None, name: None },
     };
     let req = oracle_eval::Request { workspace_id: ws, oracle: slug, params: r.params, caller: caller.clone(), event: json!({"kind": "cli"}), cursor_key: key.clone(), cursor: r.since, max_age_ms, force: false };
-    let e = oracle_eval::evaluate(&s.app, req).await.map_err(bad)?;
+    let e = Box::pin(oracle_eval::evaluate(&s.app, req)).await.map_err(bad)?;
     let consequence = match &key {
         Some(k) if e.outcome != oracle_eval::Outcome::Failed => {
             let committed = oracle_eval::commit(&s.app, k, &e.id).await.map_err(bad)?;

@@ -36,6 +36,26 @@ pub struct Server {
 
 pub use home_client::connect;
 
+/// Home: an oracle's `tools.launchpad` read, in process: a GET of this daemon's router with the oracle's workspace as
+/// its principal (`launchpad_http::OracleReader`, checked by `auth::guard` with `agent_auth::authorize_oracle`), no
+/// token and nothing over the network. The status and the body (at most 16 MiB).
+pub async fn oracle_read(app: &App, ws: &str, path: &str) -> Result<(u16, String)> {
+    use tower::ServiceExt;
+    anyhow::ensure!(path.starts_with("/api/"), "not a path of Home's API");
+    let router = ROUTER.get().context("Home is starting")?;
+    let mut req = axum::http::Request::builder()
+        .method(axum::http::Method::GET)
+        .uri(path)
+        .header(axum::http::header::HOST, format!("127.0.0.1:{}", app.paths.port))
+        .body(axum::body::Body::empty())?;
+    req.extensions_mut().insert(axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 0))));
+    req.extensions_mut().insert(launchpad_http::OracleReader(ws.to_string()));
+    let res = router.clone().oneshot(req).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let status = res.status().as_u16();
+    let bytes = axum::body::to_bytes(res.into_body(), 16 << 20).await.context("the answer is larger than 16 MiB")?;
+    Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
+}
+
 /// The daemon's own router, for API requests that arrive through a runner tunnel.
 pub(crate) static ROUTER: std::sync::OnceLock<Router> = std::sync::OnceLock::new();
 

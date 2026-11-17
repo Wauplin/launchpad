@@ -499,7 +499,7 @@ unsafe fn child_fail(handoff: RawFd, msg: &[u8]) -> ! {
 /// Sends a descriptor over a Unix socket (SCM_RIGHTS), without allocating.
 unsafe fn send_fd(sock: RawFd, fd: RawFd) {
     unsafe {
-        let mut byte = [b'L'];
+        let mut byte = *b"L";
         let mut iov = libc::iovec { iov_base: byte.as_mut_ptr().cast(), iov_len: 1 };
         let mut space = [0u8; 64];
         let mut msg: libc::msghdr = std::mem::zeroed();
@@ -1259,7 +1259,7 @@ fn orphan_checks(dest: SocketAddr) -> Vec<serde_json::Value> {
         if libc::socketpair(libc::AF_UNIX, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, 0, pair.as_mut_ptr()) != 0 {
             Err(errno())
         } else {
-            let mut byte = [b'x'];
+            let mut byte = *b"x";
             let mut iov = libc::iovec { iov_base: byte.as_mut_ptr().cast(), iov_len: 1 };
             let mut msg: libc::msghdr = std::mem::zeroed();
             msg.msg_iov = &mut iov;

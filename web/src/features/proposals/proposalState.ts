@@ -69,7 +69,7 @@ export function proposalPurpose(p: Pick<Proposal, "body">, n: CardNames = {}): s
     case "ready": return `Your click: ${n.action?.(b.action) ?? b.action}`;
     case "report": return `${REPORT_OUTCOME[b.outcome]}${b.github ? ` · ${b.github}` : ""}`;
     case "status": return `Lists ${plural(b.session_ids.length, "agent")} to look at`;
-    case "oracle": return `${b.before == null ? "Saves a new" : "Changes the"} oracle ${b.slug}${b.access_added.length ? `; adds access: ${b.access_added.join(", ")}` : ""}${b.access_removed.length ? `; removes access: ${b.access_removed.join(", ")}` : ""}`;
+    case "oracle": return `${b.before == null ? "Saves a new" : "Changes the"} oracle ${b.slug}${b.tools_added.length ? `; adds the tools ${b.tools_added.join(", ")}` : ""}${b.tools_removed.length ? `; removes the tools ${b.tools_removed.join(", ")}` : ""}`;
   }
 }
 

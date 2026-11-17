@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import tarfile
+import zipfile
 from pathlib import Path
 
 versions=json.loads(Path('/opt/home/release.json').read_text())['tools']
@@ -25,3 +26,43 @@ with tarfile.open(fileobj=io.BytesIO(archive),mode='r:gz') as tar:
     binary=tar.extractfile(f'gh_{version}_linux_amd64/bin/gh').read()
 Path('/usr/local/bin/gh').write_bytes(binary)
 os.chmod('/usr/local/bin/gh',0o755)
+
+
+def install(path, binary):
+    Path(path).write_bytes(binary)
+    os.chmod(path, 0o755)
+
+
+def sha256_of(data, expected, what):
+    if hashlib.sha256(data).hexdigest() != expected: raise ValueError(f'{what} checksum mismatch')
+
+
+def from_tar(archive, member):
+    with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as tar:
+        return tar.extractfile(member).read()
+
+
+# Home's oracle tools (launchpad_automation::oracle_eval): Monty's worker, Ruff and slackline, x86_64 like the rest of the image.
+# Monty: the `monty` executable of the pydantic-monty-runtime wheel (the monty-runtime crate's binary), checked against PyPI's digest.
+version = versions['monty']
+release = json.loads(download(f'https://pypi.org/pypi/pydantic-monty-runtime/{version}/json'))
+wheel = next(f for f in release['urls'] if f['filename'] == f'pydantic_monty_runtime-{version}-py3-none-manylinux_2_28_x86_64.whl')
+data = download(wheel['url'])
+sha256_of(data, wheel['digests']['sha256'], 'Monty')
+with zipfile.ZipFile(io.BytesIO(data)) as whl:
+    install('/usr/local/bin/monty', whl.read(f'pydantic_monty_runtime-{version}.data/scripts/monty'))
+
+# Ruff: the GitHub release archive and its published checksum.
+version = versions['ruff']
+url = f'https://github.com/astral-sh/ruff/releases/download/{version}/ruff-x86_64-unknown-linux-gnu.tar.gz'
+archive = download(url)
+sha256_of(archive, download(url + '.sha256').decode().split()[0], 'Ruff')
+install('/usr/local/bin/ruff', from_tar(archive, 'ruff-x86_64-unknown-linux-gnu/ruff'))
+
+# slackline: the GitHub release archive, checked against the digest GitHub records for the asset (no checksum file).
+version = versions['slackline']
+name = f'slackline-v{version}-x86_64-unknown-linux-gnu.tar.gz'
+asset = next(a for a in json.loads(download(f'https://api.github.com/repos/co42/slackline/releases/tags/v{version}'))['assets'] if a['name'] == name)
+archive = download(asset['browser_download_url'])
+sha256_of(archive, asset['digest'].removeprefix('sha256:'), 'slackline')
+install('/usr/local/bin/slackline', from_tar(archive, 'slackline'))

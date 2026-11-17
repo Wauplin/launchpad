@@ -1,189 +1,298 @@
-"""The helper of Launchpad oracles: run(check), Context, verdict(...) and failed(reason).
+"""launchpad_oracle: everything an oracle imports.
 
-An oracle file ends with ``run(check)``. Launchpad sends the evaluation's input as JSON on stdin; ``run`` calls
-``check(ctx)`` and writes the result as one JSON line at the end of stdout (``print`` inside ``check`` goes to
-stderr). ``ctx.http`` is a plain ``httpx2.Client`` with the oracle's timeout that refuses hosts the oracle does not
-allow. This API stays backward compatible across Launchpad updates: add, never remove or rename.
+Launchpad serves this module read-only to Monty on Home. Every tool call goes through `launchpad_host.call`, which
+Home checks, runs and logs; `failed` and `raise_for_status` end the evaluation through `launchpad_host.fail`, which
+the oracle cannot catch. Values cross the boundary as JSON text.
 """
 
-from __future__ import annotations
-
-import datetime as _dt
 import json
-import sys
-import traceback
-from typing import Any, Callable, NoReturn
+from datetime import datetime, timezone
 
-import httpx2
-
-__all__ = ["run", "Context", "Params", "Verdict", "verdict", "failed", "Failed", "HostRefused", "MAX_CURSOR", "MAX_EVIDENCE"]
-__version__ = "1.0.0"
-
-#: Largest proposed cursor and evidence (summary, fingerprint, links, items), as JSON.
-MAX_CURSOR = 4 * 1024
-MAX_EVIDENCE = 32 * 1024
-
-# Tells Launchpad that uv prepared the environment: the oracle's timeout counts from here.
-sys.stderr.write("\x1elaunchpad_oracle:start\n")
-sys.stderr.flush()
+import launchpad_host
 
 
-class Failed(Exception):
-    """Raised by failed(): the oracle cannot decide (Failed, class declared)."""
+class Response:
+    """The answer of a `.get`: the final status, the body as text (None when it is not UTF-8) and its JSON value."""
 
+    def __init__(self, status_code, text, json_value, call):
+        self.status_code = status_code
+        self.text = text
+        self.json = json_value
+        self._call = call
 
-class HostRefused(Exception):
-    """ctx.http refused a host the oracle does not allow (Failed, class access)."""
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            launchpad_host.fail("http", "HTTP " + str(self.status_code), self._call)
+        return self
 
-
-class _Contract(Exception):
-    pass
-
-
-class Params(dict):
-    """The oracle's parameters, typed and validated by Launchpad: ``ctx.params.repo`` or ``ctx.params["repo"]``."""
-
-    def __getattr__(self, name: str) -> Any:
-        try:
-            return self[name]
-        except KeyError:
-            raise AttributeError(f"no parameter {name!r}") from None
-
-
-_UNSET: Any = object()
+    def __repr__(self):
+        return "<Response [" + str(self.status_code) + "]>"
 
 
 class Verdict:
-    """The answer of a check: build it with verdict()."""
+    """The answer of check: build it with verdict()."""
 
-    __slots__ = ("value", "summary", "fingerprint", "links", "items", "cursor")
+    def __init__(self, value, summary, fingerprint, links, items, cursor, cursor_set):
+        self.value = value
+        self.summary = summary
+        self.fingerprint = fingerprint
+        self.links = links
+        self.items = items
+        self.cursor = cursor
+        self.cursor_set = cursor_set
 
-    def __init__(self, value: bool, summary: str, fingerprint: str | None, links: list, items: list, cursor: Any):
-        self.value, self.summary, self.fingerprint, self.links, self.items, self.cursor = value, summary, fingerprint, links, items, cursor
-
-    def as_json(self) -> dict:
-        out = {"outcome": "true" if self.value else "false", "summary": self.summary, "fingerprint": self.fingerprint, "links": self.links, "items": self.items}
-        if self.cursor is not _UNSET:
-            out["cursor"] = self.cursor
-        return out
-
-
-def _size(value: Any, what: str) -> int:
-    try:
-        return len(json.dumps(value, ensure_ascii=False).encode())
-    except (TypeError, ValueError) as e:
-        raise _Contract(f"{what} is not JSON: {e}") from None
+    def __repr__(self):
+        return "verdict(" + repr(self.value) + ", summary=" + repr(self.summary) + ")"
 
 
-def verdict(value: bool, *, summary: str = "", fingerprint: Any = None, links: Any = (), items: Any = (), cursor: Any = _UNSET) -> Verdict:
-    """True or False, with its evidence. ``fingerprint`` identifies what is true (a commit, a version) for "fire on
-    change"; ``cursor`` (JSON, at most 4 KB) is proposed to the consumer, which commits it when it acts; leave it
-    out to keep the current cursor. Evidence is at most 32 KB."""
-    if not isinstance(value, bool):
-        raise _Contract(f"verdict() takes True or False, not {type(value).__name__}")
-    v = Verdict(value, str(summary), None if fingerprint is None else str(fingerprint), [str(x) for x in links], list(items), cursor)
-    if cursor is not _UNSET and _size(cursor, "the cursor") > MAX_CURSOR:
-        raise _Contract(f"the cursor is larger than {MAX_CURSOR} bytes")
-    if _size([v.summary, v.fingerprint, v.links, v.items], "the evidence") > MAX_EVIDENCE:
-        raise _Contract(f"the evidence (summary, fingerprint, links, items) is larger than {MAX_EVIDENCE} bytes")
-    return v
+class _Unset:
+    pass
 
 
-def failed(reason: str) -> NoReturn:
-    """Stops the check with Failed: it cannot decide (a partial page, an unexpected schema). Never return False
-    for that."""
-    raise Failed(str(reason))
+_UNSET = _Unset()
 
 
-def _allowed(host: str, hosts: list[str]) -> bool:
-    host = host.lower().rstrip(".")
-    for h in hosts:
-        h = h.lower()
-        if h == "*" or h == host or (h.startswith("*.") and host.endswith(h[1:])):
-            return True
-    return False
+def verdict(value, *, summary="", fingerprint=None, links=None, items=None, cursor=_UNSET):
+    """True or False with its evidence; `cursor` proposes the caller's next cursor (leave it out to keep it)."""
+    if cursor is _UNSET:
+        return Verdict(value, summary, fingerprint, links, items, None, False)
+    return Verdict(value, summary, fingerprint, links, items, cursor, True)
 
 
-def _origin(url: Any) -> tuple:
-    return (url.scheme, (url.host or "").lower(), url.port)
+def failed(reason):
+    """Ends the evaluation with Failed (class declared): the oracle cannot decide."""
+    launchpad_host.fail("declared", str(reason), -1)
 
 
-class Context:
-    """What a check gets: params, event, cursor, now, http (and launchpad with Launchpad read access)."""
-
-    def __init__(self, data: dict):
-        self.params = Params(data.get("params") or {})
-        #: Why it runs: {"kind": "schedule" | "cli" | "test" | ..., ...}.
-        self.event: dict = data.get("event") or {}
-        #: The consumer's committed cursor, or None.
-        self.cursor: Any = data.get("cursor")
-        #: The evaluation's start time (UTC), fixed for the whole run.
-        now = data.get("now")
-        self.now = _dt.datetime.fromtimestamp(now / 1000, _dt.timezone.utc) if isinstance(now, (int, float)) else _dt.datetime.now(_dt.timezone.utc)
-        #: The oracle's timeout in seconds.
-        self.timeout: float = float(data.get("timeout") or 10)
-        #: Hosts ctx.http may call ("*" = all, "*.example.com" = its subdomains).
-        self.hosts: list[str] = list(data.get("hosts") or [])
-        #: With launchpad = "read": {"url", "token", "workspace"} (also LAUNCHPAD_URL, LAUNCHPAD_TOKEN and
-        #: LAUNCHPAD_WORKSPACE): Home's read API for this workspace, through ctx.http with
-        #: ``Authorization: Bearer <token>``; else None.
-        self.launchpad: dict | None = data.get("launchpad")
-        self.refused: list[str] = []
-        self._home = _origin(httpx2.URL(self.launchpad["url"])) if self.launchpad and self.launchpad.get("url") else None
-        self.http = httpx2.Client(timeout=self.timeout, event_hooks={"request": [self._check_host]})
-
-    def _check_host(self, request: Any) -> None:
-        if self._home is not None and _origin(request.url) == self._home:
-            return
-        host = request.url.host or ""
-        if not _allowed(host, self.hosts):
-            self.refused.append(host)
-            raise HostRefused(f"{host} is not an allowed host of this oracle (allowed: {', '.join(self.hosts) or 'none'}): add it to access.hosts")
+def _plain(value):
+    """A value JSON can carry: datetimes become ISO 8601 in UTC."""
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat()
+    if isinstance(value, dict):
+        return {k: _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    return value
 
 
-def _fail(cls: str, message: str) -> dict:
-    return {"outcome": "failed", "error": {"class": cls, "message": message[:2000]}}
+def _run(tool, op, args):
+    return launchpad_host.call(tool, op, json.dumps(_plain(args)))
 
 
-def _http_message(e: Exception) -> str:
-    if isinstance(e, httpx2.HTTPStatusError):
-        r = e.response
-        return f"{r.status_code} {r.reason_phrase} from {r.request.url.host} ({r.request.method} {r.request.url.copy_with(query=None)})"
-    return f"{type(e).__name__}: {e}"
-
-
-def run(check: Callable[[Context], Verdict]) -> None:
-    """Reads the input, calls check(ctx) and writes the result. An uncaught exception becomes Failed."""
-    out = sys.stdout
-    sys.stdout = sys.stderr
-    try:
-        raw = sys.stdin.read()
-        ctx = Context(json.loads(raw) if raw.strip() else {})
-    except Exception as e:  # noqa: BLE001
-        result = _fail("contract", f"unreadable input: {e}")
-    else:
+def _get(tool, target, params, headers):
+    r = _run(tool, "get", {"target": target, "params": params, "headers": headers})
+    text = r["text"]
+    value = None
+    if text:
         try:
-            try:
-                res = check(ctx)
-            finally:
-                ctx.http.close()
-            if not isinstance(res, Verdict):
-                raise _Contract(f"check() returned {type(res).__name__}: return verdict(True or False, ...) or call failed(reason)")
-            result = res.as_json()
-        except Failed as e:
-            result = _fail("declared", str(e) or "failed")
-        except HostRefused as e:
-            result = _fail("access", str(e))
-        except _Contract as e:
-            result = _fail("contract", str(e))
-        except (httpx2.HTTPError, httpx2.InvalidURL) as e:
-            result = _fail("access" if ctx.refused else "http", _http_message(e))
-        except Exception as e:  # noqa: BLE001
-            traceback.print_exc()
-            if ctx.refused:
-                result = _fail("access", f"{ctx.refused[-1]} is not an allowed host of this oracle ({type(e).__name__}: {e})")
-            else:
-                result = _fail("script", f"{type(e).__name__}: {e}")
-    sys.stdout = out
-    out.write("\n" + json.dumps(result, ensure_ascii=False) + "\n")
-    out.flush()
+            value = json.loads(text)
+        except Exception:
+            value = None
+    return Response(r["status_code"], text, value, r["call"])
+
+
+def _command(tool, op, args):
+    return json.loads(_run(tool, op, args))
+
+
+class _Http:
+    def get(self, url, params=None, headers=None):
+        return _get("http", url, params, headers)
+
+
+class _Api:
+    def __init__(self, name):
+        self._name = name
+
+    def get(self, endpoint, params=None, headers=None):
+        return _get(self._name, endpoint, params, headers)
+
+
+class _SlackSearch:
+    def messages(self, query, limit=None, page=None):
+        return _command("slack", "search.messages", {"query": query, "limit": limit, "page": page})
+
+
+class _SlackMe:
+    def channels(self, limit=None, dms=False, unread=False):
+        return _command("slack", "me.channels", {"limit": limit, "dms": dms, "unread": unread})
+
+
+class _SlackChannels:
+    def list(self, limit=None):
+        return _command("slack", "channels.list", {"limit": limit})
+
+    def info(self, channel):
+        return _command("slack", "channels.info", {"channel": channel})
+
+    def history(self, channel, limit=None, after=None, before=None, enrich=False):
+        args = {"channel": channel, "limit": limit, "after": after, "before": before, "enrich": enrich}
+        return _command("slack", "channels.history", args)
+
+    def members(self, channel, limit=None):
+        return _command("slack", "channels.members", {"channel": channel, "limit": limit})
+
+    def pins(self, channel):
+        return _command("slack", "channels.pins", {"channel": channel})
+
+
+class _SlackMessages:
+    def replies(self, channel, thread_ts, limit=None):
+        return _command("slack", "messages.replies", {"channel": channel, "thread_ts": thread_ts, "limit": limit})
+
+    def permalink(self, channel, ts):
+        return _command("slack", "messages.permalink", {"channel": channel, "ts": ts})
+
+    def reactions(self, channel, ts):
+        return _command("slack", "messages.reactions", {"channel": channel, "ts": ts})
+
+
+class _SlackDms:
+    def list(self, limit=None):
+        return _command("slack", "dms.list", {"limit": limit})
+
+    def history(self, dm_channel, limit=None, after=None, before=None, enrich=False):
+        args = {"dm_channel": dm_channel, "limit": limit, "after": after, "before": before, "enrich": enrich}
+        return _command("slack", "dms.history", args)
+
+
+class _SlackUsers:
+    def list(self, limit=None):
+        return _command("slack", "users.list", {"limit": limit})
+
+    def info(self, user):
+        return _command("slack", "users.info", {"user": user})
+
+    def search(self, query):
+        return _command("slack", "users.search", {"query": query})
+
+    def presence(self, user):
+        return _command("slack", "users.presence", {"user": user})
+
+
+class _SlackFiles:
+    def list(self, channel=None, user=None, limit=None):
+        return _command("slack", "files.list", {"channel": channel, "user": user, "limit": limit})
+
+    def info(self, file):
+        return _command("slack", "files.info", {"file": file})
+
+
+class _SlackToken:
+    def test(self):
+        return _command("slack", "token.test", {})
+
+
+class _Slack:
+    def __init__(self):
+        self.search = _SlackSearch()
+        self.me = _SlackMe()
+        self.channels = _SlackChannels()
+        self.messages = _SlackMessages()
+        self.dms = _SlackDms()
+        self.users = _SlackUsers()
+        self.files = _SlackFiles()
+        self.token = _SlackToken()
+
+    def get(self, method, params=None, headers=None):
+        return _get("slack", method, params, headers)
+
+
+class _List:
+    def __init__(self, name):
+        self._name = name
+
+    def list(self):
+        return _command("launchpad", self._name + ".list", {})
+
+
+class _Sessions:
+    def list(self):
+        return _command("launchpad", "sessions.list", {})
+
+    def show(self, session_id):
+        return _command("launchpad", "sessions.show", {"session_id": session_id})
+
+
+class _Topics:
+    def list(self):
+        return _command("launchpad", "topics.list", {})
+
+    def show(self, topic):
+        return _command("launchpad", "topics.show", {"topic": topic})
+
+
+class _Oracle:
+    def list(self):
+        return _command("launchpad", "oracle.list", {})
+
+    def show(self, slug):
+        return _command("launchpad", "oracle.show", {"slug": slug})
+
+    def history(self, slug, failed=False, limit=20):
+        return _command("launchpad", "oracle.history", {"slug": slug, "failed": failed, "limit": limit})
+
+
+class _Launchpad:
+    def __init__(self):
+        self.folders = _List("folders")
+        self.bots = _List("bots")
+        self.schedules = _List("schedules")
+        self.proposals = _List("proposals")
+        self.activity = _List("activity")
+        self.profiles = _List("profiles")
+        self.presets = _List("presets")
+        self.sessions = _Sessions()
+        self.topics = _Topics()
+        self.oracle = _Oracle()
+
+    def today(self):
+        return _command("launchpad", "today", {})
+
+    def notes(self, repo, number):
+        return _command("launchpad", "notes", {"repo": repo, "number": number})
+
+    def get(self, path, params=None):
+        return _get("launchpad", path, params, None)
+
+
+class _Tools:
+    def __init__(self):
+        self.http = _Http()
+        self.github = _Api("github")
+        self.huggingface = _Api("huggingface")
+        self.slack = _Slack()
+        self.launchpad = _Launchpad()
+
+
+tools = _Tools()
+
+
+def _finish(check, raw):
+    """Home's call of check: the arguments as JSON (`now` as Unix seconds), the answer as JSON."""
+    data = json.loads(raw)
+    kwargs = data["kwargs"]
+    if data["now"] is not None:
+        kwargs["now"] = datetime.fromtimestamp(data["now"], timezone.utc)
+    result = check(**kwargs)
+    if result is True or result is False:
+        result = verdict(result)
+    if not isinstance(result, Verdict):
+        name = type(result).__name__
+        return json.dumps({"kind": "contract", "message": "check returned " + name + ", not verdict(...), True or False"})
+    answer = {
+        "kind": "verdict",
+        "value": result.value,
+        "summary": result.summary,
+        "fingerprint": result.fingerprint,
+        "links": result.links,
+        "items": result.items,
+        "cursor": result.cursor,
+        "cursor_set": result.cursor_set,
+    }
+    try:
+        return json.dumps(answer)
+    except Exception as e:
+        return json.dumps({"kind": "contract", "message": "the evidence is not JSON: " + str(e)})

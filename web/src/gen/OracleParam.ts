@@ -2,10 +2,18 @@
 import type { OracleParamKind } from "./OracleParamKind";
 
 /**
- * One parameter: `"repo"`, `"string:main"`, `"bool:false"` (type, then an optional default after `:`).
+ * One parameter: an argument of `check`.
  */
 export type OracleParam = { name: string, kind: OracleParamKind, 
 /**
- * None: required.
+ * `T | None`: None is a value.
+ */
+optional: boolean, 
+/**
+ * No default: callers must pass it.
+ */
+required: boolean, 
+/**
+ * The default (None when required; `Some(null)`: defaults to None).
  */
 default: unknown, };

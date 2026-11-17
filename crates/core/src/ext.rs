@@ -56,6 +56,12 @@ pub trait Extensions: Send + Sync {
     async fn today(&self, _app: &App) -> Vec<crate::today::Item> {
         vec![]
     }
+    /// Home: a GET of Home's own API (`path` with its query) as a read-level principal of workspace `ws`, in process
+    /// (an oracle's `tools.launchpad`): the same routes and checks as a read-level session of that workspace
+    /// (`agent_auth::authorize_oracle`), no token, nothing over the network. The status and the body.
+    async fn oracle_read(&self, _app: &App, _ws: &str, _path: &str) -> Result<(u16, String)> {
+        anyhow::bail!("Home's API is not available here")
+    }
 }
 
 struct None_;

@@ -1,6 +1,6 @@
 import unittest
 
-from bump_tools import plan
+from bump_tools import github_versions, plan, pypi_versions
 
 
 class Plan(unittest.TestCase):
@@ -22,6 +22,31 @@ class Plan(unittest.TestCase):
 
     def test_pre_release(self):
         self.assertEqual(plan("2.1.311", "2.1.312-beta.1"), (None, None))
+
+
+class Sources(unittest.TestCase):
+    """Versions read from PyPI and GitHub answers (Monty, Ruff, slackline)."""
+
+    def test_pypi(self):
+        doc = {
+            "info": {"version": "1.6.0"},
+            "releases": {"1.0.0b1": [{"yanked": False}], "1.5.0": [{"yanked": True}], "1.6.0": [{"yanked": False}], "1.6.1": []},
+        }
+        self.assertEqual(pypi_versions(doc), ("1.6.0", ["1.0.0b1", "1.6.0"]))
+        latest, versions = pypi_versions({"info": {"version": "0.18.0"}, "releases": {v: [{}] for v in ["0.17.5", "0.17.6", "0.18.0"]}})
+        self.assertEqual(plan("0.17.5", latest, versions), ("0.17.6", "0.18.0"))
+
+    def test_github(self):
+        releases = [
+            {"tag_name": "v2.0.0-rc.1", "prerelease": True},
+            {"tag_name": "v1.6.0", "draft": True},
+            {"tag_name": "v1.5.1"},
+            {"tag_name": "v1.5.0"},
+            {"tag_name": "nightly"},
+        ]
+        self.assertEqual(github_versions(releases), ("1.5.1", ["1.5.1", "1.5.0", "nightly"]))
+        self.assertEqual(plan("1.5.0", *github_versions(releases)), ("1.5.1", None))
+        self.assertEqual(github_versions([]), (None, []))
 
 
 if __name__ == "__main__":

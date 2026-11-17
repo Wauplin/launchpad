@@ -4,7 +4,7 @@
 # Laptop runners and Local VMs get the same list from install-runner.sh and packaging/local-vm.sh.
 set -eu
 
-RUST_VERSION=1.93.1  # CI's toolchain (.github/workflows/ci.yml)
+RUST_VERSION=1.98.0  # CI's toolchain (.github/workflows/ci.yml)
 PNPM_VERSION=10.33.0 # web/package.json "packageManager"
 
 apt-get update

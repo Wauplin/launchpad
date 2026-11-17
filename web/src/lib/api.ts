@@ -7,10 +7,13 @@ import { operationKey, retryProtected } from "./operations.ts";
 export class ApiError extends Error {
   status: number;
   operationCompleted: boolean;
-  constructor(status: number, message: string, operationCompleted = false) {
+  /** The JSON body of the error answer (`{"error": …}` plus fields such as an oracle pre-check's `problems`). */
+  body: Record<string, unknown> | null;
+  constructor(status: number, message: string, operationCompleted = false, body: Record<string, unknown> | null = null) {
     super(message);
     this.status = status;
     this.operationCompleted = operationCompleted;
+    this.body = body;
   }
 }
 
@@ -32,7 +35,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
   if (completed) operation?.delivered();
   if (!res.ok) {
     if (res.status === 401) await signOut();
-    throw new ApiError(res.status, data?.error ?? res.statusText, completed);
+    throw new ApiError(res.status, data?.error ?? res.statusText, completed, data && typeof data === "object" ? data as Record<string, unknown> : null);
   }
   // Older daemons do not advertise durable acceptance; never silently disable retry protection.
   if (operation && !completed) throw new Error("The daemon needs an update before this action can be safely retried. Inspect the destination before trying again.");

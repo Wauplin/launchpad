@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Rust 1.93 or newer (CI pins 1.93.1).
+- Rust 1.98 or newer (CI pins 1.98.0).
 - Node 24 (`web/.nvmrc`) and pnpm through Corepack (pinned in `web/package.json`).
 - Linux, with bubblewrap, for the dev runner (agents run only on Linux).
 
@@ -24,6 +24,16 @@ LAUNCHPAD_ENV=dev cargo run -p launchpad -- url                          # a lin
 - Hot reload: `(cd web && pnpm dev)` serves the UI on http://localhost:5173 with the API proxied to the dev Home. Sign in with the `url` link, using port 5173.
 - Isolated daemon: set `HOME` to a scratch folder and `LAUNCHPAD_PORT` to a free port.
 - Demo mode needs no daemon data: open `/?demo=1` on any running UI.
+
+Oracles run on Home with three programs: `monty` (the Monty worker), `ruff` and `slackline`. A dev Home finds them on its `PATH`, or at the paths in `LAUNCHPAD_MONTY`, `LAUNCHPAD_RUFF` and `LAUNCHPAD_SLACKLINE`. Use the versions pinned in `deploy/hf-home/release.json`:
+
+```sh
+uv tool install pydantic-monty-runtime==1.6.0     # prebuilt monty; or: cargo +1.98.0 install monty-runtime --version 1.6.0 --locked
+uv tool install ruff==0.17.5
+curl -fsSL https://github.com/co42/slackline/releases/download/v1.5.0/slackline-v1.5.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C ~/.local/bin slackline
+```
+
+slackline publishes Linux builds for x86_64 only. On another machine, build it from its repository with `cargo install --git https://github.com/co42/slackline --tag v1.5.0 --locked`.
 
 After changing a Rust type shared with the UI, regenerate the TypeScript types:
 
@@ -51,7 +61,7 @@ node web/scripts/shots.mjs --views 120,phone / settings=/settings/workspace     
 ## Checks
 
 ```sh
-cargo +1.93.1 clippy --workspace --all-targets --locked -- -D warnings
+cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings
 cargo test
 (cd web && pnpm typecheck)
 (cd web && pnpm lint:hooks)
@@ -61,7 +71,7 @@ cargo test
 (cd deploy/hf-home && python -m unittest discover -s tests)   # in a venv with requirements.txt
 ```
 
-Install the pinned toolchain with `rustup toolchain install 1.93.1 --profile minimal --component clippy`.
+Install the pinned toolchain with `rustup toolchain install 1.98.0 --profile minimal --component clippy`.
 
 `pnpm ui-check` runs `web/scripts/ui-check.mjs`. It reads `web/src` (except `gen/`) and lists each class or call that breaks the Sizes and Dates rules of the UI rules in `CLAUDE.md`: Tailwind text sizes and text sizes outside 11/12/13/15/18 px, corner radii other than `rounded-control` and `rounded-card`, arbitrary gaps, widths of 700 px or more (use `max-w-page` or `max-w-text`), hex and Tailwind palette colors, forced `size-…!` classes, icon sizes outside 12/14/16, and `toLocale…String` on dates. It prints `file:line rule match` and a count per rule, and exits with 1 when it finds something. The allowlist at the top of the script excuses a few files and matches, each with its reason (for example the date helpers, the terminal themes and the phone icon sizes). It does not read `styles.css`. It needs no dependencies and takes under a second.
 

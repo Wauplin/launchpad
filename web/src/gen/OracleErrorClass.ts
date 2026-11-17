@@ -3,4 +3,4 @@
 /**
  * Why an evaluation failed: drives grouping in Today and what to fix.
  */
-export type OracleErrorClass = "access" | "http" | "timeout" | "env" | "script" | "contract" | "declared";
+export type OracleErrorClass = "access" | "http" | "timeout" | "limit" | "script" | "contract" | "declared";

@@ -120,17 +120,24 @@ function drafts(): Draft[] {
     const place = c.kind === "dm" ? `the DM with ${other}` : `#${c.name}`;
     out.push(item("channel_ask", "answer", c.id, `${a.author.name} ${a.ask_owner ? "asks" : "mentions"} you in ${place}`, { workspace: c.workspace_id }, a.created_at, { detail: asks.length > 1 ? `${asks.length} messages for you · ${line(a.text)}` : line(a.text), action: "channel.post", message: a.id, count: asks.length }));
   }
-  // Failing oracles (launchpad_automation::today): one Fix row per oracle, Done once read or recovered.
+  // Failing oracles (launchpad_automation::today): one Fix row per oracle, Done once read or recovered. A broken one
+  // (its file does not pass the pre-check) has the same row, saying why, until it is saved again.
   for (const o of world.oracles) {
+    const title = o.oracle.meta?.title ?? o.oracle.slug;
+    const users = world.crons.filter((c) => c.gate?.oracle === o.oracle.slug);
+    const waiting = users.length === 1 ? ` · waiting: routine “${users[0].title}”` : users.length ? ` · waiting: ${users.length} routines` : "";
+    const why = o.oracle.problems[0];
+    if (why && !o.oracle.paused) {
+      out.push(item("oracle", "fix", o.oracle.slug, `Oracle “${title}” is broken`, { workspace: o.oracle.workspace_id }, o.oracle.changed_at ?? 0, { id: `oracle:${o.oracle.workspace_id}/${o.oracle.slug}`, detail: `broken: oracle.py${why.line != null ? `:${why.line}${why.column != null ? `:${why.column}` : ""}` : ""}: ${why.rule ? `${why.rule} ` : ""}${why.message}${waiting}` }));
+      continue;
+    }
     const s = o.streak;
     if (!s || o.oracle.paused) continue;
-    const title = o.oracle.meta?.title ?? o.oracle.slug;
     const id = `oracle:${o.oracle.workspace_id}/${o.oracle.slug}`;
     const place = { workspace: o.oracle.workspace_id };
-    const users = world.crons.filter((c) => c.gate?.oracle === o.oracle.slug);
     if (s.count > 0 && s.read_at == null) {
       const e = s.last_error;
-      out.push(item("oracle", "fix", o.oracle.slug, `Oracle “${title}” is failing`, place, s.last_at ?? 0, { id, count: s.count, detail: `${s.count} failed evaluations${e ? ` · ${e.class}: ${e.message}` : ""}${users.length === 1 ? ` · waiting: routine “${users[0].title}”` : users.length ? ` · waiting: ${users.length} routines` : ""}` }));
+      out.push(item("oracle", "fix", o.oracle.slug, `Oracle “${title}” is failing`, place, s.last_at ?? 0, { id, count: s.count, detail: `${s.count} failed evaluations${e ? ` · ${e.class}: ${e.message}` : ""}${waiting}` }));
     } else if (s.read_at != null && s.count > 0) out.push(item("oracle", "fix", o.oracle.slug, `Oracle “${title}” is failing`, place, s.read_at, { id, outcome: "Marked read" }));
     else if (s.recovered_at != null) out.push(item("oracle", "fix", o.oracle.slug, `Oracle “${title}” recovered`, place, s.recovered_at, { id, outcome: `Recovered after ${s.recovered_after} failed evaluation${s.recovered_after === 1 ? "" : "s"}` }));
   }

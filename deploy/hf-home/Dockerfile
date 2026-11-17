@@ -6,7 +6,7 @@ RUN corepack enable && pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
 
-FROM rust:1.93.1-bookworm AS build
+FROM rust:1.98.0-bookworm AS build
 RUN apt-get update && apt-get install -y --no-install-recommends cmake clang && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 ARG LAUNCHPAD_REVISION
@@ -37,6 +37,6 @@ COPY deploy/hf-home/main.py deploy/hf-home/onboarding.py deploy/hf-home/setup.ht
 ENV PATH=/opt/venv/bin:/usr/local/bin:/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/home/user
 WORKDIR /opt/home
 USER user
-RUN claude --version && codex --version && opencode --version && gh --version && hf version && uvx --version && cargo clippy --version && pnpm --version && jq --version && chromium --version
+RUN claude --version && codex --version && opencode --version && gh --version && hf version && uvx --version && monty --version && ruff --version && slackline --version && cargo clippy --version && pnpm --version && jq --version && chromium --version
 EXPOSE 7860
 ENTRYPOINT ["/usr/bin/tini", "--", "python", "main.py"]
