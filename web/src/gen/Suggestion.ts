@@ -22,6 +22,11 @@ merge: string | null,
  */
 run_ci: boolean, 
 /**
+ * A comment on a GitHub issue or pull request the agent recommends posting and then closing the item
+ * (`--close`): Post closes it by default (Comment and close); the owner may post without closing.
+ */
+close: boolean, 
+/**
  * What failed after the review was posted (the merge or the workflow approval). Never retried.
  */
 followup_error: string | null, };

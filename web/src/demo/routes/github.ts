@@ -170,7 +170,7 @@ route("POST", "/api/suggestions", ({ body }) => {
   const s: Suggestion = {
     id: `demo-sg-${clock.now().toString(36)}`, target: body.target, kind: body.kind, body: String(body.body ?? ""), event: body.event ?? "COMMENT", head: body.head ?? null,
     author: "Agent", session_id: body.session_id ?? null, created_at: clock.now(), status: "draft", url: null,
-    merge: body.merge ?? null, run_ci: !!body.run_ci, followup_error: null, comments: Array.isArray(body.comments) ? body.comments : [],
+    merge: body.merge ?? null, run_ci: !!body.run_ci, close: !!body.close && body.kind === "comment", followup_error: null, comments: Array.isArray(body.comments) ? body.comments : [],
   };
   world.suggestions = [...world.suggestions, s];
   return saveSuggestion(s);
@@ -184,6 +184,7 @@ route("PATCH", "/api/suggestions/:id", ({ params, body }) => {
   s.event = body.event ?? s.event;
   s.merge = s.event === "APPROVE" ? body.merge ?? null : null;
   s.run_ci = !!body.run_ci && !s.merge;
+  if (typeof body.close === "boolean") s.close = body.close && s.kind === "comment";
   return saveSuggestion(s);
 });
 route("DELETE", "/api/suggestions/:id", ({ params }) => {
@@ -193,7 +194,7 @@ route("DELETE", "/api/suggestions/:id", ({ params }) => {
   publish("suggestions", "discarded", { id: s.id });
   return { ok: true };
 });
-route("POST", "/api/suggestions/:id/post", ({ params }) => {
+route("POST", "/api/suggestions/:id/post", ({ params, body }) => {
   const s = suggestionOf(params.id);
   if (s.status === "posted") throw new DemoError(400, "publication already attempted; check GitHub before discarding or creating another suggestion");
   if (s.target.kind === "predraft") {
@@ -206,6 +207,7 @@ route("POST", "/api/suggestions/:id/post", ({ params }) => {
     githubDemo(`posted the agent's ${s.kind} on #${t.number}`);
     if (s.kind === "review" && s.merge) githubDemo(`merged #${t.number} (${s.merge})`);
     else if (s.kind === "review" && s.run_ci) githubDemo(`approved the waiting workflows of #${t.number}`);
+    else if (s.kind === "comment" && (typeof body?.close === "boolean" ? body.close : s.close)) githubDemo(`closed #${t.number}`);
   }
   s.status = "posted";
   return saveSuggestion(s);

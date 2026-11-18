@@ -104,6 +104,10 @@ enum Command {
         /// The suggested comment answers one comment (as `suggest comment --reply-to`).
         #[arg(long, requires = "suggest_file")]
         reply_to: Option<String>,
+        /// The suggested comment closes the issue or pull request (without merging): the owner's Post defaults to
+        /// Comment and close. Use it whenever the note recommends closing.
+        #[arg(long, requires = "suggest_file")]
+        close: bool,
         /// The note this one answers (its ID).
         #[arg(long)]
         reply_to_note: Option<String>,
@@ -551,6 +555,10 @@ struct SuggestArgs {
     /// that thread; a conversation comment gets a new comment that links it.
     #[arg(long, requires = "repo")]
     reply_to: Option<String>,
+    /// Comments on an issue or pull request only: you recommend closing it after this comment. The owner's Post then
+    /// defaults to Comment and close (closing a pull request without merging it).
+    #[arg(long, conflicts_with = "predraft")]
+    close: bool,
     #[arg(long)]
     session_id: Option<String>,
 }
@@ -566,12 +574,13 @@ async fn suggest_command(paths: &Paths, command: Suggest) -> Result<()> {
     anyhow::ensure!(comments.is_array(), "--comments-file must hold a JSON array of line comments");
     anyhow::ensure!(kind == "review" || comments.as_array().is_some_and(|c| c.is_empty()), "only reviews have line comments");
     anyhow::ensure!(kind == "comment" || q.reply_to.is_none(), "--reply-to is for comments: `suggest comment --reply-to …`");
+    anyhow::ensure!(kind == "comment" || !q.close, "--close is for comments: `suggest comment --close` (a review cannot close a pull request)");
     let target = match q.predraft {
         Some(id) => serde_json::json!({"kind":"predraft","id":id}),
         None => serde_json::json!({"kind":"git_hub","repo":q.repo,"number":q.number}),
     };
     let body = Client::new(paths)?
-        .json("POST", "/api/suggestions", Some(serde_json::json!({"target":target,"kind":kind,"body":std::fs::read_to_string(q.body_file)?,"comments":comments,"event":q.event.replace('-', "_").to_uppercase(),"head":q.head,"merge":q.merge,"run_ci":q.run_ci,"reply_to":q.reply_to,"session_id":q.session_id})))
+        .json("POST", "/api/suggestions", Some(serde_json::json!({"target":target,"kind":kind,"body":std::fs::read_to_string(q.body_file)?,"comments":comments,"event":q.event.replace('-', "_").to_uppercase(),"head":q.head,"merge":q.merge,"run_ci":q.run_ci,"reply_to":q.reply_to,"close":q.close,"session_id":q.session_id})))
         .await?;
     println!("{}", serde_json::to_string_pretty(&body)?);
     Ok(())
@@ -1123,13 +1132,13 @@ async fn run() -> Result<()> {
             println!("{value}");
             Ok(())
         }
-        Command::Note { repo, number, body_file, suggest_file, reply_to, reply_to_note, session_id } => {
+        Command::Note { repo, number, body_file, suggest_file, reply_to, close, reply_to_note, session_id } => {
             let body = std::fs::read_to_string(&body_file).with_context(|| format!("reading {}", body_file.display()))?;
             let suggest = match &suggest_file {
                 Some(f) => Some(std::fs::read_to_string(f).with_context(|| format!("reading {}", f.display()))?),
                 None => None,
             };
-            let value = Client::new(&paths)?.json("POST", "/api/notes", Some(serde_json::json!({"repo":repo,"number":number,"body":body,"suggest":suggest,"suggest_reply_to":reply_to,"reply_to":reply_to_note,"session_id":session_id}))).await?;
+            let value = Client::new(&paths)?.json("POST", "/api/notes", Some(serde_json::json!({"repo":repo,"number":number,"body":body,"suggest":suggest,"suggest_reply_to":reply_to,"suggest_close":close,"reply_to":reply_to_note,"session_id":session_id}))).await?;
             println!("{value}");
             Ok(())
         }
@@ -1545,5 +1554,23 @@ mod link_cli_tests {
             .is_ok()
         );
         assert!(Cli::try_parse_from(["launchpad", "link", "--repo", "o/r"]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod close_cli_tests {
+    use super::*;
+    #[test]
+    fn close_flags_take_a_github_comment() {
+        let cli = Cli::try_parse_from(["launchpad", "suggest", "comment", "--repo", "o/r", "--number", "3", "--body-file", "c.md", "--close"]).unwrap();
+        assert!(matches!(cli.command, Command::Suggest { command: Suggest::Comment(SuggestArgs { close: true, .. }) }));
+        let cli = Cli::try_parse_from(["launchpad", "suggest", "comment", "--repo", "o/r", "--number", "3", "--body-file", "c.md"]).unwrap();
+        assert!(matches!(cli.command, Command::Suggest { command: Suggest::Comment(SuggestArgs { close: false, .. }) }));
+        // A Local PR has nothing to close.
+        assert!(Cli::try_parse_from(["launchpad", "suggest", "comment", "--predraft", "p", "--body-file", "c.md", "--close"]).is_err());
+        let cli = Cli::try_parse_from(["launchpad", "note", "--repo", "o/r", "--number", "3", "--body-file", "n.md", "--suggest-file", "c.md", "--close", "--session-id", "s"]).unwrap();
+        assert!(matches!(cli.command, Command::Note { close: true, suggest_file: Some(_), .. }));
+        // The close needs the closing comment.
+        assert!(Cli::try_parse_from(["launchpad", "note", "--repo", "o/r", "--number", "3", "--body-file", "n.md", "--close", "--session-id", "s"]).is_err());
     }
 }

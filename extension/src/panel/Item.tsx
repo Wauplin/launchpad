@@ -134,7 +134,7 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
     {ctx.suggestions.length > 0 && <>
       <div className="x-sect">Waiting for you</div>
       {ctx.suggestions.map((s) => <div key={s.id} className="x-card">
-        <h3><span style={{ flex: 1 }}>{s.bot ?? "An agent"} · {s.kind === "review" ? "review" : s.reply_to ? `reply to ${s.reply_to.author ?? "a comment"}` : "comment"}</span>{s.status === "inserted" && <span className="x-status x-s-run">Inserted on GitHub</span>}</h3>
+        <h3><span style={{ flex: 1 }}>{s.bot ?? "An agent"} · {s.kind === "review" ? "review" : s.close ? "comment and close" : s.reply_to ? `reply to ${s.reply_to.author ?? "a comment"}` : "comment"}</span>{s.status === "inserted" && <span className="x-status x-s-run">Inserted on GitHub</span>}</h3>
         <p className="x-small" style={{ whiteSpace: "pre-wrap", maxHeight: "9em", overflow: "hidden" }}>{s.text}</p>
         {s.kind === "review" && s.lines.length > 0 && <p className="x-small x-muted">{s.lines.length} line {s.lines.length === 1 ? "comment" : "comments"} on Files changed{s.lines.some((l) => l.state === "posted_by_hand" || l.state === "confirmed") ? ` · ${s.lines.filter((l) => l.state === "posted_by_hand" || l.state === "confirmed").length} added to your review` : ""} · suggests {s.event === "APPROVE" ? "Approve" : s.event === "REQUEST_CHANGES" ? "Request changes" : "Comment"}</p>}
         <div className="x-btns">
@@ -178,7 +178,7 @@ function NoteCard({ n, ctx, here, showNote, open, onError, onDone }: { n: ExtNot
   return <div className="x-card">
     <h3><span style={{ flex: 1 }}>{n.author}{answers ? <span className="x-small x-faint"> · answers {answers.by_owner ? "your note" : answers.author}</span> : null}</span>{n.unread && <span className="x-status x-s-need">New</span>}<span className="x-small x-faint">{ago(n.created_at)}</span></h3>
     <p className="x-small" style={{ whiteSpace: "pre-wrap", ...(long && !all ? { maxHeight: "12em", overflow: "hidden" } : {}) }}><Linked text={n.body} ctx={ctx} here={here} showNote={showNote} /></p>
-    {s && <p className="x-small x-muted">{waiting ? "With a suggested comment: see Waiting for you below, or post it from the page." : s.status === "posted" || s.status === "posted_by_hand" ? "Its suggested comment was posted." : s.status === "discarded" ? "Its suggested comment was discarded." : `Suggested comment: ${s.status.replace(/_/g, " ")}.`}</p>}
+    {s && <p className="x-small x-muted">{waiting ? `With a suggested ${waiting.close ? "closing comment" : "comment"}: see Waiting for you below, or post it from the page.` : s.status === "posted" || s.status === "posted_by_hand" ? "Its suggested comment was posted." : s.status === "discarded" ? "Its suggested comment was discarded." : `Suggested comment: ${s.status.replace(/_/g, " ")}.`}</p>}
     <div className="x-btns">
       {long && <button className="x-btn x-sm" onClick={() => setAll(!all)}>{all ? "Show less" : "Show all"}</button>}
       {n.session_id && <button className="x-btn x-sm x-link" onClick={() => open(`/agents?session=${encodeURIComponent(n.session_id!)}`)}>Agent</button>}

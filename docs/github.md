@@ -39,6 +39,8 @@ A suggested comment can answer one comment: the agent adds `--reply-to <comment>
 
 With the Chrome extension, you can also **Insert** a suggestion into GitHub's own comment box and post it there with GitHub's button. The card then says **Inserted on GitHub** and offers no Post (Discard stays); once you post it, it says **Posted by you on GitHub** and leaves Today. See [On github.com](#on-githubcom).
 
+A suggested comment can recommend closing the item: the agent adds `--close` (to `suggest comment`, or to `launchpad note --suggest-file`). Its card says **Comment, then close**, and **Post comment and close** posts it, then closes the issue or pull request (a pull request without merging). **Edit** → After posting → **Nothing else** posts it without closing; in the Chrome extension, **Comment and close** is then the main button and **Post without closing** sits next to it. Closing runs after the comment is recorded as posted and is never retried.
+
 A suggested review can carry a follow-up: an approval with `--merge squash|merge|rebase` merges the pull request at the reviewed head, and `--run-ci` approves the head's GitHub Actions runs that wait for a maintainer. Uncheck the follow-up to post only the review. Follow-ups run after the review is recorded as posted. A failure reports that the review was posted and never retries the follow-up.
 
 Agents can also prepare **Approve and run workflows** for a pull request whose workflow runs wait for a maintainer, as a ready card (`github.run-ci`, see [Bots](bots.md#proposals)). It runs the pull request's code in the repository's CI, so it stays your click, like GitHub's own button.

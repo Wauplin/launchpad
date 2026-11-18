@@ -15,6 +15,7 @@ pub async fn items(app: &App) -> Vec<Item> {
                     (SuggestionKind::Review, Some(_), _) => "Approve and merge",
                     (SuggestionKind::Review, None, true) => "Review and run CI",
                     (SuggestionKind::Review, None, false) => "Review",
+                    _ if s.close => "Comment and close",
                     _ if reply_to.is_some() => "Reply",
                     _ => "Comment",
                 };

@@ -60,6 +60,9 @@ pub struct Write {
     /// That comment answers one comment of the item (`--reply-to`, as `launchpad suggest comment`).
     #[serde(default)]
     pub suggest_reply_to: Option<String>,
+    /// That comment also closes the item when the owner posts it (`--close`: Comment and close).
+    #[serde(default)]
+    pub suggest_close: bool,
     /// The note it answers (`--reply-to-note`).
     #[serde(default)]
     pub reply_to: Option<String>,
@@ -144,6 +147,7 @@ pub async fn write(app: &App, q: Write) -> Result<ItemNote> {
     let workspace_id = launchpad_core::kb::workspace_of_session(app, &q.session_id).await;
     let reply_to = check_reply(app, &q.repo, q.number, workspace_id.as_deref(), q.reply_to.as_deref()).await?;
     let bot = s.launch_spec.bot.as_ref();
+    ensure!(!q.suggest_close || q.suggest.as_deref().is_some_and(|t| !t.trim().is_empty()), "--close needs --suggest-file: the closing comment the owner posts");
     let suggestion_id = match q.suggest.filter(|t| !t.trim().is_empty()) {
         Some(body) => {
             let create = crate::suggestions::Create {
@@ -157,6 +161,7 @@ pub async fn write(app: &App, q: Write) -> Result<ItemNote> {
                 session_id: Some(q.session_id.clone()),
                 merge: None,
                 run_ci: false,
+                close: q.suggest_close,
             };
             Some(crate::suggestions::create(app, create).await?.id)
         }
@@ -359,7 +364,7 @@ pub fn owner_message(app: &App, note: &ItemNote, url: &str) -> String {
 /// Included in every launched session, next to the suggestions' instruction.
 pub fn instruction(app: &App, session: &str) -> String {
     format!(
-        "Private notes are a private timeline of an issue or pull request, shown to the owner inside GitHub's timeline by the extension and never posted. Run `{cli} note --repo <owner/repo> --number <n> --body-file <file> --session-id {session}` (Markdown) to add a note when something new happened (new commits, new comments, the owner's note); each run appends a new note, so keep each one focused on what changed and never repeat earlier notes. Text the owner could post on GitHub (a reply, a review request, a closing comment) goes in `--suggest-file <file>`, never in the note: the extension shows it as a separate comment the owner posts with one click (`--reply-to <comment>` as for `suggest comment`); a draft written inside the note body cannot be posted. Answer the owner's note with `--reply-to-note <note id>`. To point at another note (of this item or another one), put its link in your Markdown (`url` of `{cli} notes --repo <owner/repo> --number <n>`, which lists the item's notes; `note` prints the new note's `url`); links to issues, pull requests and comments (`#123`, `owner/repo#123`, GitHub URLs) show like on GitHub.",
+        "Private notes are a private timeline of an issue or pull request, shown to the owner inside GitHub's timeline by the extension and never posted. Run `{cli} note --repo <owner/repo> --number <n> --body-file <file> --session-id {session}` (Markdown) to add a note when something new happened (new commits, new comments, the owner's note); each run appends a new note, so keep each one focused on what changed and never repeat earlier notes. Every action you recommend must be one click for the owner, never only prose or a quoted draft in the note (an \"Action: close …\" line or a draft inside the note cannot be clicked): text the owner could post on GitHub (a reply, a closing comment) goes in `--suggest-file <file>`, which the extension shows under the note as a comment the owner posts with one click (`--reply-to <comment>` as for `suggest comment`); a recommended close adds `--close` to it (the owner's Post becomes Comment and close, a pull request closed without merging); a recommended approval, merge, CI run or request for changes is a separate `suggest review` with `--event approve|request-changes`, `--merge` or `--run-ci`, which shows in the same timeline. Answer the owner's note with `--reply-to-note <note id>`. To point at another note (of this item or another one), put its link in your Markdown (`url` of `{cli} notes --repo <owner/repo> --number <n>`, which lists the item's notes; `note` prints the new note's `url`); links to issues, pull requests and comments (`#123`, `owner/repo#123`, GitHub URLs) show like on GitHub.",
         cli = app.paths.cli_command()
     )
 }

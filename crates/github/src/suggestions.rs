@@ -185,6 +185,10 @@ pub struct Suggestion {
     /// A review can also approve the GitHub Actions runs of the reviewed head that wait for a maintainer.
     #[serde(default)]
     pub run_ci: bool,
+    /// A comment on a GitHub issue or pull request the agent recommends posting and then closing the item
+    /// (`--close`): Post closes it by default (Comment and close); the owner may post without closing.
+    #[serde(default)]
+    pub close: bool,
     /// What failed after the review was posted (the merge or the workflow approval). Never retried.
     #[serde(default)]
     pub followup_error: Option<String>,
@@ -207,6 +211,9 @@ pub struct Create {
     pub merge: Option<String>,
     #[serde(default)]
     pub run_ci: bool,
+    /// `--close`: the agent recommends closing the item after this comment.
+    #[serde(default)]
+    pub close: bool,
 }
 fn comment_event() -> String {
     "COMMENT".into()
@@ -222,6 +229,18 @@ pub struct Edit {
     pub merge: Option<String>,
     #[serde(default)]
     pub run_ci: bool,
+    /// Whether Post closes the item by default; absent keeps it (the extension's edit changes only the text).
+    #[serde(default)]
+    pub close: Option<bool>,
+}
+/// Pure: only a comment on a GitHub issue or pull request can close it.
+fn validate_close(kind: &SuggestionKind, target: &SuggestionTarget, close: bool) -> Result<()> {
+    ensure!(!close || (*kind == SuggestionKind::Comment && matches!(target, SuggestionTarget::GitHub { .. })), "only a comment on a GitHub issue or pull request can close it");
+    Ok(())
+}
+/// Pure: what Post does about closing: the owner's choice, else the suggestion's own (`--close`).
+fn closes(asked: Option<bool>, s: &Suggestion) -> bool {
+    asked.unwrap_or(s.close)
 }
 /// The follow-ups of a review: merge only after an approval, both only on a GitHub pull request, never both (the
 /// workflows would still run when the merge happens).
@@ -328,6 +347,7 @@ pub async fn create(app: &App, mut q: Create) -> Result<Suggestion> {
     }
     validate_comments(&q.kind, &q.comments)?;
     validate_followups(&q.kind, &q.event, &q.target, q.merge.as_deref(), q.run_ci)?;
+    validate_close(&q.kind, &q.target, q.close)?;
     match &q.target {
         SuggestionTarget::GitHub { repo, number, .. } => {
             items::validate(repo)?;
@@ -375,6 +395,7 @@ pub async fn create(app: &App, mut q: Create) -> Result<Suggestion> {
         url: None,
         merge: q.merge,
         run_ci: q.run_ci,
+        close: q.close,
         followup_error: None,
     };
     save(app, &s).await?;
@@ -394,6 +415,10 @@ pub async fn edit(app: &App, id: &str, q: Edit) -> Result<Suggestion> {
     ensure!(s.status == "draft", "only unposted drafts can be edited");
     validate(&q.body, &q.event, &s.kind)?;
     validate_followups(&s.kind, &q.event, &s.target, q.merge.as_deref(), q.run_ci)?;
+    if let Some(close) = q.close {
+        validate_close(&s.kind, &s.target, close)?;
+        s.close = close;
+    }
     if let Some(comments) = q.comments {
         // The owner removes line comments; the agent's text and places stay as written.
         ensure!(comments.iter().all(|c| s.comments.contains(c)), "line comments can only be removed");
@@ -423,8 +448,9 @@ pub async fn discard(app: &App, id: &str) -> Result<()> {
         .publish("suggestions", "discarded", json!({"id":s.id}));
     Ok(())
 }
-/// The owner's Post: `close` (Comment and close) also closes the issue or pull request once the comment is posted.
-pub async fn post(app: &App, id: &str, close: bool) -> Result<Suggestion> {
+/// The owner's Post: `close` (Comment and close) also closes the issue or pull request once the comment is posted;
+/// absent, it follows the suggestion's own `close` (the agent's `--close`).
+pub async fn post(app: &App, id: &str, close: Option<bool>) -> Result<Suggestion> {
     let lock = app.suggestion_locks.get(id);
     let _guard = lock.lock().await;
     let mut s = get(app, id).await?;
@@ -434,7 +460,8 @@ pub async fn post(app: &App, id: &str, close: bool) -> Result<Suggestion> {
         s.status == "draft",
         "publication already attempted; check GitHub before discarding or creating another suggestion"
     );
-    ensure!(!close || (s.kind == SuggestionKind::Comment && matches!(s.target, SuggestionTarget::GitHub { .. })), "only a comment on a GitHub issue or pull request can close it");
+    let close = closes(close, &s);
+    validate_close(&s.kind, &s.target, close)?;
     match &s.target {
         SuggestionTarget::Predraft { id } => {
             let _predraft = app.predraft_lock.lock().await;
@@ -564,7 +591,7 @@ pub async fn post(app: &App, id: &str, close: bool) -> Result<Suggestion> {
 /// instruction, when the owner has some).
 pub fn instruction(app: &App, session: &str) -> String {
     format!(
-        "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes, and may add --comments-file <file.json> with inline line comments posted in the same review (a JSON array of {{path, line, side: RIGHT or LEFT for a removed line, start_line (optional, for a range), body}}; a body may hold a ```suggestion block); put each finding about specific lines in a line comment and keep the --body-file for the overall summary; an approving review may add --merge squash|merge|rebase (the owner's Post click then merges at that head), and a review may add --run-ci (Post also approves the head's GitHub Actions runs that wait for a maintainer). A comment that answers one comment adds --reply-to <issuecomment-<id>, discussion_r<id> or the comment's URL> (a review thread's comment gets its reply in that thread). Saving a suggestion links this session to the item and its repository#number workspace topic. Use `launchpad link --repo <owner/repo> --number <n> --session-id <id>` to link without a suggestion (optional --comment-url). Local PR bodies with Fixes #N or Closes #N link their session and show the Local PR on the issue in the extension. For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
+        "Agent-written GitHub comments and reviews must stay local. Use the launchpad skill and `{} suggest comment|review --repo <owner/repo> --number <n> --body-file <file> --session-id {session}`. Reviews also require --head <inspected-40-character-commit> and optionally --event approve|request-changes, and may add --comments-file <file.json> with inline line comments posted in the same review (a JSON array of {{path, line, side: RIGHT or LEFT for a removed line, start_line (optional, for a range), body}}; a body may hold a ```suggestion block); put each finding about specific lines in a line comment and keep the --body-file for the overall summary; an approving review may add --merge squash|merge|rebase (the owner's Post click then merges at that head), and a review may add --run-ci (Post also approves the head's GitHub Actions runs that wait for a maintainer). A comment that answers one comment adds --reply-to <issuecomment-<id>, discussion_r<id> or the comment's URL> (a review thread's comment gets its reply in that thread). A comment that recommends closing the issue or pull request adds --close (the owner's Post then closes it after the comment, a pull request without merging). File every action you recommend (close, merge, approve CI, request changes, reply) as a suggestion with the matching flag, never only as prose or a quoted draft in a message or note: the owner acts on it with one click. Saving a suggestion links this session to the item and its repository#number workspace topic. Use `launchpad link --repo <owner/repo> --number <n> --session-id <id>` to link without a suggestion (optional --comment-url). Local PR bodies with Fixes #N or Closes #N link their session and show the Local PR on the issue in the extension. For local PRs use --predraft <id> instead of --repo/--number. Never publish suggestions yourself; the owner edits and posts with a click.",
         app.paths.cli_command()
     )
 }
@@ -586,6 +613,28 @@ mod tests {
         assert!(validate_followups(&review, "COMMENT", &gh, None, true).is_ok());
         assert!(validate_followups(&comment, "COMMENT", &gh, None, true).is_err());
         assert!(validate_followups(&review, "APPROVE", &gh, Some("merge"), true).is_err());
+    }
+
+    #[test]
+    fn only_github_comments_close_and_post_follows_the_agent() {
+        let gh = SuggestionTarget::GitHub { repo: "o/r".into(), number: 1, reply_to: None };
+        let local = SuggestionTarget::Predraft { id: "p".into() };
+        assert!(validate_close(&SuggestionKind::Comment, &gh, true).is_ok());
+        assert!(validate_close(&SuggestionKind::Review, &gh, true).is_err());
+        assert!(validate_close(&SuggestionKind::Comment, &local, true).is_err());
+        assert!(validate_close(&SuggestionKind::Review, &local, false).is_ok());
+        // Stored as JSON: older records without the field read as not closing; the agent's flag round-trips.
+        let mut s: Suggestion = serde_json::from_value(json!({"id": "s", "target": {"kind": "git_hub", "repo": "o/r", "number": 1}, "kind": "comment", "body": "Closing: spam.", "event": "COMMENT", "head": null, "author": "Claude Code", "session_id": null, "created_at": 0, "status": "draft", "url": null})).unwrap();
+        assert!(!s.close && !closes(None, &s));
+        s.close = true;
+        let s: Suggestion = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(s.close);
+        assert!(closes(None, &s), "Post closes by default");
+        assert!(!closes(Some(false), &s), "the owner posts without closing");
+        let q: Create = serde_json::from_value(json!({"target": {"kind": "git_hub", "repo": "o/r", "number": 1}, "kind": "comment", "body": "x", "close": true})).unwrap();
+        assert!(q.close);
+        let e: Edit = serde_json::from_value(json!({"body": "x", "event": "COMMENT"})).unwrap();
+        assert_eq!(e.close, None, "an edit without close keeps it");
     }
 
     #[test]

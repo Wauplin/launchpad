@@ -22,7 +22,7 @@ export function useSuggestions(target: SuggestionTarget) {
 export const SuggestionCard = memo(function SuggestionCard({ suggestion: s }: { suggestion: Suggestion }) {
   const qc = useQueryClient();
   // Unsaved edits live in the daemon so they follow the owner across devices.
-  const edit = useReviewState<{ body?: string; event?: string; merge?: string | null; run_ci?: boolean; comments?: Suggestion["comments"] }>(`suggestion:${s.id}`, {});
+  const edit = useReviewState<{ body?: string; event?: string; merge?: string | null; run_ci?: boolean; close?: boolean; comments?: Suggestion["comments"] }>(`suggestion:${s.id}`, {});
   const [editingLocal, setEditing] = useState(false);
   const editing = editingLocal || Object.values(edit.value).some((v) => v !== undefined);
   const body = editing ? edit.value.body ?? s.body : s.body;
@@ -31,14 +31,17 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s }: { 
   // Follow-ups of a review, run by the same Post click: merge (approving reviews only) or run the waiting workflows.
   const merge = event === "APPROVE" ? (editing && edit.value.merge !== undefined ? edit.value.merge : s.merge) : null;
   const runCi = editing && edit.value.run_ci !== undefined ? edit.value.run_ci : s.run_ci;
-  const followup = merge ? `then merge (${merge})` : runCi ? "then run CI" : "";
+  const local = s.target.kind === "predraft";
+  // A comment on GitHub may close its item after posting: the agent's recommendation (`--close`) is the default.
+  const canClose = s.kind === "comment" && !local;
+  const close = canClose && (editing && edit.value.close !== undefined ? edit.value.close : s.close);
+  const followup = merge ? `then merge (${merge})` : runCi ? "then run CI" : close ? "then close" : "";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const local = s.target.kind === "predraft";
   const reply = s.target.kind === "git_hub" ? s.target.reply_to ?? null : null;
   function clear() { void edit.clear(); }
-  const save = () => api.patch(`/api/suggestions/${s.id}`, { body, event, merge, run_ci: runCi, comments });
-  const posted = () => { toast(local ? "Suggestion saved to the Local PR notes" : s.kind === "review" ? (merge ? "Review posted and pull request merged" : runCi ? "Review posted and workflows approved" : "Suggested review posted") : "Suggested comment posted"); };
+  const save = () => api.patch(`/api/suggestions/${s.id}`, { body, event, merge, run_ci: runCi, comments, ...(canClose ? { close } : {}) });
+  const posted = () => { toast(local ? "Suggestion saved to the Local PR notes" : s.kind === "review" ? (merge ? "Review posted and pull request merged" : runCi ? "Review posted and workflows approved" : "Suggested review posted") : close ? "Comment posted and item closed" : "Suggested comment posted"); };
   const settled = () => { clear(); setEditing(false); void qc.invalidateQueries({ queryKey: ["suggestions"] }); };
   // A failed merge or workflow approval after a posted review removes the card from Today: the toast keeps it seen.
   const failed = (e: unknown) => { setError(e); toastError(e); void qc.invalidateQueries({ queryKey: ["suggestions"] }); };
@@ -53,7 +56,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s }: { 
   }
   return <article data-tour="suggestion.card" className="rounded-card border border-teal/40 bg-teal-soft p-4">
     <div className="mb-3 flex flex-wrap items-center gap-2 text-[12px]">
-      <b className="text-teal-ink">Suggestion by {s.author}</b><span>{s.kind === "review" ? `Review · ${event === "APPROVE" ? "approve" : event === "REQUEST_CHANGES" ? "request changes" : "comment"}${followup && `, ${followup}`}` : local ? "Note" : reply ? <button className="text-teal-ink hover:underline" title={reply.url} onClick={() => openGitHub(reply.url)}>Reply to {reply.author ? `${reply.author}'s` : "a"} comment</button> : "Comment"}</span>
+      <b className="text-teal-ink">Suggestion by {s.author}</b><span>{s.kind === "review" ? `Review · ${event === "APPROVE" ? "approve" : event === "REQUEST_CHANGES" ? "request changes" : "comment"}${followup && `, ${followup}`}` : local ? "Note" : <>{reply ? <button className="text-teal-ink hover:underline" title={reply.url} onClick={() => openGitHub(reply.url)}>Reply to {reply.author ? `${reply.author}'s` : "a"} comment</button> : "Comment"}{close && ", then close"}</>}</span>
       {s.head && <span className="font-mono" title={s.head}>{s.head.slice(0, 7)}</span>}
       {s.status === "posted" && <Badge tone="ok" icon="check">{local ? "Saved to Local PR notes" : "Posted"}</Badge>}
       {s.status === "inserted" && <Badge tone="teal" icon="comment">Inserted on GitHub</Badge>}
@@ -62,6 +65,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s }: { 
     {editing && s.status === "draft" ? <div className="grid gap-2">
       <textarea aria-label="Suggested text" className="field-input min-h-40" value={body} disabled={busy} onChange={(e) => { const v = e.target.value; edit.set((o) => ({ ...o, body: v })); }} />
       {s.kind === "review" && <Choices label="Suggested review type">{([["COMMENT", "Comment"], ["APPROVE", "Approve"], ["REQUEST_CHANGES", "Request changes"]] as const).map(([id, label]) => <Choice key={id} active={event === id} disabled={busy} onClick={() => edit.set((o) => ({ ...o, event: id }))}>{label}</Choice>)}</Choices>}
+      {canClose && <Choices label="After posting">{([[false, "Nothing else"], [true, "Close"]] as const).map(([id, label]) => <Choice key={label} active={close === id} disabled={busy} onClick={() => edit.set((o) => ({ ...o, close: id }))}>{label}</Choice>)}</Choices>}
       {s.kind === "review" && !local && <Choices label="After posting">{([["none", "Nothing else"], ["merge", "Merge"], ["run_ci", "Run CI"]] as const).filter(([id]) => id !== "merge" || event === "APPROVE").map(([id, label]) => <Choice key={id} active={(id === "merge" ? !!merge : id === "run_ci" ? runCi && !merge : !merge && !runCi)} disabled={busy} onClick={() => edit.set((o) => ({ ...o, merge: id === "merge" ? merge ?? s.merge ?? "squash" : null, run_ci: id === "run_ci" }))}>{label}</Choice>)}</Choices>}
     </div> : <Markdown text={s.body} />}
     {!!comments.length && <div className="mt-3"><LineComments comments={comments} disabled={busy} onRemove={editing && s.status === "draft" ? (i) => edit.set((o) => ({ ...o, comments: (o.comments ?? s.comments).filter((_, j) => j !== i) })) : undefined} /></div>}
@@ -74,7 +78,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestion: s }: { 
         {editing && <button className="btn btn-sm" disabled={busy} onClick={() => { clear(); setEditing(false); }}>Cancel edit</button>}
         {local
           ? <button className="btn btn-primary btn-sm" disabled={busy || !body.trim()} onClick={() => void run("post")}>{busy ? "Working…" : "Add to local notes"}</button>
-          : <ActionButton name="suggestion.post" params={{ id: s.id }} consequence={merge ? `Posts this review to GitHub as you, then merges the pull request (${merge}) at the reviewed commit.` : runCi ? "Posts this review to GitHub as you, then approves the waiting GitHub Actions runs of the reviewed commit: the pull request's code runs in the repository's CI." : undefined} primary disabled={busy || !body.trim()} before={async () => { setError(null); if (editing) await save(); }} onDone={() => { posted(); settled(); }} onError={failed}>{s.kind === "review" ? (merge ? "Post review and merge" : runCi ? "Post review and run CI" : comments.length ? `Post review (${comments.length} line ${comments.length === 1 ? "comment" : "comments"})` : "Post review") : "Post comment"}</ActionButton>}
+          : <ActionButton name="suggestion.post" params={{ id: s.id }} consequence={merge ? `Posts this review to GitHub as you, then merges the pull request (${merge}) at the reviewed commit.` : runCi ? "Posts this review to GitHub as you, then approves the waiting GitHub Actions runs of the reviewed commit: the pull request's code runs in the repository's CI." : close ? "Posts this comment to GitHub as you, then closes the issue or pull request (a pull request without merging it)." : undefined} primary disabled={busy || !body.trim()} before={async () => { setError(null); if (editing) await save(); }} onDone={() => { posted(); settled(); }} onError={failed}>{s.kind === "review" ? (merge ? "Post review and merge" : runCi ? "Post review and run CI" : comments.length ? `Post review (${comments.length} line ${comments.length === 1 ? "comment" : "comments"})` : "Post review") : close ? "Post comment and close" : "Post comment"}</ActionButton>}
         {!local && suggestionItemUrl(s) && <button className="btn btn-sm" onClick={() => openGitHub(suggestionItemUrl(s)!)}><Icon name="ext" size={12} />Open on GitHub</button>}
         <span className="text-[12px] text-ink-3">{local ? "Stays in Launchpad." : "Posts to GitHub when you click."}</span>
       </>}
