@@ -112,7 +112,7 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
   const menu = (close: () => void) => <>
     <MenuItem icon={<Icon name="comment" size={14} />} label="Comments" detail={`${f.open} open`} onClick={() => { close(); setPanel("comments"); }} />
     <MenuItem icon={<Icon name="clock" size={14} />} label="Versions" detail={`rev ${f.rev}`} onClick={() => { close(); setPanel("versions"); }} />
-    {d.problems.length > 0 && <MenuItem icon={<Icon name="alert" size={14} />} label="Problems" detail={`${errors} errors, ${warnings} warnings`} onClick={() => { close(); setPanel("problems"); }} />}
+    {d.problems.length > 0 && <MenuItem icon={<Icon name="alert" size={14} />} label="Problems" detail={`${errors} error${errors === 1 ? "" : "s"}, ${warnings} warning${warnings === 1 ? "" : "s"}`} onClick={() => { close(); setPanel("problems"); }} />}
     {embedded && <MenuItem icon={<Icon name="expand" size={14} />} label="Open full screen" onClick={() => { close(); location.assign(`/folios/${encodeURIComponent(slug)}`); }} />}
     {f.topic_id && <MenuItem icon={<Icon name="tag" size={14} />} label="Agents on this folio" detail="Its topic" onClick={() => { close(); location.assign(`/topics/${encodeURIComponent(f.topic_id!)}`); }} />}
     <ActionMenuItem name="folio.archive" params={{ workspace: ws, slug }} body={{ archived: f.state !== "archived" }} close={close} label={f.state === "archived" ? "Bring back" : "Archive"} onDone={() => toast(f.state === "archived" ? "Folio brought back" : "Folio archived: Bring back in Folios › Archived")} />
@@ -333,7 +333,7 @@ function VersionsPanel({ ws, slug, current, latest, view }: { ws: string; slug: 
           <MenuSection><ConfirmButton className="w-full" confirmLabel="Restore" consequence="Puts the files of this rev back as they were before it, as a new rev." onConfirm={() => runAction("folio.restore", { workspace: ws, slug, rev: String(r.rev) }).then(() => { close(); toast(`Restored the files from before rev ${r.rev}`); })}>Restore before this rev</ConfirmButton></MenuSection>
         </>}</MoreMenu>
       </div>
-      <span className="text-[12px] text-ink-2">{r.files.map((f) => `${f.path}${f.added != null ? ` (+${f.added} −${f.removed})` : ""}`).join(", ")}{r.errors ? ` · ${r.errors} errors` : ""}</span>
+      <span className="text-[12px] text-ink-2">{r.files.map((f) => `${f.path}${f.added != null ? ` (+${f.added} −${f.removed})` : ""}`).join(", ")}{r.errors ? ` · ${r.errors} error${r.errors === 1 ? "" : "s"}` : ""}</span>
       {shown === r.rev && (diff.isLoading ? <Loading what="diff" /> : diff.data?.files.map((f) => <div key={f.path} className="grid gap-1"><span className="text-[12px] font-semibold">{f.path}</span>{f.patch ? <Patch text={f.patch} /> : <span className="text-[12px] text-ink-3">{f.created ? "Added" : f.deleted ? "Removed" : "Changed"} (not text)</span>}</div>))}
     </div>)}
   </div>;

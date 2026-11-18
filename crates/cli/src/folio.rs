@@ -419,9 +419,9 @@ fn list_line(f: &Value) -> String {
     if let Some(t) = f["updated_at"].as_i64() {
         facts.push(format!("updated {}", utc(t)));
     }
-    for (k, what) in [("unsent", "unsent marks"), ("open", "open comments"), ("errors", "errors")] {
+    for (k, one, many) in [("unsent", "unsent mark", "unsent marks"), ("open", "open comment", "open comments"), ("errors", "error", "errors")] {
         if let Some(n) = f[k].as_u64().filter(|n| *n > 0) {
-            facts.push(format!("{n} {what}"));
+            facts.push(format!("{n} {}", if n == 1 { one } else { many }));
         }
     }
     format!("{}  {}  ({})", f["slug"].as_str().unwrap_or("?"), f["title"].as_str().unwrap_or(""), facts.join(" · "))
@@ -552,6 +552,6 @@ mod tests {
         assert_eq!(mark_id("7").unwrap(), 7);
         assert!(mark_id("x").is_err());
         let f = json!({"slug": "roadmap-winter", "title": "Roadmap", "kind": "roadmap", "rev": 14, "unsent": 5, "open": 0, "errors": 1});
-        assert_eq!(list_line(&f), "roadmap-winter  Roadmap  (roadmap · rev 14 · 5 unsent marks · 1 errors)");
+        assert_eq!(list_line(&f), "roadmap-winter  Roadmap  (roadmap · rev 14 · 5 unsent marks · 1 error)");
     }
 }

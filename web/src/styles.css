@@ -1127,6 +1127,9 @@ button {
   background: var(--color-chrome);
   font-size: 15px;
 }
+.folio-prompt pre {
+  white-space: pre-wrap;
+}
 .folio-prompt .folio-wave-head {
   background: none;
   padding: 0 0 6px;
