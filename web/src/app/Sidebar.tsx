@@ -1,4 +1,5 @@
 import { useKnowledgeUnseen } from "@/lib/knowledge";
+import { useFolios } from "@/lib/folios";
 import { botTone } from "@/components/BotAvatar";
 import { useChannelAsks, useTodayCount } from "@/features/today/data";
 import { botInitial, botState, botThread, threadSummary, useBots } from "@/lib/bots";
@@ -217,6 +218,7 @@ export function Sidebar() {
   const today = useTodayCount();
   const knowledgeNew = useKnowledgeUnseen();
   const scope = useScope();
+  const folioUnsent = (useFolios(scope.workspace.id).data ?? []).reduce((n, f) => n + f.unsent, 0);
   const projects = scope.projects;
   const sessions = (useSessions().data ?? []).filter(scope.hasSession);
   const running = sessions.filter(isRunning).length;
@@ -246,6 +248,7 @@ export function Sidebar() {
       <NavItem narrow={narrow} tour="sidebar.schedules" to="/schedules" icon="clock" title="Schedules">
         Schedules
       </NavItem>
+      <NavItem narrow={narrow} tour="sidebar.folios" to="/folios" icon="folio" mark={folioUnsent ? "new" : null} title={label("Folios", folioUnsent > 0 && `${folioUnsent} marks not sent yet`)} end={<Count n={folioUnsent} title={`${folioUnsent} marks not sent yet`} />}>Folios</NavItem>
       <NavItem narrow={narrow} to="/topics" icon="tag" title="Topics">Topics</NavItem>
       <NavItem narrow={narrow} tour="sidebar.knowledge" to="/knowledge" icon="book" mark={knowledgeNew ? "new" : null} title={label("Knowledge", knowledgeNew > 0 && knowledgeTitle)} end={<Count n={knowledgeNew} title={knowledgeTitle} />}>
         Knowledge

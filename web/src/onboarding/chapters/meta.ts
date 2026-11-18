@@ -12,6 +12,7 @@ export const CHAPTER_META: ChapterMeta[] = [
   { id: "ask", title: "Ask Launchpad & bots", time: "2:15", essentials: false },
   { id: "terminals", title: "Terminals", time: "1:00", essentials: false },
   { id: "folders", title: "Folders & workspaces", time: "1:00", essentials: false },
+  { id: "folios", title: "Folios: reports you review", time: "1:00", essentials: false },
   { id: "automation", title: "Start later, routines & quotas", time: "1:15", essentials: false },
   { id: "settings", title: "Profiles, presets & devices", time: "1:30", essentials: false },
   { id: "home", title: "Home & runners", time: "0:45", essentials: false },

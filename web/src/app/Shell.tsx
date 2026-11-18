@@ -62,13 +62,15 @@ export function Shell() {
   const settings = useRouterState({ select: (s) => inSettings(s.location.pathname) });
   // There is no default workspace: Setup (whose Workspaces step creates the first one) and Settings open without one.
   const setup = useRouterState({ select: (s) => s.location.pathname === "/setup" });
+  // A folio's reader is full screen: its own bar replaces the sidebar.
+  const reader = useRouterState({ select: (s) => /^\/folios\/[^/]+$/.test(s.location.pathname) });
   return (
     <div className="flex h-full flex-col">
       <IconSprite />
       <TopBar />
       {/* relative: the composer overlay (narrow windows) and the draft pill are positioned here. */}
       <div className="relative flex min-h-0 flex-1">
-        {settings ? <SettingsSidebar /> : <Sidebar />}
+        {settings ? <SettingsSidebar /> : !reader && <Sidebar />}
         <div className="flex min-w-0 flex-1 flex-col">
           {!isDemo && <WelcomeGate />}
           <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden bg-paper">

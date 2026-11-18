@@ -11,6 +11,10 @@ import { SessionSummary, StateBand, QuotaBand, FollowUpBands, CostLimit, PaidUsa
 import { BotChip, Tabs } from "@/components/ui";
 import { routineOf } from "@/lib/routines";
 import { SubagentsPanel, subagents } from "./SubagentsPanel";
+import { SessionFolio } from "@/features/folios/SessionFolio";
+import { useFolioActivity, useSessionFolios } from "@/lib/folios";
+import { FolioWriteRow } from "@/features/folios/SessionFolio";
+import { useScope } from "@/lib/workspace";
 import { GitPanel } from "./GitPanel";
 import { ProcessesPanel } from "./ProcessesPanel";
 import type { SessionProcess } from "@/gen/SessionProcess";
@@ -102,11 +106,12 @@ function StatePrimary({ s, primary }: { s: Session; primary: React.ReactNode }) 
   return <>{primary}</>;
 }
 
-export type View = "summary" | "trace" | "changes" | "subagents" | "processes";
+export type View = "summary" | "trace" | "changes" | "subagents" | "processes" | "folio";
 
 /** `initialView`: the view to show (the phone keeps it in the address, `onView` writes it there with a replace). */
 export function SessionPane({ sessionId, onClear, initialView, onView }: { sessionId: string; onClear: () => void; initialView?: View; onView?: (view: View) => void }) {
   const phone = usePhone();
+  const scope = useScope();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [topicsOpen, setTopicsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -158,7 +163,9 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   const gitState = useSettled(git);
   const historyState = useSettled(history);
   const isGit = !!git.data || !!history.data;
-  const current: View = view === "processes" && !hasProcesses ? "trace" : view === "changes" && !isGit ? "summary" : view ?? "summary";
+  // The folios this session wrote or worked on: the Folio tab shows when it has one.
+  const sessionFolios = useSessionFolios(scope.workspace.id, sessionId).data ?? [];
+  const current: View = view === "processes" && !hasProcesses ? "trace" : view === "changes" && !isGit ? "summary" : view === "folio" && !sessionFolios.length ? "summary" : view ?? "summary";
   // Running opens Trace by default (decision 10 allows Summary while running, with a "Working…" band).
   const summary = !s || current === "summary";
   const canExpand = phone && (current === "summary" || current === "trace");
@@ -168,6 +175,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   useBackClose(phone && replying, () => setReplying(false));
   const changesOpen = current === "changes";
   const processesOpen = current === "processes";
+  const folioOpen = current === "folio";
   // The Local PR this window created for the session (remembered at creation), read once per render, not per row.
   const rememberedPr = localStorage.getItem(`launchpad.session-predraft.${sessionId}`);
   const localPr = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<import("@/gen/Predraft").Predraft[]>("/api/predrafts") }).data?.find((p) => !p.archived && (p.session_id === sessionId || p.id === rememberedPr));
@@ -207,11 +215,13 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   // Cards this session wrote (`launchpad propose`) follow its trace.
   const proposals = useProposalList();
   const threadProposals = (proposals.data ?? []).filter((p) => p.session_id === sessionId).sort((a, b) => a.created_at - b.created_at);
-  const rowCount = trace.length + threadProposals.length;
+  // The folio writes of this session: one receipt row each, after its proposals (`folioReceipt`).
+  const folioWrites = (useFolioActivity(scope.workspace.id).data ?? []).filter((f) => f.session_id === sessionId).sort((a, b) => a.at - b.at);
+  const rowCount = trace.length + threadProposals.length + folioWrites.length;
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
-  const traceOpen = !summary && !changesOpen && !childrenOpen && !processesOpen;
-  const v = useVirtualizer({ enabled: traceOpen, count: rowCount, getItemKey: (i) => i < trace.length ? trace[i].key : threadProposals[i - trace.length].id, getScrollElement: () => scrollRef.current, estimateSize: () => 48, overscan: 6, useFlushSync: false });
+  const traceOpen = !summary && !changesOpen && !childrenOpen && !processesOpen && !folioOpen;
+  const v = useVirtualizer({ enabled: traceOpen, count: rowCount, getItemKey: (i) => i < trace.length ? trace[i].key : i < trace.length + threadProposals.length ? threadProposals[i - trace.length].id : `folio:${folioWrites[i - trace.length - threadProposals.length].folio_id}:${folioWrites[i - trace.length - threadProposals.length].rev}`, getScrollElement: () => scrollRef.current, estimateSize: () => 48, overscan: 6, useFlushSync: false });
   const total = v.getTotalSize();
   useLayoutEffect(() => {
     if (atBottom.current && rowCount) v.scrollToIndex(rowCount - 1, { align: "end" });
@@ -335,12 +345,13 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
     <PaidUsageToggle session={s} badge />
     <CostLimit session={s} badge />
   </>;
-  const viewTabs = <Tabs tour="session.views" className="session-views mr-1 max-w-full border-b-0" label="Session view" value={summary ? "summary" : changesOpen ? "changes" : processesOpen ? "processes" : childrenOpen ? "subagents" : "trace"} onChange={(v) => (v === "changes" ? showChanges(onlyMain) : setView(v))} items={[
+  const viewTabs = <Tabs tour="session.views" className="session-views mr-1 max-w-full border-b-0" label="Session view" value={summary ? "summary" : changesOpen ? "changes" : processesOpen ? "processes" : childrenOpen ? "subagents" : folioOpen ? "folio" : "trace"} onChange={(v) => (v === "changes" ? showChanges(onlyMain) : setView(v))} items={[
     { id: "summary", label: "Summary" },
     { id: "trace", label: "Trace" },
     ...(hasProcesses ? [{ id: "processes" as const, label: `Processes · ${runningProcesses.length}` }] : []),
     ...(children.length > 0 ? [{ id: "subagents" as const, icon: "agents" as const, label: `Subagents · ${children.filter((a) => a.status === "running").length || children.length}${children.some((a) => a.status === "running") ? " running" : ""}` }] : []),
     ...(isGit ? [{ id: "changes" as const, title: "Git changes of the session folder", label: `Changes${changed ? ` · ${git.data?.files.length || committedFiles || mainChanges}` : ""}` }] : []),
+    ...(sessionFolios.length ? [{ id: "folio" as const, title: "The folios this session wrote", label: sessionFolios.length > 1 ? `Folio · ${sessionFolios.length}` : "Folio" }] : []),
   ]} />;
   const hasFinal = rows.some((r) => r.t === "assistant");
   const actionsMenu = <Popover className="flex" viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "iconbtn border border-line"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}><Icon name="more" size={phone ? 20 : 14} /></button>}>
@@ -465,7 +476,8 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
       <CodeLinksContext.Provider value={codeLinks}>
       <ShellCodeContext.Provider value={terminalBlock ? null : s.cwd}>
       {childrenOpen && log && <SubagentsPanel key={s.id} log={log} agents={children} sessionId={s.id} live={s.live} back={() => setView("trace")} />}
-      {!changesOpen && !childrenOpen && !processesOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">{log.error ? "Session events unavailable." : "Loading…"}</div> : <SessionSummary key={s.id} session={s} rows={rows} earlier={log?.earlier ?? null} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
+      {folioOpen && <SessionFolio folios={sessionFolios} />}
+      {!changesOpen && !childrenOpen && !processesOpen && !folioOpen && summary && (log && !log.loaded ? <div className="flex-1 p-6 text-center text-ink-3">{log.error ? "Session events unavailable." : "Loading…"}</div> : <SessionSummary key={s.id} session={s} rows={rows} earlier={log?.earlier ?? null} localPr={localPr} reviewDiff={showChanges} showTrace={() => setView("trace")} />)}
       {traceOpen && !running && <><StateBand session={s} /><FollowUpBands sessionId={s.id} /><QuotaBand session={s} /></>}
       <div
         ref={scrollRef}
@@ -511,7 +523,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
                 className="flex flex-col py-[5px]"
                 style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${it.start}px)` }}
               >
-                {it.index < trace.length ? <EventRow row={trace[it.index]} sessionId={s.id} live={s.live} /> : <ProposalCard p={threadProposals[it.index - trace.length]} />}
+                {it.index < trace.length ? <EventRow row={trace[it.index]} sessionId={s.id} live={s.live} /> : it.index < trace.length + threadProposals.length ? <ProposalCard p={threadProposals[it.index - trace.length]} /> : <FolioWriteRow a={folioWrites[it.index - trace.length - threadProposals.length]} />}
               </div>
             ))}
           </div>

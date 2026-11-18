@@ -184,6 +184,10 @@ export function connectEvents(queryClient: QueryClient) {
       // An oracle changed or was evaluated: its list, page and history.
       void queryClient.invalidateQueries({ queryKey: ["oracles"] });
       void queryClient.invalidateQueries({ queryKey: ["oracle"] });
+    } else if (topic === "folios") {
+      // A folio was written, marked, archived or deleted: its lists, its reader and the session tabs.
+      void queryClient.invalidateQueries({ queryKey: ["folios"] });
+      void queryClient.invalidateQueries({ queryKey: ["folio"] });
     } else if (topic === "bots") {
       // Messages waiting for a busy bot changed: only its chat's list; the owner's accepted messages moved on: only
       // their list; a thread was created, renamed or archived: only the thread lists.

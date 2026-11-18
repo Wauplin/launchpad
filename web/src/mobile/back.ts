@@ -40,6 +40,8 @@ function parentOf(path: string, search: URLSearchParams): string | null {
   if (path === "/bots") return search.has("new") || search.has("archived") ? "/chats" : null;
   if (path.startsWith("/topics/")) return "/topics";
   if (path === "/topics") return "/more";
+  if (path.startsWith("/folios/")) return "/folios";
+  if (path === "/folios") return "/more";
   if (path.startsWith("/knowledge")) return search.has("note") ? "/knowledge" : "/more";
   if (path.startsWith("/projects/")) return "/projects";
   if (path.startsWith("/settings/")) return "/settings";

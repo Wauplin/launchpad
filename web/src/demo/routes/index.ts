@@ -13,5 +13,6 @@ import "./channels";
 import "./today";
 import "./ask";
 import "./oracles";
+import "./folios";
 
 import "./topics";

@@ -5,7 +5,7 @@ import { validateCodeSearch } from "@/features/code/store";
 /** The shell and the two first pages, loaded with it (app/desktop.ts or mobile/entry.ts). */
 export type Entry = { Root: () => ReactNode; TodayView: RouteComponent; AgentsView: RouteComponent };
 
-const SESSION_VIEWS = ["summary", "trace", "changes", "subagents", "processes"] as const;
+const SESSION_VIEWS = ["summary", "trace", "changes", "subagents", "processes", "folio"] as const;
 type SessionView = (typeof SESSION_VIEWS)[number];
 
 /** Today's address: `filter` (a chip, such as `send`) and `card` (an item ID such as `proposal:<id>`). */
@@ -20,6 +20,9 @@ const root = createRootRoute({ component: Root });
 const routeTree = root.addChildren([
   // Today: the home page of both shells.
   createRoute({ getParentRoute: () => root, path: "/", component: TodayView, validateSearch: (s: Record<string, unknown>): TodaySearch => ({ ...(typeof s.filter === "string" && s.filter ? { filter: s.filter } : {}), ...(typeof s.card === "string" && s.card ? { card: s.card } : {}) }) }),
+  // Folios: the list, and the full-screen reader (`page`, `rev` and the side `panel` in the address).
+  createRoute({ getParentRoute: () => root, path: "/folios", component: lazyRouteComponent(() => import("@/features/folios/FoliosView"), "FoliosView"), validateSearch: (s: Record<string, unknown>): { archived?: true } => (s.archived === true || s.archived === "true" ? { archived: true as const } : {}) }),
+  createRoute({ getParentRoute: () => root, path: "/folios/$slug", component: lazyRouteComponent(() => import("@/features/folios/FolioReader"), "FolioRoute"), validateSearch: (s: Record<string, unknown>): { page?: string; rev?: number; panel?: "comments" | "versions" | "problems" } => ({ ...(typeof s.page === "string" && s.page ? { page: s.page } : {}), ...(Number.isInteger(Number(s.rev)) && Number(s.rev) > 0 ? { rev: Number(s.rev) } : {}), ...(s.panel === "comments" || s.panel === "versions" || s.panel === "problems" ? { panel: s.panel } : {}) }) }),
   createRoute({ getParentRoute: () => root, path: "/topics", component: lazyRouteComponent(() => import("@/features/topics/TopicsView"), "TopicsView") }),
   createRoute({ getParentRoute: () => root, path: "/topics/$id", component: lazyRouteComponent(() => import("@/features/topics/TopicsView"), "TopicDetail") }),
   // Phone pages.

@@ -8,6 +8,8 @@ import { useSetupSummary } from "@/features/setup/summary";
 import { useTerminalsHere } from "@/features/terminals/lib";
 import { useTodayHere } from "@/features/today/data";
 import { useKnowledgeUnseen } from "@/lib/knowledge";
+import { useFolios } from "@/lib/folios";
+import { useScope } from "@/lib/workspace";
 
 /** A place, with a short state (`attn`: something needs you). */
 function Place({ to, icon, label, state, attn, tour }: { to: string; icon: IconName; label: string; state?: ReactNode; attn?: boolean; tour?: string }) {
@@ -24,6 +26,7 @@ function plural(n: number, one: string, many = `${one}s`) { return `${n} ${n ===
 export function MoreView() {
   const failed = useTodayHere().items.filter((i) => i.kind === "routine").length;
   const knowledgeNew = useKnowledgeUnseen();
+  const folioUnsent = (useFolios(useScope().workspace.id).data ?? []).reduce((n, f) => n + f.unsent, 0);
   const terminalsHere = useTerminalsHere();
   const setupLeft = useSetupSummary().data?.required_left ?? 0;
   return (
@@ -31,6 +34,7 @@ export function MoreView() {
       <nav aria-label="Places">
         <Place to="/schedules" icon="clock" label="Schedules" attn={failed > 0} state={failed ? `${failed} failed` : undefined} />
         <Place to="/projects" icon="folder" label="Folders" />
+        <Place to="/folios" icon="folio" label="Folios" tour="phone.folios" state={folioUnsent ? `${folioUnsent} unsent` : undefined} />
         <Place to="/topics" icon="tag" label="Topics" />
         <Place to="/knowledge" icon="book" label="Knowledge" state={knowledgeNew ? `${knowledgeNew} new` : undefined} />
         {terminalsHere && <Place to="/terminals" icon="term" label="Terminals" />}

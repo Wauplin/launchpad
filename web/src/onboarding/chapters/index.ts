@@ -11,11 +11,12 @@ import { github } from "./github";
 import { ask } from "./ask";
 import { terminals } from "./terminals";
 import { folders } from "./folders";
+import { folios } from "./folios";
 import { automation } from "./automation";
 import { settings } from "./settings";
 import { home } from "./home";
 
-export const CHAPTERS: Chapter[] = [layout, launch, answering, review, github, ask, terminals, folders, automation, settings, home];
+export const CHAPTERS: Chapter[] = [layout, launch, answering, review, github, ask, terminals, folders, folios, automation, settings, home];
 
 export const chapter = (id: string) => CHAPTERS.find((c) => c.id === id);
 export const trackChapters = (track: Track) => CHAPTERS.filter((c) => track === "full" || c.essentials);

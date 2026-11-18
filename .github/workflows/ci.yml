@@ -84,6 +84,9 @@ jobs:
       - name: Pending review payload
         working-directory: web
         run: pnpm test:review
+      - name: Folio splitter fixtures (shared with Home's)
+        working-directory: web
+        run: pnpm test:folios
 
   extension:
     name: Chrome extension

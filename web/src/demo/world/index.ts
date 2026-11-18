@@ -13,15 +13,16 @@ import { botsWorld } from "./bots";
 import { connectionsWorld } from "./connections";
 import { channelsWorld } from "./channels";
 import { gatedRoutine, oracleCard, oraclesWorld } from "./oracles";
+import { foliosWorld } from "./folios";
 import { WS } from "./ids";
 import { clock } from "../daemon";
 
-export type World = { topics: Topic[] } & ReturnType<typeof coreWorld> & ReturnType<typeof agentsWorld> & ReturnType<typeof githubWorld> & ReturnType<typeof codeWorld> & ReturnType<typeof settingsWorld> & ReturnType<typeof knowledgeWorld> & ReturnType<typeof botsWorld> & ReturnType<typeof connectionsWorld> & ReturnType<typeof channelsWorld> & ReturnType<typeof oraclesWorld>;
+export type World = { topics: Topic[] } & ReturnType<typeof coreWorld> & ReturnType<typeof agentsWorld> & ReturnType<typeof githubWorld> & ReturnType<typeof codeWorld> & ReturnType<typeof settingsWorld> & ReturnType<typeof knowledgeWorld> & ReturnType<typeof botsWorld> & ReturnType<typeof connectionsWorld> & ReturnType<typeof channelsWorld> & ReturnType<typeof oraclesWorld> & ReturnType<typeof foliosWorld>;
 
 export let world: World = null as unknown as World;
 
 export function resetWorld() {
-  world = { topics: [], ...coreWorld(), ...agentsWorld(), ...githubWorld(), ...codeWorld(), ...settingsWorld(), ...knowledgeWorld(), ...botsWorld(), ...connectionsWorld(), ...channelsWorld(), ...oraclesWorld() };
+  world = { topics: [], ...coreWorld(), ...agentsWorld(), ...githubWorld(), ...codeWorld(), ...settingsWorld(), ...knowledgeWorld(), ...botsWorld(), ...connectionsWorld(), ...channelsWorld(), ...oraclesWorld(), ...foliosWorld() };
   // Oracles: the Maintainer's routine gated on CI, and Ask Launchpad's oracle card that adds a tool.
   world.crons.push(gatedRoutine());
   world.proposals.push(oracleCard());

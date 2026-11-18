@@ -53,6 +53,8 @@ import { usePhone } from "@/lib/phone";
 import { runAction } from "@/lib/actions";
 import { ACTIONS } from "@/gen/actions";
 import type { Activity } from "@/gen/Activity";
+import type { FolioActivity } from "@/gen/FolioActivity";
+import { folioReceipt, useFolioActivity } from "@/lib/folios";
 import { activityLine, activityLink, activityParts, activityReceipt, useActivity } from "./activity";
 import { api } from "@/lib/api";
 import { attachmentSrc, isImageAttachment, pastedImages } from "@/lib/attachments";
@@ -67,7 +69,7 @@ import { QuickChips } from "./QuickChips";
 import { chatRows, pendingRows, sleepKey, stepsLabel, type ChatCard, type ChatItem, type ChatSession } from "./chatRows";
 
 /** A record behind a change receipt: a knowledge-base change, a change of the bot's own files, or a direct change. */
-type ChangeRecord = { kind: "kb"; c: Change } | { kind: "bot"; c: Change; botId: string } | { kind: "act"; a: Activity };
+type ChangeRecord = { kind: "kb"; c: Change } | { kind: "bot"; c: Change; botId: string } | { kind: "act"; a: Activity } | { kind: "folio"; f: FolioActivity };
 
 /** What the message box answers instead of sending a message: the open question, or a question report. */
 type Reply = { kind: "ask"; request_id: string; count: number; permission: boolean; question: string } | { kind: "report"; id: string; title: string };
@@ -90,24 +92,28 @@ function useChanges(bot: Bot, ids: Set<string>): { cards: ChatCard[]; records: M
   const kb = useQuery({ queryKey: ["knowledge", ws, "changes"], queryFn: () => api.get<{ changes: Change[] }>(`/api/knowledge/${ws}/changes`) }).data?.changes;
   const own = useQuery({ queryKey: ["bot-history", bot.id, bot.version], queryFn: () => api.get<Change[]>(`/api/bots/${bot.id}/history`) }).data;
   const done = useActivity(ws).data;
+  const folios = useFolioActivity(ws).data;
   return useMemo(() => {
     const of = (c: Change) => c.author?.session_id ?? c.session_id;
     const mine = (done ?? []).filter((a) => ids.has(a.session_id));
     const files = (own ?? []).filter((c) => ids.has(of(c) ?? ""));
     const notes = (kb ?? []).filter((c) => ids.has(of(c) ?? ""));
+    const written = (folios ?? []).filter((f) => f.session_id && ids.has(f.session_id));
     return {
       cards: [
         ...notes.map((c): ChatCard => ({ kind: "changed", id: `kb${c.id}`, session_id: of(c)!, at: c.at, v: "", text: kbLine(c), receipt: `${c.new_sha256 ? "noted" : "removed"} ${c.path} in the knowledge base` })),
         ...files.map((c): ChatCard => ({ kind: "changed", id: `bot${c.id}`, session_id: of(c)!, at: c.at, v: "", text: kbLine(c), receipt: botFileReceipt(c) })),
         ...mine.map((a): ChatCard => ({ kind: "changed", id: `act${a.id}`, session_id: a.session_id, at: a.created_at, v: "", text: activityLine(a), receipt: activityReceipt(a) })),
+        ...written.map((f): ChatCard => ({ kind: "changed", id: `folio${f.folio_id}:${f.rev}`, session_id: f.session_id!, at: f.at, v: "", text: `${folioReceipt(f)} (${f.paths.join(", ")})`, receipt: folioReceipt(f) })),
       ],
       records: new Map<string, ChangeRecord>([
         ...notes.map((c): [string, ChangeRecord] => [`kb${c.id}`, { kind: "kb", c }]),
         ...files.map((c): [string, ChangeRecord] => [`bot${c.id}`, { kind: "bot", c, botId: bot.id }]),
         ...mine.map((a): [string, ChangeRecord] => [`act${a.id}`, { kind: "act", a }]),
+        ...written.map((f): [string, ChangeRecord] => [`folio${f.folio_id}:${f.rev}`, { kind: "folio", f }]),
       ]),
     };
-  }, [kb, own, done, ids, bot.id]);
+  }, [kb, own, done, folios, ids, bot.id]);
 }
 
 /** A change of the bot's own files, as a receipt: "noted in its memory", "changed its BOT.md". */
@@ -478,7 +484,7 @@ function ChangeLine({ record, text }: { record: ChangeRecord | undefined; text: 
   return <>
     <span className="flex-none rounded bg-sunk px-1.5 text-[11px] font-semibold text-ink-3">Changed</span>
     <span className="min-w-0 flex-1 truncate" title={a ? `${(ACTIONS as Record<string, { help: string }>)[a.action]?.help ?? ""}: ${text}` : text}>
-      {a ? <ActivityText a={a} /> : record?.kind === "kb" ? <KbText c={record.c} /> : record?.kind === "bot" ? <BotFileText c={record.c} botId={record.botId} /> : text}
+      {a ? <ActivityText a={a} /> : record?.kind === "kb" ? <KbText c={record.c} /> : record?.kind === "bot" ? <BotFileText c={record.c} botId={record.botId} /> : record?.kind === "folio" ? <ReceiptLink record={record}>{text}</ReceiptLink> : text}
     </span>
   </>;
 }
@@ -487,6 +493,7 @@ function ChangeLine({ record, text }: { record: ChangeRecord | undefined; text: 
 function ReceiptLink({ record, children }: { record: ChangeRecord | undefined; children: React.ReactNode }) {
   if (record?.kind === "kb" && record.c.new_sha256) return <Link to="/knowledge" search={{ note: record.c.path }} className={NAME_LINK}>{children}</Link>;
   if (record?.kind === "bot") return <Link to="/bots/$id" params={{ id: record.botId }} search={{ panel: "about" } as never} className={NAME_LINK}>{children}</Link>;
+  if (record?.kind === "folio") return <Link to="/folios/$slug" params={{ slug: record.f.slug }} className={NAME_LINK}>{children}</Link>;
   const link = record?.kind === "act" ? activityLink(record.a) : null;
   return link ? <Link {...link} className={NAME_LINK}>{children}</Link> : <>{children}</>;
 }
