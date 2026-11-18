@@ -442,7 +442,8 @@ pub struct ExtRows {
 struct Data {
     projects: Vec<Project>,
     workspaces: Vec<Workspace>,
-    sessions: Vec<Session>,
+    session_ids: HashMap<String, usize>,
+    project_ids: HashMap<String, usize>,
     /// Archived ones too: a suggestion's author may be archived.
     all_sessions: Vec<Session>,
     suggestions: Vec<Suggestion>,
@@ -494,6 +495,13 @@ async fn reports(app: &App) -> Result<Vec<Report>> {
 }
 
 impl Data {
+    fn session(&self, id: &str) -> Option<&Session> {
+        self.session_ids.get(id).map(|&i| &self.all_sessions[i])
+    }
+    fn project(&self, id: &str) -> Option<&Project> {
+        self.project_ids.get(id).map(|&i| &self.projects[i])
+    }
+
     async fn load(app: &App) -> Result<Data> {
         let login = app.github.known_login().await;
         if login.is_none() {
@@ -503,11 +511,15 @@ impl Data {
                 let _ = app.github.login().await;
             });
         }
+        let projects = launchpad_core::projects::list(app).await?;
+        let workspaces = launchpad_core::workspace::list(app).await?;
+        let all_sessions = app.sessions.list();
         Ok(Data {
-            projects: launchpad_core::projects::list(app).await?,
-            workspaces: launchpad_core::workspace::list(app).await?,
-            sessions: app.sessions.list().into_iter().filter(|s| s.status != SessionStatus::Closed).collect(),
-            all_sessions: app.sessions.list(),
+            project_ids: projects.iter().enumerate().map(|(i, p)| (p.id.clone(), i)).collect(),
+            projects,
+            workspaces,
+            session_ids: all_sessions.iter().enumerate().map(|(i, s)| (s.id.clone(), i)).collect(),
+            all_sessions,
             suggestions: crate::suggestions::list(app).await?.into_iter().filter(|s| s.status != "posted" && s.status != "posted_by_hand").collect(),
             predrafts: launchpad_core::predrafts::list(app).await?,
             today: launchpad_core::today::latest(app).await?,
@@ -519,14 +531,14 @@ impl Data {
     fn report(&self, repo: &str, number: u64, ws: Option<&str>) -> Option<ExtReport> {
         let key = format!("{}#{number}", repo.to_lowercase());
         let r = self.reports.iter().find(|r| r.github == key && ws.is_some() && r.workspace_id.as_deref() == ws)?;
-        let bot = r.session_id.as_deref().and_then(|id| self.all_sessions.iter().find(|s| s.id == id)).and_then(|s| s.launch_spec.bot.as_ref().map(|b| b.name.clone()));
+        let bot = r.session_id.as_deref().and_then(|id| self.session(id)).and_then(|s| s.launch_spec.bot.as_ref().map(|b| b.name.clone()));
         Some(ExtReport { id: r.id.clone(), outcome: r.outcome.clone(), bot, title: r.title.clone(), at: r.at, waiting: r.state == "proposed" })
     }
     fn workspace(&self, id: &str) -> Option<ExtWorkspace> {
         self.workspaces.iter().find(|w| w.id == id).map(|w| ExtWorkspace { id: w.id.clone(), name: w.name.clone() })
     }
     fn session_workspace<'a>(&'a self, s: &'a Session) -> Option<&'a str> {
-        match s.project_id.as_deref().and_then(|p| self.projects.iter().find(|x| x.id == p)) {
+        match s.project_id.as_deref().and_then(|p| self.project(p)) {
             Some(p) => p.workspace_id.as_deref(),
             None => s.launch_spec.workspace_id.as_deref(),
         }
@@ -586,7 +598,7 @@ struct State {
 
 fn local_pr(d: &Data, p: &Predraft) -> ExtLocalPr {
     let state = if p.archived { "discarded" } else if p.merged.is_some() { "merged" } else if p.published_url.is_some() { "published" } else { "open" };
-    let session = p.session_id.as_deref().and_then(|id| d.all_sessions.iter().find(|s| s.id == id));
+    let session = p.session_id.as_deref().and_then(|id| d.session(id));
     let author = session.map(|s| s.launch_spec.bot.as_ref().map(|b| b.name.clone()).unwrap_or_else(|| s.title.clone()));
     let set = p.change_set.as_ref().map(|c| d.predrafts.iter().filter(|o| o.id != p.id && o.change_set.as_ref() == Some(c) && o.is_open()).count() as u32).unwrap_or(0);
     ExtLocalPr {
@@ -619,8 +631,9 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
         named.entry(u.session_id.as_str()).or_insert((u.number, u.comment.as_deref()));
     }
     let mut agents: Vec<ExtAgent> = d
-        .sessions
+        .all_sessions
         .iter()
+        .filter(|s| s.status != SessionStatus::Closed)
         .filter(|s| it.workspace.is_some() && d.session_workspace(s) == it.workspace)
         .filter_map(|s| {
             let by_ref = s.launch_spec.github_refs.iter().find(|r| same(&r.repo, it.repo) && it.number.is_none_or(|n| r.number == Some(n))).map(|r| r.number.unwrap_or(0));
@@ -657,7 +670,7 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
                 return None;
             }
             let comments = s.comments.len() as u32;
-            let session = s.session_id.as_deref().and_then(|id| d.all_sessions.iter().find(|x| x.id == id));
+            let session = s.session_id.as_deref().and_then(|id| d.session(id));
             // Another workspace's agent's suggestion is not this workspace's (its Post would be offered on the page).
             if let (Some(ws), Some(x)) = (it.workspace, session)
                 && d.session_workspace(x).is_some_and(|w| w != ws)
@@ -926,7 +939,7 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
     let folder = (!found.is_empty()).then(|| found.remove(0));
     let others: Vec<ExtFolder> = found.into_iter().filter(|f| folder.as_ref().is_none_or(|x| x.workspace_id != f.workspace_id)).collect();
     let ws = folder.as_ref().map(|f| f.workspace_id.clone()).or(asked.map(str::to_string));
-    let project = folder.as_ref().and_then(|f| d.projects.iter().find(|p| p.id == f.id));
+    let project = folder.as_ref().and_then(|f| d.project(&f.id));
     let mut out = ExtContext {
         workspace: ws.as_deref().and_then(|w| d.workspace(w)),
         folder: folder.clone(),
@@ -1149,6 +1162,43 @@ fn local_pr_matches(p: &Predraft, number: Option<u64>) -> bool {
 }
 #[cfg(test)]
 mod item_link_tests {
+    #[test]
+    fn snapshot_keeps_archive_lookups_workspace_boundaries_and_agent_order() {
+        use super::*;
+        let session = |id: &str, status: &str, ws: &str, at: i64| -> Session {
+            Session {
+                id: id.into(), harness: launchpad_core::model::HarnessKind::new("test"),
+                runner_id: None, generation: 0, harness_session_id: None, project_id: None,
+                cwd: "/tmp/x".into(), title: id.into(), title_pending: false, title_refreshed: false,
+                status: SessionStatus::parse(status), archived_done: false, status_since: at,
+                live: false, open_question: false, model: None, effort: None, prompt: "p".into(),
+                usage: Default::default(), started_at: at, ended_at: None, last_seq: 1,
+                launch_spec: serde_json::from_value(serde_json::json!({"workspace_id": ws, "github_refs": [{"repo": "owner/repo", "number": 1, "kind": "pr", "url": "https://github.com/owner/repo/pull/1"}]})).unwrap(),
+                quota_pause: None, capacity_retry_count: 0, capacity_retry_at: None,
+                seen_at: 0, last_message: None, unsaved: None, sleep: None,
+            }
+        };
+        let all_sessions = vec![session("archived", "closed", "work", 40), session("foreign", "working", "personal", 30), session("new", "working", "work", 20), session("old", "waiting", "work", 10)];
+        let mut d = Data {
+            session_ids: all_sessions.iter().enumerate().map(|(i, s)| (s.id.clone(), i)).collect(),
+            all_sessions, projects: vec![], project_ids: HashMap::new(), workspaces: vec![],
+            suggestions: vec![], predrafts: vec![], today: Arc::new(Today { items: vec![], done: vec![] }),
+            login: None, reports: vec![],
+        };
+        assert_eq!(d.session("archived").unwrap().status, SessionStatus::Closed);
+        assert!(d.session("missing").is_none());
+        let item = Item { repo: "owner/repo", number: Some(1), folder: None, workspace: Some("work") };
+        assert_eq!(state(&d, &[], &item).agents.iter().map(|s| s.session_id.as_str()).collect::<Vec<_>>(), ["new", "old"]);
+        assert!(state(&d, &[], &Item { workspace: None, ..item }).agents.is_empty());
+        let project: Project = serde_json::from_value(serde_json::json!({"id": "folder", "name": "folder", "path": "/tmp/folder", "description": "", "is_temp": false, "pinned": false, "worktree_setup": "", "created_at": 0, "workspace_id": "personal"})).unwrap();
+        d.project_ids.insert(project.id.clone(), 0);
+        d.projects.push(project);
+        let i = d.session_ids["new"];
+        d.all_sessions[i].project_id = Some("folder".into());
+        assert_eq!(d.session_workspace(&d.all_sessions[i]), Some("personal"));
+        assert_eq!(state(&d, &[], &item).agents.iter().map(|s| s.session_id.as_str()).collect::<Vec<_>>(), ["old"]);
+    }
+
     #[test]
     fn local_pr_matches_fixed_issue_and_published_pr() {
         let mut p: super::Predraft = serde_json::from_value(serde_json::json!({

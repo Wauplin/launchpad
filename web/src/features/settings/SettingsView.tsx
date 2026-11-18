@@ -11,7 +11,7 @@ import { Icon } from "@/components/Icon";
 import { ConfirmButton, IntroButton, Loading, MenuSection, MoreMenu, PageHeader, SettingRow, useSaveState, type SaveState } from "@/components/ui";
 import { useIntro } from "@/lib/intros";
 import { api } from "@/lib/api";
-import { DEFAULT_ZOOM, ZOOM_LEVELS, useZoom } from "@/lib/zoom";
+import { ZoomSetting } from "./ZoomSetting";
 import { useConfig, useSharedSettings, type ConfigResponse, type SharedSettings } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
 import { PhoneSettings } from "./PhoneSettings";
@@ -121,19 +121,12 @@ export function SettingsView() {
 }
 
 function Appearance() {
-  const { zoom, setZoom } = useZoom();
   const { theme, toggle } = useTheme();
   const layout = layoutChoice();
   return (
     <SettingsPage title="Appearance" intro="How Launchpad looks in this browser. Other devices keep their own choices.">
       <Card title="Display">
-        <SettingRow label="Zoom" hint="Scales the whole interface." scope="device">
-          <label className="grid w-full gap-2">
-            <span className="font-semibold">{ZOOM_LEVELS[zoom]}%{zoom === DEFAULT_ZOOM ? " (default)" : ""}</span>
-            <input aria-label="Interface zoom" type="range" min={0} max={4} step={1} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="w-full accent-teal" />
-            <span className="flex justify-between text-[12px] text-ink-2">{ZOOM_LEVELS.map((z) => <span key={z}>{z}%</span>)}</span>
-          </label>
-        </SettingRow>
+        <ZoomSetting />
         <SettingRow label="Theme" hint="Also switchable from the sidebar." scope="device">
           <div className="flex gap-1.5" role="group" aria-label="Theme">
             {(["light", "dark"] as const).map((t) => <button key={t} className="lp-chip" aria-pressed={theme === t} onClick={() => { if (theme !== t) toggle(); }}><Icon name={t === "light" ? "sun" : "moon"} size={12} />{t === "light" ? "Light" : "Dark"}</button>)}

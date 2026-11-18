@@ -9,6 +9,7 @@ import type { BotThread } from "@/gen/BotThread";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { Session } from "@/gen/Session";
 import type { SessionEvent } from "@/gen/SessionEvent";
+import { threadOf } from "@/lib/botThread";
 import { isRunning } from "@/lib/sessionStatus";
 import { pageOf } from "../content/github/page";
 import { Favicon, Icon } from "../icons";
@@ -35,9 +36,6 @@ export function useBots(state: ConnectionState) {
   }, [ws, state.phase]);
   return { list, error };
 }
-
-// Sessions from before threads belong to the legacy thread `main`.
-const threadOf = (s: Session) => s.launch_spec.bot?.thread || "main";
 
 /** The threads of a bot (the newest first), kept live. */
 function useThreads(bot: string | null) {

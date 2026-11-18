@@ -9,12 +9,10 @@ use axum::{
 };
 use launchpad_core::operations::{self, Claim};
 
-type LockMap = std::collections::HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>;
-
 #[derive(Clone)]
 pub struct Operations {
     pub db: launchpad_core::db::Db,
-    locks: std::sync::Arc<std::sync::Mutex<LockMap>>,
+    locks: launchpad_core::locks::Locks,
 }
 
 impl Operations {
@@ -26,12 +24,7 @@ impl Operations {
     }
 
     fn operation_lock(&self, id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
-        let mut locks = self.locks.lock().unwrap();
-        locks.retain(|_, lock| lock.strong_count() > 0);
-        if let Some(lock) = locks.get(id).and_then(std::sync::Weak::upgrade) { return lock; }
-        let lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
-        locks.insert(id.to_string(), std::sync::Arc::downgrade(&lock));
-        lock
+        self.locks.get(id)
     }
 }
 

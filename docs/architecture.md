@@ -298,6 +298,10 @@ packaging/       Home installer (install.sh), systemd unit, Local VM runner (loc
 skills/launchpad/ the agent skill for the launchpad CLI
 ```
 
+Private `sessions/` modules hold record access, window presence, and process startup and shutdown. The parent owns shared state and status changes. Private `crons/` modules handle dates, stored records, and bot files. The public API and the policy to claim and launch runs stay in the parent.
+
+The extension context takes one sorted session snapshot per request. It builds local indexes to find sessions and projects by ID, and filters the snapshot for active agents. The web composer keeps drafts in its store. Pure functions in `launchDecisions.ts` check each draft and build the spec to send. Both clients use the same bot thread helper, which keeps the `main` fallback for old sessions.
+
 ### Crate dependencies
 
 ```mermaid
