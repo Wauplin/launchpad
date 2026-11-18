@@ -179,6 +179,11 @@ mod tests {
         let create = actions::get("workspace.create").unwrap();
         assert_eq!(undo_call(create, &[], Some(&json!({"name": "W"})), None, Some(&json!({"id": "w1"}))).1, Some(UndoCall { action: "workspace.delete".into(), args: vec!["w1".into()], body: None }));
         assert_eq!(undo_call(actions::get("session.archive").unwrap(), &["s".into()], None, None, None).1, None);
+        // A channel edit puts back the name and purpose it changed (`GET /api/channels/{id}/about`).
+        let channel = actions::get("channel.rename").unwrap();
+        let (before, undo) = undo_call(channel, &["c1".into()], Some(&json!({"purpose": "New"})), Some(&json!({"name": "release-train", "purpose": "Old"})), None);
+        assert_eq!(before, Some(json!({"purpose": "Old"})));
+        assert_eq!(undo, Some(UndoCall { action: "channel.rename".into(), args: vec!["c1".into()], body: Some(json!({"purpose": "Old"})) }));
         // A bot.toml field set alone is put back alone, a default included.
         let bot = actions::get("bot.update").unwrap();
         let (before, undo) = undo_call(bot, &["b".into()], Some(&json!({"set": {"starters": ["Hi"]}})), Some(&json!({"id": "b", "settings": {"name": "Scout", "proposals": "auto"}})), None);

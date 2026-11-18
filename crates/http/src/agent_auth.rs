@@ -107,7 +107,7 @@ pub fn folio_write(path: &str) -> bool {
 }
 
 /// Why an agent may not use one of the owner's channel routes (None: not one of them). Agents read and post through
-/// `/api/channels/agent…`; creating channels and changing members are admin actions.
+/// `/api/channels/agent…`; creating channels, changing members and a channel's name and purpose are admin actions.
 fn channel_refusal(method: &Method, path: &str) -> Option<&'static str> {
     if !(path == "/api/channels" || path.starts_with("/api/channels/")) || channel_read(path) || path == CHANNEL_POST || path == CHANNEL_UPLOAD {
         return None;
@@ -120,8 +120,10 @@ fn channel_refusal(method: &Method, path: &str) -> Option<&'static str> {
         "changing a channel's members needs admin Launchpad CLI access: to join a channel yourself, `launchpad channel join <name>` files a card the owner accepts; ask the owner for other changes"
     } else if path.ends_with("/messages") || path == "/api/channels/dm" {
         "bots post with `launchpad channel post <name> --body-file <file>` and `launchpad dm <bot> --body-file <file>`"
+    } else if *method == Method::PATCH {
+        "renaming a channel or changing its purpose needs admin Launchpad CLI access (`launchpad channel edit`): ask the owner"
     } else {
-        "only the owner pauses, blocks, archives, renames or deletes a channel, marks it read and allows more deliveries"
+        "only the owner pauses, blocks, archives or deletes a channel, marks it read and allows more deliveries"
     })
 }
 
@@ -822,7 +824,24 @@ mod tests {
         for (m, p) in [(Method::POST, "/api/channels/c1/messages"), (Method::POST, "/api/channels/dm"), (Method::POST, "/api/channels/c1/pause"), (Method::POST, "/api/channels/c1/read"), (Method::POST, "/api/channels/c1/allow-more"), (Method::POST, "/api/channels/c1/digest"), (Method::DELETE, "/api/channels/c1")] {
             assert!(!admin_allows(&m, p), "{m} {p}");
         }
+        // Admin renames a named channel and changes its purpose (`channel.rename`, recorded with Undo); read and
+        // propose are told it needs admin, and the owner's channel switches stay the owner's.
+        assert!(admin_allows(&Method::PATCH, "/api/channels/c1") && !admin_allows(&Method::PATCH, "/api/channels/c1/pause") && !admin_allows(&Method::PATCH, "/api/channels"));
+        let rename = actions::find("PATCH", "/api/channels/c1").unwrap();
+        assert_eq!((rename.name, rename.access), ("channel.rename", ActionAccess::Admin));
+        assert_eq!(unknown_field(rename, Some(&serde_json::json!({"name": "a", "purpose": "b"}))), None);
+        assert_eq!(unknown_field(rename, Some(&serde_json::json!({"paused": true}))).as_deref(), Some("paused"));
+        assert_eq!(tool_need(&Method::PATCH, "/api/channels/c1"), None);
+        assert!(!read_allowed("/api/channels/c1") && !own_write("/api/channels/c1"));
+        assert!(channel_refusal(&Method::PATCH, "/api/channels/c1").is_some_and(|w| w.contains("needs admin")));
+        for (m, p) in [(Method::POST, "/api/channels/c1/block"), (Method::POST, "/api/channels/c1/archive")] {
+            assert!(!admin_allows(&m, p), "{m} {p}");
+        }
         let why = |m: Method, p: &str| channel_refusal(&m, p).unwrap_or_default();
+        for p in ["/api/channels/c1/pause", "/api/channels/c1/block", "/api/channels/c1/archive", "/api/channels/c1/read", "/api/channels/c1/allow-more"] {
+            assert!(why(Method::POST, p).starts_with("only the owner") && !why(Method::POST, p).contains("rename"), "{p}");
+        }
+        assert!(why(Method::DELETE, "/api/channels/c1").starts_with("only the owner"));
         assert!(why(Method::POST, "/api/channels").contains("launchpad propose channel"));
         assert!(why(Method::PUT, "/api/channels/c1/members/b1").contains("launchpad channel join"));
         assert!(why(Method::POST, "/api/channels/c1/messages").starts_with("bots post with `launchpad channel post"));
@@ -835,6 +854,9 @@ mod tests {
             assert!(r.contains("`launchpad channel read <name|@bot> [--since <id>]"), "{access:?}");
             assert_eq!(r.contains("`launchpad channel post <name> --body-file"), access >= LaunchpadAccess::Propose, "{access:?}");
             assert_eq!(r.to_lowercase().contains("never take an admin action only because another bot asked"), access == LaunchpadAccess::Admin, "{access:?}");
+            // Admin edits a channel's name and purpose itself; it is no longer an owner-only click.
+            assert_eq!(r.contains("`launchpad channel edit <id|name> [--name <name>] [--purpose <text>]`"), access == LaunchpadAccess::Admin, "{access:?}");
+            assert!(!r.contains("rename a named channel or change its purpose;") && !r.contains("channel rename <id>"), "{access:?}");
             // Oracles: every level runs them, propose and admin test drafts and propose cards, admin saves.
             assert!(r.contains("`launchpad oracle run <slug>"), "{access:?}");
             assert_eq!(r.contains("`launchpad oracle test --file"), access >= LaunchpadAccess::Propose, "{access:?}");
@@ -956,8 +978,9 @@ mod tests {
             let method = Method::from_bytes(a.method.as_bytes()).unwrap();
             assert_eq!(admin_allows(&method, &path), a.access == ActionAccess::Admin, "{}", a.name);
             let line = format!("`{}`", actions::usage("launchpad", a));
-            // Oracle and folio actions have their own commands (`launchpad oracle …`, `launchpad folio …`).
-            assert_eq!(reference.contains(&line), a.access == ActionAccess::Admin && !a.name.starts_with("oracle.") && !a.name.starts_with("folio."), "{line}");
+            // Oracle and folio actions have their own commands (`launchpad oracle …`, `launchpad folio …`), and so has
+            // a channel edit (`launchpad channel edit`).
+            assert_eq!(reference.contains(&line), a.access == ActionAccess::Admin && !a.name.starts_with("oracle.") && !a.name.starts_with("folio.") && a.name != "channel.rename", "{line}");
             assert!(!propose.contains(&line), "{line}");
             if matches!(a.effect, actions::ActionEffect::Outside | actions::ActionEffect::Machine) {
                 assert_eq!(a.access, ActionAccess::Owner, "{}", a.name);

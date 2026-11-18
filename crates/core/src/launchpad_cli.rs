@@ -53,8 +53,10 @@ A launch spec is {{\"text\": \"<prompt>\", \"profile\": \"<profile id>\", \"targ
             hops = crate::senders::MAX_HOPS
         ));
         out.push_str(&format!("- `{cli} oracle save --file <file.py> [--slug <slug>]`: create an oracle or change its file (the file name is its slug by default), pre-checked and stored formatted; a file whose credentialed tools (github, huggingface, slack) your own session does not all hold is refused, so propose that one with `{cli} propose oracle` (you may accept an oracle card on the same terms). `{cli} oracle pause <slug>` and `{cli} oracle resume <slug>`.\n"));
-        // Oracles and folios have their own commands (`launchpad oracle …`, `launchpad folio …`).
-        for a in ACTIONS.iter().filter(|a| a.access == ActionAccess::Admin && !a.name.starts_with("oracle.") && !a.name.starts_with("folio.")) {
+        out.push_str(&format!("- `{cli} channel edit <id|name> [--name <name>] [--purpose <text>]`: rename a named channel of your workspace or change its purpose (give at least one; Undo puts back the name and purpose before).\n"));
+        // Oracles and folios have their own commands (`launchpad oracle …`, `launchpad folio …`), and so has a
+        // channel edit (`launchpad channel edit`, which takes a channel's name).
+        for a in ACTIONS.iter().filter(|a| a.access == ActionAccess::Admin && !a.name.starts_with("oracle.") && !a.name.starts_with("folio.") && a.name != "channel.rename") {
             let body = a.body_file.map(|b| format!(" (body: {b})")).unwrap_or_default();
             out.push_str(&format!("- `{}`: {}{body}\n", usage(cli, a), a.help));
         }

@@ -307,7 +307,8 @@ enum Command {
     /// Bot channels of this session's workspace (for bots): `list`, `read <name|@bot>`, `post <name> --body-file m.md
     /// [--attach <file>]… [--forward <message id>]…`, `files <name|@bot> <message id>` (downloads a message's files),
     /// `join <name>` (a card the owner accepts); and the short verbs of channel actions (`channel create <name>
-    /// --purpose … --members a,b`, `channel add-member|set-mode|remove-member`, admin access).
+    /// --purpose … --members a,b`, `channel edit <id|name> [--name …] [--purpose …]`,
+    /// `channel add-member|set-mode|remove-member`, admin access).
     Channel {
         #[command(subcommand)]
         command: ChannelCommand,
@@ -686,6 +687,17 @@ enum ChannelCommand {
         #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
         session_id: String,
     },
+    /// Rename a named channel or change its purpose (admin access; recorded in the activity list with Undo).
+    Edit {
+        /// The channel's ID or name (from `channel list`).
+        channel: String,
+        /// The new name: lowercase letters, digits and dashes, like release-train.
+        #[arg(long)]
+        name: Option<String>,
+        /// The new purpose, one line.
+        #[arg(long)]
+        purpose: Option<String>,
+    },
     #[command(external_subcommand)]
     Verb(Vec<String>),
 }
@@ -818,6 +830,28 @@ fn channel_create_args(args: &[String]) -> Vec<String> {
         }
     }
     out
+}
+
+/// Pure: the ID of the channel `key` names in `channel list`'s answer (its ID, or a named channel's name with or
+/// without `#`); None when none matches.
+fn channel_id_in(list: &serde_json::Value, key: &str) -> Option<String> {
+    let channels = list["channels"].as_array()?;
+    let by = |f: &dyn Fn(&serde_json::Value) -> bool| channels.iter().find(|c| f(c)).and_then(|c| c["id"].as_str()).map(str::to_string);
+    by(&|c| c["id"].as_str() == Some(key)).or_else(|| by(&|c| c["kind"] == "channel" && c["name"].as_str() == Some(key.trim_start_matches('#'))))
+}
+
+/// `launchpad channel edit`: the `channel.rename` action, with the channel named by its ID or name.
+async fn channel_edit(paths: &Paths, channel: String, name: Option<String>, purpose: Option<String>) -> Result<()> {
+    anyhow::ensure!(name.is_some() || purpose.is_some(), "give --name <name>, --purpose <text> or both");
+    let list = Client::new(paths)?.json("GET", "/api/channels/agent", None).await?;
+    let id = channel_id_in(&list, &channel).with_context(|| format!("no channel {channel:?} in this workspace: see `launchpad channel list`"))?;
+    let mut args = vec![id];
+    for (flag, v) in [("--name", name), ("--purpose", purpose)] {
+        if let Some(v) = v {
+            args.extend([flag.to_string(), v]);
+        }
+    }
+    do_action(paths, "channel.rename", &args).await
 }
 
 /// `launchpad channel read`: messages with readable times.
@@ -1232,6 +1266,7 @@ async fn run() -> Result<()> {
             println!("Card {} saved: {} (state: {}). The owner accepts it.", created["id"].as_str().unwrap_or("?"), created["title"].as_str().unwrap_or(""), created["state"].as_str().unwrap_or("unknown"));
             Ok(())
         }
+        Command::Channel { command: ChannelCommand::Edit { channel, name, purpose } } => channel_edit(&paths, channel, name, purpose).await,
         Command::Channel { command: ChannelCommand::Verb(words) } => {
             let [verb, args @ ..] = words.as_slice() else { anyhow::bail!("name a channel command: see `launchpad channel --help`") };
             let args = if verb == "create" { channel_create_args(args) } else { args.to_vec() };
@@ -1518,6 +1553,14 @@ mod proposal_tests {
         let cli = Cli::try_parse_from(["launchpad", "channel", "post", "release-train", "--body-file", "m.md", "--reply-to", "4", "--ask-owner", "--session-id", "s1"]).unwrap();
         assert!(matches!(cli.command, Command::Channel { command: ChannelCommand::Post { post: ChannelPostArgs { reply_to: Some(4), ask_owner: true, .. }, .. } }));
         assert!(matches!(Cli::try_parse_from(["launchpad", "channel", "add-member", "c1", "b1", "--mode", "all"]).unwrap().command, Command::Channel { command: ChannelCommand::Verb(_) }));
+        let cli = Cli::try_parse_from(["launchpad", "channel", "edit", "#release-train", "--purpose", "Ship it"]).unwrap();
+        assert!(matches!(cli.command, Command::Channel { command: ChannelCommand::Edit { channel, name: None, purpose: Some(p) } } if channel == "#release-train" && p == "Ship it"));
+        let list = serde_json::json!({"channels": [{"id": "c1", "kind": "channel", "name": "release-train"}, {"id": "d1", "kind": "dm", "name": "@docs"}]});
+        assert_eq!(channel_id_in(&list, "release-train").as_deref(), Some("c1"));
+        assert_eq!(channel_id_in(&list, "#release-train").as_deref(), Some("c1"));
+        assert_eq!(channel_id_in(&list, "c1").as_deref(), Some("c1"));
+        assert_eq!(channel_id_in(&list, "@docs"), None);
+        assert_eq!(channel_id_in(&list, "nope"), None);
         // Files: --attach and --forward repeat, and replace --body-file.
         let cli = Cli::try_parse_from(["launchpad", "dm", "@release", "--attach", "a.pdf", "--attach", "/tmp/b.png", "--forward", "41", "--session-id", "s1"]).unwrap();
         assert!(matches!(cli.command, Command::Dm { post: ChannelPostArgs { body_file: None, attach, forward, .. }, .. } if attach.len() == 2 && forward == [41]));

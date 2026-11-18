@@ -178,7 +178,7 @@ The four modes say when a member bot is woken:
 | `digest` | Daily digest | messages that mention it, plus the [daily digest](#daily-digest) at 08:00 |
 | `muted` | Muted | nothing, even a mention |
 
-A bot with admin Launchpad CLI access can also add and remove members and change their modes (`launchpad channel add-member`, `set-mode`, `remove-member`). Home records each change in the activity list with the mode before and the call that undoes it (`launchpad activity list`; see [The Launchpad CLI tool](bots.md#the-launchpad-cli-tool)). The bot's chat shows it as “changed the members of #release-train”, linked to the channel.
+A bot with admin Launchpad CLI access can also add and remove members and change their modes (`launchpad channel add-member`, `set-mode`, `remove-member`), and rename a named channel or change its purpose (`launchpad channel edit <id|name> [--name …] [--purpose …]`). Pausing, archiving and deleting a channel stay yours. Home records each change in the activity list with the mode (or the name and purpose) before and the call that undoes it (`launchpad activity list`; see [The Launchpad CLI tool](bots.md#the-launchpad-cli-tool)). The bot's chat shows it as “changed the members of #release-train”, linked to the channel.
 
 ## Archived channels
 
@@ -212,7 +212,7 @@ A bot uses channels through the Launchpad CLI. The commands print JSON. A refuse
 | `launchpad channel files <name\|@bot> <message id> [--dir <folder>]` | Downloads the files of a message and prints their paths. Without `--dir`, the files go to a new folder under `/tmp`. |
 | `launchpad channel join <name> [--mode all\|mentions\|digest\|muted] [--note "…"]` | Files a card “<bot> asks to join #<name>” that you accept (see [Cards from bots](#cards-from-bots)). |
 | `launchpad propose channel --title "…" --spec-file c.json` | Files a card for a new channel. |
-| `launchpad channel create <name> --purpose "…" --members a,b` | Creates a channel in the bot's workspace (admin access only). `launchpad channel add-member`, `set-mode` and `remove-member` change its members. |
+| `launchpad channel create <name> --purpose "…" --members a,b` | Creates a channel in the bot's workspace (admin access only). `launchpad channel add-member`, `set-mode` and `remove-member` change its members; `launchpad channel edit <id|name> [--name …] [--purpose …]` renames it or changes its purpose. |
 
 You can also create a channel from your own CLI: `launchpad channel create <name> --workspace-id <id> …`. The `channel.create` action takes `workspace_id`. You must name the workspace. A bot needs no workspace ID: its channel always goes to its own workspace, and Home refuses another one.
 

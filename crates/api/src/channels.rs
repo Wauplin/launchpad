@@ -29,6 +29,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/channels/{id}/messages", get(messages).post(post_message))
         .route("/api/channels/{id}/messages/{message}/deliveries", get(deliveries))
         .route("/api/channels/{id}/messages/{message}/files/{index}", get(owner_file))
+        .route("/api/channels/{id}/about", get(about))
         .route("/api/channels/{id}/read", post(read))
         .route("/api/channels/{id}/pause", post(pause))
         .route("/api/channels/{id}/block", post(block))
@@ -249,6 +250,12 @@ async fn digest(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Chann
 
 async fn edit(State(s): State<Ctx>, Path(id): Path<String>, Json(e): Json<Edit>) -> ApiResult<Channel> {
     Ok(Json(channel::edit(&s.app, &id, e).await.map_err(bad)?))
+}
+
+/// A channel's name and purpose: what an admin edit's Undo (`channel.rename`) puts back.
+async fn about(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
+    let ch = channel::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
+    Ok(Json(json!({"name": ch.name, "purpose": ch.purpose})))
 }
 
 async fn remove(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Value> {
