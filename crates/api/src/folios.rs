@@ -1,7 +1,7 @@
 //! Folios on Home (`launchpad_automation::folios`): the reader's views, the agents' reads and writes, marks,
 //! feedback, revs and the owner's actions (`folio.*` in the action list). Runners forward every `/api/folios…`
 //! request to Home, which checks an agent's workspace (`agent_auth::within_workspace`) and its access: every level
-//! reads; propose creates, writes, fixes, replies and resolves, as the session's own writes (Home takes the author
+//! reads; propose creates, writes, fixes, closes (done), replies and resolves, as the session's own writes (Home takes the author
 //! from its own session record); marks, Send feedback, Restore, Archive and Delete are the owner's.
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -31,6 +31,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/folios/{workspace}/{slug}/write", post(write).layer(axum::extract::DefaultBodyLimit::max(launchpad_http::agent_auth::FOLIO_BODY_MAX)))
         .route("/api/folios/{workspace}/{slug}/check", get(check))
         .route("/api/folios/{workspace}/{slug}/fix", post(fix))
+        .route("/api/folios/{workspace}/{slug}/done", post(done))
         .route("/api/folios/{workspace}/{slug}/revs", get(revs))
         .route("/api/folios/{workspace}/{slug}/revs/{rev}", get(diff))
         .route("/api/folios/{workspace}/{slug}/revs/{rev}/restore", post(restore))
@@ -223,6 +224,19 @@ async fn check(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, Q
 async fn fix(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>) -> ApiResult<Written> {
     let by = author(&s, &agent).await?;
     Ok(Json(folios::fix(&s.app, &ws, &slug, by).await.map_err(bad)?))
+}
+
+#[derive(Deserialize, Default)]
+struct Done {
+    #[serde(default)]
+    message: Option<String>,
+}
+
+/// `launchpad folio done`: an agent squashes its open revs into one.
+async fn done(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, body: Bytes) -> ApiResult<Written> {
+    let by = author(&s, &agent).await?;
+    let d: Done = if body.is_empty() { Done::default() } else { serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("{e}")))? };
+    Ok(Json(folios::done(&s.app, &ws, &slug, d.message.as_deref(), by).await.map_err(bad)?))
 }
 
 async fn revs(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>) -> ApiResult<Vec<Rev>> {

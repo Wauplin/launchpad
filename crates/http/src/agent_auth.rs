@@ -38,8 +38,8 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
 }
 
 /// `launchpad folio …` (`/api/folios/{workspace}…`, in the session's own workspace): every level reads (list,
-/// outline, read, check, feedback, items, revs); propose creates, writes, fixes, replies and resolves, as the
-/// session's own writes. Marks, Send feedback, Restore, Archive and Delete are the owner's.
+/// outline, read, check, feedback, items, revs); propose creates, writes, fixes, closes (done), replies and resolves,
+/// as the session's own writes. Marks, Send feedback, Restore, Archive and Delete are the owner's.
 fn folio_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
     let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     if p.len() < 3 || p[..2] != ["api", "folios"] || p.iter().any(|s| s.is_empty()) {
@@ -50,7 +50,7 @@ fn folio_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
     }
     let write = match (&p[2..], method) {
         ([_ws], &Method::POST) => true,
-        ([_ws, slug, "write" | "fix" | "versions"], &Method::POST) => !slug.starts_with('_'),
+        ([_ws, slug, "write" | "fix" | "done" | "versions"], &Method::POST) => !slug.starts_with('_'),
         ([_ws, _slug, "marks", id, "reply" | "resolve"], &Method::POST) => id.parse::<i64>().is_ok(),
         // `launchpad folio data set|rm`: the agent's own writes to the folio's key and value store.
         ([_ws, slug, "data", _key, ..], &Method::PUT | &Method::DELETE) => !slug.starts_with('_'),
@@ -850,7 +850,7 @@ mod tests {
             assert_eq!(folio_need(&Method::GET, p), Some(LaunchpadAccess::Read), "{p}");
             assert_eq!(names(&Method::GET, p), Names::Workspace("w1"), "{p}");
         }
-        for p in ["/api/folios/w1", "/api/folios/w1/roadmap/write", "/api/folios/w1/roadmap/fix", "/api/folios/w1/roadmap/marks/31/reply", "/api/folios/w1/roadmap/marks/31/resolve"] {
+        for p in ["/api/folios/w1", "/api/folios/w1/roadmap/write", "/api/folios/w1/roadmap/fix", "/api/folios/w1/roadmap/done", "/api/folios/w1/roadmap/marks/31/reply", "/api/folios/w1/roadmap/marks/31/resolve"] {
             assert_eq!(folio_need(&Method::POST, p), Some(LaunchpadAccess::Propose), "{p}");
         }
         // The owner's: marks, Send feedback, Restore, Archive, Delete.

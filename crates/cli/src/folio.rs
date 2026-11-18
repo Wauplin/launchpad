@@ -157,6 +157,13 @@ pub enum FolioCommand {
         #[arg(long)]
         rev: Option<i64>,
     },
+    /// Close your round of changes: your revs since your last done become one rev (--message: its label). Run it
+    /// once you finish writing, so the folio keeps one rev per round instead of one per write.
+    Done {
+        slug: String,
+        #[arg(long, short)]
+        message: Option<String>,
+    },
     /// The folio's revs, newest first (named versions show their name).
     Revs { slug: String },
     /// Name a version (the latest rev, or --rev): it is kept for good, past the 30 days of other revs.
@@ -404,12 +411,22 @@ async fn online(paths: &Paths, workspace: Option<String>, command: FolioCommand)
                     };
                     format!("{}{counts}", f["path"].as_str().unwrap_or("?"))
                 }).collect();
-                let label = r["label"].as_str().map(|l| format!(" · {l}")).unwrap_or_default();
+                let mut label = r["label"].as_str().map(|l| format!(" · {l}")).unwrap_or_default();
+                if r["session_id"].is_string() && r["sealed"] == false {
+                    label.push_str(" · open");
+                }
                 let label = match r["version"].as_str() {
                     Some(n) => format!("{label} · version “{n}” (kept)"),
                     None => label,
                 };
                 println!("rev {} · {} · {}{label} · {}", r["rev"], r["at"].as_i64().map(utc).unwrap_or_default(), r["author"]["name"].as_str().unwrap_or("?"), files.join(", "));
+            }
+            Ok(0)
+        }
+        FolioCommand::Done { slug, message } => {
+            let w = client.json("POST", &at(&slug, "/done"), Some(json!({"message": message}))).await?;
+            for l in w["lines"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                println!("{l}");
             }
             Ok(0)
         }

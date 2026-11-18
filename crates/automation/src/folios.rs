@@ -132,6 +132,8 @@ pub struct Rev {
     pub warnings: u32,
     /// The name of a named version (kept for good).
     pub version: Option<String>,
+    /// Closed by its agent's `launchpad folio done`: a later done squashes only the revs after it.
+    pub sealed: bool,
 }
 
 /// A write's change, recorded with its folio (receipts in chats and traces).
@@ -766,6 +768,13 @@ pub async fn write(app: &App, ws: &str, slug: &str, ops: Vec<Op>, author: Author
         rename_topic(app, t, &folio.title, &new_title).await;
     }
     lines.push(format!("Written rev {rev} · {}", check::counts_text(&problems)));
+    if let Some(s) = &session
+        && let Ok(all) = revs(app, &folio.id).await
+        && let open = open_revs(&all, s)
+        && open.len() > 1
+    {
+        lines.push(format!("Revs {}–{rev} are your open steps: when you finish this round, `launchpad folio done {} --message \"…\"` keeps them as one rev.", open.last().map_or(rev, |r| r.rev), folio.slug));
+    }
     changed(app, &folio);
     let folio = get(app, ws, &folio.id).await?;
     Ok(Written { folio, written: true, rev, lines, problems })
@@ -794,14 +803,119 @@ pub async fn fix(app: &App, ws: &str, slug: &str, author: Author) -> Result<Writ
     Ok(w)
 }
 
+/// The revs `done` squashes, newest first: the newest revs of `session` that no done closed yet, back to the first
+/// rev of another writer (the owner, another session), a closed rev, or a named version (a named version may be the
+/// newest one: its name moves to the squashed rev, which has the same files).
+pub fn open_revs<'a>(revs: &'a [Rev], session: &str) -> Vec<&'a Rev> {
+    let mut out = vec![];
+    for r in revs {
+        if r.sealed || r.session_id.as_deref() != Some(session) || (r.version.is_some() && !out.is_empty()) {
+            break;
+        }
+        out.push(r);
+    }
+    out
+}
+
+/// The files of several revs taken as one (oldest first): each path from its content before the first of them to its
+/// content after the last; a path back where it started is left out.
+pub fn squash_files(revs: &[&Rev]) -> Vec<plain::Written> {
+    let mut files: BTreeMap<String, plain::Written> = BTreeMap::new();
+    for r in revs {
+        for w in &r.files {
+            files.entry(w.path.clone()).and_modify(|f| f.after = w.after.clone()).or_insert_with(|| w.clone());
+        }
+    }
+    files.into_values().filter(|f| f.before != f.after).collect()
+}
+
+/// `launchpad folio done`: the agent says it finished this round of changes. Its open revs (`open_revs`) become one
+/// rev, numbered like the first of them, with `message` as its label, and closed, so the next done squashes only what
+/// comes after. Marks, render reports, links, a named version and a shared snapshot that named a squashed rev name
+/// the new one. Only the steps between are lost, never content.
+pub async fn done(app: &App, ws: &str, slug: &str, message: Option<&str>, author: Author) -> Result<Written> {
+    ensure_home(app)?;
+    let session = author.session_id.clone().context("done closes an agent's own revs: the owner's writes are already one rev each")?;
+    let message = message.map(str::trim).filter(|m| !m.is_empty());
+    if let Some(m) = message {
+        ensure!(m.chars().count() <= 200 && !m.chars().any(char::is_control), "a message is one line of at most 200 characters");
+    }
+    let _one = WRITES.lock().await;
+    let folio = get(app, ws, slug).await?;
+    let all = revs(app, &folio.id).await?;
+    let mut open = open_revs(&all, &session);
+    open.reverse();
+    let (Some(first), Some(last)) = (open.first().map(|r| r.rev), open.last().map(|r| r.rev)) else {
+        let why = match all.first() {
+            None => "this folio has no rev yet".to_string(),
+            Some(r) if r.sealed && r.session_id.as_deref() == Some(session.as_str()) => format!("rev {} is already done", r.rev),
+            Some(r) => format!("rev {} is by {}, not by you", r.rev, r.author.name),
+        };
+        return Ok(Written { folio: folio.clone(), written: false, rev: folio.rev, lines: vec![format!("Nothing to squash: {why}.")], problems: vec![] });
+    };
+    let mut files = squash_files(&open);
+    for f in &mut files {
+        (f.added, f.removed) = (None, None);
+        if is_text(&f.path) {
+            let (before, after) = (blob_text(app, f.before.as_deref()).await, blob_text(app, f.after.as_deref()).await);
+            let (a, r) = launchpad_core::kb::counts(&before, &after);
+            (f.added, f.removed) = (Some(a), Some(r));
+        }
+    }
+    let label = message.map(str::to_string).or_else(|| {
+        let mut labels: Vec<&str> = vec![];
+        for l in open.iter().filter_map(|r| r.label.as_deref()) {
+            if !labels.contains(&l) {
+                labels.push(l);
+            }
+        }
+        (!labels.is_empty()).then(|| labels.join(", "))
+    });
+    let newest = open.last().expect("one rev at least");
+    let (fid, at, a, sess, errors, warnings) = (folio.id.clone(), newest.at, serde_json::to_string(&newest.author)?, newest.session_id.clone(), newest.errors, newest.warnings);
+    let (files_json, lab) = (serde_json::to_string(&files)?, label.clone());
+    app.state_db.call(move |c| {
+        let tx = c.transaction()?;
+        tx.execute("DELETE FROM folio_rev WHERE folio_id = ?1 AND rev BETWEEN ?2 AND ?3", params![fid, first, last])?;
+        tx.execute("INSERT INTO folio_rev (folio_id, rev, at, author, session_id, label, files, errors, warnings, sealed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1)", params![fid, first, at, a, sess, lab, files_json, errors, warnings])?;
+        tx.execute("UPDATE folio SET rev = ?2 WHERE id = ?1", params![fid, first])?;
+        // What named a squashed rev names the new one.
+        tx.execute("UPDATE folio_mark SET rev = ?2 WHERE folio_id = ?1 AND rev BETWEEN ?2 AND ?3", params![fid, first, last])?;
+        tx.execute("UPDATE folio_mark SET resolved_rev = ?2 WHERE folio_id = ?1 AND resolved_rev BETWEEN ?2 AND ?3", params![fid, first, last])?;
+        tx.execute("UPDATE folio_link SET first_rev = min(first_rev, ?2) WHERE folio_id = ?1 AND first_rev BETWEEN ?2 AND ?3", params![fid, first, last])?;
+        tx.execute("UPDATE folio_link SET last_rev = ?2 WHERE folio_id = ?1 AND last_rev BETWEEN ?2 AND ?3", params![fid, first, last])?;
+        tx.execute("UPDATE folio_share SET rev = ?2 WHERE folio_id = ?1 AND rev BETWEEN ?2 AND ?3", params![fid, first, last])?;
+        // Render reports and a named version hold for the files of the newest squashed rev only.
+        tx.execute("DELETE FROM folio_render WHERE folio_id = ?1 AND rev BETWEEN ?2 AND ?3 - 1", params![fid, first, last])?;
+        tx.execute("UPDATE folio_render SET rev = ?2 WHERE folio_id = ?1 AND rev = ?3", params![fid, first, last])?;
+        tx.execute("UPDATE folio_version SET rev = ?2 WHERE folio_id = ?1 AND rev = ?3", params![fid, first, last])?;
+        tx.commit()?;
+        Ok(())
+    }).await?;
+    let n = open.len();
+    let mut lines = vec![if n == 1 {
+        format!("Rev {first} is done")
+    } else {
+        format!("Squashed revs {first}–{last} into rev {first}")
+    }];
+    if let Some(l) = &label {
+        lines[0].push_str(&format!(" · {l}"));
+    }
+    lines[0].push_str(&format!(": {} file{} changed. Your next write is rev {}.", files.len(), if files.len() == 1 { "" } else { "s" }, first + 1));
+    changed(app, &folio);
+    let folio = get(app, ws, &folio.id).await?;
+    Ok(Written { folio, written: true, rev: first, lines, problems: vec![] })
+}
+
 /// The revs of a folio, newest first.
 pub async fn revs(app: &App, id: &str) -> Result<Vec<Rev>> {
     let id = id.to_string();
     app.state_db.call(move |c| {
-        let mut st = c.prepare("SELECT r.rev, r.at, r.author, r.session_id, r.label, r.files, r.errors, r.warnings, v.name FROM folio_rev r LEFT JOIN folio_version v ON v.folio_id = r.folio_id AND v.rev = r.rev WHERE r.folio_id = ?1 ORDER BY r.rev DESC")?;
+        let mut st = c.prepare("SELECT r.rev, r.at, r.author, r.session_id, r.label, r.files, r.errors, r.warnings, v.name, r.sealed FROM folio_rev r LEFT JOIN folio_version v ON v.folio_id = r.folio_id AND v.rev = r.rev WHERE r.folio_id = ?1 ORDER BY r.rev DESC")?;
         let rows = st.query_map([id], |r| {
             Ok(Rev {
                 version: r.get(8)?,
+                sealed: r.get(9)?,
                 rev: r.get(0)?,
                 at: r.get(1)?,
                 author: serde_json::from_str(&r.get::<_, String>(2)?).unwrap_or_else(|_| Author::owner(None)),
@@ -1617,6 +1731,29 @@ mod tests {
         assert!(!stale("active", now - 31 * day, None, 1, 0, now));
         assert!(!stale("active", now - 31 * day, None, 0, 2, now));
         assert!(!stale("archived", now - 31 * day, None, 0, 0, now));
+    }
+
+    fn rev(n: i64, session: Option<&str>, sealed: bool, version: bool, files: &[(&str, Option<&str>, Option<&str>)]) -> Rev {
+        let files = files.iter().map(|(p, b, a)| plain::Written { path: p.to_string(), before: b.map(str::to_string), after: a.map(str::to_string), added: None, removed: None }).collect();
+        Rev { rev: n, at: n, author: Author::owner(None), session_id: session.map(str::to_string), label: None, files, errors: 0, warnings: 0, version: version.then(|| "v".into()), sealed }
+    }
+
+    #[test]
+    fn done_squashes_the_open_revs_of_one_session() {
+        let nums = |v: Vec<&Rev>| v.iter().map(|r| r.rev).collect::<Vec<_>>();
+        // Newest first: 5 and 4 are open, 3 was done.
+        let revs = [rev(5, Some("s"), false, false, &[]), rev(4, Some("s"), false, false, &[]), rev(3, Some("s"), true, false, &[]), rev(2, Some("s"), false, false, &[])];
+        assert_eq!(nums(open_revs(&revs, "s")), [5, 4]);
+        assert!(open_revs(&revs, "other").is_empty());
+        // Another writer and a named version in between stop it; a named newest rev is taken.
+        let revs = [rev(4, Some("s"), false, true, &[]), rev(3, Some("s"), false, false, &[]), rev(2, Some("s"), false, true, &[]), rev(1, Some("s"), false, false, &[])];
+        assert_eq!(nums(open_revs(&revs, "s")), [4, 3]);
+        let revs = [rev(3, Some("s"), false, false, &[]), rev(2, None, false, false, &[]), rev(1, Some("s"), false, false, &[])];
+        assert_eq!(nums(open_revs(&revs, "s")), [3]);
+        // Files: from before the first to after the last; created then removed, or back where it started, go.
+        let (a, b, c) = (rev(1, None, false, false, &[("index.md", None, Some("h1")), ("tmp.md", None, Some("t"))]), rev(2, None, false, false, &[("index.md", Some("h1"), Some("h2")), ("x.md", Some("x0"), Some("x1"))]), rev(3, None, false, false, &[("tmp.md", Some("t"), None), ("x.md", Some("x1"), Some("x0"))]));
+        let files = squash_files(&[&a, &b, &c]);
+        assert_eq!(files.iter().map(|f| (f.path.as_str(), f.before.as_deref(), f.after.as_deref())).collect::<Vec<_>>(), [("index.md", None, Some("h2"))]);
     }
 
     #[test]

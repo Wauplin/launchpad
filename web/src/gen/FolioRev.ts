@@ -9,4 +9,8 @@ export type FolioRev = { rev: number, at: number, author: Author, session_id: st
 /**
  * The name of a named version (kept for good).
  */
-version: string | null, };
+version: string | null, 
+/**
+ * Closed by its agent's `launchpad folio done`: a later done squashes only the revs after it.
+ */
+sealed: boolean, };

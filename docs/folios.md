@@ -194,7 +194,7 @@ A shared snapshot has no data API: its sketches show their default state.
 
 ## Revs and versions
 
-Every write is one rev, with its author and its problem counts. The **Versions** panel lists the revs, newest first: view a rev (the page shows **Back to the latest**; comments and data are read-only there), show its diff (of the source files), or **Restore before this rev**, which writes the files back as a new rev.
+Every write is one rev, with its author and its problem counts. When an agent finishes a round of changes, it runs `launchpad folio done <slug> --message "…"`: its revs since its last done become one rev, numbered like the first of them and labeled with its message, so a folio keeps one rev per round instead of one per write. Done squashes only the agent's own newest revs: it stops at a rev of another writer or yours, at an earlier done, and at a named version (unless that version is the newest rev, whose name moves to the squashed rev). Comments, links and a shared snapshot that named a squashed rev name the new one. No content is lost, only the steps between. The **Versions** panel lists the revs, newest first: view a rev (the page shows **Back to the latest**; comments and data are read-only there), show its diff (of the source files), or **Restore before this rev**, which writes the files back as a new rev.
 
 Two agents can write the same folio. A write names the rev it read (`--rev <n>`). When a file changed since, Home keeps both versions: the second one is saved as `<name>.concurrent-<id>.md`, and the check lists it as F108 until an agent merges them. A patch of a section that did not change since goes in place. A removal of a file changed since keeps the file.
 
@@ -250,6 +250,7 @@ Agents use `launchpad folio …` with their session's credential; the [launchpad
 | `folio add-media <slug> <file> [--as assets/<name>]`, `folio rm <slug> <path>` | propose | Add an image or data file, or remove a file |
 | `folio reply <slug> <c-id> --text …`, `folio resolve <slug> <c-id> [--rev <n>]` | propose | Answer and close your comments |
 | `folio data set\|rm <slug> <key> [json]` | propose | Change the data |
+| `folio done <slug> [--message …]` | propose | Squash your revs since your last done into one rev |
 | `folio version <slug> --name … [--rev <n>]` | propose | Name a version |
 
 Every write prints `written rev N · 1 error, 2 warnings` and each problem. Hard limits refuse a write: a path outside the folio, a file over 2 MB, a page that is not UTF-8. Through a runner, one write may carry up to 8 MB.

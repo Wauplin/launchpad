@@ -207,9 +207,9 @@ export function foliosWorld() {
   ];
   const w = (path: string, before: string | null, after: string, added: number, removed: number) => ({ path, before, after, added, removed });
   const revs: FolioRev[] = [
-    { rev: 3, at: clock.ago(50), author: agent, session_id: FOLIO_SESSION, label: null, files: [w("index.md", "demo-index-2", "demo-index-3", 2, 1)], errors: 0, warnings: 0, version: null },
-    { rev: 2, at: clock.ago(60 * 4), author: agent, session_id: FOLIO_SESSION, label: null, files: [w("plan.md", null, "demo-plan-2", PLAN.split("\n").length, 0)], errors: 0, warnings: 0, version: null },
-    { rev: 1, at: clock.ago(60 * 5), author: agent, session_id: FOLIO_SESSION, label: "created", files: [w("index.md", null, "demo-index-1", INDEX.split("\n").length, 0)], errors: 0, warnings: 0, version: "v1 · first draft" },
+    { rev: 3, at: clock.ago(50), author: agent, session_id: FOLIO_SESSION, label: null, files: [w("index.md", "demo-index-2", "demo-index-3", 2, 1)], errors: 0, warnings: 0, version: null, sealed: true },
+    { rev: 2, at: clock.ago(60 * 4), author: agent, session_id: FOLIO_SESSION, label: null, files: [w("plan.md", null, "demo-plan-2", PLAN.split("\n").length, 0)], errors: 0, warnings: 0, version: null, sealed: true },
+    { rev: 1, at: clock.ago(60 * 5), author: agent, session_id: FOLIO_SESSION, label: "created", files: [w("index.md", null, "demo-index-1", INDEX.split("\n").length, 0)], errors: 0, warnings: 0, version: "v1 · first draft", sealed: true },
   ];
   return { folios: [{ folio, files: { "index.md": INDEX, "plan.md": PLAN, "sketches/inbox.html": INBOX }, marks, revs }] as DemoFolio[] };
 }

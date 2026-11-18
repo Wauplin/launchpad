@@ -435,7 +435,7 @@ function VersionsPanel({ ws, slug, current, latest, view }: { ws: string; slug: 
       .then(() => { toast(`Rev ${naming.rev} is kept for good as “${naming.name.trim()}”`); setNaming(null); void qc.invalidateQueries({ queryKey: ["folio", ws, slug] }); }).catch(toastError);
   };
   return <div className="grid gap-2 p-3 text-[13px]">
-    <p className="m-0 text-[12px] text-ink-3">Every write is a rev, kept 30 days with its author. A named version is kept for good. Restore puts a rev's files back as a new rev.</p>
+    <p className="m-0 text-[12px] text-ink-3">Every write is a rev, kept 30 days with its author. An agent that finishes a round of changes squashes its revs into one. A named version is kept for good. Restore puts a rev's files back as a new rev.</p>
     {!naming && <button type="button" className="btn btn-sm justify-self-start" onClick={() => setNaming({ rev: current ?? latest, name: "" })}><Icon name="tag" size={12} />Name this version</button>}
     {naming && <div className="grid gap-1.5 rounded-card border border-teal bg-paper p-2.5">
       <span className="text-[12px] text-ink-3">Name rev {naming.rev}: it is kept for good, past 30 days.</span>

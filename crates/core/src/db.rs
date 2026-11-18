@@ -289,7 +289,7 @@ CREATE TABLE IF NOT EXISTS oracle_streak (workspace_id TEXT NOT NULL, oracle TEX
 CREATE TABLE IF NOT EXISTS folio (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, slug TEXT NOT NULL, title TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'active', created_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, rev INTEGER NOT NULL DEFAULT 0, topic_id TEXT, thread_bot TEXT, thread_id TEXT, archived_at INTEGER, problems TEXT NOT NULL DEFAULT '[]');
 CREATE UNIQUE INDEX IF NOT EXISTS folio_slug ON folio (workspace_id, slug);
 CREATE TABLE IF NOT EXISTS folio_link (folio_id TEXT NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL, first_rev INTEGER NOT NULL, last_rev INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (folio_id, session_id));
-CREATE TABLE IF NOT EXISTS folio_rev (folio_id TEXT NOT NULL, rev INTEGER NOT NULL, at INTEGER NOT NULL, author TEXT NOT NULL, session_id TEXT, label TEXT, files TEXT NOT NULL, errors INTEGER NOT NULL DEFAULT 0, warnings INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (folio_id, rev));
+CREATE TABLE IF NOT EXISTS folio_rev (folio_id TEXT NOT NULL, rev INTEGER NOT NULL, at INTEGER NOT NULL, author TEXT NOT NULL, session_id TEXT, label TEXT, files TEXT NOT NULL, errors INTEGER NOT NULL DEFAULT 0, warnings INTEGER NOT NULL DEFAULT 0, sealed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (folio_id, rev));
 CREATE INDEX IF NOT EXISTS folio_rev_session ON folio_rev (session_id);
 CREATE TABLE IF NOT EXISTS folio_mark (id INTEGER PRIMARY KEY AUTOINCREMENT, folio_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, author TEXT NOT NULL, session_id TEXT, page TEXT, target TEXT, quote TEXT, prefix TEXT, suffix TEXT, value TEXT, text TEXT, parent INTEGER, rev INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, sent_at INTEGER, resolved_at INTEGER, resolved_rev INTEGER, deleted INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS folio_mark_folio ON folio_mark (folio_id, seq);
@@ -342,6 +342,9 @@ CREATE TABLE IF NOT EXISTS folio_block_use (folio_id TEXT NOT NULL, name TEXT NO
     // Files of bot channel messages (`launchpad_channels::channel::ChannelFile`, references to Home's uploads).
     let message_columns = conn.prepare("PRAGMA table_info(channel_message)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !message_columns.iter().any(|c| c == "files") { conn.execute_batch("ALTER TABLE channel_message ADD COLUMN files TEXT NOT NULL DEFAULT '[]';")?; }
+    // Folio revs an agent closed with `launchpad folio done` (`folios::done`): the next done squashes only later ones.
+    let folio_rev_columns = conn.prepare("PRAGMA table_info(folio_rev)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !folio_rev_columns.iter().any(|c| c == "sealed") { conn.execute_batch("ALTER TABLE folio_rev ADD COLUMN sealed INTEGER NOT NULL DEFAULT 0;")?; }
     if !bot_columns.iter().any(|c| c == "paused") { conn.execute_batch("ALTER TABLE bot ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;")?; }
     if !device_columns.iter().any(|c| c == "last_seen_at") { conn.execute_batch("ALTER TABLE browser_device ADD COLUMN last_seen_at INTEGER;")?; }
     // When a browser operation completed, so completed claims can be pruned (`operations::prune`).
