@@ -20,6 +20,7 @@ import { useSessions } from "@/lib/queries";
 import { useTheme } from "@/stores/theme";
 import { useSetupSummary } from "@/features/setup/summary";
 import { useOnboarding, usePatchOnboarding } from "@/onboarding/data";
+import { useColumn } from "@/components/ResizeHandle";
 import { ordered, useSidebarOrder, useSidebar, type SidebarGroup } from "@/stores/sidebar";
 
 /** A corner mark of an icon in the narrow sidebar: an amber count, or a state dot. */
@@ -227,13 +228,15 @@ export function Sidebar() {
   const todayTitle = `${today} decisions wait: questions, finished agents, proposals, drafts to send and reviews`;
   const knowledgeTitle = `${knowledgeNew} changes by agents since your last look`;
   const label = (name: string, detail: string | false) => detail ? `${name} · ${detail}` : name;
+  const column = useColumn("sidebar", "sidebar");
   const collapse = (
     <button type="button" className={`grid size-[31px] flex-none place-items-center rounded-control text-ink-2 hover:bg-sunk hover:text-ink ${narrow ? "mx-auto" : ""}`} aria-label={narrow ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!narrow} title={narrow ? "Expand the sidebar on this device" : "Collapse the sidebar to icons on this device"} onClick={() => toggleGroup("sidebar")}>
       <Icon name="sidebar" size={16} />
     </button>
   );
   return (
-    <aside className={`flex flex-none flex-col border-r border-line bg-chrome ${narrow ? "w-[46px]" : "w-[200px]"}`}>
+    <>
+    <aside className={`flex flex-none flex-col bg-chrome ${narrow ? "w-[46px] border-r border-line" : ""}`} style={narrow ? undefined : { width: column.width }}>
       <WorkspaceMenu narrow={narrow} />
       {/* One scroll area for the groups; Settings stays at the bottom. */}
       <div className={`relative flex min-h-0 flex-1 flex-col gap-px overflow-y-auto pt-2.5 pb-2 ${narrow ? "overflow-x-hidden px-1 [scrollbar-width:none]" : "px-2"}`}>
@@ -276,5 +279,7 @@ export function Sidebar() {
       </div>}
       </div>
     </aside>
+    {!narrow && column.handle}
+    </>
   );
 }

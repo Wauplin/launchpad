@@ -5,6 +5,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/Icon";
+import { useColumn } from "@/components/ResizeHandle";
 import { Empty, ErrorState, Choice, Choices, Loading } from "@/components/ui";
 import { highlight, type Tokens } from "@/features/code/highlight";
 import { isDemo } from "@/demo/mode";
@@ -173,6 +174,7 @@ export function DiffReview({ files, selected, onSelect, patch, loading, error, e
   phoneBar?: ReactNode;
 }) {
   const phone = usePhone();
+  const column = useColumn("review-files", "file list");
   const [split, setSplit] = useSplitPreference();
   const [wrap, setWrap] = useState(phone);
   const [ownList, setShowList] = useState(true);
@@ -216,7 +218,7 @@ export function DiffReview({ files, selected, onSelect, patch, loading, error, e
     onAddNote({ path: selected, line: picked.line, side: picked.side, code: picked.code, text: draft.trim() });
     setDraft(""); setPicked(null);
   };
-  const fileList = <div ref={listRef} className={`overflow-auto ${phone ? "min-h-0 flex-1" : "w-[240px] shrink-0 border-r border-line"}`}>
+  const fileList = <div ref={listRef} className={`overflow-auto ${phone ? "min-h-0 flex-1" : "shrink-0"}`} style={phone ? undefined : { width: column.width }}>
     <div className="relative" style={{ height: list.getTotalSize() }}>
       {list.getVirtualItems().map((r) => { const f = files[r.index]; return <div key={f.path} className="absolute left-0 w-full" style={{ transform: `translateY(${r.start}px)` }}><FileRow f={f} phone={phone} active={f.path === selected} viewed={viewed(f.path)} notes={notes.filter((n) => n.path === f.path).length} onClick={() => open(f.path)} /></div>; })}
     </div>
@@ -235,6 +237,7 @@ export function DiffReview({ files, selected, onSelect, patch, loading, error, e
     {banner}
     {!files.length ? loading ? <Loading what="changes" /> : error ? <ErrorState className="m-2" error={error} /> : null : <div className="flex min-h-0 flex-1">
       {(!phone || showList) && fileList}
+      {!phone && column.handle}
       {(!phone || !showList) && <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-2 py-1.5 text-[12px]">
           {phone && <button className="btn btn-sm" onClick={toList}><Icon name="chev" size={12} className="rotate-90" />Files</button>}

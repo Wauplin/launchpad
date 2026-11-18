@@ -4,6 +4,7 @@
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Icon } from "@/components/Icon";
+import { useColumn } from "@/components/ResizeHandle";
 import { useScope } from "@/lib/workspace";
 import { useTheme } from "@/stores/theme";
 import { settingsPages, useSettingsSearch, type NavEntry } from "@/features/settings/nav";
@@ -38,8 +39,11 @@ export function SettingsSidebar() {
   const setQuery = useSettingsSearch((s) => s.set);
   const pages = settingsPages(query);
   const close = () => router.history.push(lastPlace);
+  // The same column as the main sidebar, so both keep one width.
+  const column = useColumn("sidebar", "sidebar");
   return (
-    <aside className="flex w-[200px] flex-none flex-col border-r border-line bg-chrome" aria-label="Settings">
+    <>
+    <aside className="flex flex-none flex-col bg-chrome" style={{ width: column.width }} aria-label="Settings">
       <div className="flex-none border-b border-line-2 px-2 py-1.5">
         <button type="button" className="flex h-[31px] w-full min-w-0 items-center gap-1.5 rounded-control px-[9px] text-left text-ink-2 hover:bg-sunk hover:text-ink" title="Close Settings and go back to the page you were on" onClick={close}>
           <Icon name="chev" size={12} className="flex-none rotate-90" />
@@ -74,5 +78,7 @@ export function SettingsSidebar() {
         </button>
       </div>
     </aside>
+    {column.handle}
+    </>
   );
 }

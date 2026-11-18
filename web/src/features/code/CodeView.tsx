@@ -22,6 +22,7 @@ import type { Session } from "@/gen/Session";
 import { HarnessMark, useHarnessName } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { Markdown } from "@/components/Markdown";
+import { useColumn } from "@/components/ResizeHandle";
 import DOMPurify from "dompurify";
 import { MenuItem, Popover } from "@/components/Popover";
 import { toast } from "@/components/Toast";
@@ -97,6 +98,7 @@ function Viewer({ project, root, rev, path, line, session, bar }: { project: Pro
   const navigate = useNavigate();
   const qc = useQueryClient();
   const phone = usePhone();
+  const column = useColumn("files-tree", "file tree");
   // A shell in an agent's folder opens on the agent's runner.
   const runner = useSessions().data?.find((s) => s.id === session)?.runner_id ?? null;
   const [browserOpen, setBrowserOpen] = useState(!path);
@@ -152,10 +154,10 @@ function Viewer({ project, root, rev, path, line, session, bar }: { project: Pro
   }, [qc, root, rev]);
 
   return (
-    <div className={`code-layout h-full ${phone ? "flex flex-col" : "grid grid-cols-[284px_minmax(0,1fr)]"}`}>
+    <div className={`code-layout flex h-full ${phone ? "flex-col" : ""}`}>
       {/* Phone: the tree toggle sits in the bar; the open file is the page (no tab strip, each file is a history entry). */}
       {bar(phone && <button className="iconbtn shrink-0" aria-expanded={browserOpen} aria-label={browserOpen ? "Close the tree" : "Tree and search"} title={browserOpen ? "Close the tree" : "Tree and search"} onClick={() => setBrowserOpen((v) => !v)}><Icon name={browserOpen ? "x" : "folder"} size={14} /></button>)}
-      <aside className={`code-browser min-h-0 min-w-0 flex-col border-r border-line bg-paper ${phone ? browserOpen ? "flex flex-1" : "hidden" : "flex"}`}>
+      <aside className={`code-browser min-h-0 min-w-0 flex-col bg-paper ${phone ? browserOpen ? "flex flex-1 border-r border-line" : "hidden" : "flex flex-none"}`} style={phone ? undefined : { width: column.width }}>
         <div className="grid grid-cols-[minmax(0,1fr)] gap-2 px-2.5 pt-2.5 pb-1">
           {session && !rev && !phone && <BackToSession id={session} />}
           <div className="flex min-w-0 gap-1.5">
@@ -181,7 +183,8 @@ function Viewer({ project, root, rev, path, line, session, bar }: { project: Pro
           <SearchPanel root={root} rev={rev} onOpen={open} state={searchState} setState={setSearchState} />
         )}
       </aside>
-      <div className={`min-h-0 min-w-0 flex-col ${phone ? browserOpen ? "hidden" : "flex flex-1" : "flex"}`}>
+      {!phone && column.handle}
+      <div className={`min-h-0 min-w-0 flex-1 flex-col ${phone && browserOpen ? "hidden" : "flex"}`}>
         {!phone && <div className="code-file-tabs flex h-[34px] flex-none items-stretch overflow-x-auto border-b border-line bg-chrome">
           {tabs.map((t) => (
             <div

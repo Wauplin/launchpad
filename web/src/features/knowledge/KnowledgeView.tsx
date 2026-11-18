@@ -11,6 +11,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Icon } from "@/components/Icon";
 import { Markdown } from "@/components/Markdown";
+import { useColumn } from "@/components/ResizeHandle";
 import { toast, toastError } from "@/components/Toast";
 import { Badge, ConfirmButton, Empty, ErrorState, Choice, Choices, FilterChip, Loading, PageHeader, Tabs } from "@/components/ui";
 import { PatchView } from "@/components/diff/DiffReview";
@@ -141,6 +142,7 @@ const librarianName = (b: Bot) => b.settings.name === "Librarian" ? "the Librari
 
 function NotesTab({ ws, notes, bots, changes, selected, select, panel, setPanel, showHistory, refresh }: { ws: string; notes: Notes; bots: Bot[]; changes: Change[]; selected: string | null; select: (p: string) => void; panel: "note" | "new" | "import"; setPanel: (p: "note" | "new" | "import") => void; showHistory: (p: string) => void; refresh: () => unknown }) {
   const phone = usePhone();
+  const column = useColumn("knowledge-notes", "note list");
   const [filter, setFilter] = useState("");
   const words = filter.trim();
   const hits = useQuery({ queryKey: ["knowledge", ws, "search", words], queryFn: () => api.get<{ hits: Hit[] }>(`/api/knowledge/${ws}/search?q=${encodeURIComponent(words)}`), enabled: words.length >= 2, staleTime: 10_000 });
@@ -164,7 +166,7 @@ function NotesTab({ ws, notes, bots, changes, selected, select, panel, setPanel,
   const showPane = !phone || !!selected || panel !== "note";
   return (
     <div className="flex min-h-0 flex-1">
-      {showList && <aside className={`flex min-h-0 flex-col border-r border-line ${phone ? "flex-1" : "w-[300px] flex-none"}`} data-tour="knowledge.notes">
+      {showList && <aside className={`flex min-h-0 flex-col ${phone ? "flex-1 border-r border-line" : "flex-none"}`} style={phone ? undefined : { width: column.width }} data-tour="knowledge.notes">
         <div className="border-b border-line-2 p-2">
           <input className="field-input w-full" placeholder="Find notes by name or text" aria-label="Find notes" value={filter} onChange={(e) => setFilter(e.target.value)} />
         </div>
@@ -182,6 +184,7 @@ function NotesTab({ ws, notes, bots, changes, selected, select, panel, setPanel,
           </div>
         </div>}
       </aside>}
+      {!phone && column.handle}
       {showPane && <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         {panel === "import" ? <ImportPanel ws={ws} existing={notes.files.map((f) => f.path)} done={() => { setPanel("note"); void refresh(); }} />
           : panel === "new" ? <NoteEditor ws={ws} isNew paths={notes.files.map((f) => f.path)} done={(path) => { setPanel("note"); if (path) select(path); void refresh(); }} />
@@ -398,6 +401,7 @@ function ImportPanel({ ws, existing, done }: { ws: string; existing: string[]; d
 
 function ChangesTab({ ws, notes, changes, loading, error, historyOf, clearHistory, openNote, refresh }: { ws: string; notes: Notes; changes: Change[]; loading: boolean; error: unknown; historyOf: string | null; clearHistory: () => void; openNote: (p: string) => void; refresh: () => unknown }) {
   const phone = usePhone();
+  const column = useColumn("knowledge-changes", "change list");
   const rows = useMemo(() => historyOf ? changes.filter((c) => c.path === historyOf) : changes, [changes, historyOf]);
   const [open, setOpen] = useState<number | null>(null);
   const current = rows.find((c) => c.id === open) ?? (phone ? null : rows[0]) ?? null;
@@ -412,7 +416,7 @@ function ChangesTab({ ws, notes, changes, loading, error, historyOf, clearHistor
   if (error) return <ErrorState error={error} />;
   return (
     <div className="flex min-h-0 flex-1">
-      {(!phone || !current) && <aside className={`flex min-h-0 flex-col border-r border-line ${phone ? "flex-1" : "w-[380px] flex-none"}`} data-tour="knowledge.changes">
+      {(!phone || !current) && <aside className={`flex min-h-0 flex-col ${phone ? "flex-1 border-r border-line" : "flex-none"}`} style={phone ? undefined : { width: column.width }} data-tour="knowledge.changes">
         <div className="flex flex-wrap items-center gap-2 border-b border-line-2 px-3 py-2 text-[12px] text-ink-3">
           {historyOf ? <FilterChip active onClick={clearHistory}>{historyOf} <Icon name="x" size={12} /></FilterChip> : <span className="min-w-0 flex-1">{unseen ? `${unseen} new since your last look` : "Nothing new since your last look"}</span>}
           {historyOf && <span className="flex-1" />}
@@ -426,6 +430,7 @@ function ChangesTab({ ws, notes, changes, loading, error, historyOf, clearHistor
           </div>
         </div>}
       </aside>}
+      {!phone && column.handle}
       {current && <ChangeDetail key={current.id} ws={ws} c={current} exists={notes.files.some((f) => f.path === current.path)} back={phone ? () => setOpen(null) : undefined} openNote={openNote} refresh={refresh} />}
     </div>
   );

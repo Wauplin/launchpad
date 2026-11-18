@@ -1,9 +1,9 @@
-// A main area and a side panel on the right, split by a line the owner drags (or moves with the arrow keys when
-// focused). The panel width is device-local (browser storage, per `storageKey`; the demo keeps it in memory) and
-// stays between `min` px and `maxRatio` of the view, so the main area never gets narrower than the panel allows.
+// A main area and a side panel on the right, split by a line the owner drags (`ResizeHandle`). The panel width is
+// device-local (browser storage, per `storageKey`; the demo keeps it in memory) and stays between `min` px and `maxRatio` of the view, so the main area never gets narrower than the panel allows.
 // Without `side` (a closed drawer) only the main area shows, and it stays mounted when the panel opens or closes.
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useZoomScale } from "@/lib/zoom";
+import { ResizeHandle } from "./ResizeHandle";
 
 const read = (key: string, fallback: number) => {
   const value = Number(window.__lpDemo ? NaN : localStorage.getItem(key));
@@ -17,7 +17,6 @@ export function SplitView({ storageKey, main, side, initial = 400, min = 280, ma
   const [width, setWidth] = useState(() => read(storageKey, initial));
   const [total, setTotal] = useState(0);
   const root = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ pointer: number; x: number; width: number } | null>(null);
   useLayoutEffect(() => {
     const el = root.current;
     if (!el) return;
@@ -39,45 +38,7 @@ export function SplitView({ storageKey, main, side, initial = 400, min = 280, ma
     <div ref={root} className="flex min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">{main}</div>
       {side && <>
-      <div
-        role="separator"
-        aria-label={`Resize ${sideLabel}`}
-        aria-orientation="vertical"
-        aria-valuemin={min}
-        aria-valuemax={Math.round(maximum)}
-        aria-valuenow={shown}
-        tabIndex={0}
-        title="Drag to resize (Arrow Left/Right when focused, double-click to reset)"
-        className="group relative z-10 -mx-[3px] flex w-[7px] flex-none cursor-col-resize touch-none select-none justify-center focus-visible:outline-none"
-        onPointerDown={(event) => {
-          if (event.button !== 0 || !event.isPrimary) return;
-          event.preventDefault();
-          event.currentTarget.focus();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          drag.current = { pointer: event.pointerId, x: event.clientX, width: shown };
-        }}
-        onPointerMove={(event) => {
-          const start = drag.current;
-          if (start?.pointer === event.pointerId) set(start.width + (start.x - event.clientX) / scale);
-        }}
-        onPointerUp={(event) => {
-          if (drag.current?.pointer !== event.pointerId) return;
-          drag.current = null;
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }}
-        onPointerCancel={() => { drag.current = null; }}
-        onLostPointerCapture={() => { drag.current = null; }}
-        onDoubleClick={() => set(initial)}
-        onKeyDown={(event) => {
-          const step = event.shiftKey ? 50 : 10;
-          if (event.key === "ArrowLeft") set(shown + step);
-          else if (event.key === "ArrowRight") set(shown - step);
-          else return;
-          event.preventDefault();
-        }}
-      >
-        <span className="w-px bg-line group-hover:w-[3px] group-hover:bg-teal group-focus-visible:w-[3px] group-focus-visible:bg-teal" />
-      </div>
+      <ResizeHandle label={sideLabel} value={shown} min={min} max={maximum} side="right" onChange={set} onReset={() => set(initial)} />
       <aside className="flex min-h-0 min-w-0 flex-none flex-col" style={{ width: shown }} aria-label={sideLabel}>{side}</aside>
       </>}
     </div>

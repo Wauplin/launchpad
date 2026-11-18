@@ -29,6 +29,7 @@ import { isCollapsed, useLayout, type AgentGroup } from "@/stores/layout";
 import { SessionPane, type View } from "./SessionPane";
 import { phoneBack } from "@/mobile/back";
 import { PullToRefresh } from "@/components/PullToRefresh";
+import { useColumn } from "@/components/ResizeHandle";
 import { useQueryClient } from "@tanstack/react-query";
 import { SessionStatus } from "./SessionBits";
 import { useMarkSeen, useWindowFocused } from "./useSeen";
@@ -162,6 +163,7 @@ export function AgentsView() {
   const phone = usePhone();
   const [archivedLimit, setArchivedLimit] = useState(30);
   const listRef = useRef<HTMLDivElement>(null);
+  const column = useColumn("agents-list", "agent list");
   // A click in the list opens the session on its default view (a `view` from a link applied only to that session);
   // clicking the row of the open session keeps its pane as it is (tab, scroll, trace position).
   const openRef = useRef<(id: string) => void>(() => {});
@@ -276,7 +278,7 @@ export function AgentsView() {
   const paneOpen = !!visibleSession;
   return (
     <div className="flex h-full min-h-0">
-      <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "w-[280px] flex-none border-r border-line"}`}>
+      <div className={`flex flex-col bg-paper ${phone ? (paneOpen ? "hidden" : "w-full") : "flex-none"}`} style={phone ? undefined : { width: column.width }}>
         <div className="grid gap-2 border-b border-line p-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <button className="lp-chip" aria-pressed={searching} aria-label="Search sessions and messages" title={searching ? "Close the search" : "Search sessions and messages"} onClick={() => { if (searching) { setFilter(""); setArchivedLimit(30); } setSearchOpen(!searching); }}><Icon name="search" size={12} /></button>
@@ -315,6 +317,7 @@ export function AgentsView() {
         </div>
         </div>
       </div>
+      {!phone && column.handle}
       <div className={`min-h-0 min-w-0 flex-1 bg-paper ${phone && !paneOpen ? "hidden" : ""}`}>
         {visibleSession ? (
           <SessionPane key={`${scope.workspace.id}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onView={phone ? (view) => void navigate({ to: "/agents", search: { session: visibleSession, view }, replace: true }) : undefined} onClear={() => (phone ? back() : clearSession(visibleSession))} />
