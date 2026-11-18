@@ -698,6 +698,10 @@ pub struct Lease {
     /// The session's Launchpad CLI access; None when the tool is not granted.
     #[serde(default)]
     pub launchpad: Option<LaunchpadAccess>,
+    /// The releases Home resolved for its `github_release` tools, by tool ID (`tool_install::releases`), so runners
+    /// install them without calling GitHub's API.
+    #[serde(default)]
+    pub releases: BTreeMap<String, crate::tool_install::Release>,
 }
 
 /// Login hosts: where the proxy adds a harness login (declared by its adapter).
@@ -865,6 +869,7 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
     }
     let home = app.config.get().home.clone();
     let launchpad = launchpad_level(app, tools_out.iter().any(|t| t.id == LAUNCHPAD_TOOL), req.bot_id.as_deref()).await;
+    let releases = crate::tool_install::releases(app, &tools_out).await;
     Ok(Lease {
         id: lease_id.into(),
         session_id: req.session_id.clone(),
@@ -877,6 +882,7 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
         relayed: false,
         mcp: crate::mcp::granted(app, req.workspace_id.as_deref(), &off).await?,
         launchpad,
+        releases,
     })
 }
 

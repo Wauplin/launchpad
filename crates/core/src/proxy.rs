@@ -867,6 +867,7 @@ mod authentication_tests {
             relayed: false,
             mcp: vec![],
             launchpad: None,
+            releases: Default::default(),
         });
         let mut headers = hyper::HeaderMap::new();
         let challenge = |headers: &hyper::HeaderMap| {

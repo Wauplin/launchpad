@@ -158,7 +158,7 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     let mut ro: Vec<PathBuf> = vec![ca.clone(), bundle.clone()];
     let mut path_prefix = vec![];
     for t in lease.tools.iter().filter(|t| t.install.is_some()) {
-        match crate::tool_install::ensure(app, t, &cache).await {
+        match crate::tool_install::ensure(app, t, lease.releases.get(&t.id), &cache).await {
             Ok(bin) => {
                 // Settings of the tool: its commands run through wrappers that set them (never in `env`).
                 let wrapped = dir.join("tools").join(&t.id);
