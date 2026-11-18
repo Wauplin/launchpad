@@ -283,7 +283,8 @@ pub fn feedback_message(title: &str, slug: &str, rev: i64, marks: &[Mark], since
 }
 
 /// Your marks as the few lines `launchpad folio feedback` prints.
-pub fn feedback_text(slug: &str, rev: i64, marks: &[Mark], replies: &[Mark]) -> String {
+/// `cleared`: sent marks the owner removed since the cursor (a cleared verdict, choice or tick, a deleted comment).
+pub fn feedback_text(slug: &str, rev: i64, marks: &[Mark], replies: &[Mark], cleared: &[Mark]) -> String {
     let mut out = vec![];
     let sent = marks.iter().filter_map(|m| m.sent_at).max();
     out.push(format!("folio {slug} · rev {rev} · {} mark{} from the owner{}", marks.len(), if marks.len() == 1 { "" } else { "s" }, sent.map(|_| " (sent)").unwrap_or_default()));
@@ -312,6 +313,10 @@ pub fn feedback_text(slug: &str, rev: i64, marks: &[Mark], replies: &[Mark]) -> 
     if !c.is_empty() {
         out.push(format!("check    {}", c.join(" · ")));
     }
+    if !cleared.is_empty() {
+        let what = |m: &Mark| if m.kind == "comment" { format!("comment c-{}", m.id) } else { format!("{} {}", m.kind, m.target.as_deref().unwrap_or("?")) };
+        out.push(format!("cleared  {}", cleared.iter().map(what).collect::<Vec<_>>().join(" · ")));
+    }
     if let Some(first) = marks.iter().find(|m| m.target.is_some()) {
         out.push(format!("next: launchpad folio read {slug} {} --section {}", first.page.as_deref().unwrap_or("index.md"), first.target.as_deref().unwrap_or("")));
     }
@@ -331,6 +336,7 @@ fn ensure_home(app: &App) -> Result<()> {
 }
 
 static WRITES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static CREATES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 const COLUMNS: &str = "id, workspace_id, slug, title, kind, state, created_by, created_at, updated_at, rev, topic_id, thread_bot, thread_id, archived_at, problems";
 
@@ -537,6 +543,8 @@ pub async fn create(app: &App, ws: &str, title: &str, kind: &str, slug: Option<&
         }
         None => slugify(title),
     };
+    // One create at a time: two creates of the same slug never race to the record's unique key.
+    let one = CREATES.lock().await;
     let taken = slugs(app, ws).await;
     let slug = if slug.is_some() {
         ensure!(!taken.contains(&base), "this workspace already has a folio {base}: update it (launchpad folio write) or pick another --slug");
@@ -551,19 +559,44 @@ pub async fn create(app: &App, ws: &str, title: &str, kind: &str, slug: Option<&
         c.execute("INSERT INTO folio (id, workspace_id, slug, title, kind, created_by, created_at, updated_at, topic_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)", params![i, w, s, t, k, a, at, top])?;
         Ok(())
     }).await?;
+    drop(one);
     let skeleton = check::skeleton(title, kind);
     write(app, ws, &slug, vec![Op::Write { path: "index.md".into(), data: skeleton.into_bytes() }], author, None, false, Some("created")).await
 }
 
-/// A topic for a new folio: its title, else "Folio · title", else with its slug.
-async fn topic_for(app: &App, ws: &str, title: &str) -> Result<String> {
+/// The names a folio's topic gets from its title: the title, else "Folio · title", else with a short suffix.
+fn topic_names(title: &str) -> [String; 3] {
     let name: String = title.chars().take(70).collect();
-    for n in [name.clone(), format!("Folio · {name}"), format!("Folio · {name} ({})", &uuid::Uuid::new_v4().simple().to_string()[..4])] {
+    [name.clone(), format!("Folio · {name}"), format!("Folio · {name} ({})", &uuid::Uuid::new_v4().simple().to_string()[..4])]
+}
+
+/// Pure: whether a topic's name is still one Home gave it from the folio's title `old` (the owner did not rename it).
+fn topic_named_from(topic: &str, old: &str) -> bool {
+    let name: String = old.chars().take(70).collect();
+    topic == name || topic == format!("Folio · {name}") || topic.strip_prefix(&format!("Folio · {name} (")).and_then(|r| r.strip_suffix(')')).is_some_and(|r| r.len() == 4 && r.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+/// A topic for a new folio.
+async fn topic_for(app: &App, ws: &str, title: &str) -> Result<String> {
+    for n in topic_names(title) {
         if let Ok(t) = launchpad_core::topics::create(app, ws, &n).await {
             return Ok(t.id);
         }
     }
     bail!("no topic")
+}
+
+/// A renamed folio renames its topic, unless the owner renamed the topic.
+async fn rename_topic(app: &App, topic: &str, old: &str, new: &str) {
+    let Ok(t) = launchpad_core::topics::get(app, topic).await else { return };
+    if !topic_named_from(&t.name, old) {
+        return;
+    }
+    for n in topic_names(new) {
+        if launchpad_core::topics::rename(app, topic, &n).await.is_ok() {
+            return;
+        }
+    }
 }
 
 /// Writes to a folio, one writer at a time. `base_rev`: the rev the writer read (a file changed since keeps both
@@ -696,6 +729,7 @@ pub async fn write(app: &App, ws: &str, slug: &str, ops: Vec<Op>, author: Author
     let (fid, a, files_json, lab, sess) = (folio.id.clone(), serde_json::to_string(&author)?, serde_json::to_string(&written)?, label.map(str::to_string), session.clone());
     let created = folio.rev == 0;
     let uses = block_uses(&texts);
+    let new_title = title.clone();
     app.state_db.call(move |c| {
         let tx = c.transaction()?;
         tx.execute("DELETE FROM folio_block_use WHERE folio_id = ?1", [&fid])?;
@@ -727,6 +761,9 @@ pub async fn write(app: &App, ws: &str, slug: &str, ops: Vec<Op>, author: Author
         && let Err(e) = launchpad_core::topics::membership(app, t, std::slice::from_ref(s), true).await
     {
         tracing::warn!("folio {}: topic membership of {s}: {e:#}", folio.slug);
+    }
+    if new_title != folio.title && let Some(t) = &folio.topic_id {
+        rename_topic(app, t, &folio.title, &new_title).await;
     }
     lines.push(format!("Written rev {rev} · {}", check::counts_text(&problems)));
     changed(app, &folio);
@@ -1064,7 +1101,17 @@ pub async fn feedback(app: &App, ws: &str, slug: &str, since: Option<i64>) -> Re
     let mine: Vec<Mark> = all.iter().filter(|m| m.author.kind == AuthorKind::Owner && m.kind != "reply" && m.sent_at.is_some() && since.is_none_or(|s| m.seq > s)).cloned().collect();
     let replies: Vec<Mark> = all.iter().filter(|m| m.kind == "reply").cloned().collect();
     let unsent = all.iter().filter(|m| m.author.kind == AuthorKind::Owner && m.kind != "reply" && m.sent_at.is_none()).count();
-    Ok(json!({"text": feedback_text(&f.slug, f.rev, &mine, &replies), "marks": mine, "replies": replies, "cursor": cursor, "rev": f.rev, "unsent": unsent}))
+    // Sent marks the owner removed since the cursor: the agent acted on them, so it hears that they are gone.
+    let (id, after) = (f.id.clone(), since.unwrap_or(i64::MAX));
+    let (cleared, last): (Vec<Mark>, i64) = app.state_db.call(move |c| {
+        let mut st = c.prepare(&format!("SELECT {MARK_COLUMNS} FROM folio_mark WHERE folio_id = ?1 AND deleted = 1 AND session_id IS NULL AND kind != 'reply' AND sent_at IS NOT NULL AND seq > ?2 ORDER BY id"))?;
+        let rows = st.query_map(params![id, after], mark_row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let last: i64 = c.query_row("SELECT coalesce(max(seq), 0) FROM folio_mark WHERE folio_id = ?1", [&id], |r| r.get(0))?;
+        Ok((rows, last))
+    }).await?;
+    // Removals count for the cursor too, so the next `--since` reports each only once.
+    let cursor = cursor.max(last);
+    Ok(json!({"text": feedback_text(&f.slug, f.rev, &mine, &replies, &cleared), "marks": mine, "replies": replies, "cleared": cleared, "cursor": cursor, "rev": f.rev, "unsent": unsent}))
 }
 
 /// Typed items of a folio merged with the owner's marks (`launchpad folio items`): each with its block, page, line,
@@ -1543,14 +1590,21 @@ mod tests {
     #[test]
     fn feedback_reads_in_a_few_lines() {
         let marks = vec![owner_mark("comment", "waves", ""), owner_mark("verdict", "F-01", "do"), owner_mark("verdict", "F-03", "later"), owner_mark("choice", "D-SHARE", "after-30-days")];
-        let t = feedback_text("roadmap-winter", 14, &marks, &[]);
+        let t = feedback_text("roadmap-winter", 14, &marks, &[], &[owner_mark("verdict", "F-02", "do")]);
         assert!(t.starts_with("folio roadmap-winter · rev 14 · 4 marks from the owner"), "{t}");
         assert!(t.contains("comment c-31  plan.md › #waves  \"Comments wait for wave 2\"\n  Could we ship page-level notes first?"), "{t}");
         assert!(t.contains("verdict  F-01 do · F-03 later"), "{t}");
         assert!(t.contains("choice   D-SHARE → after-30-days"), "{t}");
         assert!(t.contains("next: launchpad folio read roadmap-winter plan.md --section waves"), "{t}");
+        assert!(t.contains("cleared  verdict F-02"), "{t}");
         let m = feedback_message("Roadmap", "roadmap-winter", 14, &marks, 812);
         assert!(m.starts_with("Feedback on the folio “Roadmap” (rev 14): 1 comment, 2 verdicts, 1 decision. Read it with `launchpad folio feedback roadmap-winter --since 812`"), "{m}");
+    }
+
+    #[test]
+    fn topics_follow_generated_names_only() {
+        assert!(topic_named_from("Roadmap", "Roadmap") && topic_named_from("Folio · Roadmap", "Roadmap") && topic_named_from("Folio · Roadmap (a1b2)", "Roadmap"));
+        assert!(!topic_named_from("My roadmap", "Roadmap") && !topic_named_from("Folio · Roadmap (mine)", "Roadmap") && !topic_named_from("Folio · Roadmap (minx)", "Roadmap"));
     }
 
     #[test]

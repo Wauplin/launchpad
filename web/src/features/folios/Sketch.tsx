@@ -20,6 +20,10 @@ export function SketchFrame({ html, kit, file, prefix, frame, height, title, fil
   const token = useMemo(() => Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(16)).join(""), []);
   const [inlined, setInlined] = useState<string | null>(null);
   const [autoHeight, setAutoHeight] = useState<number | null>(null);
+  // A frame loads once (its srcdoc). A second load means the sketch navigated its frame: the page's
+  // `frame-src 'none'` blocks the request, and the frame is replaced so it never talks to the bridge again.
+  const loads = useRef(0);
+  const [left, setLeft] = useState(false);
   const f = FRAME[frame] ?? FRAME.none;
   // Images of the folio become data URLs: the frame has no network, not even Home.
   useEffect(() => {
@@ -35,12 +39,18 @@ export function SketchFrame({ html, kit, file, prefix, frame, height, title, fil
     });
     return () => { alive = false; };
   }, [html, file, files]);
+  const onLoad = () => {
+    loads.current += 1;
+    if (loads.current > 1 && !left) { setLeft(true); report("it tried to leave its frame (a sketch has no network): stopped"); }
+  };
   const doc = useMemo(() => {
     if (inlined == null) return null;
     const style = getComputedStyle(document.documentElement);
     const vars = Object.fromEntries(THEME_VARS.map((k) => [k, style.getPropertyValue(k).trim()]));
     return sketchDoc({ html: inlined, kit, theme: vars, prefix, token });
   }, [inlined, kit, prefix, token, theme]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A new document (a theme change) loads once more.
+  useEffect(() => { loads.current = 0; }, [doc]);
   // The bridge: only messages of this frame's window with its token; a few calls per second at most.
   useEffect(() => {
     const calls: number[] = [];
@@ -49,7 +59,8 @@ export function SketchFrame({ html, kit, file, prefix, frame, height, title, fil
       if (!win || e.source !== win) return;
       const m = e.data as Omit<Partial<BridgeCall>, "op"> & { op?: string; message?: string; empty?: boolean; height?: number };
       if (!m || m.lp !== token) return;
-      if (m.op === "error") { report(String(m.message ?? "script error")); return; }
+      // The sketch's own text (an error it threw): quoted, short, one line.
+      if (m.op === "error") { report(`script error “${String(m.message ?? "").replace(/\s+/g, " ").slice(0, 200)}”`); return; }
       if (m.op === "loaded") {
         if (m.empty) report("the frame stayed empty");
         if (!height && typeof m.height === "number" && f.width == null) setAutoHeight(Math.min(1200, Math.max(120, m.height)));
@@ -77,7 +88,8 @@ export function SketchFrame({ html, kit, file, prefix, frame, height, title, fil
   const h = height ?? autoHeight ?? f.height;
   return <figure className={`folio-sketch frame-${frame in FRAME ? frame : "none"}`}>
     <div className="folio-sketch-device" style={f.width ? { maxWidth: f.width } : undefined}>
-      {doc != null && <iframe ref={ref} title={title || `Sketch ${file}`} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={doc} style={{ height: h }} />}
+      {left ? <div className="folio-problem" role="note"><div className="folio-problem-head">This sketch was stopped</div><div className="folio-problem-line">It tried to load another page in its frame. Sketches have no network.</div></div>
+        : doc != null && <iframe ref={ref} title={title || `Sketch ${file}`} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={doc} onLoad={onLoad} style={{ height: h }} />}
     </div>
     {title && <figcaption className="folio-caption">{title}</figcaption>}
   </figure>;

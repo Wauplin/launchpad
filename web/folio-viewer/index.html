@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- No frame may load a URL: frames are only sandboxed srcdoc documents (folio sketches, HTML previews), and a
+         frame's navigation is checked against this page's frame-src, so a sketch cannot leave its frame to send data
+         out (lib/folioSketch.ts). -->
+    <meta http-equiv="Content-Security-Policy" content="frame-src 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>Folio</title>

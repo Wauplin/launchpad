@@ -80,7 +80,10 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     void runAction("folio.render-problems", { workspace: ws, slug }, { rev: d.rev, page: pagePath, problems }).then(refresh).catch(() => posted.current.delete(reportKey));
   }, [d, reportKey, ws, slug, pagePath, refresh]);
   const report = useCallback((p: FolioRenderProblem) => {
-    seen.current.set(`${p.code}:${p.message}`, p);
+    // Home keeps at most 30 per page: a sketch that throws many different errors never pushes out the rest.
+    const key = `${p.code}:${p.message}`;
+    if (!seen.current.has(key) && seen.current.size >= 29) return;
+    seen.current.set(key, p);
     if (flushTimer.current) clearTimeout(flushTimer.current);
     flushTimer.current = setTimeout(flush, 1500);
   }, [flush]);
@@ -124,6 +127,8 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     setSelection({ x: r.left + r.width / 2, y: r.top, target, quote: text.slice(0, 400), prefix: whole.slice(Math.max(0, range.startOffset - 30), range.startOffset), suffix: node === range.endContainer ? whole.slice(range.endOffset, range.endOffset + 30) : "" });
   };
   useEffect(() => { const clear = () => setSelection(null); window.addEventListener("scroll", clear, true); return () => window.removeEventListener("scroll", clear, true); }, []);
+  // Another page, rev or panel: the selection's toolbar would point at text that is gone.
+  useEffect(() => setSelection(null), [pagePath, nav.rev, panel]);
 
   if (q.isLoading) return <Loading what="folio" className="h-full" />;
   if (q.error || !d) return <ErrorState error={q.error ?? new Error("no folio")} onRetry={() => void q.refetch()} className="h-full" />;
@@ -166,7 +171,7 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     <MenuItem icon={<Icon name="upload" size={14} />} label="Share…" detail={f.share ? (f.share.expires_at == null ? "shared, kept" : `shared until ${day(f.share.expires_at)}`) : "A read-only snapshot"} onClick={() => { close(); setPanel("share"); }} />
     {d.problems.length > 0 && <MenuItem icon={<Icon name="alert" size={14} />} label="Problems" detail={`${errors} error${errors === 1 ? "" : "s"}, ${warnings} warning${warnings === 1 ? "" : "s"}`} onClick={() => { close(); setPanel("problems"); }} />}
     {embedded && <MenuItem icon={<Icon name="expand" size={14} />} label="Open full screen" onClick={() => { close(); void navigate({ to: "/folios/$slug", params: { slug } }); }} />}
-    {f.topic_id && <MenuItem icon={<Icon name="tag" size={14} />} label="Agents on this folio" detail="Its topic" onClick={() => { close(); void navigate({ to: "/topics/$id", params: { id: f.topic_id! } }); }} />}
+    {f.topic_id && <MenuItem icon={<Icon name="tag" size={14} />} label="Topic" detail="The folio's topic: its sessions and traces" onClick={() => { close(); void navigate({ to: "/topics/$id", params: { id: f.topic_id! } }); }} />}
     <ActionMenuItem name="folio.archive" params={{ workspace: ws, slug }} body={{ archived: f.state !== "archived" }} close={close} label={f.state === "archived" ? "Bring back" : "Archive"} onDone={() => toast(f.state === "archived" ? "Folio brought back" : "Folio archived: Bring back in Folios › Archived")} />
     <MenuSection><ConfirmButton className="w-full" confirmLabel="Delete folio" consequence="Deletes this folio, its revs and your marks. Its topic and sessions stay." onConfirm={() => runAction("folio.delete", { workspace: ws, slug }).then(() => { close(); toast("Folio deleted"); void navigate({ to: "/folios" }); })}>Delete folio</ConfirmButton></MenuSection>
   </>;

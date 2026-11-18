@@ -863,6 +863,15 @@ mod tests {
         assert_eq!(names(&Method::GET, "/api/folios"), Names::Unscoped);
         assert!(folio_write("/api/folios/w1/roadmap/write") && !folio_write("/api/folios/w1/write") && !folio_write("/api/folios//x/write") && !folio_write("/api/kb"));
         assert_eq!(folio_need(&Method::POST, "/api/folios/w1/roadmap/ask-fix"), None);
+        // Phases 3–5: data and named versions at propose; Ask, render reports, Share and Unpin are the owner's.
+        for (m, p) in [(Method::PUT, "/api/folios/w1/roadmap/data/poll:ranking"), (Method::DELETE, "/api/folios/w1/roadmap/data/a/b"), (Method::POST, "/api/folios/w1/roadmap/versions")] {
+            assert_eq!(folio_need(&m, p), Some(LaunchpadAccess::Propose), "{m} {p}");
+        }
+        for (m, p) in [(Method::POST, "/api/folios/w1/roadmap/ask"), (Method::POST, "/api/folios/w1/roadmap/render"), (Method::POST, "/api/folios/w1/roadmap/share"), (Method::DELETE, "/api/folios/w1/roadmap/share"), (Method::POST, "/api/folios/w1/roadmap/share/extend"), (Method::DELETE, "/api/folios/w1/roadmap/versions/3")] {
+            assert_eq!(folio_need(&m, p), None, "{m} {p}");
+            assert!(!admin_allows(&m, p), "{m} {p}");
+        }
+        assert_eq!(folio_need(&Method::PUT, "/api/folios/w1/_blocks/data/x"), None);
     }
 
     #[test]

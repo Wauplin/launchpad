@@ -620,6 +620,8 @@ async fn check_scope(app: &App, ws: &str, body: &mut ProposalBody) -> Result<()>
             match action.as_str() {
                 a if a.starts_with("local-pr.") => scope::ensure_inside(ws, scope::of_predraft(app, &first).await.as_deref(), &format!("Local PR {first}"))?,
                 "worktree.merge" => scope::ensure_inside(ws, scope::of_worktree(app, &first).await.as_deref(), &format!("worktree {first}"))?,
+                // Folio actions name the workspace first (`/api/folios/{workspace}/{slug}/…`).
+                a if a.starts_with("folio.") => ensure!(first == ws, "folio {} belongs to another workspace: agents prepare clicks only in their own workspace", args.get(1).map(String::as_str).unwrap_or("")),
                 "github.run-ci" | "branch.push-to-pr" => {
                     let repo = args.iter().take(2).cloned().collect::<Vec<_>>().join("/");
                     ensure!(!scope::repo_outside(app, ws, &repo).await, "{repo} belongs to another workspace's folder: agents prepare clicks only in their own workspace");

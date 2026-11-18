@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use base64::Engine;
 use launchpad_core::App;
 use launchpad_core::util::now_ms;
@@ -129,7 +129,7 @@ pub fn space_name(slug: &str) -> String {
 
 /// Pure: the Space card.
 pub fn card(title: &str) -> String {
-    let t = title.replace(['"', '\n'], " ");
+    let t = title.replace(['"', '\\', '\n', '\r'], " ");
     format!("---\ntitle: \"{t}\"\nsdk: static\napp_file: index.html\npinned: false\ntags:\n  - launchpad-folio\n---\n\nA snapshot of a Launchpad folio: read-only, without comments or data. It expires unless its owner keeps it.\n")
 }
 
@@ -168,14 +168,20 @@ async fn snapshot(app: &App, f: &Folio, rev: i64, decisions: bool) -> Result<Vec
     Ok(out)
 }
 
-async fn create_space(app: &App, space: &str, private: bool) -> Result<()> {
-    let (ns, name) = space.split_once('/').context("a Space id is owner/name")?;
-    let (status, text) = hub(app, CLIENT.post(format!("{}/api/repos/create", endpoint())).json(&json!({"type": "space", "name": name, "organization": Value::Null, "private": private, "sdk": "static"}))).await?;
-    let _ = ns;
+/// Why creating the Space failed: `Refused` is a definite answer of the Hub (the Space was not created, or it is
+/// someone else's, such as an existing Space of that name), `Uncertain` a request that may have created it.
+enum CreateError {
+    Refused(anyhow::Error),
+    Uncertain(anyhow::Error),
+}
+
+async fn create_space(app: &App, space: &str, private: bool) -> Result<(), CreateError> {
+    let (_, name) = space.split_once('/').context("a Space id is owner/name").map_err(CreateError::Refused)?;
+    let (status, text) = hub(app, CLIENT.post(format!("{}/api/repos/create", endpoint())).json(&json!({"type": "space", "name": name, "organization": Value::Null, "private": private, "sdk": "static"}))).await.map_err(CreateError::Uncertain)?;
     match status {
         200..=299 => Ok(()),
-        409 => bail!("a Space {space} already exists and is not this folio's snapshot: delete or rename it on the Hub first"),
-        _ => bail!("{}", hub_error(status, &text)),
+        409 => Err(CreateError::Refused(anyhow::anyhow!("a Space {space} already exists and is not this folio's snapshot: delete or rename it on the Hub first"))),
+        _ => Err(CreateError::Refused(anyhow::anyhow!("{}", hub_error(status, &text)))),
     }
 }
 
@@ -254,7 +260,18 @@ pub async fn share(app: &App, ws: &str, slug: &str, input: ShareInput) -> Result
             return Ok(());
         }
         if existing.is_none() {
-            create_space(app, &space, visibility == "private").await?;
+            match create_space(app, &space, visibility == "private").await {
+                Ok(()) => {}
+                // The Hub refused: no Space of this folio exists, so no record either. Stop sharing, a folio's Delete
+                // and the hourly expiry delete the record's Space: they must never reach a Space Home did not create.
+                Err(CreateError::Refused(e)) => {
+                    let id = f.id.clone();
+                    app.state_db.call(move |c| Ok(c.execute("DELETE FROM folio_share WHERE folio_id = ?1", [id])?)).await?;
+                    app.bus.publish("folios", "changed", json!({"workspace_id": f.workspace_id, "id": f.id, "slug": f.slug}));
+                    return Err(e);
+                }
+                Err(CreateError::Uncertain(e)) => return Err(e),
+            }
         } else {
             // A changed visibility (the Hub's settings API).
             let (status, text) = hub(app, CLIENT.put(format!("{}/api/spaces/{space}/settings", endpoint())).json(&json!({"private": visibility == "private"}))).await?;
@@ -330,8 +347,8 @@ mod tests {
     fn names_cards_and_expiry() {
         assert_eq!(space_name("roadmap-winter"), "folio-roadmap-winter");
         assert!(space_name(&"a".repeat(200)).len() <= 96);
-        let c = card("Roadmap \"winter\"\nx");
-        assert!(c.contains("sdk: static") && c.contains("launchpad-folio") && c.contains("title: \"Roadmap  winter  x\""));
+        let c = card("Roadmap \"winter\"\nx\\");
+        assert!(c.contains("sdk: static") && c.contains("launchpad-folio") && c.contains("title: \"Roadmap  winter  x \""));
         assert!(due(Some(10), true, 10) && !due(Some(11), true, 10) && !due(None, true, 10) && due(None, false, 10));
     }
 }
