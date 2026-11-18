@@ -408,7 +408,10 @@ function renderSummary(page: FilesPage, ctx: ExtContext | null, reviews: ExtSugg
   if (!s || !ctx || !found || !(found.el instanceof HTMLTextAreaElement)) return unmount("review-summary");
   const box = found.el;
   const mine = partState(s.id, "body");
-  const w = mount("review-summary", [s.id, s.status, mine, errors.get("review-summary"), choices.has("review-summary")].join("|"), box, "beforebegin", "banner");
+  // The textarea can share a flex row with GitHub’s editor controls. Keep our banner
+  // outside the form so it cannot take space from the editable text.
+  const anchor = box.closest("form") ?? box.closest("markdown-editor, .js-comment-field") ?? box;
+  const w = mount("review-summary", [s.id, s.status, mine, errors.get("review-summary"), choices.has("review-summary")].join("|"), anchor, "beforebegin", "banner");
   if (!w.fresh) return;
   const event = s.event === "APPROVE" ? "Approve" : s.event === "REQUEST_CHANGES" ? "Request changes" : "Comment";
   const title = mine === "posted" ? "Recorded: submitted by you" : mine === "in" || s.status === "inserted" ? "Summary inserted: edit it, choose the event, submit with GitHub's button" : `${s.bot ?? "An agent"} wrote a summary · suggests ${event}`;

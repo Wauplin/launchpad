@@ -44,6 +44,10 @@ const STYLE = `
 /* After :host([data-block]): the strip lines up with GitHub's content column (container-xl, 32 px padding). */
 :host([data-block="strip"]) { display: block; max-width: 1280px; margin: 12px auto 0; padding: 0 32px; font-weight: 400; font-size: 13px; }
 :host([data-block="banner"]) { margin: 0 0 8px; }
+:host([data-launchpad="review-summary"]) { min-width: 0; width: 100%; max-width: 100%; align-self: stretch; box-sizing: border-box; }
+:host([data-launchpad="review-summary"]) .lp-row { flex-wrap: wrap; }
+:host([data-launchpad="review-summary"]) .lp-grow { white-space: normal; overflow-wrap: anywhere; }
+:host([data-launchpad="review-summary"]) .lp-muted { overflow-wrap: anywhere; }
 /* Popovers and menus live in one fixed host on <body> (overlayRoot): GitHub's list rows use content-visibility: auto, which
    clips a fixed element inside them. */
 :host([data-block="overlay"]) { display: block; position: fixed; top: 0; left: 0; width: 0; height: 0; margin: 0; z-index: 2147483000; }
