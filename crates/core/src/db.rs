@@ -285,7 +285,14 @@ CREATE TABLE IF NOT EXISTS oracle_eval (id TEXT PRIMARY KEY, workspace_id TEXT N
 CREATE INDEX IF NOT EXISTS oracle_eval_oracle ON oracle_eval (workspace_id, oracle, created_at);
 CREATE INDEX IF NOT EXISTS oracle_eval_flight ON oracle_eval (flight_key, created_at);
 CREATE TABLE IF NOT EXISTS oracle_cursor (consumer TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, oracle TEXT NOT NULL, cursor TEXT NOT NULL, evaluation_id TEXT, committed_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS oracle_streak (workspace_id TEXT NOT NULL, oracle TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (workspace_id, oracle));",
+CREATE TABLE IF NOT EXISTS oracle_streak (workspace_id TEXT NOT NULL, oracle TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (workspace_id, oracle));
+CREATE TABLE IF NOT EXISTS folio (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, slug TEXT NOT NULL, title TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'active', created_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, rev INTEGER NOT NULL DEFAULT 0, topic_id TEXT, thread_bot TEXT, thread_id TEXT, archived_at INTEGER, problems TEXT NOT NULL DEFAULT '[]');
+CREATE UNIQUE INDEX IF NOT EXISTS folio_slug ON folio (workspace_id, slug);
+CREATE TABLE IF NOT EXISTS folio_link (folio_id TEXT NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL, first_rev INTEGER NOT NULL, last_rev INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (folio_id, session_id));
+CREATE TABLE IF NOT EXISTS folio_rev (folio_id TEXT NOT NULL, rev INTEGER NOT NULL, at INTEGER NOT NULL, author TEXT NOT NULL, session_id TEXT, label TEXT, files TEXT NOT NULL, errors INTEGER NOT NULL DEFAULT 0, warnings INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (folio_id, rev));
+CREATE INDEX IF NOT EXISTS folio_rev_session ON folio_rev (session_id);
+CREATE TABLE IF NOT EXISTS folio_mark (id INTEGER PRIMARY KEY AUTOINCREMENT, folio_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, author TEXT NOT NULL, session_id TEXT, page TEXT, target TEXT, quote TEXT, prefix TEXT, suffix TEXT, value TEXT, text TEXT, parent INTEGER, rev INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, sent_at INTEGER, resolved_at INTEGER, resolved_rev INTEGER, deleted INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS folio_mark_folio ON folio_mark (folio_id, seq);",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
     // additive columns directly, like the unversioned tables above.

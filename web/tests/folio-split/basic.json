@@ -1,0 +1,78 @@
+{
+  "front": {
+    "start": 1,
+    "end": 5
+  },
+  "items": [
+    {
+      "t": "container",
+      "line": 7,
+      "end": 9,
+      "name": "callout",
+      "attrs": "{tone=verdict}",
+      "title": "Verdict",
+      "depth": 0,
+      "closed": true
+    },
+    {
+      "t": "heading",
+      "line": 11,
+      "level": 2,
+      "id": "waves",
+      "text": "Waves",
+      "explicit": true
+    },
+    {
+      "t": "fence",
+      "line": 13,
+      "end": 19,
+      "lang": "roadmap",
+      "info": "roadmap",
+      "depth": 0,
+      "closed": true
+    },
+    {
+      "t": "heading",
+      "line": 21,
+      "level": 2,
+      "id": "decisions",
+      "text": "Decisions",
+      "explicit": false
+    },
+    {
+      "t": "fence",
+      "line": 23,
+      "end": 28,
+      "lang": "decision",
+      "info": "decision",
+      "depth": 0,
+      "closed": true
+    },
+    {
+      "t": "heading",
+      "line": 30,
+      "level": 2,
+      "id": "decisions-1",
+      "text": "Decisions",
+      "explicit": false
+    },
+    {
+      "t": "fence",
+      "line": 32,
+      "end": 35,
+      "lang": "python",
+      "info": "python",
+      "depth": 0,
+      "closed": true
+    },
+    {
+      "t": "heading",
+      "line": 36,
+      "level": 3,
+      "id": "closing",
+      "text": "Closing",
+      "explicit": false
+    }
+  ],
+  "problems": []
+}

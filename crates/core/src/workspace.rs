@@ -167,6 +167,13 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
             let oracles = crate::plain::oracle_store(&id);
             tx.execute("DELETE FROM plain_file WHERE store = ?1", [&oracles])?;
             tx.execute("DELETE FROM plain_state WHERE store = ?1", [&oracles])?;
+            // Its folios: their stores, revisions, marks and links (`launchpad_automation::folios`).
+            tx.execute("DELETE FROM plain_file WHERE store IN (SELECT 'folio-' || id FROM folio WHERE workspace_id = ?1)", [&id])?;
+            tx.execute("DELETE FROM plain_state WHERE store IN (SELECT 'folio-' || id FROM folio WHERE workspace_id = ?1)", [&id])?;
+            for t in ["folio_link", "folio_rev", "folio_mark"] {
+                tx.execute(&format!("DELETE FROM {t} WHERE folio_id IN (SELECT id FROM folio WHERE workspace_id = ?1)"), [&id])?;
+            }
+            tx.execute("DELETE FROM folio WHERE workspace_id = ?1", [&id])?;
             tx.execute("DELETE FROM workspace WHERE id = ?1", [&id])?;
             tx.commit()?;
             Ok(())

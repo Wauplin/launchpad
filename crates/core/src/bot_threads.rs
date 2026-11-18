@@ -30,7 +30,7 @@ pub struct BotThread {
     pub id: String,
     pub bot_id: String,
     /// What routes messages here (`github:owner/repo#12`, `channel:<id>`, `hook:<id>`, `agent:<session>`,
-    /// `routine:<file>`), None for the owner's own threads.
+    /// `routine:<file>`, `folio:<id>`), None for the owner's own threads.
     pub key: Option<String>,
     pub title: String,
     #[ts(type = "number")]
@@ -58,6 +58,8 @@ pub enum Source<'a> {
     Hook { id: &'a str, name: &'a str },
     /// Another agent's message: one thread per sender session.
     Agent { session: &'a str, name: &'a str },
+    /// The owner's feedback on a folio, or a new thread about it: one thread per folio.
+    Folio { id: &'a str, title: &'a str, new: bool },
 }
 
 /// The thread a message goes to.
@@ -93,7 +95,14 @@ pub fn route(source: Source) -> To {
         Source::Routine { file, title } => To::New { key: Some(format!("routine:{file}")), title: title.to_string() },
         Source::Hook { id, name } => To::Key { key: format!("hook:{id}"), title: format!("Hook “{name}”") },
         Source::Agent { session, name } => To::Key { key: format!("agent:{session}"), title: if name.is_empty() { "An agent".into() } else { name.to_string() } },
+        Source::Folio { id, title, new: false } => To::Key { key: folio_key(id), title: title.to_string() },
+        Source::Folio { id, title, new: true } => To::New { key: Some(folio_key(id)), title: title.to_string() },
     }
+}
+
+/// The key of a folio's thread.
+pub fn folio_key(folio_id: &str) -> String {
+    format!("folio:{folio_id}")
 }
 
 /// The key of a GitHub item's thread.

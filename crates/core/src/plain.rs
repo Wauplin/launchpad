@@ -44,6 +44,19 @@ pub fn oracle_workspace_of(store: &str) -> Option<&str> {
     store.strip_prefix(ORACLE_PREFIX)
 }
 
+/// Prefix of a folio's store (its pages, assets and data, written only by `launchpad_automation::folios`).
+const FOLIO_PREFIX: &str = "folio-";
+
+/// The store of a folio.
+pub fn folio_store(folio_id: &str) -> String {
+    format!("{FOLIO_PREFIX}{folio_id}")
+}
+
+/// The folio of a folio store.
+pub fn folio_of(store: &str) -> Option<&str> {
+    store.strip_prefix(FOLIO_PREFIX)
+}
+
 /// The store of a temporary folder.
 pub fn temp_store(project_id: &str) -> String {
     format!("{TEMP_PREFIX}{project_id}")
@@ -175,6 +188,12 @@ async fn ensure_store(app: &App, id: &str) -> Result<()> {
         crate::workspace::get(app, ws).await?;
         return Ok(());
     }
+    if let Some(folio) = folio_of(id) {
+        let folio = folio.to_string();
+        let known = app.state_db.call(move |c| Ok(c.query_row("SELECT 1 FROM folio WHERE id = ?1", [&folio], |_| Ok(true)).optional()?.unwrap_or(false))).await?;
+        ensure!(known, "no such folio");
+        return Ok(());
+    }
     // Created by its first sync: the folder's record may reach Home later than its first turn.
     if temp_of(id).is_some() {
         return Ok(());
@@ -254,6 +273,7 @@ pub async fn commit(app: &App, id: &str, session: Option<&str>, updates: Vec<Upd
     ensure!(crate::kb::workspace_of(id).is_none(), "the knowledge base is written with launchpad kb");
     ensure!(crate::bots::id_of(id).is_none(), "a bot's files change on its page (About, or ⋯ → Edit as file)");
     ensure!(oracle_workspace_of(id).is_none(), "oracles change in Schedules → Oracles, with launchpad oracle save, or through a card");
+    ensure!(folio_of(id).is_none(), "folios are written with launchpad folio");
     if let Some(s) = session
         && temp_of(id).is_none()
     {
@@ -330,6 +350,70 @@ pub async fn write_texts(app: &App, store_id: &str, files: Vec<(String, Option<S
     }
     record(app, store_id, None, updates).await?;
     Ok(true)
+}
+
+/// One file a `write_files` call changed: its content before and after (None: absent), and the lines added and
+/// removed (None for files that are not text).
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct Written {
+    pub path: String,
+    pub before: Option<String>,
+    pub after: Option<String>,
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
+}
+
+/// Home: writes (or deletes, None) files of a store that only Home writes (a folio), each change with its history
+/// and author, in one version. Unchanged files are skipped. Callers publish. Returns what changed.
+pub async fn write_files(app: &App, store_id: &str, files: Vec<(String, Option<Vec<u8>>)>, author: crate::kb::Author) -> Result<Vec<Written>> {
+    let tree = tree(app, store_id).await?;
+    let mut updates = vec![];
+    let mut out = vec![];
+    for (path, body) in files {
+        check_path(&path)?;
+        let old = tree.files.iter().find(|f| f.path == path).map(|f| f.sha256.clone());
+        let old_text = match &old {
+            Some(h) => read_blob(app, h).await.ok().and_then(|d| String::from_utf8(d).ok()),
+            None => Some(String::new()),
+        };
+        let (sha, size, new_text) = match &body {
+            Some(data) => {
+                let sha = hex::encode(Sha256::digest(data));
+                if old.as_deref() == Some(sha.as_str()) {
+                    continue;
+                }
+                write_blob(app, &sha, data).await?;
+                (Some(sha), data.len() as u64, std::str::from_utf8(data).ok().map(str::to_string))
+            }
+            None if old.is_none() => continue,
+            None => (None, 0, Some(String::new())),
+        };
+        let (added, removed) = match (&old_text, &new_text) {
+            (Some(o), Some(n)) => {
+                let (a, r) = crate::kb::counts(o, n);
+                (Some(a), Some(r))
+            }
+            _ => (None, None),
+        };
+        out.push(Written { path: path.clone(), before: old, after: sha.clone(), added, removed });
+        updates.push((Update { path, sha256: sha, size, executable: false }, Some(Meta { author: author.clone(), added, removed })));
+    }
+    if !updates.is_empty() {
+        record(app, store_id, None, updates).await?;
+    }
+    Ok(out)
+}
+
+/// Home: deletes a store's files, tree and version (a deleted folio). Its blobs go with the next prune; its history
+/// stays until it expires.
+pub async fn drop_store(app: &App, store_id: &str) -> Result<()> {
+    let id = store_id.to_string();
+    app.state_db.call(move |c| {
+        c.execute("DELETE FROM plain_file WHERE store = ?1", [&id])?;
+        c.execute("DELETE FROM plain_state WHERE store = ?1", [&id])?;
+        c.execute("DELETE FROM plain_history WHERE store = ?1", [&id])?;
+        Ok(())
+    }).await
 }
 
 /// Previous versions and deleted files of the last 30 days, newest first.

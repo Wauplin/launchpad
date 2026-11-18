@@ -1,0 +1,42 @@
+{
+  "front": null,
+  "items": [
+    {
+      "t": "container",
+      "line": 3,
+      "end": 10,
+      "name": "details",
+      "attrs": "",
+      "title": "Open me",
+      "depth": 0,
+      "closed": false
+    },
+    {
+      "t": "heading",
+      "line": 4,
+      "level": 2,
+      "id": "inside-details",
+      "text": "Inside",
+      "explicit": true
+    },
+    {
+      "t": "fence",
+      "line": 7,
+      "end": 10,
+      "lang": "findings",
+      "info": "findings",
+      "depth": 1,
+      "closed": false
+    }
+  ],
+  "problems": [
+    {
+      "line": 3,
+      "code": "F102"
+    },
+    {
+      "line": 7,
+      "code": "F102"
+    }
+  ]
+}

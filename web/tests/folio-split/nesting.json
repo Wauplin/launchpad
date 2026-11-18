@@ -1,0 +1,100 @@
+{
+  "front": null,
+  "items": [
+    {
+      "t": "heading",
+      "line": 1,
+      "level": 1,
+      "id": "nesting",
+      "text": "Nesting",
+      "explicit": false
+    },
+    {
+      "t": "container",
+      "line": 3,
+      "end": 10,
+      "name": "tabs",
+      "attrs": "",
+      "title": "",
+      "depth": 0,
+      "closed": true
+    },
+    {
+      "t": "heading",
+      "line": 4,
+      "level": 3,
+      "id": "laptop",
+      "text": "Laptop",
+      "explicit": false
+    },
+    {
+      "t": "container",
+      "line": 5,
+      "end": 7,
+      "name": "callout",
+      "attrs": "{tone=info}",
+      "title": "",
+      "depth": 1,
+      "closed": true
+    },
+    {
+      "t": "heading",
+      "line": 8,
+      "level": 3,
+      "id": "phone",
+      "text": "Phone",
+      "explicit": false
+    },
+    {
+      "t": "container",
+      "line": 12,
+      "end": 20,
+      "name": "cards",
+      "attrs": "",
+      "title": "",
+      "depth": 0,
+      "closed": true
+    },
+    {
+      "t": "heading",
+      "line": 13,
+      "level": 3,
+      "id": "one",
+      "text": "One",
+      "explicit": false
+    },
+    {
+      "t": "fence",
+      "line": 14,
+      "end": 18,
+      "lang": "",
+      "info": "",
+      "depth": 1,
+      "closed": true
+    },
+    {
+      "t": "heading",
+      "line": 19,
+      "level": 3,
+      "id": "two-linked",
+      "text": "Two [linked](plan.md)",
+      "explicit": false
+    },
+    {
+      "t": "container",
+      "line": 22,
+      "end": 22,
+      "name": "not-a-closer",
+      "attrs": "",
+      "title": "",
+      "depth": 0,
+      "closed": false
+    }
+  ],
+  "problems": [
+    {
+      "line": 22,
+      "code": "F102"
+    }
+  ]
+}

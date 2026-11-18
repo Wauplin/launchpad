@@ -1,0 +1,27 @@
+{
+  "front": null,
+  "items": [
+    {
+      "t": "heading",
+      "line": 3,
+      "level": 1,
+      "id": "heading-in-what-looks-like-front-matter",
+      "text": "Heading in what looks like front matter",
+      "explicit": false
+    },
+    {
+      "t": "heading",
+      "line": 5,
+      "level": 2,
+      "id": "indented-heading",
+      "text": "Indented heading",
+      "explicit": false
+    }
+  ],
+  "problems": [
+    {
+      "line": 1,
+      "code": "F101"
+    }
+  ]
+}
