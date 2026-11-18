@@ -656,12 +656,14 @@ pub async fn clean_temp(app: &App) -> Result<()> {
     Ok(())
 }
 
-/// Hashes of every blob Home still needs: plain store files, their versions of the last 30 days and the native
+/// Hashes of every blob Home still needs: plain store files, their versions of the last 30 days, the files of
+/// folios' named versions (kept for good) and the native
 /// and attached files of the latest handoff of each session.
 pub async fn live_blobs(app: &App) -> Result<Vec<String>> {
     let cutoff = now_ms() - KEEP_MS;
     app.state_db.call(move |c| {
         let mut st = c.prepare("SELECT sha256 FROM plain_file UNION SELECT sha256 FROM plain_history WHERE sha256 IS NOT NULL AND at >= ?1
+             UNION SELECT f.value FROM folio_version, json_each(folio_version.files) f
              UNION SELECT json_extract(f.value, '$.sha256') FROM session_handoff, json_each(session_handoff.json, '$.files') f WHERE json_extract(f.value, '$.sha256') IS NOT NULL
              UNION SELECT json_extract(f.value, '$.sha256') FROM session_handoff, json_each(session_handoff.json, '$.attachments') f WHERE json_extract(f.value, '$.sha256') IS NOT NULL")?;
         let rows = st.query_map([cutoff], |r| r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?;

@@ -19,7 +19,7 @@
     "test:drafts": "node --experimental-strip-types --test tests/draftPersistence.test.mjs",
     "test:review": "node --experimental-strip-types --test tests/popoverPlace.test.mjs",
     "test:tour": "node --test tests/tour.test.mjs",
-    "test:folios": "node --experimental-strip-types --test tests/folioSplit.test.mjs",
+    "test:folios": "node --experimental-strip-types --test tests/folioSplit.test.mjs tests/folioSketch.test.mjs",
     "shots": "node scripts/shots.mjs",
     "ui-check": "node scripts/ui-check.mjs",
     "lint:hooks": "oxlint -A all -D react-hooks/rules-of-hooks src"
@@ -34,6 +34,7 @@
     "dompurify": "^3.4.16",
     "github-markdown-css": "^5.9.0",
     "markdown-it": "^15.0.2",
+    "mermaid": "^11.17.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "shiki": "^4.4.3",

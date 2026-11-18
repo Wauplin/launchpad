@@ -68,8 +68,28 @@
   --font-mono: "Ubuntu Sans Mono", "Ubuntu Mono", ui-monospace, Menlo, Consolas, monospace;
 }
 
+:root {
+  /* Folio charts: categorical series in fixed order (validated palette, light). */
+  --folio-series-1: #2a78d6;
+  --folio-series-2: #eb6834;
+  --folio-series-3: #1baf7a;
+  --folio-series-4: #eda100;
+  --folio-series-5: #e87ba4;
+  --folio-series-6: #008300;
+  --folio-series-7: #6250d6;
+  --folio-series-8: #e34948;
+}
+
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --folio-series-1: #3987e5;
+  --folio-series-2: #d95926;
+  --folio-series-3: #199e70;
+  --folio-series-4: #c98500;
+  --folio-series-5: #d55181;
+  --folio-series-6: #0ca30c;
+  --folio-series-7: #9085e9;
+  --folio-series-8: #e66767;
   --color-board: #090d12;
   --color-paper: #0d1117;
   --color-chrome: #161b22;
@@ -1417,4 +1437,82 @@ button {
 }
 .folio-target.first {
   border-color: var(--color-teal);
+}
+
+/* Folio sketches (sandboxed frames), charts and diagrams. */
+.folio-sketch-block {
+  position: relative;
+  margin: 16px 0;
+}
+.folio-sketch-c {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+}
+.folio-sketch {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+.folio-sketch-device {
+  width: 100%;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--color-paper);
+}
+.folio-sketch.frame-phone .folio-sketch-device {
+  border-width: 6px;
+  border-color: var(--color-sunk);
+  border-radius: 24px;
+}
+.folio-sketch.frame-laptop .folio-sketch-device {
+  border-top-width: 18px;
+  border-top-color: var(--color-chrome);
+}
+.folio-sketch.frame-none .folio-sketch-device {
+  border-style: dashed;
+}
+.folio-sketch iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: var(--color-paper);
+}
+.folio-chart,
+.folio-diagram {
+  margin: 16px 0;
+  display: grid;
+  gap: 6px;
+}
+.folio-chart svg,
+.folio-diagram svg {
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+}
+.folio-chart-tick {
+  font-size: 11px;
+  fill: var(--color-ink-3);
+}
+.folio-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--color-ink-2);
+}
+.folio-chart-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+.folio-diagram {
+  overflow-x: auto;
+  justify-items: center;
 }

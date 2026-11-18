@@ -18,7 +18,8 @@ import { runAction } from "@/lib/actions";
 import { useBots } from "@/lib/bots";
 import { ago, when } from "@/lib/format";
 import { useComposer } from "@/stores/composer";
-import { folioRef, marksSummary, unsentMarks, useFolio, useFolioDiff, useFolioRevs, useFolioTargets, VERDICT_LABEL } from "@/lib/folios";
+import type { FolioRenderProblem } from "@/gen/FolioRenderProblem";
+import { folioRef, homeFiles, marksSummary, unsentMarks, useFolio, useFolioDiff, useFolioRevs, useFolioTargets, VERDICT_LABEL } from "@/lib/folios";
 import { usePhone } from "@/lib/phone";
 import { useScope } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
@@ -63,8 +64,39 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
   const setPanel = (p: Panel | null) => onNav({ panel: p ?? undefined });
   const refresh = useCallback(() => void qc.invalidateQueries({ queryKey: ["folio", ws, slug] }), [qc, ws, slug]);
 
+  // Render problems (F701–F703): collected while the page renders, then saved on Home for this rev and page.
+  const seen = useRef(new Map<string, FolioRenderProblem>());
+  const posted = useRef(new Map<string, string>());
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reportKey = d ? `${d.rev}\n${pagePath}` : "";
+  const flush = useCallback(() => {
+    if (!d || !reportKey) return;
+    const problems = [...seen.current.values()];
+    const json = JSON.stringify(problems);
+    const before = posted.current.get(reportKey);
+    if (before === json || (before == null && !problems.length && !d.problems.some((p) => p.severity === "render"))) return;
+    posted.current.set(reportKey, json);
+    void runAction("folio.render-problems", { workspace: ws, slug }, { rev: d.rev, page: pagePath, problems }).then(refresh).catch(() => posted.current.delete(reportKey));
+  }, [d, reportKey, ws, slug, pagePath, refresh]);
+  const report = useCallback((p: FolioRenderProblem) => {
+    seen.current.set(`${p.code}:${p.message}`, p);
+    if (flushTimer.current) clearTimeout(flushTimer.current);
+    flushTimer.current = setTimeout(flush, 1500);
+  }, [flush]);
+  useEffect(() => {
+    seen.current = new Map();
+    // A page that rendered without a problem clears an earlier report; on a phone, sideways scrolling is F703.
+    const t = setTimeout(() => {
+      const el = scroller.current;
+      if (phone && el && el.scrollWidth > el.clientWidth + 2) seen.current.set("F703", { code: "F703", message: `the page is ${el.scrollWidth - el.clientWidth} px wider than the phone screen` });
+      flush();
+    }, 4000);
+    return () => { clearTimeout(t); if (flushTimer.current) clearTimeout(flushTimer.current); };
+  }, [reportKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const files = useMemo(() => homeFiles(ws, slug, nav.rev ?? null), [ws, slug, nav.rev]);
+
   const api = useMemo<MarkApi | null>(() => !d ? null : {
-    ws, slug, rev: nav.rev ?? null, page: pagePath, marks: d.marks, problems: d.problems, readOnly,
+    ws, slug, rev: nav.rev ?? null, page: pagePath, marks: d.marks, problems: d.problems, readOnly, files, paths: d.files.map((x) => x.path), report,
     setMark: (kind, target, value) => void runAction("folio.mark", { workspace: ws, slug }, { kind, target, page: pagePath, value: value ?? "" }).then(refresh).catch(toastError),
     comment: (target, quote) => { setDraft({ target, page: pagePath, text: "", ...quote }); setPanel("comments"); },
     open: (p, anchor) => { onNav({ page: p }); if (anchor) requestAnimationFrame(() => document.getElementById(`f-${anchor}`)?.scrollIntoView({ block: "start" })); },
@@ -73,7 +105,7 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
       const project = folder ? scope.projects.find((p) => p.name.toLowerCase() === folder.toLowerCase()) : undefined;
       useComposer.getState().start({ text, ...(project ? { projectId: project.id } : {}), folios: [folioRef(d.folio, { rev: nav.rev ?? d.folio.rev, page: pagePath, section: section ?? undefined })] });
     },
-  }, [d, ws, slug, nav.rev, pagePath, readOnly, refresh, onNav, navigate, scope.projects]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d, ws, slug, nav.rev, pagePath, readOnly, refresh, onNav, navigate, scope.projects, files, report]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A selection in the page offers Comment, with the quote and its surroundings (so the comment survives edits).
   const [selection, setSelection] = useState<{ x: number; y: number; target: string; quote: string; prefix: string; suffix: string } | null>(null);
@@ -137,7 +169,9 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
   </>;
 
   const meta = <>{f.kind} · rev {d.rev}{readOnly ? " (older)" : ""} · {ago(f.updated_at)}{f.state === "archived" ? " · archived" : ""}</>;
-  const problemsButton = d.problems.some((p) => p.severity !== "info") && <button type="button" className={`btn btn-sm ${errors ? "text-danger" : ""}`} onClick={() => setPanel(panel === "problems" ? null : "problems")} title="The problems of Home's check of this rev"><Icon name="alert" size={12} />{errors + warnings} problem{errors + warnings === 1 ? "" : "s"}</button>;
+  const rendered = d.problems.filter((p) => p.severity === "render").length;
+  const shownCount = errors + warnings + rendered;
+  const problemsButton = shownCount > 0 && <button type="button" className={`btn btn-sm ${errors || rendered ? "text-danger" : ""}`} onClick={() => setPanel(panel === "problems" ? null : "problems")} title="The problems of Home's check of this rev, and what the reader saw while rendering it"><Icon name="alert" size={12} />{shownCount} problem{shownCount === 1 ? "" : "s"}</button>;
 
   const body = <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto" onMouseUp={onSelect} onTouchEnd={() => setTimeout(onSelect, 50)}>
     {readOnly && <div className="flex flex-wrap items-center gap-2 border-b border-attn-line bg-attn-soft px-5 py-1.5 text-[12px] text-attn">Rev {nav.rev}, read-only.<button type="button" className="btn btn-sm" onClick={() => onNav({ rev: undefined })}>Back to the latest</button></div>}
@@ -382,18 +416,34 @@ function CommentCard({ c, replies, ws, slug, outdated, jump, refresh, readOnly }
 function VersionsPanel({ ws, slug, current, latest, view }: { ws: string; slug: string; current: number | null; latest: number; view: (rev: number | null) => void }) {
   const revs = useFolioRevs(ws, slug);
   const [shown, setShown] = useState<number | null>(null);
+  const [naming, setNaming] = useState<{ rev: number; name: string } | null>(null);
   const diff = useFolioDiff(ws, slug, shown);
+  const qc = useQueryClient();
   if (revs.isLoading) return <Loading what="versions" />;
   if (revs.error) return <ErrorState error={revs.error} />;
+  const save = () => {
+    if (!naming?.name.trim()) return;
+    void runAction("folio.version", { workspace: ws, slug }, { name: naming.name.trim(), rev: naming.rev })
+      .then(() => { toast(`Rev ${naming.rev} is kept for good as “${naming.name.trim()}”`); setNaming(null); void qc.invalidateQueries({ queryKey: ["folio", ws, slug] }); }).catch(toastError);
+  };
   return <div className="grid gap-2 p-3 text-[13px]">
-    <p className="m-0 text-[12px] text-ink-3">Every write is a rev, kept 30 days with its author. Restore puts a rev's files back as a new rev.</p>
+    <p className="m-0 text-[12px] text-ink-3">Every write is a rev, kept 30 days with its author. A named version is kept for good. Restore puts a rev's files back as a new rev.</p>
+    {!naming && <button type="button" className="btn btn-sm justify-self-start" onClick={() => setNaming({ rev: current ?? latest, name: "" })}><Icon name="tag" size={12} />Name this version</button>}
+    {naming && <div className="grid gap-1.5 rounded-card border border-teal bg-paper p-2.5">
+      <span className="text-[12px] text-ink-3">Name rev {naming.rev}: it is kept for good, past 30 days.</span>
+      <input autoFocus className="field-input" maxLength={80} placeholder="v2 · sent to review" value={naming.name} onChange={(e) => setNaming({ ...naming, name: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+      <div className="flex justify-end gap-2"><button type="button" className="btn btn-sm" onClick={() => setNaming(null)}>Cancel</button><button type="button" className="btn btn-sm btn-primary" disabled={!naming.name.trim()} onClick={save}>Save</button></div>
+    </div>}
     {(revs.data ?? []).map((r) => <div key={r.rev} className={`grid gap-1 rounded-card border bg-paper p-2.5 ${current === r.rev || (current == null && r.rev === latest) ? "border-teal" : "border-line-2"}`}>
       <div className="flex items-center gap-2">
         <b className="text-[13px]">rev {r.rev}</b>
+        {r.version && <span className="folio-pill s-pick" title="A named version, kept for good">{r.version}</span>}
         <span className="min-w-0 flex-1 truncate text-[12px] text-ink-3" title={when(r.at)}>{r.author.name} · {ago(r.at)}{r.label ? ` · ${r.label}` : ""}</span>
         <MoreMenu label={`Rev ${r.rev} actions`} width={220}>{(close) => <>
           <MenuItem icon={<Icon name="eye" size={14} />} label={r.rev === latest ? "View the latest" : "View this version"} onClick={() => { close(); view(r.rev === latest ? null : r.rev); }} />
           <MenuItem icon={<Icon name="file" size={14} />} label={shown === r.rev ? "Hide the diff" : "Diff"} onClick={() => { close(); setShown(shown === r.rev ? null : r.rev); }} />
+          <MenuItem icon={<Icon name="tag" size={14} />} label={r.version ? "Rename this version" : "Name this version"} onClick={() => { close(); setNaming({ rev: r.rev, name: r.version ?? "" }); }} />
+          {r.version && <ActionMenuItem name="folio.unversion" params={{ workspace: ws, slug, rev: String(r.rev) }} close={close} onDone={() => { toast(`Rev ${r.rev} is an ordinary rev again`); void qc.invalidateQueries({ queryKey: ["folio", ws, slug] }); }} />}
           <MenuSection><ConfirmButton className="w-full" confirmLabel="Restore" consequence="Puts the files of this rev back as they were before it, as a new rev." onConfirm={() => runAction("folio.restore", { workspace: ws, slug, rev: String(r.rev) }).then(() => { close(); toast(`Restored the files from before rev ${r.rev}`); })}>Restore before this rev</ConfirmButton></MenuSection>
         </>}</MoreMenu>
       </div>
@@ -412,7 +462,7 @@ function ProblemsPanel({ d, ws, slug, readOnly, jump }: { d: FolioDetail; ws: st
   const targets = useFolioTargets(ws, slug, d.problems.length > 0 && !readOnly);
   const [busy, setBusy] = useState(false);
   if (!d.problems.length) return <Empty icon="check">No problems in rev {d.rev}.</Empty>;
-  const tone = (s: string) => (s === "error" ? "text-danger" : s === "warn" ? "text-attn" : "text-ink-3");
+  const tone = (s: string) => (s === "error" || s === "render" ? "text-danger" : s === "warn" ? "text-attn" : "text-ink-3");
   // The folio's thread first, else the last session that wrote it: the same order as Send feedback.
   const to = targets.data?.[0];
   const ask = () => {
@@ -428,7 +478,7 @@ function ProblemsPanel({ d, ws, slug, readOnly, jump }: { d: FolioDetail; ws: st
       <span className="min-w-0 truncate text-[12px] text-ink-3">{to ? to.label : targets.isLoading ? "" : "No agent wrote it yet"}</span>
     </div>}
     {d.problems.map((p, i) => <button key={i} type="button" className="grid gap-0.5 rounded-card border border-line-2 bg-paper p-2.5 text-left" onClick={() => jump(p.file, p.line)}>
-      <span className={`text-[12px] font-semibold ${tone(p.severity)}`}>{p.severity === "error" ? "Error" : p.severity === "warn" ? "Warning" : "Hint"} · {p.code}</span>
+      <span className={`text-[12px] font-semibold ${tone(p.severity)}`}>{p.severity === "error" ? "Error" : p.severity === "warn" ? "Warning" : p.severity === "render" ? "Seen in the reader" : "Hint"} · {p.code}</span>
       <span className="text-[12px] text-ink-3">{p.file}{p.line ? `:${p.line}` : ""}</span>
       <span>{p.message}</span>
       {p.hint && <span className="text-[12px] text-ink-2">{p.hint}</span>}

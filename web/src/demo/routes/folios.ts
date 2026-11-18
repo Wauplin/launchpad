@@ -30,7 +30,7 @@ route("GET", "/api/folios/:ws/:slug", ({ params }): FolioDetail => {
   const pages = PAGES.filter((p) => f.files[p] != null).map((path) => {
     const text = f.files[path];
     const o = outline(text);
-    const title = /^title:\s*(.+)$/m.exec(text)?.[1]?.trim() ?? o.items.find((i) => i.t === "heading")?.text ?? path;
+    const title = (text.startsWith("---") ? /^title:\s*(.+)$/m.exec(text.split(/\n---/)[0])?.[1]?.trim() : undefined) ?? o.items.find((i) => i.t === "heading")?.text ?? path;
     return { path, title: path === "index.md" ? f.folio.title : title, text, outline: o };
   });
   return { folio: fill(f), rev: f.folio.rev, pages, files: Object.keys(f.files).map((path) => ({ path, sha256: `demo-${path}`, size: f.files[path].length, executable: false })), problems: [], marks: f.marks };
@@ -106,3 +106,32 @@ route("POST", "/api/folios/:ws/:slug/ask", ({ params, body }) => {
   if (!b.text?.trim()) throw new DemoError(400, "type your question");
   return { session_id: b.session_id ?? f.folio.links[0]?.session_id ?? "", bot_id: b.kind === "session" ? null : b.bot_id ?? null, thread: null };
 });
+route("POST", "/api/folios/:ws/:slug/render", () => ({ saved: 0 }));
+route("GET", "/api/folios/:ws/_blocks", () => [{ name: "```x-poll", folios: 1, uses: 2 }]);
+route("GET", "/api/folios/:ws/:slug/versions", ({ params }) => of(params.ws, params.slug).revs.filter((r) => r.version).map((r) => ({ rev: r.rev, name: r.version, author: r.author, at: r.at })));
+route("POST", "/api/folios/:ws/:slug/versions", ({ params, body }) => {
+  const f = of(params.ws, params.slug);
+  const b = body as { name: string; rev?: number };
+  const r = f.revs.find((x) => x.rev === (b.rev ?? f.folio.rev));
+  if (!r) throw new DemoError(400, "no such rev");
+  r.version = b.name;
+  changed(f);
+  return { rev: r.rev, name: b.name, author: r.author, at: clock.now() };
+});
+route("DELETE", "/api/folios/:ws/:slug/versions/:rev", ({ params }) => { const f = of(params.ws, params.slug); const r = f.revs.find((x) => String(x.rev) === params.rev); if (r) r.version = null; changed(f); return { ok: true }; });
+const dataOf = (f: DemoFolio) => (f.data ??= {});
+const you = { kind: "owner", name: "You", session_id: null, model: null, runner: null };
+route("GET", "/api/folios/:ws/:slug/data", ({ params, query }) => Object.entries(dataOf(of(params.ws, params.slug))).filter(([k]) => k.startsWith(query.get("prefix") ?? "")).map(([key, value]) => ({ key, value, size: JSON.stringify(value).length, author: you, updated_at: clock.now() })));
+route("GET", "/api/folios/:ws/:slug/data/*key", ({ params }) => {
+  const key = decodeURIComponent(params.key ?? "");
+  const d = dataOf(of(params.ws, params.slug));
+  if (!(key in d)) throw new DemoError(404, `no key ${key}`);
+  return { key, value: d[key], size: JSON.stringify(d[key]).length, author: you, updated_at: clock.now() };
+});
+route("PUT", "/api/folios/:ws/:slug/data/*key", ({ params, body }) => {
+  const key = decodeURIComponent(params.key ?? "");
+  const value = (body as { value: unknown }).value;
+  dataOf(of(params.ws, params.slug))[key] = value;
+  return { key, value, size: JSON.stringify(value).length, author: you, updated_at: clock.now() };
+});
+route("DELETE", "/api/folios/:ws/:slug/data/*key", ({ params }) => { const key = decodeURIComponent(params.key ?? ""); const d = dataOf(of(params.ws, params.slug)); const had = key in d; delete d[key]; return { removed: had }; });

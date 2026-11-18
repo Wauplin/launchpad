@@ -718,6 +718,12 @@ export const FOLIO_CATALOG = {
       "example": "title: Prompt for the phase 1 implementer\ntext: |\n  Implement phase 1 of Folios…\n",
       "fields": [
         {
+          "help": "Optional id (Launch names it as the folio's section)",
+          "kind": "id",
+          "name": "id",
+          "required": false
+        },
+        {
           "help": "Title",
           "kind": "text",
           "name": "title",
@@ -742,11 +748,141 @@ export const FOLIO_CATALOG = {
           "required": false
         }
       ],
-      "help": "A prompt for an implementer, with Copy",
+      "help": "A prompt for an implementer, with Copy and Launch with this prompt",
       "markable": false,
       "marks": "",
       "name": "prompt",
-      "renders": "A prompt card with Copy"
+      "renders": "A prompt card with Copy and Launch with this prompt (the composer, filled in)"
+    },
+    {
+      "example": "id: S-INBOX\ntitle: Inbox, phone\nframe: phone\nhtml: |\n  <div class=\"lp-bar\">Inbox</div>\n  <div class=\"lp-row\">Refund flow <span class=\"lp-chip\">new</span></div>\n",
+      "fields": [
+        {
+          "help": "Optional id: comments hang on it",
+          "kind": "id",
+          "name": "id",
+          "required": false
+        },
+        {
+          "help": "Caption",
+          "kind": "text",
+          "name": "title",
+          "required": false
+        },
+        {
+          "help": "An HTML file of the folio, such as sketches/inbox.html",
+          "kind": "text",
+          "name": "src",
+          "required": false
+        },
+        {
+          "help": "Inline HTML instead of src (small sketches)",
+          "kind": "text",
+          "name": "html",
+          "required": false
+        },
+        {
+          "help": "phone, laptop, panel or none",
+          "kind": {
+            "choice": [
+              "phone",
+              "laptop",
+              "panel",
+              "none"
+            ]
+          },
+          "name": "frame",
+          "required": false
+        },
+        {
+          "help": "Height in pixels (default: the frame's)",
+          "kind": "text",
+          "name": "height",
+          "required": false
+        },
+        {
+          "help": "The data API key prefix it reads and writes (default: its file name or id, then `:`)",
+          "kind": "text",
+          "name": "data",
+          "required": false
+        }
+      ],
+      "help": "A UI sketch in HTML, CSS and JavaScript with fake data, shown in a sandboxed frame without network",
+      "markable": false,
+      "marks": "comments",
+      "name": "sketch",
+      "renders": "A sandboxed frame (phone, laptop or panel) with Launchpad's theme variables and the sketch kit"
+    },
+    {
+      "example": "title: Report sizes\ntype: bar\nunit: KB\ncolumns: [report, html, text]\nrows:\n  - [oracle design, 171, 66]\n  - [audit, 113, 41]\n",
+      "fields": [
+        {
+          "help": "Optional id",
+          "kind": "id",
+          "name": "id",
+          "required": false
+        },
+        {
+          "help": "Caption",
+          "kind": "text",
+          "name": "title",
+          "required": false
+        },
+        {
+          "help": "bar, line, area or pie (default bar)",
+          "kind": {
+            "choice": [
+              "bar",
+              "line",
+              "area",
+              "pie"
+            ]
+          },
+          "name": "type",
+          "required": false
+        },
+        {
+          "help": "A CSV file of the folio, such as data/usage.csv",
+          "kind": "text",
+          "name": "src",
+          "required": false
+        },
+        {
+          "help": "The column of labels (default: the first)",
+          "kind": "text",
+          "name": "x",
+          "required": false
+        },
+        {
+          "help": "The columns of values (default: the others)",
+          "kind": "texts",
+          "name": "y",
+          "required": false
+        },
+        {
+          "help": "Column names of rows",
+          "kind": "texts",
+          "name": "columns",
+          "required": false
+        },
+        {
+          "help": "Rows of cells: a label, then values",
+          "kind": "rows",
+          "name": "rows",
+          "required": false
+        },
+        {
+          "help": "Unit of the values, such as KB",
+          "kind": "text",
+          "name": "unit",
+          "required": false
+        }
+      ],
+      "help": "A bar, line, area or pie chart from rows, or from a CSV file of the folio",
+      "markable": false,
+      "marks": "",
+      "name": "chart",
+      "renders": "A chart (drawn in the reader, no network)"
     },
     {
       "example": "items:\n  - { title: markdown-it, url: \"https://github.com/markdown-it/markdown-it\" }\n",
@@ -850,6 +986,12 @@ export const FOLIO_CATALOG = {
       "name": "hero"
     }
   ],
+  "diagrams": [
+    {
+      "help": "A Mermaid diagram (flowchart, sequence, state…), drawn in the reader",
+      "name": "mermaid"
+    }
+  ],
   "kinds": [
     {
       "help": "Findings and a recommendation: verdict, decisions, details, sources",
@@ -876,6 +1018,13 @@ export const FOLIO_CATALOG = {
       "name": "sketchbook"
     }
   ],
+  "limits": {
+    "data_keys": 2000,
+    "data_total": 1048576,
+    "data_value": 65536,
+    "sketch": 15360,
+    "sketches": 204800
+  },
   "rules": [
     {
       "bad": "---\ntitle: [x\n---",
@@ -1046,6 +1195,38 @@ export const FOLIO_CATALOG = {
       "title": "A table names a column its CSV does not have"
     },
     {
+      "bad": "sketches/inbox.html (40 KB, its own copy of the kit)",
+      "code": "F401",
+      "fix": "",
+      "good": "sketches/_kit.html with the shared parts, small sketches",
+      "severity": "warn",
+      "title": "Sketch over 15 KB, or the folio's sketches over 200 KB together: move shared parts to sketches/_kit.html"
+    },
+    {
+      "bad": "<script src=\"https://cdn.example/x.js\">",
+      "code": "F402",
+      "fix": "",
+      "good": "<script>/* inline, fake data */</script>",
+      "severity": "warn",
+      "title": "Network use in a sketch (fetch, http(s):// in src or href, @import): the sandbox blocks it"
+    },
+    {
+      "bad": "data: poll:\nfolio.data.set(\"ranking\", …)",
+      "code": "F403",
+      "fix": "",
+      "good": "folio.data.set(\"poll:ranking\", …)",
+      "severity": "warn",
+      "title": "A sketch uses a data API key outside its own prefix: the reader refuses it"
+    },
+    {
+      "bad": "<script>let a = 1;",
+      "code": "F404",
+      "fix": "",
+      "good": "<script>let a = 1;</script>",
+      "severity": "error",
+      "title": "HTML the frame cannot show as written (an unclosed <script> or <style>), or a sketch block with neither src nor html"
+    },
+    {
       "bad": "kind: roadmap   # no verdict",
       "code": "F501",
       "fix": "",
@@ -1076,6 +1257,30 @@ export const FOLIO_CATALOG = {
       "good": "two tables, or a findings block",
       "severity": "warn",
       "title": "Table with more than 7 columns, or a code line over 120 characters: it scrolls sideways on the phone"
+    },
+    {
+      "bad": "document.querySelector(\"#x\").textContent = 1   // no #x",
+      "code": "F701",
+      "fix": "",
+      "good": "a sketch that renders without errors",
+      "severity": "render",
+      "title": "A sketch threw a script error, or its frame stayed empty (seen in the reader)"
+    },
+    {
+      "bad": "```mermaid\nflowchart LR\n  A -->\n```",
+      "code": "F702",
+      "fix": "",
+      "good": "```mermaid\nflowchart LR\n  A --> B\n```",
+      "severity": "render",
+      "title": "A Mermaid diagram or a chart could not render (the browser's message, seen in the reader)"
+    },
+    {
+      "bad": "a wide table or a fixed-width sketch",
+      "code": "F703",
+      "fix": "",
+      "good": "a findings block, or a sketch in frame: phone",
+      "severity": "render",
+      "title": "The page scrolls sideways at phone width (seen in the reader on a phone)"
     }
   ]
 } as const;

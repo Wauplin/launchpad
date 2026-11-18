@@ -8,7 +8,7 @@
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 import { parse as parseYaml } from "yaml";
-import { createContext, memo, useContext, useMemo, useState, type ReactNode } from "react";
+import { Suspense, createContext, lazy, memo, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { FolioMark } from "@/gen/FolioMark";
 import type { FolioPage } from "@/gen/FolioPage";
@@ -17,9 +17,15 @@ import { FOLIO_CATALOG } from "@/gen/folioCatalog";
 import { Icon } from "@/components/Icon";
 import { copyText } from "@/lib/clipboard";
 import { toast } from "@/components/Toast";
-import { daemonUrl } from "@/lib/connection";
 import { attrs as parseAttrs, lines as splitLines, outline as splitOutline, type OutlineItem } from "@/lib/folioSplit";
-import { folioAsset, folioPath, txt, VERDICTS } from "@/lib/folios";
+import { folioAsset, homeFiles, txt, VERDICTS, type FolioFiles } from "@/lib/folios";
+import { sketchPrefix } from "@/lib/folioSketch";
+import { useTheme } from "@/stores/theme";
+import { SketchFrame } from "./Sketch";
+
+// Heavy parts load only on folios that use them.
+const MermaidView = lazy(() => import("./mermaid"));
+const ChartBlock = lazy(() => import("./chart"));
 
 /** What the page needs from the reader: where it is, the owner's marks and how to change them. */
 export type MarkApi = {
@@ -38,6 +44,12 @@ export type MarkApi = {
   open: (page: string, anchor?: string) => void;
   /** Opens another folio of the workspace (`folio:<slug>` links). */
   openFolio: (slug: string) => void;
+  /** The folio's files (CSV, sketches, images) and data API; default: Home's routes. */
+  files?: FolioFiles;
+  /** Every path of the folio (the sketch kit `sketches/_kit.html` is used when it exists). */
+  paths?: string[];
+  /** A render problem the reader saw (F701 sketch errors and empty frames, F702 Mermaid and chart errors). */
+  report?: (p: { code: "F701" | "F702"; message: string; file?: string }) => void;
   /** A prompt block's Launch: the composer with its text (and its folder hint), the folio as context. */
   launchPrompt?: (text: string, folder: string | null, section: string | null) => void;
 };
@@ -46,7 +58,8 @@ const Marks = createContext<MarkApi | null>(null);
 const useMarks = () => useContext(Marks)!;
 
 const BLOCKS = new Set<string>(FOLIO_CATALOG.blocks.map((b) => b.name));
-export const isTyped = (lang: string) => BLOCKS.has(lang) || lang.startsWith("x-");
+const DIAGRAMS = new Set<string>(FOLIO_CATALOG.diagrams.map((d) => d.name));
+export const isTyped = (lang: string) => BLOCKS.has(lang) || lang.startsWith("x-") || DIAGRAMS.has(lang);
 const ALERTS = new Set<string>(FOLIO_CATALOG.alerts);
 
 // ---------------------------------------------------------------- Markdown
@@ -280,8 +293,9 @@ function blockErrors(problems: FolioProblem[], page: string, from: number, to: n
 function BlockView({ item, ls }: { item: Extract<OutlineItem, { t: "fence" }>; ls: string[] }) {
   const marks = useMarks();
   const body = ls.slice(item.line, item.closed ? item.end - 1 : item.end).join("\n");
-  const parsed = useMemo(() => { try { return { value: parseYaml(body) as unknown, error: null }; } catch (e) { return { value: null, error: String((e as Error).message ?? e) }; } }, [body]);
+  const parsed = useMemo(() => { if (item.lang === "mermaid") return { value: null, error: null }; try { return { value: parseYaml(body) as unknown, error: null }; } catch (e) { return { value: null, error: String((e as Error).message ?? e) }; } }, [body]);
   const errors = blockErrors(marks.problems, marks.page, item.line, item.end);
+  if (item.lang === "mermaid") return <div className="folio-block" data-block="mermaid"><Mermaid text={body} /></div>;
   if (errors.length || parsed.error || (parsed.value != null && typeof parsed.value !== "object")) {
     return <ProblemBox lang={item.lang} line={item.line} body={body} problems={errors} error={parsed.error} />;
   }
@@ -410,9 +424,8 @@ function csvRows(text: string): string[][] {
 }
 
 const Table: R = ({ v }) => {
-  const marks = useMarks();
   const src = typeof v.src === "string" ? v.src : null;
-  const csv = useQuery({ queryKey: ["folio", marks.ws, marks.slug, "csv", src, marks.rev], queryFn: async () => { const r = await fetch(daemonUrl(`${folioPath(marks.ws, marks.slug)}/file?path=${encodeURIComponent(src!)}${marks.rev ? `&rev=${marks.rev}` : ""}`), { credentials: "include" }); if (!r.ok) throw new Error(`${src}: HTTP ${r.status}`); return r.text(); }, enabled: !!src, staleTime: 60_000 });
+  const csv = useFileText(src);
   let head = Array.isArray(v.columns) ? v.columns.map(txt) : [];
   let rows = Array.isArray(v.rows) ? (v.rows as unknown[]).map((r) => (Array.isArray(r) ? r.map(txt) : [txt(r)])) : [];
   if (src && csv.data) {
@@ -423,6 +436,62 @@ const Table: R = ({ v }) => {
     rows = all.slice(1).map((r) => pick.map((i) => r[i] ?? ""));
   }
   return <div className="folio-table">{v.caption != null && <div className="folio-caption">{txt(v.caption)}</div>}<table>{head.length > 0 && <thead><tr>{head.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>}<tbody>{rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j}><Inline text={c} /></td>)}</tr>)}</tbody></table></div>;
+};
+
+/** A text file of the folio (a CSV, a sketch), at the rev shown. */
+function useFileText(path: string | null) {
+  const marks = useMarks();
+  const files = marks.files ?? homeFiles(marks.ws, marks.slug, marks.rev);
+  return useQuery({ queryKey: ["folio", marks.ws, marks.slug, "text", path, marks.rev, !!marks.files], queryFn: () => files.text(path!), enabled: !!path, staleTime: 60_000 });
+}
+
+function Mermaid({ text }: { text: string }) {
+  const marks = useMarks();
+  const dark = useTheme((s) => s.theme) === "dark";
+  const onError = useCallback((message: string) => marks.report?.({ code: "F702", message: `mermaid: ${message}` }), [marks]);
+  return <Suspense fallback={<div className="folio-caption">Loading the diagram…</div>}><MermaidView text={text} dark={dark} onError={onError} /></Suspense>;
+}
+
+const Chart: R = ({ v }) => {
+  const marks = useMarks();
+  const src = typeof v.src === "string" ? v.src : null;
+  const csv = useFileText(src);
+  const onError = useCallback((message: string) => marks.report?.({ code: "F702", message: `chart${id(v) ? ` ${id(v)}` : ""}: ${message}` }), [marks, v]);
+  let header = Array.isArray(v.columns) ? v.columns.map(txt) : [];
+  let rows = Array.isArray(v.rows) ? (v.rows as unknown[]).map((r) => (Array.isArray(r) ? r.map(txt) : [txt(r)])) : [];
+  if (src) {
+    if (csv.error) return <div className="folio-problem" role="note"><div className="folio-problem-head">This chart cannot draw</div><div className="folio-problem-line">{csv.error.message}</div></div>;
+    if (!csv.data) return <div className="folio-caption">Loading {src}…</div>;
+    const all = csvRows(csv.data);
+    header = all[0] ?? [];
+    rows = all.slice(1);
+  } else if (!header.length && rows.length) header = rows[0].map((_, i) => (i === 0 ? "label" : `value ${i}`));
+  const y = Array.isArray(v.y) ? v.y.map(txt) : [];
+  return <div id={id(v) ? `f-${id(v)}` : undefined}><Suspense fallback={<div className="folio-caption">Drawing the chart…</div>}>
+    <ChartBlock kind={txt(v.type) || "bar"} header={header} rows={rows} x={v.x != null ? txt(v.x) : null} y={y} unit={txt(v.unit)} title={txt(v.title)} onError={onError} />
+  </Suspense></div>;
+};
+
+const Sketch: R = ({ v }) => {
+  const marks = useMarks();
+  const src = typeof v.src === "string" ? v.src : null;
+  const inline = typeof v.html === "string" ? v.html : null;
+  const file = useFileText(src);
+  const hasKit = (marks.paths ?? []).includes("sketches/_kit.html");
+  const kit = useFileText(hasKit ? "sketches/_kit.html" : null);
+  const target = id(v);
+  const name = src ?? `${marks.page} (inline sketch)`;
+  const report = useCallback((message: string) => marks.report?.({ code: "F701", message: `sketch ${target || name}: ${message}`, file: src ?? undefined }), [marks, target, name, src]);
+  const files = marks.files ?? homeFiles(marks.ws, marks.slug, marks.rev);
+  const html = src ? file.data : inline;
+  const height = Number(txt(v.height)) || null;
+  return <div className="folio-sketch-block" id={target ? `f-${target}` : undefined} data-folio-target={target || undefined}>
+    {target && <div className="folio-sketch-c"><CommentButton target={target} /></div>}
+    {src && file.error && <div className="folio-problem" role="note"><div className="folio-problem-head">This sketch cannot show</div><div className="folio-problem-line">{file.error.message}</div></div>}
+    {html == null ? (!file.error && <div className="folio-caption">Loading {src}…</div>)
+      : hasKit && kit.isLoading ? null
+      : <SketchFrame html={html} kit={kit.data ?? null} file={src ?? marks.page} prefix={sketchPrefix(typeof v.data === "string" ? v.data : null, src, target || null)} frame={txt(v.frame) || (src ? "none" : "none")} height={height} title={txt(v.title)} files={files} readOnly={marks.readOnly} report={report} />}
+  </div>;
 };
 
 const Prompt: R = ({ v }) => {
@@ -446,4 +515,4 @@ function KeyValues({ name, v }: { name: string; v: Record<string, unknown> }) {
   </div>;
 }
 
-const RENDER: Record<string, R> = { roadmap: Roadmap, findings: Findings, decision: Decision, options: Options, decisions: Decisions, status: Status, timeline: Timeline, steps: Steps, checklist: Checklist, metrics: Metrics, table: Table, prompt: Prompt, sources: Sources };
+const RENDER: Record<string, R> = { sketch: Sketch, chart: Chart, roadmap: Roadmap, findings: Findings, decision: Decision, options: Options, decisions: Decisions, status: Status, timeline: Timeline, steps: Steps, checklist: Checklist, metrics: Metrics, table: Table, prompt: Prompt, sources: Sources };

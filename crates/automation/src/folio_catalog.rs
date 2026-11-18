@@ -113,6 +113,12 @@ pub const ADVICE: &[&str] = &["do", "later", "wont", "discuss"];
 pub const SIZES: &[&str] = &["XS", "S", "M", "L", "XL"];
 pub const TONES: &[&str] = &["verdict", "info", "note", "tip", "warn", "risk"];
 pub const ALERTS: &[&str] = &["NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION"];
+pub const FRAMES: &[&str] = &["phone", "laptop", "panel", "none"];
+/// Code fences the reader draws instead of showing code: their body is text, not YAML.
+pub const DIAGRAMS: &[(&str, &str)] = &[("mermaid", "A Mermaid diagram (flowchart, sequence, state…), drawn in the reader")];
+/// Largest sketch file, and all sketches of a folio together (F401).
+pub const SKETCH_MAX: usize = 15 * 1024;
+pub const SKETCHES_MAX: usize = 200 * 1024;
 
 const ITEM_ROADMAP: &[Field] = &[
     req("id", Kind::Id, "Unique id, such as F-01: your verdict hangs on it"),
@@ -211,9 +217,15 @@ pub const BLOCKS: &[BlockDef] = &[
     BlockDef { name: "table", help: "A table from rows, or from a CSV file of the folio", renders: "A sortable table", marks: "", markable: false,
         fields: &[opt("caption", Kind::Text, "Caption"), opt("columns", Kind::Texts, "Column names (with src: the CSV columns to show)"), opt("rows", Kind::Rows, "Rows of cells"), opt("src", Kind::Text, "A CSV file of the folio, such as data/usage.csv")],
         example: "caption: Sizes\ncolumns: [Space, KB]\nrows:\n  - [oracle report, 171]\n  - [audit, 113]\n" },
-    BlockDef { name: "prompt", help: "A prompt for an implementer, with Copy", renders: "A prompt card with Copy", marks: "", markable: false,
-        fields: &[opt("title", Kind::Text, "Title"), req("text", Kind::Text, "The prompt"), opt("profile", Kind::Text, "A profile hint"), opt("folder", Kind::Text, "A folder hint")],
+    BlockDef { name: "prompt", help: "A prompt for an implementer, with Copy and Launch with this prompt", renders: "A prompt card with Copy and Launch with this prompt (the composer, filled in)", marks: "", markable: false,
+        fields: &[opt("id", Kind::Id, "Optional id (Launch names it as the folio's section)"), opt("title", Kind::Text, "Title"), req("text", Kind::Text, "The prompt"), opt("profile", Kind::Text, "A profile hint"), opt("folder", Kind::Text, "A folder hint")],
         example: "title: Prompt for the phase 1 implementer\ntext: |\n  Implement phase 1 of Folios…\n" },
+    BlockDef { name: "sketch", help: "A UI sketch in HTML, CSS and JavaScript with fake data, shown in a sandboxed frame without network", renders: "A sandboxed frame (phone, laptop or panel) with Launchpad's theme variables and the sketch kit", marks: "comments", markable: false,
+        fields: &[opt("id", Kind::Id, "Optional id: comments hang on it"), opt("title", Kind::Text, "Caption"), opt("src", Kind::Text, "An HTML file of the folio, such as sketches/inbox.html"), opt("html", Kind::Text, "Inline HTML instead of src (small sketches)"), opt("frame", Kind::Choice(FRAMES), "phone, laptop, panel or none"), opt("height", Kind::Text, "Height in pixels (default: the frame's)"), opt("data", Kind::Text, "The data API key prefix it reads and writes (default: its file name or id, then `:`)")],
+        example: "id: S-INBOX\ntitle: Inbox, phone\nframe: phone\nhtml: |\n  <div class=\"lp-bar\">Inbox</div>\n  <div class=\"lp-row\">Refund flow <span class=\"lp-chip\">new</span></div>\n" },
+    BlockDef { name: "chart", help: "A bar, line, area or pie chart from rows, or from a CSV file of the folio", renders: "A chart (drawn in the reader, no network)", marks: "", markable: false,
+        fields: &[opt("id", Kind::Id, "Optional id"), opt("title", Kind::Text, "Caption"), opt("type", Kind::Choice(&["bar", "line", "area", "pie"]), "bar, line, area or pie (default bar)"), opt("src", Kind::Text, "A CSV file of the folio, such as data/usage.csv"), opt("x", Kind::Text, "The column of labels (default: the first)"), opt("y", Kind::Texts, "The columns of values (default: the others)"), opt("columns", Kind::Texts, "Column names of rows"), opt("rows", Kind::Rows, "Rows of cells: a label, then values"), opt("unit", Kind::Text, "Unit of the values, such as KB")],
+        example: "title: Report sizes\ntype: bar\nunit: KB\ncolumns: [report, html, text]\nrows:\n  - [oracle design, 171, 66]\n  - [audit, 113, 41]\n" },
     BlockDef { name: "sources", help: "References", renders: "A reference list", marks: "", markable: false,
         fields: &[req("items", Kind::Items { fields: SOURCES, markable: false }, "The sources")],
         example: "items:\n  - { title: markdown-it, url: \"https://github.com/markdown-it/markdown-it\" }\n" },
@@ -255,10 +267,17 @@ pub const RULES: &[Rule] = &[
     Rule { code: "F302", severity: Severity::Error, title: "Missing image or data file", bad: "![flow](assets/flow.png)   # never added", good: "launchpad folio add-media <slug> assets/flow.png", ..R },
     Rule { code: "F303", severity: Severity::Warn, title: "Image from the network: the reader does not load it. Add it with add-media", bad: "![x](https://example.com/x.png)", good: "![x](assets/x.png)", ..R },
     Rule { code: "F304", severity: Severity::Warn, title: "A table names a column its CSV does not have", bad: "src: data/usage.csv\ncolumns: [day, cost]", good: "columns: [day, tokens]", ..R },
+    Rule { code: "F401", severity: Severity::Warn, title: "Sketch over 15 KB, or the folio's sketches over 200 KB together: move shared parts to sketches/_kit.html", bad: "sketches/inbox.html (40 KB, its own copy of the kit)", good: "sketches/_kit.html with the shared parts, small sketches", ..R },
+    Rule { code: "F402", severity: Severity::Warn, title: "Network use in a sketch (fetch, http(s):// in src or href, @import): the sandbox blocks it", bad: "<script src=\"https://cdn.example/x.js\">", good: "<script>/* inline, fake data */</script>", ..R },
+    Rule { code: "F403", severity: Severity::Warn, title: "A sketch uses a data API key outside its own prefix: the reader refuses it", bad: "data: poll:\nfolio.data.set(\"ranking\", …)", good: "folio.data.set(\"poll:ranking\", …)", ..R },
+    Rule { code: "F404", severity: Severity::Error, title: "HTML the frame cannot show as written (an unclosed <script> or <style>), or a sketch block with neither src nor html", bad: "<script>let a = 1;", good: "<script>let a = 1;</script>", ..R },
     Rule { code: "F501", severity: Severity::Info, title: "The kind's usual parts are missing (a roadmap without a verdict, an audit whose findings have no severity)", bad: "kind: roadmap   # no verdict", good: ":::callout{tone=verdict}", ..R },
     Rule { code: "F502", severity: Severity::Info, title: "Heading levels jump (## then ####): the contents list looks odd", bad: "## A\n#### B", good: "## A\n### B", ..R },
     Rule { code: "F601", severity: Severity::Warn, title: "Page over 60 KB: split it into pages, which also makes reads cheaper", bad: "one 90 KB page", good: "pages: [index.md, details.md]", ..R },
     Rule { code: "F602", severity: Severity::Warn, title: "Table with more than 7 columns, or a code line over 120 characters: it scrolls sideways on the phone", bad: "| a | b | c | d | e | f | g | h |", good: "two tables, or a findings block", ..R },
+    Rule { code: "F701", severity: Severity::Render, title: "A sketch threw a script error, or its frame stayed empty (seen in the reader)", bad: "document.querySelector(\"#x\").textContent = 1   // no #x", good: "a sketch that renders without errors", ..R },
+    Rule { code: "F702", severity: Severity::Render, title: "A Mermaid diagram or a chart could not render (the browser's message, seen in the reader)", bad: "```mermaid\nflowchart LR\n  A -->\n```", good: "```mermaid\nflowchart LR\n  A --> B\n```", ..R },
+    Rule { code: "F703", severity: Severity::Render, title: "The page scrolls sideways at phone width (seen in the reader on a phone)", bad: "a wide table or a fixed-width sketch", good: "a findings block, or a sketch in frame: phone", ..R },
 ];
 
 pub fn block(name: &str) -> Option<&'static BlockDef> {
@@ -299,7 +318,7 @@ pub fn closest<'a>(word: &str, names: impl IntoIterator<Item = &'a str>) -> Opti
 
 /// The catalog as JSON, for the UI (`web/src/gen/folioCatalog.ts`) and `launchpad folio blocks --json`.
 pub fn json() -> serde_json::Value {
-    serde_json::json!({"blocks": BLOCKS, "containers": CONTAINERS, "rules": RULES, "kinds": KINDS.iter().map(|(k, h)| serde_json::json!({"name": k, "help": h})).collect::<Vec<_>>(), "alerts": ALERTS})
+    serde_json::json!({"blocks": BLOCKS, "containers": CONTAINERS, "rules": RULES, "kinds": KINDS.iter().map(|(k, h)| serde_json::json!({"name": k, "help": h})).collect::<Vec<_>>(), "alerts": ALERTS, "diagrams": DIAGRAMS.iter().map(|(k, h)| serde_json::json!({"name": k, "help": h})).collect::<Vec<_>>(), "limits": {"sketch": SKETCH_MAX, "sketches": SKETCHES_MAX, "data_value": crate::folio_data::VALUE_MAX, "data_total": crate::folio_data::TOTAL_MAX, "data_keys": crate::folio_data::KEYS_MAX}})
 }
 
 pub fn typescript() -> String {
@@ -393,7 +412,9 @@ data!(ChecklistBlock, "FolioChecklist" { id: Txt, items: Vec<CheckItem> });
 data!(Metric, "FolioMetric" { id: Txt, label: Txt, value: Txt, text: Txt, tone: String });
 data!(MetricsBlock, "FolioMetrics" { items: Vec<Metric> });
 data!(TableBlock, "FolioTable" { caption: Txt, columns: Vec<Txt>, rows: Vec<Vec<Txt>>, src: String });
-data!(PromptBlock, "FolioPrompt" { title: Txt, text: Txt, profile: Txt, folder: Txt });
+data!(PromptBlock, "FolioPrompt" { id: Txt, title: Txt, text: Txt, profile: Txt, folder: Txt });
+data!(SketchBlock, "FolioSketch" { id: Txt, title: Txt, src: String, html: String, frame: String, height: Txt, data: String });
+data!(ChartBlock, "FolioChart" { id: Txt, title: Txt, r#type: String, src: String, x: Txt, y: Vec<Txt>, columns: Vec<Txt>, rows: Vec<Vec<Txt>>, unit: Txt });
 data!(Source, "FolioSource" { title: Txt, url: Txt, note: Txt });
 data!(SourcesBlock, "FolioSources" { items: Vec<Source> });
 
@@ -411,6 +432,8 @@ pub fn export(cfg: &ts_rs::Config) -> anyhow::Result<()> {
     MetricsBlock::export_all(cfg)?;
     TableBlock::export_all(cfg)?;
     PromptBlock::export_all(cfg)?;
+    SketchBlock::export_all(cfg)?;
+    ChartBlock::export_all(cfg)?;
     SourcesBlock::export_all(cfg)?;
     std::fs::write(cfg.out_dir().join("folioCatalog.ts"), typescript())?;
     Ok(())
@@ -435,6 +458,8 @@ mod tests {
             "metrics" => format!("{}{}", MetricsBlock::decl(&cfg), Metric::decl(&cfg)),
             "table" => TableBlock::decl(&cfg),
             "prompt" => PromptBlock::decl(&cfg),
+            "sketch" => SketchBlock::decl(&cfg),
+            "chart" => ChartBlock::decl(&cfg),
             "sources" => format!("{}{}", SourcesBlock::decl(&cfg), Source::decl(&cfg)),
             other => panic!("no data type for {other}"),
         }
@@ -455,6 +480,8 @@ mod tests {
             "metrics" => p!(MetricsBlock),
             "table" => p!(TableBlock),
             "prompt" => p!(PromptBlock),
+            "sketch" => p!(SketchBlock),
+            "chart" => p!(ChartBlock),
             "sources" => p!(SourcesBlock),
             _ => false,
         }

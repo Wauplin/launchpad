@@ -147,12 +147,11 @@ export function AskPanel({ f, rev, part, done }: { f: Folio; rev: number | null;
     <textarea autoFocus className="field-input min-h-[88px] resize-y" placeholder="Your question" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); }} />
     {targets.isLoading && <Loading what="recipients" />}
     {targets.error && <span className="text-[12px] text-danger">{humanError(targets.error)}</span>}
-    {options.length > 0 && <div role="radiogroup" aria-label="Send to" className="grid gap-1">
-      {options.map((o) => <button key={o.key} type="button" role="radio" aria-checked={picked?.key === o.key} className={`folio-target ${picked?.key === o.key ? "first" : ""}`} onClick={() => setChoice(o.key)}>
-        <span className="min-w-0 flex-1"><b className="block truncate">{o.label}</b><span className="block truncate text-[12px] text-ink-3">{o.detail}</span></span>
-        {picked?.key === o.key && <Icon name="check" size={12} />}
-      </button>)}
-    </div>}
+    {options.length > 0 && <label className="grid gap-1 text-[12px] text-ink-3">Send to
+      <select className="field-input" value={picked?.key} onChange={(e) => setChoice(e.target.value)}>
+        {options.map((o) => <option key={o.key} value={o.key}>{o.label} · {o.detail}</option>)}
+      </select>
+    </label>}
     {!targets.isLoading && !options.length && <span className="text-[12px] text-ink-3">No agent to ask: this workspace has no bot and no session wrote this folio. Launch an agent instead.</span>}
     <div className="flex justify-end gap-2">
       <button type="button" className="btn btn-sm" onClick={() => { launchWith(f, rev, part, text.trim() || undefined); done(); }} title="Open the composer with this folio as context">Launch instead</button>

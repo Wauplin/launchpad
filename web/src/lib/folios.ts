@@ -11,7 +11,9 @@ import type { FolioRev } from "@/gen/FolioRev";
 import type { FolioTarget } from "@/gen/FolioTarget";
 import type { FolioRef } from "@/gen/FolioRef";
 import { api } from "./api";
-import { daemonAsset } from "./connection";
+import { daemonAsset, daemonUrl } from "./connection";
+import type { FolioBlockRequest } from "@/gen/FolioBlockRequest";
+import type { FolioVersion } from "@/gen/FolioVersion";
 
 const enc = encodeURIComponent;
 export const folioBase = (ws: string) => `/api/folios/${enc(ws)}`;
@@ -76,3 +78,45 @@ export function folioRefLabel(f: FolioRef): string {
 
 /** A reference to a whole folio (or one part of it) for a context. */
 export const folioRef = (f: Pick<Folio, "id" | "slug" | "title" | "rev">, part: Partial<Pick<FolioRef, "page" | "section" | "items" | "quote" | "rev">> = {}): FolioRef => ({ id: f.id, slug: f.slug, title: f.title, rev: f.rev, ...part });
+
+/** What the renderer reads besides pages: files of the folio (CSV, sketches, images) and its data API. The reader
+ * reads them from Home; a shared snapshot from its own folio.json (no data API there). */
+export type FolioFiles = {
+  text: (path: string) => Promise<string>;
+  dataUrl: (path: string) => Promise<string>;
+  /** None: a shared snapshot (sketches show their default state). */
+  data: { get: (key: string) => Promise<unknown>; set: (key: string, value: unknown) => Promise<void>; delete: (key: string) => Promise<void>; list: (prefix: string) => Promise<string[]> } | null;
+};
+
+const keyPath = (key: string) => key.split("/").map(enc).join("/");
+
+/** The reader's files: Home's routes at the rev shown. */
+export function homeFiles(ws: string, slug: string, rev: number | null): FolioFiles {
+  const base = folioPath(ws, slug);
+  const get = async (path: string) => {
+    const r = await fetch(daemonUrl(`${base}/file?path=${enc(path)}${rev ? `&rev=${rev}` : ""}`), { credentials: "include" });
+    if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+    return r;
+  };
+  return {
+    text: async (path) => (await get(path)).text(),
+    dataUrl: async (path) => {
+      const r = await fetch(folioAsset(ws, slug, path, rev), { credentials: "include" });
+      if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+      const blob = await r.blob();
+      return await new Promise<string>((ok, ko) => { const f = new FileReader(); f.onload = () => ok(String(f.result)); f.onerror = () => ko(f.error); f.readAsDataURL(blob); });
+    },
+    data: {
+      get: async (key) => {
+        try { return (await api.get<{ value: unknown }>(`${base}/data/${keyPath(key)}`)).value; } catch (e) { if ((e as { status?: number }).status === 404) return undefined; throw e; }
+      },
+      set: async (key, value) => { await api.put(`${base}/data/${keyPath(key)}`, { value }); },
+      delete: async (key) => { await api.delete(`${base}/data/${keyPath(key)}`); },
+      list: async (prefix) => (await api.get<{ key: string }[]>(`${base}/data?prefix=${enc(prefix)}`)).map((e) => e.key),
+    },
+  };
+}
+
+/** The block requests of a workspace: blocks and containers outside the catalog that agents use. */
+export const useBlockRequests = (ws: string | null | undefined, enabled = true) => useQuery({ queryKey: ["folios", ws, "blocks"], queryFn: () => api.get<FolioBlockRequest[]>(`${folioBase(ws ?? "")}/_blocks`), enabled: !!ws && enabled, staleTime: 60_000 });
+export const useFolioVersions = (ws: string, slug: string, enabled = true) => useQuery({ queryKey: ["folio", ws, slug, "versions"], queryFn: () => api.get<FolioVersion[]>(`${folioPath(ws, slug)}/versions`), enabled, staleTime: 10_000 });

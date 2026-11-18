@@ -157,8 +157,39 @@ pub enum FolioCommand {
         #[arg(long)]
         rev: Option<i64>,
     },
-    /// The folio's revs, newest first.
+    /// The folio's revs, newest first (named versions show their name).
     Revs { slug: String },
+    /// Name a version (the latest rev, or --rev): it is kept for good, past the 30 days of other revs.
+    Version {
+        slug: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        rev: Option<i64>,
+    },
+    /// The folio's small key and value store (JSON values; 64 KB per value, 1 MB and 2,000 keys per folio).
+    Data {
+        #[command(subcommand)]
+        command: DataCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DataCommand {
+    /// The keys (with --prefix: only those that start with it) and their values.
+    List {
+        slug: String,
+        #[arg(long, default_value = "")]
+        prefix: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// One value, as JSON.
+    Get { slug: String, key: String },
+    /// Set a key to a JSON value (the argument, else stdin); text that is not JSON is stored as a string.
+    Set { slug: String, key: String, value: Option<String> },
+    /// Remove a key.
+    Rm { slug: String, key: String },
 }
 
 pub async fn command(paths: &Paths, workspace: Option<String>, command: FolioCommand) -> Result<i32> {
@@ -374,12 +405,65 @@ async fn online(paths: &Paths, workspace: Option<String>, command: FolioCommand)
                     format!("{}{counts}", f["path"].as_str().unwrap_or("?"))
                 }).collect();
                 let label = r["label"].as_str().map(|l| format!(" · {l}")).unwrap_or_default();
+                let label = match r["version"].as_str() {
+                    Some(n) => format!("{label} · version “{n}” (kept)"),
+                    None => label,
+                };
                 println!("rev {} · {} · {}{label} · {}", r["rev"], r["at"].as_i64().map(utc).unwrap_or_default(), r["author"]["name"].as_str().unwrap_or("?"), files.join(", "));
+            }
+            Ok(0)
+        }
+        FolioCommand::Version { slug, name, rev } => {
+            let v = client.json("POST", &at(&slug, "/versions"), Some(json!({"name": name, "rev": rev}))).await?;
+            println!("Named rev {} “{}”: kept for good. The owner sees it in Versions.", v["rev"], v["name"].as_str().unwrap_or(""));
+            Ok(0)
+        }
+        FolioCommand::Data { command } => {
+            let key_path = |slug: &str, key: &str| at(slug, &format!("/data/{}", key.split('/').map(url_segment).collect::<Vec<_>>().join("/")));
+            match command {
+                DataCommand::List { slug, prefix, json } => {
+                    let v = client.json("GET", &query(&at(&slug, "/data"), &[("prefix", prefix.as_str())]), None).await?;
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&v)?);
+                        return Ok(0);
+                    }
+                    let list = v.as_array().cloned().unwrap_or_default();
+                    if list.is_empty() {
+                        println!("No data{}.", if prefix.is_empty() { String::new() } else { format!(" with the prefix {prefix}") });
+                    }
+                    for e in list {
+                        println!("{}", data_line(&e));
+                    }
+                }
+                DataCommand::Get { slug, key } => {
+                    let v = client.json("GET", &key_path(&slug, &key), None).await?;
+                    println!("{}", serde_json::to_string_pretty(&v["value"])?);
+                }
+                DataCommand::Set { slug, key, value } => {
+                    let raw = match value {
+                        Some(v) => v,
+                        None => input(None)?,
+                    };
+                    let value: Value = serde_json::from_str(raw.trim()).unwrap_or_else(|_| Value::String(raw.trim_end_matches('\n').to_string()));
+                    let e = client.json("PUT", &key_path(&slug, &key), Some(json!({"value": value}))).await?;
+                    println!("Set {key} ({} bytes).", e["size"]);
+                }
+                DataCommand::Rm { slug, key } => {
+                    let v = client.json("DELETE", &key_path(&slug, &key), None).await?;
+                    println!("{}", if v["removed"].as_bool() == Some(true) { format!("Removed {key}.") } else { format!("No key {key}.") });
+                }
             }
             Ok(0)
         }
         FolioCommand::Blocks { .. } | FolioCommand::Rules { .. } | FolioCommand::Check { .. } => unreachable!("handled offline"),
     }
+}
+
+/// Pure: one line of `folio data list`: the key, its value cut to one line, its size and author.
+fn data_line(e: &Value) -> String {
+    let v = serde_json::to_string(&e["value"]).unwrap_or_default();
+    let v = if v.chars().count() > 80 { format!("{}…", v.chars().take(79).collect::<String>()) } else { v };
+    format!("{}  {v}  ({} B, {})", e["key"].as_str().unwrap_or("?"), e["size"], e["author"]["name"].as_str().unwrap_or("?"))
 }
 
 /// `c-31` or `31`.

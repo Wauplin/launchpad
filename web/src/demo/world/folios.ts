@@ -9,7 +9,7 @@ import type { Author } from "@/gen/Author";
 import { clock } from "../daemon";
 import { WS } from "./ids";
 
-export type DemoFolio = { folio: Folio; files: Record<string, string>; marks: FolioMark[]; revs: FolioRev[] };
+export type DemoFolio = { folio: Folio; files: Record<string, string>; marks: FolioMark[]; revs: FolioRev[]; data?: Record<string, unknown> };
 
 const INDEX = `---
 title: Launchpad roadmap, winter 2026
@@ -127,12 +127,62 @@ rows:
   - [full audit, 113, 34 %]
 \`\`\`
 
+## Sketches {#sketches}
+
+\`\`\`sketch
+id: S-INBOX
+title: The inbox on a phone (fake data)
+src: sketches/inbox.html
+frame: phone
+height: 420
+\`\`\`
+
+\`\`\`chart
+id: CH-SIZES
+title: Report sizes, HTML and text
+type: bar
+unit: KB
+columns: [report, html, text]
+rows:
+  - [oracle design, 171, 66]
+  - [full audit, 113, 41]
+  - [exit routes, 138, 52]
+\`\`\`
+
+\`\`\`mermaid
+flowchart LR
+  A[Agent writes] --> B[Home checks]
+  B --> C[You mark]
+  C --> D[Send feedback]
+  D --> A
+\`\`\`
+
 \`\`\`prompt
+id: P-W1
 title: Prompt for the implementer
 text: |
   Implement wave 1 of the folio roadmap-winter. Follow the decisions recorded there.
 \`\`\`
 `;
+
+const INBOX = `<div class="lp-bar">Inbox <span class="lp-pill attn">3</span></div>
+<div id="rows"></div>
+<p class="lp-muted" id="note">Tap a row to mark it read: it is saved with folio.data.</p>
+<script>
+const items = ["Refund flow review", "Storefront launch plan", "Docs for checkout"];
+async function draw() {
+  const read = (await folio.data.get("inbox:read").catch(() => null)) || [];
+  document.getElementById("rows").innerHTML = items.map((t, i) => '<div class="lp-row" data-i="' + i + '"><span class="lp-grow">' + t + '</span>' + (read.includes(i) ? '<span class="lp-chip on">read</span>' : '<span class="lp-chip">new</span>') + '</div>').join("");
+}
+document.getElementById("rows").addEventListener("click", async (e) => {
+  const row = e.target.closest("[data-i]"); if (!row) return;
+  const read = (await folio.data.get("inbox:read").catch(() => null)) || [];
+  const i = Number(row.dataset.i);
+  await folio.data.set("inbox:read", read.includes(i) ? read.filter((x) => x !== i) : [...read, i]);
+  draw();
+});
+draw();
+</script>`;
 
 export const FOLIO_SESSION = "demo-s-docs";
 
@@ -156,9 +206,9 @@ export function foliosWorld() {
   ];
   const w = (path: string, before: string | null, after: string, added: number, removed: number) => ({ path, before, after, added, removed });
   const revs: FolioRev[] = [
-    { rev: 3, at: clock.ago(50), author: agent, session_id: FOLIO_SESSION, label: null, files: [w("index.md", "demo-index-2", "demo-index-3", 2, 1)], errors: 0, warnings: 0 },
-    { rev: 2, at: clock.ago(60 * 4), author: agent, session_id: FOLIO_SESSION, label: null, files: [w("plan.md", null, "demo-plan-2", PLAN.split("\n").length, 0)], errors: 0, warnings: 0 },
-    { rev: 1, at: clock.ago(60 * 5), author: agent, session_id: FOLIO_SESSION, label: "created", files: [w("index.md", null, "demo-index-1", INDEX.split("\n").length, 0)], errors: 0, warnings: 0 },
+    { rev: 3, at: clock.ago(50), author: agent, session_id: FOLIO_SESSION, label: null, files: [w("index.md", "demo-index-2", "demo-index-3", 2, 1)], errors: 0, warnings: 0, version: null },
+    { rev: 2, at: clock.ago(60 * 4), author: agent, session_id: FOLIO_SESSION, label: null, files: [w("plan.md", null, "demo-plan-2", PLAN.split("\n").length, 0)], errors: 0, warnings: 0, version: null },
+    { rev: 1, at: clock.ago(60 * 5), author: agent, session_id: FOLIO_SESSION, label: "created", files: [w("index.md", null, "demo-index-1", INDEX.split("\n").length, 0)], errors: 0, warnings: 0, version: "v1 · first draft" },
   ];
-  return { folios: [{ folio, files: { "index.md": INDEX, "plan.md": PLAN }, marks, revs }] as DemoFolio[] };
+  return { folios: [{ folio, files: { "index.md": INDEX, "plan.md": PLAN, "sketches/inbox.html": INBOX }, marks, revs }] as DemoFolio[] };
 }

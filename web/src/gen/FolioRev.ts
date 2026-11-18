@@ -5,4 +5,8 @@ import type { PlainWritten } from "./PlainWritten";
 /**
  * One rev: a write, with the files it changed.
  */
-export type FolioRev = { rev: number, at: number, author: Author, session_id: string | null, label: string | null, files: Array<PlainWritten>, errors: number, warnings: number, };
+export type FolioRev = { rev: number, at: number, author: Author, session_id: string | null, label: string | null, files: Array<PlainWritten>, errors: number, warnings: number, 
+/**
+ * The name of a named version (kept for good).
+ */
+version: string | null, };

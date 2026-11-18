@@ -48,13 +48,14 @@ fn folio_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
     if *method == Method::GET {
         return Some(LaunchpadAccess::Read);
     }
-    let write = *method == Method::POST
-        && match &p[2..] {
-            [_ws] => true,
-            [_ws, slug, "write" | "fix"] => !slug.starts_with('_'),
-            [_ws, _slug, "marks", id, "reply" | "resolve"] => id.parse::<i64>().is_ok(),
-            _ => false,
-        };
+    let write = match (&p[2..], method) {
+        ([_ws], &Method::POST) => true,
+        ([_ws, slug, "write" | "fix" | "versions"], &Method::POST) => !slug.starts_with('_'),
+        ([_ws, _slug, "marks", id, "reply" | "resolve"], &Method::POST) => id.parse::<i64>().is_ok(),
+        // `launchpad folio data set|rm`: the agent's own writes to the folio's key and value store.
+        ([_ws, slug, "data", _key, ..], &Method::PUT | &Method::DELETE) => !slug.starts_with('_'),
+        _ => false,
+    };
     write.then_some(LaunchpadAccess::Propose)
 }
 

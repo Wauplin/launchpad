@@ -128,6 +128,8 @@ pub struct Rev {
     pub files: Vec<plain::Written>,
     pub errors: u32,
     pub warnings: u32,
+    /// The name of a named version (kept for good).
+    pub version: Option<String>,
 }
 
 /// A write's change, recorded with its folio (receipts in chats and traces).
@@ -440,8 +442,13 @@ pub async fn file_text(app: &App, id: &str, path: &str, rev: Option<i64>) -> Res
     String::from_utf8(file_bytes(app, id, path, rev).await?).context("not a text file")
 }
 
-/// The files (path → content hash) as they were at a rev, rebuilt from the revs.
+/// The files (path → content hash) as they were at a rev: a named version's own list, else rebuilt from the revs.
 async fn files_at(app: &App, id: &str, rev: i64) -> Result<BTreeMap<String, String>> {
+    let (i, r) = (id.to_string(), rev);
+    let named: Option<String> = app.state_db.call(move |c| Ok(c.query_row("SELECT files FROM folio_version WHERE folio_id = ?1 AND rev = ?2", params![i, r], |x| x.get(0)).optional()?)).await?;
+    if let Some(files) = named.and_then(|j| serde_json::from_str::<BTreeMap<String, String>>(&j).ok()) {
+        return Ok(files);
+    }
     let mut files = BTreeMap::new();
     for r in revs(app, id).await?.into_iter().rev().filter(|r| r.rev <= rev) {
         for w in r.files {
@@ -489,11 +496,13 @@ fn mark_refs(marks: &[Mark]) -> Vec<check::MarkRef> {
     marks.iter().filter(|m| m.kind != "reply" && m.author.kind == AuthorKind::Owner && m.resolved_at.is_none()).filter_map(|m| Some(check::MarkRef { id: m.id, kind: m.kind.clone(), target: m.target.clone()? })).collect()
 }
 
-/// The check of the stored folio (or of one rev).
+/// The check of the stored folio (or of one rev), with the render problems the reader saw in that rev.
 pub async fn check_stored(app: &App, f: &Folio, rev: Option<i64>) -> Result<Vec<Problem>> {
     let (texts, entries) = contents(app, &f.id, rev).await?;
     let marks = marks(app, &f.id, None).await?;
-    Ok(check::check(&check::Input { texts, paths: entries.into_iter().map(|e| e.path).collect(), marks: mark_refs(&marks), slugs: Some(slugs(app, &f.workspace_id).await) }))
+    let mut problems = check::check(&check::Input { texts, paths: entries.into_iter().map(|e| e.path).collect(), marks: mark_refs(&marks), slugs: Some(slugs(app, &f.workspace_id).await) });
+    problems.extend(render_problems(app, &f.id, rev.unwrap_or(f.rev)).await);
+    Ok(problems)
 }
 
 /// The reader's view of a folio.
@@ -501,7 +510,8 @@ pub async fn detail(app: &App, ws: &str, slug: &str, rev: Option<i64>) -> Result
     let folio = get(app, ws, slug).await?;
     let (texts, entries) = contents(app, &folio.id, rev).await?;
     let marks_list = marks(app, &folio.id, None).await?;
-    let problems = check::check(&check::Input { texts: texts.clone(), paths: entries.iter().map(|e| e.path.clone()).collect(), marks: mark_refs(&marks_list), slugs: Some(slugs(app, ws).await) });
+    let mut problems = check::check(&check::Input { texts: texts.clone(), paths: entries.iter().map(|e| e.path.clone()).collect(), marks: mark_refs(&marks_list), slugs: Some(slugs(app, ws).await) });
+    problems.extend(render_problems(app, &folio.id, rev.unwrap_or(folio.rev)).await);
     let pages = check::page_order(&texts).into_iter().map(|path| {
         let text = texts.get(&path).cloned().unwrap_or_default();
         FolioPage { title: page_title(&path, &text), outline: split::outline(&text), path, text }
@@ -681,8 +691,13 @@ pub async fn write(app: &App, ws: &str, slug: &str, ops: Vec<Op>, author: Author
     let renamed: Vec<(String, String)> = texts.iter().filter(|(p, _)| check::is_page(p)).flat_map(|(_, t)| check::anchors(t).renamed).collect();
     let (fid, a, files_json, lab, sess) = (folio.id.clone(), serde_json::to_string(&author)?, serde_json::to_string(&written)?, label.map(str::to_string), session.clone());
     let created = folio.rev == 0;
+    let uses = block_uses(&texts);
     app.state_db.call(move |c| {
         let tx = c.transaction()?;
+        tx.execute("DELETE FROM folio_block_use WHERE folio_id = ?1", [&fid])?;
+        for (name, n) in &uses {
+            tx.execute("INSERT INTO folio_block_use (folio_id, name, count) VALUES (?1, ?2, ?3)", params![fid, name, n])?;
+        }
         tx.execute("INSERT INTO folio_rev (folio_id, rev, at, author, session_id, label, files, errors, warnings) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", params![fid, rev, at, a, sess, lab, files_json, errors, warnings])?;
         tx.execute("UPDATE folio SET rev = ?2, updated_at = ?3, title = ?4, kind = ?5, problems = ?6, state = 'active', archived_at = NULL WHERE id = ?1", params![fid, rev, at, title, kind, serde_json::to_string(&[errors, warnings]).unwrap_or_default()])?;
         if let Some((bot, th)) = &thread {
@@ -742,9 +757,10 @@ pub async fn fix(app: &App, ws: &str, slug: &str, author: Author) -> Result<Writ
 pub async fn revs(app: &App, id: &str) -> Result<Vec<Rev>> {
     let id = id.to_string();
     app.state_db.call(move |c| {
-        let mut st = c.prepare("SELECT rev, at, author, session_id, label, files, errors, warnings FROM folio_rev WHERE folio_id = ?1 ORDER BY rev DESC")?;
+        let mut st = c.prepare("SELECT r.rev, r.at, r.author, r.session_id, r.label, r.files, r.errors, r.warnings, v.name FROM folio_rev r LEFT JOIN folio_version v ON v.folio_id = r.folio_id AND v.rev = r.rev WHERE r.folio_id = ?1 ORDER BY r.rev DESC")?;
         let rows = st.query_map([id], |r| {
             Ok(Rev {
+                version: r.get(8)?,
                 rev: r.get(0)?,
                 at: r.get(1)?,
                 author: serde_json::from_str(&r.get::<_, String>(2)?).unwrap_or_else(|_| Author::owner(None)),
@@ -815,7 +831,7 @@ pub async fn delete(app: &App, ws: &str, slug: &str) -> Result<()> {
     let id = f.id.clone();
     app.state_db.call(move |c| {
         let tx = c.transaction()?;
-        for t in ["folio_link", "folio_rev", "folio_mark"] {
+        for t in ["folio_link", "folio_rev", "folio_mark", "folio_data", "folio_render", "folio_version", "folio_block_use"] {
             tx.execute(&format!("DELETE FROM {t} WHERE folio_id = ?1"), [&id])?;
         }
         tx.execute("DELETE FROM folio WHERE id = ?1", [&id])?;
@@ -1254,6 +1270,198 @@ async fn deliver(app: &App, ws: &str, f: &Folio, to: &SendTo, text: String, mut 
         let _ = launchpad_core::topics::membership(app, t, std::slice::from_ref(&session.id), true).await;
     }
     Ok(session)
+}
+
+// ---------------------------------------------------------------- named versions
+
+/// A named version: the files of a rev, kept for good (`plain::live_blobs` keeps their blobs past 30 days).
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(rename = "FolioVersion")]
+pub struct Version {
+    #[ts(type = "number")]
+    pub rev: i64,
+    pub name: String,
+    pub author: Author,
+    #[ts(type = "number")]
+    pub at: i64,
+}
+
+/// Names a rev (the latest by default) as a version kept for good; naming it again renames it.
+pub async fn name_version(app: &App, ws: &str, slug: &str, rev: Option<i64>, name: &str, author: Author) -> Result<Version> {
+    let f = get(app, ws, slug).await?;
+    let name = name.trim();
+    ensure!(!name.is_empty() && name.chars().count() <= 80 && !name.chars().any(char::is_control), "a version's name is one line of 1 to 80 characters");
+    let rev = rev.unwrap_or(f.rev);
+    ensure!((1..=f.rev).contains(&rev), "no rev {rev} in this folio");
+    let files: BTreeMap<String, String> = if rev == f.rev { tree(app, &f.id).await?.files.into_iter().map(|e| (e.path, e.sha256)).collect() } else { files_at(app, &f.id, rev).await? };
+    for sha in files.values() {
+        ensure!(plain::read_blob(app, sha).await.is_ok(), "rev {rev} is older than 30 days: its files are gone, so it cannot be named");
+    }
+    let (id, n, j, a, at) = (f.id.clone(), name.to_string(), serde_json::to_string(&files)?, serde_json::to_string(&author)?, now_ms());
+    app.state_db.call(move |c| {
+        c.execute("INSERT INTO folio_version (folio_id, rev, name, files, author, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT (folio_id, rev) DO UPDATE SET name = excluded.name, author = excluded.author, at = excluded.at", params![id, rev, n, j, a, at])?;
+        Ok(())
+    }).await?;
+    link_session(app, &f, &author, "edited").await;
+    changed(app, &f);
+    Ok(Version { rev, name: name.to_string(), author, at })
+}
+
+/// The named versions of a folio, newest first.
+pub async fn versions(app: &App, ws: &str, slug: &str) -> Result<Vec<Version>> {
+    let f = get(app, ws, slug).await?;
+    app.state_db.call(move |c| {
+        let mut st = c.prepare("SELECT rev, name, author, at FROM folio_version WHERE folio_id = ?1 ORDER BY rev DESC")?;
+        let rows = st.query_map([f.id], |r| Ok(Version { rev: r.get(0)?, name: r.get(1)?, author: serde_json::from_str(&r.get::<_, String>(2)?).unwrap_or_else(|_| Author::owner(None)), at: r.get(3)? }))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }).await
+}
+
+/// The owner unpins a version: its rev is an ordinary rev again (gone after 30 days).
+pub async fn unname_version(app: &App, ws: &str, slug: &str, rev: i64) -> Result<()> {
+    let f = get(app, ws, slug).await?;
+    let id = f.id.clone();
+    let n = app.state_db.call(move |c| Ok(c.execute("DELETE FROM folio_version WHERE folio_id = ?1 AND rev = ?2", params![id, rev])?)).await?;
+    ensure!(n > 0, "rev {rev} is not a named version");
+    changed(app, &f);
+    Ok(())
+}
+
+// ---------------------------------------------------------------- render problems (F7) and block requests
+
+/// What the reader saw while rendering a page of a rev: script errors and empty sketch frames (F701), Mermaid and
+/// chart errors (F702), sideways scrolling on a phone (F703).
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(rename = "FolioRenderProblem")]
+pub struct RenderProblem {
+    pub code: String,
+    pub message: String,
+    /// A file other than the page (a sketch).
+    #[ts(optional)]
+    pub file: Option<String>,
+    #[ts(optional)]
+    pub line: Option<u32>,
+}
+
+#[derive(Clone, Debug, Deserialize, TS)]
+#[ts(rename = "FolioRenderReport")]
+pub struct RenderReport {
+    #[ts(type = "number")]
+    pub rev: i64,
+    pub page: String,
+    /// Everything the reader saw on that page (empty: none, which clears an earlier report).
+    pub problems: Vec<RenderProblem>,
+}
+
+/// The owner's window reports what it saw while rendering a page of a rev; it replaces that page's earlier report.
+pub async fn report_render(app: &App, ws: &str, slug: &str, r: RenderReport) -> Result<usize> {
+    let f = get(app, ws, slug).await?;
+    check_path(&r.page)?;
+    ensure!((1..=f.rev).contains(&r.rev), "no rev {} in this folio", r.rev);
+    ensure!(r.problems.len() <= 30, "at most 30 render problems per page");
+    let mut list = vec![];
+    for p in r.problems {
+        ensure!(matches!(p.code.as_str(), "F701" | "F702" | "F703"), "render problems are F701, F702 or F703");
+        if let Some(file) = &p.file {
+            check_path(file)?;
+        }
+        list.push(RenderProblem { message: short(p.message.trim(), 300), ..p });
+    }
+    let n = list.len();
+    let (id, rev, page, json, at) = (f.id.clone(), r.rev, r.page.clone(), serde_json::to_string(&list)?, now_ms());
+    let before: Option<String> = {
+        let (id, page) = (id.clone(), page.clone());
+        app.state_db.call(move |c| Ok(c.query_row("SELECT json FROM folio_render WHERE folio_id = ?1 AND rev = ?2 AND page = ?3", params![id, rev, page], |r| r.get(0)).optional()?)).await?
+    };
+    if before.as_deref() == Some(json.as_str()) || (before.is_none() && n == 0) {
+        return Ok(n);
+    }
+    app.state_db.call(move |c| {
+        if n == 0 {
+            c.execute("DELETE FROM folio_render WHERE folio_id = ?1 AND rev = ?2 AND page = ?3", params![id, rev, page])?;
+        } else {
+            c.execute("INSERT INTO folio_render (folio_id, rev, page, json, at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (folio_id, rev, page) DO UPDATE SET json = excluded.json, at = excluded.at", params![id, rev, page, json, at])?;
+        }
+        Ok(())
+    }).await?;
+    changed(app, &f);
+    Ok(n)
+}
+
+/// The render problems the reader saw in a rev, as problems of the check (severity render).
+pub async fn render_problems(app: &App, id: &str, rev: i64) -> Vec<Problem> {
+    let id = id.to_string();
+    let rows: Vec<(String, String)> = app.state_db.call(move |c| {
+        let mut st = c.prepare("SELECT page, json FROM folio_render WHERE folio_id = ?1 AND rev = ?2 ORDER BY page")?;
+        let rows = st.query_map(params![id, rev], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }).await.unwrap_or_default();
+    rows.into_iter().flat_map(|(page, json)| {
+        serde_json::from_str::<Vec<RenderProblem>>(&json).unwrap_or_default().into_iter().map(move |p| Problem { file: p.file.unwrap_or_else(|| page.clone()), line: p.line, col: None, message: format!("{} (seen in the reader, rev {rev})", p.message), code: p.code, severity: Severity::Render, hint: None, fix: None })
+    }).collect()
+}
+
+/// Pure: the blocks and containers of a folio that are not in the catalog (```x-… fences and unknown `:::` names),
+/// with how often each is used: the Folios page lists them as block requests.
+pub fn block_uses(texts: &BTreeMap<String, String>) -> Vec<(String, i64)> {
+    let mut uses: BTreeMap<String, i64> = BTreeMap::new();
+    for (_, t) in texts.iter().filter(|(p, _)| check::is_page(p) && !check::is_concurrent(p)) {
+        for i in split::outline(t).items {
+            match i {
+                split::Item::Fence { lang, .. } if lang.starts_with("x-") => *uses.entry(format!("```{lang}")).or_default() += 1,
+                split::Item::Container { name, .. } if cat::container(&name).is_none() => *uses.entry(format!(":::{name}")).or_default() += 1,
+                _ => {}
+            }
+        }
+    }
+    uses.into_iter().collect()
+}
+
+/// A block or container outside the catalog that agents use: a candidate for the catalog.
+#[derive(Clone, Debug, Serialize, TS)]
+#[ts(rename = "FolioBlockRequest")]
+pub struct BlockRequest {
+    pub name: String,
+    pub folios: u32,
+    pub uses: u32,
+}
+
+/// The workspace's block requests, most used first.
+pub async fn block_requests(app: &App, ws: &str) -> Result<Vec<BlockRequest>> {
+    let ws = ws.to_string();
+    app.state_db.call(move |c| {
+        let mut st = c.prepare("SELECT u.name, count(DISTINCT u.folio_id), sum(u.count) FROM folio_block_use u JOIN folio f ON f.id = u.folio_id WHERE f.workspace_id = ?1 AND f.state = 'active' GROUP BY u.name ORDER BY count(DISTINCT u.folio_id) DESC, sum(u.count) DESC LIMIT 50")?;
+        let rows = st.query_map([ws], |r| Ok(BlockRequest { name: r.get(0)?, folios: r.get(1)?, uses: r.get(2)? }))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }).await
+}
+
+// ---------------------------------------------------------------- data API
+
+/// The folio's data entries with a prefix (`launchpad folio data list`).
+pub async fn data_list(app: &App, ws: &str, slug: &str, prefix: &str) -> Result<Vec<crate::folio_data::Entry>> {
+    let f = get(app, ws, slug).await?;
+    crate::folio_data::list(app, &f.id, prefix).await
+}
+
+pub async fn data_get(app: &App, ws: &str, slug: &str, key: &str) -> Result<crate::folio_data::Entry> {
+    let f = get(app, ws, slug).await?;
+    crate::folio_data::get(app, &f.id, key).await?.with_context(|| format!("no key {key} in the data of {slug}"))
+}
+
+/// Sets a key of the folio's data: the owner's window (a sketch's bridge) or an agent's own write.
+pub async fn data_set(app: &App, ws: &str, slug: &str, key: &str, value: Value, author: Author) -> Result<crate::folio_data::Entry> {
+    let f = get(app, ws, slug).await?;
+    let e = crate::folio_data::set(app, &f.id, key, value, author).await?;
+    app.bus.publish("folios", "data", json!({"workspace_id": f.workspace_id, "id": f.id, "slug": f.slug, "key": key}));
+    Ok(e)
+}
+
+pub async fn data_remove(app: &App, ws: &str, slug: &str, key: &str) -> Result<bool> {
+    let f = get(app, ws, slug).await?;
+    let gone = crate::folio_data::remove(app, &f.id, key).await?;
+    app.bus.publish("folios", "data", json!({"workspace_id": f.workspace_id, "id": f.id, "slug": f.slug, "key": key}));
+    Ok(gone)
 }
 
 // ---------------------------------------------------------------- auto-archive

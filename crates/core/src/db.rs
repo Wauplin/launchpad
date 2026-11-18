@@ -292,7 +292,12 @@ CREATE TABLE IF NOT EXISTS folio_link (folio_id TEXT NOT NULL, session_id TEXT N
 CREATE TABLE IF NOT EXISTS folio_rev (folio_id TEXT NOT NULL, rev INTEGER NOT NULL, at INTEGER NOT NULL, author TEXT NOT NULL, session_id TEXT, label TEXT, files TEXT NOT NULL, errors INTEGER NOT NULL DEFAULT 0, warnings INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (folio_id, rev));
 CREATE INDEX IF NOT EXISTS folio_rev_session ON folio_rev (session_id);
 CREATE TABLE IF NOT EXISTS folio_mark (id INTEGER PRIMARY KEY AUTOINCREMENT, folio_id TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT NOT NULL, author TEXT NOT NULL, session_id TEXT, page TEXT, target TEXT, quote TEXT, prefix TEXT, suffix TEXT, value TEXT, text TEXT, parent INTEGER, rev INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, sent_at INTEGER, resolved_at INTEGER, resolved_rev INTEGER, deleted INTEGER NOT NULL DEFAULT 0);
-CREATE INDEX IF NOT EXISTS folio_mark_folio ON folio_mark (folio_id, seq);",
+CREATE INDEX IF NOT EXISTS folio_mark_folio ON folio_mark (folio_id, seq);
+CREATE TABLE IF NOT EXISTS folio_data (folio_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, size INTEGER NOT NULL, author TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (folio_id, key));
+CREATE TABLE IF NOT EXISTS folio_render (folio_id TEXT NOT NULL, rev INTEGER NOT NULL, page TEXT NOT NULL, json TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (folio_id, rev, page));
+CREATE TABLE IF NOT EXISTS folio_version (folio_id TEXT NOT NULL, rev INTEGER NOT NULL, name TEXT NOT NULL, files TEXT NOT NULL, author TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (folio_id, rev));
+CREATE TABLE IF NOT EXISTS folio_share (folio_id TEXT PRIMARY KEY, space TEXT NOT NULL, rev INTEGER NOT NULL, visibility TEXT NOT NULL, expires_at INTEGER, decisions INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL, state TEXT NOT NULL, error TEXT);
+CREATE TABLE IF NOT EXISTS folio_block_use (folio_id TEXT NOT NULL, name TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (folio_id, name));",
     )?;
     // Some development databases retain schema numbers from reverted work. Check these
     // additive columns directly, like the unversioned tables above.

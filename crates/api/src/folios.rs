@@ -10,7 +10,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use base64::Engine;
-use launchpad_automation::folios::{self, Activity, Ask, Folio, FolioDetail, Mark, MarkInput, Op, Rev, SendTo, Target, Written};
+use launchpad_automation::folios::{self, Activity, Ask, BlockRequest, RenderReport, Folio, FolioDetail, Mark, MarkInput, Op, Rev, SendTo, Target, Written};
 use launchpad_automation::folio_check::Problem;
 use launchpad_core::kb::Author;
 use launchpad_http::AgentSession;
@@ -45,6 +45,12 @@ pub fn router() -> Router<Ctx> {
         .route("/api/folios/{workspace}/{slug}/send", post(send))
         .route("/api/folios/{workspace}/{slug}/ask-fix", post(ask_fix))
         .route("/api/folios/{workspace}/{slug}/ask", post(ask))
+        .route("/api/folios/{workspace}/_blocks", get(blocks))
+        .route("/api/folios/{workspace}/{slug}/versions", get(versions).post(name_version))
+        .route("/api/folios/{workspace}/{slug}/versions/{rev}", axum::routing::delete(unname_version))
+        .route("/api/folios/{workspace}/{slug}/render", post(render))
+        .route("/api/folios/{workspace}/{slug}/data", get(data_list))
+        .route("/api/folios/{workspace}/{slug}/data/{*key}", get(data_get).put(data_set).delete(data_remove))
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -336,4 +342,65 @@ async fn ask_fix(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>,
 async fn ask(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(a): Json<Ask>) -> ApiResult<Value> {
     owner_only(&agent, "Ask about a folio")?;
     Ok(Json(Box::pin(folios::ask(&s.app, &ws, &slug, a)).await.map_err(bad)?))
+}
+
+async fn blocks(State(s): State<Ctx>, Path(ws): Path<String>) -> ApiResult<Vec<BlockRequest>> {
+    Ok(Json(folios::block_requests(&s.app, &ws).await.map_err(bad)?))
+}
+
+/// The owner's window reports what it saw while rendering a page (F701–F703).
+async fn render(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(r): Json<RenderReport>) -> ApiResult<Value> {
+    owner_only(&agent, "Reporting render problems")?;
+    Ok(Json(json!({"saved": folios::report_render(&s.app, &ws, &slug, r).await.map_err(bad)?})))
+}
+
+#[derive(Deserialize, Default)]
+struct PrefixQuery {
+    #[serde(default)]
+    prefix: String,
+}
+
+async fn data_list(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, Query(q): Query<PrefixQuery>) -> ApiResult<Vec<launchpad_automation::folio_data::Entry>> {
+    Ok(Json(folios::data_list(&s.app, &ws, &slug, &q.prefix).await.map_err(missing)?))
+}
+
+async fn data_get(State(s): State<Ctx>, Path((ws, slug, key)): Path<(String, String, String)>) -> ApiResult<launchpad_automation::folio_data::Entry> {
+    Ok(Json(folios::data_get(&s.app, &ws, &slug, &key).await.map_err(missing)?))
+}
+
+#[derive(Deserialize)]
+struct DataBody {
+    value: Value,
+}
+
+async fn data_set(State(s): State<Ctx>, Path((ws, slug, key)): Path<(String, String, String)>, agent: Option<Extension<AgentSession>>, Json(b): Json<DataBody>) -> ApiResult<launchpad_automation::folio_data::Entry> {
+    let by = author(&s, &agent).await?;
+    Ok(Json(folios::data_set(&s.app, &ws, &slug, &key, b.value, by).await.map_err(bad)?))
+}
+
+async fn data_remove(State(s): State<Ctx>, Path((ws, slug, key)): Path<(String, String, String)>) -> ApiResult<Value> {
+    Ok(Json(json!({"removed": folios::data_remove(&s.app, &ws, &slug, &key).await.map_err(bad)?})))
+}
+
+async fn versions(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>) -> ApiResult<Vec<folios::Version>> {
+    Ok(Json(folios::versions(&s.app, &ws, &slug).await.map_err(missing)?))
+}
+
+#[derive(Deserialize)]
+struct NameVersion {
+    name: String,
+    #[serde(default)]
+    rev: Option<i64>,
+}
+
+/// `launchpad folio version`, or the owner's Name this version.
+async fn name_version(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(b): Json<NameVersion>) -> ApiResult<folios::Version> {
+    let by = author(&s, &agent).await?;
+    Ok(Json(folios::name_version(&s.app, &ws, &slug, b.rev, &b.name, by).await.map_err(bad)?))
+}
+
+async fn unname_version(State(s): State<Ctx>, Path((ws, slug, rev)): Path<(String, String, i64)>, agent: Option<Extension<AgentSession>>) -> ApiResult<Value> {
+    owner_only(&agent, "Unpinning a version")?;
+    folios::unname_version(&s.app, &ws, &slug, rev).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
 }

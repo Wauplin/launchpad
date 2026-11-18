@@ -170,7 +170,8 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
             // Its folios: their stores, revisions, marks and links (`launchpad_automation::folios`).
             tx.execute("DELETE FROM plain_file WHERE store IN (SELECT 'folio-' || id FROM folio WHERE workspace_id = ?1)", [&id])?;
             tx.execute("DELETE FROM plain_state WHERE store IN (SELECT 'folio-' || id FROM folio WHERE workspace_id = ?1)", [&id])?;
-            for t in ["folio_link", "folio_rev", "folio_mark"] {
+            // A shared snapshot's record stays: Home's hourly share task deletes the Space of a folio that is gone.
+            for t in ["folio_link", "folio_rev", "folio_mark", "folio_data", "folio_render", "folio_version", "folio_block_use"] {
                 tx.execute(&format!("DELETE FROM {t} WHERE folio_id IN (SELECT id FROM folio WHERE workspace_id = ?1)"), [&id])?;
             }
             tx.execute("DELETE FROM folio WHERE workspace_id = ?1", [&id])?;

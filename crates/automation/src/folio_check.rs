@@ -419,6 +419,8 @@ pub fn check(input: &Input) -> Vec<Problem> {
     let mut all_anchors: HashMap<String, Anchors> = HashMap::new();
     let mut deps_all: Vec<(String, String, u32)> = vec![];
     let kind = input.texts.get("index.md").and_then(|t| front(t)).and_then(|m| get(&m, "kind").and_then(s));
+    // The data prefix of each sketch file, from the blocks that show it (F403).
+    let mut sketch_prefixes: BTreeMap<String, String> = BTreeMap::new();
     for (path, text) in &pages {
         let a = anchors(text);
         for (id, line, _) in &a.ids {
@@ -574,6 +576,12 @@ pub fn check(input: &Input) -> Vec<Problem> {
                     if def.name == "table" {
                         table(&mut cx, &ls, b, m, input);
                     }
+                    if def.name == "chart" {
+                        chart(&mut cx, &ls, b, m, input);
+                    }
+                    if def.name == "sketch" {
+                        sketch_block(&mut cx, &ls, b, m, input, &mut sketch_prefixes);
+                    }
                 }
                 _ => cx.push(Some(b.line), "F202", format!("{}: the block is empty or not a mapping of fields", def.name), Some(format!("see `launchpad folio blocks {}`", def.name)), None),
             }
@@ -614,6 +622,7 @@ pub fn check(input: &Input) -> Vec<Problem> {
         }
         out.extend(cx.out);
     }
+    out.extend(sketch_files(input, &sketch_prefixes));
     // F205: duplicate ids across the folio.
     let mut dups: Vec<(&String, &Vec<(String, u32)>)> = ids.iter().filter(|(_, v)| v.len() > 1).collect();
     dups.sort();
@@ -666,6 +675,118 @@ fn table(cx: &mut Ctx, ls: &[&str], b: &Block, m: &serde_yaml_ng::Mapping, input
             }
         }
     }
+}
+
+/// A chart block: rows or a CSV of the folio (F202, F302) that has the columns it names (F304).
+fn chart(cx: &mut Ctx, ls: &[&str], b: &Block, m: &serde_yaml_ng::Mapping, input: &Input) {
+    let Some(src) = get(m, "src").and_then(s) else {
+        if get(m, "rows").is_none() {
+            cx.push(Some(b.line), "F202", "chart: give `rows` or `src` (a CSV file of the folio)", None, None);
+        }
+        return;
+    };
+    if !input.paths.contains(&src) {
+        cx.push(find_line(ls, b.line, b.end, "src:"), "F302", format!("chart: `{src}` is not a file of the folio"), Some(format!("add it with launchpad folio write <slug> {src}")), None);
+        return;
+    }
+    let Some(csv) = input.texts.get(&src) else { return };
+    let header: Vec<String> = csv.lines().next().unwrap_or("").split(',').map(|c| c.trim().trim_matches('"').to_string()).collect();
+    let mut named: Vec<String> = get(m, "x").and_then(s).into_iter().collect();
+    if let Some(Y::Sequence(ys)) = get(m, "y") {
+        named.extend(ys.iter().filter_map(s));
+    }
+    for c in named.iter().filter(|c| !header.contains(c)) {
+        cx.push(find_line(ls, b.line, b.end, c), "F304", format!("chart: `{src}` has no column `{c}` (it has {})", header.join(", ")), None, None);
+    }
+}
+
+/// The data key prefix of a sketch: its `data` field, else its file name (without `.html`), else its id, else
+/// `sketch`, then `:`. The reader's data bridge allows only keys with it (`web/src/features/folios/sketch.ts`).
+pub fn sketch_prefix(data: Option<&str>, src: Option<&str>, id: Option<&str>) -> String {
+    if let Some(d) = data.filter(|d| !d.is_empty()) {
+        return d.to_string();
+    }
+    let base = src.and_then(|p| p.rsplit('/').next()).map(|f| f.trim_end_matches(".html").to_string()).or_else(|| id.map(str::to_string)).unwrap_or_else(|| "sketch".into());
+    format!("{base}:")
+}
+
+/// A sketch block: `src` (a file of the folio) or inline `html` (F404, F302); inline HTML is checked like a file.
+fn sketch_block(cx: &mut Ctx, ls: &[&str], b: &Block, m: &serde_yaml_ng::Mapping, input: &Input, prefixes: &mut BTreeMap<String, String>) {
+    let (src, html, id, data) = (get(m, "src").and_then(s), get(m, "html").and_then(s), get(m, "id").and_then(s), get(m, "data").and_then(s));
+    let prefix = sketch_prefix(data.as_deref(), src.as_deref(), id.as_deref());
+    match (&src, &html) {
+        (None, None) => cx.push(Some(b.line), "F404", "sketch: give `src` (an HTML file of the folio) or inline `html`", Some("launchpad folio blocks sketch".into()), None),
+        (Some(p), _) if !input.paths.contains(p) => cx.push(find_line(ls, b.line, b.end, "src:"), "F302", format!("sketch: `{p}` is not a file of the folio"), Some(format!("write it with launchpad folio write <slug> {p}")), None),
+        (Some(p), _) => {
+            prefixes.insert(p.clone(), prefix.clone());
+        }
+        (None, Some(h)) => {
+            for (_, code, msg) in sketch_problems(h, &prefix) {
+                cx.push(find_line(ls, b.line, b.end, "html:"), code, format!("inline sketch: {msg}"), None, None);
+            }
+        }
+    }
+}
+
+/// F402, F403 and F404 in sketch HTML: `(line, code, message)`.
+pub fn sketch_problems(html: &str, prefix: &str) -> Vec<(u32, &'static str, String)> {
+    let mut out = vec![];
+    const NET: &[&str] = &["fetch(", "xmlhttprequest", "new websocket", "eventsource(", "sendbeacon(", "src=\"http", "src='http", "src=http", "src=\"//", "href=\"http", "href='http", "@import", "url(http", "url(\"http", "url('http", "url(//", "<link rel=\"stylesheet\" href=\"http"];
+    for (n, l) in html.lines().enumerate() {
+        let low = l.to_ascii_lowercase();
+        if let Some(hit) = NET.iter().find(|p| low.contains(*p)) {
+            let what = l.trim();
+            out.push((n as u32 + 1, "F402", format!("line {} uses the network (`{}`): the sandbox blocks it", n + 1, if what.chars().count() > 60 { format!("{}…", what.chars().take(59).collect::<String>()) } else { what.to_string() })));
+            let _ = hit;
+        }
+        // F403: literal keys of folio.data calls outside the prefix.
+        let mut rest = l;
+        while let Some(i) = rest.find("folio.data.") {
+            rest = &rest[i + 11..];
+            let Some(open) = rest.find('(') else { break };
+            let call = &rest[..open];
+            let arg = rest[open + 1..].trim_start();
+            let Some(q) = arg.chars().next().filter(|c| matches!(c, '"' | '\'' | '`')) else { continue };
+            let Some(end) = arg[1..].find(q) else { continue };
+            let key = &arg[1..1 + end];
+            if matches!(call, "get" | "set" | "delete" | "list") && !key.starts_with(prefix) && !(call == "list" && prefix.starts_with(key) && key.is_empty()) {
+                out.push((n as u32 + 1, "F403", format!("line {}: folio.data.{call}(\"{key}\") is outside this sketch's prefix `{prefix}`", n + 1)));
+            }
+        }
+    }
+    let low = html.to_ascii_lowercase();
+    for tag in ["script", "style"] {
+        let opens = low.matches(&format!("<{tag}")).count();
+        let closes = low.matches(&format!("</{tag}")).count();
+        if opens > closes {
+            out.push((0, "F404", format!("a <{tag}> is never closed: the frame would swallow the rest")));
+        }
+    }
+    out
+}
+
+/// The sketch files (`sketches/*.html`): sizes (F401) and their HTML (F402, F403, F404).
+fn sketch_files(input: &Input, prefixes: &BTreeMap<String, String>) -> Vec<Problem> {
+    let mut out = vec![];
+    let push = |out: &mut Vec<Problem>, file: &str, line: Option<u32>, code: &str, message: String, hint: Option<String>| {
+        let severity = cat::rule(code).map_or(Severity::Warn, |r| r.severity);
+        out.push(Problem { file: file.into(), line, col: None, code: code.into(), severity, message, hint, fix: None });
+    };
+    let mut total = 0;
+    for (path, html) in input.texts.iter().filter(|(p, _)| p.starts_with("sketches/") && p.ends_with(".html")) {
+        total += html.len();
+        if html.len() > cat::SKETCH_MAX {
+            push(&mut out, path, None, "F401", format!("the sketch is {} KB (at most 15 KB)", html.len().div_ceil(1024)), Some("move shared parts to sketches/_kit.html".into()));
+        }
+        let prefix = prefixes.get(path).cloned().unwrap_or_else(|| sketch_prefix(None, Some(path), None));
+        for (line, code, msg) in sketch_problems(html, if path.ends_with("/_kit.html") { "" } else { &prefix }) {
+            push(&mut out, path, (line > 0).then_some(line), code, msg, None);
+        }
+    }
+    if total > cat::SKETCHES_MAX {
+        push(&mut out, "sketches/", None, "F401", format!("the folio's sketches are {} KB together (at most 200 KB)", total / 1024), Some("share parts through sketches/_kit.html".into()));
+    }
+    out
 }
 
 /// The links and images of a line: `(is_image, target)`, outside inline code.
@@ -971,5 +1092,22 @@ mod tests {
         assert_eq!(resolve("dir/page.md", "../x.png"), "x.png");
         assert_eq!(resolve("page.md", "./assets/a.png"), "assets/a.png");
         assert_eq!(links("see [a](b.md) and `[c](d)` ![i](x.png \"t\")"), vec![(false, "b.md".to_string()), (true, "x.png".to_string())]);
+    }
+
+    #[test]
+    fn sketches_and_charts() {
+        let page = "---\ntitle: T\n---\n\n```sketch\nsrc: sketches/inbox.html\nframe: phone\n```\n\n```sketch\ntitle: none\n```\n\n```sketch\nsrc: sketches/gone.html\n```\n\n```chart\nsrc: data/u.csv\nx: day\ny: [tokens, cost]\n```\n";
+        let sketch = "<div id=x></div>\n<script src=\"https://cdn.example/x.js\"></script>\n<script>folio.data.set(\"inbox:read\", 1); folio.data.get(\"ranking\")\n";
+        let p = check(&input(&[("index.md", page), ("sketches/inbox.html", sketch), ("data/u.csv", "day,tokens\n1,2\n")]));
+        let codes: Vec<(&str, &str)> = p.iter().map(|x| (x.file.as_str(), x.code.as_str())).collect();
+        for want in [("index.md", "F404"), ("index.md", "F302"), ("index.md", "F304"), ("sketches/inbox.html", "F402"), ("sketches/inbox.html", "F403"), ("sketches/inbox.html", "F404")] {
+            assert!(codes.contains(&want), "{want:?} missing: {p:#?}");
+        }
+        assert_eq!(p.iter().filter(|x| x.code == "F403").count(), 1, "inbox:read is inside the prefix: {p:#?}");
+        assert_eq!(sketch_prefix(None, Some("sketches/inbox.html"), Some("S-1")), "inbox:");
+        assert_eq!(sketch_prefix(None, None, Some("S-1")), "S-1:");
+        assert_eq!(sketch_prefix(Some("poll:"), Some("sketches/a.html"), None), "poll:");
+        let big = format!("<p>{}</p>", "x".repeat(cat::SKETCH_MAX));
+        assert!(check(&input(&[("index.md", "---\ntitle: T\n---\n"), ("sketches/big.html", &big)])).iter().any(|x| x.code == "F401"));
     }
 }
