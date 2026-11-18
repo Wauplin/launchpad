@@ -4,20 +4,23 @@ import type { ContextProject } from "../gen/ContextProject.ts";
 import type { GitHubRef } from "../gen/GitHubRef.ts";
 import type { AgentTraceRef } from "../gen/AgentTraceRef.ts";
 import type { SkillRef } from "../gen/SkillRef.ts";
+import type { FolioRef } from "../gen/FolioRef.ts";
 
 export type PromptDocument = MessageContext & { text: string };
 export const emptyContext = (): MessageContext => ({ context_projects: [], github_refs: [], agent_traces: [], mentions: [], skills: [] });
-export type ContextPick = { kind: "project"; value: ContextProject } | { kind: "github"; value: GitHubRef } | { kind: "trace"; value: AgentTraceRef } | { kind: "skill"; value: SkillRef };
+export type ContextPick = { kind: "project"; value: ContextProject } | { kind: "github"; value: GitHubRef } | { kind: "trace"; value: AgentTraceRef } | { kind: "skill"; value: SkillRef } | { kind: "folio"; value: FolioRef };
 export const projectKey = (p: ContextProject) => `project:${p.project_id}`;
 export const githubKey = (g: GitHubRef) => `github:${g.url}`;
 export const traceKey = (t: AgentTraceRef) => `trace:${t.session_id}:${t.through_seq}`;
 export const skillKey = (s: SkillRef) => `skill:${s.path}`;
-export const pickKey = (p: ContextPick) => p.kind === "project" ? projectKey(p.value) : p.kind === "github" ? githubKey(p.value) : p.kind === "trace" ? traceKey(p.value) : skillKey(p.value);
+/** One folio reference: the folio, and the part of it (page, section, items) it names. */
+export const folioKey = (f: FolioRef) => `folio:${f.id}:${f.page ?? ""}:${f.section ?? ""}:${(f.items ?? []).join(",")}`;
+export const pickKey = (p: ContextPick) => p.kind === "project" ? projectKey(p.value) : p.kind === "github" ? githubKey(p.value) : p.kind === "trace" ? traceKey(p.value) : p.kind === "folio" ? folioKey(p.value) : skillKey(p.value);
 export const contextKeys = (d: Omit<PromptDocument, "text">) => new Set([
-  ...(d.topics ?? []).map(t => `topic:${t.id}`), ...d.context_projects.map(projectKey), ...d.github_refs.map(githubKey), ...d.agent_traces.map(traceKey), ...(d.skills ?? []).map(skillKey),
+  ...(d.topics ?? []).map(t => `topic:${t.id}`), ...(d.folios ?? []).map(folioKey), ...d.context_projects.map(projectKey), ...d.github_refs.map(githubKey), ...d.agent_traces.map(traceKey), ...(d.skills ?? []).map(skillKey),
 ]);
 function without(d: PromptDocument, keys: Set<string>): PromptDocument {
-  return { ...d, topics: d.topics?.filter(t => !keys.has(`topic:${t.id}`)), context_projects: d.context_projects.filter((p) => !keys.has(projectKey(p))), github_refs: d.github_refs.filter((p) => !keys.has(githubKey(p))), agent_traces: d.agent_traces.filter((p) => !keys.has(traceKey(p))), skills: (d.skills ?? []).filter((p) => !keys.has(skillKey(p))) };
+  return { ...d, topics: d.topics?.filter(t => !keys.has(`topic:${t.id}`)), folios: d.folios?.filter((f) => !keys.has(folioKey(f))), context_projects: d.context_projects.filter((p) => !keys.has(projectKey(p))), github_refs: d.github_refs.filter((p) => !keys.has(githubKey(p))), agent_traces: d.agent_traces.filter((p) => !keys.has(traceKey(p))), skills: (d.skills ?? []).filter((p) => !keys.has(skillKey(p))) };
 }
 /** Apply an exact textarea edit, shifting surviving ranges and invalidating overlapping occurrences. */
 export function replaceText<T extends PromptDocument>(doc: T, start: number, end: number, inserted: string): T {
@@ -49,6 +52,7 @@ export function insertMention<T extends PromptDocument>(doc: T, start: number, e
     if (pick.kind === "github") next = { ...next, github_refs: [...next.github_refs, pick.value] };
     if (pick.kind === "trace") next = { ...next, agent_traces: [...next.agent_traces, pick.value] };
     if (pick.kind === "skill") next = { ...next, skills: [...(next.skills ?? []), pick.value] };
+    if (pick.kind === "folio") next = { ...next, folios: [...(next.folios ?? []), pick.value] };
   }
   return { ...next, mentions: [...(next.mentions ?? []), { id: Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(16).padStart(8, "0")).join(""), start, end: start + token.length, text: token, key, owned }] };
 }

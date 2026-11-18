@@ -100,3 +100,9 @@ route("POST", "/api/folios/:ws/:slug/ask-fix", ({ params, body }) => {
   const b = body as { kind: string; session_id?: string; bot_id?: string };
   return { session_id: b.session_id ?? f.folio.links[0]?.session_id ?? "", bot_id: b.kind === "session" ? null : b.bot_id ?? null, thread: null };
 });
+route("POST", "/api/folios/:ws/:slug/ask", ({ params, body }) => {
+  const f = of(params.ws, params.slug);
+  const b = body as { kind: string; session_id?: string; bot_id?: string; text?: string };
+  if (!b.text?.trim()) throw new DemoError(400, "type your question");
+  return { session_id: b.session_id ?? f.folio.links[0]?.session_id ?? "", bot_id: b.kind === "session" ? null : b.bot_id ?? null, thread: null };
+});

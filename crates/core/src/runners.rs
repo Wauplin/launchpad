@@ -1032,16 +1032,23 @@ async fn selection_read(app: &App, id: &str, body: String) -> Result<String> {
 /// accepted it.
 pub async fn deliver(app: &App, runner: &str, id: &str, action: &str, body: Option<String>, key: Option<String>) -> Result<(u16, String)> {
     let mut inherited_membership = None;
+    let mut folios = vec![];
     let body = if action == "input" {
         if let Some(raw) = body {
             let mut value: serde_json::Value = serde_json::from_str(&raw)?;
             if let Some(context) = value.get_mut("context") {
                 let mut ctx: crate::model::MessageContext = serde_json::from_value(context.clone())?;
-                if !ctx.topics.is_empty() || !ctx.agent_traces.is_empty() {
+                if !ctx.topics.is_empty() || !ctx.agent_traces.is_empty() || !ctx.folios.is_empty() {
                     let ws = crate::scope::of_session(app, id).await.context("Context needs a workspace")?;
-                    let inherited = crate::topics::resolve(app, &ws, &mut ctx.topics, &mut ctx.agent_traces).await?;
+                    let mut inherited = crate::topics::resolve(app, &ws, &mut ctx.topics, &mut ctx.agent_traces).await?;
+                    for t in crate::folio_ref::resolve(app, &ws, &mut ctx.folios).await? {
+                        if !inherited.contains(&t) {
+                            inherited.push(t);
+                        }
+                    }
                     ctx.agent_traces.retain(|t| t.session_id != id);
                     for topic in &mut ctx.topics { if let Some(ref mut refs) = topic.snapshot { refs.retain(|t| t.session_id != id); } }
+                    folios = ctx.folios.clone();
                     inherited_membership = Some((ws, inherited));
                     *context = serde_json::to_value(ctx)?;
                 }
@@ -1061,6 +1068,7 @@ pub async fn deliver(app: &App, runner: &str, id: &str, action: &str, body: Opti
     let answer = app.runners.request_with(runner, "POST", &format!("/api/sessions/{id}/{action}"), body, headers).await?;
     if (200..300).contains(&answer.0) && let Some((ws, inherited)) = inherited_membership {
         crate::topics::inherit(app, id, &ws, inherited).await?;
+        crate::folio_ref::link(app, id, &folios).await;
     }
     if let Some(r) = received.filter(|_| (200..300).contains(&answer.0)) {
         crate::bots::record_instructions(app, id, r).await;
@@ -1205,6 +1213,14 @@ async fn launch_placed(app: &App, mut spec: crate::model::LaunchSpec, id: String
         spec.topic_naming = crate::topics::group(app, &ws, &id, &sources, &mut inherited).await?;
         spec.inherited_topics = inherited;
     }
+    if !spec.folios.is_empty() {
+        let ws = crate::scope::of_spec(app, &spec).await.context("Folio context needs a workspace")?;
+        for t in crate::folio_ref::resolve(app, &ws, &mut spec.folios).await? {
+            if !spec.inherited_topics.contains(&t) {
+                spec.inherited_topics.push(t);
+            }
+        }
+    }
     let agent = match spec.from.is_some() {
         true => Some(crate::scope::of_spec(app, &spec).await),
         false => None,
@@ -1307,6 +1323,7 @@ pub(crate) async fn record_placement(app: &App, spec: &crate::model::LaunchSpec,
         None => app.sessions.placeholder(app, placed_record(spec, id, runner_id)?).await?,
     }
     crate::ref_use::record(app, id, spec.bot.as_ref().map(|b| b.id.as_str()), &spec.github_refs).await;
+    crate::folio_ref::link(app, id, &spec.folios).await;
     if let Some(ws) = crate::scope::of_spec(app, spec).await {
         crate::topics::inherit(app, id, &ws, spec.inherited_topics.clone()).await?;
     }

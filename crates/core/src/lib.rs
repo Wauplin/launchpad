@@ -22,6 +22,7 @@ pub mod git_safe;
 pub mod github;
 pub mod harness;
 pub mod files;
+pub mod folio_ref;
 pub mod model;
 pub mod notify;
 pub mod operations;

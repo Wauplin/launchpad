@@ -479,6 +479,10 @@ pub struct MessageContext {
     #[ts(optional, as = "Option<Vec<crate::topics::TopicContext>>")]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub topics: Vec<crate::topics::TopicContext>,
+    /// Folios (or a page, a section or items of one) the message is about: references, resolved by Home (`folio_ref`).
+    #[ts(optional, as = "Option<Vec<FolioRef>>")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folios: Vec<FolioRef>,
     /// Lines of a pull request's diff the message is about (Ask about these lines): a reference, resolved by Home.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -487,6 +491,34 @@ pub struct MessageContext {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub from: Option<MessageFrom>,
+}
+
+/// A folio as context (`MessageContext.folios`, `LaunchSpec.folios`): a reference, never its text. Home checks that
+/// it is a folio of the workspace and freezes its slug, title and rev when it sends the launch or message
+/// (`folio_ref::resolve`); the prompt gets its name and the command that reads it, labeled as agent-written material.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS, PartialEq)]
+#[serde(default)]
+pub struct FolioRef {
+    /// The folio's id (or its slug in a request).
+    pub id: String,
+    pub slug: String,
+    pub title: String,
+    /// The rev the owner looked at (Home fills the latest).
+    #[ts(type = "number | null")]
+    pub rev: Option<i64>,
+    /// One page (`plan.md`), else the whole folio.
+    #[ts(optional)]
+    pub page: Option<String>,
+    /// A section of the page: a heading anchor, a container `{#id}` or a typed block or item id.
+    #[ts(optional)]
+    pub section: Option<String>,
+    /// Typed items (`W1`, `F-07`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional, as = "Option<Vec<String>>")]
+    pub items: Vec<String>,
+    /// Text the owner selected in the folio (a quote from it).
+    #[ts(optional)]
+    pub quote: Option<String>,
 }
 
 /// A line range of a pull request's diff (the extension's Ask about these lines): a reference, never the page's text.
@@ -632,6 +664,10 @@ pub struct LaunchSpec {
     #[ts(optional, as = "Option<Vec<crate::topics::TopicContext>>")]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub topics: Vec<crate::topics::TopicContext>,
+    /// Folios the task is about (`MessageContext::folios`), resolved by Home.
+    #[ts(optional, as = "Option<Vec<FolioRef>>")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folios: Vec<FolioRef>,
     /// Lines of a pull request's diff the task is about (`MessageContext::selection`), resolved by Home.
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]

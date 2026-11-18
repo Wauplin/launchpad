@@ -1,5 +1,7 @@
 // Shared context picker for new tasks and follow-up messages.
 import { TopicChoices } from "@/features/topics/TopicPicker";
+import { FolioChoices } from "@/features/folios/FolioContext";
+import type { FolioRef } from "@/gen/FolioRef";
 import type { TopicContext } from "@/gen/TopicContext";
 import { useState } from "react";
 import type { AgentTraceRef } from "@/gen/AgentTraceRef";
@@ -60,9 +62,12 @@ export type PresetPick = { presets: Preset[]; selected: string[]; onChange: (ids
 export type AttachPick = { onPick: () => void; images: boolean; disabled?: boolean };
 
 /** The "+ Add context" popover: one menu for attachments, projects, GitHub links, agent traces, presets and recent contexts. */
-export function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject, onGitHub, onToggleTrace, presets, attach, topics = [], onTopic, disabled, compact = false, icon = false }: {
+export function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject, onGitHub, onToggleTrace, presets, attach, topics = [], onTopic, onFolio, disabled, compact = false, icon = false }: {
   topics?: TopicContext[];
   onTopic?: (topic: TopicContext) => void;
+  folios?: FolioRef[];
+  /** Folio…: a folio of the workspace (whole, or one page), as a reference. */
+  onFolio?: (folio: FolioRef) => void;
   disabled?: boolean;
   compact?: boolean;
   /** Only a "+" icon button, for the icon row of a message box. */
@@ -79,7 +84,7 @@ export function AddContextMenu({ projects, recent, sessions, selectedTraces, onP
   /** Omitted where the box takes no attachments. */
   attach?: AttachPick;
 }) {
-  const [mode, setMode] = useState<"menu" | "project" | "github" | "trace" | "preset" | "topic">("menu");
+  const [mode, setMode] = useState<"menu" | "project" | "github" | "trace" | "preset" | "topic" | "folio">("menu");
   const [sheet, setSheet] = useState(false);
   const phone = usePhone();
   const presetCount = presets ? presets.presets.filter((p) => presets.selected.includes(p.id)).length : 0;
@@ -87,6 +92,7 @@ export function AddContextMenu({ projects, recent, sessions, selectedTraces, onP
   const body = (close: () => void) => {
     const back = <MenuItem icon={<Icon name="chev" size={12} className="rotate-90" />} label="Back" onClick={() => setMode("menu")} />;
     if (mode === "topic") return <>{back}<TopicChoices exclude={topics.map(t => t.id)} close={close} onPick={t => onTopic?.({id:t.id,name:t.name})} /></>;
+    if (mode === "folio") return <>{back}<FolioChoices close={close} onPick={(f) => onFolio?.(f)} /></>;
     if (mode === "project") return <>{back}<ProjectPicker projects={projects} temporary={false} emptyMessage="No other folder." onPick={(p) => { if (p) { onProject(p); close(); } }} /></>;
     if (mode === "github") return <>{back}<GitHubLinkForm onAdd={onGitHub} onDone={close} /></>;
     if (mode === "preset" && presets) return <>{back}<PresetChecklist presets={presets.presets} selected={presets.selected} onChange={presets.onChange} close={close} /></>;
@@ -97,6 +103,7 @@ export function AddContextMenu({ projects, recent, sessions, selectedTraces, onP
         <MenuItem icon={<Icon name="folder" size={12} />} label="Folder…" detail="Another folder as read-only context" onClick={() => setMode("project")} />
         <MenuItem icon={<Icon name="issue" size={12} />} label="GitHub link…" detail="An issue, PR or comment URL" onClick={() => setMode("github")} />
         {onTopic && <MenuItem icon={<Icon name="tag" size={12} />} label="Topic…" detail="The traces of every session in a topic" onClick={() => setMode("topic")} />}
+        {onFolio && <MenuItem icon={<Icon name="folio" size={12} />} label="Folio…" detail="A folio or one of its pages, read by the agent" onClick={() => setMode("folio")} />}
         <MenuItem icon={<Icon name="agents" size={12} />} label="Agent trace…" detail="The stored trace of another agent" onClick={() => setMode("trace")} />
         {presets && <MenuItem icon={<Icon name="preset" size={12} />} label={presetCount ? `Presets… · ${presetCount}` : "Presets…"} detail="Your usual instructions, added after the text" onClick={() => setMode("preset")} />}
         {!!recent.length && <div className="px-[9px] pt-2 pb-1 seclabel">Recent contexts</div>}

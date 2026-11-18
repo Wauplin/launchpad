@@ -1140,7 +1140,7 @@ pub async fn send(app: &App, ws: &str, slug: &str, to: SendTo) -> Result<Value> 
     if let Some(n) = note {
         text = format!("{n}\n\n{text}");
     }
-    let session = deliver(app, ws, &f, &to, text).await?;
+    let session = deliver(app, ws, &f, &to, text, Default::default()).await?;
     // Only the marks the message counted: a mark saved or changed meanwhile stays unsent.
     let ids: Vec<(i64, i64)> = unsent.iter().map(|m| (m.id, m.seq)).collect();
     let at = now_ms();
@@ -1170,13 +1170,49 @@ pub async fn ask_fix(app: &App, ws: &str, slug: &str, to: SendTo) -> Result<Valu
     if let Some(n) = to.note.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
         text = format!("{n}\n\n{text}");
     }
-    let session = deliver(app, ws, &f, &to, text).await?;
-    Ok(json!({"session_id": session.id, "bot_id": session.launch_spec.bot.as_ref().map(|b| b.id.clone()), "thread": session.launch_spec.bot.as_ref().map(|b| b.thread_id().to_string())}))
+    let session = deliver(app, ws, &f, &to, text, Default::default()).await?;
+    Ok(sent(&session))
+}
+
+fn sent(session: &launchpad_core::model::Session) -> Value {
+    json!({"session_id": session.id, "bot_id": session.launch_spec.bot.as_ref().map(|b| b.id.clone()), "thread": session.launch_spec.bot.as_ref().map(|b| b.thread_id().to_string())})
+}
+
+/// The reader's Ask: the owner's question about a folio (or a page, a section, a quote of it).
+#[derive(Clone, Debug, Deserialize, TS)]
+#[ts(rename = "FolioAsk")]
+pub struct Ask {
+    pub text: String,
+    #[ts(optional)]
+    pub page: Option<String>,
+    #[ts(optional)]
+    pub section: Option<String>,
+    #[ts(optional)]
+    pub quote: Option<String>,
+    /// The rev the owner read.
+    #[ts(optional, type = "number")]
+    pub rev: Option<i64>,
+    /// Where it goes, like Send feedback (default: the folio's thread, else its key `folio:<id>` of `bot_id`).
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub to: SendTo,
+}
+
+/// Ask: the owner's question goes to the folio's thread (or a session that wrote it, or a new thread of a bot), with
+/// the folio (its page, section and the selected quote) as context, a reference Home resolves. Marks stay unsent.
+pub async fn ask(app: &App, ws: &str, slug: &str, a: Ask) -> Result<Value> {
+    let f = get(app, ws, slug).await?;
+    let text = a.text.trim().to_string();
+    ensure!(!text.is_empty(), "type your question");
+    let mut context = launchpad_core::model::MessageContext::default();
+    context.folios.push(launchpad_core::model::FolioRef { id: f.id.clone(), slug: f.slug.clone(), title: f.title.clone(), rev: a.rev, page: a.page, section: a.section.filter(|s| !s.is_empty()), items: vec![], quote: a.quote });
+    let session = deliver(app, ws, &f, &a.to, text, context).await?;
+    Ok(sent(&session))
 }
 
 /// The owner's message about a folio to its thread, a session of the workspace or a new thread of a bot (which
 /// becomes the folio's thread, with the folio's topic as context). The session that got it joins the topic.
-async fn deliver(app: &App, ws: &str, f: &Folio, to: &SendTo, text: String) -> Result<launchpad_core::model::Session> {
+async fn deliver(app: &App, ws: &str, f: &Folio, to: &SendTo, text: String, mut context: launchpad_core::model::MessageContext) -> Result<launchpad_core::model::Session> {
     use launchpad_core::bot_threads::{self, Source, To};
     let session = match to.kind.as_str() {
         "thread" | "new_thread" => {
@@ -1195,7 +1231,6 @@ async fn deliver(app: &App, ws: &str, f: &Folio, to: &SendTo, text: String) -> R
                 Some(t) => To::Thread(t),
                 None => bot_threads::route(Source::Folio { id: &f.id, title: &f.title, new: false }),
             };
-            let mut context = launchpad_core::model::MessageContext::default();
             if new && let Some(t) = &f.topic_id && let Ok(topic) = launchpad_core::topics::get(app, t).await {
                 context.topics.push(launchpad_core::topics::TopicContext { id: topic.id, name: topic.name, snapshot: None, notes: vec![] });
             }
@@ -1210,7 +1245,7 @@ async fn deliver(app: &App, ws: &str, f: &Folio, to: &SendTo, text: String) -> R
         "session" => {
             let id = to.session_id.clone().context("choose a session")?;
             ensure!(launchpad_core::scope::of_session(app, &id).await.as_deref() == Some(ws), "this session belongs to another workspace");
-            launchpad_core::runners::send_anywhere(app, &id, &text, vec![], None).await?;
+            launchpad_core::runners::send_anywhere_with(app, &id, &text, vec![], context, None).await?;
             app.sessions.get(&id).context("the session disappeared")?
         }
         k => bail!("unknown target {k:?}: thread, session or new_thread"),

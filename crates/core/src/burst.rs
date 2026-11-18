@@ -536,6 +536,7 @@ pub async fn launch(app: &App, spec: LaunchSpec, id: String, automatic: bool) ->
     let s = crate::runners::placed_record(&spec, &id, &run.runner_id)?;
     app.sessions.placeholder(app, s.clone()).await?;
     crate::ref_use::record(app, &id, spec.bot.as_ref().map(|b| b.id.as_str()), &spec.github_refs).await;
+    crate::folio_ref::link(app, &id, &spec.folios).await;
     Ok(s)
 }
 

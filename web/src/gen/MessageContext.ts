@@ -2,6 +2,7 @@
 import type { AgentTraceRef } from "./AgentTraceRef";
 import type { ContextProject } from "./ContextProject";
 import type { DiffSelection } from "./DiffSelection";
+import type { FolioRef } from "./FolioRef";
 import type { GitHubRef } from "./GitHubRef";
 import type { MessageFrom } from "./MessageFrom";
 import type { PromptMention } from "./PromptMention";
@@ -12,6 +13,10 @@ import type { TopicContext } from "./TopicContext";
  * Context attached to one follow-up message. Folders are always read-only references.
  */
 export type MessageContext = { mentions: Array<PromptMention>, skills: Array<SkillRef>, context_projects: Array<ContextProject>, github_refs: Array<GitHubRef>, agent_traces: Array<AgentTraceRef>, topics?: Array<TopicContext>, 
+/**
+ * Folios (or a page, a section or items of one) the message is about: references, resolved by Home (`folio_ref`).
+ */
+folios?: Array<FolioRef>, 
 /**
  * Lines of a pull request's diff the message is about (Ask about these lines): a reference, resolved by Home.
  */

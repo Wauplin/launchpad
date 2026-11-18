@@ -10,7 +10,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use base64::Engine;
-use launchpad_automation::folios::{self, Activity, Folio, FolioDetail, Mark, MarkInput, Op, Rev, SendTo, Target, Written};
+use launchpad_automation::folios::{self, Activity, Ask, Folio, FolioDetail, Mark, MarkInput, Op, Rev, SendTo, Target, Written};
 use launchpad_automation::folio_check::Problem;
 use launchpad_core::kb::Author;
 use launchpad_http::AgentSession;
@@ -44,6 +44,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/folios/{workspace}/{slug}/targets", get(targets))
         .route("/api/folios/{workspace}/{slug}/send", post(send))
         .route("/api/folios/{workspace}/{slug}/ask-fix", post(ask_fix))
+        .route("/api/folios/{workspace}/{slug}/ask", post(ask))
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -330,4 +331,9 @@ async fn send(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, ag
 async fn ask_fix(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(to): Json<SendTo>) -> ApiResult<Value> {
     owner_only(&agent, "Ask the author to fix")?;
     Ok(Json(Box::pin(folios::ask_fix(&s.app, &ws, &slug, to)).await.map_err(bad)?))
+}
+
+async fn ask(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(a): Json<Ask>) -> ApiResult<Value> {
+    owner_only(&agent, "Ask about a folio")?;
+    Ok(Json(Box::pin(folios::ask(&s.app, &ws, &slug, a)).await.map_err(bad)?))
 }

@@ -9,6 +9,7 @@ import type { FolioDetail } from "@/gen/FolioDetail";
 import type { FolioMark } from "@/gen/FolioMark";
 import type { FolioRev } from "@/gen/FolioRev";
 import type { FolioTarget } from "@/gen/FolioTarget";
+import type { FolioRef } from "@/gen/FolioRef";
 import { api } from "./api";
 import { daemonAsset } from "./connection";
 
@@ -59,3 +60,19 @@ export const VERDICT_LABEL: Record<string, string> = { do: "Do", later: "Later",
 
 /** Text of a YAML value for display (YAML reads numbers and dates as other types). */
 export const txt = (v: unknown): string => (v == null ? "" : typeof v === "string" ? v : typeof v === "number" || typeof v === "boolean" ? String(v) : JSON.stringify(v));
+
+/** Adds a folio reference to a context list (the same folio and part only once). */
+export function addFolio(list: FolioRef[] | undefined, ref: FolioRef): FolioRef[] {
+  const key = (f: FolioRef) => `${f.id}:${f.page ?? ""}:${f.section ?? ""}:${(f.items ?? []).join(",")}`;
+  const all = list ?? [];
+  return all.some((f) => key(f) === key(ref)) ? all : [...all, ref];
+}
+
+/** "Roadmap › plan.md › waves", "Roadmap · W1, F-07": the part of a folio a reference names. */
+export function folioRefLabel(f: FolioRef): string {
+  const part = f.section ? ` › ${f.section}` : f.items?.length ? ` · ${f.items.join(", ")}` : f.page && f.page !== "index.md" ? ` › ${f.page}` : "";
+  return `${f.title || f.slug}${part}`;
+}
+
+/** A reference to a whole folio (or one part of it) for a context. */
+export const folioRef = (f: Pick<Folio, "id" | "slug" | "title" | "rev">, part: Partial<Pick<FolioRef, "page" | "section" | "items" | "quote" | "rev">> = {}): FolioRef => ({ id: f.id, slug: f.slug, title: f.title, rev: f.rev, ...part });

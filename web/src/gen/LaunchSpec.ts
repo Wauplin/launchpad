@@ -5,6 +5,7 @@ import type { ContextProject } from "./ContextProject";
 import type { DiffSelection } from "./DiffSelection";
 import type { FileAttachment } from "./FileAttachment";
 import type { FileRef } from "./FileRef";
+import type { FolioRef } from "./FolioRef";
 import type { GitHubRef } from "./GitHubRef";
 import type { HarnessKind } from "./HarnessKind";
 import type { MessageFrom } from "./MessageFrom";
@@ -48,6 +49,10 @@ files: Array<FileRef>,
  * Stored trace through a fixed sequence number, selected as launch context.
  */
 agent_traces: Array<AgentTraceRef>, topics?: Array<TopicContext>, 
+/**
+ * Folios the task is about (`MessageContext::folios`), resolved by Home.
+ */
+folios?: Array<FolioRef>, 
 /**
  * Lines of a pull request's diff the task is about (`MessageContext::selection`), resolved by Home.
  */

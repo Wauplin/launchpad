@@ -38,6 +38,8 @@ export type MarkApi = {
   open: (page: string, anchor?: string) => void;
   /** Opens another folio of the workspace (`folio:<slug>` links). */
   openFolio: (slug: string) => void;
+  /** A prompt block's Launch: the composer with its text (and its folder hint), the folio as context. */
+  launchPrompt?: (text: string, folder: string | null, section: string | null) => void;
 };
 
 const Marks = createContext<MarkApi | null>(null);
@@ -423,11 +425,17 @@ const Table: R = ({ v }) => {
   return <div className="folio-table">{v.caption != null && <div className="folio-caption">{txt(v.caption)}</div>}<table>{head.length > 0 && <thead><tr>{head.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>}<tbody>{rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j}><Inline text={c} /></td>)}</tr>)}</tbody></table></div>;
 };
 
-const Prompt: R = ({ v }) => <div className="folio-prompt">
-  <div className="folio-wave-head"><b>{txt(v.title) || "Prompt"}</b><button type="button" className="btn btn-sm" onClick={() => void copyText(txt(v.text)).then(() => toast("Prompt copied"))}><Icon name="copy" size={12} />Copy</button></div>
+const Prompt: R = ({ v }) => {
+  const marks = useMarks();
+  return <div className="folio-prompt" id={id(v) ? `f-${id(v)}` : undefined}>
+  <div className="folio-wave-head"><b>{txt(v.title) || "Prompt"}</b>
+    <button type="button" className="btn btn-sm" onClick={() => void copyText(txt(v.text)).then(() => toast("Prompt copied"))}><Icon name="copy" size={12} />Copy</button>
+    {marks.launchPrompt && <button type="button" className="btn btn-sm" title="Open the composer with this prompt and the folio as context (nothing starts before you click Launch there)" onClick={() => marks.launchPrompt!(txt(v.text), v.folder != null ? txt(v.folder) : null, id(v) || null)}><Icon name="plus" size={12} />Launch with this prompt</button>}
+  </div>
   <pre>{txt(v.text)}</pre>
   {(v.profile != null || v.folder != null) && <div className="folio-item-meta">{[v.profile != null && `profile: ${txt(v.profile)}`, v.folder != null && `folder: ${txt(v.folder)}`].filter(Boolean).join(" · ")}</div>}
 </div>;
+};
 
 const Sources: R = ({ v }) => <ol className="folio-sources">{list(v.items).map((s, i) => <li key={i}>{safeHref(s.url) ? <a href={safeHref(s.url)} target="_blank" rel="noreferrer noopener">{txt(s.title) || txt(s.url)}</a> : <b>{txt(s.title)}{s.url != null ? ` (${txt(s.url)})` : ""}</b>}{s.note != null && <span className="folio-item-meta"> · <Inline text={s.note} /></span>}</li>)}</ol>;
 

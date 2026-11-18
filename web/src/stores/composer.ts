@@ -8,7 +8,7 @@ import { isPhone } from "../lib/phone.ts";
 import { storageAllowed } from "../lib/clientStorage.ts";
 import { useSaveStatus } from "../lib/saveStatus.ts";
 import { create } from "zustand";
-import { reconcile } from "../lib/promptDocument.ts";
+import { folioKey, reconcile } from "../lib/promptDocument.ts";
 import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import type { ContextProject } from "@/gen/ContextProject";
 import type { WhenDone } from "@/gen/WhenDone";
@@ -57,6 +57,8 @@ export type LaunchContext = {
   files?: FileRef[];
   agentTraces?: AgentTraceRef[];
   topics?: import("@/gen/TopicContext").TopicContext[];
+  /** Folios (or parts of them) as references. */
+  folios?: import("@/gen/FolioRef").FolioRef[];
   text?: string;
 };
 
@@ -312,9 +314,10 @@ export const useComposer = create<Composer>((set, get) => ({
       if (!spec.context_projects.some((p) => p.project_id === c.project_id)) spec.context_projects = [...spec.context_projects, c];
     for (const trace of ctx?.agentTraces ?? []) if (!(spec.agent_traces ?? []).some((t) => t.session_id === trace.session_id)) spec.agent_traces = [...(spec.agent_traces ?? []), trace];
     if (ctx?.topics) spec.topics = [...(spec.topics ?? []), ...ctx.topics.filter(t => !spec.topics?.some(p => p.id === t.id))];
+    for (const f of ctx?.folios ?? []) if (!(spec.folios ?? []).some((g) => folioKey(g) === folioKey(f))) spec.folios = [...(spec.folios ?? []), f];
     if (ctx?.text) spec.text = ctx.text;
     // Adding context items to a minimized draft keeps it minimized (the pill flashes); Launch buttons open it.
-    const collect = !!ctx && ctx.projectId === undefined && !!(ctx.githubRefs?.length || ctx.files?.length || ctx.contextProjects?.length || ctx.agentTraces?.length);
+    const collect = !!ctx && ctx.projectId === undefined && !!(ctx.githubRefs?.length || ctx.files?.length || ctx.contextProjects?.length || ctx.agentTraces?.length || ctx.folios?.length);
     set({ open: true, minimized: get().open && get().minimized && collect, spec });
     save(spec, true, get().conditions);
   },

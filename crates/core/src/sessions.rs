@@ -1016,6 +1016,10 @@ impl Sessions {
             let ws = crate::scope::of_spec(app, &spec).await.context("Context needs a workspace")?;
             crate::topics::resolve(app, &ws, &mut spec.topics, &mut spec.agent_traces).await?;
         }
+        if app.paths.role == crate::role::Role::Home && !spec.folios.is_empty() {
+            let ws = crate::scope::of_spec(app, &spec).await.context("Folio context needs a workspace")?;
+            crate::folio_ref::resolve(app, &ws, &mut spec.folios).await?;
+        }
         self.resolve(app, &spec, false).await
     }
 
@@ -1077,6 +1081,7 @@ impl Sessions {
             prompt.push_str(&crate::compose::trace_references(&traces, &cli));
         }
         prompt.push_str(&crate::compose::topic_notes(&spec.topics));
+        prompt.push_str(&crate::folio_ref::notes(&spec.folios, &cli));
         marks.push(("folder", "Folder and worktrees", prompt.len()));
         if !for_launch && !prompt.trim().is_empty() && matches!(spec.target, Target::Predraft { .. } | Target::ExistingPredraft { .. }) {
             prompt.push_str("\n\nWork on the Local PR's branch in a fresh worktree. Commit your changes, update the Local PR title and description with launchpad pr update. Do not open a pull request on GitHub.");
@@ -2021,6 +2026,7 @@ impl Sessions {
             prompt.push_str(&crate::compose::trace_references(&traces, &app.paths.cli_command()));
         }
         prompt.push_str(&crate::compose::topic_notes(&context.topics));
+        prompt.push_str(&crate::folio_ref::notes(&context.folios, &app.paths.cli_command()));
         self.send_locked(app, id, &prompt, images, InputMode::Manual, client_id, context.from).await
     }
 

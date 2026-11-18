@@ -891,6 +891,7 @@ pub async fn next_spec(app: &App, bot: &Bot, thread: &str, previous: Option<&Ses
         github_refs: context.github_refs,
         agent_traces: context.agent_traces,
         topics: context.topics,
+        folios: context.folios,
         selection: context.selection,
         ..Default::default()
     })

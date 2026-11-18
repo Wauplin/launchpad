@@ -17,15 +17,17 @@ import { toast, toastError } from "@/components/Toast";
 import { runAction } from "@/lib/actions";
 import { useBots } from "@/lib/bots";
 import { ago, when } from "@/lib/format";
-import { marksSummary, unsentMarks, useFolio, useFolioDiff, useFolioRevs, useFolioTargets, VERDICT_LABEL } from "@/lib/folios";
+import { useComposer } from "@/stores/composer";
+import { folioRef, marksSummary, unsentMarks, useFolio, useFolioDiff, useFolioRevs, useFolioTargets, VERDICT_LABEL } from "@/lib/folios";
 import { usePhone } from "@/lib/phone";
 import { useScope } from "@/lib/workspace";
 import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { Sheet } from "@/mobile/Sheet";
 import { phoneBack } from "@/mobile/back";
 import { FolioPageView, type MarkApi } from "./render";
+import { AgentsButton, AskPanel, FolioAgents, FolioSwitcher, launchWith, type FolioPart } from "./FolioBar";
 
-export type Panel = "comments" | "versions" | "problems";
+export type Panel = "comments" | "versions" | "problems" | "ask";
 type Nav = { page?: string; rev?: number; panel?: Panel };
 type Draft = { target: string; page: string; quote?: string; prefix?: string; suffix?: string; text: string };
 
@@ -48,8 +50,11 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
   const latest = useFolio(ws, slug, null);
   const d = q.data;
   const qc = useQueryClient();
+  const scope = useScope();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [toc, setToc] = useState(false);
+  const [asking, setAsking] = useState<FolioPart>({});
+  const [agents, setAgents] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const pagePath = nav.page && d?.pages.some((p) => p.path === nav.page) ? nav.page : d?.pages[0]?.path ?? "index.md";
   const page = d?.pages.find((p) => p.path === pagePath) ?? null;
@@ -64,7 +69,11 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     comment: (target, quote) => { setDraft({ target, page: pagePath, text: "", ...quote }); setPanel("comments"); },
     open: (p, anchor) => { onNav({ page: p }); if (anchor) requestAnimationFrame(() => document.getElementById(`f-${anchor}`)?.scrollIntoView({ block: "start" })); },
     openFolio: (other) => void navigate({ to: "/folios/$slug", params: { slug: other } }),
-  }, [d, ws, slug, nav.rev, pagePath, readOnly, refresh, onNav, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+    launchPrompt: (text, folder, section) => {
+      const project = folder ? scope.projects.find((p) => p.name.toLowerCase() === folder.toLowerCase()) : undefined;
+      useComposer.getState().start({ text, ...(project ? { projectId: project.id } : {}), folios: [folioRef(d.folio, { rev: nav.rev ?? d.folio.rev, page: pagePath, section: section ?? undefined })] });
+    },
+  }, [d, ws, slug, nav.rev, pagePath, readOnly, refresh, onNav, navigate, scope.projects]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A selection in the page offers Comment, with the quote and its surroundings (so the comment survives edits).
   const [selection, setSelection] = useState<{ x: number; y: number; target: string; quote: string; prefix: string; suffix: string } | null>(null);
@@ -106,12 +115,18 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
   </nav>;
 
   const sideBody = (p: Panel) => p === "comments" ? <CommentsPanel d={d} ws={ws} slug={slug} draft={draft} setDraft={setDraft} readOnly={readOnly} refresh={refresh} jump={(m) => { if (m.page && m.page !== pagePath) onNav({ page: m.page }); if (m.target) requestAnimationFrame(() => jump(m.target!)); }} />
+    : p === "ask" ? <AskPanel f={f} rev={nav.rev ?? null} part={asking.page ? asking : { page: pagePath }} done={() => setPanel(null)} />
     : p === "versions" ? <VersionsPanel ws={ws} slug={slug} current={nav.rev ?? null} latest={latest.data?.folio.rev ?? f.rev} view={(rev) => onNav({ rev: rev ?? undefined })} />
     : <ProblemsPanel d={d} ws={ws} slug={slug} readOnly={readOnly} jump={(file, line) => { if (file !== pagePath && d.pages.some((x) => x.path === file)) onNav({ page: file }); void line; }} />;
-  const PANEL_TITLE: Record<Panel, string> = { comments: "Comments", versions: "Versions", problems: "Problems" };
+  const PANEL_TITLE: Record<Panel, string> = { comments: "Comments", versions: "Versions", problems: "Problems", ask: "Ask" };
+  const ask = (part: FolioPart) => { setAsking(part); setPanel("ask"); };
+  const launch = (part: FolioPart) => launchWith(f, nav.rev ?? null, part);
 
   const send = <SendFeedback ws={ws} slug={slug} unsent={unsent} />;
   const menu = (close: () => void) => <>
+    {phone && <MenuItem icon={<Icon name="send" size={14} />} label="Ask" detail="A question to the folio's agent" onClick={() => { close(); ask({ page: pagePath }); }} />}
+    {phone && <MenuItem icon={<Icon name="plus" size={14} />} label="Launch" detail="A new agent with this folio as context" onClick={() => { close(); launch({ page: pagePath }); }} />}
+    {phone && <MenuItem icon={<Icon name="agents" size={14} />} label="Agents on this folio" detail={`${f.links.length}`} onClick={() => { close(); setAgents(true); }} />}
     <MenuItem icon={<Icon name="comment" size={14} />} label="Comments" detail={`${f.open} open`} onClick={() => { close(); setPanel("comments"); }} />
     <MenuItem icon={<Icon name="clock" size={14} />} label="Versions" detail={`rev ${f.rev}`} onClick={() => { close(); setPanel("versions"); }} />
     {d.problems.length > 0 && <MenuItem icon={<Icon name="alert" size={14} />} label="Problems" detail={`${errors} error${errors === 1 ? "" : "s"}, ${warnings} warning${warnings === 1 ? "" : "s"}`} onClick={() => { close(); setPanel("problems"); }} />}
@@ -134,7 +149,11 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
       {!page && <Empty icon="folio">This folio has no pages yet.</Empty>}
       {d.pages.length > 1 && page && <PageSteps pages={d.pages.map((p) => ({ path: p.path, title: p.title }))} current={page.path} go={(p) => { onNav({ page: p }); scroller.current?.scrollTo({ top: 0 }); }} />}
     </div>
-    {selection && <button type="button" className="btn btn-sm btn-primary fixed z-40 -translate-x-1/2 -translate-y-full shadow-lg" style={{ left: selection.x, top: selection.y - 6 }} onMouseDown={(e) => e.preventDefault()} onClick={() => { setDraft({ target: selection.target, page: pagePath, quote: selection.quote, prefix: selection.prefix, suffix: selection.suffix, text: "" }); setPanel("comments"); setSelection(null); window.getSelection()?.removeAllRanges(); }}><Icon name="comment" size={12} />Comment</button>}
+    {selection && <div role="toolbar" aria-label="Selected text" className="fixed z-40 flex -translate-x-1/2 -translate-y-full gap-1 rounded-card border border-line bg-paper p-1 shadow-lg" style={{ left: selection.x, top: selection.y - 6 }} onMouseDown={(e) => e.preventDefault()}>
+      <button type="button" className="btn btn-sm btn-primary" title="Comment on this text (saved on Home, sent with Send feedback)" onClick={() => { setDraft({ target: selection.target, page: pagePath, quote: selection.quote, prefix: selection.prefix, suffix: selection.suffix, text: "" }); setPanel("comments"); setSelection(null); window.getSelection()?.removeAllRanges(); }}><Icon name="comment" size={12} />Comment</button>
+      <button type="button" className="btn btn-sm" title="Ask the folio's agent about this text" onClick={() => { ask({ page: pagePath, section: selection.target, quote: selection.quote }); setSelection(null); window.getSelection()?.removeAllRanges(); }}><Icon name="send" size={12} />Ask bot</button>
+      <button type="button" className="btn btn-sm" title="Open the composer with this part of the folio as context" onClick={() => { launch({ page: pagePath, section: selection.target, quote: selection.quote }); setSelection(null); window.getSelection()?.removeAllRanges(); }}><Icon name="plus" size={12} />Launch</button>
+    </div>}
   </div>;
 
   if (phone) return <div className="flex h-full min-h-0 flex-col bg-paper" data-tour="folio.reader">
@@ -144,16 +163,20 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     {body}
     {toc && <Sheet title="Contents" onClose={() => setToc(false)}><div className="p-2">{contents}</div></Sheet>}
     {panel && <Sheet title={PANEL_TITLE[panel]} full onClose={() => setPanel(null)}>{sideBody(panel)}</Sheet>}
+    {agents && <Sheet title="Agents on this folio" onClose={() => setAgents(false)}><FolioAgents f={f} close={() => setAgents(false)} /></Sheet>}
   </div>;
 
   return <div className="flex h-full min-h-0 flex-col bg-paper" data-tour="folio.reader">
     <div className="flex min-h-[44px] flex-none flex-wrap items-center gap-2 border-b border-line px-5 py-1.5">
-      {!embedded && <Link to="/folios" className="text-[13px] text-ink-3 no-underline hover:text-ink">Folios</Link>}
+      {!embedded && <FolioSwitcher current={slug} />}
       {!embedded && <span className="text-ink-3">/</span>}
       <b className="min-w-0 truncate text-[13px]" title={f.title}>{f.title}</b>
       <span className="text-[12px] text-ink-3 whitespace-nowrap">{meta}</span>
       <span className="ml-auto flex items-center gap-1.5">
         {problemsButton}
+        <AgentsButton f={f} />
+        <button type="button" className="btn btn-sm" aria-pressed={panel === "ask"} onClick={() => panel === "ask" ? setPanel(null) : ask({ page: pagePath })} title="Ask the folio's agent a question, with this page as context"><Icon name="send" size={12} />Ask</button>
+        <button type="button" className="btn btn-sm" onClick={() => launch({ page: pagePath })} title="Open the composer with this folio as context"><Icon name="plus" size={12} />Launch</button>
         <button type="button" className="btn btn-sm" aria-pressed={panel === "comments"} onClick={() => setPanel(panel === "comments" ? null : "comments")}><Icon name="comment" size={12} />Comments{f.open ? ` · ${f.open}` : ""}</button>
         {send}
         {embedded && <Link to="/folios/$slug" params={{ slug }} className="iconbtn" title="Open full screen" aria-label="Open full screen"><Icon name="expand" size={14} /></Link>}

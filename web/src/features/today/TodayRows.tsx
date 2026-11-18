@@ -35,6 +35,8 @@ import { suggestionItemUrl } from "@/lib/githubLinks";
 import { openExternal } from "@/lib/platform";
 import { usePhone } from "@/lib/phone";
 import { useSession } from "@/lib/queries";
+import { useFolios } from "@/lib/folios";
+import { useScope } from "@/lib/workspace";
 import type { TodayItem } from "./data";
 import { CliUpdateDetails } from "@/features/settings/CliUpdates";
 import { FixMergeButton, MergeButton, NotMerged, SessionMeta, useBranch, useOpenQuestion } from "./TodayCards";
@@ -256,14 +258,17 @@ function FinishedRow(p: RowProps) {
   const { t, safe, facts, work, stopped } = branch;
   const phone = usePhone();
   const reply = useReply(p, s);
+  // A folio the agent created or edited: Open folio is its main action (unless a merge stopped or a Local PR waits).
+  const folio = (useFolios(useScope().workspace.id).data ?? []).find((f) => f.links.some((l) => l.session_id === item.record && l.role !== "attached"));
   return <Row {...p} age={!s} meta={<><SessionMeta s={s} item={item} />{stopped && <span className="flex-none font-semibold whitespace-nowrap text-attn">· Not merged</span>}</>}
     main={stopped ? <FixMergeButton sessionId={item.record} branch={branch} label={phone ? "Fix" : undefined} primary={false} />
       : pr ? <ReviewLocalPr id={pr.record} />
+      : folio ? <Link className="btn btn-sm no-underline" to="/folios/$slug" params={{ slug: folio.slug }} title={`Open the folio ${folio.title} (rev ${folio.rev})`}>{phone ? "Open" : "Open folio"}</Link>
       : safe ? <MergeButton sessionId={item.record} branch={branch} label="Merge" primary={false} onMerged={() => runAction("session.seen", { id: item.record }).catch(toastError)} />
       : work ? <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record, view: "changes" }} title="Review the changes of the agent">Changes</Link>
       : !loading && (s?.launch_spec.bot ? <OpenChat bot={s.launch_spec.bot} /> : <Link className="btn btn-sm no-underline" to="/agents" search={{ session: item.record }} title="Open the agent at its last message">Read</Link>)}
     second={!phone && <Archive id={item.record} />}
-    menu={SessionMenu({ id: item.record, open: !!stopped || !!pr || safe || work || loading || !!s?.launch_spec.bot, archive: phone, reply: reply.open })}
+    menu={SessionMenu({ id: item.record, open: !!stopped || !!pr || !!folio || safe || work || loading || !!s?.launch_spec.bot, archive: phone, reply: reply.open })}
     details={(s?.last_message || facts || stopped || reply.box) && <>
       <NotMerged branch={branch} />
       <Last text={s?.last_message} id={item.record} seq={s?.last_seq} />

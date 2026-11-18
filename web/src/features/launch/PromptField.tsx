@@ -16,6 +16,7 @@ import type { SkillResults } from "@/gen/SkillResults";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { GhItem } from "@/gen/GhItem";
 import { matchScore } from "./ProjectPicker";
+import { folioRef, useFolios } from "@/lib/folios";
 
 export { itemIcon } from "./itemIcon";
 export { mentionAt } from "@/lib/promptTriggers";
@@ -57,9 +58,15 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   const skillParams = new URLSearchParams({ harness: harness ?? "", ...(profile ? { profile } : {}), ...(root ? { root } : {}) });
   const skills = useQuery({ queryKey: ["prompt-skills", root, harness, profile], queryFn: ({ signal }) => api.get<SkillResults>(`/api/prompt/skills?${skillParams}`, signal), enabled: autocomplete && mention?.trigger === "/" && !!harness, staleTime: 30_000 });
   const gh = useQuery({ queryKey: ["gh-suggest", repo, debounced], queryFn: ({ signal }) => api.get<GhItem[]>(`/api/gh/${repo}/suggest?q=${encodeURIComponent(debounced)}`, signal), enabled: mention?.trigger === "#" && !!repo, staleTime: 60_000 });
+  const folios = useFolios(autocomplete && mention?.trigger === "@" ? scope.workspace.id : null);
   const query = (mention?.query ?? "").toLowerCase();
   const rank = (text: string) => matchScore(text, query);
   const suggestions: Suggestion[] = [];
+  if (mention?.trigger === "@") {
+    // Folios of the workspace first (a reference: the agent reads it with launchpad folio read), then files.
+    const q = query.replace(/^folio:?/, "");
+    for (const f of (folios.data ?? []).filter((f) => matchScore(`${f.title} ${f.slug}`, q) !== null).slice(0, 5)) suggestions.push({ id: `folio:${f.id}`, group: "Folio", label: f.title, detail: `${f.kind} · rev ${f.rev}`, token: `@folio:${f.slug}`, icon: "folio", pick: { kind: "folio", value: folioRef(f) } });
+  }
   if (mention?.trigger === "@" && debounced === mention.query) {
     const hits = files.data?.hits ?? [];
     for (const hit of hits) {

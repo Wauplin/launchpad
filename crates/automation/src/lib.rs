@@ -86,6 +86,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     folios::MarkInput::export_all(cfg)?;
     folios::Target::export_all(cfg)?;
     folios::SendTo::export_all(cfg)?;
+    folios::Ask::export_all(cfg)?;
     folio_catalog::export(cfg)?;
     Ok(())
 }
