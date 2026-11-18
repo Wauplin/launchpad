@@ -1034,7 +1034,7 @@ pub async fn items(app: &App, ws: &str, slug: &str, kind: Option<&str>, verdict:
                 let mark = |k: &str| ms.iter().find(|m| m.kind == k && m.target.as_deref() == Some(id.as_str()) && m.author.kind == AuthorKind::Owner).and_then(|m| m.value.clone());
                 let comments: Vec<Value> = ms.iter().filter(|m| m.kind == "comment" && m.target.as_deref() == Some(id.as_str()) && m.resolved_at.is_none()).map(|m| json!({"id": m.id, "text": m.text})).collect();
                 let v = mark("verdict");
-                if verdict.is_some_and(|want| v.as_deref() != Some(want)) || (open_only && comments.is_empty() && v.is_none()) {
+                if verdict.is_some_and(|want| v.as_deref() != Some(want)) || (open_only && comments.is_empty() && v.is_none() && mark("choice").is_none() && mark("check").is_none()) {
                     continue;
                 }
                 let line = ls.iter().enumerate().skip(b.line as usize).take((b.end - b.line) as usize).find(|(_, l)| l.contains(&format!("id: {id}"))).map_or(b.line, |(i, _)| i as u32 + 1);

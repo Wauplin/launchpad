@@ -207,10 +207,17 @@ pub fn blocks(text: &str) -> Vec<Block<'static>> {
         .collect()
 }
 
-/// The typed ids of one parsed block: the block's own id and each item's, with the item's YAML.
+/// Lists whose item ids are local to their block (a decision's options, a comparison's options): your choice names
+/// the block's id and the option, so they are not folio-wide ids.
+pub fn local_ids(block: &str, field: &str) -> bool {
+    matches!((block, field), ("decision", "options") | ("options", "items"))
+}
+
+/// The typed ids of one parsed block: the block's own id and each item's (not the options of a decision or a
+/// comparison), with the item's YAML.
 pub fn typed_ids(def: &cat::BlockDef, v: &Y) -> Vec<(String, Y)> {
     let mut out = vec![];
-    fn walk(fields: &[Field], v: &Y, out: &mut Vec<(String, Y)>) {
+    fn walk(block: &str, fields: &[Field], v: &Y, out: &mut Vec<(String, Y)>) {
         let Y::Mapping(m) = v else { return };
         if fields.iter().any(|f| f.name == "id")
             && let Some(id) = get(m, "id").and_then(s)
@@ -218,14 +225,17 @@ pub fn typed_ids(def: &cat::BlockDef, v: &Y) -> Vec<(String, Y)> {
             out.push((id, v.clone()));
         }
         for f in fields {
+            if local_ids(block, f.name) {
+                continue;
+            }
             if let (Kind::Items { fields: sub, .. }, Some(Y::Sequence(list))) = (f.kind, get(m, f.name)) {
                 for it in list {
-                    walk(sub, it, out);
+                    walk(block, sub, it, out);
                 }
             }
         }
     }
-    walk(def.fields, v, &mut out);
+    walk(def.name, def.fields, v, &mut out);
     out
 }
 
@@ -926,7 +936,7 @@ mod tests {
         let page = "# Top\n\nIntro\n\n## Waves\n\ntext\n\n```decision\nid: D-1\nquestion: Q?\noptions:\n  - { id: a, label: A }\n```\n\n### Sub\n\n## Next\n\nend\n";
         assert_eq!(section(page, "waves"), Some((5, 17)));
         assert_eq!(section(page, "D-1"), Some((9, 14)));
-        assert_eq!(section(page, "a"), Some((9, 14)));
+        assert_eq!(section(page, "a"), None, "option ids are local to their decision");
         assert_eq!(section(page, "next"), Some((18, 20)));
         assert_eq!(section(page, "nope"), None);
         let patched = replace(page, section(page, "next").unwrap(), "## Next\n\nnew\n");
