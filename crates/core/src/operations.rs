@@ -11,6 +11,16 @@ pub enum Claim {
     Mismatch,
 }
 
+/// The rule of the retry protection for an `Idempotency-Key`: a lowercase, hyphenated UUID. Every caller that
+/// sends one (windows, the CLI, Home's own dispatches to runners) must build keys that pass it.
+pub fn check_key(id: &str) -> Result<(), &'static str> {
+    let parsed = uuid::Uuid::parse_str(id).map_err(|_| "operation id must be a UUID")?;
+    if parsed.to_string() != id {
+        return Err("operation id must be a lowercase, hyphenated UUID");
+    }
+    Ok(())
+}
+
 pub async fn claim(db: &Db, id: &str, path: &str, body: &[u8]) -> Result<Claim> {
     let id = id.to_owned();
     let path = path.to_owned();
@@ -79,6 +89,17 @@ pub async fn prune(db: &Db, now: i64) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn keys_must_be_canonical_uuids() {
+        let id = uuid::Uuid::new_v4().to_string();
+        assert!(check_key(&id).is_ok());
+        assert!(check_key(&id.to_uppercase()).is_err());
+        assert!(check_key(&uuid::Uuid::new_v4().simple().to_string()).is_err());
+        // The keys proposals once sent: the runner refused them before the handler ran.
+        assert!(check_key(&format!("proposal-{id}")).is_err());
+        assert!(check_key(&format!("proposal-reply-{id}")).is_err());
+    }
+
     #[tokio::test]
     async fn claims_survive_reopening_and_reject_changed_requests() {
         let path =

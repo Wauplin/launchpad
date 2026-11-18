@@ -565,7 +565,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
         _ => c.title.trim().to_string(),
     };
     let now = now_ms();
-    let p = Proposal { id: uuid::Uuid::new_v4().to_string(), workspace_id, session_id: c.session_id, title, note, body, state: ProposalState::Proposed, result_id, replaced_by: None, error: None, created_at: now, updated_at: now };
+    let p = Proposal { id: new_id(), workspace_id, session_id: c.session_id, title, note, body, state: ProposalState::Proposed, result_id, replaced_by: None, error: None, created_at: now, updated_at: now };
     // Share the claim lock with accept/dismiss: a replacement cannot race an owner click.
     let _lock = ACCEPT.lock().await;
     let replaces = match (&c.replaces, &p.body) {
@@ -767,7 +767,7 @@ async fn accept_inner(app: &App, id: &str, manual: bool, time_zone: Option<Strin
             ProposalBody::Message { session_id, text } => {
                 let from = card_sender(app, &p, manual, agent.as_deref()).await?;
                 let context = launchpad_core::model::MessageContext { from, ..Default::default() };
-                launchpad_core::runners::send_anywhere_with(app, &session_id, &text, vec![], context, Some(format!("proposal-{}", p.id))).await?;
+                launchpad_core::runners::send_anywhere_with(app, &session_id, &text, vec![], context, Some(dispatch_key(&p)?)).await?;
                 Ok(session_id)
             }
             ProposalBody::Schedule { mut spec, conditions } => {
@@ -951,6 +951,21 @@ pub async fn dismiss(app: &App, id: &str) -> Result<Proposal> {
     Ok(p)
 }
 
+/// A new card's ID: a UUID, which `dispatch_key` reuses as a canonical operation key.
+fn new_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+/// The `Idempotency-Key` of a card's message to a session (a message card's start, a report's reply): the card's
+/// own ID, a canonical UUID the runner's retry protection accepts (`operations::check_key`). The same on every
+/// attempt, so a retry after a lost answer gets the stored result, and a retry with a changed sender (an auto start,
+/// then the owner's click) meets the mismatch or uncertain guard instead of delivering twice. A card has one body
+/// kind, so a message card and a report never share a key.
+fn dispatch_key(p: &Proposal) -> Result<String> {
+    launchpad_core::operations::check_key(&p.id).map_err(|e| anyhow::anyhow!("card {}: {e}", p.id))?;
+    Ok(p.id.clone())
+}
+
 /// The owner's reply to a report: a message to its author's thread (the bot's current session, else the session
 /// that wrote it), naming the card. The report then counts as answered (Started, `result_id` the session). Claimed
 /// first like a start: a reply interrupted by a restart becomes Uncertain and is never sent again automatically.
@@ -976,7 +991,7 @@ pub async fn reply(app: &App, id: &str, text: &str) -> Result<Proposal> {
             // The thread of the session that wrote it.
             Some(b) => Ok(launchpad_core::bots::message(app, &b.id, Some(b.thread_id()), message, vec![], Default::default()).await?.id),
             None => {
-                launchpad_core::runners::send_anywhere(app, &author.id, &message, vec![], Some(format!("proposal-reply-{}", p.id))).await?;
+                launchpad_core::runners::send_anywhere(app, &author.id, &message, vec![], Some(dispatch_key(&p)?)).await?;
                 Ok(author.id.clone())
             }
         }
@@ -1093,6 +1108,44 @@ mod tests {
         let g = crate::crons::parse_file(&zoned).unwrap();
         assert_eq!(with_zone(zoned.clone(), &g, Some("UTC")), zoned);
         assert_eq!(with_zone(text.clone(), &f, None), text);
+    }
+
+    /// Message cards and report replies once sent `proposal-<id>` and `proposal-reply-<id>`, which the runner's
+    /// retry protection refused ("operation id must be a UUID") before delivering anything.
+    #[tokio::test]
+    async fn card_messages_use_a_stable_canonical_operation_key() {
+        let path = std::env::temp_dir().join(format!("launchpad-proposal-keys-{}.db", uuid::Uuid::new_v4()));
+        let db = launchpad_core::db::open_state(&path).unwrap();
+        let bodies = [
+            ProposalBody::Message { session_id: "s".into(), text: "hello".into() },
+            ProposalBody::Report { outcome: ReportOutcome::NeedsYou, github: None, body: "question".into() },
+        ];
+        let mut keys = vec![];
+        for body in bodies {
+            let p = Proposal { body, ..proposal(&new_id(), ProposalState::Proposed) };
+            let key = dispatch_key(&p).unwrap();
+            assert!(launchpad_core::operations::check_key(&key).is_ok(), "{key}");
+            // Every attempt (auto start, the owner's Start, a retry) sends the same key.
+            assert_eq!(dispatch_key(&p).unwrap(), key);
+            assert_eq!(dispatch_key(&p.clone()).unwrap(), key);
+            // The runner's claim: a repeat gets the stored answer, a changed sender meets the mismatch guard.
+            let input = "/api/sessions/s/input";
+            let auto = br#"{"text":"hello","context":{"from":{"accepted":false}}}"#;
+            let owner = br#"{"text":"hello","context":{"from":{"accepted":true}}}"#;
+            use launchpad_core::operations::{Claim, claim, complete};
+            assert!(matches!(claim(&db, &key, input, auto).await.unwrap(), Claim::New));
+            assert!(matches!(claim(&db, &key, input, auto).await.unwrap(), Claim::Uncertain));
+            assert!(matches!(claim(&db, &key, input, owner).await.unwrap(), Claim::Mismatch));
+            complete(&db, &key, 200, "{}".into()).await.unwrap();
+            assert!(matches!(claim(&db, &key, input, auto).await.unwrap(), Claim::Completed { status: 200, .. }));
+            keys.push(key);
+        }
+        assert_ne!(keys[0], keys[1]);
+        // A card whose ID is not a UUID sends nothing rather than a key the runner refuses.
+        assert!(dispatch_key(&proposal("not-a-uuid", ProposalState::Proposed)).is_err());
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
     }
 
     #[test]

@@ -60,13 +60,7 @@ async fn run(s: &Operations, req: Request, next: Next) -> Result<Response, ApiEr
         .to_str()
         .map_err(|_| ApiError::bad_request("invalid operation id"))?
         .to_owned();
-    let parsed = uuid::Uuid::parse_str(&id)
-        .map_err(|_| ApiError::bad_request("operation id must be a UUID"))?;
-    if parsed.to_string() != id {
-        return Err(ApiError::bad_request(
-            "operation id must be a lowercase, hyphenated UUID",
-        ));
-    }
+    operations::check_key(&id).map_err(ApiError::bad_request)?;
     let (parts, body) = req.into_parts();
     let bytes = to_bytes(body, LIMIT)
         .await
@@ -229,6 +223,20 @@ mod tests {
                     .status(),
                 400
             );
+            // Home's proposal dispatches once sent `proposal-<uuid>`: refused before the handler, like any non-UUID.
+            for key in [format!("proposal-{id}"), id.to_uppercase()] {
+                assert_eq!(
+                    client
+                        .post(&url)
+                        .header("Idempotency-Key", key)
+                        .body("{}")
+                        .send()
+                        .await
+                        .unwrap()
+                        .status(),
+                    400
+                );
+            }
             let input_url = format!("{url}/test/input");
             for (id, body, status) in [(&input_id, "message", 200), (&failed_id, "fail", 400)] {
                 for _ in 0..2 {
