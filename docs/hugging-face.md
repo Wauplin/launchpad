@@ -1,10 +1,11 @@
 # Hugging Face
 
-Launchpad integrates with Hugging Face in three ways:
+Launchpad integrates with Hugging Face in four ways:
 
 - **Open models**: run Claude Code on open models through Hugging Face Inference Providers.
 - **Traces**: Home copies the original conversation of every agent to its bucket, one file per trace.
 - **Spaces and Jobs**: run Home in a private Hugging Face Space, usable from any browser, and run agents on Burst (HF Jobs) when no runner is online.
+- **Shared folios**: **Share…** publishes a read-only snapshot of a [folio](folios.md#share-a-snapshot) as a static Space under your namespace, private by default, deleted after 30 days unless you keep it.
 
 ## Open models through Inference Providers
 

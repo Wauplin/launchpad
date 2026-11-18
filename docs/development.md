@@ -65,7 +65,7 @@ cargo +1.98.0 clippy --workspace --all-targets --locked -- -D warnings
 cargo test
 (cd web && pnpm typecheck)
 (cd web && pnpm lint:hooks)
-(cd web && pnpm test:<name>)    # attachments, chat, code, composer, drafts, markdown,
+(cd web && pnpm test:<name>)    # attachments, chat, code, composer, drafts, folios, markdown,
                                 # operations, proposals, review, sessions, terminals, tour
 (cd web && pnpm ui-check)       # off-scale UI classes (not in CI)
 (cd deploy/hf-home && python -m unittest discover -s tests)   # in a venv with requirements.txt
@@ -99,6 +99,7 @@ Release builds keep dependencies in `rust-cache` and cache Launchpad's library c
 
 ## Other components
 
+- **Folios**: the page splitter exists twice, in Rust (`crates/automation/src/folio_split.rs`) and TypeScript (`web/src/lib/folioSplit.ts`), with one fixture folder for both, `web/tests/folio-split/` (`<name>.md` and its expected outline `<name>.json`, read by `pnpm test:folios` and `cargo test shared_fixtures`). Change both together. `FOLIO_FIXTURES_WRITE=1 cargo test shared_fixtures` writes the JSON of a new fixture; check it by hand. The block catalog lives in `folio_catalog.rs`; `gen-types` writes it to `web/src/gen/folioCatalog.ts`. `pnpm build` also builds the folio viewer (`web/folio-viewer/`, `src/viewer/`) into `web/dist/folio-viewer/`, which shared snapshots use. Test sharing with `LAUNCHPAD_FOLIO_SHARE_DIR` on a dev Home, never with a real Space.
 - **Chrome extension**: `cd extension && pnpm install --frozen-lockfile && pnpm typecheck && pnpm build` after installing the `web/` dependencies. Set `VITE_HF_CLIENT_ID` in `extension/.env.local` (see `.env.example`) to build with a Hugging Face client ID. Load `extension/dist` unpacked in Chrome and connect it to the dev Home with **Use an address** (`http://127.0.0.1:7318`) and a pairing code. Never connect a test build to your real Space. See [extension/README.md](../extension/README.md).
 - **Home in a Hugging Face Space**: see [deploy/hf-home/README.md](../deploy/hf-home/README.md). Test `deploy.sh` only with a throwaway `--space`, and delete that Space and its bucket afterwards.
 - **Local VM runner**: `packaging/local-vm.sh <Home address>` creates one with Multipass.

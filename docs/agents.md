@@ -45,7 +45,7 @@ The page you look at is the context: a folder, a GitHub item, an agent's trace, 
 Folder pages and every **▶** button open the composer too. The composer opens as a side drawer:
 
 - **Prompt.** Type `@` for files and folders, `/` for skills and `#` for folders, agent traces and GitHub items. Paste or drop images and files (up to eight files, 5 MB each).
-- **+ Add context**, under the prompt: files and images (you can also paste a screenshot or drop files in the text), issues, pull requests, file selections, other folders, the trace of another agent, topics and presets; the chips show only when there are some. Traces are referenced by a `launchpad trace` command, not copied into the prompt.
+- **+ Add context**, under the prompt: files and images (you can also paste a screenshot or drop files in the text), issues, pull requests, file selections, other folders, the trace of another agent, topics, [folios](folios.md#context-and-launching) (a whole folio or one page; type `@` and its name in the prompt too) and presets; the chips show only when there are some. Traces are referenced by a `launchpad trace` command, not copied into the prompt.
 - **Folder.** A folder of the workspace, or **Temporary folder** for a question or a task that needs no folder (see [Temporary folders](#temporary-folders)).
 - **Options.** One line sums up the launch: where the agent runs and what happens when it is done (for example "New worktree from main · keep for review"), then the profile and only the values that differ from the defaults, and warnings. Click it to open the options. In a Git folder they start with **When done** (Read-only, Keep for review, Local PR, Draft PR, Open PR or Merge; see [Worktrees and merging](#worktrees-and-merging)), then **From** (one menu: a new worktree from a branch, by default the default branch, or an existing worktree or Local PR to continue there; see [Local PRs](github.md#local-prs)) and **Into** (where the merge, Local PR or pull request goes: by default the branch it starts from, or for an existing worktree the branch that worktree was created for). In other folders the first option is **Run in**. Then come the profile, model, effort, permission mode, paid usage, cost limit and start conditions. When the prompt or the context names one pull request of the folder's repository (for example a pasted link to a review comment), **Push to PR #N** is checked under From: the worktree starts from the PR head and the agent pushes its commits to the PR branch (see [GitHub](github.md#continue-a-pull-request)).
 - **Preview prompt** shows exactly what the agent will receive.
@@ -128,11 +128,12 @@ stateDiagram-v2
     Done --> Archived: Archive
 ```
 
-Each session has three views:
+Each session has three views, plus **Folio** when it has one:
 
 - **Summary**: in order, **Run** (the run facts, then **Credentials**: the workspace's tools and MCP servers, green for those this agent holds, and the requests that received a token, with “via <runner>” for those that went through an [exit route](exit-routes.md)), **Task** (the first prompt), **Final message** (the exact last message) and **Next steps** (the worktree card, review uncommitted changes, post suggestions, **Launch here**, **Use trace as context** and **Archive**). When the branch has a Local PR, the worktree card says where it stands and offers **Open Local PR** (and **Open PR #N** once published) instead of **Create Local PR**; the Local PR page shows its diff, so **Review diff** appears only for uncommitted files. **Runs on** names the machine that runs the session now; when its turns ran on more than one machine, **Turns ran on** lists them in order with their turn numbers (for example `laptop · turns 1–3 → Burst · turn 4`).
 - **Trace**: the full conversation with tool calls, diffs, reasoning and nested subagents. A background command shows the last lines of its output. The runner reads that output only from the session's own `/tmp` or `/var/tmp`, and only when it is a regular file.
 - **Changes**: the Git diff of the session folder, with viewed markers and line notes that you send back to the agent as one message.
+- **Folio**, when the agent wrote or worked on a [folio](folios.md): the folio in the reader (a picker when there are several), with **⤢** to open it full screen. The trace also lists each folio write as a receipt after the conversation.
 
 On a laptop, the session header has two rows:
 

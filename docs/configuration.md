@@ -27,6 +27,7 @@ A runner's data folder holds copies and work in progress: task worktrees in `wor
 | `LAUNCHPAD_TOKEN` | Credential for the CLI (defaults to the daemon's token file) |
 | `LAUNCHPAD_ROLE=runner` | Point CLI commands at the runner's folders and port |
 | `LAUNCHPAD_HOME_BACKUP` | Home: the backup to restore on a first boot, before `config.toml` exists |
+| `LAUNCHPAD_FOLIO_SHARE_DIR` | Home: write each [shared folio snapshot](folios.md#share-a-snapshot) to this folder (`<dir>/<owner>/folio-<slug>/`) instead of a Hugging Face Space. For checks; nothing reaches the Hub |
 
 ## config.toml
 
@@ -118,6 +119,7 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad folders\|sessions\|profiles\|presets\|schedules\|proposals list` | Read Launchpad state as JSON (an agent reads only its own workspace) |
 | `launchpad egress list` | List the [exit routes](exit-routes.md) as JSON, with whether each exit runner is online (shared by every workspace) |
 | `launchpad channel list\|read\|post`, `launchpad dm <bot>` | Bot channels for bots: list the workspace's channels and the bot's DMs, read messages, post in a channel or a DM ([Commands for bots](channels.md#cli-commands-for-bots)). `launchpad channel join <name>` files a card that asks you to add the bot. `launchpad channel create\|add-member\|set-mode\|remove-member` need admin access |
+| `launchpad folio …` | [Folios](folios.md#for-agents-the-cli): list, outline, read, check and the feedback of the workspace's folios at every access level; create, write, patch, reply, resolve, set data and name versions at propose access, as the session's own writes. `folio check --dir <folder>` checks local files offline |
 | `launchpad today` | Print what waits for the owner (the [Today](today.md) list) as JSON |
 | `launchpad activity list` | List what sessions with admin access changed directly, with the values before |
 | `launchpad propose launch\|message\|schedule\|cron\|status\|preset\|tool\|bot\|routine\|bot-files\|bot-instructions\|channel\|ready\|report` | Store a proposal (sessions with propose or admin access to the Launchpad CLI tool); the owner starts it, except one-time starts of a bot in auto mode. `bot-files` proposes a bot's `BOT.md` and routine files in one card (`routine` and `bot-instructions` become such cards). `channel` proposes a new bot channel ([Cards from bots](channels.md#cards-from-bots)). `ready` prepares an owner click (merge, publish, post, send, run CI, push to a pull request) |

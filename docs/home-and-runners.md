@@ -254,4 +254,4 @@ A runner is a low-trust worker. Its link to Home reaches Home Git, plain folders
 
 Contained sessions receive a session CLI credential bound to their ID and generation, not the runner's token. The runner forwards an agent's Launchpad CLI calls to Home, and Home checks them with that agent's access from its own records. Host settings, terminals, file APIs and publication still require your window.
 
-Workspaces are a boundary for agents. An agent's lists, traces, Local PRs, proposals and admin actions cover only its session's workspace, and `launchpad work add-project` adds only folders of that workspace. Presets, shared settings, MCP tool switches, Home updates and diagnostics stay Launchpad-wide. See [Bots](bots.md#the-launchpad-cli-tool).
+Workspaces are a boundary for agents. An agent's lists, traces, Local PRs, proposals, folios and admin actions cover only its session's workspace, and `launchpad work add-project` adds only folders of that workspace. Presets, shared settings, MCP tool switches, Home updates and diagnostics stay Launchpad-wide. See [Bots](bots.md#the-launchpad-cli-tool).
