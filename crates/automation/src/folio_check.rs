@@ -91,9 +91,15 @@ pub struct Input {
 }
 
 impl Input {
+    /// The pages the check reads: Markdown files, except the other versions a conflicting write kept.
     pub fn pages(&self) -> impl Iterator<Item = (&String, &String)> {
-        self.texts.iter().filter(|(p, _)| p.ends_with(".md"))
+        self.texts.iter().filter(|(p, _)| p.ends_with(".md") && !is_concurrent(p))
     }
+}
+
+/// The other version a write kept when its file changed since the rev it read (`plan.concurrent-<id>.md`).
+pub fn is_concurrent(path: &str) -> bool {
+    path.rsplit('/').next().is_some_and(|f| f.contains(".concurrent-"))
 }
 
 /// Is this path a page (a Markdown file)?
@@ -402,6 +408,11 @@ fn fields(cx: &mut Ctx, ls: &[&str], range: (u32, u32), fs: &[Field], m: &serde_
 /// Checks a whole folio.
 pub fn check(input: &Input) -> Vec<Problem> {
     let mut out = vec![];
+    // F108: other versions kept by conflicting writes wait to be merged (they are not checked as pages).
+    for p in input.paths.iter().filter(|p| is_concurrent(p)) {
+        let main = p.split_once(".concurrent-").map(|(a, b)| format!("{a}{}", b.find('.').map_or("", |i| &b[i..]))).unwrap_or_default();
+        out.push(Problem { file: p.clone(), line: None, col: None, code: "F108".into(), severity: Severity::Warn, message: format!("another version of {main} kept by a write that started from an older rev"), hint: Some(format!("merge it into {main}, then remove it (launchpad folio rm)")), fix: None });
+    }
     let pages: Vec<(&String, &String)> = input.pages().collect();
     // Folio-wide ids: id → (file, line).
     let mut ids: HashMap<String, Vec<(String, u32)>> = HashMap::new();
@@ -900,6 +911,15 @@ mod tests {
         assert_eq!((f202.line, f202.message.as_str()), (Some(7), "decision D-SHARE: missing field `options`"));
         let f201 = p.iter().find(|x| x.code == "F201").unwrap();
         assert!(f201.line.unwrap() >= 27, "{f201:?}");
+    }
+
+    #[test]
+    fn concurrent_versions_wait_to_be_merged() {
+        let page = "---\ntitle: T\nkind: report\npages: [index.md]\n---\n\n## Alpha {#alpha}\n\nx\n";
+        let p = check(&input(&[("index.md", page), ("index.concurrent-1a2b3c4d.md", page)]));
+        assert_eq!(codes(&p), vec!["F108"], "{p:#?}");
+        assert!(p[0].message.contains("of index.md") && p[0].file == "index.concurrent-1a2b3c4d.md", "{p:#?}");
+        assert!(is_concurrent("notes/plan.concurrent-ab.md") && !is_concurrent("concurrent.md"));
     }
 
     #[test]

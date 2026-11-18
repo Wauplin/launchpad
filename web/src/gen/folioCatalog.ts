@@ -934,6 +934,14 @@ export const FOLIO_CATALOG = {
       "title": "Unknown GitHub alert type"
     },
     {
+      "bad": "plan.concurrent-1a2b3c4d.md next to plan.md",
+      "code": "F108",
+      "fix": "",
+      "good": "plan.md with both changes, the other version removed",
+      "severity": "warn",
+      "title": "Another version of a file, kept by a write that started from an older rev, waits to be merged"
+    },
+    {
       "bad": "```decision\nid: D-1\nquestion: [x\n```",
       "code": "F201",
       "fix": "",
