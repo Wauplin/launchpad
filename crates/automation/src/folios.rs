@@ -235,6 +235,7 @@ pub fn valid_slug(slug: &str) -> bool {
 pub fn check_path(path: &str) -> Result<()> {
     ensure!(!path.is_empty() && path.len() <= 200, "a folio path is 1 to 200 characters");
     ensure!(!path.starts_with('/') && !path.contains('\\') && path.split('/').all(|c| !c.is_empty() && c != "." && c != ".." && !c.starts_with('.')), "{path:?} is outside the folio (use a relative path such as plan.md or assets/flow.png)");
+    ensure!(!path.chars().any(char::is_control), "{path:?} holds a control character");
     Ok(())
 }
 
@@ -575,6 +576,11 @@ pub async fn write(app: &App, ws: &str, slug: &str, ops: Vec<Op>, author: Author
                 if is_text(&path) {
                     ensure!(std::str::from_utf8(&data).is_ok(), "{path} is not UTF-8 text");
                 }
+                // The same content as now: nothing to keep twice.
+                if is_text(&path) && texts.get(&path).is_some_and(|t| t.as_bytes() == data.as_slice()) {
+                    lines.push(format!("{path} is unchanged"));
+                    continue;
+                }
                 let path = if paths.contains(&path) && changed_since.contains(&path) {
                     let other = concurrent_path(&path, suffix);
                     lines.push(format!("{path} changed since rev {}: both versions are kept, yours as {other}. Merge them into {path} and remove {other} (launchpad folio rm).", base_rev.unwrap_or(0)));
@@ -607,11 +613,28 @@ pub async fn write(app: &App, ws: &str, slug: &str, ops: Vec<Op>, author: Author
                 files.push((path, Some(body.into_bytes())));
             }
             Op::Patch { path, section, text } => {
-                let current = texts.get(&path).with_context(|| format!("there is no page {path}"))?;
+                let current = texts.get(&path).cloned().with_context(|| format!("there is no page {path}"))?;
+                let current = current.as_str();
                 let Some(range) = check::section(current, &section) else {
                     let ids = check::section_ids(current);
                     bail!("{path} has no section `{section}` (it has {})", if ids.is_empty() { "none".into() } else { ids.join(", ") });
                 };
+                // The section changed since the rev the writer read: its patch goes on that rev's page, kept next
+                // to the current one (both versions, like a whole write).
+                if let Some(b) = base_rev.filter(|_| changed_since.contains(&path))
+                    && let Ok(old) = file_text(app, &folio.id, &path, Some(b)).await
+                    && let Some(old_range) = check::section(&old, &section)
+                    && check::slice(&old, old_range) != check::slice(current, range)
+                {
+                    let body = check::replace(&old, old_range, &text);
+                    ensure!(body.len() <= MAX_FILE, "{path} would be over 2 MB");
+                    let other = concurrent_path(&path, suffix);
+                    lines.push(format!("{path} › {section} changed since rev {b}: both versions are kept, yours (rev {b} with your patch) as {other}. Merge your change into {path} and remove {other} (launchpad folio rm)."));
+                    texts.insert(other.clone(), body.clone());
+                    paths.insert(other.clone());
+                    files.push((other, Some(body.into_bytes())));
+                    continue;
+                }
                 let body = check::replace(current, range, &text);
                 ensure!(body.len() <= MAX_FILE, "{path} would be over 2 MB");
                 lines.push(format!("Patched {path} › {section} (lines {}–{})", range.0, range.1));
@@ -621,6 +644,11 @@ pub async fn write(app: &App, ws: &str, slug: &str, ops: Vec<Op>, author: Author
             Op::Remove { path } => {
                 ensure!(paths.contains(&path), "there is no {path} in this folio");
                 ensure!(path != "index.md", "index.md is the folio's first page: rewrite it instead of removing it");
+                // Removals name the content they remove: a file changed since the rev the writer read stays.
+                if changed_since.contains(&path) {
+                    lines.push(format!("Kept {path}: it changed since rev {}. Read it again before you remove it.", base_rev.unwrap_or(0)));
+                    continue;
+                }
                 lines.push(format!("Removed {path} (Restore brings it back)"));
                 texts.remove(&path);
                 paths.remove(&path);
@@ -1095,9 +1123,13 @@ pub struct SendTo {
     pub note: Option<String>,
 }
 
+/// One Send feedback at a time: two clicks never send the same marks twice.
+static SENDS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Send feedback: one short message to the folio's thread, a session that wrote it, or a new thread of a bot; the
-/// unsent marks become sent. Returns the session that got it.
+/// unsent marks become sent once the message went. Returns the session that got it.
 pub async fn send(app: &App, ws: &str, slug: &str, to: SendTo) -> Result<Value> {
+    let _one = SENDS.lock().await;
     let f = get(app, ws, slug).await?;
     let all = marks(app, &f.id, None).await?;
     let unsent: Vec<Mark> = all.iter().filter(|m| m.author.kind == AuthorKind::Owner && m.kind != "reply" && m.sent_at.is_none()).cloned().collect();
@@ -1108,17 +1140,60 @@ pub async fn send(app: &App, ws: &str, slug: &str, to: SendTo) -> Result<Value> 
     if let Some(n) = note {
         text = format!("{n}\n\n{text}");
     }
+    let session = deliver(app, ws, &f, &to, text).await?;
+    // Only the marks the message counted: a mark saved or changed meanwhile stays unsent.
+    let ids: Vec<(i64, i64)> = unsent.iter().map(|m| (m.id, m.seq)).collect();
+    let at = now_ms();
+    app.state_db.call(move |c| {
+        let tx = c.transaction()?;
+        for (id, seq) in ids {
+            tx.execute("UPDATE folio_mark SET sent_at = ?2 WHERE id = ?1 AND seq = ?3", params![id, at, seq])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }).await?;
+    changed(app, &f);
+    Ok(json!({"session_id": session.id, "bot_id": session.launch_spec.bot.as_ref().map(|b| b.id.clone()), "thread": session.launch_spec.bot.as_ref().map(|b| b.thread_id().to_string()), "sent": unsent.len()}))
+}
+
+/// The line "Ask the author to fix" sends (the problems panel): it sends no marks.
+pub fn fix_message(title: &str, slug: &str, rev: i64, errors: u32, warnings: u32) -> String {
+    let n = |c: u32, one: &str| format!("{c} {one}{}", if c == 1 { "" } else { "s" });
+    format!("Fix the problems of the folio “{title}” (rev {rev}: {}, {}): run `launchpad folio check {slug}`, fix every error (`launchpad folio check {slug} --fix` applies the safe fixes, `launchpad folio patch` the rest), then check again. The folio: /folios/{slug}", n(errors, "error"), n(warnings, "warning"))
+}
+
+/// Ask the author to fix: one line to the same recipients as Send feedback; the marks stay as they are.
+pub async fn ask_fix(app: &App, ws: &str, slug: &str, to: SendTo) -> Result<Value> {
+    let _one = SENDS.lock().await;
+    let f = get(app, ws, slug).await?;
+    let mut text = fix_message(&f.title, &f.slug, f.rev, f.errors, f.warnings);
+    if let Some(n) = to.note.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        text = format!("{n}\n\n{text}");
+    }
+    let session = deliver(app, ws, &f, &to, text).await?;
+    Ok(json!({"session_id": session.id, "bot_id": session.launch_spec.bot.as_ref().map(|b| b.id.clone()), "thread": session.launch_spec.bot.as_ref().map(|b| b.thread_id().to_string())}))
+}
+
+/// The owner's message about a folio to its thread, a session of the workspace or a new thread of a bot (which
+/// becomes the folio's thread, with the folio's topic as context). The session that got it joins the topic.
+async fn deliver(app: &App, ws: &str, f: &Folio, to: &SendTo, text: String) -> Result<launchpad_core::model::Session> {
+    use launchpad_core::bot_threads::{self, Source, To};
     let session = match to.kind.as_str() {
         "thread" | "new_thread" => {
             let bot = to.bot_id.clone().or_else(|| f.thread.as_ref().map(|t| t.bot_id.clone())).context("choose a bot")?;
             let b = launchpad_core::bots::get(app, &bot).await?;
             ensure!(b.workspace_id == f.workspace_id, "this bot belongs to another workspace");
             let new = to.kind == "new_thread";
-            let dest = match (&to.thread_id, &f.thread) {
-                _ if new => launchpad_core::bot_threads::route(launchpad_core::bot_threads::Source::Folio { id: &f.id, title: &f.title, new: true }),
-                (Some(t), _) => launchpad_core::bot_threads::To::Thread(t.clone()),
-                (None, Some(t)) if t.bot_id == bot => launchpad_core::bot_threads::To::Thread(t.thread_id.clone()),
-                _ => launchpad_core::bot_threads::route(launchpad_core::bot_threads::Source::Folio { id: &f.id, title: &f.title, new: false }),
+            // A thread that no longer exists (its bot's threads were cleaned up): the folio's key finds or starts one.
+            let named = to.thread_id.clone().or_else(|| f.thread.as_ref().filter(|t| t.bot_id == bot).map(|t| t.thread_id.clone()));
+            let named = match named {
+                Some(t) if bot_threads::get(app, &bot, &t).await.ok().flatten().is_some() => Some(t),
+                _ => None,
+            };
+            let dest = match named {
+                _ if new => bot_threads::route(Source::Folio { id: &f.id, title: &f.title, new: true }),
+                Some(t) => To::Thread(t),
+                None => bot_threads::route(Source::Folio { id: &f.id, title: &f.title, new: false }),
             };
             let mut context = launchpad_core::model::MessageContext::default();
             if new && let Some(t) = &f.topic_id && let Ok(topic) = launchpad_core::topics::get(app, t).await {
@@ -1140,21 +1215,10 @@ pub async fn send(app: &App, ws: &str, slug: &str, to: SendTo) -> Result<Value> 
         }
         k => bail!("unknown target {k:?}: thread, session or new_thread"),
     };
-    let ids: Vec<i64> = unsent.iter().map(|m| m.id).collect();
-    let at = now_ms();
-    app.state_db.call(move |c| {
-        let tx = c.transaction()?;
-        for id in ids {
-            tx.execute("UPDATE folio_mark SET sent_at = ?2 WHERE id = ?1", params![id, at])?;
-        }
-        tx.commit()?;
-        Ok(())
-    }).await?;
     if let Some(t) = &f.topic_id {
         let _ = launchpad_core::topics::membership(app, t, std::slice::from_ref(&session.id), true).await;
     }
-    changed(app, &f);
-    Ok(json!({"session_id": session.id, "bot_id": session.launch_spec.bot.as_ref().map(|b| b.id.clone()), "thread": session.launch_spec.bot.as_ref().map(|b| b.thread_id().to_string()), "sent": unsent.len()}))
+    Ok(session)
 }
 
 // ---------------------------------------------------------------- auto-archive

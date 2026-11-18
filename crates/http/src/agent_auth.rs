@@ -97,6 +97,13 @@ pub const CHANNEL_UPLOAD: &str = "/api/channels/agent/upload";
 
 /// The largest request body of a channel file upload: a 5 MB file in base64, with its name and type.
 pub const CHANNEL_UPLOAD_MAX: usize = 8 << 20;
+/// The largest body of a folio write (`/api/folios/{workspace}/{slug}/write`: a 2 MB file as base64, with its JSON).
+pub const FOLIO_BODY_MAX: usize = 8 << 20;
+
+/// A folio write, whose body may be larger than other agent requests (a runner forwards it whole).
+pub fn folio_write(path: &str) -> bool {
+    path.strip_prefix("/api/folios/").and_then(|r| r.strip_suffix("/write")).is_some_and(|r| r.split('/').count() == 2 && !r.split('/').any(str::is_empty))
+}
 
 /// Why an agent may not use one of the owner's channel routes (None: not one of them). Agents read and post through
 /// `/api/channels/agent…`; creating channels and changing members are admin actions.
@@ -853,6 +860,8 @@ mod tests {
             assert!(!admin_allows(&m, p), "{m} {p}");
         }
         assert_eq!(names(&Method::GET, "/api/folios"), Names::Unscoped);
+        assert!(folio_write("/api/folios/w1/roadmap/write") && !folio_write("/api/folios/w1/write") && !folio_write("/api/folios//x/write") && !folio_write("/api/kb"));
+        assert_eq!(folio_need(&Method::POST, "/api/folios/w1/roadmap/ask-fix"), None);
     }
 
     #[test]

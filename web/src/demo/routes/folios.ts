@@ -95,3 +95,8 @@ route("POST", "/api/folios/:ws/:slug/send", ({ params, body }) => {
   const b = body as { kind: string; session_id?: string; bot_id?: string };
   return { session_id: b.session_id ?? f.folio.links[0]?.session_id ?? "", bot_id: b.kind === "session" ? null : b.bot_id ?? null, thread: null, sent: unsent.length };
 });
+route("POST", "/api/folios/:ws/:slug/ask-fix", ({ params, body }) => {
+  const f = of(params.ws, params.slug);
+  const b = body as { kind: string; session_id?: string; bot_id?: string };
+  return { session_id: b.session_id ?? f.folio.links[0]?.session_id ?? "", bot_id: b.kind === "session" ? null : b.bot_id ?? null, thread: null };
+});

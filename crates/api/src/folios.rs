@@ -28,7 +28,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/folios/{workspace}/{slug}", get(show).delete(remove))
         .route("/api/folios/{workspace}/{slug}/file", get(file))
         .route("/api/folios/{workspace}/{slug}/raw/{*path}", get(raw))
-        .route("/api/folios/{workspace}/{slug}/write", post(write).layer(axum::extract::DefaultBodyLimit::max(8 << 20)))
+        .route("/api/folios/{workspace}/{slug}/write", post(write).layer(axum::extract::DefaultBodyLimit::max(launchpad_http::agent_auth::FOLIO_BODY_MAX)))
         .route("/api/folios/{workspace}/{slug}/check", get(check))
         .route("/api/folios/{workspace}/{slug}/fix", post(fix))
         .route("/api/folios/{workspace}/{slug}/revs", get(revs))
@@ -43,6 +43,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/folios/{workspace}/{slug}/items", get(items))
         .route("/api/folios/{workspace}/{slug}/targets", get(targets))
         .route("/api/folios/{workspace}/{slug}/send", post(send))
+        .route("/api/folios/{workspace}/{slug}/ask-fix", post(ask_fix))
 }
 
 fn bad(e: anyhow::Error) -> ApiError {
@@ -324,4 +325,9 @@ async fn targets(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>)
 async fn send(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(to): Json<SendTo>) -> ApiResult<Value> {
     owner_only(&agent, "Send feedback")?;
     Ok(Json(Box::pin(folios::send(&s.app, &ws, &slug, to)).await.map_err(bad)?))
+}
+
+async fn ask_fix(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, Json(to): Json<SendTo>) -> ApiResult<Value> {
+    owner_only(&agent, "Ask the author to fix")?;
+    Ok(Json(Box::pin(folios::ask_fix(&s.app, &ws, &slug, to)).await.map_err(bad)?))
 }

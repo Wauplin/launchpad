@@ -36,6 +36,8 @@ export type MarkApi = {
   comment: (target: string, quote?: { quote: string; prefix: string; suffix: string }) => void;
   /** Opens another page (and an anchor on it). */
   open: (page: string, anchor?: string) => void;
+  /** Opens another folio of the workspace (`folio:<slug>` links). */
+  openFolio: (slug: string) => void;
 };
 
 const Marks = createContext<MarkApi | null>(null);
@@ -106,6 +108,9 @@ md.core.ruler.push("folio_alerts", (state) => {
     if (ts[i + 2].children?.[1]?.type === "softbreak" && !first?.content) ts[i + 2].children!.splice(0, 2);
   }
 });
+
+/** A link of a typed block's field (a status tile's link, a source's url): only web and mail addresses. */
+const safeHref = (v: unknown): string | undefined => { const u = txt(v).trim(); return /^(https?:\/\/|mailto:)/i.test(u) ? u : undefined; };
 
 const PURIFY = { ADD_ATTR: ["target", "data-folio-link", "data-comment", "data-anchor"] };
 const html = (text: string, env: Env) => DOMPurify.sanitize(md.render(text, env), PURIFY);
@@ -190,7 +195,7 @@ function click(e: React.MouseEvent, marks: MarkApi) {
   if (!a) return;
   e.preventDefault();
   const href = a.getAttribute("data-folio-link") ?? "";
-  if (href.startsWith("folio:")) { location.assign(`/folios/${encodeURIComponent(href.slice(6).split("#")[0])}`); return; }
+  if (href.startsWith("folio:")) { marks.openFolio(href.slice(6).split("#")[0]); return; }
   const [file, anchor] = href.split("#");
   marks.open(file ? resolve(marks.page, file) : marks.page, anchor);
 }
@@ -377,7 +382,7 @@ const Decisions: R = ({ v }) => <div className="folio-table"><table><thead><tr><
   {list(v.rows).map((r, i) => <tr key={i} id={id(r) ? `f-${id(r)}` : undefined}><td><Inline text={r.question} /></td><td><b><Inline text={r.decision} /></b></td><td><Inline text={r.effect} /></td></tr>)}
 </tbody></table></div>;
 
-const Status: R = ({ v }) => <div className="folio-tiles">{list(v.tiles).map((t, i) => <div key={i} className="folio-tile" id={id(t) ? `f-${id(t)}` : undefined}><span className="folio-tile-head">{txt(t.area)}<span className={`folio-pill s-${txt(t.state)}`}>{txt(t.state)}</span></span>{t.text != null && <Inline text={t.text} />}{t.link != null && <a href={txt(t.link)} target="_blank" rel="noreferrer noopener">{txt(t.link)}</a>}</div>)}</div>;
+const Status: R = ({ v }) => <div className="folio-tiles">{list(v.tiles).map((t, i) => <div key={i} className="folio-tile" id={id(t) ? `f-${id(t)}` : undefined}><span className="folio-tile-head">{txt(t.area)}<span className={`folio-pill s-${txt(t.state)}`}>{txt(t.state)}</span></span>{t.text != null && <Inline text={t.text} />}{t.link != null && (safeHref(t.link) ? <a href={safeHref(t.link)} target="_blank" rel="noreferrer noopener">{txt(t.link)}</a> : <span>{txt(t.link)}</span>)}</div>)}</div>;
 
 const Timeline: R = ({ v }) => <ol className="folio-timeline">{list(v.items).map((t, i) => <li key={i} id={id(t) ? `f-${id(t)}` : undefined}><span className="folio-date">{txt(t.date)}</span><b><Inline text={t.title} /></b>{t.text != null && <Inline text={t.text} block />}</li>)}</ol>;
 
@@ -424,7 +429,7 @@ const Prompt: R = ({ v }) => <div className="folio-prompt">
   {(v.profile != null || v.folder != null) && <div className="folio-item-meta">{[v.profile != null && `profile: ${txt(v.profile)}`, v.folder != null && `folder: ${txt(v.folder)}`].filter(Boolean).join(" · ")}</div>}
 </div>;
 
-const Sources: R = ({ v }) => <ol className="folio-sources">{list(v.items).map((s, i) => <li key={i}>{s.url != null ? <a href={txt(s.url)} target="_blank" rel="noreferrer noopener">{txt(s.title)}</a> : <b>{txt(s.title)}</b>}{s.note != null && <span className="folio-item-meta"> · <Inline text={s.note} /></span>}</li>)}</ol>;
+const Sources: R = ({ v }) => <ol className="folio-sources">{list(v.items).map((s, i) => <li key={i}>{safeHref(s.url) ? <a href={safeHref(s.url)} target="_blank" rel="noreferrer noopener">{txt(s.title) || txt(s.url)}</a> : <b>{txt(s.title)}{s.url != null ? ` (${txt(s.url)})` : ""}</b>}{s.note != null && <span className="folio-item-meta"> · <Inline text={s.note} /></span>}</li>)}</ol>;
 
 function KeyValues({ name, v }: { name: string; v: Record<string, unknown> }) {
   return <div className="folio-kv" title={`\`\`\`${name} is not in the catalog: it shows as keys and values`}>

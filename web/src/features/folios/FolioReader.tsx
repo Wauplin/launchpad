@@ -43,6 +43,7 @@ const clean = (n: Nav): Nav => Object.fromEntries(Object.entries(n).filter(([, v
 
 export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: string; slug: string; nav: Nav; onNav: (n: Nav) => void; embedded?: boolean }) {
   const phone = usePhone();
+  const navigate = useNavigate();
   const q = useFolio(ws, slug, nav.rev ?? null);
   const latest = useFolio(ws, slug, null);
   const d = q.data;
@@ -62,7 +63,8 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     setMark: (kind, target, value) => void runAction("folio.mark", { workspace: ws, slug }, { kind, target, page: pagePath, value: value ?? "" }).then(refresh).catch(toastError),
     comment: (target, quote) => { setDraft({ target, page: pagePath, text: "", ...quote }); setPanel("comments"); },
     open: (p, anchor) => { onNav({ page: p }); if (anchor) requestAnimationFrame(() => document.getElementById(`f-${anchor}`)?.scrollIntoView({ block: "start" })); },
-  }, [d, ws, slug, nav.rev, pagePath, readOnly, refresh, onNav]); // eslint-disable-line react-hooks/exhaustive-deps
+    openFolio: (other) => void navigate({ to: "/folios/$slug", params: { slug: other } }),
+  }, [d, ws, slug, nav.rev, pagePath, readOnly, refresh, onNav, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A selection in the page offers Comment, with the quote and its surroundings (so the comment survives edits).
   const [selection, setSelection] = useState<{ x: number; y: number; target: string; quote: string; prefix: string; suffix: string } | null>(null);
@@ -105,7 +107,7 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
 
   const sideBody = (p: Panel) => p === "comments" ? <CommentsPanel d={d} ws={ws} slug={slug} draft={draft} setDraft={setDraft} readOnly={readOnly} refresh={refresh} jump={(m) => { if (m.page && m.page !== pagePath) onNav({ page: m.page }); if (m.target) requestAnimationFrame(() => jump(m.target!)); }} />
     : p === "versions" ? <VersionsPanel ws={ws} slug={slug} current={nav.rev ?? null} latest={latest.data?.folio.rev ?? f.rev} view={(rev) => onNav({ rev: rev ?? undefined })} />
-    : <ProblemsPanel d={d} jump={(file, line) => { if (file !== pagePath && d.pages.some((x) => x.path === file)) onNav({ page: file }); void line; }} />;
+    : <ProblemsPanel d={d} ws={ws} slug={slug} readOnly={readOnly} jump={(file, line) => { if (file !== pagePath && d.pages.some((x) => x.path === file)) onNav({ page: file }); void line; }} />;
   const PANEL_TITLE: Record<Panel, string> = { comments: "Comments", versions: "Versions", problems: "Problems" };
 
   const send = <SendFeedback ws={ws} slug={slug} unsent={unsent} />;
@@ -113,10 +115,10 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     <MenuItem icon={<Icon name="comment" size={14} />} label="Comments" detail={`${f.open} open`} onClick={() => { close(); setPanel("comments"); }} />
     <MenuItem icon={<Icon name="clock" size={14} />} label="Versions" detail={`rev ${f.rev}`} onClick={() => { close(); setPanel("versions"); }} />
     {d.problems.length > 0 && <MenuItem icon={<Icon name="alert" size={14} />} label="Problems" detail={`${errors} error${errors === 1 ? "" : "s"}, ${warnings} warning${warnings === 1 ? "" : "s"}`} onClick={() => { close(); setPanel("problems"); }} />}
-    {embedded && <MenuItem icon={<Icon name="expand" size={14} />} label="Open full screen" onClick={() => { close(); location.assign(`/folios/${encodeURIComponent(slug)}`); }} />}
-    {f.topic_id && <MenuItem icon={<Icon name="tag" size={14} />} label="Agents on this folio" detail="Its topic" onClick={() => { close(); location.assign(`/topics/${encodeURIComponent(f.topic_id!)}`); }} />}
+    {embedded && <MenuItem icon={<Icon name="expand" size={14} />} label="Open full screen" onClick={() => { close(); void navigate({ to: "/folios/$slug", params: { slug } }); }} />}
+    {f.topic_id && <MenuItem icon={<Icon name="tag" size={14} />} label="Agents on this folio" detail="Its topic" onClick={() => { close(); void navigate({ to: "/topics/$id", params: { id: f.topic_id! } }); }} />}
     <ActionMenuItem name="folio.archive" params={{ workspace: ws, slug }} body={{ archived: f.state !== "archived" }} close={close} label={f.state === "archived" ? "Bring back" : "Archive"} onDone={() => toast(f.state === "archived" ? "Folio brought back" : "Folio archived: Bring back in Folios › Archived")} />
-    <MenuSection><ConfirmButton className="w-full" confirmLabel="Delete folio" consequence="Deletes this folio, its revs and your marks. Its topic and sessions stay." onConfirm={() => runAction("folio.delete", { workspace: ws, slug }).then(() => { close(); toast("Folio deleted"); location.assign("/folios"); })}>Delete folio</ConfirmButton></MenuSection>
+    <MenuSection><ConfirmButton className="w-full" confirmLabel="Delete folio" consequence="Deletes this folio, its revs and your marks. Its topic and sessions stay." onConfirm={() => runAction("folio.delete", { workspace: ws, slug }).then(() => { close(); toast("Folio deleted"); void navigate({ to: "/folios" }); })}>Delete folio</ConfirmButton></MenuSection>
   </>;
 
   const meta = <>{f.kind} · rev {d.rev}{readOnly ? " (older)" : ""} · {ago(f.updated_at)}{f.state === "archived" ? " · archived" : ""}</>;
@@ -227,7 +229,17 @@ function SendFeedback({ ws, slug, unsent }: { ws: string; slug: string; unsent: 
   </Popover>;
 }
 
+type Sent = { session_id: string; bot_id: string | null; thread: string | null };
+
+/** The toast's link to whoever got the message: the bot's thread, else the session. */
+function sentTo(r: Sent, navigate: ReturnType<typeof useNavigate>) {
+  return r.bot_id
+    ? { label: "Open the thread", run: () => void navigate({ to: "/bots/$id", params: { id: r.bot_id! }, search: { thread: r.thread ?? undefined } as never }) }
+    : { label: "Open the agent", run: () => void navigate({ to: "/agents", search: { session: r.session_id } as never }) };
+}
+
 function Targets({ ws, slug, unsent, done }: { ws: string; slug: string; unsent: FolioMark[]; done: () => void }) {
+  const navigate = useNavigate();
   const targets = useFolioTargets(ws, slug);
   const bots = (useBots().data ?? []).filter((b) => b.workspace_id === ws);
   const [newThread, setNewThread] = useState(false);
@@ -235,8 +247,8 @@ function Targets({ ws, slug, unsent, done }: { ws: string; slug: string; unsent:
   const [busy, setBusy] = useState(false);
   const sendTo = (body: Record<string, unknown>) => {
     setBusy(true);
-    void runAction<{ session_id: string; bot_id: string | null; thread: string | null }>("folio.send-feedback", { workspace: ws, slug }, { ...body, note: note.trim() || undefined })
-      .then((r) => { toast("Feedback sent", r.bot_id ? { label: "Open the thread", run: () => location.assign(`/bots/${encodeURIComponent(r.bot_id!)}?thread=${encodeURIComponent(r.thread ?? "")}`) } : { label: "Open the agent", run: () => location.assign(`/agents?session=${encodeURIComponent(r.session_id)}`) }); done(); })
+    void runAction<Sent>("folio.send-feedback", { workspace: ws, slug }, { ...body, note: note.trim() || undefined })
+      .then((r) => { toast("Feedback sent", sentTo(r, navigate)); done(); })
       .catch(toastError).finally(() => setBusy(false));
   };
   const list = targets.data ?? [];
@@ -288,12 +300,41 @@ function CommentsPanel({ d, ws, slug, draft, setDraft, readOnly, refresh, jump }
       <b className="text-[12px]">Unsent marks</b>
       {(["verdict", "choice", "check"] as const).map((k) => { const ms = others.filter((m) => m.kind === k); return ms.length ? <span key={k} className="text-[12px] text-ink-2">{k === "verdict" ? "Verdicts" : k === "choice" ? "Decisions" : "Ticks"} · {ms.map((m) => `${m.target} ${k === "verdict" ? VERDICT_LABEL[m.value ?? ""] ?? m.value : k === "check" ? (m.value === "true" ? "✓" : "✗") : `→ ${m.value}`}`).join(" · ")}</span> : null; })}
     </div>}
-    {open.map((c) => <CommentCard key={c.id} c={c} replies={replies.filter((r) => r.parent === c.id)} ws={ws} slug={slug} outdated={!!c.target && !known.has(c.target) && !ids.has(c.target)} jump={jump} refresh={refresh} readOnly={readOnly} />)}
+    {open.map((c) => {
+      const gone = !!c.target && !known.has(c.target) && !ids.has(c.target);
+      // Its id is gone: the quote, found again, places it (else it shows as outdated, with its quote).
+      const moved = gone ? relocate(d.pages, c) : null;
+      return <CommentCard key={c.id} c={moved ? { ...c, ...moved } : c} replies={replies.filter((r) => r.parent === c.id)} ws={ws} slug={slug} outdated={gone && !moved} jump={jump} refresh={refresh} readOnly={readOnly} />;
+    })}
     {!open.length && !draft && <Empty icon="comment">No open comments.</Empty>}
     {resolved.length > 0 && <details className="grid gap-2"><summary className="cursor-pointer text-[12px] text-ink-3">{resolved.length} resolved</summary>
       <div className="mt-2 grid gap-2">{resolved.map((c) => <CommentCard key={c.id} c={c} replies={replies.filter((r) => r.parent === c.id)} ws={ws} slug={slug} outdated={false} jump={jump} refresh={refresh} readOnly={readOnly} />)}</div>
     </details>}
   </div>;
+}
+
+/** Where a comment's quote is now (its page first): the page and the section around it, or null. */
+export function relocate(pages: FolioDetail["pages"], c: Pick<FolioMark, "page" | "quote" | "prefix">): { page: string; target: string } | null {
+  const flat = (x: string) => x.replace(/[*_`~]/g, "").replace(/\s+/g, " ").trim();
+  const quote = flat(c.quote ?? "");
+  if (quote.length < 3) return null;
+  for (const p of [...pages].sort((a, b) => Number(b.path === c.page) - Number(a.path === c.page))) {
+    const lines = p.text.split("\n");
+    // The line where the quote starts (quotes may span lines: search the page with its line starts).
+    let text = "";
+    const starts: number[] = [];
+    for (const l of lines) { starts.push(text.length); text += `${flat(l)} `; }
+    const hits: number[] = [];
+    for (let i = text.indexOf(quote); i >= 0; i = text.indexOf(quote, i + 1)) hits.push(i);
+    if (!hits.length) continue;
+    const prefix = flat(c.prefix ?? "");
+    const at = hits.find((i) => prefix && text.slice(Math.max(0, i - prefix.length - 1), i).includes(prefix)) ?? hits[0];
+    let line = 0;
+    while (line + 1 < starts.length && starts[line + 1] <= at) line++;
+    const heading = p.outline.items.filter((i) => i.t === "heading" && i.line <= line + 1).pop();
+    return { page: p.path, target: heading && heading.t === "heading" ? heading.id : "" };
+  }
+  return null;
 }
 
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -343,11 +384,26 @@ function Patch({ text }: { text: string }) {
   return <pre className="max-h-[320px] overflow-auto rounded-control border border-line-2 bg-code p-1.5 font-mono text-[12px] leading-[1.45]">{text.split("\n").map((l, i) => <div key={i} className={l.startsWith("+") ? "bg-diff-add" : l.startsWith("-") ? "bg-diff-del" : l.startsWith("@@") ? "text-ink-3" : ""}>{l || " "}</div>)}</pre>;
 }
 
-function ProblemsPanel({ d, jump }: { d: FolioDetail; jump: (file: string, line: number | null) => void }) {
+function ProblemsPanel({ d, ws, slug, readOnly, jump }: { d: FolioDetail; ws: string; slug: string; readOnly: boolean; jump: (file: string, line: number | null) => void }) {
+  const navigate = useNavigate();
+  const targets = useFolioTargets(ws, slug, d.problems.length > 0 && !readOnly);
+  const [busy, setBusy] = useState(false);
   if (!d.problems.length) return <Empty icon="check">No problems in rev {d.rev}.</Empty>;
   const tone = (s: string) => (s === "error" ? "text-danger" : s === "warn" ? "text-attn" : "text-ink-3");
+  // The folio's thread first, else the last session that wrote it: the same order as Send feedback.
+  const to = targets.data?.[0];
+  const ask = () => {
+    if (!to) return;
+    setBusy(true);
+    void runAction<Sent>("folio.ask-fix", { workspace: ws, slug }, { kind: to.kind, bot_id: to.bot_id ?? undefined, thread_id: to.thread_id ?? undefined, session_id: to.session_id ?? undefined })
+      .then((r) => toast(`Asked ${to.label} to fix the problems`, sentTo(r, navigate))).catch(toastError).finally(() => setBusy(false));
+  };
   return <div className="grid gap-2 p-3 text-[13px]">
     <p className="m-0 text-[12px] text-ink-3">Home's check of rev {d.rev}. The agent sees the same list after each write and fixes it with launchpad folio check --fix or a patch.</p>
+    {!readOnly && <div className="flex items-center gap-2">
+      <button type="button" className="btn btn-sm" disabled={busy || !to} onClick={ask} title={to ? `Sends one line to ${to.label} (${to.detail}); your marks stay unsent` : "No agent to ask: no bot thread or session wrote this folio"}><Icon name="send" size={12} />Ask the author to fix</button>
+      {to && <span className="min-w-0 truncate text-[12px] text-ink-3">{to.label}</span>}
+    </div>}
     {d.problems.map((p, i) => <button key={i} type="button" className="grid gap-0.5 rounded-card border border-line-2 bg-paper p-2.5 text-left" onClick={() => jump(p.file, p.line)}>
       <span className={`text-[12px] font-semibold ${tone(p.severity)}`}>{p.severity === "error" ? "Error" : p.severity === "warn" ? "Warning" : "Hint"} · {p.code}</span>
       <span className="text-[12px] text-ink-3">{p.file}{p.line ? `:${p.line}` : ""}</span>
