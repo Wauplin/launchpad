@@ -402,7 +402,7 @@ function ProblemsPanel({ d, ws, slug, readOnly, jump }: { d: FolioDetail; ws: st
     <p className="m-0 text-[12px] text-ink-3">Home's check of rev {d.rev}. The agent sees the same list after each write and fixes it with launchpad folio check --fix or a patch.</p>
     {!readOnly && <div className="flex items-center gap-2">
       <button type="button" className="btn btn-sm" disabled={busy || !to} onClick={ask} title={to ? `Sends one line to ${to.label} (${to.detail}); your marks stay unsent` : "No agent to ask: no bot thread or session wrote this folio"}><Icon name="send" size={12} />Ask the author to fix</button>
-      {to && <span className="min-w-0 truncate text-[12px] text-ink-3">{to.label}</span>}
+      <span className="min-w-0 truncate text-[12px] text-ink-3">{to ? to.label : targets.isLoading ? "" : "No agent wrote it yet"}</span>
     </div>}
     {d.problems.map((p, i) => <button key={i} type="button" className="grid gap-0.5 rounded-card border border-line-2 bg-paper p-2.5 text-left" onClick={() => jump(p.file, p.line)}>
       <span className={`text-[12px] font-semibold ${tone(p.severity)}`}>{p.severity === "error" ? "Error" : p.severity === "warn" ? "Warning" : "Hint"} · {p.code}</span>
