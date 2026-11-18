@@ -1,0 +1,3 @@
+/* The folio viewer: the app theme, with Tailwind scanning every source (the build root is folio-viewer/). */
+@import "../styles.css";
+@source "..";

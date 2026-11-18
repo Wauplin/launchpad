@@ -650,8 +650,8 @@ pub(crate) async fn save_copy_state(app: &App, store: &Store, name: &str, before
     }
 }
 
-/// Readable copies next to the backups, for browsing the bucket: `<workspace>/kb/<note>` and
-/// `<workspace>/bots/<slug>/<file>`. Only changed files are uploaded and removed files are deleted. Home never reads
+/// Readable copies next to the backups, for browsing the bucket: `<workspace>/kb/<note>`,
+/// `<workspace>/bots/<slug>/<file>` and `<workspace>/folios/<slug>/<file>` (a folio at its latest rev). Only changed files are uploaded and removed files are deleted. Home never reads
 /// them back: its own store (in every backup) stays the source.
 async fn readable(app: &App, store: &Store) -> Result<()> {
     let before = load_copy_state(app, store, "readable-copies.json").await;
@@ -668,6 +668,18 @@ async fn readable(app: &App, store: &Store) -> Result<()> {
         let Some(w) = workspaces.iter().find(|w| w.id == b.workspace_id) else { continue };
         for f in crate::plain::tree(app, &crate::bots::store(&b.id)).await.map(|t| t.files).unwrap_or_default() {
             want.insert(format!("{}/bots/{}/{}", workspace_prefix(&w.name, &w.id), b.slug, f.path), f.sha256);
+        }
+    }
+    // Folios: their files at the latest rev (`launchpad_automation::folios` writes the stores).
+    let folios: Vec<(String, String, String)> = app.state_db.call(|c| {
+        let mut st = c.prepare("SELECT id, workspace_id, slug FROM folio")?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }).await.unwrap_or_default();
+    for (id, ws, slug) in folios {
+        let Some(w) = workspaces.iter().find(|w| w.id == ws) else { continue };
+        for f in crate::plain::tree(app, &crate::plain::folio_store(&id)).await.map(|t| t.files).unwrap_or_default() {
+            want.insert(format!("{}/folios/{slug}/{}", workspace_prefix(&w.name, &w.id), f.path), f.sha256);
         }
     }
     let result: Result<()> = async {

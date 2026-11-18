@@ -69,6 +69,10 @@ pub fn counts_text(problems: &[Problem]) -> String {
     if i > 0 {
         parts.push(format!("{i} hint{}", if i == 1 { "" } else { "s" }));
     }
+    let r = n(Severity::Render);
+    if r > 0 {
+        parts.push(format!("{r} render problem{}", if r == 1 { "" } else { "s" }));
+    }
     if parts.is_empty() { "no problems".into() } else { parts.join(", ") }
 }
 

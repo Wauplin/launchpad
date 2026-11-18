@@ -46,6 +46,8 @@ pub fn router() -> Router<Ctx> {
         .route("/api/folios/{workspace}/{slug}/ask-fix", post(ask_fix))
         .route("/api/folios/{workspace}/{slug}/ask", post(ask))
         .route("/api/folios/{workspace}/_blocks", get(blocks))
+        .route("/api/folios/{workspace}/{slug}/share", post(share).delete(unshare))
+        .route("/api/folios/{workspace}/{slug}/share/extend", post(extend_share))
         .route("/api/folios/{workspace}/{slug}/versions", get(versions).post(name_version))
         .route("/api/folios/{workspace}/{slug}/versions/{rev}", axum::routing::delete(unname_version))
         .route("/api/folios/{workspace}/{slug}/render", post(render))
@@ -403,4 +405,32 @@ async fn unname_version(State(s): State<Ctx>, Path((ws, slug, rev)): Path<(Strin
     owner_only(&agent, "Unpinning a version")?;
     folios::unname_version(&s.app, &ws, &slug, rev).await.map_err(bad)?;
     Ok(Json(json!({"ok": true})))
+}
+
+/// Share a snapshot: the owner's click only (an agent prepares it as a ready card).
+async fn share(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, body: Bytes) -> ApiResult<launchpad_automation::folio_share::Share> {
+    owner_only(&agent, "Share")?;
+    let input: launchpad_automation::folio_share::ShareInput = if body.is_empty() { Default::default() } else { serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("{e}")))? };
+    Ok(Json(launchpad_automation::folio_share::share(&s.app, &ws, &slug, input).await.map_err(bad)?))
+}
+
+async fn unshare(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>) -> ApiResult<Value> {
+    owner_only(&agent, "Stop sharing")?;
+    let f = folios::get(&s.app, &ws, &slug).await.map_err(missing)?;
+    launchpad_automation::folio_share::stop(&s.app, &f.id).await.map_err(bad)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+#[derive(Deserialize, Default)]
+struct Extend {
+    #[serde(default)]
+    days: Option<u32>,
+    #[serde(default)]
+    keep: bool,
+}
+
+async fn extend_share(State(s): State<Ctx>, Path((ws, slug)): Path<(String, String)>, agent: Option<Extension<AgentSession>>, body: Bytes) -> ApiResult<launchpad_automation::folio_share::Share> {
+    owner_only(&agent, "Extend a snapshot")?;
+    let e: Extend = if body.is_empty() { Default::default() } else { serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("{e}")))? };
+    Ok(Json(launchpad_automation::folio_share::extend(&s.app, &ws, &slug, e.days, e.keep).await.map_err(bad)?))
 }

@@ -63,6 +63,8 @@ impl launchpad_core::ext::Extensions for Extensions {
 
 /// Starts the services of the crates above the core, after `App::start`.
 pub async fn start(app: &App) -> Result<()> {
+    // Shared folio snapshots carry the folio-viewer build embedded with the UI.
+    launchpad_automation::folio_share::set_viewer(launchpad_server::folio_viewer_files);
     launchpad_automation::start(app).await?;
     launchpad_channels::spawn(app);
     launchpad_github::ledger::resume_checks(app);

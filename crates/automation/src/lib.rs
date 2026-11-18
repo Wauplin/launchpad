@@ -8,6 +8,7 @@ pub mod failures;
 pub mod folio_catalog;
 pub mod folio_check;
 pub mod folio_data;
+pub mod folio_share;
 pub mod folio_split;
 pub mod folios;
 pub mod gates;
@@ -91,6 +92,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     folios::RenderReport::export_all(cfg)?;
     folios::BlockRequest::export_all(cfg)?;
     folios::Version::export_all(cfg)?;
+    folio_share::ShareInput::export_all(cfg)?;
     folio_data::Entry::export_all(cfg)?;
     folio_catalog::export(cfg)?;
     Ok(())

@@ -89,6 +89,8 @@ pub struct Folio {
     pub unsent: u32,
     pub open: u32,
     pub links: Vec<FolioLink>,
+    /// Its shared snapshot (`folio_share`).
+    pub share: Option<crate::folio_share::Share>,
 }
 
 /// A page of a folio with its outline.
@@ -356,6 +358,7 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Folio> {
         unsent: 0,
         open: 0,
         links: vec![],
+        share: None,
     })
 }
 
@@ -372,6 +375,7 @@ async fn fill(app: &App, mut f: Folio) -> Result<Folio> {
     }).await?;
     f.unsent = unsent;
     f.open = open;
+    f.share = crate::folio_share::get(app, &f.id).await.ok().flatten();
     f.links = links.into_iter().map(|(session_id, role, first_rev, last_rev, at)| FolioLink { title: app.sessions.get(&session_id).map(|s| s.title), session_id, role, first_rev, last_rev, at }).collect();
     if let Ok(t) = file_text(app, &f.id, "index.md", None).await
         && let Some(m) = check::front(&t)
@@ -827,6 +831,10 @@ pub async fn set_archived(app: &App, ws: &str, slug: &str, archived: bool) -> Re
 /// Deletes a folio: its store, revs, marks and links (its topic and sessions stay).
 pub async fn delete(app: &App, ws: &str, slug: &str) -> Result<()> {
     let f = get(app, ws, slug).await?;
+    // Its shared snapshot goes first; a deletion that fails stays recorded and Home's hourly task retries it.
+    if let Err(e) = crate::folio_share::stop(app, &f.id).await {
+        tracing::warn!("folio {slug}: stop sharing: {e:#}");
+    }
     plain::drop_store(app, &plain::folio_store(&f.id)).await?;
     let id = f.id.clone();
     app.state_db.call(move |c| {
@@ -1498,6 +1506,11 @@ pub fn spawn(app: &App) {
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(3600));
         loop {
             tick.tick().await;
+            match crate::folio_share::expire(&app).await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!("deleted {n} expired folio snapshot(s)"),
+                Err(e) => tracing::warn!("folio snapshots: {e:#}"),
+            }
             match archive_stale(&app).await {
                 Ok(0) => {}
                 Ok(n) => tracing::info!("archived {n} folio(s) without a change for 30 days"),

@@ -195,6 +195,7 @@ export function foliosWorld() {
     created_by: agent, created_at: clock.ago(60 * 5), updated_at: clock.ago(50), rev: 3, topic_id: "demo-topic-launch", thread: null, archived_at: null,
     errors: 0, warnings: 0, status: "for review", summary: "Three waves to ship Folios, the store and reader first.", unsent: 0, open: 0,
     links: [{ session_id: FOLIO_SESSION, role: "created", first_rev: 1, last_rev: 3, at: clock.ago(50), title: "Document the refund flow" }],
+    share: { space: "you/folio-roadmap-winter", url: "https://huggingface.co/spaces/you/folio-roadmap-winter", rev: 2, visibility: "private", expires_at: clock.ago(-60 * 24 * 21), decisions: false, at: clock.ago(60 * 24 * 9), state: "shared", error: null, dry_run: false },
   };
   const marks: FolioMark[] = [
     mark({ id: 1, kind: "verdict", target: "F-01", value: "do", sent_at: clock.ago(45) }),

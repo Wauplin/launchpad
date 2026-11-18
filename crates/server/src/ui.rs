@@ -41,3 +41,11 @@ pub fn build_id() -> String {
     Assets::get("index.html").map(|f| f.data.into_owned()).unwrap_or_default().hash(&mut h);
     format!("{:016x}", h.finish())
 }
+
+/// The folio-viewer build (`web/dist/folio-viewer/`), paths relative to it: what a folio's shared snapshot carries.
+pub fn folio_viewer_files() -> Vec<(String, Vec<u8>)> {
+    Assets::iter().filter_map(|p| {
+        let rel = p.strip_prefix("folio-viewer/")?.to_string();
+        Some((rel, Assets::get(&p)?.data.into_owned()))
+    }).collect()
+}

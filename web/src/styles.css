@@ -1516,3 +1516,7 @@ button {
   overflow-x: auto;
   justify-items: center;
 }
+.folio-ro .folio-hc,
+.folio-ro .folio-cb {
+  display: none;
+}

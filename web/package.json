@@ -5,7 +5,7 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && vite build -c vite.viewer.config.ts",
     "typecheck": "tsc -b",
     "test:sessions": "node --experimental-strip-types --test tests/sessionStore.test.mjs tests/worktreeMerge.test.mjs tests/localPr.test.mjs",
     "test:composer": "node --experimental-strip-types --test tests/composer.test.mjs tests/promptDocument.test.mjs tests/pullRequest.test.mjs",

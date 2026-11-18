@@ -35,6 +35,7 @@ pub struct Server {
 }
 
 pub use home_client::connect;
+pub use ui::folio_viewer_files;
 
 /// Home: an oracle's `tools.launchpad` read, in process: a GET of this daemon's router with the oracle's workspace as
 /// its principal (`launchpad_http::OracleReader`, checked by `auth::guard` with `agent_auth::authorize_oracle`), no

@@ -16,7 +16,7 @@ import { ConfirmButton, Empty, ErrorState, Loading, MenuSection, MoreMenu, human
 import { toast, toastError } from "@/components/Toast";
 import { runAction } from "@/lib/actions";
 import { useBots } from "@/lib/bots";
-import { ago, when } from "@/lib/format";
+import { ago, day, when } from "@/lib/format";
 import { useComposer } from "@/stores/composer";
 import type { FolioRenderProblem } from "@/gen/FolioRenderProblem";
 import { folioRef, homeFiles, marksSummary, unsentMarks, useFolio, useFolioDiff, useFolioRevs, useFolioTargets, VERDICT_LABEL } from "@/lib/folios";
@@ -26,9 +26,10 @@ import { PhoneHeader } from "@/mobile/PhoneHeader";
 import { Sheet } from "@/mobile/Sheet";
 import { phoneBack } from "@/mobile/back";
 import { FolioPageView, type MarkApi } from "./render";
+import { SharePanel } from "./SharePanel";
 import { AgentsButton, AskPanel, FolioAgents, FolioSwitcher, launchWith, type FolioPart } from "./FolioBar";
 
-export type Panel = "comments" | "versions" | "problems" | "ask";
+export type Panel = "comments" | "versions" | "problems" | "ask" | "share";
 type Nav = { page?: string; rev?: number; panel?: Panel };
 type Draft = { target: string; page: string; quote?: string; prefix?: string; suffix?: string; text: string };
 
@@ -147,10 +148,11 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
   </nav>;
 
   const sideBody = (p: Panel) => p === "comments" ? <CommentsPanel d={d} ws={ws} slug={slug} draft={draft} setDraft={setDraft} readOnly={readOnly} refresh={refresh} jump={(m) => { if (m.page && m.page !== pagePath) onNav({ page: m.page }); if (m.target) requestAnimationFrame(() => jump(m.target!)); }} />
+    : p === "share" ? <SharePanel f={f} rev={nav.rev ?? f.rev} />
     : p === "ask" ? <AskPanel f={f} rev={nav.rev ?? null} part={asking.page ? asking : { page: pagePath }} done={() => setPanel(null)} />
     : p === "versions" ? <VersionsPanel ws={ws} slug={slug} current={nav.rev ?? null} latest={latest.data?.folio.rev ?? f.rev} view={(rev) => onNav({ rev: rev ?? undefined })} />
     : <ProblemsPanel d={d} ws={ws} slug={slug} readOnly={readOnly} jump={(file, line) => { if (file !== pagePath && d.pages.some((x) => x.path === file)) onNav({ page: file }); void line; }} />;
-  const PANEL_TITLE: Record<Panel, string> = { comments: "Comments", versions: "Versions", problems: "Problems", ask: "Ask" };
+  const PANEL_TITLE: Record<Panel, string> = { comments: "Comments", versions: "Versions", problems: "Problems", ask: "Ask", share: "Share a snapshot" };
   const ask = (part: FolioPart) => { setAsking(part); setPanel("ask"); };
   const launch = (part: FolioPart) => launchWith(f, nav.rev ?? null, part);
 
@@ -161,6 +163,7 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     {phone && <MenuItem icon={<Icon name="agents" size={14} />} label="Agents on this folio" detail={`${f.links.length}`} onClick={() => { close(); setAgents(true); }} />}
     <MenuItem icon={<Icon name="comment" size={14} />} label="Comments" detail={`${f.open} open`} onClick={() => { close(); setPanel("comments"); }} />
     <MenuItem icon={<Icon name="clock" size={14} />} label="Versions" detail={`rev ${f.rev}`} onClick={() => { close(); setPanel("versions"); }} />
+    <MenuItem icon={<Icon name="upload" size={14} />} label="Share…" detail={f.share ? (f.share.expires_at == null ? "shared, kept" : `shared until ${day(f.share.expires_at)}`) : "A read-only snapshot"} onClick={() => { close(); setPanel("share"); }} />
     {d.problems.length > 0 && <MenuItem icon={<Icon name="alert" size={14} />} label="Problems" detail={`${errors} error${errors === 1 ? "" : "s"}, ${warnings} warning${warnings === 1 ? "" : "s"}`} onClick={() => { close(); setPanel("problems"); }} />}
     {embedded && <MenuItem icon={<Icon name="expand" size={14} />} label="Open full screen" onClick={() => { close(); void navigate({ to: "/folios/$slug", params: { slug } }); }} />}
     {f.topic_id && <MenuItem icon={<Icon name="tag" size={14} />} label="Agents on this folio" detail="Its topic" onClick={() => { close(); void navigate({ to: "/topics/$id", params: { id: f.topic_id! } }); }} />}
@@ -209,7 +212,7 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
       <span className="ml-auto flex items-center gap-1.5">
         {problemsButton}
         <AgentsButton f={f} />
-        <button type="button" className="btn btn-sm" aria-pressed={panel === "ask"} onClick={() => panel === "ask" ? setPanel(null) : ask({ page: pagePath })} title="Ask the folio's agent a question, with this page as context"><Icon name="send" size={12} />Ask</button>
+        <button type="button" data-tour="folio.ask" className="btn btn-sm" aria-pressed={panel === "ask"} onClick={() => panel === "ask" ? setPanel(null) : ask({ page: pagePath })} title="Ask the folio's agent a question, with this page as context"><Icon name="send" size={12} />Ask</button>
         <button type="button" className="btn btn-sm" onClick={() => launch({ page: pagePath })} title="Open the composer with this folio as context"><Icon name="plus" size={12} />Launch</button>
         <button type="button" className="btn btn-sm" aria-pressed={panel === "comments"} onClick={() => setPanel(panel === "comments" ? null : "comments")}><Icon name="comment" size={12} />Comments{f.open ? ` · ${f.open}` : ""}</button>
         {send}
@@ -220,7 +223,7 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     <div className="flex min-h-0 flex-1">
       {!embedded && <aside className="hidden w-[210px] flex-none overflow-y-auto border-r border-line-2 px-2 py-4 lg:block">{contents}</aside>}
       {body}
-      {panel && <aside className="flex w-[320px] flex-none flex-col border-l border-line bg-chrome" data-tour={panel === "comments" ? "folio.comments" : undefined}>
+      {panel && <aside className="flex w-[320px] flex-none flex-col border-l border-line bg-chrome" data-tour={panel === "comments" ? "folio.comments" : panel === "share" ? "folio.share-panel" : undefined}>
         <div className="flex items-center gap-2 border-b border-line-2 py-1 pr-1 pl-3"><b className="flex-1 text-[13px]">{PANEL_TITLE[panel]}</b><button type="button" className="iconbtn" aria-label="Close panel" title="Close panel" onClick={() => setPanel(null)}><Icon name="x" size={14} /></button></div>
         <div className="min-h-0 flex-1 overflow-y-auto">{sideBody(panel)}</div>
       </aside>}

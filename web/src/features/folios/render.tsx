@@ -46,6 +46,8 @@ export type MarkApi = {
   openFolio: (slug: string) => void;
   /** The folio's files (CSV, sketches, images) and data API; default: Home's routes. */
   files?: FolioFiles;
+  /** An image's URL (a shared snapshot gives data URLs); default: the folio's sandboxed raw route. */
+  assetUrl?: (path: string) => string | null;
   /** Every path of the folio (the sketch kit `sketches/_kit.html` is used when it exists). */
   paths?: string[];
   /** A render problem the reader saw (F701 sketch errors and empty frames, F702 Mermaid and chart errors). */
@@ -64,7 +66,7 @@ const ALERTS = new Set<string>(FOLIO_CATALOG.alerts);
 
 // ---------------------------------------------------------------- Markdown
 
-type Env = { offset: number; headings: Map<number, string>; ws: string; slug: string; page: string; rev: number | null };
+type Env = { offset: number; headings: Map<number, string>; ws: string; slug: string; page: string; rev: number | null; asset?: (path: string) => string | null };
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
 md.renderer.rules.heading_open = (tokens, idx, options, e, self) => {
@@ -94,7 +96,9 @@ md.renderer.rules.image = (tokens, idx, _options, e) => {
   const alt = md.utils.escapeHtml(t.content);
   if (/^(https?:)?\/\//.test(src)) return `<span class="folio-blocked" title="Images from the network do not load: the agent adds them with launchpad folio add-media">Image from the network: ${alt || md.utils.escapeHtml(src)}</span>`;
   const path = resolve(env.page, src.split("#")[0]);
-  return `<img src="${md.utils.escapeHtml(folioAsset(env.ws, env.slug, path, env.rev))}" alt="${alt}" loading="lazy">`;
+  const url = env.asset ? env.asset(path) : folioAsset(env.ws, env.slug, path, env.rev);
+  if (!url) return `<span class="folio-blocked">Missing image: ${md.utils.escapeHtml(path)}</span>`;
+  return `<img src="${md.utils.escapeHtml(url)}" alt="${alt}" loading="lazy">`;
 };
 // An explicit anchor (`## Waves {#waves}`) is the heading's id, not its text.
 md.core.ruler.push("folio_heading_ids", (state) => {
@@ -190,11 +194,11 @@ export function buildTree(items: OutlineItem[], from: number, to: number, depth:
 export const FolioPageView = memo(function FolioPageView({ page, api: marks, mood }: { page: FolioPage; api: MarkApi; mood: "report" | "editorial" }) {
   const ls = useMemo(() => splitLines(page.text), [page.text]);
   const o = useMemo(() => splitOutline(page.text), [page.text]);
-  const env = useMemo<Env>(() => ({ offset: 0, headings: new Map(o.items.flatMap((i) => (i.t === "heading" ? [[i.line - 1, i.id] as [number, string]] : []))), ws: marks.ws, slug: marks.slug, page: page.path, rev: marks.rev }), [o, marks.ws, marks.slug, page.path, marks.rev]);
+  const env = useMemo<Env>(() => ({ offset: 0, headings: new Map(o.items.flatMap((i) => (i.t === "heading" ? [[i.line - 1, i.id] as [number, string]] : []))), ws: marks.ws, slug: marks.slug, page: page.path, rev: marks.rev, asset: marks.assetUrl }), [o, marks.ws, marks.slug, page.path, marks.rev, marks.assetUrl]);
   const tree = useMemo(() => buildTree(o.items, (o.front?.end ?? 0) + 1, ls.length, 0), [o, ls.length]);
   return <Marks.Provider value={marks}>
     <EnvCtx.Provider value={env}>
-      <article className={`folio folio-${mood}`} onClick={(e) => click(e, marks)}>
+      <article className={`folio folio-${mood}${marks.readOnly ? " folio-ro" : ""}`} onClick={(e) => click(e, marks)}>
         <Nodes nodes={tree} ls={ls} items={o.items} />
       </article>
     </EnvCtx.Provider>

@@ -135,3 +135,19 @@ route("PUT", "/api/folios/:ws/:slug/data/*key", ({ params, body }) => {
   return { key, value, size: JSON.stringify(value).length, author: you, updated_at: clock.now() };
 });
 route("DELETE", "/api/folios/:ws/:slug/data/*key", ({ params }) => { const key = decodeURIComponent(params.key ?? ""); const d = dataOf(of(params.ws, params.slug)); const had = key in d; delete d[key]; return { removed: had }; });
+route("POST", "/api/folios/:ws/:slug/share", ({ params, body }) => {
+  const f = of(params.ws, params.slug);
+  const b = (body ?? {}) as { visibility?: string; keep?: boolean; days?: number; decisions?: boolean; rev?: number };
+  f.folio = { ...f.folio, share: { space: `you/folio-${f.folio.slug}`, url: `https://huggingface.co/spaces/you/folio-${f.folio.slug}`, rev: b.rev ?? f.folio.rev, visibility: b.visibility ?? "private", expires_at: b.keep ? null : clock.now() + (b.days ?? 30) * 86_400_000, decisions: !!b.decisions, at: clock.now(), state: "shared", error: null, dry_run: false } };
+  changed(f);
+  return f.folio.share;
+});
+route("DELETE", "/api/folios/:ws/:slug/share", ({ params }) => { const f = of(params.ws, params.slug); f.folio = { ...f.folio, share: null }; changed(f); return { ok: true }; });
+route("POST", "/api/folios/:ws/:slug/share/extend", ({ params, body }) => {
+  const f = of(params.ws, params.slug);
+  const b = (body ?? {}) as { keep?: boolean; days?: number };
+  if (!f.folio.share) throw new DemoError(400, "this folio is not shared");
+  f.folio = { ...f.folio, share: { ...f.folio.share, expires_at: b.keep ? null : clock.now() + (b.days ?? 30) * 86_400_000 } };
+  changed(f);
+  return f.folio.share;
+});
