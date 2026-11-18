@@ -1,3 +1,4 @@
+import { threadOf } from "@/lib/botThread";
 // P1 Page chat: a chat with a bot of the workspace (its Ask target by default) about the current tab. The tab is a
 // chip; on Send the panel reads the page once (readable text, URL, selection) and attaches it as `page.md`, so the agent
 // never touches the browser. Suggestions only fill the box. The conversation is one of the bot's threads (the same as
@@ -35,9 +36,6 @@ export function useBots(state: ConnectionState) {
   }, [ws, state.phase]);
   return { list, error };
 }
-
-// Sessions from before threads belong to the legacy thread `main`.
-const threadOf = (s: Session) => s.launch_spec.bot?.thread || "main";
 
 /** The threads of a bot (the newest first), kept live. */
 function useThreads(bot: string | null) {

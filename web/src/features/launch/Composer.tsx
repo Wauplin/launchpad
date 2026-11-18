@@ -1,3 +1,4 @@
+import { withFolder, prepareLaunch, launchBlocker } from "./launchDecisions";
 import { TopicContextChips } from "@/features/topics/TopicContextChips";
 import { FolioContextChips } from "@/features/folios/FolioContext";
 import { addFolio } from "@/lib/folios";
@@ -191,13 +192,6 @@ function useOverlay(scale: number) {
   }, []);
   // The root `zoom` scales CSS pixels; `innerWidth` is not zoomed.
   return width / scale < OVERLAY_BELOW;
-}
-
-/** Makes `p` the target of a draft, and drops it from the context folders. */
-function withFolder(s: LaunchSpec, p: Project): LaunchSpec {
-  // Git folders of Home always run in a fresh worktree.
-  const worktree = p.home_git ? (s.worktree ?? { base: null, when_done: p.when_done }) : s.worktree;
-  return { ...s, worktree, target: { kind: "project", project_id: p.id }, context_projects: s.context_projects.filter((c) => c.project_id !== p.id) };
 }
 
 function Token({ warn, title, children }: { warn?: boolean; title?: string; children: React.ReactNode }) {
@@ -414,7 +408,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   const missingProfile = !!spec.profile && !profile;
   // The daemon renders and checks the prompt at launch; Launch does not wait for a preview.
   const hasPrompt = !!spec.text.trim() || items > 0 || agentPresets.some((p) => spec.presets.includes(p.id) && p.text.trim());
-  const blocker = editGone ? "This scheduled agent already started or was cancelled" : editing && timing === "later" && !scheduled ? "Add a start condition, or choose Start now" : selectedWorktree?.busy ? "Stop the active agent before using this worktree" : !profiles.length ? "Add a profile in Settings → Profiles" : !spec.harness || !spec.profile ? "Pick a profile in the options" : missingProfile ? "The profile no longer exists" : modelMissing ? `Choose a model for ${profile!.name}` : spec.target.kind === "none" ? "Pick a folder" : !scope.workspace.id ? "Waiting for the workspace to load" : !hasPrompt ? "Write a prompt" : !budgetValid ? "Fix the cost limit" : (cron ? !cronValid : !delayValid || !!conditionsError(conditions)) ? "Fix the start or repeat options" : null;
+  const blocker = launchBlocker({ editGone, editing: !!editing, timing, scheduled, busyWorktree: !!selectedWorktree?.busy, hasProfiles: !!profiles.length, spec, missingProfile, modelMissing, profileName: profile?.name ?? "", workspace: scope.workspace.id, hasPrompt: !!hasPrompt, budgetValid, timingValid: cron ? cronValid : delayValid && !conditionsError(conditions) });
   const unsupportedImages = !!harness && !harness.capabilities.images && (spec.attachments ?? []).some((f) => isImageAttachment(f.data_url));
   const canLaunch = !blocker && !readingAttachments && !unsupportedImages;
 
@@ -450,9 +444,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
     setLaunching(true);
     // A temporary folder joins this window's workspace; other folders keep their own.
     const draft = useComposer.getState().spec;
-    const pr = prOf(draft);
-    const pullRequest = pr && prOptOut !== `${pr.repo}#${pr.number}` ? pr : undefined;
-    const spec = { ...draft, workspace_id: scope.workspace.id || null, worktree: draft.target.kind === "project" && !gitTarget ? null : draft.worktree && { ...draft.worktree, pull_request: pullRequest } };
+    const spec = prepareLaunch(draft, scope.workspace.id, gitTarget, target, prOptOut);
     try {
       if (editing) {
         if (cron) {

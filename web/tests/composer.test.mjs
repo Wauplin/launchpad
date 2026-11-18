@@ -131,3 +131,55 @@ test("preset availability excludes stale selections while preserving settings or
   presets[0].bots = false;
   assert.equal(withPresets("", ["ask"], availablePresets(presets, "bots")), "");
 });
+
+const { prepareLaunch, launchBlocker, withFolder } = await import("../src/features/launch/launchDecisions.ts");
+test("submission preserves launch options and only normalizes workspace, worktree and PR", () => {
+  const project = { id: "repo", gh_repo: "owner/repo", home_git: true, when_done: "keep" };
+  const original = { ...emptySpec(), text: "Inspect https://github.com/owner/repo/pull/12", attachments: [{ name: "notes.txt", data_url: "data:text/plain;base64,YQ==" }], profile: "chosen", model: "chosen-model", effort: "high", target: { kind: "project", project_id: "repo" } };
+  const snapshot = structuredClone(original);
+  const result = prepareLaunch(original, "work", true, project, null);
+  assert.deepEqual(result, { ...original, workspace_id: "work", worktree: { ...original.worktree, pull_request: { repo: "owner/repo", number: 12 } } });
+  assert.deepEqual(original, snapshot);
+  assert.equal(prepareLaunch(original, "work", true, project, "owner/repo#12").worktree.pull_request, undefined);
+  assert.equal(prepareLaunch(original, "work", false, project, null).worktree, null);
+  for (const target of [{ kind: "temp" }, { kind: "worktree", worktree_id: "existing" }, { kind: "predraft", project_id: "repo" }]) {
+    const draft = { ...original, target };
+    assert.deepEqual(prepareLaunch(draft, "", true, project, null), { ...draft, workspace_id: null, worktree: { ...draft.worktree, pull_request: undefined } });
+  }
+  assert.deepEqual(withFolder({ ...original, context_projects: [{ project_id: "repo" }, { project_id: "other" }] }, project).context_projects, [{ project_id: "other" }]);
+});
+
+test("launch validation keeps blocker precedence and timing checks", () => {
+  const valid = { spec: { ...emptySpec(), harness: "codex", profile: "chosen", target: { kind: "temp" } }, hasProfiles: true, workspace: "work", hasPrompt: true, budgetValid: true, timingValid: true };
+  assert.equal(launchBlocker(valid), null);
+  assert.equal(launchBlocker({ ...valid, editGone: true, busyWorktree: true }), "This scheduled agent already started or was cancelled");
+  assert.equal(launchBlocker({ ...valid, editing: true, timing: "later", scheduled: false }), "Add a start condition, or choose Start now");
+  assert.equal(launchBlocker({ ...valid, hasPrompt: false, budgetValid: false }), "Write a prompt");
+  assert.equal(launchBlocker({ ...valid, timingValid: false }), "Fix the start or repeat options");
+});
+
+test("shared thread identity preserves missing, empty and explicit thread IDs", async () => {
+  const { launchThread, threadOf } = await import("../src/lib/botThread.ts");
+  for (const thread of [undefined, null, "", "main", "github:owner/repo#12"]) {
+    assert.equal(launchThread({ thread }), thread || "main");
+    assert.equal(threadOf({ launch_spec: { bot: { thread } } }), thread || "main");
+  }
+  assert.equal(threadOf({ launch_spec: {} }), "main");
+});
+
+
+test("thread selection retains the newest session, including archives and tied timestamps", async () => {
+  const { threadCurrents } = await import("../src/lib/botThread.ts");
+  const sessions = [
+    { id: "new-main", started_at: 3, status: "working", launch_spec: {} },
+    { id: "old-main", started_at: 1, status: "waiting", launch_spec: { bot: { thread: "" } } },
+    { id: "old-topic", started_at: 2, status: "waiting", launch_spec: { bot: { thread: "topic" } } },
+    { id: "closed-topic", started_at: 4, status: "closed", launch_spec: { bot: { thread: "topic" } } },
+    { id: "tie-first", started_at: 5, status: "waiting", launch_spec: { bot: { thread: "tie" } } },
+    { id: "tie-last", started_at: 5, status: "working", launch_spec: { bot: { thread: "tie" } } },
+  ];
+  const before = structuredClone(sessions);
+  const currents = threadCurrents(sessions);
+  assert.deepEqual([...currents].map(([id, s]) => [id, s.id]), [["main", "new-main"], ["tie", "tie-last"]]);
+  assert.deepEqual(sessions, before);
+});

@@ -7,20 +7,12 @@ import type { Project } from "@/gen/Project";
 import { RequestError, type LocalPrDetail, type PushResult } from "../shared/messages";
 import { current, homeJson } from "./home";
 
-const id = (v: unknown, what: string) => {
-  if (typeof v !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(v)) throw new RequestError(`Not a ${what} ID`);
-  return v;
-};
-const workspace = () => {
-  const ws = current().workspace;
-  if (!ws) throw new RequestError("Choose a workspace in the Launchpad panel first");
-  return ws;
-};
+import { id, workspace } from "./validation";
 const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
 
 export function reviewChoice(a: { repo: string; bot?: string | null; preset?: string | null }): Promise<ExtReviewChoice> {
   if (typeof a.repo !== "string" || !REPO.test(a.repo)) throw new RequestError("Not a repository");
-  const body = { repo: a.repo, workspace: workspace(), bot: a.bot ? id(a.bot, "bot") : null, preset: a.preset ? id(a.preset, "preset") : null };
+  const body = { repo: a.repo, workspace: workspace(current().workspace), bot: a.bot ? id(a.bot, "bot") : null, preset: a.preset ? id(a.preset, "preset") : null };
   return homeJson<ExtReviewChoice>("/api/ext/review-choice", { method: "PUT", body });
 }
 

@@ -15,3 +15,23 @@ impl Locks {
         lock
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn guards_keep_keys_alive_across_clones_and_cleanup() {
+        let locks = Locks::default();
+        let cloned = locks.clone();
+        let first = locks.get("same");
+        let weak = std::sync::Arc::downgrade(&first);
+        let guard = first.lock_owned().await;
+        assert!(cloned.get("same").try_lock().is_err());
+        assert!(cloned.get("other").try_lock().is_ok());
+        assert!(Locks::default().get("same").try_lock().is_ok());
+        drop(guard);
+        assert!(weak.upgrade().is_none());
+        assert!(cloned.get("same").try_lock().is_ok());
+    }
+}

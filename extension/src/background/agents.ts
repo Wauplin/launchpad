@@ -18,15 +18,7 @@ import { QUOTE_TOPIC, RequestError, type BotList, type LaunchWhenDone, type Ledg
 import { current, homeJson } from "./home";
 import { pushEvent } from "./ports";
 
-const id = (v: unknown, what: string) => {
-  if (typeof v !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(v)) throw new RequestError(`Not a ${what} ID`);
-  return v;
-};
-const workspace = () => {
-  const ws = current().workspace;
-  if (!ws) throw new RequestError("Choose a workspace in the Launchpad panel first");
-  return ws;
-};
+import { id, workspace } from "./validation";
 
 // Folders change rarely: kept 30 s to narrow sessions to the workspace.
 let folders: { at: number; list: Project[] } | null = null;
@@ -41,7 +33,7 @@ export function botThreads(a: { bot: string }): Promise<BotThread[]> {
 }
 
 export async function bots(): Promise<BotList> {
-  const ws = workspace();
+  const ws = workspace(current().workspace);
   const all = (await homeJson<Bot[]>("/api/bots")).filter((b) => b.workspace_id === ws).sort((a, b) => a.created_at - b.created_at);
   // `askTarget` of web/src/lib/bots.ts: the oldest admin bot of the workspace, else its oldest bot.
   const ask = all.find((b) => b.settings.launchpad === "admin") ?? all[0] ?? null;
@@ -91,7 +83,7 @@ export async function profiles(): Promise<ProfileBrief[]> {
 
 /** A one-time agent in a Git folder of the workspace, in its own worktree: read only, or ending in a Local PR. */
 export async function launch(a: { folder: string; text: string; github_refs?: GitHubRef[]; when_done: LaunchWhenDone; profile: string; key: string }): Promise<Session> {
-  const ws = workspace();
+  const ws = workspace(current().workspace);
   const folder = id(a.folder, "folder");
   if (!(await projects()).some((p) => p.id === folder && p.workspace_id === ws)) throw new RequestError("This folder is not in the extension's workspace");
   if (a.when_done !== "read_only" && a.when_done !== "local_pr") throw new RequestError("Not a launch the GitHub layer makes");
@@ -119,7 +111,7 @@ function sessionWorkspace(s: Session, list: Project[]) {
 }
 
 export async function sessions(a: { bot?: string } | undefined): Promise<Session[]> {
-  const ws = workspace();
+  const ws = workspace(current().workspace);
   const [all, list] = await Promise.all([homeJson<Session[]>("/api/sessions"), projects()]);
   const mine = all.filter((s) => s.status !== "closed" && sessionWorkspace(s, list) === ws);
   if (a?.bot) return mine.filter((s) => s.launch_spec.bot?.id === a.bot).sort((x, y) => x.started_at - y.started_at);
@@ -142,7 +134,7 @@ export async function deleteNote(a: { id: string }) {
 /** `note.read`: the agents' notes of one item (its page showed them), or every note of the workspace (Mark all read),
  * in the page's workspace, else the extension's. */
 export async function readNotes(a: { repo?: string | null; number?: number | null; workspace?: string | null }): Promise<{ marked: number }> {
-  const ws = a.workspace ? id(a.workspace, "workspace") : workspace();
+  const ws = a.workspace ? id(a.workspace, "workspace") : workspace(current().workspace);
   if (!current().workspaces.some((w) => w.id === ws)) throw new RequestError("Not a workspace of this Home");
   if (a.repo == null && a.number == null) return homeJson<{ marked: number }>("/api/notes/read", { method: "POST", body: { workspace: ws } });
   if (typeof a.repo !== "string" || !REPO.test(a.repo)) throw new RequestError("Not a repository");
@@ -153,12 +145,12 @@ export async function readNotes(a: { repo?: string | null; number?: number | nul
 
 /** The items with unread notes of the workspace's agents (`GET /api/ext/notes/unread`), newest first. */
 export function unreadNotes(): Promise<ExtUnreadNotes[]> {
-  return homeJson<ExtUnreadNotes[]>(`/api/ext/notes/unread?workspace=${encodeURIComponent(workspace())}`);
+  return homeJson<ExtUnreadNotes[]>(`/api/ext/notes/unread?workspace=${encodeURIComponent(workspace(current().workspace))}`);
 }
 
 /** Today's items of the extension's workspace (shared ones count in every workspace, like the web app's `inWorkspace`). */
 export async function todayItems(): Promise<TodayItem[]> {
-  const ws = workspace();
+  const ws = workspace(current().workspace);
   const today = await homeJson<Today>("/api/today");
   return today.items.filter((i) => !i.workspaces.length || i.workspaces.includes(ws));
 }
@@ -170,7 +162,7 @@ export function writeNote(a: { repo: string; number: number; body: string; works
   if (!Number.isInteger(number) || number < 1) throw new RequestError("Not an issue or pull request");
   const body = String(a.body ?? "").trim();
   if (!body || body.length > 65_536) throw new RequestError("A note holds 1–65536 characters");
-  const ws = a.workspace ? id(a.workspace, "workspace") : workspace();
+  const ws = a.workspace ? id(a.workspace, "workspace") : workspace(current().workspace);
   if (!current().workspaces.some((w) => w.id === ws)) throw new RequestError("Not a workspace of this Home");
   return homeJson<NoteWriteResult>("/api/notes/owner", { method: "POST", body: { repo: a.repo, number, workspace: ws, body, reply_to: a.reply_to ? id(a.reply_to, "note") : null } });
 }
