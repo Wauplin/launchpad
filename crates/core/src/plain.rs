@@ -355,6 +355,7 @@ pub async fn write_texts(app: &App, store_id: &str, files: Vec<(String, Option<S
 /// One file a `write_files` call changed: its content before and after (None: absent), and the lines added and
 /// removed (None for files that are not text).
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(rename = "PlainWritten")]
 pub struct Written {
     pub path: String,
     pub before: Option<String>,

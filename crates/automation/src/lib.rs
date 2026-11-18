@@ -8,6 +8,7 @@ pub mod failures;
 pub mod folio_catalog;
 pub mod folio_check;
 pub mod folio_split;
+pub mod folios;
 pub mod gates;
 pub mod oracle_check;
 pub mod oracle_eval;
@@ -37,6 +38,7 @@ pub async fn start(app: &App) -> Result<()> {
     schedules::spawn(app);
     oracle_eval::spawn(app);
     crons::spawn(app);
+    folios::spawn(app);
     Ok(())
 }
 
@@ -77,5 +79,13 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     oracles::Saved::export_all(cfg)?;
     oracle_check::Refused::export_all(cfg)?;
     oracle_views::ToolInfo::export_all(cfg)?;
+    folios::FolioDetail::export_all(cfg)?;
+    folios::Rev::export_all(cfg)?;
+    folios::Activity::export_all(cfg)?;
+    folios::Written::export_all(cfg)?;
+    folios::MarkInput::export_all(cfg)?;
+    folios::Target::export_all(cfg)?;
+    folios::SendTo::export_all(cfg)?;
+    folio_catalog::export(cfg)?;
     Ok(())
 }

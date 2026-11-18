@@ -291,6 +291,7 @@ fn kind_name(k: &Kind) -> &'static str {
 }
 
 /// Validates one YAML mapping against its fields; `what` names it in messages (`decision D-SHARE`).
+#[allow(clippy::too_many_arguments)]
 fn fields(cx: &mut Ctx, ls: &[&str], range: (u32, u32), fs: &[Field], m: &serde_yaml_ng::Mapping, what: &str, markable: bool, deps: &mut Vec<(String, u32)>) {
     let at = |needle: &str| find_line(ls, range.0, range.1, needle);
     let id = get(m, "id").and_then(s);
@@ -511,8 +512,11 @@ pub fn check(input: &Input) -> Vec<Problem> {
             if let Item::Container { name, attrs, .. } = i && name == "callout" && split::attrs(attrs).get("tone") == Some("verdict") {
                 verdict = true;
             }
-            if let Item::Fence { line, end, lang, .. } = i {
-                if cat::block(lang).is_none() && !lang.starts_with("x-") {
+            if let Item::Fence { line, end, lang, .. } = i
+                && cat::block(lang).is_none()
+                && !lang.starts_with("x-")
+            {
+                {
                     if let Some(near) = cat::closest(lang, cat::BLOCKS.iter().map(|b| b.name)).filter(|_| lang.len() >= 5) {
                         cx.push(Some(*line), "F208", format!("```{lang} is not a block type: it renders as code"), Some(format!("did you mean ```{near}?")), Some(Fix { line: *line, from: lang.clone(), to: near.to_string() }));
                     }

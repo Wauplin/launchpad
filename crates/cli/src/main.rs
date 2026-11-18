@@ -5,6 +5,7 @@
 mod extensions;
 #[cfg(target_os = "linux")]
 mod netcap;
+mod folio;
 mod oracle;
 
 use anyhow::{Context, Result};
@@ -324,6 +325,17 @@ enum Command {
         workspace: Option<String>,
         #[command(subcommand)]
         command: oracle::OracleCommand,
+    },
+    /// Folios of this session's workspace: reports, plans and sketchbooks written as Markdown with typed blocks,
+    /// rendered by Launchpad (`list`, `outline`, `read`, `create`, `write`, `append`, `patch`, `add-media`, `rm`,
+    /// `check [--dir]`, `blocks`, `rules`, `feedback`, `items`, `reply`, `resolve`, `revs`). Exit 1 when a check has
+    /// errors, 3 for a CLI error.
+    Folio {
+        /// Workspace ID (default: this session's workspace).
+        #[arg(long, global = true)]
+        workspace: Option<String>,
+        #[command(subcommand)]
+        command: folio::FolioCommand,
     },
     /// The hop count to send with `X-Launchpad-Hops` when this session calls an incoming hook of Launchpad (for agents).
     Hops,
@@ -1223,6 +1235,16 @@ async fn run() -> Result<()> {
                 Err(e) => {
                     eprintln!("Error: {e:#}");
                     oracle::ERROR_EXIT
+                }
+            };
+            std::process::exit(code)
+        }
+        Command::Folio { workspace, command } => {
+            let code = match folio::command(&paths, workspace, command).await {
+                Ok(code) => code,
+                Err(e) => {
+                    eprintln!("Error: {e:#}");
+                    folio::ERROR_EXIT
                 }
             };
             std::process::exit(code)

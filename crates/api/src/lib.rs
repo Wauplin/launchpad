@@ -10,6 +10,7 @@ mod connections;
 mod diagnostics;
 mod egress;
 mod ext;
+mod folios;
 mod items;
 mod kb_http;
 mod mcp;
@@ -51,5 +52,6 @@ pub fn router() -> Router<Ctx> {
         .merge(diagnostics::router())
         .merge(ext::router())
         .merge(oracles::router())
+        .merge(folios::router())
         .merge(egress::router())
 }

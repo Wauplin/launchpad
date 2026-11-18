@@ -3,6 +3,6 @@
 export type BotThread = { id: string, bot_id: string, 
 /**
  * What routes messages here (`github:owner/repo#12`, `channel:<id>`, `hook:<id>`, `agent:<session>`,
- * `routine:<file>`), None for the owner's own threads.
+ * `routine:<file>`, `folio:<id>`), None for the owner's own threads.
  */
 key: string | null, title: string, created_at: number, archived_at: number | null, };

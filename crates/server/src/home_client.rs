@@ -238,7 +238,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/topics" || path.starts_with("/api/topics/")
         || path == "/api/review-state" || path == "/api/channels" || path.starts_with("/api/channels/")
         || path == "/api/home/update" || path == "/api/home/update/check" || path.starts_with("/api/cli-updates")
-        || path.starts_with("/api/oracles/")
+        || path.starts_with("/api/oracles/") || path.starts_with("/api/folios/")
 }
 
 /// Marks a request of a session's CLI token (`auth::guard`), with its session: its launches and messages go to Home,

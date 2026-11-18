@@ -33,8 +33,29 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
     } else if oracle_test(method, path) || bot_publish(method, path).is_some() {
         Some(LaunchpadAccess::Propose)
     } else {
-        None
+        folio_need(method, path)
     }
+}
+
+/// `launchpad folio …` (`/api/folios/{workspace}…`, in the session's own workspace): every level reads (list,
+/// outline, read, check, feedback, items, revs); propose creates, writes, fixes, replies and resolves, as the
+/// session's own writes. Marks, Send feedback, Restore, Archive and Delete are the owner's.
+fn folio_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
+    let p: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    if p.len() < 3 || p[..2] != ["api", "folios"] || p.iter().any(|s| s.is_empty()) {
+        return None;
+    }
+    if *method == Method::GET {
+        return Some(LaunchpadAccess::Read);
+    }
+    let write = *method == Method::POST
+        && match &p[2..] {
+            [_ws] => true,
+            [_ws, slug, "write" | "fix"] => !slug.starts_with('_'),
+            [_ws, _slug, "marks", id, "reply" | "resolve"] => id.parse::<i64>().is_ok(),
+            _ => false,
+        };
+    write.then_some(LaunchpadAccess::Propose)
 }
 
 /// `launchpad channel list` and `launchpad channel read`: every access level (Home lets only member bots read, and
@@ -264,7 +285,7 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
         };
         return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, why));
     }
-    if tool_need(req.method(), &path) == Some(LaunchpadAccess::Admin) || oracle_read(req.method(), &path) || oracle_test(req.method(), &path) {
+    if tool_need(req.method(), &path) == Some(LaunchpadAccess::Admin) || oracle_read(req.method(), &path) || oracle_test(req.method(), &path) || folio_need(req.method(), &path).is_some() {
         return Ok(req);
     }
     if access == Some(LaunchpadAccess::Admin) && tool_need(req.method(), &path).is_none() && !read_allowed(&path) && !own_write(&path) && admin_allows(req.method(), &path) {
@@ -414,6 +435,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (_, ["tool-defaults", scope, id]) => Tools(scope, id),
         (true, ["gh", owner, repo, ..]) => Repo(owner, repo),
         (_, ["oracles", ws, ..]) => Workspace(ws),
+        (_, ["folios", ws, ..]) => Workspace(ws),
         _ => Unscoped,
     }
 }
@@ -815,6 +837,25 @@ mod tests {
     /// Oracles: every level lists, shows and runs them in its own workspace; propose tests drafts and saving is
     /// admin (the handlers refuse added access), the rest is the owner's.
     #[test]
+    fn folios_read_at_every_level_and_write_at_propose() {
+        for p in ["/api/folios/w1", "/api/folios/w1/roadmap", "/api/folios/w1/roadmap/file", "/api/folios/w1/roadmap/feedback", "/api/folios/w1/_activity"] {
+            assert_eq!(folio_need(&Method::GET, p), Some(LaunchpadAccess::Read), "{p}");
+            assert_eq!(names(&Method::GET, p), Names::Workspace("w1"), "{p}");
+        }
+        for p in ["/api/folios/w1", "/api/folios/w1/roadmap/write", "/api/folios/w1/roadmap/fix", "/api/folios/w1/roadmap/marks/31/reply", "/api/folios/w1/roadmap/marks/31/resolve"] {
+            assert_eq!(folio_need(&Method::POST, p), Some(LaunchpadAccess::Propose), "{p}");
+        }
+        // The owner's: marks, Send feedback, Restore, Archive, Delete.
+        for (m, p) in [(Method::POST, "/api/folios/w1/roadmap/marks"), (Method::POST, "/api/folios/w1/roadmap/send"), (Method::POST, "/api/folios/w1/roadmap/revs/3/restore"), (Method::POST, "/api/folios/w1/roadmap/archive"), (Method::DELETE, "/api/folios/w1/roadmap"), (Method::DELETE, "/api/folios/w1/roadmap/marks/3"), (Method::POST, "/api/folios/w1/roadmap/marks/x/reply"), (Method::POST, "/api/folios//x/write")] {
+            assert_eq!(folio_need(&m, p), None, "{m} {p}");
+        }
+        for (m, p) in [(Method::POST, "/api/folios/w1/roadmap/marks"), (Method::POST, "/api/folios/w1/roadmap/send"), (Method::POST, "/api/folios/w1/roadmap/archive"), (Method::DELETE, "/api/folios/w1/roadmap")] {
+            assert!(!admin_allows(&m, p), "{m} {p}");
+        }
+        assert_eq!(names(&Method::GET, "/api/folios"), Names::Unscoped);
+    }
+
+    #[test]
     fn oracles_read_and_run_at_every_level() {
         for (m, p) in [(Method::GET, "/api/oracles/w1"), (Method::GET, "/api/oracles/w1/ci-red"), (Method::GET, "/api/oracles/w1/ci-red/evaluations"), (Method::POST, "/api/oracles/w1/ci-red/run")] {
             assert!(oracle_read(&m, p), "{m} {p}");
@@ -896,8 +937,8 @@ mod tests {
             let method = Method::from_bytes(a.method.as_bytes()).unwrap();
             assert_eq!(admin_allows(&method, &path), a.access == ActionAccess::Admin, "{}", a.name);
             let line = format!("`{}`", actions::usage("launchpad", a));
-            // Oracle actions have their own commands (`launchpad oracle save|pause|resume|run`).
-            assert_eq!(reference.contains(&line), a.access == ActionAccess::Admin && !a.name.starts_with("oracle."), "{line}");
+            // Oracle and folio actions have their own commands (`launchpad oracle …`, `launchpad folio …`).
+            assert_eq!(reference.contains(&line), a.access == ActionAccess::Admin && !a.name.starts_with("oracle.") && !a.name.starts_with("folio."), "{line}");
             assert!(!propose.contains(&line), "{line}");
             if matches!(a.effect, actions::ActionEffect::Outside | actions::ActionEffect::Machine) {
                 assert_eq!(a.access, ActionAccess::Owner, "{}", a.name);
