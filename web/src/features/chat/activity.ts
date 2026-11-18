@@ -47,6 +47,8 @@ export function activityLink(a: Activity): ActivityLink | null {
 /** One line, in parts around the record name: what was done and to what, or the record and each changed value
  * before → after. */
 export function activityParts(a: Activity): { before: string; target: string | null; after: string } {
+  // `launchpad ci approve` is an agent's own GitHub write, outside the action list.
+  if (a.action === "github.approve-ci") return { before: "Approved the waiting GitHub Actions runs of ", target: a.target, after: ` at ${String((a.body as { head?: string } | null)?.head ?? "").slice(0, 12)}` };
   const what = (ACTIONS as Record<string, { help: string }>)[a.action]?.help ?? a.action;
   let body = (a.body ?? {}) as Record<string, unknown>;
   let before = a.before as Record<string, unknown> | null;
@@ -66,6 +68,7 @@ const NOUN: Record<string, string> = { bot: "bot", routine: "routine", schedule:
 export function activityReceipt(a: Pick<Activity, "action" | "target" | "body">): string {
   const [group, verb = ""] = a.action.split(".");
   if (a.action === "bot.add-routine") return `added a routine${a.target ? ` to ${a.target}` : ""}`;
+  if (a.action === "github.approve-ci") return `approved CI of ${a.target ?? "a pull request"}`;
   if (group === "channel" && (verb.endsWith("member") || verb === "set-mode")) return `changed the members of ${a.target ?? "a channel"}`;
   const did = verb === "create" || verb.startsWith("add") ? "added" : verb === "delete" ? "deleted" : verb === "cancel" ? "cancelled" : verb === "pause" ? ((a.body as { paused?: boolean } | null)?.paused === false ? "resumed" : "paused") : verb === "run" || verb === "start" ? "started" : verb === "message" ? "messaged" : verb === "launch" ? "launched" : "changed";
   const noun = NOUN[group] ?? group;

@@ -7,6 +7,7 @@ import type { TodayFilter } from "@/gen/TodayFilter";
 import type { TodayItem } from "@/gen/TodayItem";
 import type { TodayKind } from "@/gen/TodayKind";
 import { needsYou } from "@/lib/sessionStatus";
+import { describeAction, postButton } from "@/lib/suggestionActions";
 import { clock, route } from "../daemon";
 import { world } from "../world";
 
@@ -97,7 +98,7 @@ function drafts(): Draft[] {
   for (const s of world.suggestions) {
     if (s.target.kind !== "git_hub") continue;
     const { repo, number } = s.target;
-    const add = (extra: Partial<Draft>) => out.push(item("suggestion", "github", s.id, `${s.kind === "review" ? "Review" : "Comment"} on ${repo}#${number}`, { repo }, s.created_at, { session_id: s.session_id, github: `${repo}#${number}`, detail: `Suggestion by ${s.author} · ${line(s.body)}`, ...extra }));
+    const add = (extra: Partial<Draft>) => out.push(item("suggestion", "github", s.id, `${postButton(s.kind === "review" ? (s.merge ? "Approve and merge" : s.run_ci ? "Review and run CI" : s.event === "REQUEST_CHANGES" ? "Request changes" : "Review") : s.kind === "action" ? "" : "Comment", s.actions)} on ${repo}#${number}`, { repo }, s.created_at, { session_id: s.session_id, github: `${repo}#${number}`, detail: `Suggestion by ${s.author} · ${s.kind === "action" ? s.actions.map(describeAction).join(", ") : line(s.body)}`, ...extra }));
     if (s.status === "posted") add({ outcome: `Posted to ${repo}#${number}` });
     else if (s.status === "posting" || s.status === "uncertain") add({ detail: "Uncertain: check GitHub before you discard it", action: "suggestion.discard" });
     else { if (s.kind === "review") reviewed.add(`${repo.toLowerCase()}#${number}`); add({ action: "suggestion.post" }); }

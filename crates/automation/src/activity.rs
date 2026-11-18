@@ -132,6 +132,26 @@ pub async fn record(app: &App, r: Record) -> Result<Activity> {
     Ok(item)
 }
 
+/// A GitHub write Home made at a session's own request, outside the action list (`github.approve-ci`: `launchpad ci
+/// approve`), recorded so the owner sees it with the session's other changes. No undo.
+pub async fn record_github(app: &App, session_id: &str, action: &str, target: String, body: Value) -> Result<Activity> {
+    let item = Activity {
+        id: uuid::Uuid::new_v4().to_string(),
+        session_id: session_id.to_string(),
+        workspace_id: launchpad_core::kb::workspace_of_session(app, session_id).await,
+        action: action.to_string(),
+        args: vec![],
+        target: Some(target),
+        body: Some(body),
+        before: None,
+        undo: None,
+        undone_at: None,
+        created_at: now_ms(),
+    };
+    save(app, &item).await?;
+    Ok(item)
+}
+
 async fn save(app: &App, a: &Activity) -> Result<()> {
     let (id, session, at, json) = (a.id.clone(), a.session_id.clone(), a.created_at, serde_json::to_string(a)?);
     app.state_db.call(move |c| Ok(c.execute("INSERT OR REPLACE INTO activity (id, session_id, created_at, json) VALUES (?1, ?2, ?3, ?4)", params![id, session, at, json]).map(|_| ())?)).await?;

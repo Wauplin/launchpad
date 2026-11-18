@@ -104,10 +104,11 @@ enum Command {
         /// The suggested comment answers one comment (as `suggest comment --reply-to`).
         #[arg(long, requires = "suggest_file")]
         reply_to: Option<String>,
-        /// The suggested comment closes the issue or pull request (without merging): the owner's Post defaults to
-        /// Comment and close. Use it whenever the note recommends closing.
-        #[arg(long, requires = "suggest_file")]
-        close: bool,
+        /// What the owner's Post also does (as `suggest comment`): after the `--suggest-file` comment, or alone (an
+        /// action-only suggestion under the note: a close without a comment…). Use them whenever the note recommends
+        /// one.
+        #[command(flatten)]
+        actions: ActionFlags,
         /// The note this one answers (its ID).
         #[arg(long)]
         reply_to_note: Option<String>,
@@ -160,6 +161,11 @@ enum Command {
     Suggest {
         #[command(subcommand)]
         command: Suggest,
+    },
+    /// GitHub Actions of a pull request.
+    Ci {
+        #[command(subcommand)]
+        command: Ci,
     },
     /// Send a message through one of the owner's connections: `telegram` goes to the owner's own chat of the session's workspace;
     /// other connections (Slack, Discord, webhooks) wait in the owner's Outbox until they click Send.
@@ -518,8 +524,106 @@ async fn context_command(paths: &Paths, what: &str, workspace: Option<String>) -
 
 #[derive(Subcommand)]
 enum Suggest {
+    /// A comment the owner posts with one click (with its actions, `--close`…).
     Comment(SuggestArgs),
+    /// A review of a pull request at `--head` (with `--merge`, `--run-ci` and its actions).
     Review(SuggestArgs),
+    /// Only actions, no text (a close without a comment, `--request-reviewers`…): the owner's Post runs them.
+    Action(SuggestActionArgs),
+}
+#[derive(Subcommand)]
+enum Ci {
+    /// Approve the GitHub Actions runs of a pull request that wait for a maintainer (pull requests from forks), at
+    /// the head you inspected, without the owner's click. Approve only after reading the whole diff, never when it
+    /// adds or changes workflows, actions or other CI configuration (Home refuses those itself), or when the pull
+    /// request looks like spam or malicious. Home records each approval as a private note on the item.
+    Approve {
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        number: u64,
+        /// The 40-character head commit you read: refused when the pull request moved past it.
+        #[arg(long)]
+        head: String,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
+    },
+}
+/// How a recommended close ends an issue (pull requests close without a reason).
+#[derive(Clone, Copy, Debug, PartialEq, clap::ValueEnum)]
+enum CloseArg {
+    Completed,
+    NotPlanned,
+}
+/// What the owner's Post also does on a GitHub issue or pull request, after the comment or review (or alone, `suggest
+/// action`). Every action you recommend carries its flag: the owner applies it with the same click.
+#[derive(clap::Args, Debug, Default, PartialEq)]
+struct ActionFlags {
+    /// Close the issue or pull request after posting (a pull request without merging). An issue may take a reason:
+    /// `--close completed` or `--close not-planned`.
+    #[arg(long, num_args = 0..=1, value_name = "REASON")]
+    close: Option<Option<CloseArg>>,
+    /// Close the issue as a duplicate of issue N (the comment then starts with `Duplicate of #N`, which GitHub links).
+    #[arg(long, value_name = "N", conflicts_with = "close")]
+    duplicate_of: Option<u64>,
+    /// Reopen the closed issue or pull request.
+    #[arg(long, conflicts_with_all = ["close", "duplicate_of"])]
+    reopen: bool,
+    /// Pull requests: request reviews from these logins and teams (`org/team`), comma-separated.
+    #[arg(long, value_delimiter = ',', value_name = "LOGINS")]
+    request_reviewers: Vec<String>,
+    /// Pull requests: mark the draft ready for review.
+    #[arg(long, conflicts_with = "convert_to_draft")]
+    ready_for_review: bool,
+    /// Pull requests: convert to a draft.
+    #[arg(long)]
+    convert_to_draft: bool,
+    /// Pull requests: update the branch with its base branch (GitHub's Update branch).
+    #[arg(long)]
+    update_branch: bool,
+}
+impl ActionFlags {
+    /// The actions as Home stores them (`ItemAction` JSON).
+    fn to_json(&self) -> Vec<serde_json::Value> {
+        use serde_json::json;
+        let mut out = vec![];
+        if self.reopen {
+            out.push(json!({"kind": "reopen"}));
+        }
+        if self.update_branch {
+            out.push(json!({"kind": "update_branch"}));
+        }
+        if self.ready_for_review {
+            out.push(json!({"kind": "ready_for_review"}));
+        }
+        if self.convert_to_draft {
+            out.push(json!({"kind": "convert_to_draft"}));
+        }
+        if !self.request_reviewers.is_empty() {
+            let (reviewers, teams) = launchpad_github::suggestions::split_reviewers(&self.request_reviewers);
+            out.push(json!({"kind": "request_reviewers", "reviewers": reviewers, "team_reviewers": teams}));
+        }
+        if let Some(n) = self.duplicate_of {
+            out.push(json!({"kind": "close", "reason": "duplicate", "duplicate_of": n}));
+        } else if let Some(reason) = self.close {
+            out.push(json!({"kind": "close", "reason": reason.map(|r| match r {
+                CloseArg::Completed => "completed",
+                CloseArg::NotPlanned => "not_planned",
+            })}));
+        }
+        out
+    }
+}
+#[derive(clap::Args)]
+struct SuggestActionArgs {
+    #[arg(long)]
+    repo: String,
+    #[arg(long)]
+    number: u64,
+    #[command(flatten)]
+    actions: ActionFlags,
+    #[arg(long)]
+    session_id: Option<String>,
 }
 #[derive(clap::Args)]
 struct SuggestArgs {
@@ -556,10 +660,9 @@ struct SuggestArgs {
     /// that thread; a conversation comment gets a new comment that links it.
     #[arg(long, requires = "repo")]
     reply_to: Option<String>,
-    /// Comments on an issue or pull request only: you recommend closing it after this comment. The owner's Post then
-    /// defaults to Comment and close (closing a pull request without merging it).
-    #[arg(long, conflicts_with = "predraft")]
-    close: bool,
+    /// What the owner's Post also does on the GitHub item (not on Local PRs): `--close` makes it Comment and close.
+    #[command(flatten)]
+    actions: ActionFlags,
     #[arg(long)]
     session_id: Option<String>,
 }
@@ -567,7 +670,16 @@ async fn suggest_command(paths: &Paths, command: Suggest) -> Result<()> {
     let (kind, q) = match command {
         Suggest::Comment(q) => ("comment", q),
         Suggest::Review(q) => ("review", q),
+        Suggest::Action(q) => {
+            let actions = q.actions.to_json();
+            anyhow::ensure!(!actions.is_empty(), "name at least one action: --close [completed|not-planned], --duplicate-of <n>, --reopen, --request-reviewers <logins>, --ready-for-review, --convert-to-draft or --update-branch");
+            let target = serde_json::json!({"kind":"git_hub","repo":q.repo,"number":q.number});
+            let body = Client::new(paths)?.json("POST", "/api/suggestions", Some(serde_json::json!({"target":target,"kind":"action","body":"","actions":actions,"session_id":q.session_id}))).await?;
+            println!("{}", serde_json::to_string_pretty(&body)?);
+            return Ok(());
+        }
     };
+    let actions = q.actions.to_json();
     let comments: serde_json::Value = match &q.comments_file {
         Some(file) => serde_json::from_str(&std::fs::read_to_string(file)?).with_context(|| format!("{} is not a JSON array of line comments", file.display()))?,
         None => serde_json::json!([]),
@@ -575,13 +687,14 @@ async fn suggest_command(paths: &Paths, command: Suggest) -> Result<()> {
     anyhow::ensure!(comments.is_array(), "--comments-file must hold a JSON array of line comments");
     anyhow::ensure!(kind == "review" || comments.as_array().is_some_and(|c| c.is_empty()), "only reviews have line comments");
     anyhow::ensure!(kind == "comment" || q.reply_to.is_none(), "--reply-to is for comments: `suggest comment --reply-to …`");
-    anyhow::ensure!(kind == "comment" || !q.close, "--close is for comments: `suggest comment --close` (a review cannot close a pull request)");
+    anyhow::ensure!(kind == "comment" || (q.actions.close.is_none() && q.actions.duplicate_of.is_none()), "--close is for comments: `suggest comment --close` (a review cannot close a pull request)");
+    anyhow::ensure!(q.predraft.is_none() || actions.is_empty(), "actions are for GitHub issues and pull requests, not Local PRs");
     let target = match q.predraft {
         Some(id) => serde_json::json!({"kind":"predraft","id":id}),
         None => serde_json::json!({"kind":"git_hub","repo":q.repo,"number":q.number}),
     };
     let body = Client::new(paths)?
-        .json("POST", "/api/suggestions", Some(serde_json::json!({"target":target,"kind":kind,"body":std::fs::read_to_string(q.body_file)?,"comments":comments,"event":q.event.replace('-', "_").to_uppercase(),"head":q.head,"merge":q.merge,"run_ci":q.run_ci,"reply_to":q.reply_to,"close":q.close,"session_id":q.session_id})))
+        .json("POST", "/api/suggestions", Some(serde_json::json!({"target":target,"kind":kind,"body":std::fs::read_to_string(q.body_file)?,"comments":comments,"event":q.event.replace('-', "_").to_uppercase(),"head":q.head,"merge":q.merge,"run_ci":q.run_ci,"reply_to":q.reply_to,"actions":actions,"session_id":q.session_id})))
         .await?;
     println!("{}", serde_json::to_string_pretty(&body)?);
     Ok(())
@@ -1166,13 +1279,13 @@ async fn run() -> Result<()> {
             println!("{value}");
             Ok(())
         }
-        Command::Note { repo, number, body_file, suggest_file, reply_to, close, reply_to_note, session_id } => {
+        Command::Note { repo, number, body_file, suggest_file, reply_to, actions, reply_to_note, session_id } => {
             let body = std::fs::read_to_string(&body_file).with_context(|| format!("reading {}", body_file.display()))?;
             let suggest = match &suggest_file {
                 Some(f) => Some(std::fs::read_to_string(f).with_context(|| format!("reading {}", f.display()))?),
                 None => None,
             };
-            let value = Client::new(&paths)?.json("POST", "/api/notes", Some(serde_json::json!({"repo":repo,"number":number,"body":body,"suggest":suggest,"suggest_reply_to":reply_to,"suggest_close":close,"reply_to":reply_to_note,"session_id":session_id}))).await?;
+            let value = Client::new(&paths)?.json("POST", "/api/notes", Some(serde_json::json!({"repo":repo,"number":number,"body":body,"suggest":suggest,"suggest_reply_to":reply_to,"suggest_actions":actions.to_json(),"reply_to":reply_to_note,"session_id":session_id}))).await?;
             println!("{value}");
             Ok(())
         }
@@ -1205,6 +1318,11 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Suggest { command } => suggest_command(&paths, command).await,
+        Command::Ci { command: Ci::Approve { repo, number, head, session_id } } => {
+            let value = Client::new(&paths)?.json("POST", "/api/ci/approve", Some(serde_json::json!({"repo": repo, "number": number, "head": head, "session_id": session_id}))).await?;
+            println!("{value}");
+            Ok(())
+        }
         Command::Send { connection, body_file, title, session_id } => {
             let body = std::fs::read_to_string(&body_file).with_context(|| format!("read {}", body_file.display()))?;
             let session_id = session_id.or_else(|| std::env::var("LAUNCHPAD_SESSION_ID").ok()).context("pass --session-id <your session id>")?;
@@ -1603,17 +1721,50 @@ mod link_cli_tests {
 #[cfg(test)]
 mod close_cli_tests {
     use super::*;
+    use serde_json::json;
+    fn actions_of(args: &[&str]) -> Vec<serde_json::Value> {
+        let mut all = vec!["launchpad", "suggest", "comment", "--repo", "o/r", "--number", "3", "--body-file", "c.md"];
+        all.extend_from_slice(args);
+        match Cli::try_parse_from(all).unwrap().command {
+            Command::Suggest { command: Suggest::Comment(q) } => q.actions.to_json(),
+            _ => unreachable!(),
+        }
+    }
     #[test]
     fn close_flags_take_a_github_comment() {
-        let cli = Cli::try_parse_from(["launchpad", "suggest", "comment", "--repo", "o/r", "--number", "3", "--body-file", "c.md", "--close"]).unwrap();
-        assert!(matches!(cli.command, Command::Suggest { command: Suggest::Comment(SuggestArgs { close: true, .. }) }));
-        let cli = Cli::try_parse_from(["launchpad", "suggest", "comment", "--repo", "o/r", "--number", "3", "--body-file", "c.md"]).unwrap();
-        assert!(matches!(cli.command, Command::Suggest { command: Suggest::Comment(SuggestArgs { close: false, .. }) }));
-        // A Local PR has nothing to close.
-        assert!(Cli::try_parse_from(["launchpad", "suggest", "comment", "--predraft", "p", "--body-file", "c.md", "--close"]).is_err());
+        assert_eq!(actions_of(&["--close"]), vec![json!({"kind": "close", "reason": null})]);
+        assert!(actions_of(&[]).is_empty());
+        // A Local PR has nothing to close (refused before the call).
+        assert!(Cli::try_parse_from(["launchpad", "suggest", "comment", "--predraft", "p", "--body-file", "c.md", "--close"]).is_ok_and(|c| matches!(c.command, Command::Suggest { command: Suggest::Comment(SuggestArgs { predraft: Some(_), .. }) })));
         let cli = Cli::try_parse_from(["launchpad", "note", "--repo", "o/r", "--number", "3", "--body-file", "n.md", "--suggest-file", "c.md", "--close", "--session-id", "s"]).unwrap();
-        assert!(matches!(cli.command, Command::Note { close: true, suggest_file: Some(_), .. }));
-        // The close needs the closing comment.
-        assert!(Cli::try_parse_from(["launchpad", "note", "--repo", "o/r", "--number", "3", "--body-file", "n.md", "--close", "--session-id", "s"]).is_err());
+        assert!(matches!(cli.command, Command::Note { suggest_file: Some(_), .. }));
+        // A close without a comment: an action-only suggestion under the note.
+        let cli = Cli::try_parse_from(["launchpad", "note", "--repo", "o/r", "--number", "3", "--body-file", "n.md", "--close", "not-planned", "--session-id", "s"]).unwrap();
+        assert!(matches!(&cli.command, Command::Note { suggest_file: None, actions, .. } if actions.to_json() == vec![json!({"kind": "close", "reason": "not_planned"})]));
+    }
+    #[test]
+    fn action_flags_become_actions() {
+        assert_eq!(actions_of(&["--close", "completed", "--session-id", "s"]), vec![json!({"kind": "close", "reason": "completed"})]);
+        assert_eq!(actions_of(&["--duplicate-of", "12"]), vec![json!({"kind": "close", "reason": "duplicate", "duplicate_of": 12})]);
+        assert_eq!(
+            actions_of(&["--ready-for-review", "--request-reviewers", "ana,@bo", "--request-reviewers", "org/core", "--update-branch"]),
+            vec![json!({"kind": "update_branch"}), json!({"kind": "ready_for_review"}), json!({"kind": "request_reviewers", "reviewers": ["ana", "bo"], "team_reviewers": ["core"]})]
+        );
+        assert_eq!(actions_of(&["--reopen", "--convert-to-draft"]), vec![json!({"kind": "reopen"}), json!({"kind": "convert_to_draft"})]);
+        for bad in [&["--close", "--reopen"][..], &["--close", "--duplicate-of", "2"], &["--ready-for-review", "--convert-to-draft"], &["--close", "maybe"]] {
+            let mut all = vec!["launchpad", "suggest", "comment", "--repo", "o/r", "--number", "3", "--body-file", "c.md"];
+            all.extend_from_slice(bad);
+            assert!(Cli::try_parse_from(all).is_err(), "{bad:?}");
+        }
+        let cli = Cli::try_parse_from(["launchpad", "suggest", "action", "--repo", "o/r", "--number", "3", "--close", "not-planned"]).unwrap();
+        assert!(matches!(&cli.command, Command::Suggest { command: Suggest::Action(q) } if q.actions.to_json() == vec![json!({"kind": "close", "reason": "not_planned"})]));
+        // No body file for an action-only suggestion.
+        assert!(Cli::try_parse_from(["launchpad", "suggest", "action", "--repo", "o/r", "--number", "3", "--reopen", "--body-file", "x.md"]).is_err());
+    }
+    #[test]
+    fn ci_approve_needs_the_inspected_head() {
+        let cli = Cli::try_parse_from(["launchpad", "ci", "approve", "--repo", "o/r", "--number", "3", "--head", "abc", "--session-id", "s"]).unwrap();
+        assert!(matches!(cli.command, Command::Ci { command: Ci::Approve { number: 3, .. } }));
+        assert!(Cli::try_parse_from(["launchpad", "ci", "approve", "--repo", "o/r", "--number", "3", "--session-id", "s"]).is_err());
     }
 }

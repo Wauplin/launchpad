@@ -39,11 +39,32 @@ A suggested comment can answer one comment: the agent adds `--reply-to <comment>
 
 With the Chrome extension, you can also **Insert** a suggestion into GitHub's own comment box and post it there with GitHub's button. The card then says **Inserted on GitHub** and offers no Post (Discard stays); once you post it, it says **Posted by you on GitHub** and leaves Today. See [On github.com](#on-githubcom).
 
-A suggested comment can recommend closing the item: the agent adds `--close` (to `suggest comment`, or to `launchpad note --suggest-file`). Its card says **Comment, then close**, and **Post comment and close** posts it, then closes the issue or pull request (a pull request without merging). **Edit** → After posting → **Nothing else** posts it without closing; in the Chrome extension, **Comment and close** is then the main button and **Post without closing** sits next to it. Closing runs after the comment is recorded as posted and is never retried.
+A suggestion can carry actions on its issue or pull request, which the same Post click runs after the text, once each, in this order:
+
+| Agent flag | What Post also does |
+|---|---|
+| `--reopen` | Reopens the issue or pull request |
+| `--update-branch` | Updates the pull request's branch with its base branch |
+| `--ready-for-review`, `--convert-to-draft` | Marks the draft pull request ready for review, or converts it to a draft |
+| `--request-reviewers ana,org/team` | Requests reviews from these people and teams |
+| `--close`, `--close completed`, `--close not-planned` | Closes the issue (with that reason) or the pull request (without merging) |
+| `--duplicate-of 12` | Closes the issue as a duplicate of #12; the comment starts with `Duplicate of #12`, which GitHub links |
+
+The card lists them under **After posting, also** with a tick each: untick one to skip it, and edit the reviewers of a review request. Its button names what the click does, for example **Comment and close** or **Post comment, mark ready for review and request reviews**. An agent can also suggest actions without any text (`launchpad suggest action`, or `launchpad note` with the flags and no `--suggest-file`), such as a close without a comment: the card has no text to edit or insert, and its button is the action itself (**Close as not planned**). Actions run after the comment or review is recorded as posted. A failed action is shown on the card and never retried; the others still run. When every action of an action-only suggestion failed and GitHub refused each one, nothing changed and it stays a draft.
 
 A suggested review can carry a follow-up: an approval with `--merge squash|merge|rebase` merges the pull request at the reviewed head, and `--run-ci` approves the head's GitHub Actions runs that wait for a maintainer. Uncheck the follow-up to post only the review. Follow-ups run after the review is recorded as posted. A failure reports that the review was posted and never retries the follow-up.
 
 Agents can also prepare **Approve and run workflows** for a pull request whose workflow runs wait for a maintainer, as a ready card (`github.run-ci`, see [Bots](bots.md#proposals)). It runs the pull request's code in the repository's CI, so it stays your click, like GitHub's own button.
+
+### CI approval by agents
+
+An agent with propose or admin Launchpad CLI access (the default for agents and bots; read-only sessions cannot) may approve those waiting runs itself, without your click: `launchpad ci approve --repo owner/repo --number 123 --head <commit>`. Its instructions say to do it only after reading the whole diff, never for a pull request that changes CI configuration or looks like spam or malicious. Home enforces the critical part itself, with your GitHub login, and refuses:
+
+- a head that moved past the commit the agent named (the files Home checks are those of that head);
+- a pull request whose changed files include `.github/workflows/`, `.github/actions/`, any `action.yml` or `action.yaml`, or another CI service's configuration (`.gitlab-ci.yml`, `.circleci/`, `azure-pipelines.yml`, `Jenkinsfile`…), or that changes too many files to check;
+- a repository held only by folders of another workspace.
+
+Only runs of that head that wait for a maintainer are approved. Each approval adds a private note to the item's timeline ("Approved 2 GitHub Actions runs…"), so you see it on GitHub with the extension, and a line in the activity list of the session's bot chat.
 
 ## Local PRs
 
@@ -106,4 +127,4 @@ Sessions linked to a GitHub item automatically join a workspace topic named `rep
 
 A Local PR body can name issues in its folder’s repository with `Fixes #5352`, `Closes #5352`, or `Resolves #5352`. These references link its session to each issue and show the Local PR beside the session trace and suggestions in the Chrome extension’s box on that issue. Set or edit the body with `launchpad pr create|update --body-file <file>`. Removing a closing reference removes the Local PR from that issue’s box; the session’s historical link remains.
 
-Suggested reviews also appear in the GitHub timeline with their event and line comments. **Post review and merge** posts an approving review and merges using its suggested method at the reviewed commit; **Post review and run CI** approves waiting workflow runs. **Post review** only posts the review. These actions ask for confirmation and use Home’s publication safeguards. **Comment and close without merging** is a separate action for comments on pull requests; use it only to reject or abandon a PR. **Comment and close** closes an issue. Editing and Insert remain available for comments. Inserted suggestions must be posted with GitHub’s own button.
+Suggested reviews also appear in the GitHub timeline with their event and line comments. **Post review and merge** posts an approving review and merges using its suggested method at the reviewed commit; **Post review and run CI** approves waiting workflow runs. **Post review** only posts the review. These actions ask for confirmation and use Home’s publication safeguards. A suggestion's actions show under it with a tick each; the button names the text and the ticked actions (**Comment and close**, **Comment and close without merging** on a pull request, **Request changes and convert to draft**, **Close as not planned** for an action-only suggestion). Untick an action to skip it; tick **close** under a comment to close the item after it. Editing and Insert remain available for comments. Inserted suggestions must be posted with GitHub’s own button.

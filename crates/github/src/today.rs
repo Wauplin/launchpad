@@ -10,19 +10,13 @@ pub async fn items(app: &App) -> Vec<Item> {
     match suggestions::list(app).await {
         Ok(list) => {
             for s in list {
-                let SuggestionTarget::GitHub { repo, number, reply_to } = &s.target else { continue };
-                let what = match (&s.kind, &s.merge, s.run_ci) {
-                    (SuggestionKind::Review, Some(_), _) => "Approve and merge",
-                    (SuggestionKind::Review, None, true) => "Review and run CI",
-                    (SuggestionKind::Review, None, false) => "Review",
-                    _ if s.close => "Comment and close",
-                    _ if reply_to.is_some() => "Reply",
-                    _ => "Comment",
-                };
+                let SuggestionTarget::GitHub { repo, number, .. } = &s.target else { continue };
+                let what = suggestions::headline(&s);
                 let item = Item::new(Kind::Suggestion, Filter::Github, &s.id, format!("{what} on {repo}#{number}"), Place::Repo(repo.clone()), s.created_at)
                     .session(s.session_id.clone())
                     .github(repo, number)
                     .detail(match s.comments.len() {
+                        _ if s.kind == SuggestionKind::Action => format!("Suggestion by {} · {}", s.author, s.actions.iter().map(|a| a.describe()).collect::<Vec<_>>().join(", ")),
                         0 => format!("Suggestion by {} · {}", s.author, line(&s.body)),
                         1 => format!("Suggestion by {} · 1 line comment · {}", s.author, line(&s.body)),
                         n => format!("Suggestion by {} · {n} line comments · {}", s.author, line(&s.body)),

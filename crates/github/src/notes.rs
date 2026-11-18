@@ -63,6 +63,10 @@ pub struct Write {
     /// That comment also closes the item when the owner posts it (`--close`: Comment and close).
     #[serde(default)]
     pub suggest_close: bool,
+    /// The actions the owner's Post runs (`--close`, `--reopen`, `--request-reviewers`…): with `suggest`, after that
+    /// comment; without it, an action-only suggestion (a close without a comment…).
+    #[serde(default)]
+    pub suggest_actions: Vec<crate::suggestions::ItemAction>,
     /// The note it answers (`--reply-to-note`).
     #[serde(default)]
     pub reply_to: Option<String>,
@@ -147,25 +151,29 @@ pub async fn write(app: &App, q: Write) -> Result<ItemNote> {
     let workspace_id = launchpad_core::kb::workspace_of_session(app, &q.session_id).await;
     let reply_to = check_reply(app, &q.repo, q.number, workspace_id.as_deref(), q.reply_to.as_deref()).await?;
     let bot = s.launch_spec.bot.as_ref();
-    ensure!(!q.suggest_close || q.suggest.as_deref().is_some_and(|t| !t.trim().is_empty()), "--close needs --suggest-file: the closing comment the owner posts");
-    let suggestion_id = match q.suggest.filter(|t| !t.trim().is_empty()) {
-        Some(body) => {
-            let create = crate::suggestions::Create {
-                target: crate::suggestions::SuggestionTarget::GitHub { repo: q.repo.clone(), number: q.number, reply_to: None },
-                reply_to: q.suggest_reply_to,
-                kind: crate::suggestions::SuggestionKind::Comment,
-                body,
-                comments: vec![],
-                event: "COMMENT".into(),
-                head: None,
-                session_id: Some(q.session_id.clone()),
-                merge: None,
-                run_ci: false,
-                close: q.suggest_close,
-            };
-            Some(crate::suggestions::create(app, create).await?.id)
-        }
-        None => None,
+    let body = q.suggest.filter(|t| !t.trim().is_empty());
+    let has_actions = q.suggest_close || !q.suggest_actions.is_empty();
+    ensure!(body.is_some() || q.suggest_reply_to.is_none(), "--reply-to needs --suggest-file: the reply the owner posts");
+    let suggestion_id = if body.is_some() || has_actions {
+        // Actions without a comment make an action-only suggestion (a close without a comment…).
+        let kind = if body.is_some() { crate::suggestions::SuggestionKind::Comment } else { crate::suggestions::SuggestionKind::Action };
+        let create = crate::suggestions::Create {
+            target: crate::suggestions::SuggestionTarget::GitHub { repo: q.repo.clone(), number: q.number, reply_to: None },
+            reply_to: q.suggest_reply_to,
+            kind,
+            body: body.unwrap_or_default(),
+            comments: vec![],
+            event: "COMMENT".into(),
+            head: None,
+            session_id: Some(q.session_id.clone()),
+            merge: None,
+            run_ci: false,
+            close: q.suggest_close,
+            actions: q.suggest_actions,
+        };
+        Some(crate::suggestions::create(app, create).await?.id)
+    } else {
+        None
     };
     let note = ItemNote {
         id: uuid::Uuid::new_v4().to_string(),
@@ -187,6 +195,12 @@ pub async fn write(app: &App, q: Write) -> Result<ItemNote> {
         tracing::warn!("Note item link: {e:#}");
     }
     Ok(note)
+}
+
+/// A note Home itself writes on the session's behalf about what it did on GitHub at the session's request (`launchpad
+/// ci approve`), so the owner sees it in the item's timeline. It carries no suggestion and links the session to the item.
+pub async fn record(app: &App, session_id: &str, repo: &str, number: u64, body: String) -> Result<ItemNote> {
+    write(app, Write { repo: repo.to_string(), number, body, session_id: session_id.to_string(), suggest: None, suggest_reply_to: None, suggest_close: false, suggest_actions: vec![], reply_to: None }).await
 }
 
 /// Stores the owner's private note (`note.write`); the caller tells the agents (`recipients`).
@@ -364,7 +378,7 @@ pub fn owner_message(app: &App, note: &ItemNote, url: &str) -> String {
 /// Included in every launched session, next to the suggestions' instruction.
 pub fn instruction(app: &App, session: &str) -> String {
     format!(
-        "Private notes are a private timeline of an issue or pull request, shown to the owner inside GitHub's timeline by the extension and never posted. Run `{cli} note --repo <owner/repo> --number <n> --body-file <file> --session-id {session}` (Markdown) to add a note when something new happened (new commits, new comments, the owner's note); each run appends a new note, so keep each one focused on what changed and never repeat earlier notes. Every action you recommend must be one click for the owner, never only prose or a quoted draft in the note (an \"Action: close …\" line or a draft inside the note cannot be clicked): text the owner could post on GitHub (a reply, a closing comment) goes in `--suggest-file <file>`, which the extension shows under the note as a comment the owner posts with one click (`--reply-to <comment>` as for `suggest comment`); a recommended close adds `--close` to it (the owner's Post becomes Comment and close, a pull request closed without merging); a recommended approval, merge, CI run or request for changes is a separate `suggest review` with `--event approve|request-changes`, `--merge` or `--run-ci`, which shows in the same timeline. Answer the owner's note with `--reply-to-note <note id>`. To point at another note (of this item or another one), put its link in your Markdown (`url` of `{cli} notes --repo <owner/repo> --number <n>`, which lists the item's notes; `note` prints the new note's `url`); links to issues, pull requests and comments (`#123`, `owner/repo#123`, GitHub URLs) show like on GitHub.",
+        "Private notes are a private timeline of an issue or pull request, shown to the owner inside GitHub's timeline by the extension and never posted. Run `{cli} note --repo <owner/repo> --number <n> --body-file <file> --session-id {session}` (Markdown) to add a note when something new happened (new commits, new comments, the owner's note); each run appends a new note, so keep each one focused on what changed and never repeat earlier notes. Every action you recommend must be one click for the owner, never only prose or a quoted draft in the note (an \"Action: close …\" line or a draft inside the note cannot be clicked): text the owner could post on GitHub (a reply, a closing comment) goes in `--suggest-file <file>`, which the extension shows under the note as a comment the owner posts with one click (`--reply-to <comment>` as for `suggest comment`); every recommended action adds its flag, applied by the same click: `--close` (Comment and close; a pull request closes without merging; an issue may add `completed` or `not-planned`), `--duplicate-of <n>`, `--reopen`, and for pull requests `--request-reviewers <login,org/team>`, `--ready-for-review`, `--convert-to-draft` and `--update-branch`; these flags without `--suggest-file` show a one-click action without a comment (a close without comment); a recommended approval, merge, CI run or request for changes is a separate `suggest review` with `--event approve|request-changes`, `--merge` or `--run-ci`, which shows in the same timeline. Answer the owner's note with `--reply-to-note <note id>`. To point at another note (of this item or another one), put its link in your Markdown (`url` of `{cli} notes --repo <owner/repo> --number <n>`, which lists the item's notes; `note` prints the new note's `url`); links to issues, pull requests and comments (`#123`, `owner/repo#123`, GitHub URLs) show like on GitHub.",
         cli = app.paths.cli_command()
     )
 }

@@ -17,7 +17,7 @@
     "test:proposals": "node --experimental-strip-types --test tests/proposals.test.mjs tests/oracleFile.test.mjs",
     "test:chat": "node --experimental-strip-types --test tests/chatRows.test.mjs tests/channels.test.mjs tests/sidebarOrder.test.mjs",
     "test:drafts": "node --experimental-strip-types --test tests/draftPersistence.test.mjs",
-    "test:review": "node --experimental-strip-types --test tests/popoverPlace.test.mjs tests/columns.test.mjs",
+    "test:review": "node --experimental-strip-types --test tests/popoverPlace.test.mjs tests/columns.test.mjs tests/suggestionActions.test.mjs",
     "test:tour": "node --test tests/tour.test.mjs",
     "test:folios": "node --experimental-strip-types --test tests/folioSplit.test.mjs tests/folioSketch.test.mjs",
     "shots": "node scripts/shots.mjs",

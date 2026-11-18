@@ -195,6 +195,7 @@ mod tests {
             ("POST", "/api/outbox/o/send"),
             ("POST", "/api/suggestions"),
             ("POST", "/api/suggestions/s/post"),
+            ("POST", "/api/ci/approve"),
             ("POST", "/api/predrafts/p1/publish"),
             ("POST", "/api/predrafts/p1/merge-local"),
             ("POST", "/api/home/update"),

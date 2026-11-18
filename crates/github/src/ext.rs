@@ -177,6 +177,10 @@ pub struct ExtSuggestion {
     pub run_ci: bool,
     /// A comment the agent recommends posting with Comment and close (`--close`): the timeline makes that the main button.
     pub close: bool,
+    /// What Post also does on the item, in order (the close included); the owner unticks some before Post.
+    pub actions: Vec<crate::suggestions::ItemAction>,
+    /// Its one-click button, in words ("Comment and close as not planned").
+    pub headline: String,
     pub id: String,
     pub kind: SuggestionKind,
     #[ts(type = "number")]
@@ -688,7 +692,7 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
                 .map(|c| ExtLine { part: crate::ledger::line_part(c), path: c.path.clone(), line: c.line, start_line: c.start_line, side: c.side.clone(), body: c.body.clone(), state: None })
                 .collect();
             let author = bot.clone().or_else(|| session.map(|x| x.title.clone())).unwrap_or_else(|| s.author.clone());
-            Some(ExtSuggestion { merge: s.merge.clone(), run_ci: s.run_ci, close: s.close, id: s.id.clone(), kind: s.kind.clone(), number: *number, head: s.head.clone(), comments, status: s.status.clone(), session_id: s.session_id.clone(), bot, reply_to: reply_to.clone(), text, attribution, event: s.event.clone(), lines, created_at: s.created_at, author, body: s.body.clone() })
+            Some(ExtSuggestion { merge: s.merge.clone(), run_ci: s.run_ci, close: s.close, actions: s.actions.clone(), headline: crate::suggestions::headline(s), id: s.id.clone(), kind: s.kind.clone(), number: *number, head: s.head.clone(), comments, status: s.status.clone(), session_id: s.session_id.clone(), bot, reply_to: reply_to.clone(), text, attribution, event: s.event.clone(), lines, created_at: s.created_at, author, body: s.body.clone() })
         })
         .collect();
     let local_prs: Vec<ExtLocalPr> = match it.folder {

@@ -5,6 +5,7 @@
 import type { BotThread } from "@/gen/BotThread";
 import type { DiffSelection } from "@/gen/DiffSelection";
 import type { ExtContext } from "@/gen/ExtContext";
+import type { ItemAction } from "@/gen/ItemAction";
 import type { ExtReviewChoice } from "@/gen/ExtReviewChoice";
 import type { ExtRows } from "@/gen/ExtRows";
 import type { ExtUnreadNotes } from "@/gen/ExtUnreadNotes";
@@ -194,8 +195,9 @@ export type Requests = {
   /** Today's items of the extension's workspace (`GET /api/today`), in the order to decide them. */
   "today": Req<void, TodayItem[]>;
   /** Post this comment or review (`suggestion.post`, a GitHub write): only from the timeline entry's button under the full
-   * comment, on a trusted click; `close` (Comment and close) also closes the issue or pull request after posting. */
-  "suggestion.post": Req<{ id: string; close?: boolean }, unknown>;
+   * comment, on a trusted click; `actions` are the ones the owner left ticked (Home runs them once after posting,
+   * or alone for an action-only suggestion). */
+  "suggestion.post": Req<{ id: string; actions: ItemAction[] }, unknown>;
   /** Saves the owner's edit of a waiting suggested comment (`suggestion.edit`) before Post. */
   "suggestion.edit": Req<{ id: string; body: string }, unknown>;
   /** Discards a suggestion (`suggestion.discard`). */

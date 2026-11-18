@@ -158,8 +158,11 @@ struct Publish {
     /// own `close` (the agent's `--close`).
     #[serde(default)]
     close: Option<bool>,
+    /// The actions to run, as the owner left them (unticked ones out, reviewers edited). Absent: the suggestion's own.
+    #[serde(default)]
+    actions: Option<Vec<suggestions::ItemAction>>,
 }
 async fn publish(State(s): State<Ctx>, Path(id): Path<String>, body: Option<Json<Publish>>) -> ApiResult<Value> {
-    let close = body.and_then(|Json(b)| b.close);
-    Ok(Json(json!(suggestions::post(&s.app, &id, close).await?)))
+    let b = body.map(|Json(b)| b).unwrap_or_default();
+    Ok(Json(json!(suggestions::post(&s.app, &id, b.close, b.actions).await?)))
 }

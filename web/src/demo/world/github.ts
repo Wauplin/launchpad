@@ -83,12 +83,21 @@ export function githubWorld() {
   ];
   const suggestions: Suggestion[] = [{
     id: "demo-sg-118", target: { kind: "git_hub", repo: REPO.storefront, number: 118 }, kind: "review", event: "COMMENT", head: fakeSha(`${REPO.storefront}#118:head`),
-    author: "Claude Code", session_id: null, created_at: clock.ago(40), status: "draft", url: null, merge: null, run_ci: false, close: false, followup_error: null,
+    author: "Claude Code", session_id: null, created_at: clock.ago(40), status: "draft", url: null, merge: null, run_ci: false, close: false, actions: [], followup_error: null,
     body: "The saved carts work well and the tests cover the limit of five.\n\nTwo suggestions before merging, as line comments: a corrupted stored value breaks the cart, and saved prices go stale.",
     comments: [
       { path: "src/savedCarts.ts", line: 7, side: "RIGHT", body: "`JSON.parse` throws when the stored value is not valid JSON. Return `[]` instead:\n\n```suggestion\n  try { return JSON.parse(localStorage.getItem(KEY) ?? \"[]\") as Cart[]; } catch { return []; }\n```" },
       { path: "src/savedCarts.ts", line: 12, side: "RIGHT", body: "This stores the full cart lines, including prices. Prices can change: store the SKUs and quantities only and read prices again when the cart is restored." },
     ],
+  }, {
+    id: "demo-sg-57", target: { kind: "git_hub", repo: REPO.billing, number: 57 }, kind: "comment", event: "COMMENT", head: null,
+    author: "Claude Code", session_id: null, created_at: clock.ago(30), status: "draft", url: null, merge: null, run_ci: false, close: false, followup_error: null,
+    body: "The retries back off as described and the tests cover the give-up case. Marking this ready for review.",
+    actions: [{ kind: "ready_for_review" }, { kind: "request_reviewers", reviewers: ["dev-rui"], team_reviewers: [] }], comments: [],
+  }, {
+    id: "demo-sg-40", target: { kind: "git_hub", repo: REPO.docs, number: 40 }, kind: "action", event: "COMMENT", head: null,
+    author: "Claude Code", session_id: null, created_at: clock.ago(20), status: "draft", url: null, merge: null, run_ci: false, close: true, followup_error: null,
+    body: "", actions: [{ kind: "close", reason: "not_planned", duplicate_of: null }], comments: [],
   }];
   /** Review state values (`/api/review-state`): viewed markers and drafts. */
   const reviewState: Record<string, { value: unknown; updated_at: number }> = {};
@@ -114,7 +123,7 @@ export function addLocalPr(o: { id?: string; projectId: string; title: string; b
 export function addSuggestion(o: { repo: string; number: number; kind: SuggestionKind; body: string; event?: string; sessionId: string | null; author?: string }): Suggestion {
   const s: Suggestion = {
     id: `demo-sg-${clock.now().toString(36)}`, target: { kind: "git_hub", repo: o.repo, number: o.number }, kind: o.kind, body: o.body, event: o.event ?? "COMMENT",
-    head: o.kind === "review" ? fakeSha(`${o.repo}#${o.number}:head`) : null, author: o.author ?? "OpenCode", session_id: o.sessionId, created_at: clock.now(), status: "draft", url: null, merge: null, run_ci: false, close: false, followup_error: null, comments: [],
+    head: o.kind === "review" ? fakeSha(`${o.repo}#${o.number}:head`) : null, author: o.author ?? "OpenCode", session_id: o.sessionId, created_at: clock.now(), status: "draft", url: null, merge: null, run_ci: false, close: false, actions: [], followup_error: null, comments: [],
   };
   world.suggestions = [...world.suggestions, s];
   publish("suggestions", "updated", s);

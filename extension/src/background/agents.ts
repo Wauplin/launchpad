@@ -8,6 +8,7 @@ import type { DiffSelection } from "@/gen/DiffSelection";
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import type { FileAttachment } from "@/gen/FileAttachment";
 import type { GitHubRef } from "@/gen/GitHubRef";
+import type { ItemAction } from "@/gen/ItemAction";
 import type { Project } from "@/gen/Project";
 import type { ExtUnreadNotes } from "@/gen/ExtUnreadNotes";
 import type { Session } from "@/gen/Session";
@@ -18,7 +19,7 @@ import { QUOTE_TOPIC, RequestError, type BotList, type LaunchWhenDone, type Ledg
 import { current, homeJson } from "./home";
 import { pushEvent } from "./ports";
 
-import { id, workspace } from "./validation";
+import { checkedActions, id, workspace } from "./validation";
 
 // Folders change rarely: kept 30 s to narrow sessions to the workspace.
 let folders: { at: number; list: Project[] } | null = null;
@@ -167,9 +168,10 @@ export function writeNote(a: { repo: string; number: number; body: string; works
   return homeJson<NoteWriteResult>("/api/notes/owner", { method: "POST", body: { repo: a.repo, number, workspace: ws, body, reply_to: a.reply_to ? id(a.reply_to, "note") : null } });
 }
 
-/** Post a comment or review (including its saved merge/CI follow-up), or Comment and close (`close`), from the timeline entry's buttons (`suggestion.post`). */
-export function postSuggestion(a: { id: string; close?: boolean }) {
-  return homeJson(`/api/suggestions/${id(a.id, "suggestion")}/post`, { method: "POST", body: { close: a.close === true } });
+/** Post a comment or review (including its saved merge/CI follow-up) and run the actions the owner left ticked, or
+ * run an action-only suggestion's actions, from the timeline entry's button (`suggestion.post`). */
+export function postSuggestion(a: { id: string; actions: ItemAction[] }) {
+  return homeJson(`/api/suggestions/${id(a.id, "suggestion")}/post`, { method: "POST", body: { actions: checkedActions(a.actions) } });
 }
 
 /** The owner's edit of a suggested comment's text (`suggestion.edit`; comments only, so the event stays COMMENT). */

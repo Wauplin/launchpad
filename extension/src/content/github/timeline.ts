@@ -3,8 +3,9 @@
 // between GitHub's timeline items (`timeline-items` anchor, `timeOf`), looking like a comment from a Launchpad agent.
 // Only the owner sees them: they live on Home and are drawn in closed shadow roots, never written into GitHub's page or
 // fields. A suggested comment shows as its own section at the bottom of the entry, with Post this comment
-// (Launchpad's `suggestion.post`, in one trusted click; Comment and close adds `close`, the main button when the agent
-// recommends closing with `--close`; a review's button names its event and follow-up, Approve and merge…), Edit (`suggestion.edit`), Insert into comment box (insert.ts)
+// (Launchpad's `suggestion.post`, in one trusted click, with the agent's actions ticked under it: close, reopen,
+// request reviewers, ready for review, draft, update branch; the owner unticks some, and the button names what the
+// click does: Comment and close, Approve and merge…; an action-only suggestion has no text), Edit (`suggestion.edit`), Insert into comment box (insert.ts)
 // and Discard. Above GitHub's comment form, the owner's box adds a private note and tells the agents about it.
 // Without timeline items, the entries go above the comment form, else under the description: nothing is lost.
 // Notes link to other notes with their link (`#lp-note-<id>`, refs.ts): a link to a note of this item scrolls to it and
@@ -15,6 +16,8 @@ import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtNote } from "@/gen/ExtNote";
 import type { ExtSuggestion } from "@/gen/ExtSuggestion";
 import { submitSuggestion } from "./suggestionAction";
+import type { ItemAction } from "@/gen/ItemAction";
+import { describeAction, postButton, ranked } from "@/lib/suggestionActions";
 import { request, sentSummary } from "../../shared/messages";
 import { openAgentView } from "./agentView";
 import { findAnchor, findAnchors, timeOf } from "./anchors";
@@ -36,6 +39,8 @@ const editing = new Map<string, string>();
 /** Errors of an entry's last action. */
 const errors = new Map<string, string>();
 const pending = new Set<string>();
+/** The actions the owner unticked or ticked, per suggestion (kinds); unset: the agent's own. */
+const ticks = new Map<string, Set<string>>();
 /** The owner's note being typed, per page, and the last answer of Add private note. */
 const drafts = new Map<string, string>();
 let sent: { url: string; text: string; error: boolean } | null = null;
@@ -178,7 +183,7 @@ export function renderTimeline(page: ItemPage, ctx: ExtContext | null, refresh: 
     for (const g of groups) {
       const id = `${PREFIX}${g.entries[0]!.key}`;
       ids.add(id);
-      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, fresh.has(e.key), e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, e.suggestion?.lines, e.suggestion?.event, e.suggestion?.head, e.suggestion?.merge, e.suggestion?.run_ci, e.suggestion?.close, pending.has(e.suggestion?.id ?? ""), editing.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key), refs.get(e.key)?.map((r) => r.id)]), ctx.notes.map((n) => n.id)]);
+      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, fresh.has(e.key), e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, e.suggestion?.lines, e.suggestion?.event, e.suggestion?.head, e.suggestion?.merge, e.suggestion?.run_ci, e.suggestion?.close, e.suggestion?.actions, [...(ticks.get(e.suggestion?.id ?? "") ?? [])], pending.has(e.suggestion?.id ?? ""), editing.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key), refs.get(e.key)?.map((r) => r.id)]), ctx.notes.map((n) => n.id)]);
       const w = mount(id, key, g.anchor, g.place, "card");
       if (!w.fresh) continue;
       for (const e of g.entries) w.root.append(entry(w.root, page, ctx, ws, e, refs.get(e.key) ?? [], refresh));
@@ -216,7 +221,7 @@ function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | n
     if (to) head.append(noteButton(`answers ${to.by_owner ? "your note" : `${to.author}'s note`}`, page, to.id, "lp-tag"));
   }
   if (sessionId) head.append(button("Show work", () => openAgentView({ session_id: sessionId, title: agent?.title, bot: agent?.bot ?? author, running: agent ? running(agent) : undefined }, ws), { small: true, title: "What it was asked, its answers and its steps, here on the page" }));
-  const menu: HTMLElement = more(root, n ? "Note" : `Suggested ${e.suggestion!.kind}`, () => [
+  const menu: HTMLElement = more(root, n ? "Note" : e.suggestion!.kind === "action" ? "Suggested action" : `Suggested ${e.suggestion!.kind}`, () => [
     ...(sessionId ? [{ label: "Open the agent in Launchpad", hint: "Its full trace and thread", onSelect: () => open(agentPath({ session_id: sessionId }), ws) }] : []),
     ...(n ? [{ label: "Copy link", hint: "Its link: put it in a note to point at this one", onSelect: () => void navigator.clipboard.writeText(noteLink(page.repo, page.number, n.id)).catch(() => undefined) }] : []),
     ...(n ? [{ label: "Delete note…", hint: "Removes it from Launchpad", onSelect: () => confirmDelete(root, menu, n, refresh) }] : []),
@@ -257,18 +262,38 @@ function noteButton(label: string, page: ItemPage, id: string, cls: string) {
   return a;
 }
 
-/** Pure: what a suggestion recommends, in words ("a closing comment", "an approving review and merge"…). */
+/** Pure: what a suggestion recommends, in words ("a closing comment", "an approving review and merge", "close as
+ * not planned"…). */
 function suggestionLabel(s: ExtSuggestion): string {
-  if (s.kind === "comment") return s.close ? "a closing comment" : s.reply_to ? "a reply" : "a comment";
+  if (s.kind === "action") return s.headline.toLowerCase();
+  const more = s.actions.filter((a) => a.kind !== "close").length ? ` and ${s.actions.length} more ${s.actions.length === 1 ? "action" : "actions"}` : "";
+  if (s.kind === "comment") return (s.close ? "a closing comment" : s.reply_to ? "a reply" : "a comment") + more;
   const review = s.event === "APPROVE" ? "an approving review" : s.event === "REQUEST_CHANGES" ? "a review requesting changes" : "a review";
-  return s.merge ? `${review} and merge` : s.run_ci ? `${review} and CI run` : review;
+  return (s.merge ? `${review} and merge` : s.run_ci ? `${review} and CI run` : review) + more;
 }
 
-/** Pure: the one-click button of a suggested review, naming what it does on GitHub. */
+/** Pure: the text part of a suggestion's one-click button: a review names its event and follow-up ("Approve and merge
+ * (squash)"); an action-only suggestion has none. */
 function postLabel(s: ExtSuggestion): string {
+  if (s.kind === "action") return "";
+  if (s.kind === "comment") return s.reply_to ? "Post reply" : "Comment";
   const base = s.event === "APPROVE" ? s.merge ? `Approve and merge (${s.merge})` : "Approve" : s.event === "REQUEST_CHANGES" ? "Request changes" : "Post review";
   return `${base}${s.run_ci ? " and run CI" : ""}`;
 }
+
+/** Pure: the actions the owner may tick: the agent's own, plus a close for a comment without one (unticked). */
+function actionOptions(s: ExtSuggestion): ItemAction[] {
+  return ranked([...s.actions, ...(s.kind === "comment" && !s.close ? [{ kind: "close", reason: null, duplicate_of: null } as ItemAction] : [])]);
+}
+
+/** The actions ticked now: the owner's choice, else the agent's. */
+function tickedActions(s: ExtSuggestion): ItemAction[] {
+  const on = ticks.get(s.id);
+  return actionOptions(s).filter((a) => on ? on.has(a.kind) : s.actions.some((b) => b.kind === a.kind));
+}
+
+/** An action in words on this page: a pull request closes without merging. */
+const actionWords = (a: ItemAction, page: ItemPage) => a.kind === "close" && page.kind !== "issue" ? "close without merging" : describeAction(a);
 
 /** The suggested comment of an entry, as its own section at the bottom of the card: a header, the comment as GitHub
  * would show it, and Post this comment (one click; Comment and close also closes the item) with Edit, Insert and Discard; or its one-line state. */
@@ -287,7 +312,7 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
   const wrap = h("div", { class: "lp-sugg" });
   const to = s.reply_to ? ` · reply to ${s.reply_to.author ?? "a comment"}` : "";
   const status = s.status === "inserted" ? " · inserted into GitHub's box" : s.status === "posting" ? " · posting…" : s.status === "uncertain" ? " · posting may have failed: check GitHub" : "";
-  const title = `Suggested ${suggestionLabel(s).replace(/^an? /, "")}`;
+  const title = s.kind === "action" ? `Suggested: ${s.headline}` : `Suggested ${suggestionLabel(s).replace(/^an? /, "")}`;
   wrap.append(h("div", { class: "lp-row" }, logo(), h("span", { class: "lp-title", text: title }), h("span", { class: "lp-muted lp-grow", text: `${to}${status}` })));
   const draft = editing.get(s.id);
   if (draft !== undefined) {
@@ -300,7 +325,8 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
     wrap.append(area, h("div", { class: "lp-actions" }, save, button("Cancel", () => { editing.delete(s.id); refresh(); }, { small: true })));
     return wrap;
   }
-  wrap.append(h("div", { class: "lp-sugg-text" }, markdown(s.text, { here: { repo: page.repo, number: page.number } })));
+  if (s.kind === "action") wrap.append(h("div", { class: "lp-sugg-text lp-muted", text: "No comment: only these actions." }));
+  else wrap.append(h("div", { class: "lp-sugg-text" }, markdown(s.text, { here: { repo: page.repo, number: page.number } })));
   if (s.kind === "review") for (const line of s.lines.filter((l) => l.state !== "dismissed")) wrap.append(h("div", { class: "lp-sugg-text" }, h("strong", { text: `${line.path}:${line.line}` }), markdown(line.body)));
   if (s.status !== "draft" && s.status !== "inserted") return wrap;
   const actions = h("div", { class: "lp-actions" });
@@ -319,29 +345,43 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
   const discard: HTMLElement = button("Discard…", () => confirmDiscard(root, discard, s, refresh), { small: true });
   actions.append(discard, h("span", { class: "lp-grow" }));
   if (s.status === "draft") {
-    const what = page.kind === "issue" ? "issue" : "pull request";
+    // Each action is ticked as the agent suggested it; the owner unticks some (or ticks Close) before the one click.
+    const chosen = tickedActions(s);
+    const options = actionOptions(s);
+    if (options.length) {
+      const row = h("div", { class: "lp-actions" }, h("span", { class: "lp-muted", text: s.kind === "action" ? "Do:" : "Then:" }));
+      for (const o of options) {
+        const box = h("input", { attrs: { type: "checkbox", "aria-label": actionWords(o, page) } });
+        box.checked = chosen.some((a) => a.kind === o.kind);
+        box.disabled = pending.has(s.id);
+        box.addEventListener("change", () => {
+          const on = new Set(tickedActions(s).map((a) => a.kind));
+          if (box.checked) on.add(o.kind); else on.delete(o.kind);
+          ticks.set(s.id, on);
+          refresh();
+        });
+        row.append(h("label", { class: "lp-row" }, box, h("span", { text: actionWords(o, page) })));
+      }
+      wrap.append(row);
+    }
     const where = `${page.repo}#${page.number} as you${s.reply_to?.kind === "review_comment" ? ", in the review thread it answers" : ""}, with the attribution line`;
-    // The agent's recommendation is the main button: Comment and close for a closing comment (`--close`), else Post.
-    const close = h("button", { class: s.close ? "lp-btn lp-primary" : "lp-btn", text: page.kind === "issue" ? "Comment and close" : "Comment and close without merging", attrs: { type: "button", title: `Launchpad posts it to ${where}, then closes the ${what}${page.kind === "issue" ? "" : " without merging it"}` } });
-    const go = h("button", { class: s.close ? "lp-btn" : "lp-btn lp-primary", text: s.kind === "review" ? postLabel(s) : s.close ? "Post without closing" : "Post this comment", attrs: { type: "button", title: `Launchpad posts it to ${where}` } });
-    const post = (btn: HTMLButtonElement, busy: string, withClose: boolean) => (ev: Event) => {
+    const label = postButton(postLabel(s), chosen).replace(/\bclose\b(?! as)/, page.kind === "issue" ? "close" : "close without merging");
+    const go = h("button", { class: "lp-btn lp-primary", text: s.kind === "comment" && !chosen.length ? "Post this comment" : label, attrs: { type: "button", title: s.kind === "action" ? `Launchpad does this on ${page.repo}#${page.number} as you` : `Launchpad posts it to ${where}${chosen.length ? ", then does the ticked actions" : ""}` } });
+    go.addEventListener("click", (ev: Event) => {
       ev.preventDefault();
       ev.stopPropagation();
       // Only a real click of the owner posts (never a click the page synthesized).
-      if (!ev.isTrusted || btn.disabled || pending.has(s.id)) return;
-      const consequence = withClose ? `Post this comment to ${page.repo}#${page.number} as you and close the ${what}${page.kind === "issue" ? "" : " WITHOUT merging"}?` : s.merge ? `Post this review and merge ${page.repo}#${page.number} using ${s.merge} at reviewed commit ${s.head}?` : s.run_ci ? "Post this review and approve waiting CI runs? The pull request’s code will run in the repository’s CI." : `Post this ${s.kind} to ${page.repo}#${page.number} as you?`;
-      if (!window.confirm(consequence)) return;
+      if (!ev.isTrusted || go.disabled || pending.has(s.id)) return;
+      const then = chosen.map((a) => actionWords(a, page)).join(", ");
+      const what = s.kind === "action" ? `On ${page.repo}#${page.number}, as you: ${then}?` : s.merge ? `Post this review and merge ${page.repo}#${page.number} using ${s.merge} at reviewed commit ${s.head}?` : s.run_ci ? "Post this review and approve waiting CI runs? The pull request’s code will run in the repository’s CI." : `Post this ${s.kind} to ${page.repo}#${page.number} as you?`;
+      if (!window.confirm(s.kind !== "action" && then ? `${what} Then: ${then}.` : what)) return;
       pending.add(s.id);
-      go.disabled = close.disabled = true;
-      btn.textContent = busy;
-      submitSuggestion(s, withClose, (args) => request("suggestion.post", args)).then(() => { errors.delete(e.key); }).catch((x) => { errors.set(e.key, fail(x)); window.alert(fail(x)); }).finally(() => { pending.delete(s.id); refresh(); });
-    };
-    close.addEventListener("click", post(close, "Closing…", true));
-    go.addEventListener("click", post(go, s.merge ? "Posting and merging…" : "Posting…", false));
-    go.disabled = close.disabled = pending.has(s.id);
-    if (s.kind !== "comment") actions.append(go);
-    else if (s.close) actions.append(go, close);
-    else actions.append(close, go);
+      go.disabled = true;
+      go.textContent = s.kind === "action" ? "Working…" : s.merge ? "Posting and merging…" : "Posting…";
+      submitSuggestion(s, chosen, (args) => request("suggestion.post", args)).then(() => { errors.delete(e.key); ticks.delete(s.id); }).catch((x) => { errors.set(e.key, fail(x)); window.alert(fail(x)); }).finally(() => { pending.delete(s.id); refresh(); });
+    });
+    go.disabled = pending.has(s.id) || (s.kind === "action" && !chosen.length);
+    actions.append(go);
   }
   wrap.append(actions, choice);
   return wrap;

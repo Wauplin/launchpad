@@ -60,7 +60,7 @@ export function renderSidebarBox(page: ItemPage, ctx: ExtContext | null, refresh
   if (waiting.length || prs.length) {
     box.append(h("div", { class: "lp-label", text: "Waiting for you" }));
     for (const s of waiting) {
-      const label = s.kind === "review" ? s.merge ? "Approve and merge ready" : s.event === "REQUEST_CHANGES" ? "Request changes ready" : "Review ready" : s.close ? "Comment and close ready" : s.reply_to ? `Reply to ${s.reply_to.author ?? "a comment"}` : "Comment ready";
+      const label = s.kind === "comment" && s.reply_to && !s.actions.length ? `Reply to ${s.reply_to.author ?? "a comment"}` : `${s.headline} ready`;
       box.append(h("div", { class: "lp-row" }, h("span", { class: "lp-dot lp-need" }), h("span", { class: "lp-grow", text: `${label}${s.bot ? ` · ${s.bot}` : ""}${s.status === "inserted" ? " · inserted" : ""}` })));
     }
     for (const p of prs) box.append(h("div", { class: "lp-row" }, h("span", { class: "lp-dot lp-need" }), h("span", { class: "lp-grow", text: `Local PR · ${p.title}` })));

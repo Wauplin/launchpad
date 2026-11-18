@@ -8,6 +8,8 @@ import type { Note } from "@/gen/Note";
 import type { Predraft } from "@/gen/Predraft";
 import type { RateLimit } from "@/gen/RateLimit";
 import type { Suggestion } from "@/gen/Suggestion";
+import type { ItemAction } from "@/gen/ItemAction";
+import { describeAction, ranked } from "@/lib/suggestionActions";
 import { clock, DemoError, githubDemo, publish, route } from "../daemon";
 import { appendEvent, session } from "../store";
 import { world } from "../world";
@@ -170,21 +172,24 @@ route("POST", "/api/suggestions", ({ body }) => {
   const s: Suggestion = {
     id: `demo-sg-${clock.now().toString(36)}`, target: body.target, kind: body.kind, body: String(body.body ?? ""), event: body.event ?? "COMMENT", head: body.head ?? null,
     author: "Agent", session_id: body.session_id ?? null, created_at: clock.now(), status: "draft", url: null,
-    merge: body.merge ?? null, run_ci: !!body.run_ci, close: !!body.close && body.kind === "comment", followup_error: null, comments: Array.isArray(body.comments) ? body.comments : [],
+    merge: body.merge ?? null, run_ci: !!body.run_ci, close: false, actions: Array.isArray(body.actions) ? body.actions : [], followup_error: null, comments: Array.isArray(body.comments) ? body.comments : [],
   };
+  if (body.close && body.kind === "comment" && !s.actions.some((a) => a.kind === "close")) s.actions.push({ kind: "close", reason: null, duplicate_of: null });
+  s.close = s.actions.some((a) => a.kind === "close");
   world.suggestions = [...world.suggestions, s];
   return saveSuggestion(s);
 });
 route("PATCH", "/api/suggestions/:id", ({ params, body }) => {
   const s = suggestionOf(params.id);
   if (s.status !== "draft") throw new DemoError(400, "only unposted drafts can be edited");
-  if (!String(body?.body ?? "").trim()) throw new DemoError(400, "suggestion must contain 1–65536 bytes of text");
+  if (s.kind !== "action" && !String(body?.body ?? "").trim()) throw new DemoError(400, "suggestion must contain 1–65536 bytes of text");
   s.body = body.body;
   if (Array.isArray(body.comments)) s.comments = body.comments;
   s.event = body.event ?? s.event;
   s.merge = s.event === "APPROVE" ? body.merge ?? null : null;
   s.run_ci = !!body.run_ci && !s.merge;
-  if (typeof body.close === "boolean") s.close = body.close && s.kind === "comment";
+  if (Array.isArray(body.actions)) s.actions = body.actions;
+  s.close = s.actions.some((a) => a.kind === "close");
   return saveSuggestion(s);
 });
 route("DELETE", "/api/suggestions/:id", ({ params }) => {
@@ -204,10 +209,14 @@ route("POST", "/api/suggestions/:id/post", ({ params, body }) => {
   } else {
     const t = s.target;
     s.url = `https://github.com/${t.repo}/${s.kind === "review" ? "pull" : "issues"}/${t.number}`;
-    githubDemo(`posted the agent's ${s.kind} on #${t.number}`);
+    if (s.kind !== "action") githubDemo(`posted the agent's ${s.kind} on #${t.number}`);
     if (s.kind === "review" && s.merge) githubDemo(`merged #${t.number} (${s.merge})`);
     else if (s.kind === "review" && s.run_ci) githubDemo(`approved the waiting workflows of #${t.number}`);
-    else if (s.kind === "comment" && (typeof body?.close === "boolean" ? body.close : s.close)) githubDemo(`closed #${t.number}`);
+    let actions: ItemAction[] = Array.isArray(body?.actions) ? body.actions : s.actions;
+    if (body?.close === false) actions = actions.filter((a) => a.kind !== "close");
+    else if (body?.close === true && !actions.some((a) => a.kind === "close")) actions = [...actions, { kind: "close", reason: null, duplicate_of: null }];
+    for (const a of ranked(actions)) githubDemo(`${describeAction(a)} on #${t.number}`);
+    s.actions = actions;
   }
   s.status = "posted";
   return saveSuggestion(s);

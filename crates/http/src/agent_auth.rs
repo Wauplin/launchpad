@@ -26,7 +26,7 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
         Some(LaunchpadAccess::Admin)
     } else if method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity" || channel_read(path)) {
         Some(LaunchpadAccess::Read)
-    } else if method == Method::POST && (path == "/api/proposals" || path == CHANNEL_POST || path == CHANNEL_UPLOAD) {
+    } else if method == Method::POST && (path == "/api/proposals" || path == CHANNEL_POST || path == CHANNEL_UPLOAD || path == CI_APPROVE) {
         Some(LaunchpadAccess::Propose)
     } else if oracle_read(method, path) {
         Some(LaunchpadAccess::Read)
@@ -263,8 +263,13 @@ fn read_allowed(path: &str) -> bool {
 /// `launchpad kb` and `launchpad bot memory` send contents (media included) in their request.
 pub const KB_BODY_MAX: usize = 128 << 20;
 
+/// `launchpad ci approve`: an agent's own approval of a pull request's waiting workflow runs, a GitHub write Home
+/// makes without the owner's click. Propose access at least (read-only sessions never), the session's own write;
+/// Home checks the repository's workspace, the head and the files itself (`launchpad_api` items).
+pub const CI_APPROVE: &str = "/api/ci/approve";
+
 fn own_write(path: &str) -> bool {
-    matches!(path, "/api/link" | "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/notes" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/sleep" | CHANNEL_POST | CHANNEL_UPLOAD)
+    matches!(path, CI_APPROVE | "/api/link" | "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/notes" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/sleep" | CHANNEL_POST | CHANNEL_UPLOAD)
 }
 
 async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
@@ -422,7 +427,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
         // Runner updates are Launchpad-wide, like Home's (only `runner.update` and its cancel are admin actions).
         (false, ["runners", _, "update"]) => Shared,
-        (false, ["link"] | ["sleep"] | ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["notes"] | ["connections", "send"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
+        (false, ["link"] | ["sleep"] | ["ci", "approve"] | ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["notes"] | ["connections", "send"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
         (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics" | "notes"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
         (false, ["channels"] | ["channels", "dm"]) => Body,
@@ -709,6 +714,10 @@ mod tests {
         assert_eq!(names(&Method::POST, "/api/link"), Shared);
         assert!(own_write("/api/link"));
         assert!(own_write("/api/notes"));
+        // An agent's CI approval: its own write at propose access, checked by its handler on Home.
+        assert!(own_write(CI_APPROVE) && !own_write("/api/ci/approve/x"));
+        assert_eq!(tool_need(&Method::POST, CI_APPROVE), Some(LaunchpadAccess::Propose));
+        assert_eq!(names(&Method::POST, CI_APPROVE), Shared);
         assert!(own_write("/api/sleep"));
         assert_eq!(names(&Method::POST, "/api/sleep"), Shared);
         assert_eq!(names(&Method::POST, "/api/notes"), Shared);
