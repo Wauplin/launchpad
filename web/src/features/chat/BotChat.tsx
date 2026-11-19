@@ -893,7 +893,7 @@ function BotComposer({ bot, threadId, onThread, current, askSession, conversatio
   return (
     <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5" data-tour="bots.reply">
       <div className="mx-auto w-full max-w-text">
-        {rotation && threadId !== NEW_THREAD && <div className="mb-1.5 text-[12px] text-ink-3">{rotation}: your next message continues in a new thread, with a reference to this one.</div>}
+        {rotation && threadId !== NEW_THREAD && <div className="mb-1.5 text-[12px] text-ink-3">{rotation}: your next message continues it in a new thread of this chat, with a reference to this one.</div>}
         {threadId === NEW_THREAD && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3"><Icon name="plus" size={12} className="flex-none" />Your next message starts a new chat with {bot.settings.name}.</div>}
         {unconfirmed && !busy && <div role="status" className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3"><span className="min-w-0 flex-1">Delivery not confirmed. Send the same message to check its result.</span><button className="chat-tap flex-none text-teal-ink hover:underline" title="Only if the chat does not show the message: it may then be sent twice" onClick={() => void abandonOperation(unconfirmed.path, unconfirmed.body).then(() => setUnconfirmed(null)).catch(toastError)}>I checked the chat — start a new attempt</button></div>}
         {answering && !(ask && ask.permission) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="chat.answering">

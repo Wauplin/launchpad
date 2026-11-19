@@ -38,6 +38,10 @@ test("one row per conversation, with its participants, its most urgent state and
   const sections = Object.fromEntries(chatSections(chats).map((g) => [g.section, g.chats.map((c) => c.id)]));
   assert.deepEqual(sections, { "Needs you": ["a:q"], Unread: ["b:unseen", "news"], Running: ["c:t1"], Done: ["c:done"], Channels: ["quiet"], Archived: ["c:old", "gone"] });
   assert.ok(!chats.some((c) => c.id === "x:elsewhere"));
+  // The phone's pinned chats come first, out of their sections; an archived pin stays in Archived.
+  const pinnedFirst = chatSections(chats, ["channel:quiet", "conversation:c:t1", "conversation:c:old"]).map((g) => [g.section, g.chats.map((c) => c.id)]);
+  assert.deepEqual(pinnedFirst[0], ["Pinned", ["quiet", "c:t1"]]);
+  assert.ok(!pinnedFirst.some(([s]) => s === "Running" || s === "Channels"));
 });
 
 test("a follow-up thread keeps the conversation; routine threads are marked", () => {

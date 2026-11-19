@@ -17,7 +17,7 @@ const short = (v: unknown): string => {
 
 /** Where the changed record has its page, when it still has one. */
 export type ActivityLink =
-  | { to: "/bots/$id"; params: { id: string } }
+  | { to: "/bots/$id/settings"; params: { id: string } }
   | { to: "/schedules"; search: { routine: string } | { launch: string } }
   | { to: "/agents"; search: { session: string } }
   | { to: "/projects/$id"; params: { id: string } }
@@ -33,7 +33,7 @@ export function activityLink(a: Activity): ActivityLink | null {
   const id = verb === "create" ? created : a.args[0];
   if (!id) return null;
   switch (group) {
-    case "bot": return { to: "/bots/$id", params: { id } };
+    case "bot": return { to: "/bots/$id/settings", params: { id } };
     case "routine": return { to: "/schedules", search: { routine: id } };
     case "schedule": return { to: "/schedules", search: { launch: id } };
     case "session": return { to: "/agents", search: { session: id } };

@@ -82,7 +82,7 @@ export const currentSession = (thread: Session[]) => [...thread].reverse().find(
  * the bot's profile: its model and effort apply when bot.toml names none. */
 export function rotationReason(bot: Bot, current: Session | null, profile: { id: string; model: string | null; effort: string | null } | null): string | null {
   if (!current) return null;
-  if (current.status === "closed") return "This thread is archived";
+  if (current.status === "closed") return "This chat is archived";
   if (!bot.settings.profile && bot.settings.profiles?.includes(current.launch_spec.profile ?? "")) {
     // Keep the selected fallback for this session, including its model defaults.
     profile = { id: current.launch_spec.profile!, model: current.launch_spec.model ?? null, effort: current.launch_spec.effort ?? null };

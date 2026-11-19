@@ -27,7 +27,7 @@ import { isPhone, usePhone } from "@/lib/phone";
 import { isRunning } from "@/lib/sessionStatus";
 import { useScope } from "@/lib/workspace";
 import { useChatsStore } from "@/stores/chats";
-import { useChats, usePinChat } from "./data";
+import { useChatPins, useChats, usePinChat } from "./data";
 import { RenameThreadDialog } from "./Dialog";
 import { ChatMark, participantNames } from "./ChatMark";
 
@@ -145,7 +145,10 @@ export function ChatList() {
   const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
   const matched = useMemo(() => (debounced === search.trim() && matches.data ? new Set(matches.data) : null), [matches.data, debounced, search]);
   const shown = useMemo(() => filterChats(chats, { needle: search, bots: chosen, matched }), [chats, search, chosen, matched]);
-  const groups = useMemo(() => chatSections(shown), [shown]);
+  // The phone has no sidebar: its pinned chats come first.
+  const pins = useChatPins().data;
+  const pinOrder = useMemo(() => (phone ? (pins ?? []).map((p) => p.target) : undefined), [phone, pins]);
+  const groups = useMemo(() => chatSections(shown, pinOrder), [shown, pinOrder]);
   const open = useOpenChat();
   const selected = open ? chatOf(chats, open)?.id ?? null : null;
   const [archivedLimit, setArchivedLimit] = useState(30);

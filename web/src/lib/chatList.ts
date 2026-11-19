@@ -13,7 +13,7 @@ import { mainBotOf } from "./conversations.ts";
 import { isQuotaPaused, isRunning, isSleeping, isUnseen } from "./sessionStatus.ts";
 
 /** The list's sections, in their order. */
-export const CHAT_SECTIONS = ["Needs you", "Unread", "Running", "Quota paused", "Sleeping", "Failed", "Done", "Channels", "Archived"] as const;
+export const CHAT_SECTIONS = ["Pinned", "Needs you", "Unread", "Running", "Quota paused", "Sleeping", "Failed", "Done", "Channels", "Archived"] as const;
 export type ChatSection = (typeof CHAT_SECTIONS)[number];
 
 export type ChatTone = "running" | "needs" | "done" | "failed" | "idle";
@@ -248,9 +248,12 @@ export function filterChats<T extends Chat>(chats: readonly T[], { needle = "", 
   });
 }
 
-/** The chats by section, in the sections' order, each newest first; empty sections left out. */
-export function chatSections<T extends Chat>(chats: readonly T[]): { section: ChatSection; chats: T[] }[] {
-  return CHAT_SECTIONS.map((section) => ({ section, chats: chats.filter((c) => c.section === section) })).filter((g) => g.chats.length > 0);
+/** The chats by section, in the sections' order, each newest first; empty sections left out. `pinned` (the phone,
+ * which has no sidebar): those chats go first, in a Pinned section of their own, in the order given. */
+export function chatSections<T extends Chat>(chats: readonly T[], pinned?: readonly string[]): { section: ChatSection; chats: T[] }[] {
+  const first = pinned?.length ? pinned.map((p) => chats.find((c) => c.pin === p && !c.archived)).filter((c): c is T => !!c) : [];
+  const rest = chats.filter((c) => !first.includes(c));
+  return CHAT_SECTIONS.map((section) => ({ section, chats: section === "Pinned" ? first : rest.filter((c) => c.section === section) })).filter((g) => g.chats.length > 0);
 }
 
 /** The chat a bot page shows (its bot and thread), or a channel page (its ID). */
