@@ -7,14 +7,15 @@ import { useQueries } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { memo, useState } from "react";
 import { botTone } from "@/components/BotAvatar";
-import { StatusBadge } from "@/components/ui";
+import { IconButton, StatusBadge } from "@/components/ui";
+import { useArchiveThread } from "@/features/chat/BotThreads";
 import type { BotThread } from "@/gen/BotThread";
 import { activeThreads, capThreads, type ActiveThread, type ThreadTone } from "@/lib/activeThreads";
 import { api } from "@/lib/api";
 import { botInitial, useBots } from "@/lib/bots";
 import { age } from "@/lib/format";
 import { useSessions } from "@/lib/queries";
-import { isUnseen } from "@/lib/sessionStatus";
+import { isRunning, isUnseen } from "@/lib/sessionStatus";
 import { useScope } from "@/lib/workspace";
 
 const DOT: Record<ThreadTone, string> = { running: "bg-work", needs: "bg-attn", done: "bg-gh-open", failed: "bg-gh-closed", idle: "bg-line" };
@@ -88,15 +89,12 @@ export function ActiveThreadsSection({ variant, labelClass }: { variant: "list" 
   </section>;
 }
 
-/** The laptop sidebar's part over the Bots group: two lines per thread (its title, then a state mark, the status,
- * the time and the bot). Hidden while the sidebar shows icons only or no thread is active. */
-export function SidebarActiveThreads() {
-  const rows = useActiveThreads();
-  const { all, toggle, shown } = useShown(rows);
-  if (!rows.length) return null;
-  return <div className="mb-2 flex flex-none flex-col gap-px border-b border-line-2 pb-2" data-tour="sidebar.active-threads">
-    <div className="px-[9px] pb-0.5 text-[11px] font-semibold text-ink-3">Active threads</div>
-    {shown.map((r) => <Link key={r.conversation} to="/bots/$id" params={{ id: r.bot.id }} search={{ thread: r.thread } as never} className="flex items-start gap-2 rounded-control px-[9px] py-1 text-ink no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)]" }} title={`${r.title} · ${botNames(r)} · ${r.label}`} aria-label={`${r.title}, ${botNames(r)}, ${r.label}`}>
+/** A sidebar row: the link to the thread, then a small Archive (one click, like an agent's), shown on hover and
+ * keyboard focus. Disabled while the thread works. */
+const SidebarThreadRow = memo(function SidebarThreadRow({ r, archiving, onArchive }: { r: ActiveThread; archiving: boolean; onArchive: () => void }) {
+  const running = isRunning(r.session);
+  return <div className="group flex items-start gap-0.5 rounded-control hover:bg-sunk has-[.active]:bg-paper has-[.active]:shadow-[inset_0_0_0_1px_var(--color-line)]">
+    <Link to="/bots/$id" params={{ id: r.bot.id }} search={{ thread: r.thread } as never} className="flex min-w-0 flex-1 items-start gap-2 rounded-control py-1 pl-[9px] text-ink no-underline" title={`${r.title} · ${botNames(r)} · ${r.label}`} aria-label={`${r.title}, ${botNames(r)}, ${r.label}`}>
       <span className={`mt-0.5 grid size-[16px] flex-none place-items-center rounded-sm text-[11px] font-semibold ${botTone(r.bot.settings.name)}`} aria-hidden>{botInitial(r.bot.settings.name)}</span>
       <span className="grid min-w-0 flex-1">
         <span className={`truncate text-[13px] ${isUnseen(r.session) || r.tone === "needs" ? "font-semibold" : ""}`}>{r.title}</span>
@@ -105,7 +103,23 @@ export function SidebarActiveThreads() {
           <span className="flex-none">{r.label} · {age(r.last)}</span><span className="truncate">· {botNames(r)}</span>
         </span>
       </span>
-    </Link>)}
+    </Link>
+    <span className="lp-row-more flex-none self-center pr-0.5">
+      <IconButton icon="archive" label={running ? `Stop its turn first to archive “${r.title}”` : `Archive “${r.title}”`} disabled={running || archiving} onClick={onArchive} />
+    </span>
+  </div>;
+});
+
+/** The laptop sidebar's part over the Bots group: two lines per thread (its title, then a state mark, the status,
+ * the time and the bot). Hidden while the sidebar shows icons only or no thread is active. */
+export function SidebarActiveThreads() {
+  const rows = useActiveThreads();
+  const { all, toggle, shown } = useShown(rows);
+  const { archive, busy } = useArchiveThread();
+  if (!rows.length) return null;
+  return <div className="mb-2 flex flex-none flex-col gap-px border-b border-line-2 pb-2" data-tour="sidebar.active-threads">
+    <div className="px-[9px] pb-0.5 text-[11px] font-semibold text-ink-3">Active threads</div>
+    {shown.map((r) => <SidebarThreadRow key={r.conversation} r={r} archiving={busy(r.bot.id, r.thread)} onArchive={() => void archive(r.bot.id, r.thread, r.conversation)} />)}
     {(rows.length > shown.length || all) && <Toggle all={all} total={rows.length} onToggle={toggle} className="px-[9px] py-0.5 text-left text-[12px] text-teal-ink hover:underline" />}
   </div>;
 }

@@ -12,6 +12,14 @@ export function channelsOf(all: Channel[] | undefined, workspaceId: string | nul
   return { channels: mine.filter((c) => c.kind === "channel"), dms: mine.filter((c) => c.kind === "dm") };
 }
 
+/** A channel's or DM's name as the lists show it. */
+export const channelName = (c: Pick<Channel, "kind" | "name" | "title">) => (c.kind === "dm" ? c.title : c.name);
+
+/** Items in alphabetical order of their names, ignoring case and accents (the Bots page and the sidebar). */
+export function byName<T>(items: T[], name: (item: T) => string): T[] {
+  return [...items].sort((a, b) => name(a).localeCompare(name(b), undefined, { sensitivity: "base", numeric: true }));
+}
+
 /** The workspace's archived channels and DMs: the Archived list, where they come back or go for good. */
 export function archivedOf(all: Channel[] | undefined, workspaceId: string | null | undefined): Channel[] {
   return (all ?? []).filter((c) => c.workspace_id === workspaceId && c.archived);

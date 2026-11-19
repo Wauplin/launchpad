@@ -1,9 +1,10 @@
-// Bots: persistent agents with several threads each (parallel conversations). The list (Ask Launchpad is one of
-// them, created once per workspace), the form that creates one (name, job, profile and folder only), and a bot's
-// page: its chat (one thread at a time, `?thread=`, features/chat/BotChat.tsx) is the page, with the thread bar
-// under the header (features/chat/BotThreads.tsx; a sheet on the phone); About (a drawer on the laptop, a page
+// Bots: persistent agents with several threads each (parallel conversations). The Bots page (a grid of the bots and
+// channels, alphabetical: a bot's tile starts a new thread, a channel's opens it), the form that creates one (name,
+// job, profile and folder only), and a bot's page: its chat (one thread at a time, `?thread=`,
+// features/chat/BotChat.tsx) is the page, with Archive, About, ⋯ and × (back to the Bots page) in its header and no
+// thread bar (the sidebar's Active threads navigate); About (a drawer on the laptop, a page
 // opened from ⓘ on the phone) holds what defines the bot: BOT.md, Triggers, Memory, Access and Versions; ⋯ holds New
-// thread, Rename and Archive the thread, Pause all triggers, Profile and model, Open in Agents, Edit as file and
+// thread, Rename the thread, Archived threads, Pause all triggers, Profile and model, Open in Agents, Edit as file and
 // Delete. Creating saves; the first task is a separate Send.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,12 +19,10 @@ import { toast, toastError } from "@/components/Toast";
 import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, IconButton, Loading, MoreMenu, PageHeader, Tabs } from "@/components/ui";
 import { PatchView } from "@/components/diff/DiffReview";
 import { BotChat, BotModelChoice } from "@/features/chat/BotChat";
-import { ArchiveThreadButton, NEW_THREAD, ThreadBar, ThreadList, useThreadRows, type ThreadRow } from "@/features/chat/BotThreads";
-import { ActiveThreadsSection, useActiveThreads } from "./ActiveThreads";
-import { BotConversationRow } from "./BotConversationRow";
-import { ArchivedChannelRow, ChannelConversationRow } from "@/features/channels/ChannelRows";
+import { ArchivedThreads, ArchiveThreadButton, NEW_THREAD, useShownThread, useThreadRows, type ThreadRow } from "@/features/chat/BotThreads";
+import { ArchivedChannelRow } from "@/features/channels/ChannelRows";
 import { NewChannel } from "@/features/channels/NewChannel";
-import { archivedOf, channelsOf, useChannelName, useChannels } from "@/lib/channels";
+import { archivedOf, byName, channelMark, channelName, channelsOf, useChannelName, useChannels } from "@/lib/channels";
 import type { ConnectionsOverview } from "@/features/settings/ConnectionsView";
 import { useTelegram } from "@/features/settings/TelegramSettings";
 import { BotAvatar } from "@/components/BotAvatar";
@@ -38,7 +37,7 @@ import type { VaultOverview } from "@/gen/VaultOverview";
 import { api } from "@/lib/api";
 import { runAction } from "@/lib/actions";
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
-import { askTarget, botProfile, conversationOrder, botThread, currentSession, findThread, instructionsUpdated, landingThread, rememberThread, rotationReason, threadSummary, useBots, useBotThreads, useBotTemplates } from "@/lib/bots";
+import { askTarget, botProfile, botThread, currentSession, findThread, instructionsUpdated, landingThread, rememberThread, rotationReason, threadSummary, useBots, useBotThreads, useBotTemplates } from "@/lib/bots";
 import { isQuotaPaused, isRunning, isSleeping, sleepUntil } from "@/lib/sessionStatus";
 import { daemonUrl } from "@/lib/connection";
 import { age, ago, when } from "@/lib/format";
@@ -85,14 +84,12 @@ export function BotsView() {
   const phone = usePhone();
   const bots = useBots();
   const scope = useScope();
-  const sessions = useBotSessions();
   const search = useSearch({ strict: false }) as { new?: true | "channel"; archived?: true };
   const navigate = useNavigate();
   const mine = (bots.data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
   const all = useChannels().data;
   const { channels, dms } = channelsOf(all, scope.workspace.id);
   const archived = archivedOf(all, scope.workspace.id);
-  const active = useActiveThreads().length > 0;
   const newChannel = search.new === "channel" && mine.length > 0;
   const creating = !newChannel && (search.new === true || (bots.isSuccess && mine.length === 0));
   const showArchived = !!search.archived && !creating;
@@ -120,19 +117,34 @@ export function BotsView() {
               {archived.length === 0 ? <Empty icon="archive">No archived channel in {scope.workspace.name}.</Empty>
                 : archived.map((c) => <ArchivedChannelRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}
             </section> : <>
-              <ActiveThreadsSection variant="cards" labelClass="seclabel m-0" />
-              <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
-                {active && <h2 className="seclabel m-0">Bots</h2>}
-                {conversationOrder(mine, sessions, scope.workspace.id).map(({ bot, thread, pinned }) => <BotConversationRow key={bot.id} bot={bot} thread={thread} pinned={pinned} className="rounded-card border border-line bg-paper" />)}
-              </div>
-              {channels.length > 0 && <section className="grid grid-cols-[minmax(0,1fr)] gap-2" data-tour="bots.channels"><h2 className="seclabel m-0">Channels</h2>{channels.map((c) => <ChannelConversationRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}</section>}
-              {dms.length > 0 && <section className="grid grid-cols-[minmax(0,1fr)] gap-2"><h2 className="seclabel m-0">Bot DMs</h2>{dms.map((c) => <ChannelConversationRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}</section>}
+              <LandingGrid label="Bots" tour="bots.grid" items={byName(mine, (b) => b.settings.name).map((b) => ({ id: b.id, name: b.settings.name,
+                mark: <BotAvatar name={b.settings.name} size={32} />, link: <Link to="/bots/$id" params={{ id: b.id }} search={{ thread: NEW_THREAD } as never} className={TILE} aria-label={`New thread with ${b.settings.name}`} title={`Start a new thread with ${b.settings.name}`} /> }))} />
+              {channels.length + dms.length > 0 && <LandingGrid label="Channels" tour="bots.channels" items={[...byName(channels, channelName), ...byName(dms, channelName)].map((c) => ({ id: c.id, name: channelName(c),
+                mark: <span className="grid size-8 place-items-center rounded-card bg-sunk text-[15px] font-semibold text-ink-2">{channelMark(c)}</span>, link: <Link to="/channels/$id" params={{ id: c.id }} className={TILE} aria-label={`Open ${c.kind === "dm" ? "DM" : "channel"} ${channelName(c)}`} /> }))} />}
             </>}
           </>}
         </div>
       </div>
     </div>
   );
+}
+
+/** A tile's link covers the whole tile (keyboard focus included). */
+const TILE = "absolute inset-0 rounded-card focus-visible:outline-2 focus-visible:outline-teal";
+
+/** The Bots page's grid: one tile per bot or channel, its mark and name. A bot's tile starts a new thread with it, a
+ * channel's opens the channel. */
+function LandingGrid({ label, tour, items }: { label: string; tour: string; items: { id: string; name: string; mark: ReactNode; link: ReactNode }[] }) {
+  return <section className="grid gap-2" aria-label={label} data-tour={tour}>
+    <h2 className="seclabel m-0">{label}</h2>
+    <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2 p-0">
+      {items.map((it) => <li key={it.id} className="relative flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-card border border-line bg-paper p-3 text-center hover:bg-sunk">
+        <span aria-hidden>{it.mark}</span>
+        <span className="w-full truncate text-[13px] font-medium text-ink" title={it.name}>{it.name}</span>
+        {it.link}
+      </li>)}
+    </ul>
+  </section>;
 }
 
 // ---------------------------------------------------------------- creating a bot
@@ -268,11 +280,15 @@ function BotPageOf({ id }: { id: string }) {
   const thread = useMemo(() => (threadId === NEW_THREAD ? [] : botThread(sessions, id, threadId)), [sessions, id, threadId]);
   const current = currentSession(thread);
   const rows = useThreadRows(bot ?? ({ id } as Bot), sessions);
-  const [threadsOpen, setThreadsOpen] = useState(false);
-  // A thread switch replaces the history entry, like tabs (on the phone also from the Threads sheet). On the phone,
-  // a switch from About (its ⋯, Open its thread) goes back to the chat and replaces it with the thread's.
+  // The thread shown, so an Archive from the sidebar knows to leave the page.
+  const conversation = rows.find((r) => r.t.id === threadId)?.t.conversation ?? null;
+  useEffect(() => {
+    useShownThread.setState({ shown: threadId === NEW_THREAD ? null : { bot: id, thread: threadId, conversation } });
+    return () => useShownThread.setState({ shown: null });
+  }, [id, threadId, conversation]);
+  // A thread switch replaces the history entry, like tabs. On the phone, a switch from About (Open its thread) goes
+  // back to the chat and replaces it with the thread's.
   const selectThread = (t: string) => {
-    setThreadsOpen(false);
     const q = new URLSearchParams();
     if (search.panel && !phone) q.set("panel", search.panel);
     q.set("thread", t);
@@ -304,6 +320,7 @@ function BotPageOf({ id }: { id: string }) {
   const [renaming, setRenaming] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [file, setFile] = useState<string | null>(null);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const [step, setStep] = useState<string | null>(null);
   if (bots.isLoading) return <Loading what="the bot" />;
   if (bots.error) return <ErrorState error={bots.error} onRetry={() => void bots.refetch()} />;
@@ -315,25 +332,25 @@ function BotPageOf({ id }: { id: string }) {
   const shownThread = rows.find((r) => r.t.id === threadId)?.t ?? null;
   const threadTitle = threadId === NEW_THREAD ? "New thread" : shownThread?.title ?? "Thread";
   const statusLine = <span className={`min-w-0 truncate ${status.tone}`} title={where && where.tone !== "quiet" ? where.title : undefined} data-tour="bots.status">{status.text}{where && where.tone !== "quiet" ? ` · ${where.label}` : ""}</span>;
-  // After an Archive (⋯ or the chat's own button), the most recent other thread shows, else a new one.
-  const afterArchive = () => selectThread(rows.find((r) => r.t.id !== threadId)?.t.id ?? NEW_THREAD);
-  const menu = (close: () => void) => <BotMenu bot={bot} all={all} thread={thread} threadRow={rows.find((r) => r.t.id === threadId) ?? null} current={current} close={close}
+  // Leave the chat without archiving: the Bots page (the phone's ‹ goes back to Chats).
+  const closeChat = () => void navigate({ to: "/bots", search: {} as never });
+  const menu = (close: () => void) => <BotMenu bot={bot} all={all} threadRow={rows.find((r) => r.t.id === threadId) ?? null} current={current} close={close}
     onEditFile={() => setFile("bot.toml")} onNewThread={() => selectThread(NEW_THREAD)} onRename={() => setRenaming(true)} onModel={() => setChoosing(true)}
-    onArchived={afterArchive} />;
-  const archiveThread = shownThread && threadId !== NEW_THREAD ? <ArchiveThreadButton bot={bot} thread={shownThread} sessions={thread} onDone={afterArchive} /> : null;
+    onArchivedThreads={() => setArchivedOpen(true)} />;
+  const archiveThread = shownThread && threadId !== NEW_THREAD ? <ArchiveThreadButton bot={bot} thread={shownThread} sessions={thread} /> : null;
   const chat = <BotChat key={threadId} bot={bot} threadId={threadId} thread={thread} rotation={rotation} needsProfile={!profile} openSettings={() => setAbout(true)} onStep={setStep}
     onThread={(t) => { if (t !== threadId) { void threads.refetch(); selectThread(t); } }}
     intro={<p className="m-0 text-[13px] text-ink-2">{threadId !== NEW_THREAD ? "This thread has no message yet." : rows.length ? `Send ${bot.settings.name} the first message of this new thread: it runs next to its other threads.` : `Send ${bot.settings.name} its first task.`}</p>} />;
   const sections = <AboutSections bot={bot} current={current} routines={routines} onEditFile={setFile} openThread={(key) => { const t = rows.find((r) => r.t.key === key); if (t) selectThread(t.t.id); else toast("No thread yet: it starts with the first message"); }} threadKeys={new Set(rows.map((r) => r.t.key).filter(Boolean) as string[])} />;
   const dialogs = <>
     {renaming && shownThread && <RenameThreadDialog bot={bot} thread={shownThread} onClose={() => setRenaming(false)} />}
-    {threadsOpen && <Sheet title={`Threads of ${bot.settings.name}`} onClose={() => setThreadsOpen(false)}><ThreadList bot={bot} rows={rows} selected={threadId} onSelect={selectThread} /></Sheet>}
+    {archivedOpen && <Dialog title={`Archived threads of ${bot.settings.name}`} onClose={() => setArchivedOpen(false)}><ArchivedThreads bot={bot} /></Dialog>}
     {choosing && <Dialog title="Profile and model" onClose={() => setChoosing(false)}><BotModelChoice bot={bot} current={current} /></Dialog>}
     {file && <FilesDialog bot={bot} routines={routines} path={file} onPath={setFile} onClose={() => setFile(null)} />}
   </>;
   const more = <MoreMenu label={`More actions for ${bot.settings.name}`} width={300}>{menu}</MoreMenu>;
   if (phone) {
-    const info = <><IconButton icon="plus" label="New thread" data-tour="bots.new-thread" onClick={() => selectThread(NEW_THREAD)} /><IconButton icon="comment" label={`Threads of ${bot.settings.name} (${rows.length})`} data-tour="bots.threads" onClick={() => setThreadsOpen(true)} />{archiveThread}<IconButton icon="info" label={`About ${bot.settings.name}`} data-tour="bots.about" onClick={() => setAbout(true)} /></>;
+    const info = <>{archiveThread}<IconButton icon="info" label={`About ${bot.settings.name}`} data-tour="bots.about" onClick={() => setAbout(true)} /></>;
     // The chat's bar names the thread shown when the bot has others.
     const many = rows.length > 1 || (threadId === NEW_THREAD && rows.length > 0);
     return <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
@@ -352,12 +369,9 @@ function BotPageOf({ id }: { id: string }) {
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
       <PageHeader title={<span className="flex min-w-0 items-center gap-2"><BotAvatar name={bot.settings.name} size={24} /><span className="truncate">{bot.settings.name}</span></span>}
         meta={statusLine}
-        actions={<><button className={`btn btn-sm ${about ? "border-teal/40 bg-teal-soft text-teal-ink" : ""}`} aria-pressed={about} data-tour="bots.about" title={`What defines ${bot.settings.name}: BOT.md, triggers, memory, access and versions`} onClick={() => setAbout(!about)}><Icon name="info" size={12} />About</button>{more}</>} />
+        actions={<span className="flex items-center gap-1" data-tour="bots.threads">{archiveThread}<button className={`btn btn-sm ${about ? "border-teal/40 bg-teal-soft text-teal-ink" : ""}`} aria-pressed={about} data-tour="bots.about" title={`What defines ${bot.settings.name}: BOT.md, triggers, memory, access and versions`} onClick={() => setAbout(!about)}><Icon name="info" size={12} />About</button>{more}<IconButton icon="x" label="Close the chat" onClick={closeChat} /></span>} />
       {/* Always the split view, so the chat (and a draft in its message box) stays mounted when About opens or closes. */}
-      <SplitView storageKey="launchpad.bot-about-width" sideLabel="About" initial={380} min={320} maxRatio={0.5} main={<div className="flex h-full min-h-0 flex-col">
-        <ThreadBar bot={bot} rows={rows} selected={threadId} onSelect={selectThread} archive={archiveThread} />
-        {chat}
-      </div>} side={about ? drawer : null} />
+      <SplitView storageKey="launchpad.bot-about-width" sideLabel="About" initial={380} min={320} maxRatio={0.5} main={<div className="flex h-full min-h-0 flex-col">{chat}</div>} side={about ? drawer : null} />
       {dialogs}
     </div>
   );
@@ -387,7 +401,7 @@ function statusOf(bot: Bot, all: Session[], thread: Session[], current: Session 
 
 /** ⋯ of the bot page (header on the laptop, About on the phone). `thread`: the session of the thread shown; `all`:
  * every session of the bot. */
-function BotMenu({ bot, all, thread, threadRow, current, close, onEditFile, onNewThread, onRename, onModel, onArchived }: { bot: Bot; all: Session[]; thread: Session[]; threadRow: ThreadRow | null; current: Session | null; close: () => void; onEditFile: () => void; onNewThread: () => void; onRename: () => void; onModel: () => void; onArchived: () => void }) {
+function BotMenu({ bot, all, threadRow, current, close, onEditFile, onNewThread, onRename, onModel, onArchivedThreads }: { bot: Bot; all: Session[]; threadRow: ThreadRow | null; current: Session | null; close: () => void; onEditFile: () => void; onNewThread: () => void; onRename: () => void; onModel: () => void; onArchivedThreads: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const running = all.some(isRunning);
@@ -396,9 +410,7 @@ function BotMenu({ bot, all, thread, threadRow, current, close, onEditFile, onNe
   return <>
     <MenuItem icon={<Icon name="plus" size={14} />} label="New thread" detail="A conversation next to the others; your next message starts it" onClick={() => { close(); onNewThread(); }} />
     {other && <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename this thread…" detail={other.title} onClick={() => { close(); onRename(); }} />}
-    {other && (thread.some(isRunning)
-      ? <MenuItem icon={<Icon name="archive" size={14} />} label="Archive this thread" detail="Stop its turn first" disabled onClick={() => {}} />
-      : <ActionMenuItem name="bot.thread-archive" params={{ id: bot.id, thread: other.id }} body={{ archived: true }} close={close} onDone={async () => { await Promise.all([qc.invalidateQueries({ queryKey: ["bot-threads"] }), qc.invalidateQueries({ queryKey: ["sessions"] })]); onArchived(); }} />)}
+    <MenuItem icon={<Icon name="archive" size={14} />} label="Archived threads…" detail="Bring an archived thread back" onClick={() => { close(); onArchivedThreads(); }} />
     <ActionMenuItem name="bot.pause" params={{ id: bot.id }} body={{ paused: !bot.paused }} close={close} icon={bot.paused ? "play" : "stop"}
       label={bot.paused ? "Resume all triggers" : "Pause all triggers"} detail={bot.paused ? "Routines and hooks start runs again" : "Routines and hooks start nothing; your messages still go through"}
       onDone={() => refresh().then(() => toast(bot.paused ? `${bot.settings.name} resumed` : `${bot.settings.name} paused: no trigger starts it`))} />

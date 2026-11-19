@@ -110,7 +110,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-threads", route: BOT_ROUTE, anchor: "bots.threads",
       title: "Several threads at once",
-      body: "A bot works on several conversations in parallel. Each thread is one session. The page opens on the thread you looked at last, and your messages go to the thread shown; New thread, first in the bar, starts another with your next message. A review asked from the Chrome extension gets the pull request's own thread, each channel, hook, agent and Telegram gets one, and each routine run starts a new one, so none of them blocks your chat. The chips switch threads; All threads searches them. The line under the name sums them up, and ⋯ renames or archives the thread shown. At most 16 threads work at once (Threads at once in Access): automatic messages to another thread wait for a free slot, yours never wait.",
+      body: "A bot works on several conversations in parallel. Each thread is one session. Your messages go to the thread shown; a bot's tile on the Bots page starts a new one. A review asked from the Chrome extension gets the pull request's own thread, each channel, hook, agent and Telegram gets one, and each routine run starts a new one, so none of them blocks your chat. The sidebar's Active threads switch between them. Archive is one click and returns to the Bots page, × closes the chat without archiving, and ⋯ renames the thread or brings archived ones back. The line under the name sums them up. At most 16 threads work at once (Threads at once in Access): automatic messages to another thread wait for a free slot, yours never wait.",
     },
     {
       id: "ask.bot-answer", route: BOT_ROUTE, anchor: "chat.answering",
