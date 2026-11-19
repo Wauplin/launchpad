@@ -494,7 +494,8 @@ export const ProposalLine = memo(function ProposalLine({ p, onReply }: { p: Prop
   const warn = (b.kind === "cron" || b.kind === "routine" || (b.kind === "bot_files" && Object.keys(b.files).some((f) => f.startsWith("routines/"))) || (b.kind === "oracle" && (b.tools_added.length > 0 || b.can_leak)));
   return (
     <article data-tour="proposal.card" data-tour-id={p.id} className={`group grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 rounded-card border bg-paper py-1.5 pr-1.5 pl-2.5 ${warn ? "border-attn-line" : "border-line"}`}>
-      <div className="flex min-w-0 items-center gap-2">
+      {/* While a confirmation is armed (ConfirmButton's role=group), the row wraps: it goes under the title, inside the border. */}
+      <div className="flex min-w-0 items-center gap-x-2 gap-y-1 has-[[role=group]]:flex-wrap">
         <Icon name={proposalIcon(p)} size={14} className="flex-none text-ink-3" />
         <span className="min-w-0 flex-1">
           <b className={`block text-[13px] ${phone ? "line-clamp-2" : "truncate"}`} title={p.title}>{p.title}</b>

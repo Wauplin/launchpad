@@ -254,8 +254,9 @@ export function MoreMenu({ label, width, children }: { label: string; width?: nu
  */
 export function RowActions({ main, more, label, width = 104, menuWidth }: { main?: ReactNode; more?: ((close: () => void) => ReactNode) | false | null; label: string; width?: number; menuWidth?: number }) {
   return (
-    <span className="flex flex-none items-center gap-1">
-      <span className="flex justify-end" style={{ minWidth: width }}>{main}</span>
+    // max-w-full and min-w-0 keep an armed ConfirmButton (its consequence and buttons) inside the row: it wraps instead.
+    <span className="flex max-w-full min-w-0 flex-none items-center gap-1">
+      <span className="flex min-w-0 justify-end" style={{ minWidth: width }}>{main}</span>
       {more
         ? <span className="lp-row-more flex flex-none"><MoreMenu label={label} width={menuWidth}>{more}</MoreMenu></span>
         : <span className="iconbtn invisible" aria-hidden="true" />}
