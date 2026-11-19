@@ -70,7 +70,8 @@ export function ThreadBar({ bot, rows, selected, onSelect, archive }: { bot: Bot
 }
 
 /** Every thread with a search (the laptop's All threads, the phone's Threads sheet, where the search is not focused
- * so the keyboard stays closed), New thread first, then the archived threads behind a toggle, each with Bring back. */
+ * so the keyboard stays closed), New thread first, then the archived threads behind a toggle, each with Bring back. The grids
+ * use one `minmax(0, 1fr)` column (`grid-cols-1`): an implicit auto column grows to the full width of a truncated title. */
 export function ThreadList({ bot, rows, selected, onSelect }: { bot: Bot; rows: ThreadRow[]; selected: string; onSelect: (thread: string) => void }) {
   const phone = usePhone();
   const [query, setQuery] = useState("");
@@ -79,17 +80,17 @@ export function ThreadList({ bot, rows, selected, onSelect }: { bot: Bot; rows: 
   const q = query.trim().toLowerCase();
   const list = q ? rows.filter((r) => r.t.title.toLowerCase().includes(q)) : rows;
   const qc = useQueryClient();
-  return <div className="grid gap-1 p-1.5">
+  return <div className="grid grid-cols-1 gap-1 p-1.5">
     {rows.length > 6 && <input className="field-input" placeholder="Search threads" aria-label="Search threads" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus={!phone} />}
     <button className="flex min-h-9 items-center gap-2 rounded-control px-2 text-left text-[13px] hover:bg-sunk" aria-pressed={selected === NEW_THREAD} onClick={() => onSelect(NEW_THREAD)}>
-      <Icon name="plus" size={12} className="flex-none text-ink-3" /><span className="min-w-0 flex-1 truncate">New thread</span><span className="text-[12px] text-ink-3">your next message starts it</span>
+      <Icon name="plus" size={12} className="flex-none text-ink-3" /><span className="min-w-0 flex-1 truncate">New thread</span><span className="flex-none text-[12px] text-ink-3">your next message starts it</span>
     </button>
-    <div className="grid max-h-[50vh] gap-px overflow-y-auto">
+    <div className="grid max-h-[50vh] grid-cols-1 gap-px overflow-y-auto">
       {list.map((r) => <ThreadItem key={r.t.id} r={r} active={r.t.id === selected} onSelect={onSelect} />)}
       {list.length === 0 && <p className="m-0 px-2 py-1.5 text-[12px] text-ink-3">No thread matches.</p>}
     </div>
     <button className="chat-tap justify-self-start px-2 text-[12px] text-teal-ink hover:underline" aria-expanded={archived} onClick={() => setArchived(!archived)}>{archived ? "Hide archived threads" : "Show archived threads"}</button>
-    {archived && <div className="grid gap-px">
+    {archived && <div className="grid grid-cols-1 gap-px">
       {old.length === 0 ? <p className="m-0 px-2 py-1 text-[12px] text-ink-3">No archived thread.</p>
         : old.map((t) => <div key={t.id} className="flex min-h-9 items-center gap-2 px-2 text-[13px] text-ink-3">
           <Icon name="archive" size={12} className="flex-none" /><span className="min-w-0 flex-1 truncate" title={t.title}>{t.title}</span>

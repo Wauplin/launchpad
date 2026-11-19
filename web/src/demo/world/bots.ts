@@ -101,7 +101,7 @@ export function botsWorld() {
   // Each bot's threads (Home's `bot_thread` rows), one session each: the owner's, and the Maintainer's review of #120 from the extension.
   const thread = (bot: string, id: string, title: string, key: string | null, minutes: number): BotThread => ({ bot_id: bot, id, key, title, created_at: clock.ago(minutes), archived_at: null });
   const botThreads: Record<string, BotThread[]> = {
-    [BOT]: [thread(BOT, MAINTAINER_THREAD, "What changed in checkout this week", null, 70), thread(BOT, PR_THREAD, "PR #120 · Add gift cards at checkout", "github:acme-labs/storefront#120", 18), thread(BOT, "demo-thread-daily", "Daily check", "routine:routines/daily-check.toml", 50)],
+    [BOT]: [thread(BOT, MAINTAINER_THREAD, "What changed in checkout this week", null, 70), thread(BOT, PR_THREAD, "PR #120 · Add gift cards at checkout", "github:acme-labs/storefront#120", 18), thread(BOT, "demo-thread-daily", "Daily check", "routine:routines/daily-check.toml", 50), { ...thread(BOT, "demo-thread-timeline", "Check the storefront timeline export after the hub timeline change and try to keep the weekly report under one page", null, 4000), archived_at: clock.ago(2900) }],
     [ASK_BOT]: [thread(ASK_BOT, ASK_THREAD, "What is running in Acme right now?", null, 35)],
   };
   return { bots, botChanges, activity, botQueued, botMemory, botThreads };
