@@ -56,6 +56,7 @@ import type { CronAgent } from "@/gen/CronAgent";
 import type { ScheduledLaunch } from "@/gen/ScheduledLaunch";
 import { CronSelector, DEFAULT_CRON, type CronDraft } from "./CronSelector";
 import { itemIcon, PromptField } from "./PromptField";
+import { refusedFor } from "@/lib/maintenance";
 
 function Field({ label, hint, end, children, tour }: { label: string; hint?: string; end?: React.ReactNode; children: React.ReactNode; tour?: string }) {
   return (
@@ -504,7 +505,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
       if (openAfterLaunch || isPhone) { openIt(); toast("Delivered: agent launched."); }
       else toast(`Delivered: ${harnessName(s.harness)} started in ${where}`, { label: "Open", run: openIt });
     } catch (e) {
-      if (!editing && !cron && !scheduled && !(e instanceof ApiError && e.operationCompleted)) setUnconfirmedLaunch(spec);
+      if (!editing && !cron && !scheduled && !(e instanceof ApiError && e.operationCompleted) && !refusedFor(e)) setUnconfirmedLaunch(spec);
       toastError(e);
     } finally {
       setLaunching(false);

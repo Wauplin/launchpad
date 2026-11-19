@@ -22,6 +22,16 @@ pub trait Extensions: Send + Sync {
     /// Home: a sleeping session started a turn before its wake-up (a message woke it): its wake-up `schedule_id` goes
     /// (`schedules::woken`).
     fn woken(&self, _app: &App, _session_id: &str, _schedule_id: &str) {}
+    /// Home restored an older backup and a runner replays a wake-up Home had accepted (`replica::Item::Sleep`):
+    /// record it again unless Home still knows it (`schedules::replay_sleep`).
+    async fn replay_sleep(&self, _app: &App, _session_id: &str, _schedule: serde_json::Value) -> Result<()> {
+        Ok(())
+    }
+    /// A planned update's continuation: the wake-up of the agent that asked for it, recorded before the final
+    /// checkpoint so the new Home sends it once the agent's turn ended (`schedules::update_wake`). Returns its ID.
+    async fn update_wake(&self, _app: &App, _session_id: &str, _text: String) -> Result<String> {
+        anyhow::bail!("no scheduler")
+    }
     /// Instructions added to a session's initial prompt about agent-written GitHub text and connections.
     fn suggestion_instruction(&self, _app: &App, _session_id: &str) -> Option<String> {
         None

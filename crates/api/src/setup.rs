@@ -16,6 +16,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/setup/checklist", get(checklist))
         .route("/api/home/update", get(home_update).post(start_home_update))
         .route("/api/home/update/check", post(check_home_update))
+        .route("/api/home/update/resume", post(resume_home_update))
         .route("/api/cli-updates", get(cli_updates))
         .route("/api/cli-updates/check", post(check_cli_updates))
         .route("/api/cli-updates/auto", put(set_cli_auto))
@@ -119,6 +120,14 @@ async fn check_home_update(State(s): State<Ctx>) -> Json<home_update::HomeUpdate
     Json(home_update::check(&s.app).await)
 }
 
-async fn start_home_update(State(s): State<Ctx>, Json(b): Json<home_update::Start>) -> ApiResult<home_update::HomeUpdate> {
-    Ok(Json(home_update::start(&s.app, b).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
+/// Update Home. An agent's request records its continuation (`home_update::start`): the agent is woken once Home
+/// accepts work again.
+async fn start_home_update(State(s): State<Ctx>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(b): Json<home_update::Start>) -> ApiResult<home_update::HomeUpdate> {
+    let caller = agent.map(|a| a.0.0);
+    Ok(Json(home_update::start(&s.app, b, caller).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
+}
+
+/// Resume writes: the owner stops waiting for an update's replacement (`home_update::resume_writes`).
+async fn resume_home_update(State(s): State<Ctx>) -> ApiResult<home_update::HomeUpdate> {
+    Ok(Json(home_update::resume_writes(&s.app).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }

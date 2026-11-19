@@ -28,4 +28,13 @@ missing_blobs: string | null,
  * Folders whose Launchpad branches a restore could not bring back yet (their Home Git bundles stay pending,
  * and in every backup, until applied), with why.
  */
-restore_errors: string | null, };
+restore_errors: string | null, 
+/**
+ * Where the last backup was checked after writing it (`verify`: the bucket behind the mounted folder, or the
+ * folder itself).
+ */
+verified: string | null, 
+/**
+ * Why the last backup could not be checked in its destination: runners keep their records until one is.
+ */
+verify_error: string | null, };

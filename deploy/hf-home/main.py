@@ -165,14 +165,18 @@ async def main():
     os.environ["HF_HOME"] = str(home / ".cache/huggingface")
     os.environ["GH_CONFIG_DIR"] = str(home / ".config/gh")
     configure(backup, home / ".config/launchpad/config.toml")
-    setup = Setup(space, host, os.environ.get("LP_HOME_BUCKET", space + "-bucket"), backup / "home/credentials", key)
+    bucket = os.environ.get("LP_HOME_BUCKET", space + "-bucket")
+    setup = Setup(space, host, bucket, backup / "home/credentials", key)
     if key and not setup.key_matches(key):
         # Home cannot open its credentials or backups with this key: say so instead of restarting in a loop.
         await mismatch_page(stop_event())
         return
     setup.restore()
     await setup.check()
-    env = dict(os.environ, LAUNCHPAD_HOME_BACKUP=str(backup), LAUNCHPAD_PORT="7319", LAUNCHPAD_DELEGATED_ACCESS="true")
+    # The bucket behind /backups: Home checks each backup in the bucket itself (hf), not only in the mount's cache,
+    # before its runners drop their records and before an update replaces it (`home_backup::verify`).
+    env = dict(os.environ, LAUNCHPAD_HOME_BACKUP=str(backup), LAUNCHPAD_HOME_BACKUP_REMOTE="hf://buckets/" + bucket,
+               LAUNCHPAD_PORT="7319", LAUNCHPAD_DELEGATED_ACCESS="true")
     if key:
         env["LAUNCHPAD_HOME_KEY"] = base64.b64encode(key).decode()
     daemon = await asyncio.create_subprocess_exec("launchpad", "daemon", "--role", "home", env=env)
@@ -235,7 +239,8 @@ async def main():
             await runner.cleanup()
         if daemon.returncode is None:
             daemon.terminate()
-            # Let the daemon save its final backup before the container exits.
+            # Let the daemon save a final backup before the container exits (best effort: a planned update does not
+            # rely on it, its checkpoint is taken and checked before the Space commit).
             await daemon.wait()
 
 

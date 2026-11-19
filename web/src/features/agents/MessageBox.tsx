@@ -14,6 +14,7 @@ import { useMessageDrafts } from "@/stores/messages";
 import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "./MessageAttachments";
 import { EMPTY_CONTEXT, hasMessageContext, MessageContextButton, MessageContextChips } from "./MessageContext";
 import { PresetChips, usePresets } from "./MessagePresets";
+import { refusedFor } from "@/lib/maintenance";
 
 export type PendingAsk = { request_id: string; count: number; permission: boolean } | null;
 
@@ -88,7 +89,8 @@ export function MessageBox({ acceptsImages, sessionId, placeholder, disabled, as
       if (!ask) { setPresets([]); setContext(EMPTY_CONTEXT); }
       attachments.clear();
     } catch (e) {
-      setDelivery(e instanceof ApiError && e.operationCompleted ? "failed" : "uncertain");
+      // A write refused during Home's update never ran (`maintenance`): failed, not uncertain.
+      setDelivery((e instanceof ApiError && e.operationCompleted) || refusedFor(e) ? "failed" : "uncertain");
       toastError(e);
     } finally {
       setBusy(false);

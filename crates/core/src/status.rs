@@ -36,6 +36,8 @@ pub struct Status {
     pub cost_unavailable_profiles: Vec<String>,
     /// A runner updating itself to Home's build (`self_update`).
     pub runner_update: Option<crate::self_update::RunnerUpdate>,
+    /// Home is in maintenance (a planned update): writes are refused until it ends (`maintenance`).
+    pub maintenance: Option<crate::maintenance::Maintenance>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, TS)]

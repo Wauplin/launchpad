@@ -69,11 +69,26 @@ impl Store {
             Store::Bucket(b) => crate::hf::hf(env, &["buckets", "cp", "-", &format!("hf://buckets/{b}/{key}"), "--quiet"], Some(data)).await.map(|_| ()),
             Store::Dir(d) => {
                 let path = d.join(key);
-                tokio::fs::create_dir_all(path.parent().context("bad key")?).await?;
-                // Write then rename, so a crash never leaves a partial object under its final name.
+                let parent = path.parent().context("bad key")?.to_path_buf();
+                tokio::fs::create_dir_all(&parent).await?;
+                // Write then rename, so a crash never leaves a partial object under its final name; each step is
+                // flushed (`fsync` of the file, then of its folder), so a completed put survives a crash of this
+                // machine. A bucket mounted as a folder may still upload later: `verify` checks the bucket itself.
                 let tmp = path.with_extension("partial");
-                tokio::fs::write(&tmp, data).await?;
-                tokio::fs::rename(&tmp, &path).await?;
+                tokio::task::spawn_blocking(move || -> Result<()> {
+                    use std::io::Write;
+                    let mut f = std::fs::File::create(&tmp)?;
+                    f.write_all(&data)?;
+                    f.sync_all()?;
+                    drop(f);
+                    std::fs::rename(&tmp, &path)?;
+                    // Some mounts refuse to open a folder for sync: the file's own sync stands then.
+                    if let Ok(dir) = std::fs::File::open(&parent) {
+                        let _ = dir.sync_all();
+                    }
+                    Ok(())
+                })
+                .await??;
                 Ok(())
             }
         }
@@ -253,6 +268,11 @@ pub struct BackupInfo {
     /// Folders whose Launchpad branches a restore could not bring back yet (their Home Git bundles stay pending,
     /// and in every backup, until applied), with why.
     pub restore_errors: Option<String>,
+    /// Where the last backup was checked after writing it (`verify`: the bucket behind the mounted folder, or the
+    /// folder itself).
+    pub verified: Option<String>,
+    /// Why the last backup could not be checked in its destination: runners keep their records until one is.
+    pub verify_error: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -277,6 +297,8 @@ pub struct Backups {
 struct Base {
     at: i64,
     objects: Vec<Object>,
+    /// Each runner's acknowledged outbox number in this copy of `state.db`.
+    marks: Vec<(String, u64)>,
 }
 
 static GIT_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -365,17 +387,41 @@ async fn manifests(store: &Store, env: &UserEnv, root: &str) -> Result<Vec<(Stri
 }
 
 
-async fn snapshot(app: &App) -> Result<(Vec<u8>, i64)> {
+/// One consistent copy of `state.db` (`VACUUM INTO`), with what it holds: when it was taken (also written into the
+/// copy, `home_meta.checkpoint_at`, so a restored Home knows how old its records are) and each runner's acknowledged
+/// outbox number in it (`replica::set_durable` once the copy is safe in the destination).
+struct Snapshot {
+    bytes: Vec<u8>,
+    changes: i64,
+    at: i64,
+    marks: Vec<(String, u64)>,
+}
+
+/// The copy itself, on the database thread: nothing else writes between the mark and the copy. A frozen database
+/// (`maintenance::freeze`, the final checkpoint of an update) is writable only inside this one call.
+pub(crate) fn snapshot_into(c: &mut rusqlite::Connection, target: &Path, at: i64) -> Result<(i64, Vec<(String, u64)>)> {
+    let frozen: bool = c.query_row("PRAGMA query_only", [], |r| r.get(0))?;
+    if frozen {
+        c.pragma_update(None, "query_only", false)?;
+    }
+    let copied = (|| -> Result<(i64, Vec<(String, u64)>)> {
+        c.execute("INSERT INTO home_meta (key, value) VALUES ('checkpoint_at', ?1) ON CONFLICT (key) DO UPDATE SET value = excluded.value", [at.to_string()])?;
+        let marks = c.prepare("SELECT runner_id, n FROM runner_ack")?.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        // One consistent copy, taken by SQLite itself while the database stays open.
+        c.execute("VACUUM INTO ?1", [target.to_string_lossy().as_ref()])?;
+        Ok((c.query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))?, marks))
+    })();
+    if frozen {
+        c.pragma_update(None, "query_only", true)?;
+    }
+    copied
+}
+
+async fn snapshot(app: &App) -> Result<Snapshot> {
     let tmp = app.paths.data_dir.join(format!("state.backup-{}.db", uuid::Uuid::new_v4()));
     let target = tmp.clone();
-    let changes = app
-        .state_db
-        .call(move |c| {
-            // One consistent copy, taken by SQLite itself while the database stays open.
-            c.execute("VACUUM INTO ?1", [target.to_string_lossy().as_ref()])?;
-            Ok(c.query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))?)
-        })
-        .await?;
+    let at = now_ms();
+    let (changes, marks) = app.state_db.call(move |c| snapshot_into(c, &target, at)).await?;
     let sealed = match sealing_key() {
         Some(key) => {
             let (path, key) = (tmp.clone(), *key);
@@ -388,7 +434,12 @@ async fn snapshot(app: &App) -> Result<(Vec<u8>, i64)> {
         Err(e) => Err(e.context("seal the vault in the backup")),
     };
     let _ = tokio::fs::remove_file(&tmp).await;
-    Ok((bytes?, changes))
+    Ok(Snapshot { bytes: bytes?, changes, at, marks })
+}
+
+/// When the checkpoint a database copy holds was taken (`snapshot_into`); None for a database that never had one.
+pub(crate) fn checkpoint_at(c: &rusqlite::Connection) -> Option<i64> {
+    c.query_row("SELECT value FROM home_meta WHERE key = 'checkpoint_at'", [], |r| r.get::<_, String>(0)).ok().and_then(|v| v.parse().ok())
 }
 
 fn seal_secret(key: &[u8; 32], secret: &str) -> Result<String> {
@@ -474,6 +525,14 @@ pub async fn run(app: &App, when: When) -> Result<bool> {
             return Err(e);
         }
     };
+    let (written, manifest) = written;
+    // The newest copy of `state.db`, once the destination itself shows it, makes the runners' records in it
+    // durable (`replica::set_durable`): they may drop them. A check that fails waits for the next backup.
+    let verified = verify_base(app, &store, &written, &manifest, Verify::Listed, VERIFY_WITHIN).await;
+    if let Err(e) = &verified {
+        tracing::warn!("home backup: {e:#}");
+    }
+    backups.info.lock().unwrap().verify_error = verified.err().map(|e| format!("{e:#}"));
     spawn_prune(app, store.clone(), written);
     if let Err(e) = readable(app, &store).await {
         tracing::warn!("home backup: readable copies: {e:#}");
@@ -486,8 +545,116 @@ pub async fn run(app: &App, when: When) -> Result<bool> {
     Ok(true)
 }
 
-/// Writes one backup and returns its manifest key: a new copy of `state.db` when `fresh`, else `base` again.
-async fn backup(app: &App, store: &Store, mut fresh: bool, base: Option<Base>) -> Result<String> {
+/// How deep `verify` checks a backup in the destination.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Verify {
+    /// The manifest reads back with the same bytes and the `state.db` object is listed with its size: every backup
+    /// before its runner records count as durable.
+    Listed,
+    /// The `state.db` object is also downloaded and its hash checked: an update's final checkpoint.
+    Downloaded,
+}
+
+/// How long a backup's check waits for the destination to show it (a mounted bucket uploads in the background).
+const VERIFY_WITHIN: Duration = Duration::from_secs(60);
+/// The same for an update's final checkpoint: the update waits rather than restart from an older backup.
+const CHECKPOINT_WITHIN: Duration = Duration::from_secs(5 * 60);
+
+/// The bucket behind a folder destination: on a Space, `/backups` is the bucket mounted as a folder, and
+/// `LAUNCHPAD_HOME_BACKUP_REMOTE` (`hf://buckets/<namespace>/<name>`, set by the Space's entry point) names it, so
+/// a backup is checked in the bucket itself, never only in the mount's local cache. A bucket destination is its own.
+fn remote_of(store: &Store) -> Option<Store> {
+    match store {
+        Store::Bucket(_) => Some(store.clone()),
+        Store::Dir(_) => std::env::var("LAUNCHPAD_HOME_BACKUP_REMOTE").ok().as_deref().and_then(Store::parse).filter(|s| matches!(s, Store::Bucket(_))),
+    }
+}
+
+/// Where a backup is checked, and in words: the bucket, or the folder itself (a local disk, flushed by `put`).
+fn verify_target(store: &Store) -> (Store, String) {
+    match remote_of(store) {
+        Some(Store::Bucket(b)) => (Store::Bucket(b.clone()), format!("bucket {b}")),
+        _ => (store.clone(), "the backup folder (no remote bucket named, so only this disk)".into()),
+    }
+}
+
+/// Checks from the storage side that a backup can be restored: its manifest reads back with the same bytes, and its
+/// `state.db` object is there with its size (`Listed`) or downloads with its hash (`Downloaded`).
+async fn verify(target: &Store, env: &UserEnv, key: &str, manifest: &[u8], db: &Object, depth: Verify) -> Result<()> {
+    let got = target.get(env, key).await.context("read the manifest back")?;
+    ensure!(got == manifest, "the manifest reads back with other bytes");
+    match depth {
+        Verify::Downloaded => {
+            get_blob(target, env, &db.sha256).await.context("download the state.db object")?;
+        }
+        Verify::Listed => {
+            let size = match target {
+                Store::Dir(d) => Some(tokio::fs::metadata(d.join(blob_key(&db.sha256))).await.context("the state.db object is missing")?.len()),
+                Store::Bucket(_) => {
+                    let listed = target.entries(env, &blob_key(&db.sha256)).await?;
+                    listed.iter().find(|e| e.key.ends_with(&db.sha256)).context("the state.db object is not listed yet")?.size
+                }
+            };
+            ensure!(size.is_none_or(|n| n == db.size), "the state.db object has another size");
+        }
+    }
+    Ok(())
+}
+
+/// `verify`, again until it passes or `within` ran out (`tries` counts the attempts, for tests). The last error
+/// names the destination.
+async fn verify_until<F, Fut>(within: Duration, first: Duration, mut attempt: F) -> Result<u32>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<()>>,
+{
+    let deadline = tokio::time::Instant::now() + within;
+    let mut delay = first;
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        match attempt().await {
+            Ok(()) => return Ok(tries),
+            Err(e) if tokio::time::Instant::now() + delay > deadline => return Err(e),
+            Err(_) => {
+                tokio::time::sleep(delay).await;
+                delay = (delay * 2).min(Duration::from_secs(30));
+            }
+        }
+    }
+}
+
+/// Checks the backup just written (`key`, `manifest`) in the destination, then makes the runner records of its
+/// copy of `state.db` durable (`replica::set_durable`).
+async fn verify_base(app: &App, store: &Store, key: &str, manifest: &[u8], depth: Verify, within: Duration) -> Result<()> {
+    let Some(base) = app.home_backups.base.lock().unwrap().clone() else { return Ok(()) };
+    let db = base.objects.iter().find(|o| o.name == "state.db").cloned().context("the backup lists no state.db")?;
+    let (target, name) = verify_target(store);
+    verify_until(within, Duration::from_secs(2), || verify(&target, &app.env, key, manifest, &db, depth)).await.map_err(|e| e.context(format!("backup {key} is not readable from {name} yet")))?;
+    crate::replica::set_durable(app, &base.marks);
+    app.home_backups.info.lock().unwrap().verified = Some(name);
+    Ok(())
+}
+
+/// An update's final checkpoint (`launchpad_setup::home_update`, with `state.db` frozen by `maintenance::freeze`):
+/// a new copy of `state.db` with every other object, then the manifest, then a check in the destination itself
+/// (the bucket behind a mounted folder) that downloads the copy and checks its hash, for up to five minutes.
+/// Returns the manifest key; an error means the replacement must not happen.
+pub async fn checkpoint(app: &App) -> Result<String> {
+    let store = Store::parse(&app.config.get().home.backup).context("Home has no backup destination, so a restart would restore nothing")?;
+    let backups = app.home_backups.clone();
+    let _one = backups.running.lock().await;
+    let base = backups.base.lock().unwrap().clone();
+    let (key, manifest) = backup(app, &store, true, base).await?;
+    verify_base(app, &store, &key, &manifest, Verify::Downloaded, CHECKPOINT_WITHIN).await?;
+    backups.info.lock().unwrap().verify_error = None;
+    tracing::info!("home backup: final checkpoint {key} verified");
+    Ok(key)
+}
+
+/// Writes one backup and returns its manifest key and bytes: a new copy of `state.db` when `fresh`, else `base`
+/// again.
+async fn backup(app: &App, store: &Store, mut fresh: bool, base: Option<Base>) -> Result<(String, Vec<u8>)> {
     let backups = &app.home_backups;
     let existing: std::collections::HashSet<String> = store.list(&app.env, &format!("{ROOT}/blobs/sha256")).await?.into_iter().collect();
     // The last copy must still be in the destination to be listed again.
@@ -496,15 +663,14 @@ async fn backup(app: &App, store: &Store, mut fresh: bool, base: Option<Base>) -
     let mut objects = vec![];
     let mut copied = None;
     if fresh {
-        let at = now_ms();
-        let (db, changes) = snapshot(app).await?;
-        let hash = hex::encode(Sha256::digest(&db));
-        let size = db.len() as u64;
+        let snap = snapshot(app).await?;
+        let hash = hex::encode(Sha256::digest(&snap.bytes));
+        let size = snap.bytes.len() as u64;
         if !existing.contains(&blob_key(&hash)) {
-            store.put(&app.env, &blob_key(&hash), db).await?;
+            store.put(&app.env, &blob_key(&hash), snap.bytes).await?;
         }
         objects.push(Object { name: "state.db".into(), sha256: hash, size });
-        copied = Some((at, changes));
+        copied = Some((snap.at, snap.changes, snap.marks));
     } else if let Some(b) = &base {
         objects.extend(b.objects.iter().filter(|o| o.name == "state.db").cloned());
     }
@@ -567,16 +733,17 @@ async fn backup(app: &App, store: &Store, mut fresh: bool, base: Option<Base>) -
     let now = now_ms();
     let manifest = Manifest { format: 1, created_at: now, commit: crate::commit().into(), objects };
     let written = manifest_key(now);
-    store.put(&app.env, &written, serde_json::to_vec_pretty(&manifest)?).await?;
-    if let Some((at, changes)) = copied {
+    let bytes = serde_json::to_vec_pretty(&manifest)?;
+    store.put(&app.env, &written, bytes.clone()).await?;
+    if let Some((at, changes, marks)) = copied {
         *backups.changes.lock().unwrap() = Some(changes);
         let objects = manifest.objects.iter().filter(|o| o.name == "state.db" || o.name.starts_with("plain/") || o.name.starts_with("uploads/")).cloned().collect();
-        *backups.base.lock().unwrap() = Some(Base { at, objects });
+        *backups.base.lock().unwrap() = Some(Base { at, objects, marks });
     }
     // What a restore brings back: the database as of its copy.
     let at = backups.base.lock().unwrap().as_ref().map(|b| b.at);
     backups.info.lock().unwrap().last_complete_at = at;
-    Ok(written)
+    Ok((written, bytes))
 }
 
 /// Home's files outside `state.db` that a restore needs, by object name: uploads (`uploads/<sha256>`: the
@@ -1254,6 +1421,10 @@ pub fn spawn(app: &App) {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tick.tick().await;
+            // A planned update took its final checkpoint: nothing changes until the replacement or a thaw.
+            if crate::maintenance::frozen() {
+                continue;
+            }
             let destination = app.config.get().home.backup;
             let result = run(&app, When::Due).await;
             let changed = {
@@ -1529,5 +1700,86 @@ mod tests {
         assert_eq!(Store::parse("hf://buckets/me/launchpad/"), Some(Store::Bucket("me/launchpad".into())));
         assert_eq!(Store::parse(" "), None);
         assert!(matches!(Store::parse("/backups/home"), Some(Store::Dir(_))));
+    }
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+
+    /// A planned update with a delayed replacement: a write accepted before the freeze is in the checkpoint and
+    /// survives the restore; a write after it is refused (never a false success) and the copy does not hold it; the
+    /// copy is taken while frozen and the database stays frozen after it.
+    #[tokio::test]
+    async fn the_final_checkpoint_holds_every_accepted_write_and_none_after_the_freeze() {
+        let dir = std::env::temp_dir().join(format!("launchpad-checkpoint-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = crate::db::open_state(&dir.join("state.db")).unwrap();
+        db.call(|c| {
+            c.execute("INSERT INTO seeded (key, at) VALUES ('accepted', 1)", [])?;
+            c.execute("INSERT INTO runner_ack (runner_id, n) VALUES ('r1', 42)", [])?;
+            c.pragma_update(None, "query_only", true)?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+        let refused = db.call(|c| Ok(c.execute("INSERT INTO seeded (key, at) VALUES ('late', 2)", [])?)).await;
+        assert!(refused.unwrap_err().to_string().contains("readonly"));
+        let copy = dir.join("copy.db");
+        let target = copy.clone();
+        let (_, marks) = db.call(move |c| snapshot_into(c, &target, 1234)).await.unwrap();
+        assert_eq!(marks, vec![("r1".to_string(), 42)]);
+        // Still frozen after the copy.
+        assert!(db.call(|c| Ok(c.execute("INSERT INTO seeded (key, at) VALUES ('later', 3)", [])?)).await.is_err());
+        // The restored copy: the accepted write, its checkpoint time, nothing refused.
+        let restored = rusqlite::Connection::open(&copy).unwrap();
+        let keys: Vec<String> = restored.prepare("SELECT key FROM seeded ORDER BY key").unwrap().query_map([], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+        assert_eq!(keys, vec!["accepted".to_string()]);
+        assert_eq!(checkpoint_at(&restored), Some(1234));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The storage-side check: a manifest the destination does not show yet (a mounted bucket that uploads later), or
+    /// shows with other bytes, or a missing `state.db` object, fails it; it passes once both are there.
+    #[tokio::test]
+    async fn a_checkpoint_counts_only_once_the_destination_shows_it() {
+        let dir = std::env::temp_dir().join(format!("launchpad-verify-{}", uuid::Uuid::new_v4()));
+        let store = Store::Dir(dir.clone());
+        let env = UserEnv::from_vars(Default::default());
+        let db = b"database".to_vec();
+        let object = Object { name: "state.db".into(), sha256: hex::encode(Sha256::digest(&db)), size: db.len() as u64 };
+        let key = manifest_key(1);
+        let manifest = b"{\"format\":1}".to_vec();
+        // Nothing visible yet.
+        assert!(verify(&store, &env, &key, &manifest, &object, Verify::Listed).await.is_err());
+        // The manifest arrived before its object (uploads in another order).
+        store.put(&env, &key, manifest.clone()).await.unwrap();
+        assert!(verify(&store, &env, &key, &manifest, &object, Verify::Listed).await.is_err());
+        // A manifest with other bytes (an older upload of that name) never counts.
+        assert!(verify(&store, &env, &key, b"{}", &object, Verify::Listed).await.is_err());
+        store.put(&env, &blob_key(&object.sha256), db.clone()).await.unwrap();
+        verify(&store, &env, &key, &manifest, &object, Verify::Listed).await.unwrap();
+        verify(&store, &env, &key, &manifest, &object, Verify::Downloaded).await.unwrap();
+        // A damaged object fails the download check.
+        std::fs::write(dir.join(blob_key(&object.sha256)), b"databasf").unwrap();
+        assert!(verify(&store, &env, &key, &manifest, &object, Verify::Downloaded).await.is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Delayed visibility: the check is tried again until it passes, or fails with its last error once the time
+    /// is up (the update then stops instead of replacing Home).
+    #[tokio::test]
+    async fn the_check_waits_for_delayed_visibility_then_gives_up() {
+        let tries = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let t = tries.clone();
+        let n = verify_until(Duration::from_secs(2), Duration::from_millis(1), || {
+            let t = t.clone();
+            async move { if t.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 3 { anyhow::bail!("not listed yet") } else { Ok(()) } }
+        })
+        .await
+        .unwrap();
+        assert_eq!(n, 4);
+        let never = verify_until(Duration::from_millis(40), Duration::from_millis(1), || async { anyhow::bail!("not listed yet") }).await;
+        assert_eq!(never.unwrap_err().to_string(), "not listed yet");
     }
 }

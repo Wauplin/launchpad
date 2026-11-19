@@ -43,6 +43,7 @@ pub mod runners;
 pub mod replica;
 pub mod home_link;
 pub mod home_backup;
+pub mod maintenance;
 pub mod home_git;
 pub mod plain;
 pub mod safe_fs;
@@ -166,9 +167,11 @@ impl App {
                 ("XDG_CACHE_HOME".into(), value(&home.join(".cache"))),
             ]);
         }
-        if paths.role == role::Role::Home {
-            home_backup::restore_if_empty(&paths, &env).await.context("restore the Home backup")?;
-        }
+        let restored = if paths.role == role::Role::Home {
+            home_backup::restore_if_empty(&paths, &env).await.context("restore the Home backup")?
+        } else {
+            None
+        };
         let paths = Arc::new(paths);
         let bus = events::Bus::new();
         let config = config::ConfigHandle::load(&paths, bus.clone())?;
@@ -220,6 +223,13 @@ impl App {
             extras: ext::Extras::default(),
         };
         predrafts::link_skill()?;
+        // A restored `state.db`: every runner mark in it is durable, and work after its checkpoint may come back
+        // from the runners (`replica`).
+        if restored.is_some() {
+            let at = app.state_db.call(|c| Ok(home_backup::checkpoint_at(c))).await?;
+            replica::restored(&app, at).await?;
+            tracing::info!("restored Home's records as of {}", at.map_or_else(|| "an unknown time".into(), |t| t.to_string()));
+        }
         app.sessions.load(&app).await?;
         if let Err(e) = ask_bot::seed(&app).await {
             tracing::warn!("default bot and tools: {e:#}");

@@ -7,6 +7,7 @@ mod exchange;
 mod git_http;
 mod plain_http;
 mod home_client;
+mod maintenance;
 mod operations;
 mod retention;
 mod routes;
@@ -94,8 +95,10 @@ pub async fn serve(app: App, api: Router<Ctx>) -> Result<()> {
     } else {
         axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>()).with_graceful_shutdown(shutdown_signal()).await?;
     }
-    // A planned stop (update, restart) takes a final backup first.
+    // A stop takes a final backup first, best effort (a planned update does not rely on it: its checkpoint was taken
+    // and checked before the replacement, and `state.db` is frozen since, so nothing newer exists to save).
     if app.paths.role == launchpad_core::role::Role::Home
+        && !launchpad_core::maintenance::frozen()
         && let Err(e) = launchpad_core::home_backup::run(&app, launchpad_core::home_backup::When::Changed).await
     {
         tracing::warn!("final home backup: {e:#}");
@@ -122,6 +125,8 @@ pub(crate) fn router(server: Server, api: Router<Ctx>) -> Router {
         .layer(axum::middleware::from_fn_with_state(server.clone(), runners::relay))
         .layer(axum::middleware::from_fn_with_state(server.clone(), home_client::forward_writes))
         .layer(axum::middleware::from_fn_with_state(operations, operations::guard))
+        // Home's planned update: writes are refused (and running ones counted) before anything else sees them.
+        .layer(axum::middleware::from_fn(maintenance::gate))
         .layer(axum::middleware::from_fn_with_state(server.clone(), auth::guard))
         .layer(tower_http::compression::CompressionLayer::new())
         .with_state(server)

@@ -228,3 +228,42 @@ fn only_held_follow_ups_wait_for_an_unconfirmed_quota() {
     assert_eq!(unconfirmed_quota(InputMode::FollowUpManual, true, false), None);
     assert_eq!(unconfirmed_quota(InputMode::Manual, true, false), None);
 }
+
+/// `launchpad sleep` stores the wake-up's row and the session's sleep in one transaction: a failure on either side
+/// (here the follow-up row, then a crash before commit) leaves neither, never a sleeping session without its wake-up.
+#[tokio::test]
+async fn a_sleep_and_its_wake_up_are_stored_together_or_not_at_all() {
+    let path = std::env::temp_dir().join(format!("launchpad-sleep-{}.db", uuid::Uuid::new_v4()));
+    let db = crate::db::open_state(&path).unwrap();
+    let mut session: crate::model::Session = serde_json::from_value(serde_json::json!({
+        "id": "s", "harness": "codex", "cwd": "/tmp", "title": "task",
+        "status": "waiting", "status_since": 1, "live": false, "open_question": false,
+        "prompt": "task", "usage": {"input_tokens": 0, "cached_tokens": 0, "output_tokens": 0}, "started_at": 1, "last_seq": 0,
+        "launch_spec": {}, "seen_at": 0
+    })).unwrap();
+    super::Sessions::persist(&db, &session).await.unwrap();
+    session.sleep = Some(crate::model::Sleep { until: Some(10), waits: String::new(), deadline: None, note: "n".into(), schedule_id: "w".into() });
+    let state = |db: crate::db::Db| async move {
+        db.call(|c| Ok((
+            c.query_row("SELECT sleep_json IS NOT NULL FROM session WHERE id = 's'", [], |r| r.get::<_, bool>(0))?,
+            c.query_row("SELECT count(*) FROM scheduled_launch", [], |r| r.get::<_, i64>(0))?,
+        ))).await.unwrap()
+    };
+    // The follow-up's insert fails after writing: nothing stays.
+    let record = session.clone();
+    let failed = db.call(move |c| super::Sessions::store_with(c, &record, |c| {
+        c.execute("INSERT INTO scheduled_launch (id, json) VALUES ('w', '{}')", [])?;
+        anyhow::bail!("this session already has a follow-up")
+    })).await;
+    assert!(failed.is_err());
+    assert_eq!(state(db.clone()).await, (false, 0));
+    // Both together.
+    let record = session.clone();
+    db.call(move |c| super::Sessions::store_with(c, &record, |c| {
+        c.execute("INSERT INTO scheduled_launch (id, json) VALUES ('w', '{}')", [])?;
+        Ok(())
+    })).await.unwrap();
+    assert_eq!(state(db.clone()).await, (true, 1));
+    drop(db);
+    let _ = std::fs::remove_file(&path);
+}

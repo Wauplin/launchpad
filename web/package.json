@@ -9,7 +9,7 @@
     "typecheck": "tsc -b",
     "test:sessions": "node --experimental-strip-types --test tests/sessionStore.test.mjs tests/worktreeMerge.test.mjs tests/localPr.test.mjs",
     "test:composer": "node --experimental-strip-types --test tests/composer.test.mjs tests/promptDocument.test.mjs tests/pullRequest.test.mjs",
-    "test:operations": "node --experimental-strip-types --test tests/operations.test.mjs",
+    "test:operations": "node --experimental-strip-types --test tests/operations.test.mjs tests/maintenance.test.mjs",
     "test:attachments": "node --experimental-strip-types --test tests/attachments.test.mjs",
     "test:terminals": "node --experimental-strip-types --test tests/terminals.test.mjs",
     "test:code": "node --experimental-strip-types --test tests/codeSafety.test.mjs",

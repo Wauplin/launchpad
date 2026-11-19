@@ -15,3 +15,8 @@ pub fn local_time(secs: i64) -> String {
     use chrono::TimeZone;
     chrono::Local.timestamp_opt(secs, 0).single().map(|t| t.format("%b %-d %H:%M").to_string()).unwrap_or_default()
 }
+
+/// Compares two secrets in constant time (for equal lengths).
+pub fn constant_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}

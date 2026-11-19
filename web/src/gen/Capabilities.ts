@@ -32,4 +32,8 @@ cli_update: boolean,
  * Keeps exchange bodies to their window and sends `HttpAck` and `HttpCancel` (`server::wire`). Home keeps
  * no window with an older runner, so it can still download Home's build.
  */
-flow: boolean, };
+flow: boolean, 
+/**
+ * Keeps its replicated records until Home's backup holds them (`ToRunner::Durable`, `replica`).
+ */
+durable_ack: boolean, };

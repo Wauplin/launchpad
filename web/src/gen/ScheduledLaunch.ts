@@ -19,4 +19,13 @@ ready_at: number | null,
 /**
  * Starts at this time at the latest, even when its conditions do not hold yet (a wake-up's `--timeout`).
  */
-deadline?: number, status: ScheduleStatus, error: string | null, };
+deadline?: number, status: ScheduleStatus, error: string | null, 
+/**
+ * A follow-up whose delivery failed before it reached the session (no runner yet, a Burst job reconnecting, Home
+ * updating) waits until this time to try again (`RETRY_FOR` at most).
+ */
+retry_at?: number, 
+/**
+ * When its delivery first failed that way (Unix ms).
+ */
+failing_since?: number, };

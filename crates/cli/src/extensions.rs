@@ -20,6 +20,12 @@ impl launchpad_core::ext::Extensions for Extensions {
     fn woken(&self, app: &App, session_id: &str, schedule_id: &str) {
         launchpad_automation::schedules::woken(app, session_id, schedule_id);
     }
+    async fn replay_sleep(&self, app: &App, session_id: &str, schedule: serde_json::Value) -> Result<()> {
+        launchpad_automation::schedules::replay_sleep(app, session_id, schedule).await
+    }
+    async fn update_wake(&self, app: &App, session_id: &str, text: String) -> Result<String> {
+        launchpad_automation::schedules::update_wake(app, session_id, &text).await
+    }
     fn suggestion_instruction(&self, app: &App, session_id: &str) -> Option<String> {
         let text = format!("{}\n\n{}", launchpad_github::suggestions::instruction(app, session_id), launchpad_github::notes::instruction(app, session_id));
         Some(match launchpad_channels::connections::instruction(app, session_id) {
@@ -64,6 +70,9 @@ impl launchpad_core::ext::Extensions for Extensions {
 
 /// Starts the services of the crates above the core, after `App::start`.
 pub async fn start(app: &App) -> Result<()> {
+    // First: a Home restored from an update's checkpoint completes it, or keeps writes paused while its replacement
+    // may still come (`home_update::resume`), before any service writes.
+    launchpad_setup::home_update::resume(app).await?;
     // Shared folio snapshots carry the folio-viewer build embedded with the UI.
     launchpad_automation::folio_share::set_viewer(launchpad_server::folio_viewer_files);
     launchpad_automation::start(app).await?;

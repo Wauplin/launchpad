@@ -32,6 +32,7 @@ import { MORE_PLACES, PhoneBarContext, pageTitle } from "./PhoneHeader";
 import { WorkspaceSheet } from "./WorkspaceSheet";
 import { useLaunchIntents } from "./launchIntents";
 import { goTab, installBack } from "./back";
+import { MaintenanceBanner } from "@/app/MaintenanceBanner";
 
 const AddFolderDialog = lazy(() => import("@/features/projects/AddFolder").then((m) => ({ default: m.AddFolderDialog })));
 
@@ -152,6 +153,7 @@ export function MobileShell() {
         {/* A tab page's primary button and ⋯ (`PhoneBarEnd`), then the status. */}
         <div className="flex min-w-0 items-center justify-end gap-1"><div ref={setEndEl} className="flex min-w-0 items-center gap-1 empty:hidden" />{claims === 0 && <ServerStatus />}</div>
       </header>
+      <MaintenanceBanner />
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {empty ? <NoWorkspace /> : !terminals && <Outlet />}
         {/* Visited terminals stay mounted while other pages show. */}

@@ -668,6 +668,10 @@ pub(crate) fn spawn(app: &App) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            // A planned update (`maintenance`): queued messages wait for the Home that runs next.
+            if launchpad_core::maintenance::active() {
+                continue;
+            }
             if let Err(e) = drain(&app).await {
                 tracing::warn!("queued messages: {e:#}");
             }

@@ -997,7 +997,11 @@ pub async fn renew(app: &App, runner_id: &str, lease_id: &str, req: &LeaseReques
     info.renewed_at = now_ms();
     info.credentials = lease.credentials.iter().map(|c| c.id.clone()).collect();
     info.tools = lease_tools(&lease);
-    save_lease(app, &info).await?;
+    // While a planned update keeps `state.db` frozen, running agents keep their tokens: the renewal is answered,
+    // only its time is not recorded (`maintenance`).
+    if !crate::maintenance::frozen() {
+        save_lease(app, &info).await?;
+    }
     Ok(lease)
 }
 

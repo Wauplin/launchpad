@@ -486,12 +486,28 @@ impl Sessions {
             Item::Session { session } => {
                 let mut s = *session;
                 let current = self.get(&s.id);
+                // A session Home no longer knows because it restored a backup taken before the launch: the runner's
+                // record carries Home's own proof of the placement (`runners::sign_placement`), which Home checks.
+                let recovered = current.is_none()
+                    && crate::replica::restored_before(s.started_at)
+                    && crate::runners::placement_valid(app, &s, runner_id).await;
+                if recovered {
+                    tracing::warn!("runner {runner_id}: session {} was launched after the backup this Home restored: its record comes back from the runner (placement proof checked)", s.id);
+                } else if current.is_none() {
+                    tracing::info!("runner {runner_id}: record of unknown session {} ignored (no placement Home can prove)", s.id);
+                }
                 // Only sessions Home placed on this runner are its records (`runners::record_placement`, a move):
                 // a record of an unknown session or of another runner's is ignored.
-                let stale = current.as_ref().is_none_or(|c| c.runner_id.as_deref() != Some(runner_id) || c.generation > s.generation);
+                let stale = !recovered && current.as_ref().is_none_or(|c| c.runner_id.as_deref() != Some(runner_id) || c.generation > s.generation);
                 let mut topic_name = None;
                 if !stale {
                     s.runner_id = Some(runner.clone());
+                    if recovered {
+                        // Home's own numbers start over: its events come back from the runner's outbox, and a
+                        // wake-up is Home's (`replica::Item::Sleep` brings a lost one back).
+                        s.last_seq = 0;
+                        s.sleep = None;
+                    }
                     // Either side may have shown it to the owner.
                     if let Some(c) = &current {
                         s.seen_at = s.seen_at.max(c.seen_at);
@@ -623,6 +639,8 @@ impl Sessions {
                     });
                 }
             }
+            // Handled by `replica::ingest` before it gets here.
+            Item::Sleep { .. } => app.state_db.call(move |c| set_acked(c, &runner, n)).await?,
             Item::Forget { id } => {
                 let owned = self.get(&id).is_some_and(|s| s.runner_id.as_deref() == Some(runner_id));
                 if owned { self.inner.records.lock().unwrap().remove(&id); }
@@ -788,6 +806,47 @@ impl Sessions {
 
     /// Home: sets or clears the wake-up an agent asked for (`launchpad sleep`, `schedules::sleep`). A sleeping agent
     /// does not need you.
+    /// Home: sets a session's wake-up and runs `with` (the scheduled follow-up's row, `schedules::sleep`) in the same
+    /// transaction: both are stored or neither, so no restart or failure leaves a sleeping session without its
+    /// wake-up, or a wake-up of a session that does not sleep.
+    pub async fn set_sleep_with(
+        &self,
+        app: &App,
+        id: &str,
+        sleep: Option<crate::model::Sleep>,
+        with: impl FnOnce(&rusqlite::Connection) -> Result<()> + Send + 'static,
+    ) -> Result<Session> {
+        let (before, stored) = {
+            let mut recs = self.inner.records.lock().unwrap();
+            let s = recs.get_mut(id).context("no such session")?;
+            let before = std::mem::replace(&mut s.sleep, sleep.clone());
+            let record = s.clone();
+            // Queued now, under the records' lock, like `update`: writes of this session stay in order.
+            let stored = app.state_db.enqueue(move |c| Self::store_with(c, &record, with));
+            (before, stored)
+        };
+        if let Err(e) = stored.await {
+            let mut recs = self.inner.records.lock().unwrap();
+            if let Some(s) = recs.get_mut(id).filter(|s| s.sleep == sleep) {
+                s.sleep = before;
+            }
+            return Err(e);
+        }
+        let s = self.get(id).context("no such session")?;
+        app.bus.publish("sessions", "updated", serde_json::to_value(s.light())?);
+        self.publish_counts(app);
+        Ok(s)
+    }
+
+    /// One transaction: `with`, then the session's record; nothing is stored when either fails.
+    pub(crate) fn store_with(c: &mut rusqlite::Connection, record: &Session, with: impl FnOnce(&rusqlite::Connection) -> Result<()>) -> Result<()> {
+        let tx = c.transaction()?;
+        with(&tx)?;
+        Self::store(&tx, record)?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub async fn set_sleep(&self, app: &App, id: &str, sleep: Option<crate::model::Sleep>) -> Result<Session> {
         let s = self.update(app, id, |s| s.sleep = sleep).await?;
         self.publish_counts(app);

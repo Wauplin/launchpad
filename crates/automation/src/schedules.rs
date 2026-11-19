@@ -143,6 +143,70 @@ pub struct ScheduledLaunch {
     pub deadline: Option<i64>,
     pub status: ScheduleStatus,
     pub error: Option<String>,
+    /// A follow-up's delivery attempt: its idempotency key (`delivery_key`) is derived from the record and this
+    /// number, so a retry of the same attempt after a crash or a lost answer is recognized by the runner (its stored
+    /// answer comes back) and never delivered twice. A definite refusal (the session was busy) starts a new attempt.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[ts(skip)]
+    pub attempt: u32,
+    /// The exact text of a follow-up as first sent: every retry of its attempt sends the same request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub sent_text: Option<String>,
+    /// A follow-up whose delivery failed before it reached the session (no runner yet, a Burst job reconnecting, Home
+    /// updating) waits until this time to try again (`RETRY_FOR` at most).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub retry_at: Option<i64>,
+    /// When its delivery first failed that way (Unix ms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub failing_since: Option<i64>,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// How long a follow-up keeps trying after failures before its message reached the session; then it fails visibly.
+const RETRY_FOR: i64 = 60 * 60 * 1000;
+
+/// The idempotency key of a follow-up's delivery attempt (a UUID, `operations::check_key`): the same for every
+/// retry of that attempt, on any Home that has the record (also one restored from a backup).
+pub fn delivery_key(record_id: &str, attempt: u32) -> String {
+    use sha2::Digest;
+    let hash = sha2::Sha256::digest(format!("launchpad-follow-up/{record_id}/{attempt}").as_bytes());
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&hash[..16]);
+    uuid::Builder::from_random_bytes(bytes).into_uuid().to_string()
+}
+
+/// What the session's runner answered a follow-up (pure).
+#[derive(Debug, PartialEq)]
+enum Delivery {
+    /// Delivered (now, or by an earlier try of the same attempt: the runner's stored answer).
+    Sent,
+    /// The session was busy: a new attempt later.
+    Busy,
+    /// The runner cannot tell whether an earlier try of this attempt was delivered: shown, never sent again.
+    Uncertain(String),
+    /// Refused for good.
+    Failed(String),
+    /// Not delivered and safe to try again with the same key (the runner or Home is not ready).
+    Retry(String),
+}
+
+fn delivery(status: u16, answer: &str) -> Delivery {
+    let error = serde_json::from_str::<serde_json::Value>(answer).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or_else(|| answer.chars().take(300).collect());
+    match status {
+        200..=299 => Delivery::Sent,
+        // The runner's retry protection (`operations::guard`): its claim of this key has no answer, or the key was
+        // used for another body. Either way the message may already be there.
+        409 if error.contains("Delivery is uncertain") || error.contains("already used for a different request") => Delivery::Uncertain(error),
+        409 => Delivery::Busy,
+        502..=504 => Delivery::Retry(error),
+        _ => Delivery::Failed(error),
+    }
 }
 
 pub async fn list(app: &App) -> Result<Vec<ScheduledLaunch>> {
@@ -360,13 +424,37 @@ pub async fn sleep(app: &App, q: SleepRequest) -> Result<SleepAnswer> {
     if deadline.is_none() && let Some(other) = sleep_cycle(&session.id, &conditions, &scheduled) {
         bail!("agent {other} sleeps until this session changes state: both would sleep forever; wait for its sleeping state, or for other agents");
     }
-    for earlier in scheduled {
-        if earlier.resume_session_id.as_deref() == Some(q.session_id.as_str()) {
-            anyhow::ensure!(is_wake(&earlier), "this session already has a follow-up scheduled by the owner; it will receive that message instead");
-            anyhow::ensure!(earlier.status != ScheduleStatus::Starting, "the earlier wake-up is being sent now");
-            cancel_record(app, &earlier.id).await?;
-        }
+    let replaces = earlier_wakes(&scheduled, &session.id)?;
+    let note = q.note.trim().to_string();
+    let (record, waits, already_met) = wake_record(app, &session, conditions, deadline, |until, waits| wake_text(until, waits, deadline, &note)).await?;
+    store_wake(app, &session.id, &record, &waits, note, &replaces).await?;
+    Ok(SleepAnswer { launch: record, waits, already_met })
+}
+
+/// The wake-ups of a session that a new one replaces (it has no other follow-up: one the owner scheduled refuses).
+fn earlier_wakes(scheduled: &[ScheduledLaunch], session_id: &str) -> Result<Vec<String>> {
+    let mut out = vec![];
+    for earlier in scheduled.iter().filter(|r| r.resume_session_id.as_deref() == Some(session_id)) {
+        anyhow::ensure!(is_wake(earlier), "this session already has a follow-up scheduled by the owner; it will receive that message instead");
+        anyhow::ensure!(earlier.status != ScheduleStatus::Starting, "the earlier wake-up is being sent now");
+        out.push(earlier.id.clone());
     }
+    Ok(out)
+}
+
+/// Stores a wake-up and marks its session asleep in one transaction (`Sessions::set_sleep_with`), replacing the
+/// earlier wake-ups `replaces`.
+async fn store_wake(app: &App, session_id: &str, record: &ScheduledLaunch, waits: &str, note: String, replaces: &[String]) -> Result<()> {
+    let sleep = launchpad_core::model::Sleep { until: record.ready_at, waits: waits.to_string(), deadline: record.deadline, note, schedule_id: record.id.clone() };
+    let (stored, replaces) = (record.clone(), replaces.to_vec());
+    app.sessions.set_sleep_with(app, session_id, Some(sleep), move |c| insert(c, &stored, &replaces)).await?;
+    changed(app);
+    Ok(())
+}
+
+/// A wake-up record of `session` (not stored: `store_wake`): its sender is Launchpad's wake-up, its text `text(until,
+/// waits)`. Returns it with what it waits for in words and whether its conditions already hold.
+async fn wake_record(app: &App, session: &Session, conditions: Vec<LaunchDelay>, deadline: Option<i64>, text: impl FnOnce(Option<i64>, &str) -> String) -> Result<(ScheduledLaunch, String, bool)> {
     let mut spec = session.launch_spec.clone();
     spec.harness = Some(session.harness);
     // Its own message, not a step in a chain: the hop count of the turn that went to sleep, so sleeping never meets
@@ -376,15 +464,61 @@ pub async fn sleep(app: &App, q: SleepRequest) -> Result<SleepAnswer> {
     spec.target = session.project_id.clone().map(|project_id| Target::Project { project_id }).unwrap_or(Target::None);
     let (_, until) = validate(app, &spec, &conditions, Some(&session.id)).await?;
     let waits = describe(app, &conditions);
-    spec.text = wake_text(until, &waits, deadline, &q.note);
+    spec.text = text(until, &waits);
     let already_met = conditions_hold(&conditions, until, now_ms(), |id, states| app.sessions.get(id).is_some_and(|s| agent_matches(&s, states)));
-    let record = create_target(app, spec, conditions, Some(session.id.clone()), deadline).await?;
-    let sleep = launchpad_core::model::Sleep { until, waits: waits.clone(), deadline, note: q.note.trim().to_string(), schedule_id: record.id.clone() };
-    if let Err(e) = app.sessions.set_sleep(app, &session.id, Some(sleep)).await {
-        let _ = cancel_record(app, &record.id).await;
-        return Err(e);
+    let record = build_target(app, spec, conditions, Some(session.id.clone()), deadline).await?;
+    Ok((record, waits, already_met))
+}
+
+/// Home: the continuation of a planned update (`home_update`): a wake-up of the agent that asked for the update, sent
+/// once its turn ended, recorded with its sleep before the final checkpoint. The new Home (restored from that
+/// checkpoint) sends it; if the update stops before the replacement, this Home does. It replaces an earlier
+/// wake-up of the session; a follow-up the owner scheduled refuses it. Returns its ID.
+pub async fn update_wake(app: &App, session_id: &str, text: &str) -> Result<String> {
+    let session = app.sessions.get(session_id).context("no such session")?;
+    let scheduled = list(app).await?;
+    let replaces = earlier_wakes(&scheduled, session_id)?;
+    let (record, waits, _) = wake_record(app, &session, vec![LaunchDelay::At { at: now_ms() }], None, |_, _| text.to_string()).await?;
+    store_wake(app, session_id, &record, &waits, "Home update".into(), &replaces).await?;
+    Ok(record.id)
+}
+
+/// Home, after it restored an older backup: a runner replays a wake-up Home had accepted for one of its sessions
+/// (`replica::Item::Sleep`). Recorded again, with the same ID, unless Home still has it or a newer follow-up, or the
+/// session is gone or archived. Its text is kept; its sender is Launchpad's wake-up again, never the runner's word.
+/// A wake-up that was already delivered before the restore is recognized by the runner (`delivery_key`).
+pub async fn replay_sleep(app: &App, session_id: &str, schedule: serde_json::Value) -> Result<()> {
+    let mut record: ScheduledLaunch = serde_json::from_value(schedule)?;
+    anyhow::ensure!(record.resume_session_id.as_deref() == Some(session_id) && is_wake(&record), "not a wake-up of this session");
+    let session = app.sessions.get(session_id).context("no such session")?;
+    if session.status == launchpad_core::model::SessionStatus::Closed {
+        return Ok(());
     }
-    Ok(SleepAnswer { launch: record, waits, already_met })
+    let scheduled = list(app).await?;
+    if scheduled.iter().any(|r| r.id == record.id) {
+        return Ok(());
+    }
+    if let Some(other) = scheduled.iter().find(|r| r.resume_session_id.as_deref() == Some(session_id)) {
+        // A newer follow-up wins; an older wake-up was replaced by this one before the restore.
+        if !is_wake(other) || other.created_at >= record.created_at || other.status == ScheduleStatus::Starting {
+            return Ok(());
+        }
+    }
+    let replaces = earlier_wakes(&scheduled, session_id).unwrap_or_default();
+    let hops = record.spec.from.as_ref().map_or(0, |f| f.hops).min(launchpad_core::senders::MAX_HOPS);
+    let mut spec = session.launch_spec.clone();
+    spec.harness = Some(session.harness);
+    spec.text = std::mem::take(&mut record.spec.text);
+    spec.from = Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, id: session.id.clone(), name: "Wake-up".into(), hops, ..Default::default() });
+    spec.target = session.project_id.clone().map(|project_id| Target::Project { project_id }).unwrap_or(Target::None);
+    record.spec = spec;
+    record.status = ScheduleStatus::Queued;
+    record.error = None;
+    record.retry_at = None;
+    record.failing_since = None;
+    let waits = describe(app, &record.conditions);
+    tracing::warn!("wake-up {} of {session_id} comes back from its runner after a restore", record.id);
+    store_wake(app, session_id, &record, &waits, String::new(), &replaces).await
 }
 
 /// Pure: the agent through which a new wake-up of `own` would wait for itself: each agent it waits for sleeps until
@@ -532,16 +666,24 @@ async fn create_target(
     resume_session_id: Option<String>,
     deadline: Option<i64>,
 ) -> Result<ScheduledLaunch> {
+    let launch = build_target(app, spec, conditions, resume_session_id, deadline).await?;
+    let record = launch.clone();
+    app.state_db.call(move |c| insert(c, &record, &[])).await?;
+    changed(app);
+    Ok(launch)
+}
+
+/// Checks a scheduled launch or follow-up and builds its record (not stored yet: `insert`).
+async fn build_target(
+    app: &App,
+    spec: LaunchSpec,
+    conditions: Vec<LaunchDelay>,
+    resume_session_id: Option<String>,
+    deadline: Option<i64>,
+) -> Result<ScheduledLaunch> {
     let (title, ready_at) = validate(app, &spec, &conditions, resume_session_id.as_ref()).await?;
     let now = now_ms();
-    let scheduled = list(app).await?;
     if let Some(id) = &resume_session_id {
-        anyhow::ensure!(
-            !scheduled
-                .iter()
-                .any(|s| s.resume_session_id.as_ref() == Some(id)),
-            "this session already has a follow-up"
-        );
         anyhow::ensure!(
             !conditions.iter().any(
                 |c| matches!(c, LaunchDelay::Agents { session_ids, .. } if session_ids.contains(id))
@@ -549,7 +691,7 @@ async fn create_target(
             "a follow-up cannot wait for its own session"
         );
     }
-    let launch = ScheduledLaunch {
+    Ok(ScheduledLaunch {
         id: uuid::Uuid::new_v4().to_string(),
         spec,
         conditions,
@@ -560,23 +702,25 @@ async fn create_target(
         deadline,
         status: ScheduleStatus::Queued,
         error: None,
-    };
-    let record = launch.clone();
-    app.state_db
-        .call(move |c| {
-            if let Some(id) = &record.resume_session_id {
-                let exists: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM scheduled_launch WHERE json_extract(json, '$.resume_session_id') = ?1)", [id], |r| r.get(0))?;
-                anyhow::ensure!(!exists, "this session already has a follow-up");
-            }
-            c.execute(
-                "INSERT INTO scheduled_launch (id, json) VALUES (?1, ?2)",
-                params![record.id, serde_json::to_string(&record)?],
-            )?;
-            Ok(())
-        })
-        .await?;
-    changed(app);
-    Ok(launch)
+        attempt: 0,
+        sent_text: None,
+        retry_at: None,
+        failing_since: None,
+    })
+}
+
+/// Stores a record, in the caller's transaction, after deleting `replaces` (earlier wake-ups of the same session,
+/// only while they are still queued). A session has one follow-up at most.
+fn insert(c: &rusqlite::Connection, record: &ScheduledLaunch, replaces: &[String]) -> Result<()> {
+    for id in replaces {
+        c.execute("DELETE FROM scheduled_launch WHERE id = ?1 AND json_extract(json, '$.status') = 'queued'", [id])?;
+    }
+    if let Some(id) = &record.resume_session_id {
+        let exists: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM scheduled_launch WHERE json_extract(json, '$.resume_session_id') = ?1)", [id], |r| r.get(0))?;
+        anyhow::ensure!(!exists, "this session already has a follow-up");
+    }
+    c.execute("INSERT INTO scheduled_launch (id, json) VALUES (?1, ?2)", params![record.id, serde_json::to_string(record)?])?;
+    Ok(())
 }
 
 /// The DB actor serializes claims and cancellation, including simultaneous UI/scheduler requests.
@@ -741,6 +885,9 @@ async fn finish(app: &App, mut record: ScheduledLaunch, error: Option<String>) -
 }
 
 async fn run(app: &App, mut record: ScheduledLaunch, automatic: bool) -> Result<Session> {
+    if app.paths.role == launchpad_core::role::Role::Home && record.resume_session_id.is_some() {
+        return run_follow_up(app, record, automatic).await;
+    }
     if let Some(line) = wake_early(app, &record, automatic) {
         record.spec.text.push_str("\n\n");
         record.spec.text.push_str(line);
@@ -766,44 +913,101 @@ async fn run(app: &App, mut record: ScheduledLaunch, automatic: bool) -> Result<
         e.is::<launchpad_core::sessions::FollowUpBusy>()
     }) {
         // A concurrent turn is temporary: preserve this queued work.
-        let mut record = record;
         record.status = ScheduleStatus::Queued;
-        app.state_db
-            .call(move |c| {
-                c.execute(
-                    "UPDATE scheduled_launch SET json = ?2 WHERE id = ?1",
-                    params![record.id, serde_json::to_string(&record)?],
-                )?;
-                Ok(())
-            })
-            .await?;
-        changed(app);
+        save(app, &record).await?;
     } else {
         finish(app, record, result.as_ref().err().map(|e| format!("{e:#}"))).await?;
     }
     result
 }
 
-/// Sends a follow-up. Home places it like every message (`runners::continue_anywhere`: the session's runner,
-/// else another one, else Burst); a busy session answers 409, which keeps the follow-up queued. No idempotency
-/// key: a run is claimed once (never retried), and a queued one is sent again later.
-async fn send_follow_up(app: &App, id: &str, record: &ScheduledLaunch, automatic: bool) -> Result<()> {
-    if app.paths.role != launchpad_core::role::Role::Home {
-        let text = record.spec.from.as_ref().map_or_else(|| record.spec.text.clone(), |f| launchpad_core::senders::wrap(f, &record.spec.text));
-        return app.sessions.send_follow_up(app, id, &text, automatic, record.spec.from.clone()).await;
-    }
-    // An agent's follow-up names it (`context.from`): `runners::deliver` puts its text under its header.
-    let context = launchpad_core::model::MessageContext { from: record.spec.from.clone(), ..Default::default() };
-    let body = serde_json::json!({"text": record.spec.text, "follow_up": if automatic { "automatic" } else { "manual" }, "context": context}).to_string();
-    let (status, answer) = launchpad_core::runners::continue_anywhere(app, id, "input", Some(body), None).await?;
-    if status == 409 {
-        return Err(launchpad_core::sessions::FollowUpBusy.into());
-    }
-    if !(200..300).contains(&status) {
-        let error = serde_json::from_str::<serde_json::Value>(&answer).ok().and_then(|v| v["error"].as_str().map(str::to_string));
-        bail!("{}", error.unwrap_or(answer));
-    }
+async fn save(app: &App, record: &ScheduledLaunch) -> Result<()> {
+    let record = record.clone();
+    app.state_db
+        .call(move |c| {
+            c.execute("UPDATE scheduled_launch SET json = ?2 WHERE id = ?1", params![record.id, serde_json::to_string(&record)?])?;
+            Ok(())
+        })
+        .await?;
+    changed(app);
     Ok(())
+}
+
+/// Home: delivers a follow-up (a wake-up, the owner's scheduled message) to its session. Its text is fixed at the
+/// first try (`sent_text`) and every try of an attempt carries the same idempotency key (`delivery_key`), so the
+/// runner answers a retry after a lost answer or a Home crash with what it did the first time, never a second
+/// message. Failures before the message reached the session (no runner, a Burst job reconnecting, a timeout, Home
+/// updating) are retried for up to `RETRY_FOR`; a busy session starts a new attempt later; an answer the runner
+/// cannot give (`Delivery::Uncertain`) is shown on the record and never sent again on its own.
+async fn run_follow_up(app: &App, mut record: ScheduledLaunch, automatic: bool) -> Result<Session> {
+    let id = record.resume_session_id.clone().context("not a follow-up")?;
+    if record.sent_text.is_none() {
+        let mut text = record.spec.text.clone();
+        if let Some(line) = wake_early(app, &record, automatic) {
+            text.push_str("\n\n");
+            text.push_str(line);
+        }
+        record.sent_text = Some(text);
+        // Stored before the first try: a crash after it retries the same request.
+        save(app, &record).await?;
+    }
+    let key = delivery_key(&record.id, record.attempt);
+    let context = launchpad_core::model::MessageContext { from: record.spec.from.clone(), ..Default::default() };
+    let body = serde_json::json!({"text": record.sent_text, "follow_up": if automatic { "automatic" } else { "manual" }, "context": context}).to_string();
+    let outcome = match launchpad_core::runners::continue_anywhere(app, &id, "input", Some(body), Some(key)).await {
+        Ok((status, answer)) => delivery(status, &answer),
+        Err(e) => Delivery::Retry(format!("{e:#}")),
+    };
+    let now = now_ms();
+    match outcome {
+        Delivery::Sent => {
+            finish(app, record, None).await?;
+            app.sessions.get(&id).context("session disappeared after sending")
+        }
+        Delivery::Busy => {
+            // The runner refused this attempt for good (its stored answer would say so again): a new key next time.
+            record.attempt += 1;
+            record.status = ScheduleStatus::Queued;
+            save(app, &record).await?;
+            Err(launchpad_core::sessions::FollowUpBusy.into())
+        }
+        Delivery::Uncertain(why) => {
+            let error = format!("Delivery is uncertain: {why} Check the session before sending it again; Launchpad will not repeat it.");
+            finish(app, record, Some(error.clone())).await?;
+            bail!("{error}")
+        }
+        Delivery::Failed(why) => {
+            finish(app, record, Some(why.clone())).await?;
+            bail!("{why}")
+        }
+        Delivery::Retry(why) if !automatic || now - record.failing_since.unwrap_or(now) >= RETRY_FOR => {
+            let error = format!("{why} (no delivery after trying for {} minutes)", (now - record.failing_since.unwrap_or(now)) / 60_000);
+            finish(app, record, Some(error.clone())).await?;
+            bail!("{error}")
+        }
+        Delivery::Retry(why) => {
+            let since = *record.failing_since.get_or_insert(now);
+            record.retry_at = Some(now + retry_delay(now - since));
+            record.status = ScheduleStatus::Queued;
+            record.error = Some(format!("Not delivered yet, trying again: {why}"));
+            save(app, &record).await?;
+            tracing::info!("follow-up {} of {id}: {why}; trying again", record.id);
+            bail!("{why}")
+        }
+    }
+}
+
+/// How long a follow-up waits before its next try, by how long it has been failing (pure): 15 s doubling to 5 min.
+fn retry_delay(failing_for: i64) -> i64 {
+    let steps = (failing_for / 15_000).max(1).ilog2().min(5);
+    (15_000_i64 << steps).min(5 * 60 * 1000)
+}
+
+/// Sends a follow-up from a runner's own scheduler (a runner without Home). Home delivers its own through
+/// `run_follow_up`.
+async fn send_follow_up(app: &App, id: &str, record: &ScheduledLaunch, automatic: bool) -> Result<()> {
+    let text = record.spec.from.as_ref().map_or_else(|| record.spec.text.clone(), |f| launchpad_core::senders::wrap(f, &record.spec.text));
+    app.sessions.send_follow_up(app, id, &text, automatic, record.spec.from.clone()).await
 }
 
 pub async fn start_now(app: &App, id: &str) -> Result<Session> {
@@ -844,20 +1048,41 @@ fn wake_early(app: &App, record: &ScheduledLaunch, automatic: bool) -> Option<&'
     })
 }
 
+/// At start: records claimed when the daemon stopped. A follow-up with a delivery key (`sent_text`) goes back to the
+/// queue: its next try asks the runner with the same key, which answers with what it did (delivered, not, or
+/// uncertain), so it is never delivered twice. A launch whose session exists is done; any other claim is shown as
+/// uncertain, never retried.
 pub async fn recover(app: &App) -> Result<()> {
-    for record in list(app).await? {
-        if record.status == ScheduleStatus::Starting {
-            let error = if record.resume_session_id.is_none()
-                && app.sessions.get(&record.id).is_some()
-            {
-                None
-            } else {
-                Some("Daemon stopped during a claimed start. Inspect the session before manually retrying; the message may already have been sent.".into())
-            };
-            finish(app, record, error).await?;
+    for mut record in list(app).await? {
+        if record.status != ScheduleStatus::Starting {
+            continue;
+        }
+        match recovery(&record, app.sessions.get(&record.id).is_some(), app.paths.role == launchpad_core::role::Role::Home) {
+            Recovery::Requeue => {
+                record.status = ScheduleStatus::Queued;
+                save(app, &record).await?;
+            }
+            Recovery::Done => finish(app, record, None).await?,
+            Recovery::Uncertain => finish(app, record, Some("Daemon stopped during a claimed start. Inspect the session before manually retrying; the message may already have been sent.".into())).await?,
         }
     }
     Ok(())
+}
+
+#[derive(Debug, PartialEq)]
+enum Recovery {
+    Requeue,
+    Done,
+    Uncertain,
+}
+
+/// What a record claimed at a stop becomes (pure): see `recover`.
+fn recovery(record: &ScheduledLaunch, session_exists: bool, home: bool) -> Recovery {
+    match (&record.resume_session_id, &record.sent_text) {
+        (Some(_), Some(_)) if home => Recovery::Requeue,
+        (None, _) if session_exists => Recovery::Done,
+        _ => Recovery::Uncertain,
+    }
 }
 
 pub fn spawn(app: &App) {
@@ -866,6 +1091,10 @@ pub fn spawn(app: &App) {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
         loop {
             interval.tick().await;
+            // A planned update: nothing starts until it ends (`maintenance`); queued records wait.
+            if launchpad_core::maintenance::active() {
+                continue;
+            }
             let records = match list(&app).await {
                 Ok(records) => records,
                 Err(e) => {
@@ -893,6 +1122,9 @@ pub fn spawn(app: &App) {
                             || s.status == launchpad_core::model::SessionStatus::InTerminal
                     })
                 }) {
+                    continue;
+                }
+                if record.retry_at.is_some_and(|at| at > now_ms()) {
                     continue;
                 }
                 if ready(&record, now_ms(), |id, states| {
@@ -932,7 +1164,7 @@ mod tests {
             id: "q".into(), spec: LaunchSpec::default(), resume_session_id: None,
             conditions: vec![LaunchDelay::Agents { session_ids: vec!["a".into()], states: vec![] }],
             title: String::new(), created_at: 0, ready_at: None, deadline: None,
-            status: ScheduleStatus::Queued, error: None,
+            status: ScheduleStatus::Queued, error: None, attempt: 0, sent_text: None, retry_at: None, failing_since: None,
         };
         assert!(ready(&record, 0, |_, states| agent_matches(&session, states)));
         session.open_question = true; // Stopped for a question: not done.
@@ -972,7 +1204,7 @@ mod tests {
         let wake = ScheduledLaunch {
             id: "w".into(), spec: LaunchSpec { from: Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, ..Default::default() }), ..Default::default() },
             resume_session_id: Some("a".into()), conditions: vec![LaunchDelay::In { minutes: 5 }],
-            title: String::new(), created_at: 0, ready_at: Some(100), deadline: None, status: ScheduleStatus::Queued, error: None,
+            title: String::new(), created_at: 0, ready_at: Some(100), deadline: None, status: ScheduleStatus::Queued, error: None, attempt: 0, sent_text: None, retry_at: None, failing_since: None,
         };
         assert!(is_wake(&wake));
         assert!(!is_wake(&ScheduledLaunch { spec: LaunchSpec::default(), ..wake }));
@@ -1007,7 +1239,7 @@ mod tests {
             ready_at: None,
             deadline: None,
             status: ScheduleStatus::Queued,
-            error: None,
+            error: None, attempt: 0, sent_text: None, retry_at: None, failing_since: None,
         };
         assert!(!ready(&r, 100, |id, _| id == "a"));
         assert!(ready(&r, 100, |_, _| true));
@@ -1085,7 +1317,7 @@ mod tests {
         let mut r = ScheduledLaunch {
             id: "w".into(), spec: LaunchSpec::default(), resume_session_id: Some("me".into()),
             conditions: vec![LaunchDelay::Agents { session_ids: vec!["a".into()], states: vec![AgentState::Failed, AgentState::Asking] }],
-            title: String::new(), created_at: 0, ready_at: None, deadline: Some(200), status: ScheduleStatus::Queued, error: None,
+            title: String::new(), created_at: 0, ready_at: None, deadline: Some(200), status: ScheduleStatus::Queued, error: None, attempt: 0, sent_text: None, retry_at: None, failing_since: None,
         };
         // The states reach the check; any of them is enough.
         assert!(ready(&r, 100, |_, states| states.contains(&AgentState::Asking)));
@@ -1108,7 +1340,7 @@ mod tests {
             spec: LaunchSpec { from: Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, ..Default::default() }), ..Default::default() },
             resume_session_id: Some(id.into()),
             conditions: vec![LaunchDelay::Agents { session_ids: vec![waits_for.into()], states }],
-            title: String::new(), created_at: 0, ready_at: None, deadline, status: ScheduleStatus::Queued, error: None,
+            title: String::new(), created_at: 0, ready_at: None, deadline, status: ScheduleStatus::Queued, error: None, attempt: 0, sent_text: None, retry_at: None, failing_since: None,
         };
         let me = |states: Vec<AgentState>| vec![LaunchDelay::Agents { session_ids: vec!["b".into()], states }];
         // b sleeps until c is Done, c until me: me waiting for b closes the loop.
@@ -1134,5 +1366,79 @@ mod tests {
         let text = wake_text(None, "“Fix CI” (a) is Done", Some(120_000), "review it");
         assert!(text.starts_with("Wake-up · You asked Launchpad to wake you once “Fix CI” (a) is Done (at the latest at 1970-01-01 00:02 UTC)"), "{text}");
         assert!(text.ends_with("review it\n```"), "{text}");
+    }
+
+    /// A follow-up's runner answers, read once: delivered (also the runner's stored answer to an earlier try of the
+    /// same key), busy (a new attempt), uncertain (shown, never repeated), refused, or not reached (retried).
+    #[test]
+    fn follow_up_answers_are_classified() {
+        assert_eq!(delivery(200, "{}"), Delivery::Sent);
+        assert_eq!(delivery(409, r#"{"error":"the session is busy"}"#), Delivery::Busy);
+        assert!(matches!(delivery(409, r#"{"error":"Delivery is uncertain after an interrupted request. Inspect…"}"#), Delivery::Uncertain(_)));
+        assert!(matches!(delivery(409, r#"{"error":"This operation id was already used for a different request."}"#), Delivery::Uncertain(_)));
+        assert!(matches!(delivery(503, r#"{"error":"Home updates","retryable":true}"#), Delivery::Retry(_)));
+        assert!(matches!(delivery(400, r#"{"error":"archived"}"#), Delivery::Failed(e) if e == "archived"));
+    }
+
+    /// Every try of an attempt uses one key (any Home that has the record computes the same, also one restored from a
+    /// backup), and a new attempt another.
+    #[test]
+    fn delivery_keys_are_stable_per_attempt() {
+        let a = delivery_key("w1", 0);
+        assert_eq!(a, delivery_key("w1", 0));
+        assert_ne!(a, delivery_key("w1", 1));
+        assert_ne!(a, delivery_key("w2", 0));
+        assert!(launchpad_core::operations::check_key(&a).is_ok());
+    }
+
+    /// A crash between a wake-up's claim and its delivery: a keyed follow-up goes back to the queue (its next try is
+    /// recognized by the runner), an unkeyed one of an older build stays uncertain, a launch whose session exists is done.
+    #[test]
+    fn claims_left_by_a_crash_are_retried_only_when_keyed() {
+        let mut r = ScheduledLaunch {
+            id: "w".into(), spec: LaunchSpec::default(), resume_session_id: Some("s".into()), conditions: vec![],
+            title: String::new(), created_at: 0, ready_at: None, deadline: None, status: ScheduleStatus::Starting, error: None, attempt: 0, sent_text: None, retry_at: None, failing_since: None,
+        };
+        assert_eq!(recovery(&r, false, true), Recovery::Uncertain);
+        r.sent_text = Some("Wake-up".into());
+        assert_eq!(recovery(&r, false, true), Recovery::Requeue);
+        // A runner's own scheduler has no runner to ask.
+        assert_eq!(recovery(&r, false, false), Recovery::Uncertain);
+        r.resume_session_id = None;
+        assert_eq!(recovery(&r, true, true), Recovery::Done);
+        assert_eq!(recovery(&r, false, true), Recovery::Uncertain);
+    }
+
+    #[test]
+    fn retries_back_off_to_five_minutes() {
+        assert_eq!(retry_delay(0), 15_000);
+        assert_eq!(retry_delay(30_000), 30_000);
+        assert_eq!(retry_delay(60_000), 60_000);
+        assert_eq!(retry_delay(10 * 60_000), 5 * 60_000);
+        assert_eq!(retry_delay(RETRY_FOR), 5 * 60_000);
+    }
+
+    /// The follow-up row and its replacements in one transaction: an earlier queued wake-up goes, a starting one or
+    /// another follow-up refuses the new one (and nothing changes).
+    #[tokio::test]
+    async fn a_new_wake_up_replaces_the_queued_one_in_the_same_write() {
+        let path = std::env::temp_dir().join(format!("launchpad-wake-{}.db", uuid::Uuid::new_v4()));
+        let db = launchpad_core::db::open_state(&path).unwrap();
+        let wake = |id: &str, status: ScheduleStatus| ScheduledLaunch {
+            id: id.into(), spec: LaunchSpec::default(), resume_session_id: Some("s".into()), conditions: vec![],
+            title: String::new(), created_at: 0, ready_at: None, deadline: None, status, error: None, attempt: 0, sent_text: None, retry_at: None, failing_since: None,
+        };
+        let (a, b, c) = (wake("a", ScheduleStatus::Queued), wake("b", ScheduleStatus::Queued), wake("c", ScheduleStatus::Starting));
+        let ids = |db: launchpad_core::db::Db| async move { db.call(|c| Ok(c.prepare("SELECT id FROM scheduled_launch ORDER BY id")?.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?)).await.unwrap() };
+        db.call(move |conn| insert(conn, &a, &[])).await.unwrap();
+        assert!(db.call({ let b = b.clone(); move |conn| insert(conn, &b, &[]) }).await.is_err());
+        db.call(move |conn| insert(conn, &b, &["a".into()])).await.unwrap();
+        assert_eq!(ids(db.clone()).await, vec!["b".to_string()]);
+        // A wake-up being sent is never deleted: the new one is refused.
+        db.call(|conn| { conn.execute("UPDATE scheduled_launch SET json = json_set(json, '$.status', 'starting') WHERE id = 'b'", [])?; Ok(()) }).await.unwrap();
+        assert!(db.call(move |conn| insert(conn, &c, &["b".into()])).await.is_err());
+        assert_eq!(ids(db.clone()).await, vec!["b".to_string()]);
+        drop(db);
+        let _ = std::fs::remove_file(&path);
     }
 }

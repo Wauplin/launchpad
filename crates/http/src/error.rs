@@ -33,6 +33,10 @@ impl ApiError {
 impl<E: Into<anyhow::Error>> From<E> for ApiError {
     fn from(e: E) -> ApiError {
         let e = e.into();
+        // A write refused by Home's maintenance (a planned update): retryable, never a server error.
+        if let Some(m) = launchpad_core::maintenance::of_error(&e) {
+            return maintenance(&m);
+        }
         tracing::warn!("api error: {e:#}");
         ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
     }
@@ -44,6 +48,15 @@ impl IntoResponse for ApiError {
         body.insert("error".into(), serde_json::Value::String(self.message));
         (self.status, axum::Json(serde_json::Value::Object(body))).into_response()
     }
+}
+
+/// The 503 of a write refused during maintenance: the reason, `retryable` and the `maintenance` object (windows show
+/// it, the CLI prints it, agents retry after `retry_after` seconds).
+pub fn maintenance(m: &launchpad_core::maintenance::Maintenance) -> ApiError {
+    let mut detail = serde_json::Map::new();
+    detail.insert("retryable".into(), serde_json::Value::Bool(true));
+    detail.insert("maintenance".into(), serde_json::to_value(m).unwrap_or_default());
+    ApiError::new(StatusCode::SERVICE_UNAVAILABLE, launchpad_core::maintenance::message(m)).with_detail(detail)
 }
 
 pub type ApiResult<T> = Result<axum::Json<T>, ApiError>;

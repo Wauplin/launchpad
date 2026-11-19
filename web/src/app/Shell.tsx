@@ -12,6 +12,7 @@ import { Sidebar } from "./Sidebar";
 import { inSettings, SettingsSidebar, useRememberPlace } from "./SettingsSidebar";
 import { NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
 import { StatusBar } from "./StatusBar";
+import { MaintenanceBanner } from "./MaintenanceBanner";
 import { TopBar } from "./TopBar";
 import { isDemo } from "@/demo/mode";
 import { WelcomeGate } from "@/onboarding/WelcomeGate";
@@ -68,6 +69,7 @@ export function Shell() {
     <div className="flex h-full flex-col">
       <IconSprite />
       <TopBar />
+      <MaintenanceBanner />
       {/* relative: the composer overlay (narrow windows) and the draft pill are positioned here. */}
       <div className="relative flex min-h-0 flex-1">
         {settings ? <SettingsSidebar /> : !reader && <Sidebar />}

@@ -71,7 +71,8 @@ impl Db {
         }));
         async move {
             sent.map_err(|_| anyhow!("database thread stopped"))?;
-            rx.await.map_err(|_| anyhow!("database thread stopped"))?
+            // A write refused while Home is frozen for an update says so (`maintenance::Paused`, HTTP 503).
+            rx.await.map_err(|_| anyhow!("database thread stopped"))?.map_err(crate::maintenance::explain)
         }
     }
 }
@@ -251,6 +252,7 @@ CREATE TABLE IF NOT EXISTS kb_seen (workspace_id TEXT PRIMARY KEY, change_id INT
 CREATE TABLE IF NOT EXISTS profile_cost (profile TEXT NOT NULL, at INTEGER NOT NULL, usd REAL NOT NULL, id TEXT);
 CREATE TABLE IF NOT EXISTS onboarding (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS home_update (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS home_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cli_update (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS connection (id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS outbox_message (id TEXT PRIMARY KEY, json TEXT NOT NULL);

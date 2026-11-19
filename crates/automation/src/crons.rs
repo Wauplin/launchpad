@@ -1262,6 +1262,11 @@ pub fn spawn(app: &App) {
         let mut ticks: u64 = 0;
         loop {
             interval.tick().await;
+            // A planned update (`maintenance`): no run starts; due runs are judged by the Home that runs next
+            // (more than an hour late, they are skipped like any late run).
+            if launchpad_core::maintenance::active() {
+                continue;
+            }
             ticks += 1;
             if ticks % 6 == 1 && app.paths.role != launchpad_core::role::Role::Runner {
                 let app = app.clone();

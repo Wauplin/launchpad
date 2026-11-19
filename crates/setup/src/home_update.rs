@@ -5,6 +5,23 @@
 //! Hugging Face login: the Space rebuilds and restarts with it. It can also update the runners: the record
 //! (`home_update` in `state.db`, saved in the backup before the commit) survives the restart, and the new Home asks
 //! each connected runner with another build to update itself (`self_update`), once per runner, for 24 hours.
+//!
+//! The update is a protocol, so that nothing Home reports as accepted is lost when the Space restores its backup:
+//! 1. Draining: the record is saved (`Pending.phase`), Home enters maintenance (`launchpad_core::maintenance`: every
+//!    window shows it, new writes get a retryable 503, automation waits) and the writes already running finish.
+//! 2. The continuation: when an agent asked for the update, its wake-up is recorded with its sleep
+//!    (`schedules::update_wake`): the new Home sends it once the agent's turn ended (the runner keeps that turn's
+//!    records until then), this Home if the update stops.
+//! 3. The record says Replacing, then `state.db` is frozen (read-only) and the final checkpoint is taken and checked
+//!    in the backup bucket itself (`home_backup::checkpoint`). A failure stops here: Home thaws, leaves maintenance
+//!    and says why (`abort`).
+//! 4. The Space commit. Home stays frozen, serving reads, until the platform replaces it; a failed build, or a
+//!    commit that never happened, thaws it (`resolve`); so does Resume writes, the owner's way out.
+//! 5. The new Home restores that checkpoint, sees Replacing with its own commit and marks the update Done
+//!    (`resume`); an older build that starts with Replacing (a restart before the build finished) enters
+//!    maintenance again until `resolve` decides.
+//!
+//! A retry of the request after a lost answer gets the update's state, never a second update.
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -15,6 +32,7 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use launchpad_core::App;
+use launchpad_core::maintenance::{self, Maintenance, Phase as MaintenancePhase};
 use launchpad_core::role::{Compat, Role};
 use launchpad_core::today::{Filter, Item, Kind, Place};
 use launchpad_core::util::now_ms;
@@ -67,7 +85,49 @@ pub struct Pending {
     pub requested_at: i64,
     /// Runners asked to update (each one once).
     pub runners_updated: Vec<String>,
+    /// Where the update is. None: a record of an older build (an update without maintenance).
+    #[serde(default)]
+    pub phase: Option<Phase>,
+    /// Why it stopped before the replacement (`Phase::Failed`).
+    #[serde(default)]
+    pub error: Option<String>,
+    /// The agent that asked for it and its wake-up (`schedules::update_wake`), sent once its turn ended.
+    #[serde(default)]
+    pub continuation: Option<Continuation>,
 }
+
+/// The phases of a planned update (see the module).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "HomeUpdatePhase")]
+pub enum Phase {
+    Draining,
+    /// The final checkpoint holds this phase: the new Home finds it after its restore.
+    Replacing,
+    /// The new Home runs the new commit.
+    Done,
+    /// Stopped before the replacement; Home kept running its build.
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(rename = "HomeUpdateContinuation")]
+pub struct Continuation {
+    pub session_id: String,
+    pub wake_id: String,
+}
+
+/// Whether an update is between its drain and its replacement.
+fn in_progress(p: &Pending) -> bool {
+    matches!(p.phase, Some(Phase::Draining | Phase::Replacing))
+}
+
+/// How long the drain waits for running writes before the update stops.
+const DRAIN_WITHIN: Duration = Duration::from_secs(60);
+/// How long a Home in Replacing waits for its replacement before `resolve` lets the owner resume writes on Today.
+const REPLACE_WITHIN_MS: i64 = 45 * 60 * 1000;
+/// `Retry-After` of writes refused during an update: about a build.
+const RETRY_AFTER_S: u32 = 600;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
 pub struct HomeUpdate {
@@ -389,9 +449,23 @@ fn target_ok(b: &Start, deployed: Channel, latest: &Version, available: bool) ->
     Ok(())
 }
 
-/// Commits the newer Dockerfile to Home's Space; the Space rebuilds and restarts with it. It returns once the
-/// Hub accepted the commit: the restart comes minutes later, after the build.
-pub async fn start(app: &App, b: Start) -> Result<HomeUpdate> {
+/// What a retry of Update Home gets while an update is in progress (its answer was lost): the update's state when it
+/// asks for the same version (or none), else a refusal (pure).
+fn retry_answer(p: &Pending, b: &Start) -> Result<()> {
+    anyhow::ensure!(b.version.as_deref().is_none_or(|v| v == p.version), "Home is updating to {} now: check `launchpad home`, then update again once it runs", short(&p.version));
+    Ok(())
+}
+
+/// Commits the newer Dockerfile to Home's Space with the protocol of the module: drain, continuation, frozen and
+/// verified checkpoint, then the commit. It returns once the Hub accepted the commit: the restart comes minutes
+/// later, after the build, with Home in maintenance until then. `caller`: the agent session that asked (its
+/// continuation), None for the owner.
+pub async fn start(app: &App, b: Start, caller: Option<String>) -> Result<HomeUpdate> {
+    // A retry after a lost answer: the update in progress answers, never a second one.
+    if let Some(p) = load_pending(app).await?.filter(in_progress) {
+        retry_answer(&p, &b)?;
+        return Ok(current(app));
+    }
     let _one = STARTING.try_lock().map_err(|_| anyhow::anyhow!("an update is already starting"))?;
     let (u, space) = check_space(app).await;
     if let Some(why) = &u.unsupported {
@@ -420,25 +494,163 @@ pub async fn start(app: &App, b: Start) -> Result<HomeUpdate> {
     };
     let dockerfile = rewrite(&template, channel, &latest.version)?;
     anyhow::ensure!(dockerfile != space.dockerfile, "the Space's Dockerfile already installs {}", short(&latest.version));
-    // The record first, saved in a backup: the new Home restores it after the restart and updates the runners.
-    let pending = Pending { version: latest.version.clone(), commit: latest.commit.clone(), update_runners: b.update_runners, requested_at: now_ms(), runners_updated: vec![] };
+    let mut pending = Pending {
+        version: latest.version.clone(),
+        commit: latest.commit.clone(),
+        update_runners: b.update_runners,
+        requested_at: now_ms(),
+        runners_updated: vec![],
+        phase: Some(Phase::Draining),
+        error: None,
+        continuation: None,
+    };
     save_pending(app, Some(&pending)).await?;
-    // The Space restores its newest complete backup when it restarts: without a backup now, the update would lose
-    // everything since the last one, so it is refused.
-    if let Err(e) = launchpad_core::home_backup::run(app, launchpad_core::home_backup::When::Always).await {
-        tracing::warn!("Home update: backup before the update: {e:#}");
-        let _ = save_pending(app, None).await;
-        check(app).await;
-        anyhow::bail!("the backup before the update failed, so Home was not updated (it would restart from an older backup): {e:#}");
+    let reason = format!("Home updates to {}", short(&latest.version));
+    let maintenance = |phase| Maintenance { phase, reason: reason.clone(), target: Some(latest.version.clone()), since: pending.requested_at, retry_after: RETRY_AFTER_S };
+    // 1. No new writes; the running ones finish.
+    maintenance::enter(app, maintenance(MaintenancePhase::Draining));
+    if let Err(e) = maintenance::drained(DRAIN_WITHIN).await {
+        return Err(abort(app, &mut pending, format!("Home could not finish the requests in progress: {e:#}")).await);
     }
+    // 2. The continuation of the agent that asked, stored with its sleep before the checkpoint.
+    if let Some(session) = &caller {
+        let text = continuation_text(&latest.version);
+        match launchpad_core::ext::extensions().update_wake(app, session, text).await {
+            Ok(wake_id) => pending.continuation = Some(Continuation { session_id: session.clone(), wake_id }),
+            Err(e) => tracing::warn!("Home update: no wake-up for {session}: {e:#}"),
+        }
+    }
+    // 3. What the new Home restores: the update in Replacing. Then nothing else changes, and the checkpoint.
+    pending.phase = Some(Phase::Replacing);
+    if let Err(e) = save_pending(app, Some(&pending)).await {
+        return Err(abort(app, &mut pending, format!("could not save the update's record: {e:#}")).await);
+    }
+    maintenance::enter(app, maintenance(MaintenancePhase::Checkpointing));
+    if let Err(e) = maintenance::freeze(app).await {
+        return Err(abort(app, &mut pending, format!("could not stop the database's writes: {e:#}")).await);
+    }
+    if let Err(e) = launchpad_core::home_backup::checkpoint(app).await {
+        return Err(abort(app, &mut pending, format!("the final backup failed, so Home was not updated (it would restart from an older backup): {e:#}")).await);
+    }
+    // 4. The commit: the Space builds, then replaces this Home.
     let summary = format!("Update Launchpad Home to {}", match channel { Channel::Release => latest.version.clone(), Channel::Main => format!("main {}", latest.version) });
     if let Err(e) = commit(app, &space, &summary, &[("Dockerfile", dockerfile), ("README.md", card(channel, &latest.version))]).await {
-        let _ = save_pending(app, None).await;
-        check(app).await;
-        return Err(e);
+        return Err(abort(app, &mut pending, format!("{e:#}")).await);
     }
-    tracing::info!("Home update: committed {} to {}", latest.version, space.id);
+    tracing::info!("Home update: committed {} to {}; writes stay paused until the new Home runs", latest.version, space.id);
+    maintenance::enter(app, maintenance(MaintenancePhase::Replacing));
     WAKE.notify_one();
+    Ok(check(app).await)
+}
+
+/// The continuation's message to the agent that asked for an update.
+fn continuation_text(version: &str) -> String {
+    format!("Home update · You asked Launchpad to update Home to {}. Launchpad sends this message once Home accepts work again: on the new Home after its restart, or on the current one if the update stopped (its Space build failed, its final backup failed, or the owner resumed writes). Check which build runs with `launchpad home` (`running`, and `pending.phase`: done or failed with its error) before you continue.", short(version))
+}
+
+/// Stops an update before the replacement: `state.db` writable again, maintenance left, the record Failed with
+/// `why` (shown in Settings and Today). The continuation stays: the agent is woken on this Home.
+async fn abort(app: &App, p: &mut Pending, why: String) -> anyhow::Error {
+    tracing::warn!("Home update to {}: stopped: {why}", p.version);
+    if maintenance::frozen()
+        && let Err(e) = maintenance::thaw(app).await
+    {
+        tracing::error!("Home update: the database stays read-only: {e:#}");
+    }
+    maintenance::leave(app);
+    p.phase = Some(Phase::Failed);
+    p.error = Some(why.clone());
+    if let Err(e) = save_pending(app, Some(p)).await {
+        tracing::warn!("Home update record: {e:#}");
+    }
+    check(app).await;
+    anyhow::anyhow!("{why}")
+}
+
+/// What a starting Home does with the update record its restored `state.db` holds (pure).
+#[derive(Debug, PartialEq)]
+enum OnStart {
+    Nothing,
+    /// The new build runs: the update is done.
+    Completed,
+    /// An older build started with the update in Replacing (a restart before the build finished): maintenance again
+    /// until `resolve` decides.
+    StillReplacing,
+    /// A Home that stopped while it drained (no checkpoint was taken): the update stopped.
+    Stopped,
+}
+
+fn on_start(p: &Pending, running: &str) -> OnStart {
+    match p.phase {
+        Some(Phase::Replacing) if p.commit == running => OnStart::Completed,
+        Some(Phase::Replacing) => OnStart::StillReplacing,
+        Some(Phase::Draining) => OnStart::Stopped,
+        _ => OnStart::Nothing,
+    }
+}
+
+/// At start, before Home serves requests: completes the update the restored record names, or keeps writes paused
+/// while its replacement may still come (`on_start`).
+pub async fn resume(app: &App) -> Result<()> {
+    if unsupported(app).is_some() {
+        return Ok(());
+    }
+    let Some(mut p) = load_pending(app).await? else { return Ok(()) };
+    match on_start(&p, launchpad_core::commit()) {
+        OnStart::Nothing => {}
+        OnStart::Completed => {
+            p.phase = Some(Phase::Done);
+            save_pending(app, Some(&p)).await?;
+            tracing::info!("Home update: running {} as planned{}", short(&p.version), p.continuation.as_ref().map_or_else(String::new, |c| format!("; {} is woken once its turn ended", c.session_id)));
+        }
+        OnStart::StillReplacing => {
+            tracing::warn!("Home update to {}: this Home runs {} and the update was being replaced: writes stay paused until the Space's build finishes or fails", short(&p.version), short(launchpad_core::commit()));
+            maintenance::enter(app, Maintenance { phase: MaintenancePhase::Replacing, reason: format!("Home updates to {}", short(&p.version)), target: Some(p.version.clone()), since: p.requested_at, retry_after: RETRY_AFTER_S });
+            maintenance::freeze(app).await?;
+        }
+        OnStart::Stopped => {
+            p.phase = Some(Phase::Failed);
+            p.error = Some("Home stopped while it finished the requests in progress; nothing was committed to the Space.".into());
+            save_pending(app, Some(&p)).await?;
+        }
+    }
+    Ok(())
+}
+
+/// What a Home in Replacing does after a check of its Space (pure): wait, or stop the update with why.
+fn replacing(u: &HomeUpdate, p: &Pending, now: i64) -> Option<String> {
+    if let Some(stage) = u.stage.as_deref().filter(|s| FAILED_STAGES.contains(s)) {
+        return Some(format!("the Space's build stopped in {stage}; Home keeps running {}", short(&u.running)));
+    }
+    if u.error.is_some() || u.building {
+        return None;
+    }
+    // Not building and the Dockerfile does not install the target: the commit never happened (a restart before it).
+    if u.deployed.as_deref().is_some_and(|d| d != p.version) {
+        return Some(format!("the Space does not install {} (it installs {}): the update was not committed", short(&p.version), short(u.deployed.as_deref().unwrap_or_default())));
+    }
+    (now - p.requested_at > REPLACE_WITHIN_MS).then(|| format!("the Space did not replace this Home within {} minutes", REPLACE_WITHIN_MS / 60_000))
+}
+
+/// After each check while Home waits for its replacement: a failed build (or a commit that never happened) stops the
+/// update and Home accepts writes again.
+async fn resolve(app: &App, u: &HomeUpdate) {
+    let Some(mut p) = u.pending.clone().filter(|p| p.phase == Some(Phase::Replacing) && p.commit != u.running) else { return };
+    if !maintenance::active() {
+        return;
+    }
+    if let Some(why) = replacing(u, &p, now_ms()) {
+        let _ = abort(app, &mut p, why).await;
+    }
+}
+
+/// Resume writes (`home.update-resume`): the owner stops waiting for the replacement. The Space may still restart
+/// with the new build later; it then restores the newest backup, so changes since the last backup (a few minutes)
+/// would be lost.
+pub async fn resume_writes(app: &App) -> Result<HomeUpdate> {
+    let mut p = load_pending(app).await?.filter(|p| p.phase == Some(Phase::Replacing)).context("no update waits for its replacement")?;
+    anyhow::ensure!(STARTING.try_lock().is_ok(), "the update is still saving its final backup: wait a moment");
+    let _ = abort(app, &mut p, "the owner resumed writes before the replacement".into()).await;
     Ok(check(app).await)
 }
 
@@ -516,6 +728,7 @@ pub fn spawn(app: &App) {
         tokio::time::sleep(Duration::from_secs(60)).await;
         loop {
             let u = check(&a).await;
+            resolve(&a, &u).await;
             let wait = if u.building || u.pending.as_ref().is_some_and(|p| p.commit != u.running) { BUILDING_EVERY } else { EVERY };
             tokio::select! {
                 _ = tokio::time::sleep(wait) => {}
@@ -541,6 +754,18 @@ pub fn today_items(app: &App) -> Vec<Item> {
     let u = current(app);
     if u.unsupported.is_some() {
         return vec![];
+    }
+    if let Some(p) = u.pending.as_ref().filter(|p| p.phase == Some(Phase::Failed) && p.version != u.deployed.clone().unwrap_or_default()) {
+        let item = Item::new(Kind::HomeUpdate, Filter::Fix, "home", format!("Home's update to {} stopped", short(&p.version)), Place::Everywhere, p.requested_at)
+            .detail(format!("{} Home runs {} and accepts writes.", p.error.clone().unwrap_or_default(), short(&u.running)))
+            .action("home.update");
+        return vec![item];
+    }
+    if let Some(p) = u.pending.as_ref().filter(|p| p.phase == Some(Phase::Replacing) && p.commit != u.running && now_ms() - p.requested_at > REPLACE_WITHIN_MS / 3) {
+        let item = Item::new(Kind::HomeUpdate, Filter::Fix, "home", format!("Home waits for its update to {}", short(&p.version)), Place::Everywhere, p.requested_at)
+            .detail("Writes are paused until the Space restarts with the new build. Resume writes only if the build will not finish: changes since the last backup would be lost if it restarts later.".to_string())
+            .action("home.update-resume");
+        return vec![item];
     }
     let failed = u.stage.as_deref().filter(|s| FAILED_STAGES.contains(s));
     if let (Some(p), Some(stage)) = (&u.pending, failed)
@@ -604,5 +829,49 @@ mod tests {
         assert_eq!(deployed(&m), Deployed::Main(C.into()));
         assert!(rewrite("FROM x\n", Channel::Release, "v2").is_err());
         assert!(rewrite("ARG LAUNCHPAD_RELEASE=v1\n", Channel::Main, C).is_err());
+    }
+
+    fn pending(phase: Option<Phase>) -> Pending {
+        Pending { version: C.into(), commit: C.into(), update_runners: false, requested_at: 0, runners_updated: vec![], phase, error: None, continuation: None }
+    }
+
+    /// The update's answer was lost (the CLI timed out after the commit): asking again returns the update in progress,
+    /// never a second update; asking for another version is refused while one runs.
+    #[test]
+    fn a_retry_after_a_lost_answer_gets_the_update_in_progress() {
+        let p = pending(Some(Phase::Replacing));
+        assert!(in_progress(&p) && in_progress(&pending(Some(Phase::Draining))));
+        assert!(!in_progress(&pending(Some(Phase::Done))) && !in_progress(&pending(Some(Phase::Failed))) && !in_progress(&pending(None)));
+        let start = |version: Option<&str>| Start { version: version.map(str::to_string), channel: None, update_runners: false };
+        assert!(retry_answer(&p, &start(None)).is_ok());
+        assert!(retry_answer(&p, &start(Some(C))).is_ok());
+        assert!(retry_answer(&p, &start(Some("v2"))).is_err());
+    }
+
+    /// At start, from the restored checkpoint: the new build completes the update; an older build that starts while
+    /// the record says Replacing (a restart before the build finished) keeps writes paused; a drain that never
+    /// reached its checkpoint stopped.
+    #[test]
+    fn a_starting_home_completes_or_keeps_waiting_for_its_update() {
+        assert_eq!(on_start(&pending(Some(Phase::Replacing)), C), OnStart::Completed);
+        assert_eq!(on_start(&pending(Some(Phase::Replacing)), "old"), OnStart::StillReplacing);
+        assert_eq!(on_start(&pending(Some(Phase::Draining)), "old"), OnStart::Stopped);
+        assert_eq!(on_start(&pending(Some(Phase::Done)), C), OnStart::Nothing);
+        assert_eq!(on_start(&pending(None), "old"), OnStart::Nothing);
+    }
+
+    /// While the old Home waits for its replacement: a failed build or a commit that never happened stops the update
+    /// (writes resume); a build in progress or a failed check waits.
+    #[test]
+    fn a_home_waiting_for_its_replacement_stops_only_on_evidence() {
+        let p = pending(Some(Phase::Replacing));
+        let base = HomeUpdate { running: "old".into(), deployed: Some(C.into()), ..Default::default() };
+        assert_eq!(replacing(&HomeUpdate { building: true, ..base.clone() }, &p, 1), None);
+        assert_eq!(replacing(&HomeUpdate { error: Some("Hub down".into()), ..base.clone() }, &p, 1), None);
+        assert!(replacing(&HomeUpdate { stage: Some("BUILD_ERROR".into()), ..base.clone() }, &p, 1).unwrap().contains("BUILD_ERROR"));
+        assert!(replacing(&HomeUpdate { deployed: Some("v0".into()), ..base.clone() }, &p, 1).unwrap().contains("not committed"));
+        // Deployed and not building, but no restart yet (the platform's RUNNING_RESTART): wait, up to the limit.
+        assert_eq!(replacing(&base, &p, 1), None);
+        assert!(replacing(&base, &p, REPLACE_WITHIN_MS + 1).is_some());
     }
 }

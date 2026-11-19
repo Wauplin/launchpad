@@ -237,7 +237,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/activity" || path.starts_with("/api/activity/") || path == "/api/settings/shared"
         || path == "/api/topics" || path.starts_with("/api/topics/")
         || path == "/api/review-state" || path == "/api/channels" || path.starts_with("/api/channels/")
-        || path == "/api/home/update" || path == "/api/home/update/check" || path.starts_with("/api/cli-updates")
+        || path == "/api/home/update" || path == "/api/home/update/check" || path == "/api/home/update/resume" || path.starts_with("/api/cli-updates")
         || path.starts_with("/api/oracles/") || path.starts_with("/api/folios/")
 }
 
@@ -355,12 +355,33 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
         Err(e) => return crate::error::ApiError::bad_request(format!("{e}")).into_response(),
     };
     let body = (!bytes.is_empty()).then(|| String::from_utf8_lossy(&bytes).into_owned());
+    let sleep = method == "POST" && path == "/api/sleep";
     match to_home(&method, &path, body, agent).await {
-        Ok((status, body)) => (axum::http::StatusCode::from_u16(status).unwrap_or(axum::http::StatusCode::BAD_GATEWAY), [(header::CONTENT_TYPE, "application/json")], body).into_response(),
+        Ok((status, body)) => {
+            // A wake-up Home accepted stays in this runner's outbox until Home's backup holds it (`replica::Item::Sleep`).
+            if sleep && (200..300).contains(&status) && let Err(e) = keep_sleep(&s.app, &body).await {
+                tracing::warn!("wake-up kept for Home: {e:#}");
+            }
+            (axum::http::StatusCode::from_u16(status).unwrap_or(axum::http::StatusCode::BAD_GATEWAY), [(header::CONTENT_TYPE, "application/json")], body).into_response()
+        }
         // Home is out of reach: this runner's own copy of its session (complete unless it was adopted).
         Err(_) if local => next.run(axum::extract::Request::from_parts(parts, Body::from(bytes))).await,
         Err(e) => crate::error::ApiError::new(axum::http::StatusCode::SERVICE_UNAVAILABLE, format!("{e:#}")).into_response(),
     }
+}
+
+/// Runner: queues the wake-up Home answered to `launchpad sleep` (`schedules::SleepAnswer`: the scheduled follow-up)
+/// as `replica::Item::Sleep`, for a session of this runner.
+async fn keep_sleep(app: &App, answer: &str) -> anyhow::Result<()> {
+    let schedule: serde_json::Value = serde_json::from_str(answer)?;
+    let session_id = schedule["resume_session_id"].as_str().ok_or_else(|| anyhow::anyhow!("no session in Home's answer"))?.to_string();
+    if app.sessions.get(&session_id).is_none() {
+        return Ok(());
+    }
+    // Home's own time of the wake-up, compared with the checkpoint of a backup Home restored (same clock).
+    let accepted_at = schedule["created_at"].as_i64().unwrap_or_else(launchpad_core::util::now_ms);
+    let item = replica::Item::Sleep { session_id, schedule, accepted_at };
+    app.state_db.call(move |c| replica::queue_item(c, &item)).await
 }
 
 /// A Burst runner's tunnels: Home dials `/api/runner/reverse`, which hands the socket to the tunnel loop.
@@ -531,12 +552,12 @@ async fn session(app: &App, router: &Router, url: &str, mut tx: crate::wire::Wir
     let status = app.status.get();
     let capabilities = launchpad_core::runners::capabilities(app).await;
     tx.send(text(&FromRunner::Hello { protocol: role::PROTOCOL, commit: launchpad_core::commit().into(), name: status.host.clone(), os: std::env::consts::OS.into(), guard: guard.clone(), capabilities })).await?;
-    let (compat, acked) = loop {
+    let (compat, acked, durable) = loop {
         match tokio::time::timeout(Duration::from_secs(30), rx.next()).await? {
             Some(Ok(t)) => match serde_json::from_str::<ToRunner>(&t)? {
-                ToRunner::Welcome { compat, acked, flow, .. } => {
+                ToRunner::Welcome { compat, acked, flow, durable, .. } => {
                     HOME.flow.store(flow, std::sync::atomic::Ordering::Relaxed);
-                    break (compat, acked);
+                    break (compat, acked, durable);
                 }
                 ToRunner::Refuse { reason } => return Ok(Some(reason)),
                 _ => {}
@@ -547,8 +568,9 @@ async fn session(app: &App, router: &Router, url: &str, mut tx: crate::wire::Wir
     };
     home_link::set_state(app, Some(url.to_string()), TunnelState::Connected, None, Some(compat));
     tracing::info!("connected to Home {url} ({compat:?})");
-    // Everything Home saved can go; the rest is sent again, in order.
-    replica::acked(app, acked).await?;
+    // What Home's backup holds can go (everything it saved, for a Home without backups); the rest is sent again, in
+    // order. A Home that went back (restored an older backup) gets the items it lost again (`replica::welcome`).
+    replica::welcome(app, acked, durable).await?;
     // From here on one writer sends: the control lane first, request body parts when it is empty.
     let (out, bulk, mut writer) = crate::wire::lanes::<FromRunner>(tx);
     *HOME.tx.lock().unwrap() = Some(out.clone());
@@ -648,7 +670,7 @@ async fn serve(app: &App, router: &Router, out: &tokio::sync::mpsc::UnboundedSen
                         }
                     }
                     Ok(ToRunner::Ack { n }) => {
-                        replica::acked(app, n).await?;
+                        replica::on_ack(app, n).await?;
                         let (mark, complete) = replica::after_ack(acked, in_flight.map(|(sent, _)| sent), n);
                         acked = mark;
                         in_flight = None;
@@ -657,6 +679,8 @@ async fn serve(app: &App, router: &Router, out: &tokio::sync::mpsc::UnboundedSen
                         }
                         replica::wake();
                     }
+                    // Home's verified backup holds these items: they can go.
+                    Ok(ToRunner::Durable { n }) => replica::acked(app, n).await?,
                     Ok(ToRunner::Quotas { quotas }) => launchpad_core::quota::apply_home_readings(app, quotas),
                     Ok(ToRunner::Spend { entries }) => launchpad_core::spend::apply_home(app, entries),
                     Ok(ToRunner::RenewLeases { login }) => launchpad_core::contain::renew_soon(app, &login),

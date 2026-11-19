@@ -1,6 +1,7 @@
 // Shared UI primitives. Features use these instead of hand-building headers, tabs, filters,
 // confirmations, loading/empty/error states, status pills, option tokens or settings rows.
 
+import { refusalText, refusedFor } from "@/lib/maintenance";
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Icon, type IconName } from "./Icon";
 import { Popover } from "./Popover";
@@ -169,6 +170,8 @@ export function ErrorState({ error, onRetry, action, className = "" }: { error: 
 
 /** Daemon and OS error text, rewritten for people. Unknown messages pass through unchanged. */
 export function humanError(error: unknown): string {
+  const paused = refusedFor(error);
+  if (paused) return refusalText(paused);
   const text = error instanceof Error ? error.message : typeof error === "string" ? error : String(error);
   if (/No such file or directory|os error 2\b|does not exist/i.test(text)) {
     const path = text.match(/(?:^|\s)((?:[\w.-]+:)?\/[^\s:]+)/)?.[1];

@@ -63,6 +63,7 @@ import { api } from "@/lib/api";
 import { attachmentSrc, isImageAttachment, pastedImages } from "@/lib/attachments";
 import { age, ago, when } from "@/lib/format";
 import { chatDraftKey, dropSentChatDraft, useKeptDraft } from "@/lib/keptDraft";
+import { refusedFor } from "@/lib/maintenance";
 import { NEW_THREAD } from "./BotThreads";
 import { useCrons, useSession, useHarnessDefaults } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
@@ -866,7 +867,8 @@ function BotComposer({ bot, threadId, onThread, current, askSession, conversatio
         const body = unconfirmed?.message === message ? unconfirmed.body : { text: t, attachments: files, ...where, ...(withContext ? { context } : {}), accept: true };
         let sent: BotSend;
         try { sent = await runAction<BotSend>("bot.message", { id: bot.id }, body); }
-        catch (e) { setUnconfirmed(e instanceof ApiError && e.operationCompleted ? null : { path: messagePath, body, message }); throw e; }
+        // A write refused during Home's update never ran: not an uncertain delivery (`maintenance`).
+        catch (e) { setUnconfirmed((e instanceof ApiError && e.operationCompleted) || refusedFor(e) ? null : { path: messagePath, body, message }); throw e; }
         setUnconfirmed(null);
         to = sent.thread;
         await accepted(sent);

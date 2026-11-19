@@ -57,6 +57,8 @@ To wait (CI, a deploy, a review, a given hour, other agents), never `sleep` or p
 - `launchpad sleep --agents <session-id>[,<session-id>…] [--state <states>] [--timeout 2h] --note "…"`: once each agent is in one of the states: `done` (the default: Done, or archived after Done), `asking`, `failed` (also interrupted), `stopped`, `quota_paused`, `sleeping`, `archived`, `working`. Only agents of your workspace, never your own session.
 - `launchpad sleep --quota claude:five_hour` (or `:weekly`): once that quota window resets.
 
+While Home updates itself, every write (also `launchpad sleep`) is refused with a retryable error and exit code 75: nothing was changed, so run the same command again later. An agent that started `home update` is woken by Launchpad once Home accepts work again, so it need not sleep.
+
 To wait for agents you launched or messaged, run `launchpad sleep --agents <ids> --state done,failed,asking,stopped --timeout 2h --note "review their results"` instead of sleeping ten minutes and checking. `--timeout` wakes you at that time even when the agents are not there yet; the wake-up message then says so. Conditions combine like a scheduled launch's: all must hold. When they already hold, you wake as soon as your turn ends. A new sleep replaces the last one. A message that reaches you first wakes you and cancels the wake-up, so sleep again if you still need to wait.
 
 ## Oracles: checks that decide when

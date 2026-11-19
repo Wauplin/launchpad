@@ -710,6 +710,12 @@ pub struct LaunchSpec {
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routine: Option<RoutineLaunch>,
+    /// Home's proof that it placed this session on its runner (`runners::sign_placement`), stamped by Home on the
+    /// spec it relays: a Home restored from an older backup accepts the runner's record of a session it no longer
+    /// knows only with it (`Sessions::apply_replica`).
+    #[ts(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub placement: Option<String>,
     /// Who sends its first message when it is not the owner (`MessageContext::from`), stamped by Home.
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -41,10 +41,29 @@ impl Client {
     async fn json(&self, method: &str, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value> {
         let (status, text) = self.send(method, path, body).await?;
         let body: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text));
+        if status == 503 && body["retryable"] == true {
+            return Err(Retryable(failure(status, &body)).into());
+        }
         anyhow::ensure!((200..300).contains(&status), "{}", failure(status, &body));
         Ok(body)
     }
 }
+
+/// A write Home refused for now (its maintenance during a planned update): nothing changed, try again later. The
+/// command exits with `RETRY_EXIT`.
+#[derive(Debug)]
+struct Retryable(String);
+
+impl std::fmt::Display for Retryable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Retryable {}
+
+/// The exit code of a refusal to retry later (`EX_TEMPFAIL`).
+const RETRY_EXIT: i32 = 75;
 
 /// The reason of a failed request: its JSON `error`, else a short plain-text body (axum's input rejections), else
 /// the status.
@@ -1297,7 +1316,13 @@ fn main() -> Result<()> {
             _ => {}
         }
     }
-    tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(run())
+    match tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(run()) {
+        Err(e) if e.chain().any(|c| c.is::<Retryable>()) => {
+            eprintln!("Error: {e:#}\nThis is temporary: run the same command again later (exit code {RETRY_EXIT}).");
+            std::process::exit(RETRY_EXIT)
+        }
+        r => r,
+    }
 }
 
 async fn run() -> Result<()> {

@@ -23,7 +23,8 @@ To wait (CI, a deploy, a review, a given hour, other agents), never `sleep` or p
 - `{cli} sleep --in 30m|2h|1d [--note \"what to do then\"]`, or `--until <RFC 3339 time>`\n\
 - `{cli} sleep --agents <session-id>[,<session-id>…] [--state done,failed,asking,stopped,quota_paused,sleeping,archived,working] [--timeout 2h] [--note …]`: once each agent (sessions of your workspace, never yourself) is in one of the states (default `done`; `failed` includes interrupted). To wait for agents you launched or messaged, run `{cli} sleep --agents <ids> --state done,failed,asking,stopped --timeout 2h` instead of sleeping a few minutes and checking; `--timeout` wakes you anyway at that time.\n\
 - `{cli} sleep --quota claude:five_hour|weekly`: once that quota window resets.\n\
-Conditions combine (all must hold), like a scheduled launch's; when they already hold, you wake as soon as your turn ends. A new sleep replaces the last; a message that reaches you first wakes you and cancels it, so sleep again if you still need to wait; the owner may also wake you early or cancel it.\n",
+Conditions combine (all must hold), like a scheduled launch's; when they already hold, you wake as soon as your turn ends. A new sleep replaces the last; a message that reaches you first wakes you and cancels it, so sleep again if you still need to wait; the owner may also wake you early or cancel it.\n\
+While Home updates itself, every write (also `sleep`) answers that Home is updating, retryable, with exit code 75: nothing was changed; try again later. After `home update` you need not sleep: Launchpad wakes you once Home accepts work again.\n",
         max_hops = crate::senders::MAX_HOPS
     );
     if access >= LaunchpadAccess::Propose {

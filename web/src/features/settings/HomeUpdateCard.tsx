@@ -10,6 +10,7 @@ import { UpdateHomeButton, useHomeUpdate, versionLabel } from "./HomeUpdate";
 import { Card } from "./SettingsView";
 
 function Pending({ u }: { u: HomeUpdate }) {
+  const qc = useQueryClient();
   const p = u.pending;
   if (!p) return null;
   const done = u.running === p.commit;
@@ -17,7 +18,14 @@ function Pending({ u }: { u: HomeUpdate }) {
   const runners = !p.update_runners ? "Runners stay as they are: update them below." : done
     ? `${asked ? `${asked} ${asked === 1 ? "runner" : "runners"} asked to update. ` : ""}Runners with another build that connect until ${when(p.requested_at + 86_400_000)} update too.`
     : "The runners update once Home runs it.";
-  return <span className="text-[12px] text-ink-2"><b>Update to {versionLabel(u, p.version)}</b> started {ago(p.requested_at)}{done ? ": Home runs it." : "."} {runners}</span>;
+  if (p.phase === "failed") return <span className="text-[12px] text-gh-closed"><b>Update to {versionLabel(u, p.version)}</b> stopped {ago(p.requested_at)}: {p.error ?? "no reason recorded"} Home kept its build and accepts changes.</span>;
+  const waiting = p.phase === "replacing" && !done;
+  return (
+    <span className="grid gap-1 text-[12px] text-ink-2">
+      <span><b>Update to {versionLabel(u, p.version)}</b> started {ago(p.requested_at)}{done ? ": Home runs it." : waiting ? ": its final backup is saved and checked; changes are paused until the new Home runs." : "."} {runners}</span>
+      {waiting && <span className="flex items-center gap-2"><span className="min-w-0 flex-1 text-ink-3">Only if the build will not finish: Home accepts changes again on its current build.</span><ActionButton name="home.update-resume" onDone={(r) => qc.setQueryData(["home-update"], r)} /></span>}
+    </span>
+  );
 }
 
 /** Settings → Home and runners, on Home: the installed version, Check for updates and Update Home. A Home that
@@ -46,7 +54,7 @@ export function HomeUpdateCard({ bottom = false }: { bottom?: boolean }) {
           <span>
             <b className="text-attn">{versionLabel(u, u.latest.version)} is available</b> ({ago(u.latest.at)}{u.latest.behind != null ? `, ${u.latest.behind} newer ${u.latest.behind === 1 ? "commit" : "commits"} on main` : ""}). <a href={u.latest.url} target="_blank" rel="noreferrer" className="underline">{u.channel === "main" ? "Changes" : "Release notes"}</a>
           </span>
-          <span>The Space rebuilds and restarts: Home is unavailable for a few minutes. Agents keep running on their runners.</span>
+          <span>Home first pauses changes and saves a checked backup, then the Space rebuilds and restarts: changes stay paused for several minutes (windows show it; drafts are kept). Agents keep running on their runners.</span>
           <UpdateHomeButton u={u} />
         </div>
       ) : !u.error && !u.building && u.latest && <span className="text-[12px] text-ink-3">Home is up to date.</span>}

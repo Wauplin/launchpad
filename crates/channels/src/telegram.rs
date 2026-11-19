@@ -807,6 +807,11 @@ fn poll(app: &App, workspace: String, wake: Arc<tokio::sync::Notify>) {
                 tokio::select! { _ = wake.notified() => {}, _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {} }
                 continue;
             };
+            // A planned update (`maintenance`): Telegram keeps the messages until the next Home reads them.
+            if launchpad_core::maintenance::active() {
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                continue;
+            }
             let st = load(&app, &workspace).await;
             let poll = call(&token, "getUpdates", json!({"offset": st.offset, "timeout": 50, "allowed_updates": ["message"]}), 65);
             let result = tokio::select! {

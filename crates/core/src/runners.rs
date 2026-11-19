@@ -80,6 +80,8 @@ pub struct Capabilities {
     /// Keeps exchange bodies to their window and sends `HttpAck` and `HttpCancel` (`server::wire`). Home keeps
     /// no window with an older runner, so it can still download Home's build.
     pub flow: bool,
+    /// Keeps its replicated records until Home's backup holds them (`ToRunner::Durable`, `replica`).
+    pub durable_ack: bool,
 }
 
 /// This runner's capabilities.
@@ -92,7 +94,7 @@ pub async fn capabilities(app: &App) -> Capabilities {
             .ok()
             .and_then(|r| r.ok())
             .is_some_and(|s| s.success());
-    Capabilities { vm, docker, burst, self_update: crate::self_update::supported(app), terminals: true, cli_update: crate::self_update::supported(app), flow: true }
+    Capabilities { vm, docker, burst, self_update: crate::self_update::supported(app), terminals: true, cli_update: crate::self_update::supported(app), flow: true, durable_ack: true }
 }
 
 /// A runner with its live state, for Settings.
@@ -645,9 +647,13 @@ pub mod proto {
     pub enum ToRunner {
         /// Answer to `Hello`, with the last outbox number Home saved for this runner. `flow`: Home keeps exchange
         /// bodies to their window and sends `HttpAck` and `HttpCancel` (an older Home does not).
-        Welcome { compat: Compat, commit: String, acked: u64, #[serde(default)] flow: bool },
+        /// `durable`: the runner's items a verified backup of Home holds (`replica`); None from a Home without
+        /// backups (its disk is the durable copy) or an older Home: the runner drops items at `Ack`.
+        Welcome { compat: Compat, commit: String, acked: u64, #[serde(default)] flow: bool, #[serde(default)] durable: Option<u64> },
         /// Home saved every outbox item up to `n`.
         Ack { n: u64 },
+        /// A verified backup of Home holds every outbox item up to `n`: the runner may drop them (`replica`).
+        Durable { n: u64 },
         /// The connection is refused (unknown, pending or incompatible runner); the runner shows the reason.
         Refuse { reason: String },
         /// An API request for the runner's own daemon. `headers`: only `Idempotency-Key`, and `x-launchpad-envelope`
@@ -730,6 +736,8 @@ struct HubInner {
     next: std::sync::atomic::AtomicU64,
     /// What Home let a runner do on its own credential because of a request Home sent it (`grant`).
     grants: Mutex<HashMap<(String, String), i64>>,
+    /// Runners that keep their items until `ToRunner::Durable` (`set_durable_capable`).
+    durable: Mutex<std::collections::HashSet<String>>,
 }
 
 /// How long a grant (`Hub::grant`) holds.
@@ -801,6 +809,16 @@ impl Hub {
     }
 
     /// Sends a message to one connected runner.
+    /// Records whether a connected runner keeps its items until `ToRunner::Durable` (`Capabilities::durable_ack`).
+    pub fn set_durable_capable(&self, id: &str, capable: bool) {
+        let mut set = self.inner.durable.lock().unwrap();
+        if capable { set.insert(id.to_string()); } else { set.remove(id); }
+    }
+
+    pub fn durable_capable(&self, id: &str) -> bool {
+        self.inner.durable.lock().unwrap().contains(id)
+    }
+
     pub fn send_to(&self, id: &str, msg: proto::ToRunner) {
         if let Some(l) = self.inner.links.lock().unwrap().get(id) {
             let _ = l.tx.send(msg);
@@ -1247,6 +1265,14 @@ async fn launch_placed(app: &App, mut spec: crate::model::LaunchSpec, id: String
     };
     // Home records the session on this runner before the runner has it: leases go only to sessions Home placed.
     record_placement(app, &spec, &id, &runner).await?;
+    // The runner keeps Home's proof in its record: a Home restored from an older backup takes the record back with it.
+    spec.placement = match sign_placement(app, &id, &runner, &spec).await {
+        Ok(p) => Some(p),
+        Err(e) => {
+            tracing::warn!("placement proof of {id}: {e:#}");
+            None
+        }
+    };
     match app.runners.request_with(&runner, "POST", "/api/sessions", Some(serde_json::to_string(&spec)?), vec![("idempotency-key".into(), id.clone())]).await {
         Ok((status, body)) => {
             if !(200..300).contains(&status) {
@@ -1307,6 +1333,55 @@ pub(crate) fn placed_record(spec: &crate::model::LaunchSpec, id: &str, runner_id
         unsaved: None,
         sleep: None,
     })
+}
+
+/// What a placement proof covers: the session, its runner, and the fields of its spec Home keeps as it placed them
+/// (`Sessions::apply_replica`: profile, workspace, bot, tools, sender, routine).
+fn placement_material(id: &str, runner: &str, spec: &crate::model::LaunchSpec) -> String {
+    let bot = spec.bot.as_ref().map(|b| (b.id.clone(), b.thread.clone()));
+    serde_json::json!(["placement/v1", id, runner, spec.profile, spec.workspace_id, bot, spec.tools_off, spec.tools_on, spec.from, spec.routine]).to_string()
+}
+
+/// Home's key for placement proofs: in `state.db` (`home_meta.placement_key`), so a restored Home still checks the
+/// proofs it gave before its backup; mixed with `LAUNCHPAD_HOME_KEY` when set (backups then never hold the key alone).
+async fn placement_key(app: &App) -> Result<Vec<u8>> {
+    static KEY: tokio::sync::OnceCell<Vec<u8>> = tokio::sync::OnceCell::const_new();
+    KEY.get_or_try_init(|| async {
+        let fresh = hex::encode(rand::random::<[u8; 32]>());
+        let stored: String = app
+            .state_db
+            .call(move |c| {
+                c.execute("INSERT INTO home_meta (key, value) VALUES ('placement_key', ?1) ON CONFLICT (key) DO NOTHING", [fresh])?;
+                Ok(c.query_row("SELECT value FROM home_meta WHERE key = 'placement_key'", [], |r| r.get(0))?)
+            })
+            .await?;
+        let mut key = hex::decode(stored)?;
+        if let Ok(secret) = std::env::var("LAUNCHPAD_HOME_KEY") {
+            key.extend(Sha256::digest(secret.as_bytes()));
+        }
+        Ok(key)
+    })
+    .await
+    .cloned()
+}
+
+fn placement_mac(key: &[u8], material: &str) -> Result<String> {
+    use hmac::{KeyInit, Mac};
+    let mut mac = hmac::Hmac::<Sha256>::new_from_slice(key).map_err(|e| anyhow::anyhow!("{e}"))?;
+    mac.update(material.as_bytes());
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+/// Home: the proof that it placed session `id` on `runner` with this spec (`LaunchSpec::placement`).
+pub(crate) async fn sign_placement(app: &App, id: &str, runner: &str, spec: &crate::model::LaunchSpec) -> Result<String> {
+    placement_mac(&placement_key(app).await?, &placement_material(id, runner, spec))
+}
+
+/// Home: whether a runner's record of a session Home does not know carries Home's proof for that runner, unchanged.
+pub(crate) async fn placement_valid(app: &App, s: &crate::model::Session, runner: &str) -> bool {
+    let Some(proof) = s.launch_spec.placement.as_deref() else { return false };
+    let Ok(key) = placement_key(app).await else { return false };
+    placement_mac(&key, &placement_material(&s.id, runner, &s.launch_spec)).is_ok_and(|p| crate::util::constant_eq(p.as_bytes(), proof.as_bytes()))
 }
 
 /// A record Home placed on `runner` that the runner has not replaced yet.
@@ -1409,6 +1484,24 @@ pub async fn send_anywhere_with(app: &App, id: &str, text: &str, mut files: Vec<
 
 #[cfg(test)]
 mod tests {
+    /// A placement proof holds for its session, runner and protected fields only: a runner cannot move it to
+    /// another session, claim another runner's, or change the profile, workspace or tools it names.
+    #[test]
+    fn placement_proofs_cover_the_session_runner_and_protected_fields() {
+        let key = b"k".repeat(32);
+        let spec = crate::model::LaunchSpec { profile: Some("p".into()), workspace_id: Some("w".into()), ..Default::default() };
+        let proof = super::placement_mac(&key, &super::placement_material("s1", "r1", &spec)).unwrap();
+        let check = |id: &str, runner: &str, spec: &crate::model::LaunchSpec| super::placement_mac(&key, &super::placement_material(id, runner, spec)).unwrap() == proof;
+        assert!(check("s1", "r1", &spec));
+        assert!(!check("s2", "r1", &spec));
+        assert!(!check("s1", "r2", &spec));
+        assert!(!check("s1", "r1", &crate::model::LaunchSpec { workspace_id: Some("other".into()), ..spec.clone() }));
+        assert!(!check("s1", "r1", &crate::model::LaunchSpec { tools_on: vec!["gh".into()], ..spec.clone() }));
+        // Fields a runner changes on its own (the text, the topic name) are not covered.
+        assert!(check("s1", "r1", &crate::model::LaunchSpec { text: "edited".into(), ..spec.clone() }));
+        assert!(!check("s1", "r1", &crate::model::LaunchSpec { profile: None, ..spec }));
+    }
+
     /// A launch spec and a message's context name the agents whose traces the runner may then read from Home.
     #[test]
     fn traced_agents_are_found_at_any_depth() {

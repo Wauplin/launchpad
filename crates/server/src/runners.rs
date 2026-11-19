@@ -297,6 +297,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
     let compat = role::compat(role::PROTOCOL, launchpad_core::commit(), protocol, &commit);
     // An older runner never acknowledges exchange bodies: no window with it (`wire::Inbound`).
     let flow = capabilities.flow;
+    let durable_capable = capabilities.durable_ack;
     let id = runner.id.clone();
     let runner = match runners::seen(&s.app, runner, &commit, protocol, capabilities).await {
         Ok(r) => r,
@@ -312,7 +313,9 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
             return;
         }
     };
-    if !send(&mut tx, &ToRunner::Welcome { compat, commit: launchpad_core::commit().into(), acked, flow: true }).await {
+    // A runner that keeps its items until Home's backup holds them learns the durable number now (`replica`).
+    let durable = launchpad_core::replica::durable_for(&s.app, &runner.id);
+    if !send(&mut tx, &ToRunner::Welcome { compat, commit: launchpad_core::commit().into(), acked, flow: true, durable }).await {
         return;
     }
     tracing::info!("runner {} ({}) connected, {compat:?}", runner.name, runner.id);
@@ -330,6 +333,7 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
     // From here on one writer sends: the control lane first, exchange body parts when it is empty.
     let (out_tx, bulk_tx, mut writer) = crate::wire::lanes::<ToRunner>(tx);
     let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, runner.burst, (out_tx.clone(), bulk_tx));
+    s.app.runners.set_durable_capable(&runner.id, durable_capable);
     let send = |msg: ToRunner| out_tx.send(msg).is_ok();
     // After `connect`, so an entry Home stores meanwhile is also broadcast to this runner (IDs count once).
     send(ToRunner::Spend { entries: launchpad_core::spend::for_runners(&s.app) });
@@ -377,6 +381,12 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                         // Always acknowledge the last item stored (the one before the batch when none was): the
                         // runner sends its next batch from there, so a failed item is sent again, never skipped.
                         let Some(mut last) = items.first().map(|(n, _)| n.saturating_sub(1)) else { continue };
+                        // A planned update froze `state.db` after its final checkpoint: nothing is stored now, and
+                        // the runner keeps every item and sends it again to the next Home (`maintenance`).
+                        if launchpad_core::maintenance::frozen() {
+                            if !send(ToRunner::Ack { n: last }) { break }
+                            continue;
+                        }
                         for (n, item) in items {
                             if let Err(e) = launchpad_core::replica::ingest(&s.app, &runner.id, n, item).await {
                                 if !launchpad_core::replica::give_up(&mut failing, n, launchpad_core::util::now_ms()) {
