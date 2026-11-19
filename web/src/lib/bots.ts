@@ -76,12 +76,6 @@ export const useBotThreads = (id: string | null | undefined, archived = false) =
 /** The thread a `?thread=` value names: a thread ID, or a routing key such as `channel:<id>` (links from a channel). */
 export const findThread = (threads: BotThread[] | undefined, value: string | undefined) => value ? threads?.find((t) => t.id === value || t.key === value) ?? null : null;
 
-/** What all threads of a bot do: how many work and how many wait for you. */
-export function threadSummary(sessions: Session[]): { working: number; needs: number } {
-  const open = [...threadCurrents(sessions).values()];
-  return { working: open.filter(isRunning).length, needs: open.filter(needsYou).length };
-}
-
 export const currentSession = (thread: Session[]) => [...thread].reverse().find((s) => s.status !== "closed") ?? null;
 
 /** Why the next message continues in a new thread (the same rule as Home's `bots::rotation`), or null. `profile` is
@@ -148,13 +142,4 @@ export const botInitial = (name: string) => initialOf(name);
 export function askTarget(bots: Bot[], workspaceId: string | null | undefined): Bot | null {
   const mine = bots.filter((b) => b.workspace_id === workspaceId).sort((a, b) => a.created_at - b.created_at);
   return mine.find((b) => b.settings.launchpad === "admin") ?? mine[0] ?? null;
-}
-
-/** Bots as conversations (the Bots list, the phone's Chats tab): the Ask bot pinned first, then the others by their
- * thread's last activity, newest first; bots that never ran last, by name. */
-export function conversationOrder(bots: Bot[], sessions: Session[], workspaceId: string | null | undefined): { bot: Bot; thread: Session[]; pinned: boolean }[] {
-  const ask = askTarget(bots, workspaceId);
-  const rows = bots.filter((b) => b.workspace_id === workspaceId).map((bot) => ({ bot, thread: botThread(sessions, bot.id), pinned: bot.id === ask?.id }));
-  const last = (r: { thread: Session[] }) => r.thread.at(-1)?.status_since ?? -1;
-  return rows.sort((a, b) => Number(b.pinned) - Number(a.pinned) || last(b) - last(a) || a.bot.settings.name.localeCompare(b.bot.settings.name));
 }

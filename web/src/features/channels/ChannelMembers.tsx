@@ -1,4 +1,4 @@
-// A named channel's Members panel (`?panel=members`: a drawer on the laptop, a page on the phone): you first, always a
+// A named channel's members (a card of its settings page): you first, always a
 // member, then each member bot with its mode (`channel.set-mode`) and Remove in ⋯ (`channel.remove-member`), then
 // Add a member from the workspace's other bots (`channel.add-member`). An admin bot's changes to members are in the
 // activity list with their values before.

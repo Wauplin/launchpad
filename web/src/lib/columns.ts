@@ -1,13 +1,14 @@
 // Widths of the laptop layout's resizable columns (the sidebar, list columns): one entry per column, shared by
 // every page that shows that column. Pure, so the clamp is tested without a browser.
 
-export type ColumnName = "sidebar" | "agents-list" | "knowledge-notes" | "knowledge-changes" | "files-tree" | "review-files";
+export type ColumnName = "sidebar" | "agents-list" | "chats-list" | "knowledge-notes" | "knowledge-changes" | "files-tree" | "review-files";
 
 export type ColumnSpec = { initial: number; min: number; max: number; /** Share of the window it may take at most. */ maxRatio: number };
 
 export const COLUMNS: Record<ColumnName, ColumnSpec> = {
   sidebar: { initial: 200, min: 160, max: 360, maxRatio: 0.3 },
   "agents-list": { initial: 280, min: 220, max: 560, maxRatio: 0.4 },
+  "chats-list": { initial: 300, min: 220, max: 560, maxRatio: 0.4 },
   "knowledge-notes": { initial: 300, min: 220, max: 560, maxRatio: 0.4 },
   "knowledge-changes": { initial: 380, min: 260, max: 640, maxRatio: 0.45 },
   "files-tree": { initial: 284, min: 200, max: 560, maxRatio: 0.4 },

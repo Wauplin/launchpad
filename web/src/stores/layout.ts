@@ -1,4 +1,5 @@
-// Persistent session selection, pins and terminal dock, one set per workspace (see workspace.ts).
+// Persistent session selection, collapsed Agents groups and terminal dock, one set per workspace (see workspace.ts).
+// Version 1 dropped the pinned sessions of the Agents list (a removed feature): `migrate` forgets them in stored state.
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -12,8 +13,6 @@ export type Dock = { open: boolean; height: number; active: string | null };
 export type AgentGroup = "Needs you" | "Done" | "Running" | "Quota paused" | "Sleeping" | "Stopped" | "Interrupted" | "Failed" | "In terminal" | "Archived";
 
 type LayoutStore = {
-  pinned: string[];
-  togglePin: (id: string) => void;
   collapsedGroups: Partial<Record<AgentGroup, boolean>>;
   toggleGroup: (group: AgentGroup) => void;
   selectedSession: string | null;
@@ -28,13 +27,12 @@ type LayoutStore = {
 export const isCollapsed = (groups: Partial<Record<AgentGroup, boolean>>, group: AgentGroup) => groups[group] ?? false;
 
 const defaultDock: Dock = { open: false, height: 320, active: null };
-const defaults = { pinned: [], collapsedGroups: {}, selectedSession: null, dock: defaultDock };
+const defaults = { collapsedGroups: {}, selectedSession: null, dock: defaultDock };
 
 export const useLayout = create<LayoutStore>()(
   persist(
     (set, get) => ({
       ...defaults,
-      togglePin: (id) => { refresh(); set({ pinned: get().pinned.includes(id) ? get().pinned.filter((p) => p !== id) : [...get().pinned, id] }); },
       toggleGroup: (group) => { refresh(); set({ collapsedGroups: { ...get().collapsedGroups, [group]: !isCollapsed(get().collapsedGroups, group) } }); },
       show: (selectedSession) => { refresh(); set({ selectedSession }); },
       clearSession: (id) => { refresh(); if (get().selectedSession === id) set({ selectedSession: null }); },
@@ -42,18 +40,25 @@ export const useLayout = create<LayoutStore>()(
     }),
     {
       name: storageKey(useWorkspace.getState().current),
+      version: 1,
+      // Version 0 stored `pinned` (pinned agent sessions, removed): drop it, keep the rest.
+      migrate: (persisted) => {
+        const { pinned: _pinned, ...rest } = (persisted ?? {}) as Partial<LayoutStore> & { pinned?: unknown };
+        return rest as LayoutStore;
+      },
+      partialize: (s) => ({ collapsedGroups: s.collapsedGroups, selectedSession: s.selectedSession, dock: s.dock }),
       merge: (persisted, current) => {
-        const { pinned, collapsedGroups, selectedSession, dock } = { ...defaults, ...(persisted as Partial<LayoutStore>) };
+        const { collapsedGroups, selectedSession, dock } = { ...defaults, ...(persisted as Partial<LayoutStore>) };
         const height = dock.height;
         // Whether the dock is open is this window's own state: a new window opens with it closed, and another
         // window opening or closing its dock changes nothing here.
-        return { ...current, pinned, collapsedGroups, selectedSession, dock: { ...defaultDock, ...dock, open: current.dock.open, height: typeof height === "number" && Number.isFinite(height) ? height : defaultDock.height } };
+        return { ...current, collapsedGroups, selectedSession, dock: { ...defaultDock, ...dock, open: current.dock.open, height: typeof height === "number" && Number.isFinite(height) ? height : defaultDock.height } };
       },
     },
   ),
 );
 
-/** Loads the selected session and pins of another workspace when this window switches. */
+/** Loads the selected session and groups of another workspace when this window switches. */
 useWorkspace.subscribe((s, prev) => {
   if (s.current === prev.current) return;
   const name = storageKey(s.current);

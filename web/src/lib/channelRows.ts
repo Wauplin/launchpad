@@ -39,7 +39,7 @@ export const MODES: { id: ChannelMemberMode; label: string; hint: string }[] = [
 export function channelNameError(name: string, taken: Pick<Channel, "name" | "archived">[]): string | null {
   if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)) return "Lowercase letters, digits and dashes, starting with a letter or digit";
   const t = taken.find((c) => c.name === name);
-  if (t?.archived) return `#${name} is an archived channel: bring it back or delete it under Archived channels to use its name`;
+  if (t?.archived) return `#${name} is an archived channel: bring it back or delete it from its settings (Chats → Archived) to use its name`;
   if (t) return `#${name} already exists in this workspace`;
   return null;
 }

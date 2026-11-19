@@ -836,7 +836,7 @@ fn new_members<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Ve
 pub(crate) async fn name_taken(app: &App, workspace: &str, name: &str, except: Option<&str>) -> Result<Option<String>> {
     let (ws, n, ex) = (workspace.to_string(), name.to_string(), except.unwrap_or_default().to_string());
     let archived: Option<bool> = app.state_db.call(move |c| Ok(c.query_row("SELECT archived FROM channel WHERE workspace_id = ?1 AND name = ?2 AND id != ?3", params![ws, n, ex], |r| r.get(0)).optional()?)).await?;
-    Ok(archived.map(|a| if a { format!("#{name} already exists in this workspace, archived: bring it back (Bots → Archived channels) or delete it first") } else { format!("#{name} already exists in this workspace") }))
+    Ok(archived.map(|a| if a { format!("#{name} already exists in this workspace, archived: bring it back (Chats → Archived, then its settings) or delete it first") } else { format!("#{name} already exists in this workspace") }))
 }
 
 /// Checks a new channel: its name (valid, free in the workspace), workspace and member bots (each once, of the

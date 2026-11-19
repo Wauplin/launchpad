@@ -34,11 +34,17 @@ function routeCrumbs(path: string, projects: Project[], bots: Bot[], channels: C
     const folder = { label: p?.name ?? "…", to: "/projects/$id", params: { id: project[1] } };
     return project[2] ? [{ label: "Folders", to: "/projects" }, folder, { label: "Files" }] : [{ label: "Folders", to: "/projects" }, { label: folder.label }];
   }
-  const bot = path.match(/^\/bots\/([^/]+)/);
-  if (bot) return [{ label: "Bots", to: "/bots" }, { label: bots.find((b) => b.id === bot[1])?.settings.name ?? "…" }];
-  // A bot channel or DM lives in the Bots area.
-  const channel = path.match(/^\/channels\/([^/]+)/);
-  if (channel) return [{ label: "Bots", to: "/bots" }, { label: channels.find((c) => c.id === channel[1])?.title ?? "…" }];
+  // A chat and a bot's or channel's settings live in Chats.
+  const bot = path.match(/^\/bots\/([^/]+)(\/settings)?/);
+  if (bot) {
+    const name = bots.find((b) => b.id === bot[1])?.settings.name ?? "…";
+    return bot[2] ? [{ label: "Chats", to: "/chats" }, { label: name, to: "/bots/$id", params: { id: bot[1] } }, { label: "Settings" }] : [{ label: "Chats", to: "/chats" }, { label: name }];
+  }
+  const channel = path.match(/^\/channels\/([^/]+)(\/settings)?/);
+  if (channel) {
+    const title = channels.find((c) => c.id === channel[1])?.title ?? "…";
+    return channel[2] ? [{ label: "Chats", to: "/chats" }, { label: title, to: "/channels/$id", params: { id: channel[1] } }, { label: "Settings" }] : [{ label: "Chats", to: "/chats" }, { label: title }];
+  }
   if (path.startsWith("/terminals")) return [{ label: "Terminals" }];
   return [];
 }

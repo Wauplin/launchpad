@@ -131,7 +131,7 @@ function botFileReceipt(c: Change): string {
   return `${c.new_sha256 ? (c.sha256 ? "changed" : "added") : "deleted"} ${what}`;
 }
 
-export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSettings, intro, view = "bot", onStep, onThread }: {
+export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSettings, intro, view = "bot", onStep, onThread, conversationBar = true }: {
   bot: Bot;
   /** Which view shows the chat (a bot page, the Ask panel), for the sessions this window reports on screen. */
   view?: string;
@@ -150,6 +150,8 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
   intro: React.ReactNode;
   /** The step the current turn works on (its last step title), for the page's status line. */
   onStep?: (step: string | null) => void;
+  /** The bar over a conversation of several bots (its bots and their states); a page whose header names them hides it. */
+  conversationBar?: boolean;
 }) {
   const current = [...thread].reverse().find((s) => s.status !== "closed") ?? null;
   // Sessions shown, counted from the newest; a new session of the thread adds to them.
@@ -340,10 +342,10 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
   return (
     <ReplyContext.Provider value={onReply}>
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-paper" data-tour="bots.thread">
-      {multi && conversation && <ConversationBar conversation={conversation} />}
+      {multi && conversation && conversationBar && <ConversationBar conversation={conversation} />}
       {otherCurrent.map((s) => <SeenMark key={s.id} session={s} focused={focused} />)}
       {failedLog && <div role="alert" className="flex flex-wrap items-center gap-3 px-4 py-2 text-[12px] text-ink-3">
-        <span className="min-w-0 flex-1 break-words">Could not load the thread: {failedLog.error}</span>
+        <span className="min-w-0 flex-1 break-words">Could not load the chat: {failedLog.error}</span>
         <button className="btn btn-sm" onClick={() => visible.forEach((s) => void load(s.id))}>Retry</button>
       </div>}
       <div ref={scrollRef} className="lp-quiet-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 [overflow-wrap:anywhere]"
@@ -392,7 +394,7 @@ function QueuedRow({ item, botId }: { item: Extract<ChatItem, { t: "queued" }>; 
     <Icon name="clock" size={12} className="flex-none" />
     <span className="min-w-0 flex-1">
       <span className="line-clamp-2 break-words whitespace-pre-wrap">{item.text}</span>
-      <span className="block text-[11px]">Waiting · from {QUEUED_FROM[item.source] ?? item.source} · {ago(item.at)} · {item.slot ? "waiting for a free slot: the bot works in as many threads as it may at once" : "sent when the current turn ends"}</span>
+      <span className="block text-[11px]">Waiting · from {QUEUED_FROM[item.source] ?? item.source} · {ago(item.at)} · {item.slot ? "waiting for a free slot: the bot works in as many chats as it may at once" : "sent when the current turn ends"}</span>
     </span>
     <ActionButton name="bot.cancel-queued" params={{ id: botId, n: String(item.n) }} icon={null} onDone={() => qc.invalidateQueries({ queryKey: ["bot-queued", botId] })} />
   </div></div>;
@@ -537,7 +539,7 @@ function ChangeLine({ record, text }: { record: ChangeRecord | undefined; text: 
 /** Where a change receipt leads: the note, the bot's About, or the changed record's page. */
 function ReceiptLink({ record, children }: { record: ChangeRecord | undefined; children: React.ReactNode }) {
   if (record?.kind === "kb" && record.c.new_sha256) return <Link to="/knowledge" search={{ note: record.c.path }} className={NAME_LINK}>{children}</Link>;
-  if (record?.kind === "bot") return <Link to="/bots/$id" params={{ id: record.botId }} search={{ panel: "about" } as never} className={NAME_LINK}>{children}</Link>;
+  if (record?.kind === "bot") return <Link to="/bots/$id/settings" params={{ id: record.botId }} className={NAME_LINK}>{children}</Link>;
   if (record?.kind === "folio") return <Link to="/folios/$slug" params={{ slug: record.f.slug }} className={NAME_LINK}>{children}</Link>;
   const link = record?.kind === "act" ? activityLink(record.a) : null;
   return link ? <Link {...link} className={NAME_LINK}>{children}</Link> : <>{children}</>;
@@ -649,7 +651,7 @@ function RoutineName({ title }: { title: string }) {
 
 /** A change of the bot's own files: the path opens the bot's About. */
 function BotFileText({ c, botId }: { c: Change; botId: string }) {
-  return <>{kbVerb(c)} <Link to="/bots/$id" params={{ id: botId }} search={{ panel: "about" } as never} className={NAME_LINK}>{c.path}</Link>{kbStats(c)}</>;
+  return <>{kbVerb(c)} <Link to="/bots/$id/settings" params={{ id: botId }} className={NAME_LINK}>{c.path}</Link>{kbStats(c)}</>;
 }
 
 /** A direct change: the record's name opens its page. */
@@ -721,7 +723,7 @@ function WorkingRow({ item, quiet }: { item: Extract<ChatItem, { t: "working" }>
   return <div className={`flex items-center gap-2 py-1.5 text-[12px] text-work ${MESSAGE_INDENT}`} role="status" aria-label={quiet ? label : undefined}>
     <span className="lp-spin" />
     {!quiet && <span className="min-w-0 truncate">{`${item.bot ? `${item.bot.name} · ` : ""}${label}${item.step ? ` · ${item.step}` : ""} · ${age(s.status_since)}`}</span>}
-    <Link to="/agents" search={{ session: s.id }} className="shrink-0 text-inherit underline underline-offset-2" title="Open this thread's session in Agents: its trace, terminal and files">View running agent</Link>
+    <Link to="/agents" search={{ session: s.id }} className="shrink-0 text-inherit underline underline-offset-2" title="Open this chat's session in Agents: its trace, terminal and files">View running agent</Link>
     <span className="flex-1" />
     <button className="btn btn-sm" disabled={busy} title="Stop: interrupt the bot" onClick={() => { setBusy(true); void runAction("session.stop", { id: s.id }).catch(toastError).finally(() => setBusy(false)); }}><Icon name="stop" size={12} />Stop</button>
   </div>;
@@ -892,7 +894,7 @@ function BotComposer({ bot, threadId, onThread, current, askSession, conversatio
     <div className="border-t border-line-2 px-2.5 pt-2 pb-2.5" data-tour="bots.reply">
       <div className="mx-auto w-full max-w-text">
         {rotation && threadId !== NEW_THREAD && <div className="mb-1.5 text-[12px] text-ink-3">{rotation}: your next message continues in a new thread, with a reference to this one.</div>}
-        {threadId === NEW_THREAD && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3"><Icon name="plus" size={12} className="flex-none" />Your next message starts a new thread of {bot.settings.name}.</div>}
+        {threadId === NEW_THREAD && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3"><Icon name="plus" size={12} className="flex-none" />Your next message starts a new chat with {bot.settings.name}.</div>}
         {unconfirmed && !busy && <div role="status" className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3"><span className="min-w-0 flex-1">Delivery not confirmed. Send the same message to check its result.</span><button className="chat-tap flex-none text-teal-ink hover:underline" title="Only if the chat does not show the message: it may then be sent twice" onClick={() => void abandonOperation(unconfirmed.path, unconfirmed.body).then(() => setUnconfirmed(null)).catch(toastError)}>I checked the chat — start a new attempt</button></div>}
         {answering && !(ask && ask.permission) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="chat.answering">
           <Icon name="comment" size={12} className="flex-none" />
@@ -933,8 +935,8 @@ function BotComposer({ bot, threadId, onThread, current, askSession, conversatio
 }
 
 
-/** ⋯ → Profile and model: a quick override of the bot's profile list and model (About → Access → Edit holds all of
- * its settings). A change applies to new threads (an open thread continues in a new one with its next message). */
+/** Profile and model (the bot's settings): a quick override of the bot's profile list and model (Access → Edit holds
+ * all of its settings). A change applies to new chats (an open chat continues in a new one with its next message). */
 export function BotModelChoice({ bot, current }: { bot: Bot; current: Session | null }) {
   const profiles = useProfiles();
   const qc = useQueryClient();
@@ -964,6 +966,6 @@ export function BotModelChoice({ bot, current }: { bot: Bot; current: Session | 
         {bot.settings.model && !models.some((m) => m.id === bot.settings.model) && <option value={bot.settings.model}>{bot.settings.model}</option>}
       </select>
     </label>
-    <span className="text-[12px] text-ink-3">{running ? "Wait for the turn to end, or Stop it." : "A change applies to new threads; this thread's next message continues in a new one."}</span>
+    <span className="text-[12px] text-ink-3">{running ? "Wait for the turn to end, or Stop it." : "A change applies to new chats; an open chat continues in a new one with its next message."}</span>
   </div>;
 }

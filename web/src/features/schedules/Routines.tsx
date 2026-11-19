@@ -137,7 +137,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
     setEdit(null);
     toast("Routine saved");
   });
-  const where = cron.bot_id ? <>Each run starts a new thread of {bot ? <Link to="/bots/$id" params={{ id: bot.id }}>{bot.settings.name}</Link> : "its bot"}</> : <>Starts a new agent · {cron.spec.harness ? harnessName(cron.spec.harness) : "Agent"} · {folder ?? "a temporary folder"}</>;
+  const where = cron.bot_id ? <>Each run starts a new chat with {bot ? <Link to="/bots/$id" params={{ id: bot.id }}>{bot.settings.name}</Link> : "its bot"}</> : <>Starts a new agent · {cron.spec.harness ? harnessName(cron.spec.harness) : "Agent"} · {folder ?? "a temporary folder"}</>;
   return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 text-[13px]">
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-card border border-line bg-chrome p-3">
       {edit ? <>
@@ -157,7 +157,7 @@ export function RoutineDetails({ cron, bot, onOpen, onDeleted, onEditFile }: { c
         <p className="m-0 text-ink-2" title={cronTitle(cron)}>{triggerSummary(cron, (id) => projects.find((p) => p.id === id)?.name ?? "a removed folder", channelName, bot?.settings.name)}</p>
         {cron.gate && <p className="m-0 text-[12px] text-ink-2"><Link to="/schedules" search={{ tab: "oracles", oracle: cron.gate.oracle }}>{gateSummary(cron.gate)}</Link>{cron.gate.params && Object.keys(cron.gate.params).length > 0 ? <span className="text-ink-3"> · {Object.entries(cron.gate.params).map(([k, v]) => `${k} = ${String(v)}`).join(" · ")}</span> : null}</p>}
         <p className="m-0 text-[12px] text-ink-3">{where}</p>
-        {cron.auto_archive && <p className="m-0 text-[12px] text-ink-3">Archives each run {inThread ? "thread " : ""}that ends Done with nothing waiting.</p>}
+        {cron.auto_archive && <p className="m-0 text-[12px] text-ink-3">Archives each run {inThread ? "chat " : ""}that ends Done with nothing waiting.</p>}
         {cron.conditions.length > 0 && <ul className="m-0 list-disc pl-5 text-[12px] text-ink-2">{cron.conditions.map((c, i) => <li key={i}>{conditionSummary(c, cron.spec.harness, harnessName)}</li>)}</ul>}
         <p className="m-0 text-[12px] text-ink-3">{success ? `Last successful run ${ago(success.at)} (${success.outcome === "report" ? "report" : "nothing to report"}).` : "No successful run yet."}{cron.last_outcome && !cron.last_outcome.startsWith("Report") && !cron.last_outcome.startsWith("No update") ? ` Last: ${cron.last_outcome}.` : ""}{cron.waiting ? ` Due, waiting: ${cron.waiting}.` : ""}</p>
         <div className="flex flex-wrap items-center gap-2">

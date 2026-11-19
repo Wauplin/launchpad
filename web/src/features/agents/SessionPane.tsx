@@ -122,7 +122,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
-  const { pinned, togglePin, setDock } = useLayout();
+  const { setDock } = useLayout();
   const openTerminal = useOpenTerminal();
   const terminalsHere = useTerminalsHere();
   const tui = useTerminals().data?.find((t) => t.alive && t.kind === "tui" && t.session_id === sessionId);
@@ -263,7 +263,6 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   const running = isRunning(s);
   const resumable = s.status === "closed" || s.status === "stopped" || s.status === "interrupted" || s.status === "error";
   const name = harness?.name ?? s.harness;
-  const isPinned = pinned.includes(s.id);
   const mainChanges = git.data?.main_changes?.files ?? 0;
   // Committed differences from main remain reviewable, but do not block Archive.
   const uncommitted = (git.data?.files.length ?? 0) > 0;
@@ -337,7 +336,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
     <button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, { title: title.trim() }); setRenaming(false); } catch (e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button>
     <button className="btn btn-sm" disabled={savingTitle} onClick={() => setRenaming(false)}>Cancel</button>
   </div> : <button className={`session-title min-w-0 truncate text-left text-[13px] font-[650] hover:text-teal-ink ${phone ? "flex-1" : ""}`} title={`${s.title} · Click to edit`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
-    {isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}
+    {s.title}
   </button>;
   // Run settings, paid usage and cost limit show only when they differ from the defaults.
   const stateChips = <>
@@ -371,7 +370,6 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
       {s.project_id && <MenuItem icon={<Icon name="folder" size={14} />} label="Browse files" detail="Read the folder in Files" onClick={() => { close(); void navigate({ to: "/projects/$id/code", params: { id: s.project_id! }, search: { root: s.cwd, session: s.id } }); }} />}
       <MenuItem icon={<Icon name="agents" size={14} />} label="Use trace as context" detail="Reference this trace in a new agent's prompt" disabled={s.last_seq === 0} onClick={() => { close(); useComposer.getState().start({ agentTraces: [{ session_id: s.id, through_seq: s.last_seq }] }); }} />
       {s.status !== "closed" && !archivePrimary && <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail="It stays resumable" onClick={() => { close(); archive(); }} />}
-      <MenuItem icon={<span className="text-teal-ink">{isPinned ? "★" : "☆"}</span>} label={isPinned ? "Unpin session" : "Pin session"} onClick={() => { close(); togglePin(s.id); }} />
     </>}
   </Popover>;
 
@@ -387,7 +385,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
         <SessionStatus s={s} />
         {!archivePrimary && <StatePrimary s={s} primary={primary} />}
       </div>}
-      {phone ? <><PhoneBar title={<>{isPinned && <span className="mr-1 text-teal-ink" title="Pinned">★</span>}{s.title}</>} onBack={onClear} backLabel="Back to agents" end={actionsMenu} />
+      {phone ? <><PhoneBar title={<>{s.title}</>} onBack={onClear} backLabel="Back to agents" end={actionsMenu} />
       <div className="session-header @container grid items-center border-b border-line-2">
         {renaming && <div className="session-heading flex min-w-0 items-center gap-1">{titleEl}</div>}
         <span className="session-meta flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3 tabular-nums">

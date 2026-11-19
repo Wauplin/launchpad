@@ -1,16 +1,14 @@
 import { useKnowledgeUnseen } from "@/lib/knowledge";
 import { useFolios } from "@/lib/folios";
-import { botTone } from "@/components/BotAvatar";
-import { useChannelAsks, useTodayCount } from "@/features/today/data";
-import { botInitial, botState, botThread, threadSummary, useBots } from "@/lib/bots";
-import type { Bot } from "@/gen/Bot";
+import { useTodayCount } from "@/features/today/data";
 import { useScope } from "@/lib/workspace";
-import { archivedOf, byName, channelName, channelsOf, useChannels } from "@/lib/channels";
-import { ChannelLink } from "@/features/channels/ChannelRows";
-import { SidebarActiveThreads } from "@/features/bots/ActiveThreads";
+import { usePinnedChats, useChats, useChatsNeedCount } from "@/features/chats/data";
+import { ChatMark } from "@/features/chats/ChatMark";
+import { chatNeedsYou, type Chat } from "@/lib/chatList";
+import { memo } from "react";
 import { WorkspaceMenu } from "@/features/workspaces/WorkspaceMenu";
-import { Link } from "@tanstack/react-router";
-import { memo, type ReactNode } from "react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { type ReactNode } from "react";
 import type { Project } from "@/gen/Project";
 import { isRunning, isQuotaPaused, needsYou } from "@/lib/sessionStatus";
 import type { Session } from "@/gen/Session";
@@ -22,7 +20,7 @@ import { useTheme } from "@/stores/theme";
 import { useSetupSummary } from "@/features/setup/summary";
 import { useOnboarding, usePatchOnboarding } from "@/onboarding/data";
 import { useColumn } from "@/components/ResizeHandle";
-import { useSidebar, type SidebarGroup } from "@/stores/sidebar";
+import { useSidebar } from "@/stores/sidebar";
 
 /** A corner mark of an icon in the narrow sidebar: an amber count, or a state dot. */
 type Mark = { count: number } | "needs" | "paused" | "running" | "new" | null;
@@ -35,14 +33,16 @@ function Corner({ mark }: { mark: Mark }) {
 }
 
 /** A place of the sidebar. Narrow: its icon alone, the label in the tooltip and a corner mark instead of `end`. */
-function NavItem({ to, icon, children, end, tour, narrow, mark = null, title }: { to: string; icon: IconName; children: ReactNode; end?: ReactNode; tour?: string; narrow?: boolean; mark?: Mark; title?: string }) {
+function NavItem({ to, icon, children, end, tour, narrow, mark = null, title, current }: { to: string; icon: IconName; children: ReactNode; end?: ReactNode; tour?: string; narrow?: boolean; mark?: Mark; title?: string; current?: boolean }) {
+  // `current`: the place shows although the address is one of its pages (Chats: a chat, a bot's settings).
+  const on = current ? (narrow ? " !bg-paper !text-ink shadow-[inset_0_0_0_1px_var(--color-line)]" : " !bg-paper !text-ink font-semibold shadow-[inset_0_0_0_1px_var(--color-line)]") : "";
   if (narrow) return (
     <Link
       to={to}
       data-tour={tour}
       title={title}
       aria-label={title}
-      className="mx-auto grid size-[31px] flex-none place-items-center rounded-control text-ink-2 no-underline hover:bg-sunk"
+      className={`mx-auto grid size-[31px] flex-none place-items-center rounded-control text-ink-2 no-underline hover:bg-sunk${on}`}
       activeProps={{ className: "!bg-paper !text-ink shadow-[inset_0_0_0_1px_var(--color-line)]" }}
       activeOptions={{ exact: to === "/", includeSearch: false }}
     >
@@ -53,7 +53,7 @@ function NavItem({ to, icon, children, end, tour, narrow, mark = null, title }: 
     <Link
       to={to}
       data-tour={tour}
-      className="flex min-h-[31px] flex-none items-center gap-2 rounded-control px-[9px] py-1 text-ink-2 no-underline hover:bg-sunk"
+      className={`flex min-h-[31px] flex-none items-center gap-2 rounded-control px-[9px] py-1 text-ink-2 no-underline hover:bg-sunk${on}`}
       activeProps={{ className: "!bg-paper !text-ink font-semibold shadow-[inset_0_0_0_1px_var(--color-line)]" }}
       activeOptions={{ exact: to === "/", includeSearch: false }}
     >
@@ -61,30 +61,6 @@ function NavItem({ to, icon, children, end, tour, narrow, mark = null, title }: 
       {children}
       {end && <span className="ml-auto">{end}</span>}
     </Link>
-  );
-}
-
-/**
- * A collapsible group of the sidebar (Bots): the chevron in the icon column shows or hides its rows
- * (remembered on this device), the label opens its page. `end` shows while it is collapsed (counts, state dots).
- */
-function Group({ id, to, label, end, actions, tour, children }: { id: SidebarGroup; to: string; label: string; end?: ReactNode; actions?: ReactNode; tour?: string; children: ReactNode }) {
-  const open = !useSidebar((s) => s.collapsed[id]);
-  const toggle = useSidebar((s) => s.toggle);
-  return (
-    <div className="flex flex-none flex-col gap-px" data-tour={tour}>
-      <div className="flex min-h-[31px] flex-none items-center rounded-control hover:bg-sunk">
-        <button type="button" className="grid h-[31px] w-[34px] flex-none place-items-center rounded-control text-ink-3 hover:text-ink" aria-expanded={open} aria-label={`${open ? "Collapse" : "Expand"} ${label}`} title={`${open ? "Collapse" : "Expand"} ${label} on this device`} onClick={() => toggle(id)}>
-          <Icon name="chev" size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
-        </button>
-        <Link to={to} className="flex h-[31px] min-w-0 flex-1 items-center gap-1.5 pr-1 text-ink-2 no-underline" activeProps={{ className: "!text-ink font-semibold" }} activeOptions={{ exact: true }}>
-          <span className="flex-none">{label}</span>
-          {!open && end && <span className="ml-auto flex-none">{end}</span>}
-        </Link>
-        {actions && <span className="flex flex-none items-center pr-0.5">{actions}</span>}
-      </div>
-      {open && children}
-    </div>
   );
 }
 
@@ -119,64 +95,44 @@ function FinishSetup({ narrow }: { narrow: boolean }) {
   );
 }
 
-/** A bot's row: its initial, its name and the state of its threads (a dot that sums them up, and the number of
- * threads that need you when there are several). */
-const BotLink = memo(function BotLink({ bot, thread, narrow }: { bot: Bot; thread: Session[]; narrow?: boolean }) {
-  const state = botState(thread);
-  const needs = threadSummary(thread).needs;
-  if (narrow) return (
-    <Link to="/bots/$id" params={{ id: bot.id }} title={bot.settings.name} aria-label={bot.settings.name} className="mx-auto grid size-[31px] flex-none place-items-center rounded-control no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)]" }}>
-      <span className={`relative grid size-[18px] place-items-center rounded-sm text-[11px] font-semibold ${botTone(bot.settings.name)}`}>{botInitial(bot.settings.name)}<Corner mark={state === "needs" || state === "paused" || state === "running" ? state : null} /></span>
-    </Link>
-  );
-  return (
-    <Link to="/bots/$id" params={{ id: bot.id }} className="flex h-[28px] items-center gap-2 rounded-control px-[9px] text-[13px] text-ink no-underline hover:bg-sunk" activeProps={{ className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)] font-semibold" }}>
-      <span className={`grid size-[16px] flex-none place-items-center rounded-sm text-[11px] font-semibold ${botTone(bot.settings.name)}`} aria-hidden>{botInitial(bot.settings.name)}</span>
-      <span className="min-w-0 flex-1 truncate">{bot.settings.name}</span>
-      {state === "needs" && (needs > 1 ? <Count n={needs} needs title={`${needs} threads need you`} /> : <span className="size-[7px] rounded-full bg-attn" title="Needs you" />)}
-      {state === "paused" && <span className="size-[7px] rounded-full border border-attn" title="Quota paused" />}
-      {state === "running" && <span className="lp-spin" title="Working" />}
-    </Link>
-  );
+/** A pinned chat under Chats: its mark, its title and a state mark. Narrow: its mark alone. */
+const PinnedChat = memo(function PinnedChat({ chat, narrow }: { chat: Chat; narrow: boolean }) {
+  const link = chat.kind === "thread" ? { to: "/bots/$id" as const, params: { id: chat.bot.id }, search: { thread: chat.thread } } : { to: "/channels/$id" as const, params: { id: chat.id }, search: {} };
+  const needs = chatNeedsYou(chat);
+  const running = chat.kind === "thread" && chat.section === "Running";
+  const bold = needs || (chat.kind === "channel" && chat.unread > 0);
+  const state = needs ? "needs you" : running ? "working" : chat.kind === "channel" && chat.unread ? `${chat.unread} unread` : null;
+  const title = `${chat.title}${state ? ` · ${state}` : ""} (pinned)`;
+  const active = { className: "!bg-paper shadow-[inset_0_0_0_1px_var(--color-line)] !text-ink" };
+  if (narrow) return <Link {...link} title={title} aria-label={title} className="mx-auto grid size-[31px] flex-none place-items-center rounded-control no-underline hover:bg-sunk" activeProps={active} activeOptions={{ exact: true, includeSearch: true }}>
+    <span className="relative grid place-items-center"><ChatMark chat={chat} size={16} /><Corner mark={needs ? "needs" : running ? "running" : null} /></span>
+  </Link>;
+  return <Link {...link} title={title} aria-label={title} className="flex h-[28px] flex-none items-center gap-2 rounded-control pr-[9px] pl-[22px] text-[13px] text-ink-2 no-underline hover:bg-sunk" activeProps={active} activeOptions={{ exact: true, includeSearch: true }}>
+    <ChatMark chat={chat} size={16} />
+    <span className={`min-w-0 flex-1 truncate ${bold ? "font-semibold text-ink" : ""}`}>{chat.title}</span>
+    {needs ? <span className="size-[7px] flex-none rounded-full bg-attn" aria-hidden /> : running ? <span className="lp-spin" aria-hidden /> : chat.kind === "channel" && chat.unread > 0 ? <span className="size-[7px] flex-none rounded-full bg-ink-3" aria-hidden /> : null}
+  </Link>;
 });
 
-/** A small label over a part of the Bots group (Channels, Bot DMs). */
-const SubLabel = ({ children }: { children: ReactNode }) => <div className="mt-1.5 px-[9px] pb-0.5 text-[11px] font-semibold text-ink-3">{children}</div>;
-
-/** Bots of the workspace (Ask Launchpad among them), then its channels and bot DMs. Collapsed: one state dot (and the
- * amber dot of a channel that asks you); their proposals wait in Today, and a channel only when a bot asks you there. */
-function BotList({ sessions, narrow }: { sessions: Session[]; narrow: boolean }) {
-  const scope = useScope();
-  // Alphabetical, like the Bots page.
-  const bots = byName((useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id), (b) => b.settings.name);
-  const allChannels = useChannels().data;
-  const split = channelsOf(allChannels, scope.workspace.id);
-  const channels = byName(split.channels, channelName);
-  const dms = byName(split.dms, channelName);
-  const archived = archivedOf(allChannels, scope.workspace.id).length;
-  const asks = useChannelAsks();
-  if (narrow) return (
-    <div className="flex flex-none flex-col gap-px" data-tour="sidebar.bots">
-      {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} narrow />)}
-      {bots.length === 0 && <Link to="/bots" search={{ new: true } as never} className="mx-auto grid size-[31px] place-items-center rounded-control text-ink-3 no-underline hover:bg-sunk hover:text-ink" title="New bot" aria-label="New bot"><Icon name="plus" size={14} /></Link>}
-    </div>
-  );
-  const states = bots.map((b) => botState(botThread(sessions, b.id)));
-  const summary = <span className="flex items-center gap-1.5">
-    {states.includes("needs") && <span className="size-[7px] rounded-full bg-attn" title="A bot needs you" />}
-    {states.includes("paused") && <span className="size-[7px] rounded-full border border-attn" title="A bot is quota paused" />}
-    {states.includes("running") && <span className="lp-spin" title="A bot works" />}
-    {asks.size > 0 && <span className="size-[7px] rounded-full bg-attn" title="A channel message asks you" />}
-  </span>;
-  return (
-    <Group id="bots" to="/bots" label="Bots" tour="sidebar.bots" end={summary} actions={<><Link to="/bots" search={{ new: true } as never} className="iconbtn" title="New bot" aria-label="New bot"><Icon name="plus" size={14} /></Link></>}>
-      {bots.map((b) => <BotLink key={b.id} bot={b} thread={botThread(sessions, b.id)} />)}
-      {bots.length === 0 && <Link to="/bots" search={{ new: true } as never} className="mx-[9px] my-1 text-[12px] text-teal-ink no-underline hover:underline">+ New bot</Link>}
-      {channels.length > 0 && <div className="flex flex-col gap-px" data-tour="sidebar.channels"><SubLabel>Channels</SubLabel>{channels.map((c) => <ChannelLink key={c.id} c={c} />)}</div>}
-      {dms.length > 0 && <div className="flex flex-col gap-px" data-tour={channels.length ? undefined : "sidebar.channels"}><SubLabel>Bot DMs</SubLabel>{dms.map((c) => <ChannelLink key={c.id} c={c} />)}</div>}
-      {archived > 0 && <Link to="/bots" search={{ archived: true } as never} className="mt-1 flex h-[28px] items-center gap-2 rounded-control px-[9px] text-[12px] text-ink-3 no-underline hover:bg-sunk hover:text-ink" data-tour="sidebar.archived"><span className="min-w-0 flex-1 truncate">Archived channels</span><Count n={archived} /></Link>}
-    </Group>
-  );
+/** Chats, under Agents: the count of chats that need you (their Today cards: a question, an unseen answer, a channel
+ * that asks you), then only the chats you pinned, each a shortcut. */
+function SidebarChats({ narrow }: { narrow: boolean }) {
+  const { chats } = useChats();
+  const path = useRouterState({ select: (st) => st.location.pathname });
+  const inChats = /^\/(bots|channels)(\/|$)/.test(path);
+  const pinned = usePinnedChats();
+  const needs = useChatsNeedCount();
+  const running = chats.some((c) => c.kind === "thread" && c.section === "Running");
+  const detail = [needs && `${needs} need${needs === 1 ? "s" : ""} you`, running && "a bot works"].filter(Boolean).join(", ");
+  return <>
+    <NavItem narrow={narrow} tour="sidebar.chats" to="/chats" icon="comment" current={inChats} mark={needs ? { count: needs } : running ? "running" : null} title={detail ? `Chats · ${detail}` : "Chats"}
+      end={<span className="flex items-center gap-1">{running && <span className="lp-spin" title="A bot works" />}<Count n={needs} needs title={`${needs} chat${needs === 1 ? "" : "s"} need${needs === 1 ? "s" : ""} you`} /></span>}>
+      Chats
+    </NavItem>
+    {pinned.length > 0 && <div className="flex flex-none flex-col gap-px" role="group" aria-label="Pinned chats" data-tour="sidebar.pinned">
+      {pinned.map((c) => <PinnedChat key={c.pin} chat={c} narrow={narrow} />)}
+    </div>}
+  </>;
 }
 
 /** Agents in the sidebar: a monitor, with the quota-paused and running counts. What needs you is in Today. */
@@ -216,15 +172,14 @@ export function Sidebar() {
       <WorkspaceMenu narrow={narrow} />
       {/* One scroll area for the groups; Settings stays at the bottom. */}
       <div className={`relative flex min-h-0 flex-1 flex-col gap-px overflow-y-auto pt-2.5 pb-2 ${narrow ? "overflow-x-hidden px-1 [scrollbar-width:none]" : "px-2"}`}>
-      {!narrow && <SidebarActiveThreads />}
-      <BotList sessions={sessions} narrow={narrow} />
-      <nav aria-label="Places" data-tour="sidebar.nav" className="mt-2 flex flex-none flex-col gap-px border-t border-line-2 pt-2">
+      <nav aria-label="Places" data-tour="sidebar.nav" className="flex flex-none flex-col gap-px">
       <NavItem narrow={narrow} tour="sidebar.today" to="/" icon="okcircle" mark={{ count: today }} title={label("Today", today > 0 && todayTitle)} end={<Count n={today} needs title={todayTitle} />}>
         Today
       </NavItem>
       <NavItem narrow={narrow} tour="sidebar.agents" to="/agents" icon="agents" mark={quotaPaused ? "paused" : running ? "running" : null} title={label("Agents", [quotaPaused && `${quotaPaused} quota paused`, running && `${running} running`].filter(Boolean).join(", "))} end={<AgentCounts quotaPaused={quotaPaused} running={running} />}>
         Agents
       </NavItem>
+      <SidebarChats narrow={narrow} />
       <NavItem narrow={narrow} tour="sidebar.schedules" to="/schedules" icon="clock" title="Schedules">
         Schedules
       </NavItem>

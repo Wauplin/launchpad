@@ -1,7 +1,7 @@
 // Phone shell: a top bar with the workspace sheet (workspaces with their counts, nothing else), the section title and
 // a status that warns (a detail page replaces the bar with its ‹, title and ⋯: `PhoneBar`, and keeps the status only
 // while it warns), one page at a time, and bottom tabs (Today · Chats · Agents · More). Chats lists the
-// workspace's bots (Ask Launchpad pinned first); More holds the other places. Android back follows `./back.ts`: tab
+// workspace's chats with its bots and its channels, by state (`features/chats`); More holds the other places. Android back follows `./back.ts`: tab
 // taps replace the entries above Today, overlays and detail views own one entry each. Same daemon, rules and feature
 // components as the laptop shell; only the frame differs. Every action stays a visible button.
 
@@ -24,8 +24,9 @@ import { useScope, useWorkspaceSync } from "@/lib/workspace";
 import { useSessions } from "@/lib/queries";
 import { useWorkspaceCounts } from "@/features/workspaces/counts";
 import { NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
-import { botState, botThread, useBots } from "@/lib/bots";
-import { useChannelAsks, useTodayHere } from "@/features/today/data";
+import { useBots } from "@/lib/bots";
+import { useTodayHere } from "@/features/today/data";
+import { useChatsNeedCount } from "@/features/chats/data";
 import { isRunning } from "@/lib/sessionStatus";
 import { ServerStatus } from "./ServerStatus";
 import { MORE_PLACES, PhoneBarContext, pageTitle } from "./PhoneHeader";
@@ -107,15 +108,14 @@ export function MobileShell() {
   // What waits in the other workspaces, shown on the button that opens the sheet.
   const counts = useWorkspaceCounts();
   const inMenu = Object.entries(counts).reduce((n, [id, c]) => n + (id === scope.workspace.id ? 0 : c.total), 0);
-  // Chats: the bots, channels and DMs of the workspace; its count is the bots that need you and the channels where a
-  // bot asks you (Today's channel rows). A second tap opens the last chat.
+  // Chats: the chats of the workspace's bots and its channels; its count is the chats that need you (their Today
+  // cards: a question, an unseen answer, a channel where a bot asks you). A second tap opens the last chat.
   const bots = (useBots().data ?? []).filter((b) => b.workspace_id === scope.workspace.id);
   const channels = useChannels().data;
-  const channelsNeed = useChannelAsks().size;
-  const chatsNeed = bots.filter((b) => botState(botThread(sessions, b.id)) === "needs").length + channelsNeed;
+  const chatsNeed = useChatsNeedCount();
   const onChats = path === "/chats" || path.startsWith("/bots") || path.startsWith("/channels");
   const lastChat = useRef<string | null>(null);
-  if (path.startsWith("/bots/") || path.startsWith("/channels/")) lastChat.current = path;
+  if ((path.startsWith("/bots/") || path.startsWith("/channels/")) && !path.endsWith("/settings")) lastChat.current = path;
   const openLastChat = () => {
     if (path !== "/chats" || !lastChat.current || !(bots.some((b) => lastChat.current === `/bots/${b.id}`) || (channels ?? []).some((c) => c.workspace_id === scope.workspace.id && lastChat.current === `/channels/${c.id}`))) return false;
     router.history.push(lastChat.current);
@@ -161,7 +161,7 @@ export function MobileShell() {
       </main>
       {!viewport?.keyboard && !typing && <nav className="flex flex-none border-t border-line bg-chrome pb-[env(safe-area-inset-bottom)]" aria-label="Main">
         <Tab to="/" icon="okcircle" label="Today" count={today} highlight exact />
-        <Tab to="/chats" icon="spark" label="Chats" count={chatsNeed} highlight active={onChats} tour="phone.chats-tab" onAgain={openLastChat} />
+        <Tab to="/chats" icon="comment" label="Chats" count={chatsNeed} highlight active={onChats} tour="phone.chats-tab" onAgain={openLastChat} />
         <Tab to="/agents" icon="agents" label="Agents" count={running} />
         <Tab to="/more" icon="more" label="More" count={moreNeeds} highlight active={onMore} tour="phone.more-tab" />
         {/* Hugging Face's floating button covers the bottom-right corner of a framed Space: an empty fifth slot. */}

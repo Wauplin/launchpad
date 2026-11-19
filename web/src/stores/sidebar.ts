@@ -1,11 +1,10 @@
-// Sidebar groups (Bots) open or collapsed, and the laptop sidebar narrowed to icons, on this device. The demo never writes browser storage.
+// The laptop sidebar narrowed to icons, on this device. The demo never writes browser storage.
 
 import { create } from "zustand";
 import { isDemo } from "../demo/mode.ts";
 
-export type SidebarGroup = "bots";
 /** `sidebar`: the whole laptop sidebar shows icons only. */
-type Key = SidebarGroup | "sidebar";
+type Key = "sidebar";
 type Collapsed = Partial<Record<Key, boolean>>;
 const key = "launchpad.sidebar";
 
@@ -27,4 +26,3 @@ export const useSidebar = create<{ collapsed: Collapsed; toggle: (group: Key) =>
 window.addEventListener("storage", (event) => {
   if (event.storageArea === localStorage && (event.key === key || event.key === null)) useSidebar.setState({ collapsed: read() });
 });
-

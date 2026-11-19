@@ -33,11 +33,10 @@ const markerOf = (h: RouterHistory) => (h.location.state as unknown as Record<st
 function parentOf(path: string, search: URLSearchParams): string | null {
   if (path === "/") return null;
   if (path.startsWith("/agents")) return search.has("session") ? "/agents" : null;
-  // A bot's About page (`?panel=`) has the bot's chat under it.
-  if (path.startsWith("/bots/")) return search.has("panel") ? path : "/chats";
-  // A channel's Members page (`?panel=members`) has the channel under it.
-  if (path.startsWith("/channels/")) return search.has("panel") ? path : "/chats";
-  if (path === "/bots") return search.has("new") || search.has("archived") ? "/chats" : null;
+  // A chat, a bot's settings and the grid have the Chats list under them; a channel's settings, the channel.
+  if (path.startsWith("/channels/") && path.endsWith("/settings")) return path.replace(/\/settings$/, "");
+  if (path.startsWith("/bots/") || path.startsWith("/channels/")) return "/chats";
+  if (path === "/chats" || path === "/bots") return search.has("new") || search.has("view") ? "/chats" : null;
   if (path.startsWith("/topics/")) return "/topics";
   if (path === "/topics") return "/more";
   if (path.startsWith("/folios/")) return "/folios";

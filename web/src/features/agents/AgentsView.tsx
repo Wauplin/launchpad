@@ -53,7 +53,7 @@ function searchText(s: Session): string {
 }
 
 /** Rows take stable callbacks with the session id, so a bus update re-renders only the rows whose session changed. */
-const SessionRow = memo(function SessionRow({ s, project, selected, pinned, tag, onOpen, onMarkUnread }: { s: Session; project: string; selected: boolean; pinned: boolean; tag?: WorkTag; onOpen: (id: string) => void; onMarkUnread: (id: string) => void }) {
+const SessionRow = memo(function SessionRow({ s, project, selected, tag, onOpen, onMarkUnread }: { s: Session; project: string; selected: boolean; tag?: WorkTag; onOpen: (id: string) => void; onMarkUnread: (id: string) => void }) {
   const navigate = useNavigate();
   const dim = s.status === "closed";
   const stop = isRunning(s) || isQuotaPaused(s);
@@ -79,7 +79,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, tag,
         </span>
         <span className={`flex min-w-0 items-center gap-1.5 text-[13px] leading-[1.35] ${dim ? "font-medium text-ink-2" : needs ? "font-semibold" : "font-medium"}`} title={s.title}>
           {s.launch_spec.bot ? <BotChip name={s.launch_spec.bot.name} routine={routine} /> : routine && <RoutineMark routine={routine} />}
-          <span className="min-w-0 truncate">{pinned ? "★ " : ""}{s.title}</span>
+          <span className="min-w-0 truncate">{s.title}</span>
         </span>
         <span className="flex items-center gap-1 text-[12px] whitespace-nowrap text-ink-3">
           {informative(s) ? <SessionStatus s={s} /> : <>{isRunning(s) && <span className="lp-spin" title="Running" />}{age(dim ? s.ended_at ?? s.status_since : s.status_since)}</>}
@@ -88,7 +88,7 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, tag,
           {tag && <WorkTagPill tag={tag} className="mr-1.5 align-[1px]" />}<span className="text-ink-2">{project}</span>{line && <> · <span className={s.quota_pause ? "text-attn" : ""}>{line}</span></>}
         </span>
       </button>
-      {/* The row opens the session; Stop, Archive, Mark unread and Pin in ⋯. */}
+      {/* The row opens the session; Stop, Archive and Mark unread in ⋯. */}
       <span className="agent-row-action lp-row-more absolute right-1.5 bottom-1.5">
         <MoreMenu label={`More actions for ${s.title}`}>{(close) => <>
           {stop && <ActionMenuItem name="session.stop" params={{ id: s.id }} close={close} />}
@@ -96,7 +96,6 @@ const SessionRow = memo(function SessionRow({ s, project, selected, pinned, tag,
           {tag?.pr && <MenuItem icon={<Icon name="pr" size={14} />} label={`Open PR #${tag.pr.number}`} detail={tag.pr.repo} onClick={() => { close(); openExternal(`https://github.com/${tag.pr!.repo}/pull/${tag.pr!.number}`); }} />}
           {tag?.localPr && <MenuItem icon={<Icon name="pr-local" size={14} />} label="Open Local PR" detail={tag.localPr.title} onClick={() => { close(); void navigate({ to: "/predrafts/$id", params: { id: tag.localPr!.id } }); }} />}
           {canMarkUnread && <ActionMenuItem name="session.unread" params={{ id: s.id }} close={() => { close(); onMarkUnread(s.id); }} label="Mark unread" detail="Return to Today for later" icon="mail" />}
-          <MenuItem icon={<span className="text-teal-ink">{pinned ? "★" : "☆"}</span>} label={pinned ? "Unpin" : "Pin"} detail="Pinned sessions show first" onClick={() => { close(); useLayout.getState().togglePin(s.id); }} />
         </>}</MoreMenu>
       </span>
     </div>
@@ -140,9 +139,7 @@ export function AgentsView() {
   const { add: addTopic } = useTopicMutations();
   const [selection, setSelection] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
-  const [pinsOnly, setPinsOnly] = useState(false);
   const [archiving, setArchiving] = useState(false);
-  const pinned = useLayout((s) => s.pinned);
   useEffect(() => { const t = setTimeout(() => setDebounced(filter.trim()), 250); return () => clearTimeout(t); }, [filter]);
   const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
   const projects = useProjects().data;
@@ -200,7 +197,7 @@ export function AgentsView() {
   };
 
   const needle = filter.trim().toLocaleLowerCase();
-  const filtered = sessions.filter((s) => (!search.topic || topics.some((t) => t.id === search.topic && t.session_ids.includes(s.id))) && (!pinsOnly || pinned.includes(s.id)) && (!needle || searchText(s).includes(needle) || projectName(projects, s.project_id, s.cwd).toLocaleLowerCase().includes(needle) || (debounced === filter.trim() && matches.data?.includes(s.id))));
+  const filtered = sessions.filter((s) => (!search.topic || topics.some((t) => t.id === search.topic && t.session_ids.includes(s.id))) && (!needle || searchText(s).includes(needle) || projectName(projects, s.project_id, s.cwd).toLocaleLowerCase().includes(needle) || (debounced === filter.trim() && matches.data?.includes(s.id))));
   const order = (a: Session, b: Session) => b.started_at - a.started_at;
   const newest = (a: Session, b: Session) => b.status_since - a.status_since;
   // What needs you (a question, an unseen Done, Failed or Interrupted) comes first, out of its state's group.
@@ -218,7 +215,7 @@ export function AgentsView() {
   const inTerminal = local.filter((s) => s.status === "in_terminal").sort(order);
   const archived = local.filter((s) => s.status === "closed").sort(order);
   const now = Date.now();
-  const oldDone = done.filter((s) => !needsYou(s) && !pinned.includes(s.id) && now - s.status_since > 3 * DAY);
+  const oldDone = done.filter((s) => !needsYou(s) && now - s.status_since > 3 * DAY);
 
   // Archives each one and says how many it archived; one failure does not stop the others.
   const archiveOld = async () => {
@@ -273,7 +270,7 @@ export function AgentsView() {
   const markUnreadRef = useRef<(id: string) => void>(() => {});
   markUnreadRef.current = (id) => { if (id === visibleSession) clearSession(id); };
   const markUnread = useCallback((id: string) => markUnreadRef.current(id), []);
-  const row = (s: Session) => <div className="flex items-center">{selecting && <label className="flex shrink-0 items-center justify-center px-2" style={{ minHeight: ROW }}><input type="checkbox" aria-label={`Select ${s.title}`} checked={selection.includes(s.id)} onChange={(e) => setSelection((ids) => e.target.checked ? [...ids, s.id] : ids.filter((id) => id !== s.id))} /></label>}<div className="min-w-0 flex-1"><SessionRow key={s.id} s={s} project={name(s)} pinned={pinned.includes(s.id)} tag={tags.get(s.id)} selected={s.id === visibleSession} onOpen={open} onMarkUnread={markUnread} /></div></div>;
+  const row = (s: Session) => <div className="flex items-center">{selecting && <label className="flex shrink-0 items-center justify-center px-2" style={{ minHeight: ROW }}><input type="checkbox" aria-label={`Select ${s.title}`} checked={selection.includes(s.id)} onChange={(e) => setSelection((ids) => e.target.checked ? [...ids, s.id] : ids.filter((id) => id !== s.id))} /></label>}<div className="min-w-0 flex-1"><SessionRow key={s.id} s={s} project={name(s)} tag={tags.get(s.id)} selected={s.id === visibleSession} onOpen={open} onMarkUnread={markUnread} /></div></div>;
 
   const paneOpen = !!visibleSession;
   return (
@@ -282,7 +279,6 @@ export function AgentsView() {
         <div className="grid gap-2 border-b border-line p-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <button className="lp-chip" aria-pressed={searching} aria-label="Search sessions and messages" title={searching ? "Close the search" : "Search sessions and messages"} onClick={() => { if (searching) { setFilter(""); setArchivedLimit(30); } setSearchOpen(!searching); }}><Icon name="search" size={12} /></button>
-            <button className="lp-chip" aria-pressed={pinsOnly} aria-label="Pinned only" title="Show only pinned sessions" onClick={() => setPinsOnly(!pinsOnly)}>★</button>
             <TopicFilterChip compact value={search.topic} onChange={(topic) => void navigate({ to: "/agents", search: { ...search, topic }, replace: true })} />
             <button className="lp-chip" aria-pressed={selecting} aria-label="Select sessions" title="Select sessions to add them to a topic" onClick={() => { setSelecting(!selecting); setSelection([]); }}><Icon name="check" size={12} /></button>
             {phone && <span className="ml-auto shrink-0"><LaunchButton small title="Open the composer (the draft if one exists)" /></span>}
@@ -310,7 +306,7 @@ export function AgentsView() {
             const item = items[v.index];
             return <div key={v.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: v.size, transform: `translateY(${v.start}px)` }}>
               {item.kind === "session" ? row(item.session) : item.kind === "group" ? <Group title={item.title} count={item.count} highlight={item.highlight} detail={item.detail} collapsed={groupCollapsed(item.title)} onToggle={() => toggleListGroup(item.title)} /> :
-                item.kind === "archive-old" ? <div className="flex h-full min-w-0 items-center px-3"><ConfirmButton className="min-w-0 truncate" icon="archive" disabled={archiving} title="Archive seen Done sessions older than 3 days. Archived sessions stay resumable in Archived. Pinned sessions are kept." consequence={`Archive ${oldDone.length}?`} confirmLabel="Archive" onConfirm={archiveOld}>{archiving ? "Archiving…" : `Archive ${oldDone.length} seen, older than 3 d`}</ConfirmButton></div> :
+                item.kind === "archive-old" ? <div className="flex h-full min-w-0 items-center px-3"><ConfirmButton className="min-w-0 truncate" icon="archive" disabled={archiving} title="Archive seen Done sessions older than 3 days. Archived sessions stay resumable in Archived." consequence={`Archive ${oldDone.length}?`} confirmLabel="Archive" onConfirm={archiveOld}>{archiving ? "Archiving…" : `Archive ${oldDone.length} seen, older than 3 d`}</ConfirmButton></div> :
                 <button className="px-3 py-2 text-left text-[12px] text-teal-ink hover:underline" onClick={() => setArchivedLimit((n) => n + 50)}>Show more</button>}
             </div>;
           })}

@@ -66,7 +66,7 @@ export function pageTitle(path: string): string {
   if (path.startsWith("/folios")) return "Folios";
   if (path.startsWith("/knowledge")) return "Knowledge";
   if (path.startsWith("/schedules")) return "Schedules";
-  if (path.startsWith("/bots") || path.startsWith("/channels")) return "Chats";
+  if (path === "/chats" || path.startsWith("/bots") || path.startsWith("/channels")) return "Chats";
   if (path.startsWith("/projects")) return path.endsWith("/code") ? "Files" : "Folders";
   return "Launchpad";
 }

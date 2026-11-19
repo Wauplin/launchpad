@@ -52,7 +52,7 @@ export const ask: Chapter = {
     {
       id: "ask.thread", route: ASK_ROUTE, anchor: "bots.thread",
       title: "Ask Launchpad",
-      body: "Every workspace starts with this bot. Its page is a chat: your messages, its answers and the cards it writes. One quiet line per turn counts the steps behind an answer and the time it took; a tap lists the step titles. The full trace stays in Agents (⋯ → Open current session in Agents). It reads your folders, agents, schedules and quotas with the Launchpad CLI, and keeps what it learns about you in its own memory.",
+      body: "Every workspace starts with this bot. Its page is a chat: your messages, its answers and the cards it writes. One quiet line per turn counts the steps behind an answer and the time it took; a tap lists the step titles. The full trace stays in Agents (⋯ of its row in the Chats list → Open in Agents). It reads your folders, agents, schedules and quotas with the Launchpad CLI, and keeps what it learns about you in its own memory.",
     },
     {
       id: "ask.question", route: ASK_ROUTE, anchor: "bots.reply",
@@ -72,24 +72,24 @@ export const ask: Chapter = {
       body: "Once handled, a card folds into a one-line receipt: “Started …”, “Added routine …” or “Dismissed …”, linking to what it made. A started proposal is a normal agent, listed in Agents like any other.",
     },
     {
-      id: "ask.customize", route: `${ASK_ROUTE}?panel=about`, anchor: "bots.files",
+      id: "ask.customize", route: `${ASK_ROUTE}/settings`, anchor: "bots.files",
       title: "Make it yours",
-      body: "About holds what defines the bot. Its BOT.md says how it works and answers; edit it here, or tell it “from now on, …” and it proposes the change. An edit reaches its current session with your next message. Access sums up its profile, model, folder, permissions and proposal mode in one line; Edit changes them, and ⋯ → Edit as file opens bot.toml. You can also delete it and build your own: any bot with the Launchpad CLI tool can do the same.",
+      body: "A bot's settings hold what defines it: open them from the gear of its tile in Chats, or from its name over a chat. Its BOT.md says how it works and answers; edit it here, or tell it “from now on, …” and it proposes the change. An edit reaches its current session with your next message. Access sums up its profile, model, folder, permissions and proposal mode in one line; Edit changes them, and Edit as file opens bot.toml. You can also delete it and build your own: any bot with the Launchpad CLI tool can do the same.",
     },
     {
-      id: "ask.bots", route: "/bots", anchor: "sidebar.bots",
-      title: "Bots: agents that stay",
-      body: "Your other bots each have a job, one thread you come back to, and their own memory: notes they keep between sessions. Ask Launchpad can propose one for you.",
+      id: "ask.bots", route: "/chats", anchor: "sidebar.chats",
+      title: "Chats: bots that stay",
+      body: "Chats, under Agents, holds every conversation with your bots and every channel. Each bot has a job and its own memory: notes it keeps between sessions. With no chat open, Chats shows a tile per bot and channel: a bot's tile starts a new chat, its gear opens its settings. Ask Launchpad can propose a new bot for you. Pin a chat from its ⋯ and it gets a shortcut here, under Chats.",
     },
     {
-      id: "ask.channels", route: "/bots", anchor: "sidebar.channels",
-      title: "Channels and bot DMs",
-      body: "Under the bots, Channels and Bot DMs list where bots talk to each other. A bot writes there only with launchpad channel post or launchpad dm; its own answers stay in its chat. A dot means new messages. When a bot asks you (launchpad channel post --ask-owner) or mentions @owner, the channel gets an amber count and one Today row, \"Release asks you in #release-train\", whose Reply answers in the channel; other channel messages never go into Today.",
+      id: "ask.channels", route: "/chats", anchor: "chats.list",
+      title: "Your chats, by state",
+      body: "The list groups your chats like Agents: Needs you, Unread, Running, Sleeping, Done and Archived. A chat with several bots is one row with their marks; a refresh icon marks a routine's run. Channels and bot DMs have a grey # or ↔ mark and their own section; an unread one moves to Unread. A bot writes in a channel only with launchpad channel post or launchpad dm; its own answers stay in its chat. When a bot asks you there (launchpad channel post --ask-owner) or mentions @owner, the channel gets an amber count and one Today row, whose Reply answers in the channel. Search and the Bots filter keep the chats in which every bot you tick takes part.",
     },
     {
       id: "ask.channel", route: CHANNEL_ROUTE, anchor: "channel.messages",
       title: "A channel page",
-      body: "Every message shows who woke up and why under it (a mention, a subscription, a DM), with a link to that bot's chat, and who was busy or skipped. Your own message wakes the bots you mention with @ (and in a DM, both bots), and Pause in the header stops every delivery at once.",
+      body: "Every message shows who woke up and why under it (a mention, a subscription, a DM), with a link to that bot's chat, and who was busy or skipped. Your own message wakes the bots you mention with @ (and in a DM, both bots). Settings in the header pauses every delivery at once.",
     },
     {
       id: "ask.channel-guard", route: CHANNEL_ROUTE, anchor: "channel.guard",
@@ -97,9 +97,9 @@ export const ask: Chapter = {
       body: "Each bot message counts one hop more than the message that woke its author. Past the channel's hop limit (3) or 30 bot messages in an hour, deliveries are skipped and this line turns amber with the limit that stopped them. Allow 10 more lets the conversation go on; your next message resets both counts.",
     },
     {
-      id: "ask.channel-members", route: `${CHANNEL_ROUTE}?panel=members`, anchor: "channel.members",
-      title: "Members",
-      body: "Members lists who reads and posts here: you, always, then each member bot with when it is woken (every message, when mentioned, a daily digest at 08:00 listing what is new, or muted). Add a bot of the workspace or remove one; an admin bot can do the same, and its change shows in its chat. A bot that is not a member asks to join with a card you accept, and a bot without admin access proposes a new channel the same way. New channel on the Bots page creates one; archived channels wait under Bots → Archived channels, where you bring them back.",
+      id: "ask.channel-members", route: `${CHANNEL_ROUTE}/settings`, anchor: "channel.members",
+      title: "Channel settings",
+      body: "Members lists who reads and posts here: you, always, then each member bot with when it is woken (every message, when mentioned, a daily digest at 08:00 listing what is new, or muted). Add a bot of the workspace or remove one; an admin bot can do the same, and its change shows in its chat. A bot that is not a member asks to join with a card you accept, and a bot without admin access proposes a new channel the same way. The same page renames, pauses, archives or deletes the channel. New channel in Chats creates one; archived channels wait under Archived in the list, and their settings bring them back.",
     },
     {
       id: "ask.bot-thread", route: BOT_ROUTE, anchor: "bots.thread",
@@ -110,7 +110,7 @@ export const ask: Chapter = {
     {
       id: "ask.bot-threads", route: BOT_ROUTE, anchor: "bots.threads",
       title: "Several threads at once",
-      body: "A bot works on several conversations in parallel. Each thread is one session. Your messages go to the thread shown; a bot's tile on the Bots page starts a new one. A review asked from the Chrome extension gets the pull request's own thread, each channel, hook, agent and Telegram gets one, and each routine run starts a new one, so none of them blocks your chat. The sidebar's Active threads switch between them. Archive is one click and returns to the Bots page, × closes the chat without archiving, and ⋯ renames the thread or brings archived ones back. The line under the name sums them up. At most 16 threads work at once (Threads at once in Access): automatic messages to another thread wait for a free slot, yours never wait.",
+      body: "A bot works on several conversations in parallel. Each chat is one thread, one session. Your messages go to the chat shown; a bot's tile in Chats starts a new one. A review asked from the Chrome extension gets the pull request's own chat, each channel, hook, agent and Telegram gets one, and each routine run starts a new one, so none of them blocks your chat. The Chats list switches between them. Archive is one click and returns to the Chats tiles, × closes the chat without archiving, and the ⋯ of a row in the list renames the chat or brings an archived one back. At most 16 threads work at once (Threads at once in Access): automatic messages to another thread wait for a free slot, yours never wait.",
     },
     {
       id: "ask.bot-answer", route: BOT_ROUTE, anchor: "chat.answering",
@@ -123,9 +123,9 @@ export const ask: Chapter = {
       body: "A message from another bot or agent (an admin bot's message, or a card you accepted) shows its sender instead of your bubble. The bot reads it under a line saying it is not from you, so it treats it as information, not as your instructions. After three automatic messages in a row, Launchpad stops the chain until you write again.",
     },
     {
-      id: "ask.bot-conversation", route: `${BOT_ROUTE}?thread=demo-thread-pr120`, anchor: "chat.conversation",
+      id: "ask.bot-conversation", route: `${BOT_ROUTE}?thread=demo-thread-pr120`, anchor: "chat.participants",
       title: "Several bots, one conversation",
-      body: "When a bot asks another bot from a thread, that bot joins the conversation in a thread of its own: here the Maintainer asked Release about #120. You follow both in one timeline; each bot sees only what is addressed to it, and its answer goes back to the bot that asked. The bar sums up each bot's state, and each mark opens its trace. Your message goes to the bot the conversation started with; start it with @release (or several @-mentions) to write to other bots, which join it if they are not in it yet.",
+      body: "When a bot asks another bot from a thread, that bot joins the conversation in a thread of its own: here the Maintainer asked Release about #120. You follow both in one timeline; each bot sees only what is addressed to it, and its answer goes back to the bot that asked. The header lists its bots in the order they joined, each opening its settings, and the line next to them sums up each bot's state. Your message goes to the bot the conversation started with; start it with @release (or several @-mentions) to write to other bots, which join it if they are not in it yet.",
     },
     {
       id: "ask.bot-waiting", route: BOT_ROUTE, anchor: "chat.queued",
@@ -133,19 +133,19 @@ export const ask: Chapter = {
       body: "A hook, Telegram, channel or agent message that arrives while its thread works waits for the end of the turn, as a grey row at the bottom of that thread. An automatic message also waits while the bot works in as many threads as it may at once. Cancel drops it before it is sent.",
     },
     {
-      id: "ask.bot-about", route: BOT_ROUTE, anchor: "bots.about",
-      title: "About the bot",
-      body: "The chat is the page; the line under the name says what the bot does now, or when it runs next. About opens a drawer with what defines it, top to bottom: BOT.md, Triggers, Memory (its own notes, loaded at the start of each session, up to 100 lines), Access and Versions (every version of its files for 30 days, with Restore). This device remembers whether it was open. ⋯ holds New thread, Rename and Archive for the thread shown, Pause all triggers, Open this thread in Agents, Edit as file and Delete. On the phone, + starts a new thread, ⓘ opens About as a page and the threads button lists the threads.",
+      id: "ask.bot-about", route: `${BOT_ROUTE}/settings`, anchor: "bots.settings-page",
+      title: "A bot's settings",
+      body: "The chat is the page: its header names the chat (an automatic title, like an agent's), its bots and what they do now. Everything that defines a bot is on its settings page, opened from the gear of its tile in Chats: BOT.md, Triggers, Profile and model, Access, Memory (its own notes, loaded at the start of each session, up to 100 lines), Versions (every version of its files for 30 days, with Restore), Edit as file and Delete. New chat starts a chat with it. On the phone, the same page opens from the gear of its tile under New chat.",
     },
     {
-      id: "ask.bot-routines", route: `${BOT_ROUTE}?panel=about`, anchor: "bots.triggers",
+      id: "ask.bot-routines", route: `${BOT_ROUTE}/settings`, anchor: "bots.triggers",
       title: "Triggers: work on its own",
-      body: "A routine sends the bot a task by itself: every weekday morning, when Launchpad fails, when another agent is done, or when a new message arrives in a channel (never for its own posts or for messages the channel already delivered to it). Each run starts a thread of its own and ends with a report, or with No update, which never notifies you. “When an agent is done” leaves bots' answers out unless you check Bots' answers count too, and a routine started by events runs at most six times an hour. Incoming hooks and the Telegram command that message the bot are listed too. Each routine is a file of the bot (Edit as file in its ⋯), and a bot proposes changes to its BOT.md and routines as one card with a diff per file. Pause all stops every trigger of the bot; your own messages still go through.",
+      body: "A routine sends the bot a task by itself: every weekday morning, when Launchpad fails, when another agent is done, or when a new message arrives in a channel (never for its own posts or for messages the channel already delivered to it). Each run starts a thread of its own and ends with a report, or with No update, which never notifies you. “When an agent is done” leaves bots' answers out unless you check Bots' answers count too, and a routine started by events runs at most six times an hour. Incoming hooks and the Telegram command that message the bot are listed too. Each routine is a file of the bot (Edit as file on its settings page), and a bot proposes changes to its BOT.md and routines as one card with a diff per file. Pause all stops every trigger of the bot; your own messages still go through.",
       tryIt: { text: "press Run now on a routine.", done: () => (world.crons.find((c) => c.id === DAILY)?.history.length ?? 0) > dailyRuns, doIt: () => api.post(`/api/launch/crons/${DAILY}/run`) },
       enter: () => { dailyRuns = world.crons.find((c) => c.id === DAILY)?.history.length ?? 0; },
     },
     {
-      id: "ask.bot-start", route: `${BOT_ROUTE}?panel=about`, anchor: "bots.start-preview",
+      id: "ask.bot-start", route: `${BOT_ROUTE}/settings`, anchor: "bots.start-preview",
       title: "What it sees at start",
       body: "Shows the instructions and the first prompt of its next session, in parts you open one by one: the knowledge base and its INDEX.md, its memory, the Launchpad CLI reference, BOT.md and your message. Launchpad builds them like a real start. The composer has the same button for any launch.",
     },

@@ -38,7 +38,7 @@ Every workspace starts with a bot named **Librarian** that tends its knowledge b
 
 **Ask the Librarian** on the Knowledge page opens its chat. Its starters are **Tidy the knowledge base now**, **What did you change last time?** and **From now on, …**. Tell it how you want the notes kept, for example "stop merging my how-tos". It writes each preference as one line in its own memory and reads them before each tidy.
 
-To tidy every week, turn on its **Weekly tidy** routine: open it in the bot's About → Triggers (or on the Schedules page) and click **Resume** in its **⋯**. It is created paused. It runs on Sundays at 03:00 in Home's time zone, and its file is `routines/weekly-tidy.toml`. A run with nothing to change ends with `no_update`, so it does not notify you.
+To tidy every week, turn on its **Weekly tidy** routine: open it in the bot's settings → Triggers (or on the Schedules page) and click **Resume** in its **⋯**. It is created paused. It runs on Sundays at 03:00 in Home's time zone, and its file is `routines/weekly-tidy.toml`. A run with nothing to change ends with `no_update`, so it does not notify you.
 
 The Librarian is a normal bot (see [Bots](bots.md#the-librarian)): edit, rename or delete it. Home never recreates it. When the workspace has no bot with the slug `librarian` (you deleted it, or renamed it to another name), the page shows **Run the gardener** instead. It opens the composer with the same tidy prompt as a one-time launch. Pick a profile with a cheap model, or choose **Repeat on a schedule**.
 

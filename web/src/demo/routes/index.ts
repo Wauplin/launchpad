@@ -10,6 +10,7 @@ import "./knowledge";
 import "./bots";
 import "./connections";
 import "./channels";
+import "./chats";
 import "./today";
 import "./ask";
 import "./oracles";

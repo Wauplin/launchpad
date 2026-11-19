@@ -51,7 +51,7 @@ export function WorkspaceSettings() {
           <button className="btn btn-sm w-fit" onClick={() => openInNewTab(w.id)}><Icon name="window" size={12} />Open in a new tab</button>
         </SettingRow>}
       </Card>
-      <Card title="Bots" end={<Link to="/bots" search={{ new: true } as never} className="btn btn-sm no-underline"><Icon name="plus" size={12} />New bot</Link>}>
+      <Card title="Bots" end={<Link to="/chats" search={{ new: true } as never} className="btn btn-sm no-underline"><Icon name="plus" size={12} />New bot</Link>}>
         {bots.length === 0 ? <Empty icon="spark">No bot in {w.name}.</Empty> : bots.map((b) => (
           <Link key={b.id} to="/bots/$id" params={{ id: b.id }} className="phone-workspace-project flex min-h-[32px] items-center gap-2 text-[13px] text-ink no-underline hover:underline">
             <span className={`grid size-[18px] flex-none place-items-center rounded-sm text-[11px] font-semibold ${botTone(b.settings.name)}`} aria-hidden>{botInitial(b.settings.name)}</span>

@@ -1,23 +1,23 @@
-// A bot channel or DM (one page for both): the header (name, purpose and members, Pause, ⋯), the messages (newest at
+// A bot channel or DM (one page for both, in the Chats frame): the header (name, state, purpose and members, Settings
+// and × back to Chats, archiving nothing), the messages (newest at
 // the bottom, opened tail-first, older pages as you scroll up), each with its deliveries as muted lines (who woke up
 // and why, who is busy, who was skipped and why), the loop-guard footer once bots answer each other (Allow 10 more
 // when a limit stopped a delivery) and your message box with @ suggestions of the member bots. Only a bot that asks
-// you (or mentions you) adds a Today row; the page marks the channel read once a used, focused window showed it.
+// you (or mentions you) adds a Today row; the page marks the channel read once a used, focused window showed it. Its
+// settings (`ChannelSettingsPage`): name and purpose, members, Pause, Block (DMs), Archive and Delete.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ActionButton } from "@/components/ActionButton";
 import { BotAvatar, OwnerAvatar, botInk } from "@/components/BotAvatar";
 import { ChatMessage } from "@/features/chat/Message";
 import { Icon } from "@/components/Icon";
 import { ImageThumb } from "@/components/ImageViewer";
 import { Markdown } from "@/components/Markdown";
-import { MenuItem } from "@/components/Popover";
 import { toastError } from "@/components/Toast";
-import { Badge, Empty, ErrorState, IconButton, Loading, MoreMenu, PageHeader } from "@/components/ui";
-import { SplitView } from "@/components/SplitView";
+import { Badge, Empty, ErrorState, IconButton, Loading, PageHeader } from "@/components/ui";
 import { ChannelComposer } from "./ChannelComposer";
 import { ChannelMembers } from "./ChannelMembers";
 import { useWindowFocused } from "@/features/agents/useSeen";
@@ -33,7 +33,7 @@ import { daemonAsset } from "@/lib/connection";
 import { deliveryLines, loopFooter, loopSkip, type DeliveryLine } from "@/lib/channels";
 import { ago, time, when } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
-import { PhoneBar, PhoneHeader } from "@/mobile/PhoneHeader";
+import { PhoneBar } from "@/mobile/PhoneHeader";
 import { phoneBack } from "@/mobile/back";
 
 export function ChannelPage() {
@@ -45,25 +45,19 @@ export function ChannelPage() {
 /** Older pages loaded by scrolling up, merged under the newest page (which the bus refreshes). */
 type Older = { messages: ChannelMessage[]; deliveries: Page["deliveries"]; more: boolean | null };
 
+/** The channel's state in words, when it is not the usual one. */
+const stateOf = (c: Channel) => c.archived ? "Archived" : c.blocked ? "Blocked: its bots cannot post" : c.paused ? "Paused: messages post, nobody wakes up" : null;
+
 function ChannelPageOf({ id }: { id: string }) {
   const phone = usePhone();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const page = useQuery({ queryKey: ["channel", id], queryFn: () => api.get<Page>(`/api/channels/${id}`), retry: false });
   const [older, setOlder] = useState<Older>({ messages: [], deliveries: [], more: null });
-  const [renaming, setRenaming] = useState(false);
   const channel = page.data?.channel;
-  // The address holds the open Members panel (`?panel=members`): a drawer on the laptop, a page on the phone that
-  // is one history entry over the channel, so ‹ and Android back return to it.
-  const members = (useSearch({ strict: false }) as { panel?: string }).panel === "members";
-  const setMembers = (open: boolean) => {
-    if (phone) {
-      if (open && !members) void navigate({ to: "/channels/$id", params: { id }, search: { panel: "members" } as never });
-      else if (!open && members) phoneBack(`/channels/${id}`);
-      return;
-    }
-    void navigate({ to: "/channels/$id", params: { id }, search: (open ? { panel: "members" } : {}) as never, replace: true });
-  };
+  // Older links opened the Members panel (`?panel=members`): members are in the channel's settings now.
+  const panel = (useSearch({ strict: false }) as { panel?: string }).panel;
+  useEffect(() => { if (panel) void navigate({ to: "/channels/$id/settings", params: { id }, replace: true }); }, [panel, id, navigate]);
   const { messages, deliveries, more } = useMemo(() => {
     const p = page.data;
     if (!p) return { messages: [], deliveries: [], more: false };
@@ -99,52 +93,94 @@ function ChannelPageOf({ id }: { id: string }) {
   };
 
   if (page.isLoading) return <Loading what="the channel" />;
-  if (page.error || !channel) return <div className="flex h-full flex-col"><PageHeader title="Channel" /><ErrorState error={page.error ?? new Error("This channel no longer exists.")} onRetry={() => void page.refetch()} action={<Link to="/bots" className="btn btn-sm">Bots</Link>} /></div>;
+  if (page.error || !channel) return <div className="flex h-full flex-col"><PageHeader title="Channel" /><ErrorState error={page.error ?? new Error("This channel no longer exists.")} onRetry={() => void page.refetch()} action={<Link to="/chats" className="btn btn-sm">All chats</Link>} /></div>;
 
-  const memberNames = channel.members.map((m) => m.name);
-  const state = channel.archived ? "Archived" : channel.blocked ? "Blocked: its bots cannot post" : channel.paused ? "Paused: messages post, nobody wakes up" : null;
-  const meta = <span className="min-w-0 truncate" data-tour="channel.meta">{[state, channel.kind === "dm" ? null : channel.purpose || null, `${memberNames.join(", ") || "No bot"} · you`].filter(Boolean).join(" · ")}</span>;
+  const state = stateOf(channel);
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["channel", id] }), qc.invalidateQueries({ queryKey: ["channels"] })]);
-  const pause = <ActionButton name="channel.pause" params={{ id }} body={{ paused: !channel.paused }} icon={channel.paused ? "play" : "stop"} title={channel.paused ? "Deliveries start again" : "Stop every delivery in this channel: messages still post, nobody wakes up"} onDone={refresh}><span data-tour="channel.pause">{channel.paused ? "Resume" : "Pause"}</span></ActionButton>;
-  const named = channel.kind === "channel";
-  const membersButton = named && <button className={`btn btn-sm ${members ? "border-teal/40 bg-teal-soft text-teal-ink" : ""}`} aria-pressed={members} data-tour="channel.members-button" title="Who reads and posts here, and when each bot is woken" onClick={() => setMembers(!members)}><Icon name="agents" size={12} />Members · {channel.members.length + 1}</button>;
-  const menu = (close: () => void) => <>
-    {phone && named && <MenuItem icon={<Icon name="agents" size={14} />} label="Members" detail={`${channel.members.length + 1}: you and ${channel.members.length} bot${channel.members.length === 1 ? "" : "s"}`} onClick={() => { close(); setMembers(true); }} />}
-    {phone && <ActionMenuItem name="channel.pause" params={{ id }} body={{ paused: !channel.paused }} close={close} icon={channel.paused ? "play" : "stop"} label={channel.paused ? "Resume" : "Pause"} detail={channel.paused ? "Deliveries start again" : "Messages still post, nobody wakes up"} onDone={refresh} />}
-    {channel.kind === "dm" && <ActionMenuItem name="channel.block" params={{ id }} body={{ blocked: !channel.blocked }} close={close} icon={channel.blocked ? "play" : "x"} label={channel.blocked ? "Unblock this DM" : "Block this DM"} detail={channel.blocked ? "Its bots can post again" : "Its bots can no longer post; you still can"} onDone={refresh} />}
-    {channel.members.map((m) => <MenuItem key={m.bot_id} icon={<Icon name="comment" size={14} />} label={`Open ${m.name}'s chat`} detail="Its own thread, where it works on what it reads here" onClick={() => { close(); void navigate({ to: "/bots/$id", params: { id: m.bot_id } }); }} />)}
-    {channel.kind === "channel" && <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename" detail="Its name and purpose" onClick={() => { close(); setRenaming(true); }} />}
-    {channel.kind === "channel" && <ActionMenuItem name="channel.archive" params={{ id }} body={{ archived: !channel.archived }} close={close} label={channel.archived ? "Bring back" : "Archive"} detail={channel.archived ? "Its bots can post again" : "Nobody posts; its history stays"} onDone={refresh} />}
-    {channel.kind === "channel" && <ActionMenuItem name="channel.delete" params={{ id }} vars={{ name: channel.title }} close={close} onDone={async () => { await qc.invalidateQueries({ queryKey: ["channels"] }); void navigate({ to: "/bots" }); }} />}
-  </>;
+  // Its bots, each opening its settings, then you.
+  const members = <span className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5" data-tour="channel.meta" aria-label={`Members: ${[...channel.members.map((m) => m.name), "you"].join(", ")}`}>
+    {channel.members.map((m) => <Fragment key={m.bot_id}>
+      <Link to="/bots/$id/settings" params={{ id: m.bot_id }} className="inline-flex min-h-6 min-w-0 items-center gap-1 rounded-control px-0.5 text-ink-2 no-underline hover:bg-sunk hover:text-ink" title={`Settings of ${m.name}`}><BotAvatar name={m.name} size={16} /><span className="truncate">{m.name}</span></Link>
+      <span className="text-ink-3" aria-hidden>·</span>
+    </Fragment>)}
+    <span>you</span>
+  </span>;
+  const settings = <Link to="/channels/$id/settings" params={{ id }} className="btn btn-sm no-underline" data-tour="channel.settings" title={channel.kind === "dm" ? "Pause or block this DM" : "Members, name and purpose, pause, archive and delete"}><Icon name="gear" size={12} />Settings</Link>;
   const header = phone
-    ? <PhoneHeader title={channel.title} onBack={() => phoneBack("/chats")} backLabel="All chats" subtitle={state ?? undefined} actions={menu} details={<p className="m-0 text-[12px] text-ink-3">{meta}</p>} />
-    : <PageHeader title={channel.title} meta={meta} actions={<>{membersButton}{pause}<MoreMenu label={`More actions for ${channel.title}`} width={300}>{menu}</MoreMenu></>} />;
-  if (phone && members && named) return <div className="flex h-full min-h-0 flex-col" data-tour="channel.page">
-    <PhoneBar title={`Members of ${channel.title}`} onBack={() => setMembers(false)} backLabel="Back to the channel" />
-    <div className="min-h-0 flex-1 overflow-y-auto">{named && <ChannelMembers channel={channel} />}</div>
-  </div>;
-  const body = <div className="flex h-full min-h-0 flex-col">
-      {renaming && <RenameForm channel={channel} onClose={() => setRenaming(false)} onDone={refresh} />}
-      <MessageList channel={channel} messages={messages} lines={lines} byId={byId} more={more} loadingMore={loadingMore} onOlder={() => void loadOlder()} />
-      {footer && <div className={`flex flex-wrap items-center gap-2 border-t border-line-2 px-5 py-1.5 text-[12px] ${footer.stopped ? "bg-attn-soft text-attn" : "text-ink-3"}`} data-tour="channel.guard" title="The loop guard: a bot's message counts one hop more than the message that woke it; your own messages reset the hop and the hourly count">
-        <Icon name={footer.stopped ? "alert" : "refresh"} size={12} className="flex-none" />
-        <span className="min-w-0 flex-1">{footer.stopped ? `${footer.stopped} · ` : ""}{footer.text}</span>
-        {footer.stopped && <ActionButton name="channel.allow-more" params={{ id }} onDone={refresh} />}
-      </div>}
-      <ChannelComposer key={channel.id} channel={channel} onSent={refresh} />
-    </div>;
-  const drawer = <div className="flex h-full min-h-0 flex-col" data-tour="channel.members-panel">
-    <div className="flex min-h-11 flex-none items-center gap-2 border-b border-line-2 px-3"><b className="min-w-0 flex-1 truncate text-[13px]">Members</b><IconButton icon="x" label="Close Members" onClick={() => setMembers(false)} /></div>
-    <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"><ChannelMembers channel={channel} /></div>
-  </div>;
+    ? <PhoneBar title={<span className="grid min-w-0"><span className="truncate">{channel.title}</span><span className="truncate text-[12px] font-normal text-ink-3">{state ?? `${[...channel.members.map((m) => m.name), "you"].join(", ")}`}</span></span>} onBack={() => phoneBack("/chats")} backLabel="All chats"
+      end={<IconButton icon="gear" label={`Settings of ${channel.title}`} data-tour="channel.settings" onClick={() => void navigate({ to: "/channels/$id/settings", params: { id } })} />} />
+    : <PageHeader title={channel.title} meta={<>{state && <span className="text-attn">{state}</span>}{channel.kind === "channel" && channel.purpose && <span className="min-w-0 truncate">{channel.purpose}</span>}{members}</>}
+      actions={<>{settings}<IconButton icon="x" label="Close the channel" onClick={() => void navigate({ to: "/chats", search: {} as never })} /></>} />;
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="channel.page">
       {header}
-      {/* Always the split view, so the message list (and a draft in its box) stays mounted when Members opens. */}
-      {phone ? body : <SplitView storageKey="launchpad.channel-members-width" sideLabel="Members" initial={340} min={300} maxRatio={0.5} main={body} side={members && named ? drawer : null} />}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <MessageList channel={channel} messages={messages} lines={lines} byId={byId} more={more} loadingMore={loadingMore} onOlder={() => void loadOlder()} />
+        {footer && <div className={`flex flex-wrap items-center gap-2 border-t border-line-2 px-5 py-1.5 text-[12px] ${footer.stopped ? "bg-attn-soft text-attn" : "text-ink-3"}`} data-tour="channel.guard" title="The loop guard: a bot's message counts one hop more than the message that woke it; your own messages reset the hop and the hourly count">
+          <Icon name={footer.stopped ? "alert" : "refresh"} size={12} className="flex-none" />
+          <span className="min-w-0 flex-1">{footer.stopped ? `${footer.stopped} · ` : ""}{footer.text}</span>
+          {footer.stopped && <ActionButton name="channel.allow-more" params={{ id }} onDone={refresh} />}
+        </div>}
+        <ChannelComposer key={channel.id} channel={channel} onSent={refresh} />
+      </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------- settings
+
+/** A channel's or DM's settings, on a page of the Chats frame: its name and purpose, its members (named channels),
+ * Pause, Block (DMs), Archive or Bring back, and Delete. */
+export function ChannelSettingsPage() {
+  const { id } = useParams({ strict: false }) as { id: string };
+  return <ChannelSettingsOf key={id} id={id} />;
+}
+
+function ChannelSettingsOf({ id }: { id: string }) {
+  const phone = usePhone();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const page = useQuery({ queryKey: ["channel", id], queryFn: () => api.get<Page>(`/api/channels/${id}`), retry: false });
+  const channel = page.data?.channel;
+  if (page.isLoading) return <Loading what="the channel" />;
+  if (page.error || !channel) return <div className="flex h-full flex-col"><PageHeader title="Settings" /><ErrorState error={page.error ?? new Error("This channel no longer exists.")} onRetry={() => void page.refetch()} action={<Link to="/chats" className="btn btn-sm">All chats</Link>} /></div>;
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["channel", id] }), qc.invalidateQueries({ queryKey: ["channels"] })]);
+  const named = channel.kind === "channel";
+  const state = stateOf(channel);
+  const open = <Link to="/channels/$id" params={{ id }} className={`btn btn-sm no-underline ${phone ? "" : "btn-primary"}`}><Icon name="comment" size={12} />Open {named ? "the channel" : "the DM"}</Link>;
+  const card = "grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-card border border-line bg-paper p-4";
+  const head = (title: string, action?: ReactNode) => <div className="flex min-h-7 items-center gap-2"><h2 className="seclabel m-0 min-w-0 flex-1">{title}</h2>{action}</div>;
+  return <div className="flex h-full min-h-0 flex-col" data-tour="channel.settings-page">
+    {phone
+      ? <PhoneBar title={`${channel.title} · Settings`} onBack={() => phoneBack(`/channels/${id}`)} backLabel="Back" />
+      : <PageHeader title={channel.title} meta={state ?? (named ? channel.purpose || "No purpose yet" : "A DM between two bots")} actions={<>{open}<IconButton icon="x" label="Close the settings" onClick={() => void navigate({ to: "/chats", search: {} as never })} /></>} />}
+    <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+      <div className={`@container grid w-full max-w-page grid-cols-[minmax(0,1fr)] gap-4 py-4 ${phone ? "px-3" : "px-5"}`}>
+        {phone && <div className="flex items-center gap-2"><span className="mr-auto min-w-0 truncate text-[12px] text-ink-3">{state ?? (named ? channel.purpose : "A DM between two bots")}</span>{open}</div>}
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 @5xl:grid-cols-2 @5xl:items-start">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
+            {named && <section className={card} data-tour="channel.about">{head("Name and purpose")}<RenameForm channel={channel} onDone={refresh} /></section>}
+            {named ? <section className={card} data-tour="channel.members-panel">{head(`Members · ${channel.members.length + 1}`)}<div className="-mx-3"><ChannelMembers channel={channel} /></div></section>
+              : <section className={card}>{head("Bots")}<p className="m-0 text-[13px] text-ink-2">{channel.members.map((m) => m.name).join(" and ")} write here, and you. Each is woken by every message of the other.</p></section>}
+          </div>
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
+            <section className={card} data-tour="channel.pause">{head("Deliveries")}
+              <p className="m-0 text-[12px] text-ink-3">{channel.paused ? "Paused: messages still post, nobody wakes up." : "Bots are woken by the messages their mode asks for."}</p>
+              <span className="w-fit"><ActionButton name="channel.pause" params={{ id }} body={{ paused: !channel.paused }} icon={channel.paused ? "play" : "stop"} title={channel.paused ? "Deliveries start again" : "Stop every delivery in this channel: messages still post, nobody wakes up"} onDone={refresh}>{channel.paused ? "Resume" : "Pause"}</ActionButton></span>
+              {!named && <span className="w-fit"><ActionButton name="channel.block" params={{ id }} body={{ blocked: !channel.blocked }} icon={channel.blocked ? "play" : "x"} title={channel.blocked ? "Its bots can post again" : "Its bots can no longer post; you still can"} onDone={refresh}>{channel.blocked ? "Unblock this DM" : "Block this DM"}</ActionButton></span>}
+            </section>
+            {named && <section className={card} data-tour="channel.archive">{head(channel.archived ? "Archived" : "Archive and delete")}
+              <p className="m-0 text-[12px] text-ink-3">{channel.archived ? "Nobody posts here; its history stays. Bring it back to post again." : "Archive: nobody posts, its history stays under Archived in Chats. Delete: its messages and deliveries go for good."}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <ActionButton name="channel.archive" params={{ id }} body={{ archived: !channel.archived }} icon={channel.archived ? "refresh" : "archive"} title={channel.archived ? "Its bots can post again" : "Nobody posts; its history stays"} onDone={refresh}>{channel.archived ? "Bring back" : "Archive"}</ActionButton>
+                <ActionButton name="channel.delete" params={{ id }} vars={{ name: channel.title }} onDone={async () => { await qc.invalidateQueries({ queryKey: ["channels"] }); void navigate({ to: "/chats", search: {} as never }); }} />
+              </div>
+            </section>}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>;
 }
 
 // ---------------------------------------------------------------- messages
@@ -264,14 +300,14 @@ function MessageFiles({ m }: { m: ChannelMessage }) {
 function queuedLine(bot: string, reason: string | null | undefined, what: string): string {
   if (reason?.startsWith("waits for confirmed quota")) return `${bot} waits for confirmed quota · ${what}`;
   if (reason?.startsWith("waits behind")) return `${bot} has earlier messages waiting · ${what}`;
-  if (reason?.startsWith("waits for a free slot")) return `${bot} works in as many threads as it may · ${what}`;
+  if (reason?.startsWith("waits for a free slot")) return `${bot} works in as many chats as it may · ${what}`;
   return `${bot} is busy · ${what}`;
 }
 
 /** A delivery as one muted line: "Maintainer woke up (mention) · open its chat", "Docs is busy · message queued (1)". */
 function Delivery({ l, channel }: { l: DeliveryLine; channel: string }) {
   // The bot's thread of this channel (`?thread=` takes the thread's key).
-  const chat = <Link to="/bots/$id" params={{ id: l.botId }} search={{ thread: `channel:${channel}` } as never} className="text-teal-ink no-underline hover:underline" title="Its thread for this channel, where it answers and works">open its thread</Link>;
+  const chat = <Link to="/bots/$id" params={{ id: l.botId }} search={{ thread: `channel:${channel}` } as never} className="text-teal-ink no-underline hover:underline" title="Its chat for this channel, where it answers and works">open its chat</Link>;
   const row = "flex min-w-0 items-start gap-1.5 text-[12px]";
   switch (l.kind) {
     case "woke":
@@ -293,18 +329,21 @@ function Delivery({ l, channel }: { l: DeliveryLine; channel: string }) {
 
 // ---------------------------------------------------------------- rename
 
-function RenameForm({ channel, onClose, onDone }: { channel: Channel; onClose: () => void; onDone: () => unknown }) {
+function RenameForm({ channel, onDone }: { channel: Channel; onDone: () => unknown }) {
   const [name, setName] = useState(channel.name);
   const [purpose, setPurpose] = useState(channel.purpose);
   const [busy, setBusy] = useState(false);
+  const dirty = name.trim() !== channel.name || purpose.trim() !== channel.purpose;
   const save = async () => {
     setBusy(true);
-    try { await runAction("channel.rename", { id: channel.id }, { name: name.trim(), purpose: purpose.trim() }); await onDone(); onClose(); } catch (e) { toastError(e); } finally { setBusy(false); }
+    try { await runAction("channel.rename", { id: channel.id }, { name: name.trim(), purpose: purpose.trim() }); await onDone(); } catch (e) { toastError(e); } finally { setBusy(false); }
   };
-  return <div className="flex flex-wrap items-end gap-2 border-b border-line-2 px-5 py-2">
-    <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input font-normal" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} autoFocus /></label>
-    <label className="grid min-w-0 flex-1 gap-1 text-[12px] font-semibold text-ink-2">Purpose<input className="field-input font-normal" value={purpose} maxLength={200} onChange={(e) => setPurpose(e.target.value)} /></label>
-    <button className="btn btn-sm btn-ghost" onClick={onClose}>Cancel</button>
-    <button className="btn btn-sm btn-primary" disabled={busy || !name.trim()} onClick={() => void save()}>Save</button>
+  return <div className="grid gap-2">
+    <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Name<input className="field-input font-normal" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} /></label>
+    <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Purpose<input className="field-input font-normal" value={purpose} maxLength={200} onChange={(e) => setPurpose(e.target.value)} /></label>
+    {dirty && <div className="flex justify-end gap-2">
+      <button className="btn btn-sm btn-ghost" onClick={() => { setName(channel.name); setPurpose(channel.purpose); }}>Discard</button>
+      <button className="btn btn-sm btn-primary" disabled={busy || !name.trim()} onClick={() => void save()}>Save</button>
+    </div>}
   </div>;
 }

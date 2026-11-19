@@ -420,7 +420,7 @@ An **oracle card** (`launchpad propose oracle`) holds the slug and the whole fil
 
 A routine with a schedule trigger can have a gate: before each scheduled run, Home evaluates an oracle, and the answer decides whether the run starts. Gates work on bot routines and on other routines. **Run now** ignores the gate.
 
-In the routine editor (**Edit** on Schedules, or the bot's About → **Triggers**), a schedule trigger has **Only when an oracle says**: pick an oracle of the workspace (or **Always**, for no gate), fill in its parameters, then choose:
+In the routine editor (**Edit** on Schedules, or the bot's settings → **Triggers**), a schedule trigger has **Only when an oracle says**: pick an oracle of the workspace (or **Always**, for no gate), fill in its parameters, then choose:
 
 - **Outcomes**: which answers start a run. **True** and **False** start a run with the routine's instructions and the evidence. **Failed** starts a repair run, once per failure streak, with its own instructions. An unchecked outcome stays silent.
 - **Fire** (required, no default): **When it changes** starts a run when the outcome changes, or when True comes back with a new fingerprint. **Every time** starts a run for every routed answer.

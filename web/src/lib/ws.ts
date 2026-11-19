@@ -172,6 +172,9 @@ export function connectEvents(queryClient: QueryClient) {
       void queryClient.invalidateQueries({ queryKey: ["outbox"] });
     } else if (topic === "connections") {
       void queryClient.invalidateQueries({ queryKey: ["connections"] });
+    } else if (topic === "chats") {
+      // A chat was pinned or unpinned.
+      void queryClient.invalidateQueries({ queryKey: ["chat-pins"] });
     } else if (topic === "channels") {
       // Bot channels: the lists and the open channel page (a post, a delivery, a read mark).
       void queryClient.invalidateQueries({ queryKey: ["channels"] });

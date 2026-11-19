@@ -57,7 +57,7 @@ export function useLaunchIntents() {
       setIntent(null);
       const bot = askTarget(bots.data ?? [], workspaceId);
       if (bot) void navigate({ to: "/bots/$id", params: { id: bot.id }, search: {} });
-      else void navigate({ to: "/bots", search: { new: true } });
+      else void navigate({ to: "/chats", search: { new: true } });
       return;
     }
     // The saved draft loads first, so it does not replace the shared text.
