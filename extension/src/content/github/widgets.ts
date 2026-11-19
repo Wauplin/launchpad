@@ -44,6 +44,9 @@ const STYLE = `
 /* After :host([data-block]): the strip lines up with GitHub's content column (container-xl, 32 px padding). */
 :host([data-block="strip"]) { display: block; max-width: 1280px; margin: 12px auto 0; padding: 0 32px; font-weight: 400; font-size: 13px; }
 :host([data-block="banner"]) { margin: 0 0 8px; }
+/* Under a diff line (underLine): never widens GitHub's diff table, whatever the text or code inside. */
+:host([data-diff]) { contain: inline-size; min-width: 0; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; }
+:host([data-diff]) .lp-answer { overflow-x: auto; }
 :host([data-launchpad="review-summary"]) { min-width: 0; width: 100%; max-width: 100%; align-self: stretch; box-sizing: border-box; }
 :host([data-launchpad="review-summary"]) .lp-row { flex-wrap: wrap; }
 :host([data-launchpad="review-summary"]) .lp-grow { white-space: normal; overflow-wrap: anywhere; }

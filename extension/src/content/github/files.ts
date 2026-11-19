@@ -201,7 +201,10 @@ async function readAnswer(a: Asked) {
   a.answer = answer;
 }
 
-/** A host under a diff line: in a row of our own after the line's row (classic tables), else after the line. */
+/** A host under a diff line: in a row of our own after the line's row (classic tables), else after the line.
+ * The row spans exactly the line row's columns (split diffs have 4, unified 3): a larger colspan adds implicit columns
+ * that take a share of a fixed-layout table's width from the code columns. The host's own width never feeds the
+ * table's (`data-diff`: inline-size containment), so long text or code wraps or scrolls inside it. */
 function underLine(row: Element, id: string, key: string, kind: "card" | "banner") {
   if (row instanceof HTMLTableRowElement) {
     let tr = document.querySelector<HTMLTableRowElement>(`tr[data-launchpad-row="${CSS.escape(id)}"]`);
@@ -209,15 +212,21 @@ function underLine(row: Element, id: string, key: string, kind: "card" | "banner
       tr = document.createElement("tr");
       tr.setAttribute("data-launchpad-row", id);
       const td = document.createElement("td");
-      td.colSpan = 8;
-      td.style.cssText = "padding:6px 12px 6px 60px;background:transparent;border:0;";
+      td.style.cssText = "padding:6px 12px 6px 60px;background:transparent;border:0;max-width:0;";
       tr.append(td);
     }
+    const td = tr.cells[0];
+    const cols = Math.max(1, Array.from(row.cells).reduce((n, c) => n + c.colSpan, 0));
+    if (td.colSpan !== cols) td.colSpan = cols;
     // Right after the line, before GitHub's own comment rows of it.
     if (row.nextElementSibling !== tr) row.after(tr);
-    return mount(id, key, tr.firstElementChild!, "beforeend", kind);
+    const w = mount(id, key, td, "beforeend", kind);
+    w.host.setAttribute("data-diff", "");
+    return w;
   }
-  return mount(id, key, row, "afterend", kind);
+  const w = mount(id, key, row, "afterend", kind);
+  w.host.setAttribute("data-diff", "");
+  return w;
 }
 
 function renderAnswers(page: FilesPage, ctx: ExtContext | null): string[] {
