@@ -491,11 +491,18 @@ impl Sessions {
                 let recovered = current.is_none()
                     && crate::replica::restored_before(s.started_at)
                     && crate::runners::placement_valid(app, &s, runner_id).await;
+                // A record Home cannot take back after a restore (no proof: launched before a verified backup held
+                // the placement key, by an older build, or moved after the checkpoint) is discarded on purpose: kept
+                // in `replica_orphan` for inspection, never applied.
+                let orphan = current.is_none() && !recovered && crate::replica::restored_before(s.started_at);
                 if recovered {
                     tracing::warn!("runner {runner_id}: session {} was launched after the backup this Home restored: its record comes back from the runner (placement proof checked)", s.id);
+                } else if orphan {
+                    tracing::error!("runner {runner_id}: session {} is unknown after a restore and carries no placement proof Home can check: its record is kept in replica_orphan, not applied", s.id);
                 } else if current.is_none() {
                     tracing::info!("runner {runner_id}: record of unknown session {} ignored (no placement Home can prove)", s.id);
                 }
+                let orphan_json = orphan.then(|| serde_json::to_string(&s.without_bytes())).transpose()?;
                 // Only sessions Home placed on this runner are its records (`runners::record_placement`, a move):
                 // a record of an unknown session or of another runner's is ignored.
                 let stale = !recovered && current.as_ref().is_none_or(|c| c.runner_id.as_deref() != Some(runner_id) || c.generation > s.generation);
@@ -538,8 +545,13 @@ impl Sessions {
                     }
                 }
                 let stored = s.clone();
+                let orphan_runner = runner.clone();
                 app.state_db.call(move |c| {
                     let tx = c.transaction()?;
+                    if let Some(json) = orphan_json {
+                        tx.execute("INSERT INTO replica_orphan (runner_id, session_id, at, json) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (runner_id, session_id) DO UPDATE SET at = excluded.at, json = excluded.json",
+                            params![orphan_runner, stored.id, crate::util::now_ms(), json])?;
+                    }
                     if !stale {
                         Self::store(&tx, &stored)?;
                         tx.execute("UPDATE session SET last_message = ?2, prompt = ?3 WHERE id = ?1", params![stored.id, stored.last_message, stored.prompt])?;

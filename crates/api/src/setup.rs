@@ -16,7 +16,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/setup/checklist", get(checklist))
         .route("/api/home/update", get(home_update).post(start_home_update))
         .route("/api/home/update/check", post(check_home_update))
-        .route("/api/home/update/resume", post(resume_home_update))
+        .route("/api/home/update/cancel", post(cancel_home_update))
         .route("/api/cli-updates", get(cli_updates))
         .route("/api/cli-updates/check", post(check_cli_updates))
         .route("/api/cli-updates/auto", put(set_cli_auto))
@@ -127,7 +127,7 @@ async fn start_home_update(State(s): State<Ctx>, agent: Option<axum::Extension<l
     Ok(Json(home_update::start(&s.app, b, caller).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }
 
-/// Resume writes: the owner stops waiting for an update's replacement (`home_update::resume_writes`).
-async fn resume_home_update(State(s): State<Ctx>) -> ApiResult<home_update::HomeUpdate> {
-    Ok(Json(home_update::resume_writes(&s.app).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
+/// Cancel update: the owner puts the previous version back on the Space (`home_update::cancel`).
+async fn cancel_home_update(State(s): State<Ctx>) -> ApiResult<home_update::HomeUpdate> {
+    Ok(Json(home_update::cancel(&s.app).await.map_err(|e| ApiError::bad_request(format!("{e:#}")))?))
 }

@@ -150,12 +150,12 @@ pub async fn drained(timeout: Duration) -> anyhow::Result<()> {
 
 /// Whether a request is refused during maintenance (pure). Reads pass; so do Git fetches (`git-upload-pack` is a
 /// POST that reads), the update's own routes (a retry after a lost answer gets the update's state, `home_update`;
-/// Check for updates writes nothing) and Resume writes (`home.update-resume`, the owner's way out).
+/// Check for updates writes nothing) and Cancel update (`home.update-cancel`, the owner's way out).
 pub fn gated(method: &str, path: &str) -> bool {
     if matches!(method, "GET" | "HEAD" | "OPTIONS") {
         return false;
     }
-    let allowed = matches!(path, "/api/home/update" | "/api/home/update/resume" | "/api/home/update/check") || path.ends_with("/git-upload-pack");
+    let allowed = matches!(path, "/api/home/update" | "/api/home/update/cancel" | "/api/home/update/check") || path.ends_with("/git-upload-pack");
     !allowed
 }
 
@@ -217,7 +217,7 @@ mod tests {
         assert!(gated("POST", "/api/git/p/repo.git/git-receive-pack"));
         assert!(!gated("POST", "/api/git/p/repo.git/git-upload-pack"));
         assert!(!gated("POST", "/api/home/update"));
-        assert!(!gated("POST", "/api/home/update/resume"));
+        assert!(!gated("POST", "/api/home/update/cancel"));
     }
 
     #[tokio::test]

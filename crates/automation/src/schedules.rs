@@ -487,10 +487,26 @@ pub async fn update_wake(app: &App, session_id: &str, text: &str) -> Result<Stri
 /// (`replica::Item::Sleep`). Recorded again, with the same ID, unless Home still has it or a newer follow-up, or the
 /// session is gone or archived. Its text is kept; its sender is Launchpad's wake-up again, never the runner's word.
 /// A wake-up that was already delivered before the restore is recognized by the runner (`delivery_key`).
+///
+/// `Ok` means handled: recorded, or discarded on purpose (an item that is not a wake-up of this session, a session
+/// that is gone or archived, a wake-up Home still has or that a newer follow-up replaced), each discard logged. An
+/// error (the store failed) is retryable: the caller does not acknowledge the item, so the runner sends it again.
 pub async fn replay_sleep(app: &App, session_id: &str, schedule: serde_json::Value) -> Result<()> {
-    let mut record: ScheduledLaunch = serde_json::from_value(schedule)?;
-    anyhow::ensure!(record.resume_session_id.as_deref() == Some(session_id) && is_wake(&record), "not a wake-up of this session");
-    let session = app.sessions.get(session_id).context("no such session")?;
+    let mut record: ScheduledLaunch = match serde_json::from_value(schedule) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("wake-up of {session_id} replayed by its runner is unreadable, discarded: {e}");
+            return Ok(());
+        }
+    };
+    if record.resume_session_id.as_deref() != Some(session_id) || !is_wake(&record) {
+        tracing::warn!("item replayed for {session_id} is not its wake-up, discarded");
+        return Ok(());
+    }
+    let Some(session) = app.sessions.get(session_id) else {
+        tracing::warn!("wake-up {} replayed for unknown session {session_id}, discarded", record.id);
+        return Ok(());
+    };
     if session.status == launchpad_core::model::SessionStatus::Closed {
         return Ok(());
     }

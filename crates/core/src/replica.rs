@@ -386,6 +386,14 @@ pub(crate) fn set_acked(c: &Connection, runner_id: &str, n: u64) -> Result<()> {
     Ok(())
 }
 
+/// Home: acknowledges item `n` only once `work` succeeded. A failure is returned (retryable): the mark stays, so the
+/// runner, which keeps the item, sends it again (`after_ack`), and nothing is lost.
+pub(crate) async fn ack_after(db: &crate::db::Db, runner_id: &str, n: u64, work: impl std::future::Future<Output = Result<()>>) -> Result<()> {
+    work.await?;
+    let id = runner_id.to_string();
+    db.call(move |c| set_acked(c, &id, n)).await
+}
+
 /// Home: one access log entry of a runner's session.
 pub(crate) async fn apply_access(app: &App, runner_id: &str, n: u64, access: crate::proxy::Access) -> Result<()> {
     let id = runner_id.to_string();
@@ -414,15 +422,16 @@ pub async fn ingest(app: &App, runner_id: &str, n: u64, item: serde_json::Value)
         Ok(Item::Worktree { worktree }) => crate::away::apply_replica(app, runner_id, n, *worktree).await,
         Ok(Item::Spend { entry }) => crate::spend::apply_replica(app, runner_id, n, entry).await,
         Ok(Item::Sleep { session_id, schedule, accepted_at }) => {
-            // Only a Home that restored an older backup can miss a wake-up it accepted.
-            if restored_before(accepted_at)
-                && app.sessions.get(&session_id).is_some_and(|s| s.runner_id.as_deref() == Some(runner_id))
-                && let Err(e) = crate::ext::extensions().replay_sleep(app, &session_id, schedule).await
-            {
-                tracing::warn!("runner {runner_id}: wake-up of {session_id} after a restore: {e:#}");
-            }
-            let id = runner_id.to_string();
-            app.state_db.call(move |c| set_acked(c, &id, n)).await
+            // Only a Home that restored an older backup can miss a wake-up it accepted; another one, or a session
+            // that is not this runner's, is discarded on purpose (acknowledged without a replay).
+            let replay = restored_before(accepted_at) && app.sessions.get(&session_id).is_some_and(|s| s.runner_id.as_deref() == Some(runner_id));
+            let work = async {
+                if replay {
+                    crate::ext::extensions().replay_sleep(app, &session_id, schedule).await.map_err(|e| e.context(format!("replay the wake-up of {session_id}")))?;
+                }
+                Ok(())
+            };
+            ack_after(&app.state_db, runner_id, n, work).await
         }
         Ok(item) => app.sessions.apply_replica(app, runner_id, n, item).await,
         Err(e) => {
@@ -531,6 +540,32 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(reconnect(3, seen, oldest, newest), Reconnect::Replay { lost: 5 });
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A wake-up replay that fails (the store failed) is not acknowledged, so the runner sends it again; the next
+    /// try succeeds and only then moves the mark: the wake-up is never acknowledged without being recorded.
+    #[tokio::test]
+    async fn a_failed_replay_is_retried_never_acknowledged() {
+        let path = std::env::temp_dir().join(format!("launchpad-replay-{}.db", uuid::Uuid::new_v4()));
+        let db = crate::db::open_state(&path).unwrap();
+        let mark = |db: crate::db::Db| async move { db.call(|c| Ok(c.query_row("SELECT coalesce(max(n), 0) FROM runner_ack WHERE runner_id = 'r'", [], |r| r.get::<_, i64>(0))?)).await.unwrap() };
+        let recorded = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let replay = |fail: bool| {
+            let recorded = recorded.clone();
+            async move {
+                anyhow::ensure!(!fail, "database is locked");
+                recorded.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
+        };
+        assert!(ack_after(&db, "r", 7, replay(true)).await.is_err());
+        assert_eq!(mark(db.clone()).await, 0);
+        // The runner kept item 7 and sends it again.
+        ack_after(&db, "r", 7, replay(false)).await.unwrap();
+        assert_eq!(mark(db.clone()).await, 7);
+        assert_eq!(recorded.load(std::sync::atomic::Ordering::SeqCst), 1);
+        drop(db);
         let _ = std::fs::remove_file(&path);
     }
 

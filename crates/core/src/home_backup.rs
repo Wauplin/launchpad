@@ -632,6 +632,8 @@ async fn verify_base(app: &App, store: &Store, key: &str, manifest: &[u8], depth
     let (target, name) = verify_target(store);
     verify_until(within, Duration::from_secs(2), || verify(&target, &app.env, key, manifest, &db, depth)).await.map_err(|e| e.context(format!("backup {key} is not readable from {name} yet")))?;
     crate::replica::set_durable(app, &base.marks);
+    // Created at start before any backup: this verified copy holds the placement key.
+    crate::runners::placement_key_backed_up();
     app.home_backups.info.lock().unwrap().verified = Some(name);
     Ok(())
 }

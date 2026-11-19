@@ -94,6 +94,14 @@ pub struct Pending {
     /// The agent that asked for it and its wake-up (`schedules::update_wake`), sent once its turn ended.
     #[serde(default)]
     pub continuation: Option<Continuation>,
+    /// The Space revision the update's commit names as its parent: the Hub applies it only on top of that revision,
+    /// so once the Space's head is another revision without the target, the update can never land (`fenced`).
+    #[serde(default)]
+    pub parent: Option<String>,
+    /// The Dockerfile before the update, which Cancel update commits back (`cancel`).
+    #[serde(default)]
+    #[ts(skip)]
+    pub previous_dockerfile: Option<String>,
 }
 
 /// The phases of a planned update (see the module).
@@ -124,8 +132,8 @@ fn in_progress(p: &Pending) -> bool {
 
 /// How long the drain waits for running writes before the update stops.
 const DRAIN_WITHIN: Duration = Duration::from_secs(60);
-/// How long a Home in Replacing waits for its replacement before `resolve` lets the owner resume writes on Today.
-const REPLACE_WITHIN_MS: i64 = 45 * 60 * 1000;
+/// How long a Home in Replacing waits before Today shows it with Cancel update.
+const REPLACE_WITHIN_MS: i64 = 30 * 60 * 1000;
 /// `Retry-After` of writes refused during an update: about a build.
 const RETRY_AFTER_S: u32 = 600;
 
@@ -135,6 +143,8 @@ pub struct HomeUpdate {
     pub unsupported: Option<String>,
     /// The Space ID (`namespace/name`).
     pub space: Option<String>,
+    /// The Space's head revision (what a commit names as its parent).
+    pub revision: Option<String>,
     pub channel: Option<Channel>,
     /// What the Space's Dockerfile installs: a release tag or a main commit.
     pub deployed: Option<String>,
@@ -316,9 +326,27 @@ async fn hf_send(app: &App, r: reqwest::RequestBuilder) -> Result<String> {
     if !status.is_success() {
         let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
         let why = v["error"].as_str().map(str::to_string).unwrap_or_else(|| text.chars().take(200).collect());
-        anyhow::bail!("Hugging Face answered {status}: {why}");
+        return Err(anyhow::anyhow!("Hugging Face answered {status}: {why}").context(HubAnswered(status.as_u16())));
     }
     Ok(text)
+}
+
+/// The Hub answered with this HTTP status (an error answer, not a transport failure).
+#[derive(Debug)]
+struct HubAnswered(u16);
+
+impl std::fmt::Display for HubAnswered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Hugging Face answered {}", self.0)
+    }
+}
+
+impl std::error::Error for HubAnswered {}
+
+/// Whether a failed Space commit certainly did not happen (pure): only a 4xx answer of the Hub says so (refused, or
+/// another parent revision). A 5xx answer, a timeout or a lost connection may hide a commit that went through.
+fn commit_refused(e: &anyhow::Error) -> bool {
+    e.chain().find_map(|c| c.downcast_ref::<HubAnswered>()).is_some_and(|a| (400..500).contains(&a.0))
 }
 
 /// GitHub's REST API: with Home's GitHub login when it has one, else anonymously.
@@ -376,6 +404,7 @@ async fn inspect(app: &App, u: &mut HomeUpdate) -> Result<Option<Space>> {
     u.space = Some(id.clone());
     let info: Value = serde_json::from_str(&hf_send(app, CLIENT.get(format!("{}/api/spaces/{id}", hf_endpoint()))).await?)?;
     let sha = info["sha"].as_str().context("the Hub sent no Space revision")?.to_string();
+    u.revision = Some(sha.clone());
     u.stage = info["runtime"]["stage"].as_str().map(str::to_string);
     let running_sha = info["runtime"]["sha"].as_str().unwrap_or_default();
     u.building = !running_sha.is_empty() && running_sha != sha && !u.stage.as_deref().is_some_and(|s| FAILED_STAGES.contains(&s));
@@ -503,6 +532,8 @@ pub async fn start(app: &App, b: Start, caller: Option<String>) -> Result<HomeUp
         phase: Some(Phase::Draining),
         error: None,
         continuation: None,
+        parent: Some(space.sha.clone()),
+        previous_dockerfile: Some(space.dockerfile.clone()),
     };
     save_pending(app, Some(&pending)).await?;
     let reason = format!("Home updates to {}", short(&latest.version));
@@ -535,7 +566,16 @@ pub async fn start(app: &App, b: Start, caller: Option<String>) -> Result<HomeUp
     // 4. The commit: the Space builds, then replaces this Home.
     let summary = format!("Update Launchpad Home to {}", match channel { Channel::Release => latest.version.clone(), Channel::Main => format!("main {}", latest.version) });
     if let Err(e) = commit(app, &space, &summary, &[("Dockerfile", dockerfile), ("README.md", card(channel, &latest.version))]).await {
-        return Err(abort(app, &mut pending, format!("{e:#}")).await);
+        if commit_refused(&e) {
+            return Err(abort(app, &mut pending, format!("{e:#}")).await);
+        }
+        // A timeout or a lost answer: the commit may have gone through, and the Space may still replace this Home
+        // with the checkpoint. Writes stay paused until the Space shows either the update or another head without
+        // it (`resolve`, `fenced`); Cancel update makes the second certain.
+        tracing::warn!("Home update: the Space commit's outcome is unknown ({e:#}); writes stay paused until the Space shows it");
+        maintenance::enter(app, maintenance(MaintenancePhase::Replacing));
+        WAKE.notify_one();
+        anyhow::bail!("Home could not tell whether the Space accepted the update ({e:#}). Changes stay paused until the Space shows the update (Home then restarts with it) or the owner cancels it; check `launchpad home`.");
     }
     tracing::info!("Home update: committed {} to {}; writes stay paused until the new Home runs", latest.version, space.id);
     maintenance::enter(app, maintenance(MaintenancePhase::Replacing));
@@ -548,7 +588,7 @@ fn continuation_text(version: &str) -> String {
     format!("Home update · You asked Launchpad to update Home to {}. Launchpad sends this message once Home accepts work again: on the new Home after its restart, or on the current one if the update stopped (its Space build failed, its final backup failed, or the owner resumed writes). Check which build runs with `launchpad home` (`running`, and `pending.phase`: done or failed with its error) before you continue.", short(version))
 }
 
-/// Stops an update before the replacement: `state.db` writable again, maintenance left, the record Failed with
+/// Stops an update that can no longer replace this Home: `state.db` writable again, maintenance left, the record Failed with
 /// `why` (shown in Settings and Today). The continuation stays: the agent is woken on this Home.
 async fn abort(app: &App, p: &mut Pending, why: String) -> anyhow::Error {
     tracing::warn!("Home update to {}: stopped: {why}", p.version);
@@ -617,41 +657,56 @@ pub async fn resume(app: &App) -> Result<()> {
     Ok(())
 }
 
-/// What a Home in Replacing does after a check of its Space (pure): wait, or stop the update with why.
-fn replacing(u: &HomeUpdate, p: &Pending, now: i64) -> Option<String> {
-    if let Some(stage) = u.stage.as_deref().filter(|s| FAILED_STAGES.contains(s)) {
-        return Some(format!("the Space's build stopped in {stage}; Home keeps running {}", short(&u.running)));
-    }
-    if u.error.is_some() || u.building {
-        return None;
-    }
-    // Not building and the Dockerfile does not install the target: the commit never happened (a restart before it).
-    if u.deployed.as_deref().is_some_and(|d| d != p.version) {
-        return Some(format!("the Space does not install {} (it installs {}): the update was not committed", short(&p.version), short(u.deployed.as_deref().unwrap_or_default())));
-    }
-    (now - p.requested_at > REPLACE_WITHIN_MS).then(|| format!("the Space did not replace this Home within {} minutes", REPLACE_WITHIN_MS / 60_000))
+/// Whether the update can no longer replace this Home (pure): the Space's head is another revision than the
+/// update's parent and does not install the target (the Hub applies the update's commit only on top of its parent,
+/// so it can never land now), and no build is in progress (none of the target, none that would restart this Home).
+/// Never from a timeout, a failed check or a failed build: a failed build of the target can still be built again.
+fn fenced(u: &HomeUpdate, p: &Pending) -> bool {
+    u.error.is_none()
+        && !u.building
+        && u.revision.is_some()
+        && u.revision != p.parent
+        && u.deployed.as_deref().is_some_and(|d| d != p.version)
 }
 
-/// After each check while Home waits for its replacement: a failed build (or a commit that never happened) stops the
-/// update and Home accepts writes again.
+/// After each check while Home waits for its replacement: once the update is fenced (`fenced`), Home accepts writes
+/// again; otherwise it waits, however long (a failed build or a long one shows on Today with Cancel update).
 async fn resolve(app: &App, u: &HomeUpdate) {
     let Some(mut p) = u.pending.clone().filter(|p| p.phase == Some(Phase::Replacing) && p.commit != u.running) else { return };
-    if !maintenance::active() {
+    if !maintenance::active() || !fenced(u, &p) {
         return;
     }
-    if let Some(why) = replacing(u, &p, now_ms()) {
-        let _ = abort(app, &mut p, why).await;
-    }
+    let why = format!("the Space installs {} again, so the update can no longer replace this Home", short(u.deployed.as_deref().unwrap_or_default()));
+    let _ = abort(app, &mut p, why).await;
 }
 
-/// Resume writes (`home.update-resume`): the owner stops waiting for the replacement. The Space may still restart
-/// with the new build later; it then restores the newest backup, so changes since the last backup (a few minutes)
-/// would be lost.
-pub async fn resume_writes(app: &App) -> Result<HomeUpdate> {
-    let mut p = load_pending(app).await?.filter(|p| p.phase == Some(Phase::Replacing)).context("no update waits for its replacement")?;
+/// Cancel update (`home.update-cancel`, the owner's): commits the Dockerfile from before the update back to the
+/// Space, on top of its head now (the Hub refuses it if the head moved meanwhile). From then on the update's commit
+/// can never land; Home accepts writes once the Space shows that head without a build in progress (`resolve`). The
+/// Space usually rebuilds and restarts with its previous version: that restart restores the checkpoint, which holds
+/// everything (writes were paused since), so nothing is lost.
+pub async fn cancel(app: &App) -> Result<HomeUpdate> {
+    let p = load_pending(app).await?.filter(|p| p.phase == Some(Phase::Replacing)).context("no update waits for its replacement")?;
     anyhow::ensure!(STARTING.try_lock().is_ok(), "the update is still saving its final backup: wait a moment");
-    let _ = abort(app, &mut p, "the owner resumed writes before the replacement".into()).await;
-    Ok(check(app).await)
+    let previous = p.previous_dockerfile.clone().context("this update's record has no previous Dockerfile: run deploy.sh to install a version")?;
+    let (u, space) = check_space(app).await;
+    if let Some(e) = &u.error {
+        anyhow::bail!("{e}");
+    }
+    let space = space.context("no Space")?;
+    let (channel, version) = match deployed(&previous) {
+        Deployed::Release(v) => (Channel::Release, v),
+        Deployed::Main(c) => (Channel::Main, c),
+        _ => anyhow::bail!("the previous Dockerfile was not written by deploy.sh"),
+    };
+    // The card always changes (it names the cancel), so the commit moves the head even when the Dockerfile did not.
+    let note = format!("{}\nThe update to {} was cancelled at {}.\n", card(channel, &version), short(&p.version), now_ms());
+    commit(app, &space, &format!("Cancel the update of Launchpad Home to {}", short(&p.version)), &[("Dockerfile", previous), ("README.md", note)]).await?;
+    tracing::info!("Home update to {}: cancelled; writes resume once the Space shows its previous version", p.version);
+    WAKE.notify_one();
+    let u = check(app).await;
+    resolve(app, &u).await;
+    Ok(current(app))
 }
 
 fn short(v: &str) -> &str {
@@ -676,7 +731,7 @@ async fn commit(app: &App, space: &Space, summary: &str, files: &[(&str, String)
     let url = format!("{}/api/spaces/{}/commit/main", hf_endpoint(), space.id);
     hf_send(app, CLIENT.post(url).header("Content-Type", "application/x-ndjson").body(body))
         .await
-        .map_err(|e| anyhow::anyhow!("{e:#}. Home's Hugging Face login needs write access to the Space {} (or update with deploy.sh)", space.id))?;
+        .map_err(|e| e.context(format!("Home's Hugging Face login needs write access to the Space {} (or update with deploy.sh)", space.id)))?;
     Ok(())
 }
 
@@ -763,8 +818,11 @@ pub fn today_items(app: &App) -> Vec<Item> {
     }
     if let Some(p) = u.pending.as_ref().filter(|p| p.phase == Some(Phase::Replacing) && p.commit != u.running && now_ms() - p.requested_at > REPLACE_WITHIN_MS / 3) {
         let item = Item::new(Kind::HomeUpdate, Filter::Fix, "home", format!("Home waits for its update to {}", short(&p.version)), Place::Everywhere, p.requested_at)
-            .detail("Writes are paused until the Space restarts with the new build. Resume writes only if the build will not finish: changes since the last backup would be lost if it restarts later.".to_string())
-            .action("home.update-resume");
+            .detail(match u.stage.as_deref().filter(|s| FAILED_STAGES.contains(s)) {
+                Some(stage) => format!("The Space's build stopped in {stage}. Writes stay paused: a new build of the update would still restart Home from its checkpoint. Cancel update puts the previous version back; Home accepts writes once the Space shows it."),
+                None => "Writes stay paused until the Space restarts with the new build. Cancel update puts the previous version back; Home accepts writes once the Space shows it.".to_string(),
+            })
+            .action("home.update-cancel");
         return vec![item];
     }
     let failed = u.stage.as_deref().filter(|s| FAILED_STAGES.contains(s));
@@ -832,7 +890,7 @@ mod tests {
     }
 
     fn pending(phase: Option<Phase>) -> Pending {
-        Pending { version: C.into(), commit: C.into(), update_runners: false, requested_at: 0, runners_updated: vec![], phase, error: None, continuation: None }
+        Pending { version: C.into(), commit: C.into(), update_runners: false, requested_at: 0, runners_updated: vec![], phase, error: None, continuation: None, parent: Some("parent".into()), previous_dockerfile: Some("ARG LAUNCHPAD_RELEASE=v1\n".into()) }
     }
 
     /// The update's answer was lost (the CLI timed out after the commit): asking again returns the update in progress,
@@ -860,18 +918,29 @@ mod tests {
         assert_eq!(on_start(&pending(None), "old"), OnStart::Nothing);
     }
 
-    /// While the old Home waits for its replacement: a failed build or a commit that never happened stops the update
-    /// (writes resume); a build in progress or a failed check waits.
+    /// While the old Home waits for its replacement, it accepts writes again only once the update can never land:
+    /// never after a timeout, a failed check, or a failed build (a later build of the target would still restart Home
+    /// from its checkpoint), only once the Space's head is another revision without the target and nothing builds.
     #[test]
-    fn a_home_waiting_for_its_replacement_stops_only_on_evidence() {
+    fn writes_resume_only_once_the_update_is_fenced() {
         let p = pending(Some(Phase::Replacing));
-        let base = HomeUpdate { running: "old".into(), deployed: Some(C.into()), ..Default::default() };
-        assert_eq!(replacing(&HomeUpdate { building: true, ..base.clone() }, &p, 1), None);
-        assert_eq!(replacing(&HomeUpdate { error: Some("Hub down".into()), ..base.clone() }, &p, 1), None);
-        assert!(replacing(&HomeUpdate { stage: Some("BUILD_ERROR".into()), ..base.clone() }, &p, 1).unwrap().contains("BUILD_ERROR"));
-        assert!(replacing(&HomeUpdate { deployed: Some("v0".into()), ..base.clone() }, &p, 1).unwrap().contains("not committed"));
-        // Deployed and not building, but no restart yet (the platform's RUNNING_RESTART): wait, up to the limit.
-        assert_eq!(replacing(&base, &p, 1), None);
-        assert!(replacing(&base, &p, REPLACE_WITHIN_MS + 1).is_some());
+        let landed = HomeUpdate { running: "old".into(), revision: Some("update".into()), deployed: Some(C.into()), ..Default::default() };
+        // The update landed and builds, or its build failed, or the check failed: wait.
+        assert!(!fenced(&HomeUpdate { building: true, ..landed.clone() }, &p));
+        assert!(!fenced(&HomeUpdate { stage: Some("BUILD_ERROR".into()), ..landed.clone() }, &p));
+        assert!(!fenced(&HomeUpdate { error: Some("Hub down".into()), ..landed.clone() }, &p));
+        assert!(!fenced(&landed, &p));
+        // A lost commit answer: the head is still the parent, so the commit may still land: wait, however long.
+        let unknown = HomeUpdate { running: "old".into(), revision: Some("parent".into()), deployed: Some("v1".into()), ..Default::default() };
+        assert!(!fenced(&unknown, &p));
+        // Cancel update committed the previous Dockerfile on top of the head; while that builds (a late build), wait.
+        let cancelled = HomeUpdate { running: "old".into(), revision: Some("cancel".into()), deployed: Some("v1".into()), ..Default::default() };
+        assert!(!fenced(&HomeUpdate { building: true, ..cancelled.clone() }, &p));
+        // The head is the cancel, nothing builds: the update's commit (parent `parent`) can never land.
+        assert!(fenced(&cancelled, &p));
+        // Only the Hub's 4xx answer proves a commit did not happen; a 5xx, a timeout or a lost connection does not.
+        assert!(commit_refused(&anyhow::anyhow!("x").context(HubAnswered(409))));
+        assert!(!commit_refused(&anyhow::anyhow!("x").context(HubAnswered(502))));
+        assert!(!commit_refused(&anyhow::anyhow!("reach Hugging Face: operation timed out")));
     }
 }

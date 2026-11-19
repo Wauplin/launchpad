@@ -237,7 +237,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/activity" || path.starts_with("/api/activity/") || path == "/api/settings/shared"
         || path == "/api/topics" || path.starts_with("/api/topics/")
         || path == "/api/review-state" || path == "/api/channels" || path.starts_with("/api/channels/")
-        || path == "/api/home/update" || path == "/api/home/update/check" || path == "/api/home/update/resume" || path.starts_with("/api/cli-updates")
+        || path == "/api/home/update" || path == "/api/home/update/check" || path == "/api/home/update/cancel" || path.starts_with("/api/cli-updates")
         || path.starts_with("/api/oracles/") || path.starts_with("/api/folios/")
 }
 

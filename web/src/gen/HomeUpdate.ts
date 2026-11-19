@@ -11,7 +11,11 @@ unsupported: string | null,
 /**
  * The Space ID (`namespace/name`).
  */
-space: string | null, channel: HomeUpdateChannel | null, 
+space: string | null, 
+/**
+ * The Space's head revision (what a commit names as its parent).
+ */
+revision: string | null, channel: HomeUpdateChannel | null, 
 /**
  * What the Space's Dockerfile installs: a release tag or a main commit.
  */

@@ -230,6 +230,10 @@ impl App {
             replica::restored(&app, at).await?;
             tracing::info!("restored Home's records as of {}", at.map_or_else(|| "an unknown time".into(), |t| t.to_string()));
         }
+        // Before any backup runs: every backup from now on holds the placement key (`runners::init_placement_key`).
+        if app.paths.role == role::Role::Home {
+            runners::init_placement_key(&app, restored.is_some()).await?;
+        }
         app.sessions.load(&app).await?;
         if let Err(e) = ask_bot::seed(&app).await {
             tracing::warn!("default bot and tools: {e:#}");

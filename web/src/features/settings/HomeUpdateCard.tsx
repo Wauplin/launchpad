@@ -23,7 +23,7 @@ function Pending({ u }: { u: HomeUpdate }) {
   return (
     <span className="grid gap-1 text-[12px] text-ink-2">
       <span><b>Update to {versionLabel(u, p.version)}</b> started {ago(p.requested_at)}{done ? ": Home runs it." : waiting ? ": its final backup is saved and checked; changes are paused until the new Home runs." : "."} {runners}</span>
-      {waiting && <span className="flex items-center gap-2"><span className="min-w-0 flex-1 text-ink-3">Only if the build will not finish: Home accepts changes again on its current build.</span><ActionButton name="home.update-resume" onDone={(r) => qc.setQueryData(["home-update"], r)} /></span>}
+      {waiting && <span className="flex items-center gap-2"><span className="min-w-0 flex-1 text-ink-3">Changes resume only once the update can no longer replace Home: when the new version runs, or after Cancel update puts the previous version back on the Space (it usually restarts with it; nothing is lost).</span><ActionButton name="home.update-cancel" onDone={(r) => qc.setQueryData(["home-update"], r)} /></span>}
     </span>
   );
 }

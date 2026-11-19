@@ -25,4 +25,9 @@ error: string | null,
 /**
  * The agent that asked for it and its wake-up (`schedules::update_wake`), sent once its turn ended.
  */
-continuation: HomeUpdateContinuation | null, };
+continuation: HomeUpdateContinuation | null, 
+/**
+ * The Space revision the update's commit names as its parent: the Hub applies it only on top of that revision,
+ * so once the Space's head is another revision without the target, the update can never land (`fenced`).
+ */
+parent: string | null, };

@@ -1342,27 +1342,54 @@ fn placement_material(id: &str, runner: &str, spec: &crate::model::LaunchSpec) -
     serde_json::json!(["placement/v1", id, runner, spec.profile, spec.workspace_id, bot, spec.tools_off, spec.tools_on, spec.from, spec.routine]).to_string()
 }
 
-/// Home's key for placement proofs: in `state.db` (`home_meta.placement_key`), so a restored Home still checks the
-/// proofs it gave before its backup; mixed with `LAUNCHPAD_HOME_KEY` when set (backups then never hold the key alone).
-async fn placement_key(app: &App) -> Result<Vec<u8>> {
-    static KEY: tokio::sync::OnceCell<Vec<u8>> = tokio::sync::OnceCell::const_new();
-    KEY.get_or_try_init(|| async {
-        let fresh = hex::encode(rand::random::<[u8; 32]>());
-        let stored: String = app
-            .state_db
-            .call(move |c| {
-                c.execute("INSERT INTO home_meta (key, value) VALUES ('placement_key', ?1) ON CONFLICT (key) DO NOTHING", [fresh])?;
-                Ok(c.query_row("SELECT value FROM home_meta WHERE key = 'placement_key'", [], |r| r.get(0))?)
-            })
-            .await?;
-        let mut key = hex::decode(stored)?;
-        if let Ok(secret) = std::env::var("LAUNCHPAD_HOME_KEY") {
-            key.extend(Sha256::digest(secret.as_bytes()));
-        }
-        Ok(key)
-    })
-    .await
-    .cloned()
+/// Home's key for placement proofs, in `state.db` (`home_meta.placement_key`), mixed with `LAUNCHPAD_HOME_KEY` when
+/// set (a backup then never holds the whole key). Created at Home's start (`init_placement_key`), before any backup
+/// runs, so every backup taken after that start holds it. Proofs are signed only once the key is durable
+/// (`PLACEMENT_KEY_DURABLE`): it came with a restored backup, a verified backup holds it (`placement_key_backed_up`),
+/// or Home keeps no backups (its disk is the only copy). A key created by this start and lost by a restore of a
+/// backup taken before it (an older build's) would make the proofs signed with it unverifiable: launches before the
+/// first verified backup therefore carry no proof, and a restored Home cannot take them back.
+static PLACEMENT_KEY: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+static PLACEMENT_KEY_DURABLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The stored key, created when absent, in one write. Returns it and whether it was created now.
+pub(crate) fn ensure_placement_key(c: &rusqlite::Connection) -> Result<(String, bool)> {
+    let fresh = hex::encode(rand::random::<[u8; 32]>());
+    let created = c.execute("INSERT INTO home_meta (key, value) VALUES ('placement_key', ?1) ON CONFLICT (key) DO NOTHING", [&fresh])? > 0;
+    Ok((c.query_row("SELECT value FROM home_meta WHERE key = 'placement_key'", [], |r| r.get(0))?, created))
+}
+
+/// Whether a key may sign proofs at start (pure): one that existed in a restored `state.db` came with a backup; on a
+/// Home without backups the disk is the only copy; otherwise it waits for a verified backup.
+pub(crate) fn key_durable_at_start(created: bool, restored: bool, backups: bool) -> bool {
+    !backups || (restored && !created)
+}
+
+/// Home, at start (`App::start`, before backups run): loads or creates the placement key.
+pub(crate) async fn init_placement_key(app: &App, restored: bool) -> Result<()> {
+    let (stored, created) = app.state_db.call(|c| ensure_placement_key(c)).await?;
+    let mut key = hex::decode(stored)?;
+    if let Ok(secret) = std::env::var("LAUNCHPAD_HOME_KEY") {
+        key.extend(Sha256::digest(secret.as_bytes()));
+    }
+    let _ = PLACEMENT_KEY.set(key);
+    let backups = crate::home_backup::Store::parse(&app.config.get().home.backup).is_some();
+    PLACEMENT_KEY_DURABLE.store(key_durable_at_start(created, restored, backups), std::sync::atomic::Ordering::SeqCst);
+    if created {
+        tracing::info!("placement key created: launches carry proofs once a verified backup holds it");
+    }
+    Ok(())
+}
+
+/// A verified backup holds `state.db` with the placement key (created before any backup ran): proofs may be signed.
+pub(crate) fn placement_key_backed_up() {
+    if PLACEMENT_KEY.get().is_some() {
+        PLACEMENT_KEY_DURABLE.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+fn placement_key() -> Result<&'static [u8]> {
+    PLACEMENT_KEY.get().map(Vec::as_slice).context("Home has no placement key")
 }
 
 fn placement_mac(key: &[u8], material: &str) -> Result<String> {
@@ -1373,15 +1400,16 @@ fn placement_mac(key: &[u8], material: &str) -> Result<String> {
 }
 
 /// Home: the proof that it placed session `id` on `runner` with this spec (`LaunchSpec::placement`).
-pub(crate) async fn sign_placement(app: &App, id: &str, runner: &str, spec: &crate::model::LaunchSpec) -> Result<String> {
-    placement_mac(&placement_key(app).await?, &placement_material(id, runner, spec))
+pub(crate) async fn sign_placement(_app: &App, id: &str, runner: &str, spec: &crate::model::LaunchSpec) -> Result<String> {
+    anyhow::ensure!(PLACEMENT_KEY_DURABLE.load(std::sync::atomic::Ordering::SeqCst), "no verified backup holds Home's placement key yet: this launch cannot be recovered after a restore");
+    placement_mac(placement_key()?, &placement_material(id, runner, spec))
 }
 
 /// Home: whether a runner's record of a session Home does not know carries Home's proof for that runner, unchanged.
-pub(crate) async fn placement_valid(app: &App, s: &crate::model::Session, runner: &str) -> bool {
+pub(crate) async fn placement_valid(_app: &App, s: &crate::model::Session, runner: &str) -> bool {
     let Some(proof) = s.launch_spec.placement.as_deref() else { return false };
-    let Ok(key) = placement_key(app).await else { return false };
-    placement_mac(&key, &placement_material(&s.id, runner, &s.launch_spec)).is_ok_and(|p| crate::util::constant_eq(p.as_bytes(), proof.as_bytes()))
+    let Ok(key) = placement_key() else { return false };
+    placement_mac(key, &placement_material(&s.id, runner, &s.launch_spec)).is_ok_and(|p| crate::util::constant_eq(p.as_bytes(), proof.as_bytes()))
 }
 
 /// A record Home placed on `runner` that the runner has not replaced yet.
@@ -1500,6 +1528,42 @@ mod tests {
         // Fields a runner changes on its own (the text, the topic name) are not covered.
         assert!(check("s1", "r1", &crate::model::LaunchSpec { text: "edited".into(), ..spec.clone() }));
         assert!(!check("s1", "r1", &crate::model::LaunchSpec { profile: None, ..spec }));
+    }
+
+    /// The key lives in `state.db` and is created once: a backup copied after it was created holds it, so a Home
+    /// restored from that copy checks a proof signed after the copy (a launch after the checkpoint). A checkpoint
+    /// taken before the key existed (an older build) gets a new key at the restored start, which is not durable
+    /// until a verified backup holds it, so no proof is signed with a key a restore could lose.
+    #[test]
+    fn the_placement_key_survives_a_restore_of_any_checkpoint_taken_after_it() {
+        let dir = std::env::temp_dir().join(format!("launchpad-pkey-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        crate::db::open_state(&path).map(drop).unwrap();
+        let c = rusqlite::Connection::open(&path).unwrap();
+        // An older build's checkpoint: no key yet.
+        let older = dir.join("older.db");
+        c.execute("VACUUM INTO ?1", [older.to_string_lossy().as_ref()]).unwrap();
+        // Start: the key is created before any backup, then a checkpoint, then a launch signs a proof.
+        let (key, created) = super::ensure_placement_key(&c).unwrap();
+        assert!(created && !super::key_durable_at_start(created, false, true));
+        let checkpoint = dir.join("checkpoint.db");
+        c.execute("VACUUM INTO ?1", [checkpoint.to_string_lossy().as_ref()]).unwrap();
+        let spec = crate::model::LaunchSpec::default();
+        let proof = super::placement_mac(key.as_bytes(), &super::placement_material("s", "r", &spec)).unwrap();
+        // Restored from the checkpoint (it predates the launch): same key, the proof checks, durable at once.
+        let restored = rusqlite::Connection::open(&checkpoint).unwrap();
+        let (again, created) = super::ensure_placement_key(&restored).unwrap();
+        assert_eq!(again, key);
+        assert!(!created && super::key_durable_at_start(created, true, true));
+        assert_eq!(super::placement_mac(again.as_bytes(), &super::placement_material("s", "r", &spec)).unwrap(), proof);
+        // Restored from the older checkpoint: a new key, not durable until a verified backup holds it.
+        let old = rusqlite::Connection::open(&older).unwrap();
+        let (other, created) = super::ensure_placement_key(&old).unwrap();
+        assert!(created && other != key && !super::key_durable_at_start(created, true, true));
+        // Without backups the disk is the only copy.
+        assert!(super::key_durable_at_start(true, false, false));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A launch spec and a message's context name the agents whose traces the runner may then read from Home.
