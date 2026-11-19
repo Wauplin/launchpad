@@ -989,7 +989,7 @@ mod tests {
         assert!(reference.contains("`launchpad home update [--version <text>] [--channel <text>] [--update_runners <true|false>]`") && reference.contains("`launchpad home check-update`"));
         assert!(reference.contains("`launchpad runner update <id>`") && reference.contains("`launchpad runner cancel-update <id>`"));
         let owner_only = reference.split("Only the owner's click runs these").nth(1).unwrap().split("Propose a ready card").next().unwrap();
-        assert!(!owner_only.contains("Home's Space") && !owner_only.contains("Home's build"), "{owner_only}");
+        assert!(!owner_only.contains("Install a newer Launchpad on Home's Space") && !owner_only.contains("to Home's build"), "{owner_only}");
         for access in [LaunchpadAccess::Read, LaunchpadAccess::Propose] {
             assert!(!launchpad_core::launchpad_cli::cli_reference("launchpad", None, access).contains("runner update"), "{access:?}");
         }
