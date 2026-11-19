@@ -23,4 +23,9 @@ prune_error: string | null,
 /**
  * Plain blobs the last backup could not list: neither on Home's disk nor in the destination.
  */
-missing_blobs: string | null, };
+missing_blobs: string | null, 
+/**
+ * Folders whose Launchpad branches a restore could not bring back yet (their Home Git bundles stay pending,
+ * and in every backup, until applied), with why.
+ */
+restore_errors: string | null, };

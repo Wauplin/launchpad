@@ -100,12 +100,32 @@ pub(crate) async fn git_in(app: &App, dir: &Path, args: &[&str], secs: u64) -> R
 }
 
 async fn git_with_input(app: &App, dir: &Path, args: &[&str], input: Option<Vec<u8>>, secs: u64) -> Result<String> {
-    let mut cmd = crate::procs::command(&app.env, "git", Some(dir));
+    Git::of(app).run(dir, args, input, secs).await
+}
+
+/// How Home runs Git: the user environment, and whether exit routes apply (Home itself).
+#[derive(Clone, Copy)]
+pub(crate) struct Git<'a> {
+    env: &'a crate::shellenv::UserEnv,
+    routes: bool,
+}
+
+impl<'a> Git<'a> {
+    fn of(app: &'a App) -> Git<'a> {
+        Git { env: &app.env, routes: here(app) }
+    }
+
+    async fn out(&self, dir: &Path, args: &[&str]) -> Result<String> {
+        self.run(dir, args, None, 60).await
+    }
+
+    async fn run(&self, dir: &Path, args: &[&str], input: Option<Vec<u8>>, secs: u64) -> Result<String> {
+    let mut cmd = crate::procs::command(self.env, "git", Some(dir));
     if let Some(input) = input {
         cmd.stdin_bytes(input);
     }
     // Exit routes: git sends each route's URL prefixes to the exit bridge by itself (`egress::git_env`).
-    let routes = if here(app) { crate::egress::git_env() } else { vec![] };
+    let routes = if self.routes { crate::egress::git_env() } else { vec![] };
     for (k, v) in &routes {
         cmd.env(k, v);
     }
@@ -123,6 +143,7 @@ async fn git_with_input(app: &App, dir: &Path, args: &[&str], input: Option<Vec<
         bail!("git {}: {}", args.first().copied().unwrap_or_default(), stderr.trim());
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
 }
 
 async fn git(app: &App, dir: &Path, args: &[&str]) -> Result<String> {
@@ -143,14 +164,14 @@ pub async fn ensure(app: &App, p: &Project) -> Result<PathBuf> {
         if tokio::fs::read_to_string(dir.join("hooks/pre-receive")).await.ok().as_deref() != Some(PRE_RECEIVE) {
             write_hook(&dir).await?;
         }
-        restore_pending(app, p).await?;
+        restore_pending(app, p, true).await;
         return Ok(dir);
     }
     let lock = lock(app, &p.id);
     let _lock = lock.lock().await;
     if dir.join("hooks/pre-receive").exists() {
         drop(_lock);
-        restore_pending(app, p).await?;
+        restore_pending(app, p, true).await;
         return Ok(dir);
     }
     let partial = root(app).join(format!(".{}.creating", p.id));
@@ -177,60 +198,189 @@ pub async fn ensure(app: &App, p: &Project) -> Result<PathBuf> {
         refresh(app, p).await.with_context(|| format!("first fetch of {}", p.name))?;
     }
     // A Home restored from a backup gets its Launchpad branches back.
-    crate::home_backup::restore_bundle(app, &p.id).await?;
+    restore_pending(app, p, false).await;
     Ok(dir)
 }
 
-/// A restored mirror whose bundle is not applied yet (an earlier fetch or download failed): fetch the remote the
-/// bundle builds on, then apply it. Every use of the mirror tries again until it worked.
-async fn restore_pending(app: &App, p: &Project) -> Result<()> {
-    if !crate::home_backup::bundle_pending(app, &p.id) {
-        return Ok(());
+/// A restored mirror whose bundles are not applied yet: fetch the remote the bundles build on (`fetch`), then apply
+/// them. A failure never fails the mirror's use: the bundles stay pending and in every backup, a branch pushed
+/// meanwhile is never overwritten (`restore_updates`), and the next try waits longer each time
+/// (`home_backup::claim_restore`), with the reason shown in Settings and `launchpad failures`.
+async fn restore_pending(app: &App, p: &Project, fetch: bool) {
+    if !crate::home_backup::bundle_pending(app, &p.id) || !crate::home_backup::claim_restore(&p.id, now_ms()) {
+        return;
     }
-    if upstream(p).is_some() {
-        fetch_origin(app, p).await.with_context(|| format!("fetch {} before applying its Home Git bundle", p.name))?;
-    }
-    crate::home_backup::restore_bundle(app, &p.id).await
+    let result = async {
+        if fetch && upstream(p).is_some() {
+            fetch_origin(app, p).await.with_context(|| format!("fetch {} before applying its Home Git bundle", p.name))?;
+        }
+        crate::home_backup::restore_bundle(app, &p.id).await
+    }.await;
+    crate::home_backup::restore_tried(&p.id, &p.name, &result, now_ms());
 }
 
 /// Where a bundle is fetched first, so it never overwrites a ref pushed since the restore.
 const RESTORE_NS: &str = "refs/lp-restore/";
 
+/// Where commits a bundle builds on are fetched by ID from the folder's remote while it is applied: Git applies a
+/// bundle only when its prerequisites are reachable from a ref.
+const PREREQ_NS: &str = "refs/lp-prereq/";
+
 /// Applies a backup bundle to a mirror: fetched under `RESTORE_NS`, then only the refs the mirror does not have
-/// are created.
+/// are created (a restored branch tip that differs from the mirror's is kept under `refs/kept/`).
 pub(crate) async fn apply_bundle(app: &App, project_id: &str, bundle: &Path) -> Result<()> {
     let dir = mirror(app, project_id);
     let lock = lock(app, project_id);
     let _lock = lock.lock().await;
-    let refs = "--format=%(objectname) %(refname)";
-    let clear = |listed: String| listed.lines().filter_map(|l| l.split_once(' ')).map(|(_, r)| format!("delete {r}\n")).collect::<String>();
-    let leftover = clear(git(app, &dir, &["for-each-ref", refs, RESTORE_NS]).await?);
-    if !leftover.is_empty() {
-        git_with_input(app, &dir, &["update-ref", "--stdin"], Some(leftover.into_bytes()), 60).await?;
-    }
-    let source = bundle.to_string_lossy();
-    git_in(app, &dir, &["fetch", "--quiet", "--no-tags", &source, &format!("+refs/*:{RESTORE_NS}*")], 600).await?;
-    let restored = git(app, &dir, &["for-each-ref", refs, RESTORE_NS]).await?;
-    let existing = git(app, &dir, &["for-each-ref", refs]).await?;
-    let updates = restore_updates(&restored, &existing) + &clear(restored);
-    if !updates.is_empty() {
-        git_with_input(app, &dir, &["update-ref", "--stdin"], Some(updates.into_bytes()), 60).await?;
-    }
+    apply_bundle_in(Git::of(app), &dir, bundle, now_ms()).await?;
     browse_stale(project_id);
     Ok(())
 }
 
+async fn apply_bundle_in(git: Git<'_>, dir: &Path, bundle: &Path, now: i64) -> Result<()> {
+    let refs = "--format=%(objectname) %(refname)";
+    let clear = |listed: String| listed.lines().filter_map(|l| l.split_once(' ')).map(|(_, r)| format!("delete {r}\n")).collect::<String>();
+    let leftover = clear(git.out(dir, &["for-each-ref", refs, RESTORE_NS, PREREQ_NS]).await?);
+    if !leftover.is_empty() {
+        git.run(dir, &["update-ref", "--stdin"], Some(leftover.into_bytes()), 60).await?;
+    }
+    let result = async {
+        fetch_prerequisites(git, dir, bundle).await?;
+        let source = bundle.to_string_lossy();
+        git.run(dir, &["fetch", "--quiet", "--no-tags", &source, &format!("+refs/*:{RESTORE_NS}*")], None, 600).await?;
+        let restored = git.out(dir, &["for-each-ref", refs, RESTORE_NS]).await?;
+        let existing = git.out(dir, &["for-each-ref", refs]).await?;
+        let updates = restore_updates(&restored, &existing, now) + &clear(restored);
+        if !updates.is_empty() {
+            git.run(dir, &["update-ref", "--stdin"], Some(updates.into_bytes()), 60).await?;
+        }
+        anyhow::Ok(())
+    }.await;
+    // The fetched prerequisites stay reachable from the restored refs.
+    let prereqs = clear(git.out(dir, &["for-each-ref", refs, PREREQ_NS]).await.unwrap_or_default());
+    if !prereqs.is_empty() {
+        let _ = git.run(dir, &["update-ref", "--stdin"], Some(prereqs.into_bytes()), 60).await;
+    }
+    result
+}
+
+/// Refs a backup bundle carries: Launchpad branches, kept tips and snapshots.
+fn bundled_ref(r: &str) -> bool {
+    r.starts_with("refs/heads/lp") || r.starts_with("refs/kept/") || r.starts_with("refs/lp-snapshots/")
+}
+
+/// The revisions of a backup bundle of a mirror with a remote, from its refs (`<id> <ref>` lines) and the ref
+/// `HEAD` names (the remote's default branch): the Launchpad refs to carry, and the commits left out (`^<id>`), only
+/// those of the default branch and tags, which stay on the remote. Never other remote branches: a feature branch
+/// deleted after a squash merge would leave the bundle building on commits a new clone does not have.
+pub(crate) fn bundle_revs(refs: &str, head: Option<&str>) -> (Vec<String>, Vec<String>) {
+    let pairs = || refs.lines().filter_map(|l| l.split_once(' '));
+    let ours = pairs().filter(|(_, r)| bundled_ref(r)).map(|(_, r)| r.to_string()).collect();
+    let mut stable: Vec<String> = pairs().filter(|(_, r)| Some(*r) == head || r.starts_with("refs/tags/")).map(|(c, _)| format!("^{c}")).collect();
+    stable.sort();
+    stable.dedup();
+    (ours, stable)
+}
+
+/// The commits a bundle builds on (`-<id>` lines of its header, v2 and v3).
+pub(crate) fn bundle_prerequisites(data: &[u8]) -> Result<Vec<String>> {
+    ensure!(data.starts_with(b"# v2 git bundle\n") || data.starts_with(b"# v3 git bundle\n"), "not a Git bundle");
+    // The header ends with an empty line.
+    let end = data.windows(2).position(|w| w == b"\n\n").context("truncated Git bundle header")?;
+    let mut out = vec![];
+    for line in data[..end].split(|b| *b == b'\n').skip(1) {
+        if let Some(rest) = line.strip_prefix(b"-") {
+            let id = String::from_utf8_lossy(rest.split(|b| *b == b' ').next().unwrap_or_default()).into_owned();
+            ensure!(!id.is_empty() && id.chars().all(|c| c.is_ascii_hexdigit()), "bad prerequisite line in a Git bundle");
+            out.push(id);
+        }
+    }
+    Ok(out)
+}
+
+/// Commits of `ids` the repository does not have.
+async fn missing_commits(git: Git<'_>, dir: &Path, ids: &[String]) -> Result<Vec<String>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let input: String = ids.iter().map(|id| format!("{id}\n")).collect();
+    let out = git.run(dir, &["cat-file", "--batch-check=%(objectname) %(objecttype)"], Some(input.into_bytes()), 60).await?;
+    let present: std::collections::HashSet<&str> = out.lines().filter_map(|l| l.strip_suffix(" commit")).collect();
+    Ok(ids.iter().filter(|id| !present.contains(id.as_str())).cloned().collect())
+}
+
+/// Makes every commit the bundle builds on present and reachable (under `PREREQ_NS`), fetching the missing ones
+/// by ID from the folder's remote (a deleted branch's commits often still are there, for example under a pull
+/// request's refs). Fails with the commits it could not find.
+async fn fetch_prerequisites(git: Git<'_>, dir: &Path, bundle: &Path) -> Result<()> {
+    let header = read_header(bundle).await?;
+    let ids = bundle_prerequisites(&header)?;
+    let missing = missing_commits(git, dir, &ids).await?;
+    let has_remote = git.out(dir, &["remote"]).await?.lines().any(|r| r == "origin");
+    if !missing.is_empty() && has_remote {
+        for id in &missing {
+            // One by one: a commit the remote lost never stops the others.
+            let spec = format!("+{id}:{PREREQ_NS}{id}");
+            if let Err(e) = git.run(dir, &["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", &spec], None, 600).await {
+                tracing::info!("home git: fetch {id} for a backup bundle: {e:#}");
+            }
+        }
+    }
+    let missing = missing_commits(git, dir, &missing).await?;
+    if !missing.is_empty() {
+        let short: Vec<&str> = missing.iter().map(|id| &id[..id.len().min(12)]).collect();
+        let remote = if has_remote { git.out(dir, &["remote", "get-url", "origin"]).await.unwrap_or_else(|_| "the remote".into()) } else { "the folder (it has no remote)".into() };
+        bail!(
+            "the backup's Launchpad branches build on {} commit(s) that {remote} no longer has ({}); push them back to it (for example as a branch from a clone that has them) and Home applies the bundle on its next try. The bundle stays in every backup until then",
+            missing.len(),
+            short.join(", ")
+        );
+    }
+    // Git checks that each prerequisite is reachable from a ref, not only present.
+    let refs: String = ids.iter().map(|id| format!("update {PREREQ_NS}{id} {id}\n")).collect();
+    if !refs.is_empty() {
+        git.run(dir, &["update-ref", "--stdin"], Some(refs.into_bytes()), 60).await?;
+    }
+    Ok(())
+}
+
+/// The header of a bundle file (up to its first empty line), without reading its pack.
+async fn read_header(bundle: &Path) -> Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let mut f = tokio::fs::File::open(bundle).await?;
+    let mut out = vec![];
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = f.read(&mut buf).await?;
+        if n == 0 {
+            return Ok(out);
+        }
+        out.extend_from_slice(&buf[..n]);
+        if let Some(end) = out.windows(2).position(|w| w == b"\n\n") {
+            out.truncate(end + 2);
+            return Ok(out);
+        }
+        ensure!(out.len() < 64 * 1024 * 1024, "Git bundle header too long");
+    }
+}
+
 /// `update-ref --stdin` lines that create each restored ref (`<sha> refs/lp-restore/<ref>` lines) the mirror does
-/// not have (`<sha> <ref>` lines). `create` fails if a push created the ref meanwhile: the next try skips it.
-fn restore_updates(restored: &str, existing: &str) -> String {
-    let have: std::collections::HashSet<&str> = existing.lines().filter_map(|l| l.split_once(' ')).map(|(_, r)| r).collect();
+/// not have (`<sha> <ref>` lines). A restored branch the mirror has at another commit (pushed since the restore)
+/// keeps the restored tip under `refs/kept/<now>/<branch>`, so nothing restored is lost. `create` fails if a push
+/// created the ref meanwhile: the next try skips it.
+fn restore_updates(restored: &str, existing: &str, now: i64) -> String {
+    let have: std::collections::HashMap<&str, &str> = existing.lines().filter_map(|l| l.split_once(' ')).map(|(sha, r)| (r, sha)).collect();
     restored
         .lines()
         .filter_map(|l| l.split_once(' '))
         .filter_map(|(sha, r)| Some((sha, format!("refs/{}", r.strip_prefix(RESTORE_NS)?))))
         // A bundle taken while another was being applied may hold leftovers of that one.
-        .filter(|(_, r)| !r.starts_with(RESTORE_NS) && !have.contains(r.as_str()))
-        .map(|(sha, r)| format!("create {r} {sha}\n"))
+        .filter(|(_, r)| !r.starts_with(RESTORE_NS) && !r.starts_with(PREREQ_NS))
+        .filter_map(|(sha, r)| match have.get(r.as_str()) {
+            None => Some(format!("create {r} {sha}\n")),
+            Some(cur) if *cur != sha => r.strip_prefix("refs/heads/").map(|b| format!("create refs/kept/{now}/{b} {sha}\n")),
+            Some(_) => None,
+        })
         .collect()
 }
 
@@ -1086,7 +1236,192 @@ mod tests {
     fn restore_creates_only_missing_refs() {
         let restored = "a1 refs/lp-restore/heads/lp/old\nb2 refs/lp-restore/heads/lp/pushed-since\nc3 refs/lp-restore/kept/1/lp/x\ne5 refs/lp-restore/lp-restore/heads/y";
         let existing = "f9 refs/heads/main\nd4 refs/heads/lp/pushed-since\nb2 refs/lp-restore/heads/lp/pushed-since";
-        assert_eq!(restore_updates(restored, existing), "create refs/heads/lp/old a1\ncreate refs/kept/1/lp/x c3\n");
-        assert_eq!(restore_updates("", existing), "");
+        // The branch pushed since the restore stays; the restored tip is kept beside it.
+        assert_eq!(restore_updates(restored, existing, 7), "create refs/heads/lp/old a1\ncreate refs/kept/7/lp/pushed-since b2\ncreate refs/kept/1/lp/x c3\n");
+        assert_eq!(restore_updates(restored, "d4 refs/heads/lp/old\nb2 refs/heads/lp/pushed-since\nc3 refs/kept/1/lp/x", 7), "create refs/kept/7/lp/old a1\n");
+        assert_eq!(restore_updates("", existing, 7), "");
+    }
+
+    /// Real Git in a scratch folder: a "GitHub" remote with `main` (commit A) and a feature branch (commit F, also
+    /// under a pull request's ref), and Home's mirror with a Launchpad branch built on the feature branch (L).
+    struct Scratch {
+        root: PathBuf,
+        vars: std::collections::BTreeMap<String, String>,
+    }
+
+    impl Scratch {
+        fn new() -> Scratch {
+            let root = std::env::temp_dir().join(format!("lp-bundle-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&root).unwrap();
+            let mut vars: std::collections::BTreeMap<String, String> = std::env::vars().filter(|(k, _)| k == "PATH").collect();
+            for (k, v) in [("HOME", root.to_string_lossy().as_ref()), ("GIT_CONFIG_NOSYSTEM", "1"), ("GIT_AUTHOR_NAME", "t"), ("GIT_AUTHOR_EMAIL", "t@t"), ("GIT_COMMITTER_NAME", "t"), ("GIT_COMMITTER_EMAIL", "t@t")] {
+                vars.insert(k.into(), v.into());
+            }
+            Scratch { root, vars }
+        }
+
+        fn git(&self, dir: &str, args: &[&str]) -> String {
+            let out = std::process::Command::new("git").current_dir(self.root.join(dir)).env_clear().envs(&self.vars).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+
+        fn bare(&self, name: &str) {
+            std::fs::create_dir_all(self.root.join(name)).unwrap();
+            self.git(name, &["init", "--quiet", "--bare", "--initial-branch=main"]);
+        }
+
+        fn commit(&self, dir: &str, parent: Option<&str>, msg: &str) -> String {
+            let blob = self.git(dir, &["hash-object", "-w", "--stdin"]);
+            let tree = {
+                let mut c = std::process::Command::new("git").current_dir(self.root.join(dir)).env_clear().envs(&self.vars).args(["mktree"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+                use std::io::Write;
+                writeln!(c.stdin.take().unwrap(), "100644 blob {blob}\t{msg}.txt").unwrap();
+                String::from_utf8(c.wait_with_output().unwrap().stdout).unwrap().trim().to_string()
+            };
+            let mut args = vec!["commit-tree", &tree, "-m", msg];
+            if let Some(p) = parent {
+                args.extend(["-p", p]);
+            }
+            self.git(dir, &args)
+        }
+
+        /// A mirror like `ensure` makes: the remote's branches and tags, fetched from `gh`.
+        fn mirror(&self, name: &str) {
+            self.bare(name);
+            let gh = self.root.join("gh").to_string_lossy().into_owned();
+            self.git(name, &["remote", "add", "origin", &gh]);
+            self.git(name, &["fetch", "--quiet", "origin", "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"]);
+        }
+
+        fn env(&self) -> crate::shellenv::UserEnv {
+            crate::shellenv::UserEnv::from_vars(self.vars.clone())
+        }
+
+        fn path(&self, p: &str) -> PathBuf {
+            self.root.join(p)
+        }
+
+        /// Sets up the remote and the old mirror; returns (A, F, L).
+        fn setup(&self) -> (String, String, String) {
+            self.bare("gh");
+            self.git("gh", &["config", "uploadpack.allowAnySHA1InWant", "true"]);
+            let a = self.commit("gh", None, "a");
+            let f = self.commit("gh", Some(&a), "f");
+            self.git("gh", &["update-ref", "refs/heads/main", &a]);
+            self.git("gh", &["update-ref", "refs/heads/feature", &f]);
+            self.git("gh", &["update-ref", "refs/pull/1/head", &f]);
+            self.git("gh", &["tag", "v1", &a]);
+            self.mirror("old");
+            let l = self.commit("old", Some(&f), "l");
+            self.git("old", &["update-ref", "refs/heads/lp/fix-12345678", &l]);
+            (a, f, l)
+        }
+
+        /// A bundle of the old mirror's Launchpad refs, minus `excludes`.
+        fn bundle(&self, name: &str, ours: &[String], excludes: &[String]) -> PathBuf {
+            let file = self.path(name).to_string_lossy().into_owned();
+            let mut args = vec!["bundle", "create", "--quiet", &file];
+            args.extend(ours.iter().map(String::as_str));
+            args.extend(excludes.iter().map(String::as_str));
+            self.git("old", &args);
+            self.path(name)
+        }
+
+        fn old_bundle(&self) -> PathBuf {
+            // Before the fix: every non-Launchpad ref was left out, the feature branch too.
+            let refs = self.git("old", &["for-each-ref", "--format=%(objectname) %(refname)"]);
+            let excludes: Vec<String> = refs.lines().filter_map(|l| l.split_once(' ')).filter(|(_, r)| !bundled_ref(r)).map(|(c, _)| format!("^{c}")).collect();
+            self.bundle("old.bundle", &["refs/heads/lp/fix-12345678".into()], &excludes)
+        }
+
+        fn refs(&self, dir: &str) -> String {
+            self.git(dir, &["for-each-ref", "--format=%(objectname) %(refname)"])
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn bundle_headers_list_their_prerequisites() {
+        let v2 = b"# v2 git bundle\n-aaaa111 some commit\n-bbbb222\ncccc333 refs/heads/lp/x\n\nPACK...";
+        assert_eq!(bundle_prerequisites(v2).unwrap(), vec!["aaaa111", "bbbb222"]);
+        let v3 = b"# v3 git bundle\n@object-format=sha1\ncccc333 refs/heads/lp/x\n\nPACK";
+        assert!(bundle_prerequisites(v3).unwrap().is_empty());
+        assert!(bundle_prerequisites(b"PACK").is_err());
+        assert!(bundle_prerequisites(b"# v2 git bundle\n-aaaa\n").is_err());
+    }
+
+    #[test]
+    fn backup_bundles_leave_out_only_the_default_branch_and_tags() {
+        let refs = "a1 refs/heads/main\nf2 refs/heads/feature\nl3 refs/heads/lp/x\ns4 refs/heads/lp-scratch/x-gen1\nk5 refs/kept/1/lp/x\nn6 refs/lp-snapshots/w\nt7 refs/tags/v1\na1 refs/tags/v0";
+        let (ours, stable) = bundle_revs(refs, Some("refs/heads/main"));
+        assert_eq!(ours, vec!["refs/heads/lp/x", "refs/heads/lp-scratch/x-gen1", "refs/kept/1/lp/x", "refs/lp-snapshots/w"]);
+        assert_eq!(stable, vec!["^a1", "^t7"]);
+        // Unknown default branch: tags only.
+        assert_eq!(bundle_revs(refs, None).1, vec!["^a1", "^t7"]);
+    }
+
+    #[tokio::test]
+    async fn a_new_bundle_survives_a_deleted_feature_branch() {
+        let s = Scratch::new();
+        let (a, f, l) = s.setup();
+        let refs = s.refs("old");
+        let (ours, stable) = bundle_revs(&refs, Some("refs/heads/main"));
+        let bundle = s.bundle("new.bundle", &ours, &stable);
+        // It builds on the default branch only and carries the feature branch's commit.
+        assert_eq!(bundle_prerequisites(&std::fs::read(&bundle).unwrap()).unwrap(), vec![a.clone()]);
+        assert!(bundle_prerequisites(&std::fs::read(s.old_bundle()).unwrap()).unwrap().contains(&f));
+        // The feature branch is squash-merged and deleted, and the pull request's ref is gone too.
+        s.git("gh", &["update-ref", "-d", "refs/heads/feature"]);
+        s.git("gh", &["update-ref", "-d", "refs/pull/1/head"]);
+        s.git("gh", &["reflog", "expire", "--expire=now", "--all"]);
+        s.git("gh", &["gc", "--quiet", "--prune=now"]);
+        s.mirror("new");
+        let env = s.env();
+        apply_bundle_in(Git { env: &env, routes: false }, &s.path("new"), &bundle, 7).await.unwrap();
+        assert!(s.refs("new").contains(&format!("{l} refs/heads/lp/fix-12345678")));
+    }
+
+    #[tokio::test]
+    async fn missing_prerequisites_are_fetched_by_id() {
+        let s = Scratch::new();
+        let (_, f, l) = s.setup();
+        let bundle = s.old_bundle();
+        // The branch is deleted, but the remote still has its commit (a pull request's ref).
+        s.git("gh", &["update-ref", "-d", "refs/heads/feature"]);
+        s.mirror("new");
+        assert!(!s.refs("new").contains(&f));
+        let env = s.env();
+        apply_bundle_in(Git { env: &env, routes: false }, &s.path("new"), &bundle, 7).await.unwrap();
+        let refs = s.refs("new");
+        assert!(refs.contains(&format!("{l} refs/heads/lp/fix-12345678")), "{refs}");
+        assert!(!refs.contains(PREREQ_NS) && !refs.contains(RESTORE_NS), "{refs}");
+    }
+
+    #[tokio::test]
+    async fn unavailable_prerequisites_fail_without_changing_the_mirror() {
+        let s = Scratch::new();
+        let (_, f, l) = s.setup();
+        let bundle = s.old_bundle();
+        s.git("gh", &["update-ref", "-d", "refs/heads/feature"]);
+        s.git("gh", &["update-ref", "-d", "refs/pull/1/head"]);
+        s.git("gh", &["reflog", "expire", "--expire=now", "--all"]);
+        s.git("gh", &["gc", "--quiet", "--prune=now"]);
+        s.mirror("new");
+        let before = s.refs("new");
+        let env = s.env();
+        let err = apply_bundle_in(Git { env: &env, routes: false }, &s.path("new"), &bundle, 7).await.unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("no longer has") && msg.contains(&f[..12]), "{msg}");
+        assert_eq!(s.refs("new"), before);
+        // Once the commit is back on the remote, the next try applies it.
+        s.git("old", &["push", "--quiet", &s.path("gh").to_string_lossy(), &format!("{f}:refs/heads/restored")]);
+        apply_bundle_in(Git { env: &env, routes: false }, &s.path("new"), &bundle, 7).await.unwrap();
+        assert!(s.refs("new").contains(&format!("{l} refs/heads/lp/fix-12345678")));
     }
 }

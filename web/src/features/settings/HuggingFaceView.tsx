@@ -11,7 +11,7 @@ import type { SignInCheck } from "@/gen/SignInCheck";
 import { Card, SettingsPage } from "./SettingsView";
 
 type LoginInfo = { check: SignInCheck; account: string | null };
-type HomeBackup = { destination: string | null; last_complete_at: number | null; error: string | null; credentials_encrypted: boolean; traces_error: string | null; pruned_at: number | null; prune: string | null; prune_error: string | null; missing_blobs: string | null };
+type HomeBackup = { destination: string | null; last_complete_at: number | null; error: string | null; credentials_encrypted: boolean; traces_error: string | null; pruned_at: number | null; prune: string | null; prune_error: string | null; missing_blobs: string | null; restore_errors: string | null };
 
 export function HuggingFaceView() {
   const login = useQuery({ queryKey: ["home-hf-login"], queryFn: () => api.get<LoginInfo>("/api/setup/huggingface"), refetchInterval: 60_000 });
@@ -29,6 +29,7 @@ export function HuggingFaceView() {
       {backup.data?.pruned_at && backup.data.prune && <span className="text-[12px] text-ink-3">Old backups pruned {ago(backup.data.pruned_at)}: {backup.data.prune}. Kept: the two newest, the newest at least an hour old, and one per day for 10 days.</span>}
       {backup.data?.prune_error && <ErrorState error={`Pruning old backups skipped: ${backup.data.prune_error}`} />}
       {backup.data?.missing_blobs && <ErrorState error={`Not in the backup: ${backup.data.missing_blobs}`} />}
+      {backup.data?.restore_errors && <ErrorState error={`Launchpad branches not restored yet (kept in every backup, tried again later): ${backup.data.restore_errors}`} />}
       <span className="text-[12px] text-ink-3">The bucket mount is managed by the Home deployment.</span>
     </Card>
     <Card title="Traces" end={bucket && <a className="btn btn-sm no-underline" {...externalLinkProps(`https://huggingface.co/buckets/${bucket}`)}><Icon name="ext" size={12} />Open bucket</a>}>

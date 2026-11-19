@@ -23,9 +23,11 @@
 //! written or a manifest of the last day does not parse (`check_readable`).
 //!
 //! Home Git: each mirror adds a bundle (`git/<folder-id>.bundle`) of its Launchpad branches and kept tips, minus
-//! what the folder's remote has (a full bundle without a remote). After a restore, a mirror is cloned from the
-//! remote again on first use, then gets its bundles (`git_restore.json` lists them); until then they stay in every
-//! backup (`git/<folder-id>.pending.bundle`).
+//! the history of the remote's default branch and tags (a full bundle without a remote); never minus other remote
+//! branches, which may be deleted before a restore. After a restore, a mirror is cloned from the remote again on
+//! first use, then gets its bundles (`git_restore.json` lists them): commits a bundle builds on that the clone lacks
+//! are fetched by ID from the remote first. Until applied, they stay in every backup
+//! (`git/<folder-id>.pending.bundle`); a failed try never blocks the mirror's use and waits longer each time.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -248,6 +250,9 @@ pub struct BackupInfo {
     pub prune_error: Option<String>,
     /// Plain blobs the last backup could not list: neither on Home's disk nor in the destination.
     pub missing_blobs: Option<String>,
+    /// Folders whose Launchpad branches a restore could not bring back yet (their Home Git bundles stay pending,
+    /// and in every backup, until applied), with why.
+    pub restore_errors: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -283,7 +288,7 @@ pub fn changed() {
 
 impl Backups {
     pub fn info(&self) -> BackupInfo {
-        BackupInfo { credentials_encrypted: sealing_key().is_some(), ..self.info.lock().unwrap().clone() }
+        BackupInfo { credentials_encrypted: sealing_key().is_some(), restore_errors: restore_errors(), ..self.info.lock().unwrap().clone() }
     }
 }
 
@@ -700,7 +705,8 @@ async fn readable(app: &App, store: &Store) -> Result<()> {
     result
 }
 
-/// One bundle per mirror: Launchpad branches, kept tips and leftovers the remote does not have.
+/// One bundle per mirror: Launchpad branches, kept tips and snapshots, minus the history of the remote's default
+/// branch and tags (`home_git::bundle_revs`).
 async fn bundles(app: &App, store: &Store, existing: &std::collections::HashSet<String>) -> Result<Vec<Object>> {
     let mut out = vec![];
     // Read first: a bundle applied while the mirrors are bundled is then in the mirror's own bundle, or still here.
@@ -721,8 +727,8 @@ async fn bundles(app: &App, store: &Store, existing: &std::collections::HashSet<
             out.push(o);
             continue;
         }
-        let ours: Vec<&str> = refs.lines().filter_map(|l| l.split_once(' ').map(|(_, r)| r)).filter(|r| r.starts_with("refs/heads/lp") || r.starts_with("refs/kept/") || r.starts_with("refs/lp-snapshots/")).collect();
-        let theirs: Vec<String> = refs.lines().filter_map(|l| l.split_once(' ')).filter(|(_, r)| !(r.starts_with("refs/heads/lp") || r.starts_with("refs/kept/") || r.starts_with("refs/lp-snapshots/"))).map(|(c, _)| format!("^{c}")).collect();
+        let head = crate::home_git::git_in(app, &dir, &["symbolic-ref", "--quiet", "HEAD"], 10).await.ok();
+        let (ours, stable) = crate::home_git::bundle_revs(&refs, head.as_deref());
         let has_remote = crate::home_git::git_in(app, &dir, &["remote"], 10).await?.lines().any(|r| r == "origin");
         let file = app.paths.data_dir.join(format!("bundle-{}.partial", uuid::Uuid::new_v4()));
         let file_s = file.to_string_lossy().into_owned();
@@ -732,8 +738,8 @@ async fn bundles(app: &App, store: &Store, existing: &std::collections::HashSet<
                 app.home_backups.bundles.lock().unwrap().remove(id);
                 continue;
             }
-            args.extend(ours.iter().map(|r| r.to_string()));
-            args.extend(theirs);
+            args.extend(ours);
+            args.extend(stable);
         } else {
             args.push("--all".into());
         }
@@ -831,8 +837,62 @@ fn pending_folders(app: &App) -> Vec<String> {
     read_pending(&app.paths).map(|p| p.into_keys().collect()).unwrap_or_default()
 }
 
-/// Every minute: applies the pending bundles of mirrors that exist (an earlier try failed), and forgets those of
-/// deleted folders.
+/// A folder whose pending Home Git bundles could not be applied: why, how many tries failed in a row and when the
+/// next try is due.
+struct RestoreFailure {
+    folder: String,
+    error: String,
+    tries: u32,
+    next_at: i64,
+}
+
+static RESTORE_FAILURES: std::sync::LazyLock<Mutex<std::collections::HashMap<String, RestoreFailure>>> = std::sync::LazyLock::new(Default::default);
+
+/// The wait before the next try after `tries` failed tries in a row: one minute, doubling, at most six hours.
+fn restore_backoff(tries: u32) -> i64 {
+    (60_000i64 << tries.saturating_sub(1).min(9)).min(6 * 3600 * 1000)
+}
+
+/// Whether a folder's pending bundles may be tried now (no failure, or its next try is due). Claims a due try for a
+/// minute, so concurrent uses of the mirror try once.
+pub(crate) fn claim_restore(project_id: &str, now: i64) -> bool {
+    match RESTORE_FAILURES.lock().unwrap().get_mut(project_id) {
+        None => true,
+        Some(f) if f.next_at <= now => {
+            f.next_at = now + 60_000;
+            true
+        }
+        Some(_) => false,
+    }
+}
+
+/// Records a try of a folder's pending bundles: a success clears its failure, a failure is logged and waits
+/// `restore_backoff` before the next try.
+pub(crate) fn restore_tried(project_id: &str, folder: &str, result: &Result<()>, now: i64) {
+    let mut all = RESTORE_FAILURES.lock().unwrap();
+    let Err(e) = result else {
+        all.remove(project_id);
+        return;
+    };
+    let f = all.entry(project_id.to_string()).or_insert(RestoreFailure { folder: folder.to_string(), error: String::new(), tries: 0, next_at: 0 });
+    f.tries += 1;
+    f.error = format!("{e:#}");
+    f.folder = folder.to_string();
+    let wait = restore_backoff(f.tries);
+    f.next_at = now + wait;
+    tracing::warn!("home backup: Launchpad branches of {folder} not restored yet (try {}, next in {} min): {}", f.tries, wait / 60_000, f.error);
+}
+
+/// The folders whose Launchpad branches a restore could not bring back yet, with why (for `BackupInfo`).
+fn restore_errors() -> Option<String> {
+    let all = RESTORE_FAILURES.lock().unwrap();
+    let mut lines: Vec<String> = all.values().map(|f| format!("{}: {} ({} failed tries)", f.folder, f.error, f.tries)).collect();
+    lines.sort();
+    (!lines.is_empty()).then(|| lines.join("; "))
+}
+
+/// Every minute: applies the pending bundles of mirrors that exist (an earlier try failed, when its next try is
+/// due), and forgets those of deleted folders.
 async fn retry_restores(app: &App) {
     for id in pending_folders(app) {
         let result = match crate::projects::get(app, &id).await {
@@ -850,6 +910,7 @@ async fn retry_restores(app: &App) {
 async fn forget_bundles(app: &App, project_id: &str) -> Result<()> {
     let lock = app.suggestion_locks.get(&format!("home-git-restore:{project_id}"));
     let _lock = lock.lock().await;
+    RESTORE_FAILURES.lock().unwrap().remove(project_id);
     drop_pending(&app.paths, project_id, None)
 }
 
@@ -892,7 +953,7 @@ pub async fn restore_bundle(app: &App, project_id: &str) -> Result<()> {
         tokio::fs::write(&path, data).await?;
         let result = crate::home_git::apply_bundle(app, project_id, &path).await;
         let _ = tokio::fs::remove_file(&path).await;
-        result.context("apply the Home Git bundle (the remote may have lost commits Launchpad branches build on)")?;
+        result.context("apply the Home Git bundle")?;
         changed();
         drop_pending(&app.paths, project_id, Some(&hash))?;
     }
@@ -1425,6 +1486,13 @@ mod tests {
         assert!(new_db_copy(When::Changed, true, Some(NOW - MIN), NOW));
         assert!(!new_db_copy(When::Changed, false, Some(NOW - MIN), NOW));
         assert!(new_db_copy(When::Always, false, Some(NOW - MIN), NOW));
+    }
+
+    #[test]
+    fn restore_retries_back_off() {
+        assert_eq!(restore_backoff(1), 60_000);
+        assert_eq!(restore_backoff(3), 240_000);
+        assert_eq!(restore_backoff(40), 6 * 3600 * 1000);
     }
 
     #[test]
