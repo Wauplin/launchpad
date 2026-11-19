@@ -9,7 +9,8 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-versions=json.loads(Path('/opt/home/release.json').read_text())['tools']
+pins=json.loads(Path('/opt/home/release.json').read_text())
+versions,checksums=pins['tools'],pins['checksums']
 if any(not re.fullmatch(r'\d+\.\d+\.\d+',str(v)) for v in versions.values()): raise ValueError('Tool versions must be exact semver releases')
 subprocess.run(['npm','install','-g',f"@openai/codex@{versions['codex']}",f"@anthropic-ai/claude-code@{versions['claude']}",f"opencode-ai@{versions['opencode']}"],check=True)
 version=versions['gh']
@@ -59,10 +60,9 @@ archive = download(url)
 sha256_of(archive, download(url + '.sha256').decode().split()[0], 'Ruff')
 install('/usr/local/bin/ruff', from_tar(archive, 'ruff-x86_64-unknown-linux-gnu/ruff'))
 
-# slackline: the GitHub release archive, checked against the digest GitHub records for the asset (no checksum file).
+# slackline: the GitHub release archive (no checksum file), checked against the digest bump_tools.py pinned in release.json
+# from GitHub's asset record. The build never calls api.github.com: the Space builder's shared address hits its rate limit.
 version = versions['slackline']
-name = f'slackline-v{version}-x86_64-unknown-linux-gnu.tar.gz'
-asset = next(a for a in json.loads(download(f'https://api.github.com/repos/co42/slackline/releases/tags/v{version}'))['assets'] if a['name'] == name)
-archive = download(asset['browser_download_url'])
-sha256_of(archive, asset['digest'].removeprefix('sha256:'), 'slackline')
+archive = download(f'https://github.com/co42/slackline/releases/download/v{version}/slackline-v{version}-x86_64-unknown-linux-gnu.tar.gz')
+sha256_of(archive, checksums['slackline'], 'slackline')
 install('/usr/local/bin/slackline', from_tar(archive, 'slackline'))

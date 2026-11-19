@@ -1,6 +1,6 @@
 import unittest
 
-from bump_tools import github_versions, plan, pypi_versions
+from bump_tools import asset_digest, github_versions, plan, pypi_versions
 
 
 class Plan(unittest.TestCase):
@@ -47,6 +47,12 @@ class Sources(unittest.TestCase):
         self.assertEqual(github_versions(releases), ("1.5.1", ["1.5.1", "1.5.0", "nightly"]))
         self.assertEqual(plan("1.5.0", *github_versions(releases)), ("1.5.1", None))
         self.assertEqual(github_versions([]), (None, []))
+
+    def test_asset_digest(self):
+        release = {"assets": [{"name": "a.zip", "digest": "sha256:aa"}, {"name": "b.tar.gz", "digest": "sha256:bb"}, {"name": "c.tar.gz", "digest": None}]}
+        self.assertEqual(asset_digest(release, "b.tar.gz"), "bb")
+        with self.assertRaises(ValueError):
+            asset_digest(release, "c.tar.gz")
 
 
 if __name__ == "__main__":

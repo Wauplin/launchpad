@@ -16,6 +16,9 @@ from pathlib import Path
 PACKAGES = {"claude": "@anthropic-ai/claude-code", "codex": "@openai/codex", "opencode": "opencode-ai"}
 PYPI = {"ruff": "ruff"}
 GITHUB = {"slackline": "co42/slackline"}
+# The archive install_tools.py downloads per GitHub tool; its digest is pinned in release.json's "checksums", so the
+# image build never calls api.github.com (the Space builder's shared address hits its rate limit).
+ASSETS = {"slackline": "slackline-v{v}-x86_64-unknown-linux-gnu.tar.gz"}
 RELEASE = Path(__file__).with_name("release.json")
 SEMVER = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?")
 
@@ -72,6 +75,14 @@ def github_versions(releases):
     return (max(ok, key=lambda v: key(parse(v))) if ok else None), versions
 
 
+def asset_digest(release, name):
+    """The SHA-256 GitHub records for a release asset, without its "sha256:" prefix."""
+    digest = next(a for a in release["assets"] if a["name"] == name).get("digest") or ""
+    if not digest.startswith("sha256:"):
+        raise ValueError(f"{name}: GitHub records no SHA-256 digest")
+    return digest.removeprefix("sha256:")
+
+
 def releases(tool):
     """(latest, versions) of a tool's source; versions is None when only latest was read (npm, until a major shows)."""
     if tool in PACKAGES:
@@ -102,6 +113,15 @@ def main():
             print(f"{tool}: {pinned} -> {target}")
             data["tools"][tool] = target
             changed = True
+        checksums = data.setdefault("checksums", {})
+        if tool in ASSETS and (target or tool not in checksums):
+            version = data["tools"][tool]
+            release = get(f"https://api.github.com/repos/{GITHUB[tool]}/releases/tags/v{version}")
+            digest = asset_digest(release, ASSETS[tool].format(v=version))
+            if checksums.get(tool) != digest:
+                print(f"{tool}: checksum of {version} pinned")
+                checksums[tool] = digest
+                changed = True
     if changed and not args.dry_run:
         RELEASE.write_text(json.dumps(data, indent=2) + "\n")
     if not changed:

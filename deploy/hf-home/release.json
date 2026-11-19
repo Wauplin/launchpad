@@ -9,5 +9,8 @@
     "monty": "1.6.0",
     "ruff": "0.17.5",
     "slackline": "1.5.0"
+  },
+  "checksums": {
+    "slackline": "297b150ba073effed4346f6c06b9b1d1d6eb5d5d12d7d36b8ccf8fcaaeb842ef"
   }
 }
