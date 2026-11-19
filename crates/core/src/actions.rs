@@ -357,3 +357,21 @@ pub fn typescript() -> String {
     out.push_str("};\n");
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The GitHub publications whose attribution line says "posted manually" (`attribution::Origin::Manual`) run
+    /// only on the owner's click: never an admin agent's direct action, never a card an agent or auto mode accepts
+    /// (only a ready card, which runs from its own button). Agents publish through `launchpad pr publish`, which
+    /// the route stamps as automatic.
+    #[test]
+    fn manual_publications_are_owner_clicks_only() {
+        for name in ["suggestion.post", "local-pr.publish", "local-pr.publish-set"] {
+            let a = get(name).unwrap();
+            assert_eq!(a.access, ActionAccess::Owner, "{name}");
+            assert_eq!(a.card, None, "{name}");
+        }
+    }
+}

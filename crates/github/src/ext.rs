@@ -684,7 +684,9 @@ fn state(d: &Data, uses: &[Use], it: &Item) -> State {
                 return None;
             }
             let bot = session.and_then(|x| x.launch_spec.bot.as_ref().map(|b| b.name.clone()));
-            let attribution = session.map(launchpad_core::attribution::line).unwrap_or_else(|| launchpad_core::attribution::text(None, "Claude Code"));
+            // Insert and prefill go into GitHub's own field; the owner submits it with GitHub's button: manual.
+            let base = session.map(launchpad_core::attribution::line).unwrap_or_else(|| launchpad_core::attribution::text(None, "Claude Code"));
+            let attribution = launchpad_core::attribution::with_origin(&base, launchpad_core::attribution::Origin::Manual);
             let text = format!("{}{}", reply_to.as_ref().map(ReplyTo::prefix).unwrap_or_default(), s.body);
             let lines = s
                 .comments

@@ -75,7 +75,9 @@ async fn update(State(s): State<Ctx>, Path(id): Path<String>, Json(q): Json<Valu
     let q: Patch = serde_json::from_value(q)?;
     Ok(Json(json!(predrafts::update(&s.app, &id, q).await?)))
 }
-async fn action(State(s): State<Ctx>, Path((id, a)): Path<(String, String)>, Json(q): Json<Value>) -> ApiResult<Value> {
+async fn action(State(s): State<Ctx>, Path((id, a)): Path<(String, String)>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(q): Json<Value>) -> ApiResult<Value> {
+    // An agent's `launchpad pr publish` publishes automatically; the owner's Publish (button or ready card) manually.
+    let origin = launchpad_core::attribution::Origin::of_caller(agent.is_some());
     if let Some(r) = home(&s, "POST", &format!("/api/predrafts/{id}/{a}"), Some(q.clone())).await { return r; }
     let v = match a.as_str() {
         "refresh" => predrafts::detail(&s.app, &id, true).await?,
@@ -86,8 +88,8 @@ async fn action(State(s): State<Ctx>, Path((id, a)): Path<(String, String)>, Jso
         "discard" => json!(predrafts::discard(&s.app, &id).await?),
         "reopen" => json!(predrafts::reopen(&s.app, &id).await?),
         "unlock" => json!(predrafts::unlock(&s.app, &id).await?),
-        "publish" => json!(predrafts::publish(&s.app, &id, serde_json::from_value::<Publish>(q)?).await?),
-        "publish-set" => json!(predrafts::publish_set(&s.app, &id, serde_json::from_value::<predrafts::PublishSet>(q)?).await?),
+        "publish" => json!(predrafts::publish(&s.app, &id, serde_json::from_value::<Publish>(q)?, origin).await?),
+        "publish-set" => json!(predrafts::publish_set(&s.app, &id, serde_json::from_value::<predrafts::PublishSet>(q)?, origin).await?),
         "link-pr" => json!(predrafts::link_pr(&s.app, &id, serde_json::from_value::<predrafts::LinkPr>(q)?).await?),
         "merge-local" => json!(predrafts::merge_local(&s.app, &id, serde_json::from_value::<MergeLocal>(q)?).await?),
         _ => return Err(anyhow::anyhow!("unknown Local PR action").into()),

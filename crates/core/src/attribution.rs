@@ -3,6 +3,12 @@
 //! `_Written by <name> via [Launchpad](…)_`, naming the harness for a one-time agent or the bot for a bot's
 //! session. Bots find their own past comments by it.
 //!
+//! On GitHub the line also says who triggered the publication (`Origin`), decided by Home from where the write
+//! comes from, never from the text: `, posted automatically` for an agent's or bot's own write (its `gh` and API
+//! calls through the proxy, `launchpad pr publish`, a launch's When done = Draft PR or Open PR) and `, posted
+//! manually` for the owner's click (Post of a Suggestion, Publish of a Local PR, the extension's Insert that the
+//! owner submits with GitHub's button). An owner asking an agent to post still counts as automatic.
+//!
 //! Signing is idempotent: a body that already ends with an attribution line (italic or plain, or Claude Code's
 //! default line) gets it replaced, never doubled.
 
@@ -39,6 +45,64 @@ pub fn slack(line: &str) -> String {
     line.replace(LINK, &format!("<{URL}|Launchpad>"))
 }
 
+/// Who triggered a GitHub publication, from Home's own view of the request (never from its text).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    /// An agent or bot published on its own: its `gh` or API calls, `launchpad pr publish`, When done = Draft PR or
+    /// Open PR. Also when the owner asked it to post.
+    Automatic,
+    /// The owner clicked a publication button or card (Post, Publish, Publish all, the extension's Insert or
+    /// prefill that the owner submits with GitHub's own button).
+    Manual,
+}
+
+impl Origin {
+    /// The origin of an API call: an agent's session token (`AgentSession`) publishes automatically, the owner's
+    /// window manually.
+    pub fn of_caller(agent: bool) -> Self {
+        if agent { Origin::Automatic } else { Origin::Manual }
+    }
+    fn words(self) -> &'static str {
+        match self {
+            Origin::Automatic => "posted automatically",
+            Origin::Manual => "posted manually",
+        }
+    }
+}
+
+const ORIGINS: [Origin; 2] = [Origin::Automatic, Origin::Manual];
+
+/// `line` (from `text` or `line`) saying who triggered the publication, inside its italics:
+/// `_Written by X via [Launchpad](…), posted manually_`.
+pub fn with_origin(line: &str, origin: Origin) -> String {
+    let base = without_origin(line);
+    match base.as_str().strip_prefix('_').and_then(|b| b.strip_suffix('_')) {
+        Some(inner) => format!("_{inner}, {}_", origin.words()),
+        None => format!("{base}, {}", origin.words()),
+    }
+}
+
+/// The GitHub line of a session this machine knows, for a publication of that origin.
+pub fn github_line(app: &App, session_id: Option<&str>, origin: Origin) -> Option<String> {
+    for_session(app, session_id).map(|l| with_origin(&l, origin))
+}
+
+/// `line` without its origin, italic or plain.
+fn without_origin(line: &str) -> String {
+    let l = line.trim();
+    let (inner, italic) = match l.strip_prefix('_').and_then(|x| x.strip_suffix('_')) {
+        Some(i) => (i, true),
+        None => (l, false),
+    };
+    let inner = strip_origin(inner);
+    if italic { format!("_{inner}_") } else { inner.to_string() }
+}
+
+/// The text of a line without a trailing `, posted …`.
+fn strip_origin(inner: &str) -> &str {
+    ORIGINS.iter().find_map(|o| inner.strip_suffix(o.words()).and_then(|r| r.strip_suffix(", "))).unwrap_or(inner)
+}
+
 /// What comes between the text and the line.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Separator {
@@ -61,13 +125,15 @@ pub fn sign(body: &str, line: &str, sep: Separator) -> String {
     }
 }
 
-/// Is this the last line of an attribution (any agent or bot, italic or plain, or Claude Code's default)?
+/// Is this the last line of an attribution (any agent or bot, italic or plain, with or without its origin, or
+/// Claude Code's default)?
 fn is_attribution(l: &str) -> bool {
     let l = l.trim();
     if l == CLAUDE_DEFAULT {
         return true;
     }
     let inner = l.strip_prefix('_').and_then(|x| x.strip_suffix('_')).unwrap_or(l);
+    let inner = strip_origin(inner);
     let connector = if inner.starts_with("Written by ") {
         "via"
     } else if inner.starts_with("Done with ") || inner.starts_with("Done by ") {
@@ -161,19 +227,22 @@ pub fn sign_github(method: &str, path: &str, body: &[u8], line: &str) -> Option<
     serde_json::to_vec(&v).ok()
 }
 
-/// The proxy's part: the signed body of a session's GitHub request, when it writes one.
+/// The proxy's part: the signed body of a session's GitHub request, when it writes one. The agent's own request
+/// is always an automatic publication, whatever its text says.
 pub fn sign_request(app: &App, session_id: &str, host: &str, method: &str, path: &str, body: &[u8]) -> Option<Vec<u8>> {
     if !signs_github(host, method, path) {
         return None;
     }
-    let line = for_session(app, Some(session_id))?;
+    let line = github_line(app, Some(session_id), Origin::Automatic)?;
     sign_github(method, path, body, &line)
 }
 
 /// The sentence of the contained instructions: what Launchpad signs, and what the agent signs itself.
 pub fn instruction(line: &str) -> String {
+    let line = without_origin(line);
+    let auto = with_origin(&line, Origin::Automatic);
     format!(
-        "Attribution: Launchpad ends what you publish through it with the line `{line}`: pull request and issue bodies, comments and reviews you post with `gh` or the GitHub API, Local PRs, Suggestions and Outbox messages. Do not add that line or another attribution line (such as \"Generated with …\") to them yourself. Bot channel and DM posts (`launchpad channel post`, `launchpad dm`), your replies and everything else you write inside Launchpad itself (proposals, reports, the knowledge base, bot memory) never get an attribution line. When you publish text outside Launchpad yourself, end it with that line after a blank line.\n"
+        "Attribution: Launchpad ends what you publish through it with the line `{line}`: pull request and issue bodies, comments and reviews you post with `gh` or the GitHub API, Local PRs, Suggestions and Outbox messages. On GitHub, Launchpad adds who triggered the publication inside the line: `, posted automatically` when you or another agent publish (also when the owner asked you to), `, posted manually` when the owner clicks Post or Publish. Do not add that line, its ending or another attribution line (such as \"Generated with …\") to them yourself. Bot channel and DM posts (`launchpad channel post`, `launchpad dm`), your replies and everything else you write inside Launchpad itself (proposals, reports, the knowledge base, bot memory) never get an attribution line. When you publish text outside Launchpad yourself, end it with `{auto}` after a blank line.\n"
     )
 }
 
@@ -187,7 +256,57 @@ mod tests {
     fn instruction_keeps_channel_posts_unsigned() {
         let t = instruction(CLAUDE);
         assert!(t.contains("`launchpad channel post`, `launchpad dm`), your replies and everything else you write inside Launchpad itself"), "{t}");
-        assert!(t.contains("When you publish text outside Launchpad yourself, end it with that line"), "{t}");
+        assert!(t.contains("When you publish text outside Launchpad yourself, end it with `_Written by Claude Code via [Launchpad](https://github.com/Wauplin/launchpad), posted automatically_`"), "{t}");
+        assert!(t.contains("with the line `_Written by Claude Code via [Launchpad](https://github.com/Wauplin/launchpad)_`"), "{t}");
+        assert!(t.contains("Do not add that line, its ending"), "{t}");
+        // Given a line with an origin, the sentence still names the base line.
+        assert_eq!(instruction(&with_origin(CLAUDE, Origin::Manual)), t);
+    }
+
+    const AUTO: &str = "_Written by Claude Code via [Launchpad](https://github.com/Wauplin/launchpad), posted automatically_";
+    const MANUAL: &str = "_Written by Claude Code via [Launchpad](https://github.com/Wauplin/launchpad), posted manually_";
+
+    #[test]
+    fn origin_goes_inside_the_italics() {
+        assert_eq!(with_origin(CLAUDE, Origin::Automatic), AUTO);
+        assert_eq!(with_origin(CLAUDE, Origin::Manual), MANUAL);
+        // A line that already says one origin gets the other, never both.
+        assert_eq!(with_origin(AUTO, Origin::Manual), MANUAL);
+        assert_eq!(with_origin(MANUAL, Origin::Manual), MANUAL);
+        let bot = with_origin(&text(Some("Hubert.py Bot"), "Codex"), Origin::Automatic);
+        assert_eq!(bot, "_Written by Hubert.py Bot via [Launchpad](https://github.com/Wauplin/launchpad), posted automatically_");
+        assert_eq!(with_origin("Written by Codex via [Launchpad](https://github.com/Wauplin/launchpad)", Origin::Manual), "Written by Codex via [Launchpad](https://github.com/Wauplin/launchpad), posted manually");
+        // The owner's window publishes manually, an agent's session token automatically.
+        assert_eq!(Origin::of_caller(false), Origin::Manual);
+        assert_eq!(Origin::of_caller(true), Origin::Automatic);
+    }
+
+    #[test]
+    fn footers_with_an_origin_are_replaced_not_doubled() {
+        for (line, other) in [(AUTO, MANUAL), (MANUAL, AUTO)] {
+            let once = sign("Fixes it.", line, Separator::Rule);
+            assert_eq!(once, format!("Fixes it.\n\n---\n\n{line}"));
+            assert_eq!(sign(&once, line, Separator::Rule), once);
+            // A stale footer of the other origin, or one without an origin, is replaced by the trusted one.
+            assert_eq!(sign(&sign("Fixes it.", other, Separator::Rule), line, Separator::Rule), once);
+            assert_eq!(sign(&sign("Fixes it.", CLAUDE, Separator::Rule), line, Separator::Rule), once);
+            assert_eq!(sign(&format!("Fixes it.\n\n{other}\n\n---\n\n{CLAUDE}"), line, Separator::Rule), once);
+            assert_eq!(unsigned(&once), "Fixes it.");
+            assert_eq!(unsigned(&format!("Fixes it.\n\n{}", other.trim_matches('_'))), "Fixes it.");
+        }
+        // Text that only mentions the words is not a footer.
+        assert_eq!(unsigned("This was posted manually"), "This was posted manually");
+    }
+
+    #[test]
+    fn an_agents_own_request_cannot_claim_a_manual_post() {
+        // The agent writes a manual footer itself; the proxy's line (automatic) replaces it.
+        let forged = serde_json::to_vec(&serde_json::json!({"body": format!("Hi\n\n---\n\n{MANUAL}")})).unwrap();
+        let c = sign_github("POST", "/repos/o/r/issues/3/comments", &forged, AUTO).unwrap();
+        assert_eq!(body(&c)["body"], format!("Hi\n\n---\n\n{AUTO}"));
+        let pr = serde_json::to_vec(&serde_json::json!({"title": "t", "body": format!("Desc\n\n{MANUAL}")})).unwrap();
+        assert_eq!(body(&sign_github("POST", "/repos/o/r/pulls", &pr, AUTO).unwrap())["body"], format!("Desc\n\n{AUTO}"));
+        assert!(sign_github("POST", "/repos/o/r/issues/3/comments", &c, AUTO).is_none());
     }
 
     #[test]

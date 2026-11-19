@@ -283,7 +283,7 @@ function lineSuggestion(ctx: ExtContext | null, a: Asked): { s: ExtSuggestion; l
 const pendingKey = (l: { path: string; side: Side; end: number }) => `${l.path}|${l.side}|${l.end}`;
 
 function turnIntoComment(page: FilesPage, a: Asked, source: { s: ExtSuggestion; line: ExtLine } | null, text: string, id: string) {
-  const attribution = source?.s.attribution ?? `_Written by ${a.bot.name} via ${LINK}_`;
+  const attribution = source?.s.attribution ?? `_Written by ${a.bot.name} via ${LINK}, posted manually_`;
   const params: Params = { repo: page.repo, number: page.number, path: a.lines.path, side: a.lines.side, line: a.lines.end };
   fillLine(params, (box, mode) => fillPart(box, source?.s.id ?? null, source?.line.part ?? "body", text, attribution, mode), id);
 }

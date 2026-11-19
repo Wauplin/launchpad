@@ -9,6 +9,7 @@ use std::sync::{LazyLock, Mutex};
 
 use crate::App;
 use crate::model::{Session, SessionStatus};
+use crate::attribution::Origin;
 use crate::predrafts::{Predraft, Publish, PublishSet};
 
 /// Local PRs whose publication this Home run already started, by ID.
@@ -59,13 +60,13 @@ async fn publish(app: &App, s: &Session, draft: bool) -> Vec<String> {
                 }
                 done.insert(m.id.clone());
             }
-            crate::predrafts::publish_set(app, &p.id, PublishSet { draft, heads }).await.map(|v| v.into_iter().filter_map(|p| p.published_url).collect::<Vec<_>>())
+            crate::predrafts::publish_set(app, &p.id, PublishSet { draft, heads }, Origin::Automatic).await.map(|v| v.into_iter().filter_map(|p| p.published_url).collect::<Vec<_>>())
         } else {
             done.insert(p.id.clone());
             match crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await {
                 Ok(Some(head)) => {
                     let remote_branch = p.default_remote_branch.clone();
-                    crate::predrafts::publish(app, &p.id, Publish { remote_branch, draft, head, fork: false }).await.map(|p| p.published_url.into_iter().collect())
+                    crate::predrafts::publish(app, &p.id, Publish { remote_branch, draft, head, fork: false }, Origin::Automatic).await.map(|p| p.published_url.into_iter().collect())
                 }
                 Ok(None) => Err(anyhow::anyhow!("{} is not on Home", p.branch)),
                 Err(e) => Err(e),

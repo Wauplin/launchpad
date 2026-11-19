@@ -233,7 +233,8 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     let attribution = crate::attribution::line(&s);
     let instructions = crate::start::join(&crate::start::instruction_parts(crate::start::Inputs { kb: kb_text, memory, cli_reference, attribution: crate::attribution::instruction(&attribution) }));
     env.extend(harness.contained_memory(&home, &instructions)?);
-    harness.contained_attribution(&home, &attribution)?;
+    // The harness writes it into descriptions the agent publishes itself: an automatic publication.
+    harness.contained_attribution(&home, &crate::attribution::with_origin(&attribution, crate::attribution::Origin::Automatic))?;
     // MCP servers of Home: a local address on the runner proxy for each one granted.
     let servers: Vec<(String, String)> = lease.mcp.iter().map(|m| (crate::mcp::harness_name(&m.id), format!("{base}/mcp/{}", m.id))).collect();
     harness.contained_mcp(&home, &servers)?;

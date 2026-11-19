@@ -787,9 +787,10 @@ pub async fn post(app: &App, id: &str, close: Option<bool>, actions: Option<Vec<
                 let (repo, number) = (repo.clone(), *number);
                 return run_actions_only(app, s, repo, number).await;
             }
-            // The agent's attribution line ends what reaches GitHub; the draft keeps the text as written.
+            // The agent's attribution line ends what reaches GitHub; the draft keeps the text as written. Post is
+            // only ever the owner's click (never an agent's or admin action), so it is a manual publication.
             let text = format!("{}{}", reply_to.as_ref().map(ReplyTo::prefix).unwrap_or_default(), s.body);
-            let body = match launchpad_core::attribution::for_session(app, s.session_id.as_deref()) {
+            let body = match launchpad_core::attribution::github_line(app, s.session_id.as_deref(), launchpad_core::attribution::Origin::Manual) {
                 Some(line) => launchpad_core::attribution::sign(&text, &line, launchpad_core::attribution::Separator::Rule),
                 None => text,
             };

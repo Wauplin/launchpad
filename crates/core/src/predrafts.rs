@@ -891,7 +891,9 @@ pub fn spawn(app: &App) {
         }
     });
 }
-pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
+/// `origin`: who triggered it (the owner's Publish, or an agent's `launchpad pr publish` and When done), for the
+/// attribution line.
+pub async fn publish(app: &App, id: &str, q: Publish, posted: crate::attribution::Origin) -> Result<Predraft> {
     ensure_home(app)?;
     // Serialize retries of this publication without holding any global gate during network I/O.
     let publication = app.suggestion_locks.get(&format!("predraft-publish:{id}"));
@@ -967,7 +969,7 @@ pub async fn publish(app: &App, id: &str, q: Publish) -> Result<Predraft> {
         .as_array()
         .and_then(|a| a.iter().find(|v| v["head"]["ref"] == q.remote_branch && v["head"]["sha"] == head && v["base"]["ref"] == p.base_branch))
         .cloned();
-    let body = published_body(app, &p, &published_siblings(app, &p).await?);
+    let body = published_body(app, &p, &published_siblings(app, &p).await?, posted);
     let pr = if let Some(v) = found {
         v
     } else {
@@ -1023,9 +1025,9 @@ async fn published_siblings(app: &App, p: &Predraft) -> Result<Vec<String>> {
 }
 /// The pull request's description: the Local PR's text, its change set's links, then the attribution line of
 /// the agent that wrote it.
-fn published_body(app: &App, p: &Predraft, links: &[String]) -> String {
+fn published_body(app: &App, p: &Predraft, links: &[String], origin: crate::attribution::Origin) -> String {
     let body = with_links(crate::attribution::unsigned(&p.body), links);
-    match crate::attribution::for_session(app, p.session_id.as_deref()) {
+    match crate::attribution::github_line(app, p.session_id.as_deref(), origin) {
         Some(line) => crate::attribution::sign(&body, &line, crate::attribution::Separator::Blank),
         None => body,
     }
@@ -1045,7 +1047,7 @@ pub struct PublishSet {
 /// Publish all: publishes every open Local PR of a change set (each with its default remote branch, at the
 /// commit the owner reviewed), then links the pull requests to each other. Nothing is published when one
 /// branch changed since review; a later failure stops there, and publishing again resumes.
-pub async fn publish_set(app: &App, id: &str, q: PublishSet) -> Result<Vec<Predraft>> {
+pub async fn publish_set(app: &App, id: &str, q: PublishSet, origin: crate::attribution::Origin) -> Result<Vec<Predraft>> {
     ensure_home(app)?;
     let p = get(app, id).await?;
     let set = p.change_set.clone().context("this Local PR is not part of a change set")?;
@@ -1057,14 +1059,14 @@ pub async fn publish_set(app: &App, id: &str, q: PublishSet) -> Result<Vec<Predr
     }
     for m in &members {
         let remote_branch = m.remote_branch.clone().unwrap_or_else(|| m.default_remote_branch.clone());
-        publish(app, &m.id, Publish { remote_branch, draft: q.draft, head: q.heads[&m.id].clone(), fork: false }).await.with_context(|| format!("publish {}", m.title))?;
+        publish(app, &m.id, Publish { remote_branch, draft: q.draft, head: q.heads[&m.id].clone(), fork: false }, origin).await.with_context(|| format!("publish {}", m.title))?;
     }
     let published: Vec<Predraft> = list(app).await?.into_iter().filter(|o| o.change_set.as_ref() == Some(&set) && o.published_url.is_some()).collect();
     for m in &published {
         let others: Vec<String> = published.iter().filter(|o| o.id != m.id).filter_map(|o| o.published_url.clone()).collect();
         let (Some(url), Some(number)) = (&m.published_url, m.published_number) else { continue };
         let Some(repo) = crate::git::github_repo(url.split("/pull/").next().unwrap_or_default()) else { continue };
-        if let Err(e) = app.github.request(Method::PATCH, &format!("/repos/{repo}/pulls/{number}"), Some(json!({"body": published_body(app, m, &others)}))).await {
+        if let Err(e) = app.github.request(Method::PATCH, &format!("/repos/{repo}/pulls/{number}"), Some(json!({"body": published_body(app, m, &others, origin)}))).await {
             tracing::warn!("link {url} to its change set: {e:#}");
         }
     }

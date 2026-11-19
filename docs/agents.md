@@ -173,6 +173,11 @@ What an agent publishes through Launchpad ends with one line in italics, so read
 - a one-time agent: `_Written by Claude Code via [Launchpad](https://github.com/Wauplin/launchpad)_` (the harness's name: Claude Code, Codex, OpenCode);
 - a bot's session: `_Written by HFJS Bot via [Launchpad](https://github.com/Wauplin/launchpad)_` (the bot's name).
 
+On GitHub the line also says who triggered the publication, inside the italics: `_Written by HFJS Bot via [Launchpad](https://github.com/Wauplin/launchpad), posted automatically_` or `…, posted manually_`. Home decides it from where the write comes from, never from the text:
+
+- **posted manually**: you clicked a publication button or card in Launchpad or the Chrome extension: Post of a Suggestion, Publish or Publish all of a Local PR (also from a ready card), and the extension's Insert or prefill that you submit with GitHub's own button.
+- **posted automatically**: an agent or bot published on its own: its `gh` and GitHub API calls, a bot's `launchpad pr publish`, and a launch's When done = Draft PR or Open PR. Asking an agent to post for you still counts as automatic.
+
 Launchpad adds it itself, so no bot or prompt has to:
 
 - **Suggestions** (comments and reviews) and **Outbox** messages get it when you click Post or Send; the draft you edit stays without it. Slack messages use Slack's link syntax.
@@ -180,7 +185,7 @@ Launchpad adds it itself, so no bot or prompt has to:
 - **Direct GitHub posts** of a contained agent (`gh` or the GitHub API with a token Home lends, as bots with GitHub access do) get it from the runner proxy: pull request and issue bodies, comments, and reviews with text. Inline review comments and approvals without text stay as written.
 - **Claude Code** writes it instead of its own "Generated with Claude Code" line in pull request descriptions (its `attribution.pr` setting). Commit trailers keep Claude Code's default.
 
-Comments and reviews get a `---` rule before the line; descriptions and chat messages only a blank line. A body that already ends with an attribution line (italic or not, or Claude Code's own line) gets it replaced, never doubled. Agents are told the line too, and end what they publish outside Launchpad with it. Text that stays inside Launchpad never gets it: bot channel and DM posts, replies, proposals and notes. Home also removes a trailing attribution line from a bot's channel or DM post.
+Comments and reviews get a `---` rule before the line; descriptions and chat messages only a blank line. A body that already ends with an attribution line (italic or not, with either origin or none, or Claude Code's own line) gets it replaced by Home's line, never doubled, so an agent cannot claim a manual post. Agents are told the line too, never add it themselves, and end what they publish outside Launchpad with the `posted automatically` line. Text that stays inside Launchpad never gets it: bot channel and DM posts, replies, proposals and notes. Home also removes a trailing attribution line from a bot's channel or DM post.
 
 ## Worktrees and merging
 

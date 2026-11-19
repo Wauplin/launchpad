@@ -137,7 +137,7 @@ A suggested comment shows in the item's timeline (see [Private notes](#private-n
 
 - The text goes in as one undo step, so Ctrl+Z removes it.
 - When the box already has text, you choose **Replace it**, **Add below** or **Cancel**.
-- The [attribution line](../docs/agents.md#attribution) of the agent or bot comes last, after a blank line. It is plain text: keep it or delete it.
+- The [attribution line](../docs/agents.md#attribution) of the agent or bot comes last, after a blank line, ending with `posted manually` since you post it with GitHub's button. It is plain text: keep it or delete it.
 - A reply to a review thread goes into that thread's reply box. If the box is closed, the extension scrolls to it and asks you to open it, then Insert again.
 
 You edit the text and post it with GitHub's button. The suggestion then says **Inserted on GitHub** in Launchpad, and Launchpad's own Post is no longer offered for it (Discard stays).
