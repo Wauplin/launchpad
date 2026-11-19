@@ -452,6 +452,8 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (_, ["launch", "crons", id, ..]) => Cron(id),
         (_, ["launch", "schedules", id, ..]) => Schedule(id),
         (_, ["proposals", id, ..]) => Proposal(id),
+        // `folder.create-git`: the body names the workspace (none: the session's own).
+        (false, ["projects", "git"]) => Body,
         (_, ["projects", id] | ["projects", id, "branches"]) => Folder(id),
         (_, ["predrafts", id] | ["predrafts", id, "record"]) | (false, ["predrafts", id, "publish" | "discard" | "reopen"]) => LocalPr(id),
         (_, ["workspaces", id]) => Workspace(id),
@@ -609,7 +611,7 @@ async fn within(app: &App, own: &str, session: Option<&str>, req: Request) -> Re
     let method = req.method().clone();
     let reads_body = matches!(
         (&method, parts.as_slice()),
-        (&Method::POST, ["api", "sessions"] | ["api", "bots"] | ["api", "launch", _] | ["api", "bots", _, "message"] | ["api", "channels"] | ["api", "channels", "dm"])
+        (&Method::POST, ["api", "sessions"] | ["api", "bots"] | ["api", "launch", _] | ["api", "bots", _, "message"] | ["api", "channels"] | ["api", "channels", "dm"] | ["api", "projects", "git"])
             | (&Method::PATCH, ["api", "bots", _] | ["api", "projects", _] | ["api", "launch", "schedules", _])
     );
     if !reads_body {
@@ -634,7 +636,7 @@ async fn within(app: &App, own: &str, session: Option<&str>, req: Request) -> Re
                 check(scope::of_bot(app, &b).await, format!("bot {b}"))?;
             }
         }
-        (&Method::POST, ["api", "bots"] | ["api", "channels"]) => match v["workspace_id"].as_str() {
+        (&Method::POST, ["api", "bots"] | ["api", "channels"] | ["api", "projects", "git"]) => match v["workspace_id"].as_str() {
             Some(w) => check(Some(w.to_string()), format!("workspace {w}"))?,
             None if v.is_object() => v["workspace_id"] = Value::from(own.as_str()),
             None => {}
@@ -822,6 +824,27 @@ mod tests {
         assert!(unknown_field(actions::get("bot.update").unwrap(), Some(&serde_json::json!({"set": {"max_threads": 4}}))).is_none());
         assert!(asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": true}})));
         assert!(!asks_paid_usage(&serde_json::json!({"spec": {"allow_paid_usage": false}})));
+    }
+
+    /// `folder.create-git`: admin only (read and propose sessions are refused, since it is neither a read, an own
+    /// write nor a propose route), in the body's workspace (Home checks it, none = the session's own), with a name and
+    /// a workspace only: no path, URL or setup command. Cloning, plain folders and imports stay the owner's or Home's.
+    #[test]
+    fn admin_creates_empty_git_folders_only() {
+        let path = "/api/projects/git";
+        assert!(admin_allows(&Method::POST, path) && admin_direct(&Method::POST, path));
+        assert_eq!(tool_need(&Method::POST, path), None);
+        assert!(!own_write(path) && !read_allowed(path));
+        assert_eq!(names(&Method::POST, path), Names::Body);
+        let a = actions::get("folder.create-git").unwrap();
+        assert_eq!((a.access, a.effect, a.method, a.route), (ActionAccess::Admin, actions::ActionEffect::Record, "POST", path));
+        for extra in ["url", "remote_url", "path", "worktree_setup", "repo", "temp_id"] {
+            assert_eq!(unknown_field(a, Some(&serde_json::json!({"name": "n", extra: "x"}))).as_deref(), Some(extra));
+        }
+        assert!(unknown_field(a, Some(&serde_json::json!({"name": "n", "workspace_id": "w"}))).is_none());
+        for (m, p) in [(Method::POST, "/api/projects/clone"), (Method::POST, "/api/projects/plain"), (Method::POST, "/api/projects/remote"), (Method::POST, "/api/projects/f/to-git"), (Method::DELETE, "/api/projects/f"), (Method::POST, "/api/projects/git/x"), (Method::POST, "/api/projects//git")] {
+            assert!(!admin_allows(&m, p), "{m} {p}");
+        }
     }
 
     /// Bot channels: every access level lists and reads (Home lets only member bots, and admin sessions, read),

@@ -209,6 +209,7 @@ mod tests {
             ("POST", "/api/home-git/f1/restore"),
             ("PATCH", "/api/projects/f1"),
             ("POST", "/api/projects/plain"),
+            ("POST", "/api/projects/git"),
             ("POST", "/api/sessions"),
             ("POST", "/api/sessions/s1/input"),
             ("GET", "/api/context/sessions"),

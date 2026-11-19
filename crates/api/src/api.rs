@@ -19,6 +19,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/projects", get(list_projects))
         .route("/api/projects/remote", post(add_remote))
         .route("/api/projects/plain", post(add_plain))
+        .route("/api/projects/git", post(add_git))
         .route("/api/projects/{id}/to-git", post(plain_to_git))
         .route("/api/projects/{id}", get(get_project).patch(patch_project).delete(delete_project))
         .route("/api/projects/{id}/branches", get(branches))
@@ -103,6 +104,14 @@ struct AddPlain {
     workspace_id: String,
 }
 
+#[derive(Deserialize)]
+struct AddGit {
+    name: String,
+    /// An agent's request gets its own workspace (`agent_auth`).
+    #[serde(default)]
+    workspace_id: Option<String>,
+}
+
 /// A new, empty plain folder of Home.
 async fn add_plain(State(s): State<Ctx>, Json(b): Json<AddPlain>) -> ApiResult<Project> {
     if s.app.paths.role == launchpad_core::role::Role::Runner {
@@ -112,6 +121,19 @@ async fn add_plain(State(s): State<Ctx>, Json(b): Json<AddPlain>) -> ApiResult<P
         return Ok(Json(projects::get(&s.app, &p.id).await?.unwrap_or(p)));
     }
     Ok(Json(projects::create_plain(&s.app, &b.name, &b.workspace_id).await.map_err(bad)?))
+}
+
+/// A new, empty Git folder of Home without a remote (`folder.create-git`; a runner forwards the request).
+async fn add_git(State(s): State<Ctx>, Json(b): Json<AddGit>) -> ApiResult<Project> {
+    let Some(workspace_id) = b.workspace_id.filter(|w| !w.is_empty()) else { return Err(ApiError::bad_request("choose a workspace for the folder")) };
+    let b = AddPlain { name: b.name, workspace_id };
+    if s.app.paths.role == launchpad_core::role::Role::Runner {
+        let v = launchpad_core::home_link::home_request("POST", "/api/projects/git", Some(json!({"name": b.name, "workspace_id": b.workspace_id}))).await.map_err(bad)?;
+        let p: Project = serde_json::from_value(v).map_err(|e| ApiError::bad_request(format!("{e}")))?;
+        projects::store_home(&s.app, vec![p.clone()], false).await?;
+        return Ok(Json(projects::get(&s.app, &p.id).await?.unwrap_or(p)));
+    }
+    Ok(Json(projects::create_git(&s.app, &b.name, &b.workspace_id).await.map_err(bad)?))
 }
 
 /// Turn a plain folder into a Git folder (Home does it; a runner forwards the request).

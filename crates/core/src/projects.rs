@@ -460,28 +460,11 @@ pub async fn plain_to_git(app: &App, id: &str) -> Result<Project> {
             tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).await?;
         }
     }
-    let home = app.config.get().home.clone();
-    let name = Some(home.git_name).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Launchpad".into());
-    let email = Some(home.git_email).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "launchpad@localhost".into());
-    let git = |args: Vec<String>| {
-        let (app, tmp) = (app.clone(), tmp.clone());
-        async move {
-            let mut cmd = crate::procs::command(&app.env, "git", Some(&tmp));
-            cmd.args(args.iter().map(String::as_str)).stdin(crate::exec::Io::Null).env("LP_IMPORT", "1");
-            let out = cmd.output().await?;
-            anyhow::ensure!(out.status.success(), "git {}: {}", args.first().cloned().unwrap_or_default(), String::from_utf8_lossy(&out.stderr).trim());
-            anyhow::Ok(())
-        }
-    };
-    git(vec!["init".into(), "--quiet".into(), "--initial-branch=main".into()]).await?;
-    git(vec!["add".into(), "--all".into()]).await?;
-    git(vec!["-c".into(), format!("user.name={name}"), "-c".into(), format!("user.email={email}"), "commit".into(), "--quiet".into(), "--allow-empty".into(), "-m".into(), format!("Files of {} (plain folder until now)", p.name)]).await?;
     p.plain = false;
     p.home_git = true;
     p.remote_url = None;
     p.path = crate::home_git::mirror(app, &p.id).to_string_lossy().into_owned();
-    let mirror = crate::home_git::ensure(app, &p).await?;
-    git(vec!["push".into(), "--quiet".into(), mirror.to_string_lossy().into_owned(), "main:refs/heads/main".into()]).await?;
+    first_commit(app, &p, &tmp, &format!("Files of {} (plain folder until now)", p.name)).await?;
     let _ = tokio::fs::remove_dir_all(&tmp).await;
     let saved = p.clone();
     app.state_db
@@ -499,17 +482,100 @@ pub async fn plain_to_git(app: &App, id: &str) -> Result<Project> {
     get(app, id).await?.context("no such folder")
 }
 
+/// Home: commits the files of `dir` as the first commit of `main` (empty allowed), with Home's Git identity, into
+/// the new Home Git mirror of `p`.
+async fn first_commit(app: &App, p: &Project, dir: &Path, message: &str) -> Result<()> {
+    let home = app.config.get().home.clone();
+    let name = Some(home.git_name).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Launchpad".into());
+    let email = Some(home.git_email).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "launchpad@localhost".into());
+    let git = |args: Vec<String>| {
+        let (app, dir) = (app.clone(), dir.to_path_buf());
+        async move {
+            let mut cmd = crate::procs::command(&app.env, "git", Some(&dir));
+            cmd.args(args.iter().map(String::as_str)).stdin(crate::exec::Io::Null).env("LP_IMPORT", "1");
+            let out = cmd.output().await?;
+            anyhow::ensure!(out.status.success(), "git {}: {}", args.first().cloned().unwrap_or_default(), String::from_utf8_lossy(&out.stderr).trim());
+            anyhow::Ok(())
+        }
+    };
+    git(vec!["init".into(), "--quiet".into(), "--initial-branch=main".into()]).await?;
+    git(vec!["add".into(), "--all".into()]).await?;
+    git(vec!["-c".into(), format!("user.name={name}"), "-c".into(), format!("user.email={email}"), "commit".into(), "--quiet".into(), "--allow-empty".into(), "-m".into(), message.into()]).await?;
+    let mirror = crate::home_git::ensure(app, p).await?;
+    git(vec!["push".into(), "--quiet".into(), mirror.to_string_lossy().into_owned(), "main:refs/heads/main".into()]).await?;
+    Ok(())
+}
+
+/// Pure: a new folder's name, trimmed. It is only a label (the folder's path comes from its ID), but it shows in
+/// lists, worktree branch names and `launchpad work add-project --project <name>`.
+pub fn folder_name(name: &str) -> Result<String> {
+    let name = name.trim();
+    anyhow::ensure!(!name.is_empty(), "the folder needs a name");
+    anyhow::ensure!(name.chars().count() <= 100, "the folder name is too long (100 characters at most)");
+    anyhow::ensure!(name != "." && name != ".." && !name.contains(['/', '\\']) && !name.chars().any(char::is_control), "invalid folder name {name:?}: no slashes, control characters, . or ..");
+    Ok(name.to_string())
+}
+
+/// Home: a new, empty Git folder of Home without a remote: a Home Git mirror whose `main` holds one empty commit,
+/// so agents work on it in worktrees like on any Git folder. Nothing reaches GitHub; it takes no path, URL or
+/// setup command.
+pub async fn create_git(app: &App, name: &str, workspace_id: &str) -> Result<Project> {
+    anyhow::ensure!(crate::home_git::here(app), "folders are registered on Home");
+    let workspace = crate::workspace::get(app, workspace_id).await.context("choose a workspace for the folder")?;
+    let name = folder_name(name)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let p = Project {
+        path: crate::home_git::mirror(app, &id).to_string_lossy().into_owned(),
+        id: id.clone(),
+        name,
+        remote_url: None,
+        gh_repo: None,
+        gh_upstream: None,
+        description: String::new(),
+        is_temp: false,
+        pinned: false,
+        created_at: now_ms(),
+        worktree_setup: String::new(),
+        when_done: Default::default(),
+        workspace_id: Some(workspace.id.clone()),
+        runner_id: None,
+        home_git: true,
+        plain: false,
+        bot: None,
+    };
+    let tmp = app.paths.data_dir.join("tmp").join(format!("new-git-{id}"));
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+    tokio::fs::create_dir_all(&tmp).await?;
+    let made = first_commit(app, &p, &tmp, "Initial commit").await;
+    let _ = tokio::fs::remove_dir_all(&tmp).await;
+    if let Err(e) = made {
+        let _ = tokio::fs::remove_dir_all(crate::home_git::mirror(app, &id)).await;
+        return Err(e.context("create the folder's Git repository"));
+    }
+    let saved = p.clone();
+    app.state_db
+        .call(move |c| {
+            c.execute(
+                &format!("INSERT INTO project ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)"),
+                params![p.id, p.name, p.path, p.remote_url, p.gh_repo, p.gh_upstream, p.description, p.is_temp as i64, p.pinned as i64, p.created_at, p.worktree_setup, p.when_done.as_str(), p.workspace_id, p.runner_id, p.home_git as i64, p.plain as i64],
+            )?;
+            Ok(())
+        })
+        .await?;
+    app.bus.publish("projects", "changed", serde_json::Value::Null);
+    Ok(saved)
+}
+
 /// Home: a new, empty plain folder.
 pub async fn create_plain(app: &App, name: &str, workspace_id: &str) -> Result<Project> {
     anyhow::ensure!(crate::home_git::here(app), "folders are registered on Home");
     let workspace = crate::workspace::get(app, workspace_id).await.context("choose a workspace for the folder")?;
-    let name = name.trim();
-    anyhow::ensure!(!name.is_empty() && !name.contains('/'), "invalid folder name");
+    let name = folder_name(name)?;
     let id = uuid::Uuid::new_v4().to_string();
     let p = Project {
         path: crate::plain::copy_dir(app, &id).to_string_lossy().into_owned(),
         id,
-        name: name.to_string(),
+        name,
         remote_url: None,
         gh_repo: None,
         gh_upstream: None,
@@ -886,6 +952,14 @@ async fn move_dir(old: &Path, new: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn new_folder_names_are_labels_never_paths() {
+        assert_eq!(super::folder_name("  Hubert notes ").unwrap(), "Hubert notes");
+        for bad in ["", "   ", ".", "..", "a/b", "../x", "/abs", "a\\b", "a\nb", "a\0b", &"x".repeat(101)] {
+            assert!(super::folder_name(bad).is_err(), "{bad:?}");
+        }
+    }
+
     #[test]
     fn temporary_folder_names_carry_their_id() {
         assert_eq!(super::temp_base(11, 7, "routine-auto-update-home", "a8379e35-d7bf-4db8-97ea-69b4d27206fe"), "tmp-1107-routine-auto-update-home-a8379e35");
