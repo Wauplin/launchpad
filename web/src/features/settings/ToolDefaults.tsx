@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { runAction } from "@/lib/actions";
-import { defaultOn, mcpKey, useLayers, type ToolChoice } from "@/lib/toolDefaults";
+import { defaultOn, mcpKey, optIn, useLayers, type ToolChoice } from "@/lib/toolDefaults";
 import { useVault } from "./CredentialsView";
 import { useMcpServers } from "./McpServers";
 
@@ -43,14 +43,16 @@ export function ToolDefaultsEditor({ workspaceId, above, value, onChange, disabl
     <div className="grid gap-1">
       {items.map((t) => {
         const current = value[t.key] as boolean | undefined;
-        const inherited = above ? defaultOn(above, t.key) : true;
+        // Opt-in tools (Slack (write)) are off unless switched on here or in a layer above.
+        const base = !optIn(t.key);
+        const inherited = above ? defaultOn(above, t.key) : base;
         return (
           <label key={t.key} className="flex min-h-[30px] items-center gap-2 text-[13px]">
             <Icon name={t.mcp ? "spark" : "term"} size={12} className="flex-none text-ink-3" />
-            <span className="min-w-0 flex-1 truncate">{t.name}{t.mcp && <span className="text-ink-3"> · MCP server</span>}</span>
+            <span className="min-w-0 flex-1 truncate">{t.name}{t.mcp && <span className="text-ink-3"> · MCP server</span>}{!base && <span className="text-ink-3"> · off unless switched on; a bot needs its own setting</span>}</span>
             <select className="field-input w-auto" aria-label={`Default of ${t.name}`} disabled={disabled}
-              value={above ? (current === undefined ? "" : current ? "on" : "off") : current === false ? "off" : "on"}
-              onChange={(e) => set(t.key, above ? e.target.value : e.target.value === "off" ? "off" : "")}>
+              value={above ? (current === undefined ? "" : current ? "on" : "off") : (current ?? base) ? "on" : "off"}
+              onChange={(e) => set(t.key, above || e.target.value === (base ? "off" : "on") ? e.target.value : "")}>
               {above && <option value="">{inherited ? "Inherit (on)" : "Inherit (off)"}</option>}
               <option value="on">On</option>
               <option value="off">Off</option>

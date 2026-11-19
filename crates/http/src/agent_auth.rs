@@ -331,6 +331,9 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
         if value.as_ref().is_some_and(asks_paid_usage) {
             return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, "paid usage is the owner's choice: leave allow_paid_usage off"));
         }
+        if let Some(tool) = value.as_ref().and_then(launchpad_core::tool_defaults::agent_switches_on) {
+            return Err(ApiError::new(axum::http::StatusCode::FORBIDDEN, format!("only the owner switches on {tool} (a launch's Tools in the composer, default tools, a bot's settings); an agent may only leave it off")));
+        }
         let action = actions::find(parts.method.as_str(), &path);
         if let Some(a) = action
             && let Some(key) = unknown_field(a, value.as_ref())

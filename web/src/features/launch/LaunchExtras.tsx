@@ -12,7 +12,7 @@ import { Link } from "@tanstack/react-router";
 import { canSelfUpdate, UpdateRunnerButton } from "@/features/settings/RunnerUpdate";
 import { useBurst } from "@/lib/burst";
 import { useBots } from "@/lib/bots";
-import { defaultOn, flipLaunch, launchOn, mcpKey, useLayers } from "@/lib/toolDefaults";
+import { defaultOn, flipLaunch, launchOn, mcpKey, optIn, useLayers } from "@/lib/toolDefaults";
 
 type Set = (f: (s: LaunchSpec) => LaunchSpec) => void;
 
@@ -95,7 +95,9 @@ export function useGrantedMcp(spec: LaunchSpec) {
 /** The tools a launch gets: on, and not sending a token to a host an earlier tool already covers. */
 export function effectiveTools(tools: Tool[], isOn: (t: Tool) => boolean): Tool[] {
   const kept: Tool[] = [];
-  for (const t of tools) if (isOn(t) && !hostConflict(kept, t)) kept.push(t);
+  // Opt-in tools first (`vault::lease_order`): Slack (write) switched on wins over read-only left on by default.
+  const ordered = [...tools.filter((t) => optIn(t.id)), ...tools.filter((t) => !optIn(t.id))];
+  for (const t of ordered) if (isOn(t) && !hostConflict(kept, t)) kept.push(t);
   return kept;
 }
 
@@ -105,7 +107,7 @@ export function useLaunchTools(spec: LaunchSpec, workspaceId: string | null, fol
   const tools = useGrantedTools({ ...spec, workspace_id: workspaceId });
   const mcp = useGrantedMcp({ ...spec, workspace_id: workspaceId });
   const bot = useBots().data?.find((b) => b.id === spec.bot?.id)?.settings.tools;
-  const layers = useLayers(workspaceId, folderId, bot);
+  const layers = useLayers(workspaceId, folderId, bot, !!spec.bot);
   const off = spec.tools_off ?? [];
   const on = spec.tools_on ?? [];
   const items = [...tools.map((t) => ({ key: t.id, name: t.name })), ...mcp.map((s) => ({ key: mcpKey(s.id), name: `${s.name} · MCP` }))];

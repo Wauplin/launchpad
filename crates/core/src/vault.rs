@@ -887,10 +887,10 @@ pub(crate) async fn build(app: &App, lease_id: &str, req: &LeaseRequest) -> Resu
 }
 
 /// The tools of Home's registry a lease of this request holds: granted to its workspace, on (`off`), without a
-/// host conflict.
+/// host conflict (`lease_order`).
 async fn lease_tool_list(app: &App, req: &LeaseRequest, off: &[String]) -> Result<Vec<Tool>> {
     let mut out: Vec<Tool> = vec![];
-    for t in tools(app).await? {
+    for t in lease_order(tools(app).await?) {
         if !t.granted(req.workspace_id.as_deref()) || off.iter().any(|o| o == &t.id) {
             continue;
         }
@@ -975,6 +975,14 @@ pub async fn launchpad_access(app: &App, req: &LeaseRequest) -> Result<Option<La
 pub async fn session_access(app: &App, session_id: &str) -> Result<Option<LaunchpadAccess>> {
     let s = app.sessions.get(session_id).context("Home has no record of this session")?;
     launchpad_access(app, &crate::contain::request(app, &s).await?).await
+}
+
+/// Pure: the registry's tools in the order a lease keeps them: opt-in tools first (`tool_defaults::OPT_IN`, on only
+/// by the owner's deliberate choice), so Slack (write) switched on wins slack.com over Slack (read-only) left on by
+/// default; then the registry's order.
+pub fn lease_order(mut tools: Vec<Tool>) -> Vec<Tool> {
+    tools.sort_by_key(|t| !crate::tool_defaults::opt_in(&t.id));
+    tools
 }
 
 /// The kept tool that already sends another token to one of `t`'s hosts (the proxy adds one token per host): two
@@ -1403,6 +1411,28 @@ mod tests {
         let mut same = write.clone();
         same.credential = read.credential.clone();
         assert!(host_conflict(std::slice::from_ref(&read), &same).is_none());
+    }
+
+    #[test]
+    fn slack_write_switched_on_wins_slack_com_and_writes_directly() {
+        // The registry lists by name: read-only before write. A lease keeps the first tool of a host that is on.
+        let kept = |on: &[&str]| {
+            let mut out: Vec<Tool> = vec![];
+            for t in lease_order(vec![slack_tool(false), slack_tool(true)]).into_iter().filter(|t| on.contains(&t.id.as_str())) {
+                if host_conflict(&out, &t).is_none() {
+                    out.push(t);
+                }
+            }
+            out
+        };
+        // Default: read-only only (write is off unless chosen, `tool_defaults::OPT_IN`).
+        assert_eq!(kept(&[SLACK_READ]).iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), [SLACK_READ]);
+        // Write chosen on purpose, read-only left on by default: the write token goes to slack.com, without the
+        // read-only switch, so slackline posts at once (no Outbox step).
+        let w = kept(&[SLACK_READ, SLACK_WRITE]);
+        assert_eq!(w.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), [SLACK_WRITE]);
+        assert!(!w[0].vars.contains_key("SLACKLINE_READONLY") && w[0].hosts.iter().any(|h| h.host == "slack.com"));
+        assert_eq!(kept(&[SLACK_READ])[0].vars.get("SLACKLINE_READONLY").map(String::as_str), Some("1"));
     }
 
     #[test]

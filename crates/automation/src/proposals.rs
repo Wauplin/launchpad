@@ -340,10 +340,14 @@ pub async fn get(app: &App, id: &str) -> Result<Proposal> {
     Ok(serde_json::from_str(&json.context("no such proposal")?)?)
 }
 
-/// Paid usage is always off on proposals; the owner changes it in the composer.
-fn sanitize(spec: &mut LaunchSpec, workspace_id: &Option<String>) -> Result<()> {
+/// Paid usage is always off on proposals, and an agent's card never switches on an opt-in tool (Slack (write),
+/// `tool_defaults::OPT_IN`): the owner changes both in the composer.
+fn sanitize(spec: &mut LaunchSpec, workspace_id: &Option<String>, by_agent: bool) -> Result<()> {
     ensure!(spec.bot.is_none(), "proposals cannot start bot sessions: propose a message to the bot instead");
     spec.allow_paid_usage = false;
+    if by_agent {
+        spec.tools_on.retain(|k| !launchpad_core::tool_defaults::opt_in(k));
+    }
     spec.workspace_id = workspace_id.clone();
     Ok(())
 }
@@ -390,7 +394,7 @@ pub async fn create(app: &App, c: Create) -> Result<Proposal> {
     }
     match &mut body {
         ProposalBody::Launch { spec } | ProposalBody::Schedule { spec, .. } | ProposalBody::Cron { spec, .. } => {
-            sanitize(spec, &workspace_id)?;
+            sanitize(spec, &workspace_id, author.is_some())?;
             if spec.profile.is_some() && spec.harness.is_none() {
                 let config = app.config.get();
                 spec.harness = config.profiles.iter().find(|p| Some(&p.id) == spec.profile.as_ref()).map(|p| p.harness);

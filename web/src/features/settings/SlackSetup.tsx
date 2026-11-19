@@ -23,7 +23,7 @@ export function slackReady(v: VaultOverview | undefined): boolean {
 
 const MODES = [
   { id: SLACK_READ, title: "Read-only", tag: "Recommended", what: "Agents search and read channels, threads, DMs and people. Write commands are switched off, and the token has read permissions only." },
-  { id: SLACK_WRITE, title: "Write", tag: "Optional", what: "Agents can also post, reply, react, pin and upload. A launch gets it only when you pick Slack (write) in the composer's Tools." },
+  { id: SLACK_WRITE, title: "Write", tag: "Optional", what: "Agents can also post, reply, react, pin and upload. Off by default: a launch gets it only when you pick Slack (write) in the composer's Tools or in default tools, and a bot only from its own settings. Posts go out at once." },
 ];
 
 export function SlackSetup({ v }: { v: VaultOverview }) {

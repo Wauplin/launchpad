@@ -564,7 +564,7 @@ function AccessSection({ bot }: { bot: Bot }) {
   const [preview, setPreview] = useState(false);
   const s = bot.settings;
   const profile = botProfile(bot, profiles);
-  const layers = useLayers(bot.workspace_id, s.folder ?? null, s.tools);
+  const layers = useLayers(bot.workspace_id, s.folder ?? null, s.tools, true);
   const tools = useGrantedTools(bot.workspace_id).filter((t) => t.id !== "launchpad" && defaultOn(layers, t.id));
   const access = CLI_ACCESS.find((a) => a.id === (s.launchpad ?? "propose"))!;
   const parts = [
@@ -598,7 +598,7 @@ function SettingsForm({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   // Bots work in a Git folder or a temporary folder; a plain folder bot.toml still names stays listed, marked unused.
   const folders = projects.filter((p) => p.workspace_id === bot.workspace_id && !p.is_temp && (!p.plain || p.id === bot.settings.folder));
   const dirty = JSON.stringify(s) !== JSON.stringify(bot.settings);
-  const toolLayers = useLayers(bot.workspace_id, s.folder ?? null);
+  const toolLayers = useLayers(bot.workspace_id, s.folder ?? null, undefined, true);
   const access = s.launchpad ?? "propose";
   const save = async () => {
     try {

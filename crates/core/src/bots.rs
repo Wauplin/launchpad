@@ -205,14 +205,17 @@ pub struct Patch {
 }
 
 /// Pure: why an agent may not save `new` over the current settings (None: it may). Only the owner raises a bot's
-/// Launchpad CLI access or loosens its permission mode; an agent may lower or tighten them. `current` None: the
-/// current bot.toml has an error, read as the strictest settings (read access, Ask for approval).
+/// Launchpad CLI access, loosens its permission mode or switches on an opt-in tool (`tool_defaults::OPT_IN`: Slack
+/// (write)) in its `[tools]`; an agent may lower, tighten or switch them off. `current` None: the current bot.toml has
+/// an error, read as the strictest settings (read access, Ask for approval, no opt-in tool).
 pub fn agent_refusal(current: Option<&BotSettings>, new: &BotSettings) -> Option<&'static str> {
     let (access, mode) = current.map_or((crate::vault::LaunchpadAccess::Read, PermissionMode::Approvals), |c| (c.launchpad, c.permission_mode));
     if new.launchpad > access {
         Some("only the owner raises a bot's Launchpad CLI access (`launchpad` in bot.toml, on the bot's page: About → Access); an agent may only lower it")
     } else if new.permission_mode.strictness() < mode.strictness() {
         Some("only the owner loosens a bot's permission mode (YOLO → Auto → Ask for approval, on the bot's page: About → Access); an agent may only make it stricter")
+    } else if new.tools.iter().any(|(k, on)| *on && crate::tool_defaults::opt_in(k) && current.and_then(|c| c.tools.get(k)) != Some(&true)) {
+        Some("only the owner switches on Slack (write) for a bot (`[tools]` in bot.toml, on the bot's settings page); an agent may only switch it off")
     } else {
         None
     }
@@ -951,6 +954,13 @@ mod tests {
         // A broken bot.toml reads as the strictest settings.
         assert!(agent_refusal(None, &with(|s| { s.launchpad = Read; s.permission_mode = PermissionMode::Approvals })).is_none());
         assert!(agent_refusal(None, &cur).is_some());
+        // Slack (write): only the owner switches it on; an agent keeps or removes the owner's choice.
+        let tools = |on: bool| [(crate::vault::SLACK_WRITE.to_string(), on)].into_iter().collect::<crate::tool_defaults::ToolChoice>();
+        assert!(agent_refusal(Some(&cur), &BotSettings { tools: tools(true), ..cur.clone() }).is_some());
+        assert!(agent_refusal(Some(&cur), &BotSettings { tools: tools(false), ..cur.clone() }).is_none());
+        let owner_on = BotSettings { tools: tools(true), ..cur.clone() };
+        assert!(agent_refusal(Some(&owner_on), &BotSettings { name: "Renamed".into(), ..owner_on.clone() }).is_none());
+        assert!(agent_refusal(Some(&owner_on), &cur).is_none());
     }
 
     #[test]
