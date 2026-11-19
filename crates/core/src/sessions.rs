@@ -155,8 +155,19 @@ impl std::fmt::Display for FollowUpBusy {
 }
 impl std::error::Error for FollowUpBusy {}
 
+/// `FollowUpHeld`: an automatic follow-up that a quota reading the runner lacks holds (`hold_input`) instead of
+/// refusing (Burst's first request, `burst::first_request`).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum InputMode { Manual, FollowUpManual, FollowUpAutomatic }
+enum InputMode { Manual, FollowUpManual, FollowUpAutomatic, FollowUpHeld }
+
+/// What an automatic follow-up does while its quota is not confirmed: `FollowUpBusy` (the scheduler keeps it
+/// queued), or held until a reading confirms quota (true). None: it goes on.
+fn unconfirmed_quota(mode: InputMode, protected: bool, available: bool) -> Option<bool> {
+    match mode {
+        InputMode::FollowUpAutomatic | InputMode::FollowUpHeld if protected && !available => Some(mode == InputMode::FollowUpHeld),
+        _ => None,
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum QuotaResume { Automatic, ResetFallback, Manual, Paid }
@@ -1145,6 +1156,13 @@ impl Sessions {
         self.send_inner(app, id, text, vec![], if automatic { InputMode::FollowUpAutomatic } else { InputMode::FollowUpManual }, None, from).await
     }
 
+    /// An automatic follow-up that waits in a quota pause when this runner's reading does not confirm quota yet,
+    /// instead of being refused (`unconfirmed_quota`).
+    pub async fn send_held_follow_up(&self, app: &App, id: &str, text: &str, from: Option<crate::model::MessageFrom>) -> Result<()> {
+        self.ensure_local(id)?;
+        self.send_inner(app, id, text, vec![], InputMode::FollowUpHeld, None, from).await
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn send_inner(&self, app: &App, id: &str, text: &str, images: Vec<ImageAttachment>, mode: InputMode, client_id: Option<String>, from: Option<crate::model::MessageFrom>) -> Result<()> {
         let _action = self.action_lock(id).await;
@@ -1194,8 +1212,10 @@ impl Sessions {
         }
         ensure_budget(app, &s)?;
         let protected = crate::quota::protected(app, s.harness, &s.launch_spec);
-        if mode == InputMode::FollowUpAutomatic && protected && !crate::quota::available(&crate::quota::reading_for(app, s.harness, &s.launch_spec), now_ms()) {
-            return Err(FollowUpBusy.into());
+        match unconfirmed_quota(mode, protected, crate::quota::available(&crate::quota::reading_for(app, s.harness, &s.launch_spec), now_ms())) {
+            Some(true) => return self.hold_input(app, id, text, images, from, client_id).await,
+            Some(false) => return Err(FollowUpBusy.into()),
+            None => {}
         }
         if protected && !self.quota_blockers(app, &s).is_empty() {
             if s.status.is_running() || s.open_question { bail!("Included quota exhausted; wait for quota to reset before sending input or answering this question."); }

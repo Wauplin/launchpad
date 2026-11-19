@@ -421,7 +421,11 @@ async fn input(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::http
     b.text = text;
     b.images.extend(images);
     if let Some(mode) = &b.follow_up {
-        return match s.app.sessions.send_follow_up(&s.app, &id, &b.text, mode == "automatic", b.context.from).await {
+        let sent = match mode.as_str() {
+            "held" => s.app.sessions.send_held_follow_up(&s.app, &id, &b.text, b.context.from).await,
+            _ => s.app.sessions.send_follow_up(&s.app, &id, &b.text, mode == "automatic", b.context.from).await,
+        };
+        return match sent {
             Ok(()) => Ok(Json(json!({"ok": true}))),
             Err(e) if e.is::<launchpad_core::sessions::FollowUpBusy>() => Err(ApiError::conflict(format!("{e:#}"))),
             Err(e) => Err(bad(e)),

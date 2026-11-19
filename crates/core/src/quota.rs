@@ -326,15 +326,25 @@ pub fn runner_reading(app: &App, body: serde_json::Value) -> anyhow::Result<serd
 /// Home: vault readings, with the reading of each harness's default login (`resolve_vault_key`) as its
 /// `vault:default:<harness>`.
 fn vault_readings(app: &App) -> BTreeMap<String, QuotaStatus> {
-    let all = app.status.get().quotas;
+    let defaults = DEFAULT_LOGINS.lock().unwrap().clone();
+    runner_readings(&app.status.get().quotas, &defaults)
+}
+
+/// `vault_readings` from Home's readings and the default login's key of each harness (by harness id).
+fn runner_readings(all: &BTreeMap<String, QuotaStatus>, defaults: &HashMap<String, String>) -> BTreeMap<String, QuotaStatus> {
     let mut out: BTreeMap<String, QuotaStatus> = all.iter().filter(|(k, _)| k.starts_with("vault:") && !k.starts_with("vault:default:")).map(|(k, v)| (k.clone(), v.clone())).collect();
-    for harness in crate::harness::registrations().iter().filter(|r| r.descriptor.vault_login.is_some()).map(|r| r.descriptor.id) {
-        let key = vault_key(harness, None);
-        if let Some(v) = resolve_vault_key(&key).and_then(|k| out.get(&k).cloned()) {
-            out.insert(key, v);
+    for (harness, login) in defaults {
+        if let Some(v) = out.get(login).cloned() {
+            out.insert(format!("vault:default:{harness}"), v);
         }
     }
     out
+}
+
+/// Home: the readings a runner gets (`ToRunner::Quotas`), also at once when it connects (`server::runners::serve`),
+/// so a fresh runner (a new Burst job) never refuses automatic work for a reading it lacks.
+pub fn for_runners(app: &App) -> crate::runners::proto::ToRunner {
+    crate::runners::proto::ToRunner::Quotas { quotas: vault_readings(app) }
 }
 
 type Env = Vec<(String, String)>;
@@ -421,6 +431,21 @@ pub fn spawn(app: &App) {
 mod tests {
     use super::*;
     use crate::status::QuotaWindow;
+
+    #[test]
+    fn runners_get_every_vault_reading_with_the_default_logins() {
+        let reading = |at| QuotaStatus { quota_at: Some(at), ..Default::default() };
+        let all = BTreeMap::from([
+            ("vault:a".to_string(), reading(1)),
+            ("vault:b".to_string(), reading(2)),
+            ("vault:default:claude".to_string(), reading(9)),
+            ("local".to_string(), reading(3)),
+        ]);
+        let defaults = HashMap::from([("claude".to_string(), "vault:b".to_string()), ("codex".to_string(), "vault:gone".to_string())]);
+        let out = runner_readings(&all, &defaults);
+        assert_eq!(out.keys().collect::<Vec<_>>(), ["vault:a", "vault:b", "vault:default:claude"]);
+        assert_eq!(out["vault:default:claude"].quota_at, Some(2));
+    }
     #[test]
     fn unknown_usage_retries_only_after_the_known_five_hour_reset() {
         let pause = crate::model::QuotaPause {

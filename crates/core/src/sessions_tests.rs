@@ -216,3 +216,15 @@ fn status_transitions() {
     assert_eq!(transition(Working, None, true, Waiting), to(Waiting, true));
     assert_eq!(transition(Waiting, None, true, Closed), to(Closed, false));
 }
+
+#[test]
+fn only_held_follow_ups_wait_for_an_unconfirmed_quota() {
+    use super::{unconfirmed_quota, InputMode};
+    // A new Burst job's wake-up waits in a quota pause; the scheduler's own follow-ups stay queued (409).
+    assert_eq!(unconfirmed_quota(InputMode::FollowUpHeld, true, false), Some(true));
+    assert_eq!(unconfirmed_quota(InputMode::FollowUpAutomatic, true, false), Some(false));
+    assert_eq!(unconfirmed_quota(InputMode::FollowUpHeld, true, true), None);
+    assert_eq!(unconfirmed_quota(InputMode::FollowUpHeld, false, false), None);
+    assert_eq!(unconfirmed_quota(InputMode::FollowUpManual, true, false), None);
+    assert_eq!(unconfirmed_quota(InputMode::Manual, true, false), None);
+}

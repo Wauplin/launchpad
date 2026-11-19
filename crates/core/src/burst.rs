@@ -483,7 +483,7 @@ async fn drive(app: &App, runner_id: &str) {
         .await,
         Some(Pending::Request { session_id, action, body, key }) => async {
             crate::handoff::move_to(app, &session_id, runner_id).await?;
-            let (status, body) = crate::runners::deliver(app, runner_id, &session_id, &action, body, key).await?;
+            let (status, body) = first_request(app, runner_id, &session_id, &action, body, key).await?;
             ensure!((200..300).contains(&status), "{}", error_of(&body));
             Ok(())
         }
@@ -515,6 +515,43 @@ async fn drive(app: &App, runner_id: &str) {
             let _ = stop(app, runner_id, Some(format!("{e:#}"))).await;
         }
     }
+}
+
+/// How often, 3 seconds apart, a new job's first request is sent again while the runner answers 409 (busy, or
+/// quota not confirmed yet: a reading Home sends every minute or a session reports may come meanwhile).
+const FIRST_REQUEST_RETRIES: u32 = 10;
+
+/// The request a new job was started for. An automatic follow-up (a sleep's wake-up, a scheduled follow-up) has
+/// no caller left to keep it queued: while the runner refuses it (409) it is sent again a few times, then held on
+/// the runner until a reading confirms quota (`held_follow_up`), never lost.
+async fn first_request(app: &App, runner_id: &str, session_id: &str, action: &str, body: Option<String>, key: Option<String>) -> Result<(u16, String)> {
+    let mut answer = crate::runners::deliver(app, runner_id, session_id, action, body.clone(), key.clone()).await?;
+    let Some(held) = held_follow_up(action, body.as_deref(), key.as_deref()) else { return Ok(answer) };
+    for _ in 0..FIRST_REQUEST_RETRIES {
+        if answer.0 != 409 {
+            return Ok(answer);
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        answer = crate::runners::deliver(app, runner_id, session_id, action, body.clone(), None).await?;
+    }
+    if answer.0 != 409 {
+        return Ok(answer);
+    }
+    crate::runners::deliver(app, runner_id, session_id, action, Some(held), None).await
+}
+
+/// The body of an automatic follow-up that holds for quota (`follow_up: "held"`) instead of being refused. Only
+/// for follow-ups without an idempotency key (a key's first answer would be replayed).
+fn held_follow_up(action: &str, body: Option<&str>, key: Option<&str>) -> Option<String> {
+    if action != "input" || key.is_some() {
+        return None;
+    }
+    let mut v = serde_json::from_str::<Value>(body?).ok()?;
+    if v["follow_up"] != "automatic" {
+        return None;
+    }
+    v["follow_up"] = "held".into();
+    Some(v.to_string())
 }
 
 fn error_of(body: &str) -> String {
@@ -896,6 +933,20 @@ mod tests {
         assert_eq!(after_handoff(since, since + 60_000, true, Some(since)), AfterHandoff::Wait);
         assert_eq!(after_handoff(since, since + BACKUP_WAIT_MS, true, None), AfterHandoff::Wait);
         assert_eq!(after_handoff(since, since + BACKUP_WAIT_MS + 1, true, Some(since - 5)), AfterHandoff::StopUnsaved);
+    }
+
+    #[test]
+    fn a_wake_up_on_a_new_job_is_held_for_quota_instead_of_lost() {
+        let wake = json!({"text": "Woken up", "follow_up": "automatic", "context": {}}).to_string();
+        let held: Value = serde_json::from_str(&held_follow_up("input", Some(&wake), None).unwrap()).unwrap();
+        assert_eq!(held["follow_up"], "held");
+        assert_eq!(held["text"], "Woken up");
+        // The owner's messages, manual follow-ups, other actions and keyed requests stay as they are.
+        assert!(held_follow_up("input", Some(&json!({"text": "hi"}).to_string()), None).is_none());
+        assert!(held_follow_up("input", Some(&json!({"text": "hi", "follow_up": "manual"}).to_string()), None).is_none());
+        assert!(held_follow_up("resume", Some(&wake), None).is_none());
+        assert!(held_follow_up("input", Some(&wake), Some("k")).is_none());
+        assert!(held_follow_up("input", None, None).is_none());
     }
 
     #[test]

@@ -324,6 +324,9 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
         return;
     }
     if !send(&mut tx, &profiles(&s)).await || !send(&mut tx, &settings(&s)).await { return; }
+    // Before `connect`: the runner holds Home's quota readings before any request reaches it (a new Burst job's
+    // first request is often an automatic follow-up, which needs a confirmed reading).
+    if !send(&mut tx, &launchpad_core::quota::for_runners(&s.app)).await { return; }
     // From here on one writer sends: the control lane first, exchange body parts when it is empty.
     let (out_tx, bulk_tx, mut writer) = crate::wire::lanes::<ToRunner>(tx);
     let conn = s.app.runners.connect(&s.app, &runner.id, compat, guard, runner.burst, (out_tx.clone(), bulk_tx));
