@@ -59,7 +59,7 @@ import { activityLine, activityLink, activityParts, activityReceipt, useActivity
 import { api } from "@/lib/api";
 import { attachmentSrc, isImageAttachment, pastedImages } from "@/lib/attachments";
 import { age, ago, when } from "@/lib/format";
-import { useKeptDraft } from "@/lib/keptDraft";
+import { chatDraftKey, dropSentChatDraft, useKeptDraft } from "@/lib/keptDraft";
 import { NEW_THREAD } from "./BotThreads";
 import { useCrons, useSession, useHarnessDefaults } from "@/lib/queries";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
@@ -330,7 +330,7 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
           <div className="h-3" />
         </div>
       </div>
-      <BotComposer bot={bot} threadId={threadId} onThread={onThread} current={current} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} reply={reply} skipped={!reportWaits && ask && ask.request_id === skipped ? ask : null}
+      <BotComposer key={`${bot.id}.${threadId}`} bot={bot} threadId={threadId} onThread={onThread} current={current} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} reply={reply} skipped={!reportWaits && ask && ask.request_id === skipped ? ask : null}
         onCancelReply={() => { if (reply?.kind === "report") setReport(null); else if (reply) setSkipped(reply.request_id); }} onUnskip={() => setSkipped(null)}
         onSent={() => { atBottom.current = true; setReport(null); }} />
     </div>
@@ -687,9 +687,8 @@ function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile,
   const harness = useHarnessInfo(current?.harness ?? null);
   const acceptsImages = harness ? harness.capabilities.images : true;
   // The unsent text survives the box being hidden (the phone's About page, back, another bot in the Ask panel).
-  // One draft per thread.
-  const draftKey = `chat.${bot.id}.${threadId}`;
-  const { text, setText } = useKeptDraft(draftKey, "");
+  // One draft per thread: the box is mounted again for each thread (its `key`), so a draft never follows to another.
+  const { text, setText } = useKeptDraft(chatDraftKey(bot.id, threadId), "");
   // Where the message goes: the thread shown, or a new thread.
   const where = threadId === NEW_THREAD ? { new_thread: true } : { thread: threadId };
   const [busy, setBusy] = useState(false);
@@ -726,6 +725,8 @@ function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile,
     const t = answering ? typed.trim() : withPresets(typed, presets, botPresets);
     if ((!t && !files.length && !withContext) || busy || reading || blocked) return;
     setBusy(true);
+    // The thread the message goes to: a message from New thread lands in the thread Home creates for it.
+    let to = threadId;
     try {
       if (ask && current) {
         await runAction("session.answer", { id: current.id }, { request_id: ask.request_id, answers: Array(ask.count).fill(t || "See the attachments in my next message.") });
@@ -746,11 +747,13 @@ function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile,
         try { sent = await runAction<BotSend>("bot.message", { id: bot.id }, body); }
         catch (e) { setUnconfirmed(e instanceof ApiError && e.operationCompleted ? null : { path: messagePath, body, message }); throw e; }
         setUnconfirmed(null);
+        to = sent.thread;
         await accepted(sent);
         setContext(EMPTY_CONTEXT);
         setPresets([]);
       }
       setText("");
+      dropSentChatDraft(bot.id, threadId, to);
       attachments.clear();
       onSent();
     } catch (e) { toastError(e); } finally { setBusy(false); }

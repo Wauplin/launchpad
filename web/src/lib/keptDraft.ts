@@ -1,7 +1,7 @@
 // Text typed into an editor survives back: the draft is kept in this window's sessionStorage, keyed by the record
 // and the version it started from (`launchpad.draft.<key>`), until it is saved or discarded. Reopening the editor
 // on the same version brings it back with a "Draft kept" line; a newer version starts from the new text. The bot
-// chat's message box keeps its unsent text here too (`chat.<bot id>`). The demo never writes browser storage: it
+// chat's message box keeps its unsent text here too (`chat.<bot id>.<thread>`, `chatDraftKey`). The demo never writes browser storage: it
 // keeps drafts in memory, for this page load.
 
 import { useEffect, useRef, useState } from "react";
@@ -35,6 +35,16 @@ export function useKeptDraft(key: string | null, initial: string) {
   }, [key, text, initial]);
   const clear = () => { if (keyRef.current) writeDraft(keyRef.current, null); };
   return { text, setText, kept, clear };
+}
+
+/** The bot chat's draft of one thread (`new`: the New thread slot). */
+export const chatDraftKey = (bot: string, thread: string) => `chat.${bot}.${thread}`;
+
+/** A message left the bot chat's box: its draft goes, both where it was typed (the New thread slot, when the message
+ * started a thread) and in the thread it went to, so New thread opens an empty box. */
+export function dropSentChatDraft(bot: string, from: string, to: string) {
+  writeDraft(chatDraftKey(bot, from), null);
+  writeDraft(chatDraftKey(bot, to), null);
 }
 
 /** A short version tag of a text (FNV-1a), for draft keys of records without a version number. */

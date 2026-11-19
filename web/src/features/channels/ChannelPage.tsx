@@ -132,7 +132,7 @@ function ChannelPageOf({ id }: { id: string }) {
         <span className="min-w-0 flex-1">{footer.stopped ? `${footer.stopped} · ` : ""}{footer.text}</span>
         {footer.stopped && <ActionButton name="channel.allow-more" params={{ id }} onDone={refresh} />}
       </div>}
-      <ChannelComposer channel={channel} onSent={refresh} />
+      <ChannelComposer key={channel.id} channel={channel} onSent={refresh} />
     </div>;
   const drawer = <div className="flex h-full min-h-0 flex-col" data-tour="channel.members-panel">
     <div className="flex min-h-11 flex-none items-center gap-2 border-b border-line-2 px-3"><b className="min-w-0 flex-1 truncate text-[13px]">Members</b><IconButton icon="x" label="Close Members" onClick={() => setMembers(false)} /></div>

@@ -158,6 +158,22 @@ test("a lost forced composer save retries conditionally instead of overwriting a
   await useComposer.getState().loadNewer();
 });
 
+test("a message sent from New thread leaves no draft: New thread opens an empty box, unsent drafts stay", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { chatDraftKey, dropSentChatDraft, useKeptDraft, writeDraft } = await import("../src/lib/keptDraft.ts");
+  const Box = ({ thread }) => createElement("p", null, useKeptDraft(chatDraftKey("b1", thread), "").text);
+  const box = (thread) => renderToStaticMarkup(createElement(Box, { thread }));
+  writeDraft(chatDraftKey("b1", "new"), "already sent");
+  writeDraft(chatDraftKey("b1", "t9"), "unsent");
+  assert.match(box("new"), /already sent/);
+  // Sending from New thread: Home created thread t1 for the message.
+  dropSentChatDraft("b1", "new", "t1");
+  assert.equal(box("new"), "<p></p>");
+  assert.equal(box("t1"), "<p></p>");
+  assert.match(box("t9"), /unsent/);
+});
+
 test("sign out erases cached data and disables background writers before redirect", async () => {
   const { storageAllowed } = await import("../src/lib/clientStorage.ts");
   let cleared = false;
