@@ -39,7 +39,7 @@ import { ApiError } from "@/lib/api";
 import { abandonOperation } from "@/lib/operations";
 import { senderParts } from "@/lib/senders";
 import { ChatMessage, MESSAGE_INDENT, SenderTag } from "./Message";
-import { instructionsUpdated, sentHere, showAccepted } from "@/lib/bots";
+import { instructionsUpdated, refreshThreads, sentHere, showAccepted } from "@/lib/bots";
 import { useMarkSeen, useWindowFocused } from "@/features/agents/useSeen";
 import { buildRows } from "@/features/agents/rows";
 import { foldTrace } from "@/features/agents/traceRows";
@@ -855,7 +855,7 @@ function BotComposer({ bot, threadId, onThread, current, askSession, conversatio
         if (targets.length !== 1 || targets[0] !== bot.id) {
           // To other bots of the conversation (a bot that is not part of it joins it), each in its own thread.
           for (const id of targets) await accepted(await runAction<BotSend>("bot.message", { id }, { text: t, attachments: files, conversation: conversation!.id, ...(withContext ? { context } : {}), accept: true }));
-          if (targets.some((id) => !participants.includes(id))) void qc.invalidateQueries({ queryKey: ["bot-threads"] });
+          if (targets.some((id) => !participants.includes(id))) void refreshThreads(qc);
           setText("");
           dropSentChatDraft(bot.id, threadId, threadId);
           attachments.clear();

@@ -438,6 +438,58 @@ pub fn open_sessions(app: &App, bot: &str) -> Vec<Session> {
     newest.into_values().filter(|s| s.status != SessionStatus::Closed).collect()
 }
 
+/// The threads of a workspace's bots the Chats list needs: every open thread, every archived thread of a conversation
+/// that still has an open one (its participants and their order), and the threads of the `archived` newest archived
+/// conversations (newest archive first). Returns them with the number of archived conversations in all, so the list
+/// pages them instead of loading years of routine runs. A thread whose session is archived counts as archived, with
+/// that time as `archived_at`, like `list`.
+pub async fn for_chats(app: &App, bots: &[String], archived: usize) -> Result<(Vec<BotThread>, usize)> {
+    for b in bots {
+        ensure_legacy(app, b).await?;
+    }
+    let ids = bots.to_vec();
+    let rows = app.state_db.call(move |c| {
+        let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM bot_thread WHERE bot_id IN (SELECT value FROM json_each(?1))"))?;
+        let rows = st.query_map(params![serde_json::to_string(&ids).unwrap_or_default()], row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }).await?;
+    // Each thread's newest session, read once (not one scan of the sessions per thread).
+    let mut newest: std::collections::HashMap<(String, String), Session> = std::collections::HashMap::new();
+    for s in app.sessions.list() {
+        let Some(b) = s.launch_spec.bot.as_ref() else { continue };
+        let key = (b.id.clone(), b.thread_id().to_string());
+        if newest.get(&key).is_none_or(|o| o.started_at <= s.started_at) {
+            newest.insert(key, s);
+        }
+    }
+    let rows: Vec<BotThread> = rows.into_iter().map(|mut t| {
+        if t.archived_at.is_none() && let Some(s) = newest.get(&(t.bot_id.clone(), t.id.clone())).filter(|s| s.status == SessionStatus::Closed) {
+            t.archived_at = Some(s.status_since);
+        }
+        t
+    }).collect();
+    Ok(chat_page(rows, archived))
+}
+
+/// Pure: `for_chats`'s choice of rows (see there).
+pub fn chat_page(rows: Vec<BotThread>, archived: usize) -> (Vec<BotThread>, usize) {
+    let open: std::collections::HashSet<String> = rows.iter().filter(|t| t.archived_at.is_none()).map(|t| t.conversation.clone()).collect();
+    // Archived conversations, newest archive first.
+    let mut last: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
+    for t in rows.iter().filter(|t| !open.contains(&t.conversation)) {
+        let at = t.archived_at.unwrap_or(t.created_at);
+        let e = last.entry(t.conversation.as_str()).or_insert(at);
+        *e = (*e).max(at);
+    }
+    let mut order: Vec<(&str, i64)> = last.into_iter().collect();
+    order.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    let total = order.len();
+    let shown: std::collections::HashSet<String> = order.into_iter().take(archived).map(|(c, _)| c.to_string()).collect();
+    let mut out: Vec<BotThread> = rows.into_iter().filter(|t| open.contains(&t.conversation) || shown.contains(&t.conversation)).collect();
+    out.sort_by_key(|t| std::cmp::Reverse(t.created_at));
+    (out, total)
+}
+
 /// Pure: why a message that would wake `thread` waits for a free slot, or None. `working`: the threads whose open
 /// session works now. A thread that already works is not a new slot (its message waits for its turn instead).
 pub fn cap_reason(working: &[String], thread: Option<&str>, max: u32, name: &str) -> Option<String> {
@@ -456,6 +508,20 @@ pub fn at_cap(app: &App, bot: &crate::bots::Bot, thread: Option<&str>) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chat_page_keeps_open_conversations_whole_and_pages_archived_ones() {
+        let t = |bot: &str, id: &str, conv: &str, created: i64, archived: Option<i64>| BotThread { bot_id: bot.into(), id: id.into(), key: None, title: id.into(), created_at: created, archived_at: archived, conversation: conv.into() };
+        let rows = vec![
+            // A conversation that continued in a new thread: its archived first thread stays.
+            t("a", "first", "a:first", 1, Some(5)), t("a", "next", "a:first", 6, None), t("b", "joined", "a:first", 3, None),
+            t("a", "old", "a:old", 2, Some(10)), t("a", "older", "a:older", 1, Some(4)), t("b", "newest", "b:newest", 7, Some(20)),
+        ];
+        let (out, total) = chat_page(rows, 2);
+        let ids: Vec<&str> = out.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(total, 3);
+        assert_eq!(ids, ["newest", "next", "joined", "old", "first"]);
+    }
 
     fn thread(bot: &str, id: &str, conversation: Option<&str>) -> BotThread {
         BotThread { id: id.into(), bot_id: bot.into(), key: None, title: "t".into(), created_at: 0, archived_at: None, conversation: conversation.map_or_else(|| conversation_id(bot, id), str::to_string) }

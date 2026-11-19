@@ -46,7 +46,7 @@ export const answering: Chapter = {
     {
       id: "answering.primary", anchor: "session.primary",
       title: "One primary button",
-      body: "It follows the state: Stop while running, Answer for a question, Merge when the branch can go into its base safely, else Review changes or Archive when Done, Resume after a stop. The ⋯ of each row in the list offers Stop, Archive, Mark unread and Pin.",
+      body: "It follows the state: Stop while running, Answer for a question, Merge when the branch can go into its base safely, else Review changes or Archive when Done, Resume after a stop. The ⋯ of each row in the list offers Stop, Archive and Mark unread.",
     },
   ],
 };

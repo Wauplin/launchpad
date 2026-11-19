@@ -261,7 +261,8 @@ function BotPageOf({ id }: { id: string }) {
     intro={<p className="m-0 text-[13px] text-ink-2">{threadId !== NEW_THREAD ? "This chat has no message yet." : rows.length ? `Send ${bot.settings.name} the first message of a new chat: it runs next to its other chats.` : `Send ${bot.settings.name} its first task.`}</p>} />;
   if (phone) {
     return <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
-      <PhoneBar title={<span className="grid min-w-0"><span className="truncate">{title}</span><span className="truncate text-[12px] font-normal text-ink-3">{participants.map((b) => b.settings.name).join(", ")} · {statusLine}</span></span>} onBack={() => phoneBack("/chats")} backLabel="All chats" end={archiveThread} />
+      <PhoneBar title={<span className="grid min-w-0"><span className="truncate">{title}</span><span className="truncate text-[12px] font-normal text-ink-3">{participants.map((b) => b.settings.name).join(", ")} · {statusLine}</span></span>} onBack={() => phoneBack("/chats")} backLabel="All chats"
+        end={<>{archiveThread}<IconButton icon="gear" label={`Settings of ${bot.settings.name}`} data-tour="chat.settings" onClick={() => void navigate({ to: "/bots/$id/settings", params: { id } })} /></>} />
       {chatView}
     </div>;
   }

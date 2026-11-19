@@ -72,7 +72,7 @@ export function FoliosView() {
   return <div className="flex h-full min-h-0 flex-col" data-tour="folios.page">
     {phone
       ? <PhoneHeader title="Folios" onBack={() => phoneBack("/more")} subtitle={meta} />
-      : <PageHeader title="Folios" meta={meta} intro="Folios are reports, plans, audits and sketchbooks that agents write as Markdown with typed blocks. Launchpad renders them, keeps every rev, and lets you comment, decide and mark items on the page; Send feedback delivers your marks to the folio's bot thread or the agent that wrote it. A folio with no change and no open mark for 30 days archives itself." />}
+      : <PageHeader title="Folios" meta={meta} intro="Folios are reports, plans, audits and sketchbooks that agents write as Markdown with typed blocks. Launchpad renders them, keeps every rev, and lets you comment, decide and mark items on the page; Send feedback delivers your marks to the folio's bot chat or the agent that wrote it. A folio with no change and no open mark for 30 days archives itself." />}
     <div className="flex min-h-0 w-full max-w-page flex-1 flex-col gap-2 px-5 py-3">
       <div className="flex flex-wrap items-center gap-2">{chips}{(q.data?.length ?? 0) > 6 && <input className="field-input min-w-0 flex-1" aria-label="Search folios" placeholder="Search folios…" value={needle} onChange={(e) => setNeedle(e.target.value)} />}</div>
       {q.isPending ? <Loading what="folios" /> : q.error ? <ErrorState error={q.error} /> : list.length === 0 ? <Empty icon="folio">{archived ? "No archived folios." : shared ? "No shared folio. Share one from its ⋯ (Share…)." : needle ? "No folio matches." : "No folios yet. Ask an agent to present its results as a folio (launchpad folio create)."}</Empty> : null}

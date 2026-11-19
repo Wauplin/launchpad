@@ -1043,6 +1043,7 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
                 tx.execute(&format!("DELETE FROM {t} WHERE channel_id = ?1"), [&cid])?;
             }
             tx.execute("DELETE FROM channel WHERE id = ?1", [&cid])?;
+            tx.execute("DELETE FROM chat_pin WHERE target = 'channel:' || ?1", [&cid])?;
             tx.commit()?;
             Ok(())
         })

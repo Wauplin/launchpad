@@ -70,6 +70,10 @@ export function landingThread(bot: string, threads: BotThread[], sessions: Sessi
   return recent ? threadOf(recent) : threads[0]?.id ?? null;
 }
 
+/** Refreshes the thread lists after a change made here (a bot's lists, every bot's without `bot`) and the Chats
+ * list's threads; the `bots`/`threads` bus event does the same for other windows. */
+export const refreshThreads = (qc: QueryClient, bot?: string) => Promise.all([qc.invalidateQueries({ queryKey: bot ? ["bot-threads", bot] : ["bot-threads"] }), qc.invalidateQueries({ queryKey: ["chat-threads"] })]);
+
 /** The bot's threads (the newest first), archived ones with `archived`. */
 export const useBotThreads = (id: string | null | undefined, archived = false) => useQuery({ queryKey: ["bot-threads", id, archived], queryFn: () => api.get<BotThread[]>(`/api/bots/${id}/threads${archived ? "?archived=true" : ""}`), enabled: !!id, staleTime: 15_000, retry: false });
 

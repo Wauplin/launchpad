@@ -117,17 +117,22 @@ export function sectionOf(sessions: readonly Session[], archived: boolean): Chat
 
 const firstLine = (text: string) => text.trim().split("\n")[0]?.trim() ?? "";
 
-/** A chat's title: the automatic name of its session (like an agent's, `titles.rs`) for your own threads, unless you
- * renamed the thread; the thread's title for threads a source names (a channel, a routine, a GitHub item, a hook) and
- * while no session has a name yet; "New chat" before the first message. */
-export function chatTitle(t: Pick<BotThread, "title" | "key"> | null, s: Session | null): string {
+/** A session's automatic name (`titles.rs`), or "" while it has only the title its prompt gave it. */
+const generatedTitle = (s: Session | null) => {
+  const title = s?.title.trim() ?? "";
+  return title && !firstLine(s!.prompt).startsWith(title.replace(/…$/, "").trim()) ? title : "";
+};
+
+/** A chat's title: a short automatic description, like an agent's name (`titles.rs`) — the automatic name of the
+ * chat's first session (it says what the chat is about, also after the chat continued in a new thread), else of its
+ * current one — for every chat, routine runs and chats a source opened (GitHub, a hook, a channel) included; the
+ * thread's own title until a session is named, or when you renamed one of your chats; "New chat" before the first
+ * message. */
+export function chatTitle(t: Pick<BotThread, "title" | "key"> | null, first: Session | null, current: Session | null = first): string {
   const own = t?.title.trim() ?? "";
-  if (!s) return own || "New chat";
-  if (t?.key) return own || s.title || "New chat";
-  // Your threads take the first line of their first message as title until you rename them.
-  const auto = own.replace(/…$/, "").trim();
-  if (auto && !firstLine(s.prompt).startsWith(auto)) return own;
-  return s.title.trim() || own || "New chat";
+  // Your own chats keep the first line of their first message as title until you rename them.
+  if (t && !t.key && own && first && !firstLine(first.prompt).startsWith(own.replace(/…$/, "").trim())) return own;
+  return generatedTitle(first) || generatedTitle(current) || own || current?.title.trim() || "New chat";
 }
 
 export const isNoUpdateText = (text: string | null | undefined) => !!text && text.trim().replace(/^[`*".\s]+|[`*".\s]+$/g, "").toLowerCase() === "no_update";
@@ -199,7 +204,7 @@ export function buildChats({ bots, sessions, threads, channels, workspaceId, ask
     const routine = routineThread ? (home.session?.launch_spec.routine?.title ?? (home.session?.launch_spec.from?.kind === "routine" ? home.session.launch_spec.from.name : null) ?? home.thread.title) || "routine" : null;
     const status = state ? threadStatus(state) : archived ? { label: "Archived", tone: "idle" as const } : { label: "New", tone: "idle" as const };
     out.push({
-      kind: "thread", id, pin: `conversation:${id}`, bot: home.bot, thread: home.thread.id, threads: list.map((t) => `${t.bot_id}\n${t.id}`), title: chatTitle(home.thread, home.session),
+      kind: "thread", id, pin: `conversation:${id}`, bot: home.bot, thread: home.thread.id, threads: list.map((t) => `${t.bot_id}\n${t.id}`), title: chatTitle(home.thread, [...home.all].sort((x, y) => x.started_at - y.started_at)[0] ?? null, home.session),
       participants: parts.map((p) => p.bot), session: state, sessionIds: all.map((s) => s.id), ...status,
       unseen: current.some(unseenTurn), archived, routine,
       line: isNoUpdateText(answer) ? "No update (a routine with nothing to report)" : answer,
@@ -235,8 +240,9 @@ export function chatSearchText(c: Chat): string {
 }
 
 /** The chats a search and a bot filter keep. Every selected bot must take part in the chat (a conversation's bots,
- * a channel's members). `matched`: sessions whose messages match the search (`/api/sessions/search`), when known. */
-export function filterChats<T extends Chat>(chats: readonly T[], { needle = "", bots = [], matched = null }: { needle?: string; bots?: readonly string[]; matched?: ReadonlySet<string> | null }): T[] {
+ * a channel's members). `matched`: sessions whose messages match the search (`/api/sessions/search`), and
+ * `matchedChannels`: channels whose messages match it (`/api/chat-search`), when known. */
+export function filterChats<T extends Chat>(chats: readonly T[], { needle = "", bots = [], matched = null, matchedChannels = null }: { needle?: string; bots?: readonly string[]; matched?: ReadonlySet<string> | null; matchedChannels?: ReadonlySet<string> | null }): T[] {
   const q = needle.trim().toLocaleLowerCase();
   return chats.filter((c) => {
     if (bots.length) {
@@ -244,7 +250,8 @@ export function filterChats<T extends Chat>(chats: readonly T[], { needle = "", 
       if (!bots.every((b) => involved.has(b))) return false;
     }
     if (!q) return true;
-    return chatSearchText(c).includes(q) || (c.kind === "thread" && !!matched && c.sessionIds.some((id) => matched.has(id)));
+    if (chatSearchText(c).includes(q)) return true;
+    return c.kind === "thread" ? !!matched && c.sessionIds.some((id) => matched.has(id)) : !!matchedChannels && matchedChannels.has(c.id);
   });
 }
 

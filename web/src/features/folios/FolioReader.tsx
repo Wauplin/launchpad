@@ -327,9 +327,9 @@ function Targets({ ws, slug, unsent, done }: { ws: string; slug: string; unsent:
       {i === 0 && <span className="text-teal-ink"><Icon name="send" size={12} /></span>}
     </button>)}
     {!newThread
-      ? <button type="button" className="folio-target" disabled={busy} onClick={() => setNewThread(true)}><span className="min-w-0 flex-1"><b className="block">New thread…</b><span className="block text-[12px] text-ink-3">A bot, with the agents of this folio as context</span></span><Icon name="plus" size={12} /></button>
+      ? <button type="button" className="folio-target" disabled={busy} onClick={() => setNewThread(true)}><span className="min-w-0 flex-1"><b className="block">New chat…</b><span className="block text-[12px] text-ink-3">A bot, with the agents of this folio as context</span></span><Icon name="plus" size={12} /></button>
       : <div className="grid gap-1 rounded-control border border-line p-2">
-        <span className="text-[12px] text-ink-3">Start a new thread of:</span>
+        <span className="text-[12px] text-ink-3">Start a new chat with:</span>
         {bots.map((b) => <button key={b.id} type="button" disabled={busy} className="folio-target" onClick={() => sendTo({ kind: "new_thread", bot_id: b.id })}><b className="min-w-0 flex-1 truncate">{b.settings.name}</b></button>)}
         {!bots.length && <span className="text-[12px] text-ink-3">This workspace has no bot.</span>}
       </div>}
@@ -482,7 +482,7 @@ function ProblemsPanel({ d, ws, slug, readOnly, jump }: { d: FolioDetail; ws: st
   return <div className="grid gap-2 p-3 text-[13px]">
     <p className="m-0 text-[12px] text-ink-3">Home's check of rev {d.rev}. The agent sees the same list after each write and fixes it with launchpad folio check --fix or a patch.</p>
     {!readOnly && <div className="flex items-center gap-2">
-      <button type="button" className="btn btn-sm" disabled={busy || !to} onClick={ask} title={to ? `Sends one line to ${to.label} (${to.detail}); your marks stay unsent` : "No agent to ask: no bot thread or session wrote this folio"}><Icon name="send" size={12} />Ask the author to fix</button>
+      <button type="button" className="btn btn-sm" disabled={busy || !to} onClick={ask} title={to ? `Sends one line to ${to.label} (${to.detail}); your marks stay unsent` : "No agent to ask: no bot chat or session wrote this folio"}><Icon name="send" size={12} />Ask the author to fix</button>
       <span className="min-w-0 truncate text-[12px] text-ink-3">{to ? to.label : targets.isLoading ? "" : "No agent wrote it yet"}</span>
     </div>}
     {d.problems.map((p, i) => <button key={i} type="button" className="grid gap-0.5 rounded-card border border-line-2 bg-paper p-2.5 text-left" onClick={() => jump(p.file, p.line)}>

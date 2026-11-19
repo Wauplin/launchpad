@@ -16,7 +16,7 @@ import { Icon } from "@/components/Icon";
 import { toast, toastError } from "@/components/Toast";
 import { IconButton } from "@/components/ui";
 import { runAction } from "@/lib/actions";
-import { botThread, threadState, useBotThreads, type BotState } from "@/lib/bots";
+import { botThread, refreshThreads, threadState, useBotThreads, type BotState } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
 import { isRunning } from "@/lib/sessionStatus";
 import { phoneBack } from "@/mobile/back";
@@ -58,7 +58,7 @@ export function useArchiveThread() {
       const leaving = !!shown && ((shown.bot === bot && shown.thread === thread) || (!!conversation && shown.conversation === conversation));
       if (leaving) { if (phone) phoneBack("/chats"); else void navigate({ to: "/chats", search: {} as never }); }
       toast("Chat archived: it stays under Archived in Chats");
-      await Promise.all([qc.invalidateQueries({ queryKey: ["bot-threads"] }), qc.invalidateQueries({ queryKey: ["sessions"] })]);
+      await Promise.all([refreshThreads(qc, bot), qc.invalidateQueries({ queryKey: ["sessions"] })]);
     } catch (e) { toastError(e); }
     finally { setBusy(null); }
   };

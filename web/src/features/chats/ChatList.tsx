@@ -19,7 +19,7 @@ import { useArchiveThread } from "@/features/chat/BotThreads";
 import type { Bot } from "@/gen/Bot";
 import { runAction } from "@/lib/actions";
 import { api } from "@/lib/api";
-import { useBots } from "@/lib/bots";
+import { refreshThreads, useBots } from "@/lib/bots";
 import { byName } from "@/lib/channels";
 import { chatOf, chatSections, filterChats, type Chat, type ChatSection } from "@/lib/chatList";
 import { age } from "@/lib/format";
@@ -132,7 +132,8 @@ export function ChatList() {
   const phone = usePhone();
   const scope = useScope();
   const qc = useQueryClient();
-  const { chats, loading, error, pinned } = useChats();
+  const { chats, loading, error, pinned, archivedMore } = useChats();
+  const showMoreArchived = useChatsStore((st) => st.showMoreArchived);
   const allBots = useBots();
   const bots = useMemo(() => byName((allBots.data ?? []).filter((b) => b.workspace_id === scope.workspace.id), (b) => b.settings.name), [allBots.data, scope.workspace.id]);
   const { search, searchOpen, setSearch, bots: chosen, setBots, collapsed, toggle } = useChatsStore();
@@ -143,15 +144,18 @@ export function ChatList() {
   useEffect(() => { const t = setTimeout(() => setDebounced(search.trim()), 250); return () => clearTimeout(t); }, [search]);
   // Messages too, like Agents' search: the sessions whose messages match.
   const matches = useQuery({ queryKey: ["session-search", debounced], queryFn: () => api.get<string[]>(`/api/sessions/search?q=${encodeURIComponent(debounced)}`), enabled: !!debounced });
-  const matched = useMemo(() => (debounced === search.trim() && matches.data ? new Set(matches.data) : null), [matches.data, debounced, search]);
-  const shown = useMemo(() => filterChats(chats, { needle: search, bots: chosen, matched }), [chats, search, chosen, matched]);
+  // Channels and DMs search their messages too (`/api/chat-search`).
+  const channelMatches = useQuery({ queryKey: ["chat-search", scope.workspace.id, debounced], queryFn: () => api.get<string[]>(`/api/chat-search?workspace=${encodeURIComponent(scope.workspace.id ?? "")}&q=${encodeURIComponent(debounced)}`), enabled: !!debounced && !!scope.workspace.id });
+  const fresh = debounced === search.trim();
+  const matched = useMemo(() => (fresh && matches.data ? new Set(matches.data) : null), [matches.data, fresh]);
+  const matchedChannels = useMemo(() => (fresh && channelMatches.data ? new Set(channelMatches.data) : null), [channelMatches.data, fresh]);
+  const shown = useMemo(() => filterChats(chats, { needle: search, bots: chosen, matched, matchedChannels }), [chats, search, chosen, matched, matchedChannels]);
   // The phone has no sidebar: its pinned chats come first.
   const pins = useChatPins().data;
   const pinOrder = useMemo(() => (phone ? (pins ?? []).map((p) => p.target) : undefined), [phone, pins]);
   const groups = useMemo(() => chatSections(shown, pinOrder), [shown, pinOrder]);
   const open = useOpenChat();
   const selected = open ? chatOf(chats, open)?.id ?? null : null;
-  const [archivedLimit, setArchivedLimit] = useState(30);
   const [renaming, setRenaming] = useState<Chat | null>(null);
   const pin = usePinChat();
   const { archive, busy } = useArchiveThread();
@@ -165,7 +169,7 @@ export function ChatList() {
     if (c.kind !== "thread") return;
     if (on) { void actions.current.archive(c.bot.id, c.thread, c.id); return; }
     void runAction("bot.thread-archive", { id: c.bot.id, thread: c.thread }, { archived: false })
-      .then(() => { toast("Chat brought back"); return Promise.all([actions.current.qc.invalidateQueries({ queryKey: ["bot-threads"] }), actions.current.qc.invalidateQueries({ queryKey: ["sessions"] })]); })
+      .then(() => { toast("Chat brought back"); return Promise.all([refreshThreads(actions.current.qc, c.bot.id), actions.current.qc.invalidateQueries({ queryKey: ["sessions"] })]); })
       .catch(toastError);
   }, []);
 
@@ -175,9 +179,9 @@ export function ChatList() {
     items.push({ kind: "section", section: g.section, count: g.chats.length });
     // A search or a filter shows every match, collapsed sections included.
     if (collapsed[g.section] && !search && !chosen.length) continue;
-    const list = g.section === "Archived" ? g.chats.slice(0, archivedLimit) : g.chats;
-    for (const chat of list) items.push({ kind: "chat", chat });
-    if (list.length < g.chats.length) items.push({ kind: "more", left: g.chats.length - list.length });
+    for (const chat of g.chats) items.push({ kind: "chat", chat });
+    // Home sends a page of archived conversations: Show more loads the next one.
+    if (g.section === "Archived" && archivedMore > 0) items.push({ kind: "more", left: archivedMore });
   }
   const listRef = useRef<HTMLDivElement>(null);
   const virtual = useVirtualizer({ count: items.length, getScrollElement: () => listRef.current, estimateSize: (i) => (items[i].kind === "chat" ? ROW : HEADER), getItemKey: (i) => { const it = items[i]; return it.kind === "chat" ? it.chat.id : it.kind === "section" ? `s-${it.section}` : "more"; }, overscan: 6, useFlushSync: false });
@@ -190,12 +194,12 @@ export function ChatList() {
         <BotFilter bots={bots} />
         {!phone && <Link to="/chats" className="lp-chip ml-auto shrink-0 no-underline" title="Start a chat: every bot and channel" data-tour="chats.start"><Icon name="plus" size={12} />New chat</Link>}
       </div>
-      {searching && <input autoFocus={searchOpen} aria-label="Search chats" className="field-input w-full" placeholder="Search chats and messages…" value={search} onChange={(e) => { setSearch(e.target.value); setArchivedLimit(30); }} onKeyDown={(e) => { if (e.key === "Escape" && !search) setSearch("", false); }} />}
-      {matches.isFetching && <span className="text-[12px] text-ink-3">Searching messages…</span>}
-      {matches.error && <span className="text-[12px] text-danger-ink">{matches.error.message}</span>}
+      {searching && <input autoFocus={searchOpen} aria-label="Search chats" className="field-input w-full" placeholder="Search chats and messages…" value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && !search) setSearch("", false); }} />}
+      {(matches.isFetching || channelMatches.isFetching) && <span className="text-[12px] text-ink-3">Searching messages…</span>}
+      {(matches.error ?? channelMatches.error) && <span className="text-[12px] text-danger-ink">{(matches.error ?? channelMatches.error)!.message}</span>}
     </div>
     <div ref={listRef} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto" aria-label="Chats">
-      {phone && <PullToRefresh target={listRef} onRefresh={() => Promise.all([qc.invalidateQueries({ queryKey: ["sessions"] }), qc.invalidateQueries({ queryKey: ["bot-threads"] }), qc.invalidateQueries({ queryKey: ["channels"] })])} />}
+      {phone && <PullToRefresh target={listRef} onRefresh={() => Promise.all([qc.invalidateQueries({ queryKey: ["sessions"] }), refreshThreads(qc), qc.invalidateQueries({ queryKey: ["channels"] })])} />}
       {loading ? <Loading what="chats" /> : error ? <ErrorState error={error} onRetry={() => void allBots.refetch()} />
         : chats.length === 0 ? <div className="grid gap-3 p-4 text-[13px] text-ink-2">{bots.length ? `No chat in ${scope.workspace.name} yet. Start one with a bot.` : `No bot in ${scope.workspace.name} yet.`}
           <span><Link to="/chats" search={(bots.length ? (phone ? { view: "start" } : {}) : { new: true }) as never} className="btn btn-sm">{bots.length ? "Start a chat" : "New bot"}</Link></span></div>
@@ -206,7 +210,7 @@ export function ChatList() {
             return <div key={v.key} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: v.size, transform: `translateY(${v.start}px)` }}>
               {item.kind === "chat" ? <ChatRow chat={item.chat} selected={item.chat.id === selected} pinned={pinned.has(item.chat.pin)} onPin={onPin} onArchive={onArchive} onRename={onRename} archiving={item.chat.kind === "thread" && busy(item.chat.bot.id, item.chat.thread)} />
                 : item.kind === "section" ? <SectionHeader section={item.section} count={item.count} collapsed={!!collapsed[item.section] && !filtering} onToggle={() => toggle(item.section)} />
-                : <button className="px-3 py-2 text-left text-[12px] text-teal-ink hover:underline" onClick={() => setArchivedLimit((n) => n + 50)}>Show more ({item.left})</button>}
+                : <button className="px-3 py-2 text-left text-[12px] text-teal-ink hover:underline" onClick={showMoreArchived}>Show more ({item.left} more archived)</button>}
             </div>;
           })}
         </div>}

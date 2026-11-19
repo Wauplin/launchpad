@@ -159,7 +159,7 @@ export function createChannel(workspace: string, name: string, purpose: string, 
   name = name.trim().replace(/^#/, "");
   if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)) throw new DemoError(400, "a channel name has lowercase letters, digits and dashes (at most 40), like release-train");
   const taken = world.botChannels.find((x) => x.workspace_id === workspace && x.name === name);
-  if (taken) throw new DemoError(400, taken.archived ? `#${name} already exists in this workspace, archived: bring it back (Bots → Archived channels) or delete it first` : `#${name} already exists in this workspace`);
+  if (taken) throw new DemoError(400, taken.archived ? `#${name} already exists in this workspace, archived: bring it back (Chats → Archived, then its settings) or delete it first` : `#${name} already exists in this workspace`);
   const list: ChannelRecord["members"] = [];
   for (const m of members) {
     const key = typeof m === "string" ? m : String((m as { bot?: unknown }).bot ?? "");

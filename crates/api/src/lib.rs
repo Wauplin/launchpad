@@ -5,7 +5,7 @@ mod activity;
 mod api;
 mod bots;
 mod channels;
-mod chat_pins;
+mod chats;
 mod code;
 mod connections;
 mod diagnostics;
@@ -41,7 +41,7 @@ pub fn router() -> Router<Ctx> {
         .merge(proposals::router())
         .merge(bots::router())
         .merge(channels::router())
-        .merge(chat_pins::router())
+        .merge(chats::router())
         .merge(connections::router())
         .merge(prompt_context::router())
         .merge(setup::router())

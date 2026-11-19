@@ -1,4 +1,4 @@
-// The owner's New channel form (Bots page, `?new=channel`): a name (lowercase letters, digits and dashes), a purpose
+// The owner's New channel form (Chats, `/chats?new=channel`): a name (lowercase letters, digits and dashes), a purpose
 // and the member bots of the workspace, each with its mode. It runs `channel.create`; Home checks the name again
 // (unique in the workspace, archived channels included).
 

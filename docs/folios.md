@@ -158,7 +158,7 @@ Each mark is saved on Home at once. **Send feedback · N** counts the marks you 
 
 1. The folio's thread: the bot thread that wrote the folio (or that got its last feedback).
 2. The other agents that wrote it.
-3. **New thread…**: a new thread of a bot you pick, with the folio's topic (its earlier agents) as context. That thread becomes the folio's thread.
+3. **New chat…**: a new chat with a bot you pick, with the folio's topic (its earlier agents) as context. That chat becomes the folio's chat.
 
 You can add a line of your own. The message is short: it names the folio, counts your marks and gives the command that reads them (`launchpad folio feedback <slug> --since <cursor>`). Your marks become sent only once the message went, and only the marks it counted; a mark you edit meanwhile stays unsent. One Send runs at a time, so two windows never send the same marks twice.
 

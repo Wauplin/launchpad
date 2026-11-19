@@ -85,8 +85,8 @@ export function FolioAgents({ f, close }: { f: Folio; close: () => void }) {
   return <div className="grid gap-1 p-2 text-[13px]">
     <span className="px-1 text-[12px] text-ink-3">Agents on this folio{f.topic_id ? <> · <Link to="/topics/$id" params={{ id: f.topic_id }} onClick={close} className="text-teal-ink">its topic</Link></> : null}</span>
     {thread && <button type="button" className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 rounded-control px-2 py-1.5 text-left hover:bg-chrome" onClick={() => { close(); void navigate({ to: "/bots/$id", params: { id: thread.id }, search: { thread: f.thread!.thread_id } as never }); }}>
-      <b className="truncate">{thread.settings.name}</b><span className="text-[12px] text-ink-3">thread</span>
-      <span className="col-span-2 truncate text-[12px] text-ink-3">The folio's thread: Send feedback and Ask go here</span>
+      <b className="truncate">{thread.settings.name}</b><span className="text-[12px] text-ink-3">chat</span>
+      <span className="col-span-2 truncate text-[12px] text-ink-3">The folio's chat: Send feedback and Ask go here</span>
     </button>}
     {f.links.map((l) => {
       const s = byId.get(l.session_id);

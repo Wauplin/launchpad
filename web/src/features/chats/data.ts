@@ -2,7 +2,7 @@
 // the session store) and its channels, as `lib/chatList.ts` rows, with your pins (`chat.pin`, on Home, so every
 // device shows the same shortcuts).
 
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { toastError } from "@/components/Toast";
 import type { BotThread } from "@/gen/BotThread";
@@ -10,7 +10,8 @@ import { runAction } from "@/lib/actions";
 import { api } from "@/lib/api";
 import { useBots } from "@/lib/bots";
 import { useChannels } from "@/lib/channels";
-import { buildChats, type Chat } from "@/lib/chatList";
+import { buildChats, type Chat, type ChatInputs } from "@/lib/chatList";
+import { useChatsStore } from "@/stores/chats";
 import { useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
 import { useChannelAsks, useTodayHere } from "@/features/today/data";
@@ -37,8 +38,29 @@ export function usePinChat() {
   };
 }
 
-/** Every chat of the workspace (newest activity first) and whether the lists are still loading. */
-export function useChats(): { chats: Chat[]; loading: boolean; error: Error | null; pinned: Set<string> } {
+/** The Chats list's threads (`GET /api/chat-threads`): every open thread of the workspace's bots and the `archived`
+ * newest archived conversations, with how many archived conversations there are. One request for the workspace,
+ * refreshed by the `bots`/`threads` bus event; Show more raises `archived`. */
+export type ChatThreads = { threads: BotThread[]; archived_total: number };
+export function useChatThreads() {
+  const ws = useScope().workspace.id;
+  const archived = useChatsStore((s) => s.archivedLimit);
+  return useQuery({ queryKey: ["chat-threads", ws, archived], queryFn: () => api.get<ChatThreads>(`/api/chat-threads?workspace=${encodeURIComponent(ws ?? "")}&archived=${archived}`), enabled: !!ws, staleTime: 15_000, retry: false, placeholderData: keepPreviousData });
+}
+
+// Several parts of a window read the chats at once (the sidebar, the list, a chat's header): the last result is
+// shared while its inputs are the same records.
+let last: { inputs: unknown[]; chats: Chat[] } | null = null;
+function sharedChats(inputs: ChatInputs, keys: unknown[]): Chat[] {
+  if (last && last.inputs.length === keys.length && last.inputs.every((v, i) => v === keys[i])) return last.chats;
+  const chats = buildChats(inputs);
+  last = { inputs: keys, chats };
+  return chats;
+}
+
+/** Every chat of the workspace (newest activity first), whether the lists are still loading, the pins, and how many
+ * archived conversations are not loaded yet. */
+export function useChats(): { chats: Chat[]; loading: boolean; error: Error | null; pinned: Set<string>; archivedMore: number } {
   const scope = useScope();
   const ws = scope.workspace.id;
   const botsQuery = useBots();
@@ -46,23 +68,26 @@ export function useChats(): { chats: Chat[]; loading: boolean; error: Error | nu
   const channels = useChannels().data;
   const asks = useChannelAsks();
   const pins = useChatPins().data;
-  const mine = useMemo(() => (botsQuery.data ?? []).filter((b) => b.workspace_id === ws), [botsQuery.data, ws]);
-  // Archived threads too: the list's Archived section. Refreshed by the `bots`/`threads` bus event.
-  const lists = useQueries({ queries: mine.map((b) => ({ queryKey: ["bot-threads", b.id, true], queryFn: () => api.get<BotThread[]>(`/api/bots/${b.id}/threads?archived=true`), staleTime: 15_000, retry: false })) });
-  const data = lists.map((l) => l.data);
-  const chats = useMemo(() => buildChats({ bots: mine, sessions: sessions ?? [], threads: new Map(mine.map((b, i) => [b.id, data[i]])), channels, workspaceId: ws, asks }),
-    [mine, sessions, channels, ws, asks, ...data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const threads = useChatThreads().data;
+  const chats = useMemo(() => {
+    const mine = (botsQuery.data ?? []).filter((b) => b.workspace_id === ws);
+    // Loaded: every bot has its list (possibly empty); while loading, the threads its sessions name stand in.
+    const byBot = new Map<string, BotThread[] | undefined>(mine.map((b) => [b.id, threads ? threads.threads.filter((t) => t.bot_id === b.id) : undefined]));
+    return sharedChats({ bots: mine, sessions: sessions ?? [], threads: byBot, channels, workspaceId: ws, asks }, [botsQuery.data, sessions, channels, ws, asks, threads]);
+  }, [botsQuery.data, sessions, channels, ws, asks, threads]);
   const pinned = useMemo(() => new Set((pins ?? []).map((p) => p.target)), [pins]);
-  return { chats, loading: botsQuery.isLoading, error: botsQuery.error, pinned };
+  const loadedArchived = useMemo(() => new Set(chats.filter((c) => c.kind === "thread" && c.archived).map((c) => c.id)).size, [chats]);
+  return { chats, loading: botsQuery.isLoading, error: botsQuery.error, pinned, archivedMore: Math.max(0, (threads?.archived_total ?? 0) - loadedArchived) };
 }
 
-/** The pinned chats in the order you pinned them (pins whose chat is gone are left out). */
+/** The pinned chats in the order you pinned them, on the laptop's sidebar: open chats only (an archived chat keeps its
+ * pin and shows again once brought back; the phone's list does the same). Pins whose chat is gone are left out. */
 export function usePinnedChats(): Chat[] {
   const { chats } = useChats();
   const pins = useChatPins().data;
   return useMemo(() => {
     const byPin = new Map(chats.map((c) => [c.pin, c]));
-    return (pins ?? []).map((p) => byPin.get(p.target)).filter((c): c is Chat => !!c);
+    return (pins ?? []).map((p) => byPin.get(p.target)).filter((c): c is Chat => !!c && !c.archived);
   }, [chats, pins]);
 }
 

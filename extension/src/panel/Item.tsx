@@ -120,8 +120,8 @@ export function Item({ state, tab, page, chatWith }: { state: ConnectionState; t
           : <button className="x-btn x-sm x-pri" disabled={!bot || !!busy} title={bot ? `Ask ${bot.name}` : "No bot in this workspace"} onClick={() => void ask(isPr ? REVIEW : DRAFT, isPr ? "Review with agent" : "Draft a reply")}>{busy ?? (isPr ? "Review with agent" : "Draft a reply")}</button>}
         {f && <button className="x-btn x-sm x-link" onClick={() => open(`/projects/${encodeURIComponent(f.id)}`)}><Icon name="ext" size={14} /> Folder</button>}
       </div>
-      {main?.bot && <p className="x-small x-muted" data-tour="ext.item-thread">{main.bot}'s thread for this item · {statusOf(main).label}{main.last_message ? ` · ${main.last_message}` : ""}</p>}
-      {bot && <p className="x-small x-faint">{main ? "Continue chats with its bot here, in this item's thread." : `Goes to ${bot.name} (${bot.source === "folder" ? "the folder's bot" : bot.source === "repository" ? "last used on this repository" : "the workspace's Ask bot"}).`}</p>}
+      {main?.bot && <p className="x-small x-muted" data-tour="ext.item-thread">{main.bot}'s chat for this item · {statusOf(main).label}{main.last_message ? ` · ${main.last_message}` : ""}</p>}
+      {bot && <p className="x-small x-faint">{main ? "Continue with its bot here, in this item's chat." : `Goes to ${bot.name} (${bot.source === "folder" ? "the folder's bot" : bot.source === "repository" ? "last used on this repository" : "the workspace's Ask bot"}).`}</p>}
       {note && <p className="x-small x-muted" role="status">{note}</p>}
       {error && <p className="x-error">{error}</p>}
     </div>

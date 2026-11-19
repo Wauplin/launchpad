@@ -1,7 +1,7 @@
 // Bot channels part of the demo world (Home's `channel`, `channel_member`, `channel_message` and `channel_delivery`
 // tables): #release-train, where the Release bot, the Maintainer and Docs (in mode digest) plan the weekly release
 // until the hop limit stops a delivery and Release asks you (a Today row); #triage, where the Maintainer asks you twice; the DM Maintainer ↔ Release, which you joined; and
-// #spring-sale, archived after the sale (Bots → Archived channels).
+// #spring-sale, archived after the sale (under Archived in the Chats list).
 // The routes (routes/channels.ts) compute the counts Home adds (unread, attention, hourly count, last message).
 
 import type { Channel } from "@/gen/Channel";

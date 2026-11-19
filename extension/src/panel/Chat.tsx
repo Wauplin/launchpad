@@ -228,7 +228,7 @@ export function Chat({ state, tab, botId, setBotId, threadId: picked, setThreadI
       {thread.error && <p className="x-error">{thread.error}</p>}
       {!shown.length && <div className="x-hello">
         <h1>{fresh ? "New conversation" : `Chat with ${bot?.name ?? "a bot"}`}</h1>
-        <p className="x-muted">{fresh ? "Your next message starts a new thread of the bot, next to its others." : "About this page or anything else. The page is read once when you send, and attached."}</p>
+        <p className="x-muted">{fresh ? "Your next message starts a new chat with the bot, next to its others." : "About this page or anything else. The page is read once when you send, and attached."}</p>
       </div>}
       {shown.map((r) => <Row key={r.key} row={r} now={now} onStop={stop} onOpen={openBot} />)}
       {!fresh && thread.current && !running && shown.length > 0 && <div className="x-btns">
@@ -254,8 +254,8 @@ export function Chat({ state, tab, botId, setBotId, threadId: picked, setThreadI
         </div>}
         <div className="x-row">
           <div className="x-pills">
-            <button className="x-pill x-shrink" aria-haspopup="menu" aria-expanded={picker} title="The bot and the thread this chat talks to" onClick={() => setPicker(!picker)}><span>{bot?.name ?? "Choose a bot"}{!fresh && shownThread ? ` · ${shownThread.title}` : ""}</span><Icon name="chev" size={14} /></button>
-            {!fresh && threadId && <button className="x-pill" title="Your next message starts a new thread of the bot, next to its others" onClick={() => setFresh(true)}><Icon name="plus" size={14} /><span>New conversation</span></button>}
+            <button className="x-pill x-shrink" aria-haspopup="menu" aria-expanded={picker} title="The bot and the chat you talk to" onClick={() => setPicker(!picker)}><span>{bot?.name ?? "Choose a bot"}{!fresh && shownThread ? ` · ${shownThread.title}` : ""}</span><Icon name="chev" size={14} /></button>
+            {!fresh && threadId && <button className="x-pill" title="Your next message starts a new chat with the bot, next to its others" onClick={() => setFresh(true)}><Icon name="plus" size={14} /><span>New conversation</span></button>}
             {fresh && <button className="x-pill x-on" title="Back to the current conversation" onClick={() => setFresh(false)}><span>New conversation ×</span></button>}
           </div>
           {busy ? <span className="x-line" style={{ marginLeft: "auto" }}><span className="x-spin" />{busy}</span>
@@ -271,7 +271,7 @@ export function Chat({ state, tab, botId, setBotId, threadId: picked, setThreadI
           <span className={`x-radio ${b.id === bot?.id ? "x-on" : ""}`} /><span className="x-d"><b>{b.name}</b><small>{b.id === list?.ask ? "The workspace's Ask bot" : `@${b.slug}`}{b.paused ? " · paused" : ""}</small></span>
         </button>)}
         {threads.length > 1 && <>
-          <h2>Thread</h2>
+          <h2>Chat</h2>
           {threads.slice(0, 12).map((t) => <button key={t.id} role="menuitemradio" aria-checked={!fresh && t.id === threadId} className={`x-opt ${!fresh && t.id === threadId ? "x-sel" : ""}`} onClick={() => chooseThread(t.id)}>
             <span className={`x-radio ${!fresh && t.id === threadId ? "x-on" : ""}`} /><span className="x-d"><b>{t.title}</b><small>{threadState(t) || "No open session"}</small></span>
           </button>)}

@@ -46,13 +46,15 @@ test("one row per conversation, with its participants, its most urgent state and
 
 test("a follow-up thread keeps the conversation; routine threads are marked", () => {
   const bots = [bot("a")];
-  const threads = new Map([["a", [thread("a", "first", 1, { archived_at: 5 }), thread("a", "next", 6, { conversation: "a:first" }), thread("a", "run", 7, { key: "routine:daily.toml", title: "Daily check" })]]]);
-  const sessions = [session("a", "first", 2, { status: "closed" }), session("a", "next", 8), session("a", "run", 9, { launch_spec: { bot: { id: "a", thread: "run" }, from: { kind: "routine", name: "Daily check" } } })];
+  const threads = new Map([["a", [thread("a", "first", 1, { archived_at: 5 }), thread("a", "next", 6, { conversation: "a:first", title: "ask first" }), thread("a", "run", 7, { key: "routine:daily.toml", title: "Daily check" })]]]);
+  const sessions = [session("a", "first", 2, { status: "closed", title: "Plan the release", prompt: "ask first" }), session("a", "next", 8, { prompt: "next question" }), session("a", "run", 9, { launch_spec: { bot: { id: "a", thread: "run" }, from: { kind: "routine", name: "Daily check" } } })];
   const chats = buildChats({ bots, sessions, threads, channels: [], workspaceId: "w" });
   const conv = chats.find((c) => c.id === "a:first");
   assert.equal(conv.thread, "next");
   assert.equal(conv.archived, false);
   assert.equal(chats.find((c) => c.id === "a:run").routine, "Daily check");
+  // The continued chat keeps the automatic name of its first session.
+  assert.equal(conv.title, "Plan the release");
   assert.equal(conv.routine, null);
 });
 
@@ -69,13 +71,22 @@ test("the bot filter needs every selected bot in the chat, members of channels i
   // A message search hit names one of the conversation's sessions.
   const hit = chats.find((c) => c.id === "a:t1").sessionIds[1];
   assert.deepEqual(ids(filterChats(chats, { needle: "zzz", matched: new Set([hit]) })), ["a:t1"]);
+  // A channel whose messages match (`/api/chat-search`).
+  assert.deepEqual(ids(filterChats(chats, { needle: "zzz", matched: new Set([hit]), matchedChannels: new Set(["c"]) })), ["a:t1", "c"]);
 });
 
-test("titles: the session's automatic name unless you renamed the thread or a source named it", () => {
-  const s = { title: "Fix the flaky upload test", prompt: "can you look at the upload test that fails\nthanks" };
-  assert.equal(chatTitle({ title: "can you look at the upload test that fails", key: null }, s), "Fix the flaky upload test");
-  assert.equal(chatTitle({ title: "can you look at the upload…", key: null }, s), "Fix the flaky upload test");
-  assert.equal(chatTitle({ title: "Upload test", key: null }, s), "Upload test");
-  assert.equal(chatTitle({ title: "Daily check", key: "routine:daily.toml" }, s), "Daily check");
+test("titles: an automatic description, also for continued chats and routine runs, unless you renamed it", () => {
+  const first = { title: "Fix the flaky upload test", prompt: "can you look at the upload test that fails\nthanks" };
+  assert.equal(chatTitle({ title: "can you look at the upload test that fails", key: null }, first), "Fix the flaky upload test");
+  assert.equal(chatTitle({ title: "can you look at the upload…", key: null }, first), "Fix the flaky upload test");
+  assert.equal(chatTitle({ title: "Upload test", key: null }, first), "Upload test");
+  // A chat that continued in a new thread: the new session's prompt is the next message; the first session names it.
+  const next = { title: "and the download one too?", prompt: "and the download one too?" };
+  assert.equal(chatTitle({ title: "can you look at the upload test that fails", key: null }, first, next), "Fix the flaky upload test");
+  // A routine run: its session's automatic name, not the routine's name again.
+  const run = { title: "CI is green on main", prompt: "Routine “Daily check”: check CI" };
+  assert.equal(chatTitle({ title: "Daily check", key: "routine:daily.toml" }, run), "CI is green on main");
+  // Not named yet: the thread's own title.
+  assert.equal(chatTitle({ title: "Daily check", key: "routine:daily.toml" }, { title: "Routine “Daily check”: check CI", prompt: "Routine “Daily check”: check CI" }), "Daily check");
   assert.equal(chatTitle(null, null), "New chat");
 });

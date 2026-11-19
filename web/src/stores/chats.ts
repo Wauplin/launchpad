@@ -25,6 +25,9 @@ type ChatsStore = {
   /** Bots that must all take part in a chat for it to show. */
   bots: string[];
   setBots: (bots: string[]) => void;
+  /** Archived conversations loaded (Show more adds 50). */
+  archivedLimit: number;
+  showMoreArchived: () => void;
 };
 
 export const useChatsStore = create<ChatsStore>((set, get) => ({
@@ -39,6 +42,8 @@ export const useChatsStore = create<ChatsStore>((set, get) => ({
   setSearch: (search, open) => set({ search, searchOpen: open ?? get().searchOpen }),
   bots: [],
   setBots: (bots) => set({ bots }),
+  archivedLimit: 30,
+  showMoreArchived: () => set({ archivedLimit: get().archivedLimit + 50 }),
 }));
 
 // Other windows of this browser share the collapsed sections.

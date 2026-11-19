@@ -5,6 +5,7 @@ import { useState, type ReactNode } from "react";
 import { toastError } from "@/components/Toast";
 import { IconButton } from "@/components/ui";
 import { runAction } from "@/lib/actions";
+import { refreshThreads } from "@/lib/bots";
 import { usePhone } from "@/lib/phone";
 import { Sheet } from "@/mobile/Sheet";
 
@@ -28,7 +29,7 @@ export function RenameThreadDialog({ bot, thread, title: initial, onClose }: { b
   const qc = useQueryClient();
   const [title, setTitle] = useState(initial);
   const save = async () => {
-    try { await runAction("bot.thread-rename", { id: bot, thread }, { title: title.trim() }); await qc.invalidateQueries({ queryKey: ["bot-threads"] }); onClose(); } catch (e) { toastError(e); }
+    try { await runAction("bot.thread-rename", { id: bot, thread }, { title: title.trim() }); await refreshThreads(qc, bot); onClose(); } catch (e) { toastError(e); }
   };
   return <Dialog title="Rename this chat" onClose={onClose}>
     <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Title

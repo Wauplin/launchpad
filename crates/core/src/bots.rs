@@ -548,6 +548,8 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
         tx.execute("DELETE FROM queued_message WHERE target = 'bot:' || ?1 OR target LIKE 'bot:' || ?1 || ':%'", [&id2])?;
         tx.execute("DELETE FROM bot_send WHERE bot_id = ?1", [&id2])?;
         crate::bot_threads::delete_all(&tx, &id2)?;
+        // Pins of the conversations it started (`chat.pin`): the chats are gone.
+        tx.execute("DELETE FROM chat_pin WHERE substr(target, 1, length('conversation:' || ?1 || ':')) = 'conversation:' || ?1 || ':'", [&id2])?;
         tx.execute("DELETE FROM plain_file WHERE store = ?1", [&st])?;
         tx.execute("DELETE FROM plain_state WHERE store = ?1", [&st])?;
         tx.commit()?;

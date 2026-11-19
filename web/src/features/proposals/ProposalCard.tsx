@@ -144,7 +144,7 @@ function RoutineBody({ body }: { body: Extract<Proposal["body"], { kind: "routin
       <span className="flex flex-wrap gap-1">
         <Token icon="refresh">Routine of {bots.find((b) => b.id === body.bot_id)?.settings.name ?? "a bot"}</Token>
         <Token title={cronTitle(body)}>{triggerSummary({ ...body, time_zone: browserZone() }, (id) => projects.find((p) => p.id === id)?.name ?? "a folder", channelName, bots.find((b) => b.id === body.bot_id)?.settings.name)}</Token>
-        {body.auto_archive && <Token icon="archive">Archives each run thread that ends Done</Token>}
+        {body.auto_archive && <Token icon="archive">Archives each run chat that ends Done</Token>}
         {body.gate && <Token icon="spark" title={body.gate.params ? Object.entries(body.gate.params).map(([k, v]) => `${k} = ${String(v)}`).join(" · ") : undefined}>{gateSummary(body.gate)}</Token>}
       </span>
       <p className="m-0 line-clamp-4 text-[12px] whitespace-pre-wrap text-ink-2">{body.instructions}</p>
