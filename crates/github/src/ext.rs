@@ -797,10 +797,13 @@ async fn push_ready(app: &App, f: &ExtFolder, agents: &[ExtAgent], followed: &[E
     out
 }
 
+/// A waiting push card: (id, title, note, session, branch, head).
+type PushCard = (String, String, Option<String>, Option<String>, String, String);
+
 /// A waiting `branch.push-to-pr` ready card of `repo#number` in `workspace`, from its stored JSON (state proposed or
 /// failed, arguments naming the pull request, a Launchpad branch and a full commit): (id, title, note, session, branch,
 /// head). Pure.
-fn ready_push_card(v: &serde_json::Value, repo: &str, number: u64, workspace: &str) -> Option<(String, String, Option<String>, Option<String>, String, String)> {
+fn ready_push_card(v: &serde_json::Value, repo: &str, number: u64, workspace: &str) -> Option<PushCard> {
     let b = &v["body"];
     if b["kind"] != "ready" || b["action"] != "branch.push-to-pr" || v["workspace_id"].as_str() != Some(workspace) {
         return None;

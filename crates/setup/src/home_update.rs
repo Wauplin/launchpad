@@ -348,7 +348,8 @@ impl std::error::Error for HubAnswered {}
 /// Whether a failed Space commit certainly did not happen (pure): only a 4xx answer of the Hub says so (refused, or
 /// another parent revision). A 5xx answer, a timeout or a lost connection may hide a commit that went through.
 fn commit_refused(e: &anyhow::Error) -> bool {
-    e.chain().find_map(|c| c.downcast_ref::<HubAnswered>()).is_some_and(|a| (400..500).contains(&a.0))
+    // `downcast_ref` looks through every `context` layer; `chain()` items are the context wrappers themselves.
+    e.downcast_ref::<HubAnswered>().or_else(|| e.chain().find_map(|c| c.downcast_ref::<HubAnswered>())).is_some_and(|a| (400..500).contains(&a.0))
 }
 
 /// GitHub's REST API: with Home's GitHub login when it has one, else anonymously.
