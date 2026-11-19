@@ -178,11 +178,16 @@ impl Auth {
         }
         let sessions = db
             .call(|conn| {
-                conn.execute("DELETE FROM browser_device WHERE expires_at <= ?1", [now()])?;
+                // Best effort: a Home that starts while an update waits for its replacement has `state.db` frozen
+                // (`maintenance::freeze`), and the cleanup must not stop it from serving.
+                let now = now();
+                if let Err(e) = conn.execute("DELETE FROM browser_device WHERE expires_at <= ?1", [now]) {
+                    tracing::debug!("expired browser devices kept for now: {e}");
+                }
                 let mut stmt = conn.prepare(
-                    "SELECT secret_hash, id, expires_at, last_seen_at FROM browser_device",
+                    "SELECT secret_hash, id, expires_at, last_seen_at FROM browser_device WHERE expires_at > ?1",
                 )?;
-                let rows = stmt.query_map([], |r| {
+                let rows = stmt.query_map([now], |r| {
                     Ok((
                         r.get::<_, String>(0)?,
                         Session {
