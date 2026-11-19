@@ -153,6 +153,8 @@ You edit the text and post it with GitHub's button. The suggestion then says **I
 
 When an agent's Launchpad branch of the pull request has commits since the agent started and Home does not push it to GitHub yet, the box says **N commits ready to push**. **Push to this PR** opens a confirmation that names the branch and the commit. On your click, Home checks that the branch still points at that commit, reads the pull request on GitHub, then pushes the branch to the pull request's branch only as a fast-forward of its head, never forced. After that, Home follows the branch: the agent's next commits go to the pull request too.
 
+When an agent prepared the push as a ready card (`launchpad propose ready` with `branch.push-to-pr`), the timeline shows **Ready to push** under the agent's newest private note, with **Push to this PR** and **View its changes**. The branch and commit come from the card (Home's `ExtContext.ready_pushes`), never from the note's text. The button opens the same confirmation; after the push, the extension starts the card (`/api/proposals/{id}/ran`), so Today no longer asks. One push runs at a time per branch and commit; a card whose branch moved, is gone from Home or already goes to the pull request shows why instead of the button.
+
 Home pushes only to the pull request's own repository, your own fork, or a fork whose author lets maintainers edit; otherwise the push is refused and the dialog says why. A branch whose last commits did not reach GitHub shows **Not on GitHub yet** with the last error.
 
 ## Side panel

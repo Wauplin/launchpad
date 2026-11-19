@@ -8,7 +8,6 @@
 import type { ExtAgent } from "@/gen/ExtAgent";
 import type { ExtBranch } from "@/gen/ExtBranch";
 import type { ExtContext } from "@/gen/ExtContext";
-import { request } from "../../shared/messages";
 import { findAnchor } from "./anchors";
 import { askPopover } from "./askPopover";
 import { openAgentView } from "./agentView";
@@ -16,8 +15,10 @@ import { insertSuggestion, isPrefilled, showPrefilled } from "./insert";
 import { agentPath, dotClass, elapsed, open, refOf, running, statusText, stop, suggestionPath, who, type ItemPage } from "./item";
 import { launchPopover } from "./launchPopover";
 import { publishPopover } from "./lists";
+import { pushDialog } from "./pushDialog";
+import { pushTargets, type PushTarget } from "../../shared/readyPush";
 import { stepOfSession } from "./live";
-import { button, h, logo, more, mount, popover, unmount, type MenuEntry } from "./widgets";
+import { button, h, logo, more, mount, unmount, type MenuEntry } from "./widgets";
 
 const ID = "sidebar-box";
 
@@ -40,7 +41,7 @@ export function renderSidebarBox(page: ItemPage, ctx: ExtContext | null, refresh
   const waiting = ctx?.suggestions.filter((s) => s.number === page.number) ?? [];
   const branches = ctx?.branches ?? [];
   const steps = agents.map((a) => `${a.session_id}:${a.status}:${a.since}:${stepOfSession(a.session_id) ?? ""}`).join(",");
-  const key = ctx ? JSON.stringify([page.url, ctx.folder?.id, ctx.workspace?.id, steps, waiting.map((s) => `${s.id}:${s.status}:${isPrefilled(s.id)}`), branches.map((b) => `${b.branch}:${b.head}:${b.not_on_github}:${b.error}:${b.push_ready?.ahead}`), ctx.local_prs.map((p) => `${p.id}:${p.state}`)]) : `reserve:${page.url}`;
+  const key = ctx ? JSON.stringify([page.url, ctx.folder?.id, ctx.workspace?.id, steps, waiting.map((s) => `${s.id}:${s.status}:${isPrefilled(s.id)}`), branches.map((b) => `${b.branch}:${b.head}:${b.not_on_github}:${b.error}:${b.push_ready?.ahead}`), ctx.ready_pushes.map((r) => `${r.id}:${r.state}:${r.head}`), ctx.local_prs.map((p) => `${p.id}:${p.state}`)]) : `reserve:${page.url}`;
   const w = mount(ID, key, anchor.el, anchor.place, "box");
   if (!w.fresh) return;
   if (!ctx) {
@@ -65,9 +66,9 @@ export function renderSidebarBox(page: ItemPage, ctx: ExtContext | null, refresh
     }
     for (const p of prs) box.append(h("div", { class: "lp-row" }, h("span", { class: "lp-dot lp-need" }), h("span", { class: "lp-grow", text: `Local PR · ${p.title}` })));
   }
-  const branchRows = page.kind === "issue" ? [] : branchState(branches);
+  const branchRows = page.kind === "issue" ? [] : branchState(branches, pushTargets(ctx).filter((t) => t.ahead === null));
   if (branchRows.length) box.append(h("div", { class: "lp-label", text: "Branch" }), ...branchRows);
-  const ready = page.kind === "issue" ? null : branches.find((b) => b.push_ready) ?? null;
+  const ready = page.kind === "issue" ? null : pushTargets(ctx)[0] ?? null;
 
   // One main action (see the top of this file).
   const actions = h("div", { class: "lp-actions" });
@@ -115,10 +116,11 @@ function entries(page: ItemPage, ctx: ExtContext, agents: ExtAgent[], ws: string
     const latest = agents.find((a) => a.bot_id);
     if (latest) out.push({ label: `Continue with ${who(latest)}`, hint: "Message its bot about this issue", onSelect: () => askPopover(root, anchor, page, ctx, null, "ask", refresh, latest.bot_id) });
   }
-  const ready = page.kind === "issue" ? [] : ctx.branches.filter((b) => b.push_ready);
-  for (const b of ready) {
-    out.push({ label: `Push ${b.branch} to this PR`, hint: `${b.push_ready!.ahead} commit${b.push_ready!.ahead === 1 ? "" : "s"}; you confirm first`, onSelect: () => pushDialog(root, anchor, page, b, refresh) });
-    if (b.push_ready?.session_id) out.push({ label: "View its changes", hint: "The agent's branch in Launchpad", onSelect: () => open(agentPath({ session_id: b.push_ready!.session_id! }), ws) });
+  const ready = page.kind === "issue" ? [] : pushTargets(ctx);
+  for (const t of ready) {
+    const what = t.ahead === null ? `at ${t.head.slice(0, 7)}, prepared by its agent` : `${t.ahead} commit${t.ahead === 1 ? "" : "s"}`;
+    out.push({ label: `Push ${t.branch} to this PR`, hint: `${what}; you confirm first`, onSelect: () => pushDialog(root, anchor, page, t, refresh) });
+    if (t.session_id) out.push({ label: "View its changes", hint: "The agent's branch in Launchpad", onSelect: () => open(agentPath({ session_id: t.session_id! }), ws) });
   }
   if (review) out.push({ label: "Open the suggested review", hint: "Its card in Launchpad's Today: Post or Discard", onSelect: () => open(suggestionPath(review), ws) });
   for (const a of agents.slice(0, 5)) {
@@ -132,8 +134,13 @@ function entries(page: ItemPage, ctx: ExtContext, agents: ExtAgent[], ws: string
 }
 
 /** The Branch rows: commits ready to push and not on GitHub yet (with the last error). */
-function branchState(branches: ExtBranch[]): HTMLElement[] {
+function branchState(branches: ExtBranch[], cards: PushTarget[]): HTMLElement[] {
   const rows: HTMLElement[] = [];
+  // Pushes an agent prepared (ready cards) for a branch that is not among its agents' branches here.
+  for (const t of cards) {
+    rows.push(h("div", { class: "lp-row", title: `${t.branch} at ${t.head.slice(0, 7)}` }, h("span", { class: "lp-dot lp-need" }), h("span", { class: "lp-grow", text: "Push ready" })));
+    rows.push(h("div", { class: "lp-muted", text: `${t.branch} at ${t.head.slice(0, 7)}${t.title ? ` (${t.title})` : ""}.` }));
+  }
   for (const b of branches.filter((x) => x.push_ready)) {
     const n = b.push_ready!.ahead;
     rows.push(h("div", { class: "lp-row", title: `${b.branch} at ${b.push_ready!.head.slice(0, 7)}` }, h("span", { class: "lp-dot lp-need" }), h("span", { class: "lp-grow", text: `${n} commit${n === 1 ? "" : "s"} ready to push` })));
@@ -144,31 +151,4 @@ function branchState(branches: ExtBranch[]): HTMLElement[] {
     rows.push(h("div", { class: "lp-muted", text: b.error ? `Push of ${b.branch} refused: ${b.error.slice(0, 200)}${b.head ? ` Commit ${b.head.slice(0, 7)}.` : ""}` : `${b.branch}: Home pushes it to GitHub next.` }));
   }
   return rows;
-}
-
-/** Push to this PR: the extension's own confirmation naming the branch and its commit; only a real click of its button
- * pushes (`branch.push-to-pr`), and Home checks on GitHub at that click (open, may push there, fast-forward, never
- * forced). */
-function pushDialog(root: ShadowRoot, anchor: HTMLElement, page: ItemPage, b: ExtBranch, refresh: () => void) {
-  const ready = b.push_ready!;
-  const error = h("div", { class: "lp-error", attrs: { role: "alert", hidden: "" } });
-  const go = h("button", { class: "lp-btn lp-primary", text: "Push to this PR", attrs: { type: "button" } });
-  let busy = false;
-  const close = popover(root, anchor, `Push to ${page.repo}#${page.number}`, (close) => [
-    h("div", { class: "lp-confirm", text: `Home pushes ${ready.branch} at ${ready.head.slice(0, 8)} (${ready.ahead} commit${ready.ahead === 1 ? "" : "s"} since its agent started) to this pull request's branch on GitHub. Fast-forward only, never forced; refused if the pull request moved or Launchpad may not push there. Then Home keeps pushing the agent's new commits there.` }),
-    error,
-    h("div", { class: "lp-row" }, h("span", { class: "lp-grow" }), button("Cancel", close, { small: true }), go),
-  ]);
-  go.addEventListener("click", (e) => {
-    e.preventDefault();
-    // Only a real click of the owner pushes (never a click the page synthesized).
-    if (!e.isTrusted || busy) return;
-    busy = true;
-    go.disabled = true;
-    go.textContent = "Pushing…";
-    error.hidden = true;
-    request("branch.push-to-pr", { repo: page.repo, number: page.number, branch: ready.branch, head: ready.head })
-      .then(() => { close(); refresh(); })
-      .catch((err) => { error.textContent = err instanceof Error ? err.message : String(err); error.hidden = false; busy = false; go.disabled = false; go.textContent = "Push to this PR"; });
-  });
 }

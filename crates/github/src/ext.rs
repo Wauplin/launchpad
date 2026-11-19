@@ -294,6 +294,25 @@ pub struct ExtPushReady {
     pub title: Option<String>,
 }
 
+/// A waiting ready card (`launchpad propose ready`, action `branch.push-to-pr`) of the page's pull request: the extension
+/// shows Push to this PR at its agent's notes, with the card's branch and commit (never from prose), and starts the card
+/// after the push (`/api/proposals/{id}/ran`).
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+pub struct ExtReadyPush {
+    /// The card.
+    pub id: String,
+    pub title: String,
+    pub note: Option<String>,
+    /// The agent that prepared it.
+    pub session_id: Option<String>,
+    pub branch: String,
+    /// The commit the card names: the one the push sends.
+    pub head: String,
+    /// `ready` (Home's branch is at `head`), `moved` (Home's branch moved since the card), `gone` (Home has no such
+    /// branch) or `pushed` (Home already pushes the branch to this pull request).
+    pub state: String,
+}
+
 /// A Launchpad branch Home pushes to a pull request on GitHub (`git_follow`).
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct ExtBranch {
@@ -374,6 +393,8 @@ pub struct ExtContext {
     pub notes: Vec<ExtNote>,
     pub local_prs: Vec<ExtLocalPr>,
     pub branches: Vec<ExtBranch>,
+    /// Waiting Push to this PR ready cards of this pull request (the extension's workspace only).
+    pub ready_pushes: Vec<ExtReadyPush>,
     /// Today item IDs about this page (its item, its agents, its Local PRs; on repository pages, the repository).
     pub today: Vec<String>,
     pub defaults: ExtDefaults,
@@ -776,6 +797,67 @@ async fn push_ready(app: &App, f: &ExtFolder, agents: &[ExtAgent], followed: &[E
     out
 }
 
+/// A waiting `branch.push-to-pr` ready card of `repo#number` in `workspace`, from its stored JSON (state proposed or
+/// failed, arguments naming the pull request, a Launchpad branch and a full commit): (id, title, note, session, branch,
+/// head). Pure.
+fn ready_push_card(v: &serde_json::Value, repo: &str, number: u64, workspace: &str) -> Option<(String, String, Option<String>, Option<String>, String, String)> {
+    let b = &v["body"];
+    if b["kind"] != "ready" || b["action"] != "branch.push-to-pr" || v["workspace_id"].as_str() != Some(workspace) {
+        return None;
+    }
+    if !matches!(v["state"].as_str(), Some("proposed" | "failed")) {
+        return None;
+    }
+    let args: Vec<&str> = b["args"].as_array()?.iter().filter_map(|x| x.as_str()).collect();
+    let [owner, name, n] = args[..] else { return None };
+    if !same(&format!("{owner}/{name}"), repo) || n.parse::<u64>().ok() != Some(number) {
+        return None;
+    }
+    let branch = b["input"]["branch"].as_str()?;
+    let head = b["input"]["head"].as_str()?;
+    if !branch.starts_with("lp/") || branch.contains("..") || head.len() != 40 || !head.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let str_of = |x: &serde_json::Value| x.as_str().filter(|s| !s.is_empty()).map(str::to_string);
+    Some((v["id"].as_str()?.to_string(), v["title"].as_str().unwrap_or("").to_string(), str_of(&v["note"]), str_of(&b["session_id"]).or_else(|| str_of(&v["session_id"])), branch.to_string(), head.to_lowercase()))
+}
+
+/// The state of a Push to this PR card (`ExtReadyPush.state`) from Home's branch tip and whether Home already pushes
+/// the branch to this pull request. Pure.
+fn ready_push_state(head: &str, tip: Option<&str>, followed_here: bool) -> &'static str {
+    match tip {
+        _ if followed_here => "pushed",
+        None => "gone",
+        Some(t) if t.eq_ignore_ascii_case(head) => "ready",
+        Some(_) => "moved",
+    }
+}
+
+/// The waiting Push to this PR ready cards of pull request `number` of the folder's workspace, newest first.
+async fn ready_pushes(app: &App, f: &ExtFolder, repo: &str, number: u64, url: &str) -> Result<Vec<ExtReadyPush>> {
+    if !launchpad_core::home_git::here(app) {
+        return Ok(vec![]);
+    }
+    let rows: Vec<String> = app
+        .state_db
+        .call(|c| {
+            let mut q = c.prepare("SELECT json FROM launch_proposal WHERE json_extract(json, '$.body.kind') = 'ready' AND json_extract(json, '$.body.action') = 'branch.push-to-pr' AND json_extract(json, '$.state') IN ('proposed', 'failed') ORDER BY rowid DESC LIMIT 50")?;
+            Ok(q.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?)
+        })
+        .await?;
+    let mut out = vec![];
+    for j in rows {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&j) else { continue };
+        let Some((id, title, note, session_id, branch, head)) = ready_push_card(&v, repo, number, &f.workspace_id) else { continue };
+        let tip = launchpad_core::home_git::tip(app, &f.id, &format!("refs/heads/{branch}")).await.ok().flatten();
+        let followed = launchpad_core::home_git::follow(app, &f.id, &branch).await.ok().flatten();
+        let here = followed.is_some_and(|x| x.url.trim_end_matches('/').eq_ignore_ascii_case(url));
+        let state = ready_push_state(&head, tip.as_deref(), here).to_string();
+        out.push(ExtReadyPush { id, title, note, session_id, branch, head, state });
+    }
+    Ok(out)
+}
+
 /// The owner's last step with each line comment of the page's suggested reviews (the feedback ledger).
 async fn ledger_states(app: &App, suggestions: &mut [ExtSuggestion]) {
     for s in suggestions.iter_mut().filter(|s| !s.lines.is_empty()) {
@@ -957,6 +1039,7 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
         notes: vec![],
         local_prs: vec![],
         branches: vec![],
+        ready_pushes: vec![],
         today: vec![],
         defaults: ExtDefaults { bot: default_bot(app, project, page.repo.as_deref(), ws.as_deref()).await, review: match page.repo.as_deref() { Some(r) => review_choice(app, r).await.unwrap_or(None), None => None } },
         login: d.login.clone(),
@@ -987,6 +1070,7 @@ pub async fn context(app: &App, url: &str, workspace: Option<&str>) -> Result<Ex
     if page.kind.is_pr() && let (Some(f), Some(n)) = (folder.as_ref(), page.number) {
         let url = format!("https://github.com/{repo}/pull/{n}");
         out.branches.extend(push_ready(app, f, &out.agents, &out.branches, n, &url).await);
+        out.ready_pushes = ready_pushes(app, f, repo, n, &url).await.unwrap_or_default();
     }
     ledger_states(app, &mut out.suggestions).await;
     Ok(out)
@@ -1221,5 +1305,50 @@ mod item_link_tests {
         assert!(super::local_pr_matches(&p, Some(56)));
         p.body.clear();
         assert!(!super::local_pr_matches(&p, Some(12)));
+    }
+}
+
+#[cfg(test)]
+mod ready_push_tests {
+    use super::*;
+
+    fn card(state: &str, ws: &str, args: serde_json::Value, head: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": "c1", "title": "Push the fix", "note": null, "state": state, "workspace_id": ws, "session_id": "s-card",
+            "body": {"kind": "ready", "action": "branch.push-to-pr", "args": args, "input": {"branch": "lp/fix-5d749fb7", "head": head}, "session_id": "s1"},
+        })
+    }
+    const HEAD: &str = "15b9affa7ad8be67d0f613b04ffa26c9c765bac3";
+
+    #[test]
+    fn only_waiting_cards_of_this_pull_request_and_workspace() {
+        let args = serde_json::json!(["Huggingface", "huggingface_hub", "5389"]);
+        let got = ready_push_card(&card("proposed", "w1", args.clone(), HEAD), "huggingface/huggingface_hub", 5389, "w1").unwrap();
+        assert_eq!((got.0.as_str(), got.3.as_deref(), got.4.as_str(), got.5.as_str()), ("c1", Some("s1"), "lp/fix-5d749fb7", HEAD));
+        assert!(ready_push_card(&card("failed", "w1", args.clone(), HEAD), "huggingface/huggingface_hub", 5389, "w1").is_some());
+        // Started, dismissed or replaced cards, another workspace, pull request or repository: none.
+        for state in ["started", "dismissed", "replaced"] {
+            assert!(ready_push_card(&card(state, "w1", args.clone(), HEAD), "huggingface/huggingface_hub", 5389, "w1").is_none());
+        }
+        assert!(ready_push_card(&card("proposed", "w2", args.clone(), HEAD), "huggingface/huggingface_hub", 5389, "w1").is_none());
+        assert!(ready_push_card(&card("proposed", "w1", args.clone(), HEAD), "huggingface/huggingface_hub", 5390, "w1").is_none());
+        assert!(ready_push_card(&card("proposed", "w1", args, HEAD), "huggingface/transformers", 5389, "w1").is_none());
+        // Another action, a short commit or a branch that is not Launchpad's: none.
+        let mut other = card("proposed", "w1", serde_json::json!(["huggingface", "huggingface_hub", "5389"]), HEAD);
+        other["body"]["action"] = "github.run-ci".into();
+        assert!(ready_push_card(&other, "huggingface/huggingface_hub", 5389, "w1").is_none());
+        assert!(ready_push_card(&card("proposed", "w1", serde_json::json!(["huggingface", "huggingface_hub", "5389"]), "15b9aff"), "huggingface/huggingface_hub", 5389, "w1").is_none());
+        let mut main = card("proposed", "w1", serde_json::json!(["huggingface", "huggingface_hub", "5389"]), HEAD);
+        main["body"]["input"]["branch"] = "main".into();
+        assert!(ready_push_card(&main, "huggingface/huggingface_hub", 5389, "w1").is_none());
+    }
+
+    #[test]
+    fn state_follows_home_branch() {
+        assert_eq!(ready_push_state(HEAD, Some(HEAD), false), "ready");
+        assert_eq!(ready_push_state(HEAD, Some(&HEAD.to_uppercase()), false), "ready");
+        assert_eq!(ready_push_state(HEAD, Some("0000000000000000000000000000000000000000"), false), "moved");
+        assert_eq!(ready_push_state(HEAD, None, false), "gone");
+        assert_eq!(ready_push_state(HEAD, Some(HEAD), true), "pushed");
     }
 }

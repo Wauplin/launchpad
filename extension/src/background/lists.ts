@@ -37,14 +37,24 @@ export function publish(a: { id: string; remote_branch: string; draft: boolean; 
 }
 
 /** Push to this PR of the extension's push dialog, after its confirmation (`branch.push-to-pr`): the branch commit the
- * dialog showed only; Home reads the pull request again and refuses anything but a fast-forward. */
-export function pushToPr(a: { repo: string; number: number; branch: string; head: string }): Promise<PushResult> {
+ * dialog showed only; Home reads the pull request again and refuses anything but a fast-forward. With `card` (an
+ * agent's ready card for this push), the card is then started (`/ran`, as Today's button does); a failure there keeps
+ * the push and says so. */
+export async function pushToPr(a: { repo: string; number: number; branch: string; head: string; card?: string }): Promise<PushResult> {
   if (typeof a.repo !== "string" || !REPO.test(a.repo)) throw new RequestError("Not a repository");
   const n = Number(a.number);
   if (!Number.isInteger(n) || n < 1) throw new RequestError("Not a pull request");
   const branch = String(a.branch ?? "");
   if (!/^lp\/[A-Za-z0-9._/-]{1,200}$/.test(branch) || branch.includes("..")) throw new RequestError("Not a Launchpad branch");
   if (typeof a.head !== "string" || !/^[0-9a-f]{40}$/.test(a.head)) throw new RequestError("No branch commit");
+  const card = a.card === undefined || a.card === null ? null : id(a.card, "card");
   const [owner, name] = a.repo.split("/");
-  return homeJson<PushResult>(`/api/items/${owner}/${name}/${n}/push-branch`, { method: "POST", body: { branch, head: a.head } });
+  const r = await homeJson<PushResult>(`/api/items/${owner}/${name}/${n}/push-branch`, { method: "POST", body: { branch, head: a.head } });
+  if (!card) return r;
+  try {
+    await homeJson(`/api/proposals/${card}/ran`, { method: "POST" });
+    return { ...r, card_error: null };
+  } catch (e) {
+    return { ...r, card_error: e instanceof Error ? e.message : String(e) };
+  }
 }

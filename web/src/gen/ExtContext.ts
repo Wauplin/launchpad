@@ -7,6 +7,7 @@ import type { ExtLocalPr } from "./ExtLocalPr";
 import type { ExtNote } from "./ExtNote";
 import type { ExtPage } from "./ExtPage";
 import type { ExtPreset } from "./ExtPreset";
+import type { ExtReadyPush } from "./ExtReadyPush";
 import type { ExtSuggestion } from "./ExtSuggestion";
 import type { ExtWorkspace } from "./ExtWorkspace";
 
@@ -30,6 +31,10 @@ workspace: ExtWorkspace | null, agents: Array<ExtAgent>, suggestions: Array<ExtS
  * The private timeline of the workspace about this item (`launchpad note`, the owner's `note.write`), oldest first.
  */
 notes: Array<ExtNote>, local_prs: Array<ExtLocalPr>, branches: Array<ExtBranch>, 
+/**
+ * Waiting Push to this PR ready cards of this pull request (the extension's workspace only).
+ */
+ready_pushes: Array<ExtReadyPush>, 
 /**
  * Today item IDs about this page (its item, its agents, its Local PRs; on repository pages, the repository).
  */

@@ -129,8 +129,8 @@ export function sentSummary(r: NoteWriteResult, none: string): { text: string; e
   const bad = r.sent.filter((x) => x.error).map((x) => `${x.recipient.name} (${x.error})`);
   return { text: [ok.length ? `Sent to ${ok.join(", ")}.` : "", bad.length ? `Not sent to ${bad.join(", ")}.` : ""].filter(Boolean).join(" "), error: !ok.length };
 }
-/** Push to this PR's answer. */
-export type PushResult = { ok: boolean; url: string; branch: string; head: string };
+/** Push to this PR's answer; `card_error`: the push went, but its ready card could not be started (it stays in Today). */
+export type PushResult = { ok: boolean; url: string; branch: string; head: string; card_error?: string | null };
 
 type Req<A, R> = { args: A; result: R };
 
@@ -182,8 +182,9 @@ export type Requests = {
   "launch": Req<{ folder: string; text: string; github_refs?: GitHubRef[]; when_done: LaunchWhenDone; profile: string; key: string }, Session>;
   /** Push to this PR (`branch.push-to-pr`, a GitHub write): only from the confirm button of the extension's own
    * dialog, with the branch commit the dialog showed; Home reads the pull request again and pushes only a
-   * fast-forward. */
-  "branch.push-to-pr": Req<{ repo: string; number: number; branch: string; head: string }, PushResult>;
+   * fast-forward. `card`: the agent's ready card this push runs (`ExtReadyPush`), started after the push like Today's
+   * button does. */
+  "branch.push-to-pr": Req<{ repo: string; number: number; branch: string; head: string; card?: string }, PushResult>;
   /** The sessions of the extension's workspace that are not archived (light records), newest first; `bot` narrows to a
    * bot's thread (oldest first). */
   "sessions": Req<{ bot?: string }, Session[]>;

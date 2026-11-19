@@ -24,6 +24,9 @@ import { findAnchor, findAnchors, timeOf } from "./anchors";
 import { insertSuggestion, NeedsChoice } from "./insert";
 import { agentPath, elapsed, open, running, type ItemPage } from "./item";
 import { markdown, type MdOptions } from "./markdown";
+import { pushDialog, pushedNow, pushing } from "./pushDialog";
+import { blockedReason, cardsByNote, fromCard } from "../../shared/readyPush";
+import type { ExtReadyPush } from "@/gen/ExtReadyPush";
 import { noteIdsIn, type NoteRef } from "./refs";
 import { button, h, logo, more, mount, popover, unmount } from "./widgets";
 
@@ -184,7 +187,7 @@ export function renderTimeline(page: ItemPage, ctx: ExtContext | null, refresh: 
     for (const g of groups) {
       const id = `${PREFIX}${g.entries[0]!.key}`;
       ids.add(id);
-      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, fresh.has(e.key), e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, e.suggestion?.lines, e.suggestion?.event, e.suggestion?.head, e.suggestion?.merge, e.suggestion?.run_ci, e.suggestion?.close, e.suggestion?.actions, [...(ticks.get(e.suggestion?.id ?? "") ?? [])], pending.has(e.suggestion?.id ?? ""), Object.entries(editing.get(e.suggestion?.id ?? "")?.lines ?? {}).filter(([, v]) => v === null).map(([k]) => k), editing.has(e.suggestion?.id ?? ""), saving.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key), refs.get(e.key)?.map((r) => r.id)]), ctx.notes.map((n) => n.id)]);
+      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, fresh.has(e.key), e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, e.suggestion?.lines, e.suggestion?.event, e.suggestion?.head, e.suggestion?.merge, e.suggestion?.run_ci, e.suggestion?.close, e.suggestion?.actions, [...(ticks.get(e.suggestion?.id ?? "") ?? [])], pending.has(e.suggestion?.id ?? ""), Object.entries(editing.get(e.suggestion?.id ?? "")?.lines ?? {}).filter(([, v]) => v === null).map(([k]) => k), editing.has(e.suggestion?.id ?? ""), saving.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key), refs.get(e.key)?.map((r) => r.id)]), ctx.notes.map((n) => n.id), ctx.ready_pushes.map((r) => [r.id, r.state, r.head, r.session_id, pushing(fromCard(r)), pushedNow(fromCard(r))])]);
       const w = mount(id, key, g.anchor, g.place, "card");
       if (!w.fresh) continue;
       for (const e of g.entries) w.root.append(entry(w.root, page, ctx, ws, e, refs.get(e.key) ?? [], refresh));
@@ -248,9 +251,33 @@ function entry(root: ShadowRoot, page: ItemPage, ctx: ExtContext, ws: string | n
   if (body.childNodes.length) card.append(body);
   const sugg = suggestionBlock(root, page, e, refresh);
   if (sugg) card.append(sugg);
+  if (n && page.kind !== "issue") for (const r of cardsByNote(ctx).get(n.id) ?? []) card.append(readyPushBlock(root, page, ws, r, refresh));
   const el = h("div", { class: n && n.id === target ? "lp-tl lp-target" : "lp-tl" }, h("div", { class: "lp-tl-avatar", attrs: { "aria-hidden": "true" } }, logo()), card);
   if (n) noteEls.set(n.id, el);
   return el;
+}
+
+/** A push the agent prepared (its ready card, `branch.push-to-pr`), under its newest note: Push to this PR (the push
+ * dialog's confirmation, then the card is started), or why it cannot run from here. Branch and commit come from the
+ * card, never from the note's text. */
+function readyPushBlock(root: ShadowRoot, page: ItemPage, ws: string | null, r: ExtReadyPush, refresh: () => void): HTMLElement {
+  const t = fromCard(r);
+  const done = pushedNow(t);
+  const wrap = h("div", { class: "lp-sugg" });
+  wrap.append(h("div", { class: "lp-row" }, logo(), h("span", { class: "lp-title", text: "Ready to push" }), h("span", { class: "lp-muted lp-grow", text: ` · ${r.branch} at ${r.head.slice(0, 7)}` })));
+  if (r.title) wrap.append(h("div", { class: "lp-sugg-text", text: r.title }));
+  const blocked = done ? null : blockedReason(r);
+  if (done) wrap.append(h("div", { class: "lp-sugg-text lp-muted", text: done }));
+  else if (blocked) wrap.append(h("div", { class: "lp-sugg-text lp-muted", text: blocked }));
+  const actions = h("div", { class: "lp-actions" });
+  if (!done && !blocked) {
+    const busy = pushing(t);
+    const go: HTMLButtonElement = button(busy ? "Pushing…" : "Push to this PR", () => pushDialog(root, go, page, t, refresh), { primary: true, small: true, disabled: busy, title: "Home pushes this commit to the pull request's branch (you confirm first; fast-forward only, never forced)" });
+    actions.append(go);
+  }
+  if (r.session_id) actions.append(button("View its changes", () => open(agentPath({ session_id: r.session_id! }), ws), { small: true, title: "The agent's branch in Launchpad" }));
+  wrap.append(actions);
+  return wrap;
 }
 
 /** A link to another note of this item: shows it on the page. */

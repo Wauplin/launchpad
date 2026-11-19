@@ -3,9 +3,9 @@
 // GitHub yet) with the same buttons as the page's sidebar box. It is also where a feature lands when its anchor on the
 // page stopped matching (the repository state line covers the badge).
 
+import { pushKey, pushTargets, type PushTarget } from "../shared/readyPush";
 import { useCallback, useEffect, useState } from "react";
 import type { ExtAgent } from "@/gen/ExtAgent";
-import type { ExtBranch } from "@/gen/ExtBranch";
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtNote } from "@/gen/ExtNote";
 import type { ExtSuggestion } from "@/gen/ExtSuggestion";
@@ -249,29 +249,30 @@ export function AgentRow({ a, open, onError }: { a: Pick<ExtAgent, "session_id" 
 function Branches({ ctx, page, onError, onDone }: { ctx: ExtContext; page: Page; onError: (e: string | null) => void; onDone: () => void }) {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const push = async (b: ExtBranch, e: React.MouseEvent) => {
-    // Only a real click of the owner pushes.
-    if (!e.nativeEvent.isTrusted || busy || !page.repo || !page.number || !b.push_ready) return;
+  const push = async (t: PushTarget, e: React.MouseEvent) => {
+    // Only a real click of the owner pushes, once at a time.
+    if (!e.nativeEvent.isTrusted || busy || !page.repo || !page.number) return;
     setBusy(true); onError(null);
     try {
-      await request("branch.push-to-pr", { repo: page.repo, number: page.number, branch: b.push_ready.branch, head: b.push_ready.head });
+      const r = await request("branch.push-to-pr", { repo: page.repo, number: page.number, branch: t.branch, head: t.head, ...(t.card ? { card: t.card } : {}) });
       setConfirming(null);
+      if (r.card_error) onError(`Pushed; its card in Today is still waiting (${r.card_error}).`);
       onDone();
     } catch (err) { onError(message(err)); } finally { setBusy(false); }
   };
-  const ready = ctx.branches.filter((b) => b.push_ready);
+  const ready = pushTargets(ctx);
   const behind = ctx.branches.filter((b) => !b.push_ready && (b.not_on_github || b.error));
   if (!ready.length && !behind.length) return null;
   return <>
     <div className="x-sect">Branch</div>
-    {ready.map((b) => <div key={b.branch} className="x-card">
-      <h3>{b.push_ready!.ahead} {b.push_ready!.ahead === 1 ? "commit" : "commits"} ready to push</h3>
-      <p className="x-small x-muted">{b.branch} has {b.push_ready!.ahead} new {b.push_ready!.ahead === 1 ? "commit" : "commits"} since its agent started{b.push_ready!.title ? ` (${b.push_ready!.title})` : ""}.</p>
-      {confirming === b.branch && <p className="x-small x-confirm">Home pushes {b.branch} at {b.push_ready!.head.slice(0, 8)} to this pull request's branch on GitHub. Fast-forward only, never forced; refused if the pull request moved or Launchpad may not push there. Then Home keeps pushing the agent's new commits there.</p>}
+    {ready.map((t) => <div key={pushKey(t)} className="x-card">
+      <h3>{t.ahead === null ? "Push ready" : `${t.ahead} ${t.ahead === 1 ? "commit" : "commits"} ready to push`}</h3>
+      <p className="x-small x-muted">{t.ahead === null ? `${t.branch} at ${t.head.slice(0, 7)}, prepared by its agent` : `${t.branch} has ${t.ahead} new ${t.ahead === 1 ? "commit" : "commits"} since its agent started`}{t.title ? ` (${t.title})` : ""}.</p>
+      {confirming === pushKey(t) && <p className="x-small x-confirm">Home pushes {t.branch} at {t.head.slice(0, 8)} to this pull request's branch on GitHub. Fast-forward only, never forced; refused if the pull request moved or Launchpad may not push there. Then Home keeps pushing the agent's new commits there.{t.card ? " This runs the push the agent prepared; its card in Today is then done." : ""}</p>}
       <div className="x-btns">
-        {confirming === b.branch
-          ? <><button className="x-btn x-sm x-pri" disabled={busy} onClick={(e) => void push(b, e)}>{busy ? "Pushing…" : "Push to this PR"}</button><button className="x-btn x-sm" onClick={() => setConfirming(null)}>Cancel</button></>
-          : <button className="x-btn x-sm" title="You confirm first" onClick={() => setConfirming(b.branch)}>Push to this PR…</button>}
+        {confirming === pushKey(t)
+          ? <><button className="x-btn x-sm x-pri" disabled={busy} onClick={(e) => void push(t, e)}>{busy ? "Pushing…" : "Push to this PR"}</button><button className="x-btn x-sm" onClick={() => setConfirming(null)}>Cancel</button></>
+          : <button className="x-btn x-sm" title="You confirm first" disabled={busy} onClick={() => setConfirming(pushKey(t))}>Push to this PR…</button>}
       </div>
     </div>)}
     {behind.map((b) => <div key={b.branch} className="x-banner x-warn"><Icon name="warn" size={14} /><span>Not on GitHub yet: {b.branch}{b.error ? `, push refused: ${b.error}` : ""}{b.head ? ` (commit ${b.head.slice(0, 7)})` : ""}</span></div>)}
