@@ -263,13 +263,7 @@ async fn core_items(app: &App) -> Vec<Item> {
     }
     match crate::predrafts::list(app).await {
         Ok(list) => {
-            let prs = list.into_iter().filter(|p| !p.archived && p.published_url.is_none() && p.merged.is_none()).map(|p| {
-                Item::new(Kind::LocalPr, Filter::Review, &p.id, &p.title, Place::Project(p.project_id.clone()), p.created_at)
-                    .detail(format!("Local PR · {} → {}", p.branch, p.base_branch))
-                    .session(p.session_id.clone())
-                    .action("local-pr.publish")
-            });
-            let alone = group_local_prs(&mut out, prs.collect());
+            let alone = group_local_prs(&mut out, local_pr_items(list));
             out.extend(alone);
         }
         Err(e) => tracing::warn!("Today: Local PRs: {e:#}"),
@@ -284,6 +278,16 @@ async fn core_items(app: &App) -> Vec<Item> {
         }
     }
     out
+}
+
+/// Pure: the open Local PRs (not discarded, published or merged) as Review items.
+fn local_pr_items(list: Vec<crate::predrafts::Predraft>) -> Vec<Item> {
+    list.into_iter().filter(|p| p.is_open()).map(|p| {
+        Item::new(Kind::LocalPr, Filter::Review, &p.id, &p.title, Place::Project(p.project_id.clone()), p.created_at)
+            .detail(format!("Local PR · {} → {}", p.branch, p.base_branch))
+            .session(p.session_id.clone())
+            .action("local-pr.publish")
+    }).collect()
 }
 
 /// The workspaces of a session: its folder's, or the one of its launch (bots, temporary folders).
@@ -438,4 +442,25 @@ pub fn spawn(app: &App) {
 /// `{"bus":…,"seq":…,"topic":"<topic>",…}`: reads the topic without parsing the payload.
 fn topic(text: &str) -> Option<&str> {
     text.split_once("\"topic\":\"").and_then(|(_, r)| r.split('"').next())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn local_pr(id: &str, archived: bool) -> crate::predrafts::Predraft {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "project_id": "f", "branch": format!("lp/{id}"), "base_branch": "main", "initial_base": "b0", "title": id, "body": "",
+            "session_id": null, "notes": [], "archived": archived, "published_url": null, "published_number": null,
+            "default_remote_branch": "x", "remote_branch": null, "pushed_head": null, "created_at": 0
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_discarded_local_pr_leaves_today() {
+        let items = local_pr_items(vec![local_pr("open", false), local_pr("discarded", true)]);
+        assert_eq!(items.iter().map(|i| i.record.as_str()).collect::<Vec<_>>(), ["open"]);
+        assert_eq!(items[0].action.as_deref(), Some("local-pr.publish"));
+    }
 }

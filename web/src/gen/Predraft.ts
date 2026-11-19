@@ -30,4 +30,8 @@ change_set: string | null,
 /**
  * When the owner linked a pull request opened outside Launchpad (`link_pr`): Home never pushes to it.
  */
-linked_at?: number, };
+linked_at?: number, 
+/**
+ * The branch tip on Home when it was discarded: `reopen` restores it from `refs/kept/`.
+ */
+discarded_head?: string, };

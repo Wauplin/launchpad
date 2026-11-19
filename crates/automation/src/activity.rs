@@ -199,6 +199,11 @@ mod tests {
         let create = actions::get("workspace.create").unwrap();
         assert_eq!(undo_call(create, &[], Some(&json!({"name": "W"})), None, Some(&json!({"id": "w1"}))).1, Some(UndoCall { action: "workspace.delete".into(), args: vec!["w1".into()], body: None }));
         assert_eq!(undo_call(actions::get("session.archive").unwrap(), &["s".into()], None, None, None).1, None);
+        // A discarded Local PR: Undo reopens it (the answer is the Local PR, its title names the change).
+        let discarded = json!({"id": "p1", "title": "Fix login", "archived": true, "discarded_head": "abc"});
+        let discard = actions::get("local-pr.discard").unwrap();
+        assert_eq!(undo_call(discard, &["p1".into()], None, None, Some(&discarded)), (None, Some(UndoCall { action: "local-pr.reopen".into(), args: vec!["p1".into()], body: None })));
+        assert_eq!(target_of(Some(&discarded)).as_deref(), Some("Fix login"));
         // A channel edit puts back the name and purpose it changed (`GET /api/channels/{id}/about`).
         let channel = actions::get("channel.rename").unwrap();
         let (before, undo) = undo_call(channel, &["c1".into()], Some(&json!({"purpose": "New"})), Some(&json!({"name": "release-train", "purpose": "Old"})), None);

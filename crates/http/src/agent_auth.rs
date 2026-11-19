@@ -254,6 +254,12 @@ fn asks_paid_usage(v: &Value) -> bool {
     v["allow_paid_usage"] == Value::Bool(true) || v["spec"]["allow_paid_usage"] == Value::Bool(true)
 }
 
+/// Pure: a request that only admin access runs (an admin action, or a GET of one record), not a read, an own write
+/// or a level-checked route. `read_allowed` covers GETs only: a POST under `/api/predrafts/{id}/` is an action.
+fn admin_direct(method: &Method, path: &str) -> bool {
+    tool_need(method, path).is_none() && !(*method == Method::GET && read_allowed(path)) && !own_write(path) && admin_allows(method, path)
+}
+
 fn read_allowed(path: &str) -> bool {
     path == "/api/status" || (path.starts_with("/api/context/") && !diagnostic(path)) || path == "/api/proposals" || path == "/api/today" || path == "/api/activity" || path == "/api/predrafts" || channel_read(path)
         || (path.starts_with("/api/predrafts/") && !path.ends_with("/resolve"))
@@ -303,7 +309,7 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
     if tool_need(req.method(), &path) == Some(LaunchpadAccess::Admin) || oracle_read(req.method(), &path) || oracle_test(req.method(), &path) || folio_need(req.method(), &path).is_some() {
         return Ok(req);
     }
-    if access == Some(LaunchpadAccess::Admin) && tool_need(req.method(), &path).is_none() && !read_allowed(&path) && !own_write(&path) && admin_allows(req.method(), &path) {
+    if access == Some(LaunchpadAccess::Admin) && admin_direct(req.method(), &path) {
         if req.method() == Method::GET || req.method() == Method::DELETE {
             return Ok(req);
         }
@@ -444,7 +450,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (_, ["launch", "schedules", id, ..]) => Schedule(id),
         (_, ["proposals", id, ..]) => Proposal(id),
         (_, ["projects", id] | ["projects", id, "branches"]) => Folder(id),
-        (_, ["predrafts", id] | ["predrafts", id, "record"]) | (false, ["predrafts", id, "publish"]) => LocalPr(id),
+        (_, ["predrafts", id] | ["predrafts", id, "record"]) | (false, ["predrafts", id, "publish" | "discard" | "reopen"]) => LocalPr(id),
         (_, ["workspaces", id]) => Workspace(id),
         (false, ["worktrees", id, "discard" | "fix"]) => Worktree(id),
         (_, ["tool-defaults", scope, id]) => Tools(scope, id),
@@ -685,6 +691,19 @@ mod tests {
         assert!(!admin_allows(&Method::POST, "/api/predrafts/p/link-pr"));
         assert!(!own_write("/api/predrafts/p/link-pr"));
         assert!(actions::get("local-pr.link-pr").is_some_and(|a| a.access == ActionAccess::Owner && a.ready));
+        // Discarding a Local PR (and its Undo, Reopen) is an admin action: never a read, an own write or a propose
+        // route, so read and propose sessions are refused; Home then checks the Local PR's workspace.
+        for path in ["/api/predrafts/p/discard", "/api/predrafts/p/reopen"] {
+            assert!(admin_allows(&Method::POST, path), "{path}");
+            assert_eq!(tool_need(&Method::POST, path), None, "{path}");
+            assert!(admin_direct(&Method::POST, path) && !own_write(path) && bot_publish(&Method::POST, path).is_none(), "{path}");
+            assert_eq!(names(&Method::POST, path), Names::LocalPr("p"), "{path}");
+        }
+        assert!(!admin_allows(&Method::POST, "/api/predrafts/p/discard/x") && !admin_allows(&Method::POST, "/api/predrafts//discard"));
+        // Reads of a Local PR stay reads; its other actions stay the owner's.
+        assert!(!admin_direct(&Method::GET, "/api/predrafts/p") && !admin_direct(&Method::POST, "/api/predrafts/p/merge-local") && !admin_direct(&Method::POST, "/api/predrafts/p/unlock"));
+        assert!(actions::get("local-pr.discard").is_some_and(|a| a.access == ActionAccess::Admin && a.ready && a.undo == Some("local-pr.reopen")));
+        assert!(actions::get("worktree.discard").is_some_and(|a| a.access == ActionAccess::Owner));
         // A bot writes its own memory like the knowledge base, at every access level (Home checks the bot).
         assert!(own_write("/api/bot-memory"));
         assert_eq!(tool_need(&Method::POST, "/api/bot-memory"), None);
@@ -705,6 +724,8 @@ mod tests {
         assert_eq!(names(&Method::GET, "/api/context/sessions/s1"), Session("s1"));
         assert_eq!(names(&Method::PATCH, "/api/predrafts/p1"), LocalPr("p1"));
         assert_eq!(names(&Method::POST, "/api/predrafts/p1/publish"), LocalPr("p1"));
+        assert_eq!(names(&Method::POST, "/api/predrafts/p1/discard"), LocalPr("p1"));
+        assert_eq!(names(&Method::POST, "/api/predrafts/p1/reopen"), LocalPr("p1"));
         assert_eq!(names(&Method::GET, "/api/predrafts/p1"), LocalPr("p1"));
         assert_eq!(names(&Method::POST, "/api/worktrees/w1/discard"), Worktree("w1"));
         assert_eq!(names(&Method::PUT, "/api/tool-defaults/folder/f1"), Tools("folder", "f1"));
@@ -986,6 +1007,10 @@ mod tests {
             assert_eq!(actions::find(a.method, &path).map(|f| f.name), Some(a.name), "{} {path}", a.name);
             let method = Method::from_bytes(a.method.as_bytes()).unwrap();
             assert_eq!(admin_allows(&method, &path), a.access == ActionAccess::Admin, "{}", a.name);
+            // An admin action reaches the admin branch of `check_access` (unless a level-checked route runs it).
+            if a.access == ActionAccess::Admin && method != Method::GET && tool_need(&method, &path).is_none() {
+                assert!(admin_direct(&method, &path), "{}", a.name);
+            }
             let line = format!("`{}`", actions::usage("launchpad", a));
             // Oracle and folio actions have their own commands (`launchpad oracle …`, `launchpad folio …`), and so has
             // a channel edit (`launchpad channel edit`).
@@ -1006,8 +1031,9 @@ mod tests {
                     None => assert_eq!(actions::params(u).len(), 1, "{}", a.name),
                 }
             }
-            // A ready card prepares an owner click; only a Home update is also an admin action.
-            assert!(!a.ready || a.access == ActionAccess::Owner || a.effect == actions::ActionEffect::Installs, "{}", a.name);
+            // A ready card prepares an owner click; an admin action that is also one (a Home update, a Local PR's
+            // discard) has the same confirmation as the owner's button.
+            assert!(!a.ready || a.access == ActionAccess::Owner || a.confirm.is_some(), "{}", a.name);
             if a.effect == actions::ActionEffect::Installs {
                 assert!(a.confirm.is_some(), "{}", a.name);
             }

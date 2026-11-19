@@ -37,6 +37,7 @@ fn local_pr(id: &str, branch: &str) -> super::Predraft {
         merged: None,
         change_set: None,
         linked_at: None,
+        discarded_head: None,
     }
 }
 
@@ -201,4 +202,21 @@ fn a_pull_request_merged_on_github_closes_its_local_pr() {
     let mut done = p.clone();
     done.merged = Some(super::LocalMerge { head: HEAD.into(), at: 1, github: false });
     assert_eq!(super::github_sync(&done, &merged, true), Sync::Nothing);
+}
+
+#[test]
+fn reopen_restores_the_discarded_tip_unless_the_branch_is_back() {
+    let mut p = local_pr("p", "lp/a");
+    assert!(super::reopen_restores(&p, Some("t1"), false).is_err(), "an open Local PR is not discarded");
+    p.archived = true;
+    p.discarded_head = Some("t1".into());
+    assert_eq!(super::reopen_restores(&p, None, false).unwrap(), Some("t1".into()));
+    // The branch is on Home again: it stays as it is.
+    assert_eq!(super::reopen_restores(&p, Some("t2"), false).unwrap(), None);
+    assert!(super::reopen_restores(&p, None, true).is_err(), "another open Local PR has the branch");
+    p.discarded_head = None;
+    assert!(super::reopen_restores(&p, None, false).is_err(), "no recorded tip and no branch");
+    p.discarded_head = Some("t1".into());
+    p.merged = Some(super::LocalMerge { head: "m".into(), at: 1, github: false });
+    assert!(super::reopen_restores(&p, None, false).is_err());
 }

@@ -64,6 +64,11 @@ pub struct Predraft {
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub linked_at: Option<i64>,
+    /// The branch tip on Home when it was discarded: `reopen` restores it from `refs/kept/`.
+    #[serde(default)]
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discarded_head: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
 pub struct LocalMerge {
@@ -337,6 +342,7 @@ async fn create_record(app: &App, q: Create) -> Result<Predraft> {
         remote_sync_note: None,
         merged: None,
         linked_at: None,
+        discarded_head: None,
     };
     save(app, &p).await?;
     Ok(p)
@@ -480,7 +486,8 @@ pub async fn feedback(app: &App, id: &str) -> Result<()> {
     }
     Ok(())
 }
-/// Discard: archives the Local PR and deletes its branch on Home (the tip stays restorable for 30 days).
+/// Discard (`local-pr.discard`: the owner's click, or an admin session's direct action): archives the Local PR
+/// and deletes its branch on Home; the tip stays restorable for 30 days, and `reopen` puts it back.
 pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
     ensure_home(app)?;
     let _lock = app.predraft_lock.lock().await;
@@ -489,9 +496,39 @@ pub async fn discard(app: &App, id: &str) -> Result<Predraft> {
     agents_idle(app, &p)?;
     ensure!(p.pushed_head.is_none(), "branch was pushed during publication; retry Publish before discarding");
     if crate::projects::get(app, &p.project_id).await?.is_some() {
+        p.discarded_head = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await?;
         crate::home_git::delete(app, &p.project_id, &p.branch, None).await?;
     }
     p.archived = true;
+    save(app, &p).await?;
+    Ok(p)
+}
+/// Pure: whether a discarded Local PR can be reopened, and the kept tip to restore its branch at (None: the
+/// branch is on Home again, `tip`, and stays as it is). `other_open`: another open Local PR of the same branch.
+fn reopen_restores(p: &Predraft, tip: Option<&str>, other_open: bool) -> Result<Option<String>> {
+    ensure!(p.archived, "this Local PR is not discarded");
+    ensure!(p.published_url.is_none() && p.merged.is_none(), "this Local PR was published or merged");
+    ensure!(!other_open, "another open Local PR has the branch {}: review that one instead", p.branch);
+    match (tip, &p.discarded_head) {
+        (Some(_), _) => Ok(None),
+        (None, Some(head)) => Ok(Some(head.clone())),
+        (None, None) => anyhow::bail!("the branch {} is gone from Home and its tip was not recorded: restore it from the folder page first", p.branch),
+    }
+}
+/// Reopen (`local-pr.reopen`, the undo of `discard`): restores the branch on Home at the tip it had when it was
+/// discarded (a kept tip, 30 days) and lists the Local PR again.
+pub async fn reopen(app: &App, id: &str) -> Result<Predraft> {
+    ensure_home(app)?;
+    let _lock = app.predraft_lock.lock().await;
+    let mut p = get(app, id).await?;
+    ensure!(crate::projects::get(app, &p.project_id).await?.is_some(), "the folder of this Local PR is no longer in Launchpad");
+    let tip = crate::home_git::tip(app, &p.project_id, &format!("refs/heads/{}", p.branch)).await?;
+    let other_open = list(app).await?.iter().any(|o| o.id != p.id && o.project_id == p.project_id && o.branch == p.branch && o.is_open());
+    if let Some(head) = reopen_restores(&p, tip.as_deref(), other_open)? {
+        crate::home_git::restore(app, &p.project_id, &p.branch, &head).await.context("the branch tip is no longer kept on Home (kept 30 days)")?;
+    }
+    p.archived = false;
+    p.discarded_head = None;
     save(app, &p).await?;
     Ok(p)
 }

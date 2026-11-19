@@ -84,6 +84,7 @@ async fn action(State(s): State<Ctx>, Path((id, a)): Path<(String, String)>, Jso
             json!({"ok":true})
         }
         "discard" => json!(predrafts::discard(&s.app, &id).await?),
+        "reopen" => json!(predrafts::reopen(&s.app, &id).await?),
         "unlock" => json!(predrafts::unlock(&s.app, &id).await?),
         "publish" => json!(predrafts::publish(&s.app, &id, serde_json::from_value::<Publish>(q)?).await?),
         "publish-set" => json!(predrafts::publish_set(&s.app, &id, serde_json::from_value::<predrafts::PublishSet>(q)?).await?),
