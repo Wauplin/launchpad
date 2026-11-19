@@ -15,7 +15,11 @@ space: string | null,
 /**
  * The Space's head revision (what a commit names as its parent).
  */
-revision: string | null, channel: HomeUpdateChannel | null, 
+revision: string | null, 
+/**
+ * The revision the Space's runtime reports it runs (None when the Hub does not say).
+ */
+running_revision: string | null, channel: HomeUpdateChannel | null, 
 /**
  * What the Space's Dockerfile installs: a release tag or a main commit.
  */

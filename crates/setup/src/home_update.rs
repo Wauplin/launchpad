@@ -145,6 +145,8 @@ pub struct HomeUpdate {
     pub space: Option<String>,
     /// The Space's head revision (what a commit names as its parent).
     pub revision: Option<String>,
+    /// The revision the Space's runtime reports it runs (None when the Hub does not say).
+    pub running_revision: Option<String>,
     pub channel: Option<Channel>,
     /// What the Space's Dockerfile installs: a release tag or a main commit.
     pub deployed: Option<String>,
@@ -407,6 +409,7 @@ async fn inspect(app: &App, u: &mut HomeUpdate) -> Result<Option<Space>> {
     u.revision = Some(sha.clone());
     u.stage = info["runtime"]["stage"].as_str().map(str::to_string);
     let running_sha = info["runtime"]["sha"].as_str().unwrap_or_default();
+    u.running_revision = Some(running_sha.to_string()).filter(|r| !r.is_empty());
     u.building = !running_sha.is_empty() && running_sha != sha && !u.stage.as_deref().is_some_and(|s| FAILED_STAGES.contains(&s));
     let dockerfile = hf_send(app, CLIENT.get(format!("{}/spaces/{id}/resolve/{sha}/Dockerfile", hf_endpoint()))).await.context("read the Space's Dockerfile")?;
     let (channel, version) = match deployed(&dockerfile) {
@@ -661,10 +664,14 @@ pub async fn resume(app: &App) -> Result<()> {
 /// update's parent and does not install the target (the Hub applies the update's commit only on top of its parent,
 /// so it can never land now), and no build is in progress (none of the target, none that would restart this Home).
 /// Never from a timeout, a failed check or a failed build: a failed build of the target can still be built again.
+/// Only on positive evidence: the Hub reports the runtime RUNNING exactly that head revision, so no build of it is
+/// left to replace this Home. A missing runtime revision, another stage (building, a failed build) or a check that
+/// failed keeps writes paused.
 fn fenced(u: &HomeUpdate, p: &Pending) -> bool {
     u.error.is_none()
-        && !u.building
+        && u.stage.as_deref() == Some("RUNNING")
         && u.revision.is_some()
+        && u.running_revision == u.revision
         && u.revision != p.parent
         && u.deployed.as_deref().is_some_and(|d| d != p.version)
 }
@@ -934,9 +941,12 @@ mod tests {
         let unknown = HomeUpdate { running: "old".into(), revision: Some("parent".into()), deployed: Some("v1".into()), ..Default::default() };
         assert!(!fenced(&unknown, &p));
         // Cancel update committed the previous Dockerfile on top of the head; while that builds (a late build), wait.
-        let cancelled = HomeUpdate { running: "old".into(), revision: Some("cancel".into()), deployed: Some("v1".into()), ..Default::default() };
-        assert!(!fenced(&HomeUpdate { building: true, ..cancelled.clone() }, &p));
-        // The head is the cancel, nothing builds: the update's commit (parent `parent`) can never land.
+        let cancelled = HomeUpdate { running: "old".into(), revision: Some("cancel".into()), deployed: Some("v1".into()), stage: Some("RUNNING".into()), running_revision: Some("cancel".into()), ..Default::default() };
+        assert!(!fenced(&HomeUpdate { running_revision: Some("parent".into()), building: true, ..cancelled.clone() }, &p));
+        // No runtime revision, or a failed build of the cancel: not proof that nothing will replace this Home.
+        assert!(!fenced(&HomeUpdate { running_revision: None, ..cancelled.clone() }, &p));
+        assert!(!fenced(&HomeUpdate { stage: Some("BUILD_ERROR".into()), ..cancelled.clone() }, &p));
+        // The runtime runs the cancel revision: the update's commit (parent `parent`) can never land.
         assert!(fenced(&cancelled, &p));
         // Only the Hub's 4xx answer proves a commit did not happen; a 5xx, a timeout or a lost connection does not.
         assert!(commit_refused(&anyhow::anyhow!("x").context(HubAnswered(409))));

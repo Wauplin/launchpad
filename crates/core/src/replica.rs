@@ -386,6 +386,24 @@ pub(crate) fn set_acked(c: &Connection, runner_id: &str, n: u64) -> Result<()> {
     Ok(())
 }
 
+/// An item whose failure must never be skipped (`give_up`): skipping would acknowledge it, and the runner would then
+/// drop the only copy (a replayed wake-up). It is retried until it is handled or discarded on purpose.
+#[derive(Debug)]
+pub struct NeverSkip;
+
+impl std::fmt::Display for NeverSkip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("retried until recorded")
+    }
+}
+
+impl std::error::Error for NeverSkip {}
+
+/// Whether a failed item may be skipped after `GIVE_UP_MS` (not a `NeverSkip` one).
+pub fn skippable(e: &anyhow::Error) -> bool {
+    !e.chain().any(|c| c.is::<NeverSkip>())
+}
+
 /// Home: acknowledges item `n` only once `work` succeeded. A failure is returned (retryable): the mark stays, so the
 /// runner, which keeps the item, sends it again (`after_ack`), and nothing is lost.
 pub(crate) async fn ack_after(db: &crate::db::Db, runner_id: &str, n: u64, work: impl std::future::Future<Output = Result<()>>) -> Result<()> {
@@ -427,7 +445,7 @@ pub async fn ingest(app: &App, runner_id: &str, n: u64, item: serde_json::Value)
             let replay = restored_before(accepted_at) && app.sessions.get(&session_id).is_some_and(|s| s.runner_id.as_deref() == Some(runner_id));
             let work = async {
                 if replay {
-                    crate::ext::extensions().replay_sleep(app, &session_id, schedule).await.map_err(|e| e.context(format!("replay the wake-up of {session_id}")))?;
+                    crate::ext::extensions().replay_sleep(app, &session_id, schedule).await.map_err(|e| e.context(format!("replay the wake-up of {session_id}")).context(NeverSkip))?;
                 }
                 Ok(())
             };

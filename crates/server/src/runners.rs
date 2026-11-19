@@ -389,7 +389,9 @@ pub(crate) async fn serve(s: Server, mut tx: crate::wire::WireTx, mut rx: crate:
                         }
                         for (n, item) in items {
                             if let Err(e) = launchpad_core::replica::ingest(&s.app, &runner.id, n, item).await {
-                                if !launchpad_core::replica::give_up(&mut failing, n, launchpad_core::util::now_ms()) {
+                                // A replayed wake-up is never skipped: acknowledging it would let the runner drop
+                                // the only copy (`replica::NeverSkip`). It holds the runner's later items until handled.
+                                if !launchpad_core::replica::skippable(&e) || !launchpad_core::replica::give_up(&mut failing, n, launchpad_core::util::now_ms()) {
                                     tracing::warn!("runner {}: could not store item {n}: {e:#}", runner.id);
                                     break;
                                 }
