@@ -5,10 +5,12 @@ import { useHarnesses } from "@/components/HarnessMark";
 import { api } from "@/lib/api";
 import { useConfig } from "@/lib/queries";
 import { day as dayLabel, month as monthLabel } from "@/lib/format";
+import { runAmount, usd, type UsageMetric } from "@/lib/usage";
 import { Card } from "./SettingsView";
 
 const compact = (value: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
-const tokenCount = (run: AgentRun) => run.input_tokens + run.cached_tokens + run.output_tokens;
+const METRICS: [UsageMetric, string][] = [["agents", "Agents"], ["tokens", "Tokens"], ["cost", "Cost"]];
+const UNIT: Record<UsageMetric, string> = { agents: "agents", tokens: "tokens", cost: "estimated cost" };
 const dayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 const seriesKey = (run: AgentRun) => JSON.stringify([run.harness, run.profile]);
 // Keep profiles in their harness's color family, with the default using its exact quota color.
@@ -27,8 +29,10 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
     queryFn: () => api.get<AgentRun[]>(`/api/analytics/runs?from=${from}&until=${until}`),
     refetchInterval: 30_000,
   });
-  const [metric, setMetric] = useState<"agents" | "tokens">("agents");
-  const format = (value: number) => metric === "tokens" ? compact(value) : value.toLocaleString();
+  const [metric, setMetric] = useState<UsageMetric>("agents");
+  const format = (value: number) => metric === "tokens" ? compact(value) : metric === "cost" ? usd(value) : value.toLocaleString();
+  const exact = (value: number) => metric === "cost" ? usd(value) : value.toLocaleString();
+  const unit = UNIT[metric];
   const [page, setPage] = useState(0);
   const runs = query.data ?? [];
   const series = new Map<string, { key: string; label: string; color: string; total: number }>();
@@ -45,7 +49,12 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
     profiles.set(run.harness, ids);
   }
   for (const ids of profiles.values()) ids.sort((a, b) => a === b ? 0 : a === null ? -1 : b === null ? 1 : a.localeCompare(b));
+  const counted: AgentRun[] = [];
   for (const run of runs) {
+    // Runs without an amount for this metric (no reported cost) stay out of the chart, legend and totals.
+    const amount = runAmount(run, metric);
+    if (amount === null) continue;
+    counted.push(run);
     const day = days[new Date(run.started_at).getDate() - 1];
     const key = seriesKey(run);
     if (!series.has(key)) {
@@ -54,7 +63,6 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
       const profile = config.data?.config.profiles.find((v) => v.harness === run.harness && v.id === run.profile)?.name ?? run.profile ?? "Default";
       series.set(key, { key, label: `${harness} · ${profile}`, color: profileColor(info?.color ?? "#4b5563", profiles.get(run.harness)!.indexOf(run.profile)), total: 0 });
     }
-    const amount = metric === "tokens" ? tokenCount(run) : 1;
     series.get(key)!.total += amount;
     day.total += amount;
     day.counts.set(key, (day.counts.get(key) ?? 0) + amount);
@@ -62,10 +70,14 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
   const groups = [...series.values()].sort((a, b) => b.total - a.total || a.key.localeCompare(b.key));
   const total = groups.reduce((sum, group) => sum + group.total, 0);
   const tokens = runs.reduce((sum, run) => ({ input: sum.input + run.input_tokens, cached: sum.cached + run.cached_tokens, output: sum.output + run.output_tokens }), { input: 0, cached: 0, output: 0 });
-  const stats: [number, string][] = metric === "tokens"
-    ? [[total, "total tokens"], [tokens.input, "input tokens"], [tokens.cached, "cached input"], [tokens.output, "output tokens"]]
-    : [[runs.length, "agents started"], [days.filter((day) => day.total > 0).length, "active days"], [Math.max(0, ...days.map((day) => day.total)), "busiest day"]];
-  const peak = Math.max(1, ...days.map((day) => day.total));
+  const peak = Math.max(0, ...days.map((day) => day.total));
+  const uncosted = runs.length - counted.length;
+  const stats: [number, string, (value: number) => string][] = metric === "tokens"
+    ? [[total, "total tokens", format], [tokens.input, "input tokens", format], [tokens.cached, "cached input", format], [tokens.output, "output tokens", format]]
+    : metric === "cost"
+    ? [[total, "estimated cost (USD)", usd], [counted.length, "sessions with a cost", (v) => v.toLocaleString()], [counted.length ? total / counted.length : 0, "average per session", usd], [peak, "highest day", usd]]
+    : [[runs.length, "agents started"], [days.filter((day) => day.total > 0).length, "active days"], [peak, "busiest day"]].map(([value, label]) => [value, label, format] as [number, string, (value: number) => string]);
+  const scale = peak || 1;
   const selectedDay = days.find((day) => dayKey(day.date) === selected);
   const shownPage = Math.min(page, Math.max(0, Math.ceil(groups.length / 6) - 1));
   const dateLabel = (date: Date) => dayLabel(date.getTime());
@@ -74,7 +86,7 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="font-semibold">Your daily rhythm</h2>
-        <p className="text-[13px] text-ink-3">Session starts and token usage, split by harness and profile.</p>
+        <p className="text-[13px] text-ink-3">Session starts, token usage and estimated cost, split by harness and profile.</p>
       </div>
       <div className="flex items-center gap-1">
         <button className="btn" aria-label="Agent activity: previous month" onClick={() => onMove(-1)}>←</button>
@@ -84,30 +96,30 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
     </div>
     <p className="text-[13px] font-semibold text-teal-ink" aria-live="polite">{monthLabel(month.getTime())}</p>
     <div className="flex w-fit gap-1 rounded-card border border-line bg-chrome p-1" role="group" aria-label="Activity metric">
-      {(["agents", "tokens"] as const).map((value) => <button key={value} className="lp-chip" aria-pressed={metric === value} onClick={() => { setMetric(value); setPage(0); }}>{value === "agents" ? "Agents" : "Tokens"}</button>)}
+      {METRICS.map(([value, label]) => <button key={value} className="lp-chip" aria-pressed={metric === value} onClick={() => { setMetric(value); setPage(0); }}>{label}</button>)}
     </div>
     {query.isError && <p role="alert" className="text-[13px] text-danger">Could not load agent activity. <button className="btn" onClick={() => void query.refetch()}>Retry</button></p>}
     {query.isPending ? <div className="rounded-card bg-chrome p-8 text-center text-[13px] text-ink-3">Loading agent activity…</div> : !query.isError && <>
-      <div className={`grid gap-2 rounded-card border border-line bg-chrome p-3 sm:p-4 ${metric === "tokens" ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
-        {stats.map(([value, label]) => <div key={label} className={`min-w-0 border-line px-1 sm:px-3 ${metric === "tokens" ? "even:border-l sm:not-first:border-l" : "not-first:border-l"}`}>
-          <div className="text-[18px] font-semibold tabular-nums tracking-tight" title={value.toLocaleString()}>{format(value)}</div>
+      <div className={`grid gap-2 rounded-card border border-line bg-chrome p-3 sm:p-4 ${metric === "agents" ? "grid-cols-3" : "grid-cols-2 sm:grid-cols-4"}`}>
+        {stats.map(([value, label, show]) => <div key={label} className={`min-w-0 border-line px-1 sm:px-3 ${metric !== "agents" ? "even:border-l sm:not-first:border-l" : "not-first:border-l"}`}>
+          <div className="text-[18px] font-semibold tabular-nums tracking-tight" title={metric === "cost" && label !== "sessions with a cost" ? `${value.toLocaleString("en-US", { maximumFractionDigits: 4 })} USD` : value.toLocaleString()}>{show(value)}</div>
           <div className="text-[11px] text-ink-3 sm:text-[12px]">{label}</div>
         </div>)}
       </div>
       <div className="rounded-card border border-line px-2 pb-2 pt-4 sm:px-4">
-        <div className="mb-2 flex justify-between text-[11px] text-ink-3"><span>{metric === "tokens" ? "TOKENS BY SESSION START DATE" : "DAILY STARTS"}</span><span>Peak · {format(total ? peak : 0)}</span></div>
+        <div className="mb-2 flex justify-between text-[11px] text-ink-3"><span>{metric === "tokens" ? "TOKENS BY SESSION START DATE" : metric === "cost" ? "ESTIMATED USD COST BY SESSION START DATE" : "DAILY STARTS"}</span><span>Peak · {format(peak)}</span></div>
         <div className="relative">
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex flex-col justify-between pb-6">
             {[0, 1, 2].map((line) => <div key={line} className="border-t border-dashed border-line" />)}
           </div>
-          <div className="relative grid h-44 gap-px sm:h-52 sm:gap-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }} role="group" aria-label={`${metric === "tokens" ? "Session tokens by start date" : "Daily agent starts"}. Select a day for its harness and profile breakdown.`}>
+          <div className="relative grid h-44 gap-px sm:h-52 sm:gap-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }} role="group" aria-label={`${metric === "tokens" ? "Session tokens by start date" : metric === "cost" ? "Estimated USD cost by session start date" : "Daily agent starts"}. Select a day for its harness and profile breakdown.`}>
             {days.map((day, index) => {
               const key = dayKey(day.date);
-              const description = `${dateLabel(day.date)}: ${day.total.toLocaleString()} ${metric}${groups.filter((group) => day.counts.has(group.key)).map((group) => `, ${group.label}: ${day.counts.get(group.key)}`).join("")}`;
+              const description = `${dateLabel(day.date)}: ${exact(day.total)} ${unit}${groups.filter((group) => day.counts.has(group.key)).map((group) => `, ${group.label}: ${exact(day.counts.get(group.key)!)}`).join("")}`;
               return <button key={key} aria-label={description} aria-pressed={selected === key} title={description} onClick={() => onSelect(key)}
                 className={`group flex min-w-0 flex-col justify-end rounded-t pt-1 outline-offset-2 focus-visible:outline-2 focus-visible:outline-teal-ink ${selected === key ? "bg-select" : "hover:bg-chrome"}`}>
                 <span className="flex min-h-0 w-full flex-1 flex-col justify-end px-px">
-                  <span className="flex w-full flex-col-reverse overflow-hidden rounded-t-sm" style={{ height: `${day.total / peak * 100}%` }}>
+                  <span className="flex w-full flex-col-reverse overflow-hidden rounded-t-sm" style={{ height: `${day.total / scale * 100}%` }}>
                     {groups.map((group) => {
                       const count = day.counts.get(group.key) ?? 0;
                       return count > 0 && <span key={group.key} style={{ background: group.color, height: `${count / day.total * 100}%` }} />;
@@ -121,11 +133,11 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
           </div>
         </div>
         <div className="mt-3 border-t border-line pt-3">
-          <p className="mb-2 text-[12px] text-ink-3" aria-live="polite">{selectedDay ? `${dateLabel(selectedDay.date)} · ${format(selectedDay.total)} ${metric}` : "Select a bar to see that day’s counts."}</p>
+          <p className="mb-2 text-[12px] text-ink-3" aria-live="polite">{selectedDay ? `${dateLabel(selectedDay.date)} · ${format(selectedDay.total)} ${unit}` : "Select a bar to see that day’s counts."}</p>
           <div className="flex flex-wrap gap-x-5 gap-y-2" aria-label="Chart legend">
             {groups.slice(shownPage * 6, shownPage * 6 + 6).map((group) => {
               const count = selectedDay?.counts.get(group.key) ?? 0;
-              return <span key={group.key} className="inline-flex min-w-0 items-center gap-2 text-[12px]" title={`${group.label}: ${count.toLocaleString()} ${metric} on ${selectedDay ? dateLabel(selectedDay.date) : "the selected day"}; ${group.total.toLocaleString()} this month`}>
+              return <span key={group.key} className="inline-flex min-w-0 items-center gap-2 text-[12px]" title={`${group.label}: ${exact(count)} ${unit} on ${selectedDay ? dateLabel(selectedDay.date) : "the selected day"}; ${exact(group.total)} this month`}>
                 <span aria-hidden="true" className="h-2.5 w-2.5 flex-none rounded-sm" style={{ background: group.color }} />
                 <span className="min-w-0 break-words">{group.label}</span>
                 <b className="tabular-nums">{format(count)}</b>
@@ -138,9 +150,10 @@ export function AgentActivity({ month, selected, onSelect, onMove, onToday }: {
           </div>}
         </div>
       </div>
-      {!total && <p className="py-3 text-center text-[13px] text-ink-3">{metric === "tokens" ? "No reported tokens for sessions started this month." : "No agents started this month. Activity will appear here after a launch."}</p>}
+      {!total && <p className="py-3 text-center text-[13px] text-ink-3">{metric === "tokens" ? "No reported tokens for sessions started this month." : metric === "cost" ? "No reported cost for sessions started this month. Claude Code reports an estimated cost, also on a subscription; Codex doesn’t." : "No agents started this month. Activity will appear here after a launch."}</p>}
     </>}
     {metric === "tokens" && <p className="rounded-card border border-line bg-chrome p-3 text-[12px] leading-relaxed text-ink-2">Session token totals (input + cached input + output) are grouped by start date, including later follow-ups. Daily consumption history is unavailable; missing usage counts as zero.</p>}
+    {metric === "cost" && <p className="rounded-card border border-line bg-chrome p-3 text-[12px] leading-relaxed text-ink-2">Estimated USD cost as each agent reported it, grouped by session start date and including later follow-ups. On a subscription this is the value of what you used, not what you pay: subscription fees are not split per session. Sessions with no reported cost (Codex, unknown pricing or $0) are left out{uncosted ? ` · ${uncosted.toLocaleString()} this month` : ""}.</p>}
     <p className="text-[12px] leading-relaxed text-ink-3">{metric === "agents" && "One count per saved session on its start date, including archived sessions. Follow-up turns and resumes don’t add counts. "}Every workspace · your timezone ({Intl.DateTimeFormat().resolvedOptions().timeZone}). Historical profiles use their saved ID if no longer configured.</p>
   </Card>;
 }

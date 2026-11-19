@@ -102,7 +102,10 @@ function agentRuns(): AgentRun[] {
       let pick = rand();
       const [harness, profile] = series.find(([, , w]) => (pick -= w) < 0) ?? series[0]!;
       const input = Math.round(20_000 + rand() * 400_000);
-      runs.push({ started_at: clock.ago(day * 24 * 60 + 9 * 60 - Math.round(rand() * 600)), harness, profile, input_tokens: input, cached_tokens: Math.round(input * (2 + rand() * 6)), output_tokens: Math.round(input * (0.05 + rand() * 0.1)) });
+      const output = Math.round(input * (0.05 + rand() * 0.1));
+      // Claude Code and OpenCode report an estimated cost (also on a subscription); Codex reports none.
+      const cost = harness === "codex" ? null : Math.round((input * 3 + output * 15) / 10_000) / 100;
+      runs.push({ started_at: clock.ago(day * 24 * 60 + 9 * 60 - Math.round(rand() * 600)), harness, profile, input_tokens: input, cached_tokens: Math.round(input * (2 + rand() * 6)), output_tokens: output, cost_usd: cost });
     }
   }
   return runs.sort((a, b) => a.started_at - b.started_at);

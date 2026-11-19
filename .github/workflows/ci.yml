@@ -87,6 +87,9 @@ jobs:
       - name: Folio splitter fixtures (shared with Home's)
         working-directory: web
         run: pnpm test:folios
+      - name: Usage metrics
+        working-directory: web
+        run: pnpm test:usage
 
   extension:
     name: Chrome extension
