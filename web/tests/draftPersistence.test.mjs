@@ -116,11 +116,17 @@ test("message and layout writes include changes from another window", async () =
   assert.deepEqual(useMessageDrafts.getState().contexts, { other: context });
   event("storage", { key: "launchpad-message-drafts" });
   const { useLayout } = await import("../src/stores/layout.ts");
-  localStorage.setItem("launchpad.layout", JSON.stringify({ state: { pinned: ["other"] }, version: 0 }));
+  // Version 0 stored pinned sessions (removed): the migration drops them and keeps the rest.
+  localStorage.setItem("launchpad.layout", JSON.stringify({ state: { pinned: ["old"], collapsedGroups: { Done: true } }, version: 0 }));
   useLayout.getState().setDock({ open: true });
-  assert.deepEqual(useLayout.getState().pinned, ["other"]);
-  useLayout.getState().togglePin("here");
-  assert.deepEqual(useLayout.getState().pinned, ["other", "here"]);
+  assert.deepEqual(useLayout.getState().collapsedGroups, { Done: true });
+  assert.equal(useLayout.getState().pinned, undefined);
+  localStorage.setItem("launchpad.layout", JSON.stringify({ state: { collapsedGroups: { Done: true }, selectedSession: "other" }, version: 1 }));
+  useLayout.getState().toggleGroup("Running");
+  assert.deepEqual(useLayout.getState().collapsedGroups, { Done: true, Running: true });
+  assert.equal(useLayout.getState().selectedSession, "other");
+  assert.deepEqual(JSON.parse(localStorage.getItem("launchpad.layout")).state.collapsedGroups, { Done: true, Running: true });
+  assert.equal(useLayout.getState().dock.open, true);
 });
 
 test("composer retries keep the original workspace revision after switching", async () => {
