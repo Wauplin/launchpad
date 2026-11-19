@@ -19,6 +19,7 @@ import { ConfirmButton, Empty, ErrorState, FilterChip, FilterChips, IconButton, 
 import { PatchView } from "@/components/diff/DiffReview";
 import { BotChat, BotModelChoice } from "@/features/chat/BotChat";
 import { ArchiveThreadButton, NEW_THREAD, ThreadBar, ThreadList, useThreadRows, type ThreadRow } from "@/features/chat/BotThreads";
+import { ActiveThreadsSection, useActiveThreads } from "./ActiveThreads";
 import { BotConversationRow } from "./BotConversationRow";
 import { ArchivedChannelRow, ChannelConversationRow } from "@/features/channels/ChannelRows";
 import { NewChannel } from "@/features/channels/NewChannel";
@@ -91,6 +92,7 @@ export function BotsView() {
   const all = useChannels().data;
   const { channels, dms } = channelsOf(all, scope.workspace.id);
   const archived = archivedOf(all, scope.workspace.id);
+  const active = useActiveThreads().length > 0;
   const newChannel = search.new === "channel" && mine.length > 0;
   const creating = !newChannel && (search.new === true || (bots.isSuccess && mine.length === 0));
   const showArchived = !!search.archived && !creating;
@@ -118,7 +120,9 @@ export function BotsView() {
               {archived.length === 0 ? <Empty icon="archive">No archived channel in {scope.workspace.name}.</Empty>
                 : archived.map((c) => <ArchivedChannelRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}
             </section> : <>
+              <ActiveThreadsSection variant="cards" labelClass="seclabel m-0" />
               <div className="grid grid-cols-[minmax(0,1fr)] gap-2">
+                {active && <h2 className="seclabel m-0">Bots</h2>}
                 {conversationOrder(mine, sessions, scope.workspace.id).map(({ bot, thread, pinned }) => <BotConversationRow key={bot.id} bot={bot} thread={thread} pinned={pinned} className="rounded-card border border-line bg-paper" />)}
               </div>
               {channels.length > 0 && <section className="grid grid-cols-[minmax(0,1fr)] gap-2" data-tour="bots.channels"><h2 className="seclabel m-0">Channels</h2>{channels.map((c) => <ChannelConversationRow key={c.id} c={c} className="rounded-card border border-line bg-paper" />)}</section>}

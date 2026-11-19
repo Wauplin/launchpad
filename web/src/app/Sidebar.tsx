@@ -7,6 +7,7 @@ import type { Bot } from "@/gen/Bot";
 import { useScope } from "@/lib/workspace";
 import { archivedOf, channelsOf, useChannels } from "@/lib/channels";
 import { ChannelLink } from "@/features/channels/ChannelRows";
+import { SidebarActiveThreads } from "@/features/bots/ActiveThreads";
 import { WorkspaceMenu } from "@/features/workspaces/WorkspaceMenu";
 import { Link } from "@tanstack/react-router";
 import { memo, useState, type ReactNode } from "react";
@@ -240,6 +241,7 @@ export function Sidebar() {
       <WorkspaceMenu narrow={narrow} />
       {/* One scroll area for the groups; Settings stays at the bottom. */}
       <div className={`relative flex min-h-0 flex-1 flex-col gap-px overflow-y-auto pt-2.5 pb-2 ${narrow ? "overflow-x-hidden px-1 [scrollbar-width:none]" : "px-2"}`}>
+      {!narrow && <SidebarActiveThreads />}
       <BotList sessions={sessions} narrow={narrow} />
       <nav aria-label="Places" data-tour="sidebar.nav" className="mt-2 flex flex-none flex-col gap-px border-t border-line-2 pt-2">
       <NavItem narrow={narrow} tour="sidebar.today" to="/" icon="okcircle" mark={{ count: today }} title={label("Today", today > 0 && todayTitle)} end={<Count n={today} needs title={todayTitle} />}>

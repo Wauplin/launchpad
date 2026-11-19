@@ -125,6 +125,10 @@ An edit of `BOT.md` starts no new session. The current session gets the new `BOT
 
 With a Git folder, each session works in a fresh worktree of Home Git. Without a folder, a session's temporary folder is saved on Home at every turn end and follows the session to any runner; Home deletes it 30 days after the session is archived, so keep what matters in the knowledge base or on a branch. The bot prepares branches, Local PRs and suggestions for your review, and acts directly on GitHub only when you explicitly ask.
 
+### Active threads
+
+Above the bots, a section lists the threads of every bot of the workspace in one place: in the sidebar, on the **Bots** page and on the phone's **Chats** tab. A thread shows there while it works, asks you, has a finished turn you have not seen, sleeps, is quota paused, failed or was interrupted, and for 24 hours after its last update otherwise; archived threads never show. Each row shows the thread's title, its bot, its status (**Working**, **Question**, **Sleeping**, **Done**, **Failed**…) and when it last changed, newest first. A click opens the bot's chat at that thread. Six rows show at first; when a cut would hide threads that work or wait for you, finished ones make room for them. **Show all (N)** unfolds the rest in place. The section is hidden when no thread is active.
+
 ## The bot's page
 
 The bot's page is a chat over one thread. It opens at the newest message; scroll up (or click **Load earlier messages**) to read older turns and older sessions. Each turn shows:
@@ -204,7 +208,7 @@ Renaming a bot also gives it a new slug from the new name, and its Telegram comm
 
 **Pause all** stops every routine and incoming hook of the bot from starting runs. Your own messages still go through, and **Stop** in the chat ends a run that is working. **Resume all** starts them again from their next trigger.
 
-The sidebar's **Bots** group lists the bots of the workspace, Ask Launchpad among them, then its **Channels** and **Bot DMs**. A dot shows when one of a bot's threads needs you, and an amber count when more than one does; a spinner when one works. Other counts stay in Today, so a decision is never counted twice. In Today, a bot's card is titled with the bot and the thread, for example “Maintainer · PR #120 · Add gift cards at checkout”. A channel or DM shows a grey dot for unread messages and an amber count for messages that mention or ask you; that count is the channel's row in Today, so it counts once (see [Asks in Today](channels.md#asks-in-today)). The chevron collapses the group on this device; collapsed, it shows one state dot, plus an amber dot when a channel asks you. The **Bots** page lists the same: the bots, then **Channels** and **Bot DMs** with their last message.
+The sidebar's **Bots** group lists the bots of the workspace, Ask Launchpad among them, then its **Channels** and **Bot DMs**. A dot shows when one of a bot's threads needs you, and an amber count when more than one does; a spinner when one works. Other counts stay in Today, so a decision is never counted twice. In Today, a bot's card is titled with the bot and the thread, for example “Maintainer · PR #120 · Add gift cards at checkout”. A channel or DM shows a grey dot for unread messages and an amber count for messages that mention or ask you; that count is the channel's row in Today, so it counts once (see [Asks in Today](channels.md#asks-in-today)). The chevron collapses the group on this device; collapsed, it shows one state dot, plus an amber dot when a channel asks you. The **Bots** page lists the same: the bots, then **Channels** and **Bot DMs** with their last message. [Active threads](#active-threads) sit above the bots in both.
 
 ### What it sees at start
 
