@@ -435,6 +435,18 @@ pub struct Edit {
     #[serde(default)]
     pub actions: Option<Vec<ItemAction>>,
 }
+/// Pure: the line comments an edit keeps. The owner removes some and rewrites the text of others; each one must be a
+/// comment of the draft at the same place (path, lines and side, each place used once), so places never move.
+fn kept_comments(before: &[LineComment], after: Vec<LineComment>) -> Result<Vec<LineComment>> {
+    let mut used = vec![false; before.len()];
+    for c in &after {
+        let at = before.iter().enumerate().position(|(i, b)| !used[i] && b.path == c.path && b.line == c.line && b.side == c.side && b.start_line == c.start_line);
+        let Some(i) = at else { anyhow::bail!("line comments keep their place: {}:{} is not a line comment of this review", c.path, c.line) };
+        used[i] = true;
+        ensure!(!c.body.trim().is_empty() && c.body.len() <= 65_536, "a line comment holds 1–65536 bytes of text: leave out {}:{} instead", c.path, c.line);
+    }
+    Ok(after)
+}
 /// The follow-ups of a review: merge only after an approval, both only on a GitHub pull request, never both (the
 /// workflows would still run when the merge happens).
 fn validate_followups(kind: &SuggestionKind, event: &str, target: &SuggestionTarget, merge: Option<&str>, run_ci: bool) -> Result<()> {
@@ -662,9 +674,7 @@ pub async fn edit(app: &App, id: &str, q: Edit) -> Result<Suggestion> {
         s.actions = actions;
     }
     if let Some(comments) = q.comments {
-        // The owner removes line comments; the agent's text and places stay as written.
-        ensure!(comments.iter().all(|c| s.comments.contains(c)), "line comments can only be removed");
-        s.comments = comments;
+        s.comments = kept_comments(&s.comments, comments)?;
     }
     s.body = q.body;
     s.event = q.event;
@@ -893,6 +903,22 @@ pub fn instruction(app: &App, session: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edits_rewrite_or_remove_line_comments_but_never_move_them() {
+        let c = |path: &str, line: u64, start: Option<u64>, body: &str| LineComment { path: path.into(), line, side: "RIGHT".into(), start_line: start, body: body.into() };
+        let before = vec![c("a.rs", 3, None, "x"), c("a.rs", 3, None, "y"), c("b.rs", 9, Some(7), "```suggestion\nz\n```")];
+        let edited = vec![c("a.rs", 3, None, "x2"), c("b.rs", 9, Some(7), "```suggestion\nz2\n```")];
+        assert_eq!(kept_comments(&before, edited.clone()).unwrap(), edited);
+        // Two comments on one line stay two; a third there has no place.
+        assert!(kept_comments(&before, vec![c("a.rs", 3, None, "1"), c("a.rs", 3, None, "2")]).is_ok());
+        assert!(kept_comments(&before, vec![c("a.rs", 3, None, "1"), c("a.rs", 3, None, "2"), c("a.rs", 3, None, "3")]).is_err());
+        assert!(kept_comments(&before, vec![c("a.rs", 4, None, "x")]).is_err());
+        assert!(kept_comments(&before, vec![c("b.rs", 9, None, "z")]).is_err());
+        assert!(kept_comments(&before, vec![LineComment { side: "LEFT".into(), ..c("a.rs", 3, None, "x") }]).is_err());
+        assert!(kept_comments(&before, vec![c("a.rs", 3, None, "  \n")]).is_err());
+        assert!(kept_comments(&before, vec![]).unwrap().is_empty());
+    }
 
     #[test]
     fn followups_need_an_approving_github_review() {

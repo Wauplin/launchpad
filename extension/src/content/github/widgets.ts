@@ -171,6 +171,13 @@ const STYLE = `
   border: 1px solid var(--borderColor-default, #d1d9e0); background: var(--bgColor-default, #ffffff); }
 .lp-tl textarea:focus-visible, .lp-notebox textarea:focus-visible { outline: 2px solid var(--lp-teal); outline-offset: -1px; }
 .lp-notebox textarea { min-height: 64px; }
+.lp-tl textarea.lp-raw { min-height: 0; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; }
+.lp-tl textarea:disabled { opacity: 0.7; }
+.lp-edit { margin-top: 8px; }
+.lp-edit-label { margin-top: 10px; font-size: 12px; font-weight: 600; }
+.lp-edit > .lp-edit-label:first-child { margin-top: 0; }
+.lp-edit-line { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--borderColor-muted, #d1d9e0b3); }
+.lp-edit-line > .lp-edit-label { margin-top: 0; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-weight: 500; overflow-wrap: anywhere; }
 .lp-tl a.lp-plain { color: var(--fgColor-accent, #0969da); text-decoration: none; }
 .lp-tl a.lp-plain:hover { text-decoration: underline; }
 .lp-tl a.lp-tag { text-decoration: none; }

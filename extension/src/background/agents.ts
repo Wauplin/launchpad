@@ -19,7 +19,7 @@ import { QUOTE_TOPIC, RequestError, type BotList, type LaunchWhenDone, type Ledg
 import { current, homeJson } from "./home";
 import { pushEvent } from "./ports";
 
-import { checkedActions, id, workspace } from "./validation";
+import { checkedActions, checkedEdit, id, workspace } from "./validation";
 
 // Folders change rarely: kept 30 s to narrow sessions to the workspace.
 let folders: { at: number; list: Project[] } | null = null;
@@ -174,11 +174,10 @@ export function postSuggestion(a: { id: string; actions: ItemAction[] }) {
   return homeJson(`/api/suggestions/${id(a.id, "suggestion")}/post`, { method: "POST", body: { actions: checkedActions(a.actions) } });
 }
 
-/** The owner's edit of a suggested comment's text (`suggestion.edit`; comments only, so the event stays COMMENT). */
-export function editSuggestion(a: { id: string; body: string }) {
-  const body = String(a.body ?? "");
-  if (!body.trim() || body.length > 65_536) throw new RequestError("A comment holds 1–65536 characters");
-  return homeJson(`/api/suggestions/${id(a.id, "suggestion")}`, { method: "PATCH", body: { body, event: "COMMENT" } });
+/** The owner's edit of a suggestion's text before Post (`suggestion.edit`): a comment's text, or a review's summary and
+ * line comments (rewritten or left out), with its event and follow-up unchanged; Home keeps the actions. */
+export function editSuggestion(a: { id: string } & Record<string, unknown>) {
+  return homeJson(`/api/suggestions/${id(a.id, "suggestion")}`, { method: "PATCH", body: checkedEdit(a) });
 }
 
 export async function discardSuggestion(a: { id: string }) {

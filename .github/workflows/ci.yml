@@ -110,6 +110,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm typecheck
+          pnpm test:suggestions
           pnpm build
 
   tests:

@@ -5,7 +5,7 @@
 // fields. A suggested comment shows as its own section at the bottom of the entry, with Post this comment
 // (Launchpad's `suggestion.post`, in one trusted click, with the agent's actions ticked under it: close, reopen,
 // request reviewers, ready for review, draft, update branch; the owner unticks some, and the button names what the
-// click does: Comment and close, Approve and merge…; an action-only suggestion has no text), Edit (`suggestion.edit`), Insert into comment box (insert.ts)
+// click does: Comment and close, Approve and merge…; an action-only suggestion has no text), Edit (`suggestion.edit`: a comment's text, a review's summary and each line comment, raw Markdown), Insert into comment box (insert.ts)
 // and Discard. Above GitHub's comment form, the owner's box adds a private note and tells the agents about it.
 // Without timeline items, the entries go above the comment form, else under the description: nothing is lost.
 // Notes link to other notes with their link (`#lp-note-<id>`, refs.ts): a link to a note of this item scrolls to it and
@@ -15,7 +15,7 @@
 import type { ExtContext } from "@/gen/ExtContext";
 import type { ExtNote } from "@/gen/ExtNote";
 import type { ExtSuggestion } from "@/gen/ExtSuggestion";
-import { submitSuggestion } from "./suggestionAction";
+import { editRequest, edited, lineKeys, lineText, startEdit, submitSuggestion, type EditDraft } from "./suggestionAction";
 import type { ItemAction } from "@/gen/ItemAction";
 import { describeAction, postButton, ranked } from "@/lib/suggestionActions";
 import { request, sentSummary } from "../../shared/messages";
@@ -34,8 +34,9 @@ const PREFIX = "tl-";
 const BOX = "note-box";
 /** Entries unfolded in this tab. */
 const unfolded = new Set<string>();
-/** Suggestions being edited: their text so far. */
-const editing = new Map<string, string>();
+/** Suggestions being edited: their text so far (a review's summary and line comments), and those being saved. */
+const editing = new Map<string, EditDraft>();
+const saving = new Set<string>();
 /** Errors of an entry's last action. */
 const errors = new Map<string, string>();
 const pending = new Set<string>();
@@ -183,7 +184,7 @@ export function renderTimeline(page: ItemPage, ctx: ExtContext | null, refresh: 
     for (const g of groups) {
       const id = `${PREFIX}${g.entries[0]!.key}`;
       ids.add(id);
-      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, fresh.has(e.key), e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, e.suggestion?.lines, e.suggestion?.event, e.suggestion?.head, e.suggestion?.merge, e.suggestion?.run_ci, e.suggestion?.close, e.suggestion?.actions, [...(ticks.get(e.suggestion?.id ?? "") ?? [])], pending.has(e.suggestion?.id ?? ""), editing.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key), refs.get(e.key)?.map((r) => r.id)]), ctx.notes.map((n) => n.id)]);
+      const key = JSON.stringify([page.url, g.entries.map((e) => [e.key, e.note?.body.length, fresh.has(e.key), e.note?.suggestion?.status, e.suggestion?.status, e.suggestion?.body, e.suggestion?.lines, e.suggestion?.event, e.suggestion?.head, e.suggestion?.merge, e.suggestion?.run_ci, e.suggestion?.close, e.suggestion?.actions, [...(ticks.get(e.suggestion?.id ?? "") ?? [])], pending.has(e.suggestion?.id ?? ""), Object.entries(editing.get(e.suggestion?.id ?? "")?.lines ?? {}).filter(([, v]) => v === null).map(([k]) => k), editing.has(e.suggestion?.id ?? ""), saving.has(e.suggestion?.id ?? ""), errors.get(e.key), unfolded.has(e.key), refs.get(e.key)?.map((r) => r.id)]), ctx.notes.map((n) => n.id)]);
       const w = mount(id, key, g.anchor, g.place, "card");
       if (!w.fresh) continue;
       for (const e of g.entries) w.root.append(entry(w.root, page, ctx, ws, e, refs.get(e.key) ?? [], refresh));
@@ -315,22 +316,17 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
   const title = s.kind === "action" ? `Suggested: ${s.headline}` : `Suggested ${suggestionLabel(s).replace(/^an? /, "")}`;
   wrap.append(h("div", { class: "lp-row" }, logo(), h("span", { class: "lp-title", text: title }), h("span", { class: "lp-muted lp-grow", text: `${to}${status}` })));
   const draft = editing.get(s.id);
-  if (draft !== undefined) {
-    const area = field("Suggested comment", draft);
-    area.addEventListener("input", () => editing.set(s.id, area.value));
-    const save = button("Save", () => {
-      save.disabled = true;
-      request("suggestion.edit", { id: s.id, body: area.value }).then(() => { editing.delete(s.id); errors.delete(e.key); refresh(); }).catch((x) => { errors.set(e.key, fail(x)); save.disabled = false; refresh(); });
-    }, { small: true, primary: true });
-    wrap.append(area, h("div", { class: "lp-actions" }, save, button("Cancel", () => { editing.delete(s.id); refresh(); }, { small: true })));
+  if (draft !== undefined && s.status === "draft") {
+    wrap.append(editForm(e, s, draft, refresh));
     return wrap;
   }
+  if (draft !== undefined) editing.delete(s.id);
   if (s.kind === "action") wrap.append(h("div", { class: "lp-sugg-text lp-muted", text: "No comment: only these actions." }));
   else wrap.append(h("div", { class: "lp-sugg-text" }, markdown(s.text, { here: { repo: page.repo, number: page.number } })));
   if (s.kind === "review") for (const line of s.lines.filter((l) => l.state !== "dismissed")) wrap.append(h("div", { class: "lp-sugg-text" }, h("strong", { text: `${line.path}:${line.line}` }), markdown(line.body)));
   if (s.status !== "draft" && s.status !== "inserted") return wrap;
   const actions = h("div", { class: "lp-actions" });
-  if (s.kind === "comment" && s.status === "draft") actions.append(button("Edit", () => { editing.set(s.id, s.body); refresh(); }, { small: true, title: "Change the text before posting it" }));
+  if (s.kind !== "action" && s.status === "draft") actions.append(button("Edit", () => { editing.set(s.id, startEdit(s)); errors.delete(e.key); refresh(); }, { small: true, title: s.kind === "review" ? "Change the summary and the line comments before posting" : "Change the text before posting it" }));
   const choice = h("div", { class: "lp-actions", attrs: { hidden: "" } });
   const insert = (mode?: "replace" | "append") => {
     choice.hidden = true;
@@ -385,6 +381,68 @@ function suggestionBlock(root: ShadowRoot, page: ItemPage, e: Entry, refresh: ()
   }
   wrap.append(actions, choice);
   return wrap;
+}
+
+/** Pure: a line comment's place in words ("src/a.rs lines 4–6", "src/b.rs line 9 (removed)"). */
+const placeOf = (l: { path: string; line: number; start_line: number | null; side: string }) =>
+  `${l.path} ${l.start_line && l.start_line !== l.line ? `lines ${l.start_line}–${l.line}` : `line ${l.line}`}${l.side === "LEFT" ? " (removed)" : ""}`;
+
+/** A text field for raw Markdown, as tall as its text (up to 24 lines). */
+function rawField(label: string, value: string, onInput: (v: string) => void) {
+  const area = field(label, value);
+  area.classList.add("lp-raw");
+  area.rows = Math.min(24, Math.max(4, value.split("\n").length + 1));
+  area.spellcheck = true;
+  area.addEventListener("input", () => onInput(area.value));
+  return area;
+}
+
+/** Edit of a waiting suggestion, in place of its text: the comment (or the review's summary) and each line comment of
+ * a review as raw Markdown (```suggestion blocks as written); a line comment can be left out. Places, the review's
+ * event and follow-up and the ticked actions stay. Save stores it on Home (`suggestion.edit`), so Post sends what was
+ * saved; Cancel drops the edit; an error keeps the text typed. */
+function editForm(e: Entry, s: ExtSuggestion, d: EditDraft, refresh: () => void): HTMLElement {
+  const busy = saving.has(s.id);
+  const review = s.kind === "review";
+  const form = h("div", { class: "lp-edit" });
+  const body = rawField(review ? "Review summary" : "Suggested comment", d.body, (v) => { d.body = v; });
+  body.disabled = busy;
+  form.append(h("div", { class: "lp-edit-label", text: review ? "Summary" : "Comment" }), body);
+  if (review) {
+    const keys = lineKeys(s.lines);
+    s.lines.forEach((l, i) => {
+      if (l.state === "dismissed") return;
+      const key = keys[i]!;
+      const text = lineText(d, key, l);
+      const head = h("div", { class: "lp-row lp-edit-label" }, h("span", { class: "lp-grow", text: placeOf(l) }));
+      if (text === null) {
+        head.append(button("Keep it", () => { d.lines[key] = l.body; refresh(); }, { small: true, title: "Puts this line comment back into the review" }));
+        form.append(h("div", { class: "lp-edit-line lp-left-out" }, head, h("div", { class: "lp-muted", text: "Left out of the review" })));
+        return;
+      }
+      const leave = button("Leave out", () => { d.lines[key] = null; refresh(); }, { small: true, title: "Posts the review without this line comment" });
+      leave.disabled = busy;
+      head.append(leave);
+      const area = rawField(`Line comment on ${placeOf(l)}`, text, (v) => { d.lines[key] = v; });
+      area.disabled = busy;
+      form.append(h("div", { class: "lp-edit-line" }, head, area));
+    });
+  }
+  const save: HTMLButtonElement = button(busy ? "Saving…" : "Save", () => {
+    if (saving.has(s.id)) return;
+    if (!edited(s, d)) { editing.delete(s.id); errors.delete(e.key); refresh(); return; }
+    saving.add(s.id);
+    refresh();
+    request("suggestion.edit", editRequest(s, d))
+      .then(() => { editing.delete(s.id); errors.delete(e.key); })
+      .catch((x) => { errors.set(e.key, fail(x)); })
+      .finally(() => { saving.delete(s.id); refresh(); });
+  }, { small: true, primary: true, title: "Stores the edit in Launchpad; nothing goes to GitHub until you post it" });
+  save.disabled = busy;
+  const cancel = button("Cancel", () => { editing.delete(s.id); errors.delete(e.key); refresh(); }, { small: true, title: "Drops your changes" });
+  cancel.disabled = busy;
+  form.append(h("div", { class: "lp-actions" }, save, cancel, h("span", { class: "lp-muted lp-grow", text: review ? "Line comments keep their place in the diff." : "" })));
+  return form;
 }
 
 /** The owner's private note box, right above GitHub's comment form. Returns its host. */

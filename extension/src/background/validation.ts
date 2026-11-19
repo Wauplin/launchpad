@@ -1,6 +1,6 @@
 // Shared primitives for dedicated background requests. Route-specific trust checks stay with each route.
 import type { ItemAction } from "@/gen/ItemAction";
-import { RequestError } from "../shared/messages.ts";
+import { RequestError, type SuggestionEdit } from "../shared/messages.ts";
 
 export function id(v: unknown, what: string): string {
   if (typeof v !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(v)) throw new RequestError(`Not a ${what} ID`);
@@ -37,3 +37,35 @@ export function checkedActions(raw: unknown): ItemAction[] {
   });
 }
 
+
+const MAX_TEXT = 65_536;
+const line = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : null);
+
+/** Pure: the edit a page sent, rebuilt field by field, or an error. The text stays as typed (Markdown and ```suggestion
+ * blocks untouched); a review keeps its event and follow-up; `comments` (a review's line comments with their new text,
+ * the ones left out removed) is absent for a comment, so Home keeps them. Places are checked again on Home. */
+export function checkedEdit(raw: unknown): SuggestionEdit {
+  const a = (raw ?? {}) as Record<string, unknown>;
+  const text = (v: unknown, what: string) => {
+    if (typeof v !== "string" || !v.trim() || v.length > MAX_TEXT) throw new RequestError(`${what} holds 1–65536 characters`);
+    return v;
+  };
+  const body = text(a.body, "A comment");
+  const event = a.event ?? "COMMENT";
+  if (event !== "COMMENT" && event !== "APPROVE" && event !== "REQUEST_CHANGES") throw new RequestError("Not a review event");
+  const merge = a.merge ?? null;
+  if (merge !== null && merge !== "merge" && merge !== "squash" && merge !== "rebase") throw new RequestError("Not a merge method");
+  const out: SuggestionEdit = { body, event, merge, run_ci: a.run_ci === true };
+  if (a.comments !== undefined) {
+    if (!Array.isArray(a.comments) || a.comments.length > 200) throw new RequestError("Not a list of line comments");
+    out.comments = a.comments.map((c: Record<string, unknown>) => {
+      const at = line(c?.line);
+      if (typeof c?.path !== "string" || !c.path || c.path.length > 1024 || at === null) throw new RequestError("Not a line comment's place");
+      if (c.side !== "RIGHT" && c.side !== "LEFT") throw new RequestError("Not a side of the diff");
+      const start = c.start_line === null || c.start_line === undefined ? null : line(c.start_line);
+      if (c.start_line != null && start === null) throw new RequestError("Not a line comment's place");
+      return { path: c.path, line: at, side: c.side, start_line: start, body: text(c.body, `The line comment on ${c.path}:${at}`) };
+    });
+  }
+  return out;
+}

@@ -20,6 +20,15 @@ import type { SessionEventPage } from "@/gen/SessionEventPage";
 import type { TodayItem } from "@/gen/TodayItem";
 import type { Workspace } from "@/gen/Workspace";
 
+/** A suggestion edit as Home's `suggestion.edit` takes it (`PATCH /api/suggestions/{id}`). */
+export type SuggestionEdit = {
+  body: string;
+  event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
+  merge: "merge" | "squash" | "rebase" | null;
+  run_ci: boolean;
+  comments?: { path: string; line: number; side: "RIGHT" | "LEFT"; start_line: number | null; body: string }[];
+};
+
 /** Where the extension is connected. Never holds a credential. */
 export type HomeInfo = {
   kind: "space" | "address";
@@ -198,8 +207,9 @@ export type Requests = {
    * comment, on a trusted click; `actions` are the ones the owner left ticked (Home runs them once after posting,
    * or alone for an action-only suggestion). */
   "suggestion.post": Req<{ id: string; actions: ItemAction[] }, unknown>;
-  /** Saves the owner's edit of a waiting suggested comment (`suggestion.edit`) before Post. */
-  "suggestion.edit": Req<{ id: string; body: string }, unknown>;
+  /** Saves the owner's edit of a waiting suggested comment or review (`suggestion.edit`) before Post: the text, a
+   * review's event and follow-up as they were, and its line comments with their new text (left-out ones removed). */
+  "suggestion.edit": Req<{ id: string } & SuggestionEdit, unknown>;
   /** Discards a suggestion (`suggestion.discard`). */
   "suggestion.discard": Req<{ id: string }, void>;
   /** Stops a session's turn (`session.stop`). */
