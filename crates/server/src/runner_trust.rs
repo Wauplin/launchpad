@@ -24,7 +24,7 @@ pub(crate) fn may(method: &str, path: &str) -> bool {
             | ("GET", ["api", "predrafts"] | ["api", "predrafts", _, "record"])
             | ("POST", ["api", "predrafts"])
             | ("PATCH", ["api", "predrafts", _])
-            | ("POST", ["api", "home-git", _, "refresh" | "delete" | "merge" | "pull-request"])
+            | ("POST", ["api", "home-git", _, "refresh" | "delete" | "merge" | "landed" | "pull-request"])
             | ("GET", ["api", "home-git", _, "branches" | "follow"])
             | ("POST", ["api", "plain", "assets", _])
             | ("GET", ["api", "sessions", _] | ["api", "sessions", _, "trace"])
@@ -121,7 +121,7 @@ pub(crate) async fn check(app: &App, runner: &str, method: &str, path: &str, bod
             let owners = v["by_agent"] == Value::Bool(false) && matches!((v["branch"].as_str(), v["head"].as_str()), (Some(b), Some(h)) if granted(b, h));
             v["by_agent"] = Value::Bool(!owners);
         }
-        ("POST", ["api", "home-git", project, "pull-request"]) => {
+        ("POST", ["api", "home-git", project, "pull-request" | "landed"]) => {
             let sid = session(&v)?;
             let branch = str_of(&v, "branch")?;
             ensure!(owns_branch(app, &sid, project, branch).await, "{branch} is not a branch of this session");
@@ -180,6 +180,7 @@ mod tests {
             ("PATCH", "/api/predrafts/p1"),
             ("GET", "/api/predrafts/p1/record"),
             ("POST", "/api/home-git/f1/merge"),
+            ("POST", "/api/home-git/f1/landed"),
             ("POST", "/api/home-git/f1/refresh"),
             ("GET", "/api/sessions/s1/trace"),
             ("GET", "/api/context/presets"),

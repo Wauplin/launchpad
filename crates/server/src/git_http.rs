@@ -6,7 +6,7 @@
 //! - `/git/<folder>.git/…` (runner): the local endpoint that runner clones use as `origin`. It accepts
 //!   only this daemon's Git tokens (the daemon, or one session's worktrees) and forwards to Home with the
 //!   runner credential.
-//! - `/api/home-git/<folder>/…`: refresh, branches, Restore, merge and pull request branches, on Home (a
+//! - `/api/home-git/<folder>/…`: refresh, branches, Restore, merge, landed checks and pull request branches, on Home (a
 //!   runner forwards them).
 
 use axum::body::Body;
@@ -34,6 +34,7 @@ pub fn router() -> Router<Server> {
         .route("/api/home-git/{id}/restore", post(restore))
         .route("/api/home-git/{id}/delete", post(delete))
         .route("/api/home-git/{id}/merge", post(merge))
+        .route("/api/home-git/{id}/landed", post(landed))
         .route("/api/home-git/{id}/pull-request", post(pull_request))
         .route("/api/home-git/{id}/follow", get(follow_status))
 }
@@ -330,6 +331,30 @@ async fn merge(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<Me
         }
     }
     Ok(Json(answer))
+}
+
+#[derive(Deserialize)]
+struct Landed {
+    branch: String,
+    head: String,
+    #[serde(default)]
+    base: Option<String>,
+    session_id: String,
+}
+
+/// `work finish` before it opens a Local PR: whether the session's pushed branch adds nothing to its base as the
+/// remote has it now (`worktrees::landed_on_home`, which records it merged then). Pushes nothing.
+async fn landed(State(s): State<Server>, Path(id): Path<String>, Json(b): Json<Landed>) -> ApiResult<Value> {
+    let p = home_folder(&s, &id).await?;
+    let w = launchpad_core::away::session_branch(&s.app, &b.session_id, &p.id, &b.branch).await.map_err(bad)?;
+    let w = w.ok_or_else(|| ApiError::new(StatusCode::FORBIDDEN, format!("{} is not a worktree of this session in {}", b.branch, p.name)))?;
+    if let Some(base) = &b.base
+        && w.base_branch.as_deref() != Some(base.as_str())
+    {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, format!("{} is based on {}, not {base}", b.branch, w.base_branch.as_deref().unwrap_or("no branch"))));
+    }
+    let merged = launchpad_core::worktrees::landed_on_home(&s.app, &p, &b.branch, &b.head, b.base.as_deref()).await.map_err(bad)?;
+    Ok(Json(json!({"merged": merged})))
 }
 
 #[derive(Deserialize)]

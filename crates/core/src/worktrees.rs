@@ -949,11 +949,17 @@ pub async fn add_project(app: &App, session_id: &str, project: &str) -> Result<S
     let w = prepare(app, &w.id).await?;
     let sink = app.sessions.sink(app, session_id);
     sink.emit(EventBody::Notice { text: format!("Added a worktree for {} on branch {}: {path}", p.name, w.branch) }).await;
+    let base = w.base_branch.as_deref().map(|b| format!("`{b}`")).unwrap_or_else(|| "its base branch".into());
+    let ends = match finish_step(s.launch_spec.when_done(), false, p.when_done, false) {
+        FinishStep::Merge => format!("`work finish` merges this branch into {base} on Home (this folder's When done is Merge)."),
+        FinishStep::LocalPr => format!("`work finish` opens a Local PR of this branch into {base} for the owner's review (this folder's When done is not Merge)."),
+        FinishStep::Leave => "The owner merges, publishes or discards this branch from Launchpad.".into(),
+    };
     let (_cancel, mut cancelled) = tokio::sync::watch::channel(false);
     if let Err(e) = run_setup(app, &p, &path, &sink, &mut cancelled).await {
-        return Ok(format!("Worktree for {} on branch `{}`: {path}\nIts setup command failed; fix the environment yourself if needed:\n{e:#}", p.name, w.branch));
+        return Ok(format!("Worktree for {} on branch `{}`: {path}\n{ends}\nIts setup command failed; fix the environment yourself if needed:\n{e:#}", p.name, w.branch));
     }
-    Ok(format!("Worktree for {} on branch `{}`: {path}\nCommit your work on this branch; Launchpad pushes it to Home at the end of each turn.", p.name, w.branch))
+    Ok(format!("Worktree for {} on branch `{}`: {path}\nCommit your work on this branch; Launchpad pushes it to Home at the end of each turn. {ends}", p.name, w.branch))
 }
 
 /// Restores the removed worktrees of a session before it resumes. Returns whether a folder was restored.
@@ -1300,56 +1306,125 @@ pub async fn request_merge(app: &App, id: &str, by_agent: bool, head: Option<Str
     Ok(w)
 }
 
-/// `launchpad work finish`: requests the merge of every worktree of the session when the launch chose Merge, or
-/// opens a Local PR of the primary worktree's branch when it chose Local PR; Keep changes nothing.
-pub async fn finish(app: &App, session_id: &str) -> Result<String> {
-    let when_done = app.sessions.get(session_id).map(|s| s.launch_spec.when_done()).unwrap_or_default();
-    ensure!(when_done != crate::model::WhenDone::ReadOnly, "this session is read only: there is nothing to finish. Undo your changes and give your answer in your final message");
-    if when_done.opens_local_pr() {
-        return finish_local_pr(app, session_id, when_done.publishes()).await;
+/// What `launchpad work finish` does with one worktree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FinishStep {
+    /// Request a merge into its base branch.
+    Merge,
+    /// Open a Local PR of its branch (none when it adds nothing to its base).
+    LocalPr,
+    /// Leave it to the owner.
+    Leave,
+}
+
+/// Pure: what `work finish` does with a worktree. The launch's folders (`named`: its own folder and its editable
+/// context folders) follow the launch's When done (a Local PR only for the primary branch). A folder the agent
+/// added (`work add-project`) follows its own folder's When done (`folder`): Merge merges, since the owner's folder
+/// setting authorizes it; Local PR, Draft PR and Open PR open a Local PR (never published); Keep opens a Local PR
+/// when the launch chose Merge and leaves it otherwise.
+pub fn finish_step(launch: crate::model::WhenDone, named: bool, folder: crate::model::WhenDone, primary: bool) -> FinishStep {
+    use crate::model::WhenDone;
+    match (named, launch, folder) {
+        (_, WhenDone::ReadOnly, _) => FinishStep::Leave,
+        (true, WhenDone::Merge, _) => FinishStep::Merge,
+        (true, l, _) if l.opens_local_pr() && primary => FinishStep::LocalPr,
+        (true, ..) => FinishStep::Leave,
+        (false, _, WhenDone::Merge) => FinishStep::Merge,
+        (false, _, f) if f.opens_local_pr() => FinishStep::LocalPr,
+        (false, WhenDone::Merge, _) => FinishStep::LocalPr,
+        (false, ..) => FinishStep::Leave,
     }
-    // Only a launch that chose Merge lets the agent request one; Keep leaves the branch to the owner.
-    if when_done != crate::model::WhenDone::Merge {
+}
+
+/// Pure: whether an agent's merge request of a folder is allowed by When done: the launch's Merge for the folders it
+/// named, the folder's own Merge for a folder the agent added (`finish_step`).
+pub fn agent_may_merge(launch: crate::model::WhenDone, named: bool, folder: crate::model::WhenDone) -> bool {
+    finish_step(launch, named, folder, false) == FinishStep::Merge
+}
+
+/// `launchpad work finish`: requests the merge of the worktrees whose When done is Merge (`finish_step`: the
+/// launch's for its own folders, the folder's own for folders the agent added), opens a Local PR of the others that
+/// end in one, unless their branch adds nothing to its base on the remote (`landed`); Keep changes nothing.
+pub async fn finish(app: &App, session_id: &str) -> Result<String> {
+    let session = app.sessions.get(session_id).context("no such session")?;
+    let when_done = session.launch_spec.when_done();
+    ensure!(when_done != crate::model::WhenDone::ReadOnly, "this session is read only: there is nothing to finish. Undo your changes and give your answer in your final message");
+    let target = target_folder(app, &session).await;
+    let mut steps = vec![];
+    for w in for_session(app, session_id).await?.into_iter().filter(|w| w.state == WorktreeState::Active) {
+        let named = launch_named(&session.launch_spec, target.as_deref(), &w.project_id);
+        let folder = crate::projects::get(app, &w.project_id).await?.map(|p| p.when_done).unwrap_or_default();
+        let step = match finish_step(when_done, named, folder, w.primary) {
+            // A pull request is the review; a merge needs a base branch.
+            _ if w.pull_request.is_some() => FinishStep::Leave,
+            FinishStep::Merge if w.base_branch.is_none() => FinishStep::Leave,
+            step => step,
+        };
+        steps.push((w, named, step));
+    }
+    let primary_pr = when_done.opens_local_pr().then(|| steps.iter().position(|(w, named, s)| w.primary && *named && *s == FinishStep::LocalPr)).flatten();
+    let acting = steps.iter().filter(|(_, _, s)| *s != FinishStep::Leave).count();
+    if when_done.opens_local_pr() && primary_pr.is_none() && acting == 0 {
+        if let Some((w, ..)) = steps.iter().find(|(w, ..)| w.primary)
+            && w.pull_request.is_some()
+        {
+            bail!("this branch continues a pull request: push your commits instead of opening a Local PR");
+        }
+        bail!("this session has no Launchpad worktree to turn into a Local PR");
+    }
+    if acting == 0 {
+        ensure!(when_done != crate::model::WhenDone::Merge, "this session has no Launchpad worktree to merge");
         return Ok("Nothing to do: this launch keeps your branches for the owner, who merges, publishes or discards them from Launchpad. Commit your work, end your turn and report the branches as ready for review. Do not merge yourself.".into());
     }
-    let all = for_session(app, session_id).await?;
-    let records: Vec<_> = all.into_iter().filter(|w| w.state == WorktreeState::Active && w.base_branch.is_some() && w.pull_request.is_none()).collect();
-    ensure!(!records.is_empty(), "this session has no Launchpad worktree to merge");
-    for w in &records {
-        ready_to_finish(app, w).await?;
+    for (w, _, step) in &steps {
+        if *step != FinishStep::Leave {
+            ready_to_finish(app, w).await?;
+        }
     }
-    // Merge covers only the folders the launch named; a folder the agent added itself becomes a Local PR.
-    let session = app.sessions.get(session_id).context("no such session")?;
-    let target = target_folder(app, &session).await;
-    let (named, added): (Vec<_>, Vec<_>) = records.into_iter().partition(|w| launch_named(&session.launch_spec, target.as_deref(), &w.project_id));
-    let mut lines = vec![];
-    for w in &named {
-        request_merge(app, &w.id, true, None).await?;
-        lines.push(format!("- {} into {}", w.branch, w.base_branch.as_deref().unwrap_or_default()));
+    let mut parts = vec![];
+    if let Some(i) = primary_pr {
+        let left: Vec<String> = steps.iter().filter(|(w, _, s)| !w.primary && *s == FinishStep::Leave).map(|(w, ..)| format!("`{}`", w.branch)).collect();
+        parts.push(finish_local_pr(app, session_id, steps[i].0.clone(), when_done.publishes(), &left).await?);
     }
-    let mut prs = vec![];
-    for w in added {
-        let p = open_local_pr(app, session_id, w).await?;
-        prs.push(format!("- {} into {}: Local PR {}", p.branch, p.base_branch, p.id));
+    let (mut merges, mut prs, mut landed) = (vec![], vec![], vec![]);
+    for (i, (w, named, step)) in steps.into_iter().enumerate() {
+        match step {
+            _ if Some(i) == primary_pr => {}
+            FinishStep::Merge => {
+                request_merge(app, &w.id, true, None).await?;
+                let why = if named { "" } else { " (a folder you added: its When done is Merge)" };
+                merges.push(format!("- {} into {}{why}", w.branch, w.base_branch.as_deref().unwrap_or_default()));
+            }
+            FinishStep::LocalPr => match open_local_pr(app, session_id, w).await? {
+                Opened::Pr(p) => prs.push(format!("- {} into {}: Local PR {}", p.branch, p.base_branch, p.id)),
+                Opened::Landed(branch, note) => landed.push(format!("- {branch}: {note}")),
+            },
+            FinishStep::Leave => {}
+        }
     }
-    let mut text = String::new();
-    if !lines.is_empty() {
-        text.push_str(&format!("Merge requested:\n{}\nLaunchpad pushes your branches to Home and merges them there after your turn ends. ", lines.join("\n")));
+    if !merges.is_empty() {
+        parts.push(format!("Merge requested:\n{}\nLaunchpad pushes your branches to Home and merges them there after your turn ends.", merges.join("\n")));
     }
     if !prs.is_empty() {
-        text.push_str(&format!(
-            "Not merged, since this launch did not name their folders (you added them): Local PRs opened for the owner's review instead:\n{}\nSet each one's title and description with `{} pr update --title \"…\" --body-file <file>` in its worktree. ",
+        parts.push(format!(
+            "Not merged, since you added these folders (`work add-project`) and their When done is not Merge: Local PRs opened for the owner's review instead:\n{}\nSet each one's title and description with `{} pr update --title \"…\" --body-file <file>` in its worktree.",
             prs.join("\n"),
             app.paths.cli_command()
         ));
     }
-    text.push_str("End your turn now and report the merge as requested and the Local PRs as opened for review, not as merged. Do not merge or open a pull request yourself.");
-    Ok(text)
+    if !landed.is_empty() {
+        parts.push(format!("No Local PR, since these branches add nothing to their base branch on the remote (marked merged):\n{}", landed.join("\n")));
+    }
+    if primary_pr.is_none() {
+        parts.push("End your turn now and report the merge as requested and the Local PRs as opened for review, not as merged. Do not merge or open a pull request yourself.".into());
+    }
+    Ok(parts.join("\n"))
 }
 
 /// Pure: whether a launch named this folder for its work: the folder it runs in (`target`) or an editable context
-/// folder. An agent's Merge covers only these, never a folder it added itself (`work add-project`), so a launch's
-/// When done never reaches the base branch of another repository.
+/// folder. The launch's When done covers only these; a folder the agent added itself (`work add-project`) follows
+/// its own folder's When done (`finish_step`), so a launch's When done never reaches the base branch of another
+/// repository.
 pub fn launch_named(spec: &crate::model::LaunchSpec, target: Option<&str>, project_id: &str) -> bool {
     target == Some(project_id) || spec.context_projects.iter().any(|c| c.editable && c.project_id == project_id)
 }
@@ -1365,14 +1440,48 @@ async fn target_folder(app: &App, s: &Session) -> Option<String> {
     }
 }
 
-/// Pushes a worktree's branch to Home and opens (or finds) its Local PR, in the session's change set.
-async fn open_local_pr(app: &App, session_id: &str, mut w: TaskWorktree) -> Result<crate::predrafts::Predraft> {
+/// What `open_local_pr` did.
+enum Opened {
+    Pr(Box<crate::predrafts::Predraft>),
+    /// The branch adds nothing to its base on the remote: no Local PR, the worktree is recorded merged. Branch and
+    /// Home's note.
+    Landed(String, String),
+}
+
+/// Pushes a worktree's branch to Home and opens (or finds) its Local PR, in the session's change set, unless the
+/// branch adds nothing to its base as the remote has it now (Home fetches it first): then it is recorded merged.
+async fn open_local_pr(app: &App, session_id: &str, mut w: TaskWorktree) -> Result<Opened> {
     ready_to_finish(app, &w).await?;
     push_unlocked(app, &mut w).await.context("push the branch to Home")?;
+    let head = w.pushed.clone().context("the branch is not on Home")?;
+    if let Some(m) = landed(app, &w, &head, session_id).await? {
+        let note = m.note.clone();
+        {
+            let _lock = app.worktree_lock.lock().await;
+            let mut r = get(app, &w.id).await?;
+            r.merge = None;
+            r.merged = Some(Merged { base: m.base.or(Some(r.base_commit.clone())), ..m });
+            save(app, &r).await?;
+        }
+        notice(app, &w, &format!("No Local PR of {}: {note}", w.branch)).await;
+        return Ok(Opened::Landed(w.branch, note));
+    }
     let title = app.sessions.get(session_id).map(|s| s.title).filter(|t| !t.trim().is_empty());
     let p = crate::predrafts::open_for_branch(app, &w.project_id, &w.branch, w.base_branch.as_deref(), Some(session_id), title).await?;
     mark_predraft(app, &w.id, &p.id).await?;
-    Ok(p)
+    Ok(Opened::Pr(Box::new(p)))
+}
+
+/// Home's answer to whether a pushed branch adds nothing to its base on the remote (`landed_on_home`); a runner asks
+/// Home (`/api/home-git/{id}/landed`), which holds the folder's remote.
+async fn landed(app: &App, w: &TaskWorktree, head: &str, session_id: &str) -> Result<Option<Merged>> {
+    if crate::home_git::here(app) {
+        let project = crate::projects::get(app, &w.project_id).await?.context("the folder no longer exists")?;
+        return landed_on_home(app, &project, &w.branch, head, w.base_branch.as_deref()).await;
+    }
+    let body = json!({"branch": w.branch, "head": head, "base": w.base_branch, "session_id": session_id});
+    let v = crate::home_link::home_request("POST", &format!("/api/home-git/{}/landed", w.project_id), Some(body)).await.context("ask Home whether the branch has changes")?;
+    Ok(serde_json::from_value(v["merged"].clone())?)
 }
 
 async fn ready_to_finish(app: &App, w: &TaskWorktree) -> Result<()> {
@@ -1385,14 +1494,15 @@ async fn ready_to_finish(app: &App, w: &TaskWorktree) -> Result<()> {
 }
 
 /// Opens a Local PR of the session's primary branch on Home. Idempotent: a second call returns the same
-/// Local PR. The session's other branches join the same change set when they become Local PRs.
-async fn finish_local_pr(app: &App, session_id: &str, publish: Option<bool>) -> Result<String> {
-    let all = for_session(app, session_id).await?;
-    let w = all.iter().find(|w| w.primary && w.state == WorktreeState::Active).cloned().context("this session has no Launchpad worktree to turn into a Local PR")?;
-    ensure!(w.pull_request.is_none(), "this branch continues a pull request: push your commits instead of opening a Local PR");
+/// Local PR. `left`: the session's other branches that `work finish` leaves; they can join the same change set.
+async fn finish_local_pr(app: &App, session_id: &str, w: TaskWorktree, publish: Option<bool>, left: &[String]) -> Result<String> {
     let root = w.root.clone();
-    let p = open_local_pr(app, session_id, w).await?;
-    let others: Vec<String> = all.iter().filter(|o| !o.primary && o.state == WorktreeState::Active).map(|o| format!("`{}`", o.branch)).collect();
+    let p = match open_local_pr(app, session_id, w).await? {
+        Opened::Pr(p) => *p,
+        Opened::Landed(branch, note) => {
+            return Ok(format!("No Local PR: `{branch}` adds nothing to its base branch on the remote, so Launchpad marked it merged. {note} End your turn and report that there was nothing to review."));
+        }
+    };
     let then = match publish {
         Some(draft) => format!(
             "Then end your turn: Launchpad publishes it on GitHub as {} into `{}` once your turn is saved. Report the pull request as requested, not as opened. Do not push to GitHub or open a pull request yourself.",
@@ -1405,8 +1515,8 @@ async fn finish_local_pr(app: &App, session_id: &str, publish: Option<bool>) -> 
         "Local PR opened on Home from branch `{}` (id {}), based on `{}`. Now set its title and description: write the description to a file, then run `{} pr update --title \"…\" --body-file <file>` in `{}`. {then}",
         p.branch, p.id, p.base_branch, app.paths.cli_command(), root
     );
-    if !others.is_empty() {
-        text.push_str(&format!(" The branches of your other worktrees ({}) can join the same change set: run `{} pr create` in each of them.", others.join(", "), app.paths.cli_command()));
+    if !left.is_empty() {
+        text.push_str(&format!(" The branches of your other worktrees ({}) can join the same change set: run `{} pr create` in each of them.", left.join(", "), app.paths.cli_command()));
     }
     Ok(text)
 }
@@ -1720,8 +1830,8 @@ async fn merge_remote(app: &App, w: &mut TaskWorktree, tip: &str) -> Result<Step
 
 /// Home: checks a runner's merge request (`/api/home-git/{id}/merge`) against Home's own records instead of
 /// trusting it: the branch must be a worktree of the named session in that folder, with that base. An agent's
-/// request (`launchpad work finish`) also needs the launch's When done = Merge and the folder in the session's
-/// workspace.
+/// request (`launchpad work finish`) also needs When done = Merge (`agent_may_merge`: the launch's for its own
+/// folders, the folder's own for a folder the agent added) and the folder in the session's workspace.
 pub async fn check_merge_request(app: &App, project: &Project, session_id: Option<&str>, branch: &str, base: &str, by_agent: bool) -> Result<()> {
     let sid = session_id.filter(|s| !s.is_empty()).context("this merge request names no session; update the runner")?;
     let s = app.sessions.get(sid).context("Home has no record of this session")?;
@@ -1730,12 +1840,17 @@ pub async fn check_merge_request(app: &App, project: &Project, session_id: Optio
     ensure!(w.pull_request.is_none(), "this branch continues a pull request: merge it on GitHub");
     if by_agent {
         let when_done = s.launch_spec.worktree.as_ref().map(|o| o.when_done).unwrap_or_default();
-        ensure!(when_done == crate::model::WhenDone::Merge, "this launch did not choose Merge when done: the owner merges from Launchpad");
         let target = target_folder(app, &s).await;
+        let named = launch_named(&s.launch_spec, target.as_deref(), &project.id);
+        // Home's own record of the folder's When done, never the runner's.
         ensure!(
-            launch_named(&s.launch_spec, target.as_deref(), &project.id),
-            "this launch did not name {} (the agent added it): an agent's Merge covers only the launch's own folders, so the owner merges or publishes this branch from Launchpad",
-            project.name
+            agent_may_merge(when_done, named, project.when_done),
+            "{}",
+            if named {
+                "this launch did not choose Merge when done: the owner merges from Launchpad".to_string()
+            } else {
+                format!("the agent added {} and its When done is not Merge: the owner merges or publishes this branch from Launchpad", project.name)
+            }
         );
         let workspace = crate::kb::workspace_of_session(app, sid).await;
         ensure!(workspace.is_some() && project.workspace_id == workspace, "{} is not in this session's workspace", project.name);
@@ -1752,27 +1867,50 @@ pub async fn merge_on_home(app: &App, project: &Project, branch: &str, head: &st
     let fork = crate::home_git::git_in(app, &crate::home_git::mirror(app, &project.id), &["merge-base", &format!("refs/heads/{base}"), head], 60).await.ok();
     let outcome = crate::home_git::merge(app, project, branch, head, base).await?;
     if let crate::home_git::MergeOutcome::Merged { head: merged, note } = &outcome {
-        if let Err(e) = crate::predrafts::close_merged(app, &project.id, branch, merged).await {
-            tracing::warn!("worktree merge of {branch}: Local PR not marked merged: {e:#}");
-        }
-        let m = Merged { base: fork, into: base.to_string(), head: head.to_string(), note: note.clone(), at: now_ms() };
-        let (project_id, branch_name, json) = (project.id.clone(), branch.to_string(), serde_json::to_string(&m)?);
-        let saved = app
-            .state_db
-            .call(move |c| {
-                c.execute(
-                    "INSERT INTO branch_merge (project_id, branch, json) VALUES (?1, ?2, ?3) ON CONFLICT (project_id, branch) DO UPDATE SET json = excluded.json",
-                    rusqlite::params![project_id, branch_name, json],
-                )?;
-                Ok(())
-            })
-            .await;
-        if let Err(e) = saved {
-            tracing::warn!("worktree merge of {branch}: merge not recorded: {e:#}");
-        }
-        app.bus.publish("worktrees", "merged", json!({"project_id": project.id, "branch": branch}));
+        record_merge(app, project, branch, merged, Merged { base: fork, into: base.to_string(), head: head.to_string(), note: note.clone(), at: now_ms() }).await;
     }
     Ok(outcome)
+}
+
+/// Home: a branch that adds nothing to its base as the folder's remote has it now (`home_git::landed`: commits
+/// that reached the base on the remote directly, an empty branch) is recorded merged like `merge_on_home`, without
+/// a push. `base` None: the folder's default branch. None when the branch has changes of its own.
+pub async fn landed_on_home(app: &App, project: &Project, branch: &str, head: &str, base: Option<&str>) -> Result<Option<Merged>> {
+    let base = match base.filter(|b| !b.is_empty()) {
+        Some(b) => b.to_string(),
+        None => crate::home_git::default_branch(app, &project.id).await?,
+    };
+    let Some((base_tip, note)) = crate::home_git::landed(app, project, branch, head, &base).await? else { return Ok(None) };
+    let fork = crate::home_git::git_in(app, &crate::home_git::mirror(app, &project.id), &["merge-base", &base_tip, head], 60).await.ok();
+    let m = Merged { base: fork, into: base, head: head.to_string(), note, at: now_ms() };
+    record_merge(app, project, branch, &base_tip, m.clone()).await;
+    Ok(Some(m))
+}
+
+/// Home: closes the open Local PRs of a merged branch and records the merge (`branch_merge`).
+async fn record_merge(app: &App, project: &Project, branch: &str, merged: &str, m: Merged) {
+    if let Err(e) = crate::predrafts::close_merged(app, &project.id, branch, merged).await {
+        tracing::warn!("worktree merge of {branch}: Local PR not marked merged: {e:#}");
+    }
+    let json = match serde_json::to_string(&m) {
+        Ok(json) => json,
+        Err(e) => return tracing::warn!("worktree merge of {branch}: merge not recorded: {e:#}"),
+    };
+    let (project_id, branch_name) = (project.id.clone(), branch.to_string());
+    let saved = app
+        .state_db
+        .call(move |c| {
+            c.execute(
+                "INSERT INTO branch_merge (project_id, branch, json) VALUES (?1, ?2, ?3) ON CONFLICT (project_id, branch) DO UPDATE SET json = excluded.json",
+                rusqlite::params![project_id, branch_name, json],
+            )?;
+            Ok(())
+        })
+        .await;
+    if let Err(e) = saved {
+        tracing::warn!("worktree merge of {branch}: merge not recorded: {e:#}");
+    }
+    app.bus.publish("worktrees", "merged", json!({"project_id": project.id, "branch": branch}));
 }
 
 /// Home: the last merge of a Launchpad branch (`merge_on_home`), whichever runner asked or was away.
@@ -1929,6 +2067,37 @@ mod tests {
         assert!(!launch_named(&spec, Some("app"), "upstream"));
         // A bot in a temporary folder names no folder of its own.
         assert!(!launch_named(&LaunchSpec::default(), None, "upstream"));
+    }
+
+    #[test]
+    fn added_folders_follow_their_own_when_done() {
+        use crate::model::WhenDone::*;
+        // A folder the agent added (`work add-project`) whose own When done is Merge merges, whatever the launch chose.
+        for launch in [Merge, Keep, LocalPr, DraftPr] {
+            assert_eq!(finish_step(launch, false, Merge, false), FinishStep::Merge, "{launch:?}");
+            assert!(agent_may_merge(launch, false, Merge));
+        }
+        // Local PR, Draft PR and Open PR open a Local PR; Keep or unset does when the launch chose Merge.
+        for folder in [LocalPr, DraftPr, OpenPr] {
+            assert_eq!(finish_step(Merge, false, folder, false), FinishStep::LocalPr);
+            assert!(!agent_may_merge(Merge, false, folder));
+        }
+        assert_eq!(finish_step(Merge, false, Keep, false), FinishStep::LocalPr);
+        assert_eq!(finish_step(Keep, false, Keep, false), FinishStep::Leave);
+        assert!(!agent_may_merge(Merge, false, Keep));
+        // Read only finishes nothing.
+        assert_eq!(finish_step(ReadOnly, false, Merge, false), FinishStep::Leave);
+    }
+
+    #[test]
+    fn named_folders_follow_the_launch() {
+        use crate::model::WhenDone::*;
+        // The folder's own When done never changes what the launch chose for its folders.
+        assert_eq!(finish_step(Merge, true, LocalPr, true), FinishStep::Merge);
+        assert_eq!(finish_step(Keep, true, Merge, true), FinishStep::Leave);
+        assert!(!agent_may_merge(Keep, true, Merge));
+        assert_eq!(finish_step(LocalPr, true, Merge, true), FinishStep::LocalPr);
+        assert_eq!(finish_step(LocalPr, true, Merge, false), FinishStep::Leave);
     }
 
     #[test]

@@ -694,12 +694,8 @@ pub async fn merge(app: &App, p: &Project, branch: &str, head: &str, base: &str)
     let current = tip(app, &p.id, &format!("refs/heads/{branch}")).await?.with_context(|| format!("{branch} is not on Home; push it first"))?;
     ensure!(current == head, "{branch} changed since review; review again");
     let base_tip = tip(app, &p.id, &format!("refs/heads/{base}")).await?.with_context(|| format!("{base} does not exist on Home"))?;
-    if base_tip == head || git(app, &dir, &["merge-base", "--is-ancestor", head, &base_tip]).await.is_ok() {
-        return Ok(MergeOutcome::Merged { head: base_tip, note: format!("{branch} is already part of {base}.") });
-    }
-    // Someone applied the same changes to the base on the side (a cherry-pick, a squash merge): nothing to merge.
-    if already_applied(app, &dir, &base_tip, head).await {
-        return Ok(MergeOutcome::Merged { head: base_tip, note: format!("The changes of {branch} are already in {base}: nothing to merge.") });
+    if let Some(note) = in_base(app, &dir, branch, head, base, &base_tip).await {
+        return Ok(MergeOutcome::Merged { head: base_tip, note });
     }
     if git(app, &dir, &["merge-base", "--is-ancestor", &base_tip, head]).await.is_err() {
         return Ok(MergeOutcome::NeedsRebase { base: base.into(), reason: format!("{base} moved on Home ({}); {branch} must be rebased onto it", &base_tip[..12.min(base_tip.len())]) });
@@ -724,6 +720,46 @@ pub async fn merge(app: &App, p: &Project, branch: &str, head: &str, base: &str)
     browse_stale(&p.id);
     app.bus.publish("home_git", "merged", serde_json::json!({"project_id": p.id, "branch": branch, "base": base}));
     Ok(MergeOutcome::Merged { head: head.into(), note })
+}
+
+/// Whether `head` adds nothing to `base` as the folder's remote has it now: the mirror fetches the remote first
+/// (unless it did seconds ago), so commits that reached the base on the remote directly count. `Some((base tip,
+/// note))` when it adds nothing. Pushes nothing (`work finish` asks it before it opens a Local PR).
+pub async fn landed(app: &App, p: &Project, branch: &str, head: &str, base: &str) -> Result<Option<(String, String)>> {
+    ensure!(!base.starts_with('-') && !base.starts_with("lp/"), "invalid base branch {base}");
+    ensure!(valid_commit(head), "invalid commit {head}");
+    if !fetched_within(&p.id, Duration::from_secs(30))
+        && let Err(e) = refresh(app, p).await
+    {
+        // Compared with Home's copy of the base then: at worst a Local PR opens, as before.
+        tracing::warn!("{}: could not fetch the remote before comparing {branch} with {base}: {e:#}", p.name);
+    }
+    let lock = lock(app, &p.id);
+    let _lock = lock.lock().await;
+    let dir = mirror(app, &p.id);
+    let base_tip = tip(app, &p.id, &format!("refs/heads/{base}")).await?.with_context(|| format!("{base} does not exist on Home"))?;
+    Ok(in_base(app, &dir, branch, head, base, &base_tip).await.map(|note| (base_tip, note)))
+}
+
+/// Why merging `head` into `base_tip` would change nothing, if it would not: it is part of the base, or someone
+/// applied the same changes to the base on the side (a cherry-pick, a squash merge).
+async fn in_base(app: &App, dir: &Path, branch: &str, head: &str, base: &str, base_tip: &str) -> Option<String> {
+    let part = base_tip == head || git(app, dir, &["merge-base", "--is-ancestor", head, base_tip]).await.is_ok();
+    // `git cherry` and a diff only when the branch is not simply part of the base.
+    let applied = !part && already_applied(app, dir, base_tip, head).await;
+    nothing_new(branch, base, part, applied)
+}
+
+/// Pure: the note of a branch that adds nothing to its base (`part`: its tip is in the base's history; `applied`: its
+/// changes are), else None.
+fn nothing_new(branch: &str, base: &str, part: bool, applied: bool) -> Option<String> {
+    if part {
+        Some(format!("{branch} is already part of {base}."))
+    } else if applied {
+        Some(format!("The changes of {branch} are already in {base}: nothing to merge."))
+    } else {
+        None
+    }
 }
 
 /// The changes of `head` are already in `base_tip` although `head` is not part of its history: every commit has a
@@ -984,6 +1020,16 @@ pub fn check_session(app: &App, runner_id: &str, session: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_branch_already_on_the_remote_base_adds_nothing() {
+        // Commits pushed to the base on the remote directly: after the fetch, the branch's tip is in the base.
+        assert_eq!(nothing_new("lp/x", "main", true, false).as_deref(), Some("lp/x is already part of main."));
+        // The same changes landed on the side (a squash merge, a cherry-pick).
+        assert!(nothing_new("lp/x", "main", false, true).is_some());
+        // Real changes still make a Local PR.
+        assert_eq!(nothing_new("lp/x", "main", false, false), None);
+    }
 
     #[test]
     fn leftover_branches_age_from_their_last_push() {

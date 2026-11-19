@@ -115,7 +115,7 @@ The `launchpad` binary is the daemon and the CLI. Select the daemon with `LAUNCH
 | `launchpad notes --repo <owner/repo> --number <n>` | List an item's private notes in the session's workspace, each with its `url`: a note links to another note with it |
 | `launchpad send <connection>\|telegram --body-file <file> --session-id <id>` | Draft a message for an outgoing connection (it waits in the Outbox), or send one to the Telegram chat of the session's workspace ([Connections](connections.md#telegram)) |
 | `launchpad hops` | Print the hop count an agent sends to an incoming hook in `X-Launchpad-Hops` ([Loops between bots](connections.md#loops-between-bots)) |
-| `launchpad work finish\|add-project` | Request a worktree merge (only when the launch chose Merge) or open a Local PR, or add another Git folder of the workspace to a task (used by agents) |
+| `launchpad work finish\|add-project` | Request a worktree merge (when the launch chose Merge, or the folder's own When done for a folder the agent added) or open a Local PR, or add another Git folder of the workspace to a task (used by agents) |
 | `launchpad trace <session> [--through <seq>]` | Print the stored trace of a session |
 | `launchpad folders\|sessions\|profiles\|presets\|schedules\|proposals list` | Read Launchpad state as JSON (an agent reads only its own workspace) |
 | `launchpad egress list` | List the [exit routes](exit-routes.md) as JSON, with whether each exit runner is online (shared by every workspace) |
