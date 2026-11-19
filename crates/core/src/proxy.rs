@@ -591,7 +591,9 @@ fn tls_for(inner: &Inner, host: &str) -> Result<Arc<rustls::ServerConfig>> {
         .with_safe_default_protocol_versions()?
         .with_no_client_auth()
         .with_single_cert(vec![cert.der().clone()], der)?;
-    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    // HTTP/1.1 first; HTTP/2 for clients that offer only `h2` (slackline), whose handshake would otherwise end
+    // with no common protocol.
+    config.alpn_protocols = vec![b"http/1.1".to_vec(), b"h2".to_vec()];
     let config = Arc::new(config);
     inner.tls.lock().unwrap().insert(host.to_string(), config.clone());
     Ok(config)
@@ -607,7 +609,11 @@ async fn intercept_tls<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin +
             Ok::<_, std::io::Error>(forward(&inner, Some(active), &host, &target, req).await)
         }
     });
-    hyper::server::conn::http1::Builder::new().preserve_header_case(true).serve_connection(TokioIo::new(tls), service).await?;
+    if tls.get_ref().1.alpn_protocol() == Some(b"h2") {
+        hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new()).serve_connection(TokioIo::new(tls), service).await?;
+    } else {
+        hyper::server::conn::http1::Builder::new().preserve_header_case(true).serve_connection(TokioIo::new(tls), service).await?;
+    }
     Ok(())
 }
 
