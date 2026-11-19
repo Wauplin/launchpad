@@ -2,8 +2,9 @@
 // at once, with the page as context and the folder's defaults; its menu opens the full composer with the text).
 // The page you are on is the context: a folder, a session's trace, a Local PR or a settings page.
 // Pasted screenshots go with the message (Ask) or the launch, as small thumbnails in the field; no file picker.
-// Ask is the primary button (and Enter) on every page; Launch is an outline button. Without a bot, Launch is the
-// only button, so it is the primary one.
+// Ask is the primary button (and Enter) on every page, labeled with the bot it sends to; its arrow picks another bot
+// of the workspace (`askRecipient` decides the bot for both). Launch is an outline button. Without a bot, Launch is
+// the only button, so it is the primary one.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
@@ -14,6 +15,9 @@ import type { Predraft } from "@/gen/Predraft";
 import type { Project } from "@/gen/Project";
 import type { Session } from "@/gen/Session";
 import { Icon } from "@/components/Icon";
+import { BotAvatar } from "@/components/BotAvatar";
+import { MenuItem, Popover } from "@/components/Popover";
+import { askRecipient, NO_PICKS, pickRecipient, type AskPicks } from "@/lib/askRecipient";
 import { toast, toastError } from "@/components/Toast";
 import { LaunchSplitButton, openOptions } from "@/features/launch/LaunchButton";
 import { runAction } from "@/lib/actions";
@@ -84,8 +88,12 @@ export function CommandField() {
   const pageKey = `${path}:${sessionId ?? ""}`;
   useEffect(() => setWithContext(true), [pageKey]);
   const ctx = withContext ? page : { label: null, line: null, launch: undefined, botId: page.botId };
-  const [picked, setPicked] = useState<string | null>(null);
-  const bot = bots.find((b) => b.id === (ctx.botId ?? picked)) ?? askTarget(allBots, scope.workspace.id);
+  const [picks, setPicks] = useState<AskPicks>(NO_PICKS);
+  const workspaceId = scope.workspace.id;
+  const bot = askRecipient(bots, askTarget(allBots, workspaceId), workspaceId, pageKey, ctx.botId, picks);
+  const pick = (id: string) => setPicks((p) => pickRecipient(p, workspaceId, pageKey, ctx.botId, id));
+  // On the bot's own page, Ask talks in the chat it shows; to another bot, through the Ask panel.
+  const own = !!bot && ctx.botId === bot.id;
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -99,12 +107,12 @@ export function CommandField() {
     if (!bot || busy) return;
     const t = text.trim();
     // An empty Ask opens the chat (the thread the owner looked at last).
-    if (!t && !files.length) { if (!ctx.botId) panel.show(bot.id); return; }
+    if (!t && !files.length) { if (!own) panel.show(bot.id); return; }
     if (reading) return;
     setBusy(true);
     try {
       // On the bot's own page: the thread it shows; elsewhere a new thread.
-      const shown = ctx.botId && typeof search.thread === "string" ? search.thread : null;
+      const shown = own && typeof search.thread === "string" ? search.thread : null;
       const where = shown && shown !== "new" && !shown.includes(":") ? { thread: shown } : {};
       // Home stores the message and answers at once (`accept`): the chat shows it while the bot starts.
       const sent = await runAction<BotSend>("bot.message", { id: bot.id }, { text: ctx.line ? `${t}\n\n(I am looking at ${ctx.line}.)` : t, attachments: files, ...where, accept: true });
@@ -113,7 +121,7 @@ export function CommandField() {
       showAccepted(qc, sent);
       const thread = sent.thread;
       // On the bot's own page, its chat is already there: it shows the message's thread.
-      if (!ctx.botId) panel.show(bot.id, thread);
+      if (!own) panel.show(bot.id, thread);
       else if (thread && thread !== shown) void navigate({ to: "/bots/$id", params: { id: bot.id }, search: { thread } as never, replace: true });
     } catch (e) { toastError(e); } finally { setBusy(false); }
   };
@@ -141,12 +149,10 @@ export function CommandField() {
   };
   // Ask is the primary button (and Enter) on every page; without a bot in the workspace, Launch is.
   const primary = bot ? () => void ask() : launch;
-  const askLabel = bot ? `Ask ${bot.settings.name}` : "Ask";
   return (
     <div className="flex min-w-[280px] max-w-text flex-1 items-center gap-1.5" data-tour="topbar.field">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-control border border-line bg-paper px-2 py-1 focus-within:border-teal">
         <Icon name="spark" size={14} className="flex-none text-teal-ink" />
-        {!ctx.botId && bots.length > 1 && bot && <select className="min-w-0 max-w-[120px] shrink bg-transparent text-[12px] font-semibold outline-none" aria-label="Bot that Ask talks to" title="Ask sends to this bot" value={bot.id} onChange={(e) => setPicked(e.target.value)}>{bots.map((b) => <option key={b.id} value={b.id}>{b.settings.name}</option>)}</select>}
         {ctx.label && <span className="flex min-w-[28px] max-w-[180px] shrink items-center gap-1 rounded bg-sunk px-1.5 text-[11px] text-ink-2" title="The page you are on goes with Ask and Launch">
           <span className="truncate">{ctx.label}</span>
           <button className="flex-none text-ink-3 hover:text-ink" aria-label="Leave out the page" title="Leave out the page" onClick={() => setWithContext(false)}><Icon name="x" size={12} /></button>
@@ -165,7 +171,20 @@ export function CommandField() {
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); primary(); } }}
           className="min-h-6 min-w-[48px] flex-1 resize-none bg-transparent placeholder-shown:overflow-hidden placeholder-shown:whitespace-nowrap py-0.5 text-[13px] leading-5 outline-none" />
       </div>
-      {bot && <button className="btn btn-primary" data-tour="topbar.ask" title={`${askLabel}: the answer opens in the Ask panel${ctx.line ? ", with the page as context" : ""}`} disabled={busy || reading} onClick={() => void ask()}><Icon name="send" size={12} />Ask</button>}
+      {bot && <span className="inline-flex min-w-0 flex-none" data-tour="topbar.ask">
+        <button className={`btn btn-primary max-w-[180px] ${bots.length > 1 ? "rounded-r-none" : ""}`} title={`Ask ${bot.settings.name}: the answer opens ${own ? "in this chat" : "in the Ask panel"}${ctx.line ? ", with the page as context" : ""}`} disabled={busy || reading} onClick={() => void ask()}>
+          <Icon name="send" size={12} /><span className="min-w-0 truncate">{bot.settings.name}</span>
+        </button>
+        {bots.length > 1 && <Popover viewport align="right" width={260} trigger={({ open: menu, toggle }) => (
+          <button className="btn btn-primary rounded-l-none border-l-white/30 px-1.5!" aria-label="Choose the bot Ask sends to" title="Choose the bot Ask sends to" aria-expanded={menu} disabled={busy} onClick={toggle}><Icon name="chev" size={12} /></button>
+        )}>
+          {(close) => bots.map((b) => (
+            <MenuItem key={b.id} active={b.id === bot.id} icon={<BotAvatar name={b.settings.name} size={16} />} label={b.settings.name}
+              detail={b.id === ctx.botId ? "This page's bot" : b.id === askTarget(allBots, workspaceId)?.id ? "The workspace's Ask bot" : undefined}
+              onClick={() => { close(); pick(b.id); ref.current?.focus(); }} />
+          ))}
+        </Popover>}
+      </span>}
       <LaunchSplitButton ctx={ctx.launch} text={text} onLaunch={launch} onUsed={() => { withShots(); setText(""); }} primary={!bot}
         title={text.trim() ? `Launch an agent at once${ctx.launch ? " with the page as context" : ""}, with the folder's defaults` : "Open the composer"} />
     </div>
