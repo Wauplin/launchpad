@@ -1,12 +1,14 @@
 // Active threads (the phone's Chats tab, the Bots page and the sidebar): the open threads of every bot of the workspace
 // in one list, newest update first. Active = not archived, and live or waiting for you (working, a question or an
 // unseen turn, sleeping, quota paused, failed or interrupted) or updated in the last 24 hours. Pure, so it is tested
-// without the app.
+// without the app. A conversation several bots share (`BotThread.conversation`) is one row: its main bot's thread,
+// every bot's mark, and the most urgent state of its threads (Question > Failed > Working > Sleeping > Done).
 
 import type { Bot } from "../gen/Bot";
 import type { BotThread } from "../gen/BotThread";
 import type { Session } from "../gen/Session";
 import { threadOf } from "./botThread.ts";
+import { mainBotOf } from "./conversations.ts";
 import { isQuotaPaused, isRunning, isSleeping, needsYou } from "./sessionStatus.ts";
 
 /** How recent a thread with nothing live must be to count as active. */
@@ -15,7 +17,13 @@ export const ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const ACTIVE_SHOWN = 6;
 
 export type ThreadTone = "running" | "needs" | "done" | "failed" | "idle";
-export type ActiveThread = { bot: Bot; thread: string; title: string; session: Session; last: number; attention: boolean; label: string; tone: ThreadTone };
+export type ActiveThread = {
+  bot: Bot; thread: string; title: string; session: Session; last: number; attention: boolean; label: string; tone: ThreadTone;
+  /** Its conversation (`BotThread.conversation`). */
+  conversation: string;
+  /** The bots of the conversation that have an active thread in it, the main bot first (one for a bot's own thread). */
+  bots: Bot[];
+};
 
 const failed = (s: Session) => s.status === "error" || s.status === "interrupted";
 
@@ -41,7 +49,34 @@ export function threadStatus(s: Session): { label: string; tone: ThreadTone } {
   }
 }
 
-/** The active threads of the workspace's bots, newest update first. `threads` holds each bot's open threads (Home's
+/** How urgent a thread's state is, lowest first: Question (or quota paused) > Failed > Working > Sleeping > Done. */
+export function urgency(r: { label: string; tone: ThreadTone }): number {
+  if (r.tone === "needs") return 0;
+  if (r.tone === "failed") return 1;
+  if (r.tone === "running") return 2;
+  if (r.label === "Sleeping") return 3;
+  if (r.tone === "done") return 4;
+  return 5;
+}
+
+/** Rows of one conversation become one: the main bot's thread (else the most urgent one), its title, the most urgent
+ * state, the newest update and every bot's mark, the main bot first. */
+export function oneRowPerConversation(rows: ActiveThread[]): ActiveThread[] {
+  const groups = new Map<string, ActiveThread[]>();
+  for (const r of rows) groups.set(r.conversation, [...(groups.get(r.conversation) ?? []), r]);
+  const out: ActiveThread[] = [];
+  for (const [conversation, members] of groups) {
+    if (members.length === 1) { out.push(members[0]); continue; }
+    const main = mainBotOf(conversation);
+    const urgent = [...members].sort((a, b) => urgency(a) - urgency(b) || b.last - a.last)[0];
+    const home = members.find((m) => m.bot.id === main) ?? urgent;
+    const bots = [...members].sort((a, b) => Number(b.bot.id === main) - Number(a.bot.id === main) || a.bot.settings.name.localeCompare(b.bot.settings.name)).map((m) => m.bot);
+    out.push({ ...home, session: urgent.session, label: urgent.label, tone: urgent.tone, attention: members.some((m) => m.attention), last: Math.max(...members.map((m) => m.last)), bots });
+  }
+  return out;
+}
+
+/** The active threads of the workspace's bots (one row per conversation), newest update first. `threads` holds each bot's open threads (Home's
  * list, for their titles) when loaded: a thread missing from a loaded list is archived. */
 export function activeThreads(bots: Bot[], sessions: Session[], threads: Map<string, BotThread[] | undefined>, workspaceId: string | null | undefined, now: number): ActiveThread[] {
   const mine = new Map(bots.filter((b) => b.workspace_id === workspaceId).map((b) => [b.id, b]));
@@ -61,9 +96,9 @@ export function activeThreads(bots: Bot[], sessions: Session[], threads: Map<str
     if (list && !record) continue;
     const attention = isAttention(s);
     if (!attention && now - s.status_since > ACTIVE_WINDOW_MS) continue;
-    rows.push({ bot, thread, title: record?.title || s.title, session: s, last: s.status_since, attention, ...threadStatus(s) });
+    rows.push({ bot, thread, title: record?.title || s.title, session: s, last: s.status_since, attention, ...threadStatus(s), conversation: record?.conversation ?? `${bot.id}:${thread}`, bots: [bot] });
   }
-  return rows.sort((a, b) => b.last - a.last || a.bot.settings.name.localeCompare(b.bot.settings.name));
+  return oneRowPerConversation(rows).sort((a, b) => b.last - a.last || a.bot.settings.name.localeCompare(b.bot.settings.name));
 }
 
 /** At most `max` rows in their order, keeping the threads that need attention before newer finished ones. */

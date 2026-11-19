@@ -435,7 +435,8 @@ route("POST", "/api/launch/crons/:id/run", (r) => {
   const bot = c.bot_id ? world.bots.find((b) => b.id === c.bot_id) : null;
   let s: Session;
   if (bot) {
-    const t = { bot_id: bot.id, id: demoId("demo-thread"), key: `routine:${c.file ?? c.id}`, title: c.title, created_at: clock.now(), archived_at: null };
+    const id = demoId("demo-thread");
+    const t = { bot_id: bot.id, id, key: `routine:${c.file ?? c.id}`, title: c.title, created_at: clock.now(), archived_at: null, conversation: `${bot.id}:${id}` };
     (world.botThreads[bot.id] ??= []).push(t);
     publish("bots", "threads", { id: bot.id });
     s = launch({ ...c.spec, text: routineText(c.title, "Run now", c.spec.text), bot: { id: bot.id, name: bot.settings.name, slug: bot.slug, instructions: "", thread: t.id, previous: null, reason: "first" } } as LaunchSpec);

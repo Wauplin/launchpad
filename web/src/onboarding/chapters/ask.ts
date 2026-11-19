@@ -123,6 +123,11 @@ export const ask: Chapter = {
       body: "A message from another bot or agent (an admin bot's message, or a card you accepted) shows its sender instead of your bubble. The bot reads it under a line saying it is not from you, so it treats it as information, not as your instructions. After three automatic messages in a row, Launchpad stops the chain until you write again.",
     },
     {
+      id: "ask.bot-conversation", route: `${BOT_ROUTE}?thread=demo-thread-pr120`, anchor: "chat.conversation",
+      title: "Several bots, one conversation",
+      body: "When a bot asks another bot from a thread, that bot joins the conversation in a thread of its own: here the Maintainer asked Release about #120. You follow both in one timeline; each bot sees only what is addressed to it, and its answer goes back to the bot that asked. The bar sums up each bot's state, and each mark opens its trace. Your message goes to the bot the conversation started with; start it with @release (or several @-mentions) to write to other bots, which join it if they are not in it yet.",
+    },
+    {
       id: "ask.bot-waiting", route: BOT_ROUTE, anchor: "chat.queued",
       title: "Messages that wait",
       body: "A hook, Telegram, channel or agent message that arrives while its thread works waits for the end of the turn, as a grey row at the bottom of that thread. An automatic message also waits while the bot works in as many threads as it may at once. Cancel drops it before it is sent.",

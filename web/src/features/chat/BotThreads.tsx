@@ -4,6 +4,7 @@
 // header: New thread first (one click), then the most recent threads, each with its state dot, then All threads
 // with a search, and a quiet Archive of the thread shown at the end; on the phone a New thread button, a sheet and an
 // Archive button (with its confirmation in a popover) in the chat's bar. Rename and Archive are also in the page's ⋯.
+// A thread in another bot's conversation says so ("in Scout's conversation") and opens the merged view.
 
 import { useQueryClient } from "@tanstack/react-query";
 import { memo, useMemo, useState, type ReactNode } from "react";
@@ -16,7 +17,8 @@ import { Popover } from "@/components/Popover";
 import { toastError } from "@/components/Toast";
 import { ConfirmButton, FilterChip, FilterChips, IconButton } from "@/components/ui";
 import { actionConfirm, runAction } from "@/lib/actions";
-import { botThread, threadState, useBotThreads, type BotState } from "@/lib/bots";
+import { botThread, threadState, useBotThreads, useBots, type BotState } from "@/lib/bots";
+import { mainBotOf } from "@/lib/conversations";
 import { age } from "@/lib/format";
 import { usePhone } from "@/lib/phone";
 import { isRunning } from "@/lib/sessionStatus";
@@ -42,6 +44,16 @@ export function useThreadRows(bot: Bot, sessions: Session[]): ThreadRow[] {
   }, [threads, sessions, bot.id]);
 }
 
+/** "in Scout's conversation" for a thread this bot joined in another bot's conversation, else null. */
+export function useJoinedLabel(): (t: BotThread) => string | null {
+  const bots = useBots().data;
+  return (t) => {
+    const main = mainBotOf(t.conversation);
+    if (main === t.bot_id) return null;
+    return `in ${bots?.find((b) => b.id === main)?.settings.name ?? "another bot"}'s conversation`;
+  };
+}
+
 export const ThreadDot = ({ state }: { state: BotState }) => <span className={`size-2 flex-none rounded-full ${DOT[state]}`} title={STATE_LABEL[state]} aria-hidden />;
 
 /** Chips shown in the laptop bar besides the selected thread. */
@@ -54,11 +66,12 @@ export function ThreadBar({ bot, rows, selected, onSelect, archive }: { bot: Bot
     const sel = rows.find((r) => r.t.id === selected);
     return [...recent, ...(sel && !recent.includes(sel) ? [sel] : [])];
   }, [rows, selected]);
+  const joined = useJoinedLabel();
   return <div className="flex min-h-10 flex-none items-center gap-1.5 border-b border-line-2 px-5 py-1.5" data-tour="bots.threads">
     {/* Shown pressed while the new thread is the one shown (its first message starts it). */}
     <button className={`btn btn-sm flex-none ${selected === NEW_THREAD ? "border-teal bg-teal-soft text-teal-ink" : ""}`} aria-pressed={selected === NEW_THREAD} title="Start a new thread: your next message starts it, next to the others" onClick={() => onSelect(NEW_THREAD)} data-tour="bots.new-thread"><Icon name="plus" size={12} />New thread</button>
     <FilterChips label={`Threads of ${bot.settings.name}`} className="min-w-0 flex-1 flex-nowrap! overflow-hidden">
-      {shown.map((r) => <FilterChip key={r.t.id} active={r.t.id === selected} title={`${r.t.title} · ${STATE_LABEL[r.state]}`} onClick={() => onSelect(r.t.id)}>
+      {shown.map((r) => <FilterChip key={r.t.id} active={r.t.id === selected} title={`${r.t.title}${joined(r.t) ? ` · ${joined(r.t)}` : ""} · ${STATE_LABEL[r.state]}`} onClick={() => onSelect(r.t.id)}>
         <ThreadDot state={r.state} /><span className="max-w-[180px] truncate">{r.t.title}</span>
       </FilterChip>)}
     </FilterChips>
@@ -80,13 +93,14 @@ export function ThreadList({ bot, rows, selected, onSelect }: { bot: Bot; rows: 
   const q = query.trim().toLowerCase();
   const list = q ? rows.filter((r) => r.t.title.toLowerCase().includes(q)) : rows;
   const qc = useQueryClient();
+  const joined = useJoinedLabel();
   return <div className="grid grid-cols-1 gap-1 p-1.5">
     {rows.length > 6 && <input className="field-input" placeholder="Search threads" aria-label="Search threads" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus={!phone} />}
     <button className="flex min-h-9 items-center gap-2 rounded-control px-2 text-left text-[13px] hover:bg-sunk" aria-pressed={selected === NEW_THREAD} onClick={() => onSelect(NEW_THREAD)}>
       <Icon name="plus" size={12} className="flex-none text-ink-3" /><span className="min-w-0 flex-1 truncate">New thread</span><span className="flex-none text-[12px] text-ink-3">your next message starts it</span>
     </button>
     <div className="grid max-h-[50vh] grid-cols-1 gap-px overflow-y-auto">
-      {list.map((r) => <ThreadItem key={r.t.id} r={r} active={r.t.id === selected} onSelect={onSelect} />)}
+      {list.map((r) => <ThreadItem key={r.t.id} r={r} joined={joined(r.t)} active={r.t.id === selected} onSelect={onSelect} />)}
       {list.length === 0 && <p className="m-0 px-2 py-1.5 text-[12px] text-ink-3">No thread matches.</p>}
     </div>
     <button className="chat-tap justify-self-start px-2 text-[12px] text-teal-ink hover:underline" aria-expanded={archived} onClick={() => setArchived(!archived)}>{archived ? "Hide archived threads" : "Show archived threads"}</button>
@@ -100,10 +114,10 @@ export function ThreadList({ bot, rows, selected, onSelect }: { bot: Bot; rows: 
   </div>;
 }
 
-const ThreadItem = memo(function ThreadItem({ r, active, onSelect }: { r: ThreadRow; active: boolean; onSelect: (thread: string) => void }) {
+const ThreadItem = memo(function ThreadItem({ r, joined, active, onSelect }: { r: ThreadRow; joined: string | null; active: boolean; onSelect: (thread: string) => void }) {
   return <button className="flex min-h-9 w-full min-w-0 items-center gap-2 rounded-control px-2 text-left text-[13px] hover:bg-sunk aria-pressed:bg-sunk" aria-pressed={active} onClick={() => onSelect(r.t.id)}>
     <ThreadDot state={r.state} />
-    <span className="min-w-0 flex-1 truncate" title={r.t.title}>{r.t.title}</span>
+    <span className="grid min-w-0 flex-1"><span className="truncate" title={r.t.title}>{r.t.title}</span>{joined && <span className="truncate text-[11px] text-ink-3">{joined}</span>}</span>
     <span className="flex-none text-[12px] text-ink-3">{r.state === "new" ? STATE_LABEL.new : `${STATE_LABEL[r.state]} · ${age(r.last)}`}</span>
   </button>;
 });

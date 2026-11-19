@@ -24,6 +24,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/bots/{id}/sends/{send}", axum::routing::delete(remove_send))
         .route("/api/bots/{id}/sends/{send}/retry", post(retry_send))
         .route("/api/bots/{id}/threads", get(threads))
+        .route("/api/context/conversation", get(conversation))
         .route("/api/bots/{id}/threads/{thread}", axum::routing::patch(rename_thread))
         .route("/api/bots/{id}/threads/{thread}/archive", post(archive_thread))
         .route("/api/bots/{id}/history", get(history))
@@ -172,6 +173,10 @@ struct Message {
     /// other items run in parallel); several items start a new thread.
     #[serde(default)]
     item_thread: bool,
+    /// A conversation (`<main bot>:<thread>`, `BotThread.conversation`): the owner's message goes to this bot's
+    /// thread of it, and a bot that is not part of it yet joins it.
+    #[serde(default)]
+    conversation: Option<String>,
     /// The owner's message: answer with its receipt (`sends::BotSend`) as soon as Home stored it, instead of the
     /// session once it was sent (the bot chat; the extension waits for the session).
     #[serde(default)]
@@ -183,15 +188,29 @@ struct Message {
 /// Idempotency-Key (claimed by the server's retry protection) becomes the message's or the new session's id.
 /// The owner's message is stored on Home first and sent in the background (`launchpad_channels::sends`): with
 /// `accept` the answer is its receipt at once, else the session once it was sent.
-/// The owner's message goes to the thread they name (`thread`, `new_thread`, `item_thread`); an agent's to its own
-/// thread of the bot (one per sender session), queued while the bot works in as many threads as `max_threads`
+/// The owner's message goes to the thread they name (`thread`, `new_thread`, `item_thread`, `conversation`); an
+/// agent's to its own thread of the bot (one per sender session), or, from a bot's thread, to the bot's thread of the
+/// sender's conversation (`bot_threads::joins`), queued while the bot works in as many threads as `max_threads`
 /// allows (`{"queued": true, …}` instead of the session).
 async fn message(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::http::HeaderMap, agent: Option<axum::Extension<launchpad_http::AgentSession>>, Json(mut m): Json<Message>) -> ApiResult<Value> {
     let app = &s.app;
     m.context.from = launchpad_core::senders::of_request(app, agent.as_ref().map(|a| a.0.0.as_str())).await.map_err(bad)?;
     let key = headers.get("Idempotency-Key").and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let sender_thread = match &agent {
+        Some(a) => match app.sessions.get(&a.0.0) {
+            Some(sender) => bot_threads::of_session(app, &sender).await,
+            None => None,
+        },
+        None => None,
+    };
+    let joined = bot_threads::joins(sender_thread.as_ref(), &id);
+    let conversation = match (&agent, m.conversation.as_deref().filter(|c| !c.is_empty())) {
+        (None, Some(c)) => Some(checked_conversation(app, &id, c).await.map_err(bad)?),
+        _ => None,
+    };
     let source = match &agent {
-        Some(a) => Source::Agent { session: a.0.0.as_str(), name: m.context.from.as_ref().map_or("", |f| f.name.as_str()) },
+        Some(a) => Source::Agent { session: a.0.0.as_str(), name: m.context.from.as_ref().map_or("", |f| f.name.as_str()), conversation: joined.as_deref() },
+        None if conversation.is_some() => Source::Conversation { id: conversation.as_deref().unwrap_or_default(), title: "" },
         None if m.new_thread => Source::NewThread,
         None if m.item_thread => Source::Items { refs: &m.context.github_refs },
         None => Source::Owner { thread: m.thread.as_deref() },
@@ -221,6 +240,18 @@ async fn message(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::ht
     Ok(Json(serde_json::to_value(session).map_err(|e| bad(e.into()))?))
 }
 
+/// A conversation the owner's message to bot `bot` may name: one of a bot of the same workspace, with an open
+/// thread of its main bot.
+async fn checked_conversation(app: &launchpad_core::App, bot: &str, conversation: &str) -> anyhow::Result<String> {
+    use anyhow::{Context, ensure};
+    let threads = bot_threads::conversation_threads(app, conversation).await?;
+    let main = bot_threads::main_bot(conversation);
+    ensure!(threads.iter().any(|t| t.bot_id == main && t.archived_at.is_none()), "this conversation is archived or gone");
+    let ws = bots::workspace_of(app, bot).await?.context("no such bot")?;
+    ensure!(bots::workspace_of(app, main).await?.as_deref() == Some(ws.as_str()), "this conversation belongs to another workspace");
+    Ok(conversation.to_string())
+}
+
 /// The owner's messages Home accepted for the bot and has not shown in a session yet (waiting, sending, failed,
 /// uncertain, or sent in the last half hour), oldest first.
 async fn sends(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Vec<sends::BotSend>> {
@@ -242,6 +273,26 @@ async fn remove_send(State(s): State<Ctx>, Path((id, send)): Path<(String, Strin
 async fn threads(State(s): State<Ctx>, Path(id): Path<String>, axum::extract::Query(q): axum::extract::Query<ThreadQuery>) -> ApiResult<Vec<BotThread>> {
     bots::get(&s.app, &id).await.map_err(|e| ApiError::not_found(format!("{e:#}")))?;
     Ok(Json(bot_threads::list(&s.app, &id, q.archived).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct ConversationQuery {
+    /// The owner's read: a session of the conversation (an agent reads its own).
+    session: Option<String>,
+    /// Only messages after this one (`ConversationMessage.id`).
+    since: Option<i64>,
+    limit: Option<usize>,
+}
+
+/// `launchpad conversation read`: the conversation of the caller's bot thread (the owner: of `session`), its newest
+/// messages after `since`. An agent reads only its own session's conversation.
+async fn conversation(State(s): State<Ctx>, agent: Option<axum::Extension<launchpad_http::AgentSession>>, axum::extract::Query(q): axum::extract::Query<ConversationQuery>) -> ApiResult<launchpad_channels::conversation::Conversation> {
+    let session = match agent {
+        Some(a) => a.0.0,
+        None => q.session.ok_or_else(|| ApiError::bad_request("name the session (?session=)"))?,
+    };
+    let limit = q.limit.unwrap_or(50).clamp(1, 500);
+    Ok(Json(launchpad_channels::conversation::read(&s.app, &session, q.since, limit).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]

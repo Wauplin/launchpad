@@ -219,6 +219,43 @@ fn session_item(s: &Session) -> Option<Item> {
     Some(item.session(Some(s.id.clone())))
 }
 
+/// Pure: the cards of one conversation of several bots become one, the most urgent (a question, then a failure, then
+/// a finished turn), titled with every bot that needs you ("Scout + Docs · thread title"). `of`: a card's
+/// conversation and bot name.
+fn one_per_conversation(items: Vec<Item>, of: impl Fn(&Item) -> Option<(String, String)>) -> Vec<Item> {
+    let rank = |k: Kind| match k {
+        Kind::Question => 0,
+        Kind::Failed => 1,
+        _ => 2,
+    };
+    let mut groups: std::collections::HashMap<String, Vec<(usize, String)>> = Default::default();
+    for (n, i) in items.iter().enumerate() {
+        if let Some((c, bot)) = of(i) {
+            groups.entry(c).or_default().push((n, bot));
+        }
+    }
+    let mut keep: std::collections::HashMap<usize, String> = Default::default();
+    let mut drop: std::collections::HashSet<usize> = Default::default();
+    for members in groups.values().filter(|m| m.len() > 1) {
+        let &(best, _) = members.iter().min_by_key(|(n, _)| (rank(items[*n].kind), std::cmp::Reverse(items[*n].at))).expect("a member");
+        let mut names: Vec<&str> = vec![];
+        for (_, b) in members {
+            if !names.contains(&b.as_str()) {
+                names.push(b);
+            }
+        }
+        let title = items[best].title.split_once(" · ").map_or(items[best].title.as_str(), |(_, t)| t);
+        keep.insert(best, format!("{} · {title}", names.join(" + ")));
+        drop.extend(members.iter().map(|(n, _)| *n).filter(|n| *n != best));
+    }
+    items.into_iter().enumerate().filter(|(n, _)| !drop.contains(n)).map(|(n, mut i)| {
+        if let Some(t) = keep.remove(&n) {
+            i.title = t;
+        }
+        i
+    }).collect()
+}
+
 /// Puts each Local PR whose session is in the list into that session's card: a finished agent's main action
 /// becomes reviewing its Local PR. The other Local PRs stay cards of their own.
 fn group_local_prs(sessions: &mut [Item], local_prs: Vec<Item>) -> Vec<Item> {
@@ -240,15 +277,20 @@ fn group_local_prs(sessions: &mut [Item], local_prs: Vec<Item>) -> Vec<Item> {
 /// The core's own items: agents that need you (with their Local PRs), Local PRs to publish, runners to update.
 async fn core_items(app: &App) -> Vec<Item> {
     let mut out: Vec<Item> = app.sessions.list().iter().filter_map(session_item).collect();
-    // A bot's session: "Bot · thread title".
+    // A bot's session: "Bot · thread title"; the sessions of one conversation of several bots: one card.
     if out.iter().any(|i| i.session_id.as_ref().and_then(|s| app.sessions.get(s)).is_some_and(|s| s.launch_spec.bot.is_some())) {
-        let titles = crate::bot_threads::titles(app).await.unwrap_or_default();
+        let threads = crate::bot_threads::all(app).await.unwrap_or_default();
+        let mut of: std::collections::HashMap<String, (String, String)> = Default::default();
         for i in out.iter_mut() {
             let Some(b) = i.session_id.as_ref().and_then(|s| app.sessions.get(s)).and_then(|s| s.launch_spec.bot) else { continue };
             let thread = b.thread_id();
-            let what = titles.get(&(b.id.clone(), thread.to_string())).cloned().unwrap_or_else(|| i.title.clone());
+            let row = threads.get(&(b.id.clone(), thread.to_string()));
+            let what = row.map(|t| t.title.clone()).unwrap_or_else(|| i.title.clone());
             i.title = format!("{} · {what}", b.name);
+            let conversation = row.map_or_else(|| crate::bot_threads::conversation_id(&b.id, thread), |t| t.conversation.clone());
+            of.insert(i.id.clone(), (conversation, b.name.clone()));
         }
+        out = one_per_conversation(out, |i| of.get(&i.id).cloned());
     }
     // A finished agent whose merge stopped (conflict or failure): its main action is Fix merge.
     if out.iter().any(|i| i.kind == Kind::Finished) {
@@ -446,6 +488,21 @@ fn topic(text: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_conversation_of_several_bots_is_one_card() {
+        let card = |id: &str, kind: Kind, title: &str, at: i64| Item::new(kind, Filter::Review, id, title, Place::Session(id.into()), at).session(Some(id.into()));
+        let items = vec![card("a", Kind::Finished, "Scout · Release", 3), card("b", Kind::Question, "Docs · Release", 1), card("c", Kind::Finished, "Scout · Other", 2), card("d", Kind::Failed, "Agent", 4)];
+        let of = |i: &Item| match i.record.as_str() {
+            "a" => Some(("scout:t1".to_string(), "Scout".to_string())),
+            "b" => Some(("scout:t1".to_string(), "Docs".to_string())),
+            "c" => Some(("scout:t2".to_string(), "Scout".to_string())),
+            _ => None,
+        };
+        let out = one_per_conversation(items, of);
+        let got: Vec<(String, String)> = out.iter().map(|i| (i.record.clone(), i.title.clone())).collect();
+        assert_eq!(got, vec![("b".into(), "Scout + Docs · Release".into()), ("c".into(), "Scout · Other".into()), ("d".into(), "Agent".into())]);
+    }
+
     use super::*;
 
     fn local_pr(id: &str, archived: bool) -> crate::predrafts::Predraft {

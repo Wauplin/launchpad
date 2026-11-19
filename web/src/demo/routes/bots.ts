@@ -32,16 +32,27 @@ const thread = (id: string, t: string) => world.sessions.filter((s) => s.launch_
 /** A bot's thread rows (Home's `bot_thread`). */
 const threadsOf = (id: string): BotThread[] => (world.botThreads[id] ??= []);
 const newThread = (b: Bot, key: string | null, title: string) => {
-  const t: BotThread = { bot_id: b.id, id: `demo-thread-${Math.random().toString(36).slice(2, 10)}`, key, title: title.replace(/\s+/g, " ").trim().slice(0, 80) || "New thread", created_at: clock.now(), archived_at: null };
+  const t: BotThread = { bot_id: b.id, id: `demo-thread-${Math.random().toString(36).slice(2, 10)}`, key, title: title.replace(/\s+/g, " ").trim().slice(0, 80) || "New thread", created_at: clock.now(), archived_at: null, conversation: "" };
+  t.conversation = `${b.id}:${t.id}`;
   threadsOf(b.id).push(t);
   threadsChanged(b.id);
   return t.id;
 };
 const threadsChanged = (id: string) => publish("bots", "threads", { id });
 /** The thread a message goes to (Home's `bot_threads::route` and `resolve`). */
-function resolveThread(b: Bot, body: { thread?: string | null; new_thread?: boolean; item_thread?: boolean; context?: MessageContext }, text: string): string {
+function resolveThread(b: Bot, body: { thread?: string | null; new_thread?: boolean; item_thread?: boolean; conversation?: string | null; context?: MessageContext }, text: string): string {
   const list = threadsOf(b.id);
   const create = (key: string | null, title: string) => newThread(b, key, title);
+  // A bot of a conversation: its open thread of it, else a new one that joins it.
+  if (body.conversation) {
+    const c = body.conversation;
+    const open = list.find((t) => t.conversation === c && t.archived_at == null);
+    if (open) return open.id;
+    const main = Object.values(world.botThreads).flat().find((t) => t.conversation === c && t.bot_id === c.split(":")[0]);
+    const id = create(`conversation:${c}`, main?.title ?? text.split("\n")[0] ?? "");
+    list.find((t) => t.id === id)!.conversation = c;
+    return id;
+  }
   if (body.new_thread || !body.thread && !body.item_thread) return create(null, text.split("\n")[0] ?? "");
   if (body.item_thread) {
     const items = (body.context?.github_refs ?? []).filter((r) => r.number != null);

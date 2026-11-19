@@ -319,6 +319,14 @@ enum Command {
         #[command(subcommand)]
         command: ChannelCommand,
     },
+    /// The conversation of this bot thread (for bots): several bots may share one conversation with the owner, each in
+    /// its own thread. `read [--since <id>] [--limit 50]` lists its messages (the owner's with the bots they went to,
+    /// each bot's final answers, the messages bots sent each other), oldest first (JSON); you never receive them
+    /// automatically.
+    Conversation {
+        #[command(subcommand)]
+        command: ConversationCommand,
+    },
     /// Write to another bot of this workspace in your DM with it (created on first use; for bots). Send files with
     /// `--attach <file>` (repeat it) and forward the files of an earlier message with `--forward <message id>`.
     Dm {
@@ -987,6 +995,36 @@ async fn channel_read(paths: &Paths, channel: String, since: Option<i64>, limit:
 }
 
 #[derive(Subcommand)]
+enum ConversationCommand {
+    /// Messages of your conversation, oldest first (JSON): after `--since <id>` (a message's `id`), else the newest
+    /// `--limit`.
+    Read {
+        #[arg(long)]
+        since: Option<i64>,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
+}
+
+async fn conversation_read(paths: &Paths, since: Option<i64>, limit: u32) -> Result<()> {
+    let (since, limit) = (since.map(|s| s.to_string()), limit.to_string());
+    let mut pairs = vec![("limit", limit.as_str())];
+    if let Some(s) = &since {
+        pairs.push(("since", s.as_str()));
+    }
+    let mut v = Client::new(paths)?.json("GET", &query("/api/context/conversation", &pairs), None).await?;
+    for m in v["messages"].as_array_mut().into_iter().flatten() {
+        if let Some(obj) = m.as_object_mut()
+            && let Some(ms) = obj.get("id").and_then(|t| t.as_i64())
+        {
+            obj.insert("at".into(), serde_json::Value::String(utc(ms)));
+        }
+    }
+    println!("{}", serde_json::to_string_pretty(&v)?);
+    Ok(())
+}
+
+#[derive(Subcommand)]
 enum BotCommand {
     /// The bot's own notes, in memory/ of its folder ($LAUNCHPAD_BOT/memory, read-only): paths are relative to memory/.
     Memory {
@@ -1371,6 +1409,7 @@ async fn run() -> Result<()> {
         Command::Home => list_command(&paths, "/api/context/home", None).await,
         Command::Tools { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/tools", None).await,
         Command::Connections { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/connections", None).await,
+        Command::Conversation { command: ConversationCommand::Read { since, limit } } => conversation_read(&paths, since, limit).await,
         Command::Channel { command: ChannelCommand::List } => list_command(&paths, "/api/channels/agent", None).await,
         Command::Channel { command: ChannelCommand::Read { channel, since, limit } } => channel_read(&paths, channel, since, limit).await,
         Command::Channel { command: ChannelCommand::Post { channel, post } } => channel_post(&paths, channel, post).await,
@@ -1666,6 +1705,8 @@ mod proposal_tests {
         // The commands a delivered channel message names work as written.
         let cli = Cli::try_parse_from(["launchpad", "channel", "read", "@release", "--since", "38"]).unwrap();
         assert!(matches!(cli.command, Command::Channel { command: ChannelCommand::Read { channel, since: Some(38), limit: 50 } } if channel == "@release"));
+        let cli = Cli::try_parse_from(["launchpad", "conversation", "read", "--since", "1700000000000"]).unwrap();
+        assert!(matches!(cli.command, Command::Conversation { command: ConversationCommand::Read { since: Some(1_700_000_000_000), limit: 50 } }));
         let cli = Cli::try_parse_from(["launchpad", "dm", "release", "--body-file", "m.md", "--session-id", "s1"]).unwrap();
         assert!(matches!(cli.command, Command::Dm { bot, post: ChannelPostArgs { ask_owner: false, .. } } if bot == "release"));
         let cli = Cli::try_parse_from(["launchpad", "channel", "post", "release-train", "--body-file", "m.md", "--reply-to", "4", "--ask-owner", "--session-id", "s1"]).unwrap();

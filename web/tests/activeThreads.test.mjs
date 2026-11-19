@@ -68,3 +68,32 @@ test("the cap keeps threads that need attention before newer done ones, in order
   const busy = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => session("a", `w${i}`, i * HOUR, { status: "working" }));
   assert.deepEqual(ids(capThreads(activeThreads([bot("a")], [...busy, session("a", "new", 1000)], new Map(), "w", NOW))), ["a:w1", "a:w2", "a:w3", "a:w4", "a:w5", "a:w6"]);
 });
+
+test("a conversation of several bots is one row: the main bot's thread, every bot's mark, the most urgent state", () => {
+  const bots = [bot("a"), bot("b"), bot("c")];
+  const sessions = [
+    session("a", "t1", HOUR),
+    session("b", "t9", 2 * HOUR, { status: "working" }),
+    session("c", "t5", 3 * HOUR, { open_question: { id: "q" } }),
+    session("b", "own", 4 * HOUR),
+  ];
+  const threads = new Map([
+    ["a", [{ id: "t1", title: "Release", conversation: "a:t1" }]],
+    ["b", [{ id: "t9", title: "Release", conversation: "a:t1" }, { id: "own", title: "Own", conversation: "b:own" }]],
+    ["c", [{ id: "t5", title: "Release", conversation: "a:t1" }]],
+  ]);
+  const rows = activeThreads(bots, sessions, threads, "w", NOW);
+  assert.deepEqual(ids(rows), ["a:t1", "b:own"]);
+  assert.deepEqual(rows[0].bots.map((b) => b.id), ["a", "b", "c"]);
+  assert.equal(rows[0].label, "Question");
+  assert.equal(rows[0].attention, true);
+  assert.equal(rows[0].last, NOW - HOUR);
+  // Failed outranks Working, Working outranks Sleeping and Done.
+  const two = activeThreads(bots, [session("a", "t1", HOUR, { status: "error", capacity_retry_at: null }), session("b", "t9", HOUR, { status: "working" })], threads, "w", NOW);
+  assert.equal(two[0].label, "Failed");
+  const three = activeThreads(bots, [session("a", "t1", HOUR, { sleep: { waits: "x" } }), session("b", "t9", 2 * HOUR, { status: "working" })], threads, "w", NOW);
+  assert.equal(three[0].label, "Working");
+  // Without the main bot's thread, the row opens the most urgent one.
+  const member = activeThreads(bots, [session("b", "t9", HOUR), session("c", "t5", HOUR, { status: "working" })], threads, "w", NOW);
+  assert.deepEqual(ids(member), ["c:t5"]);
+});

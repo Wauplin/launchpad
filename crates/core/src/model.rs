@@ -587,6 +587,15 @@ pub struct MessageFrom {
     /// itself included; 0 after an owner message or click (`senders::MAX_HOPS`).
     #[ts(type = "number")]
     pub hops: u32,
+    /// A bot's message: the sender's session (its thread), where an answer goes back in a conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub session: Option<String>,
+    /// A bot's final answer to a message another bot of the conversation sent it (`launchpad_channels::conversation`):
+    /// delivered on its own, never answered in turn.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub reply: bool,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Default)]

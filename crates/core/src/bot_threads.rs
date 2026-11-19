@@ -9,6 +9,14 @@
 //! a channel's, a hook's, another agent's (one per sender session), Telegram's, or a new thread (each routine run,
 //! the owner's New thread or message without a thread, the extension's New conversation). `resolve` turns that into a
 //! thread ID, creating its row.
+//!
+//! Conversations: several bots may share one conversation the owner follows as one chat. A conversation is named
+//! after its first thread (`<bot>:<thread>`, the main bot's): each thread belongs to its own conversation unless its
+//! row names another (`conversation`). When a bot's thread sends `launchpad bot message` to another bot, the message
+//! goes to that bot's thread of the sender's conversation (`To::Conversation`, created on first use, key
+//! `conversation:<id>`), so each bot keeps its own session and sees only what is addressed to it. A thread that
+//! continues in a new one (`follow_up`) stays in its conversation; archiving one thread archives the whole
+//! conversation.
 
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{OptionalExtension, params};
@@ -37,6 +45,31 @@ pub struct BotThread {
     pub created_at: i64,
     #[ts(type = "number | null")]
     pub archived_at: Option<i64>,
+    /// The conversation it belongs to (`<main bot>:<its first thread>`): its own (`<bot>:<id>`) unless another bot's
+    /// thread messaged this bot from a conversation (`To::Conversation`).
+    pub conversation: String,
+}
+
+impl BotThread {
+    /// The main bot of its conversation: the one the conversation started with.
+    pub fn main_bot(&self) -> &str {
+        main_bot(&self.conversation)
+    }
+}
+
+/// The ID of a thread's own conversation.
+pub fn conversation_id(bot: &str, thread: &str) -> String {
+    format!("{bot}:{thread}")
+}
+
+/// The main bot of a conversation (the part before the first `:`).
+pub fn main_bot(conversation: &str) -> &str {
+    conversation.split_once(':').map_or(conversation, |(b, _)| b)
+}
+
+/// The key of a bot's thread that joined a conversation of another bot.
+pub fn conversation_key(conversation: &str) -> String {
+    format!("conversation:{conversation}")
 }
 
 /// Where a message to a bot comes from.
@@ -56,8 +89,11 @@ pub enum Source<'a> {
     Routine { file: &'a str, title: &'a str },
     /// An incoming hook.
     Hook { id: &'a str, name: &'a str },
-    /// Another agent's message: one thread per sender session.
-    Agent { session: &'a str, name: &'a str },
+    /// Another agent's message: one thread per sender session; from a bot's thread of a conversation (`conversation`,
+    /// of another bot than the receiver), the receiver's thread of that conversation.
+    Agent { session: &'a str, name: &'a str, conversation: Option<&'a str> },
+    /// The owner's message to a bot of a conversation: that bot's thread of it (created when the bot joins).
+    Conversation { id: &'a str, title: &'a str },
     /// The owner's feedback on a folio, or a new thread about it: one thread per folio.
     Folio { id: &'a str, title: &'a str, new: bool },
 }
@@ -71,6 +107,8 @@ pub enum To {
     Key { key: String, title: String },
     /// Always a new thread. An empty title: from the message's first line.
     New { key: Option<String>, title: String },
+    /// The bot's open thread of this conversation, else a new one that joins it (key `conversation:<id>`).
+    Conversation { id: String, title: String },
 }
 
 /// Pure: the thread a message from `source` goes to.
@@ -94,7 +132,9 @@ pub fn route(source: Source) -> To {
         Source::Channel { id, title } => To::Key { key: format!("channel:{id}"), title: title.to_string() },
         Source::Routine { file, title } => To::New { key: Some(format!("routine:{file}")), title: title.to_string() },
         Source::Hook { id, name } => To::Key { key: format!("hook:{id}"), title: format!("Hook “{name}”") },
-        Source::Agent { session, name } => To::Key { key: format!("agent:{session}"), title: if name.is_empty() { "An agent".into() } else { name.to_string() } },
+        Source::Agent { conversation: Some(id), name, .. } => To::Conversation { id: id.to_string(), title: name.to_string() },
+        Source::Conversation { id, title } => To::Conversation { id: id.to_string(), title: title.to_string() },
+        Source::Agent { session, name, conversation: None } => To::Key { key: format!("agent:{session}"), title: if name.is_empty() { "An agent".into() } else { name.to_string() } },
         Source::Folio { id, title, new: false } => To::Key { key: folio_key(id), title: title.to_string() },
         Source::Folio { id, title, new: true } => To::New { key: Some(folio_key(id)), title: title.to_string() },
     }
@@ -133,10 +173,14 @@ pub fn short(text: &str) -> String {
 static THREADS: std::sync::LazyLock<crate::locks::Locks> = std::sync::LazyLock::new(Default::default);
 
 fn row(r: &rusqlite::Row) -> rusqlite::Result<BotThread> {
-    Ok(BotThread { bot_id: r.get(0)?, id: r.get(1)?, key: r.get(2)?, title: r.get(3)?, created_at: r.get(4)?, archived_at: r.get(5)? })
+    let (bot_id, id): (String, String) = (r.get(0)?, r.get(1)?);
+    let conversation = r.get::<_, Option<String>>(6)?.unwrap_or_else(|| conversation_id(&bot_id, &id));
+    Ok(BotThread { bot_id, id, key: r.get(2)?, title: r.get(3)?, created_at: r.get(4)?, archived_at: r.get(5)?, conversation })
 }
 
-const COLUMNS: &str = "bot_id, id, key, title, created_at, archived_at";
+const COLUMNS: &str = "bot_id, id, key, title, created_at, archived_at, conversation";
+/// The conversation of a row, in SQL.
+const CONVERSATION: &str = "COALESCE(conversation, bot_id || ':' || id)";
 
 /// The row of the legacy thread exists when sessions from before threads name it (older Homes created it on use).
 async fn ensure_legacy(app: &App, bot: &str) -> Result<()> {
@@ -177,11 +221,11 @@ pub async fn get(app: &App, bot: &str, id: &str) -> Result<Option<BotThread>> {
     app.state_db.call(move |c| Ok(c.query_row(&format!("SELECT {COLUMNS} FROM bot_thread WHERE bot_id = ?1 AND id = ?2"), params![bot, id], row).optional()?)).await
 }
 
-/// The titles of every thread, by bot and thread ID (Today's titles).
-pub async fn titles(app: &App) -> Result<std::collections::HashMap<(String, String), String>> {
+/// Every thread, by bot and thread ID (Today's titles and conversations).
+pub async fn all(app: &App) -> Result<std::collections::HashMap<(String, String), BotThread>> {
     app.state_db.call(|c| {
-        let mut st = c.prepare("SELECT bot_id, id, title FROM bot_thread")?;
-        let rows = st.query_map([], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))?.collect::<rusqlite::Result<std::collections::HashMap<_, _>>>()?;
+        let mut st = c.prepare(&format!("SELECT {COLUMNS} FROM bot_thread"))?;
+        let rows = st.query_map([], row)?.map(|t| t.map(|t| ((t.bot_id.clone(), t.id.clone()), t))).collect::<rusqlite::Result<std::collections::HashMap<_, _>>>()?;
         Ok(rows)
     }).await
 }
@@ -209,7 +253,49 @@ pub async fn resolve(app: &App, bot: &str, to: &To, fallback: &str) -> Result<St
             }
         }
         To::New { key, title } => insert(app, bot, key.clone(), if title.is_empty() { fallback } else { title }).await,
+        To::Conversation { id, title } => match in_conversation(app, bot, id).await? {
+            Some(t) => Ok(t),
+            None => {
+                let title = conversation_title(app, id).await.unwrap_or_else(|| if title.is_empty() { fallback.to_string() } else { title.clone() });
+                insert_in(app, bot, Some(conversation_key(id)), &title, Some(id.clone())).await
+            }
+        },
     }
+}
+
+/// The bot's open thread of a conversation (its main bot's: the thread it started with, or the thread that
+/// continues it).
+async fn in_conversation(app: &App, bot: &str, conversation: &str) -> Result<Option<String>> {
+    let (b, c) = (bot.to_string(), conversation.to_string());
+    app.state_db.call(move |db| Ok(db.query_row(&format!("SELECT id FROM bot_thread WHERE bot_id = ?1 AND {CONVERSATION} = ?2 AND archived_at IS NULL ORDER BY created_at DESC LIMIT 1"), params![b, c], |r| r.get(0)).optional()?)).await
+}
+
+/// The title of a conversation: its main bot's newest thread of it.
+async fn conversation_title(app: &App, conversation: &str) -> Option<String> {
+    let c = conversation.to_string();
+    app.state_db.call(move |db| Ok(db.query_row(&format!("SELECT title FROM bot_thread WHERE bot_id = ?2 AND {CONVERSATION} = ?1 ORDER BY created_at DESC LIMIT 1"), params![c, main_bot(&c)], |r| r.get(0)).optional()?)).await.ok().flatten()
+}
+
+/// Every thread of a conversation (archived ones too), oldest first.
+pub async fn conversation_threads(app: &App, conversation: &str) -> Result<Vec<BotThread>> {
+    let c = conversation.to_string();
+    app.state_db.call(move |db| {
+        let mut st = db.prepare(&format!("SELECT {COLUMNS} FROM bot_thread WHERE {CONVERSATION} = ?1 ORDER BY created_at"))?;
+        let rows = st.query_map([c], row)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }).await
+}
+
+/// The thread of a bot session, with its row.
+pub async fn of_session(app: &App, s: &Session) -> Option<BotThread> {
+    let b = s.launch_spec.bot.as_ref()?;
+    get(app, &b.id, b.thread_id()).await.ok().flatten()
+}
+
+/// Pure: the conversation an agent's message to `target` joins, from the sender's thread (None: the sender is no bot
+/// thread, or it messages its own bot, which keeps a thread per sender session).
+pub fn joins(sender: Option<&BotThread>, target: &str) -> Option<String> {
+    sender.filter(|t| t.bot_id != target).map(|t| t.conversation.clone())
 }
 
 /// The existing thread a message to `to` would go to, without creating one (None: a new thread).
@@ -221,6 +307,7 @@ pub async fn peek(app: &App, bot: &str, to: &To) -> Result<Option<String>> {
             app.state_db.call(move |c| Ok(c.query_row("SELECT id FROM bot_thread WHERE bot_id = ?1 AND key = ?2 AND archived_at IS NULL ORDER BY created_at DESC LIMIT 1", params![b, k], |r| r.get(0)).optional()?)).await
         }
         To::New { .. } => Ok(None),
+        To::Conversation { id, .. } => in_conversation(app, bot, id).await,
     }
 }
 
@@ -230,20 +317,26 @@ pub async fn follow_up(app: &App, bot: &str, thread: &str) -> Result<String> {
     let lock = THREADS.get(bot);
     let _held = lock.lock().await;
     let t = get(app, bot, thread).await?.context("this thread no longer exists")?;
-    let id = insert(app, bot, t.key.clone(), &t.title).await?;
+    // It stays in its conversation.
+    let id = insert_in(app, bot, t.key.clone(), &t.title, Some(t.conversation.clone())).await?;
     // Its key now routes to the new thread.
     set_archived(app, bot, thread, true).await?;
     Ok(id)
 }
 
 async fn insert(app: &App, bot: &str, key: Option<String>, title: &str) -> Result<String> {
+    insert_in(app, bot, key, title, None).await
+}
+
+/// A new thread; `conversation`: the conversation it joins (None: its own).
+async fn insert_in(app: &App, bot: &str, key: Option<String>, title: &str, conversation: Option<String>) -> Result<String> {
     let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
     let title = match short(title) {
         t if t.is_empty() => "New thread".to_string(),
         t => t,
     };
     let (b, i) = (bot.to_string(), id.clone());
-    app.state_db.call(move |c| Ok(c.execute("INSERT INTO bot_thread (bot_id, id, key, title, created_at) VALUES (?1, ?2, ?3, ?4, ?5)", params![b, i, key, title, now_ms()])?)).await?;
+    app.state_db.call(move |c| Ok(c.execute("INSERT INTO bot_thread (bot_id, id, key, title, created_at, conversation) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![b, i, key, title, now_ms(), conversation])?)).await?;
     app.bus.publish("bots", "threads", serde_json::json!({"id": bot}));
     Ok(id)
 }
@@ -266,10 +359,31 @@ async fn set_archived(app: &App, bot: &str, id: &str, archived: bool) -> Result<
     Ok(())
 }
 
-/// Archive (or bring back) a thread: it leaves the thread bar, and its open session is archived (brought back with
-/// it). A thread at work is stopped first.
+/// Archive (or bring back) a thread and the other threads of its conversation (the threads of other bots it shares,
+/// open ones; Bring back: the ones archived with it). Refused while one of them works.
 pub async fn archive(app: &App, bot: &str, id: &str, archived: bool) -> Result<BotThread> {
-    get(app, bot, id).await?.context("this thread no longer exists")?;
+    let t = get(app, bot, id).await?.context("this thread no longer exists")?;
+    let others: Vec<BotThread> = conversation_threads(app, &t.conversation).await?.into_iter().filter(|o| !(o.bot_id == bot && o.id == id)).collect();
+    let others: Vec<BotThread> = if archived {
+        others.into_iter().filter(|o| o.archived_at.is_none()).collect()
+    } else {
+        // Archived with it: within a minute of its own archive.
+        let at = t.archived_at.or_else(|| session(app, bot, id).filter(|s| s.status == SessionStatus::Closed).map(|s| s.status_since)).unwrap_or(0);
+        others.into_iter().filter(|o| o.archived_at.is_some_and(|a| (a - at).abs() < 60_000)).collect()
+    };
+    if archived && others.iter().any(|o| open_session(app, &o.bot_id, &o.id).is_some_and(|s| s.status.is_running())) {
+        bail!("a bot of this conversation is working: stop it first");
+    }
+    let done = archive_one(app, bot, id, archived).await?;
+    for o in others {
+        if let Err(e) = archive_one(app, &o.bot_id, &o.id, archived).await {
+            tracing::warn!("archive of thread {} of bot {} with its conversation: {e:#}", o.id, o.bot_id);
+        }
+    }
+    Ok(done)
+}
+
+async fn archive_one(app: &App, bot: &str, id: &str, archived: bool) -> Result<BotThread> {
     if archived {
         let open = sessions(app, bot, id).into_iter().filter(|s| s.status != SessionStatus::Closed).collect::<Vec<_>>();
         if open.iter().any(|s| s.status.is_running()) {
@@ -337,4 +451,33 @@ pub fn cap_reason(working: &[String], thread: Option<&str>, max: u32, name: &str
 pub fn at_cap(app: &App, bot: &crate::bots::Bot, thread: Option<&str>) -> Option<String> {
     let working: Vec<String> = open_sessions(app, &bot.id).iter().filter(|s| s.status.is_running()).map(|s| of(s).unwrap_or(LEGACY).to_string()).collect();
     cap_reason(&working, thread, bot.max_threads(), &bot.settings.name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn thread(bot: &str, id: &str, conversation: Option<&str>) -> BotThread {
+        BotThread { id: id.into(), bot_id: bot.into(), key: None, title: "t".into(), created_at: 0, archived_at: None, conversation: conversation.map_or_else(|| conversation_id(bot, id), str::to_string) }
+    }
+
+    #[test]
+    fn a_bot_s_message_from_a_conversation_joins_it() {
+        let a = thread("a", "t1", None);
+        // A's thread messages B: B's thread of A's conversation.
+        assert_eq!(joins(Some(&a), "b").as_deref(), Some("a:t1"));
+        let to = route(Source::Agent { session: "s1", name: "A", conversation: joins(Some(&a), "b").as_deref() });
+        assert_eq!(to, To::Conversation { id: "a:t1".into(), title: "A".into() });
+        // B, in A's conversation, messages C: C joins the same conversation, and an answer to A finds A's thread.
+        let b = thread("b", "t9", Some("a:t1"));
+        assert_eq!(joins(Some(&b), "c").as_deref(), Some("a:t1"));
+        assert_eq!(b.main_bot(), "a");
+        // A plain agent, or a bot messaging itself, keeps a thread per sender session.
+        assert_eq!(joins(None, "b"), None);
+        assert_eq!(joins(Some(&a), "a"), None);
+        assert_eq!(route(Source::Agent { session: "s1", name: "", conversation: None }), To::Key { key: "agent:s1".into(), title: "An agent".into() });
+        // The owner addresses a bot of a conversation.
+        assert_eq!(route(Source::Conversation { id: "a:t1", title: "" }), To::Conversation { id: "a:t1".into(), title: String::new() });
+        assert_eq!(conversation_key("a:t1"), "conversation:a:t1");
+    }
 }

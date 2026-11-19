@@ -259,6 +259,7 @@ CREATE TABLE IF NOT EXISTS telegram_answer (session_id TEXT PRIMARY KEY, workspa
 CREATE TABLE IF NOT EXISTS incoming_hook (id TEXT PRIMARY KEY, secret_hash TEXT NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bot_thread (bot_id TEXT NOT NULL, id TEXT NOT NULL, key TEXT, title TEXT NOT NULL, created_at INTEGER NOT NULL, archived_at INTEGER, PRIMARY KEY (bot_id, id));
 CREATE INDEX IF NOT EXISTS bot_thread_key ON bot_thread (bot_id, key);
+CREATE TABLE IF NOT EXISTS conversation_reply (session_id TEXT NOT NULL, seq INTEGER NOT NULL, at INTEGER NOT NULL, outcome TEXT NOT NULL, PRIMARY KEY (session_id, seq));
 CREATE TABLE IF NOT EXISTS queued_message (n INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL, at INTEGER NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS bot_send (id TEXT PRIMARY KEY, bot_id TEXT NOT NULL, thread TEXT NOT NULL, asked_thread TEXT NOT NULL, state TEXT NOT NULL, error TEXT, session_id TEXT, json TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS bot_send_thread ON bot_send (bot_id, thread, state, created_at);
@@ -339,6 +340,9 @@ CREATE TABLE IF NOT EXISTS folio_block_use (folio_id TEXT NOT NULL, name TEXT NO
     // Digest deliveries (`launchpad_channels::digest`): a kind and the message range they list.
     let delivery_columns = conn.prepare("PRAGMA table_info(channel_delivery)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !delivery_columns.iter().any(|c| c == "kind") { conn.execute_batch("ALTER TABLE channel_delivery ADD COLUMN kind TEXT NOT NULL DEFAULT 'message'; ALTER TABLE channel_delivery ADD COLUMN first_message INTEGER; ALTER TABLE channel_delivery ADD COLUMN count INTEGER;")?; }
+    // Multi-bot conversations (`bot_threads`): the conversation a thread belongs to, None for its own.
+    let thread_columns = conn.prepare("PRAGMA table_info(bot_thread)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !thread_columns.iter().any(|c| c == "conversation") { conn.execute_batch("ALTER TABLE bot_thread ADD COLUMN conversation TEXT;")?; }
     // Files of bot channel messages (`launchpad_channels::channel::ChannelFile`, references to Home's uploads).
     let message_columns = conn.prepare("PRAGMA table_info(channel_message)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !message_columns.iter().any(|c| c == "files") { conn.execute_batch("ALTER TABLE channel_message ADD COLUMN files TEXT NOT NULL DEFAULT '[]';")?; }

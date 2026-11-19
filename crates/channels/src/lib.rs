@@ -6,6 +6,7 @@ pub mod agent;
 pub mod cards;
 pub mod channel;
 pub mod connections;
+pub mod conversation;
 pub mod delivery;
 pub mod digest;
 pub mod hooks;
@@ -37,6 +38,7 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     hooks::CreatedHook::export_all(cfg)?;
     hooks::QueuedMessage::export_all(cfg)?;
     sends::BotSend::export_all(cfg)?;
+    conversation::Conversation::export_all(cfg)?;
     channel::Channel::export_all(cfg)?;
     channel::ChannelPage::export_all(cfg)?;
     channel::ChannelPosted::export_all(cfg)?;

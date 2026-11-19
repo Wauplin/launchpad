@@ -5,4 +5,9 @@ export type BotThread = { id: string, bot_id: string,
  * What routes messages here (`github:owner/repo#12`, `channel:<id>`, `hook:<id>`, `agent:<session>`,
  * `routine:<file>`, `folio:<id>`), None for the owner's own threads.
  */
-key: string | null, title: string, created_at: number, archived_at: number | null, };
+key: string | null, title: string, created_at: number, archived_at: number | null, 
+/**
+ * The conversation it belongs to (`<main bot>:<its first thread>`): its own (`<bot>:<id>`) unless another bot's
+ * thread messaged this bot from a conversation (`To::Conversation`).
+ */
+conversation: string, };

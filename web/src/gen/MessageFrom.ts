@@ -32,4 +32,13 @@ accepted?: boolean,
  * Automatic messages in the chain that caused it (routine runs, agents' messages, cards accepted automatically),
  * itself included; 0 after an owner message or click (`senders::MAX_HOPS`).
  */
-hops: number, };
+hops: number, 
+/**
+ * A bot's message: the sender's session (its thread), where an answer goes back in a conversation.
+ */
+session?: string, 
+/**
+ * A bot's final answer to a message another bot of the conversation sent it (`launchpad_channels::conversation`):
+ * delivered on its own, never answered in turn.
+ */
+reply?: boolean, };

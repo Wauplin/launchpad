@@ -12,6 +12,7 @@ impl launchpad_core::ext::Extensions for Extensions {
     }
     fn turn_ended(&self, app: &App, session: &Session) {
         crons::turn_ended(app, session);
+        launchpad_channels::conversation::turn_ended(app, session);
     }
     fn turn_saved(&self, app: &App, session: &Session) {
         crons::turn_saved(app, session);

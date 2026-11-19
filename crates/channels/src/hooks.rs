@@ -345,6 +345,16 @@ pub async fn deliver_channel(app: &App, bot_id: &str, text: String, automatic: b
     Ok(enqueue(app, q, Some(Box::new(combined))).await?.0)
 }
 
+/// A bot's answer to another bot of its conversation (`conversation::turn_ended`): sent to the asking bot's thread of
+/// the conversation now when it is idle, else queued like an agent's message (the end of its turn, confirmed quota, a
+/// free slot). Returns what became of it.
+pub async fn deliver_reply(app: &App, bot_id: &str, to: To, text: String, from: MessageFrom) -> Result<Outcome> {
+    let target = Target::Bot { id: bot_id.into() };
+    let thread = resolve(app, &target, &to, &from.name).await?;
+    let q = Queued { target, thread: Some(thread), context: Some(MessageContext::default()), attachments: vec![], text, automatic: true, telegram: false, from: Some(from), channel: None };
+    Ok(enqueue(app, q, None).await?.0)
+}
+
 type Combine<'a> = Box<dyn FnOnce(&ChannelPart) -> String + Send + 'a>;
 
 /// The thread ID of a message (its row is created when it is new).

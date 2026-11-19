@@ -6,9 +6,12 @@
 // works as a page, a panel and the phone's full screen. It shows one thread of the bot (its parallel conversations,
 // BotThreads.tsx); the one message box sends to that thread (a new one for New thread), or answers its open question
 // or a question report ("Answering: …", with Cancel to send a normal message instead).
+// A thread that other bots joined (a conversation of several bots, `useConversation`) shows every bot's thread merged
+// into one timeline (`mergeConversation`), with a status line per bot; the box sends to the main bot, or to the bots
+// its leading @-mentions name, and answers a question of whichever bot asked it.
 
 import { useProfiles, useProfileModels } from "@/lib/profiles";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -67,12 +70,16 @@ import { isRunning, isSleeping, sleepUntil } from "@/lib/sessionStatus";
 import { sendPresence } from "@/lib/ws";
 import { QuickChips } from "./QuickChips";
 import { chatRows, pendingRows, sleepKey, stepsLabel, type ChatCard, type ChatItem, type ChatSession } from "./chatRows";
+import { useConversation, type ConversationInfo } from "./useConversation";
+import { completeMention, conversationStatus, mentionChoices, mentionQuery, mergeConversation, routeMentions } from "@/lib/conversations";
+import { useSessions } from "@/lib/queries";
+import { isUnseen } from "@/lib/sessionStatus";
 
 /** A record behind a change receipt: a knowledge-base change, a change of the bot's own files, or a direct change. */
 type ChangeRecord = { kind: "kb"; c: Change } | { kind: "bot"; c: Change; botId: string } | { kind: "act"; a: Activity } | { kind: "folio"; f: FolioActivity };
 
 /** What the message box answers instead of sending a message: the open question, or a question report. */
-type Reply = { kind: "ask"; request_id: string; count: number; permission: boolean; question: string } | { kind: "report"; id: string; title: string };
+type Reply = { kind: "ask"; request_id: string; count: number; permission: boolean; question: string; sessionId: string; bot: string | null } | { kind: "report"; id: string; title: string };
 
 /** Lets a question report's Reply (in a row) aim the message box at it. */
 const ReplyContext = createContext<(p: Proposal) => void>(() => {});
@@ -153,19 +160,26 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
   }, [thread.length]);
   const from = Math.max(0, thread.length - shown);
   const visible = useMemo(() => thread.slice(from), [thread, from]);
-  const ids = useMemo(() => new Set(thread.map((s) => s.id)), [thread]);
+  // The conversation of the thread: other bots that joined it show in the same timeline.
+  const conversation = useConversation(bot, threadId === NEW_THREAD ? null : threadId);
+  const others = useMemo(() => (conversation?.participants ?? []).filter((p) => p.bot.id !== bot.id), [conversation]);
+  const multi = others.length > 0;
+  const otherSessions = useMemo(() => others.flatMap((p) => p.sessions), [others]);
+  const ids = useMemo(() => new Set([...thread, ...otherSessions].map((s) => s.id)), [thread, otherSessions]);
+  // Every session whose events load: the shown thread's, and every session of the other bots' threads.
+  const loaded = useMemo(() => [...visible, ...otherSessions], [visible, otherSessions]);
 
   // Only the shown sessions' logs: events of other sessions do not re-render the chat.
-  const shownLogs = useSessionLogs(useShallow((st) => visible.map((s) => st.logs[s.id])));
-  const logs = useMemo(() => Object.fromEntries(visible.map((s, i) => [s.id, shownLogs[i]])) as Record<string, SessionLog | undefined>, [visible, shownLogs]);
+  const shownLogs = useSessionLogs(useShallow((st) => loaded.map((s) => st.logs[s.id])));
+  const logs = useMemo(() => Object.fromEntries(loaded.map((s, i) => [s.id, shownLogs[i]])) as Record<string, SessionLog | undefined>, [loaded, shownLogs]);
   const load = useSessionLogs((st) => st.load);
   const loadEarlier = useSessionLogs((st) => st.loadEarlier);
   useEffect(() => {
-    for (const s of visible) if (!useSessionLogs.getState().logs[s.id]) {
+    for (const s of loaded) if (!useSessionLogs.getState().logs[s.id]) {
       useSessionLogs.setState((st) => ({ logs: { ...st.logs, [s.id]: emptyLog() } }));
       void load(s.id);
     }
-  }, [visible, load]);
+  }, [loaded, load]);
 
   const presets = usePresets();
   const proposals = useProposalList().data;
@@ -183,7 +197,7 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
 
   // A session shows once its newest events are loaded.
   const ready = visible.filter((s) => logs[s.id]?.loaded);
-  const sessions = useMemo<ChatSession[]>(() => ready.map((s) => {
+  const toChat = (s: Session): ChatSession => {
     const log = logs[s.id]!;
     let rows = folded.get(log);
     if (!rows) { rows = foldTrace(buildRows(log), s.launch_spec.text, presets); folded.set(log, rows); }
@@ -191,25 +205,45 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
       id: s.id, started_at: s.started_at, profile: s.launch_spec.profile, folder: s.launch_spec.target.kind === "temp" ? null : s.project_id, reason: s.launch_spec.bot?.reason ?? null, note: s.launch_spec.bot?.note ?? null, previous: s.launch_spec.bot?.previous?.title ?? null,
       running: isRunning(s), rows, firstTs: log.events[0]?.ts ?? null, partial: !!log.earlier, changes: s.status !== "closed", sleep: isSleeping(s) ? s.sleep : null,
     };
-    // A sleep starts, changes or ends without a new status (Done stays Done): it is part of the key.
-  }), [ready.map((s) => `${s.id}:${s.status}:${s.open_question ? "q" : ""}:${s.sleep ? sleepKey(s.sleep) : ""}`).join(), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
+  };
+  // A sleep starts, changes or ends without a new status (Done stays Done): it is part of the key.
+  const sessionKey = (list: Session[]) => list.map((s) => `${s.id}:${s.status}:${s.open_question ? "q" : ""}:${s.sleep ? sleepKey(s.sleep) : ""}`).join();
+  const sessions = useMemo<ChatSession[]>(() => ready.map(toChat), [sessionKey(ready), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
+  const otherReady = otherSessions.filter((s) => logs[s.id]?.loaded);
+  const otherChats = useMemo(() => others.map((p) => ({ p, sessions: p.sessions.filter((s) => logs[s.id]?.loaded).map(toChat) })), [others, sessionKey(otherReady), shownLogs, presets]); // eslint-disable-line react-hooks/exhaustive-deps
   const first = ready[0] ? thread.indexOf(ready[0]) : 0;
   // Hook and Telegram messages waiting for the turn to end: grey rows after the chat, each with Cancel.
   const queued = useQuery({ queryKey: ["bot-queued", bot.id], queryFn: () => api.get<QueuedMessage[]>(`/api/bots/${bot.id}/queued`), retry: false }).data;
   // Your messages Home accepted that no loaded session shows yet: their bubbles, with how far each got.
   const sends = useQuery({ queryKey: ["bot-sends", bot.id], queryFn: () => api.get<BotSend[]>(`/api/bots/${bot.id}/sends`), retry: false }).data;
-  const items = useMemo(() => [
-    ...chatRows(sessions, cards, first),
-    ...pendingRows(sends ?? [], sessions, threadId),
-    ...(queued ?? []).filter((m) => m.thread === threadId).map((m): ChatItem => ({ t: "queued", key: `queued/${m.n}`, v: `${m.slot}`, n: m.n, at: m.at, source: m.source, text: m.text, slot: m.slot })),
-  ], [sessions, cards, first, sends, queued, threadId]);
+  // The same for the other bots of the conversation.
+  const otherQueued = useQueries({ queries: others.map((p) => ({ queryKey: ["bot-queued", p.bot.id], queryFn: () => api.get<QueuedMessage[]>(`/api/bots/${p.bot.id}/queued`), retry: false })) }).map((q) => q.data);
+  const otherSends = useQueries({ queries: others.map((p) => ({ queryKey: ["bot-sends", p.bot.id], queryFn: () => api.get<BotSend[]>(`/api/bots/${p.bot.id}/sends`), retry: false })) }).map((q) => q.data);
+  // Agents the bots of the conversation launched: a row each, at its start.
+  const allSessions = useSessions().data;
+  const launched = useMemo(() => multi ? (allSessions ?? []).filter((s) => s.launch_spec.from?.session && ids.has(s.launch_spec.from.session)) : [], [multi, allSessions, ids]);
+  const items = useMemo((): ChatItem[] => {
+    const own = (list: ChatSession[], firstIndex: number, botSends: BotSend[] | undefined, botQueued: QueuedMessage[] | undefined, thread: string): ChatItem[] => [
+      ...chatRows(list, cards, firstIndex),
+      ...pendingRows(botSends ?? [], list, thread),
+      ...(botQueued ?? []).filter((m) => m.thread === thread).map((m): ChatItem => ({ t: "queued", key: `queued/${m.n}`, v: `${m.slot}`, n: m.n, at: m.at, source: m.source, text: m.text, slot: m.slot })),
+    ];
+    const mine = own(sessions, first, sends, queued, threadId);
+    if (!multi || !conversation) return mine;
+    const launches = (botId: string, list: Session[]): ChatItem[] => launched.filter((l) => list.some((s) => s.id === l.launch_spec.from?.session) && l.launch_spec.from?.id === botId)
+      .map((l) => ({ t: "launch", key: `launch/${l.id}`, v: l.status, at: l.started_at, sessionId: l.id, title: l.title, status: l.status }));
+    return mergeConversation([
+      { bot: { id: bot.id, name: bot.settings.name }, items: [...mine, ...launches(bot.id, thread)] },
+      ...otherChats.map(({ p, sessions: list }, i) => ({ bot: { id: p.bot.id, name: p.bot.settings.name }, items: [...own(list, 0, otherSends[i], otherQueued[i], p.thread.id), ...launches(p.bot.id, p.sessions)] })),
+    ], conversation.mainId);
+  }, [sessions, cards, first, sends, queued, threadId, multi, conversation, otherChats, launched, bot.id, bot.settings.name, thread, ...otherSends, ...otherQueued]); // eslint-disable-line react-hooks/exhaustive-deps
   // A message sent from this thread that continued in a new one (its session could not go on): the chat follows it.
   const followed = useRef(new Set<string>());
   useEffect(() => {
     const moved = (sends ?? []).find((m) => m.asked_thread === threadId && m.thread !== threadId && sentHere.has(m.id) && !followed.current.has(m.id));
     if (moved) { followed.current.add(moved.id); onThread?.(moved.thread); }
   }, [sends, threadId, onThread]);
-  const step = useMemo(() => { const w = items.findLast((i) => i.t === "working"); return w?.t === "working" ? w.step : null; }, [items]);
+  const step = useMemo(() => { const w = items.findLast((i) => i.t === "working" && (!i.bot || i.bot.id === bot.id)); return w?.t === "working" ? w.step : null; }, [items, bot.id]);
   // The records behind each steps line's receipts, one stable array per line (rows are memoized on it).
   // A line keeps its array while its records are the same, so a streaming answer elsewhere never redraws it.
   const lastStepRecords = useRef(new Map<string, readonly (ChangeRecord | undefined)[]>());
@@ -231,18 +265,24 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
   const focused = useWindowFocused();
   const shownCurrent = current && logs[current.id]?.loaded ? current : null;
   const shownId = shownCurrent?.id ?? null;
-  useEffect(() => { sendPresence(view, focused, shownId ? [shownId] : []); }, [view, focused, shownId]);
+  // In a conversation, the other bots' current sessions show too.
+  const otherCurrent = useMemo(() => others.map((p) => [...p.sessions].reverse().find((s) => s.status !== "closed") ?? null).filter((s): s is Session => !!s && !!logs[s.id]?.loaded), [others, logs]);
+  const presenceKey = [shownId, ...otherCurrent.map((s) => s.id)].filter(Boolean).join(",");
+  useEffect(() => { sendPresence(view, focused, presenceKey ? presenceKey.split(",") : []); }, [view, focused, presenceKey]);
   useEffect(() => () => sendPresence(view, false, []), [view]);
   useMarkSeen(shownCurrent, focused);
 
   // The open question of the current session: typed text answers it, unless it asks for a permission.
+  // In a conversation, the newest open question of any of its bots: the box answers that bot's session.
+  const asking = useMemo(() => new Set([current?.id, ...otherCurrent.map((s) => s.id)].filter(Boolean)), [current?.id, otherCurrent]);
   const ask = useMemo((): Extract<Reply, { kind: "ask" }> | null => {
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
-      if (it.t === "ask" && it.sessionId === current?.id && !it.row.answers) return { kind: "ask", request_id: it.row.request_id, count: it.row.questions.length, permission: it.row.questions.some((q) => q.permission), question: it.row.questions[0]?.question ?? "" };
+      if (it.t === "ask" && asking.has(it.sessionId) && !it.row.answers) return { kind: "ask", request_id: it.row.request_id, count: it.row.questions.length, permission: it.row.questions.some((q) => q.permission), question: it.row.questions[0]?.question ?? "", sessionId: it.sessionId, bot: multi ? it.bot?.name ?? null : null };
     }
     return null;
-  }, [items, current?.id]);
+  }, [items, asking, multi]);
+  const askSession = useMemo(() => [current, ...otherCurrent].find((s) => s?.id === ask?.sessionId) ?? null, [current, otherCurrent, ask?.sessionId]);
   // What the box answers: a question report the owner picked Reply on, else the open question, unless cancelled.
   const [report, setReport] = useState<Extract<Reply, { kind: "report" }> | null>(null);
   const [skipped, setSkipped] = useState<string | null>(null);
@@ -299,6 +339,8 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
   return (
     <ReplyContext.Provider value={onReply}>
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-paper" data-tour="bots.thread">
+      {multi && conversation && <ConversationBar conversation={conversation} />}
+      {otherCurrent.map((s) => <SeenMark key={s.id} session={s} focused={focused} />)}
       {failedLog && <div role="alert" className="flex flex-wrap items-center gap-3 px-4 py-2 text-[12px] text-ink-3">
         <span className="min-w-0 flex-1 break-words">Could not load the thread: {failedLog.error}</span>
         <button className="btn btn-sm" onClick={() => visible.forEach((s) => void load(s.id))}>Retry</button>
@@ -321,7 +363,7 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
                 const extra = item.t === "card" && item.kind === "ready" && data ? bySuggestion.get((data as TodayItem).record) : undefined;
                 return (
                   <div key={it.key} data-index={it.index} ref={v.measureElement} className="absolute top-0 right-0 left-0" style={{ transform: `translateY(${it.start}px)` }}>
-                    <ChatRow item={item} data={data} extra={extra} canContinue={item.key === continueKey} botId={bot.id} botName={bot.settings.name} quietWork={!!onStep} />
+                    <ChatRow item={item} data={data} extra={extra} canContinue={item.key === continueKey} botId={item.bot?.id ?? bot.id} botName={item.bot?.name ?? bot.settings.name} quietWork={!!onStep && !item.bot} />
                   </div>
                 );
               })}
@@ -330,7 +372,7 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
           <div className="h-3" />
         </div>
       </div>
-      <BotComposer key={`${bot.id}.${threadId}`} bot={bot} threadId={threadId} onThread={onThread} current={current} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} reply={reply} skipped={!reportWaits && ask && ask.request_id === skipped ? ask : null}
+      <BotComposer key={`${bot.id}.${threadId}`} bot={bot} threadId={threadId} onThread={onThread} current={current} askSession={askSession} conversation={conversation} rotation={rotation} needsProfile={needsProfile} openSettings={openSettings} reply={reply} skipped={!reportWaits && ask && ask.request_id === skipped ? ask : null}
         onCancelReply={() => { if (reply?.kind === "report") setReport(null); else if (reply) setSkipped(reply.request_id); }} onUnskip={() => setSkipped(null)}
         onSent={() => { atBottom.current = true; setReport(null); }} />
     </div>
@@ -394,7 +436,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, b
         <span>{item.index > 1 ? `Session ${item.index} · started` : "Started"} {when(item.at)}{item.previous ? ` · continues “${item.previous}”` : ""}{item.reason ? ` because ${item.reason}` : ""}</span>
       </Separator></div>;
     case "user":
-      return <ChatMessage look="owner" avatar={<OwnerAvatar />} name="You">
+      return <ChatMessage look="owner" avatar={<OwnerAvatar />} name="You" tag={item.to ? <SenderTag title="The bots of this conversation that got your message">to {item.to.join(", ")}</SenderTag> : undefined}>
         {item.text && <div className="whitespace-pre-wrap">{item.text}</div>}
         {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <ImageThumb key={i} src={src} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />; })}</div>}
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
@@ -411,14 +453,16 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, b
     case "quiet":
       return <div className="flex items-center gap-1.5 py-1 text-[12px] text-ink-3" title="The run had nothing to report: no notification"><Icon name="refresh" size={12} /><span className="truncate"><RoutineName title={item.title} /> · {item.cause}{item.at ? ` · ${when(item.at)}` : ""} · no update</span></div>;
     case "answer":
-      return <ChatMessage look="bot" avatar={<BotAvatar name={botName} />} name={<span className={botInk(botName)}>{botName}</span>}
-        tag={item.streaming ? <SenderTag><span className="text-work">writing…</span></SenderTag> : undefined}>
+      return <ChatMessage look="bot" avatar={<BotAvatar name={botName} />} name={item.bot ? <Link to="/bots/$id" params={{ id: item.bot.id }} className={`${NAME_LINK} ${botInk(botName)}`}>{botName}</Link> : <span className={botInk(botName)}>{botName}</span>}
+        tag={item.streaming ? <SenderTag><span className="text-work">writing…</span></SenderTag> : item.to ? <SenderTag title="Its answer goes back to the bot that asked">to {item.to.join(", ")}</SenderTag> : undefined}>
         <AssistantRow text={item.text} streaming={item.streaming} />
       </ChatMessage>;
     case "steps":
       return <StepsRow item={item} records={(data ?? []) as readonly (ChangeRecord | undefined)[]} />;
     case "ask":
-      return <div className="py-1.5"><AskLive item={item} /></div>;
+      return <div className="py-1.5">{item.bot && <div className={`pb-1 text-[12px] text-ink-3 ${MESSAGE_INDENT}`}><span className={`font-semibold ${botInk(item.bot.name)}`}>{item.bot.name}</span> asks</div>}<AskLive item={item} /></div>;
+    case "launch":
+      return <LaunchRow item={item} />;
     case "ended":
       return <EndedRow item={item} canContinue={canContinue} />;
     case "card":
@@ -515,7 +559,7 @@ function FromRow({ item }: { item: Extract<ChatItem, { t: "from" }> }) {
         : <Link to="/agents" search={{ session: f.id }} className={NAME_LINK}>{name}</Link>;
   return <ChatMessage tour="chat.from" look="other" avatar={bot ? <BotAvatar name={name} /> : <SourceAvatar icon={FROM_ICON[f.kind]} />}
     name={<span className={bot ? botInk(name) : "text-ink"}>{link}</span>}
-    tag={<SenderTag title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">{tag}</SenderTag>}>
+    tag={<SenderTag title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">{item.to ? `→ ${item.to.join(", ")} · not from you` : tag}</SenderTag>}>
     <div className="break-words whitespace-pre-wrap">{item.text}</div>
     {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
     {item.queued && <span className="text-[11px] text-ink-3">queued: read after the current step</span>}
@@ -609,8 +653,9 @@ function StepsRow({ item, records }: { item: Extract<ChatItem, { t: "steps" }>; 
   return <div className={`py-1 ${MESSAGE_INDENT}`}>
     <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-3" data-tour={item.changes.length ? "chat.changed" : undefined}>
       <button className="chat-tap flex flex-none items-center gap-1 hover:text-ink" aria-expanded={open} title="The work behind this answer, one line per step" onClick={() => setOpen(!open)}>
-        <Icon name="chev" size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />{stepsLabel(item.count, item.durationMs)}
+        <Icon name="chev" size={12} className={`transition-transform ${open ? "" : "-rotate-90"}`} />{item.bot ? `${item.bot.name} · ` : ""}{stepsLabel(item.count, item.durationMs)}
       </button>
+      {item.bot && <Link to="/agents" search={{ session: item.sessionId }} className="flex-none text-inherit hover:underline" title={`Open ${item.bot.name}'s trace in Agents`}>trace</Link>}
       {item.changes.length > 0 && <span className="flex min-w-0 items-center gap-1.5 truncate">
         {item.changes.map((c, i) => <span key={c.id} className="truncate" title={c.text}>· <Icon name="pencil" size={12} className="inline align-[-2px]" /> <ReceiptLink record={records[i]}>{c.receipt}</ReceiptLink></span>)}
       </span>}
@@ -661,19 +706,58 @@ function WorkingRow({ item, quiet }: { item: Extract<ChatItem, { t: "working" }>
   const label = s.status === "starting" ? "Starting" : s.status === "background" ? "Background work" : "Working";
   return <div className={`flex items-center gap-2 py-1.5 text-[12px] text-work ${MESSAGE_INDENT}`} role="status" aria-label={quiet ? label : undefined}>
     <span className="lp-spin" />
-    {!quiet && <span className="min-w-0 truncate">{`${label}${item.step ? ` · ${item.step}` : ""} · ${age(s.status_since)}`}</span>}
+    {!quiet && <span className="min-w-0 truncate">{`${item.bot ? `${item.bot.name} · ` : ""}${label}${item.step ? ` · ${item.step}` : ""} · ${age(s.status_since)}`}</span>}
     <Link to="/agents" search={{ session: s.id }} className="shrink-0 text-inherit underline underline-offset-2" title="Open this thread's session in Agents: its trace, terminal and files">View running agent</Link>
     <span className="flex-1" />
     <button className="btn btn-sm" disabled={busy} title="Stop: interrupt the bot" onClick={() => { setBusy(true); void runAction("session.stop", { id: s.id }).catch(toastError).finally(() => setBusy(false)); }}><Icon name="stop" size={12} />Stop</button>
   </div>;
 }
 
+/** An agent a bot of the conversation launched: one line linking to it in Agents. */
+function LaunchRow({ item }: { item: Extract<ChatItem, { t: "launch" }> }) {
+  const s = useSession(item.sessionId);
+  const status = s ? statusWord(s) : null;
+  return <div className={`flex min-h-7 items-center gap-1.5 py-1 text-[12px] text-ink-3 ${MESSAGE_INDENT}`}>
+    <Icon name="agents" size={12} className="flex-none" />
+    <span className="min-w-0 truncate">{item.bot ? <span className={`font-semibold ${botInk(item.bot.name)}`}>{item.bot.name}</span> : "The bot"} launched <Link to="/agents" search={{ session: item.sessionId }} className={NAME_LINK}>{s?.title ?? item.title}</Link>{status ? ` · ${status}` : ""}</span>
+  </div>;
+}
+
+const statusWord = (s: Session) => isRunning(s) ? "working" : s.open_question ? "waits for you" : s.status === "error" ? "failed" : s.status === "interrupted" ? "interrupted" : s.status === "closed" ? "archived" : isSleeping(s) ? "sleeping" : "done";
+
+/** The bots of a conversation of several bots, over its timeline: each bot's mark (its trace in Agents) and one
+ * status line, the most urgent first ("Docs working · Scout waits for you · Release waiting"). */
+function ConversationBar({ conversation }: { conversation: ConversationInfo }) {
+  const parts = conversation.participants.map((p) => ({ p, session: [...p.sessions].reverse().find((s) => s.status !== "closed") ?? null }));
+  const status = conversationStatus(parts.map(({ p, session }) => ({ name: p.bot.settings.name, session })));
+  return <div className="flex min-h-9 flex-none items-center gap-2 border-b border-line-2 px-3 py-1" data-tour="chat.conversation">
+    <div className="mx-auto flex w-full max-w-text min-w-0 items-center gap-2">
+      <span className="flex flex-none items-center gap-1">
+        {parts.map(({ p, session }) => session
+          ? <Link key={p.bot.id} to="/agents" search={{ session: session.id }} title={`Open ${p.bot.settings.name}'s trace in Agents`} aria-label={`Open ${p.bot.settings.name}'s trace`}><BotAvatar name={p.bot.settings.name} size={20} /></Link>
+          : <span key={p.bot.id} title={p.bot.settings.name}><BotAvatar name={p.bot.settings.name} size={20} /></span>)}
+      </span>
+      <span className="min-w-0 truncate text-[12px] text-ink-3" role="status">{status}</span>
+    </div>
+  </div>;
+}
+
+/** Marks a session of another bot of the conversation seen, like the thread's own (`useMarkSeen`). */
+function SeenMark({ session, focused }: { session: Session; focused: boolean }) {
+  useMarkSeen(isUnseen(session) ? session : null, focused);
+  return null;
+}
+
 // ---------------------------------------------------------------- the message box
 
 const firstLine = (t: string) => t.trim().split("\n")[0] ?? "";
 
-function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile, openSettings, reply, skipped, onCancelReply, onUnskip, onSent }: {
+function BotComposer({ bot, threadId, onThread, current, askSession, conversation, rotation, needsProfile, openSettings, reply, skipped, onCancelReply, onUnskip, onSent }: {
   bot: Bot; threadId: string; onThread?: (thread: string) => void; current: Session | null; rotation: string | null; needsProfile: boolean;
+  /** The session whose open question the box answers (in a conversation, any of its bots'), else the thread's. */
+  askSession: Session | null;
+  /** The thread's conversation: the box sends to its main bot, or to the bots its leading @-mentions name. */
+  conversation: ConversationInfo | null;
   openSettings: () => void;
   /** What the box answers (the open question, or a question report), else null: a normal message. */
   reply: Reply | null;
@@ -708,10 +792,19 @@ function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile,
   const botPresets = usePresets("bots");
   // Grows with the text up to 10 lines, then scrolls.
   useLayoutEffect(() => { const el = ref.current; if (!el) return; el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 220)}px`; }, [text]);
-  const ask = reply?.kind === "ask" && !!current?.open_question && !!current.live ? reply : null;
+  const asker = askSession ?? current;
+  const ask = reply?.kind === "ask" && !!asker?.open_question && !!asker.live ? reply : null;
   const report = reply?.kind === "report" ? reply : null;
   const answering = !!ask || !!report;
-  const skip = !answering && skipped && !skipped.permission && !!current?.open_question && !!current.live ? skipped : null;
+  const skip = !answering && skipped && !skipped.permission && !!asker?.open_question && !!asker.live ? skipped : null;
+  // Leading @-mentions route the message (a conversation's thread); an unknown name is refused before it is sent.
+  const routed = !answering && !!conversation && threadId !== NEW_THREAD;
+  const [mentionError, setMentionError] = useState<string | null>(null);
+  const query = routed ? mentionQuery(text) : null;
+  const participants = useMemo(() => conversation?.participants.map((p) => p.bot.id) ?? [], [conversation]);
+  const choices = query === null || !conversation ? [] : mentionChoices(query, conversation.bots, participants);
+  const mainName = conversation?.bots.find((b) => b.id === conversation.mainId)?.name ?? bot.settings.name;
+  const many = participants.length > 1;
   // Cancel needs a harness that takes the message while the skipped question's turn goes on.
   const canSkip = !!harness?.capabilities.messages_while_running;
   // Typed text never grants a permission. A harness that cannot take messages while it works gets yours at the turn's
@@ -728,8 +821,8 @@ function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile,
     // The thread the message goes to: a message from New thread lands in the thread Home creates for it.
     let to = threadId;
     try {
-      if (ask && current) {
-        await runAction("session.answer", { id: current.id }, { request_id: ask.request_id, answers: Array(ask.count).fill(t || "See the attachments in my next message.") });
+      if (ask && asker) {
+        await runAction("session.answer", { id: asker.id }, { request_id: ask.request_id, answers: Array(ask.count).fill(t || "See the attachments in my next message.") });
         if (files.length) await accepted(await runAction<BotSend>("bot.message", { id: bot.id }, { text: "", attachments: files, ...where, accept: true }));
       } else if (report) {
         const next = await runAction<Proposal>("proposal.reply", { id: report.id }, { text: t });
@@ -739,7 +832,22 @@ function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile,
       } else {
         // A cancelled question still waits in the harness, which would hold the message behind it: close it as
         // skipped (never a permission: those keep Allow and Deny), then send the message.
-        if (skip && current) await runAction("session.answer", { id: current.id }, { request_id: skip.request_id, answers: Array(skip.count).fill("No answer: the owner skipped this question and sent a message instead.") });
+        if (skip && asker) await runAction("session.answer", { id: asker.id }, { request_id: skip.request_id, answers: Array(skip.count).fill("No answer: the owner skipped this question and sent a message instead.") });
+        const route = routed && conversation ? routeMentions(t, conversation.bots, conversation.mainId) : null;
+        if (route && "error" in route) { setMentionError(route.error); return; }
+        const targets = route?.targets ?? [bot.id];
+        if (targets.length !== 1 || targets[0] !== bot.id) {
+          // To other bots of the conversation (a bot that is not part of it joins it), each in its own thread.
+          for (const id of targets) await accepted(await runAction<BotSend>("bot.message", { id }, { text: t, attachments: files, conversation: conversation!.id, ...(withContext ? { context } : {}), accept: true }));
+          if (targets.some((id) => !participants.includes(id))) void qc.invalidateQueries({ queryKey: ["bot-threads"] });
+          setText("");
+          dropSentChatDraft(bot.id, threadId, threadId);
+          attachments.clear();
+          setContext(EMPTY_CONTEXT);
+          setPresets([]);
+          onSent();
+          return;
+        }
         const message = JSON.stringify({ text: t, attachments: files, context: withContext ? context : null });
         // Home stores the message and answers at once (`accept`); the bot starts or continues in the background.
         const body = unconfirmed?.message === message ? unconfirmed.body : { text: t, attachments: files, ...where, ...(withContext ? { context } : {}), accept: true };
@@ -761,7 +869,7 @@ function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile,
   // The accepted message shows at once (its bubble, in its thread), before Home's list refreshes.
   const accepted = async (sent: BotSend) => {
     showAccepted(qc, sent);
-    if (sent.thread !== threadId) onThread?.(sent.thread);
+    if (sent.bot_id === bot.id && sent.thread !== threadId) onThread?.(sent.thread);
   };
   if (needsProfile)
     return <div className="border-t border-line-2 p-2.5"><div className="flex items-center gap-2 rounded-control bg-attn-soft px-3 py-2 text-[13px] text-attn">This bot has no profile.<button className="btn btn-sm ml-auto" onClick={openSettings}>Choose a profile</button></div></div>;
@@ -773,7 +881,7 @@ function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile,
         {unconfirmed && !busy && <div role="status" className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3"><span className="min-w-0 flex-1">Delivery not confirmed. Send the same message to check its result.</span><button className="chat-tap flex-none text-teal-ink hover:underline" title="Only if the chat does not show the message: it may then be sent twice" onClick={() => void abandonOperation(unconfirmed.path, unconfirmed.body).then(() => setUnconfirmed(null)).catch(toastError)}>I checked the chat — start a new attempt</button></div>}
         {answering && !(ask && ask.permission) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="chat.answering">
           <Icon name="comment" size={12} className="flex-none" />
-          <span className="min-w-0 flex-1 truncate">{ask ? "Answering" : "Replying to"}: <b className="font-semibold text-ink-2">{firstLine(ask ? ask.question : report!.title)}</b></span>
+          <span className="min-w-0 flex-1 truncate">{ask ? `Answering${ask.bot ? ` ${ask.bot}` : ""}` : "Replying to"}: <b className="font-semibold text-ink-2">{firstLine(ask ? ask.question : report!.title)}</b></span>
           {(report || canSkip) && <button className="chat-tap flex-none text-teal-ink hover:underline" title={ask ? "Send a normal message instead: the question is closed as skipped" : "Send a normal message instead"} onClick={onCancelReply}>Cancel</button>}
         </div>}
         {skip && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3">
@@ -782,6 +890,12 @@ function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile,
           <button className="chat-tap flex-none text-teal-ink hover:underline" title="Answer the question with the message box" onClick={onUnskip}>Answer it</button>
         </div>}
         {!rotation && !answering && !skip && instructionsUpdated(bot, current) && <div className="mb-1.5 flex items-center gap-1.5 text-[12px] text-ink-3" data-tour="bots.instructions-updated" title={`BOT.md changed since ${bot.settings.name}'s current session read it: the new BOT.md goes with your next message, in the same session`}><Icon name="file" size={12} />Instructions updated · applies to your next message</div>}
+        {mentionError && <div role="alert" className="mb-1.5 flex items-center gap-1.5 text-[12px] text-gh-closed"><Icon name="xcircle" size={12} className="flex-none" /><span className="min-w-0 flex-1">{mentionError}</span></div>}
+        {choices.length > 0 && <div className="mb-1.5 flex flex-wrap items-center gap-1.5" role="listbox" aria-label="Bots to mention" data-tour="chat.mentions">
+          {choices.map((b) => <button key={b.id} type="button" role="option" aria-selected={false} className="btn btn-sm" title={participants.includes(b.id) ? `${b.name} is in this conversation` : `${b.name} joins this conversation`} onClick={() => { setText(completeMention(text, text, b.slug)); requestAnimationFrame(() => ref.current?.focus()); }}>
+            <BotAvatar name={b.name} size={16} />@{b.slug}{participants.includes(b.id) ? "" : " · joins"}
+          </button>)}
+        </div>}
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void attachments.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
         <AttachmentList files={files} disabled={busy || reading} onRemove={attachments.remove} />
         {!answering && <PresetChips surface="bots" selected={presets} onChange={setPresets} disabled={busy} className="mb-1.5" />}
@@ -789,8 +903,8 @@ function BotComposer({ bot, threadId, onThread, current, rotation, needsProfile,
         {!text && !files.length && !withContext && !presets.length && !answering && !blocked && !busy && <QuickChips starters={bot.settings.starters ?? []} onSend={(t) => void send(t)} onFill={(t) => { setText(t); requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } }); }} />}
         <div className="session-message-input flex items-end gap-2 rounded-control border border-line px-2.5 py-[7px] focus-within:border-teal focus-within:shadow-[0_0_0_3px_var(--color-teal-soft)]">
           <textarea ref={ref} rows={1} value={text} disabled={busy || blocked} aria-label={`Message ${bot.settings.name}`}
-            placeholder={busyTurn ? `${bot.settings.name} is working: your message waits for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? "Type your answer…" : `Message ${bot.settings.name}…`}
-            onChange={(e) => setText(e.target.value)}
+            placeholder={busyTurn ? `${bot.settings.name} is working: your message waits for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? "Type your answer…" : many ? `Message ${mainName} · @ for another bot…` : `Message ${bot.settings.name}…`}
+            onChange={(e) => { setText(e.target.value); setMentionError(null); }}
             onPaste={(e) => { if (!acceptsImages || busy) return; const pasted = pastedImages(e); if (pasted) void attachments.add(pasted); }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}
             className="min-h-6 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
