@@ -14,7 +14,7 @@ import { useProfiles, useProfileModels } from "@/lib/profiles";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, Fragment, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { Bot } from "@/gen/Bot";
 import type { BotSend } from "@/gen/BotSend";
@@ -436,7 +436,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, b
         <span>{item.index > 1 ? `Session ${item.index} · started` : "Started"} {when(item.at)}{item.previous ? ` · continues “${item.previous}”` : ""}{item.reason ? ` because ${item.reason}` : ""}</span>
       </Separator></div>;
     case "user":
-      return <ChatMessage look="owner" avatar={<OwnerAvatar />} name="You" tag={item.to ? <SenderTag title="The bots of this conversation that got your message">to {item.to.join(", ")}</SenderTag> : undefined}>
+      return <ChatMessage look="owner" avatar={<OwnerAvatar />} name="You" tag={item.to ? <SenderTag title="The bots of this conversation that got your message"><Recipients names={item.to} /></SenderTag> : undefined}>
         {item.text && <div className="whitespace-pre-wrap">{item.text}</div>}
         {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <ImageThumb key={i} src={src} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />; })}</div>}
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
@@ -453,8 +453,8 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, b
     case "quiet":
       return <div className="flex items-center gap-1.5 py-1 text-[12px] text-ink-3" title="The run had nothing to report: no notification"><Icon name="refresh" size={12} /><span className="truncate"><RoutineName title={item.title} /> · {item.cause}{item.at ? ` · ${when(item.at)}` : ""} · no update</span></div>;
     case "answer":
-      return <ChatMessage look="bot" avatar={<BotAvatar name={botName} />} name={item.bot ? <Link to="/bots/$id" params={{ id: item.bot.id }} className={`${NAME_LINK} ${botInk(botName)}`}>{botName}</Link> : <span className={botInk(botName)}>{botName}</span>}
-        tag={item.streaming ? <SenderTag><span className="text-work">writing…</span></SenderTag> : item.to ? <SenderTag title="Its answer goes back to the bot that asked">to {item.to.join(", ")}</SenderTag> : undefined}>
+      return <ChatMessage look="bot" edges={item.to?.length ? { from: botName, to: item.to } : undefined} avatar={<BotAvatar name={botName} />} name={<span className={botInk(botName)}>{item.bot ? <Link to="/bots/$id" params={{ id: item.bot.id }} className={NAME_LINK}>{botName}</Link> : botName}</span>}
+        tag={item.streaming ? <SenderTag><span className="text-work">writing…</span></SenderTag> : item.to ? <SenderTag title="Its answer goes back to the bot that asked"><Recipients names={item.to} /></SenderTag> : undefined}>
         <AssistantRow text={item.text} streaming={item.streaming} />
       </ChatMessage>;
     case "steps":
@@ -542,6 +542,15 @@ function ReceiptLink({ record, children }: { record: ChangeRecord | undefined; c
   return link ? <Link {...link} className={NAME_LINK}>{children}</Link> : <>{children}</>;
 }
 
+/** "to Writer", "to Writer and Scout", "to A, B and C": each name in its bot's identity color; long lines
+ * wrap between words on a phone. */
+function Recipients({ names }: { names: readonly string[] }) {
+  return <span className="min-w-0 break-words">to {names.map((n, i) => <Fragment key={i}>
+    {i > 0 && (i === names.length - 1 ? " and " : ", ")}
+    <span className={`font-semibold ${botInk(n)}`}>{n}</span>
+  </Fragment>)}</span>;
+}
+
 const FROM_ICON = { session: "agents", hook: "download", channel: "comment", wake: "sun", routine: "refresh", bot: "agents" } as const;
 
 /** A message from another bot or agent, a hook or a channel (Home stamped its sender): under the sender's mark and
@@ -557,9 +566,13 @@ function FromRow({ item }: { item: Extract<ChatItem, { t: "from" }> }) {
       : f.kind === "channel"
         ? <Link to="/channels/$id" params={{ id: f.id }} className={NAME_LINK}>{name}</Link>
         : <Link to="/agents" search={{ session: f.id }} className={NAME_LINK}>{name}</Link>;
-  return <ChatMessage tour="chat.from" look="other" avatar={bot ? <BotAvatar name={name} /> : <SourceAvatar icon={FROM_ICON[f.kind]} />}
+  // A bot's message to other bots of this conversation: "Scout to Writer", both names in their colors, with thin
+  // edges in those colors instead of the dashed "not from you" bubble (the tooltip keeps the provenance).
+  const between = f.kind === "bot" && item.to?.length ? item.to : null;
+  return <ChatMessage tour="chat.from" look={between ? "bot" : "other"} edges={between ? { from: name, to: between } : undefined}
+    avatar={bot ? <BotAvatar name={name} /> : <SourceAvatar icon={FROM_ICON[f.kind]} />}
     name={<span className={bot ? botInk(name) : "text-ink"}>{link}</span>}
-    tag={<SenderTag title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">{item.to ? `→ ${item.to.join(", ")} · not from you` : tag}</SenderTag>}>
+    tag={<SenderTag title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">{between ? <Recipients names={between} /> : item.to ? `→ ${item.to.join(", ")} · not from you` : tag}</SenderTag>}>
     <div className="break-words whitespace-pre-wrap">{item.text}</div>
     {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
     {item.queued && <span className="text-[11px] text-ink-3">queued: read after the current step</span>}
