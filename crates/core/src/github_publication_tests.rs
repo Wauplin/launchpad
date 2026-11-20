@@ -81,9 +81,13 @@ async fn publication_errors_distinguish_rejection_from_uncertain_delivery() {
             .unwrap();
         assert_eq!(delivery_uncertain(&e), uncertain, "{status}: {e:#}");
     }
-    let fixture = mock(|_| (200, "{}".into())).await;
-    let gh = client.clone().with_test_origin(fixture.origin.clone());
-    drop(fixture);
+    // Reserve the port without listening: aborting a mock leaves its listener alive
+    // until the task is dropped, and closing it allows another test to reuse the port.
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let gh = client
+        .clone()
+        .with_test_origin(format!("http://{}", socket.local_addr().unwrap()));
     let e = gh
         .request(reqwest::Method::POST, "/test", None)
         .await
@@ -97,6 +101,7 @@ async fn publication_errors_distinguish_rejection_from_uncertain_delivery() {
     );
     #[cfg(not(unix))]
     let _ = e;
+    drop(socket);
     gh.limits.write().await.insert(
         "core".into(),
         RateLimit {
