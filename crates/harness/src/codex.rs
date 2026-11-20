@@ -1292,11 +1292,12 @@ impl harness::Harness for Adapter {
             "exec",
             "--ephemeral",
             "--skip-git-repo-check",
-            "--ignore-user-config",
             "--sandbox",
             "read-only",
             "--json",
         ]);
+        // Keep the session's config: contained_login routes its placeholder credentials through
+        // Launchpad's proxy there. Ignoring it bypasses that configured authentication route.
         let defaults = app.models.defaults(app, ID);
         let small = defaults.models.iter().find(|m| m.id.contains("luna"))
             .or_else(|| defaults.models.iter().find(|m| m.id.contains("mini")));
@@ -1311,17 +1312,27 @@ impl harness::Harness for Adapter {
         Some(cmd)
     }
     fn title_response(&self, stdout: String) -> Result<harness::TitleReply> {
-        let title = stdout
-            .lines()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .filter(|e| e["type"] == "item.completed" && e["item"]["type"] == "agent_message")
-            .filter_map(|e| e["item"]["text"].as_str().map(str::to_string))
-            .next_back()
-            .context("no generated title")?;
-        // Codex does not report USD costs.
-        Ok(harness::TitleReply { title, ..Default::default() })
+        title_response(&stdout)
     }
 }
+fn title_response(stdout: &str) -> Result<harness::TitleReply> {
+    let events: Vec<Value> = stdout.lines()
+        .filter_map(|line| serde_json::from_str(line).ok()).collect();
+    let error = events.iter().rev().find_map(|e| match e["type"].as_str() {
+        Some("turn.failed") => e["error"]["message"].as_str(),
+        Some("error") => e["message"].as_str(),
+        _ => None,
+    }).map(str::to_string);
+    let title = events.iter().rev()
+        .find(|e| e["type"] == "item.completed" && e["item"]["type"] == "agent_message")
+        .and_then(|e| e["item"]["text"].as_str()).unwrap_or_default().to_string();
+    // Intermediate error events may be followed by a successful retry.
+    let error = error.filter(|_| title.is_empty() || events.iter().any(|e| e["type"] == "turn.failed"));
+    anyhow::ensure!(error.is_some() || !title.is_empty(), "no generated title");
+    // Codex does not report USD costs. Preserve failed-turn details even without a title.
+    Ok(harness::TitleReply { title, error, ..Default::default() })
+}
+
 /// Quota from a Codex `rateLimits` object.
 fn rate_limits(status: &launchpad_core::status::StatusHandle, account: &str, rl: &Value) {
     let (five, week) = windows(rl);
@@ -1417,6 +1428,25 @@ async fn trace_files(trusted: &std::path::Path, root: &std::path::Path, id: &str
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn title_response_preserves_structured_failures() {
+        for event in [
+            r#"{"type":"turn.failed","error":{"message":"model unavailable"}}"#,
+            r#"{"type":"error","message":"model unavailable"}"#,
+        ] {
+            let reply = super::title_response(event).unwrap();
+            assert_eq!(reply.error.as_deref(), Some("model unavailable"));
+            assert!(reply.title.is_empty());
+        }
+        let reply = super::title_response(r#"{"type":"item.completed","item":{"type":"agent_message","text":"Fix login"}}"#).unwrap();
+        assert_eq!(reply.title, "Fix login");
+        assert!(reply.error.is_none());
+        let recovered = concat!(r#"{"type":"error","message":"retrying"}"#, "\n",
+            r#"{"type":"item.completed","item":{"type":"agent_message","text":"Fix login"}}"#);
+        assert!(super::title_response(recovered).unwrap().error.is_none());
+        assert!(super::title_response("unstructured output").is_err());
+    }
+
     #[test]
     fn rollouts_go_back_to_their_date_folder() {
         assert_eq!(super::rollout_path("rollout-2026-11-04T10-12-00-abc.jsonl").unwrap(), "2026/11/04/rollout-2026-11-04T10-12-00-abc.jsonl");

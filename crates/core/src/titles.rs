@@ -282,14 +282,41 @@ async fn ask(app: &App, session: &Session, prompt: String, fallback: Option<Stri
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let reply = adapter.title_response(stdout);
     let (cost_usd, cost_unavailable) = reply.as_ref().map(|r| (r.cost_usd, r.cost_unavailable)).unwrap_or((None, false));
-    let error = if !output.status.success() { Some(format!("title generator failed ({})", output.status)) }
-        else { reply.as_ref().ok().and_then(|r| r.error.clone()) };
+    let error = if !output.status.success() {
+        let detail = reply.as_ref().ok().and_then(|r| r.error.as_deref())
+            .map(safe_diagnostic).filter(|s| !s.is_empty())
+            .unwrap_or_else(|| safe_diagnostic(&String::from_utf8_lossy(&output.stderr)));
+        Some(format!("title generator failed ({}){}", output.status,
+            if detail.is_empty() { String::new() } else { format!(": {detail}") }))
+    } else { reply.as_ref().ok().and_then(|r| r.error.as_deref().map(safe_diagnostic)) };
     let title = match (&error, &reply) {
         (None, Ok(r)) => clean_title(&r.title),
         _ => None,
     };
     let error = error.or_else(|| reply.as_ref().err().map(|e| format!("{e:#}"))).or_else(|| title.is_none().then(|| "invalid generated title".to_string()));
     Ok(Some(Named { title, cost_usd, cost_unavailable, error }))
+}
+
+/// CLI diagnostics can contain proxy URLs, headers or credentials. Keep a bounded summary,
+/// omit credential-bearing lines and URLs, and redact opaque strings rather than logging raw output.
+fn safe_diagnostic(raw: &str) -> String {
+    let mut out = String::new();
+    for line in raw.lines().take(100) {
+        let lower = line.to_ascii_lowercase();
+        if ["authorization", "bearer", "token", "secret", "password", "cookie", "api_key", "api-key", "header", "credential", "xox", "ghp_", "github_pat_", "hf_", "sk-", "eyj"]
+            .iter().any(|word| lower.contains(word)) { continue; }
+        for word in line.split_whitespace() {
+            let word = if word.contains("://") || word.chars().count() > 24
+                || word.starts_with("sk-") || word.starts_with("eyJ") { "[redacted]" } else { word };
+            for c in word.chars().filter(|c| !c.is_control()) {
+                if out.chars().count() >= 500 { return out; }
+                out.push(c);
+            }
+            if out.chars().count() >= 500 { return out; }
+            out.push(' ');
+        }
+    }
+    out.trim().to_string()
 }
 
 /// The first non-empty line of a generated title, without quotes, at most 80 characters.
@@ -399,6 +426,16 @@ mod tests {
         assert!(claim("title-success-test", 0));
         assert!(!settle("title-success-test", false, 0));
         assert!(claim("title-success-test", 0));
+    }
+
+    #[test]
+    fn title_diagnostics_are_bounded_and_redact_credentials() {
+        assert_eq!(safe_diagnostic("error: unsupported model gpt-small"), "error: unsupported model gpt-small");
+        assert_eq!(safe_diagnostic("Authorization: Bearer private\nerror contacting https://lp:private@localhost/path\nabcdefghijklmnopqrstuvwxyz123456"), "error contacting [redacted] [redacted]");
+        assert_eq!(safe_diagnostic("api_key=private\nCookie: private\nsk-private\nhf_private"), "");
+        let text = safe_diagnostic(&"é ".repeat(1000));
+        assert!(text.chars().count() <= 500);
+        assert!(!safe_diagnostic("error:\u{1b}[31m failed").contains('\u{1b}'));
     }
 
     #[test]
