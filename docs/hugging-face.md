@@ -11,7 +11,7 @@ Launchpad integrates with Hugging Face in four ways:
 
 In **Settings → Profiles → New profile**, choose **Another model provider**, then **Claude Code · Hugging Face**. The profile points Claude Code to `https://router.huggingface.co` and lists the available tool-capable models (Kimi, GLM, Qwen, DeepSeek and others), with prices, context size and throughput per provider. Usage is billed to your Hugging Face account.
 
-The token comes from `HF_TOKEN`, or from the token saved by `hf auth login`. OpenCode profiles can use the same router.
+Agents on runners get the token of the **Hugging Face CLI** tool (Settings → Credentials and tools on Home): the session sees a placeholder in `HF_TOKEN`, and the runner's proxy adds the real token on requests to `huggingface.co` and `router.huggingface.co` only. Hugging Face tools saved before the router was part of the tool get `router.huggingface.co` once, at Home's next start. OpenCode profiles can use the same router.
 
 ## Traces in the Home bucket
 

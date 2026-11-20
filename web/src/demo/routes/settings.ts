@@ -203,7 +203,7 @@ route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: n
 // Credentials and tools: a sample vault. Secrets never reach the browser, in the demo either.
 const demoTemplates = [
   { id: "gh", name: "GitHub CLI", install: { kind: "github_release" as const, source: "cli/cli", asset: "gh_*_linux_{arch}.tar.gz" }, credential: "github", env: ["GH_TOKEN", "GITHUB_TOKEN"], hosts: [{ host: "api.github.com", auth: { kind: "bearer" as const } }, { host: "github.com", auth: { kind: "basic" as const, user: "x-access-token" } }], workspaces: ["*"], check_url: "https://api.github.com/user", vars: {} },
-  { id: "hf", name: "Hugging Face CLI", install: { kind: "uv" as const, source: "huggingface_hub", asset: "" }, credential: "huggingface", env: ["HF_TOKEN"], hosts: [{ host: "huggingface.co", auth: { kind: "bearer" as const } }], workspaces: ["*"], check_url: "https://huggingface.co/api/whoami-v2", vars: {} },
+  { id: "hf", name: "Hugging Face CLI", install: { kind: "uv" as const, source: "huggingface_hub", asset: "" }, credential: "huggingface", env: ["HF_TOKEN"], hosts: [{ host: "huggingface.co", auth: { kind: "bearer" as const } }, { host: "router.huggingface.co", auth: { kind: "bearer" as const } }], workspaces: ["*"], check_url: "https://huggingface.co/api/whoami-v2", vars: {} },
 ];
 // Slack profiles: one that reads as the owner, one that posts as a bot. Tokens never reach the browser.
 route("GET", "/api/slack/profiles", () => [

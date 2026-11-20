@@ -58,6 +58,10 @@ pub async fn seed(app: &App) -> Result<()> {
         }
         claim(app, "tool:launchpad".into()).await?;
     }
+    if !done(app, "tool:hf-router".into()).await? {
+        crate::vault::seed_hf_router(app).await?;
+        claim(app, "tool:hf-router".into()).await?;
+    }
     for w in crate::workspace::list(app).await? {
         seed_workspace(app, &w.id).await?;
         // Not fatal either: the other workspaces still get their bots at this start.

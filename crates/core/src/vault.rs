@@ -232,12 +232,49 @@ pub fn templates() -> Vec<Tool> {
             install: Some(Install { kind: InstallKind::Uv, source: "huggingface_hub".into(), asset: String::new() }),
             credential: Some("huggingface".into()),
             env: vec!["HF_TOKEN".into()],
-            hosts: vec![rule("huggingface.co", Auth::Bearer)],
+            // The Hub, and Inference Providers' router (Hugging Face model profiles: `ANTHROPIC_BASE_URL`).
+            hosts: vec![rule("huggingface.co", Auth::Bearer), rule(HF_ROUTER, Auth::Bearer)],
             workspaces: vec!["*".into()],
             check_url: Some("https://huggingface.co/api/whoami-v2".into()),
             vars: BTreeMap::new(),
         },
     ]
+}
+
+/// Hugging Face Inference Providers' router, where Hugging Face model profiles send their requests with `${HF_TOKEN}`.
+pub const HF_ROUTER: &str = "router.huggingface.co";
+
+/// Adds the router to a tool that sends a Bearer token to the Hub (`huggingface.co`) and does not cover the router
+/// yet, so the same token reaches Inference Providers. True when it changed the tool. Only that exact host, never
+/// `*.huggingface.co`.
+pub fn add_hf_router(tool: &mut Tool) -> bool {
+    let hub = tool.hosts.iter().any(|r| r.host.eq_ignore_ascii_case("huggingface.co") && r.auth == Auth::Bearer);
+    if !hub || tool.hosts.iter().any(|r| r.matches(HF_ROUTER)) {
+        return false;
+    }
+    tool.hosts.push(HostRule { host: HF_ROUTER.into(), auth: Auth::Bearer });
+    true
+}
+
+/// Home, once (`seeded` key `tool:hf-router`): the Hugging Face tools saved before the template held the router get it
+/// (`add_hf_router`), so existing tokens work with Hugging Face model profiles. A router rule the owner removes later
+/// stays removed. Not added when another tool's credential already serves the router (`host_conflict`).
+pub async fn seed_hf_router(app: &App) -> Result<()> {
+    let all = tools(app).await?;
+    for t in &all {
+        let mut changed = t.clone();
+        if !add_hf_router(&mut changed) {
+            continue;
+        }
+        let others: Vec<Tool> = all.iter().filter(|o| o.id != t.id).cloned().collect();
+        if let Some(other) = host_conflict(&others, &changed) {
+            tracing::warn!("tool {}: {HF_ROUTER} not added, the tool {} already sends a token there", t.id, other.id);
+            continue;
+        }
+        put_tool(app, changed).await?;
+        tracing::info!("tool {}: added {HF_ROUTER} for Hugging Face Inference Providers", t.id);
+    }
+    Ok(())
 }
 
 /// A login of Home itself whose token can be copied into the vault (Home's own `gh` and `hf` logins).
@@ -1350,6 +1387,25 @@ mod tests {
             check_url: None,
             vars: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn hugging_face_tools_cover_the_router_only() {
+        let hf = templates().into_iter().find(|t| t.id == "hf").unwrap();
+        assert!(hf.hosts.iter().any(|r| r.matches("router.huggingface.co")));
+        assert!(!hf.hosts.iter().any(|r| r.matches("evil.huggingface.co") || r.matches("router.huggingface.co.evil.com")));
+        // A tool saved from the older template gets the router once, as an exact host.
+        let mut old = hf.clone();
+        old.hosts.retain(|r| r.host != HF_ROUTER);
+        assert!(add_hf_router(&mut old));
+        assert_eq!(old.hosts, hf.hosts);
+        assert!(!add_hf_router(&mut old));
+        // Tools that send no Bearer token to the Hub are left alone.
+        let mut gh = templates().into_iter().find(|t| t.id == "gh").unwrap();
+        assert!(!add_hf_router(&mut gh));
+        let mut header = hf.clone();
+        header.hosts = vec![HostRule { host: "huggingface.co".into(), auth: Auth::Basic { user: "x".into() } }];
+        assert!(!add_hf_router(&mut header));
     }
 
     #[test]
