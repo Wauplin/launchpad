@@ -19,4 +19,8 @@ thread: string,
 /**
  * It waits for a free slot of the bot (its thread does not work, but as many others do as max_threads allows).
  */
-slot: boolean, };
+slot: boolean, 
+/**
+ * A scheduled message (source "scheduled"): when it is due (Unix ms).
+ */
+due_at?: number, };

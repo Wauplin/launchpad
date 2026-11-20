@@ -100,8 +100,9 @@ pub enum Source<'a> {
     Folio { id: &'a str, title: &'a str, new: bool },
 }
 
-/// The thread a message goes to.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The thread a message goes to (stored with a scheduled message, which resolves it when it is due).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum To {
     /// An existing thread.
     Thread(String),

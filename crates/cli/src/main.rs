@@ -1063,6 +1063,10 @@ enum BotCommand {
         #[command(subcommand)]
         command: BotMemory,
     },
+    /// The scheduled bot messages that wait (`bot message <bot> --text … --in 2h|--at <RFC 3339>`), soonest first
+    /// (JSON): those your bot scheduled (any of its threads), else those of your session. Cancel one with
+    /// `bot cancel-queued <bot_id> <n>`.
+    Scheduled,
     #[command(external_subcommand)]
     Verb(Vec<String>),
 }
@@ -1411,6 +1415,7 @@ async fn run() -> Result<()> {
         Command::Assets { command } => assets_command(&paths, command).await,
         Command::Kb { command } => kb_command(&paths, command).await,
         Command::Bot { command: BotCommand::Memory { command } } => bot_memory_command(&paths, command).await,
+        Command::Bot { command: BotCommand::Scheduled } => context_command(&paths, "scheduled-messages", None).await,
         Command::Bot { command: BotCommand::Verb(words) } => {
             let [verb, args @ ..] = words.as_slice() else { anyhow::bail!("name a bot action: see `launchpad --help`") };
             do_action(&paths, &format!("bot.{verb}"), args).await
@@ -1744,6 +1749,11 @@ mod proposal_tests {
         // `bot memory` is a command; other `bot` words stay the short verbs of bot actions.
         assert!(matches!(Cli::try_parse_from(["launchpad", "bot", "memory", "write", "notes.md", "--session-id", "s1"]).unwrap().command, Command::Bot { command: BotCommand::Memory { command: BotMemory::Write { .. } } }));
         assert!(matches!(Cli::try_parse_from(["launchpad", "bot", "pause", "b1", "--paused", "true"]).unwrap().command, Command::Bot { command: BotCommand::Verb(w) } if w == ["pause", "b1", "--paused", "true"]));
+        // A scheduled bot message: `bot message` with --in or --at, listed by `bot scheduled`.
+        assert!(matches!(Cli::try_parse_from(["launchpad", "bot", "scheduled"]).unwrap().command, Command::Bot { command: BotCommand::Scheduled }));
+        let args: Vec<String> = ["b1", "--text", "check CI", "--in", "2h"].map(String::from).to_vec();
+        let (_, path, body) = action_request("bot.message", &args).unwrap();
+        assert_eq!((path.as_str(), body), ("/api/bots/b1/message", Some(serde_json::json!({"text": "check CI", "in": "2h"}))));
         // The commands a delivered channel message names work as written.
         let cli = Cli::try_parse_from(["launchpad", "channel", "read", "@release", "--since", "38"]).unwrap();
         assert!(matches!(cli.command, Command::Channel { command: ChannelCommand::Read { channel, since: Some(38), limit: 50 } } if channel == "@release"));

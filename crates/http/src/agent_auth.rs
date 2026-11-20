@@ -439,7 +439,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
     }
     let get = *method == Method::GET;
     match (get, &p[1..]) {
-        (true, ["status"] | ["context", "profiles" | "presets" | "hops" | "egress" | "conversation"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
+        (true, ["status"] | ["context", "profiles" | "presets" | "hops" | "egress" | "conversation" | "scheduled-messages"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
         // Runner updates are Launchpad-wide, like Home's (only `runner.update` and its cancel are admin actions).
         (false, ["runners", _, "update"]) => Shared,
@@ -545,7 +545,7 @@ pub async fn authorize_oracle(app: &App, ws: &str, req: Request) -> Result<Reque
 
 /// Pure: what an oracle may read through `tools.launchpad`.
 fn oracle_may_read(method: &Method, path: &str) -> bool {
-    let session_bound = path == "/api/context/hops" || path == "/api/context/conversation" || path == "/api/predrafts/resolve" || path.starts_with("/api/channels");
+    let session_bound = path == "/api/context/hops" || path == "/api/context/conversation" || path == "/api/context/scheduled-messages" || path == "/api/predrafts/resolve" || path.starts_with("/api/channels");
     // An oracle never runs or tests oracles.
     let evaluates = path.starts_with("/api/oracles/") && (path.ends_with("/run") || path.ends_with("/test"));
     *method == Method::GET && !session_bound && !evaluates && (tool_need(method, path) == Some(LaunchpadAccess::Read) || read_allowed(path) || oracle_read(method, path))
@@ -751,6 +751,12 @@ mod tests {
         assert!(own_write(CI_APPROVE) && !own_write("/api/ci/approve/x"));
         assert_eq!(tool_need(&Method::POST, CI_APPROVE), Some(LaunchpadAccess::Propose));
         assert_eq!(names(&Method::POST, CI_APPROVE), Shared);
+        // Scheduled bot messages: `bot.message` with in or at (admin, like the message), listed by the session's own read.
+        assert_eq!(names(&Method::GET, "/api/context/scheduled-messages"), Shared);
+        assert!(read_allowed("/api/context/scheduled-messages") && !oracle_may_read(&Method::GET, "/api/context/scheduled-messages"));
+        let message = actions::get("bot.message").unwrap();
+        assert_eq!(unknown_field(message, Some(&serde_json::json!({"text": "x", "in": "2h", "at": "2026-11-21T09:00:00Z"}))), None);
+        assert!(admin_allows(&Method::POST, "/api/bots/b/message") && tool_need(&Method::POST, "/api/bots/b/message").is_none());
         assert!(own_write("/api/sleep"));
         assert_eq!(names(&Method::POST, "/api/sleep"), Shared);
         assert_eq!(names(&Method::POST, "/api/notes"), Shared);

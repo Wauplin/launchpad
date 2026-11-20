@@ -229,7 +229,7 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
     const own = (list: ChatSession[], firstIndex: number, botSends: BotSend[] | undefined, botQueued: QueuedMessage[] | undefined, thread: string): ChatItem[] => [
       ...chatRows(list, cards, firstIndex),
       ...pendingRows(botSends ?? [], list, thread),
-      ...(botQueued ?? []).filter((m) => m.thread === thread).map((m): ChatItem => ({ t: "queued", key: `queued/${m.n}`, v: `${m.slot}`, n: m.n, at: m.at, source: m.source, text: m.text, slot: m.slot })),
+      ...(botQueued ?? []).filter((m) => m.thread === thread).map((m): ChatItem => ({ t: "queued", key: `queued/${m.n}`, v: `${m.slot}`, n: m.n, at: m.at, source: m.source, text: m.text, slot: m.slot, dueAt: m.due_at })),
     ];
     const mine = own(sessions, first, sends, queued, threadId);
     if (!multi || !conversation) return mine;
@@ -387,14 +387,16 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
 
 const QUEUED_FROM: Record<string, string> = { telegram: "Telegram", hook: "a hook", channel: "a channel", agent: "an agent" };
 
-/** A hook, Telegram, channel or agent message waiting for the thread's turn to end (or for a free slot), with Cancel. */
+/** A hook, Telegram, channel or agent message waiting for the thread's turn to end (or for a free slot), or a scheduled message waiting for its time, with Cancel. */
 function QueuedRow({ item, botId }: { item: Extract<ChatItem, { t: "queued" }>; botId: string }) {
   const qc = useQueryClient();
   return <div className="py-1" data-tour="chat.queued"><div className="flex items-center gap-2 rounded-card border border-dashed border-line px-2.5 py-1.5 text-[13px] text-ink-3">
     <Icon name="clock" size={12} className="flex-none" />
     <span className="min-w-0 flex-1">
       <span className="line-clamp-2 break-words whitespace-pre-wrap">{item.text}</span>
-      <span className="block text-[11px]">Waiting · from {QUEUED_FROM[item.source] ?? item.source} · {ago(item.at)} · {item.slot ? "waiting for a free slot: the bot works in as many chats as it may at once" : "sent when the current turn ends"}</span>
+      <span className="block text-[11px]">{item.dueAt != null
+        ? <>Scheduled {ago(item.at)} · sent {when(item.dueAt)}</>
+        : <>Waiting · from {QUEUED_FROM[item.source] ?? item.source} · {ago(item.at)} · {item.slot ? "waiting for a free slot: the bot works in as many chats as it may at once" : "sent when the current turn ends"}</>}</span>
     </span>
     <ActionButton name="bot.cancel-queued" params={{ id: botId, n: String(item.n) }} icon={null} onDone={() => qc.invalidateQueries({ queryKey: ["bot-queued", botId] })} />
   </div></div>;

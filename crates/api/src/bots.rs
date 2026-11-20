@@ -25,6 +25,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/bots/{id}/sends/{send}/retry", post(retry_send))
         .route("/api/bots/{id}/threads", get(threads))
         .route("/api/context/conversation", get(conversation))
+        .route("/api/context/scheduled-messages", get(scheduled_messages))
         .route("/api/bots/{id}/threads/{thread}", axum::routing::patch(rename_thread))
         .route("/api/bots/{id}/threads/{thread}/auto-title", post(auto_title_thread))
         .route("/api/bots/{id}/threads/{thread}/archive", post(archive_thread))
@@ -183,6 +184,26 @@ struct Message {
     /// session once it was sent (the bot chat; the extension waits for the session).
     #[serde(default)]
     accept: bool,
+    /// Deliver later instead of now: in this long ("45m", "2h", "1d")…
+    #[serde(default, rename = "in")]
+    deliver_in: Option<String>,
+    /// …or at this time (RFC 3339 with its offset, or Unix ms). The message waits on Home (`hooks::schedule`).
+    #[serde(default)]
+    at: Option<String>,
+}
+
+/// Pure: when a message with `in` or `at` is due (None: send it now), seen at `now` (Unix ms).
+fn due_at(deliver_in: Option<&str>, at: Option<&str>, now: i64) -> anyhow::Result<Option<i64>> {
+    let (deliver_in, at) = (deliver_in.map(str::trim).filter(|s| !s.is_empty()), at.map(str::trim).filter(|s| !s.is_empty()));
+    match (deliver_in, at) {
+        (None, None) => Ok(None),
+        (Some(_), Some(_)) => anyhow::bail!("give either in or at, not both"),
+        (Some(d), None) => Ok(Some(now + i64::from(launchpad_automation::schedules::parse_minutes(d).map_err(|_| anyhow::anyhow!("in takes minutes, hours or days: 45m, 2h, 1d"))?) * 60_000)),
+        (None, Some(t)) => match t.parse::<i64>() {
+            Ok(ms) => Ok(Some(ms)),
+            Err(_) => Ok(Some(launchpad_automation::schedules::parse_until(t).map_err(|_| anyhow::anyhow!("at takes an RFC 3339 time with its offset, such as 2026-11-14T15:00:00Z"))?)),
+        },
+    }
 }
 
 /// The owner's message, or an agent's (`launchpad bot message`): Home stamps the agent as its sender from its own
@@ -218,6 +239,13 @@ async fn message(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::ht
         None => Source::Owner { thread: m.thread.as_deref() },
     };
     let to = bot_threads::route(source);
+    // Later: stored on Home and sent once due, like this sender's message to this thread then.
+    if let Some(at) = due_at(m.deliver_in.as_deref(), m.at.as_deref(), launchpad_core::util::now_ms()).map_err(bad)? {
+        let scheduled = launchpad_channels::hooks::schedule(app, &id, to, at, m.text, m.attachments, m.context, agent.is_some()).await.map_err(bad)?;
+        let mut v = serde_json::to_value(scheduled).map_err(|e| bad(e.into()))?;
+        v["scheduled"] = json!(true);
+        return Ok(Json(v));
+    }
     if agent.is_none() {
         let sent = sends::accept(app, &id, to, m.text, m.attachments, m.context, key).await.map_err(bad)?;
         if m.accept {
@@ -297,6 +325,16 @@ async fn conversation(State(s): State<Ctx>, agent: Option<axum::Extension<launch
     Ok(Json(launchpad_channels::conversation::read(&s.app, &session, q.since, limit).await.map_err(bad)?))
 }
 
+/// `launchpad bot scheduled`: the scheduled bot messages that wait, soonest first. An agent sees those its bot
+/// scheduled (any of its threads), else those its own session scheduled; the owner sees every one.
+async fn scheduled_messages(State(s): State<Ctx>, agent: Option<axum::Extension<launchpad_http::AgentSession>>) -> ApiResult<Vec<launchpad_channels::hooks::ScheduledMessage>> {
+    let sender = match agent {
+        Some(a) => Some(launchpad_core::senders::sender_of(&s.app.sessions.get(&a.0.0).ok_or_else(|| ApiError::not_found("no such session"))?, 0).id),
+        None => None,
+    };
+    Ok(Json(launchpad_channels::hooks::scheduled(&s.app, sender.as_deref()).await.map_err(bad)?))
+}
+
 #[derive(Deserialize)]
 struct Rename {
     title: String,
@@ -369,4 +407,21 @@ async fn templates() -> Json<Value> {
         { "id": "ask-launchpad", "name": ask_bot::NAME, "instructions": ask_bot::DEFAULT_INSTRUCTIONS, "starters": ask_bot::STARTERS },
         { "id": "librarian", "name": librarian::NAME, "instructions": librarian::DEFAULT_INSTRUCTIONS, "starters": librarian::STARTERS },
     ]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::due_at;
+
+    #[test]
+    fn a_message_is_due_now_after_a_delay_or_at_a_time() {
+        assert_eq!(due_at(None, None, 0).unwrap(), None);
+        assert_eq!(due_at(Some(" "), Some(""), 0).unwrap(), None);
+        assert_eq!(due_at(Some("2h"), None, 1_000).unwrap(), Some(1_000 + 2 * 3_600_000));
+        assert_eq!(due_at(Some("45"), None, 0).unwrap(), Some(45 * 60_000));
+        assert_eq!(due_at(None, Some("2026-11-20T09:00:00Z"), 0).unwrap(), Some(1_795_165_200_000));
+        assert_eq!(due_at(None, Some("1795165200000"), 0).unwrap(), Some(1_795_165_200_000));
+        assert!(due_at(Some("2h"), Some("2026-11-21T09:00:00Z"), 0).is_err());
+        assert!(due_at(Some("soon"), None, 0).is_err() && due_at(None, Some("tomorrow"), 0).is_err());
+    }
 }
