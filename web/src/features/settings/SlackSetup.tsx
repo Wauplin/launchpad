@@ -51,7 +51,7 @@ function ProfileRow({ p }: { p: SlackProfile }) {
   const remove = () => runAction("slack.profile-delete", { handle: p.handle }).then(() => { toast(`Deleted the Slack profile ${p.name}`); return qc.invalidateQueries({ queryKey: ["slack-profiles"] }); }, toastError);
   if (editing) return <ProfileForm profile={p} taken={[]} onClose={() => setEditing(false)} />;
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-1 rounded-card border border-line-2 bg-chrome p-2.5 text-[13px]">
+    <div className="group grid grid-cols-[minmax(0,1fr)] gap-1 rounded-card border border-line-2 bg-chrome p-2.5 text-[13px]">
       <div className="flex flex-wrap items-center gap-2">
         <b className="min-w-0 truncate">{p.name}</b>
         <Token className="font-mono" title="--profile of launchpad slack">{p.handle}</Token>
