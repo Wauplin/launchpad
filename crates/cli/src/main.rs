@@ -348,7 +348,8 @@ enum Command {
         command: ConversationCommand,
     },
     /// Write to another bot of this workspace in your DM with it (created on first use; for bots). Send files with
-    /// `--attach <file>` (repeat it) and forward the files of an earlier message with `--forward <message id>`.
+    /// `--attach <file>` (repeat it) and forward the files of an earlier message with `--forward <message id>`;
+    /// `--in 2h` or `--at <RFC 3339>` sends it later instead.
     Dm {
         /// The other bot: its slug or name, with or without `@`.
         bot: String,
@@ -809,12 +810,21 @@ enum ChannelCommand {
         limit: u32,
     },
     /// Post your bot's message (Markdown, at most 8 KB; `@<bot slug>` wakes a bot, `@owner` asks the owner), with
-    /// files: `--attach <file>` (repeat it) and `--forward <message id>` (the files of a message you read).
+    /// files: `--attach <file>` (repeat it) and `--forward <message id>` (the files of a message you read). `--in 2h`
+    /// or `--at <RFC 3339>` posts it later instead (`channel scheduled`, `channel cancel-scheduled <n>`).
     Post {
         /// The channel's name, or `@<bot>` for your DM with it.
         channel: String,
         #[command(flatten)]
         post: ChannelPostArgs,
+    },
+    /// Your bot's scheduled posts that wait (`channel post|dm … --in 2h|--at <RFC 3339>`), soonest first (JSON).
+    Scheduled,
+    /// Cancel one of your bot's scheduled posts (its `n`, from `channel scheduled` or the post's answer).
+    CancelScheduled {
+        n: i64,
+        #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
+        session_id: String,
     },
     /// Download the files of a message (`files` in `channel read`) into a folder (default: a new folder under /tmp) and
     /// print their paths (JSON). Forward them with `--attach <path>`, or all of them with `--forward <message id>`.
@@ -874,6 +884,13 @@ struct ChannelPostArgs {
     /// Ask the owner: the message waits for them in Today.
     #[arg(long)]
     ask_owner: bool,
+    /// Post it later instead of now, in this long: 45m, 2h, 1d. Home keeps it and posts it once due like this
+    /// post sent then (`channel scheduled` lists them, `channel cancel-scheduled <n>` cancels one).
+    #[arg(long = "in", value_name = "DURATION", conflicts_with = "at")]
+    post_in: Option<String>,
+    /// Post it later instead of now, at this time (RFC 3339 with its offset, such as 2026-11-21T09:00:00Z).
+    #[arg(long, value_name = "TIME")]
+    at: Option<String>,
     #[arg(long, env = "LAUNCHPAD_SESSION_ID", hide_env_values = true)]
     session_id: String,
 }
@@ -922,7 +939,7 @@ async fn channel_post(paths: &Paths, channel: String, a: ChannelPostArgs) -> Res
         let up = client.json("POST", "/api/channels/agent/upload", Some(body)).await.with_context(|| format!("upload {}", path.display()))?;
         files.push(serde_json::json!({"name": up["name"], "reference": up["reference"]}));
     }
-    let body = serde_json::json!({"session_id": a.session_id, "channel": channel, "text": text, "reply_to": a.reply_to, "ask_owner": a.ask_owner, "files": files, "forward": a.forward});
+    let body = serde_json::json!({"session_id": a.session_id, "channel": channel, "text": text, "reply_to": a.reply_to, "ask_owner": a.ask_owner, "files": files, "forward": a.forward, "in": a.post_in, "at": a.at});
     let v = client.json("POST", "/api/channels/agent/post", Some(body)).await?;
     println!("{}", serde_json::to_string_pretty(&v)?);
     Ok(())
@@ -1456,6 +1473,12 @@ async fn run() -> Result<()> {
         Command::Channel { command: ChannelCommand::List } => list_command(&paths, "/api/channels/agent", None).await,
         Command::Channel { command: ChannelCommand::Read { channel, since, limit } } => channel_read(&paths, channel, since, limit).await,
         Command::Channel { command: ChannelCommand::Post { channel, post } } => channel_post(&paths, channel, post).await,
+        Command::Channel { command: ChannelCommand::Scheduled } => list_command(&paths, "/api/channels/agent/scheduled", None).await,
+        Command::Channel { command: ChannelCommand::CancelScheduled { n, session_id } } => {
+            let v = Client::new(&paths)?.json("POST", "/api/channels/agent/cancel", Some(serde_json::json!({"session_id": session_id, "n": n}))).await?;
+            println!("{}", serde_json::to_string_pretty(&v)?);
+            Ok(())
+        }
         Command::Channel { command: ChannelCommand::Files { channel, message, dir } } => channel_files(&paths, channel, message, dir).await,
         Command::Channel { command: ChannelCommand::Join { channel, mode, note, session_id } } => {
             let mut body = serde_json::json!({"kind": "channel_join", "channel": channel});
@@ -1764,6 +1787,13 @@ mod proposal_tests {
         let cli = Cli::try_parse_from(["launchpad", "channel", "post", "release-train", "--body-file", "m.md", "--reply-to", "4", "--ask-owner", "--session-id", "s1"]).unwrap();
         assert!(matches!(cli.command, Command::Channel { command: ChannelCommand::Post { post: ChannelPostArgs { reply_to: Some(4), ask_owner: true, .. }, .. } }));
         assert!(matches!(Cli::try_parse_from(["launchpad", "channel", "add-member", "c1", "b1", "--mode", "all"]).unwrap().command, Command::Channel { command: ChannelCommand::Verb(_) }));
+        // Scheduled posts: `--in` or `--at` (not both) on `channel post` and `dm`, listed and cancelled by the bot.
+        let post = |args: &[&str]| Cli::try_parse_from(args.iter().copied().chain(["--session-id", "s1"]));
+        assert!(matches!(post(&["launchpad", "channel", "post", "release", "--body-file", "m.md", "--in", "2h", "--reply-to", "41"]).unwrap().command, Command::Channel { command: ChannelCommand::Post { post: ChannelPostArgs { post_in: Some(d), at: None, reply_to: Some(41), .. }, .. } } if d == "2h"));
+        assert!(matches!(post(&["launchpad", "dm", "@docs", "--body-file", "m.md", "--at", "2026-11-21T09:00:00Z"]).unwrap().command, Command::Dm { post: ChannelPostArgs { at: Some(_), post_in: None, .. }, .. }));
+        assert!(post(&["launchpad", "dm", "docs", "--body-file", "m.md", "--in", "2h", "--at", "2026-11-21T09:00:00Z"]).is_err());
+        assert!(matches!(Cli::try_parse_from(["launchpad", "channel", "scheduled"]).unwrap().command, Command::Channel { command: ChannelCommand::Scheduled }));
+        assert!(matches!(post(&["launchpad", "channel", "cancel-scheduled", "7"]).unwrap().command, Command::Channel { command: ChannelCommand::CancelScheduled { n: 7, .. } }));
         let cli = Cli::try_parse_from(["launchpad", "channel", "edit", "#release-train", "--purpose", "Ship it"]).unwrap();
         assert!(matches!(cli.command, Command::Channel { command: ChannelCommand::Edit { channel, name: None, purpose: Some(p) } } if channel == "#release-train" && p == "Ship it"));
         let list = serde_json::json!({"channels": [{"id": "c1", "kind": "channel", "name": "release-train"}, {"id": "d1", "kind": "dm", "name": "@docs"}]});

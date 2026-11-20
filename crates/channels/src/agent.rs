@@ -284,7 +284,8 @@ fn attachable(files: &[NewFile], allowed: impl Fn(&str) -> bool) -> Result<()> {
 /// `launchpad channel post` and `launchpad dm`: the caller's bot posts (a DM is created on first use). Home stamps
 /// the author from its own session record; `channel::post` checks membership, blocks and the archive. `p.files` are
 /// the session's own uploads (`upload`); `forward` adds the files of earlier messages it reads (`forwardable`).
-pub async fn post(app: &App, session: &str, key: &str, mut p: Post, forward: &[i64]) -> Result<Value> {
+/// With `at` (Unix ms), the post is scheduled instead (`scheduled::insert`): checked now like a post, posted once due.
+pub async fn post(app: &App, session: &str, key: &str, mut p: Post, forward: &[i64], at: Option<i64>) -> Result<Value> {
     let me = caller(app, session).await?;
     ensure!(me.bot.is_some(), NOT_A_BOT);
     attachable(&p.files, |r| uploaded_by(&me.session, r))?;
@@ -297,6 +298,15 @@ pub async fn post(app: &App, session: &str, key: &str, mut p: Post, forward: &[i
     let bots = channel::bots(app).await?;
     let r = resolve(app, &me, key, &bots, true).await?;
     let members = channel::members_of(app, &r.id).await?;
+    if let Some(at) = at {
+        let bot = me.bot.as_deref().unwrap_or_default();
+        ensure!(members.iter().any(|m| m.bot_id == bot), "{}", channel::not_member(&r));
+        if let Some(reply) = p.reply_to {
+            ensure!(channel::has_message(app, &r.id, reply).await?, "message {reply} is not in this channel");
+        }
+        let s = crate::scheduled::insert(app, &r, bot, &me.session, at, p).await?;
+        return Ok(json!({"scheduled": true, "n": s.n, "channel": handle(&r, &members, &bots, me.bot.as_deref()), "due_at": s.due_at, "hint": "`launchpad channel scheduled` lists your bot's scheduled posts; `launchpad channel cancel-scheduled <n>` cancels one"}));
+    }
     let posted = channel::post(app, &r.id, Poster::Session(me.session.clone()), p).await?;
     let slug = |id: &str| if id == channel::OWNER { "owner".to_string() } else { bots.get(id).map_or(id.to_string(), |b| b.slug.clone()) };
     let deliveries: Vec<Value> = posted
@@ -322,6 +332,38 @@ pub async fn post(app: &App, session: &str, key: &str, mut p: Post, forward: &[i
         out["files"] = json!(m.files.iter().map(|f| json!({"name": f.name, "size": f.size})).collect::<Vec<_>>());
     }
     Ok(out)
+}
+
+/// `launchpad channel scheduled`: the scheduled posts of the caller's bot that wait (any of its sessions), soonest
+/// first, each with how the bot names its channel.
+pub async fn scheduled(app: &App, session: &str) -> Result<Value> {
+    let me = caller(app, session).await?;
+    let bot = me.bot.as_deref().context(NOT_A_BOT)?;
+    let bots = channel::bots(app).await?;
+    let mut out = vec![];
+    for s in crate::scheduled::list(app, None, Some(bot)).await? {
+        let name = match channel::load(app, &s.channel_id).await {
+            Ok(r) => handle(&r, &channel::members_of(app, &r.id).await?, &bots, Some(bot)),
+            Err(_) => s.channel_id.clone(),
+        };
+        let mut v = json!({"n": s.n, "channel": name, "due_at": s.due_at, "created_at": s.created_at, "text": s.text});
+        if let Some(r) = s.reply_to {
+            v["reply_to"] = json!(r);
+        }
+        if s.files > 0 {
+            v["files"] = json!(s.files);
+        }
+        out.push(v);
+    }
+    Ok(json!({"scheduled": out}))
+}
+
+/// `launchpad channel cancel-scheduled <n>`: cancels one of the caller's bot's scheduled posts (never another bot's).
+pub async fn cancel_scheduled(app: &App, session: &str, n: i64) -> Result<Value> {
+    let me = caller(app, session).await?;
+    let bot = me.bot.as_deref().context(NOT_A_BOT)?;
+    crate::scheduled::cancel(app, n, None, Some(bot)).await?;
+    Ok(json!({"cancelled": n}))
 }
 
 /// `launchpad channel files`: file `index` of message `message` in a channel the caller reads (like `read`), with

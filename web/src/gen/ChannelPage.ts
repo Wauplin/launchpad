@@ -2,6 +2,7 @@
 import type { Channel } from "./Channel";
 import type { ChannelDelivery } from "./ChannelDelivery";
 import type { ChannelMessage } from "./ChannelMessage";
+import type { ScheduledPost } from "./ScheduledPost";
 
 /**
  * A channel with a page of its messages (oldest first) and their deliveries.
@@ -10,4 +11,8 @@ export type ChannelPage = { channel: Channel, messages: Array<ChannelMessage>, d
 /**
  * Older messages exist before this page.
  */
-more: boolean, };
+more: boolean, 
+/**
+ * The bots' scheduled posts that wait, soonest first (`launchpad channel post --in|--at`).
+ */
+scheduled: Array<ScheduledPost>, };

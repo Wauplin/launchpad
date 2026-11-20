@@ -26,7 +26,7 @@ fn tool_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
         Some(LaunchpadAccess::Admin)
     } else if method == Method::GET && (path == "/api/status" || path.starts_with("/api/context/") || path == "/api/proposals" || path == "/api/today" || path == "/api/activity" || channel_read(path)) {
         Some(LaunchpadAccess::Read)
-    } else if method == Method::POST && (path == "/api/proposals" || path == CHANNEL_POST || path == CHANNEL_UPLOAD || path == CI_APPROVE) {
+    } else if method == Method::POST && (path == "/api/proposals" || path == CHANNEL_POST || path == CHANNEL_CANCEL || path == CHANNEL_UPLOAD || path == CI_APPROVE) {
         Some(LaunchpadAccess::Propose)
     } else if oracle_read(method, path) {
         Some(LaunchpadAccess::Read)
@@ -62,7 +62,7 @@ fn folio_need(method: &Method, path: &str) -> Option<LaunchpadAccess> {
 /// `launchpad channel list` and `launchpad channel read`: every access level (Home lets only member bots read, and
 /// admin sessions every channel of their workspace).
 fn channel_read(path: &str) -> bool {
-    matches!(path, "/api/channels/agent" | "/api/channels/agent/read" | "/api/channels/agent/file")
+    matches!(path, "/api/channels/agent" | "/api/channels/agent/read" | "/api/channels/agent/file" | "/api/channels/agent/scheduled")
 }
 
 /// `launchpad oracle list|show|history` (GET `/api/oracles/{workspace}…`) and `launchpad oracle run` (`oracle.run`):
@@ -89,8 +89,12 @@ fn bot_publish<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
     (*method == Method::POST && !id.is_empty() && !id.contains('/')).then_some(id)
 }
 
-/// `launchpad channel post` and `launchpad dm`: propose access (Home lets only member bots post).
+/// `launchpad channel post` and `launchpad dm`: propose access (Home lets only member bots post), also with
+/// `--in`/`--at` (a scheduled post).
 const CHANNEL_POST: &str = "/api/channels/agent/post";
+
+/// `launchpad channel cancel-scheduled <n>`: one of the bot's own scheduled posts (propose access, like the post).
+const CHANNEL_CANCEL: &str = "/api/channels/agent/cancel";
 
 /// `launchpad channel post --attach` and `launchpad dm --attach`: one file of the bot's post, before the post
 /// (propose access, like the post; Home accepts it only from a bot's session).
@@ -109,7 +113,7 @@ pub fn folio_write(path: &str) -> bool {
 /// Why an agent may not use one of the owner's channel routes (None: not one of them). Agents read and post through
 /// `/api/channels/agent…`; creating channels, changing members and a channel's name and purpose are admin actions.
 fn channel_refusal(method: &Method, path: &str) -> Option<&'static str> {
-    if !(path == "/api/channels" || path.starts_with("/api/channels/")) || channel_read(path) || path == CHANNEL_POST || path == CHANNEL_UPLOAD {
+    if !(path == "/api/channels" || path.starts_with("/api/channels/")) || channel_read(path) || path == CHANNEL_POST || path == CHANNEL_CANCEL || path == CHANNEL_UPLOAD {
         return None;
     }
     Some(if *method == Method::GET {
@@ -118,6 +122,8 @@ fn channel_refusal(method: &Method, path: &str) -> Option<&'static str> {
         "creating a channel needs admin Launchpad CLI access: propose it with `launchpad propose channel --title \"…\" --spec-file c.json` ({\"name\": \"release-train\", \"purpose\": \"…\", \"members\": [\"release\", {\"bot\": \"docs\", \"mode\": \"all\"}]}), a card the owner accepts"
     } else if path.contains("/members/") {
         "changing a channel's members needs admin Launchpad CLI access: to join a channel yourself, `launchpad channel join <name>` files a card the owner accepts; ask the owner for other changes"
+    } else if path.contains("/scheduled/") {
+        "bots list and cancel their own scheduled posts with `launchpad channel scheduled` and `launchpad channel cancel-scheduled <n>`"
     } else if path.ends_with("/messages") || path == "/api/channels/dm" {
         "bots post with `launchpad channel post <name> --body-file <file>` and `launchpad dm <bot> --body-file <file>`"
     } else if *method == Method::PATCH {
@@ -281,7 +287,7 @@ pub const KB_BODY_MAX: usize = 128 << 20;
 pub const CI_APPROVE: &str = "/api/ci/approve";
 
 fn own_write(path: &str) -> bool {
-    matches!(path, CI_APPROVE | "/api/link" | "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/notes" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/sleep" | CHANNEL_POST | CHANNEL_UPLOAD | SLACK_RUN)
+    matches!(path, CI_APPROVE | "/api/link" | "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/notes" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/sleep" | CHANNEL_POST | CHANNEL_CANCEL | CHANNEL_UPLOAD | SLACK_RUN)
 }
 
 async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
@@ -448,7 +454,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics" | "notes"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
         (false, ["channels"] | ["channels", "dm"]) => Body,
         // The agent's own channels: Home resolves them in the session's workspace (`launchpad_channels::agent`).
-        (true, ["channels", "agent"] | ["channels", "agent", "read" | "file"]) | (false, ["channels", "agent", "post" | "upload"]) => Shared,
+        (true, ["channels", "agent"] | ["channels", "agent", "read" | "file" | "scheduled"]) | (false, ["channels", "agent", "post" | "upload" | "cancel"]) => Shared,
         (_, ["channels", "agent", ..]) => Unscoped,
         (_, ["channels", id, ..]) => Channel(id),
         (true, ["context", "sessions", id]) => Session(id),
@@ -876,6 +882,15 @@ mod tests {
         assert!(own_write("/api/channels/agent/upload") && read_allowed("/api/channels/agent/file") && !read_allowed("/api/channels/agent/upload"));
         assert_eq!(channel_refusal(&Method::POST, "/api/channels/agent/upload"), None);
         assert_eq!(channel_refusal(&Method::GET, "/api/channels/agent/file"), None);
+        // Scheduled posts (`channel post|dm --in|--at`): listed at every level, cancelled at propose like the post,
+        // only through the agent routes (the channel page's Cancel is the owner's).
+        assert_eq!(tool_need(&Method::GET, "/api/channels/agent/scheduled"), Some(LaunchpadAccess::Read));
+        assert_eq!(tool_need(&Method::POST, "/api/channels/agent/cancel"), Some(LaunchpadAccess::Propose));
+        assert!(read_allowed("/api/channels/agent/scheduled") && own_write("/api/channels/agent/cancel") && !read_allowed("/api/channels/agent/cancel"));
+        assert_eq!((names(&Method::GET, "/api/channels/agent/scheduled"), names(&Method::POST, "/api/channels/agent/cancel")), (Names::Shared, Names::Shared));
+        assert_eq!((channel_refusal(&Method::GET, "/api/channels/agent/scheduled"), channel_refusal(&Method::POST, "/api/channels/agent/cancel")), (None, None));
+        assert!(channel_refusal(&Method::DELETE, "/api/channels/c1/scheduled/4").is_some_and(|r| r.contains("cancel-scheduled")));
+        assert!(!oracle_may_read(&Method::GET, "/api/channels/agent/scheduled"));
         // The owner's download of a message's file stays closed to agents.
         assert!(channel_refusal(&Method::GET, "/api/channels/c1/messages/4/files/0").is_some_and(|w| w.contains("launchpad channel read")));
         assert!(!oracle_may_read(&Method::GET, "/api/channels/agent/file"));

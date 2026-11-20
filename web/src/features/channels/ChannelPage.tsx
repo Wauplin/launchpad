@@ -25,6 +25,7 @@ import type { Channel } from "@/gen/Channel";
 import type { ChannelFile } from "@/gen/ChannelFile";
 import type { ChannelMessage } from "@/gen/ChannelMessage";
 import type { ChannelPage as Page } from "@/gen/ChannelPage";
+import type { ScheduledPost } from "@/gen/ScheduledPost";
 import { runAction } from "@/lib/actions";
 import { useUserActive } from "@/lib/activity";
 import { api } from "@/lib/api";
@@ -121,10 +122,25 @@ function ChannelPageOf({ id }: { id: string }) {
           <span className="min-w-0 flex-1">{footer.stopped ? `${footer.stopped} · ` : ""}{footer.text}</span>
           {footer.stopped && <ActionButton name="channel.allow-more" params={{ id }} onDone={refresh} />}
         </div>}
+        {page.data!.scheduled.length > 0 && <ScheduledPosts posts={page.data!.scheduled} names={names} onDone={refresh} />}
         <ChannelComposer key={channel.id} channel={channel} onSent={refresh} />
       </div>
     </div>
   );
+}
+
+/** The bots' scheduled posts that wait (`launchpad channel post|dm --in|--at`), soonest first, each with Cancel. */
+function ScheduledPosts({ posts, names, onDone }: { posts: ScheduledPost[]; names: Map<string, string>; onDone: () => unknown }) {
+  return <div className="grid max-h-40 gap-1 overflow-y-auto border-t border-line-2 px-5 py-1.5" data-tour="channel.scheduled">
+    {posts.map((p) => <div key={p.n} className="flex w-full max-w-text items-center gap-2 rounded-card border border-dashed border-line px-2.5 py-1.5 text-[13px] text-ink-3">
+      <Icon name="clock" size={12} className="flex-none" />
+      <span className="min-w-0 flex-1">
+        <span className="line-clamp-2 break-words whitespace-pre-wrap">{p.text || `${p.files} file${p.files === 1 ? "" : "s"}`}</span>
+        <span className="block text-[11px]">{names.get(p.bot_id) ?? "A bot"} scheduled it {ago(p.created_at)} · posts {when(p.due_at)}{p.reply_to != null ? ` · reply to message ${p.reply_to}` : ""}</span>
+      </span>
+      <ActionButton name="channel.cancel-scheduled" params={{ id: p.channel_id, n: String(p.n) }} icon={null} onDone={onDone} />
+    </div>)}
+  </div>;
 }
 
 // ---------------------------------------------------------------- settings

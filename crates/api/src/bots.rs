@@ -193,7 +193,7 @@ struct Message {
 }
 
 /// Pure: when a message with `in` or `at` is due (None: send it now), seen at `now` (Unix ms).
-fn due_at(deliver_in: Option<&str>, at: Option<&str>, now: i64) -> anyhow::Result<Option<i64>> {
+pub(crate) fn due_at(deliver_in: Option<&str>, at: Option<&str>, now: i64) -> anyhow::Result<Option<i64>> {
     let (deliver_in, at) = (deliver_in.map(str::trim).filter(|s| !s.is_empty()), at.map(str::trim).filter(|s| !s.is_empty()));
     match (deliver_in, at) {
         (None, None) => Ok(None),

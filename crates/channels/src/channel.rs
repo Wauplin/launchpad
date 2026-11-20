@@ -145,7 +145,7 @@ pub struct ChannelFile {
 pub const MAX_FILES: usize = 10;
 
 /// A file a post names: a stored reference and the name it shows (Home reads its type and size).
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NewFile {
     pub name: String,
     pub reference: String,
@@ -254,6 +254,8 @@ pub struct ChannelPage {
     pub deliveries: Vec<ChannelDelivery>,
     /// Older messages exist before this page.
     pub more: bool,
+    /// The bots' scheduled posts that wait, soonest first (`launchpad channel post --in|--at`).
+    pub scheduled: Vec<crate::scheduled::ScheduledPost>,
 }
 
 /// A posted message and its deliveries.
@@ -435,7 +437,7 @@ pub fn mentions(text: &str, slugs: &HashMap<String, String>) -> Vec<String> {
 
 /// A message text: not empty, at most `MAX_TEXT` bytes.
 /// A bot's message without a trailing attribution line: channels and DMs are internal, so they are never signed.
-fn without_attribution(text: &str) -> String {
+pub(crate) fn without_attribution(text: &str) -> String {
     let base = launchpad_core::attribution::unsigned(text);
     if base.len() == text.trim_end().len() { text.to_string() } else { base.to_string() }
 }
@@ -634,7 +636,8 @@ pub async fn page(app: &App, id: &str, before: Option<i64>, limit: Option<u32>) 
     let channel = get(app, id).await?;
     let (messages, more) = messages(app, id, None, before, limit).await?;
     let deliveries = deliveries(app, messages.iter().map(|m| m.id).collect()).await?;
-    Ok(ChannelPage { channel, messages, deliveries, more })
+    let scheduled = crate::scheduled::list(app, Some(id), None).await?;
+    Ok(ChannelPage { channel, messages, deliveries, more, scheduled })
 }
 
 // ---------------------------------------------------------------- posting
@@ -645,7 +648,7 @@ pub enum Poster {
     Session(String),
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Post {
     pub text: String,
     #[serde(default)]
@@ -660,7 +663,7 @@ pub struct Post {
 }
 
 /// The seq of the message the session's current turn answers.
-async fn turn_of(app: &App, session: &str) -> Option<i64> {
+pub(crate) async fn turn_of(app: &App, session: &str) -> Option<i64> {
     let id = session.to_string();
     app.state_db
         .call(move |c| Ok(c.query_row("SELECT seq FROM session_event WHERE session_id = ?1 AND kind = 'user_message' ORDER BY seq DESC LIMIT 1", [id], |r| r.get(0)).optional()?))
@@ -687,7 +690,21 @@ pub(crate) async fn poster_bot(app: &App, session: &str) -> Result<String> {
 /// Posts a message and delivers it (`delivery::deliver`). A bot's session posts only in a channel it is a member of,
 /// never in a DM the owner blocked; its hop is one after the message its turn answers. The owner's message has hop 0
 /// and restarts the hourly count.
-pub async fn post(app: &App, id: &str, poster: Poster, mut p: Post) -> Result<ChannelPosted> {
+pub async fn post(app: &App, id: &str, poster: Poster, p: Post) -> Result<ChannelPosted> {
+    // Boxed: its future is deep (deliveries), and callers nest it further.
+    Box::pin(post_as(app, id, poster, p, None)).await?.context("the message was not posted")
+}
+
+/// A scheduled post that is due (`scheduled`): the hop count and turn of the turn that scheduled it (not of the
+/// session's turn now), and its row, deleted in the message's own transaction, so it posts once at most.
+pub(crate) struct Frozen {
+    pub n: i64,
+    pub hops: u32,
+    pub turn: Option<i64>,
+}
+
+/// `post`, or a scheduled post (`frozen`): None when its row was cancelled meanwhile (nothing posted).
+pub(crate) async fn post_as(app: &App, id: &str, poster: Poster, mut p: Post, frozen: Option<Frozen>) -> Result<Option<ChannelPosted>> {
     ensure_home(app)?;
     if matches!(poster, Poster::Session(_)) {
         p.text = without_attribution(&p.text);
@@ -715,8 +732,11 @@ pub async fn post(app: &App, id: &str, poster: Poster, mut p: Post) -> Result<Ch
             ensure!(info.workspace_id == ch.workspace_id, "{label} is in another workspace");
             ensure!(members.iter().any(|m| m.bot_id == bot), "{}", not_member(&ch));
             ensure!(!ch.blocked, "the owner blocked this DM");
-            let hops = launchpad_core::senders::hops_of(app, s).await + 1;
-            (Author { kind: AuthorKind::Bot, id: bot, name: info.name.clone() }, Some(s.clone()), turn_of(app, s).await, hops)
+            let (hops, turn) = match &frozen {
+                Some(f) => (f.hops, f.turn),
+                None => (launchpad_core::senders::hops_of(app, s).await + 1, turn_of(app, s).await),
+            };
+            (Author { kind: AuthorKind::Bot, id: bot, name: info.name.clone() }, Some(s.clone()), turn, hops)
         }
     };
     let slugs: HashMap<String, String> = members.iter().filter_map(|m| bots.get(&m.bot_id).map(|b| (b.slug.clone(), m.bot_id.clone()))).collect();
@@ -740,10 +760,16 @@ pub async fn post(app: &App, id: &str, poster: Poster, mut p: Post) -> Result<Ch
         files,
     };
     let m = msg.clone();
-    let new_id: i64 = app
+    let claim = frozen.as_ref().map(|f| f.n);
+    let new_id: Option<i64> = app
         .state_db
         .call(move |c| {
             let tx = c.transaction()?;
+            if let Some(n) = claim
+                && tx.execute("DELETE FROM channel_scheduled WHERE n = ?1", [n])? == 0
+            {
+                return Ok(None);
+            }
             tx.execute(
                 "INSERT INTO channel_message (channel_id, author_kind, author_id, author_name, session_id, turn, text, mentions, reply_to, hops, ask_owner, created_at, files) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 params![m.channel_id, text_of(m.author.kind), m.author.id, m.author.name, m.session_id, m.turn, m.text, serde_json::to_string(&m.mentions).unwrap_or_default(), m.reply_to, m.hops, m.ask_owner, m.created_at, serde_json::to_string(&m.files).unwrap_or_else(|_| "[]".into())],
@@ -754,16 +780,17 @@ pub async fn post(app: &App, id: &str, poster: Poster, mut p: Post) -> Result<Ch
                 tx.execute("UPDATE channel SET reset_at = ?2, owner_read = max(owner_read, ?3) WHERE id = ?1", params![m.channel_id, m.created_at, id])?;
             }
             tx.commit()?;
-            Ok(id)
+            Ok(Some(id))
         })
         .await?;
+    let Some(new_id) = new_id else { return Ok(None) };
     let msg = ChannelMessage { id: new_id, ..msg };
     let ch = load(app, id).await?;
     changed(app, id, &ch.workspace_id);
     let ids = crate::delivery::deliver(app, &ch, &msg, &members, &bots).await;
     let deliveries = deliveries(app, vec![msg.id]).await?.into_iter().filter(|d| ids.contains(&d.id)).collect();
     changed(app, id, &ch.workspace_id);
-    Ok(ChannelPosted { message: msg, deliveries })
+    Ok(Some(ChannelPosted { message: msg, deliveries }))
 }
 
 // ---------------------------------------------------------------- DMs and named channels
@@ -1039,7 +1066,7 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
     app.state_db
         .call(move |c| {
             let tx = c.transaction()?;
-            for t in ["channel_delivery", "channel_message", "channel_member"] {
+            for t in ["channel_delivery", "channel_message", "channel_member", "channel_scheduled"] {
                 tx.execute(&format!("DELETE FROM {t} WHERE channel_id = ?1"), [&cid])?;
             }
             tx.execute("DELETE FROM channel WHERE id = ?1", [&cid])?;

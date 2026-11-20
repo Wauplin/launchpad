@@ -25,6 +25,8 @@ pub fn router() -> Router<Ctx> {
         // One file per request (at most 5 MB, sent in base64), so each tunnel message from a runner stays small.
         .route("/api/channels/agent/upload", post(agent_upload).layer(axum::extract::DefaultBodyLimit::max(crate::agent_auth::CHANNEL_UPLOAD_MAX)))
         .route("/api/channels/agent/file", get(agent_file))
+        .route("/api/channels/agent/scheduled", get(agent_scheduled))
+        .route("/api/channels/agent/cancel", post(agent_cancel))
         .route("/api/channels/{id}", get(one).patch(edit).delete(remove))
         .route("/api/channels/{id}/messages", get(messages).post(post_message))
         .route("/api/channels/{id}/messages/{message}/deliveries", get(deliveries))
@@ -36,6 +38,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/channels/{id}/archive", post(archive))
         .route("/api/channels/{id}/allow-more", post(allow_more))
         .route("/api/channels/{id}/digest", post(digest))
+        .route("/api/channels/{id}/scheduled/{n}", axum::routing::delete(cancel_scheduled))
         .route("/api/channels/{id}/members/{bot}", get(member).put(set_member))
         .route("/api/channels/{id}/members/{bot}/remove", post(remove_member))
         .route("/api/channels/{id}/members/{bot}/mode", axum::routing::put(set_mode))
@@ -130,11 +133,41 @@ struct AgentPost {
     /// Messages whose files this post forwards.
     #[serde(default)]
     forward: Vec<i64>,
+    /// Post later instead of now: in this long ("45m", "2h", "1d")…
+    #[serde(default, rename = "in")]
+    post_in: Option<String>,
+    /// …or at this time (RFC 3339 with its offset, or Unix ms). Home keeps it (`launchpad_channels::scheduled`).
+    #[serde(default)]
+    at: Option<String>,
 }
 
 async fn agent_post(State(s): State<Ctx>, agent: Option<Extension<AgentSession>>, Json(p): Json<AgentPost>) -> ApiResult<Value> {
     let session = agent_of(agent)?;
-    Ok(Json(agent::post(&s.app, &session, &p.channel, p.post, &p.forward).await.map_err(forbidden)?))
+    let at = crate::bots::due_at(p.post_in.as_deref(), p.at.as_deref(), launchpad_core::util::now_ms()).map_err(bad)?;
+    Ok(Json(agent::post(&s.app, &session, &p.channel, p.post, &p.forward, at).await.map_err(forbidden)?))
+}
+
+/// `launchpad channel scheduled`: the scheduled posts of the caller's bot that wait.
+async fn agent_scheduled(State(s): State<Ctx>, agent: Option<Extension<AgentSession>>) -> ApiResult<Value> {
+    let session = agent_of(agent)?;
+    Ok(Json(agent::scheduled(&s.app, &session).await.map_err(forbidden)?))
+}
+
+#[derive(Deserialize)]
+struct AgentCancel {
+    n: i64,
+}
+
+/// `launchpad channel cancel-scheduled <n>`: one of the caller's bot's scheduled posts.
+async fn agent_cancel(State(s): State<Ctx>, agent: Option<Extension<AgentSession>>, Json(c): Json<AgentCancel>) -> ApiResult<Value> {
+    let session = agent_of(agent)?;
+    Ok(Json(agent::cancel_scheduled(&s.app, &session, c.n).await.map_err(forbidden)?))
+}
+
+/// The owner's Cancel of a bot's scheduled post on the channel's page (`channel.cancel-scheduled`).
+async fn cancel_scheduled(State(s): State<Ctx>, Path((id, n)): Path<(String, i64)>) -> ApiResult<Value> {
+    launchpad_channels::scheduled::cancel(&s.app, n, Some(&id), None).await.map_err(bad)?;
+    Ok(Json(json!({"cancelled": n})))
 }
 
 #[derive(Deserialize)]

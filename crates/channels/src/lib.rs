@@ -10,6 +10,7 @@ pub mod conversation;
 pub mod delivery;
 pub mod digest;
 pub mod hooks;
+pub mod scheduled;
 pub mod sends;
 pub mod telegram;
 pub mod today;
@@ -25,6 +26,8 @@ pub fn spawn(app: &App) {
         digest::spawn(app);
         // The owner's bot messages Home accepted: sent in the background, in order per thread.
         sends::spawn(app);
+        // Scheduled posts in bot channels and DMs, posted once due.
+        scheduled::spawn(app);
     }
 }
 
@@ -43,5 +46,6 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     channel::Channel::export_all(cfg)?;
     channel::ChannelPage::export_all(cfg)?;
     channel::ChannelPosted::export_all(cfg)?;
+    scheduled::ScheduledPost::export_all(cfg)?;
     Ok(())
 }

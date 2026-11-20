@@ -283,6 +283,8 @@ CREATE INDEX IF NOT EXISTS channel_message_channel ON channel_message (channel_i
 CREATE INDEX IF NOT EXISTS channel_message_time ON channel_message (channel_id, created_at);
 CREATE TABLE IF NOT EXISTS channel_delivery (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL, channel_id TEXT NOT NULL, bot_id TEXT NOT NULL, state TEXT NOT NULL, reason TEXT, session_id TEXT, joined INTEGER, at INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'message', first_message INTEGER, count INTEGER);
 CREATE TABLE IF NOT EXISTS channel_digest_run (day TEXT PRIMARY KEY, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS channel_scheduled (n INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT NOT NULL, bot_id TEXT NOT NULL, session_id TEXT NOT NULL, hops INTEGER NOT NULL, turn INTEGER, due_at INTEGER NOT NULL, created_at INTEGER NOT NULL, json TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS channel_scheduled_due ON channel_scheduled (due_at);
 CREATE INDEX IF NOT EXISTS channel_delivery_message ON channel_delivery (message_id);
 CREATE INDEX IF NOT EXISTS channel_delivery_channel ON channel_delivery (channel_id, bot_id, state);
 CREATE TABLE IF NOT EXISTS github_ref_use (repo TEXT NOT NULL, number INTEGER NOT NULL, session_id TEXT NOT NULL, bot_id TEXT, at INTEGER NOT NULL, PRIMARY KEY (repo, number, session_id));

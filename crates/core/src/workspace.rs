@@ -154,7 +154,7 @@ pub async fn delete(app: &App, id: &str) -> Result<()> {
         .call(move |c| {
             let tx = c.transaction()?;
             // Its bot channels and DMs go with it (`launchpad_channels::channel`).
-            for t in ["channel_delivery", "channel_message", "channel_member"] {
+            for t in ["channel_delivery", "channel_message", "channel_member", "channel_scheduled"] {
                 tx.execute(&format!("DELETE FROM {t} WHERE channel_id IN (SELECT id FROM channel WHERE workspace_id = ?1)"), [&id])?;
             }
             tx.execute("DELETE FROM channel WHERE workspace_id = ?1", [&id])?;

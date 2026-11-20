@@ -125,6 +125,8 @@ pub async fn collect_garbage(app: &crate::App) -> Result<()> {
         queries.push("SELECT json FROM session_event WHERE kind = 'user_message' AND json LIKE '%upload:%'".into());
         // Files of bot channel messages, and channel deliveries that wait in the queue.
         queries.push("SELECT files FROM channel_message WHERE files != '[]'".into());
+        // Scheduled channel posts keep their files until they post.
+        queries.push("SELECT json FROM channel_scheduled WHERE json LIKE '%upload:%'".into());
         queries.push("SELECT json FROM queued_message WHERE json LIKE '%upload:%'".into());
         // The owner's bot messages Home accepted (`bot_send`): their files until they are pruned.
         queries.push("SELECT json FROM bot_send WHERE json LIKE '%upload:%'".into());

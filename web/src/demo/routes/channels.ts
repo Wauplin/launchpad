@@ -45,7 +45,7 @@ function page(c: ChannelRecord, before: number | null, limit: number): ChannelPa
   const all = messagesOf(c.id).filter((m) => before == null || m.id < before);
   const messages = all.slice(-limit);
   const ids = new Set(messages.map((m) => m.id));
-  return { channel: view(c), messages, deliveries: world.channelDeliveries.filter((d) => ids.has(d.message_id)), more: all.length > messages.length };
+  return { channel: view(c), messages, deliveries: world.channelDeliveries.filter((d) => ids.has(d.message_id)), more: all.length > messages.length, scheduled: [] };
 }
 
 route("GET", "/api/channels", ({ query }) => {

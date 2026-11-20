@@ -421,7 +421,7 @@ pub struct ScheduledMessage {
 }
 
 /// Pure: when a scheduled message may be due (`at`, Unix ms) seen at `now`.
-fn check_due(at: i64, now: i64) -> Result<()> {
+pub(crate) fn check_due(at: i64, now: i64) -> Result<()> {
     ensure!(at > now, "pick a time in the future");
     ensure!(at <= now + SCHEDULE_MAX_MS, "pick a time within the next year");
     Ok(())
@@ -486,8 +486,13 @@ pub async fn scheduled(app: &App, sender: Option<&str>) -> Result<Vec<ScheduledM
 
 /// The line a scheduled message ends with once due (pure), so the bot knows it was written earlier.
 fn scheduled_note(due: &Due) -> String {
+    note_of(due.created_at, due.at)
+}
+
+/// Pure: "(Scheduled message: written <created>, due <at>.)", also the last line of a scheduled channel post.
+pub(crate) fn note_of(created_at: i64, at: i64) -> String {
     let utc = |at: i64| chrono::DateTime::from_timestamp_millis(at).map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string()).unwrap_or_default();
-    format!("(Scheduled message: written {}, due {}.)", utc(due.created_at), utc(due.at))
+    format!("(Scheduled message: written {}, due {}.)", utc(created_at), utc(at))
 }
 
 /// A scheduled message that is due (under `DELIVERY`): its thread is resolved now, and the entry moves to that
