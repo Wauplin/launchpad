@@ -231,7 +231,7 @@ pub async fn apply(app: &App, mut start: StartSpec) -> Result<StartSpec> {
     let cli_reference = lease.launchpad.map(|access| crate::launchpad_cli::cli_reference(&app.paths.cli_command(), kb.as_ref().map(|(ws, _)| ws.as_str()), access));
     // The attribution line of what the agent publishes: the harness's own setting and a sentence.
     let attribution = crate::attribution::line(&s);
-    let instructions = crate::start::join(&crate::start::instruction_parts(crate::start::Inputs { kb: kb_text, memory, cli_reference, attribution: crate::attribution::instruction(&attribution) }));
+    let instructions = crate::start::join(&crate::start::instruction_parts(crate::start::Inputs { kb: kb_text, memory, cli_reference, slack: crate::slack::instructions(&app.paths.cli_command(), &lease.slack), attribution: crate::attribution::instruction(&attribution) }));
     env.extend(harness.contained_memory(&home, &instructions)?);
     // The harness writes it into descriptions the agent publishes itself: an automatic publication.
     harness.contained_attribution(&home, &crate::attribution::with_origin(&attribution, crate::attribution::Origin::Automatic))?;

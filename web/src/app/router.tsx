@@ -70,6 +70,7 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/settings/worktrees", component: lazyRouteComponent(() => import("@/features/settings/WorktreesView"), "WorktreesView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/runners", component: lazyRouteComponent(() => import("@/features/settings/RunnersView"), "RunnersView"), validateSearch: (s: Record<string, unknown>): { route?: string } => (typeof s.route === "string" && s.route ? { route: s.route } : {}) }),
   createRoute({ getParentRoute: () => root, path: "/settings/credentials", component: lazyRouteComponent(() => import("@/features/settings/CredentialsView"), "CredentialsView"), validateSearch: (s: Record<string, unknown>): { tool?: string } => (typeof s.tool === "string" && s.tool ? { tool: s.tool } : {}) }),
+  createRoute({ getParentRoute: () => root, path: "/settings/slack", component: lazyRouteComponent(() => import("@/features/settings/SlackView"), "SlackView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/connections", component: lazyRouteComponent(() => import("@/features/settings/ConnectionsView"), "ConnectionsView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/onboarding", component: lazyRouteComponent(() => import("@/onboarding/OnboardingView"), "OnboardingView") }),
   createRoute({ getParentRoute: () => root, path: "/settings/devices", component: lazyRouteComponent(() => import("@/features/settings/DevicesView"), "DevicesView") }),

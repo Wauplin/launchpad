@@ -76,7 +76,7 @@ pub enum OracleCommand {
         calls: bool,
     },
     /// Create an oracle or change its file (admin access): pre-checked, then stored formatted. A file with a
-    /// credentialed tool (github, huggingface, slack) this session does not hold is refused: propose it with
+    /// credentialed tool (github, huggingface) this session does not hold is refused: propose it with
     /// `launchpad propose oracle`.
     Save {
         #[arg(long)]
@@ -390,7 +390,7 @@ mod tests {
         let t = answer_text(&json!({"outcome": "true", "summary": "red", "fingerprint": "abc", "cursor_proposed": "c2", "links": ["https://x"], "duration_ms": 5, "reused": true}), None);
         assert_eq!(t, "True · red\n5 ms · reused a fresh answer · fingerprint abc · cursor \"c2\"\nhttps://x");
         assert_eq!(problem_text(&json!({"line": 14, "column": 9, "rule": "F821", "message": "Undefined name `tool`"})), "oracle.py:14:9: F821 Undefined name `tool`");
-        let saved = json!({"oracle": {"meta": {"title": "CI red"}}, "tools_added": ["slack"], "tools_removed": [], "tools_missing": ["slack: no token"]});
-        assert_eq!(saved_text("ci-red", &saved), "Saved oracle ci-red (CI red).\nTools added: slack.\nNot usable yet (it would fail with class access): slack: no token");
+        let saved = json!({"oracle": {"meta": {"title": "CI red"}}, "tools_added": ["github"], "tools_removed": [], "tools_missing": ["github: no token"]});
+        assert_eq!(saved_text("ci-red", &saved), "Saved oracle ci-red (CI red).\nTools added: github.\nNot usable yet (it would fail with class access): github: no token");
     }
 }

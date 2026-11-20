@@ -7,10 +7,10 @@ import type { OracleTool } from "../gen/OracleTool";
 
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-/** The five tools, in the order of the Tools tab. */
-export const ORACLE_TOOLS: OracleTool[] = ["http", "github", "huggingface", "slack", "launchpad"];
+/** The four tools, in the order of the Tools tab. */
+export const ORACLE_TOOLS: OracleTool[] = ["http", "github", "huggingface", "launchpad"];
 /** The tools that use one of the owner's tokens. */
-export const CREDENTIALED: OracleTool[] = ["github", "huggingface", "slack"];
+export const CREDENTIALED: OracleTool[] = ["github", "huggingface"];
 /** A credentialed tool together with http: the oracle can send what it reads to any public address. */
 export const canLeak = (tools: readonly string[]) => tools.includes("http") && tools.some((t) => (CREDENTIALED as string[]).includes(t));
 export const LEAK_WARNING = "can send what it reads to any public address";

@@ -83,7 +83,7 @@ route("DELETE", "/api/oracles/:ws/:slug", ({ params }) => {
 });
 
 /** A draft's canned answer: one call per tool of its header. */
-const DRAFT_CALLS: Record<string, string> = { http: "GET https://pypi.org/pypi/acme-sdk/json", github: "GET /repos/acme-labs/storefront/pulls?state=open", huggingface: "GET /api/models/acme-labs/storefront-embeddings", slack: "search.messages \"to:me after:yesterday\" limit=20", launchpad: "sessions.list()" };
+const DRAFT_CALLS: Record<string, string> = { http: "GET https://pypi.org/pypi/acme-sdk/json", github: "GET /repos/acme-labs/storefront/pulls?state=open", huggingface: "GET /api/models/acme-labs/storefront-embeddings", launchpad: "sessions.list()" };
 
 /** The demo's answer: the oracle's last outcome, or for a draft a canned True with one call per tool. */
 function answer(o: DemoOracle | undefined, draft: string | null): OracleRunResult {

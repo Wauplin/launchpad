@@ -874,6 +874,7 @@ mod authentication_tests {
             mcp: vec![],
             launchpad: None,
             releases: Default::default(),
+            slack: vec![],
         });
         let mut headers = hyper::HeaderMap::new();
         let challenge = |headers: &hyper::HeaderMap| {

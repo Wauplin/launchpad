@@ -1,6 +1,6 @@
 # Oracles
 
-An oracle is a small Python check that answers one question with **True**, **False** or **Failed**, for example “is CI red on main?”, “did someone write to me in Slack?” or “has an agent waited for me for more than two hours?”. It is one file of a workspace, with no model and no session. Home runs every oracle in [Monty](https://github.com/pydantic/monty), a Python interpreter for untrusted code, and the oracle reaches the outside only through five read-only tools: `http`, `github`, `huggingface`, `slack` and `launchpad`.
+An oracle is a small Python check that answers one question with **True**, **False** or **Failed**, for example “is CI red on main?”, “was a new issue opened?” or “has an agent waited for me for more than two hours?”. It is one file of a workspace, with no model and no session. Home runs every oracle in [Monty](https://github.com/pydantic/monty), a Python interpreter for untrusted code, and the oracle reaches the outside only through four read-only tools: `http`, `github`, `huggingface` and `launchpad`.
 
 Routines use oracles as gates: a gated routine starts its bot or agent only when the oracle's answer calls for it, and stays quiet the rest of the time. Agents and you can also run an oracle directly instead of polling an API.
 
@@ -56,10 +56,10 @@ The file starts with a block in [PEP 723](https://peps.python.org/pep-0723/) syn
 
 ```python
 # /// oracle
-# title = "New Slack messages to me"
-# description = "Did someone write to me (DM or mention) since the last check?"
-# tools = ["slack"]
-# min_interval = "1m"
+# title = "New issues"
+# description = "Was an issue opened in the repository since the last check?"
+# tools = ["github"]
+# min_interval = "5m"
 # timeout = "10s"
 # ///
 ```
@@ -68,7 +68,7 @@ The file starts with a block in [PEP 723](https://peps.python.org/pep-0723/) syn
 | --- | --- | --- |
 | `title` | yes | The name shown everywhere. |
 | `description` | no | The question the oracle answers, as one sentence. |
-| `tools` | no | The tools the code calls: any of `"http"`, `"github"`, `"huggingface"`, `"slack"`, `"launchpad"`. Empty by default: an oracle with no tools can only compute from its arguments. |
+| `tools` | no | The tools the code calls: any of `"http"`, `"github"`, `"huggingface"`, `"launchpad"`. Empty by default: an oracle with no tools can only compute from its arguments. |
 | `min_interval` | no | How long an answer stays fresh: at least `1m`, and `1m` by default. Callers within that time get the same answer instead of a new evaluation. |
 | `timeout` | no | The wall-clock budget of an evaluation, tool calls included: `10s` by default, at most `60s`. |
 
@@ -158,8 +158,6 @@ An oracle imports `tools` from `launchpad_oracle`. A tool that is not in the hea
 | `tools.http.get(url)` | Any public http(s) address, and the URLs of [exit routes](exit-routes.md) | None |
 | `tools.github.get("/repos/…")` | `https://api.github.com` + the endpoint | The registry tool `gh`, added by Home |
 | `tools.huggingface.get("/api/…")` | `https://huggingface.co` + the endpoint | The registry tool `hf`, added by Home |
-| `tools.slack.search.messages("to:me")`, `tools.slack.channels.history(…)`… | Slack, through the read commands of the [slackline](https://github.com/co42/slackline) CLI | The registry tool `slack-read`, given to slackline by Home |
-| `tools.slack.get("conversations.info", params=…)` | `https://slack.com/api/` + the method | `slack-read` |
 | `tools.launchpad.sessions.list()`, `tools.launchpad.today()`… | Home's read API for the oracle's own workspace, answered inside Home | None needed |
 | `tools.launchpad.get("/api/…")` | Any GET route of the read level | None needed |
 
@@ -188,7 +186,7 @@ A GET to any public address, never with a credential: public APIs and pages such
 - `headers` may set any request header except `Authorization`, `Proxy-Authorization`, `Cookie`, `Host` and the connection headers (`ValueError`). Credentials come only from tools: a secret written in an oracle file would be readable by every agent of the workspace.
 - **Public addresses only.** Home resolves the host and refuses it with `PermissionError` when an address is not public: loopback, private, link-local, carrier-grade NAT, multicast, unspecified, documentation ranges, cloud metadata and their IPv4-mapped forms. It connects only to the address it checked. Home's own address is refused too.
 - **Exit routes.** A URL of an [exit route](exit-routes.md) goes through the route's exit runner, which resolves the host and connects only to the route's targets, so tailnet and private addresses of a route work. Home does not apply its public-address rule to it. The call log shows “via <exit>”. While the exit is offline, the call raises `OSError` with the route's message.
-- **Registry hosts are trusted by name.** The hosts of the tools of Home's registry (`api.github.com`, `huggingface.co`, `slack.com`…) are reached whatever they resolve to, still without a credential.
+- **Registry hosts are trusted by name.** The hosts of the tools of Home's registry (`api.github.com`, `huggingface.co`…) are reached whatever they resolve to, still without a credential.
 - Redirects are followed up to 5 times, and each hop is checked again. No cookies are kept. Home sends `User-Agent: Launchpad-Oracle/<version>` unless the oracle sets its own.
 
 ### tools.github
@@ -208,29 +206,6 @@ A GET on GitHub's REST API, `https://api.github.com` + `endpoint`, with the toke
 `tools.huggingface.get(endpoint, params=None, headers=None) -> Response`
 
 A GET on the Hugging Face Hub, `https://huggingface.co` + `endpoint`, with the token of the registry tool `hf`: Hub API endpoints such as `/api/models/{repo}` or `/api/whoami-v2`, and file URLs such as `/{repo}/resolve/main/README.md`. The endpoint rules, redirects and the GET-only rule are those of `tools.github`. The Hub answers 401 or 404 for a repository the token cannot see: use `status_code` to tell “not found” from an error.
-
-### tools.slack
-
-Slack commands are the read commands of the slackline CLI, with the same names and arguments: `slackline channels history C123 -l 20 --after 2h` becomes `tools.slack.channels.history("C123", limit=20, after="2h")`. Each call runs slackline on Home with the `slack-read` token and returns its JSON output as a dict or a list.
-
-| Python | Returns |
-| --- | --- |
-| `search.messages(query, limit=None, page=None)` | `{"total", "results": [{ts, text, user, username, channel_id, channel_name, permalink, timestamp}]}` |
-| `me.channels(limit=None, dms=False, unread=False)` | `[{id, name, is_private, is_im, is_mpim, num_members, unread_count, has_unread}]` |
-| `channels.list(limit=None)`, `channels.info(channel)` | Channels, or one channel |
-| `channels.history(channel, limit=None, after=None, before=None, enrich=False)` | `[{ts, user, text, timestamp, thread_ts, reply_count, latest_reply, username, real_name}]` |
-| `channels.members(channel, limit=None)`, `channels.pins(channel)` | Members, or pinned messages |
-| `messages.replies(channel, thread_ts, limit=None)`, `messages.permalink(channel, ts)`, `messages.reactions(channel, ts)` | Replies, a permalink, or reactions |
-| `dms.list(limit=None)`, `dms.history(dm_channel, limit=None, after=None, before=None, enrich=False)` | DMs, or messages as in `channels.history` |
-| `users.list(limit=None)`, `users.info(user)`, `users.search(query)`, `users.presence(user)` | Users, one user, or a presence |
-| `files.list(channel=None, user=None, limit=None)`, `files.info(file)` | File metadata |
-| `token.test()` | `{url, team, user, team_id, user_id}`: who “me” is |
-
-Arguments are checked before slackline starts (`ValueError` otherwise). `channel`, `dm_channel`, `user` and `file` are an ID or a name, optionally with `#` or `@`. `ts` and `thread_ts` are Slack timestamps such as `1769415774.159039`. `limit` is 1 to 1000 (100 for search) and `page` is 1 or more. `after` and `before` take an ISO time, a relative time such as `2h` or `3d`, `today`, or a `datetime` (converted to UTC; a naive one counts as UTC). `query` is any text up to 1,000 characters, with Slack's search syntax (`to:me`, `from:@name`, `in:#channel`, `after:yesterday`…).
-
-slackline's write commands, `files download`, `watch` and the token commands other than `token test` are not available. A Slack error, such as an unknown channel or a missing scope, raises `RuntimeError` with slackline's message; uncaught, it fails the evaluation with class `http`.
-
-For what slackline has no command for, `tools.slack.get(method, params=None, headers=None) -> Response` is a GET on `https://slack.com/api/<method>` with the `slack-read` token. Slack answers HTTP 200 with `{"ok": false, "error": "…"}` for most errors, so check `r.json["ok"]`.
 
 ### tools.launchpad
 
@@ -257,9 +232,9 @@ Monty has no class inheritance, so the tools raise built-in exceptions. Home rem
 | Raised | When | Uncaught: Failed with class |
 | --- | --- | --- |
 | `PermissionError` | The tool is not in the header, not granted to the workspace or has no token; a private address or Home itself; a Launchpad route outside the read level | `access` |
-| `ValueError` | A bad argument: an endpoint that does not start with `/`, a refused header, an invalid Slack ID, a limit out of range | `script` |
+| `ValueError` | A bad argument: an endpoint that does not start with `/`, a refused header, a limit out of range | `script` |
 | `OSError` | A DNS, TCP or TLS failure, a reset connection, more than 5 redirects, a redirect to an address tools do not follow, an exit route whose exit runner is offline or could not connect | `http` |
-| `RuntimeError` | A Slack or Launchpad command answered an error | `http` |
+| `RuntimeError` | A Launchpad command answered an error | `http` |
 
 An oracle may catch these to decide what an error means, for example an `OSError` on an optional source. `raise_for_status()` and `failed()` cannot be caught. Running out of time during a tool call and running out of a budget (see [Limits](#limits)) are not exceptions either: they end the evaluation at once, with class `timeout` or `limit`.
 
@@ -273,7 +248,7 @@ An evaluation ends with one of three outcomes:
 | Class | Cause |
 | --- | --- |
 | `access` | A tool missing from the header, not granted to the workspace, without a token, or refused (a private address, a route outside the read level). |
-| `http` | `raise_for_status()` on a 4xx or 5xx, a connection error, or a Slack or Launchpad command error. |
+| `http` | `raise_for_status()` on a 4xx or 5xx, a connection error, or a Launchpad command error. |
 | `timeout` | The evaluation ran past its timeout, tool calls included. |
 | `limit` | A budget ran out: memory, tool calls, response size or bytes received; or the code called `time.sleep`. |
 | `script` | An exception in the code, with its line. Syntax errors, undefined names and unsupported constructs are refused by the pre-check before anything runs. |
@@ -292,31 +267,33 @@ A **cursor** lets an oracle answer “what is new since last time?”. Each cons
 - Failed never moves a cursor, and a test never commits one.
 - On a caller's first evaluation `cursor` is `None`. A good first answer is False with a cursor at “now”, so a new gate does not fire on old items.
 
-This oracle uses Slack's message timestamps as its cursor, so each routine run sees only what is new:
+This oracle uses issue numbers as its cursor, so each routine run sees only what is new, and it does not fire on its first evaluation:
 
 ```python
 # /// oracle
-# title = "New Slack messages to me"
-# description = "Did someone write to me (DM or mention) since the last check?"
-# tools = ["slack"]
-# min_interval = "1m"
+# title = "New issues"
+# description = "Was an issue opened in the repository since the last check?"
+# tools = ["github"]
+# min_interval = "5m"
 # ///
 from launchpad_oracle import tools, verdict
 
 
-def check(cursor: str | None, limit: int = 20):
-    since = float(cursor or "0")
-    found = tools.slack.search.messages("to:me after:yesterday", limit=limit)
-    new = [m for m in found["results"] if float(m["ts"]) > since]
-    if not new:
-        return verdict(False, summary="nothing new")
-    newest = max([m["ts"] for m in new], key=float)
+def check(cursor: str | None, repo: str, limit: int = 20):
+    params = {"state": "open", "sort": "created", "direction": "desc", "per_page": limit}
+    found = tools.github.get(f"/repos/{repo}/issues", params=params).raise_for_status().json
+    issues = [i for i in found if "pull_request" not in i]
+    since = int(cursor or "0")
+    newest = max([i["number"] for i in issues] + [since])
+    new = [i for i in issues if i["number"] > since]
+    if cursor is None or not new:
+        return verdict(False, summary="nothing new", cursor=str(newest))
     return verdict(
         True,
-        summary=f"{len(new)} new message(s), from " + ", ".join(sorted({m["username"] or m["user"] for m in new})),
-        items=[{"from": m["username"], "text": m["text"][:200], "link": m["permalink"]} for m in new],
-        fingerprint=newest,
-        cursor=newest,
+        summary=f"{len(new)} new issue(s)",
+        items=[{"number": i["number"], "title": i["title"], "link": i["html_url"]} for i in new],
+        fingerprint=str(newest),
+        cursor=str(newest),
     )
 ```
 
@@ -372,7 +349,7 @@ Within `min_interval`, callers get the last answer again, including a Failed one
 | --- | --- | --- |
 | Wall clock, tool calls included | `timeout`: 10 s by default, at most 60 s | Failed, `timeout` |
 | Tool calls per evaluation | 200 | Failed, `limit` |
-| Response body per call (slackline's output too) | 10 MiB | Failed, `limit` |
+| Response body per call | 10 MiB | Failed, `limit` |
 | Bytes received per evaluation | 50 MiB | Failed, `limit` |
 | Memory | 128 MiB | Failed, `limit` |
 | Redirects per call | 5 | `OSError` |
@@ -381,13 +358,13 @@ Within `min_interval`, callers get the last answer again, including a Failed one
 
 ### Call log
 
-Home records every tool call of an evaluation: the tool, the call (`GET /repos/acme/app/actions/workflows/tests.yml/runs?branch=main&per_page=1`, `search.messages "to:me after:yesterday" limit=20`), the status or error, the bytes received and the duration. Request headers are never recorded. The call log is kept with the evaluation, shown in **Test** and **History**, and printed by `launchpad oracle test --json` and `launchpad oracle history --calls`. A `raise_for_status()` failure points at its call.
+Home records every tool call of an evaluation: the tool, the call (`GET /repos/acme/app/actions/workflows/tests.yml/runs?branch=main&per_page=1`, `sessions.list()`), the status or error, the bytes received and the duration. Request headers are never recorded. The call log is kept with the evaluation, shown in **Test** and **History**, and printed by `launchpad oracle test --json` and `launchpad oracle history --calls`. A `raise_for_status()` failure points at its call.
 
 ## Security
 
-Oracle code is treated as untrusted, even when you saved it: an agent may have written it, and it handles text from GitHub, Slack and the web. Monty is the sandbox: oracle code has no filesystem, environment, network, subprocesses or packages, and each evaluation runs in its own worker process with an empty environment. Every tool is implemented and checked in Home's own code, never in the oracle:
+Oracle code is treated as untrusted, even when you saved it: an agent may have written it, and it handles text from GitHub and the web. Monty is the sandbox: oracle code has no filesystem, environment, network, subprocesses or packages, and each evaluation runs in its own worker process with an empty environment. Every tool is implemented and checked in Home's own code, never in the oracle:
 
-- Every HTTP call is a GET, and the Slack and Launchpad commands are fixed lists of read commands. Slack runs slackline's read commands only, with `SLACKLINE_READONLY=1` and the `slack-read` token (never `slack-write`), from a fixed command table: the oracle chooses only argument values, never the program, a flag or a path.
+- Every HTTP call is a GET, and the Launchpad commands are a fixed list of read commands: the oracle chooses only argument values, never a route outside the read level.
 - Tokens never enter the worker: not in its environment, a response or an error message. Every secret an evaluation used is also removed from its result before Home records it.
 - A token goes only to its own tool's host, also through redirects. `tools.http` refuses private addresses and Home itself, so an oracle cannot reach Home's gateway or the machine's network.
 - Memory, time, call and byte budgets stop runaway code.
@@ -402,14 +379,13 @@ The credentialed tools use tools of Home's registry (Settings → Credentials an
 | --- | --- |
 | `github` | `gh` |
 | `huggingface` | `hf` |
-| `slack` | `slack-read`, and slackline in Home's image |
 | `launchpad` | None: the oracle's own workspace, at the read level |
 | `http` | None |
 
 | Who | What |
 | --- | --- |
 | You | Everything: create, edit, test any draft with any tools, pause, mark read, restore and delete. Delete asks again when routines are gated on the oracle. |
-| Admin bots | Save directly (`launchpad oracle save`) when the bot's own session holds every credentialed tool of the file (`github`, `huggingface`, `slack`); `http` and `launchpad` need nothing. Pause and resume. A file with any other tool must be a card for you. The bot's chat shows each change as a receipt. |
+| Admin bots | Save directly (`launchpad oracle save`) when the bot's own session holds every credentialed tool of the file (`github`, `huggingface`); `http` and `launchpad` need nothing. Pause and resume. A file with any other tool must be a card for you. The bot's chat shows each change as a receipt. |
 | Other agents | List, show, read the history and run saved oracles. Test drafts on Home (`launchpad oracle test`) whose credentialed tools their own session holds. Propose an oracle with a card. |
 
 A saved oracle runs with the tools you approved, whoever calls it: an agent that runs it gets the answer, not the tools. A draft never inherits tools from the saved oracle of the same slug.
@@ -430,21 +406,21 @@ In the routine editor (**Edit** on Schedules, or the bot's settings → **Trigge
 A bot routine file writes the gate as a `[gate]` table:
 
 ```toml
-title = "Answer Slack pings"
+title = "Triage new issues"
 schedule = "*/5 8-19 * * 1-5"
-instructions = "Someone wrote to me in Slack. Read the messages in the evidence and draft answers for me to review."
+instructions = "New issues were opened. Read the issues in the evidence, label them and draft answers for me to review."
 
 [trigger]
 kind = "schedule"
 
 [gate]
-oracle = "slack-to-me"
-params = { limit = 20 }
+oracle = "new-issues"
+params = { repo = "acme/app" }
 run_on = ["true", "failed"]
 fire = "every"
 
 [gate.failed]
-instructions = "The slack-to-me oracle fails. Find out why and tell me."
+instructions = "The new-issues oracle fails. Find out why and tell me."
 ```
 
 A tick that starts no run is a **check**: no thread, no session and no quota, recorded as a grey entry in the routine's history. Consecutive checks with the same answer collapse into one line, such as “143 checks · False since 09:00 · not routed”. A run that starts gets the evidence in its message, fenced and marked as data from outside Launchpad, never as your instructions. Quota, the loop guard, the thread cap and the routine limits apply to gated runs as to any run. Failed never counts as a change: True, then Failed, then True again starts nothing new.
@@ -455,7 +431,7 @@ The gate's oracle must exist when you save the routine: apply the oracle card fi
 
 ## Today
 
-A failing oracle has one row in Today → **Fix**: “Oracle “New Slack messages to me” is failing”, with the number of failed evaluations, the main error class, the last error, the failing call and the routines that wait on it. The row updates in place; it never adds one row per failure. Open it to see the error with the count of each class, the first and last failure, the routines that wait and the last good answer.
+A failing oracle has one row in Today → **Fix**: “Oracle “New issues” is failing”, with the number of failed evaluations, the main error class, the last error, the failing call and the routines that wait on it. The row updates in place; it never adds one row per failure. Open it to see the error with the count of each class, the first and last failure, the routines that wait and the last good answer.
 
 - **Open** opens the oracle. **⋯** has **Test now** (runs it again with the parameters of its last evaluation; a True or False answer ends the failure), **Pause** and **Mark read**.
 - The row goes to Done at the next True or False (“Recovered after 7 failed evaluations”), or when you click **Mark read**. After Mark read, it comes back at the next failure.
@@ -471,7 +447,7 @@ The **Oracles** tab of Schedules lists the workspace's oracles, with **New oracl
 An oracle's page shows its title, slug and who edited it last, with **Save** (enabled once you change something) and **⋯** (**Discard changes**, **Pause** or **Resume**, and **Delete**, which names the routines gated on it). A broken oracle shows why at the top. Its tabs:
 
 - **Definition**: the question and the file in an editor with Python colors, pre-check errors and type warnings at their lines, and the **Test** panel: one field per parameter, a cursor field when `check` takes one, then **Test**, which runs the file you see on Home. The answer shows the outcome, duration, error class, summary, fingerprint, proposed cursor, links, items, the call log and the log. A test never commits a cursor. A test of the saved file shows in History and ends a failure streak on True or False; a test of unsaved changes records nothing. A pre-check error blocks **Save** and **Test**.
-- **Tools**: one switch per tool (`http`, `github`, `huggingface`, `slack`, `launchpad`), each with what it reaches, its registry tool and whether that tool is granted to the workspace and has a token. The switches edit the header's `tools = […]` line. An added tool is highlighted before you save, and a credentialed tool combined with `http` says it can send what it reads to any public address.
+- **Tools**: one switch per tool (`http`, `github`, `huggingface`, `launchpad`), each with what it reaches, its registry tool and whether that tool is granted to the workspace and has a token. The switches edit the header's `tools = […]` line. An added tool is highlighted before you save, and a credentialed tool combined with `http` says it can send what it reads to any public address.
 - **History**: the recent evaluations as squares and as a list, **All** or **Failed**. Each line shows the time, the outcome and summary, and each caller with what it did (fired, quiet, counted, skipped); opening one shows its call log and log. Quiet answers with the same fingerprint collapse into one line.
 - **Used by**: the routines gated on this oracle.
 - **Versions**: each change with its author and diff, and **Restore**.

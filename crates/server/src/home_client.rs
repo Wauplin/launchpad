@@ -238,7 +238,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/topics" || path.starts_with("/api/topics/") || path == "/api/chat-pins" || path == "/api/chat-threads" || path == "/api/chat-search"
         || path == "/api/review-state" || path == "/api/channels" || path.starts_with("/api/channels/")
         || path == "/api/home/update" || path == "/api/home/update/check" || path == "/api/home/update/cancel" || path.starts_with("/api/cli-updates")
-        || path.starts_with("/api/oracles/") || path.starts_with("/api/folios/")
+        || path.starts_with("/api/oracles/") || path.starts_with("/api/folios/") || path.starts_with("/api/slack/")
 }
 
 /// Marks a request of a session's CLI token (`auth::guard`), with its session: its launches and messages go to Home,
@@ -347,6 +347,8 @@ pub async fn forward_writes(axum::extract::State(s): axum::extract::State<crate:
         launchpad_http::agent_auth::CHANNEL_UPLOAD_MAX
     } else if launchpad_http::agent_auth::folio_write(parts.uri.path()) {
         launchpad_http::agent_auth::FOLIO_BODY_MAX
+    } else if parts.uri.path() == launchpad_http::agent_auth::SLACK_RUN {
+        launchpad_http::agent_auth::SLACK_RUN_MAX
     } else {
         1 << 20
     };

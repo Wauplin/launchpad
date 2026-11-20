@@ -34,6 +34,8 @@ pub struct Inputs {
     pub memory: crate::bot_memory::Loaded,
     /// What the session may do with the Launchpad CLI (`launchpad_cli::cli_reference`), when it has the tool.
     pub cli_reference: Option<String>,
+    /// The Slack profiles the session holds and how to use them (`slack::instructions`), when it holds one.
+    pub slack: Option<String>,
     /// The attribution sentence (`attribution::instruction`).
     pub attribution: String,
 }
@@ -50,6 +52,9 @@ pub fn instruction_parts(i: Inputs) -> Vec<StartPart> {
     }
     if let Some(r) = i.cli_reference {
         out.push(part("cli", "Launchpad CLI reference", r));
+    }
+    if let Some(s) = i.slack {
+        out.push(part("slack", "Slack profiles", s));
     }
     out.push(part("attribution", "Attribution", i.attribution));
     if let Some(cut) = i.memory.cut {
@@ -84,11 +89,11 @@ mod tests {
     #[test]
     fn parts_join_like_the_instructions_file_and_a_cut_memory_ends_them() {
         let memory = crate::bot_memory::Loaded { text: "# Your memory\n".into(), cut: Some("cut line\n".into()), loaded: 100, total: 240 };
-        let parts = instruction_parts(Inputs { kb: "kb\n".into(), memory, cli_reference: Some("cli\n".into()), attribution: "attr\n".into() });
-        assert_eq!(parts.iter().map(|p| p.key.as_str()).collect::<Vec<_>>(), ["kb", "memory", "cli", "attribution", "memory-cut"]);
-        assert_eq!(join(&parts), "kb\n\n# Your memory\n\ncli\n\nattr\n\ncut line\n");
+        let parts = instruction_parts(Inputs { kb: "kb\n".into(), memory, cli_reference: Some("cli\n".into()), slack: Some("slack\n".into()), attribution: "attr\n".into() });
+        assert_eq!(parts.iter().map(|p| p.key.as_str()).collect::<Vec<_>>(), ["kb", "memory", "cli", "slack", "attribution", "memory-cut"]);
+        assert_eq!(join(&parts), "kb\n\n# Your memory\n\ncli\n\nslack\n\nattr\n\ncut line\n");
         assert!(join(&parts).trim_end().ends_with("cut line"));
-        let plain = instruction_parts(Inputs { kb: "kb\n".into(), memory: Default::default(), cli_reference: None, attribution: "attr\n".into() });
+        let plain = instruction_parts(Inputs { kb: "kb\n".into(), memory: Default::default(), cli_reference: None, slack: None, attribution: "attr\n".into() });
         assert_eq!(join(&plain), "kb\n\nattr\n");
     }
 

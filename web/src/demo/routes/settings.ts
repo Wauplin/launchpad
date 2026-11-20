@@ -204,9 +204,16 @@ route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: n
 const demoTemplates = [
   { id: "gh", name: "GitHub CLI", install: { kind: "github_release" as const, source: "cli/cli", asset: "gh_*_linux_{arch}.tar.gz" }, credential: "github", env: ["GH_TOKEN", "GITHUB_TOKEN"], hosts: [{ host: "api.github.com", auth: { kind: "bearer" as const } }, { host: "github.com", auth: { kind: "basic" as const, user: "x-access-token" } }], workspaces: ["*"], check_url: "https://api.github.com/user", vars: {} },
   { id: "hf", name: "Hugging Face CLI", install: { kind: "uv" as const, source: "huggingface_hub", asset: "" }, credential: "huggingface", env: ["HF_TOKEN"], hosts: [{ host: "huggingface.co", auth: { kind: "bearer" as const } }], workspaces: ["*"], check_url: "https://huggingface.co/api/whoami-v2", vars: {} },
-  ...[false, true].map((write) => ({ id: write ? "slack-write" : "slack-read", name: write ? "Slack (write)" : "Slack (read-only)", install: { kind: "github_release" as const, source: "co42/slackline", asset: "slackline-*-{uarch}-unknown-linux-gnu.tar.gz" }, credential: write ? "slack-write" : "slack-read", env: ["SLACK_TOKEN"], hosts: [{ host: "slack.com", auth: { kind: "bearer" as const } }, { host: "files.slack.com", auth: { kind: "bearer" as const } }], workspaces: ["*"], check_url: "https://slack.com/api/auth.test", vars: write ? {} : { SLACKLINE_READONLY: "1" } as Record<string, string> })),
 ];
-const slackSteps = ["Open Slack: the app and its permissions are already filled in.", "Pick your Slack workspace, then click Next and Create.", "In the sidebar, open Install App, click Install to Workspace, then Allow.", "Copy the User OAuth Token (it starts with xoxp-) and paste it here."];
+// Slack profiles: one that reads as the owner, one that posts as a bot. Tokens never reach the browser.
+route("GET", "/api/slack/profiles", () => [
+  { handle: "release-bot", name: "Post as Release bot", description: "Posts release notes in #releases as the Release bot app. Cannot search.", token_kind: "bot", token_detail: "…Q8rT", default_on: false, footer: false, updated_at: clock.now() - 2 * 86_400_000 },
+  { handle: "user-read", name: "Read as me", description: "Searches and reads Slack as me (channels, threads, DMs, people). Read-only: it cannot post.", token_kind: "user", token_detail: "…m2Xc", default_on: true, footer: true, updated_at: clock.now() - 6 * 86_400_000 },
+]);
+route("GET", "/api/slack/app-link", () => ({ url: "https://api.slack.com/apps?new_app=1", steps: ["Open Slack: the app's name and permissions are already filled in.", "Pick your Slack workspace, then click Next and Create.", "In the sidebar, open Install App, click Install to Workspace, then Allow.", "Copy the token and paste it here."] }));
+route("PUT", "/api/slack/profiles/:handle", notInDemo);
+route("DELETE", "/api/slack/profiles/:handle", notInDemo);
+route("POST", "/api/slack/profiles/:handle/test", () => ({ ok: true, message: "The token works (demo)." }));
 route("GET", "/api/vault", () => ({
   entries: [
     { id: "claude-max", kind: "claude_login", name: "Claude Max", detail: "…k3Qa", updated_at: clock.now() - 86_400_000 },
@@ -220,8 +227,6 @@ route("GET", "/api/vault", () => ({
   template_help: [
     { id: "gh", token_url: "https://github.com/settings/personal-access-tokens/new", home_token: "github", link_label: "Create a token", steps: [] },
     { id: "hf", token_url: "https://huggingface.co/settings/tokens/new?tokenType=fineGrained", home_token: "huggingface", link_label: "Create a token", steps: [] },
-    { id: "slack-read", token_url: "https://api.slack.com/apps?new_app=1", home_token: null, link_label: "Open Slack to create the app", steps: slackSteps },
-    { id: "slack-write", token_url: "https://api.slack.com/apps?new_app=1", home_token: null, link_label: "Open Slack to create the app", steps: slackSteps },
   ],
   home_tokens: [],
   logins: [

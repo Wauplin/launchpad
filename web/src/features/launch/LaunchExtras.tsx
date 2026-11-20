@@ -1,5 +1,6 @@
 // Composer options of Home and runners: the runner a launch goes to (for example a Local VM for Docker) and the
-// registry tools granted to the session, on by their defaults and switched on or off for one launch.
+// registry tools granted to the session and the Slack profiles, on by their defaults and switched on or off for one
+// launch.
 
 import type { LaunchSpec } from "@/gen/LaunchSpec";
 import { Choice, Choices } from "@/components/ui";
@@ -12,7 +13,8 @@ import { Link } from "@tanstack/react-router";
 import { canSelfUpdate, UpdateRunnerButton } from "@/features/settings/RunnerUpdate";
 import { useBurst } from "@/lib/burst";
 import { useBots } from "@/lib/bots";
-import { defaultOn, flipLaunch, launchOn, mcpKey, optIn, useLayers } from "@/lib/toolDefaults";
+import { defaultOn, flipLaunch, launchOn, mcpKey, slackKey, useLayers } from "@/lib/toolDefaults";
+import { useSlackProfiles } from "@/lib/slack";
 
 type Set = (f: (s: LaunchSpec) => LaunchSpec) => void;
 
@@ -95,32 +97,40 @@ export function useGrantedMcp(spec: LaunchSpec) {
 /** The tools a launch gets: on, and not sending a token to a host an earlier tool already covers. */
 export function effectiveTools(tools: Tool[], isOn: (t: Tool) => boolean): Tool[] {
   const kept: Tool[] = [];
-  // Opt-in tools first (`vault::lease_order`): Slack (write) switched on wins over read-only left on by default.
-  const ordered = [...tools.filter((t) => optIn(t.id)), ...tools.filter((t) => !optIn(t.id))];
-  for (const t of ordered) if (isOn(t) && !hostConflict(kept, t)) kept.push(t);
+  for (const t of tools) if (isOn(t) && !hostConflict(kept, t)) kept.push(t);
   return kept;
 }
 
-/** The granted tools and MCP servers of a launch, with their state: the defaults of its workspace, folder and bot,
- *  then the launch's own clicks. */
+/** The granted tools and MCP servers of a launch, and the Slack profiles, with their state: the defaults of its
+ *  workspace, folder and bot, then the launch's own clicks. */
 export function useLaunchTools(spec: LaunchSpec, workspaceId: string | null, folderId: string | null) {
   const tools = useGrantedTools({ ...spec, workspace_id: workspaceId });
   const mcp = useGrantedMcp({ ...spec, workspace_id: workspaceId });
+  const slack = useSlackProfiles().data ?? [];
   const bot = useBots().data?.find((b) => b.id === spec.bot?.id)?.settings.tools;
   const layers = useLayers(workspaceId, folderId, bot, !!spec.bot);
   const off = spec.tools_off ?? [];
   const on = spec.tools_on ?? [];
-  const items = [...tools.map((t) => ({ key: t.id, name: t.name })), ...mcp.map((s) => ({ key: mcpKey(s.id), name: `${s.name} · MCP` }))];
-  // Tools sending different tokens to one host (Slack read-only and write) exclude each other: the lease keeps only
-  // the first one that is on (`vault::host_conflict`), and switching one on switches the others off.
+  // `base`: on when no layer names it (a Slack profile's own default).
+  const items = [
+    ...tools.map((t) => ({ key: t.id, name: t.name, base: true })),
+    ...mcp.map((s) => ({ key: mcpKey(s.id), name: `${s.name} · MCP`, base: true })),
+    ...slack.map((p) => ({ key: slackKey(p.handle), name: `Slack · ${p.name}`, base: p.default_on })),
+  ];
+  const baseOf = (key: string) => items.find((i) => i.key === key)?.base ?? true;
+  // Tools sending different tokens to one host exclude each other: the lease keeps only the first one that is on
+  // (`vault::host_conflict`), and switching one on switches the others off.
   const kept = effectiveTools(tools, (t) => launchOn(layers, off, on, t.id));
   const rivals = (t: Tool) => tools.filter((x) => x.id !== t.id && (hostConflict([x], t) || hostConflict([t], x)));
   return {
-    items: items.map((i) => ({ ...i, on: tools.some((t) => t.id === i.key) ? kept.some((t) => t.id === i.key) : launchOn(layers, off, on, i.key), byDefault: defaultOn(layers, i.key) })),
+    items: items.map((i) => ({ ...i, on: tools.some((t) => t.id === i.key) ? kept.some((t) => t.id === i.key) : launchOn(layers, off, on, i.key, i.base), byDefault: defaultOn(layers, i.key, i.base) })),
     flip: (key: string) => {
+      const base = baseOf(key);
       const t = tools.find((x) => x.id === key);
       if (t && kept.some((x) => x.id === key)) return launchOn(layers, off, on, key) ? flipLaunch(layers, off, on, key) : { tools_off: off, tools_on: on };
-      let next = launchOn(layers, off, on, key) ? { tools_off: off, tools_on: on } : flipLaunch(layers, off, on, key);
+      let next = launchOn(layers, off, on, key, base) ? { tools_off: off, tools_on: on } : flipLaunch(layers, off, on, key, base);
+      // A Slack profile switches off as well as on.
+      if (!t && launchOn(layers, off, on, key, base)) next = flipLaunch(layers, off, on, key, base);
       for (const r of t ? rivals(t) : []) {
         if (launchOn(layers, next.tools_off, next.tools_on, r.id)) next = flipLaunch(layers, next.tools_off, next.tools_on, r.id);
       }

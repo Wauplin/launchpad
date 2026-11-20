@@ -176,7 +176,7 @@ fn admin_may_accept(body: &Value, held: &[String]) -> bool {
     kind == "status" || (ids && actions::for_card(kind).is_some_and(|a| a.access == ActionAccess::Admin))
 }
 
-/// The oracle tools of a file (`tools = [...]`: github, huggingface, slack need a registry tool; http and launchpad
+/// The oracle tools of a file (`tools = [...]`: github and huggingface need a registry tool; http and launchpad
 /// none) whose registry tool an agent's session does not hold (`held`, `vault::session_tools`): an agent saves,
 /// tests or accepts an oracle only with the tokens it already holds.
 pub fn oracle_tools_not_held(tools: &[String], held: &[String]) -> Vec<String> {
@@ -266,6 +266,12 @@ fn read_allowed(path: &str) -> bool {
         || (path.starts_with("/api/sessions/") && path.ends_with("/trace"))
 }
 
+/// `launchpad slack`: the session's own call; Home checks that it holds the profile (`launchpad_core::slack`). Any
+/// Launchpad CLI level: the owner's choice of profiles decides what it may do on Slack.
+pub const SLACK_RUN: &str = "/api/slack/run";
+/// A `files upload` of at most 8 MB, as base64 in JSON.
+pub const SLACK_RUN_MAX: usize = 12 << 20;
+
 /// `launchpad kb` and `launchpad bot memory` send contents (media included) in their request.
 pub const KB_BODY_MAX: usize = 128 << 20;
 
@@ -275,7 +281,7 @@ pub const KB_BODY_MAX: usize = 128 << 20;
 pub const CI_APPROVE: &str = "/api/ci/approve";
 
 fn own_write(path: &str) -> bool {
-    matches!(path, CI_APPROVE | "/api/link" | "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/notes" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/sleep" | CHANNEL_POST | CHANNEL_UPLOAD)
+    matches!(path, CI_APPROVE | "/api/link" | "/api/worktrees/finish" | "/api/worktrees/add-project" | "/api/assets" | "/api/suggestions" | "/api/notes" | "/api/proposals" | "/api/kb" | "/api/bot-memory" | "/api/connections/send" | "/api/sleep" | CHANNEL_POST | CHANNEL_UPLOAD | SLACK_RUN)
 }
 
 async fn owns_cwd(app: &App, id: &str, cwd: &str) -> bool {
@@ -383,6 +389,7 @@ async fn check_access(app: &App, id: &str, req: Request) -> Result<Request, ApiE
     let limit = match path.as_str() {
         "/api/kb" | "/api/bot-memory" => KB_BODY_MAX,
         CHANNEL_UPLOAD => CHANNEL_UPLOAD_MAX,
+        SLACK_RUN => SLACK_RUN_MAX,
         _ => 1 << 20,
     };
     let bytes = to_bytes(body, limit).await.map_err(|_| denied())?;
@@ -436,7 +443,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
         // Runner updates are Launchpad-wide, like Home's (only `runner.update` and its cancel are admin actions).
         (false, ["runners", _, "update"]) => Shared,
-        (false, ["link"] | ["sleep"] | ["ci", "approve"] | ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["notes"] | ["connections", "send"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
+        (false, ["link"] | ["sleep"] | ["ci", "approve"] | ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["notes"] | ["connections", "send"] | ["slack", "run"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
         (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics" | "notes"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
         (false, ["channels"] | ["channels", "dm"]) => Body,
@@ -815,7 +822,7 @@ mod tests {
         let held = ["gh".to_string()];
         assert!(admin_may_accept(&serde_json::json!({"kind": "oracle", "tools": ["github", "http"]}), &held));
         assert!(!admin_may_accept(&serde_json::json!({"kind": "oracle", "tools": ["github", "huggingface"]}), &held));
-        assert!(!admin_may_accept(&serde_json::json!({"kind": "oracle", "tools": ["slack"]}), &["slack-write".to_string()]));
+        assert!(!admin_may_accept(&serde_json::json!({"kind": "oracle", "tools": ["huggingface"]}), &held));
         assert_eq!(oracle_tools_not_held(&["github".into(), "huggingface".into(), "launchpad".into()], &held), vec!["huggingface"]);
         assert!(!direct(serde_json::json!({"kind": "tool"})) && !direct(serde_json::json!({"kind": "ready", "action": "outbox.send"})));
         let folder = actions::get("folder.set").unwrap();

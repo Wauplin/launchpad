@@ -42,6 +42,11 @@ export const settings: Chapter = {
       body: "Add Slack, Discord or webhook connections for agents' messages to other people: those wait in Today, under Send. Incoming hooks let CI and scripts message a bot.",
     },
     {
+      id: "settings.slack", route: "/settings/slack", anchor: "settings.slack",
+      title: "Slack profiles",
+      body: "Each Slack profile is a token kept on Home, acting as you or as an app's bot, with a description agents read. Agents use it with launchpad slack --profile <handle>; Home runs the call, so no agent or runner holds the token. A profile is off unless you make it on by default or switch it on for a bot or a launch.",
+    },
+    {
       id: "settings.telegram", route: "/settings/workspace", anchor: "settings.telegram",
       title: "Telegram, per workspace",
       body: "Each workspace can have its own Telegram bot and chat. Plain text goes to the workspace's Ask bot, /<bot> to its other bots, and only its own notifications arrive there, so two workspaces never mix.",

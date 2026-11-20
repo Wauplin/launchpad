@@ -114,8 +114,9 @@ async fn preview(app: &launchpad_core::App, spec: &LaunchSpec) -> anyhow::Result
         bot_id: spec.bot.as_ref().map(|b| b.id.clone()),
     };
     let cli_reference = vault::launchpad_access(app, &req).await?.map(|a| launchpad_cli::cli_reference(&cli, workspace_id.as_deref(), a));
+    let slack = launchpad_core::slack::instructions(&cli, &launchpad_core::slack::for_request(app, &req).await?);
     let attribution = attribution::instruction(&attribution::text(spec.bot.as_ref().map(|b| b.name.as_str()), harness.display()));
-    Ok(StartPreview { instructions: start::instruction_parts(start::Inputs { kb, memory, cli_reference, attribution }), prompt })
+    Ok(StartPreview { instructions: start::instruction_parts(start::Inputs { kb, memory, cli_reference, slack, attribution }), prompt })
 }
 
 fn bad(e: anyhow::Error) -> ApiError {

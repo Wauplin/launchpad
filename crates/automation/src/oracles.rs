@@ -51,21 +51,18 @@ pub enum Tool {
     Github,
     /// The Hugging Face Hub with the registry tool hf.
     Huggingface,
-    /// Slack through slackline's read commands, or slack.com/api, with the registry tool slack-read.
-    Slack,
     /// Home's read API for the oracle's own workspace, in process.
     Launchpad,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 5] = [Tool::Http, Tool::Github, Tool::Huggingface, Tool::Slack, Tool::Launchpad];
+    pub const ALL: [Tool; 4] = [Tool::Http, Tool::Github, Tool::Huggingface, Tool::Launchpad];
 
     pub fn name(self) -> &'static str {
         match self {
             Tool::Http => "http",
             Tool::Github => "github",
             Tool::Huggingface => "huggingface",
-            Tool::Slack => "slack",
             Tool::Launchpad => "launchpad",
         }
     }
@@ -332,7 +329,7 @@ pub fn header(src: &str) -> std::result::Result<Header, Problem> {
         let list = v.as_array().ok_or_else(|| at("tools is a list such as [\"github\", \"http\"]".into()))?;
         for t in list {
             let name = t.as_str().ok_or_else(|| at("tools is a list of names".into()))?;
-            let tool = Tool::parse(name).ok_or_else(|| at(format!("unknown tool {name:?}: use http, github, huggingface, slack or launchpad")))?;
+            let tool = Tool::parse(name).ok_or_else(|| at(format!("unknown tool {name:?}: use http, github, huggingface or launchpad")))?;
             if tools.contains(&tool) {
                 return Err(at(format!("tools lists {name} twice")));
             }
@@ -428,7 +425,7 @@ pub fn can_leak(tools: &[Tool]) -> bool {
     tools.contains(&Tool::Http) && tools.iter().any(|t| t.registry().is_some())
 }
 
-/// The credentialed tools (github, huggingface, slack): the ones an agent's save or draft must hold itself.
+/// The credentialed tools (github, huggingface): the ones an agent's save or draft must hold itself.
 pub fn credentialed(tools: &[Tool]) -> Vec<Tool> {
     tools.iter().filter(|t| t.registry().is_some()).copied().collect()
 }
@@ -760,9 +757,9 @@ mod tests {
 
     #[test]
     fn tools_diff_and_leaks() {
-        assert_eq!(tools_diff(&[Tool::Github], &[Tool::Github, Tool::Slack]), (vec![Tool::Slack], vec![]));
+        assert_eq!(tools_diff(&[Tool::Github], &[Tool::Github, Tool::Huggingface]), (vec![Tool::Huggingface], vec![]));
         assert_eq!(tools_diff(&[Tool::Github, Tool::Http], &[Tool::Http]), (vec![], vec![Tool::Github]));
-        assert!(can_leak(&[Tool::Http, Tool::Slack]) && !can_leak(&[Tool::Http, Tool::Launchpad]) && !can_leak(&[Tool::Github]));
+        assert!(can_leak(&[Tool::Http, Tool::Huggingface]) && !can_leak(&[Tool::Http, Tool::Launchpad]) && !can_leak(&[Tool::Github]));
         assert_eq!(credentialed(&[Tool::Http, Tool::Launchpad, Tool::Huggingface]), vec![Tool::Huggingface]);
     }
 

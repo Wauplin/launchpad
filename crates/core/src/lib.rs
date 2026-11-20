@@ -76,6 +76,7 @@ pub mod handoff;
 pub mod burst;
 pub mod mcp;
 pub mod tool_defaults;
+pub mod slack;
 pub mod ext;
 pub mod locks;
 pub mod diff;
@@ -319,6 +320,10 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     runners::RunnerStatus::export_all(cfg)?;
     vault::VaultOverview::export_all(cfg)?;
     vault::ToolTest::export_all(cfg)?;
+    slack::Profile::export_all(cfg)?;
+    slack::Save::export_all(cfg)?;
+    slack::Test::export_all(cfg)?;
+    slack::AppLink::export_all(cfg)?;
     vault::LoginCheck::export_all(cfg)?;
     tool_defaults::ToolDefaults::export_all(cfg)?;
     vault::LeaseInfo::export_all(cfg)?;

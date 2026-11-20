@@ -68,7 +68,7 @@ pub struct Detail {
 pub struct ToolInfo {
     pub tool: Tool,
     pub reaches: String,
-    /// The registry tool whose token it uses (gh, hf, slack-read); None: it needs none.
+    /// The registry tool whose token it uses (gh, hf); None: it needs none.
     pub registry: Option<String>,
     /// Usable in this workspace: granted with a token (always for http and launchpad).
     pub ready: bool,
@@ -81,7 +81,6 @@ fn reaches(t: Tool) -> &'static str {
         Tool::Http => "Any public http(s) address, without a credential",
         Tool::Github => "GitHub's REST API (api.github.com), GET only",
         Tool::Huggingface => "The Hugging Face Hub (huggingface.co), GET only",
-        Tool::Slack => "Slack through slackline's read commands, and slack.com/api, GET only",
         Tool::Launchpad => "Home's read API for this workspace, in process",
     }
 }

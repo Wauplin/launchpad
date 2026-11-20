@@ -1,10 +1,9 @@
 //! The host side of `launchpad_host.call` (Home): what an oracle's `tools` do. Every call is checked, run and
-//! logged here, never in the guest: the tool must be in the oracle's header (and, for github, huggingface and
-//! slack, granted to the workspace with a token), its arguments are checked, and it counts against the call and
-//! byte budgets. `.get` of http, github, huggingface and slack share one GET client: public addresses only (registry
-//! hosts by name), the connection pinned to the checked address, a credential only for the tool's own host,
-//! redirects checked hop by hop, size caps. Slack commands run slackline's read commands from a fixed alias table
-//! (`slack_argv`); Launchpad commands are GETs of Home's own router as a read-level principal of the workspace
+//! logged here, never in the guest: the tool must be in the oracle's header (and, for github and huggingface,
+//! granted to the workspace with a token), its arguments are checked, and it counts against the call and byte
+//! budgets. `.get` of http, github and huggingface share one GET client: public addresses only (registry hosts by
+//! name), the connection pinned to the checked address, a credential only for the tool's own host, redirects
+//! checked hop by hop, size caps. Launchpad commands are GETs of Home's own router as a read-level principal of the workspace
 //! (`ext::Extensions::oracle_read`). Tokens never reach the guest: answers are bodies only, and errors are Home's.
 
 use std::collections::HashMap;
@@ -23,13 +22,11 @@ use crate::oracles::Tool;
 
 /// Tool calls per evaluation.
 pub const MAX_CALLS: usize = 200;
-/// Response body per call (slackline's output too), and bytes received per evaluation.
+/// Response body per call, and bytes received per evaluation.
 pub const MAX_BODY: usize = 10 << 20;
 pub const MAX_TOTAL: u64 = 50 << 20;
 /// Redirects followed per call.
 pub const MAX_REDIRECTS: usize = 5;
-/// slackline's stderr kept.
-const MAX_STDERR: usize = 64 << 10;
 
 /// One tool call of an evaluation (its call log), without request headers.
 #[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq)]
@@ -92,8 +89,8 @@ impl ToolBox {
         self.deadline.saturating_duration_since(Instant::now())
     }
 
-    /// One call of the guest: `tool` (http, github, huggingface, slack, launchpad), `op` (`get` or a command such as
-    /// `search.messages`) and its arguments as JSON. Logs it, unless a budget stops the evaluation.
+    /// One call of the guest: `tool` (http, github, huggingface, launchpad), `op` (`get` or a command such as
+    /// `sessions.list`) and its arguments as JSON. Logs it, unless a budget stops the evaluation.
     pub async fn call(&mut self, tool: &str, op: &str, args: &str) -> Reply {
         if self.calls.len() >= MAX_CALLS {
             return Reply::Stop { class: ErrorClass::Limit, message: format!("more than {MAX_CALLS} tool calls") };
@@ -124,7 +121,6 @@ impl ToolBox {
         match (t, op) {
             (Tool::Launchpad, "get") => self.launchpad_get(&args, log).await,
             (Tool::Launchpad, _) => self.launchpad_command(op, &args, log).await,
-            (Tool::Slack, op) if op != "get" => self.slack_command(op, &args, log).await,
             (_, "get") => self.get(t, &args, log).await,
             _ => value_error(format!("tools.{tool} has no command {op}")),
         }
@@ -168,7 +164,7 @@ impl ToolBox {
         out
     }
 
-    /// `.get` of http, github, huggingface and slack.
+    /// `.get` of http, github and huggingface.
     async fn get(&mut self, t: Tool, args: &Map<String, Value>, log: &mut CallLog) -> Reply {
         if let Some(k) = args.keys().find(|k| !["target", "params", "headers"].contains(&k.as_str())) {
             return value_error(format!("get takes no argument {k}"));
@@ -207,17 +203,6 @@ impl ToolBox {
                     Err(r) => return r,
                 };
                 (url, Some((host_of(base), format!("Bearer {token}"))))
-            }
-            Tool::Slack => {
-                let url = match slack_url(target, &pairs) {
-                    Ok(u) => u,
-                    Err(e) => return value_error(e),
-                };
-                let token = match self.token(t).await {
-                    Ok(s) => s,
-                    Err(r) => return r,
-                };
-                (url, Some(("slack.com".to_string(), format!("Bearer {token}"))))
             }
             Tool::Launchpad => unreachable!("dispatched before"),
         };
@@ -312,38 +297,6 @@ impl ToolBox {
             return Ok((status, body, via));
         }
         Err(raise(ExcType::OSError, ErrorClass::Http, format!("more than {MAX_REDIRECTS} redirects")))
-    }
-
-    async fn slack_command(&mut self, op: &str, args: &Map<String, Value>, log: &mut CallLog) -> Reply {
-        let argv = match slack_argv(op, args) {
-            Ok(a) => a,
-            Err(e) => return value_error(e),
-        };
-        log.call = slack_shown(op, args);
-        let token = match self.token(Tool::Slack).await {
-            Ok(s) => s,
-            Err(r) => return r,
-        };
-        let Some(bin) = crate::oracle_check::binary(&self.app, "LAUNCHPAD_SLACKLINE", "slackline") else {
-            return permission("slackline is not installed on Home (Home's image has it; on a dev Home put it on PATH or set LAUNCHPAD_SLACKLINE)");
-        };
-        match run_slackline(&bin, &argv, &token, self.remaining()).await {
-            SlackRun::Out(out) => {
-                log.bytes = out.len() as u64;
-                self.received += out.len() as u64;
-                if self.received > MAX_TOTAL {
-                    return Reply::Stop { class: ErrorClass::Limit, message: format!("more than {} MiB received", MAX_TOTAL >> 20) };
-                }
-                match String::from_utf8(out) {
-                    Ok(text) if serde_json::from_str::<serde::de::IgnoredAny>(&text).is_ok() => Reply::Value(MontyObject::string(text)),
-                    _ => raise(ExcType::RuntimeError, ErrorClass::Http, "slack: slackline's answer is not JSON"),
-                }
-            }
-            SlackRun::Failed(err) => raise(ExcType::RuntimeError, ErrorClass::Http, redact(&err, &[token])),
-            SlackRun::TooLarge => Reply::Stop { class: ErrorClass::Limit, message: format!("slackline's answer is larger than {} MiB", MAX_BODY >> 20) },
-            SlackRun::Timeout => Reply::Stop { class: ErrorClass::Timeout, message: "the oracle's timeout passed during a call".into() },
-            SlackRun::Start(e) => raise(ExcType::RuntimeError, ErrorClass::Http, format!("slack: could not start slackline: {e}")),
-        }
     }
 
     async fn launchpad_command(&mut self, op: &str, args: &Map<String, Value>, log: &mut CallLog) -> Reply {
@@ -685,15 +638,6 @@ pub fn api_url(base: &str, endpoint: &str, pairs: &[(String, String)]) -> Result
     Ok(url)
 }
 
-/// Pure: `https://slack.com/api/<method>` of `tools.slack.get` (a method such as `conversations.info`).
-pub fn slack_url(method: &str, pairs: &[(String, String)]) -> Result<reqwest::Url, String> {
-    let ok = !method.is_empty() && method.len() <= 100 && method.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
-    if !ok {
-        return Err(format!("{method:?} is not a Slack method name such as conversations.info"));
-    }
-    api_url("https://slack.com", &format!("/api/{method}"), pairs)
-}
-
 /// Pure: the path of a Launchpad command (`sessions.list` → `/api/context/sessions`), lists narrowed to `ws` by Home.
 pub fn launchpad_path(op: &str, args: &Map<String, Value>, ws: &str) -> Result<String, String> {
     let str_arg = |k: &str| -> Result<String, String> {
@@ -768,291 +712,6 @@ pub fn launchpad_raw_path(path: &str, pairs: &[(String, String)]) -> Result<Stri
     })
 }
 
-// ---------------------------------------------------------------- Slack commands
-
-#[derive(Clone, Copy)]
-enum Arg {
-    /// A channel, DM, user or file: an ID or a name, optionally with # or @.
-    Name,
-    /// A Slack timestamp such as 1769415774.159039.
-    Ts,
-    /// Any text up to 1,000 characters (a search query).
-    Text,
-    /// 1 to this maximum.
-    Limit(i64),
-    /// 1 or more.
-    Page,
-    /// An ISO time, a relative time (2h, 3d) or today.
-    Time,
-    /// A switch.
-    Switch,
-}
-
-/// One slackline read command: its words, positional arguments (passed after `--`) and flags.
-struct Command {
-    op: &'static str,
-    words: [&'static str; 2],
-    positional: &'static [(&'static str, Arg)],
-    flags: &'static [(&'static str, &'static str, Arg)],
-}
-
-/// The alias table: slackline's read commands, and nothing else.
-const COMMANDS: &[Command] = &[
-    Command { op: "search.messages", words: ["search", "messages"], positional: &[("query", Arg::Text)], flags: &[("limit", "--limit", Arg::Limit(100)), ("page", "--page", Arg::Page)] },
-    Command { op: "me.channels", words: ["me", "channels"], positional: &[], flags: &[("limit", "--limit", Arg::Limit(1000)), ("dms", "--dms", Arg::Switch), ("unread", "--unread", Arg::Switch)] },
-    Command { op: "channels.list", words: ["channels", "list"], positional: &[], flags: &[("limit", "--limit", Arg::Limit(1000))] },
-    Command { op: "channels.info", words: ["channels", "info"], positional: &[("channel", Arg::Name)], flags: &[] },
-    Command {
-        op: "channels.history",
-        words: ["channels", "history"],
-        positional: &[("channel", Arg::Name)],
-        flags: &[("limit", "--limit", Arg::Limit(1000)), ("after", "--after", Arg::Time), ("before", "--before", Arg::Time), ("enrich", "--enrich", Arg::Switch)],
-    },
-    Command { op: "channels.members", words: ["channels", "members"], positional: &[("channel", Arg::Name)], flags: &[("limit", "--limit", Arg::Limit(1000))] },
-    Command { op: "channels.pins", words: ["channels", "pins"], positional: &[("channel", Arg::Name)], flags: &[] },
-    Command { op: "messages.replies", words: ["messages", "replies"], positional: &[("channel", Arg::Name), ("thread_ts", Arg::Ts)], flags: &[("limit", "--limit", Arg::Limit(1000))] },
-    Command { op: "messages.permalink", words: ["messages", "permalink"], positional: &[("channel", Arg::Name), ("ts", Arg::Ts)], flags: &[] },
-    Command { op: "messages.reactions", words: ["messages", "reactions"], positional: &[("channel", Arg::Name), ("ts", Arg::Ts)], flags: &[] },
-    Command { op: "dms.list", words: ["dms", "list"], positional: &[], flags: &[("limit", "--limit", Arg::Limit(1000))] },
-    Command {
-        op: "dms.history",
-        words: ["dms", "history"],
-        positional: &[("dm_channel", Arg::Name)],
-        flags: &[("limit", "--limit", Arg::Limit(1000)), ("after", "--after", Arg::Time), ("before", "--before", Arg::Time), ("enrich", "--enrich", Arg::Switch)],
-    },
-    Command { op: "users.list", words: ["users", "list"], positional: &[], flags: &[("limit", "--limit", Arg::Limit(1000))] },
-    Command { op: "users.info", words: ["users", "info"], positional: &[("user", Arg::Name)], flags: &[] },
-    Command { op: "users.search", words: ["users", "search"], positional: &[("query", Arg::Text)], flags: &[] },
-    Command { op: "users.presence", words: ["users", "presence"], positional: &[("user", Arg::Name)], flags: &[] },
-    Command { op: "files.list", words: ["files", "list"], positional: &[], flags: &[("channel", "--channel", Arg::Name), ("user", "--user", Arg::Name), ("limit", "--limit", Arg::Limit(1000))] },
-    Command { op: "files.info", words: ["files", "info"], positional: &[("file", Arg::Name)], flags: &[] },
-    Command { op: "token.test", words: ["token", "test"], positional: &[], flags: &[] },
-];
-
-/// Pure: a checked value of an argument, as text (None: a switch that is off, or a value left out).
-fn slack_value(name: &str, kind: Arg, v: &Value) -> Result<Option<String>, String> {
-    if v.is_null() {
-        return Ok(None);
-    }
-    let text = |v: &Value| v.as_str().map(str::to_string).ok_or_else(|| format!("{name} is a string"));
-    Ok(match kind {
-        Arg::Switch => match v {
-            Value::Bool(true) => Some(String::new()),
-            Value::Bool(false) => None,
-            _ => return Err(format!("{name} is True or False")),
-        },
-        Arg::Limit(_) | Arg::Page if !v.is_i64() => return Err(format!("{name} is an int")),
-        Arg::Limit(max) => {
-            let n = v.as_i64().unwrap_or_default();
-            if !(1..=max).contains(&n) {
-                return Err(format!("{name} is between 1 and {max}"));
-            }
-            Some(n.to_string())
-        }
-        Arg::Page => {
-            let n = v.as_i64().unwrap_or_default();
-            if n < 1 {
-                return Err(format!("{name} is 1 or more"));
-            }
-            Some(n.to_string())
-        }
-        Arg::Name => {
-            let s = text(v)?;
-            let bare = s.strip_prefix(['#', '@']).unwrap_or(&s);
-            let ok = !bare.is_empty() && bare.len() <= 80 && bare.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) && !bare.starts_with('-');
-            if !ok {
-                return Err(format!("{name} {s:?} is not a Slack ID (C…, D…, U…, F…) or a name"));
-            }
-            Some(s)
-        }
-        Arg::Ts => {
-            let s = text(v)?;
-            let ok = s.split_once('.').is_some_and(|(a, b)| !a.is_empty() && a.len() <= 12 && !b.is_empty() && b.len() <= 8 && a.chars().chain(b.chars()).all(|c| c.is_ascii_digit()));
-            if !ok {
-                return Err(format!("{name} {s:?} is not a Slack timestamp such as 1769415774.159039"));
-            }
-            Some(s)
-        }
-        Arg::Text => {
-            let s = text(v)?;
-            if s.trim().is_empty() || s.chars().count() > 1000 || s.contains('\0') {
-                return Err(format!("{name} is a text of 1 to 1,000 characters"));
-            }
-            Some(s)
-        }
-        Arg::Time => {
-            let s = text(v)?;
-            let relative = s.len() >= 2 && s.ends_with(['s', 'm', 'h', 'd', 'w']) && s[..s.len() - 1].chars().all(|c| c.is_ascii_digit());
-            let iso = s.len() <= 40 && s.starts_with(|c: char| c.is_ascii_digit()) && s.chars().all(|c| c.is_ascii_digit() || "-:.+TZ ".contains(c));
-            if !(relative || iso || s == "today" || s == "yesterday") {
-                return Err(format!("{name} {s:?} is an ISO time, a relative time such as 2h or 3d, today or a datetime"));
-            }
-            Some(s)
-        }
-    })
-}
-
-/// Pure: slackline's argv for a read command (T8): `--json --quiet <group> <command> [--flag=value]… -- <values>`.
-/// Values come after `--`, so a value never becomes a flag; `--token` is never passed.
-pub fn slack_argv(op: &str, args: &Map<String, Value>) -> Result<Vec<String>, String> {
-    let c = COMMANDS.iter().find(|c| c.op == op).ok_or_else(|| format!("tools.slack has no command {op} (read commands only)"))?;
-    if let Some(k) = args.keys().find(|k| !c.positional.iter().any(|(n, _)| n == k) && !c.flags.iter().any(|(n, _, _)| n == k)) {
-        return Err(format!("{op} takes no argument {k}"));
-    }
-    let mut argv: Vec<String> = vec!["--json".into(), "--quiet".into(), c.words[0].into(), c.words[1].into()];
-    for (name, flag, kind) in c.flags {
-        match slack_value(name, *kind, args.get(*name).unwrap_or(&Value::Null))? {
-            Some(_) if matches!(kind, Arg::Switch) => argv.push((*flag).to_string()),
-            Some(v) => argv.push(format!("{flag}={v}")),
-            None => {}
-        }
-        let _ = name;
-    }
-    argv.push("--".into());
-    for (name, kind) in c.positional {
-        let v = slack_value(name, *kind, args.get(*name).unwrap_or(&Value::Null))?.ok_or_else(|| format!("{op} needs {name}"))?;
-        argv.push(v);
-    }
-    Ok(argv)
-}
-
-/// Pure: the call log's view of a Slack command (`search.messages "to:me" limit=20`).
-fn slack_shown(op: &str, args: &Map<String, Value>) -> String {
-    let mut s = op.to_string();
-    for (k, v) in args {
-        match v {
-            Value::Null | Value::Bool(false) => {}
-            Value::String(t) if matches!(k.as_str(), "query") => s.push_str(&format!(" {}", serde_json::to_string(&t.chars().take(80).collect::<String>()).unwrap_or_default())),
-            Value::String(t) => s.push_str(&format!(" {k}={t}")),
-            v => s.push_str(&format!(" {k}={v}")),
-        }
-    }
-    s
-}
-
-/// Pure: slackline's whole environment (T9): nothing of Home's own.
-pub fn slackline_env(token: &str, home: &std::path::Path) -> Vec<(String, String)> {
-    vec![
-        ("PATH".into(), "/usr/bin:/bin".into()),
-        ("HOME".into(), home.display().to_string()),
-        ("SLACK_TOKEN".into(), token.into()),
-        ("SLACKLINE_READONLY".into(), "1".into()),
-        ("LANG".into(), "C.UTF-8".into()),
-        ("NO_COLOR".into(), "1".into()),
-    ]
-}
-
-enum SlackRun {
-    Out(Vec<u8>),
-    Failed(String),
-    TooLarge,
-    Timeout,
-    Start(String),
-}
-
-/// Runs slackline directly (never through a shell) in `/`, with exactly `slackline_env`, stdin from /dev/null,
-/// stdout capped at 10 MiB and stderr at 64 KB, its process group killed at the deadline.
-async fn run_slackline(bin: &std::path::Path, argv: &[String], token: &str, remaining: Duration) -> SlackRun {
-    use tokio::io::AsyncReadExt;
-    let home = std::env::temp_dir().join(format!("launchpad-slackline-{}", uuid::Uuid::new_v4().simple()));
-    if let Err(e) = std::fs::create_dir_all(&home) {
-        return SlackRun::Start(e.to_string());
-    }
-    let mut cmd = tokio::process::Command::new(bin);
-    cmd.args(argv).env_clear().envs(slackline_env(token, &home)).current_dir("/").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true).process_group(0);
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&home);
-            return SlackRun::Start(e.to_string());
-        }
-    };
-    // The process group this call created: killed however the call ends (an answer, too much output, the deadline),
-    // so nothing slackline started outlives it.
-    let pid = child.id();
-    let kill_group = move || {
-        if let Some(p) = pid {
-            // SAFETY: kill(2) on the process group this call created; no memory is touched.
-            unsafe {
-                libc::kill(-(p as i32), libc::SIGKILL);
-            }
-        }
-    };
-    let (mut out, mut err) = (child.stdout.take(), child.stderr.take());
-    let run = async {
-        let read_out = async {
-            let mut buf = Vec::new();
-            if let Some(o) = out.as_mut() {
-                let mut chunk = vec![0u8; 65536];
-                loop {
-                    match o.read(&mut chunk).await {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => {
-                            buf.extend_from_slice(&chunk[..n]);
-                            if buf.len() > MAX_BODY {
-                                // Stop it at once: stderr's reader waits for the process to end.
-                                kill_group();
-                                return None;
-                            }
-                        }
-                    }
-                }
-            }
-            Some(buf)
-        };
-        let read_err = async {
-            let mut buf = Vec::new();
-            if let Some(e) = err.as_mut() {
-                let mut chunk = vec![0u8; 8192];
-                loop {
-                    match e.read(&mut chunk).await {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => {
-                            if buf.len() < MAX_STDERR {
-                                buf.extend_from_slice(&chunk[..n]);
-                            }
-                        }
-                    }
-                }
-            }
-            buf
-        };
-        let (out, err) = tokio::join!(read_out, read_err);
-        let Some(out) = out else { return SlackRun::TooLarge };
-        let status = child.wait().await;
-        // What slackline left running in its group goes too.
-        kill_group();
-        match status {
-            Ok(s) if s.success() => SlackRun::Out(out),
-            _ => {
-                let text = String::from_utf8_lossy(&err);
-                let line = text.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("slackline failed").to_string();
-                let line = line.trim_start_matches("Error: ").trim_start_matches("error: ");
-                SlackRun::Failed(format!("slack: {}", line.chars().take(300).collect::<String>()))
-            }
-        }
-    };
-    let r = match tokio::time::timeout(remaining, run).await {
-        Ok(r) => r,
-        Err(_) => {
-            // The deadline: the child is not reaped yet, so the group is still this call's.
-            kill_group();
-            SlackRun::Timeout
-        }
-    };
-    let _ = std::fs::remove_dir_all(&home);
-    r
-}
-
-/// Pure: a text without these secrets.
-pub fn redact(text: &str, secrets: &[String]) -> String {
-    let mut t = text.to_string();
-    for s in secrets.iter().filter(|s| s.len() >= 8) {
-        t = t.replace(s.as_str(), "[redacted]");
-    }
-    t
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1077,10 +736,6 @@ mod tests {
         let u = api_url(GITHUB, "/repos/a/b/pulls?state=open", &[("per_page".into(), "100".into())]).unwrap();
         assert_eq!(u.as_str(), "https://api.github.com/repos/a/b/pulls?state=open&per_page=100");
         assert_eq!(api_url(HUGGINGFACE, "/api/models/gpt2", &[]).unwrap().host_str(), Some("huggingface.co"));
-        assert!(slack_url("conversations.info", &[]).unwrap().as_str().starts_with("https://slack.com/api/conversations.info"));
-        for bad in ["../x", "a/b", "", "a..b", "x?y"] {
-            assert!(slack_url(bad, &[]).is_err(), "{bad}");
-        }
     }
 
     /// T7: credentials, cookies, the host and connection headers are refused.
@@ -1102,45 +757,6 @@ mod tests {
         let u = http_url("https://pypi.org/pypi/x/json#frag", &p[..1]).unwrap();
         assert_eq!(u.as_str(), "https://pypi.org/pypi/x/json?draft=false");
         assert!(http_url("ftp://x/y", &[]).is_err() && http_url("https://u:p@x/y", &[]).is_err() && http_url("/x", &[]).is_err());
-    }
-
-    /// T8: values that look like flags, hold spaces, quotes or @file, or are very long, never become flags.
-    #[test]
-    fn slack_argv_keeps_values_as_data() {
-        let args = |v: Value| -> Map<String, Value> { serde_json::from_value(v).unwrap() };
-        let a = slack_argv("search.messages", &args(serde_json::json!({"query": "--token x @file \"q\"", "limit": 20, "page": null}))).unwrap();
-        assert_eq!(a, vec!["--json", "--quiet", "search", "messages", "--limit=20", "--", "--token x @file \"q\""]);
-        let a = slack_argv("channels.history", &args(serde_json::json!({"channel": "#release", "after": "2h", "enrich": true, "before": null, "limit": null}))).unwrap();
-        assert_eq!(a, vec!["--json", "--quiet", "channels", "history", "--after=2h", "--enrich", "--", "#release"]);
-        for (op, bad) in [
-            ("channels.info", serde_json::json!({"channel": "-x"})),
-            ("channels.info", serde_json::json!({"channel": "a b"})),
-            ("channels.info", serde_json::json!({"channel": "@file"}).as_object().map(|_| serde_json::json!({"channel": "x".repeat(10_000)})).unwrap()),
-            ("channels.history", serde_json::json!({"channel": "C1", "after": "--before=x"})),
-            ("channels.history", serde_json::json!({"channel": "C1", "after": "2é"})),
-            ("messages.replies", serde_json::json!({"channel": "C1", "thread_ts": "-1"})),
-            ("search.messages", serde_json::json!({"query": "x".repeat(10_000)})),
-            ("search.messages", serde_json::json!({"query": "x", "limit": 101})),
-            ("channels.list", serde_json::json!({"limit": 0})),
-            ("channels.list", serde_json::json!({"token": "x"})),
-            ("messages.send", serde_json::json!({})),
-            ("files.download", serde_json::json!({"file": "F1"})),
-        ] {
-            assert!(slack_argv(op, &args(bad.clone())).is_err(), "{op} {bad}");
-        }
-        assert!(slack_argv("token.test", &Map::new()).unwrap().ends_with(&["--".to_string()]));
-        // No command passes --token, and every value comes after --.
-        for c in COMMANDS {
-            assert!(c.flags.iter().all(|(_, f, _)| *f != "--token"));
-        }
-    }
-
-    /// T9: exactly six variables, none of Home's.
-    #[test]
-    fn slackline_env_is_closed() {
-        let env = slackline_env("xoxp-1", std::path::Path::new("/tmp/h"));
-        let keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
-        assert_eq!(keys, ["PATH", "HOME", "SLACK_TOKEN", "SLACKLINE_READONLY", "LANG", "NO_COLOR"]);
     }
 
     /// T15: bodies decode as strict UTF-8 without a BOM; anything else is None.
@@ -1169,10 +785,5 @@ mod tests {
         for bad in ["/config", "api/x", "/api/../config", "/api/x#y", "//api/x"] {
             assert!(launchpad_raw_path(bad, &[]).is_err(), "{bad}");
         }
-    }
-
-    #[test]
-    fn redacts_secrets() {
-        assert_eq!(redact("slack: invalid_auth for xoxp-123456789", &["xoxp-123456789".into(), "short".into()]), "slack: invalid_auth for [redacted]");
     }
 }

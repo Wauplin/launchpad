@@ -50,8 +50,8 @@ pub struct Checked {
     pub warnings: Vec<Problem>,
 }
 
-/// A binary Home runs for oracles: `$<var>` when set, else `<name>` on PATH (Home's image installs `monty`, `ruff`
-/// and `slackline` in /usr/local/bin).
+/// A binary Home runs for oracles: `$<var>` when set, else `<name>` on PATH (Home's image installs `monty` and
+/// `ruff` in /usr/local/bin).
 pub fn binary(app: &App, var: &str, name: &str) -> Option<PathBuf> {
     if let Some(p) = std::env::var_os(var).filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(p));

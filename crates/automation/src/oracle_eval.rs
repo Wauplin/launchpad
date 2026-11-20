@@ -56,7 +56,7 @@ pub enum ErrorClass {
     /// A tool missing from the header, not granted, without a token, or refused (a private address, a route outside
     /// the read level).
     Access,
-    /// `raise_for_status()` on a 4xx or 5xx, a connection error, a Slack or Launchpad command error.
+    /// `raise_for_status()` on a 4xx or 5xx, a connection error, a Launchpad command error.
     Http,
     /// The evaluation ran past its timeout, tool calls included.
     Timeout,
@@ -947,8 +947,8 @@ mod tests {
     /// script errors with their line; Monty's limits are limit or timeout.
     #[test]
     fn classifies_exceptions() {
-        let raised = vec![(ExcType::PermissionError, "tools.slack is not in this oracle's header".to_string(), ErrorClass::Access, 0)];
-        let e = classify(&MontyException::new(ExcType::PermissionError, Some("tools.slack is not in this oracle's header".into())), &raised);
+        let raised = vec![(ExcType::PermissionError, "tools.github is not in this oracle's header".to_string(), ErrorClass::Access, 0)];
+        let e = classify(&MontyException::new(ExcType::PermissionError, Some("tools.github is not in this oracle's header".into())), &raised);
         assert_eq!((e.class, e.call), (ErrorClass::Access, Some(0)));
         assert_eq!(classify(&MontyException::new(ExcType::KeyError, Some("'a'".into())), &raised).class, ErrorClass::Script);
         assert_eq!(classify(&MontyException::new(ExcType::RuntimeError, Some("suspension limit 250 exceeded".into())), &[]).class, ErrorClass::Limit);

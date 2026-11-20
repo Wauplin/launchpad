@@ -7,6 +7,7 @@ mod extensions;
 mod netcap;
 mod folio;
 mod oracle;
+mod slack;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -377,6 +378,18 @@ enum Command {
     },
     /// The hop count to send with `X-Launchpad-Hops` when this session calls an incoming hook of Launchpad (for agents).
     Hops,
+    /// Slack with one of this session's Slack profiles: `launchpad slack --profile <handle> <command>`, the same commands
+    /// and options as slackline (`launchpad slack --profile <handle> --help`). Home runs it with the profile's token
+    /// and exits like slackline; `files upload` reads the file here, `files download -o` writes it here.
+    #[command(disable_help_flag = true)]
+    Slack {
+        /// The profile's handle, from this session's instructions.
+        #[arg(long)]
+        profile: Option<String>,
+        /// slackline's arguments.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, num_args = 0..)]
+        args: Vec<String>,
+    },
     /// Store an inert proposal for the owner to start with a click; never starts anything.
     Propose {
         #[arg(value_parser = ["launch", "message", "schedule", "cron", "status", "preset", "tool", "bot", "routine", "bot-files", "bot-instructions", "channel", "oracle", "ready", "report"])]
@@ -1480,6 +1493,10 @@ async fn run() -> Result<()> {
             println!("{}", v["hops"].as_u64().context("Home did not return a hop count")?);
             Ok(())
         }
+        Command::Slack { profile, args } => {
+            let code = slack::run(&Client::new(&paths)?, profile, args).await?;
+            std::process::exit(code)
+        }
         Command::Today { workspace } => list_command(&paths, "/api/today", workspace).await,
         Command::Activity { command: ListOnly::List { workspace } } => list_command(&paths, "/api/activity", workspace).await,
         Command::Propose { kind, title, note, replaces, spec_file, session_id } => {
@@ -1832,5 +1849,23 @@ mod close_cli_tests {
         let cli = Cli::try_parse_from(["launchpad", "ci", "approve", "--repo", "o/r", "--number", "3", "--head", "abc", "--session-id", "s"]).unwrap();
         assert!(matches!(cli.command, Command::Ci { command: Ci::Approve { number: 3, .. } }));
         assert!(Cli::try_parse_from(["launchpad", "ci", "approve", "--repo", "o/r", "--number", "3", "--session-id", "s"]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod slack_cli_tests {
+    use super::*;
+    #[test]
+    fn slack_passes_slacklines_arguments_through() {
+        let parse = |a: &[&str]| match Cli::try_parse_from(a).unwrap().command {
+            Command::Slack { profile, args } => (profile, args),
+            _ => panic!("not slack"),
+        };
+        let (p, a) = parse(&["launchpad", "slack", "--profile", "user-read", "--json", "search", "messages", "-x deploy", "--limit", "5"]);
+        assert_eq!((p.as_deref(), a.as_slice()), (Some("user-read"), ["--json", "search", "messages", "-x deploy", "--limit", "5"].map(String::from).as_slice()));
+        let (p, a) = parse(&["launchpad", "slack", "--help"]);
+        assert_eq!((p, a), (None, vec!["--help".to_string()]));
+        let (p, a) = parse(&["launchpad", "slack", "users", "list", "--profile", "bot"]);
+        assert_eq!((p, a.len()), (None, 4));
     }
 }

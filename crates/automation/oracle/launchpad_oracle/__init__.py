@@ -110,96 +110,6 @@ class _Api:
         return _get(self._name, endpoint, params, headers)
 
 
-class _SlackSearch:
-    def messages(self, query, limit=None, page=None):
-        return _command("slack", "search.messages", {"query": query, "limit": limit, "page": page})
-
-
-class _SlackMe:
-    def channels(self, limit=None, dms=False, unread=False):
-        return _command("slack", "me.channels", {"limit": limit, "dms": dms, "unread": unread})
-
-
-class _SlackChannels:
-    def list(self, limit=None):
-        return _command("slack", "channels.list", {"limit": limit})
-
-    def info(self, channel):
-        return _command("slack", "channels.info", {"channel": channel})
-
-    def history(self, channel, limit=None, after=None, before=None, enrich=False):
-        args = {"channel": channel, "limit": limit, "after": after, "before": before, "enrich": enrich}
-        return _command("slack", "channels.history", args)
-
-    def members(self, channel, limit=None):
-        return _command("slack", "channels.members", {"channel": channel, "limit": limit})
-
-    def pins(self, channel):
-        return _command("slack", "channels.pins", {"channel": channel})
-
-
-class _SlackMessages:
-    def replies(self, channel, thread_ts, limit=None):
-        return _command("slack", "messages.replies", {"channel": channel, "thread_ts": thread_ts, "limit": limit})
-
-    def permalink(self, channel, ts):
-        return _command("slack", "messages.permalink", {"channel": channel, "ts": ts})
-
-    def reactions(self, channel, ts):
-        return _command("slack", "messages.reactions", {"channel": channel, "ts": ts})
-
-
-class _SlackDms:
-    def list(self, limit=None):
-        return _command("slack", "dms.list", {"limit": limit})
-
-    def history(self, dm_channel, limit=None, after=None, before=None, enrich=False):
-        args = {"dm_channel": dm_channel, "limit": limit, "after": after, "before": before, "enrich": enrich}
-        return _command("slack", "dms.history", args)
-
-
-class _SlackUsers:
-    def list(self, limit=None):
-        return _command("slack", "users.list", {"limit": limit})
-
-    def info(self, user):
-        return _command("slack", "users.info", {"user": user})
-
-    def search(self, query):
-        return _command("slack", "users.search", {"query": query})
-
-    def presence(self, user):
-        return _command("slack", "users.presence", {"user": user})
-
-
-class _SlackFiles:
-    def list(self, channel=None, user=None, limit=None):
-        return _command("slack", "files.list", {"channel": channel, "user": user, "limit": limit})
-
-    def info(self, file):
-        return _command("slack", "files.info", {"file": file})
-
-
-class _SlackToken:
-    def test(self):
-        return _command("slack", "token.test", {})
-
-
-class _Slack:
-    def __init__(self):
-        self.search = _SlackSearch()
-        self.me = _SlackMe()
-        self.channels = _SlackChannels()
-        self.messages = _SlackMessages()
-        self.dms = _SlackDms()
-        self.users = _SlackUsers()
-        self.files = _SlackFiles()
-        self.token = _SlackToken()
-
-    def get(self, method, params=None, headers=None):
-        return _get("slack", method, params, headers)
-
-
 class _List:
     def __init__(self, name):
         self._name = name
@@ -264,7 +174,6 @@ class _Tools:
         self.http = _Http()
         self.github = _Api("github")
         self.huggingface = _Api("huggingface")
-        self.slack = _Slack()
         self.launchpad = _Launchpad()
 
 

@@ -3,7 +3,7 @@
 Connections link your agents to chats and outside tools. They live on Home. Outgoing webhooks and incoming hooks are in **Settings → Connections**. Telegram is set up per workspace, in **Settings → Workspace**; the Connections page links there. There are three kinds:
 
 - **Telegram**: your own chat, one per workspace. Messages to it go out directly.
-- **Outgoing** (Slack, Discord, any webhook): other people. Agents only draft messages; each one waits in the **Outbox** (shown in [Today](today.md) → Send) until you click **Send**.
+- **Outgoing** (Slack, Discord, any webhook): other people. Agents only draft messages; each one waits in the **Outbox** (shown in [Today](today.md) → Send) until you click **Send**. To let agents read and post in Slack themselves, use [Slack profiles](slack.md) instead.
 - **Incoming hooks**: a URL that turns a request from a script or a CI job into a message to a bot.
 
 ## The Outbox

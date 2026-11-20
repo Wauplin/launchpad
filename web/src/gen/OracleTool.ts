@@ -3,4 +3,4 @@
 /**
  * A tool an oracle may call (`tools = [...]` in its header).
  */
-export type OracleTool = "http" | "github" | "huggingface" | "slack" | "launchpad";
+export type OracleTool = "http" | "github" | "huggingface" | "launchpad";

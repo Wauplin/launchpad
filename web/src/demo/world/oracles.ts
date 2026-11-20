@@ -25,12 +25,11 @@ import { P, WS } from "./ids";
 /** A demo oracle: its record, file, evaluations (newest first), versions and failure streak. */
 export type DemoOracle = { oracle: Oracle; content: string; evaluations: OracleEvaluation[]; versions: (Change & { patch: string })[]; streak: OracleStreak | null };
 
-/** The five tools in Acme, as `GET /api/oracles/{workspace}/_tools` lists them: Slack is not granted. */
+/** The four tools in Acme, as `GET /api/oracles/{workspace}/_tools` lists them. */
 export const ORACLE_TOOL_INFO: OracleToolInfo[] = [
   { tool: "http", reaches: "Any public http(s) address, without a credential", registry: null, ready: true, problem: null },
   { tool: "github", reaches: "GitHub's REST API (api.github.com), GET only", registry: "gh", ready: true, problem: null },
   { tool: "huggingface", reaches: "The Hugging Face Hub (huggingface.co), GET only", registry: "hf", ready: true, problem: null },
-  { tool: "slack", reaches: "Slack through slackline's read commands, and slack.com/api, GET only", registry: "slack-read", ready: false, problem: "the tool slack-read is not granted to this workspace" },
   { tool: "launchpad", reaches: "Home's read API for this workspace, in process", registry: null, ready: true, problem: null },
 ];
 
@@ -63,14 +62,12 @@ class _Http:
 class _Api:                                    # tools.github, tools.huggingface
     def get(self, endpoint: str, params: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> Response: ...
 
-class _Slack: ...                              # search, me, channels, messages, dms, users, files, token, get
 class _Launchpad: ...                          # folders, bots, sessions, schedules, proposals, today(), notes(), get
 
 class _Tools:
     http: _Http
     github: _Api
     huggingface: _Api
-    slack: _Slack
     launchpad: _Launchpad
 
 tools: _Tools
@@ -128,32 +125,6 @@ def check(cursor: str | None, repo: str):
         len(items) > 0,
         summary=f"{len(items)} new",
         items=[{"number": i["number"], "title": i["title"]} for i in items],
-        cursor=newest,
-    )
-`;
-
-const SLACK = `# /// oracle
-# title = "New Slack messages to me"
-# description = "Did someone write to me (DM or mention) since the last check?"
-# tools = ["slack"]
-# min_interval = "1m"
-# ///
-from launchpad_oracle import tools, verdict
-
-
-def check(cursor: str | None, limit: int = 20):
-    since = float(cursor or "0")
-    found = tools.slack.search.messages("to:me after:yesterday", limit=limit)
-    new = [m for m in found["results"] if float(m["ts"]) > since]
-    if not new:
-        return verdict(False, summary="nothing new")
-    newest = max([m["ts"] for m in new], key=float)
-    return verdict(
-        True,
-        summary=f"{len(new)} new message(s), from "
-        + ", ".join(sorted({m["username"] or m["user"] for m in new})),
-        items=[{"from": m["username"], "text": m["text"][:200], "link": m["permalink"]} for m in new],
-        fingerprint=newest,
         cursor=newest,
     )
 `;
@@ -222,7 +193,7 @@ export function precheck(content: string): OracleProblem[] {
   if (!/^#\s*title\s*=\s*"[^"]+"/m.test(content)) return [{ line: 1, column: 1, rule: "header", message: "the header has no title" }];
   const tools = toolsOf(content);
   const unknown = tools?.find((t) => !ORACLE_TOOL_INFO.some((x) => x.tool === t));
-  if (tools == null || unknown) return [{ line: lines.findIndex((l) => /^#\s*tools\s*=/.test(l)) + 1, column: 1, rule: "header", message: unknown ? `unknown tool "${unknown}": tools are http, github, huggingface, slack and launchpad` : "write the tools as one list: tools = [\"github\"]" }];
+  if (tools == null || unknown) return [{ line: lines.findIndex((l) => /^#\s*tools\s*=/.test(l)) + 1, column: 1, rule: "header", message: unknown ? `unknown tool "${unknown}": tools are http, github, huggingface and launchpad` : "write the tools as one list: tools = [\"github\"]" }];
   const out: OracleProblem[] = [];
   lines.forEach((l, i) => { const c = l.search(/\btool\./); if (c >= 0 && !l.trimStart().startsWith("#")) out.push({ line: i + 1, column: c + 1, rule: "F821", message: "Undefined name `tool`" }); });
   if (!signatureOf(content)) out.push({ line: null, column: null, rule: "signature", message: "the file defines no `def check(...)`" });
@@ -287,9 +258,6 @@ export function oraclesWorld() {
     ...quietFalse(180, 36),
   ]);
   const newEvals = evals("new-items", { repo: "acme-labs/storefront" }, Array.from({ length: 7 }, (_, i) => ({ min: 4 + i * 15, outcome: "failed" as const, error: { class: "http" as const, message: "HTTP 401", call: 0 }, calls: [call("github", ISSUES_CALL, "HTTP 401", 131, 240)], log: "since = 2026-11-16T09:12:00Z\n", caller: "Triage", consequence: "counted" })));
-  const slackEvals = evals("slack-to-me", { limit: 20 }, [
-    { min: 35, outcome: "true", summary: "1 new message(s), from julien", fp: "1794900000.000100", cursor: "1794900000.000100", caller: "test", consequence: "returned", calls: [call("slack", "search.messages \"to:me after:yesterday\" limit=20", "ok", 2150, 380)], items: [{ from: "julien", text: "Hey, can you review #3512?", link: "https://acme.slack.com/archives/D05SG/p1794900000000100" }] },
-  ]);
   const waitingEvals = evals("agents-waiting", { hours: 2 }, [
     { min: 11, outcome: "false", summary: "0 agent(s) waiting more than 2 h", fp: "", caller: "test", consequence: "returned", calls: [call("launchpad", "sessions.list()", "ok", 18_400, 12)] },
   ]);
@@ -304,8 +272,6 @@ export function oraclesWorld() {
       ] },
     { oracle: oracle("new-items", NEW_ITEMS, day * 9, day * 9, ask), content: NEW_ITEMS, evaluations: newEvals, streak: { workspace_id: WS.acme, oracle: "new-items", count: 7, first_at: clock.ago(94), last_at: clock.ago(4), classes: { http: 7 }, last_error: { class: "http", message: "HTTP 401", call: 0 }, last_call: `github ${ISSUES_CALL} · HTTP 401`, last_good_at: clock.ago(day), read_at: null, recovered_at: null, recovered_after: 0 },
       versions: [version("new-items", 3, day * 9, ask, null, NEW_ITEMS, added(NEW_ITEMS))] },
-    { oracle: oracle("slack-to-me", SLACK, day * 3, day * 3, ask), content: SLACK, evaluations: slackEvals, streak: null,
-      versions: [version("slack-to-me", 6, day * 3, ask, null, SLACK, added(SLACK))] },
     { oracle: oracle("agents-waiting", WAITING, day * 2, day * 2), content: WAITING, evaluations: waitingEvals, streak: null,
       versions: [version("agents-waiting", 5, day * 2, you, null, WAITING, added(WAITING))] },
     { oracle: oracle("pypi-release", LEGACY, day * 12, day * 12), content: LEGACY, evaluations: legacyEvals, streak: null,

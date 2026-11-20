@@ -14,7 +14,8 @@ import { useWorkspaces } from "@/lib/workspace";
 import { WorkspaceCreator } from "@/features/workspaces/WorkspacePicker";
 import { useVault } from "@/features/settings/CredentialsView";
 import { useAddFolder } from "@/features/projects/addFolderStore";
-import { SlackSetup, slackReady } from "@/features/settings/SlackSetup";
+import { SlackProfiles, slackReady } from "@/features/settings/SlackSetup";
+import { useSlackProfiles } from "@/lib/slack";
 import { CommandLine, useInstallCommand } from "@/features/settings/RunnersView";
 import type { SignInCheck } from "@/gen/SignInCheck";
 import { api } from "@/lib/api";
@@ -45,6 +46,7 @@ export function HomeSetup() {
   const space = useSpaceStatus();
   const qc = useQueryClient();
   const vault = useVault().data;
+  const slack = useSlackProfiles();
   const config = useConfig().data?.config;
   const projects = useProjects().data ?? [];
   const runners = useRunners().data ?? [];
@@ -109,13 +111,14 @@ export function HomeSetup() {
           </li>
         ))}
       </ol>
-      {vault && vault.templates.some((t) => t.id === "slack-read") && (
+      {slack.data && (
         <section className="grid grid-cols-[minmax(0,1fr)] gap-2 rounded-card border border-line bg-paper p-4" aria-label="Slack for agents">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="m-0 flex-1 text-[15px] font-semibold">Slack for agents</h2>
-            <span className={`text-[12px] ${slackReady(vault) ? "text-gh-open" : "text-ink-3"}`}>{slackReady(vault) ? "Done" : "Recommended · optional"}</span>
+            <span className={`text-[12px] ${slackReady(slack.data) ? "text-gh-open" : "text-ink-3"}`}>{slackReady(slack.data) ? "Done" : "Recommended · optional"}</span>
           </div>
-          <SlackSetup v={vault} />
+          <p className="m-0 text-[12px] text-ink-3">Agents use Slack with <code>launchpad slack --profile &lt;handle&gt;</code>; Home runs each call with the profile's token. Start with one profile that reads Slack as you; add profiles that write (as you or as a bot) in Settings → Slack.</p>
+          <SlackProfiles suggest />
         </section>
       )}
     </div>

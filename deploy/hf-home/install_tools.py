@@ -43,7 +43,8 @@ def from_tar(archive, member):
         return tar.extractfile(member).read()
 
 
-# Home's oracle tools (launchpad_automation::oracle_eval): Monty's worker, Ruff and slackline, x86_64 like the rest of the image.
+# Programs Home runs itself: Monty's worker and Ruff for oracles (launchpad_automation::oracle_eval), slackline for
+# agents' `launchpad slack` calls (launchpad_core::slack), x86_64 like the rest of the image.
 # Monty: the `monty` executable of the pydantic-monty-runtime wheel (the monty-runtime crate's binary), checked against PyPI's digest.
 version = versions['monty']
 release = json.loads(download(f'https://pypi.org/pypi/pydantic-monty-runtime/{version}/json'))

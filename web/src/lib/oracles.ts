@@ -73,7 +73,6 @@ from launchpad_oracle import tools, verdict
 #   tools.http.get("https://pypi.org/pypi/huggingface_hub/json")  # any public address, no credential
 #   tools.github.get("/repos/acme/app/pulls", params={"state": "open"})  # GitHub's REST API, GET only
 #   tools.huggingface.get("/api/models/openai-community/gpt2")  # the Hugging Face Hub, GET only
-#   tools.slack.search.messages("to:me after:yesterday", limit=20)  # slackline's read commands
 #   tools.launchpad.sessions.list()  # this workspace's Launchpad, read only
 
 

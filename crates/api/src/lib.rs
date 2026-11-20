@@ -21,6 +21,7 @@ mod prompt_context;
 mod proposals;
 mod review_state;
 mod setup;
+mod slack;
 mod suggestions;
 mod today;
 mod topics;
@@ -56,4 +57,5 @@ pub fn router() -> Router<Ctx> {
         .merge(oracles::router())
         .merge(folios::router())
         .merge(egress::router())
+        .merge(slack::router())
 }

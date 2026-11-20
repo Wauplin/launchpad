@@ -464,10 +464,11 @@ fn wrapper_script(tool: &Tool, program: &Path) -> String {
 mod tests {
     #[test]
     fn wrappers_set_quoted_settings_and_run_the_program() {
-        let mut t = crate::vault::slack_tool(false);
-        t.vars.insert("SLACKLINE_FORMAT".into(), "it's $HOME".into());
-        let s = super::wrapper_script(&t, std::path::Path::new("/data/tools/slack-read-1/bin/slackline"));
-        assert_eq!(s, "#!/bin/sh\n# Settings of the tool slack-read (Launchpad).\nexport SLACKLINE_FORMAT='it'\\''s $HOME'\nexport SLACKLINE_READONLY='1'\nexec '/data/tools/slack-read-1/bin/slackline' \"$@\"\n");
+        let mut t = crate::vault::templates().into_iter().find(|t| t.id == "gh").unwrap();
+        t.vars.insert("GH_PAGER".into(), "it's $HOME".into());
+        t.vars.insert("GH_PROMPT_DISABLED".into(), "1".into());
+        let s = super::wrapper_script(&t, std::path::Path::new("/data/tools/gh-1/bin/gh"));
+        assert_eq!(s, "#!/bin/sh\n# Settings of the tool gh (Launchpad).\nexport GH_PAGER='it'\\''s $HOME'\nexport GH_PROMPT_DISABLED='1'\nexec '/data/tools/gh-1/bin/gh' \"$@\"\n");
     }
 
     fn release(tag: &str) -> super::Release {

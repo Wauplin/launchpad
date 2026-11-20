@@ -8,7 +8,8 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ToolDefaultsEditor } from "@/features/settings/ToolDefaults";
-import { defaultOn, useLayers } from "@/lib/toolDefaults";
+import { defaultOn, slackKey, useLayers } from "@/lib/toolDefaults";
+import { useSlackProfiles } from "@/lib/slack";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/Icon";
@@ -581,7 +582,8 @@ function AccessSection({ bot }: { bot: Bot }) {
   const s = bot.settings;
   const profile = botProfile(bot, profiles);
   const layers = useLayers(bot.workspace_id, s.folder ?? null, s.tools, true);
-  const tools = useGrantedTools(bot.workspace_id).filter((t) => t.id !== "launchpad" && defaultOn(layers, t.id));
+  const slack = (useSlackProfiles().data ?? []).filter((p) => defaultOn(layers, slackKey(p.handle), p.default_on));
+  const tools = [...useGrantedTools(bot.workspace_id).filter((t) => t.id !== "launchpad" && defaultOn(layers, t.id)), ...slack.map((p) => ({ name: `Slack · ${p.name}` }))];
   const access = CLI_ACCESS.find((a) => a.id === (s.launchpad ?? "propose"))!;
   const parts = [
     profile ? profile.name : "no profile",

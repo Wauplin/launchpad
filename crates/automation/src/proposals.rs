@@ -340,8 +340,8 @@ pub async fn get(app: &App, id: &str) -> Result<Proposal> {
     Ok(serde_json::from_str(&json.context("no such proposal")?)?)
 }
 
-/// Paid usage is always off on proposals, and an agent's card never switches on an opt-in tool (Slack (write),
-/// `tool_defaults::OPT_IN`): the owner changes both in the composer.
+/// Paid usage is always off on proposals, and an agent's card never switches on an opt-in item (a Slack
+/// profile, `slack:<handle>`, `tool_defaults::opt_in`): the owner changes both in the composer.
 fn sanitize(spec: &mut LaunchSpec, workspace_id: &Option<String>, by_agent: bool) -> Result<()> {
     ensure!(spec.bot.is_none(), "proposals cannot start bot sessions: propose a message to the bot instead");
     spec.allow_paid_usage = false;

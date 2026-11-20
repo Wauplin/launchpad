@@ -291,7 +291,7 @@ pub async fn network_check(app: &App) -> Result<NetworkCheck> {
     items.push(item("capture", true, "the supervisor starts on this machine".into()));
     app.proxy.ensure(app).await?;
     const SESSION: &str = "network-check";
-    let lease = crate::vault::Lease { id: format!("network-check-{}", hex::encode(rand::random::<[u8; 6]>())), session_id: SESSION.into(), generation: 0, credentials: vec![], tools: vec![], login: None, git_name: None, git_email: None, relayed: crate::home_link::burst().is_some(), mcp: vec![], launchpad: None, releases: Default::default() };
+    let lease = crate::vault::Lease { id: format!("network-check-{}", hex::encode(rand::random::<[u8; 6]>())), session_id: SESSION.into(), generation: 0, credentials: vec![], tools: vec![], login: None, git_name: None, git_email: None, relayed: crate::home_link::burst().is_some(), mcp: vec![], launchpad: None, releases: Default::default(), slack: vec![] };
     let active = app.proxy.register(lease);
     let result = probe(app, &active.key, vm).await;
     let captured = active.captured.load(std::sync::atomic::Ordering::Relaxed);

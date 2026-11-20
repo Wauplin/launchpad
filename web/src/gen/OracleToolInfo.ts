@@ -6,7 +6,7 @@ import type { OracleTool } from "./OracleTool";
  */
 export type OracleToolInfo = { tool: OracleTool, reaches: string, 
 /**
- * The registry tool whose token it uses (gh, hf, slack-read); None: it needs none.
+ * The registry tool whose token it uses (gh, hf); None: it needs none.
  */
 registry: string | null, 
 /**

@@ -17,14 +17,15 @@ export function SessionAccess({ session }: { session: Session }) {
   const leases = useQuery({ queryKey: ["vault-leases", session.id], queryFn: () => api.get<LeaseInfo[]>(`/api/vault/leases?session_id=${session.id}`), refetchInterval: live ? 30_000 : false });
   const access = useQuery({ queryKey: ["session-access", session.id], queryFn: () => api.get<Access[]>(`/api/sessions/${session.id}/access`), refetchInterval: live ? 15_000 : false });
   const workspaceId = useProjects().data?.find((p) => p.id === session.project_id)?.workspace_id ?? null;
-  const { items } = useWorkspaceTools(workspaceId);
+  // Slack profiles are not in a lease: Home checks them at each `launchpad slack` call.
+  const items = useWorkspaceTools(workspaceId).items.filter((t) => t.kind !== "slack");
   // The latest lease: the current one while the session runs, the last one after it stopped.
   const lease = [...(leases.data ?? [])].sort((a, b) => b.created_at - a.created_at)[0];
   const log = access.data ?? [];
   if (!lease && !log.length) return null;
   const on = new Set(lease?.tools ?? []);
   // Tools of the lease that the workspace no longer grants still show, as on.
-  const tools = [...items, ...[...on].filter((k) => !items.some((t) => t.key === k)).map((k) => ({ key: k, name: k, mcp: k.startsWith("mcp:") }))];
+  const tools = [...items, ...[...on].filter((k) => !items.some((t) => t.key === k)).map((k) => ({ key: k, name: k, kind: k.startsWith("mcp:") ? ("mcp" as const) : ("tool" as const), base: true }))];
   // Model API calls repeat often: one line per host, method and path.
   const grouped = new Map<string, { a: Access; n: number }>();
   for (const a of log) {
@@ -39,8 +40,8 @@ export function SessionAccess({ session }: { session: Session }) {
       {tools.length > 0 && (
         <span className="flex flex-wrap items-center gap-1">
           {tools.map((t) => on.has(t.key)
-            ? <Token key={t.key} tone="teal" icon="check" title={`${t.name}${t.mcp ? " (MCP server)" : ""}: this agent receives its token`}>{t.name}</Token>
-            : <Token key={t.key} title={`${t.name}${t.mcp ? " (MCP server)" : ""}: off for this agent`} className="opacity-60">{t.name}</Token>)}
+            ? <Token key={t.key} tone="teal" icon="check" title={`${t.name}${t.kind === "mcp" ? " (MCP server)" : ""}: this agent receives its token`}>{t.name}</Token>
+            : <Token key={t.key} title={`${t.name}${t.kind === "mcp" ? " (MCP server)" : ""}: off for this agent`} className="opacity-60">{t.name}</Token>)}
         </span>
       )}
       <span className="text-ink-3">{lease ? `Green: tools this agent can use with Home's tokens. ${lease.revoked_at ? `Lease ended ${ago(lease.revoked_at)}.` : `Lease renewed ${ago(lease.renewed_at)}.`} To change them, stop this agent and launch a new one.` : "This agent holds no lease."}</span>

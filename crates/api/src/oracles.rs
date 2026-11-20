@@ -2,7 +2,7 @@
 //! and interface, and the actions of the action list (`oracle.*`). Runners forward every `/api/oracles…` request to
 //! Home, which checks an agent's workspace (`agent_auth::within_workspace`) and its access: every level reads and
 //! runs, propose tests drafts (`launchpad oracle test`) and admin saves, both only with the credentialed tools
-//! (github, huggingface, slack) the agent's own session holds; the rest is the owner's. A file the pre-check refuses
+//! (github, huggingface) the agent's own session holds; the rest is the owner's. A file the pre-check refuses
 //! answers 422 with each problem (`problems`).
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, post};

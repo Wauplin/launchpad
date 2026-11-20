@@ -1,8 +1,8 @@
-// Default tools (`crates/core/src/tool_defaults.rs`): among the tools and MCP servers granted to a workspace, each
-// layer (workspace, folder, bot) may switch an item on or off by default; the most specific layer wins, and an item
-// no layer names is on, except opt-in tools (`OPT_IN`: Slack (write)), which stay off until switched on on purpose;
-// a bot gets one only from its own settings (`forBot`). A launch then switches items on (`tools_on`) or off
-// (`tools_off`) for itself. Keys are tool IDs and `mcp:<server id>`.
+// Default tools (`crates/core/src/tool_defaults.rs`): among the tools and MCP servers granted to a workspace, and the
+// Slack profiles, each layer (workspace, folder, bot) may switch an item on or off by default; the most specific layer
+// wins, and an item no layer names is on, except Slack profiles (`slack:<handle>`), which follow their own default
+// (off unless the owner chose otherwise); a bot gets one only from its own settings (`forBot`). A launch then switches
+// items on (`tools_on`) or off (`tools_off`) for itself. Keys are tool IDs, `mcp:<server id>` and `slack:<handle>`.
 
 import { useQuery } from "@tanstack/react-query";
 import type { ToolDefaults } from "@/gen/ToolDefaults";
@@ -12,9 +12,11 @@ export type ToolChoice = { [key in string]: boolean };
 
 export const mcpKey = (id: string) => `mcp:${id}`;
 
-/** Tools that act towards other people for the owner: off unless switched on on purpose (`tool_defaults::OPT_IN`). */
-export const OPT_IN: readonly string[] = ["slack-write"];
-export const optIn = (key: string) => OPT_IN.includes(key);
+export const slackKey = (handle: string) => `slack:${handle}`;
+
+/** Slack profiles act in someone's name towards other people: only the owner switches one on, and a workspace or
+ *  folder default never does for a bot (`tool_defaults::opt_in`). */
+export const optIn = (key: string) => key.startsWith("slack:");
 
 /** A workspace or folder layer as a bot reads it: it may switch an opt-in tool off, never on (`tool_defaults::for_bot`). */
 export function forBot(layer: ToolChoice | undefined): ToolChoice | undefined {
@@ -22,26 +24,27 @@ export function forBot(layer: ToolChoice | undefined): ToolChoice | undefined {
   return Object.fromEntries(Object.entries(layer).filter(([k, on]) => !(optIn(k) && on)));
 }
 
-/** The default of `key` under these layers (most general first). */
-export function defaultOn(layers: (ToolChoice | undefined)[], key: string): boolean {
+/** The default of `key` under these layers (most general first); `base` when no layer names it (a Slack profile's
+ *  own default; tools and MCP servers are on). */
+export function defaultOn(layers: (ToolChoice | undefined)[], key: string, base = true): boolean {
   for (let i = layers.length - 1; i >= 0; i--) {
     const v = layers[i]?.[key] as boolean | undefined;
     if (v !== undefined) return v;
   }
-  return !optIn(key);
+  return base;
 }
 
 /** Whether `key` is on for a launch: its own choice, else the defaults. */
-export function launchOn(layers: (ToolChoice | undefined)[], off: string[], on: string[], key: string): boolean {
+export function launchOn(layers: (ToolChoice | undefined)[], off: string[], on: string[], key: string, base = true): boolean {
   if (on.includes(key)) return true;
   if (off.includes(key)) return false;
-  return defaultOn(layers, key);
+  return defaultOn(layers, key, base);
 }
 
 /** The launch choice after a click on `key`: an override only when it differs from the default. */
-export function flipLaunch(layers: (ToolChoice | undefined)[], off: string[], on: string[], key: string): { tools_off: string[]; tools_on: string[] } {
-  const now = launchOn(layers, off, on, key);
-  const base = defaultOn(layers, key);
+export function flipLaunch(layers: (ToolChoice | undefined)[], off: string[], on: string[], key: string, itemBase = true): { tools_off: string[]; tools_on: string[] } {
+  const now = launchOn(layers, off, on, key, itemBase);
+  const base = defaultOn(layers, key, itemBase);
   const tools_off = off.filter((k) => k !== key);
   const tools_on = on.filter((k) => k !== key);
   if (!now === base) return { tools_off, tools_on };

@@ -25,7 +25,6 @@ import { runAction } from "@/lib/actions";
 import { useWorkspaces } from "@/lib/workspace";
 import { Card, SettingsPage } from "./SettingsView";
 import { McpServers } from "./McpServers";
-import { SLACK_READ, SLACK_WRITE, SlackSetup } from "./SlackSetup";
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
 
@@ -70,7 +69,6 @@ function Vault({ v }: { v: VaultOverview }) {
         {others.map((e) => <EntryRow key={e.id} id={e.id} name={e.name} detail={e.detail} updatedAt={e.updated_at} onDone={refresh} />)}
         <AddSecret label="Add a token" kind="token" hint="A token or API key. Tools reference it by its ID." onDone={refresh} />
       </Card>
-      <Card title="Slack"><SlackSetup v={v} /></Card>
       <Tools v={v} onDone={refresh} />
       <McpServers />
       <Identity v={v} onDone={refresh} />
@@ -340,8 +338,7 @@ function Tools({ v, onDone }: { v: VaultOverview; onDone: () => unknown }) {
       {v.tools.map((t, i) => <ToolRow key={t.id} t={t} missing={!!t.credential && !v.entries.some((e) => e.id === t.credential)} conflict={hostConflict(v.tools.slice(0, i), t)} wsName={wsName} onEdit={() => setEditing(t)} onDone={onDone} />)}
       {editing ? <ToolEditor tool={editing} v={v} onClose={() => setEditing(null)} onDone={onDone} /> : (
         <div className="flex flex-wrap gap-2">
-          {/* Slack has its own card above. */}
-          {v.templates.filter((t) => !v.tools.some((x) => x.id === t.id) && t.id !== SLACK_READ && t.id !== SLACK_WRITE).map((t) => <button key={t.id} className="btn btn-sm" onClick={() => setEditing(t)}>Add {t.name}</button>)}
+          {v.templates.filter((t) => !v.tools.some((x) => x.id === t.id)).map((t) => <button key={t.id} className="btn btn-sm" onClick={() => setEditing(t)}>Add {t.name}</button>)}
           <button className="btn btn-sm" onClick={() => setEditing({ id: "", name: "", install: null, credential: null, env: [], hosts: [], workspaces: ["*"], check_url: null, vars: {} })}>Add another tool</button>
         </div>
       )}
@@ -392,7 +389,7 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
   return (
     <div className="grid gap-2.5 rounded-card border border-line-2 p-3 text-[13px]">
       {custom ? (
-        <label className="grid gap-1"><span className="text-ink-2">Name</span><input className="field-input w-[280px] max-w-full" value={t.name} onChange={(e) => set({ name: e.target.value })} placeholder="Slack" autoFocus /></label>
+        <label className="grid gap-1"><span className="text-ink-2">Name</span><input className="field-input w-[280px] max-w-full" value={t.name} onChange={(e) => set({ name: e.target.value })} placeholder="Linear" autoFocus /></label>
       ) : <div className="text-[13px] font-semibold">{t.name}</div>}
       <div className="grid gap-1">
         <span className="flex flex-wrap items-center gap-2"><span className="text-ink-2">API token</span>{help && <a className="text-[12px] text-teal-ink hover:underline" href={help.token_url} target="_blank" rel="noreferrer">{help.link_label}</a>}</span>
@@ -425,9 +422,9 @@ function ToolEditor({ tool, v, onClose, onDone }: { tool: Tool; v: VaultOverview
           <input className="field-input w-[200px] font-mono text-[12px]" list="vault-token-ids" value={t.credential ?? ""} placeholder={custom ? id || "my-tool" : ""} onChange={(e) => set({ credential: slug(e.target.value) || null })} />
           <datalist id="vault-token-ids">{tokens.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</datalist>
         </SettingRow>
-        <SettingRow label="Variables" hint="Set to a placeholder in the agent's environment, for example SLACK_TOKEN."><input className="field-input min-w-[260px] flex-1 font-mono text-[12px]" value={t.env.join(", ")} onChange={(e) => set({ env: e.target.value.split(/[\s,]+/).filter(Boolean) })} /></SettingRow>
+        <SettingRow label="Variables" hint="Set to a placeholder in the agent's environment, for example LINEAR_API_KEY."><input className="field-input min-w-[260px] flex-1 font-mono text-[12px]" value={t.env.join(", ")} onChange={(e) => set({ env: e.target.value.split(/[\s,]+/).filter(Boolean) })} /></SettingRow>
         <SettingRow label="Settings" hint="Values that are not secret, one KEY=value per line, for example an endpoint or a read-only switch. They are set only when the tool's commands run, never in the agent's environment. Needs an install.">
-          <textarea className="field-input min-h-[52px] min-w-[300px] flex-1 font-mono text-[12px]" value={vars} onChange={(e) => setVars(e.target.value)} spellCheck={false} placeholder="SLACKLINE_READONLY=1" aria-label="Settings" />
+          <textarea className="field-input min-h-[52px] min-w-[300px] flex-1 font-mono text-[12px]" value={vars} onChange={(e) => setVars(e.target.value)} spellCheck={false} placeholder="LINEAR_FORMAT=json" aria-label="Settings" />
         </SettingRow>
         <SettingRow label="Hosts" hint={<>One per line: <code className="font-mono">host bearer</code>, <code className="font-mono">host basic user</code>, <code className="font-mono">host header Name [prefix]</code> or <code className="font-mono">host query param</code>. <code className="font-mono">*.example.com</code> covers subdomains.</>}>
           <textarea className="field-input min-h-[70px] min-w-[300px] flex-1 font-mono text-[12px]" value={hosts} onChange={(e) => setHosts(e.target.value)} spellCheck={false} />
