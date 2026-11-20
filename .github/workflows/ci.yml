@@ -126,7 +126,15 @@ jobs:
         with:
           key: tests
       - name: Run Rust tests (default workspace members)
-        run: cargo test --locked
+        run: cargo test --locked --timings
+      - name: Upload Cargo timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: cargo-timings-tests
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Run Home Space tests (deploy/hf-home)
         working-directory: deploy/hf-home
         run: |

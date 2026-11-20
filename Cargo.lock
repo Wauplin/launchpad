@@ -1930,6 +1930,7 @@ dependencies = [
  "launchpad-setup",
  "libc",
  "reqwest",
+ "rust-embed",
  "serde_json",
  "tokio",
  "tracing",

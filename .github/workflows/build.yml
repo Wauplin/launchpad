@@ -63,15 +63,24 @@ jobs:
         env:
           CARGO_INCREMENTAL: '0'
           SCCACHE_GHA_ENABLED: 'true'
-          RUSTC_WORKSPACE_WRAPPER: ${{ github.workspace }}/.github/scripts/rustc-cache.sh
-        run: cargo build --release --locked -p launchpad
+          RUSTC_WORKSPACE_WRAPPER: sccache
+        run: cargo build --release --locked -p launchpad --timings
+      - name: Upload Cargo timings
+        # target/cargo-timings/cargo-timing.html: how long each crate took to compile and link.
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: cargo-timings-release
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Run release tests
         # Main builds skip them: ci.yml runs the tests of the same commit.
         if: ${{ !inputs.main-build }}
         env:
           CARGO_INCREMENTAL: '0'
           SCCACHE_GHA_ENABLED: 'true'
-          RUSTC_WORKSPACE_WRAPPER: ${{ github.workspace }}/.github/scripts/rustc-cache.sh
+          RUSTC_WORKSPACE_WRAPPER: sccache
         run: cargo test --release --locked
       - name: Smoke-test release CLI
         run: target/release/launchpad --help
@@ -84,7 +93,8 @@ jobs:
           mkdir -p artifacts/extension
           cp launchpad-chrome-extension.zip extension/README.md artifacts/extension/
           printf '%s\n' "$GITHUB_SHA" > artifacts/COMMIT
-          tar -czf launchpad-linux-x86_64.tar.gz -C artifacts .
+          # pigz: the same gzip format and size as tar -z, on every core (half the time).
+          tar --use-compress-program=pigz -cf launchpad-linux-x86_64.tar.gz -C artifacts .
           sha256sum launchpad-linux-x86_64.tar.gz > launchpad-linux-x86_64.tar.gz.sha256
       - uses: actions/upload-artifact@v7
         with:

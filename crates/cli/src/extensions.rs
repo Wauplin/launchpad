@@ -68,11 +68,19 @@ impl launchpad_core::ext::Extensions for Extensions {
     }
 }
 
+/// The React app (`web/dist`), embedded in the release binary and read from disk in debug builds. The derive sits in
+/// the binary, which CI's compiler cache never caches, so added and removed files are always seen.
+#[derive(rust_embed::Embed)]
+#[folder = "../../web/dist"]
+#[allow_missing = true]
+struct Ui;
+
 /// Starts the services of the crates above the core, after `App::start`.
 pub async fn start(app: &App) -> Result<()> {
     // First: a Home restored from an update's checkpoint completes it, or keeps writes paused while its replacement
     // may still come (`home_update::resume`), before any service writes.
     launchpad_setup::home_update::resume(app).await?;
+    launchpad_server::set_assets(launchpad_server::Assets { get: Ui::get, paths: || Ui::iter().map(|p| p.into_owned()).collect() });
     // Shared folio snapshots carry the folio-viewer build embedded with the UI.
     launchpad_automation::folio_share::set_viewer(launchpad_server::folio_viewer_files);
     launchpad_automation::start(app).await?;
