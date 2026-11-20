@@ -13,9 +13,6 @@ export const WORKSPACE_NAV: NavEntry[] = [{ to: "/settings/workspace", label: "W
 
 /** Launchpad's settings, shared by every workspace. */
 export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
-  { group: "This device", items: [
-    { to: "/settings", label: "Appearance", icon: "sun", exact: true, keywords: "theme dark light zoom layout phone desktop" },
-  ] },
   { group: "Agents", items: [
     { to: "/settings/profiles", label: "Profiles", icon: "agents", keywords: "harness claude codex opencode model effort billing subscription pay as you go api key quota" },
     { to: "/settings/presets", label: "Presets", icon: "preset", keywords: "instructions prompt snippets" },
@@ -30,6 +27,9 @@ export const SETTINGS_NAV: { group: string; items: NavEntry[] }[] = [
     { to: "/settings/github", label: "GitHub", icon: "pr", keywords: "token account login rate limit" },
     { to: "/settings/huggingface", label: "Hugging Face", icon: "huggingface", keywords: "traces bucket backup hf token" },
     { to: "/settings/worktrees", label: "Disk cleanup", icon: "archive", keywords: "maintenance disk space worktrees kept trash" },
+  ] },
+  { group: "This device", items: [
+    { to: "/settings/appearance", label: "Appearance", icon: "sun", keywords: "device browser theme dark light zoom text size layout phone desktop" },
   ] },
   { group: "Help", items: [{ to: "/settings/onboarding", label: "Onboarding", icon: "info", keywords: "tour demo setup checklist help" }] },
 ];

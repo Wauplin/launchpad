@@ -59,7 +59,7 @@ function pageContext(path: string, sessionId: string | null, projects: Project[]
   if (local) return { label: predraft ? `Local PR ${predraft.title}` : "Local PR", line: `the Local PR ${predraft ? `“${predraft.title}” ` : ""}(id ${local[1]})`, launch: predraft ? { projectId: predraft.project_id } : undefined };
   const settings = path.match(/^\/settings\/?([^/]*)/);
   if (settings) {
-    const page = [...WORKSPACE_NAV, ...SETTINGS_NAV.flatMap((g) => g.items)].find((e) => e.to === path.replace(/\/$/, ""))?.label ?? (settings[1] || "Appearance");
+    const page = [...WORKSPACE_NAV, ...SETTINGS_NAV.flatMap((g) => g.items)].find((e) => e.to === path.replace(/\/$/, ""))?.label ?? (settings[1] || "Settings");
     return { label: `Settings · ${page}`, line: `the settings page ${page} (${path})` };
   }
   const bot = path.match(/^\/bots\/([^/]+)/);

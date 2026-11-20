@@ -66,7 +66,7 @@ public_origin = "https://launchpad.example.com"
 
 ## Phone layout
 
-Screens narrower than 720 px get a phone layout (or choose it in **Settings → Appearance** on a laptop, **Settings → This device → Layout** on the phone):
+Screens narrower than 720 px get a phone layout (or choose it in **Settings → This device → Appearance**):
 
 - Tabs: **Today** (what waits for you, with the card buttons in place), **Chats**, **Agents** and **More**. A tab shows an amber count when something there needs you.
 - **Chats** lists every chat with the workspace's bots and every channel and DM, grouped by state like the laptop's list (Needs you, Unread, Running, Quota paused, Sleeping, Failed, Done, Channels, Archived), with the same rows, search, **Bots** filter and **⋯** (Pin, Rename, Archive or Unarchive, Open in Agents; Settings for a channel). See [Chats](bots.md#chats). **New chat** in the bar opens the tiles of every bot and channel, alphabetical, each with a gear for its settings; a bot's tile starts a new chat, and **New bot** and **⋯ → New channel** create one. Tap the tab again to open the last chat or channel. A chat that needs you, and a channel that mentions or asks you, add to the tab's count. A bot's Today card and its Telegram notifications open its chat; the full trace stays in Agents (**⋯ → Open in Agents** on the chat's row), and a bot's session page there links back to the chat. Over a chat's message box, the bot's starters show as quick chips, as on a laptop: they send common questions (**What needs me?**, **How are my agents doing?**) or start a message for you to finish (**Start an agent to …**). They are normal messages, hidden once the box has text, attachments, context or presets.

@@ -5,6 +5,7 @@ import { usePhone, layoutChoice, setLayoutChoice, type LayoutChoice } from "@/li
 // Daemon settings go to config.toml, which can also be edited by hand.
 
 import { useQueryClient } from "@tanstack/react-query";
+import { Navigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { Preset } from "@/gen/Preset";
 import { Icon } from "@/components/Icon";
@@ -114,27 +115,30 @@ export function ConfigError() {
 
 export const LAYOUTS: { id: LayoutChoice; label: string }[] = [{ id: "auto", label: "Automatic" }, { id: "phone", label: "Phone" }, { id: "desktop", label: "Desktop" }];
 
-/** Settings → Appearance (this device only); the phone shows its list of settings instead. */
+/** `/settings`: the phone's list of Settings pages; the laptop opens the first page of its sidebar. */
 export function SettingsView() {
   const phone = usePhone();
-  return phone ? <PhoneSettings /> : <Appearance />;
+  return phone ? <PhoneSettings /> : <Navigate to="/settings/workspace" replace />;
 }
 
-function Appearance() {
+/** Settings → This device → Appearance: zoom, theme and layout, kept in this browser only. */
+export function AppearanceView() {
+  const phone = usePhone();
   const { theme, toggle } = useTheme();
   const layout = layoutChoice();
+  const chip = phone ? "lp-chip phone-choice" : "lp-chip";
   return (
     <SettingsPage title="Appearance" intro="How Launchpad looks in this browser. Other devices keep their own choices.">
       <Card title="Display">
         <ZoomSetting />
-        <SettingRow label="Theme" hint="Also switchable from the sidebar." scope="device">
+        <SettingRow label="Theme" hint={phone ? undefined : "Also switchable from the sidebar."} scope="device">
           <div className="flex gap-1.5" role="group" aria-label="Theme">
-            {(["light", "dark"] as const).map((t) => <button key={t} className="lp-chip" aria-pressed={theme === t} onClick={() => { if (theme !== t) toggle(); }}><Icon name={t === "light" ? "sun" : "moon"} size={12} />{t === "light" ? "Light" : "Dark"}</button>)}
+            {(["light", "dark"] as const).map((t) => <button key={t} className={chip} aria-pressed={theme === t} onClick={() => { if (theme !== t) toggle(); }}><Icon name={t === "light" ? "sun" : "moon"} size={phone ? 14 : 12} />{t === "light" ? "Light" : "Dark"}</button>)}
           </div>
         </SettingRow>
         <SettingRow label="Layout" hint="Automatic uses the phone layout below 720 px. Changing it reloads the page." scope="device">
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Layout">
-            {LAYOUTS.map((l) => <button key={l.id} className="lp-chip" aria-pressed={layout === l.id} onClick={() => { if (layout !== l.id) setLayoutChoice(l.id); }}>{l.label}</button>)}
+            {LAYOUTS.map((l) => <button key={l.id} className={chip} aria-pressed={layout === l.id} onClick={() => { if (layout !== l.id) setLayoutChoice(l.id); }}>{l.label}</button>)}
           </div>
         </SettingRow>
       </Card>

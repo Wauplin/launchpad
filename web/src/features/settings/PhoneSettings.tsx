@@ -1,13 +1,11 @@
-// Settings on the phone: device controls followed by the shared Settings navigation.
+// Settings on the phone: the Settings pages (device controls in This device → Appearance), then the setup checklist.
 
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "@/components/Icon";
-import { SettingRow } from "@/components/ui";
 import { useSetupSummary } from "@/features/setup/summary";
 import { settingsPages } from "./nav";
-import { ZoomSetting } from "./ZoomSetting";
-import { layoutChoice, setLayoutChoice } from "@/lib/phone";
+import { layoutChoice } from "@/lib/phone";
 import { useConfig, useSharedSettings } from "@/lib/queries";
 import { useOfflineRunners, useOutdatedRunners, useRefusedRunners, useRunners } from "@/lib/runners";
 import { useScope } from "@/lib/workspace";
@@ -33,7 +31,7 @@ function Row({ to, icon, label, state, attn }: { to: string; icon: IconName; lab
 const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export function PhoneSettings() {
-  const { theme, toggle } = useTheme();
+  const { theme } = useTheme();
   const layout = layoutChoice();
   const pages = settingsPages("");
   const workspace = useScope().workspace;
@@ -46,31 +44,17 @@ export function PhoneSettings() {
   const setup = useSetupSummary().data;
   const states: Record<string, { state?: string; attn?: boolean }> = {
     "/settings/workspace": { state: workspace.name },
+    "/settings/appearance": { state: `${theme === "dark" ? "Dark" : "Light"} · ${LAYOUTS.find((l) => l.id === layout)?.label ?? "Automatic"}` },
     "/settings/presets": { state: presets ? count(presets.length, "preset") : undefined },
     "/settings/profiles": { state: config ? count(config.profiles.length, "profile") : undefined, attn: config?.profiles.length === 0 },
     "/settings/runners": { state: refused ? `${refused} refused` : outdated ? `${outdated} to update` : offline ? `${offline} offline` : count(runners.length, "runner"), attn: refused + outdated + offline > 0 },
   };
   return (
     <div className="h-full overflow-y-auto pb-4" data-tour="settings.phone">
-      <Group title="This device">
-        <div className="grid gap-3 px-4 py-3">
-          <ZoomSetting />
-          <SettingRow label="Theme" scope="device">
-            <div className="flex gap-1.5" role="group" aria-label="Theme">
-              {(["light", "dark"] as const).map((t) => <button key={t} className="lp-chip phone-choice" aria-pressed={theme === t} onClick={() => { if (theme !== t) toggle(); }}><Icon name={t === "light" ? "sun" : "moon"} size={14} />{t === "light" ? "Light" : "Dark"}</button>)}
-            </div>
-          </SettingRow>
-          <SettingRow label="Layout" hint="Automatic uses the phone layout below 720 px. Changing it reloads the page." scope="device">
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Layout">
-              {LAYOUTS.map((l) => <button key={l.id} className="lp-chip phone-choice" aria-pressed={layout === l.id} onClick={() => { if (layout !== l.id) setLayoutChoice(l.id); }}>{l.label}</button>)}
-            </div>
-          </SettingRow>
-        </div>
-      </Group>
       <Group title="Workspace">
         {pages.workspace.map((e) => <Row key={e.to} {...e} {...states[e.to]} />)}
       </Group>
-      {pages.groups.filter((g) => g.group !== "This device").map((g) => <Group key={g.group} title={g.group}>
+      {pages.groups.map((g) => <Group key={g.group} title={g.group}>
         {g.items.map((e) => <Row key={e.to} {...e} {...states[e.to]} />)}
       </Group>)}
       <Group title="Setup">
