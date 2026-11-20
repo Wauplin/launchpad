@@ -1495,7 +1495,7 @@ mod tests {
 
     #[test]
     fn auto_archive_takes_only_the_run_s_own_bot_thread() {
-        let thread = |id: &str, key: Option<&str>, archived: bool| launchpad_core::bot_threads::BotThread { id: id.into(), bot_id: "b".into(), key: key.map(str::to_string), title: "t".into(), created_at: 0, archived_at: archived.then_some(1), conversation: format!("b:{id}") };
+        let thread = |id: &str, key: Option<&str>, archived: bool| launchpad_core::bot_threads::BotThread { id: id.into(), bot_id: "b".into(), key: key.map(str::to_string), title: "t".into(), created_at: 0, archived_at: archived.then_some(1), renamed: false, conversation: format!("b:{id}") };
         let one = [done_session("s1", 1)];
         let own = thread("t1", Some("routine:routines/daily.toml"), false);
         assert!(own_run_thread(&own, &one, "routines/daily.toml", "s1"));

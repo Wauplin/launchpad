@@ -334,6 +334,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   const titleEl = renaming ? <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
     <input autoFocus aria-label="Session title" className="field-input min-w-0 flex-1 basis-32 font-[650]" maxLength={100} value={title} disabled={savingTitle} onChange={(e) => setTitle(e.target.value)} />
     <button className="btn btn-sm" disabled={!title.trim() || savingTitle} onClick={async () => { setSavingTitle(true); try { await api.post(`/api/sessions/${s.id}/rename`, { title: title.trim() }); setRenaming(false); } catch (e) { toastError(e); } finally { setSavingTitle(false); } }}>Save title</button>
+    <button className="btn btn-sm" disabled={savingTitle} title="Name this agent from its conversation as it is now; the new title shows when it is ready" onClick={() => { setRenaming(false); void runAction("session.auto-title", { id: s.id }).catch(toastError); }}>Auto</button>
     <button className="btn btn-sm" disabled={savingTitle} onClick={() => setRenaming(false)}>Cancel</button>
   </div> : <button className={`session-title min-w-0 truncate text-left text-[13px] font-[650] hover:text-teal-ink ${phone ? "flex-1" : ""}`} title={`${s.title} · Click to edit`} aria-label={`Edit session title: ${s.title}`} onClick={() => { setTitle(s.title); setRenaming(true); }}>
     {s.title}

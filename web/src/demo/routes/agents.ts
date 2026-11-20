@@ -227,6 +227,13 @@ route("POST", "/api/sessions/:id/rename", (r) => {
   updateSession(found(r.params.id).id, { title });
   return session(r.params.id);
 });
+// Auto: the demo has no model, so the title says where the session is now in fixed words.
+route("POST", "/api/sessions/:id/auto-title", (r) => {
+  const s = found(r.params.id);
+  const title = `Follow-up on ${s.title.replace(/^Follow-up on /, "")}`.slice(0, 100);
+  updateSession(s.id, { title });
+  return { title, applied: true };
+});
 
 // ---------------------------------------------------------------- run control
 

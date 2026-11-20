@@ -45,6 +45,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/sessions", get(list_sessions).post(launch).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
         .route("/api/sessions/{id}", get(get_session))
         .route("/api/sessions/{id}/rename", post(rename_session))
+        .route("/api/sessions/{id}/auto-title", post(auto_title_session))
         .route("/api/sessions/{id}/seen", post(mark_seen))
         .route("/api/sessions/{id}/unread", post(mark_unread))
         .route("/api/sessions/{id}/git", get(session_git))
@@ -699,6 +700,9 @@ async fn run_cron(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Ses
 struct RenameSession { title: String }
 async fn rename_session(State(s): State<Ctx>, Path(id): Path<String>, Json(b): Json<RenameSession>) -> ApiResult<Session> {
     Ok(Json(s.app.sessions.rename(&s.app, &id, &b.title).await.map_err(bad)?))
+}
+async fn auto_title_session(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<launchpad_core::titles::AutoTitle> {
+    Ok(Json(launchpad_core::titles::regenerate(&s.app, &id).await.map_err(bad)?))
 }
 async fn mark_seen(State(s): State<Ctx>, Path(id): Path<String>) -> ApiResult<Session> {
     Ok(Json(s.app.sessions.mark_seen(&s.app, &id).await.map_err(bad)?))

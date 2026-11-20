@@ -89,4 +89,7 @@ test("titles: an automatic description, also for continued chats and routine run
   // Not named yet: the thread's own title.
   assert.equal(chatTitle({ title: "Daily check", key: "routine:daily.toml" }, { title: "Routine “Daily check”: check CI", prompt: "Routine “Daily check”: check CI" }), "Daily check");
   assert.equal(chatTitle(null, null), "New chat");
+  // Renamed (by hand or with Auto): the thread's title wins, also for a routine run or a title that starts the prompt.
+  assert.equal(chatTitle({ title: "Weekly CI report", key: "routine:daily.toml", renamed: true }, run), "Weekly CI report");
+  assert.equal(chatTitle({ title: "can you look at the upload", key: null, renamed: true }, first), "can you look at the upload");
 });

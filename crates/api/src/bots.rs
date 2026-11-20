@@ -26,6 +26,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/bots/{id}/threads", get(threads))
         .route("/api/context/conversation", get(conversation))
         .route("/api/bots/{id}/threads/{thread}", axum::routing::patch(rename_thread))
+        .route("/api/bots/{id}/threads/{thread}/auto-title", post(auto_title_thread))
         .route("/api/bots/{id}/threads/{thread}/archive", post(archive_thread))
         .route("/api/bots/{id}/history", get(history))
         .route("/api/bots/{id}/file", get(file))
@@ -303,6 +304,11 @@ struct Rename {
 async fn rename_thread(State(s): State<Ctx>, Path((id, thread)): Path<(String, String)>, Json(r): Json<Rename>) -> ApiResult<BotThread> {
     bots::get(&s.app, &id).await.map_err(bad)?;
     Ok(Json(bot_threads::rename(&s.app, &id, &thread, &r.title).await.map_err(bad)?))
+}
+
+async fn auto_title_thread(State(s): State<Ctx>, Path((id, thread)): Path<(String, String)>) -> ApiResult<BotThread> {
+    bots::get(&s.app, &id).await.map_err(bad)?;
+    Ok(Json(bot_threads::auto_title(&s.app, &id, &thread).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]

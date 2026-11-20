@@ -32,7 +32,7 @@ const thread = (id: string, t: string) => world.sessions.filter((s) => s.launch_
 /** A bot's thread rows (Home's `bot_thread`). */
 const threadsOf = (id: string): BotThread[] => (world.botThreads[id] ??= []);
 const newThread = (b: Bot, key: string | null, title: string) => {
-  const t: BotThread = { bot_id: b.id, id: `demo-thread-${Math.random().toString(36).slice(2, 10)}`, key, title: title.replace(/\s+/g, " ").trim().slice(0, 80) || "New thread", created_at: clock.now(), archived_at: null, conversation: "" };
+  const t: BotThread = { bot_id: b.id, id: `demo-thread-${Math.random().toString(36).slice(2, 10)}`, key, title: title.replace(/\s+/g, " ").trim().slice(0, 80) || "New thread", created_at: clock.now(), archived_at: null, conversation: "", renamed: false };
   t.conversation = `${b.id}:${t.id}`;
   threadsOf(b.id).push(t);
   threadsChanged(b.id);
@@ -151,6 +151,16 @@ route("PATCH", "/api/bots/:id/threads/:thread", ({ params, body }) => {
   const title = String((body as { title?: string })?.title ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
   if (!title) throw new DemoError(400, "give the thread a title");
   t.title = title;
+  t.renamed = true;
+  threadsChanged(params.id);
+  return t;
+});
+// Auto: the demo has no model, so the title says where the chat is now in fixed words.
+route("POST", "/api/bots/:id/threads/:thread/auto-title", ({ params }) => {
+  const t = threadsOf(params.id).find((x) => x.id === params.thread);
+  if (!t) throw new DemoError(400, "this thread no longer exists");
+  t.title = `Follow-up on ${t.title.replace(/^Follow-up on /, "")}`.slice(0, 80);
+  t.renamed = true;
   threadsChanged(params.id);
   return t;
 });

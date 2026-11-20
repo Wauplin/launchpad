@@ -126,10 +126,12 @@ const generatedTitle = (s: Session | null) => {
 /** A chat's title: a short automatic description, like an agent's name (`titles.rs`) — the automatic name of the
  * chat's first session (it says what the chat is about, also after the chat continued in a new thread), else of its
  * current one — for every chat, routine runs and chats a source opened (GitHub, a hook, a channel) included; the
- * thread's own title until a session is named, or when you renamed one of your chats; "New chat" before the first
+ * thread's own title until a session is named, or once you renamed the chat (`renamed`); "New chat" before the first
  * message. */
-export function chatTitle(t: Pick<BotThread, "title" | "key"> | null, first: Session | null, current: Session | null = first): string {
+export function chatTitle(t: Pick<BotThread, "title" | "key"> & { renamed?: boolean } | null, first: Session | null, current: Session | null = first): string {
   const own = t?.title.trim() ?? "";
+  // A chat you renamed (by hand or with Auto) keeps that title.
+  if (t?.renamed && own) return own;
   // Your own chats keep the first line of their first message as title until you rename them.
   if (t && !t.key && own && first && !firstLine(first.prompt).startsWith(own.replace(/…$/, "").trim())) return own;
   return generatedTitle(first) || generatedTitle(current) || own || current?.title.trim() || "New chat";
@@ -177,7 +179,7 @@ export function buildChats({ bots, sessions, threads, channels, workspaceId, ask
       const [b, thread] = key.split("\n");
       if (b !== bot.id) continue;
       const s = list2.at(-1)!;
-      add({ id: thread, bot_id: b, key: null, title: s.title, created_at: list2[0].started_at, archived_at: s.status === "closed" ? s.status_since : null, conversation: `${b}:${thread}` });
+      add({ id: thread, bot_id: b, key: null, title: s.title, created_at: list2[0].started_at, archived_at: s.status === "closed" ? s.status_since : null, conversation: `${b}:${thread}`, renamed: false });
     }
   }
   const out: Chat[] = [];

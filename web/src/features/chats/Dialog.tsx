@@ -1,4 +1,4 @@
-// Small dialogs of the Chats pages: centered on the laptop, a sheet on the phone; Rename of a chat (its thread).
+// Small dialogs of the Chats pages: centered on the laptop, a sheet on the phone; Rename of a chat (its thread), with Auto.
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
@@ -31,11 +31,17 @@ export function RenameThreadDialog({ bot, thread, title: initial, onClose }: { b
   const save = async () => {
     try { await runAction("bot.thread-rename", { id: bot, thread }, { title: title.trim() }); await refreshThreads(qc, bot); onClose(); } catch (e) { toastError(e); }
   };
+  // Auto: the dialog closes at once; the new title shows when it is ready (a rename made meanwhile wins).
+  const auto = () => {
+    onClose();
+    void runAction("bot.thread-auto-title", { id: bot, thread }).then(() => refreshThreads(qc, bot)).catch(toastError);
+  };
   return <Dialog title="Rename this chat" onClose={onClose}>
     <label className="grid gap-1 text-[12px] font-semibold text-ink-2">Title
       <input className="field-input font-normal" maxLength={80} value={title} autoFocus onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && title.trim()) void save(); }} />
     </label>
     <div className="flex justify-end gap-2">
+      <button className="btn btn-sm mr-auto" title="Close and name this chat from its conversation as it is now" onClick={auto}>Auto</button>
       <button className="btn btn-sm btn-ghost" onClick={onClose}>Cancel</button>
       <button className="btn btn-sm btn-primary" disabled={!title.trim()} onClick={() => void save()}>Rename</button>
     </div>

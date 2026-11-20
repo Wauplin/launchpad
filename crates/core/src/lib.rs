@@ -55,7 +55,7 @@ pub mod review_state;
 pub mod terminals;
 pub mod hf;
 pub(crate) mod trace_copies;
-mod titles;
+pub mod titles;
 pub mod util;
 pub mod profiles;
 pub mod prompt_context;

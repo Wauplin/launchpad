@@ -48,6 +48,8 @@ pub struct BotThread {
     /// The conversation it belongs to (`<main bot>:<its first thread>`): its own (`<bot>:<id>`) unless another bot's
     /// thread messaged this bot from a conversation (`To::Conversation`).
     pub conversation: String,
+    /// The owner (or an agent) renamed it, by hand or with Auto: its title then names the chat (`chatTitle`).
+    pub renamed: bool,
 }
 
 impl BotThread {
@@ -175,10 +177,10 @@ static THREADS: std::sync::LazyLock<crate::locks::Locks> = std::sync::LazyLock::
 fn row(r: &rusqlite::Row) -> rusqlite::Result<BotThread> {
     let (bot_id, id): (String, String) = (r.get(0)?, r.get(1)?);
     let conversation = r.get::<_, Option<String>>(6)?.unwrap_or_else(|| conversation_id(&bot_id, &id));
-    Ok(BotThread { bot_id, id, key: r.get(2)?, title: r.get(3)?, created_at: r.get(4)?, archived_at: r.get(5)?, conversation })
+    Ok(BotThread { bot_id, id, key: r.get(2)?, title: r.get(3)?, created_at: r.get(4)?, archived_at: r.get(5)?, conversation, renamed: r.get::<_, i64>(7)? != 0 })
 }
 
-const COLUMNS: &str = "bot_id, id, key, title, created_at, archived_at, conversation";
+const COLUMNS: &str = "bot_id, id, key, title, created_at, archived_at, conversation, renamed";
 /// The conversation of a row, in SQL.
 const CONVERSATION: &str = "COALESCE(conversation, bot_id || ':' || id)";
 
@@ -319,6 +321,10 @@ pub async fn follow_up(app: &App, bot: &str, thread: &str) -> Result<String> {
     let t = get(app, bot, thread).await?.context("this thread no longer exists")?;
     // It stays in its conversation.
     let id = insert_in(app, bot, t.key.clone(), &t.title, Some(t.conversation.clone())).await?;
+    if t.renamed {
+        let (b, i) = (bot.to_string(), id.clone());
+        app.state_db.call(move |c| Ok(c.execute("UPDATE bot_thread SET renamed = 1 WHERE bot_id = ?1 AND id = ?2", params![b, i])?)).await?;
+    }
     // Its key now routes to the new thread.
     set_archived(app, bot, thread, true).await?;
     Ok(id)
@@ -347,8 +353,29 @@ pub async fn rename(app: &App, bot: &str, id: &str, title: &str) -> Result<BotTh
     ensure!(!title.is_empty(), "give the thread a title");
     get(app, bot, id).await?.context("this thread no longer exists")?;
     let (b, i, t) = (bot.to_string(), id.to_string(), title.clone());
-    app.state_db.call(move |c| Ok(c.execute("UPDATE bot_thread SET title = ?3 WHERE bot_id = ?1 AND id = ?2", params![b, i, t])?)).await?;
+    app.state_db.call(move |c| Ok(c.execute("UPDATE bot_thread SET title = ?3, renamed = 1 WHERE bot_id = ?1 AND id = ?2", params![b, i, t])?)).await?;
     app.bus.publish("bots", "threads", serde_json::json!({"id": bot}));
+    get(app, bot, id).await?.context("this thread no longer exists")
+}
+
+/// The owner's Auto in a chat's rename (`bot.thread-auto-title`, Home): the session of the thread names itself
+/// from its conversation as it is now on its runner (`titles::regenerate`), then the thread takes that title unless it
+/// was renamed meanwhile (a later rename wins). On demand only.
+pub async fn auto_title(app: &App, bot: &str, id: &str) -> Result<BotThread> {
+    let t = get(app, bot, id).await?.context("this thread no longer exists")?;
+    let s = session(app, bot, id).context("this chat has no conversation to name yet")?;
+    let runner = s.runner_id.clone().context("this chat's agent has no runner: try Auto again later")?;
+    let (status, body) = app.runners.request(&runner, "POST", &format!("/api/sessions/{}/auto-title", s.id), None).await?;
+    if !(200..300).contains(&status) {
+        let why = serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| v["error"].as_str().map(str::to_string)).unwrap_or(body);
+        anyhow::bail!("{why}");
+    }
+    let named: crate::titles::AutoTitle = serde_json::from_str(&body).context("read the generated title")?;
+    let title = short(&named.title);
+    ensure!(!title.is_empty(), "no title generated");
+    let (b, i, old) = (bot.to_string(), id.to_string(), t.title.clone());
+    let changed = app.state_db.call(move |c| Ok(c.execute("UPDATE bot_thread SET title = ?3, renamed = 1 WHERE bot_id = ?1 AND id = ?2 AND title = ?4", params![b, i, title, old])?)).await?;
+    if changed > 0 { app.bus.publish("bots", "threads", serde_json::json!({"id": bot})); }
     get(app, bot, id).await?.context("this thread no longer exists")
 }
 
@@ -511,7 +538,7 @@ mod tests {
 
     #[test]
     fn chat_page_keeps_open_conversations_whole_and_pages_archived_ones() {
-        let t = |bot: &str, id: &str, conv: &str, created: i64, archived: Option<i64>| BotThread { bot_id: bot.into(), id: id.into(), key: None, title: id.into(), created_at: created, archived_at: archived, conversation: conv.into() };
+        let t = |bot: &str, id: &str, conv: &str, created: i64, archived: Option<i64>| BotThread { bot_id: bot.into(), id: id.into(), key: None, title: id.into(), created_at: created, archived_at: archived, renamed: false, conversation: conv.into() };
         let rows = vec![
             // A conversation that continued in a new thread: its archived first thread stays.
             t("a", "first", "a:first", 1, Some(5)), t("a", "next", "a:first", 6, None), t("b", "joined", "a:first", 3, None),
@@ -524,7 +551,7 @@ mod tests {
     }
 
     fn thread(bot: &str, id: &str, conversation: Option<&str>) -> BotThread {
-        BotThread { id: id.into(), bot_id: bot.into(), key: None, title: "t".into(), created_at: 0, archived_at: None, conversation: conversation.map_or_else(|| conversation_id(bot, id), str::to_string) }
+        BotThread { id: id.into(), bot_id: bot.into(), key: None, title: "t".into(), created_at: 0, archived_at: None, renamed: false, conversation: conversation.map_or_else(|| conversation_id(bot, id), str::to_string) }
     }
 
     #[test]

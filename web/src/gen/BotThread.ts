@@ -10,4 +10,8 @@ key: string | null, title: string, created_at: number, archived_at: number | nul
  * The conversation it belongs to (`<main bot>:<its first thread>`): its own (`<bot>:<id>`) unless another bot's
  * thread messaged this bot from a conversation (`To::Conversation`).
  */
-conversation: string, };
+conversation: string, 
+/**
+ * The owner (or an agent) renamed it, by hand or with Auto: its title then names the chat (`chatTitle`).
+ */
+renamed: boolean, };
