@@ -11,6 +11,7 @@ import type { BotSend } from "@/gen/BotSend";
 import type { BotThread } from "@/gen/BotThread";
 import type { Session } from "@/gen/Session";
 import { api } from "./api";
+import { byName } from "./channelRows";
 import { isQuotaPaused, isRunning, needsYou } from "./sessionStatus";
 import { initialOf } from "./identity";
 
@@ -36,7 +37,9 @@ export function botProfile<P extends { id: string; billing: string }>(bot: Bot, 
   return profiles.find((p) => p.billing === "subscription") ?? profiles[0] ?? null;
 }
 
-export const useBots = () => useQuery({ queryKey: ["bots"], queryFn: () => api.get<Bot[]>("/api/bots"), staleTime: 30_000, refetchInterval: 60_000, retry: false });
+/** Every list of bots shows them in alphabetical order of their names (ignoring case), so the query sorts once. */
+const botsByName = (bots: Bot[]) => byName(bots, (b) => b.settings.name);
+export const useBots = () => useQuery({ queryKey: ["bots"], queryFn: () => api.get<Bot[]>("/api/bots"), select: botsByName, staleTime: 30_000, refetchInterval: 60_000, retry: false });
 
 /** The workspace's Librarian (Home seeds it as `librarian`), which tends the knowledge base; null once the owner deleted it. */
 export const librarianOf = (bots: Bot[] | undefined, ws: string | null) => bots?.find((b) => b.workspace_id === ws && b.slug === "librarian") ?? null;

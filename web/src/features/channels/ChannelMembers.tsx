@@ -21,7 +21,7 @@ import { MODES } from "@/lib/channels";
 export function ChannelMembers({ channel }: { channel: Channel }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const bots = (useBots().data ?? []).filter((b) => b.workspace_id === channel.workspace_id && !channel.members.some((m) => m.bot_id === b.id)).sort((a, b) => a.settings.name.localeCompare(b.settings.name));
+  const bots = (useBots().data ?? []).filter((b) => b.workspace_id === channel.workspace_id && !channel.members.some((m) => m.bot_id === b.id));
   const [adding, setAdding] = useState("");
   const [mode, setMode] = useState<ChannelMemberMode>("mentions");
   const [busy, setBusy] = useState<string | null>(null);

@@ -9,6 +9,7 @@ import type { BotThread } from "../gen/BotThread";
 import type { Channel } from "../gen/Channel";
 import type { Session } from "../gen/Session";
 import { threadOf } from "./botThread.ts";
+import { byName } from "./channelRows.ts";
 import { mainBotOf } from "./conversations.ts";
 import { isQuotaPaused, isRunning, isSleeping, isUnseen } from "./sessionStatus.ts";
 
@@ -257,13 +258,18 @@ export function filterChats<T extends Chat>(chats: readonly T[], { needle = "", 
   });
 }
 
-/** The chats by section, in the sections' order, each newest first; empty sections left out. `pinned` (the phone,
- * which has no sidebar): those chats go first, in a Pinned section of their own, in the order given. */
+/** The chats by section, in the sections' order, each newest first except Pinned and Channels (alphabetical, like
+ * every list of bots or channels); empty sections left out. `pinned` (the phone, which has no sidebar): those chats
+ * go first, in a Pinned section of their own. */
 export function chatSections<T extends Chat>(chats: readonly T[], pinned?: readonly string[]): { section: ChatSection; chats: T[] }[] {
-  const first = pinned?.length ? pinned.map((p) => chats.find((c) => c.pin === p && !c.archived)).filter((c): c is T => !!c) : [];
+  const first = pinned?.length ? byTitle(pinned.map((p) => chats.find((c) => c.pin === p && !c.archived)).filter((c): c is T => !!c)) : [];
   const rest = chats.filter((c) => !first.includes(c));
-  return CHAT_SECTIONS.map((section) => ({ section, chats: section === "Pinned" ? first : rest.filter((c) => c.section === section) })).filter((g) => g.chats.length > 0);
+  const of = (section: ChatSection) => section === "Pinned" ? first : section === "Channels" ? byTitle(rest.filter((c) => c.section === section)) : rest.filter((c) => c.section === section);
+  return CHAT_SECTIONS.map((section) => ({ section, chats: of(section) })).filter((g) => g.chats.length > 0);
 }
+
+/** Chats in alphabetical order of their titles, ignoring case (a new array). */
+export const byTitle = <T extends Chat>(chats: readonly T[]): T[] => byName([...chats], (c) => c.title);
 
 /** The chat a bot page shows (its bot and thread), or a channel page (its ID). */
 export const chatOf = <T extends Chat>(chats: readonly T[], at: { bot: string; thread: string } | { channel: string }): T | undefined =>

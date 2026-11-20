@@ -9,6 +9,7 @@ import type { BotThread } from "@/gen/BotThread";
 import type { Session } from "@/gen/Session";
 import { api } from "@/lib/api";
 import { botOf, threadOf, useBots } from "@/lib/bots";
+import { compareNames } from "@/lib/channels";
 import { mainBotOf, type ConversationBot } from "@/lib/conversations";
 import { useSessions } from "@/lib/queries";
 
@@ -44,7 +45,7 @@ export function useConversation(bot: Bot, threadId: string | null): Conversation
       const list = (sessions ?? []).filter((s) => botOf(s) === b.id && threadOf(s) === t.id).sort((x, y) => x.started_at - y.started_at);
       participants.push({ bot: b, thread: t, sessions: list });
     });
-    participants.sort((a, b) => Number(b.bot.id === mainId) - Number(a.bot.id === mainId) || a.bot.settings.name.localeCompare(b.bot.settings.name));
+    participants.sort((a, b) => Number(b.bot.id === mainId) - Number(a.bot.id === mainId) || compareNames(a.bot.settings.name, b.bot.settings.name));
     return { id, mainId, participants, bots: mine.map((b) => ({ id: b.id, slug: b.slug, name: b.settings.name })) };
   }, [threadId, bot.id, mine, sessions, ...data]); // eslint-disable-line react-hooks/exhaustive-deps
 }

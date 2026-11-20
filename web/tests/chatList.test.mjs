@@ -93,3 +93,12 @@ test("titles: an automatic description, also for continued chats and routine run
   assert.equal(chatTitle({ title: "Weekly CI report", key: "routine:daily.toml", renamed: true }, run), "Weekly CI report");
   assert.equal(chatTitle({ title: "can you look at the upload", key: null, renamed: true }, first), "can you look at the upload");
 });
+
+test("channels and pinned chats list by name, ignoring case; other sections stay newest first", () => {
+  const channels = [channel("beta", { last_at: 90 }), channel("Alpha", { last_at: 10 }), channel("zeta", { last_at: 99 }), channel("10-x"), channel("9-x")];
+  const chats = buildChats({ bots: [], sessions: [], threads: new Map(), channels, workspaceId: "w" });
+  assert.deepEqual(chatSections(chats)[0].chats.map((c) => c.id), ["9-x", "10-x", "Alpha", "beta", "zeta"]);
+  const pinned = chatSections(chats, ["channel:zeta", "channel:beta", "channel:Alpha"]);
+  assert.deepEqual(pinned[0].chats.map((c) => c.id), ["Alpha", "beta", "zeta"]);
+  assert.deepEqual(chats.map((c) => c.id).slice(0, 2), ["zeta", "beta"]);
+});

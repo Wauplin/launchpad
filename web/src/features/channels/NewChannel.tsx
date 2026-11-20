@@ -20,7 +20,7 @@ export function NewChannel({ onCancel }: { onCancel: () => void }) {
   const navigate = useNavigate();
   const scope = useScope();
   const ws = scope.workspace.id;
-  const bots = (useBots().data ?? []).filter((b) => b.workspace_id === ws).sort((a, b) => a.settings.name.localeCompare(b.settings.name));
+  const bots = (useBots().data ?? []).filter((b) => b.workspace_id === ws);
   const taken = (useChannels().data ?? []).filter((c) => c.workspace_id === ws && c.kind === "channel");
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");

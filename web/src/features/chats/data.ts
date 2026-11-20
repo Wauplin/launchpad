@@ -10,7 +10,7 @@ import { runAction } from "@/lib/actions";
 import { api } from "@/lib/api";
 import { useBots } from "@/lib/bots";
 import { useChannels } from "@/lib/channels";
-import { buildChats, type Chat, type ChatInputs } from "@/lib/chatList";
+import { buildChats, byTitle, type Chat, type ChatInputs } from "@/lib/chatList";
 import { useChatsStore } from "@/stores/chats";
 import { useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
@@ -80,14 +80,14 @@ export function useChats(): { chats: Chat[]; loading: boolean; error: Error | nu
   return { chats, loading: botsQuery.isLoading, error: botsQuery.error, pinned, archivedMore: Math.max(0, (threads?.archived_total ?? 0) - loadedArchived) };
 }
 
-/** The pinned chats in the order you pinned them, on the laptop's sidebar: open chats only (an archived chat keeps its
- * pin and shows again once brought back; the phone's list does the same). Pins whose chat is gone are left out. */
+/** The pinned chats on the laptop's sidebar, in alphabetical order of their titles: open chats only (an archived chat
+ * keeps its pin and shows again once brought back; the phone's list does the same). Pins whose chat is gone are left out. */
 export function usePinnedChats(): Chat[] {
   const { chats } = useChats();
   const pins = useChatPins().data;
   return useMemo(() => {
     const byPin = new Map(chats.map((c) => [c.pin, c]));
-    return (pins ?? []).map((p) => byPin.get(p.target)).filter((c): c is Chat => !!c && !c.archived);
+    return byTitle((pins ?? []).map((p) => byPin.get(p.target)).filter((c): c is Chat => !!c && !c.archived));
   }, [chats, pins]);
 }
 

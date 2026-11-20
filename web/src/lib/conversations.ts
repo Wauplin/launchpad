@@ -5,6 +5,7 @@
 // tested (tests/conversations.test.mjs).
 
 import type { Session } from "../gen/Session";
+import { compareNames } from "./channelRows.ts";
 import { isQuotaPaused, isRunning, isSleeping } from "./sessionStatus.ts";
 
 /** A bot as the conversation helpers need it. */
@@ -45,7 +46,7 @@ export function mentionChoices(query: string, bots: readonly ConversationBot[], 
   const q = query.toLowerCase();
   return bots
     .filter((b) => b.slug.toLowerCase().startsWith(q) || b.name.toLowerCase().startsWith(q))
-    .sort((a, b) => Number(participants.includes(b.id)) - Number(participants.includes(a.id)) || a.name.localeCompare(b.name))
+    .sort((a, b) => Number(participants.includes(b.id)) - Number(participants.includes(a.id)) || compareNames(a.name, b.name))
     .slice(0, max);
 }
 

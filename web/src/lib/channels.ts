@@ -6,8 +6,12 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Channel } from "@/gen/Channel";
 import { api } from "./api";
+import { byName, channelName } from "./channelRows";
 
-export const useChannels = () => useQuery({ queryKey: ["channels"], queryFn: () => api.get<Channel[]>("/api/channels"), staleTime: 30_000, refetchInterval: 60_000, retry: false });
+/** Every list of channels shows them (and each one's member bots) in alphabetical order of their names, ignoring case,
+ * so the query sorts once. */
+const channelsByName = (channels: Channel[]) => byName(channels, channelName).map((c) => ({ ...c, members: byName(c.members, (m) => m.name) }));
+export const useChannels = () => useQuery({ queryKey: ["channels"], queryFn: () => api.get<Channel[]>("/api/channels"), select: channelsByName, staleTime: 30_000, refetchInterval: 60_000, retry: false });
 
 /** A channel's name for lists ("#release-train", "Maintainer ↔ Release"), by its ID. */
 export function useChannelName(): (id: string) => string {

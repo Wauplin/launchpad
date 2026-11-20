@@ -50,8 +50,8 @@ export function OutcomeBadge({ run }: { run: RoutineRun }) {
  * message, and its conditions. */
 export function TriggerFields({ draft, harness, workspaceId, inThread, botId, onChange, onValidityChange }: { draft: RoutineDraft; harness: HarnessKind | null; workspaceId: string | null; inThread: boolean; botId?: string | null; onChange: (d: RoutineDraft) => void; onValidityChange: (valid: boolean) => void }) {
   const projects = useProjects().data ?? [];
-  // The bot's channels and DMs: a channel routine reads them, so the bot is a member.
-  const channels = (useChannels().data ?? []).filter((c) => c.workspace_id === workspaceId && !c.archived && !!botId && c.members.some((m) => m.bot_id === botId)).sort((a, b) => a.kind.localeCompare(b.kind) || a.title.localeCompare(b.title));
+  // The bot's channels and DMs (channels first, each by name): a channel routine reads them, so the bot is a member.
+  const channels = (useChannels().data ?? []).filter((c) => c.workspace_id === workspaceId && !c.archived && !!botId && c.members.some((m) => m.bot_id === botId)).sort((a, b) => a.kind.localeCompare(b.kind));
   const channelName = useChannelName();
   const folders = projects.filter((p) => p.workspace_id === workspaceId && !p.is_temp).sort((a, b) => a.name.localeCompare(b.name));
   const [fieldsValid, setFieldsValid] = useState(true);

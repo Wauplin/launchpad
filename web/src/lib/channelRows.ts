@@ -6,7 +6,7 @@ import type { ChannelDelivery } from "@/gen/ChannelDelivery";
 import type { ChannelMessage } from "@/gen/ChannelMessage";
 import type { ChannelMemberMode } from "@/gen/ChannelMemberMode";
 
-/** The workspace's channels and DMs that are not archived, newest activity first (Home's order), split by kind. */
+/** The workspace's channels and DMs that are not archived, in the order given (`useChannels`: by name), split by kind. */
 export function channelsOf(all: Channel[] | undefined, workspaceId: string | null | undefined): { channels: Channel[]; dms: Channel[] } {
   const mine = (all ?? []).filter((c) => c.workspace_id === workspaceId && !c.archived);
   return { channels: mine.filter((c) => c.kind === "channel"), dms: mine.filter((c) => c.kind === "dm") };
@@ -15,10 +15,14 @@ export function channelsOf(all: Channel[] | undefined, workspaceId: string | nul
 /** A channel's or DM's name as the lists show it. */
 export const channelName = (c: Pick<Channel, "kind" | "name" | "title">) => (c.kind === "dm" ? c.title : c.name);
 
-/** Items in alphabetical order of their names, ignoring case and accents (the Bots page and the sidebar). */
-export function byName<T>(items: T[], name: (item: T) => string): T[] {
-  return [...items].sort((a, b) => name(a).localeCompare(name(b), undefined, { sensitivity: "base", numeric: true }));
+/** Items in alphabetical order of their names, ignoring case and accents (every list of bots or channels). Returns a
+ * new array: never sorts the one given. */
+export function byName<T>(items: readonly T[], name: (item: T) => string): T[] {
+  return [...items].sort((a, b) => compareNames(name(a), name(b)));
 }
+
+/** The order of two names in `byName`, for sorts that group first (participants first, then by name). */
+export const compareNames = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 
 /** The workspace's archived channels and DMs: the Archived list, where they come back or go for good. */
 export function archivedOf(all: Channel[] | undefined, workspaceId: string | null | undefined): Channel[] {
