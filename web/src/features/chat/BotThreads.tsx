@@ -67,6 +67,9 @@ export function useArchiveThread() {
 
 /** Archive of the chat shown, one click: a primary button in the chat's header on the laptop, an icon of the chat's
  * bar on the phone. Disabled while the chat works. */
+/** A Rename asked for elsewhere (the ⋯ of a row in the Chats list): the header of that chat opens its title editor. */
+export const useRenameRequest = create<{ request: { bot: string; thread: string } | null }>(() => ({ request: null }));
+
 export function ArchiveThreadButton({ bot, thread, sessions }: { bot: Bot; thread: BotThread; sessions: Session[] }) {
   const phone = usePhone();
   const { archive, busy } = useArchiveThread();

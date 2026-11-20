@@ -2,7 +2,7 @@
 // workspace, grouped by state like Agents (Needs you, Unread, Running, Quota paused, Sleeping, Failed, Done,
 // Channels, Archived). Rows look like agent rows: a conversation of bots has its bots' square marks, a channel or DM
 // a grey "#" or "↔" mark and the word Channel or DM. A row opens the chat; its ⋯ pins it (a sidebar shortcut),
-// renames, archives or brings back a conversation and opens its trace in Agents. Channels are archived from their
+// renames (in the chat's header), archives or brings back a conversation and opens its trace in Agents. Channels are archived from their
 // settings, never from this list.
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,7 +15,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { toast, toastError } from "@/components/Toast";
 import { Count, Empty, ErrorState, Loading, MoreMenu, RoutineMark, StatusBadge } from "@/components/ui";
-import { useArchiveThread } from "@/features/chat/BotThreads";
+import { useArchiveThread, useRenameRequest } from "@/features/chat/BotThreads";
 import type { Bot } from "@/gen/Bot";
 import { runAction } from "@/lib/actions";
 import { api } from "@/lib/api";
@@ -28,7 +28,6 @@ import { isRunning } from "@/lib/sessionStatus";
 import { useScope } from "@/lib/workspace";
 import { useChatsStore } from "@/stores/chats";
 import { useChatPins, useChats, usePinChat } from "./data";
-import { RenameThreadDialog } from "./Dialog";
 import { ChatMark, participantNames } from "./ChatMark";
 
 /** Row height: the phone's larger text needs more room for the two lines (as in Agents). */
@@ -72,7 +71,7 @@ const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive
       <span className="agent-row-action lp-row-more absolute right-1.5 bottom-1.5">
         <MoreMenu label={`More actions for ${chat.title}`}>{(close) => <>
           <MenuItem icon={<Icon name="pin" size={14} />} label={pinned ? "Unpin" : "Pin"} detail={pinned ? "Remove its shortcut from the sidebar" : "A shortcut in the sidebar, first in the phone's list"} onClick={() => { close(); onPin(chat, !pinned); }} />
-          {thread && !thread.archived && <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename…" detail={chat.title} onClick={() => { close(); onRename(chat); }} />}
+          {thread && !thread.archived && <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename" detail="Edit its title in the chat's header" onClick={() => { close(); onRename(chat); }} />}
           {thread && (thread.archived
             ? <MenuItem icon={<Icon name="refresh" size={14} />} label="Unarchive" detail="Brings the chat and its sessions back" onClick={() => { close(); onArchive(chat, false); }} />
             : <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail={running ? "Stop its turn first" : "It stays under Archived"} disabled={running || archiving} onClick={() => { close(); onArchive(chat, true); }} />)}
@@ -156,15 +155,20 @@ export function ChatList() {
   const groups = useMemo(() => chatSections(shown, pinOrder), [shown, pinOrder]);
   const open = useOpenChat();
   const selected = open ? chatOf(chats, open)?.id ?? null : null;
-  const [renaming, setRenaming] = useState<Chat | null>(null);
   const pin = usePinChat();
+  const navigate = useNavigate();
   const { archive, busy } = useArchiveThread();
 
   // Stable callbacks for the memoized rows.
-  const actions = useRef({ pin, archive, qc });
-  actions.current = { pin, archive, qc };
+  const actions = useRef({ pin, archive, qc, navigate });
+  actions.current = { pin, archive, qc, navigate };
   const onPin = useCallback((c: Chat, on: boolean) => void actions.current.pin(c, on), []);
-  const onRename = useCallback((c: Chat) => setRenaming(c), []);
+  // Rename edits the title in place, in the chat's header: open the chat and ask its header for the editor.
+  const onRename = useCallback((c: Chat) => {
+    if (c.kind !== "thread") return;
+    useRenameRequest.setState({ request: { bot: c.bot.id, thread: c.thread } });
+    void actions.current.navigate({ to: "/bots/$id", params: { id: c.bot.id }, search: { thread: c.thread } as never });
+  }, []);
   const onArchive = useCallback((c: Chat, on: boolean) => {
     if (c.kind !== "thread") return;
     if (on) { void actions.current.archive(c.bot.id, c.thread, c.id); return; }
@@ -215,6 +219,5 @@ export function ChatList() {
           })}
         </div>}
     </div>
-    {renaming?.kind === "thread" && <RenameThreadDialog bot={renaming.bot.id} thread={renaming.thread} title={renaming.title} onClose={() => setRenaming(null)} />}
   </div>;
 }

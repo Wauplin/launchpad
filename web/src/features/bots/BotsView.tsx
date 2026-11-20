@@ -12,9 +12,10 @@ import { defaultOn, useLayers } from "@/lib/toolDefaults";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/Icon";
+import { MenuItem } from "@/components/Popover";
 import { Markdown } from "@/components/Markdown";
 import { toast, toastError } from "@/components/Toast";
-import { ConfirmButton, Empty, ErrorState, IconButton, Loading, PageHeader, RoutineMark, Tabs } from "@/components/ui";
+import { ConfirmButton, Empty, ErrorState, IconButton, Loading, MoreMenu, PageHeader, RoutineMark, Tabs } from "@/components/ui";
 import { PatchView } from "@/components/diff/DiffReview";
 import { BotChat, BotModelChoice } from "@/features/chat/BotChat";
 import { ArchiveThreadButton, NEW_THREAD, useShownThread, useThreadRows } from "@/features/chat/BotThreads";
@@ -57,6 +58,7 @@ const CLI_ACCESS: { id: LaunchpadAccess; label: string; detail: string }[] = [
 ];
 import { useScope } from "@/lib/workspace";
 import { PhoneBar } from "@/mobile/PhoneHeader";
+import { ChatTitle, PinStar, TitleForm, useTitleEditor } from "@/features/chats/ChatTitle";
 import { phoneBack, replaceUnderOverlays } from "@/mobile/back";
 import { useKeptDraft, versionOf } from "@/lib/keptDraft";
 import { Sheet } from "@/mobile/Sheet";
@@ -238,6 +240,7 @@ function BotPageOf({ id }: { id: string }) {
   const profiles = useProfiles();
   const where = useRunnerTag(current?.runner_id);
   const [step, setStep] = useState<string | null>(null);
+  const editor = useTitleEditor(id, threadId);
   if (bots.isLoading) return <Loading what="the bot" />;
   if (bots.error) return <ErrorState error={bots.error} onRetry={() => void bots.refetch()} />;
   if (!bot) return <div className="flex h-full flex-col"><PageHeader title="Chat" /><Empty fill icon="spark" action={<Link to="/chats" className="btn btn-sm">All chats</Link>}>This bot no longer exists.</Empty></div>;
@@ -255,6 +258,10 @@ function BotPageOf({ id }: { id: string }) {
   // Leave the chat without archiving: the Chats landing (the phone's ‹ goes back to the list).
   const closeChat = () => void navigate({ to: "/chats", search: {} as never });
   const archiveThread = shownThread && threadId !== NEW_THREAD && shownThread.archived_at == null && current ? <ArchiveThreadButton bot={bot} thread={shownThread} sessions={thread} /> : null;
+  // A chat with a thread: its title is editable in place, and it can be pinned and opened in Agents from the header.
+  const editable = !!shownThread && threadId !== NEW_THREAD;
+  const pinTarget = chat?.kind === "thread" ? chat.pin : null;
+  const openInAgents = current ? () => void navigate({ to: "/agents", search: { session: current.id } as never }) : null;
   const chatView = <BotChat key={threadId} bot={bot} threadId={threadId} thread={thread} rotation={rotation} needsProfile={!profile} conversationBar={false}
     openSettings={() => void navigate({ to: "/bots/$id/settings", params: { id } })} onStep={setStep}
     onThread={(t) => { if (t !== threadId) { void threads.refetch(); selectThread(t); } }}
@@ -262,15 +269,24 @@ function BotPageOf({ id }: { id: string }) {
   if (phone) {
     return <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
       <PhoneBar title={<span className="grid min-w-0"><span className="truncate">{title}</span><span className="truncate text-[12px] font-normal text-ink-3">{participants.map((b) => b.settings.name).join(", ")} · {statusLine}</span></span>} onBack={() => phoneBack("/chats")} backLabel="All chats"
-        end={<>{archiveThread}<IconButton icon="gear" label={`Settings of ${bot.settings.name}`} data-tour="chat.settings" onClick={() => void navigate({ to: "/bots/$id/settings", params: { id } })} /></>} />
+        end={<>{editable && pinTarget && <PinStar pin={pinTarget} />}{archiveThread}<IconButton icon="gear" label={`Settings of ${bot.settings.name}`} data-tour="chat.settings" onClick={() => void navigate({ to: "/bots/$id/settings", params: { id } })} />
+          {editable && <MoreMenu label="More actions for this chat">{(close) => <>
+            <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename" detail={title} onClick={() => { close(); editor.setEditing(true); }} />
+            {openInAgents && <MenuItem icon={<Icon name="agents" size={14} />} label="Open in Agents" detail="Its session's trace, terminal and files" onClick={() => { close(); openInAgents(); }} />}
+          </>}</MoreMenu>}</>} />
+      {editable && editor.editing && <div className="flex border-b border-line-2 bg-paper px-3 py-2"><TitleForm bot={id} thread={shownThread!.id} title={title} onDone={() => editor.setEditing(false)} /></div>}
       {chatView}
     </div>;
   }
   return (
     <div className="flex h-full min-h-0 flex-col" data-tour="bots.bot">
-      <PageHeader title={<span className="flex min-w-0 items-center gap-1.5">{routine && <RoutineMark routine={routine} />}<span className="truncate" title={title}>{title}</span></span>}
+      <PageHeader title={editable
+          ? <ChatTitle bot={id} thread={shownThread!.id} pin={pinTarget} title={title} mark={routine && <RoutineMark routine={routine} />} editor={editor} />
+          : <span className="flex min-w-0 items-center gap-1.5">{routine && <RoutineMark routine={routine} />}<span className="truncate" title={title}>{title}</span></span>}
         meta={<><Participants bots={participants} /><span aria-hidden>·</span>{statusLine}</>}
-        actions={<span className="flex items-center gap-1" data-tour="bots.threads">{archiveThread}<IconButton icon="x" label="Close the chat" onClick={closeChat} /></span>} />
+        actions={<span className="flex items-center gap-1" data-tour="bots.threads">
+          {editable && openInAgents && <button type="button" className="btn btn-sm flex-none" title="Its session's trace, terminal and files" onClick={openInAgents}><Icon name="agents" size={12} />Open in Agents</button>}
+          {archiveThread}<IconButton icon="x" label="Close the chat" onClick={closeChat} /></span>} />
       <div className="flex min-h-0 flex-1 flex-col">{chatView}</div>
     </div>
   );
