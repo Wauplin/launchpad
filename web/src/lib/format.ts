@@ -42,6 +42,13 @@ export function when(ms: number): string {
   return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}${d.getFullYear() === new Date().getFullYear() ? "" : ` ${d.getFullYear()}`}, ${clock(d)}`;
 }
 
+/** A moment with its full date, clock and time zone, never relative: "Fri 20 Nov, 14:02 CET" ("…2025, …" in another year). */
+export function exact(ms: number): string {
+  const d = new Date(ms);
+  const zone = new Intl.DateTimeFormat([], { timeZoneName: "short" }).formatToParts(d).find((p) => p.type === "timeZoneName")?.value;
+  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}${d.getFullYear() === new Date().getFullYear() ? "" : ` ${d.getFullYear()}`}, ${clock(d)}${zone ? ` ${zone}` : ""}`;
+}
+
 /** Hour and minute only, for a moment of today: "14:02" ("Offline since 14:02"). */
 export const time = (ms: number): string => clock(new Date(ms));
 /** A time of day without a date (a routine's "at 03:00"), in the same locale clock as `time` and `when`. */

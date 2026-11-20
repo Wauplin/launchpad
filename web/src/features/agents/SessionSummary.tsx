@@ -22,7 +22,7 @@ import { toast, toastError } from "@/components/Toast";
 import { api } from "@/lib/api";
 import { useStatus } from "@/lib/queries";
 import { copyText } from "@/lib/clipboard";
-import { ago, formatReset, when } from "@/lib/format";
+import { ago, exact, formatReset, when } from "@/lib/format";
 import { useHarnessDefaults, useProjects, useSchedules, useSessions } from "@/lib/queries";
 import { conditionsSummary, DelaySelector } from "@/features/launch/DelaySelector";
 import { budgetReached, costUnavailableMessage, supportsModelCost, parseUsd, quotaFor, usd, useProfile, useProfileModels, useProfiles } from "@/lib/profiles";
@@ -165,6 +165,8 @@ export function SessionSummary({ session: s, rows, earlier, localPr, reviewDiff,
   const costCapability = useHarnessInfo(s.harness);
   const supportsCost = supportsModelCost(costCapability, s.model) && !s.usage.cost_unavailable;
   const metadata: [string, ReactNode][] = [];
+  // When the session was created, never its last resume or activity.
+  metadata.push(["Launched", `${exact(s.started_at)} · ${ago(s.started_at)}`]);
   if (turns.length) metadata.push(["Time", `${duration == null ? "" : `${Math.floor(duration / 60000)} min ${Math.round(duration / 1000) % 60} s · `}${turns.length} recorded ${turns.length === 1 ? "turn" : "turns"}`]);
   if (s.usage.cost_usd != null) metadata.push(["Reported cost", `$${s.usage.cost_usd.toFixed(2)}${tokens ? ` · ${compact(tokens)} tokens` : ""}`]);
   else if (tokens) metadata.push(["Tokens", compact(tokens)]);
