@@ -50,7 +50,8 @@ export function useArchiveThread() {
   const navigate = useNavigate();
   const phone = usePhone();
   const [busy, setBusy] = useState<string | null>(null);
-  const archive = async (bot: string, thread: string, conversation: string | null) => {
+  /** Resolves true once the thread is archived, false when it failed (the error is shown as a toast). */
+  const archive = async (bot: string, thread: string, conversation: string | null): Promise<boolean> => {
     setBusy(`${bot}:${thread}`);
     try {
       await runAction("bot.thread-archive", { id: bot, thread }, { archived: true });
@@ -59,7 +60,8 @@ export function useArchiveThread() {
       if (leaving) { if (phone) phoneBack("/chats"); else void navigate({ to: "/chats", search: {} as never }); }
       toast("Chat archived: it stays under Archived in Chats");
       await Promise.all([refreshThreads(qc, bot), qc.invalidateQueries({ queryKey: ["sessions"] })]);
-    } catch (e) { toastError(e); }
+      return true;
+    } catch (e) { toastError(e); return false; }
     finally { setBusy(null); }
   };
   return { archive, busy: (bot: string, thread: string) => busy === `${bot}:${thread}` };

@@ -9,11 +9,12 @@ import { useMemo } from "react";
 import { Icon } from "@/components/Icon";
 import { askTarget, botProfile, botThread, findThread, landingThread, rememberThread, rotationReason, useBots, useBotThreads } from "@/lib/bots";
 import { useProfiles } from "@/lib/profiles";
+import { isRunning } from "@/lib/sessionStatus";
 import { useSessions } from "@/lib/queries";
 import { useScope } from "@/lib/workspace";
 import { useAskPanel } from "@/stores/ask";
 import { BotChat } from "./BotChat";
-import { NEW_THREAD } from "./BotThreads";
+import { NEW_THREAD, useArchiveThread } from "./BotThreads";
 
 export function AskPanel() {
   const { botId, close, show, thread: asked, setThread } = useAskPanel();
@@ -24,11 +25,15 @@ export function AskPanel() {
   const sessions = useSessions().data;
   const threads = useBotThreads(bot?.id).data;
   const threadId = asked === NEW_THREAD ? NEW_THREAD : findThread(threads, asked ?? undefined)?.id ?? asked ?? (bot && threads ? landingThread(bot.id, threads, sessions ?? []) : null) ?? NEW_THREAD;
-  const title = threadId === NEW_THREAD ? "New chat" : threads?.find((t) => t.id === threadId)?.title ?? null;
+  const shown = threadId === NEW_THREAD ? null : threads?.find((t) => t.id === threadId) ?? null;
+  const title = threadId === NEW_THREAD ? "New chat" : shown?.title ?? null;
   const thread = useMemo(() => (bot && threadId !== NEW_THREAD ? botThread(sessions ?? [], bot.id, threadId) : []), [sessions, bot, threadId]);
   const profiles = useProfiles();
   const navigate = useNavigate();
   const profile = bot ? botProfile(bot, profiles) : null;
+  const { archive, busy } = useArchiveThread();
+  const running = thread.some(isRunning);
+  const archiveTitle = running ? "Stop its turn first to archive this chat" : `Archive “${shown?.title ?? ""}”: it stays under Archived in Chats`;
   return (
     <aside aria-label="Ask" data-tour="ask.panel" className="flex w-[min(440px,42vw)] min-w-[320px] flex-none flex-col border-l border-line bg-paper">
       <div className="flex min-h-11 items-center gap-1.5 border-b border-line px-2.5">
@@ -39,6 +44,7 @@ export function AskPanel() {
         {bot && title && <span className="max-w-[40%] min-w-0 truncate text-[12px] text-ink-3" title={title}>{title}</span>}
         {bot && <button className="iconbtn" title="New chat: your next message starts it" aria-label="New chat" disabled={threadId === NEW_THREAD} onClick={() => setThread(NEW_THREAD)}><Icon name="plus" size={14} /></button>}
         {bot && <Link to="/bots/$id" params={{ id: bot.id }} search={(threadId !== NEW_THREAD ? { thread: threadId } : {}) as never} className="iconbtn" title="Open this chat in Chats" aria-label="Open in Chats"><Icon name="ext" size={14} /></Link>}
+        {bot && shown && !shown.archived_at && <button className="iconbtn" title={archiveTitle} aria-label="Archive this chat" disabled={running || busy(bot.id, shown.id)} onClick={() => void archive(bot.id, shown.id, shown.conversation ?? null).then((ok) => { if (ok) close(); })}><Icon name="archive" size={14} /></button>}
         <button className="iconbtn" title="Close the panel" aria-label="Close the Ask panel" onClick={close}><Icon name="x" size={14} /></button>
       </div>
       {bot
