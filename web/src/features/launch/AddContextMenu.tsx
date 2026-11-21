@@ -2,8 +2,9 @@
 import { TopicChoices } from "@/features/topics/TopicPicker";
 import { FolioChoices } from "@/features/folios/FolioContext";
 import type { FolioRef } from "@/gen/FolioRef";
+import type { LpRef } from "@/gen/LpRef";
+import { lazy, Suspense, useState } from "react";
 import type { TopicContext } from "@/gen/TopicContext";
-import { useState } from "react";
 import type { AgentTraceRef } from "@/gen/AgentTraceRef";
 import type { GitHubRef } from "@/gen/GitHubRef";
 import type { Project } from "@/gen/Project";
@@ -19,6 +20,8 @@ import { PresetChecklist } from "@/features/agents/MessagePresets";
 import { usePhone } from "@/lib/phone";
 import { Sheet } from "@/mobile/Sheet";
 import { ATTACH_LIMITS } from "@/features/agents/MessageAttachments";
+
+const ChatChoices = lazy(() => import("./ChatChoices").then((m) => ({ default: m.ChatChoices })));
 
 function GitHubLinkForm({ onAdd, onDone }: { onAdd: (r: GitHubRef) => void; onDone: () => void }) {
   const [url, setUrl] = useState("");
@@ -62,12 +65,14 @@ export type PresetPick = { presets: Preset[]; selected: string[]; onChange: (ids
 export type AttachPick = { onPick: () => void; images: boolean; disabled?: boolean };
 
 /** The "+ Add context" popover: one menu for attachments, projects, GitHub links, agent traces, presets and recent contexts. */
-export function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject, onGitHub, onToggleTrace, presets, attach, topics = [], onTopic, onFolio, disabled, compact = false, icon = false }: {
+export function AddContextMenu({ projects, recent, sessions, selectedTraces, onProject, onGitHub, onToggleTrace, presets, attach, topics = [], onTopic, onFolio, onRef, disabled, compact = false, icon = false }: {
   topics?: TopicContext[];
   onTopic?: (topic: TopicContext) => void;
   folios?: FolioRef[];
   /** Folio…: a folio of the workspace (whole, or one page), as a reference. */
   onFolio?: (folio: FolioRef) => void;
+  /** Chat or channel…: a chat or a bot channel of the workspace, as a Launchpad reference. */
+  onRef?: (r: LpRef) => void;
   disabled?: boolean;
   compact?: boolean;
   /** Only a "+" icon button, for the icon row of a message box. */
@@ -84,7 +89,7 @@ export function AddContextMenu({ projects, recent, sessions, selectedTraces, onP
   /** Omitted where the box takes no attachments. */
   attach?: AttachPick;
 }) {
-  const [mode, setMode] = useState<"menu" | "project" | "github" | "trace" | "preset" | "topic" | "folio">("menu");
+  const [mode, setMode] = useState<"menu" | "project" | "github" | "trace" | "preset" | "topic" | "folio" | "chat">("menu");
   const [sheet, setSheet] = useState(false);
   const phone = usePhone();
   const presetCount = presets ? presets.presets.filter((p) => presets.selected.includes(p.id)).length : 0;
@@ -92,6 +97,7 @@ export function AddContextMenu({ projects, recent, sessions, selectedTraces, onP
   const body = (close: () => void) => {
     const back = <MenuItem icon={<Icon name="chev" size={12} className="rotate-90" />} label="Back" onClick={() => setMode("menu")} />;
     if (mode === "topic") return <>{back}<TopicChoices exclude={topics.map(t => t.id)} close={close} onPick={t => onTopic?.({id:t.id,name:t.name})} /></>;
+    if (mode === "chat") return <>{back}<Suspense fallback={<div className="p-2 text-[12px] text-ink-3">Loading…</div>}><ChatChoices close={close} onPick={(r) => onRef?.(r)} /></Suspense></>;
     if (mode === "folio") return <>{back}<FolioChoices close={close} onPick={(f) => onFolio?.(f)} /></>;
     if (mode === "project") return <>{back}<ProjectPicker projects={projects} temporary={false} emptyMessage="No other folder." onPick={(p) => { if (p) { onProject(p); close(); } }} /></>;
     if (mode === "github") return <>{back}<GitHubLinkForm onAdd={onGitHub} onDone={close} /></>;
@@ -105,6 +111,7 @@ export function AddContextMenu({ projects, recent, sessions, selectedTraces, onP
         {onTopic && <MenuItem icon={<Icon name="tag" size={12} />} label="Topic…" detail="The traces of every session in a topic" onClick={() => setMode("topic")} />}
         {onFolio && <MenuItem icon={<Icon name="folio" size={12} />} label="Folio…" detail="A folio or one of its pages, read by the agent" onClick={() => setMode("folio")} />}
         <MenuItem icon={<Icon name="agents" size={12} />} label="Agent trace…" detail="The stored trace of another agent" onClick={() => setMode("trace")} />
+        {onRef && <MenuItem icon={<Icon name="comment" size={12} />} label="Chat or channel…" detail="A chat or bot channel, read by the agent (or paste a message's link)" onClick={() => setMode("chat")} />}
         {presets && <MenuItem icon={<Icon name="preset" size={12} />} label={presetCount ? `Presets… · ${presetCount}` : "Presets…"} detail="Your usual instructions, added after the text" onClick={() => setMode("preset")} />}
         {!!recent.length && <div className="px-[9px] pt-2 pb-1 seclabel">Recent contexts</div>}
         {recent.slice(0, 6).map((c) => <MenuItem key={c.key} icon={<Icon name="plus" size={12} />} label={<span className="block truncate" title={c.label}>{c.label}</span>} onClick={() => (c.add(), close())} />)}

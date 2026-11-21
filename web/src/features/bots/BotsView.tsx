@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ToolDefaultsEditor } from "@/features/settings/ToolDefaults";
 import { defaultOn, slackKey, useLayers } from "@/lib/toolDefaults";
 import { useSlackProfiles } from "@/lib/slack";
+import { copyRefLink } from "@/lib/refActions";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/Icon";
@@ -205,7 +206,7 @@ function BotPageOf({ id }: { id: string }) {
   const bots = useBots();
   const bot = bots.data?.find((b) => b.id === id);
   const sessions = useBotSessions();
-  const search = useSearch({ strict: false }) as { panel?: string; thread?: string };
+  const search = useSearch({ strict: false }) as { panel?: string; thread?: string; msg?: string };
   const navigate = useNavigate();
   // Older links opened About (`?panel=`): what it held is the bot's settings page now.
   useEffect(() => { if (search.panel) void navigate({ to: "/bots/$id/settings", params: { id }, replace: true }); }, [search.panel, id, navigate]);
@@ -264,7 +265,7 @@ function BotPageOf({ id }: { id: string }) {
   const editable = !!shownThread && threadId !== NEW_THREAD;
   const pinTarget = chat?.kind === "thread" ? chat.pin : null;
   const openInAgents = current ? () => void navigate({ to: "/agents", search: { session: current.id } as never }) : null;
-  const chatView = <BotChat key={threadId} bot={bot} threadId={threadId} thread={thread} rotation={rotation} needsProfile={!profile} conversationBar={false}
+  const chatView = <BotChat key={threadId} bot={bot} threadId={threadId} thread={thread} rotation={rotation} needsProfile={!profile} conversationBar={false} target={search.msg}
     openSettings={() => void navigate({ to: "/bots/$id/settings", params: { id } })} onStep={setStep}
     onThread={(t) => { if (t !== threadId) { void threads.refetch(); selectThread(t); } }}
     intro={<p className="m-0 text-[13px] text-ink-2">{threadId !== NEW_THREAD ? "This chat has no message yet." : rows.length ? `Send ${bot.settings.name} the first message of a new chat: it runs next to its other chats.` : `Send ${bot.settings.name} its first task.`}</p>} />;
@@ -275,6 +276,7 @@ function BotPageOf({ id }: { id: string }) {
           {editable && <MoreMenu label="More actions for this chat">{(close) => <>
             <MenuItem icon={<Icon name="pencil" size={14} />} label="Rename" detail={title} onClick={() => { close(); editor.setEditing(true); }} />
             {openInAgents && <MenuItem icon={<Icon name="agents" size={14} />} label="Open in Agents" detail="Its session's trace, terminal and files" onClick={() => { close(); openInAgents(); }} />}
+            {editable && <MenuItem icon={<Icon name="link" size={14} />} label="Copy link" detail="Paste it into any message box, or Go to" onClick={() => { close(); void copyRefLink({ kind: "chat", id, thread: threadId, title }); }} />}
           </>}</MoreMenu>}</>} />
       {editable && editor.editing && <div className="flex border-b border-line-2 bg-paper px-3 py-2"><TitleForm bot={id} thread={shownThread!.id} title={title} onDone={() => editor.setEditing(false)} /></div>}
       {chatView}

@@ -15,6 +15,7 @@ import { NoWorkspace } from "@/features/workspaces/WorkspaceMenu";
 import { StatusBar } from "./StatusBar";
 import { MaintenanceBanner } from "./MaintenanceBanner";
 import { TopBar } from "./TopBar";
+import { GoToRoot } from "./GoTo";
 import { isDemo } from "@/demo/mode";
 import { WelcomeGate } from "@/onboarding/WelcomeGate";
 import { useAskPanel } from "@/stores/ask";
@@ -87,6 +88,7 @@ export function Shell() {
       <StatusBar />
       <Toasts />
       <BotIdentitySync />
+      <GoToRoot />
       {isDemo && <Suspense fallback={null}><TourRoot /></Suspense>}
       {addOpen && <Suspense fallback={null}><AddFolderDialog /></Suspense>}
     </div>

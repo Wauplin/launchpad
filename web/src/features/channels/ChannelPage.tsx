@@ -6,6 +6,7 @@
 // you (or mentions you) adds a Today row; the page marks the channel read once a used, focused window showed it. Its
 // settings (`ChannelSettingsPage`): name and purpose, members, Pause, Block (DMs), Archive and Delete.
 
+import { copyRefLink } from "@/lib/refActions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -16,7 +17,7 @@ import { ChatMessage } from "@/features/chat/Message";
 import { Icon } from "@/components/Icon";
 import { ImageThumb } from "@/components/ImageViewer";
 import { Markdown } from "@/components/Markdown";
-import { toastError } from "@/components/Toast";
+import { toast, toastError } from "@/components/Toast";
 import { Badge, Empty, ErrorState, IconButton, Loading, PageHeader } from "@/components/ui";
 import { ChannelComposer } from "./ChannelComposer";
 import { ChannelMembers } from "./ChannelMembers";
@@ -57,7 +58,7 @@ function ChannelPageOf({ id }: { id: string }) {
   const [older, setOlder] = useState<Older>({ messages: [], deliveries: [], more: null });
   const channel = page.data?.channel;
   // Older links opened the Members panel (`?panel=members`): members are in the channel's settings now.
-  const panel = (useSearch({ strict: false }) as { panel?: string }).panel;
+  const { panel, msg } = useSearch({ strict: false }) as { panel?: string; msg?: string };
   useEffect(() => { if (panel) void navigate({ to: "/channels/$id/settings", params: { id }, replace: true }); }, [panel, id, navigate]);
   const { messages, deliveries, more } = useMemo(() => {
     const p = page.data;
@@ -116,7 +117,7 @@ function ChannelPageOf({ id }: { id: string }) {
     <div className="flex h-full min-h-0 flex-col" data-tour="channel.page">
       {header}
       <div className="flex min-h-0 flex-1 flex-col">
-        <MessageList channel={channel} messages={messages} lines={lines} byId={byId} more={more} loadingMore={loadingMore} onOlder={() => void loadOlder()} />
+        <MessageList channel={channel} messages={messages} lines={lines} byId={byId} more={more} loadingMore={loadingMore} onOlder={() => void loadOlder()} target={msg && Number(msg) > 0 ? Number(msg) : null} />
         {footer && <div className={`flex flex-wrap items-center gap-2 border-t border-line-2 px-5 py-1.5 text-[12px] ${footer.stopped ? "bg-attn-soft text-attn" : "text-ink-3"}`} data-tour="channel.guard" title="The loop guard: a bot's message counts one hop more than the message that woke it; your own messages reset the hop and the hourly count">
           <Icon name={footer.stopped ? "alert" : "refresh"} size={12} className="flex-none" />
           <span className="min-w-0 flex-1">{footer.stopped ? `${footer.stopped} · ` : ""}{footer.text}</span>
@@ -205,9 +206,9 @@ function ChannelSettingsOf({ id }: { id: string }) {
 
 // ---------------------------------------------------------------- messages
 
-function MessageList({ channel, messages, lines, byId, more, loadingMore, onOlder }: { channel: Channel; messages: ChannelMessage[]; lines: Map<number, DeliveryLine[]>; byId: Map<number, ChannelMessage>; more: boolean; loadingMore: boolean; onOlder: () => void }) {
+function MessageList({ channel, messages, lines, byId, more, loadingMore, onOlder, target }: { channel: Channel; messages: ChannelMessage[]; lines: Map<number, DeliveryLine[]>; byId: Map<number, ChannelMessage>; more: boolean; loadingMore: boolean; onOlder: () => void; target: number | null }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const atBottom = useRef(true);
+  const atBottom = useRef(target == null);
   const v = useVirtualizer({ count: messages.length, getItemKey: (i) => messages[i].id, getScrollElement: () => scrollRef.current, estimateSize: () => 72, overscan: 6, useFlushSync: false });
   const total = v.getTotalSize();
   // Follow the newest message while at the bottom. The real bottom, not the last item's offset: "Load earlier
@@ -233,6 +234,23 @@ function MessageList({ channel, messages, lines, byId, more, loadingMore, onOlde
     atBottom.current = false;
     onOlder();
   };
+  // A link to one message (`?msg=`): older pages load until it is there, then it scrolls into view, outlined.
+  const reached = useRef<number | null>(null);
+  useEffect(() => {
+    if (target == null || reached.current === target || !messages.length) return;
+    atBottom.current = false;
+    const i = messages.findIndex((m) => m.id === target);
+    if (i >= 0) {
+      reached.current = target;
+      v.scrollToIndex(i, { align: "center" });
+      requestAnimationFrame(() => v.scrollToIndex(i, { align: "center" }));
+    } else if (more && messages[0].id > target) {
+      if (!loadingMore) onOlder();
+    } else {
+      reached.current = target;
+      toast("The linked message is no longer in this channel");
+    }
+  }, [target, messages, more, loadingMore, onOlder, v]);
   // Scrolling up loads older messages. A wheel or swipe at the very top fires no scroll event, so check again
   // once a load ended: still near the top (or the messages do not fill the view) loads the next page.
   const olderRef = useRef(older);
@@ -259,7 +277,7 @@ function MessageList({ channel, messages, lines, byId, more, loadingMore, onOlde
             const quoted = m.reply_to != null && m.reply_to !== messages[it.index - 1]?.id;
             const reply = quoted ? byId.get(m.reply_to!) ?? null : null;
             return <div key={it.key} data-index={it.index} ref={v.measureElement} className="absolute top-0 right-0 left-0" style={{ transform: `translateY(${it.start}px)` }}>
-              <MessageRow m={m} lines={lines.get(m.id)} reply={reply} quoted={quoted} />
+              <MessageRow m={m} lines={lines.get(m.id)} reply={reply} quoted={quoted} target={m.id === target} />
             </div>;
           })}
         </div>
@@ -274,14 +292,14 @@ const NAME_LINK = "text-inherit no-underline hover:underline";
 
 /** One message (`ChatMessage`, like the bot chat): its author's mark and name, the time, what it answers, its text
  * and files in the bubble, its deliveries under it. */
-const MessageRow = memo(function MessageRow({ m, lines, reply, quoted }: { m: ChannelMessage; lines: DeliveryLine[] | undefined; reply: ChannelMessage | null; quoted: boolean }) {
+const MessageRow = memo(function MessageRow({ m, lines, reply, quoted, target }: { m: ChannelMessage; lines: DeliveryLine[] | undefined; reply: ChannelMessage | null; quoted: boolean; target: boolean }) {
   const owner = m.author.kind === "owner";
   const mentionsYou = !owner && m.mentions.includes("owner");
   const today = new Date(m.created_at).toDateString() === new Date().toDateString();
   const name = owner ? "You" : m.author.name;
   const botId = m.author.kind === "bot" ? m.author.id : null;
   useIdentitiesVersion();
-  return <ChatMessage tour="channel.message" look={owner ? "owner" : "bot"} avatar={owner ? <OwnerAvatar /> : <BotAvatar name={name} id={botId} />}
+  return <ChatMessage tour="channel.message" look={owner ? "owner" : "bot"} target={target} onCopyLink={() => void copyRefLink({ kind: "channel", id: m.channel_id, message: m.id })} avatar={owner ? <OwnerAvatar /> : <BotAvatar name={name} id={botId} />}
     name={<span className={owner ? "text-ink" : botInk(name, botId)}>{m.author.kind === "bot" ? <Link to="/bots/$id" params={{ id: m.author.id }} className={NAME_LINK}>{name}</Link> : name}</span>}
     tag={m.ask_owner ? <Badge tone="attn">Asks you</Badge> : mentionsYou ? <Badge tone="attn">Mentions you</Badge> : null}
     time={<span title={`${when(m.created_at)} · message ${m.id} · hop ${m.hops}`}>{today ? time(m.created_at) : ago(m.created_at)}</span>}
@@ -290,7 +308,7 @@ const MessageRow = memo(function MessageRow({ m, lines, reply, quoted }: { m: Ch
     {m.text.trim() ? <Markdown text={m.text} className="text-[13px]" /> : null}
     {m.files.length > 0 && <MessageFiles m={m} />}
   </ChatMessage>;
-}, (a, b) => a.m === b.m && a.reply === b.reply && a.quoted === b.quoted && JSON.stringify(a.lines) === JSON.stringify(b.lines));
+}, (a, b) => a.m === b.m && a.reply === b.reply && a.quoted === b.quoted && a.target === b.target && JSON.stringify(a.lines) === JSON.stringify(b.lines));
 
 const SHOWN_IMAGES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 

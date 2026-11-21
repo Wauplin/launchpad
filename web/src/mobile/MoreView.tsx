@@ -10,6 +10,7 @@ import { useTodayHere } from "@/features/today/data";
 import { useKnowledgeUnseen } from "@/lib/knowledge";
 import { useFolios } from "@/lib/folios";
 import { useScope } from "@/lib/workspace";
+import { useGoTo } from "@/app/GoTo";
 
 /** A place, with a short state (`attn`: something needs you). */
 function Place({ to, icon, label, state, attn, tour }: { to: string; icon: IconName; label: string; state?: ReactNode; attn?: boolean; tour?: string }) {
@@ -38,6 +39,11 @@ export function MoreView() {
         <Place to="/topics" icon="tag" label="Topics" />
         <Place to="/knowledge" icon="book" label="Knowledge" state={knowledgeNew ? `${knowledgeNew} new` : undefined} />
         {terminalsHere && <Place to="/terminals" icon="term" label="Terminals" />}
+        <button type="button" onClick={() => useGoTo.getState().set(true)} className="flex min-h-12 w-full items-center gap-3 border-b border-line-2 bg-transparent px-4 text-left text-[15px] text-ink">
+          <Icon name="link" size={18} className="text-ink-3" />
+          <span className="min-w-0 flex-1 truncate">Go to a link or ID</span>
+          <Icon name="chev" size={14} className="-rotate-90 text-ink-3" />
+        </button>
         <Place to="/settings" icon="sliders" label="Settings" />
         {setupLeft > 0 && <Place to="/setup" icon="check" label="Finish setup" attn state={`${plural(setupLeft, "step")} left`} />}
       </nav>

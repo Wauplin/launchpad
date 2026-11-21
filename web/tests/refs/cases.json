@@ -1,0 +1,19 @@
+[
+  { "ref": { "kind": "session", "id": "e95db580-1c2d" }, "id": "lp:session/e95db580-1c2d", "path": "/agents?session=e95db580-1c2d" },
+  { "ref": { "kind": "session", "id": "e95db580-1c2d", "seq": 4702 }, "id": "lp:session/e95db580-1c2d/4702", "path": "/agents?session=e95db580-1c2d&msg=4702" },
+  { "ref": { "kind": "chat", "id": "bot-1", "thread": "t9" }, "id": "lp:chat/bot-1/t9", "path": "/bots/bot-1?thread=t9" },
+  { "ref": { "kind": "chat", "id": "bot-1", "thread": "t9", "session": "s-77", "seq": 31 }, "id": "lp:chat/bot-1/t9/s-77/31", "path": "/bots/bot-1?thread=t9&msg=s-77.31" },
+  { "ref": { "kind": "channel", "id": "c42" }, "id": "lp:channel/c42", "path": "/channels/c42" },
+  { "ref": { "kind": "channel", "id": "c42", "message": 1205 }, "id": "lp:channel/c42/1205", "path": "/channels/c42?msg=1205" },
+  { "ref": { "kind": "folio", "id": "roadmap" }, "id": "lp:folio/roadmap", "path": "/folios/roadmap" },
+  { "ref": { "kind": "folio", "id": "roadmap", "page": "plans/plan.md", "section": "waves" }, "id": "lp:folio/roadmap/plans/plan.md#waves", "path": "/folios/roadmap?page=plans%2Fplan.md&section=waves" },
+  { "ref": { "kind": "folio", "id": "roadmap", "section": "W1" }, "id": "lp:folio/roadmap#W1", "path": "/folios/roadmap?section=W1" },
+  { "ref": { "kind": "topic", "id": "tp1" }, "id": "lp:topic/tp1", "path": "/topics/tp1" },
+  { "ref": { "kind": "bot", "id": "bot-1" }, "id": "lp:bot/bot-1", "path": "/bots/bot-1/settings" },
+  { "ref": { "kind": "local_pr", "id": "pr-3" }, "id": "lp:local-pr/pr-3", "path": "/predrafts/pr-3" },
+  { "ref": { "kind": "folder", "id": "f-1" }, "id": "lp:folder/f-1", "path": "/projects/f-1" },
+  { "ref": { "kind": "card", "id": "p-5" }, "id": "lp:card/p-5", "path": "/?card=proposal%3Ap-5" },
+  { "ref": { "kind": "oracle", "id": "ci-red" }, "id": "lp:oracle/ci-red", "path": "/schedules?tab=oracles&oracle=ci-red" },
+  { "ref": { "kind": "routine", "id": "r-8" }, "id": "lp:routine/r-8", "path": "/schedules?tab=routines&routine=r-8" },
+  { "ref": { "kind": "note", "id": "howto/slack.md" }, "id": "lp:note/howto/slack.md", "path": "/knowledge?note=howto%2Fslack.md" }
+]

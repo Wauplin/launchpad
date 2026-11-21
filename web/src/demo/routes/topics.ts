@@ -51,3 +51,5 @@ export function topicContext(receiver: string, selected: import("@/gen/TopicCont
   if (inherited.size) changed();
   return refs.filter((r,i) => r.session_id !== receiver && refs.findIndex(v => v.session_id === r.session_id) === i);
 }
+// Launchpad references resolve on Home (`launchpad_core::refs`): the demo has none, so Go to and pasted links say so.
+route("GET", "/api/refs/resolve", () => { throw new DemoError(404, "Links and IDs resolve on a running Home: the demo has none"); });

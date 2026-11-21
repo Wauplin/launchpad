@@ -101,6 +101,7 @@ impl Sessions {
         }
         prompt.push_str(&crate::compose::topic_notes(&spec.topics));
         prompt.push_str(&crate::folio_ref::notes(&spec.folios, &cli));
+        prompt.push_str(&crate::refs::notes(&spec.refs, &cli));
         marks.push(("folder", "Folder and worktrees", prompt.len()));
         if !for_launch && !prompt.trim().is_empty() && matches!(spec.target, Target::Predraft { .. } | Target::ExistingPredraft { .. }) {
             prompt.push_str("\n\nWork on the Local PR's branch in a fresh worktree. Commit your changes, update the Local PR title and description with launchpad pr update. Do not open a pull request on GitHub.");

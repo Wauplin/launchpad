@@ -8,6 +8,7 @@ import type { FileRef } from "./FileRef";
 import type { FolioRef } from "./FolioRef";
 import type { GitHubRef } from "./GitHubRef";
 import type { HarnessKind } from "./HarnessKind";
+import type { LpRef } from "./LpRef";
 import type { MessageFrom } from "./MessageFrom";
 import type { PermissionMode } from "./PermissionMode";
 import type { PromptMention } from "./PromptMention";
@@ -53,6 +54,10 @@ agent_traces: Array<AgentTraceRef>, topics?: Array<TopicContext>,
  * Folios the task is about (`MessageContext::folios`), resolved by Home.
  */
 folios?: Array<FolioRef>, 
+/**
+ * Launchpad objects the task points at (`MessageContext::refs`), resolved by Home.
+ */
+refs?: Array<LpRef>, 
 /**
  * Lines of a pull request's diff the task is about (`MessageContext::selection`), resolved by Home.
  */

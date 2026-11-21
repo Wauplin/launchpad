@@ -1,6 +1,8 @@
 import { withFolder, prepareLaunch, launchBlocker } from "./launchDecisions";
 import { TopicContextChips } from "@/features/topics/TopicContextChips";
 import { FolioContextChips } from "@/features/folios/FolioContext";
+import { addRef, RefChips } from "./RefChips";
+import { refId } from "@/lib/refs";
 import { addFolio } from "@/lib/folios";
 import { folioKey } from "@/lib/promptDocument";
 import { OutdatedRunnerNotice, RunnerChoice, runnerName, ToolsChoice, useLaunchRunners, useLaunchTools } from "./LaunchExtras";
@@ -560,7 +562,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
   // Where it runs and what happens when done, first on the options line ("New worktree from main · keep for review").
   const whenDoneText = whenDone === "merge" ? `merge into ${intoLabel}` : whenDone === "local_pr" ? `Local PR into ${intoLabel}` : whenDone === "draft_pr" ? `draft PR into ${intoLabel}` : whenDone === "open_pr" ? `PR into ${intoLabel}` : whenDone === "read_only" ? "read only" : intoLabel !== baseLabel ? `keep for review · into ${intoLabel}` : "keep for review";
   const whereLine = worktreeMode ? (pushToPr ? `PR #${pushToPr.number} · pushes to the PR` : `New worktree from ${baseLabel} · ${whenDoneText}`) : spec.target.kind === "temp" ? "Temporary folder" : worktreeReuse && runIn ? `Worktree · ${selectedWorktree.branch} · ${whenDoneText}` : runIn ? runIn.charAt(0).toUpperCase() + runIn.slice(1) : null;
-  const hasChips = !!spec.topics?.length || !!spec.folios?.length || (spec.agent_traces ?? []).length > 0 || spec.github_refs.length > 0 || (spec.skills ?? []).length > 0 || (spec.files ?? []).length > 0 || spec.context_projects.length > 0;
+  const hasChips = !!spec.topics?.length || !!spec.folios?.length || !!spec.refs?.length || (spec.agent_traces ?? []).length > 0 || spec.github_refs.length > 0 || (spec.skills ?? []).length > 0 || (spec.files ?? []).length > 0 || spec.context_projects.length > 0;
 
   return (
     <aside data-tour="composer" onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }} onDrop={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); void addAttachments(Array.from(e.dataTransfer.files)); } }} className={`flex w-[440px] max-w-full flex-none flex-col border-l border-line bg-paper ${!embedded && isPhone ? "fixed! inset-0 z-50 w-full! pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" : ""} ${embedded ? "absolute inset-0 z-40 w-full!" : overlay ? "absolute top-0 right-0 bottom-0 z-40 shadow-[-18px_0_40px_-12px_rgba(23,32,43,.45)]" : "relative shadow-[-14px_0_28px_-20px_rgba(23,32,43,.35)]"}`}>
@@ -598,7 +600,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
             inputRef={promptInput}
             disabled={launching || readingAttachments}
             onPaste={(e) => { if (launching || attachmentRead.current) return; const files = pastedImages(e); if (files) void addAttachments(files); }}
-            document={{ text: spec.text, mentions: spec.mentions, skills: spec.skills, context_projects: spec.context_projects, github_refs: spec.github_refs, agent_traces: spec.agent_traces, topics: spec.topics, folios: spec.folios }}
+            document={{ text: spec.text, mentions: spec.mentions, skills: spec.skills, context_projects: spec.context_projects, github_refs: spec.github_refs, agent_traces: spec.agent_traces, topics: spec.topics, folios: spec.folios, refs: spec.refs }}
             onDocumentChange={(doc) => set((s) => ({ ...s, ...doc }))}
             root={source?.cwd ?? target?.path ?? null}
             harness={spec.harness}
@@ -620,6 +622,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
               topics={spec.topics}
               onTopic={t => set(s => ({...s, topics:[...(s.topics ?? []),t]}))}
               onFolio={(f) => set((s) => ({ ...s, folios: addFolio(s.folios, f) }))}
+              onRef={(r) => set((s) => ({ ...s, refs: addRef(s.refs, r) }))}
               selectedTraces={spec.agent_traces ?? []}
               onProject={addProjectContext}
               onGitHub={(r) => set((s) => (s.github_refs.some((g) => g.url === r.url) ? s : { ...s, github_refs: [...s.github_refs, r] }))}
@@ -670,6 +673,7 @@ export function Composer({ embedded = false }: { embedded?: boolean }) {
         {hasChips && <div className="flex flex-wrap items-center gap-1.5">
           <TopicContextChips topics={spec.topics} onRemove={id => set(s => ({...s,topics:s.topics?.filter(t => t.id !== id)}))} />
           <FolioContextChips folios={spec.folios} onRemove={(key) => set((s) => ({ ...s, folios: s.folios?.filter((f) => folioKey(f) !== key) }))} />
+          <RefChips refs={spec.refs} onRemove={(id) => set((s) => ({ ...s, refs: s.refs?.filter((r) => refId(r) !== id) }))} />
           {(spec.agent_traces ?? []).map((trace) => (
             <span key={`${trace.session_id}:${trace.through_seq}`} className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-control border border-line bg-chrome px-2 text-[12px]">
               <Icon name="agents" size={12} />

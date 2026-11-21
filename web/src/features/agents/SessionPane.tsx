@@ -2,6 +2,7 @@ import { SessionTopics } from "@/features/topics/TopicPicker";
 // One session in a pane: header with state and actions, the conversation, and the message box.
 // The conversation is virtualized (spike 4 rules: memoized rows, no flushSync).
 
+import { copyRefLink } from "@/lib/refActions";
 import { launchThread } from "@/lib/bots";
 import { when } from "@/lib/format";
 import { ProposalCard, useProposalList } from "@/features/proposals/ProposalCard";
@@ -34,7 +35,7 @@ import { useMessageDrafts } from "@/stores/messages";
 import { useRunners } from "@/lib/runners";
 import { isDone, isRunning } from "@/lib/sessionStatus";
 import { Icon } from "@/components/Icon";
-import { toastError } from "@/components/Toast";
+import { toast, toastError } from "@/components/Toast";
 import { api, ApiError } from "@/lib/api";
 import { projectName, useProjects, useSession, useSettled } from "@/lib/queries";
 import { emptyLog, useSessionLogs } from "@/lib/sessionStore";
@@ -109,7 +110,7 @@ function StatePrimary({ s, primary }: { s: Session; primary: React.ReactNode }) 
 export type View = "summary" | "trace" | "changes" | "subagents" | "processes" | "folio";
 
 /** `initialView`: the view to show (the phone keeps it in the address, `onView` writes it there with a replace). */
-export function SessionPane({ sessionId, onClear, initialView, onView }: { sessionId: string; onClear: () => void; initialView?: View; onView?: (view: View) => void }) {
+export function SessionPane({ sessionId, onClear, initialView, onView, targetSeq }: { sessionId: string; onClear: () => void; initialView?: View; onView?: (view: View) => void; /** A message a link points at: the trace loads and scrolls to it. */ targetSeq?: number }) {
   const phone = usePhone();
   const scope = useScope();
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -144,7 +145,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   const runningProcesses = s?.live ? processes.data ?? [] : [];
   const hasProcesses = runningProcesses.length > 0;
   const [gitMain, setGitMain] = useState(false);
-  const [view, setViewState] = useState<View | null>(initialView ?? null);
+  const [view, setViewState] = useState<View | null>(initialView ?? (targetSeq ? "trace" : null));
   const setView = (v: View) => { setViewState(v); onView?.(v); };
   // The address changed the view (a link, or back to an entry that showed another view).
   useEffect(() => { if (initialView) setViewState(initialView); }, [initialView]);
@@ -236,6 +237,24 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
     inputRef.current?.focus();
     setAnswering(0);
   }, [answering, traceOpen]);
+  // A link to one message: load earlier events until it is there, then scroll to it (a step: the next message).
+  const reachedSeq = useRef<number | null>(null);
+  const targetKey = useMemo(() => {
+    if (!targetSeq) return null;
+    const exact = trace.find((r) => r.key === `e${targetSeq}`);
+    if (exact) return exact.key;
+    return trace.find((r) => (r.t === "user" || r.t === "assistant") && Number(r.key.slice(1)) > targetSeq)?.key ?? null;
+  }, [targetSeq, trace]);
+  useEffect(() => {
+    if (!targetSeq || reachedSeq.current === targetSeq || !log?.loaded || !traceOpen) return;
+    atBottom.current = false;
+    if (log.earlier && (log.events[0]?.seq ?? 0) > targetSeq) { void loadEarlier(sessionId).catch(toastError); return; }
+    reachedSeq.current = targetSeq;
+    const i = targetKey ? trace.findIndex((r) => r.key === targetKey) : -1;
+    if (i < 0) { toast("The linked message is not in this session's trace"); return; }
+    v.scrollToIndex(i, { align: "center" });
+    requestAnimationFrame(() => v.scrollToIndex(i, { align: "center" }));
+  }, [targetSeq, targetKey, log, traceOpen, trace, loadEarlier, sessionId, v]);
   // ⋯ → Jump to the final message.
   const [jumpFinal, setJumpFinal] = useState(0);
   useEffect(() => {
@@ -357,6 +376,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
   const actionsMenu = <Popover className="flex" viewport={phone} label={phone ? "Session actions" : undefined} align="right" width={phone ? 280 : 260} trigger={({ open, toggle }) => <button className={phone ? "iconbtn" : "iconbtn border border-line"} aria-label="Session actions" title="Session actions" aria-haspopup={phone ? "dialog" : undefined} aria-expanded={open} onClick={toggle}><Icon name="more" size={phone ? 20 : 14} /></button>}>
     {(close) => <>
       {!phone && !running && s.status !== "in_terminal" && <MenuItem icon={<Icon name="agents" size={14} />} label="Launch here" detail="A separate agent in the same folder, with this trace as context" onClick={() => { close(); useComposer.getState().followUpFrom(s); }} />}
+      <MenuItem icon={<Icon name="link" size={14} />} label="Copy link" detail="Paste it into any message box, or Go to" onClick={() => { close(); void copyRefLink({ kind: "session", id: s.id, title: s.title }); }} />
       {hasFinal && <MenuItem icon={<Icon name="comment" size={14} />} label="Jump to the final message" detail="In the trace" onClick={() => { close(); setView("trace"); setJumpFinal((n) => n + 1); }} />}
       {isDone(s) && <MenuItem icon={<Icon name="mail" size={16} />} label="Mark as unread" detail="Return to Today for later" onClick={() => { close(); onClear(); void act(s.id, "session.unread"); }} />}
       {phone && <>
@@ -519,9 +539,10 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
                 key={it.key}
                 data-index={it.index}
                 ref={v.measureElement}
-                className="flex min-w-0 flex-col py-[5px]"
+                className={`group flex min-w-0 flex-col py-[5px] ${it.index < trace.length && trace[it.index].key === targetKey ? "rounded-card ring-2 ring-teal" : ""}`}
                 style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${it.start}px)` }}
               >
+                {it.index < trace.length && (trace[it.index].t === "user" || trace[it.index].t === "assistant") && /^e\d+$/.test(trace[it.index].key) && <button type="button" className={`lp-row-more absolute top-[5px] z-[1] rounded-control bg-paper p-1 text-ink-3 hover:text-ink ${trace[it.index].t === "user" ? "left-0" : "right-0"}`} title="Copy link to this message (paste it into any message box, or Go to)" aria-label="Copy link to this message" onClick={() => void copyRefLink({ kind: "session", id: s.id, seq: Number(trace[it.index].key.slice(1)), title: s.title })}><Icon name="link" size={12} /></button>}
                 {it.index < trace.length ? <EventRow row={trace[it.index]} sessionId={s.id} live={s.live} /> : it.index < trace.length + threadProposals.length ? <ProposalCard p={threadProposals[it.index - trace.length]} /> : <FolioWriteRow a={folioWrites[it.index - trace.length - threadProposals.length]} />}
               </div>
             ))}

@@ -6,6 +6,7 @@
 // components as the laptop shell; only the frame differs. Every action stays a visible button.
 
 import { recordingZoom } from "@/lib/zoom";
+import { GoToRoot } from "@/app/GoTo";
 import { hfCorner } from "@/lib/phone";
 import { demoChapter, isDemo } from "@/demo/mode";
 import { PhoneDemoStrip } from "@/onboarding/DemoChip";
@@ -172,6 +173,7 @@ export function MobileShell() {
       {menu && <WorkspaceSheet onClose={() => setMenu(false)} />}
       <Toasts />
       <BotIdentitySync />
+      <GoToRoot />
       {addOpen && <Suspense fallback={null}><AddFolderDialog /></Suspense>}
     </div>
     </PhoneBarContext.Provider>

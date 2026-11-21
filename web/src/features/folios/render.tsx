@@ -44,6 +44,8 @@ export type MarkApi = {
   open: (page: string, anchor?: string) => void;
   /** Opens another folio of the workspace (`folio:<slug>` links). */
   openFolio: (slug: string) => void;
+  /** Copies the Launchpad link of a section (its Link button); none in a shared snapshot. */
+  copyLink?: (section: string) => void;
   /** The folio's files (CSV, sketches, images) and data API; default: Home's routes. */
   files?: FolioFiles;
   /** An image's URL (a shared snapshot gives data URLs); default: the folio's sandboxed raw route. */
@@ -79,7 +81,7 @@ md.renderer.rules.heading_open = (tokens, idx, options, e, self) => {
 md.renderer.rules.heading_close = (tokens, idx, options, _env, self) => {
   const open = tokens[idx - 2];
   const id = open?.attrGet("data-anchor") as string | null | undefined;
-  const button = id ? `<button type="button" class="folio-hc" data-comment="${md.utils.escapeHtml(id)}" title="Comment on this section" aria-label="Comment on this section">Comment</button>` : "";
+  const button = id ? `<button type="button" class="folio-hc" data-comment="${md.utils.escapeHtml(id)}" title="Comment on this section" aria-label="Comment on this section">Comment</button><button type="button" class="folio-hc folio-hl" data-link="${md.utils.escapeHtml(id)}" title="Copy the link of this section (paste it into any message box, or Go to)" aria-label="Copy the link of this section">Link</button>` : "";
   return button + self.renderToken(tokens, idx, options);
 };
 md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
@@ -131,7 +133,7 @@ md.core.ruler.push("folio_alerts", (state) => {
 /** A link of a typed block's field (a status tile's link, a source's url): only web and mail addresses. */
 const safeHref = (v: unknown): string | undefined => { const u = txt(v).trim(); return /^(https?:\/\/|mailto:)/i.test(u) ? u : undefined; };
 
-const PURIFY = { ADD_ATTR: ["target", "data-folio-link", "data-comment", "data-anchor"] };
+const PURIFY = { ADD_ATTR: ["target", "data-folio-link", "data-comment", "data-anchor", "data-link"] };
 const html = (text: string, env: Env) => DOMPurify.sanitize(md.render(text, env), PURIFY);
 const inline = (text: string, env: Env) => DOMPurify.sanitize(md.renderInline(text, env), PURIFY);
 
@@ -210,6 +212,8 @@ function click(e: React.MouseEvent, marks: MarkApi) {
   const el = e.target as HTMLElement;
   const c = el.closest("[data-comment]");
   if (c) { e.preventDefault(); marks.comment(c.getAttribute("data-comment")!); return; }
+  const l = el.closest("[data-link]");
+  if (l) { e.preventDefault(); marks.copyLink?.(l.getAttribute("data-link")!); return; }
   const a = el.closest("a[data-folio-link]");
   if (!a) return;
   e.preventDefault();

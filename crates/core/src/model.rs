@@ -483,6 +483,11 @@ pub struct MessageContext {
     #[ts(optional, as = "Option<Vec<FolioRef>>")]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub folios: Vec<FolioRef>,
+    /// Launchpad objects the message points at (chats, channels, sessions, their messages…): references, resolved by
+    /// Home with those its text contains (`refs::resolve_context`); the prompt names each with its read command.
+    #[ts(optional, as = "Option<Vec<crate::refs::LpRef>>")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<crate::refs::LpRef>,
     /// Lines of a pull request's diff the message is about (Ask about these lines): a reference, resolved by Home.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -620,7 +625,7 @@ pub enum SenderKind {
 impl MessageContext {
     /// Nothing to add to the message (mentions only mark text that is already there).
     pub fn is_empty(&self) -> bool {
-        self.context_projects.is_empty() && self.github_refs.is_empty() && self.agent_traces.is_empty() && self.topics.is_empty() && self.skills.is_empty() && self.selection.is_none()
+        self.context_projects.is_empty() && self.github_refs.is_empty() && self.agent_traces.is_empty() && self.topics.is_empty() && self.skills.is_empty() && self.selection.is_none() && self.folios.is_empty() && self.refs.is_empty()
     }
 }
 
@@ -677,6 +682,10 @@ pub struct LaunchSpec {
     #[ts(optional, as = "Option<Vec<FolioRef>>")]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub folios: Vec<FolioRef>,
+    /// Launchpad objects the task points at (`MessageContext::refs`), resolved by Home.
+    #[ts(optional, as = "Option<Vec<crate::refs::LpRef>>")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<crate::refs::LpRef>,
     /// Lines of a pull request's diff the task is about (`MessageContext::selection`), resolved by Home.
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]

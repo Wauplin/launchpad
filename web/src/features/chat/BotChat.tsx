@@ -28,7 +28,7 @@ import { BotAvatar, OwnerAvatar, SourceAvatar, botInk, useIdentitiesVersion } fr
 import { useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { ImageThumb } from "@/components/ImageViewer";
-import { toastError } from "@/components/Toast";
+import { toast, toastError } from "@/components/Toast";
 import { AskCard } from "@/features/agents/AskCard";
 import { AssistantRow, Separator } from "@/features/agents/EventRow";
 import { ATTACH_LIMITS, AttachmentList, useMessageAttachments } from "@/features/agents/MessageAttachments";
@@ -66,6 +66,8 @@ import { chatDraftKey, dropSentChatDraft, useKeptDraft } from "@/lib/keptDraft";
 import { refusedFor } from "@/lib/maintenance";
 import { NEW_THREAD } from "./BotThreads";
 import { useCrons, useSession, useHarnessDefaults } from "@/lib/queries";
+import { addPastedRef, copyRefLink } from "@/lib/refActions";
+import { refId } from "@/lib/refs";
 import { emptyLog, useSessionLogs, type SessionLog } from "@/lib/sessionStore";
 import { isRunning, isSleeping, sleepUntil } from "@/lib/sessionStatus";
 import { sendPresence } from "@/lib/ws";
@@ -131,7 +133,7 @@ function botFileReceipt(c: Change): string {
   return `${c.new_sha256 ? (c.sha256 ? "changed" : "added") : "deleted"} ${what}`;
 }
 
-export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSettings, intro, view = "bot", onStep, onThread, conversationBar = true }: {
+export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSettings, intro, view = "bot", onStep, onThread, conversationBar = true, target }: {
   bot: Bot;
   /** Which view shows the chat (a bot page, the Ask panel), for the sessions this window reports on screen. */
   view?: string;
@@ -152,6 +154,8 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
   onStep?: (step: string | null) => void;
   /** The bar over a conversation of several bots (its bots and their states); a page whose header names them hides it. */
   conversationBar?: boolean;
+  /** A message a link points at (`?msg=<session>.<seq>`): the chat loads what holds it, scrolls to it and outlines it. */
+  target?: string;
 }) {
   const current = [...thread].reverse().find((s) => s.status !== "closed") ?? null;
   // Sessions shown, counted from the newest; a new session of the thread adds to them.
@@ -339,6 +343,34 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
     return () => cancelAnimationFrame(frame);
   }, [settled, items.length]);
 
+  // A link to one message: show the session that holds it, load its earlier events until it is there, then scroll
+  // to it (a step or an earlier answer of a turn: that turn's message). Once per target.
+  const linkBase = threadId === NEW_THREAD ? null : `${bot.id}\n${threadId}`;
+  const targetKey = useMemo(() => { const m = target ? /^(.+)\.(\d+)$/.exec(target) : null; return m ? `${m[1]}/e${m[2]}` : null; }, [target]);
+  const reached = useRef<string | null>(null);
+  useEffect(() => {
+    if (!targetKey || reached.current === targetKey) return;
+    atBottom.current = false;
+    const [sid, seqText] = targetKey.split("/e");
+    const seq = Number(seqText);
+    const go = (i: number) => {
+      reached.current = targetKey;
+      v.scrollToIndex(i, { align: "center" });
+      requestAnimationFrame(() => v.scrollToIndex(i, { align: "center" }));
+    };
+    const exact = items.findIndex((it) => it.key === targetKey);
+    if (exact >= 0) return go(exact);
+    const at = thread.findIndex((s) => s.id === sid);
+    if (at >= 0 && at < from) { setShown(thread.length - at); return; }
+    const log = logs[sid];
+    if (!log?.loaded) { if (at < 0 && !otherSessions.some((s) => s.id === sid)) { reached.current = targetKey; toast("The linked message is not in this chat"); } return; }
+    if (log.earlier && (log.events[0]?.seq ?? 0) > seq) { void loadEarlier(sid).catch(toastError); return; }
+    const near = items.findIndex((it) => it.key.startsWith(`${sid}/e`) && Number(it.key.slice(sid.length + 2)) >= seq);
+    if (near >= 0) return go(near);
+    reached.current = targetKey;
+    toast("The linked message is no longer in this chat");
+  }, [targetKey, items, logs, from, thread, otherSessions, loadEarlier, v]);
+
   return (
     <ReplyContext.Provider value={onReply}>
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-paper" data-tour="bots.thread">
@@ -366,7 +398,7 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
                 const extra = item.t === "card" && item.kind === "ready" && data ? bySuggestion.get((data as TodayItem).record) : undefined;
                 return (
                   <div key={it.key} data-index={it.index} ref={v.measureElement} className="absolute top-0 right-0 left-0" style={{ transform: `translateY(${it.start}px)` }}>
-                    <ChatRow item={item} data={data} extra={extra} canContinue={item.key === continueKey} botId={item.bot?.id ?? bot.id} botName={item.bot?.name ?? bot.settings.name} quietWork={!!onStep && !item.bot} />
+                    <ChatRow item={item} data={data} extra={extra} canContinue={item.key === continueKey} botId={item.bot?.id ?? bot.id} botName={item.bot?.name ?? bot.settings.name} quietWork={!!onStep && !item.bot} linkBase={linkBase} targetKey={targetKey} />
                   </div>
                 );
               })}
@@ -434,22 +466,23 @@ function PendingRow({ item, botId }: { item: Extract<ChatItem, { t: "pending" }>
 
 type RowData = Proposal | TodayItem | ChangeRecord | readonly (ChangeRecord | undefined)[] | undefined;
 
-const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, botName, quietWork }: { item: ChatItem; data: RowData; extra: Suggestion | undefined; canContinue: boolean; botId: string; botName: string; quietWork: boolean }) {
+const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, botName, quietWork, linkBase, targetKey }: { item: ChatItem; data: RowData; extra: Suggestion | undefined; canContinue: boolean; botId: string; botName: string; quietWork: boolean; linkBase: string | null; targetKey: string | null }) {
   useIdentitiesVersion();
+  const msg = msgLink(item.key, linkBase, targetKey);
   switch (item.t) {
     case "divider":
       return <div className="pt-4 pb-2"><Separator>
         <span>{item.index > 1 ? `Session ${item.index} · started` : "Started"} {when(item.at)}{item.previous ? ` · continues “${item.previous}”` : ""}{item.reason ? ` because ${item.reason}` : ""}</span>
       </Separator></div>;
     case "user":
-      return <ChatMessage look="owner" avatar={<OwnerAvatar />} name="You" tag={item.to ? <SenderTag title="The bots of this conversation that got your message"><Recipients names={item.to} /></SenderTag> : undefined}>
+      return <ChatMessage look="owner" {...msg} avatar={<OwnerAvatar />} name="You" tag={item.to ? <SenderTag title="The bots of this conversation that got your message"><Recipients names={item.to} /></SenderTag> : undefined}>
         {item.text && <div className="whitespace-pre-wrap">{item.text}</div>}
         {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <ImageThumb key={i} src={src} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />; })}</div>}
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
         {item.instructions && <span className="mt-1 flex items-center gap-1 text-[11px] text-ink-3" title="BOT.md changed since this session last read it: the new BOT.md went with this message"><Icon name="file" size={12} />With your updated BOT.md</span>}
       </ChatMessage>;
     case "from":
-      return <FromRow item={item} />;
+      return <FromRow item={item} msg={msg} />;
     case "wake":
       return <WakeRow item={item} />;
     case "sleeping":
@@ -459,7 +492,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, b
     case "quiet":
       return <div className="flex items-center gap-1.5 py-1 text-[12px] text-ink-3" title="The run had nothing to report: no notification"><Icon name="refresh" size={12} /><span className="truncate"><RoutineName title={item.title} /> · {item.cause}{item.at ? ` · ${when(item.at)}` : ""} · no update</span></div>;
     case "answer":
-      return <ChatMessage look="bot" edges={item.to?.length ? { from: botName, to: item.to } : undefined} avatar={<BotAvatar name={botName} id={botId} />} name={<span className={botInk(botName, botId)}>{item.bot ? <Link to="/bots/$id" params={{ id: item.bot.id }} className={NAME_LINK}>{botName}</Link> : botName}</span>}
+      return <ChatMessage look="bot" {...msg} edges={item.to?.length ? { from: botName, to: item.to } : undefined} avatar={<BotAvatar name={botName} id={botId} />} name={<span className={botInk(botName, botId)}>{item.bot ? <Link to="/bots/$id" params={{ id: item.bot.id }} className={NAME_LINK}>{botName}</Link> : botName}</span>}
         tag={item.streaming ? <SenderTag><span className="text-work">writing…</span></SenderTag> : item.to ? <SenderTag title="Its answer goes back to the bot that asked"><Recipients names={item.to} /></SenderTag> : undefined}>
         <AssistantRow text={item.text} streaming={item.streaming} />
       </ChatMessage>;
@@ -485,7 +518,16 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, b
     case "pending":
       return <PendingRow item={item} botId={botId} />;
   }
-}, (a, b) => a.item.key === b.item.key && a.item.v === b.item.v && a.data === b.data && a.extra === b.extra && a.canContinue === b.canContinue && a.botId === b.botId && a.botName === b.botName && a.quietWork === b.quietWork);
+}, (a, b) => a.item.key === b.item.key && a.item.v === b.item.v && a.data === b.data && a.extra === b.extra && a.canContinue === b.canContinue && a.botId === b.botId && a.botName === b.botName && a.quietWork === b.quietWork && a.linkBase === b.linkBase && (a.targetKey === a.item.key) === (b.targetKey === b.item.key));
+
+/** Copy link and the target outline of a message row: its key is `<session>/e<seq>` (`chatRows`). */
+type MsgLink = { onCopyLink?: () => void; target?: boolean };
+function msgLink(key: string, linkBase: string | null, targetKey: string | null): MsgLink {
+  const m = /^(.+)\/e(\d+)$/.exec(key);
+  if (!m || !linkBase) return {};
+  const [bot, thread] = linkBase.split("\n");
+  return { onCopyLink: () => void copyRefLink({ kind: "chat", id: bot, thread, session: m[1], seq: Number(m[2]) }), target: key === targetKey };
+}
 
 /** A proposal as a compact line; a question report's Reply aims the chat's message box at it. */
 function ProposalRow({ p }: { p: Proposal }) {
@@ -562,7 +604,7 @@ const FROM_ICON = { session: "agents", hook: "download", channel: "comment", wak
 
 /** A message from another bot or agent, a hook or a channel (Home stamped its sender): under the sender's mark and
  * name with "not from you", in a dashed bubble, never as yours. */
-function FromRow({ item }: { item: Extract<ChatItem, { t: "from" }> }) {
+function FromRow({ item, msg }: { item: Extract<ChatItem, { t: "from" }>; msg: MsgLink }) {
   useIdentitiesVersion();
   const f = item.from;
   const { name, tag } = senderParts(f);
@@ -577,7 +619,7 @@ function FromRow({ item }: { item: Extract<ChatItem, { t: "from" }> }) {
   // A bot's message to other bots of this conversation: "Scout to Writer", both names in their colors, with thin
   // edges in those colors instead of the dashed "not from you" bubble (the tooltip keeps the provenance).
   const between = f.kind === "bot" && item.to?.length ? item.to : null;
-  return <ChatMessage tour="chat.from" look={between ? "bot" : "other"} edges={between ? { from: name, to: between } : undefined}
+  return <ChatMessage tour="chat.from" look={between ? "bot" : "other"} edges={between ? { from: name, to: between } : undefined} {...msg}
     avatar={bot ? <BotAvatar name={name} id={f.kind === "bot" ? f.id : null} /> : <SourceAvatar icon={FROM_ICON[f.kind]} />}
     name={<span className={bot ? botInk(name, f.kind === "bot" ? f.id : null) : "text-ink"}>{link}</span>}
     tag={<SenderTag title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">{between ? <Recipients names={between} /> : item.to ? `→ ${item.to.join(", ")} · not from you` : tag}</SenderTag>}>
@@ -928,7 +970,10 @@ function BotComposer({ bot, threadId, onThread, current, askSession, conversatio
           <textarea ref={ref} rows={1} value={text} disabled={busy || blocked} aria-label={`Message ${bot.settings.name}`}
             placeholder={busyTurn ? `${bot.settings.name} is working: your message waits for the turn to end.` : blocked ? "Choose a decision on the approval card." : answering ? "Type your answer…" : many ? `Message ${mainName} · @ for another bot…` : `Message ${bot.settings.name}…`}
             onChange={(e) => { setText(e.target.value); setMentionError(null); }}
-            onPaste={(e) => { if (!acceptsImages || busy) return; const pasted = pastedImages(e); if (pasted) void attachments.add(pasted); }}
+            onPaste={(e) => {
+              if (!answering) addPastedRef(e.clipboardData.getData("text/plain"), bot.workspace_id, (r) => setContext((c) => (c.refs ?? []).some((x) => refId(x) === refId(r)) ? c : { ...c, refs: [...(c.refs ?? []), r] }));
+              if (!acceptsImages || busy) return; const pasted = pastedImages(e); if (pasted) void attachments.add(pasted);
+            }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}
             className="min-h-6 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none" />
           {!answering && <MessageContextButton sessionId={current?.id ?? null} value={context} onChange={setContext} presets={{ presets: botPresets, selected: presets, onChange: setPresets }} attach={{ images: acceptsImages, onPick: () => fileRef.current?.click() }} disabled={busy || reading || blocked} />}

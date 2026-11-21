@@ -148,7 +148,7 @@ export function AgentsView() {
   const localPrs = useQuery({ queryKey: ["predrafts"], queryFn: () => api.get<Predraft[]>("/api/predrafts") }).data;
   const tags = useMemo(() => workTags(sessionsQuery.data ?? [], worktrees, localPrs), [sessionsQuery.data, worktrees, localPrs]);
   const { selectedSession, show, clearSession, collapsedGroups, toggleGroup } = useLayout();
-  const search = useSearch({ strict: false }) as { session?: string; view?: View; topic?: string };
+  const search = useSearch({ strict: false }) as { session?: string; view?: View; topic?: string; msg?: string };
   const navigate = useNavigate();
   useEffect(() => {
     setSelection([]); setSelecting(false);
@@ -168,6 +168,8 @@ export function AgentsView() {
   // ‹, Archive and Mark as unread: one step back (to Today when the agent came from there), never a new entry.
   const back = () => phoneBack("/agents");
   const [initialView, setInitialView] = useState<View | undefined>(undefined);
+  // A link to one message (`?msg=<seq>`): the pane opens its trace there.
+  const [initialMsg, setInitialMsg] = useState<number | undefined>(undefined);
 
   // From a notification or another page: /agents?session=<id>[&view=changes]. The desktop then clears the address;
   // the phone keeps it and reopens the pane when `view` changes (the pane key holds it).
@@ -175,6 +177,7 @@ export function AgentsView() {
     if (search.session && !phone) {
       show(search.session);
       setInitialView(search.view);
+      setInitialMsg(search.msg ? Number(search.msg) || undefined : undefined);
       setPanelLoad((n) => n + 1);
       void navigate({ to: "/agents", search: {}, replace: true });
     }
@@ -193,6 +196,7 @@ export function AgentsView() {
     if (phone) { void navigate({ to: "/agents", search: { session: id } }); show(id); return; }
     if (id === visibleSession) return;
     setInitialView(undefined);
+    setInitialMsg(undefined);
     show(id);
   };
 
@@ -316,7 +320,7 @@ export function AgentsView() {
       {!phone && column.handle}
       <div className={`min-h-0 min-w-0 flex-1 bg-paper ${phone && !paneOpen ? "hidden" : ""}`}>
         {visibleSession ? (
-          <SessionPane key={`${scope.workspace.id}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} onView={phone ? (view) => void navigate({ to: "/agents", search: { session: visibleSession, view }, replace: true }) : undefined} onClear={() => (phone ? back() : clearSession(visibleSession))} />
+          <SessionPane key={`${scope.workspace.id}:${visibleSession}:${panelLoad}`} sessionId={visibleSession} initialView={phone ? search.view : initialView} targetSeq={phone ? (search.msg ? Number(search.msg) || undefined : undefined) : initialMsg} onView={phone ? (view) => void navigate({ to: "/agents", search: { session: visibleSession, view }, replace: true }) : undefined} onClear={() => (phone ? back() : clearSession(visibleSession))} />
         ) : phone ? null : (
           <Empty fill icon="agents" action={<LaunchButton small />}>Pick an agent on the left. Questions and finished agents wait in <Link to="/" className="text-teal-ink">Today</Link>.</Empty>
         )}

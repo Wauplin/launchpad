@@ -451,7 +451,7 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
         (false, ["runners", _, "update"]) => Shared,
         (false, ["link"] | ["sleep"] | ["ci", "approve"] | ["proposals"] | ["kb"] | ["bot-memory"] | ["assets"] | ["suggestions"] | ["notes"] | ["connections", "send"] | ["slack", "run"] | ["worktrees", "finish" | "add-project"] | ["predrafts"] | ["workspaces"]) => Shared,
         (true, ["predrafts", "resolve"]) => Shared,
-        (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics" | "notes"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
+        (true, ["context", "folders" | "bots" | "sessions" | "schedules" | "topics" | "notes" | "ref"] | ["proposals"] | ["today"] | ["activity"] | ["predrafts"] | ["channels"]) => Listed,
         (false, ["channels"] | ["channels", "dm"]) => Body,
         // The agent's own channels: Home resolves them in the session's workspace (`launchpad_channels::agent`).
         (true, ["channels", "agent"] | ["channels", "agent", "read" | "file" | "scheduled"]) | (false, ["channels", "agent", "post" | "upload" | "cancel"]) => Shared,
@@ -551,7 +551,8 @@ pub async fn authorize_oracle(app: &App, ws: &str, req: Request) -> Result<Reque
 
 /// Pure: what an oracle may read through `tools.launchpad`.
 fn oracle_may_read(method: &Method, path: &str) -> bool {
-    let session_bound = path == "/api/context/hops" || path == "/api/context/conversation" || path == "/api/context/scheduled-messages" || path == "/api/predrafts/resolve" || path.starts_with("/api/channels");
+    // `/api/context/ref` reads chats and channels like the session-bound reads: never from an oracle.
+    let session_bound = path == "/api/context/hops" || path == "/api/context/conversation" || path == "/api/context/ref" || path == "/api/context/scheduled-messages" || path == "/api/predrafts/resolve" || path.starts_with("/api/channels");
     // An oracle never runs or tests oracles.
     let evaluates = path.starts_with("/api/oracles/") && (path.ends_with("/run") || path.ends_with("/test"));
     *method == Method::GET && !session_bound && !evaluates && (tool_need(method, path) == Some(LaunchpadAccess::Read) || read_allowed(path) || oracle_read(method, path))

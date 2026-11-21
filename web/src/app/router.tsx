@@ -19,6 +19,9 @@ const root = createRootRoute({ component: Root });
 
 // Chats (`features/chats`): one layout for the list and its main frame (laptop), so the list stays mounted while
 // chats, settings and the landing grid open in the frame.
+/** `?msg=`: the message a Launchpad link points at (`lib/refs.ts`): a session's event (`<seq>`), a chat's
+ * (`<session>.<seq>`) or a channel's message ID. */
+const msgSearch = (s: Record<string, unknown>): { msg?: string } => (typeof s.msg === "string" || typeof s.msg === "number") && String(s.msg) ? { msg: String(s.msg) } : {};
 const chats = createRoute({ getParentRoute: () => root, id: "chats", component: lazyRouteComponent(() => import("@/features/chats/ChatsView"), "ChatsFrame") });
 const tabSearch = (s: Record<string, unknown>) => ({ ...(s.new === "channel" ? { new: "channel" as const } : s.new === true || s.new === "true" || s.new === 1 ? { new: true as const } : {}) });
 const chatsTree = chats.addChildren([
@@ -27,10 +30,10 @@ const chatsTree = chats.addChildren([
   // The former Bots page: its links land on Chats.
   createRoute({ getParentRoute: () => chats, path: "/bots", validateSearch: (s: Record<string, unknown>): { new?: true | "channel" } => tabSearch(s), beforeLoad: ({ search }) => { throw redirect({ to: "/chats", search: search as never, replace: true }); } }),
   // A chat with a bot (`thread`: a thread ID, a routing key such as `channel:<id>`, or `new`), and the bot's settings.
-  createRoute({ getParentRoute: () => chats, path: "/bots/$id", component: lazyRouteComponent(() => import("@/features/bots/BotsView"), "BotPage"), validateSearch: (s: Record<string, unknown>): { thread?: string; panel?: string } => ({ ...(typeof s.thread === "string" && s.thread ? { thread: s.thread } : {}), ...(typeof s.panel === "string" && s.panel ? { panel: s.panel } : {}) }) }),
+  createRoute({ getParentRoute: () => chats, path: "/bots/$id", component: lazyRouteComponent(() => import("@/features/bots/BotsView"), "BotPage"), validateSearch: (s: Record<string, unknown>): { thread?: string; panel?: string; msg?: string } => ({ ...(typeof s.thread === "string" && s.thread ? { thread: s.thread } : {}), ...(typeof s.panel === "string" && s.panel ? { panel: s.panel } : {}), ...msgSearch(s) }) }),
   createRoute({ getParentRoute: () => chats, path: "/bots/$id/settings", component: lazyRouteComponent(() => import("@/features/bots/BotsView"), "BotSettingsPage") }),
   // A bot channel or DM (`features/channels`): its messages, deliveries and your message box; and its settings.
-  createRoute({ getParentRoute: () => chats, path: "/channels/$id", component: lazyRouteComponent(() => import("@/features/channels/ChannelPage"), "ChannelPage"), validateSearch: (s: Record<string, unknown>): { panel?: string; thread?: string } => ({ ...(typeof s.panel === "string" && s.panel ? { panel: s.panel } : {}), ...(typeof s.thread === "string" && s.thread ? { thread: s.thread } : {}) }) }),
+  createRoute({ getParentRoute: () => chats, path: "/channels/$id", component: lazyRouteComponent(() => import("@/features/channels/ChannelPage"), "ChannelPage"), validateSearch: (s: Record<string, unknown>): { panel?: string; thread?: string; msg?: string } => ({ ...(typeof s.panel === "string" && s.panel ? { panel: s.panel } : {}), ...(typeof s.thread === "string" && s.thread ? { thread: s.thread } : {}), ...msgSearch(s) }) }),
   createRoute({ getParentRoute: () => chats, path: "/channels/$id/settings", component: lazyRouteComponent(() => import("@/features/channels/ChannelPage"), "ChannelSettingsPage") }),
 ]);
 
@@ -40,7 +43,7 @@ const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: "/", component: TodayView, validateSearch: (s: Record<string, unknown>): TodaySearch => ({ ...(typeof s.filter === "string" && s.filter ? { filter: s.filter } : {}), ...(typeof s.card === "string" && s.card ? { card: s.card } : {}) }) }),
   // Folios: the list, and the full-screen reader (`page`, `rev` and the side `panel` in the address).
   createRoute({ getParentRoute: () => root, path: "/folios", component: lazyRouteComponent(() => import("@/features/folios/FoliosView"), "FoliosView"), validateSearch: (s: Record<string, unknown>): { archived?: true; shared?: true } => (s.archived === true || s.archived === "true" ? { archived: true as const } : s.shared === true || s.shared === "true" ? { shared: true as const } : {}) }),
-  createRoute({ getParentRoute: () => root, path: "/folios/$slug", component: lazyRouteComponent(() => import("@/features/folios/FolioReader"), "FolioRoute"), validateSearch: (s: Record<string, unknown>): { page?: string; rev?: number; panel?: "comments" | "versions" | "problems" | "ask" | "share" } => ({ ...(typeof s.page === "string" && s.page ? { page: s.page } : {}), ...(Number.isInteger(Number(s.rev)) && Number(s.rev) > 0 ? { rev: Number(s.rev) } : {}), ...(s.panel === "comments" || s.panel === "versions" || s.panel === "problems" || s.panel === "ask" || s.panel === "share" ? { panel: s.panel } : {}) }) }),
+  createRoute({ getParentRoute: () => root, path: "/folios/$slug", component: lazyRouteComponent(() => import("@/features/folios/FolioReader"), "FolioRoute"), validateSearch: (s: Record<string, unknown>): { page?: string; rev?: number; section?: string; panel?: "comments" | "versions" | "problems" | "ask" | "share" } => ({ ...(typeof s.page === "string" && s.page ? { page: s.page } : {}), ...(typeof s.section === "string" && s.section ? { section: s.section } : {}), ...(Number.isInteger(Number(s.rev)) && Number(s.rev) > 0 ? { rev: Number(s.rev) } : {}), ...(s.panel === "comments" || s.panel === "versions" || s.panel === "problems" || s.panel === "ask" || s.panel === "share" ? { panel: s.panel } : {}) }) }),
   createRoute({ getParentRoute: () => root, path: "/topics", component: lazyRouteComponent(() => import("@/features/topics/TopicsView"), "TopicsView") }),
   createRoute({ getParentRoute: () => root, path: "/topics/$id", component: lazyRouteComponent(() => import("@/features/topics/TopicsView"), "TopicDetail") }),
   // Phone pages.
@@ -53,7 +56,7 @@ const routeTree = root.addChildren([
     path: "/agents",
     component: AgentsView,
     // `view` opens one view of the session (`changes` from Review changes links; the phone keeps the current one).
-    validateSearch: (s: Record<string, unknown>): { session?: string; view?: SessionView; topic?: string } => ({ ...(typeof s.topic === "string" ? { topic: s.topic } : {}), ...(typeof s.session === "string" ? { session: s.session } : {}), ...(typeof s.view === "string" && SESSION_VIEWS.includes(s.view as SessionView) ? { view: s.view as SessionView } : {}) }),
+    validateSearch: (s: Record<string, unknown>): { session?: string; view?: SessionView; topic?: string; msg?: string } => ({ ...(typeof s.topic === "string" ? { topic: s.topic } : {}), ...(typeof s.session === "string" ? { session: s.session } : {}), ...msgSearch(s), ...(typeof s.view === "string" && SESSION_VIEWS.includes(s.view as SessionView) ? { view: s.view as SessionView } : {}) }),
   }),
   createRoute({ getParentRoute: () => root, path: "/projects", component: lazyRouteComponent(() => import("@/features/projects/ProjectsView"), "ProjectsView") }),
   createRoute({ getParentRoute: () => root, path: "/projects/$id", component: lazyRouteComponent(() => import("@/features/projects/ProjectPage"), "ProjectPage") }),

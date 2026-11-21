@@ -17,6 +17,10 @@ import type { GitHubRef } from "@/gen/GitHubRef";
 import type { GhItem } from "@/gen/GhItem";
 import { matchScore } from "./ProjectPicker";
 import { folioRef, useFolios } from "@/lib/folios";
+import { looksLikeRef, refToken } from "@/lib/refs";
+import { resolveRef } from "@/lib/refActions";
+import { toast } from "@/components/Toast";
+import { humanError } from "@/components/ui";
 
 export { itemIcon } from "./itemIcon";
 export { mentionAt } from "@/lib/promptTriggers";
@@ -50,6 +54,23 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   // Chip operations and external draft changes are also part of full-document history.
   useEffect(() => { history.current.sync(doc); }, [doc]);
   const commit = (next: PromptDocument) => { history.current.record(next); onDocumentChange(next); };
+  // A pasted Launchpad link or ID (a chat, a message, a channel…) becomes a reference of the message once Home
+  // resolved it in this workspace: its text turns into a token linked to it, like a # pick. Unknown ones stay text.
+  const latest = useRef(doc);
+  latest.current = doc;
+  const pasteRef: React.ClipboardEventHandler<HTMLTextAreaElement> = (e) => {
+    onPaste?.(e);
+    if (e.defaultPrevented || !autocomplete) return;
+    const pasted = e.clipboardData.getData("text/plain").trim();
+    if (!looksLikeRef(pasted, location.origin)) return;
+    const from = Math.max(0, (ref.current?.selectionStart ?? 0) - 1);
+    void resolveRef(pasted, scope.workspace.id).then((t) => {
+      const cur = latest.current;
+      const at = cur.text.indexOf(pasted, from) >= 0 ? cur.text.indexOf(pasted, from) : cur.text.indexOf(pasted);
+      if (at < 0) return;
+      commit(insertMention(cur, at, at + pasted.length, refToken(t.ref), { kind: "ref", value: t.ref }));
+    }).catch((err) => toast(`Not added as context: ${humanError(err)}`));
+  };
   const scopeKey = `${root}|${harness}|${profile}|${repo}`;
   useEffect(() => { setMention(null); setSelected(0); }, [scopeKey, autocomplete]);
   useEffect(() => { const t = setTimeout(() => setDebounced(mention?.query ?? ""), 150); return () => clearTimeout(t); }, [mention?.query]);
@@ -140,7 +161,7 @@ export function PromptField({ document: doc, onDocumentChange, root, harness, pr
   const error = mention?.trigger === "@" ? files.error : mention?.trigger === "/" ? skills.error : gh.error;
   const warnings = mention?.trigger === "@" ? files.data?.unavailable.map((p) => `${p} unavailable`) : mention?.trigger === "/" ? skills.data?.warnings : [];
   return <>
-    <textarea ref={ref} disabled={disabled} value={doc.text} rows={compact ? 1 : 7} autoFocus={!compact} onPaste={onPaste} placeholder={placeholder ?? "What should the agent do?\n@ files and folders · / skills · # context"}
+    <textarea ref={ref} disabled={disabled} value={doc.text} rows={compact ? 1 : 7} autoFocus={!compact} onPaste={pasteRef} placeholder={placeholder ?? "What should the agent do?\n@ files and folders · / skills · # context"}
       aria-label={compact ? "Message agent" : "Agent prompt"} aria-autocomplete="list" aria-expanded={!!mention} aria-controls={mention ? id : undefined} aria-activedescendant={mention && rows.length ? `${id}-${active}` : undefined}
       className={compact ? "max-h-40 min-h-5 min-w-0 flex-1 resize-none bg-transparent text-[13px] leading-5 outline-none disabled:opacity-60" : "block min-h-[140px] w-full resize-none rounded-t-card bg-transparent px-2.5 pt-2 pb-2 text-[13px] leading-normal outline-none"}
       onChange={(e) => {

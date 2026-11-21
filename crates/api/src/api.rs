@@ -432,6 +432,8 @@ async fn input(State(s): State<Ctx>, Path(id): Path<String>, headers: axum::http
     // Only Home names a sender other than the owner (`launchpad_core::senders`), in the messages it relays.
     if !headers.contains_key(launchpad_http::FROM_HOME) {
         b.context.from = None;
+        // Only Home resolves Launchpad references (`runners::deliver`).
+        b.context.refs.clear();
         // Only Home reads a selection's lines (`runners::deliver`).
         if let Some(sel) = &mut b.context.selection {
             sel.lines = None;

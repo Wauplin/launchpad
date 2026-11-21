@@ -1054,6 +1054,21 @@ pub async fn deliver(app: &App, runner: &str, id: &str, action: &str, body: Opti
     let body = if action == "input" {
         if let Some(raw) = body {
             let mut value: serde_json::Value = serde_json::from_str(&raw)?;
+            // Launchpad references the message names or its text contains, checked against the session's workspace
+            // (`refs`): the prompt names each with its read command.
+            let text = value["text"].as_str().unwrap_or_default().to_string();
+            let named = value.get("context").map(|c| !c["refs"].as_array().is_none_or(Vec::is_empty)).unwrap_or(false);
+            if named || !crate::refs::scan(&text).is_empty() {
+                let mut ctx: crate::model::MessageContext = serde_json::from_value(value.get("context").cloned().unwrap_or(serde_json::Value::Null)).unwrap_or_default();
+                match crate::scope::of_session(app, id).await {
+                    Some(ws) => crate::refs::resolve_context(app, &ws, &mut ctx.refs, &text).await?,
+                    None if named => anyhow::bail!("Launchpad references need a workspace"),
+                    None => ctx.refs.clear(),
+                }
+                if value.is_object() {
+                    value["context"] = serde_json::to_value(ctx)?;
+                }
+            }
             if let Some(context) = value.get_mut("context") {
                 let mut ctx: crate::model::MessageContext = serde_json::from_value(context.clone())?;
                 if !ctx.topics.is_empty() || !ctx.agent_traces.is_empty() || !ctx.folios.is_empty() {
@@ -1238,6 +1253,13 @@ async fn launch_placed(app: &App, mut spec: crate::model::LaunchSpec, id: String
                 spec.inherited_topics.push(t);
             }
         }
+    }
+    // Launchpad references it names or its text contains, checked against its workspace (`refs`).
+    if let Some(ws) = crate::scope::of_spec(app, &spec).await {
+        let text = spec.text.clone();
+        crate::refs::resolve_context(app, &ws, &mut spec.refs, &text).await?;
+    } else {
+        anyhow::ensure!(spec.refs.is_empty(), "Launchpad references need a workspace");
     }
     let agent = match spec.from.is_some() {
         true => Some(crate::scope::of_spec(app, &spec).await),

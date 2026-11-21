@@ -17,6 +17,7 @@ import { createContext, memo, useContext, useMemo, type MouseEvent } from "react
 import { copyText } from "@/lib/clipboard";
 import { useOpenTerminal, useTerminalsHere } from "@/features/terminals/lib";
 import { toast } from "./Toast";
+import { hasRefNavigator, internalHref, openRef } from "@/lib/refActions";
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
 
@@ -63,6 +64,35 @@ md.renderer.rules.link_open = (tokens, idx, options, _env, self) => {
 
 installFileCitations(md);
 installCommitLinks(md);
+
+// Launchpad short IDs in prose (`lp:chat/<bot>/<thread>/<session>/<seq>`, `lp:channel/<id>/<message>`…) become
+// links; a click opens them in this window (Home resolves them, `lib/refActions.ts`). Not inside links or code.
+const LP_ID = /(^|[\s(\[<>"'*_])(lp:[a-z_-]+\/[^\s<>"'`()[\]{}|\\^]*[^\s<>"'`()[\]{}|\\^.,;:!?*_])/g;
+md.core.ruler.push("lp_refs", (state) => {
+  for (const block of state.tokens) {
+    if (block.type !== "inline" || !block.children) continue;
+    const out: typeof block.children = [];
+    let inLink = 0;
+    for (const t of block.children) {
+      if (t.type === "link_open") inLink++;
+      if (t.type === "link_close") inLink--;
+      if (t.type !== "text" || inLink > 0 || !t.content.includes("lp:")) { out.push(t); continue; }
+      let last = 0;
+      for (const m of t.content.matchAll(LP_ID)) {
+        const start = (m.index ?? 0) + m[1].length;
+        if (start > last) { const x = new state.Token("text", "", 0); x.content = t.content.slice(last, start); out.push(x); }
+        const open = new state.Token("link_open", "a", 1); open.attrs = [["href", m[2]], ["class", "lp-ref"]];
+        const text = new state.Token("text", "", 0); text.content = m[2];
+        out.push(open, text, new state.Token("link_close", "a", -1));
+        last = start + m[2].length;
+      }
+      if (last === 0) { out.push(t); continue; }
+      if (last < t.content.length) { const x = new state.Token("text", "", 0); x.content = t.content.slice(last); out.push(x); }
+    }
+    block.children = out;
+  }
+});
+// markdown-it refuses unknown schemes only for javascript:, vbscript:, file: and data:, so lp: links stay links.
 
 export const Markdown = memo(function Markdown({ text, className = "", links, runShell: wantsRun = false }: { text: string; className?: string; links?: Links; runShell?: boolean }) {
   const runShell = useTerminalsHere() && wantsRun;
@@ -133,6 +163,12 @@ export const Markdown = memo(function Markdown({ text, className = "", links, ru
       e.preventDefault();
       const href = a.getAttribute("href") ?? "";
       if (links?.link(href)) return;
+      // A Launchpad link or short ID opens here, at the exact object and message.
+      if (hasRefNavigator() && internalHref(href)) {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) { if (!href.startsWith("lp:")) openExternal(href); return; }
+        void openRef(href);
+        return;
+      }
       if (/^https?:\/\//i.test(href)) {
         openExternal(href);
         return;

@@ -5,6 +5,8 @@ import type { Predraft } from "@/gen/Predraft";
 import type { Project } from "@/gen/Project";
 import logo from "@/assets/launchpad.png";
 import { CommandField } from "./CommandField";
+import { useGoTo } from "./GoTo";
+import { Icon } from "@/components/Icon";
 import { useProjects } from "@/lib/queries";
 import { useBots } from "@/lib/bots";
 import type { Bot } from "@/gen/Bot";
@@ -92,6 +94,7 @@ export function TopBar() {
       </nav>
       <span className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
         {isDemo && <DemoChip />}
+        <button className="btn btn-sm btn-ghost shrink-0" title="Open a Launchpad link or ID (Ctrl+K)" onClick={() => useGoTo.getState().set(true)}><Icon name="link" size={12} />Go to</button>
         <CommandField />
       </span>
     </header>

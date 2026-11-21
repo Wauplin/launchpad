@@ -347,6 +347,14 @@ enum Command {
         #[command(subcommand)]
         command: ConversationCommand,
     },
+    /// Launchpad references: links and IDs of Launchpad objects (`lp:chat/…`, `lp:channel/…/<message>`,
+    /// `lp:session/…`, `lp:folio/…`, or the address of a Launchpad page). `read <ref>` prints a bounded excerpt (the
+    /// referenced message with a few around it, or a summary with the commands that read more); `resolve <ref>`
+    /// prints what it names (JSON). Only objects of your workspace.
+    Ref {
+        #[command(subcommand)]
+        command: RefCommand,
+    },
     /// Write to another bot of this workspace in your DM with it (created on first use; for bots). Send files with
     /// `--attach <file>` (repeat it) and forward the files of an earlier message with `--forward <message id>`;
     /// `--in 2h` or `--at <RFC 3339>` sends it later instead.
@@ -1074,6 +1082,63 @@ async fn conversation_read(paths: &Paths, since: Option<i64>, limit: u32) -> Res
 }
 
 #[derive(Subcommand)]
+enum RefCommand {
+    /// The referenced object as Markdown: the target message with `--before` earlier and `--after` later messages
+    /// (without a target, the newest `--before`), or a summary with the commands that read more.
+    Read {
+        reference: String,
+        #[arg(long)]
+        before: Option<u32>,
+        #[arg(long)]
+        after: Option<u32>,
+        /// The whole answer as JSON.
+        #[arg(long)]
+        json: bool,
+        /// The workspace (the owner's CLI; an agent's is always its own).
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+    /// What a link or ID names: its kind, title, short ID and page (JSON).
+    Resolve {
+        reference: String,
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+}
+
+async fn ref_command(paths: &Paths, command: RefCommand) -> Result<()> {
+    match command {
+        RefCommand::Read { reference, before, after, json, workspace } => {
+            let (before, after) = (before.map(|n| n.to_string()), after.map(|n| n.to_string()));
+            let mut pairs = vec![("ref", reference.as_str())];
+            for (k, v) in [("before", &before), ("after", &after), ("workspace", &workspace)] {
+                if let Some(v) = v {
+                    pairs.push((k, v.as_str()));
+                }
+            }
+            let v = Client::new(paths)?.json("GET", &query("/api/context/ref", &pairs), None).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&v)?);
+            } else {
+                println!("{}", v["text"].as_str().unwrap_or_default());
+            }
+        }
+        RefCommand::Resolve { reference, workspace } => {
+            let mut pairs = vec![("ref", reference.as_str()), ("after", "0"), ("before", "0")];
+            if let Some(w) = &workspace {
+                pairs.push(("workspace", w.as_str()));
+            }
+            let mut v = Client::new(paths)?.json("GET", &query("/api/context/ref", &pairs), None).await?;
+            if let Some(o) = v.as_object_mut() {
+                o.remove("text");
+            }
+            println!("{}", serde_json::to_string_pretty(&v)?);
+        }
+    }
+    Ok(())
+}
+
+#[derive(Subcommand)]
 enum BotCommand {
     /// The bot's own notes, in memory/ of its folder ($LAUNCHPAD_BOT/memory, read-only): paths are relative to memory/.
     Memory {
@@ -1470,6 +1535,7 @@ async fn run() -> Result<()> {
         Command::Tools { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/tools", None).await,
         Command::Connections { command: ListOnly::List { .. } } => list_command(&paths, "/api/context/connections", None).await,
         Command::Conversation { command: ConversationCommand::Read { since, limit } } => conversation_read(&paths, since, limit).await,
+        Command::Ref { command } => ref_command(&paths, command).await,
         Command::Channel { command: ChannelCommand::List } => list_command(&paths, "/api/channels/agent", None).await,
         Command::Channel { command: ChannelCommand::Read { channel, since, limit } } => channel_read(&paths, channel, since, limit).await,
         Command::Channel { command: ChannelCommand::Post { channel, post } } => channel_post(&paths, channel, post).await,

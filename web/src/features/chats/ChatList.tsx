@@ -6,6 +6,7 @@
 // settings, never from this list. On the phone, swiping an open conversation's row to the right uncovers Archive; only a
 // tap on it archives (`SwipeReveal`).
 
+import { copyRefLink } from "@/lib/refActions";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -82,6 +83,7 @@ const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive
           {thread && (thread.archived
             ? <MenuItem icon={<Icon name="refresh" size={14} />} label="Unarchive" detail="Brings the chat and its sessions back" onClick={() => { close(); onArchive(chat, false); }} />
             : <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail={running ? "Stop its turn first" : "It stays under Archived"} disabled={running || archiving} onClick={() => { close(); onArchive(chat, true); }} />)}
+          <MenuItem icon={<Icon name="link" size={14} />} label="Copy link" detail="Paste it into any message box, or Go to" onClick={() => { close(); void copyRefLink(chat.kind === "thread" ? { kind: "chat", id: chat.bot.id, thread: chat.thread, title: chat.title } : { kind: "channel", id: chat.channel.id, title: chat.title }); }} />
           {thread?.session && <MenuItem icon={<Icon name="agents" size={14} />} label="Open in Agents" detail="Its session's trace, terminal and files" onClick={() => { close(); void navigate({ to: "/agents", search: { session: thread.session!.id } as never }); }} />}
           {channel && <ActionMenuItem name="channel.mute" params={{ id: chat.id }} body={{ muted: !channel.channel.owner_muted }} close={close} icon={channel.channel.owner_muted ? "bell" : "bell-off"}
             label={channel.channel.owner_muted ? "Unmute" : "Mute"} detail={channel.channel.owner_muted ? "New messages show as unread again" : "No unread mark or count for you; bots still get every message"} />}

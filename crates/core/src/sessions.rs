@@ -961,6 +961,10 @@ impl Sessions {
             let ws = crate::scope::of_spec(app, &spec).await.context("Folio context needs a workspace")?;
             crate::folio_ref::resolve(app, &ws, &mut spec.folios).await?;
         }
+        if app.paths.role == crate::role::Role::Home && let Some(ws) = crate::scope::of_spec(app, &spec).await {
+            let text = spec.text.clone();
+            crate::refs::resolve_context(app, &ws, &mut spec.refs, &text).await?;
+        }
         self.resolve(app, &spec, false).await
     }
 
@@ -1218,6 +1222,7 @@ impl Sessions {
         }
         prompt.push_str(&crate::compose::topic_notes(&context.topics));
         prompt.push_str(&crate::folio_ref::notes(&context.folios, &app.paths.cli_command()));
+        prompt.push_str(&crate::refs::notes(&context.refs, &app.paths.cli_command()));
         self.send_locked(app, id, &prompt, images, InputMode::Manual, client_id, context.from).await
     }
 

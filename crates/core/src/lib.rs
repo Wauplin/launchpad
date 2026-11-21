@@ -23,6 +23,7 @@ pub mod github;
 pub mod harness;
 pub mod files;
 pub mod folio_ref;
+pub mod refs;
 pub mod model;
 pub mod notify;
 pub mod operations;
@@ -291,6 +292,8 @@ pub fn gen_types(cfg: &ts_rs::Config) -> Result<()> {
     model::Session::export_all(cfg)?;
     today::Today::export_all(cfg)?;
     model::MessageContext::export_all(cfg)?;
+    refs::RefTarget::export_all(cfg)?;
+    refs::RefRead::export_all(cfg)?;
     model::SessionProcess::export_all(cfg)?;
     model::SessionEvent::export_all(cfg)?;
     session_pages::SessionEventPage::export_all(cfg)?;

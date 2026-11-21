@@ -4,6 +4,7 @@
 // Marks (comments, verdicts, choices, ticks) are saved on Home at once and stay unsent until Send feedback; the address
 // keeps the page, the rev and the panel (`?page=&rev=&panel=`).
 
+import { copyRefLink } from "@/lib/refActions";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -30,7 +31,7 @@ import { SharePanel } from "./SharePanel";
 import { AgentsButton, AskPanel, FolioAgents, FolioSwitcher, launchWith, type FolioPart } from "./FolioBar";
 
 export type Panel = "comments" | "versions" | "problems" | "ask" | "share";
-type Nav = { page?: string; rev?: number; panel?: Panel };
+type Nav = { page?: string; rev?: number; panel?: Panel; section?: string };
 type Draft = { target: string; page: string; quote?: string; prefix?: string; suffix?: string; text: string };
 
 /** The route `/folios/$slug`. */
@@ -103,6 +104,7 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     ws, slug, rev: nav.rev ?? null, page: pagePath, marks: d.marks, problems: d.problems, readOnly, files, paths: d.files.map((x) => x.path), report,
     setMark: (kind, target, value) => void runAction("folio.mark", { workspace: ws, slug }, { kind, target, page: pagePath, value: value ?? "" }).then(refresh).catch(toastError),
     comment: (target, quote) => { setDraft({ target, page: pagePath, text: "", ...quote }); setPanel("comments"); },
+    copyLink: (section) => void copyRefLink({ kind: "folio", id: slug, page: pagePath, section, title: d?.folio.title }),
     open: (p, anchor) => { onNav({ page: p }); if (anchor) requestAnimationFrame(() => document.getElementById(`f-${anchor}`)?.scrollIntoView({ block: "start" })); },
     openFolio: (other) => void navigate({ to: "/folios/$slug", params: { slug: other } }),
     launchPrompt: (text, folder, section) => {
@@ -141,6 +143,20 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
   const boxes = page ? page.outline.items.filter((i) => i.t === "container") as { line: number; end: number }[] : [];
   const headings = page ? page.outline.items.filter((i) => i.t === "heading" && i.level >= 2 && i.level <= 3 && !boxes.some((b) => i.line > b.line && i.line < b.end)) as { t: "heading"; line: number; level: number; id: string; text: string }[] : [];
   const jump = (id: string) => { document.getElementById(`f-${id}`)?.scrollIntoView({ block: "start", behavior: "smooth" }); setToc(false); };
+  // A link to a section (`?section=`): once the page rendered, scroll to it.
+  const jumped = useRef<string | null>(null);
+  useEffect(() => {
+    const key = nav.section ? `${pagePath}#${nav.section}` : null;
+    if (!key || jumped.current === key || !d) return;
+    let tries = 0, frame = 0;
+    const look = () => {
+      const el = document.getElementById(`f-${nav.section}`);
+      if (el) { jumped.current = key; el.scrollIntoView({ block: "start" }); }
+      else if (tries++ < 120) frame = requestAnimationFrame(look);
+    };
+    look();
+    return () => cancelAnimationFrame(frame);
+  }, [nav.section, pagePath, d]);
 
   const contents = <nav aria-label="Contents" className="folio-toc">
     {d.pages.length > 1 && <>

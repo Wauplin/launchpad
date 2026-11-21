@@ -20,6 +20,7 @@ mod oracles;
 mod predrafts;
 mod prompt_context;
 mod proposals;
+mod refs;
 mod review_state;
 mod setup;
 mod slack;
@@ -60,4 +61,5 @@ pub fn router() -> Router<Ctx> {
         .merge(folios::router())
         .merge(egress::router())
         .merge(slack::router())
+        .merge(refs::router())
 }

@@ -145,11 +145,18 @@ pub struct ConversationMessage {
     /// Whom it went to: bots' names, or "you" for a bot's answer to the owner.
     pub to: Vec<String>,
     pub text: String,
+    /// The session events it shows (`(session, seq)`: the same message to several bots shows several), for
+    /// Launchpad references to one message (`launchpad ref read`).
+    #[serde(skip)]
+    #[ts(skip)]
+    pub keys: Vec<(String, i64)>,
 }
 
 /// A participant's session with its stored events, for `timeline`.
 pub struct Part<'a> {
     pub bot: &'a str,
+    /// The session the events are of.
+    pub session: &'a str,
     pub events: &'a [Stored],
 }
 
@@ -171,13 +178,14 @@ pub fn timeline(parts: &[Part]) -> Vec<ConversationMessage> {
     let mut out: Vec<ConversationMessage> = vec![];
     for p in parts {
         let mut asker: String = "you".into();
-        let mut answer: Option<(i64, String)> = None;
-        let flush = |out: &mut Vec<ConversationMessage>, answer: &mut Option<(i64, String)>, asker: &str| {
-            if let Some((at, text)) = answer.take() {
-                out.push(ConversationMessage { id: at, from: p.bot.to_string(), to: vec![asker.to_string()], text: cut(&text) });
+        let mut answer: Option<(i64, i64, String)> = None;
+        let key = |seq: i64| vec![(p.session.to_string(), seq)];
+        let flush = |out: &mut Vec<ConversationMessage>, answer: &mut Option<(i64, i64, String)>, asker: &str| {
+            if let Some((seq, at, text)) = answer.take() {
+                out.push(ConversationMessage { id: at, from: p.bot.to_string(), to: vec![asker.to_string()], text: cut(&text), keys: key(seq) });
             }
         };
-        for (_, ts, e) in p.events {
+        for (seq, ts, e) in p.events {
             match e {
                 EventBody::UserMessage { text, from, .. } => {
                     flush(&mut out, &mut answer, &asker);
@@ -186,19 +194,22 @@ pub fn timeline(parts: &[Part]) -> Vec<ConversationMessage> {
                             asker = "you".into();
                             let text = cut(text);
                             match out.iter_mut().find(|m| m.from == "you" && m.text == text && (m.id - ts).abs() <= SAME_MESSAGE_MS) {
-                                Some(m) if !m.to.iter().any(|t| t == p.bot) => m.to.push(p.bot.to_string()),
+                                Some(m) if !m.to.iter().any(|t| t == p.bot) => {
+                                    m.to.push(p.bot.to_string());
+                                    m.keys.extend(key(*seq));
+                                }
                                 Some(_) => {}
-                                None => out.push(ConversationMessage { id: *ts, from: "you".into(), to: vec![p.bot.to_string()], text }),
+                                None => out.push(ConversationMessage { id: *ts, from: "you".into(), to: vec![p.bot.to_string()], text, keys: key(*seq) }),
                             }
                         }
                         Some(f) if f.reply || f.kind == SenderKind::Wake => {}
                         Some(f) => {
                             asker = f.name.clone();
-                            out.push(ConversationMessage { id: *ts, from: f.name.clone(), to: vec![p.bot.to_string()], text: cut(&senders::unwrap(text)) });
+                            out.push(ConversationMessage { id: *ts, from: f.name.clone(), to: vec![p.bot.to_string()], text: cut(&senders::unwrap(text)), keys: key(*seq) });
                         }
                     }
                 }
-                EventBody::AssistantMessage { text, .. } if !text.trim().is_empty() => answer = Some((*ts, text.clone())),
+                EventBody::AssistantMessage { text, .. } if !text.trim().is_empty() => answer = Some((*seq, *ts, text.clone())),
                 EventBody::TurnEnd { .. } => flush(&mut out, &mut answer, &asker),
                 _ => {}
             }
@@ -227,10 +238,18 @@ pub struct Conversation {
 pub async fn read(app: &App, session: &str, since: Option<i64>, limit: usize) -> Result<Conversation> {
     let s = app.sessions.get(session).context("no such session")?;
     let mine = bot_threads::of_session(app, &s).await.context("this session is not a bot's thread: it has no conversation")?;
+    let (id, title, bots, all) = whole(app, &mine).await?;
+    let all: Vec<ConversationMessage> = all.into_iter().filter(|m| since.is_none_or(|c| m.id > c)).collect();
+    let earlier = all.len().saturating_sub(limit);
+    Ok(Conversation { id, title, bots, messages: all.into_iter().skip(earlier).collect(), earlier })
+}
+
+/// Home: the whole conversation of a thread: its ID, title, bots (the main bot first) and timeline, oldest first.
+pub async fn whole(app: &App, mine: &launchpad_core::bot_threads::BotThread) -> Result<(String, String, Vec<String>, Vec<ConversationMessage>)> {
     let threads = bot_threads::conversation_threads(app, &mine.conversation).await?;
     let main = threads.iter().find(|t| t.bot_id == mine.main_bot()).cloned().unwrap_or_else(|| mine.clone());
     let mut names: Vec<(String, String)> = vec![];
-    let mut loaded: Vec<(String, Vec<Stored>)> = vec![];
+    let mut loaded: Vec<(String, String, Vec<Stored>)> = vec![];
     for t in &threads {
         let name = match names.iter().find(|(id, _)| *id == t.bot_id) {
             Some((_, n)) => n.clone(),
@@ -241,15 +260,14 @@ pub async fn read(app: &App, session: &str, since: Option<i64>, limit: usize) ->
             }
         };
         for x in bot_threads::sessions(app, &t.bot_id, &t.id) {
-            loaded.push((name.clone(), events(app, &x.id).await?));
+            loaded.push((name.clone(), x.id.clone(), events(app, &x.id).await?));
         }
     }
-    let parts: Vec<Part> = loaded.iter().map(|(bot, events)| Part { bot, events }).collect();
-    let all: Vec<ConversationMessage> = timeline(&parts).into_iter().filter(|m| since.is_none_or(|c| m.id > c)).collect();
-    let earlier = all.len().saturating_sub(limit);
+    let parts: Vec<Part> = loaded.iter().map(|(bot, session, events)| Part { bot, session, events }).collect();
+    let all = timeline(&parts);
     let mut bots: Vec<String> = names.iter().filter(|(id, _)| *id == main.bot_id).chain(names.iter().filter(|(id, _)| *id != main.bot_id)).map(|(_, n)| n.clone()).collect();
     bots.dedup();
-    Ok(Conversation { id: mine.conversation.clone(), title: main.title.clone(), bots, messages: all.into_iter().skip(earlier).collect(), earlier })
+    Ok((mine.conversation.clone(), main.title.clone(), bots, all))
 }
 
 #[cfg(test)]
@@ -304,7 +322,7 @@ mod tests {
     fn the_timeline_shows_each_message_once() {
         let a = vec![user(1, "compare the flows", None), said(3, "Asked B."), end(4), user(9, "B's answer", Some(reply("B", 2))), said(10, "Both match."), end(11)];
         let b = vec![user(2, "compare the flows", None), said(5, "On it"), end(6), user(7, &senders::wrap(&bot("A", 1), "What is yours?"), Some(bot("A", 1))), said(8, "Mine is X."), end(8)];
-        let t = timeline(&[Part { bot: "A", events: &a }, Part { bot: "B", events: &b }]);
+        let t = timeline(&[Part { bot: "A", session: "sa", events: &a }, Part { bot: "B", session: "sb", events: &b }]);
         let lines: Vec<String> = t.iter().map(|m| format!("{} > {}: {}", m.from, m.to.join(","), m.text)).collect();
         assert_eq!(lines, vec![
             "you > A,B: compare the flows",
@@ -314,5 +332,8 @@ mod tests {
             "B > A: Mine is X.",
             "A > you: Both match.",
         ]);
+        // Each message knows the events it shows: the owner's message to both bots, an answer by its last message.
+        assert_eq!(t[0].keys, vec![("sa".to_string(), 1), ("sb".to_string(), 2)]);
+        assert_eq!(t[5].keys, vec![("sa".to_string(), 10)]);
     }
 }

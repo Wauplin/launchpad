@@ -6,6 +6,7 @@
 // Lines about the work (steps, receipts, deliveries) stay outside the bubble, under it (`after`).
 
 import { botEdge, useIdentitiesVersion } from "@/components/BotAvatar";
+import { Icon } from "@/components/Icon";
 
 /** Whose words: yours, the bot of this chat (or a bot posting in a channel), or another sender's. */
 export type MessageLook = "owner" | "bot" | "other";
@@ -19,7 +20,7 @@ const BUBBLE: Record<MessageLook, string> = {
 /** The indent of lines that belong to a message but sit outside its bubble: the mark (28 px) and the gap. */
 export const MESSAGE_INDENT = "pl-9.5";
 
-export function ChatMessage({ avatar, name, tag, time, look, faded, edges, children, after, tour }: {
+export function ChatMessage({ avatar, name, tag, time, look, faded, edges, children, after, tour, onCopyLink, target }: {
   avatar: React.ReactNode;
   /** The sender's name, a link to its page when it has one. */
   name: React.ReactNode;
@@ -37,6 +38,10 @@ export function ChatMessage({ avatar, name, tag, time, look, faded, edges, child
   /** Under the bubble, outside it: how far it got, its files, deliveries. */
   after?: React.ReactNode;
   tour?: string;
+  /** Copy link: the message's Launchpad link (shown on hover, always on touch screens). */
+  onCopyLink?: () => void;
+  /** The message a link pointed at: outlined in the accent color. */
+  target?: boolean;
 }) {
   return <div className="group flex items-start gap-2.5 py-2" data-tour={tour}>
     {avatar}
@@ -45,8 +50,9 @@ export function ChatMessage({ avatar, name, tag, time, look, faded, edges, child
         <span className="min-w-0 truncate text-[13px] font-semibold">{name}</span>
         {tag}
         {time}
+        {onCopyLink && <button type="button" className="lp-row-more inline-flex items-center self-center text-ink-3 hover:text-ink" title="Copy link to this message (paste it into any message box, or Go to)" aria-label="Copy link to this message" onClick={onCopyLink}><Icon name="link" size={12} /></button>}
       </div>
-      <div className={`max-w-full min-w-0 rounded-card rounded-tl-sm px-3 py-2 text-[13px] ${BUBBLE[look]} ${faded ? "opacity-70" : ""} ${edges ? "relative overflow-hidden" : ""}`}>
+      <div className={`max-w-full min-w-0 rounded-card rounded-tl-sm px-3 py-2 text-[13px] ${BUBBLE[look]} ${faded ? "opacity-70" : ""} ${edges ? "relative overflow-hidden" : ""} ${target ? "ring-2 ring-teal" : ""}`}>
         {edges && <Edges from={edges.from} to={edges.to} />}
         {children}
       </div>
