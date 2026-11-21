@@ -132,18 +132,8 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
   // Another page, rev or panel: the selection's toolbar would point at text that is gone.
   useEffect(() => setSelection(null), [pagePath, nav.rev, panel]);
 
-  if (q.isLoading) return <Loading what="folio" className="h-full" />;
-  if (q.error || !d) return <ErrorState error={q.error ?? new Error("no folio")} onRetry={() => void q.refetch()} className="h-full" />;
-  const f = d.folio;
-  const unsent = unsentMarks(d.marks);
-  const errors = d.problems.filter((p) => p.severity === "error").length;
-  const warnings = d.problems.filter((p) => p.severity === "warn").length;
-  const mood = (front(d.pages[0]?.text ?? "").mood === "editorial" ? "editorial" : "report") as "report" | "editorial";
-  // The contents list: headings of levels 2 and 3 outside containers (inside, they title cards, tabs and boxes).
-  const boxes = page ? page.outline.items.filter((i) => i.t === "container") as { line: number; end: number }[] : [];
-  const headings = page ? page.outline.items.filter((i) => i.t === "heading" && i.level >= 2 && i.level <= 3 && !boxes.some((b) => i.line > b.line && i.line < b.end)) as { t: "heading"; line: number; level: number; id: string; text: string }[] : [];
-  const jump = (id: string) => { document.getElementById(`f-${id}`)?.scrollIntoView({ block: "start", behavior: "smooth" }); setToc(false); };
   // A link to a section (`?section=`): once the page rendered, scroll to it.
+  // Every hook stays above the loading and error returns below: a hook after them breaks the render once the folio loads.
   const jumped = useRef<string | null>(null);
   useEffect(() => {
     const key = nav.section ? `${pagePath}#${nav.section}` : null;
@@ -157,6 +147,18 @@ export function FolioReader({ ws, slug, nav, onNav, embedded = false }: { ws: st
     look();
     return () => cancelAnimationFrame(frame);
   }, [nav.section, pagePath, d]);
+
+  if (q.isLoading) return <Loading what="folio" className="h-full" />;
+  if (q.error || !d) return <ErrorState error={q.error ?? new Error("no folio")} onRetry={() => void q.refetch()} className="h-full" />;
+  const f = d.folio;
+  const unsent = unsentMarks(d.marks);
+  const errors = d.problems.filter((p) => p.severity === "error").length;
+  const warnings = d.problems.filter((p) => p.severity === "warn").length;
+  const mood = (front(d.pages[0]?.text ?? "").mood === "editorial" ? "editorial" : "report") as "report" | "editorial";
+  // The contents list: headings of levels 2 and 3 outside containers (inside, they title cards, tabs and boxes).
+  const boxes = page ? page.outline.items.filter((i) => i.t === "container") as { line: number; end: number }[] : [];
+  const headings = page ? page.outline.items.filter((i) => i.t === "heading" && i.level >= 2 && i.level <= 3 && !boxes.some((b) => i.line > b.line && i.line < b.end)) as { t: "heading"; line: number; level: number; id: string; text: string }[] : [];
+  const jump = (id: string) => { document.getElementById(`f-${id}`)?.scrollIntoView({ block: "start", behavior: "smooth" }); setToc(false); };
 
   const contents = <nav aria-label="Contents" className="folio-toc">
     {d.pages.length > 1 && <>

@@ -23,7 +23,7 @@
     "test:folios": "node --experimental-strip-types --test tests/folioSplit.test.mjs tests/folioSketch.test.mjs",
     "shots": "node scripts/shots.mjs",
     "ui-check": "node scripts/ui-check.mjs",
-    "lint:hooks": "oxlint -A all -D react-hooks/rules-of-hooks src"
+    "lint:hooks": "oxlint --react-plugin -A all -D react-hooks/rules-of-hooks src"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.0",
