@@ -519,7 +519,7 @@ export function SessionPane({ sessionId, onClear, initialView, onView }: { sessi
                 key={it.key}
                 data-index={it.index}
                 ref={v.measureElement}
-                className="flex flex-col py-[5px]"
+                className="flex min-w-0 flex-col py-[5px]"
                 style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${it.start}px)` }}
               >
                 {it.index < trace.length ? <EventRow row={trace[it.index]} sessionId={s.id} live={s.live} /> : it.index < trace.length + threadProposals.length ? <ProposalCard p={threadProposals[it.index - trace.length]} /> : <FolioWriteRow a={folioWrites[it.index - trace.length - threadProposals.length]} />}

@@ -113,7 +113,7 @@ export function SubagentsPanel({ log, agents, sessionId, live, back }: { log: Se
         <div key={active?.id} ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3" onScroll={(e) => { const el = e.currentTarget; bottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60; }}>
           {!rows.length && <div className="p-6 text-center text-[12px] text-ink-3">{active?.status === "running" ? "Waiting for trace events…" : "The harness supplied no trace events for this agent."}</div>}
           <div style={{ height: total, position: "relative" }}>
-            {trace.getVirtualItems().map((it) => <div key={`${active?.id}-${rows[it.index].key}`} data-index={it.index} ref={trace.measureElement} className="flex flex-col py-[5px]" style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${it.start}px)` }}><EventRow row={rows[it.index]} sessionId={sessionId} live={false} /></div>)}
+            {trace.getVirtualItems().map((it) => <div key={`${active?.id}-${rows[it.index].key}`} data-index={it.index} ref={trace.measureElement} className="flex min-w-0 flex-col py-[5px]" style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${it.start}px)` }}><EventRow row={rows[it.index]} sessionId={sessionId} live={false} /></div>)}
           </div>
           {active?.status === "running" && live && <div className="flex items-center gap-2 py-2 text-[12px] text-work"><span className="lp-spin" />Working…</div>}
         </div>

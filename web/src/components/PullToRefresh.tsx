@@ -1,5 +1,5 @@
-// Pull to refresh, the one gesture of the phone (Today and Agents; an exception to click only, decided by
-// the owner): pulling a list down from its top shows an arrow, and releasing it past the threshold runs `onRefresh`
+// Pull to refresh, a gesture of the phone (Today and Agents; an exception to click only, decided by
+// the owner, like the Chats list's swipe to uncover Archive): pulling a list down from its top shows an arrow, and releasing it past the threshold runs `onRefresh`
 // while a spinner shows. Place it as the first child of the scrolling element `target`.
 
 import { useEffect, useRef, useState, type RefObject } from "react";

@@ -86,7 +86,7 @@ function CallLine({ c }: { c: Call }) {
   const running = !c.result;
   const out = c.result?.output ?? c.live ?? "";
   return (
-    <div>
+    <div className="min-w-0">
       <button
         onClick={() => setOpen((o) => !o)}
         className={`flex w-full items-center gap-2 rounded-control border px-2 py-1 text-left text-[12px] ${
@@ -94,15 +94,21 @@ function CallLine({ c }: { c: Call }) {
         }`}
       >
         {running ? <span className="lp-spin" /> : <Icon name="chev" size={12} className={`flex-none text-ink-3 transition-transform ${open ? "" : "-rotate-90"}`} />}
-        <span className={`font-[650] ${running ? "text-work" : "text-ink"}`}>{c.name}</span>
+        <span className={`max-w-[45%] min-w-0 flex-none truncate font-[650] ${running ? "text-work" : "text-ink"}`} title={c.name}>{c.name}</span>
         {FILE_TOOLS.has(c.name) ? <PathText path={c.summary} className="min-w-0 truncate font-mono text-[12px]" /> : <span className="min-w-0 truncate font-mono text-[12px]">{c.summary}</span>}
         <span className="ml-auto flex-none whitespace-nowrap text-ink-3 tabular-nums">
           {running ? <Ago ts={c.ts} /> : [duration(c.result?.duration_ms), c.result?.exit_code != null ? `exit ${c.result.exit_code}` : c.result?.is_error ? "error" : ""].filter(Boolean).join(" · ")}
         </span>
       </button>
+      {/* Opened: the whole tool name and arguments, wrapped (the line above cuts them on a narrow screen). */}
+      {open && (c.name || c.summary) && (
+        <div className="mt-1 px-2 font-mono text-[11px] leading-relaxed wrap-anywhere whitespace-pre-wrap text-ink-2">
+          <span className="font-[650] text-ink">{c.name}</span> {c.summary}
+        </div>
+      )}
       {(open || (running && c.live)) && out && (
-        <div className="relative mt-1">
-          <pre className="m-0 max-h-72 overflow-auto rounded-control border border-line-2 bg-code px-2.5 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-ink">{out}</pre>
+        <div className="relative mt-1 min-w-0">
+          <pre className="m-0 max-h-72 overflow-auto rounded-control border border-line-2 bg-code px-2.5 py-2 font-mono text-[11px] leading-relaxed wrap-anywhere whitespace-pre-wrap text-ink">{out}</pre>
           <button className="btn btn-sm absolute top-1 right-1" onClick={() => void copyText(out).then(() => toast("Output copied"))}>
             <Icon name="copy" size={12} />
           </button>
@@ -118,14 +124,14 @@ function ToolsRow({ calls }: { calls: Call[] }) {
   if (calls.length === 1) return <CallLine c={calls[0]} />;
   const total = calls.reduce((acc, c) => acc + (c.result?.duration_ms ?? 0), 0);
   return (
-    <div className="grid gap-1">
-      <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 rounded-control border border-line-2 bg-chrome px-2 py-1 text-left text-[12px] text-ink-2">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1">
+      <button onClick={() => setOpen((o) => !o)} className="flex min-w-0 items-center gap-2 rounded-control border border-line-2 bg-chrome px-2 py-1 text-left text-[12px] text-ink-2">
         <Icon name="chev" size={12} className={`text-ink-3 transition-transform ${open ? "" : "-rotate-90"}`} />
-        <span className="font-[650] text-ink">{groupSummary(calls)}</span>
-        <span className="ml-auto text-ink-3 tabular-nums">{duration(total)}</span>
+        <span className="min-w-0 truncate font-[650] text-ink" title={groupSummary(calls)}>{groupSummary(calls)}</span>
+        <span className="ml-auto flex-none whitespace-nowrap text-ink-3 tabular-nums">{duration(total)}</span>
       </button>
       {open && (
-        <div className="grid gap-1 pl-4">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1 pl-4">
           {calls.map((c) => (
             <CallLine key={c.id} c={c} />
           ))}
@@ -143,8 +149,8 @@ function EditRow({ path, change, diff }: { path: string; change: string; diff: s
   const del = lines.filter((l) => l.startsWith("-")).length;
   const shown = open ? lines : lines.slice(0, 12);
   return (
-    <div className="overflow-hidden rounded-control border border-line-2">
-      <div className="flex items-center gap-2 bg-chrome px-2 py-1 text-[12px] text-ink-2">
+    <div className="min-w-0 overflow-hidden rounded-control border border-line-2">
+      <div className="flex min-w-0 items-center gap-2 bg-chrome px-2 py-1 text-[12px] text-ink-2">
         <Icon name={change === "add" ? "file" : "pencil"} size={12} />
         <PathText path={path} className="min-w-0 truncate font-mono" />
         {change === "add" && <span className="text-ink-3">new file</span>}
@@ -200,14 +206,14 @@ function BackgroundRow({ row, sessionId }: { row: Extract<Row, { t: "bg" }>; ses
   });
   const tail = (out.data?.text ?? "").split("\n").slice(-8).join("\n").trimEnd();
   return (
-    <div className="overflow-hidden rounded-control border border-attn-line">
+    <div className="min-w-0 overflow-hidden rounded-control border border-attn-line">
       <div className="flex items-center gap-2 bg-attn-soft px-2 py-1 text-[12px] text-attn">
         {running ? <span className="lp-spin border-attn-line! border-t-attn!" /> : <Icon name="check" size={12} />}
         <span className="font-[650]">Background</span>
         <span className="min-w-0 truncate font-mono text-ink-2">{row.description}</span>
         <span className="ml-auto whitespace-nowrap tabular-nums">{running ? <Ago ts={row.ts} /> : row.status}</span>
       </div>
-      {tail && <pre className="m-0 max-h-40 overflow-auto bg-code px-2.5 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-ink">{tail}</pre>}
+      {tail && <pre className="m-0 max-h-40 overflow-auto bg-code px-2.5 py-2 font-mono text-[11px] leading-relaxed wrap-anywhere whitespace-pre-wrap text-ink">{tail}</pre>}
     </div>
   );
 }
@@ -289,7 +295,7 @@ export const EventRow = memo(
       case "notices":
         return <NoticesRow texts={row.texts} />;
       case "error":
-        return <div className="rounded-control border border-gh-closed/30 bg-diff-del px-2.5 py-1.5 font-mono text-[12px] whitespace-pre-wrap text-gh-closed">{row.text}</div>;
+        return <div className="rounded-control border border-gh-closed/30 bg-diff-del px-2.5 py-1.5 font-mono text-[12px] wrap-anywhere whitespace-pre-wrap text-gh-closed">{row.text}</div>;
     }
   },
   (a, b) => a.row.key === b.row.key && a.row.v === b.row.v && a.live === b.live && a.sessionId === b.sessionId,

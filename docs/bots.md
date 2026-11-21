@@ -153,7 +153,7 @@ Each row's **⋯** holds:
 
 - **Pin** (or **Unpin**): a shortcut to the chat under **Chats** in the sidebar, with a state dot; on the phone, pinned chats come first in the list, in a **Pinned** section. Pins are stored on Home, so every window shows the same ones. An archived chat keeps its pin but leaves the shortcuts (and the phone's Pinned section) until you bring it back; deleting the bot that started a conversation, a channel or a workspace deletes its pins.
 - **Rename**: opens the chat and edits its title in place in the header (see below).
-- **Archive** (one click, off while the chat works), or **Unarchive** for an archived chat. Archiving the chat you look at returns to the tiles.
+- **Archive** (one click, off while the chat works), or **Unarchive** for an archived chat. Archiving the chat you look at returns to the tiles. On a phone, you can also swipe a chat's row to the right: this uncovers **Archive**, and only a tap on it archives the chat (swipe back or tap the row to close it).
 - **Open in Agents**: its session's full trace, terminal and files.
 - For a channel, **Settings**. Channels are archived from their settings, never from this list.
 

@@ -678,9 +678,9 @@ function StepsRow({ item, records }: { item: Extract<ChatItem, { t: "steps" }>; 
         {item.changes.map((c, i) => <span key={c.id} className="truncate" title={c.text}>· <Icon name="pencil" size={12} className="inline align-[-2px]" /> <ReceiptLink record={records[i]}>{c.receipt}</ReceiptLink></span>)}
       </span>}
     </div>
-    {open && <div className="mt-1 grid gap-0.5 border-l-2 border-line-2 pl-3">
-      <ol className="m-0 grid gap-0.5 p-0 text-[12px] text-ink-3">{item.steps.map((s, i) => <li key={i} className="list-none truncate font-mono text-[11px]" title={s}>{s}</li>)}</ol>
-      {item.changes.map((c, i) => <div key={c.id} className="flex min-h-6 items-center gap-2 text-[12px] text-ink-2"><ChangeLine record={records[i]} text={c.text} /></div>)}
+    {open && <div className="mt-1 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 border-l-2 border-line-2 pl-3">
+      <ol className="m-0 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 p-0 text-[12px] text-ink-3">{item.steps.map((s, i) => <li key={i} className="list-none font-mono text-[11px] wrap-anywhere">{s}</li>)}</ol>
+      {item.changes.map((c, i) => <div key={c.id} className="flex min-h-6 min-w-0 items-center gap-2 text-[12px] text-ink-2"><ChangeLine record={records[i]} text={c.text} /></div>)}
     </div>}
   </div>;
 }

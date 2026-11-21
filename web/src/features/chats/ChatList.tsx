@@ -3,7 +3,8 @@
 // Channels, Archived). Rows look like agent rows: a conversation of bots has its bots' square marks, a channel or DM
 // a grey "#" or "↔" mark and the word Channel or DM. A row opens the chat; its ⋯ pins it (a sidebar shortcut),
 // renames (in the chat's header), archives or brings back a conversation and opens its trace in Agents. Channels are archived from their
-// settings, never from this list.
+// settings, never from this list. On the phone, swiping an open conversation's row to the right uncovers Archive; only a
+// tap on it archives (`SwipeReveal`).
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
@@ -13,6 +14,7 @@ import { BotAvatar } from "@/components/BotAvatar";
 import { Icon } from "@/components/Icon";
 import { MenuItem, Popover } from "@/components/Popover";
 import { PullToRefresh } from "@/components/PullToRefresh";
+import { SwipeReveal } from "@/components/SwipeReveal";
 import { toast, toastError } from "@/components/Toast";
 import { Count, Empty, ErrorState, Loading, MoreMenu, RoutineMark, StatusBadge } from "@/components/ui";
 import { useArchiveThread, useRenameRequest } from "@/features/chat/BotThreads";
@@ -42,6 +44,7 @@ type RowProps = { chat: Chat; selected: boolean; pinned: boolean; onPin: (c: Cha
 /** One chat, styled like an agent row. Callbacks are stable, so a bus update re-renders only the rows that changed. */
 const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive, onRename, archiving }: RowProps) {
   const navigate = useNavigate();
+  const phone = usePhone();
   const thread = chat.kind === "thread" ? chat : null;
   const channel = chat.kind === "channel" ? chat : null;
   const bold = thread ? thread.unseen || thread.tone === "needs" : !!channel && (channel.unread > 0 || channel.asks > 0);
@@ -50,6 +53,8 @@ const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive
   const link = thread ? { to: "/bots/$id" as const, params: { id: thread.bot.id }, search: { thread: thread.thread } } : { to: "/channels/$id" as const, params: { id: chat.id }, search: {} };
   const label = `${chat.title}, ${thread ? `chat with ${who}, ${thread.label}` : `${who}${channel?.unread ? `, ${channel.unread} unread` : ""}`}${pinned ? ", pinned" : ""}`;
   return (
+    <SwipeReveal enabled={phone && !!thread && !thread.archived}
+      action={{ label: "Archive", icon: "archive", disabled: running || archiving, title: running ? "Stop its turn first to archive this chat" : `Archive “${chat.title}”: it stays under Archived`, onClick: () => onArchive(chat, true) }}>
     <div className="group relative" data-tour="chats.row" data-tour-id={chat.id}>
       <Link {...link} aria-label={label} aria-current={selected ? "page" : undefined}
         style={{ height: ROW }} className={`grid w-full grid-cols-[18px_1fr_auto] content-start gap-x-2 gap-y-1 border-b border-line-2 px-3 py-2 text-left text-ink no-underline hover:bg-chrome ${selected ? "bg-select hover:bg-select" : ""}`}>
@@ -80,6 +85,7 @@ const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive
         </>}</MoreMenu>
       </span>
     </div>
+    </SwipeReveal>
   );
 });
 
