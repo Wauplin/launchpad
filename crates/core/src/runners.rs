@@ -668,7 +668,7 @@ pub mod proto {
         /// Profiles configured on Home, including their vault login IDs.
         Profiles { profiles: Vec<crate::config::Profile> },
         /// Home's settings a runner applies to its own work: how many idle task worktrees it keeps (`[worktrees] keep`,
-        /// Settings → Disk cleanup), on connect and after each change.
+        /// in config.toml), on connect and after each change.
         Settings {
             worktrees_keep: u32,
             /// The exit routes with their exits' states (`egress`), also after each change.

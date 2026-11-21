@@ -200,7 +200,6 @@ function publishWorktree(i: WorktreeInfo) {
 const localToast = (what: string) => toast(`Demo: ${what}. No files changed on disk.`);
 
 route("GET", "/api/worktrees", () => world.taskWorktrees.map(refreshInfo));
-route("POST", "/api/worktrees/sizes", () => Object.fromEntries(world.taskWorktrees.filter((i) => i.worktree.state === "active").map((i, n) => [i.worktree.id, 48_000_000 + n * 7_300_000])));
 route("GET", "/api/sessions/:id/worktrees", ({ params }) => world.taskWorktrees.filter((i) => i.worktree.sessions.includes(params.id)).map(refreshInfo));
 route("POST", "/api/worktrees/finish", ({ body }) => {
   const i = world.taskWorktrees.find((w) => w.worktree.sessions.includes(body?.session_id));

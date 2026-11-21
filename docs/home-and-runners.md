@@ -49,7 +49,7 @@ While a session runs, Stop, answers and the other session actions go to its runn
 
 Terminals and **Continue in TUI** follow the session but never move it: they open on its runner, through Home, and only while that runner is connected. When it is away, or runs an older build, the buttons are disabled with the reason; Home starts no Burst job and moves nothing for a terminal. A Git folder without an agent opens its shell on a runner picked like for a launch. See [Terminals and files](agents.md#terminals-and-files).
 
-Home sends its profiles and the settings runners apply to their own work, such as the number of worktrees kept (**Settings → Disk cleanup**), to every runner when it connects and after each change.
+Home sends its profiles and the settings runners apply to their own work, such as the number of worktrees kept (`[worktrees] keep` in config.toml), to every runner when it connects and after each change.
 
 ## Saved on Home
 

@@ -262,7 +262,7 @@ fn profiles(s: &Server) -> ToRunner {
     ToRunner::Profiles { profiles: s.app.config.get().profiles }
 }
 
-/// Home's settings that runners apply (Settings → Disk cleanup) and the exit routes with their exits' states.
+/// Home's settings that runners apply (`[worktrees] keep`) and the exit routes with their exits' states.
 fn settings(s: &Server) -> ToRunner {
     ToRunner::Settings { worktrees_keep: s.app.config.get().worktrees.keep, egress: launchpad_core::egress::states() }
 }

@@ -83,7 +83,7 @@ Screens narrower than 720 px get a phone layout (or choose it in **Settings → 
 - Session pages have Summary, Trace and Changes. **⋯ → Rename** renames the agent. A bottom bar holds **Reply** and the session's main action, or **Merge into** the base branch when merging is safe and no question is open; the next steps in Summary then do not repeat Merge. **Reply** opens the message box; it stays open while it holds a draft, and opens by itself when you answer a question. In Summary or Trace, tap the expand icon beside the view tabs to fill the screen with a compact header. Tap collapse to restore the layout and your draft. **Stop** of an agent that asks a question is in **⋯**.
 - The Local PR bar holds one button: **Publish** (its branch name and draft options are in its sheet) for a folder on GitHub, else **Merge**; the others are in **⋯**. Today's **Start all** shows in the Approve filter.
 - Tap an image in a trace or chat to view it full screen (pinch to zoom, **Download**, **✕** or back to close).
-- **Settings** gives access to every settings page, including profiles, Home and runners, credentials and tools, Hugging Face and Disk cleanup. Device controls (zoom, theme and layout) come first, followed by Workspace, Agents, Machines & access, Help and the setup checklist. On a Settings page, **‹** goes back to Settings.
+- **Settings** gives access to every settings page, including profiles, Home and runners, credentials and tools, Hugging Face and This device → Appearance (zoom, theme and layout), grouped like the laptop: Workspace, Agents, Machines & access, This device, Help and the setup checklist. On a Settings page, **‹** goes back to Settings.
 
 <table>
   <tr>
