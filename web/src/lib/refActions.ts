@@ -7,7 +7,7 @@ import type { RefTarget } from "@/gen/RefTarget";
 import { toast, toastError } from "@/components/Toast";
 import { api } from "./api";
 import { copyText } from "./clipboard";
-import { describeRef, looksLikeRef, refId, refLink } from "./refs";
+import { appLink, describeRef, looksLikeRef, refId, refLink } from "./refs";
 import { humanError } from "@/components/ui";
 import { useWorkspace } from "@/stores/workspace";
 
@@ -48,10 +48,12 @@ export function openTarget(t: RefTarget) {
 /** Whether this window opens references in-app (the app's shells install a navigator; the extension does not). */
 export const hasRefNavigator = () => navigator !== null;
 
-/** A link's target when it is a Launchpad reference to open in this window: a short ID, or a full address of this
- * window's origin. Null for anything else (it opens like any link; relative paths stay file links). */
+/** A link's target when it is a Launchpad reference to open in this window: a short ID, a full address of this
+ * window's origin, or a root-relative path of a Launchpad page (`/folios/<slug>`, as agents write them), made full.
+ * Null for anything else (it opens like any link; other relative paths stay file links). */
 export function internalHref(href: string): string | null {
   if (/^lp:[a-z_-]+\/\S+$/.test(href)) return href;
+  if (href.startsWith("/")) return appLink(href, location.origin);
   if (!/^https?:\/\//i.test(href)) return null;
   try {
     return new URL(href).origin === location.origin ? href : null;

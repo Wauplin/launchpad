@@ -66,6 +66,15 @@ export function refLink(r: LpRef, origin: string, workspace?: string | null): st
 /** Pages whose addresses are references (`launchpad_core::refs::parse`). */
 const PAGES = /^\/(agents|bots\/[^/]+(\/settings)?|channels\/[^/]+(\/settings)?|folios\/[^/]+|topics\/[^/]+|predrafts\/[^/]+|projects\/[^/]+|schedules|knowledge)?\/?$/;
 
+/** Pure: a root-relative Markdown link to a Launchpad page (`/folios/<slug>?section=…`, `/agents?session=…`), as
+ * the full address on `origin`; null for anything else (`//host` links, file paths such as `/home/…/x.ts`). */
+export function appLink(href: string, origin: string): string | null {
+  if (!href.startsWith("/") || href.startsWith("//") || /\s/.test(href)) return null;
+  let url: URL;
+  try { url = new URL(href, origin); } catch { return null; }
+  return url.origin === origin && PAGES.test(url.pathname) ? url.href : null;
+}
+
 /** Pure: whether a pasted text is one reference worth asking Home about: a short ID, or a link to a Launchpad page
  * of this window's origin (`origin`) or of any host when it names a session, a thread or a message. */
 export function looksLikeRef(text: string, origin?: string): boolean {

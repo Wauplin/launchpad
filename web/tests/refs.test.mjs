@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { describeRef, looksLikeRef, refId, refLink, refPath, refToken } from "../src/lib/refs.ts";
+import { appLink, describeRef, looksLikeRef, refId, refLink, refPath, refToken } from "../src/lib/refs.ts";
 
 const cases = JSON.parse(readFileSync(new URL("./refs/cases.json", import.meta.url), "utf8"));
 
@@ -31,4 +31,14 @@ test("links carry the workspace, tokens and words name the object", () => {
   assert.equal(refToken(r), "@chat:Fix-login-v2#msg");
   assert.equal(describeRef(r), "Chat “Fix login (v2)”, one message");
   assert.equal(describeRef({ kind: "folio", id: "x", section: "W1" }), "Folio, section W1");
+});
+
+test("root-relative links to Launchpad pages open in the app, file paths stay file links", () => {
+  const o = "https://me.hf.space";
+  assert.equal(appLink("/folios/linux-desktop-companion", o), `${o}/folios/linux-desktop-companion`);
+  assert.equal(appLink("/folios/x?page=plan&section=s-1", o), `${o}/folios/x?page=plan&section=s-1`);
+  assert.equal(appLink("/agents?session=abc&msg=4", o), `${o}/agents?session=abc&msg=4`);
+  assert.equal(appLink("/home/user/src/main.rs", o), null);
+  assert.equal(appLink("//evil.example/folios/x", o), null);
+  assert.equal(appLink("src/main.rs", o), null);
 });

@@ -165,9 +165,10 @@ export const Markdown = memo(function Markdown({ text, className = "", links, ru
       const href = a.getAttribute("href") ?? "";
       if (links?.link(href)) return;
       // A Launchpad link or short ID opens here, at the exact object and message.
-      if (hasRefNavigator() && internalHref(href)) {
-        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) { if (!href.startsWith("lp:")) openExternal(href); return; }
-        void openRef(href);
+      const internal = hasRefNavigator() ? internalHref(href) : null;
+      if (internal) {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) { if (!internal.startsWith("lp:")) openExternal(internal); return; }
+        void openRef(internal);
         return;
       }
       if (/^https?:\/\//i.test(href)) {
