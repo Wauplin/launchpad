@@ -177,7 +177,7 @@ Each card the turn wrote is one line: an icon, the title, one main button and **
 
 An Outbox message, a Suggestion or a Local PR that the turn prepared is the same kind of line, with **Review**. For a message or a Suggestion, **Review** shows the full card in place, where **Send** or **Post** runs with its confirmation. A Suggestion's **⋯** has **Open pull request**. A Local PR's **Review** opens its page, and **⋯ → Details** shows its card.
 
-Each answer has one **⋯** with **Copy** (the text without Markdown) and **Copy as Markdown**. With a mouse, it shows over the answer's top right corner on hover; on a touch screen, it sits at the right of the answer.
+Every message shows as Markdown: yours (each line break kept), the bot's answers and messages from other bots, channels and hooks. Each answer has one **⋯** with **Copy** (the text without Markdown) and **Copy as Markdown**. With a mouse, it shows over the answer's top right corner on hover; on a touch screen, it sits at the right of the answer.
 
 A routine run that ends with no update is one muted line. A divider marks the start of the thread's session; in a thread that continues another, it names that thread and the reason, for example “continues “Release notes” because the model changed”. While the bot works, the header says what it works on (“Working · Edited src/app.ts (3 min)”), and the chat's last row shows a spinner, **View running agent** (this thread's session in Agents, with its trace, terminal and files) and **Stop**.
 

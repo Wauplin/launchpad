@@ -38,6 +38,7 @@ import { withPresets } from "@/lib/presets";
 import { ApiError } from "@/lib/api";
 import { abandonOperation } from "@/lib/operations";
 import { senderParts } from "@/lib/senders";
+import { Markdown } from "@/components/Markdown";
 import { ChatMessage, MESSAGE_INDENT, SenderTag } from "./Message";
 import { instructionsUpdated, refreshThreads, sentHere, showAccepted } from "@/lib/bots";
 import { useMarkSeen, useWindowFocused } from "@/features/agents/useSeen";
@@ -458,7 +459,7 @@ function PendingRow({ item, botId }: { item: Extract<ChatItem, { t: "pending" }>
           more={(close) => <ActionMenuItem name="bot.remove-send" params={{ id: botId, send: item.id }} close={close} onDone={refresh} detail="It is never sent" />} />
       </div>
       : <span className="flex items-center gap-1.5 text-[11px] text-ink-3" role="status"><Icon name="clock" size={12} />{PENDING[item.state] ?? item.state}</span>}>
-    <div className="whitespace-pre-wrap">{item.text}</div>
+    {item.text && <Markdown text={item.text} breaks />}
     {images.length > 0 && <div className="flex flex-wrap gap-2">{images.map((image, i) => <ImageThumb key={i} src={attachmentSrc(image.data_url)} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />)}</div>}
     {others.length > 0 && <span className="mt-1 block text-[11px] text-ink-3">{others.map((f) => f.name).join(", ")}</span>}
   </ChatMessage>;
@@ -476,7 +477,7 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, b
       </Separator></div>;
     case "user":
       return <ChatMessage look="owner" {...msg} avatar={<OwnerAvatar />} name="You" tag={item.to ? <SenderTag title="The bots of this conversation that got your message"><Recipients names={item.to} /></SenderTag> : undefined}>
-        {item.text && <div className="whitespace-pre-wrap">{item.text}</div>}
+        {item.text && <Markdown text={item.text} breaks />}
         {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <ImageThumb key={i} src={src} name={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" />; })}</div>}
         {item.queued && <span className="ml-2 text-[11px] text-ink-3">queued: read after the current step</span>}
         {item.instructions && <span className="mt-1 flex items-center gap-1 text-[11px] text-ink-3" title="BOT.md changed since this session last read it: the new BOT.md went with this message"><Icon name="file" size={12} />With your updated BOT.md</span>}
@@ -623,7 +624,7 @@ function FromRow({ item, msg }: { item: Extract<ChatItem, { t: "from" }>; msg: M
     avatar={bot ? <BotAvatar name={name} id={f.kind === "bot" ? f.id : null} /> : <SourceAvatar icon={FROM_ICON[f.kind]} />}
     name={<span className={bot ? botInk(name, f.kind === "bot" ? f.id : null) : "text-ink"}>{link}</span>}
     tag={<SenderTag title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">{between ? <Recipients names={between} /> : item.to ? `→ ${item.to.join(", ")} · not from you` : tag}</SenderTag>}>
-    <div className="break-words whitespace-pre-wrap">{item.text}</div>
+    {item.text && <Markdown text={item.text} />}
     {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
     {item.queued && <span className="text-[11px] text-ink-3">queued: read after the current step</span>}
     {item.instructions && <span className="mt-1 flex items-center gap-1 text-[11px] text-ink-3" title="BOT.md changed since this session last read it: the new BOT.md went with this message"><Icon name="file" size={12} />With your updated BOT.md</span>}

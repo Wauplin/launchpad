@@ -305,7 +305,7 @@ const MessageRow = memo(function MessageRow({ m, lines, reply, quoted, target }:
     time={<span title={`${when(m.created_at)} · message ${m.id} · hop ${m.hops}`}>{today ? time(m.created_at) : ago(m.created_at)}</span>}
     after={!!lines?.length && <div className="grid w-full min-w-0 gap-0.5">{lines.map((l, i) => <Delivery key={i} l={l} channel={m.channel_id} />)}</div>}>
     {quoted && <div className="mb-1 truncate border-l-2 border-line pl-2 text-[12px] text-ink-3" title={reply ? reply.text : undefined}>↳ Reply to {reply ? `${reply.author.kind === "owner" ? "you" : reply.author.name}: ${firstLine(reply.text)}` : `message ${m.reply_to}`}</div>}
-    {m.text.trim() ? <Markdown text={m.text} className="text-[13px]" /> : null}
+    {m.text.trim() ? <Markdown text={m.text} className="text-[13px]" breaks={owner} /> : null}
     {m.files.length > 0 && <MessageFiles m={m} />}
   </ChatMessage>;
 }, (a, b) => a.m === b.m && a.reply === b.reply && a.quoted === b.quoted && a.target === b.target && JSON.stringify(a.lines) === JSON.stringify(b.lines));

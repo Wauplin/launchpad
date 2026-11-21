@@ -94,7 +94,8 @@ md.core.ruler.push("lp_refs", (state) => {
 });
 // markdown-it refuses unknown schemes only for javascript:, vbscript:, file: and data:, so lp: links stay links.
 
-export const Markdown = memo(function Markdown({ text, className = "", links, runShell: wantsRun = false }: { text: string; className?: string; links?: Links; runShell?: boolean }) {
+/** `breaks`: a single newline is a line break (typed messages), instead of CommonMark's soft break. */
+export const Markdown = memo(function Markdown({ text, className = "", links, runShell: wantsRun = false, breaks = false }: { text: string; className?: string; links?: Links; runShell?: boolean; breaks?: boolean }) {
   const runShell = useTerminalsHere() && wantsRun;
   const codeLinks = useContext(CodeLinksContext);
   const cwd = useContext(ShellCodeContext);
@@ -124,8 +125,8 @@ export const Markdown = memo(function Markdown({ text, className = "", links, ru
     tokens.forEach((t, i) => {
       if (t.type === "fence") codes[i] = t.content;
     });
-    return { html: md.renderer.render(tokens, md.options, env), codes };
-  }, [text, codeLinks, links, runShell, cwd, commitSignature]);
+    return { html: md.renderer.render(tokens, breaks ? { ...md.options, breaks: true } : md.options, env), codes };
+  }, [text, codeLinks, links, runShell, cwd, commitSignature, breaks]);
 
   const onClick = (e: MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
