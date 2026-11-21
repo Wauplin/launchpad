@@ -102,7 +102,7 @@ function Landing() {
       intro="Start a chat with a bot, or open a channel. Your chats are on the left, by state; the gear of a tile opens its settings." actions={!creating && !newChannel && <>{newChannelLink}{newBotLink}</>} />;
   const tiles: Tile[] = byName(mine, (b) => b.settings.name).map((b) => ({
     id: b.id, name: b.settings.name, detail: b.paused ? "Triggers paused" : undefined,
-    mark: <BotAvatar name={b.settings.name} size={36} />,
+    mark: <BotAvatar name={b.settings.name} id={b.id} size={36} />,
     open: <Link to="/bots/$id" params={{ id: b.id }} search={{ thread: "new" } as never} className={TILE} aria-label={`New chat with ${b.settings.name}`} title={`Start a new chat with ${b.settings.name}`} />,
     settings: <Link to="/bots/$id/settings" params={{ id: b.id }} className={gear} aria-label={`Settings of ${b.settings.name}`} title={`Settings of ${b.settings.name}: BOT.md, triggers, memory, access, versions`}><Icon name="gear" size={14} /></Link>,
   }));

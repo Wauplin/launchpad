@@ -11,7 +11,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActionButton } from "@/components/ActionButton";
-import { BotAvatar, OwnerAvatar, botInk } from "@/components/BotAvatar";
+import { BotAvatar, OwnerAvatar, botInk, useIdentitiesVersion } from "@/components/BotAvatar";
 import { ChatMessage } from "@/features/chat/Message";
 import { Icon } from "@/components/Icon";
 import { ImageThumb } from "@/components/ImageViewer";
@@ -101,7 +101,7 @@ function ChannelPageOf({ id }: { id: string }) {
   // Its bots, each opening its settings, then you.
   const members = <span className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5" data-tour="channel.meta" aria-label={`Members: ${[...channel.members.map((m) => m.name), "you"].join(", ")}`}>
     {channel.members.map((m) => <Fragment key={m.bot_id}>
-      <Link to="/bots/$id/settings" params={{ id: m.bot_id }} className="inline-flex min-h-6 min-w-0 items-center gap-1 rounded-control px-0.5 text-ink-2 no-underline hover:bg-sunk hover:text-ink" title={`Settings of ${m.name}`}><BotAvatar name={m.name} size={16} /><span className="truncate">{m.name}</span></Link>
+      <Link to="/bots/$id/settings" params={{ id: m.bot_id }} className="inline-flex min-h-6 min-w-0 items-center gap-1 rounded-control px-0.5 text-ink-2 no-underline hover:bg-sunk hover:text-ink" title={`Settings of ${m.name}`}><BotAvatar name={m.name} id={m.bot_id} size={16} /><span className="truncate">{m.name}</span></Link>
       <span className="text-ink-3" aria-hidden>·</span>
     </Fragment>)}
     <span>you</span>
@@ -279,8 +279,10 @@ const MessageRow = memo(function MessageRow({ m, lines, reply, quoted }: { m: Ch
   const mentionsYou = !owner && m.mentions.includes("owner");
   const today = new Date(m.created_at).toDateString() === new Date().toDateString();
   const name = owner ? "You" : m.author.name;
-  return <ChatMessage tour="channel.message" look={owner ? "owner" : "bot"} avatar={owner ? <OwnerAvatar /> : <BotAvatar name={name} />}
-    name={<span className={owner ? "text-ink" : botInk(name)}>{m.author.kind === "bot" ? <Link to="/bots/$id" params={{ id: m.author.id }} className={NAME_LINK}>{name}</Link> : name}</span>}
+  const botId = m.author.kind === "bot" ? m.author.id : null;
+  useIdentitiesVersion();
+  return <ChatMessage tour="channel.message" look={owner ? "owner" : "bot"} avatar={owner ? <OwnerAvatar /> : <BotAvatar name={name} id={botId} />}
+    name={<span className={owner ? "text-ink" : botInk(name, botId)}>{m.author.kind === "bot" ? <Link to="/bots/$id" params={{ id: m.author.id }} className={NAME_LINK}>{name}</Link> : name}</span>}
     tag={m.ask_owner ? <Badge tone="attn">Asks you</Badge> : mentionsYou ? <Badge tone="attn">Mentions you</Badge> : null}
     time={<span title={`${when(m.created_at)} · message ${m.id} · hop ${m.hops}`}>{today ? time(m.created_at) : ago(m.created_at)}</span>}
     after={!!lines?.length && <div className="grid w-full min-w-0 gap-0.5">{lines.map((l, i) => <Delivery key={i} l={l} channel={m.channel_id} />)}</div>}>

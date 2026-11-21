@@ -3,6 +3,7 @@
 
 mod activity;
 mod api;
+mod avatars;
 mod bots;
 mod channels;
 mod chats;
@@ -34,6 +35,7 @@ use launchpad_http::{ApiError, Ctx, agent_auth, error};
 pub fn router() -> Router<Ctx> {
     Router::new()
         .merge(api::router())
+        .merge(avatars::router())
         .merge(code::router())
         .merge(items::router())
         .merge(predrafts::router())

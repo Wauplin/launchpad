@@ -17,6 +17,7 @@ import { IconSprite, Icon, type IconName } from "@/components/Icon";
 import { Count } from "@/components/ui";
 import { useChannels } from "@/lib/channels";
 import { Toasts } from "@/components/Toast";
+import { BotIdentitySync } from "@/components/BotAvatar";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
 import { useTodayCount } from "@/features/today/data";
@@ -170,6 +171,7 @@ export function MobileShell() {
       <Composer />
       {menu && <WorkspaceSheet onClose={() => setMenu(false)} />}
       <Toasts />
+      <BotIdentitySync />
       {addOpen && <Suspense fallback={null}><AddFolderDialog /></Suspense>}
     </div>
     </PhoneBarContext.Provider>

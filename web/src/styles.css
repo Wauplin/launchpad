@@ -37,23 +37,39 @@
   --color-demo: #6f42c1;
   --color-demo-soft: #f1eafc;
 
-  /* Identity colors of bots in chats and lists (lib/bots.ts identityTone): a soft background and its ink. */
-  --color-id-0: #0a5c52;
-  --color-id-0-soft: #e2f1ee;
-  --color-id-1: #1d5596;
-  --color-id-1-soft: #e3eefb;
-  --color-id-2: #5b3aa3;
-  --color-id-2-soft: #efe8fb;
-  --color-id-3: #9c2a4b;
-  --color-id-3-soft: #fbe6ec;
-  --color-id-4: #7a4e12;
-  --color-id-4-soft: #f7ecdc;
-  --color-id-5: #2c6a2e;
-  --color-id-5-soft: #e4f3e4;
-  --color-id-6: #155e75;
-  --color-id-6-soft: #e0f0f6;
-  --color-id-7: #8e3f22;
-  --color-id-7-soft: #f7e8e1;
+  /* Identity colors of bots in chats and lists (lib/identity.ts IDENTITY_COLORS, bot.toml `color`): a soft background and its ink, readable on paper and on the soft background in both themes. */
+  --color-id-teal: #0a5c52;
+  --color-id-teal-soft: #e2f1ee;
+  --color-id-blue: #1d5596;
+  --color-id-blue-soft: #e3eefb;
+  --color-id-violet: #5b3aa3;
+  --color-id-violet-soft: #efe8fb;
+  --color-id-rose: #9c2a4b;
+  --color-id-rose-soft: #fbe6ec;
+  --color-id-amber: #7a4e12;
+  --color-id-amber-soft: #f7ecdc;
+  --color-id-green: #2c6a2e;
+  --color-id-green-soft: #e4f3e4;
+  --color-id-cyan: #155e75;
+  --color-id-cyan-soft: #e0f0f6;
+  --color-id-rust: #8e3f22;
+  --color-id-rust-soft: #f7e8e1;
+  --color-id-indigo: #3730a3;
+  --color-id-indigo-soft: #e8e8fb;
+  --color-id-magenta: #9d1f7e;
+  --color-id-magenta-soft: #fae6f4;
+  --color-id-olive: #5a5a12;
+  --color-id-olive-soft: #f0f0d8;
+  --color-id-slate: #3f4b5c;
+  --color-id-slate-soft: #e8ecf1;
+  --color-id-orange: #9a3d00;
+  --color-id-orange-soft: #fdebdd;
+  --color-id-plum: #6b2a6b;
+  --color-id-plum-soft: #f3e6f3;
+  --color-id-lime: #3f6212;
+  --color-id-lime-soft: #ecf5dc;
+  --color-id-red: #b0191e;
+  --color-id-red-soft: #fbe4e4;
 
   /* Sizes (CLAUDE.md, UI rules): text only 11/12/13/15/18 px as text-[Npx] (Tailwind's text-xs… are removed here, so
      they do nothing; `pnpm ui-check` lists them), corners rounded-control (6 px: buttons, fields, menu items) and
@@ -122,22 +138,38 @@
   --color-danger-ink: #ff939a;
   --color-demo: #c3a0ff;
   --color-demo-soft: #2c2142;
-  --color-id-0: #79d7c6;
-  --color-id-0-soft: #14332e;
-  --color-id-1: #8cbcf5;
-  --color-id-1-soft: #172c46;
-  --color-id-2: #c3a8f3;
-  --color-id-2-soft: #2a2142;
-  --color-id-3: #f19bb5;
-  --color-id-3-soft: #3a1d27;
-  --color-id-4: #e2bc78;
-  --color-id-4-soft: #33270f;
-  --color-id-5: #93d596;
-  --color-id-5-soft: #18301b;
-  --color-id-6: #7fd0e8;
-  --color-id-6-soft: #12303a;
-  --color-id-7: #eda68a;
-  --color-id-7-soft: #3a2219;
+  --color-id-teal: #79d7c6;
+  --color-id-teal-soft: #14332e;
+  --color-id-blue: #8cbcf5;
+  --color-id-blue-soft: #172c46;
+  --color-id-violet: #c3a8f3;
+  --color-id-violet-soft: #2a2142;
+  --color-id-rose: #f19bb5;
+  --color-id-rose-soft: #3a1d27;
+  --color-id-amber: #e2bc78;
+  --color-id-amber-soft: #33270f;
+  --color-id-green: #93d596;
+  --color-id-green-soft: #18301b;
+  --color-id-cyan: #7fd0e8;
+  --color-id-cyan-soft: #12303a;
+  --color-id-rust: #eda68a;
+  --color-id-rust-soft: #3a2219;
+  --color-id-indigo: #a5a8f7;
+  --color-id-indigo-soft: #1f2147;
+  --color-id-magenta: #ec98dc;
+  --color-id-magenta-soft: #3a1a33;
+  --color-id-olive: #cfcf7a;
+  --color-id-olive-soft: #2c2c12;
+  --color-id-slate: #b4c0d0;
+  --color-id-slate-soft: #26303c;
+  --color-id-orange: #f8b07a;
+  --color-id-orange-soft: #3a2412;
+  --color-id-plum: #d8a6d8;
+  --color-id-plum-soft: #33203a;
+  --color-id-lime: #b5e07a;
+  --color-id-lime-soft: #233010;
+  --color-id-red: #ff9a94;
+  --color-id-red-soft: #3d1a1a;
 }
 
 :root {

@@ -179,7 +179,7 @@ export function CommandField() {
           <button className="btn btn-primary rounded-l-none border-l-white/30 px-1.5!" aria-label="Choose the bot Ask sends to" title="Choose the bot Ask sends to" aria-expanded={menu} disabled={busy} onClick={toggle}><Icon name="chev" size={12} /></button>
         )}>
           {(close) => bots.map((b) => (
-            <MenuItem key={b.id} active={b.id === bot.id} icon={<BotAvatar name={b.settings.name} size={16} />} label={b.settings.name}
+            <MenuItem key={b.id} active={b.id === bot.id} icon={<BotAvatar name={b.settings.name} id={b.id} size={16} />} label={b.settings.name}
               detail={b.id === ctx.botId ? "This page's bot" : b.id === askTarget(allBots, workspaceId)?.id ? "The workspace's Ask bot" : undefined}
               onClick={() => { close(); pick(b.id); ref.current?.focus(); }} />
           ))}

@@ -39,7 +39,7 @@ export function ChannelMembers({ channel }: { channel: Channel }) {
       </div>
       {channel.members.map((m) => (
         <div key={m.bot_id} className="flex min-h-11 items-center gap-2 px-1">
-          <BotAvatar name={m.name} size={24} />
+          <BotAvatar name={m.name} id={m.bot_id} size={24} />
           <span className="grid min-w-0 flex-1">
             <Link to="/bots/$id" params={{ id: m.bot_id }} className="truncate text-[13px] font-semibold text-ink no-underline hover:underline" title={m.last_read ? `Read up to message ${m.last_read}` : "Has not read the channel yet"}>{m.name}</Link>
             {m.mode === "digest" && <span className="truncate text-[12px] text-ink-3" title={MODES.find((x) => x.id === m.mode)?.hint}>Daily at 08:00</span>}

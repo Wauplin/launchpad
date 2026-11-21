@@ -58,7 +58,7 @@ export function NewChannel({ onCancel }: { onCancel: () => void }) {
           return <div key={b.id} className="flex min-h-10 items-center gap-2">
             <label className="flex min-h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 text-[13px]">
               <input type="checkbox" checked={on} onChange={(e) => toggle(b.id, e.target.checked)} />
-              <BotAvatar name={b.settings.name} size={20} /><span className="min-w-0 truncate">{b.settings.name}</span>
+              <BotAvatar name={b.settings.name} id={b.id} size={20} /><span className="min-w-0 truncate">{b.settings.name}</span>
             </label>
             {on && <select className="field-input w-auto" aria-label={`When ${b.settings.name} is woken`} value={members[b.id]} onChange={(e) => setMembers((m) => ({ ...m, [b.id]: e.target.value as ChannelMemberMode }))}>
               {MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}

@@ -96,6 +96,33 @@ pub struct BotSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, as = "Option<u32>")]
     pub max_threads: Option<u32>,
+    /// The seed of its avatar (DiceBear's bottts, cached by Home: `GET /api/avatars/bottts`). None: its name (plus a
+    /// stable suffix when another bot has the same name, `web/src/lib/identity.ts`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<String>")]
+    pub avatar_seed: Option<String>,
+    /// Its identity color, one of `IDENTITY_COLORS` (never a hex code). None: picked from its name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, as = "Option<String>")]
+    pub color: Option<String>,
+}
+
+/// The identity colors a bot may take (`--color-id-<name>` in web/src/styles.css, `IDENTITY_COLORS` in
+/// web/src/lib/identity.ts: keep the three in the same order).
+pub const IDENTITY_COLORS: &[&str] = &["teal", "blue", "violet", "rose", "amber", "green", "cyan", "rust", "indigo", "magenta", "olive", "slate", "orange", "plum", "lime", "red"];
+
+/// Pure: why an avatar seed or color cannot be saved (None: they can).
+pub fn identity_problem(s: &BotSettings) -> Option<String> {
+    if let Some(seed) = &s.avatar_seed {
+        let t = seed.trim();
+        if t.is_empty() || t.chars().count() > 128 || t.chars().any(char::is_control) {
+            return Some("avatar_seed: 1 to 128 characters, without control characters".into());
+        }
+    }
+    match &s.color {
+        Some(c) if !IDENTITY_COLORS.contains(&c.as_str()) => Some(format!("color: one of {}", IDENTITY_COLORS.join(", "))),
+        _ => None,
+    }
 }
 
 /// The profile a bot runs with: its own, or the default when bot.toml names none.
@@ -222,7 +249,7 @@ pub fn agent_refusal(current: Option<&BotSettings>, new: &BotSettings) -> Option
 }
 
 /// The fields of `bot.toml`, as `Patch::set` names them.
-pub const SETTING_FIELDS: &[&str] = &["name", "profile", "profiles", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "tools", "starters", "max_threads"];
+pub const SETTING_FIELDS: &[&str] = &["name", "profile", "profiles", "model", "effort", "folder", "permission_mode", "proposals", "launchpad", "tools", "starters", "max_threads", "avatar_seed", "color"];
 
 /// Every field of the settings with its value, defaults included (bot.toml leaves defaults out): the values a
 /// `set` puts back.
@@ -256,6 +283,7 @@ pub fn set_fields(current: &BotSettings, set: &serde_json::Map<String, serde_jso
     }
     let mut s: BotSettings = serde_json::from_value(v).context("bot.toml")?;
     s.folder = s.folder.filter(|f| !f.trim().is_empty());
+    s.avatar_seed = s.avatar_seed.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
     Ok(s)
 }
 
@@ -287,7 +315,7 @@ pub fn parse_settings(text: &str) -> Result<BotSettings> {
 }
 
 fn render_settings(s: &BotSettings) -> Result<String> {
-    Ok(format!("# Edited from the bot's page (About → Access, or ⋯ → Edit as file). folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# starters: ready-made messages over the message box; one ending in \"…\" fills the box so you finish it.\n# max_threads: how many of its threads may work at the same time (default 16); automatic messages to another thread wait for a free slot.\n{}", toml::to_string(s)?))
+    Ok(format!("# Edited from the bot's page (About → Access, or ⋯ → Edit as file). folder and profile are IDs; see Folders and Settings → Profiles.\n# Without folder, each session starts in a temporary folder.\n# proposals: \"manual\" (every proposal waits for your click) or \"auto\" (one-time starts apply at once).\n# launchpad: what it may do with the Launchpad CLI: \"read\", \"propose\" or \"admin\" (change Launchpad's settings).\n# starters: ready-made messages over the message box; one ending in \"…\" fills the box so you finish it.\n# max_threads: how many of its threads may work at the same time (default 16); automatic messages to another thread wait for a free slot.\n# avatar_seed: the seed of its avatar (default: its name); color: the color of its name, one of the identity colors (default: picked from its name).\n{}", toml::to_string(s)?))
 }
 
 type Row = (String, String, String, i64, Option<String>, bool);
@@ -429,6 +457,9 @@ pub async fn write_store(app: &App, store_id: &str, files: Vec<(String, Option<S
 /// may stay (its sessions run in a temporary folder), but no bot gets a plain folder anew.
 async fn check_settings(app: &App, workspace_id: &str, current: Option<&BotSettings>, s: &BotSettings) -> Result<()> {
     ensure!(!s.name.trim().is_empty(), "give the bot a name");
+    if let Some(why) = identity_problem(s) {
+        bail!("{why}");
+    }
     if let Some(f) = &s.folder {
         let folder = crate::projects::get(app, f).await?.context("the bot's folder no longer exists: choose another one")?;
         ensure!(folder.workspace_id.as_deref() == Some(workspace_id), "{} belongs to another workspace", folder.name);
@@ -456,7 +487,7 @@ pub async fn create(app: &App, c: Create) -> Result<Bot> {
     let profile = c.profile.filter(|p| !p.is_empty());
     let folder = c.folder.filter(|f| !f.is_empty());
     let own: Option<String> = None;
-    let settings = BotSettings { name: name.clone(), profile, profiles: vec![], model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, tools: Default::default(), starters: c.starters, max_threads: None };
+    let settings = BotSettings { name: name.clone(), profile, profiles: vec![], model: None, effort: None, folder, permission_mode: c.permission_mode, proposals: c.proposals, launchpad: c.launchpad, tools: Default::default(), starters: c.starters, max_threads: None, avatar_seed: None, color: None };
     check_settings(app, &c.workspace_id, None, &settings).await?;
     let instructions = if c.instructions.trim().is_empty() { format!("# {name}\n") } else { format!("{}\n", c.instructions.trim_end()) };
     let (id2, ws, slug2, at) = (id.clone(), c.workspace_id.clone(), slug.clone(), now_ms());
@@ -978,6 +1009,12 @@ mod tests {
         assert!(set_fields(&cur, &set(serde_json::json!({"max-threads": 4}))).is_err());
         assert!(set_fields(&cur, &set(serde_json::json!({"max_threads": "yes"}))).is_err());
         assert!(set_fields(&cur, &serde_json::Map::new()).is_err());
+        // Identity: an empty seed is the default; colors come only from the list.
+        let id = set_fields(&cur, &set(serde_json::json!({"avatar_seed": "  ", "color": "violet"}))).unwrap();
+        assert_eq!((id.avatar_seed.as_deref(), id.color.as_deref(), identity_problem(&id)), (None, Some("violet"), None));
+        assert!(identity_problem(&BotSettings { color: Some("#ff0000".into()), ..cur.clone() }).is_some());
+        assert!(identity_problem(&BotSettings { avatar_seed: Some("x".repeat(129)), ..cur.clone() }).is_some());
+        assert!(parse_settings("name = \"Scout\"\ncolor = \"plum\"\navatar_seed = \"Felix\"\n").is_ok_and(|s| s.color.as_deref() == Some("plum") && s.avatar_seed.as_deref() == Some("Felix")));
         // Every field of bot.toml is named.
         assert_eq!(setting_values(&cur).keys().map(String::as_str).collect::<std::collections::BTreeSet<_>>(), SETTING_FIELDS.iter().copied().collect());
     }

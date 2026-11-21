@@ -24,6 +24,7 @@ import { useChannelName } from "@/lib/channels";
 import type { ConnectionsOverview } from "@/features/settings/ConnectionsView";
 import { useTelegram } from "@/features/settings/TelegramSettings";
 import { BotAvatar } from "@/components/BotAvatar";
+import { BotIdentity } from "./BotIdentity";
 import type { Bot } from "@/gen/Bot";
 import type { BotSettings } from "@/gen/BotSettings";
 import type { Change } from "@/gen/Change";
@@ -193,7 +194,7 @@ function Participants({ bots, size = 16 }: { bots: Bot[]; size?: number }) {
     {bots.map((b, i) => <Fragment key={b.id}>
       {i > 0 && <span className="text-ink-3" aria-hidden>·</span>}
       <Link to="/bots/$id/settings" params={{ id: b.id }} className="inline-flex min-h-6 max-w-full min-w-0 items-center gap-1 rounded-control px-0.5 text-ink-2 no-underline hover:bg-sunk hover:text-ink" title={`Settings of ${b.settings.name}`}>
-        <BotAvatar name={b.settings.name} size={size} /><span className="truncate">{b.settings.name}</span>
+        <BotAvatar name={b.settings.name} id={b.id} size={size} /><span className="truncate">{b.settings.name}</span>
       </Link>
     </Fragment>)}
   </span>;
@@ -345,7 +346,7 @@ function BotSettingsOf({ id }: { id: string }) {
   return <div className="flex h-full min-h-0 flex-col" data-tour="bots.settings-page">
     {phone
       ? <PhoneBar title={`${bot.settings.name} · Settings`} onBack={() => phoneBack("/chats")} backLabel="Back" />
-      : <PageHeader title={<span className="flex min-w-0 items-center gap-2"><BotAvatar name={bot.settings.name} size={24} /><span className="truncate">{bot.settings.name}</span></span>} meta={meta}
+      : <PageHeader title={<span className="flex min-w-0 items-center gap-2"><BotAvatar name={bot.settings.name} id={bot.id} size={24} /><span className="truncate">{bot.settings.name}</span></span>} meta={meta}
         actions={<>{editFile}{newChat}<IconButton icon="x" label="Close the settings" onClick={() => void navigate({ to: "/chats", search: {} as never })} /></>} />}
     <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto" data-tour="bots.about-panel">
       <div className={`@container grid w-full max-w-page grid-cols-[minmax(0,1fr)] gap-4 py-4 ${phone ? "px-3" : "px-5"}`}>
@@ -356,6 +357,7 @@ function BotSettingsOf({ id }: { id: string }) {
             <AboutSections bot={bot} current={current} routines={routines} onEditFile={setFile} openThread={openThread} threadKeys={new Set(rows.map((r) => r.t.key).filter(Boolean) as string[])} part="main" />
           </div>
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
+            <Section title="Avatar and color" tour="bots.identity"><BotIdentity key={`${bot.settings.avatar_seed ?? ""}-${bot.settings.color ?? ""}`} bot={bot} /></Section>
             <Section title="Profile and model" tour="bots.model"><BotModelChoice bot={bot} current={current} /></Section>
             <AboutSections bot={bot} current={current} routines={routines} onEditFile={setFile} openThread={openThread} threadKeys={new Set()} part="side" />
             <Section title="Delete" tour="bots.delete">

@@ -116,7 +116,7 @@ function BotFilter({ bots }: { bots: Bot[] }) {
       <p className="m-0 px-2 pt-1 pb-1.5 text-[12px] text-ink-3">Chats and channels with every bot you tick.</p>
       {bots.map((b) => <label key={b.id} className="flex min-h-8 cursor-pointer items-center gap-2 rounded-control px-2 text-[13px] hover:bg-sunk">
         <input type="checkbox" checked={chosen.includes(b.id)} onChange={(e) => setBots(e.target.checked ? [...chosen, b.id] : chosen.filter((id) => id !== b.id))} />
-        <BotAvatar name={b.settings.name} size={16} /><span className="min-w-0 flex-1 truncate">{b.settings.name}</span>
+        <BotAvatar name={b.settings.name} id={b.id} size={16} /><span className="min-w-0 flex-1 truncate">{b.settings.name}</span>
       </label>)}
       {bots.length === 0 && <p className="m-0 px-2 py-1 text-[12px] text-ink-3">No bot in this workspace.</p>}
       {chosen.length > 0 && <button type="button" className="btn btn-sm btn-ghost mt-1 justify-self-start" onClick={() => { setBots([]); close(); }}>Clear</button>}

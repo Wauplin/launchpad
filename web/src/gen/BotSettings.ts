@@ -40,4 +40,13 @@ starters?: Array<string>,
  * How many of its threads may work at the same time (default `bot_threads::DEFAULT_MAX_THREADS`). Automatic
  * messages to another thread wait for a free slot; the owner's never wait.
  */
-max_threads?: number, };
+max_threads?: number, 
+/**
+ * The seed of its avatar (DiceBear's bottts, cached by Home: `GET /api/avatars/bottts`). None: its name (plus a
+ * stable suffix when another bot has the same name, `web/src/lib/identity.ts`).
+ */
+avatar_seed?: string, 
+/**
+ * Its identity color, one of `IDENTITY_COLORS` (never a hex code). None: picked from its name.
+ */
+color?: string, };

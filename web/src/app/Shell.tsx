@@ -3,6 +3,7 @@ import { lazy, Suspense } from "react";
 import { useAddFolder } from "@/features/projects/addFolderStore";
 import { IconSprite } from "@/components/Icon";
 import { Toasts } from "@/components/Toast";
+import { BotIdentitySync } from "@/components/BotAvatar";
 import { Composer } from "@/features/launch/Composer";
 import { TerminalDock } from "@/features/terminals/TerminalDock";
 import { useLayoutEffect } from "react";
@@ -85,6 +86,7 @@ export function Shell() {
       </div>
       <StatusBar />
       <Toasts />
+      <BotIdentitySync />
       {isDemo && <Suspense fallback={null}><TourRoot /></Suspense>}
       {addOpen && <Suspense fallback={null}><AddFolderDialog /></Suspense>}
     </div>

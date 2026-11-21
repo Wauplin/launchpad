@@ -5,13 +5,13 @@ import type { Bot } from "@/gen/Bot";
 import { channelMark } from "@/lib/channels";
 import type { Chat } from "@/lib/chatList";
 
-/** A chat's mark: its first bot's square (a second bot's small square on its corner), or a channel's grey "#" or "↔". */
+/** A chat's mark: its first bot's avatar (a second bot's small avatar on its corner), or a channel's grey "#" or "↔". */
 export function ChatMark({ chat, size = 18 }: { chat: Chat; size?: number }) {
   if (chat.kind === "channel") return <span className="grid flex-none place-items-center rounded-sm border border-line bg-sunk font-semibold text-ink-2" style={{ width: size, height: size, fontSize: Math.round(size * 0.62) }} aria-hidden>{channelMark(chat.channel)}</span>;
   const [first, second] = chat.participants;
   return <span className="relative flex-none" style={{ width: size, height: size }} aria-hidden>
-    <BotAvatar name={first.settings.name} size={size} />
-    {second && <span className="absolute -right-1 -bottom-1 rounded-card ring-2 ring-paper"><BotAvatar name={second.settings.name} size={Math.round(size * 0.6)} /></span>}
+    <BotAvatar name={first.settings.name} id={first.id} size={size} />
+    {second && <span className="absolute -right-1 -bottom-1 rounded-card ring-2 ring-paper"><BotAvatar name={second.settings.name} id={second.id} size={Math.round(size * 0.6)} /></span>}
   </span>;
 }
 

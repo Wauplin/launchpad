@@ -5,7 +5,7 @@
 // edges in their identity colors: the sender's on the left, each recipient's on the right (stacked when several).
 // Lines about the work (steps, receipts, deliveries) stay outside the bubble, under it (`after`).
 
-import { botEdge } from "@/components/BotAvatar";
+import { botEdge, useIdentitiesVersion } from "@/components/BotAvatar";
 
 /** Whose words: yours, the bot of this chat (or a bot posting in a channel), or another sender's. */
 export type MessageLook = "owner" | "bot" | "other";
@@ -63,6 +63,7 @@ export function SenderTag({ children, title }: { children: React.ReactNode; titl
 /** The thin colored edges of a message between bots: the sender on the left, the recipients on the right, one
  * segment each from top to bottom. */
 function Edges({ from, to }: { from: string; to: readonly string[] }) {
+  useIdentitiesVersion();
   return <>
     <span className={`pointer-events-none absolute inset-y-0 left-0 w-0.5 opacity-60 ${botEdge(from)}`} aria-hidden />
     {to.length > 0 && <span className="pointer-events-none absolute inset-y-0 right-0 flex w-0.5 flex-col opacity-60" aria-hidden>

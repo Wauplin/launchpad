@@ -24,7 +24,7 @@ import type { QueuedMessage } from "@/gen/QueuedMessage";
 import { ActionButton, ActionMenuItem } from "@/components/ActionButton";
 import type { Session } from "@/gen/Session";
 import type { Suggestion } from "@/gen/Suggestion";
-import { BotAvatar, OwnerAvatar, SourceAvatar, botInk } from "@/components/BotAvatar";
+import { BotAvatar, OwnerAvatar, SourceAvatar, botInk, useIdentitiesVersion } from "@/components/BotAvatar";
 import { useHarnessInfo } from "@/components/HarnessMark";
 import { Icon } from "@/components/Icon";
 import { ImageThumb } from "@/components/ImageViewer";
@@ -435,6 +435,7 @@ function PendingRow({ item, botId }: { item: Extract<ChatItem, { t: "pending" }>
 type RowData = Proposal | TodayItem | ChangeRecord | readonly (ChangeRecord | undefined)[] | undefined;
 
 const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, botName, quietWork }: { item: ChatItem; data: RowData; extra: Suggestion | undefined; canContinue: boolean; botId: string; botName: string; quietWork: boolean }) {
+  useIdentitiesVersion();
   switch (item.t) {
     case "divider":
       return <div className="pt-4 pb-2"><Separator>
@@ -458,14 +459,14 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, b
     case "quiet":
       return <div className="flex items-center gap-1.5 py-1 text-[12px] text-ink-3" title="The run had nothing to report: no notification"><Icon name="refresh" size={12} /><span className="truncate"><RoutineName title={item.title} /> · {item.cause}{item.at ? ` · ${when(item.at)}` : ""} · no update</span></div>;
     case "answer":
-      return <ChatMessage look="bot" edges={item.to?.length ? { from: botName, to: item.to } : undefined} avatar={<BotAvatar name={botName} />} name={<span className={botInk(botName)}>{item.bot ? <Link to="/bots/$id" params={{ id: item.bot.id }} className={NAME_LINK}>{botName}</Link> : botName}</span>}
+      return <ChatMessage look="bot" edges={item.to?.length ? { from: botName, to: item.to } : undefined} avatar={<BotAvatar name={botName} id={botId} />} name={<span className={botInk(botName, botId)}>{item.bot ? <Link to="/bots/$id" params={{ id: item.bot.id }} className={NAME_LINK}>{botName}</Link> : botName}</span>}
         tag={item.streaming ? <SenderTag><span className="text-work">writing…</span></SenderTag> : item.to ? <SenderTag title="Its answer goes back to the bot that asked"><Recipients names={item.to} /></SenderTag> : undefined}>
         <AssistantRow text={item.text} streaming={item.streaming} />
       </ChatMessage>;
     case "steps":
       return <StepsRow item={item} records={(data ?? []) as readonly (ChangeRecord | undefined)[]} />;
     case "ask":
-      return <div className="py-1.5">{item.bot && <div className={`pb-1 text-[12px] text-ink-3 ${MESSAGE_INDENT}`}><span className={`font-semibold ${botInk(item.bot.name)}`}>{item.bot.name}</span> asks</div>}<AskLive item={item} /></div>;
+      return <div className="py-1.5">{item.bot && <div className={`pb-1 text-[12px] text-ink-3 ${MESSAGE_INDENT}`}><span className={`font-semibold ${botInk(item.bot.name, item.bot.id)}`}>{item.bot.name}</span> asks</div>}<AskLive item={item} /></div>;
     case "launch":
       return <LaunchRow item={item} />;
     case "ended":
@@ -550,6 +551,7 @@ function ReceiptLink({ record, children }: { record: ChangeRecord | undefined; c
 /** "to Writer", "to Writer and Scout", "to A, B and C": each name in its bot's identity color; long lines
  * wrap between words on a phone. */
 function Recipients({ names }: { names: readonly string[] }) {
+  useIdentitiesVersion();
   return <span className="min-w-0 break-words">to {names.map((n, i) => <Fragment key={i}>
     {i > 0 && (i === names.length - 1 ? " and " : ", ")}
     <span className={`font-semibold ${botInk(n)}`}>{n}</span>
@@ -561,6 +563,7 @@ const FROM_ICON = { session: "agents", hook: "download", channel: "comment", wak
 /** A message from another bot or agent, a hook or a channel (Home stamped its sender): under the sender's mark and
  * name with "not from you", in a dashed bubble, never as yours. */
 function FromRow({ item }: { item: Extract<ChatItem, { t: "from" }> }) {
+  useIdentitiesVersion();
   const f = item.from;
   const { name, tag } = senderParts(f);
   const bot = f.kind === "bot" || (f.kind === "channel" && !!f.by?.trim());
@@ -575,8 +578,8 @@ function FromRow({ item }: { item: Extract<ChatItem, { t: "from" }> }) {
   // edges in those colors instead of the dashed "not from you" bubble (the tooltip keeps the provenance).
   const between = f.kind === "bot" && item.to?.length ? item.to : null;
   return <ChatMessage tour="chat.from" look={between ? "bot" : "other"} edges={between ? { from: name, to: between } : undefined}
-    avatar={bot ? <BotAvatar name={name} /> : <SourceAvatar icon={FROM_ICON[f.kind]} />}
-    name={<span className={bot ? botInk(name) : "text-ink"}>{link}</span>}
+    avatar={bot ? <BotAvatar name={name} id={f.kind === "bot" ? f.id : null} /> : <SourceAvatar icon={FROM_ICON[f.kind]} />}
+    name={<span className={bot ? botInk(name, f.kind === "bot" ? f.id : null) : "text-ink"}>{link}</span>}
     tag={<SenderTag title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">{between ? <Recipients names={between} /> : item.to ? `→ ${item.to.join(", ")} · not from you` : tag}</SenderTag>}>
     <div className="break-words whitespace-pre-wrap">{item.text}</div>
     {item.images.length > 0 && <div className="flex flex-wrap gap-2">{item.images.map((image, i) => { const src = attachmentSrc(image.data_url); return <a key={i} href={src} download={image.name} title={`Save ${image.name}`}><img src={src} alt={image.name} className="mt-2 max-h-40 max-w-full rounded-control border border-line" /></a>; })}</div>}
@@ -733,6 +736,7 @@ function WorkingRow({ item, quiet }: { item: Extract<ChatItem, { t: "working" }>
 
 /** An agent a bot of the conversation launched: one line linking to it in Agents. */
 function LaunchRow({ item }: { item: Extract<ChatItem, { t: "launch" }> }) {
+  useIdentitiesVersion();
   const s = useSession(item.sessionId);
   const status = s ? statusWord(s) : null;
   return <div className={`flex min-h-7 items-center gap-1.5 py-1 text-[12px] text-ink-3 ${MESSAGE_INDENT}`}>
@@ -752,8 +756,8 @@ function ConversationBar({ conversation }: { conversation: ConversationInfo }) {
     <div className="mx-auto flex w-full max-w-text min-w-0 items-center gap-2">
       <span className="flex flex-none items-center gap-1">
         {parts.map(({ p, session }) => session
-          ? <Link key={p.bot.id} to="/agents" search={{ session: session.id }} title={`Open ${p.bot.settings.name}'s trace in Agents`} aria-label={`Open ${p.bot.settings.name}'s trace`}><BotAvatar name={p.bot.settings.name} size={20} /></Link>
-          : <span key={p.bot.id} title={p.bot.settings.name}><BotAvatar name={p.bot.settings.name} size={20} /></span>)}
+          ? <Link key={p.bot.id} to="/agents" search={{ session: session.id }} title={`Open ${p.bot.settings.name}'s trace in Agents`} aria-label={`Open ${p.bot.settings.name}'s trace`}><BotAvatar name={p.bot.settings.name} id={p.bot.id} size={20} /></Link>
+          : <span key={p.bot.id} title={p.bot.settings.name}><BotAvatar name={p.bot.settings.name} id={p.bot.id} size={20} /></span>)}
       </span>
       <span className="min-w-0 truncate text-[12px] text-ink-3" role="status">{status}</span>
     </div>
@@ -912,7 +916,7 @@ function BotComposer({ bot, threadId, onThread, current, askSession, conversatio
         {mentionError && <div role="alert" className="mb-1.5 flex items-center gap-1.5 text-[12px] text-gh-closed"><Icon name="xcircle" size={12} className="flex-none" /><span className="min-w-0 flex-1">{mentionError}</span></div>}
         {choices.length > 0 && <div className="mb-1.5 flex flex-wrap items-center gap-1.5" role="listbox" aria-label="Bots to mention" data-tour="chat.mentions">
           {choices.map((b) => <button key={b.id} type="button" role="option" aria-selected={false} className="btn btn-sm" title={participants.includes(b.id) ? `${b.name} is in this conversation` : `${b.name} joins this conversation`} onClick={() => { setText(completeMention(text, text, b.slug)); requestAnimationFrame(() => ref.current?.focus()); }}>
-            <BotAvatar name={b.name} size={16} />@{b.slug}{participants.includes(b.id) ? "" : " · joins"}
+            <BotAvatar name={b.name} id={b.id} size={16} />@{b.slug}{participants.includes(b.id) ? "" : " · joins"}
           </button>)}
         </div>}
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => { void attachments.add(Array.from(e.target.files ?? [])); e.target.value = ""; }} />

@@ -116,6 +116,23 @@ test("a sender's header names it and its provenance; each name keeps one identit
   assert.equal(initialOf("", "B"), "B");
 });
 
+test("a bot's identity: bot.toml's color and seed win, defaults come from its name, duplicates get a stable suffix", async () => {
+  const { identityOf, identityIndex, nextColor, avatarPath, IDENTITY_COLORS, identityTone } = await import("../src/lib/identity.ts");
+  const scout = { id: "b1", created_at: 1, settings: { name: "Scout" } };
+  assert.deepEqual(identityOf(scout), { name: "Scout", color: IDENTITY_COLORS[identityTone("Scout")], seed: "Scout" });
+  assert.deepEqual(identityOf({ ...scout, settings: { name: "Scout", color: "plum", avatar_seed: " Felix " } }), { name: "Scout", color: "plum", seed: "Felix" });
+  // An unknown color (an old or hand-edited bot.toml) counts as unset; an empty seed is the default.
+  assert.equal(identityOf({ ...scout, settings: { name: "Scout", color: "#ff0000", avatar_seed: "  " } }).color, IDENTITY_COLORS[identityTone("Scout")]);
+  const twin = { id: "b2-xyz9", created_at: 2, settings: { name: "scout " } };
+  assert.equal(identityOf(scout, [scout, twin]).seed, "Scout");
+  assert.equal(identityOf(twin, [scout, twin]).seed, "scout b2xyz9");
+  const idx = identityIndex([twin, scout]);
+  assert.equal(idx.byName.get("scout").seed, "Scout");
+  assert.equal(idx.byId.get("b2-xyz9").seed, "scout b2xyz9");
+  for (const r of [0, 0.5, 0.999]) assert.notEqual(nextColor("teal", r), "teal");
+  assert.equal(avatarPath("Ask Launchpad"), "/api/avatars/bottts?seed=Ask%20Launchpad");
+});
+
 test("a turn's changes become receipts on its steps line; a turn without one keeps them as rows", () => {
   const cards = [
     { kind: "changed", id: "bot4", session_id: "a", at: 90, v: "", text: "Created memory/checkout.md · +3 −0", receipt: "noted in its memory" },

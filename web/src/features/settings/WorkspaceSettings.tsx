@@ -1,7 +1,7 @@
 // Settings → Workspace: the window's workspace (name, its bots, its own Telegram bot and chat, the tools and MCP servers granted to it and
 // which of them new sessions get by default, another window, Delete). Everything else in Settings is shared by every workspace.
 
-import { botTone } from "@/components/BotAvatar";
+import { BotAvatar } from "@/components/BotAvatar";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { McpServer } from "@/gen/McpServer";
@@ -10,7 +10,7 @@ import { Icon } from "@/components/Icon";
 import { toastError } from "@/components/Toast";
 import { ConfirmButton, Empty, Loading, SettingRow } from "@/components/ui";
 import { api } from "@/lib/api";
-import { botInitial, useBots } from "@/lib/bots";
+import { useBots } from "@/lib/bots";
 import { openInNewTab, useScope, useWorkspaces } from "@/lib/workspace";
 import { Card, SavedInput, SettingsPage } from "./SettingsView";
 import { TelegramCard } from "./TelegramSettings";
@@ -54,7 +54,7 @@ export function WorkspaceSettings() {
       <Card title="Bots" end={<Link to="/chats" search={{ new: true } as never} className="btn btn-sm no-underline"><Icon name="plus" size={12} />New bot</Link>}>
         {bots.length === 0 ? <Empty icon="spark">No bot in {w.name}.</Empty> : bots.map((b) => (
           <Link key={b.id} to="/bots/$id" params={{ id: b.id }} className="phone-workspace-project flex min-h-[32px] items-center gap-2 text-[13px] text-ink no-underline hover:underline">
-            <span className={`grid size-[18px] flex-none place-items-center rounded-sm text-[11px] font-semibold ${botTone(b.settings.name)}`} aria-hidden>{botInitial(b.settings.name)}</span>
+            <BotAvatar name={b.settings.name} id={b.id} size={18} />
             {b.settings.name}
           </Link>
         ))}
