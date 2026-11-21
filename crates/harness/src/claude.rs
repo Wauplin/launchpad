@@ -889,7 +889,7 @@ const PROFILE_TEMPLATES: &[harness::ProfileTemplate] = &[
 ];
 pub const REGISTRATION: harness::Registration = harness::Registration {
     descriptor: harness::HarnessDescriptor {
-        cost_model_prefixes: &["claude-", "opus", "sonnet", "haiku"],
+        cost_model_prefixes: &["claude-", "opus", "fable", "sonnet", "haiku"],
         id: ID,
         name: "Claude Code",
         icon_svg: include_str!("icons/claude.svg"),
@@ -1179,7 +1179,7 @@ mod permission_tests {
         result_usage(&mut known, &result, Some(62.297053));
         assert!(known.cost_unavailable);
         assert_eq!(known.cost_usd, None);
-        for model in ["opus", "sonnet", "haiku", "claude-sonnet-4-6"] {
+        for model in ["opus", "fable", "sonnet", "haiku", "claude-sonnet-4-6", "claude-fable-5-2"] {
             assert!(REGISTRATION.descriptor.supports_cost(Some(model)));
         }
         assert!(!REGISTRATION.descriptor.supports_cost(Some("deepseek-ai/DeepSeek-V4.1-Flash-1017")));
