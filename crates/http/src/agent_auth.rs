@@ -922,7 +922,7 @@ mod tests {
             assert!(!admin_allows(&m, p), "{m} {p}");
         }
         let why = |m: Method, p: &str| channel_refusal(&m, p).unwrap_or_default();
-        for p in ["/api/channels/c1/pause", "/api/channels/c1/block", "/api/channels/c1/archive", "/api/channels/c1/read", "/api/channels/c1/allow-more"] {
+        for p in ["/api/channels/c1/pause", "/api/channels/c1/block", "/api/channels/c1/mute", "/api/channels/c1/archive", "/api/channels/c1/read", "/api/channels/c1/allow-more"] {
             assert!(why(Method::POST, p).starts_with("only the owner") && !why(Method::POST, p).contains("rename"), "{p}");
         }
         assert!(why(Method::DELETE, "/api/channels/c1").starts_with("only the owner"));

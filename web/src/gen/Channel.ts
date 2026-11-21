@@ -34,7 +34,12 @@ created_by: string, created_at: number,
 /**
  * The last message the owner read.
  */
-owner_read: number, members: Array<ChannelMember>, last_message: number | null, last_at: number | null, 
+owner_read: number, 
+/**
+ * Muted by the owner: the channel stays open to read and post, its bots' deliveries are unchanged, and new
+ * messages add no unread mark, count or Today row for the owner (`unread` and `attention` are 0).
+ */
+owner_muted: boolean, members: Array<ChannelMember>, last_message: number | null, last_at: number | null, 
 /**
  * The newest message for lists: its author ("you" for the owner) and its first line, cut to 160 characters.
  */

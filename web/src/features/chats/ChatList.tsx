@@ -2,7 +2,7 @@
 // workspace, grouped by state like Agents (Needs you, Unread, Running, Quota paused, Sleeping, Failed, Done,
 // Channels, Archived). Rows look like agent rows: a conversation of bots has its bots' square marks, a channel or DM
 // a grey "#" or "↔" mark and the word Channel or DM. A row opens the chat; its ⋯ pins it (a sidebar shortcut),
-// renames (in the chat's header), archives or brings back a conversation and opens its trace in Agents. Channels are archived from their
+// renames (in the chat's header), mutes a channel for you (no unread mark or count), archives or brings back a conversation and opens its trace in Agents. Channels are archived from their
 // settings, never from this list. On the phone, swiping an open conversation's row to the right uncovers Archive; only a
 // tap on it archives (`SwipeReveal`).
 
@@ -16,6 +16,7 @@ import { MenuItem, Popover } from "@/components/Popover";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { SwipeReveal } from "@/components/SwipeReveal";
 import { toast, toastError } from "@/components/Toast";
+import { ActionMenuItem } from "@/components/ActionButton";
 import { Count, Empty, ErrorState, Loading, MoreMenu, RoutineMark, StatusBadge } from "@/components/ui";
 import { useArchiveThread, useRenameRequest } from "@/features/chat/BotThreads";
 import type { Bot } from "@/gen/Bot";
@@ -51,7 +52,7 @@ const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive
   const who = thread ? participantNames(thread.participants) : channel?.channel.kind === "dm" ? "DM" : "Channel";
   const running = !!thread?.session && isRunning(thread.session);
   const link = thread ? { to: "/bots/$id" as const, params: { id: thread.bot.id }, search: { thread: thread.thread } } : { to: "/channels/$id" as const, params: { id: chat.id }, search: {} };
-  const label = `${chat.title}, ${thread ? `chat with ${who}, ${thread.label}` : `${who}${channel?.unread ? `, ${channel.unread} unread` : ""}`}${pinned ? ", pinned" : ""}`;
+  const label = `${chat.title}, ${thread ? `chat with ${who}, ${thread.label}` : `${who}${channel?.channel.owner_muted ? ", muted" : ""}${channel?.unread ? `, ${channel.unread} unread` : ""}`}${pinned ? ", pinned" : ""}`;
   return (
     <SwipeReveal enabled={phone && !!thread && !thread.archived}
       action={{ label: "Archive", icon: "archive", disabled: running || archiving, title: running ? "Stop its turn first to archive this chat" : `Archive “${chat.title}”: it stays under Archived`, onClick: () => onArchive(chat, true) }}>
@@ -63,6 +64,7 @@ const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive
           {thread?.routine && <RoutineMark routine={thread.routine} />}
           {pinned && <span className="inline-flex shrink-0 text-teal-ink" title="Pinned in the sidebar" aria-hidden><Icon name="pin" size={12} /></span>}
           <span className="min-w-0 truncate">{chat.title}</span>
+          {channel?.channel.owner_muted && <span className="inline-flex shrink-0 text-ink-3" title="Muted: new messages add no unread mark" aria-hidden><Icon name="bell-off" size={12} /></span>}
         </span>
         <span className="flex items-center gap-1 text-[12px] whitespace-nowrap text-ink-3">
           {thread && INFORMATIVE.has(thread.label) && !thread.archived ? <StatusBadge tone={thread.tone} label={thread.label} />
@@ -81,6 +83,8 @@ const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive
             ? <MenuItem icon={<Icon name="refresh" size={14} />} label="Unarchive" detail="Brings the chat and its sessions back" onClick={() => { close(); onArchive(chat, false); }} />
             : <MenuItem icon={<Icon name="archive" size={14} />} label="Archive" detail={running ? "Stop its turn first" : "It stays under Archived"} disabled={running || archiving} onClick={() => { close(); onArchive(chat, true); }} />)}
           {thread?.session && <MenuItem icon={<Icon name="agents" size={14} />} label="Open in Agents" detail="Its session's trace, terminal and files" onClick={() => { close(); void navigate({ to: "/agents", search: { session: thread.session!.id } as never }); }} />}
+          {channel && <ActionMenuItem name="channel.mute" params={{ id: chat.id }} body={{ muted: !channel.channel.owner_muted }} close={close} icon={channel.channel.owner_muted ? "bell" : "bell-off"}
+            label={channel.channel.owner_muted ? "Unmute" : "Mute"} detail={channel.channel.owner_muted ? "New messages show as unread again" : "No unread mark or count for you; bots still get every message"} />}
           {chat.kind === "channel" && <MenuItem icon={<Icon name="gear" size={14} />} label="Settings" detail={chat.channel.kind === "dm" ? "Pause or block it" : "Members, name, pause, archive"} onClick={() => { close(); void navigate({ to: "/channels/$id/settings", params: { id: chat.id } }); }} />}
         </>}</MoreMenu>
       </span>

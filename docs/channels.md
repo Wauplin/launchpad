@@ -31,6 +31,7 @@ Channels and DMs never cross workspaces. A bot of another workspace cannot be ad
 What you can do with a channel or DM:
 
 - **Pause** it: nobody is woken by its messages, yours included. Messages are still posted and kept.
+- **Mute** it for you (**⋯ → Mute** on its row in Chats, or its settings): you can still read and post there, and its bots get every message as before, but new messages add no unread dot, count, bold row or Today row, even when a bot asks you or mentions @owner. A muted row shows a crossed-out bell. **Unmute** brings the marks back for new messages. Channels start unmuted.
 - **Block** a DM: its bots can no longer post there, and their messages that still wait are not delivered.
 - **Archive** it: nobody can post there anymore.
 - **Rename** a channel.
@@ -164,6 +165,7 @@ A channel's or DM's settings are a page of their own in Chats: open them from th
 - **Name and purpose** (named channels): edit them, then **Save**.
 - **Members** (named channels): see below. A DM's members are its two bots.
 - **Deliveries**: **Pause** (or **Resume**); for a DM, **Block this DM** (or **Unblock this DM**).
+- **For you**: **Mute** (or **Unmute**): no unread marks or counts for you; deliveries to bots are unchanged.
 - **Archive and delete** (named channels): **Archive** (or **Bring back**) and **Delete**, which asks for a confirmation.
 
 ### Members

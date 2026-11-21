@@ -274,7 +274,7 @@ CREATE TABLE IF NOT EXISTS seeded (key TEXT PRIMARY KEY, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS task_archive (session_id TEXT PRIMARY KEY, at INTEGER NOT NULL, outcome TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS activity (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, created_at INTEGER NOT NULL, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS daemon_start (at INTEGER PRIMARY KEY, commit_id TEXT NOT NULL, role TEXT NOT NULL, stopped_at INTEGER);
-CREATE TABLE IF NOT EXISTS channel (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT '', paused INTEGER NOT NULL DEFAULT 0, blocked INTEGER NOT NULL DEFAULT 0, hop_limit INTEGER NOT NULL DEFAULT 3, hourly_limit INTEGER NOT NULL DEFAULT 30, allowance INTEGER NOT NULL DEFAULT 0, reset_at INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, owner_read INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS channel (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT '', paused INTEGER NOT NULL DEFAULT 0, blocked INTEGER NOT NULL DEFAULT 0, hop_limit INTEGER NOT NULL DEFAULT 3, hourly_limit INTEGER NOT NULL DEFAULT 30, allowance INTEGER NOT NULL DEFAULT 0, reset_at INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, owner_read INTEGER NOT NULL DEFAULT 0, owner_muted INTEGER NOT NULL DEFAULT 0);
 CREATE UNIQUE INDEX IF NOT EXISTS channel_name ON channel (workspace_id, name);
 CREATE TABLE IF NOT EXISTS channel_member (channel_id TEXT NOT NULL, bot_id TEXT NOT NULL, mode TEXT NOT NULL, last_read INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (channel_id, bot_id));
 CREATE INDEX IF NOT EXISTS channel_member_bot ON channel_member (bot_id);
@@ -356,6 +356,9 @@ CREATE TABLE IF NOT EXISTS folio_block_use (folio_id TEXT NOT NULL, name TEXT NO
     // Files of bot channel messages (`launchpad_channels::channel::ChannelFile`, references to Home's uploads).
     let message_columns = conn.prepare("PRAGMA table_info(channel_message)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !message_columns.iter().any(|c| c == "files") { conn.execute_batch("ALTER TABLE channel_message ADD COLUMN files TEXT NOT NULL DEFAULT '[]';")?; }
+    // The owner's mute of a channel (`channel::mute`): no unread marks or counts for them; deliveries unchanged.
+    let channel_columns = conn.prepare("PRAGMA table_info(channel)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !channel_columns.iter().any(|c| c == "owner_muted") { conn.execute_batch("ALTER TABLE channel ADD COLUMN owner_muted INTEGER NOT NULL DEFAULT 0;")?; }
     // Folio revs an agent closed with `launchpad folio done` (`folios::done`): the next done squashes only later ones.
     let folio_rev_columns = conn.prepare("PRAGMA table_info(folio_rev)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !folio_rev_columns.iter().any(|c| c == "sealed") { conn.execute_batch("ALTER TABLE folio_rev ADD COLUMN sealed INTEGER NOT NULL DEFAULT 0;")?; }

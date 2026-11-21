@@ -103,6 +103,9 @@ pub struct Channel {
     /// The last message the owner read.
     #[ts(type = "number")]
     pub owner_read: i64,
+    /// Muted by the owner: the channel stays open to read and post, its bots' deliveries are unchanged, and new
+    /// messages add no unread mark, count or Today row for the owner (`unread` and `attention` are 0).
+    pub owner_muted: bool,
     pub members: Vec<Member>,
     #[ts(type = "number | null")]
     pub last_message: Option<i64>,
@@ -285,9 +288,10 @@ pub(crate) struct Row {
     pub created_by: String,
     pub created_at: i64,
     pub owner_read: i64,
+    pub owner_muted: bool,
 }
 
-pub(crate) const ROW: &str = "id, workspace_id, kind, name, purpose, paused, blocked, hop_limit, hourly_limit, allowance, reset_at, archived, created_by, created_at, owner_read";
+pub(crate) const ROW: &str = "id, workspace_id, kind, name, purpose, paused, blocked, hop_limit, hourly_limit, allowance, reset_at, archived, created_by, created_at, owner_read, owner_muted";
 
 pub(crate) fn row(r: &rusqlite::Row) -> rusqlite::Result<Row> {
     Ok(Row {
@@ -306,6 +310,7 @@ pub(crate) fn row(r: &rusqlite::Row) -> rusqlite::Result<Row> {
         created_by: r.get(12)?,
         created_at: r.get(13)?,
         owner_read: r.get(14)?,
+        owner_muted: r.get(15)?,
     })
 }
 
@@ -499,13 +504,14 @@ async fn view(app: &App, r: Row, bots: &HashMap<String, BotInfo>) -> Result<Chan
         created_by: r.created_by,
         created_at: r.created_at,
         owner_read: r.owner_read,
+        owner_muted: r.owner_muted,
         members,
         last_message: last.as_ref().map(|l| l.0),
         last_at: last.as_ref().map(|l| l.1),
         last_by: last.as_ref().map(|l| if l.2 == "owner" { "you".to_string() } else { l.3.clone() }),
         last_text: last.as_ref().map(|l| preview(&l.4)),
-        unread,
-        attention,
+        unread: if r.owner_muted { 0 } else { unread },
+        attention: if r.owner_muted { 0 } else { attention },
         hour_count: hour,
         last_hops: hops,
     })
@@ -1004,6 +1010,13 @@ async fn set_flag(app: &App, id: &str, column: &'static str, value: bool) -> Res
 /// Paused: messages still post, nobody is woken.
 pub async fn pause(app: &App, id: &str, paused: bool) -> Result<Channel> {
     set_flag(app, id, "paused", paused).await
+}
+
+/// The owner's mute: the channel stays open (history, posting) and its deliveries to bots are unchanged, but new
+/// messages add no unread mark, count or Today row for the owner. Separate from `pause` (deliveries) and a member's
+/// mode `muted` (one bot's wake-ups).
+pub async fn mute(app: &App, id: &str, muted: bool) -> Result<Channel> {
+    set_flag(app, id, "owner_muted", muted).await
 }
 
 /// Blocks a DM: its bots can no longer post; the owner still can.

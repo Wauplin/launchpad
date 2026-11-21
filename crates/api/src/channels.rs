@@ -35,6 +35,7 @@ pub fn router() -> Router<Ctx> {
         .route("/api/channels/{id}/read", post(read))
         .route("/api/channels/{id}/pause", post(pause))
         .route("/api/channels/{id}/block", post(block))
+        .route("/api/channels/{id}/mute", post(mute))
         .route("/api/channels/{id}/archive", post(archive))
         .route("/api/channels/{id}/allow-more", post(allow_more))
         .route("/api/channels/{id}/digest", post(digest))
@@ -255,6 +256,14 @@ struct Paused {
 }
 async fn pause(State(s): State<Ctx>, Path(id): Path<String>, Json(p): Json<Paused>) -> ApiResult<Channel> {
     Ok(Json(channel::pause(&s.app, &id, p.paused).await.map_err(bad)?))
+}
+
+#[derive(Deserialize)]
+struct Muted {
+    muted: bool,
+}
+async fn mute(State(s): State<Ctx>, Path(id): Path<String>, Json(m): Json<Muted>) -> ApiResult<Channel> {
+    Ok(Json(channel::mute(&s.app, &id, m.muted).await.map_err(bad)?))
 }
 
 #[derive(Deserialize)]

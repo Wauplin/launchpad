@@ -47,7 +47,7 @@ export function ChannelPage() {
 type Older = { messages: ChannelMessage[]; deliveries: Page["deliveries"]; more: boolean | null };
 
 /** The channel's state in words, when it is not the usual one. */
-const stateOf = (c: Channel) => c.archived ? "Archived" : c.blocked ? "Blocked: its bots cannot post" : c.paused ? "Paused: messages post, nobody wakes up" : null;
+const stateOf = (c: Channel) => c.archived ? "Archived" : c.blocked ? "Blocked: its bots cannot post" : c.paused ? "Paused: messages post, nobody wakes up" : c.owner_muted ? "Muted for you" : null;
 
 function ChannelPageOf({ id }: { id: string }) {
   const phone = usePhone();
@@ -184,6 +184,10 @@ function ChannelSettingsOf({ id }: { id: string }) {
               <p className="m-0 text-[12px] text-ink-3">{channel.paused ? "Paused: messages still post, nobody wakes up." : "Bots are woken by the messages their mode asks for."}</p>
               <span className="w-fit"><ActionButton name="channel.pause" params={{ id }} body={{ paused: !channel.paused }} icon={channel.paused ? "play" : "stop"} title={channel.paused ? "Deliveries start again" : "Stop every delivery in this channel: messages still post, nobody wakes up"} onDone={refresh}>{channel.paused ? "Resume" : "Pause"}</ActionButton></span>
               {!named && <span className="w-fit"><ActionButton name="channel.block" params={{ id }} body={{ blocked: !channel.blocked }} icon={channel.blocked ? "play" : "x"} title={channel.blocked ? "Its bots can post again" : "Its bots can no longer post; you still can"} onDone={refresh}>{channel.blocked ? "Unblock this DM" : "Block this DM"}</ActionButton></span>}
+            </section>
+            <section className={card} data-tour="channel.mute">{head("For you")}
+              <p className="m-0 text-[12px] text-ink-3">{channel.owner_muted ? "Muted: new messages add no unread mark, count or Today row. You still read and post here, and its bots get every message as before." : "New messages show as unread in Chats and the sidebar, and a bot that asks or mentions you gets a Today row."}</p>
+              <span className="w-fit"><ActionButton name="channel.mute" params={{ id }} body={{ muted: !channel.owner_muted }} icon={channel.owner_muted ? "bell" : "bell-off"} title={channel.owner_muted ? "New messages show as unread again" : "No unread mark or count for you; bots still get every message"} onDone={refresh}>{channel.owner_muted ? "Unmute" : "Mute"}</ActionButton></span>
             </section>
             {named && <section className={card} data-tour="channel.archive">{head(channel.archived ? "Archived" : "Archive and delete")}
               <p className="m-0 text-[12px] text-ink-3">{channel.archived ? "Nobody posts here; its history stays. Bring it back to post again." : "Archive: nobody posts, its history stays under Archived in Chats. Delete: its messages and deliveries go for good."}</p>

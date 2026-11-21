@@ -26,7 +26,7 @@ function view(c: ChannelRecord): Channel {
   const members = c.members.map((m) => ({ ...m, name: bots.get(m.bot_id)?.settings.name ?? "deleted bot", slug: bots.get(m.bot_id)?.slug ?? "" }));
   const msgs = messagesOf(c.id);
   const last = msgs.at(-1);
-  const unread = msgs.filter((m) => m.id > c.owner_read);
+  const unread = c.owner_muted ? [] : msgs.filter((m) => m.id > c.owner_read);
   const since = Math.max(clock.now() - HOUR, c.reset_at);
   return {
     ...c, members,
@@ -83,15 +83,16 @@ route("POST", "/api/channels/:id/read", ({ params, body }) => {
   changed(c);
   return view(c);
 });
-const flag = (key: "paused" | "blocked" | "archived") => ({ params, body }: { params: Record<string, string>; body: any }) => {
+const flag = (key: "paused" | "blocked" | "archived" | "owner_muted", field: string = key) => ({ params, body }: { params: Record<string, string>; body: any }) => {
   const c = recordOf(params.id);
   if (key === "blocked" && c.kind !== "dm") throw new DemoError(400, "only a DM can be blocked");
-  c[key] = !!body?.[key];
+  c[key] = !!body?.[field];
   changed(c);
   return view(c);
 };
 route("POST", "/api/channels/:id/pause", flag("paused"));
 route("POST", "/api/channels/:id/block", flag("blocked"));
+route("POST", "/api/channels/:id/mute", flag("owner_muted", "muted"));
 route("POST", "/api/channels/:id/archive", flag("archived"));
 /** Allow 10 more: the newest message's loop-guard skips go now (here: they are marked sent). */
 route("POST", "/api/channels/:id/allow-more", ({ params }) => {
@@ -167,7 +168,7 @@ export function createChannel(workspace: string, name: string, purpose: string, 
     if (!list.some((x) => x.bot_id === b.id)) list.push({ bot_id: b.id, mode: modeOf(typeof m === "string" ? null : (m as { mode?: unknown }).mode), last_read: 0 });
   }
   const now = clock.now();
-  const c: ChannelRecord = { id: `demo-chan-${name}-${now}`, workspace_id: workspace, kind: "channel", name, purpose: purpose.split(/\s+/).join(" ").trim().slice(0, 200), paused: false, blocked: false, hop_limit: 3, hourly_limit: 30, allowance: 0, reset_at: 0, archived: false, created_by: "owner", created_at: now, owner_read: 0, members: list };
+  const c: ChannelRecord = { id: `demo-chan-${name}-${now}`, workspace_id: workspace, kind: "channel", name, purpose: purpose.split(/\s+/).join(" ").trim().slice(0, 200), paused: false, blocked: false, hop_limit: 3, hourly_limit: 30, allowance: 0, reset_at: 0, archived: false, created_by: "owner", created_at: now, owner_read: 0, owner_muted: false, members: list };
   world.botChannels.push(c);
   changed(c);
   return view(c);

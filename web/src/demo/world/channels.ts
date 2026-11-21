@@ -13,7 +13,7 @@ import { BOT, DOCS_BOT, RELEASE_BOT } from "./bots";
 import { WS } from "./ids";
 
 /** A channel as stored: the computed fields of `Channel` come from the routes. */
-export type ChannelRecord = Pick<Channel, "id" | "workspace_id" | "kind" | "name" | "purpose" | "paused" | "blocked" | "hop_limit" | "hourly_limit" | "allowance" | "reset_at" | "archived" | "created_by" | "created_at" | "owner_read"> & {
+export type ChannelRecord = Pick<Channel, "id" | "workspace_id" | "kind" | "name" | "purpose" | "paused" | "blocked" | "hop_limit" | "hourly_limit" | "allowance" | "reset_at" | "archived" | "created_by" | "created_at" | "owner_read" | "owner_muted"> & {
   members: { bot_id: string; mode: ChannelMemberMode; last_read: number }[];
 };
 
@@ -23,7 +23,7 @@ export const DM_MAINTAINER_RELEASE = "demo-chan-dm-maintainer-release";
 export const SPRING_SALE = "demo-chan-spring-sale";
 
 export function channelsWorld() {
-  const base = { workspace_id: WS.acme, paused: false, blocked: false, hop_limit: 3, hourly_limit: 30, allowance: 0, archived: false, created_by: "owner" };
+  const base = { workspace_id: WS.acme, paused: false, blocked: false, hop_limit: 3, hourly_limit: 30, allowance: 0, archived: false, created_by: "owner", owner_muted: false };
   const botChannels: ChannelRecord[] = [
     { ...base, id: RELEASE_TRAIN, kind: "channel", name: "release-train", purpose: "Plan and ship the weekly release", reset_at: clock.ago(60 * 3), created_at: clock.ago(60 * 24 * 6), owner_read: 42,
       members: [{ bot_id: RELEASE_BOT, mode: "all", last_read: 45 }, { bot_id: BOT, mode: "mentions", last_read: 43 }, { bot_id: DOCS_BOT, mode: "digest", last_read: 40 }] },

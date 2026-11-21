@@ -107,7 +107,7 @@ function Landing() {
     settings: <Link to="/bots/$id/settings" params={{ id: b.id }} className={gear} aria-label={`Settings of ${b.settings.name}`} title={`Settings of ${b.settings.name}: BOT.md, triggers, memory, access, versions`}><Icon name="gear" size={14} /></Link>,
   }));
   const channelTiles: Tile[] = [...byName(channels, channelName), ...byName(dms, channelName)].map((c) => ({
-    id: c.id, name: channelName(c), bold: c.unread > 0, detail: c.unread > 0 ? `${c.unread} unread` : c.paused ? "Paused" : c.kind === "dm" ? "DM" : undefined,
+    id: c.id, name: channelName(c), bold: c.unread > 0, detail: c.unread > 0 ? `${c.unread} unread` : c.paused ? "Paused" : c.owner_muted ? "Muted" : c.kind === "dm" ? "DM" : undefined,
     mark: <span className="grid size-9 place-items-center rounded-card border border-line bg-sunk text-[18px] font-semibold text-ink-2">{channelMark(c)}</span>,
     open: <Link to="/channels/$id" params={{ id: c.id }} className={TILE} aria-label={`Open ${c.kind === "dm" ? "DM" : "channel"} ${channelName(c)}${c.unread ? `, ${c.unread} unread` : ""}`} />,
     settings: <Link to="/channels/$id/settings" params={{ id: c.id }} className={gear} aria-label={`Settings of ${channelName(c)}`} title={`Settings of ${channelName(c)}: ${c.kind === "dm" ? "pause or block" : "members, name, pause, archive"}`}><Icon name="gear" size={14} /></Link>,

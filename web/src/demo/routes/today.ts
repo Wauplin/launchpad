@@ -113,7 +113,7 @@ function drafts(): Draft[] {
   }
   // Bot channels where a bot asks you (launchpad_channels::today): one row per channel, the newest ask and the count.
   for (const c of world.botChannels) {
-    if (c.archived) continue;
+    if (c.archived || c.owner_muted) continue;
     const asks = world.channelMessages.filter((m) => m.channel_id === c.id && m.id > c.owner_read && m.author.kind !== "owner" && (m.ask_owner || m.mentions.includes("owner"))).sort((a, b) => a.id - b.id);
     const a = asks.at(-1);
     if (!a) continue;
