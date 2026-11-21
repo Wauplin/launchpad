@@ -65,7 +65,7 @@ const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive
           {thread?.routine && <RoutineMark routine={thread.routine} />}
           {pinned && <span className="inline-flex shrink-0 text-teal-ink" title="Pinned in the sidebar" aria-hidden><Icon name="pin" size={12} /></span>}
           <span className="min-w-0 truncate">{chat.title}</span>
-          {channel?.channel.owner_muted && <span className="inline-flex shrink-0 text-ink-3" title="Muted: new messages add no unread mark" aria-hidden><Icon name="bell-off" size={12} /></span>}
+          {channel?.channel.owner_muted && <span className="inline-flex shrink-0 text-ink-3" title="Muted: only asks and mentions of you add an unread mark" aria-hidden><Icon name="bell-off" size={12} /></span>}
         </span>
         <span className="flex items-center gap-1 text-[12px] whitespace-nowrap text-ink-3">
           {thread && INFORMATIVE.has(thread.label) && !thread.archived ? <StatusBadge tone={thread.tone} label={thread.label} />
@@ -86,7 +86,7 @@ const ChatRow = memo(function ChatRow({ chat, selected, pinned, onPin, onArchive
           <MenuItem icon={<Icon name="link" size={14} />} label="Copy link" detail="Paste it into any message box, or Go to" onClick={() => { close(); void copyRefLink(chat.kind === "thread" ? { kind: "chat", id: chat.bot.id, thread: chat.thread, title: chat.title } : { kind: "channel", id: chat.channel.id, title: chat.title }); }} />
           {thread?.session && <MenuItem icon={<Icon name="agents" size={14} />} label="Open in Agents" detail="Its session's trace, terminal and files" onClick={() => { close(); void navigate({ to: "/agents", search: { session: thread.session!.id } as never }); }} />}
           {channel && <ActionMenuItem name="channel.mute" params={{ id: chat.id }} body={{ muted: !channel.channel.owner_muted }} close={close} icon={channel.channel.owner_muted ? "bell" : "bell-off"}
-            label={channel.channel.owner_muted ? "Unmute" : "Mute"} detail={channel.channel.owner_muted ? "New messages show as unread again" : "No unread mark or count for you; bots still get every message"} />}
+            label={channel.channel.owner_muted ? "Unmute" : "Mute"} detail={channel.channel.owner_muted ? "New messages show as unread again" : "Unread marks only when a bot asks or mentions you; bots still get every message"} />}
           {chat.kind === "channel" && <MenuItem icon={<Icon name="gear" size={14} />} label="Settings" detail={chat.channel.kind === "dm" ? "Pause or block it" : "Members, name, pause, archive"} onClick={() => { close(); void navigate({ to: "/channels/$id/settings", params: { id: chat.id } }); }} />}
         </>}</MoreMenu>
       </span>

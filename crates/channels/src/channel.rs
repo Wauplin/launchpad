@@ -104,7 +104,8 @@ pub struct Channel {
     #[ts(type = "number")]
     pub owner_read: i64,
     /// Muted by the owner: the channel stays open to read and post, its bots' deliveries are unchanged, and new
-    /// messages add no unread mark, count or Today row for the owner (`unread` and `attention` are 0).
+    /// messages add no unread mark, count or Today row for the owner, except a bot's explicit ask (`--ask-owner`) or
+    /// `@owner` mention after the owner's read mark (`unread` then counts only those, like `attention`).
     pub owner_muted: bool,
     pub members: Vec<Member>,
     #[ts(type = "number | null")]
@@ -510,8 +511,9 @@ async fn view(app: &App, r: Row, bots: &HashMap<String, BotInfo>) -> Result<Chan
         last_at: last.as_ref().map(|l| l.1),
         last_by: last.as_ref().map(|l| if l.2 == "owner" { "you".to_string() } else { l.3.clone() }),
         last_text: last.as_ref().map(|l| preview(&l.4)),
-        unread: if r.owner_muted { 0 } else { unread },
-        attention: if r.owner_muted { 0 } else { attention },
+        // Muted: only the owner's explicit asks and @owner mentions count as unread.
+        unread: if r.owner_muted { attention } else { unread },
+        attention,
         hour_count: hour,
         last_hops: hops,
     })

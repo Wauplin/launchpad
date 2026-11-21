@@ -47,7 +47,7 @@ pub fn ask_title(author: &str, ask_owner: bool, place: &str) -> String {
     format!("{author} {} you in {place}", if ask_owner { "asks" } else { "mentions" })
 }
 
-/// Channels (not archived, not muted by the owner) where a bot waits for the owner: one item each, with Reply (`channel.post`, answering the
+/// Channels (not archived; muted ones too, since an ask or an @owner mention bypasses the owner's mute) where a bot waits for the owner: one item each, with Reply (`channel.post`, answering the
 /// newest ask) as its main action. It leaves when the owner posts there or reads past it (Mark read).
 async fn asks(app: &App) -> Result<Vec<Item>> {
     if !launchpad_core::vault::here(app) {
@@ -58,7 +58,7 @@ async fn asks(app: &App) -> Result<Vec<Item>> {
         .call(|c| {
             let mut st = c.prepare(
                 "SELECT m.channel_id, m.id, m.author_name, m.text, m.created_at, m.ask_owner FROM channel_message m JOIN channel c ON c.id = m.channel_id
-                 WHERE c.archived = 0 AND c.owner_muted = 0 AND m.id > c.owner_read AND m.author_kind != 'owner' AND (m.ask_owner = 1 OR EXISTS (SELECT 1 FROM json_each(m.mentions) WHERE value = 'owner'))
+                 WHERE c.archived = 0 AND m.id > c.owner_read AND m.author_kind != 'owner' AND (m.ask_owner = 1 OR EXISTS (SELECT 1 FROM json_each(m.mentions) WHERE value = 'owner'))
                  ORDER BY m.id",
             )?;
             let rows = st

@@ -37,7 +37,8 @@ created_by: string, created_at: number,
 owner_read: number, 
 /**
  * Muted by the owner: the channel stays open to read and post, its bots' deliveries are unchanged, and new
- * messages add no unread mark, count or Today row for the owner (`unread` and `attention` are 0).
+ * messages add no unread mark, count or Today row for the owner, except a bot's explicit ask (`--ask-owner`) or
+ * `@owner` mention after the owner's read mark (`unread` then counts only those, like `attention`).
  */
 owner_muted: boolean, members: Array<ChannelMember>, last_message: number | null, last_at: number | null, 
 /**

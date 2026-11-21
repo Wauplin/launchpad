@@ -26,7 +26,8 @@ function view(c: ChannelRecord): Channel {
   const members = c.members.map((m) => ({ ...m, name: bots.get(m.bot_id)?.settings.name ?? "deleted bot", slug: bots.get(m.bot_id)?.slug ?? "" }));
   const msgs = messagesOf(c.id);
   const last = msgs.at(-1);
-  const unread = c.owner_muted ? [] : msgs.filter((m) => m.id > c.owner_read);
+  const unseen = msgs.filter((m) => m.id > c.owner_read);
+  const asks = unseen.filter((m) => m.author.kind !== "owner" && (m.ask_owner || m.mentions.includes("owner")));
   const since = Math.max(clock.now() - HOUR, c.reset_at);
   return {
     ...c, members,
@@ -34,8 +35,9 @@ function view(c: ChannelRecord): Channel {
     last_message: last?.id ?? null, last_at: last?.created_at ?? null,
     last_by: last ? (last.author.kind === "owner" ? "you" : last.author.name) : null,
     last_text: last ? last.text.split("\n").find((l) => l.trim())?.trim().slice(0, 160) ?? "" : null,
-    unread: unread.length,
-    attention: unread.filter((m) => m.author.kind !== "owner" && (m.ask_owner || m.mentions.includes("owner"))).length,
+    // Muted: only explicit asks and @owner mentions count as unread (launchpad_channels::channel::view).
+    unread: c.owner_muted ? asks.length : unseen.length,
+    attention: asks.length,
     hour_count: msgs.filter((m) => m.author.kind === "bot" && m.created_at >= since).length,
     last_hops: last?.hops ?? 0,
   };
