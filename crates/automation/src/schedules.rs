@@ -459,8 +459,11 @@ async fn wake_record(app: &App, session: &Session, conditions: Vec<LaunchDelay>,
     spec.harness = Some(session.harness);
     // Its own message, not a step in a chain: the hop count of the turn that went to sleep, so sleeping never meets
     // the loop guard on its own.
-    let hops = launchpad_core::senders::hops_of(app, &session.id).await;
-    spec.from = Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, id: session.id.clone(), name: "Wake-up".into(), hops, ..Default::default() });
+    // It names the request the sleeping turn worked on, so the turn it starts can answer it (`senders::serving`).
+    let turn = launchpad_core::senders::last_from(app, &session.id).await;
+    let hops = turn.as_ref().map_or(0, |f| f.hops);
+    let resumes = launchpad_core::senders::serving(turn.as_ref());
+    spec.from = Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, id: session.id.clone(), name: "Wake-up".into(), hops, resumes, ..Default::default() });
     spec.target = session.project_id.clone().map(|project_id| Target::Project { project_id }).unwrap_or(Target::None);
     let (_, until) = validate(app, &spec, &conditions, Some(&session.id)).await?;
     let waits = describe(app, &conditions);
@@ -522,10 +525,12 @@ pub async fn replay_sleep(app: &App, session_id: &str, schedule: serde_json::Val
     }
     let replaces = earlier_wakes(&scheduled, session_id).unwrap_or_default();
     let hops = record.spec.from.as_ref().map_or(0, |f| f.hops).min(launchpad_core::senders::MAX_HOPS);
+    // The request it resumes is only an ID the answer looks up among the session's own messages.
+    let resumes = record.spec.from.as_ref().and_then(|f| f.resumes.clone());
     let mut spec = session.launch_spec.clone();
     spec.harness = Some(session.harness);
     spec.text = std::mem::take(&mut record.spec.text);
-    spec.from = Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, id: session.id.clone(), name: "Wake-up".into(), hops, ..Default::default() });
+    spec.from = Some(launchpad_core::model::MessageFrom { kind: launchpad_core::model::SenderKind::Wake, id: session.id.clone(), name: "Wake-up".into(), hops, resumes, ..Default::default() });
     spec.target = session.project_id.clone().map(|project_id| Target::Project { project_id }).unwrap_or(Target::None);
     record.spec = spec;
     record.status = ScheduleStatus::Queued;

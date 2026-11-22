@@ -75,6 +75,7 @@ import { sendPresence } from "@/lib/ws";
 import { QuickChips } from "./QuickChips";
 import { chatRows, pendingRows, sleepKey, stepsLabel, type ChatCard, type ChatItem, type ChatSession } from "./chatRows";
 import { useConversation, type ConversationInfo } from "./useConversation";
+import { groupReplies, repliesLabel, replyRows, type ReplyLinks } from "@/lib/replyGroups";
 import { completeMention, conversationStatus, mentionChoices, mentionQuery, mergeConversation, routeMentions } from "@/lib/conversations";
 import { useSessions } from "@/lib/queries";
 import { isUnseen } from "@/lib/sessionStatus";
@@ -245,6 +246,22 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
       ...otherChats.map(({ p, sessions: list }, i) => ({ bot: { id: p.bot.id, name: p.bot.settings.name }, items: [...own(list, 0, otherSends[i], otherQueued[i], p.thread.id), ...launches(p.bot.id, p.sessions)] })),
     ], conversation.mainId);
   }, [sessions, cards, first, sends, queued, threadId, multi, conversation, otherChats, launched, bot.id, bot.settings.name, thread, ...otherSends, ...otherQueued]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Answers that went back to the bot that asked fold under that request (one level, `groupReplies`); the group
+  // holding the linked message (`?msg=`) opens by itself. `toggled`: the groups the owner opened or closed.
+  const targetKey = useMemo(() => { const m = target ? /^(.+)\.(\d+)$/.exec(target) : null; return m ? `${m[1]}/e${m[2]}` : null; }, [target]);
+  const grouped = useMemo(() => groupReplies(items, REPLY_LINKS), [items]);
+  const targetGroup = useMemo(() => {
+    const it = targetKey ? items.find((i) => i.key === targetKey || i.alias === targetKey) : undefined;
+    return it ? grouped.rootOf.get(it) ?? null : null;
+  }, [items, grouped, targetKey]);
+  const [toggled, setToggled] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = useCallback((parent: string) => setToggled((t) => { const n = new Set(t); if (!n.delete(parent)) n.add(parent); return n; }), []);
+  const rows = useMemo(() => replyRows(grouped, REPLY_LINKS, (p) => toggled.has(p) !== (p === targetGroup)).map((r): ChatItem => {
+    if (r.kind === "item") return r.nested ? { ...r.item, nested: true } : r.item;
+    const names = [...new Set(r.replies.map((x) => (x.t === "from" ? x.from.name : "")).filter(Boolean))];
+    const at = r.replies.reduce<number | null>((m, x) => ("at" in x && x.at != null && (m == null || x.at > m) ? x.at : m), null);
+    return { t: "replies", key: `replies/${r.parent}`, v: `${r.open}:${r.replies.length}:${at ?? ""}`, parent: r.parent, count: r.replies.length, at, names, open: r.open };
+  }), [grouped, toggled, targetGroup]);
   // A message sent from this thread that continued in a new one (its session could not go on): the chat follows it.
   const followed = useRef(new Set<string>());
   useEffect(() => {
@@ -306,20 +323,20 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
-  const v = useVirtualizer({ count: items.length, getItemKey: (i) => items[i].key, getScrollElement: () => scrollRef.current, estimateSize: () => 56, overscan: 6, useFlushSync: false });
+  const v = useVirtualizer({ count: rows.length, getItemKey: (i) => rows[i].key, getScrollElement: () => scrollRef.current, estimateSize: () => 56, overscan: 6, useFlushSync: false });
   const total = v.getTotalSize();
   useLayoutEffect(() => {
-    if (atBottom.current && items.length) v.scrollToIndex(items.length - 1, { align: "end" });
-  }, [items.length, total, v]);
+    if (atBottom.current && rows.length) v.scrollToIndex(rows.length - 1, { align: "end" });
+  }, [rows.length, total, v]);
   // Loading above keeps the row that was on top in view: once rows were added before it, scroll back to it.
   const anchor = useRef<{ key: string; index: number } | null>(null);
   useLayoutEffect(() => {
     const a = anchor.current;
     if (!a) return;
-    const i = items.findIndex((it) => it.key === a.key);
+    const i = rows.findIndex((it) => it.key === a.key);
     if (i < 0) anchor.current = null;
     else if (i !== a.index) { v.scrollToIndex(i, { align: "start" }); anchor.current = null; }
-  }, [items, v]);
+  }, [rows, v]);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadMore = () => {
     if (loadingMore || !more || ready.length < visible.length) return;
@@ -342,12 +359,11 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
     if (!settled) return;
     const frame = requestAnimationFrame(() => { if ((scrollRef.current?.scrollTop ?? Infinity) < 150) loadMoreRef.current(); });
     return () => cancelAnimationFrame(frame);
-  }, [settled, items.length]);
+  }, [settled, rows.length]);
 
   // A link to one message: show the session that holds it, load its earlier events until it is there, then scroll
   // to it (a step or an earlier answer of a turn: that turn's message). Once per target.
   const linkBase = threadId === NEW_THREAD ? null : `${bot.id}\n${threadId}`;
-  const targetKey = useMemo(() => { const m = target ? /^(.+)\.(\d+)$/.exec(target) : null; return m ? `${m[1]}/e${m[2]}` : null; }, [target]);
   const reached = useRef<string | null>(null);
   useEffect(() => {
     if (!targetKey || reached.current === targetKey) return;
@@ -359,18 +375,18 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
       v.scrollToIndex(i, { align: "center" });
       requestAnimationFrame(() => v.scrollToIndex(i, { align: "center" }));
     };
-    const exact = items.findIndex((it) => it.key === targetKey);
+    const exact = rows.findIndex((it) => it.key === targetKey || it.alias === targetKey);
     if (exact >= 0) return go(exact);
     const at = thread.findIndex((s) => s.id === sid);
     if (at >= 0 && at < from) { setShown(thread.length - at); return; }
     const log = logs[sid];
     if (!log?.loaded) { if (at < 0 && !otherSessions.some((s) => s.id === sid)) { reached.current = targetKey; toast("The linked message is not in this chat"); } return; }
     if (log.earlier && (log.events[0]?.seq ?? 0) > seq) { void loadEarlier(sid).catch(toastError); return; }
-    const near = items.findIndex((it) => it.key.startsWith(`${sid}/e`) && Number(it.key.slice(sid.length + 2)) >= seq);
+    const near = rows.findIndex((it) => it.key.startsWith(`${sid}/e`) && Number(it.key.slice(sid.length + 2)) >= seq);
     if (near >= 0) return go(near);
     reached.current = targetKey;
     toast("The linked message is no longer in this chat");
-  }, [targetKey, items, logs, from, thread, otherSessions, loadEarlier, v]);
+  }, [targetKey, rows, logs, from, thread, otherSessions, loadEarlier, v]);
 
   return (
     <ReplyContext.Provider value={onReply}>
@@ -389,17 +405,19 @@ export function BotChat({ bot, threadId, thread, rotation, needsProfile, openSet
           if (el.scrollTop < 150) loadMore();
         }}>
         <div className="mx-auto w-full max-w-text">
-          {thread.length === 0 && !items.length ? <div className="py-8">{intro}</div> : <>
+          {thread.length === 0 && !rows.length ? <div className="py-8">{intro}</div> : <>
             {more && <div className="flex justify-center pt-2"><button className="btn btn-sm" disabled={loadingMore} onClick={loadMore}>{loadingMore ? "Loading…" : "Load earlier messages"}</button></div>}
             {thread.length > 0 && sessions.length === 0 && <div className="p-6 text-center text-[13px] text-ink-3">Loading…</div>}
             <div style={{ height: total, position: "relative" }}>
               {v.getVirtualItems().map((it) => {
-                const item = items[it.index];
+                const item = rows[it.index];
                 const data = item.t === "card" ? item.kind === "proposal" ? byProposal.get(item.id) : item.kind === "ready" ? byItem.get(item.id) : records.get(item.id) : item.t === "steps" ? stepRecords.get(item.key) : undefined;
                 const extra = item.t === "card" && item.kind === "ready" && data ? bySuggestion.get((data as TodayItem).record) : undefined;
                 return (
                   <div key={it.key} data-index={it.index} ref={v.measureElement} className="absolute top-0 right-0 left-0" style={{ transform: `translateY(${it.start}px)` }}>
-                    <ChatRow item={item} data={data} extra={extra} canContinue={item.key === continueKey} botId={item.bot?.id ?? bot.id} botName={item.bot?.name ?? bot.settings.name} quietWork={!!onStep && !item.bot} linkBase={linkBase} targetKey={targetKey} />
+                    {item.t === "replies" ? <RepliesFold item={item} onToggle={toggle} />
+                      : item.nested ? <div className={REPLY_INDENT}><ChatRow item={item} data={data} extra={extra} canContinue={item.key === continueKey} botId={item.bot?.id ?? bot.id} botName={item.bot?.name ?? bot.settings.name} quietWork={!!onStep && !item.bot} linkBase={linkBase} targetKey={targetKey} /></div>
+                      : <ChatRow item={item} data={data} extra={extra} canContinue={item.key === continueKey} botId={item.bot?.id ?? bot.id} botName={item.bot?.name ?? bot.settings.name} quietWork={!!onStep && !item.bot} linkBase={linkBase} targetKey={targetKey} />}
                   </div>
                 );
               })}
@@ -469,7 +487,7 @@ type RowData = Proposal | TodayItem | ChangeRecord | readonly (ChangeRecord | un
 
 const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, botName, quietWork, linkBase, targetKey }: { item: ChatItem; data: RowData; extra: Suggestion | undefined; canContinue: boolean; botId: string; botName: string; quietWork: boolean; linkBase: string | null; targetKey: string | null }) {
   useIdentitiesVersion();
-  const msg = msgLink(item.key, linkBase, targetKey);
+  const msg = msgLink(item.key, linkBase, targetKey, item.alias);
   switch (item.t) {
     case "divider":
       return <div className="pt-4 pb-2"><Separator>
@@ -523,11 +541,31 @@ const ChatRow = memo(function ChatRow({ item, data, extra, canContinue, botId, b
 
 /** Copy link and the target outline of a message row: its key is `<session>/e<seq>` (`chatRows`). */
 type MsgLink = { onCopyLink?: () => void; target?: boolean };
-function msgLink(key: string, linkBase: string | null, targetKey: string | null): MsgLink {
+function msgLink(key: string, linkBase: string | null, targetKey: string | null, alias?: string): MsgLink {
   const m = /^(.+)\/e(\d+)$/.exec(key);
   if (!m || !linkBase) return {};
   const [bot, thread] = linkBase.split("\n");
-  return { onCopyLink: () => void copyRefLink({ kind: "chat", id: bot, thread, session: m[1], seq: Number(m[2]) }), target: key === targetKey };
+  return { onCopyLink: () => void copyRefLink({ kind: "chat", id: bot, thread, session: m[1], seq: Number(m[2]) }), target: key === targetKey || (!!alias && alias === targetKey) };
+}
+
+/** What links a bot's request to the answer that went back to it: its `request` ID and the answer's `reply_to`. */
+const REPLY_LINKS: ReplyLinks<ChatItem> = {
+  id: (i) => (i.t === "from" && !i.from.reply ? i.from.request ?? null : null),
+  parent: (i) => (i.t === "from" && i.from.reply ? i.from.reply_to ?? null : null),
+};
+
+/** The one shallow indent of a reply shown under its request, on the laptop and the phone. */
+const REPLY_INDENT = "ml-3 border-l-2 border-line pl-2.5";
+
+/** The fold of a request's answers: "1 reply from CI Bot · today 10:07", a click shows or hides them under it. */
+function RepliesFold({ item, onToggle }: { item: Extract<ChatItem, { t: "replies" }>; onToggle: (parent: string) => void }) {
+  return <div className={`${MESSAGE_INDENT} pb-1`}>
+    <button type="button" className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-control px-1.5 text-[12px] text-ink-3 hover:bg-sunk hover:text-ink" aria-expanded={item.open} onClick={() => onToggle(item.parent)}
+      title={item.open ? "Hide the answers to this message" : "Show the answers to this message"}>
+      <Icon name="chev" size={12} className={`flex-none transition-transform ${item.open ? "" : "-rotate-90"}`} />
+      <span className="min-w-0 truncate">{repliesLabel(item.count)}{item.names.length ? ` from ${item.names.join(", ")}` : ""}{item.at != null ? ` · ${when(item.at)}` : ""}</span>
+    </button>
+  </div>;
 }
 
 /** A proposal as a compact line; a question report's Reply aims the chat's message box at it. */
@@ -620,7 +658,8 @@ function FromRow({ item, msg }: { item: Extract<ChatItem, { t: "from" }>; msg: M
   // A bot's message to other bots of this conversation: "Scout to Writer", both names in their colors, with thin
   // edges in those colors instead of the dashed "not from you" bubble (the tooltip keeps the provenance).
   const between = f.kind === "bot" && item.to?.length ? item.to : null;
-  return <ChatMessage tour="chat.from" look={between ? "bot" : "other"} edges={between ? { from: name, to: between } : undefined} {...msg}
+  // An answer that went back to the bot that asked keeps the time it arrived (it may show under its request).
+  return <ChatMessage tour="chat.from" look={between ? "bot" : "other"} edges={between ? { from: name, to: between } : undefined} {...msg} time={f.reply && item.at != null ? <span>{when(item.at)}</span> : undefined}
     avatar={bot ? <BotAvatar name={name} id={f.kind === "bot" ? f.id : null} /> : <SourceAvatar icon={FROM_ICON[f.kind]} />}
     name={<span className={bot ? botInk(name, f.kind === "bot" ? f.id : null) : "text-ink"}>{link}</span>}
     tag={<SenderTag title="Launchpad stamped the sender: the bot read this message as information, not as your instructions">{between ? <Recipients names={between} /> : item.to ? `→ ${item.to.join(", ")} · not from you` : tag}</SenderTag>}>

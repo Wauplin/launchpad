@@ -90,9 +90,9 @@ pub fn guard_from(from: &MessageFrom) -> Result<()> {
     guard(from.hops)
 }
 
-/// Home: the hop count of the message that started the session's last turn (0 for the owner's), from its stored
+/// Home: the sender of the message that started the session's last turn (None for the owner's), from its stored
 /// events.
-pub async fn hops_of(app: &App, session_id: &str) -> u32 {
+pub async fn last_from(app: &App, session_id: &str) -> Option<MessageFrom> {
     let id = session_id.to_string();
     let json: Option<String> = app
         .state_db
@@ -101,18 +101,42 @@ pub async fn hops_of(app: &App, session_id: &str) -> u32 {
         .ok()
         .flatten();
     match json.and_then(|j| serde_json::from_str::<EventBody>(&j).ok()) {
-        Some(EventBody::UserMessage { from: Some(f), .. }) => f.hops,
-        _ => 0,
+        Some(EventBody::UserMessage { from, .. }) => from,
+        _ => None,
+    }
+}
+
+/// Home: the hop count of the message that started the session's last turn (0 for the owner's), from its stored
+/// events.
+pub async fn hops_of(app: &App, session_id: &str) -> u32 {
+    last_from(app, session_id).await.map_or(0, |f| f.hops)
+}
+
+/// Pure: the request (another bot's message, by its `request` ID) a turn works on, from the sender of the message
+/// that started it: that message itself when it is such a request; the request an answer or a wake-up resumes; none
+/// after the owner's message or anything else. Explicit only: nothing is inferred from earlier messages.
+pub fn serving(turn: Option<&MessageFrom>) -> Option<String> {
+    match turn {
+        Some(f) if f.kind == SenderKind::Bot && !f.reply && f.session.is_some() => f.request.clone(),
+        Some(f) if f.reply || f.kind == SenderKind::Wake => f.resumes.clone(),
+        _ => None,
     }
 }
 
 /// Home: the sender of a message an agent session sends (its bot, else the session), from Home's record of it, one
-/// hop after the message its turn answers. Refused past the loop guard.
+/// hop after the message its turn answers. Refused past the loop guard. A bot's message gets its own request ID and
+/// names the request its turn works on (`serving`), so an answer to it finds its way back explicitly.
 pub async fn agent(app: &App, session_id: &str) -> Result<MessageFrom> {
     let s = app.sessions.get(session_id).ok_or_else(|| anyhow::anyhow!("no session {session_id}"))?;
-    let hops = hops_of(app, session_id).await + 1;
+    let turn = last_from(app, session_id).await;
+    let hops = turn.as_ref().map_or(0, |f| f.hops) + 1;
     guard(hops)?;
-    Ok(sender_of(&s, hops))
+    let mut from = sender_of(&s, hops);
+    if from.kind == SenderKind::Bot {
+        from.request = Some(uuid::Uuid::new_v4().to_string());
+        from.serves = serving(turn.as_ref());
+    }
+    Ok(from)
 }
 
 /// Home: the sender of what a request asks for (a message, a launch, a follow-up): the agent session whose CLI sent it

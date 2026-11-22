@@ -76,7 +76,13 @@ export function conversationStatus(parts: readonly { name: string; session: Sess
 }
 
 /** What the merge needs of a chat item (`chatRows.ts`'s ChatItem). */
-type Item = { key: string; v: string; t: string; at?: number | null; text?: string | null; from?: { kind: string; id: string; reply?: boolean } | null; bot?: { id: string; name: string }; to?: string[] };
+type Item = {
+  key: string; v: string; t: string; at?: number | null; text?: string | null; turn?: string | null;
+  from?: { kind: string; id: string; reply?: boolean; session?: string; request?: string; reply_to?: string; turn?: number } | null;
+  bot?: { id: string; name: string }; to?: string[];
+  /** An answer that went back to the bot that asked, shown in place of its author's answer: that answer's key. */
+  alias?: string;
+};
 
 /** Items that start a part of the timeline: a message, a routine run, a new session. */
 const STARTS = new Set(["divider", "user", "from", "wake", "routine", "quiet", "launch"]);
@@ -108,8 +114,12 @@ export function mergeConversation<T extends Item>(parts: readonly { bot: { id: s
         segments.push(cur);
         asker = null;
       }
-      // An answer that came back starts the turn it caused, but shows only as its author's answer.
-      if (raw.t === "from" && raw.from?.reply) continue;
+      // An answer that came back starts the turn it caused. One that names its request stays (`linkReplies` shows it
+      // under that request); an older one shows only as its author's answer.
+      if (raw.t === "from" && raw.from?.reply) {
+        if (raw.from.reply_to) cur.items.push({ ...item, to: [p.bot.name], v: `${raw.v}|${p.bot.name}` } as T);
+        continue;
+      }
       if (raw.t === "user") { cur.items.push({ ...item, to: [p.bot.name] } as T); continue; }
       if (raw.t === "from" && raw.from?.kind === "bot" && ids.has(raw.from.id)) {
         asker = ids.get(raw.from.id)!;
@@ -146,5 +156,36 @@ export function mergeConversation<T extends Item>(parts: readonly { bot: { id: s
     if (same) { Object.assign(same, { to: [...(same.to ?? []), ...(item.to ?? [])], v: `${same.v},${item.bot?.name}` }); continue; }
     waiting.push(item);
   }
-  return [...out, ...waiting];
+  return [...linkReplies(out), ...waiting];
+}
+
+/** An answer's key of the turn that is its author's message (`<session>/e<seq>`). */
+const turnKey = (from: NonNullable<Item["from"]>) => from.session && from.turn != null ? `${from.session}/e${from.turn}` : null;
+
+/** The merged timeline with each answer that went back to another bot linked to its request: an answer that names a
+ * loaded request (`from.reply_to` = that message's `from.request`) and the turn it answers stays, and its author's
+ * own copy of that answer goes (the answer shows once, `alias` keeps the copy's key for links). Every other answer
+ * that came back goes, so its author's answer shows at its time as before: an older one without IDs, or one whose
+ * request is not loaded. Explicit links only, never the order of messages. */
+export function linkReplies<T extends Item>(items: readonly T[]): T[] {
+  const requests = new Set(items.flatMap((i) => (i.t === "from" && !i.from?.reply && i.from?.request ? [i.from.request] : [])));
+  const shown = new Map<string, string>();
+  for (const i of items) {
+    const key = i.t === "from" && i.from?.reply && i.from.reply_to && requests.has(i.from.reply_to) ? turnKey(i.from) : null;
+    if (key && !shown.has(key)) shown.set(key, i.key);
+  }
+  const answers = new Map(items.flatMap((i) => (i.t === "answer" && i.turn && shown.has(i.turn) ? [[i.turn, i.key] as const] : [])));
+  const out: T[] = [];
+  for (const i of items) {
+    if (i.t === "from" && i.from?.reply) {
+      const key = turnKey(i.from);
+      if (!key || shown.get(key) !== i.key) continue;
+      const alias = answers.get(key);
+      out.push(alias ? { ...i, alias } : i);
+      continue;
+    }
+    if (i.t === "answer" && i.turn && shown.has(i.turn)) continue;
+    out.push(i);
+  }
+  return out;
 }

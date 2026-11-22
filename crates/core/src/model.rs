@@ -601,6 +601,29 @@ pub struct MessageFrom {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub reply: bool,
+    /// A bot's message: its own ID, stamped by Home when it sends it (`senders::agent`). The automatic answer to it
+    /// names it in `reply_to`, so a reply is linked to its request explicitly, never by its place in the chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub request: Option<String>,
+    /// A bot's message: the request (another bot's message, its `request`) that the sender's turn works on, if any
+    /// (`senders::serving`). The answer to this message carries it back as `resumes`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub serves: Option<String>,
+    /// An answer (`reply`): the `request` of the message it answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reply_to: Option<String>,
+    /// An answer or a wake-up: the request the receiving session worked on when it asked (or went to sleep), which
+    /// its next turn finishes (`launchpad_channels::conversation::owed`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub resumes: Option<String>,
+    /// An answer: the `seq` of the answering session's message that started the turn whose final answer it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub turn: Option<i64>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq, Default)]

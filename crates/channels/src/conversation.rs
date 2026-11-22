@@ -33,9 +33,11 @@ pub struct Answer {
 }
 
 /// Pure: the answer a session's last turn owes another bot, from its events. The turn's message is its last
-/// message: a bot's request (not itself an answer) is owed an answer; so is the newest request before it when the
-/// turn's message is an answer that came back to this bot (it asked a third bot meanwhile) or the wake-up it asked
-/// for, unless the owner wrote in between. The owner's message, a routine, a hook or a channel owes nothing.
+/// message: a bot's request (not itself an answer) is owed an answer. An answer that came back to this bot (it asked a
+/// third bot meanwhile) or the wake-up it asked for finishes the request it names (`MessageFrom.resumes`, the request
+/// the turn that asked or slept worked on), even when other bots' requests came in between, unless the owner wrote
+/// after that request. Messages from before requests had IDs fall back to the newest request before them. The
+/// owner's message, a routine, a hook or a channel owes nothing.
 pub fn owed(events: &[Stored]) -> Option<Answer> {
     let messages: Vec<(usize, i64, Option<&MessageFrom>)> = events.iter().enumerate().filter_map(|(i, (seq, _, e))| match e {
         EventBody::UserMessage { from, .. } => Some((i, *seq, from.as_ref())),
@@ -43,18 +45,35 @@ pub fn owed(events: &[Stored]) -> Option<Answer> {
     }).collect();
     let &(last_at, claim, last) = messages.last()?;
     let request = |f: &MessageFrom| f.kind == SenderKind::Bot && !f.reply && f.session.is_some();
+    let earlier = || messages[..messages.len() - 1].iter().rev().map(|&(_, _, from)| from);
     let asked = match last {
         Some(f) if request(f) => f,
         Some(f) if f.reply || f.kind == SenderKind::Wake => {
             let mut found = None;
-            for &(_, _, from) in messages[..messages.len() - 1].iter().rev() {
-                match from {
-                    None => break,
-                    Some(f) if request(f) => {
-                        found = Some(f);
-                        break;
+            if let Some(id) = &f.resumes {
+                // Explicit: the request it names, unless the owner wrote after it.
+                for from in earlier() {
+                    match from {
+                        None => break,
+                        Some(g) if request(g) && g.request.as_ref() == Some(id) => {
+                            found = Some(g);
+                            break;
+                        }
+                        Some(_) => {}
                     }
-                    Some(_) => {}
+                }
+            } else if f.reply_to.is_none() {
+                // An answer or wake-up from before request IDs: the newest earlier request, if it has no ID either
+                // (a request with an ID would have been named).
+                for from in earlier() {
+                    match from {
+                        None => break,
+                        Some(g) if request(g) => {
+                            found = g.request.is_none().then_some(g);
+                            break;
+                        }
+                        Some(_) => {}
+                    }
                 }
             }
             found?
@@ -114,7 +133,20 @@ async fn answer(app: &App, s: &Session) -> Result<()> {
         return Ok(());
     }
     let b = s.launch_spec.bot.as_ref().context("a bot session")?;
-    let from = MessageFrom { kind: SenderKind::Bot, id: b.id.clone(), name: b.name.clone(), hops, session: Some(s.id.clone()), reply: true, ..Default::default() };
+    // Linked explicitly: the request it answers, the request the asker's turn worked on when it asked (its next turn
+    // finishes that one), and the turn whose answer this is (the chat shows this message in place of that answer).
+    let from = MessageFrom {
+        kind: SenderKind::Bot,
+        id: b.id.clone(),
+        name: b.name.clone(),
+        hops,
+        session: Some(s.id.clone()),
+        reply: true,
+        reply_to: a.request.request.clone(),
+        resumes: a.request.serves.clone(),
+        turn: Some(a.claim),
+        ..Default::default()
+    };
     let to = To::Conversation { id: mine.conversation.clone(), title: String::new() };
     let outcome = match crate::hooks::deliver_reply(app, &theirs.bot_id, to, a.text, from).await {
         Ok(crate::hooks::Outcome::Sent(_)) => "sent".to_string(),
@@ -316,6 +348,39 @@ mod tests {
         assert_eq!(owed(&[user(1, "hi", None), said(2, "asked B"), end(3), user(4, "B says", Some(reply("B", 2))), said(5, "ok"), end(6)]), None);
         // The owner wrote in between: the earlier request is settled.
         assert_eq!(owed(&[user(1, "x", Some(bot("A", 1))), said(2, "y"), end(3), user(4, "stop", None), said(5, "ok"), end(6), user(7, "z", Some(reply("C", 2))), said(8, "w"), end(9)]), None);
+    }
+
+    fn asked(name: &str, hops: u32, id: &str, serves: Option<&str>) -> MessageFrom {
+        MessageFrom { request: Some(id.into()), serves: serves.map(Into::into), ..bot(name, hops) }
+    }
+    fn answered(name: &str, hops: u32, to: &str, resumes: Option<&str>) -> MessageFrom {
+        MessageFrom { reply_to: Some(to.into()), resumes: resumes.map(Into::into), ..reply(name, hops) }
+    }
+
+    #[test]
+    fn an_answer_that_came_back_finishes_the_request_it_names() {
+        // A asked B (r1); B asked C on r1's behalf; D asked B (r3) meanwhile; C's answer resumes r1: B answers A.
+        let ev = vec![
+            user(1, "compare", Some(asked("A", 1, "r1", None))), said(2, "Asked C."), end(3),
+            user(4, "status?", Some(asked("D", 1, "r3", None))), said(5, "Fine."), end(6),
+            user(7, "C's data", Some(answered("C", 3, "r2", Some("r1")))), said(8, "B and C agree."), end(9),
+        ];
+        let a = owed(&ev).unwrap();
+        assert_eq!((a.request.name.as_str(), a.request.request.as_deref(), a.claim, a.text.as_str()), ("A", Some("r1"), 7, "B and C agree."));
+        // The wake-up B asked for while it worked on r1 also finishes r1, after D's request.
+        let wake = MessageFrom { kind: SenderKind::Wake, resumes: Some("r1".into()), ..Default::default() };
+        let ev2 = vec![ev[0].clone(), ev[1].clone(), ev[2].clone(), ev[3].clone(), ev[4].clone(), ev[5].clone(), user(7, "wake up", Some(wake.clone())), said(8, "Done."), end(9)];
+        assert_eq!(owed(&ev2).unwrap().request.name, "A");
+        // An answer that resumes nothing (B asked C on the owner's behalf) owes nothing, even after D's request.
+        let ev3 = vec![user(1, "x", None), said(2, "y"), end(3), user(4, "status?", Some(asked("D", 1, "r3", None))), said(5, "Fine."), end(6), user(7, "C's data", Some(answered("C", 2, "r2", None))), said(8, "ok"), end(9)];
+        assert_eq!(owed(&ev3), None);
+        // The owner wrote after r1: settled.
+        let ev4 = vec![ev[0].clone(), ev[1].clone(), ev[2].clone(), user(4, "stop", None), said(5, "ok"), end(6), ev[6].clone(), ev[7].clone(), ev[8].clone()];
+        assert_eq!(owed(&ev4), None);
+        // The turn that answers a request with an ID names it, for the reply's `reply_to`.
+        assert_eq!(launchpad_core::senders::serving(Some(&answered("C", 2, "r2", Some("r1")))).as_deref(), Some("r1"));
+        assert_eq!(launchpad_core::senders::serving(Some(&asked("A", 1, "r1", None))).as_deref(), Some("r1"));
+        assert_eq!(launchpad_core::senders::serving(None), None);
     }
 
     #[test]

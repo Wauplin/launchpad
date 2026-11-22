@@ -80,3 +80,35 @@ test("the merged timeline orders each bot's turns by time, shows the owner's mes
     "B pending to B: and now?",
   ]);
 });
+
+test("an answer that names its request shows once, in place of its author's answer; others stay as before", () => {
+  const a = [
+    item("divider", { at: 0 }),
+    item("user", { at: 1000, text: "ship today?" }),
+    item("answer", { text: "Asked B and C." }),
+    // B's answer to r1, linked; C's answer to r2, whose request is not loaded; an older answer without IDs.
+    item("from", { key: "sa/e9", at: 9000, text: "Build passed.", from: { kind: "bot", id: "b", reply: true, session: "sb", turn: 5, reply_to: "r1" } }),
+    item("from", { at: 9500, text: "Notes ready.", from: { kind: "bot", id: "c", reply: true, session: "sc", turn: 3, reply_to: "r2" } }),
+    item("from", { at: 9600, text: "Old.", from: { kind: "bot", id: "b", reply: true, session: "sb" } }),
+    item("answer", { text: "We can ship." }),
+  ];
+  const b = [
+    item("divider", { at: 2000 }),
+    item("from", { key: "sb/e5", at: 5000, text: "Check the build.", from: { kind: "bot", id: "a", request: "r1" } }),
+    item("answer", { key: "sb/e7", text: "Build passed.", turn: "sb/e5" }),
+  ];
+  const c = [item("divider", { at: 2500 }), item("from", { at: 2500, text: "Check the notes.", from: { kind: "bot", id: "a" } }), item("answer", { key: "sc/e4", text: "Notes ready.", turn: "sc/e3" })];
+  const out = mergeConversation([{ bot: { id: "a", name: "A" }, items: a }, { bot: { id: "b", name: "B" }, items: b }, { bot: { id: "c", name: "C" }, items: c }], "a");
+  const lines = out.map((i) => `${i.bot.name} ${i.t}${i.to ? ` to ${i.to.join(",")}` : ""}${i.text ? `: ${i.text}` : ""}`);
+  assert.deepEqual(lines, [
+    "A divider",
+    "A user to A: ship today?",
+    "A answer: Asked B and C.",
+    "C from to C: Check the notes.",
+    "C answer to A: Notes ready.",
+    "B from to B: Check the build.",
+    "A from to A: Build passed.",
+    "A answer: We can ship.",
+  ]);
+  assert.equal(out.find((i) => i.key === "sa/e9").alias, "sb/e7");
+});

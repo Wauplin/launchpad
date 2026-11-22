@@ -58,7 +58,13 @@ export type ChatItem = {
   bot?: ChatBot;
   /** In a conversation of several bots: whom a message went to, or whom an answer answers. */
   to?: string[];
+  /** Shown under its request, one level in (`groupReplies`). */
+  nested?: boolean;
+  /** An answer that went back to the bot that asked, shown in place of its author's answer: that answer's key. */
+  alias?: string;
 } & (
+  /** The fold of a request's answers (`replyRows`): how many, from whom, the newest one's time, open or not. */
+  | { t: "replies"; parent: string; count: number; at: number | null; names: string[]; open: boolean }
   | { t: "divider"; sessionId: string; index: number; at: number; reason: string | null; previous: string | null }
   /** `instructions`: the message carried the new BOT.md (Home adds it after BOT.md changed), left out of `text`. */
   | { t: "user"; at: number | null; text: string; images: ImageAttachment[]; queued: boolean; instructions: boolean }
@@ -73,7 +79,8 @@ export type ChatItem = {
   /** An agent a bot of the conversation launched (`LaunchSpec.from.session`): a row linking to it. */
   | { t: "launch"; at: number; sessionId: string; title: string; status: string }
   | { t: "quiet"; title: string; cause: string; at: number | null }
-  | { t: "answer"; text: string; streaming: boolean }
+  /** `turn`: the key of the turn's message (`<session>/e<seq>`), which an answer that went back to another bot names. */
+  | { t: "answer"; text: string; streaming: boolean; turn?: string | null }
   /** One quiet line per turn; `changes`: the turn's changes as receipts (their full lines show with the steps). */
   | { t: "steps"; sessionId: string; count: number; durationMs: number | null; steps: string[]; changes: StepReceipt[] }
   | { t: "ask"; sessionId: string; row: AskRow }
@@ -208,7 +215,7 @@ export function chatRows(sessions: ChatSession[], cards: ChatCard[] = [], first 
         else if (routine) out.push({ key: k(`r:${t.key}`), v: t.user!.queued ? "q" : "", t: "routine", at: t.user!.ts ?? null, title: routine.title, cause: routine.cause });
         else if (t.user && fromOther(t.user.from)) { const m = withoutInstructions(withoutSender(t.user.text)); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "from", at: t.user.ts ?? null, text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions, from: t.user.from }); }
         else if (t.user) { const m = withoutInstructions(t.user.text); out.push({ key: k(t.user.key), v: t.user.queued ? "q" : "", t: "user", at: t.user.ts ?? null, text: m.text, images: t.user.images, queued: t.user.queued, instructions: m.instructions }); }
-        if (answer) out.push({ key: k(answer.key), v: `${answer.text.length}${answer.streaming ? "s" : ""}`, t: "answer", text: answer.text, streaming: answer.streaming });
+        if (answer) out.push({ key: k(answer.key), v: `${answer.text.length}${answer.streaming ? "s" : ""}`, t: "answer", text: answer.text, streaming: answer.streaming, turn: t.user ? k(t.user.key) : null });
         if (steps.length && !working) {
           // The turn's changes become receipts on its steps line instead of rows of their own.
           const changes = cardsHere.filter((c) => c.kind === "changed").map((c): StepReceipt => ({ id: c.id, receipt: c.receipt ?? c.text ?? "", text: c.text ?? "" }));

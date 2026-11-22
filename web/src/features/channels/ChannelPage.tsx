@@ -13,7 +13,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActionButton } from "@/components/ActionButton";
 import { BotAvatar, OwnerAvatar, botInk, useIdentitiesVersion } from "@/components/BotAvatar";
-import { ChatMessage } from "@/features/chat/Message";
+import { ChatMessage, MESSAGE_INDENT } from "@/features/chat/Message";
 import { Icon } from "@/components/Icon";
 import { ImageThumb } from "@/components/ImageViewer";
 import { Markdown } from "@/components/Markdown";
@@ -34,6 +34,7 @@ import { attachmentSrc } from "@/lib/attachments";
 import { daemonAsset } from "@/lib/connection";
 import { deliveryLines, loopFooter, loopSkip, type DeliveryLine } from "@/lib/channels";
 import { ago, time, when } from "@/lib/format";
+import { groupReplies, repliesLabel, replyRows, type ReplyLinks, type ReplyRow } from "@/lib/replyGroups";
 import { usePhone } from "@/lib/phone";
 import { PhoneBar } from "@/mobile/PhoneHeader";
 import { phoneBack } from "@/mobile/back";
@@ -209,28 +210,38 @@ function ChannelSettingsOf({ id }: { id: string }) {
 function MessageList({ channel, messages, lines, byId, more, loadingMore, onOlder, target }: { channel: Channel; messages: ChannelMessage[]; lines: Map<number, DeliveryLine[]>; byId: Map<number, ChannelMessage>; more: boolean; loadingMore: boolean; onOlder: () => void; target: number | null }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(target == null);
-  const v = useVirtualizer({ count: messages.length, getItemKey: (i) => messages[i].id, getScrollElement: () => scrollRef.current, estimateSize: () => 72, overscan: 6, useFlushSync: false });
+  // A bot's reply (`reply_to`) folds under the message it answers, one level deep (`groupReplies`); the group that
+  // holds the linked message opens by itself. `toggled`: the groups the owner opened or closed.
+  const grouped = useMemo(() => groupReplies(messages, CHANNEL_REPLIES), [messages]);
+  const targetGroup = useMemo(() => {
+    const m = target == null ? undefined : byId.get(target);
+    return m ? grouped.rootOf.get(m) ?? null : null;
+  }, [grouped, byId, target]);
+  const [toggled, setToggled] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = (parent: string) => setToggled((t) => { const n = new Set(t); if (!n.delete(parent)) n.add(parent); return n; });
+  const rows = useMemo(() => replyRows(grouped, CHANNEL_REPLIES, (p) => toggled.has(p) !== (p === targetGroup)), [grouped, toggled, targetGroup]);
+  const v = useVirtualizer({ count: rows.length, getItemKey: (i) => rowKey(rows[i]), getScrollElement: () => scrollRef.current, estimateSize: () => 72, overscan: 6, useFlushSync: false });
   const total = v.getTotalSize();
   // Follow the newest message while at the bottom. The real bottom, not the last item's offset: "Load earlier
   // messages" sits above the virtual rows, so item offsets are shorter than the scroll height.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el && atBottom.current && messages.length) el.scrollTop = el.scrollHeight;
-  }, [messages.length, total]);
+    if (el && atBottom.current && rows.length) el.scrollTop = el.scrollHeight;
+  }, [rows.length, total]);
   // Loading above keeps the message that was on top in view.
-  const anchor = useRef<{ id: number; index: number } | null>(null);
+  const anchor = useRef<{ key: string; index: number } | null>(null);
   useLayoutEffect(() => {
     const a = anchor.current;
     if (!a) return;
-    const i = messages.findIndex((m) => m.id === a.id);
+    const i = rows.findIndex((r) => rowKey(r) === a.key);
     if (i < 0) anchor.current = null;
     else if (i !== a.index) { v.scrollToIndex(i, { align: "start" }); anchor.current = null; }
-  }, [messages, v]);
+  }, [rows, v]);
   const older = () => {
     if (!more || loadingMore) return;
     const top = scrollRef.current?.scrollTop ?? 0;
     const shown = v.getVirtualItems().find((it) => it.end > top);
-    anchor.current = shown ? { id: Number(shown.key), index: shown.index } : null;
+    anchor.current = shown ? { key: String(shown.key), index: shown.index } : null;
     atBottom.current = false;
     onOlder();
   };
@@ -239,7 +250,7 @@ function MessageList({ channel, messages, lines, byId, more, loadingMore, onOlde
   useEffect(() => {
     if (target == null || reached.current === target || !messages.length) return;
     atBottom.current = false;
-    const i = messages.findIndex((m) => m.id === target);
+    const i = rows.findIndex((r) => r.kind === "item" && r.item.id === target);
     if (i >= 0) {
       reached.current = target;
       v.scrollToIndex(i, { align: "center" });
@@ -250,7 +261,7 @@ function MessageList({ channel, messages, lines, byId, more, loadingMore, onOlde
       reached.current = target;
       toast("The linked message is no longer in this channel");
     }
-  }, [target, messages, more, loadingMore, onOlder, v]);
+  }, [target, rows, messages, more, loadingMore, onOlder, v]);
   // Scrolling up loads older messages. A wheel or swipe at the very top fires no scroll event, so check again
   // once a load ended: still near the top (or the messages do not fill the view) loads the next page.
   const olderRef = useRef(older);
@@ -272,18 +283,47 @@ function MessageList({ channel, messages, lines, byId, more, loadingMore, onOlde
         {more && <div className="flex justify-center pt-2"><button className="btn btn-sm" disabled={loadingMore} onClick={older}>{loadingMore ? "Loading…" : "Load earlier messages"}</button></div>}
         <div style={{ height: total, position: "relative" }}>
           {v.getVirtualItems().map((it) => {
-            const m = messages[it.index];
-            // A reply to the message just above needs no quote.
-            const quoted = m.reply_to != null && m.reply_to !== messages[it.index - 1]?.id;
-            const reply = quoted ? byId.get(m.reply_to!) ?? null : null;
-            return <div key={it.key} data-index={it.index} ref={v.measureElement} className="absolute top-0 right-0 left-0" style={{ transform: `translateY(${it.start}px)` }}>
-              <MessageRow m={m} lines={lines.get(m.id)} reply={reply} quoted={quoted} target={m.id === target} />
-            </div>;
+            const r = rows[it.index];
+            let body: ReactNode;
+            if (r.kind === "fold") body = <ReplyFold r={r} onToggle={toggle} />;
+            else {
+              const m = r.item;
+              // A reply to the message just above, or to the message its group is under, needs no quote.
+              const prev = rows[it.index - 1];
+              const above = r.nested ? grouped.rootOf.get(m) : prev?.kind === "item" ? String(prev.item.id) : undefined;
+              const quoted = m.reply_to != null && String(m.reply_to) !== above && !(r.nested && prev?.kind === "item" && prev.item.id === m.reply_to);
+              const reply = quoted ? byId.get(m.reply_to!) ?? null : null;
+              const row = <MessageRow m={m} lines={lines.get(m.id)} reply={reply} quoted={quoted} target={m.id === target} />;
+              body = r.nested ? <div className={REPLY_INDENT}>{row}</div> : row;
+            }
+            return <div key={it.key} data-index={it.index} ref={v.measureElement} className="absolute top-0 right-0 left-0" style={{ transform: `translateY(${it.start}px)` }}>{body}</div>;
           })}
         </div>
       </>}
       <div className="h-3" />
     </div>
+  </div>;
+}
+
+/** A bot's reply folds under the message it answers (`reply_to`); your own replies stay at their time. */
+const CHANNEL_REPLIES: ReplyLinks<ChannelMessage> = {
+  id: (m) => String(m.id),
+  parent: (m) => (m.author.kind === "bot" && m.reply_to != null ? String(m.reply_to) : null),
+};
+const rowKey = (r: ReplyRow<ChannelMessage>) => (r.kind === "fold" ? `fold:${r.parent}` : String(r.item.id));
+/** The one shallow indent of a reply shown under the message it answers, on the laptop and the phone. */
+const REPLY_INDENT = "ml-3 border-l-2 border-line pl-2.5";
+
+/** The fold of a message's bot replies: "2 replies from Docs, CI · today 10:07", a click shows or hides them. */
+function ReplyFold({ r, onToggle }: { r: Extract<ReplyRow<ChannelMessage>, { kind: "fold" }>; onToggle: (parent: string) => void }) {
+  const names = [...new Set(r.replies.map((m) => m.author.name))];
+  const last = Math.max(...r.replies.map((m) => m.created_at));
+  return <div className={`${MESSAGE_INDENT} pb-1`}>
+    <button type="button" className="inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-control px-1.5 text-[12px] text-ink-3 hover:bg-sunk hover:text-ink" aria-expanded={r.open} onClick={() => onToggle(r.parent)}
+      title={r.open ? "Hide the replies to this message" : "Show the replies to this message"}>
+      <Icon name="chev" size={12} className={`flex-none transition-transform ${r.open ? "" : "-rotate-90"}`} />
+      <span className="min-w-0 truncate">{repliesLabel(r.replies.length)} from {names.join(", ")} · {when(last)}</span>
+    </button>
   </div>;
 }
 
