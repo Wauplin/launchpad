@@ -446,6 +446,8 @@ fn names<'a>(method: &Method, path: &'a str) -> Names<'a> {
     let get = *method == Method::GET;
     match (get, &p[1..]) {
         (true, ["status"] | ["context", "profiles" | "presets" | "hops" | "egress" | "conversation" | "scheduled-messages"] | ["bots", "templates"] | ["launch", "crons", "next"] | ["harnesses"] | ["harness", ..] | ["settings", "shared"] | ["mcp"]) => Shared,
+        // Profiles are Launchpad-wide, like presets (`profile.set`: only their default model and effort).
+        (_, ["settings", "profiles", _]) => Shared,
         (_, ["mcp", ..] | ["settings", "shared"] | ["home", "update"] | ["home", "update", "check"] | ["cli-updates", ..]) => Shared,
         // Runner updates are Launchpad-wide, like Home's (only `runner.update` and its cancel are admin actions).
         (false, ["runners", _, "update"]) => Shared,
@@ -723,6 +725,21 @@ mod tests {
         assert!(!admin_direct(&Method::GET, "/api/predrafts/p") && !admin_direct(&Method::POST, "/api/predrafts/p/merge-local") && !admin_direct(&Method::POST, "/api/predrafts/p/unlock"));
         assert!(actions::get("local-pr.discard").is_some_and(|a| a.access == ActionAccess::Admin && a.ready && a.undo == Some("local-pr.reopen")));
         assert!(actions::get("worktree.discard").is_some_and(|a| a.access == ActionAccess::Owner));
+        // A profile's default model and effort: an admin action (read and propose sessions are refused), with only
+        // its two fields in the body; the rest of a profile (env, login, billing, limits) and config.toml stay closed.
+        let profile = "/api/settings/profiles/codex";
+        assert!(admin_direct(&Method::PATCH, profile) && tool_need(&Method::PATCH, profile).is_none() && !own_write(profile));
+        assert_eq!(names(&Method::PATCH, profile), Names::Shared);
+        let set = actions::get("profile.set").unwrap();
+        assert!(set.access == ActionAccess::Admin && set.card.is_none() && !set.ready && set.undo == Some("profile.set"));
+        assert_eq!(unknown_field(set, Some(&serde_json::json!({"model": "m", "effort": "high"}))), None);
+        for field in ["env", "login", "billing", "budget_usd", "spend_limits", "models_url", "harness", "id", "name", "allow_paid_usage"] {
+            assert_eq!(unknown_field(set, Some(&serde_json::json!({"model": "m", field: "x"}))).as_deref(), Some(field), "{field}");
+        }
+        for (m, p) in [(Method::PUT, "/api/config"), (Method::PATCH, "/api/config"), (Method::PUT, profile), (Method::DELETE, profile), (Method::PATCH, "/api/settings/profiles"), (Method::PATCH, "/api/settings/profiles/codex/env"), (Method::GET, "/api/config")] {
+            assert!(!admin_allows(&m, p), "{m} {p}");
+        }
+        assert_eq!(names(&Method::PATCH, "/api/settings/profiles/"), Names::Unscoped);
         // A bot writes its own memory like the knowledge base, at every access level (Home checks the bot).
         assert!(own_write("/api/bot-memory"));
         assert_eq!(tool_need(&Method::POST, "/api/bot-memory"), None);

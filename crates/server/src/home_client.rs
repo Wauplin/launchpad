@@ -234,7 +234,7 @@ pub(crate) fn home_owned(path: &str) -> bool {
         || path == "/api/link" || path == "/api/ci/approve" || path == "/api/suggestions" || path.starts_with("/api/suggestions/") || path == "/api/notes" || path.starts_with("/api/notes/") || path == "/api/sleep"
         || path == "/api/connections" || path.starts_with("/api/connections/") || path == "/api/outbox" || path.starts_with("/api/outbox/")
         || path == "/api/today" || path.starts_with("/api/ext/")
-        || path == "/api/activity" || path.starts_with("/api/activity/") || path == "/api/settings/shared"
+        || path == "/api/activity" || path.starts_with("/api/activity/") || path == "/api/settings/shared" || path.starts_with("/api/settings/profiles/")
         || path == "/api/topics" || path.starts_with("/api/topics/") || path == "/api/chat-pins" || path == "/api/chat-threads" || path == "/api/chat-search"
         || path == "/api/review-state" || path == "/api/channels" || path.starts_with("/api/channels/")
         || path == "/api/home/update" || path == "/api/home/update/check" || path == "/api/home/update/cancel" || path.starts_with("/api/cli-updates")
