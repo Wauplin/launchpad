@@ -11,11 +11,6 @@ export const settings: Chapter = {
   learned: ["A profile is one way to run an agent: a harness and what pays for it", "Each subscription login has its own quota meters; pay-as-you-go profiles can have spending limits", "Presets add your usual instructions", "Pair a phone with a QR code", "Settings has two parts: Workspace, and Launchpad, shared by every workspace", "Each workspace can have its own Telegram bot and chat", "Settings → GitHub shows Home's GitHub login and rate limits"],
   steps: [
     {
-      id: "settings.trace-sync", route: "/settings/huggingface", anchor: "settings.trace-sync",
-      title: "Traces in your bucket",
-      body: "Home copies the original conversation of every agent to its backup bucket, one file per trace, under <workspace>/traces/<folder>/. Open them with the bucket's trace viewer on Hugging Face.",
-    },
-    {
       id: "settings.profiles", route: "/settings/profiles", anchor: "settings.profiles",
       title: "Profiles",
       body: "One profile per way to pay: a subscription login, an API key or another provider. Subscription profiles get quota meters and protection, one per login, so several accounts work side by side.",

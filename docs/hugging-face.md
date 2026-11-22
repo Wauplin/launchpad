@@ -24,9 +24,9 @@ Home copies the original conversation of every agent to its backup destination (
 ```
 
 - The start time is in UTC, so the sessions of a folder sort by start time. Bot sessions without a folder are under `bot <slug>`.
-- A runner sends the conversation of a session to Home at the end of every turn (the handoff). After each backup, Home uploads the files that changed since the last pass. A failed upload is retried after the next backup and shows in **Settings → Hugging Face**.
+- A runner sends the conversation of a session to Home at the end of every turn (the handoff). After each backup, Home uploads the files that changed since the last pass. A failed upload is retried after the next backup and shows in `launchpad home` (`backup.traces_error`) and `launchpad failures`.
 - Renaming a workspace or folder moves the copies of its sessions. Archiving a session never deletes them.
-- Home never reads the copies back: `state.db` in the backups stays the source. Settings → Hugging Face shows the layout and any copy error.
+- Home never reads the copies back: `state.db` in the backups stays the source.
 - Home keeps the list of copied files in the bucket too (`home/copies/`). A Home restored from the bucket starts from that list and does not copy every trace again.
 - Traces can contain sensitive data: prompts, tool output and file paths. Keep the bucket private.
 

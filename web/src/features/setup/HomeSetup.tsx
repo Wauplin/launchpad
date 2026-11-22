@@ -68,7 +68,7 @@ export function HomeSetup() {
   const fix = (to: string, label: string) => (s ? openSetup : settings(to, label));
   const action = (r: HomeStep): ReactNode => {
     switch (r.id) {
-      case "huggingface": return r.done ? settings("/settings/huggingface") : openSetup;
+      case "huggingface": return r.done ? <a href={SETUP} className="btn btn-sm">Open</a> : openSetup;
       case "key": return r.done ? null : openSetup;
       case "github": return r.done ? settings("/settings/github") : fix("/settings/github", "Sign in");
       case "identity": return settings("/settings/credentials", r.done ? "Open" : "Set it");

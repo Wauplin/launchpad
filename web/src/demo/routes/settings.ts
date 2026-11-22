@@ -126,7 +126,6 @@ route("GET", "/api/setup/sign-in", (): SignInCheck[] => {
     world.githubCheck,
   ];
 });
-route("GET", "/api/setup/huggingface", () => world.huggingface);
 
 const inRange = (req: DemoRequest) => {
   const from = Number(req.query.get("from"));
@@ -198,7 +197,6 @@ route("POST", "/api/runners/:id/network-check", () => {
   return check;
 });
 route("DELETE", "/api/runners/:id/update", notInDemo);
-route("GET", "/api/home/backup", () => ({ destination: null, last_complete_at: null, error: null, credentials_encrypted: false, traces_error: null, pruned_at: null, prune: null, prune_error: null, missing_blobs: null, restore_errors: null }));
 
 // Credentials and tools: a sample vault. Secrets never reach the browser, in the demo either.
 const demoTemplates = [

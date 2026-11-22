@@ -16,8 +16,6 @@ import { P, ROOT, USER } from "./ids";
 
 /** A paired browser, as `GET /api/devices` returns it (Unix seconds). */
 export type DemoDevice = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
-/** `GET /api/setup/huggingface`. */
-export type DemoHuggingFace = { check: SignInCheck; account: string | null };
 
 export const HOME = "/home/demo";
 
@@ -127,11 +125,7 @@ export function settingsWorld() {
     { id: "demo-term-billing", kind: "shell", title: "billing-api · main", cwd: `${ROOT}/billing-api`, project_id: P.billing, session_id: null, alive: true, exit_code: null, created_at: clock.ago(12), folder: "billing-api", place: "checkout", branch: "main", busy: false, notice: null, runner_id: "demo-runner-laptop" },
   ];
   const gh: SignInCheck = { id: "github", profile: null, name: "GitHub CLI", cli_found: true, signed_in: true, detail: `Logged in to github.com account ${USER}`, command: "gh auth login" };
-  const huggingface: DemoHuggingFace = {
-    check: { id: "huggingface", profile: null, name: "Hugging Face CLI", cli_found: true, signed_in: true, detail: `Account ${USER}`, command: "hf auth login" },
-    account: USER,
-  };
-  return { harnesses, harnessDefaults, routerModels, devices, terminals, githubCheck: gh, huggingface, agentRuns: agentRuns(), homeFolder: HOME, ...homeWorld() };
+  return { harnesses, harnessDefaults, routerModels, devices, terminals, githubCheck: gh, agentRuns: agentRuns(), homeFolder: HOME, ...homeWorld() };
 }
 
 /** A passing network check of the laptop runner (its jail). */
