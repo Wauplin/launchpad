@@ -1270,7 +1270,7 @@ mod item_link_tests {
                 usage: Default::default(), started_at: at, ended_at: None, last_seq: 1,
                 launch_spec: serde_json::from_value(serde_json::json!({"workspace_id": ws, "github_refs": [{"repo": "owner/repo", "number": 1, "kind": "pr", "url": "https://github.com/owner/repo/pull/1"}]})).unwrap(),
                 quota_pause: None, capacity_retry_count: 0, capacity_retry_at: None,
-                seen_at: 0, last_message: None, unsaved: None, sleep: None,
+                seen_at: 0, last_message: None, unsaved: None, sleep: None, group: None,
             }
         };
         let all_sessions = vec![session("archived", "closed", "work", 40), session("foreign", "working", "personal", 30), session("new", "working", "work", 20), session("old", "waiting", "work", 10)];

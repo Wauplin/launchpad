@@ -321,6 +321,7 @@ impl Sessions {
                 last_message: None,
                 unsaved: None,
                 sleep: None,
+                group: None,
             };
             Self::persist(&app.state_db, &session).await?;
             let add_dirs = preview.add_dirs;

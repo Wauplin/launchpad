@@ -14,6 +14,7 @@ pub fn router() -> Router<Server> {
     Router::new()
         .route("/api/health", get(health))
         .route("/api/status", get(status))
+        .route("/api/version", get(version))
         .route("/api/analytics/runs", get(agent_runs))
         .route("/api/config", get(get_config).put(put_config).patch(patch_general_config))
         .route("/api/settings/shared", get(get_shared).patch(patch_shared))
@@ -30,6 +31,29 @@ async fn health(State(s): State<Server>, access: Option<axum::Extension<crate::a
 
 async fn status(State(s): State<Server>) -> Json<Status> {
     Json(s.app.status.get())
+}
+
+/// The client API level of this Home (`GET /api/version`): raise it when a separately released client (the desktop
+/// companion) must change to keep working, and `MIN_CLIENT` when Home stops serving older clients.
+pub const API_VERSION: u32 = 1;
+pub const MIN_CLIENT: u32 = 1;
+/// What separately released clients may test for, so they degrade per feature instead of per version.
+pub const CAPABILITIES: &[&str] = &[
+    // `POST /_home/desktop/connect` (Space) and reverse pairing answering JSON to `X-Launchpad-Client: desktop/…`.
+    "desktop_device",
+    // `DELETE /api/devices/self`.
+    "devices_self",
+    // `group` on light session records and `sessions` bus events (`Session::group`).
+    "session_group",
+];
+
+fn version_body(commit: &str, role: &str) -> Value {
+    json!({"api": API_VERSION, "min_client": MIN_CLIENT, "commit": commit, "role": role, "capabilities": CAPABILITIES})
+}
+
+/// Any signed-in client (a browser, the extension, the desktop companion, the CLI) learns what this Home serves.
+async fn version(State(s): State<Server>) -> Json<Value> {
+    Json(version_body(launchpad_core::commit(), s.app.paths.role.name()))
 }
 
 fn config_response(s: &Server, error: Option<String>) -> Value {
@@ -255,5 +279,20 @@ mod tests {
         let mut referenced = profile(None, None);
         referenced.env.insert("MODEL".into(), "${LAUNCHPAD_MODEL}".into());
         assert!(defaults_problem(&referenced, &d).is_some());
+    }
+}
+
+#[cfg(test)]
+mod version_tests {
+    #[test]
+    fn version_names_levels_and_capabilities() {
+        let v = super::version_body("abc123", "home");
+        assert_eq!(v["api"], super::API_VERSION);
+        assert!(v["min_client"].as_u64().unwrap() <= v["api"].as_u64().unwrap());
+        assert_eq!(v["commit"], "abc123");
+        let caps: Vec<&str> = v["capabilities"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
+        for c in ["desktop_device", "devices_self", "session_group"] {
+            assert!(caps.contains(&c), "{c}");
+        }
     }
 }

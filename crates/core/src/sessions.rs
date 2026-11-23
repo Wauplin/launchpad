@@ -365,6 +365,7 @@ impl Sessions {
                             last_message: r.get::<_, Option<String>>(21)?.and_then(|m| message_preview(&m)),
                             unsaved: r.get::<_, Option<String>>(27)?.and_then(|v| serde_json::from_str(&v).ok()),
                             sleep: r.get::<_, Option<String>>(29)?.and_then(|v| serde_json::from_str(&v).ok()),
+                            group: None,
                         })
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;

@@ -35,6 +35,41 @@ pub fn extension_origin() -> String { format!("chrome-extension://{EXTENSION_ID}
 /// extension's Origin or none (`device_caller`). The Space gateway passes it through and adds no daemon credential to these calls.
 pub const DEVICE_HEADER: &str = "x-launchpad-device";
 
+/// A native desktop client (the Launchpad desktop companion) names itself with `X-Launchpad-Client: desktop/<version>`
+/// and never sends an Origin. It gets its device secret as JSON from reverse pairing (`reverse_poll`) or, on a Space,
+/// from the gateway's `POST /_home/desktop/connect` (`desktop_device`), then sends it as `X-Launchpad-Device`.
+pub const CLIENT_HEADER: &str = "x-launchpad-client";
+
+/// What a device is: a paired browser (cookie), the Chrome extension or the desktop companion (`browser_device.kind`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DeviceKind {
+    Browser,
+    Extension,
+    Desktop,
+}
+impl DeviceKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            DeviceKind::Browser => "browser",
+            DeviceKind::Extension => "extension",
+            DeviceKind::Desktop => "desktop",
+        }
+    }
+    fn parse(s: &str) -> DeviceKind {
+        match s {
+            "extension" => DeviceKind::Extension,
+            "desktop" => DeviceKind::Desktop,
+            _ => DeviceKind::Browser,
+        }
+    }
+}
+
+/// A call of the desktop companion: it says so (`X-Launchpad-Client: desktop/…`) and sends no Origin.
+fn from_desktop(headers: &HeaderMap) -> bool {
+    !headers.contains_key(header::ORIGIN)
+        && headers.get(CLIENT_HEADER).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("desktop/"))
+}
+
 fn from_extension(headers: &HeaderMap) -> bool {
     headers.get(header::ORIGIN).is_some_and(|v| v.as_bytes() == extension_origin().as_bytes())
 }
@@ -85,6 +120,7 @@ fn local_pair_warning(origin: &str) -> Option<&'static str> {
 
 struct Session {
     id: String,
+    kind: DeviceKind,
     expires_at: i64,
     valid: Arc<AtomicBool>,
     seen: AtomicI64,
@@ -116,6 +152,8 @@ impl Access {
 struct ReversePair {
     secret_hash: String,
     name: String,
+    /// Browser, or Desktop when the client declared itself one at start (it then gets JSON, never a cookie).
+    kind: DeviceKind,
     expires_at: i64,
     approved: bool,
     polled_at: i64,
@@ -185,13 +223,14 @@ impl Auth {
                     tracing::debug!("expired browser devices kept for now: {e}");
                 }
                 let mut stmt = conn.prepare(
-                    "SELECT secret_hash, id, expires_at, last_seen_at FROM browser_device WHERE expires_at > ?1",
+                    "SELECT secret_hash, id, expires_at, last_seen_at, kind FROM browser_device WHERE expires_at > ?1",
                 )?;
                 let rows = stmt.query_map([now], |r| {
                     Ok((
                         r.get::<_, String>(0)?,
                         Session {
                             id: r.get(1)?,
+                            kind: DeviceKind::parse(&r.get::<_, String>(4)?),
                             expires_at: r.get(2)?,
                             valid: Arc::new(AtomicBool::new(true)),
                             seen: AtomicI64::new(r.get::<_, Option<i64>>(3)?.unwrap_or(0)),
@@ -287,7 +326,12 @@ impl Auth {
         // The extension's header decides alone: a stale secret never falls back to a cookie.
         if let Some(v) = headers.get(DEVICE_HEADER) {
             let secret = v.to_str().ok().filter(|_| device_caller(headers))?;
-            return self.device_access(secret, changes);
+            let access = self.device_access(secret, changes)?;
+            // The desktop companion's secret works only without an Origin (never from a page, nor the extension's).
+            if headers.contains_key(header::ORIGIN) && self.kind_of(&access) == Some(DeviceKind::Desktop) {
+                return None;
+            }
+            return Some(access);
         }
         for v in headers.get_all(header::COOKIE) {
             let Ok(v) = v.to_str() else { continue };
@@ -309,6 +353,11 @@ impl Auth {
         let session = sessions.get(&hash(secret)).filter(|s| s.expires_at > now() && s.valid.load(Ordering::Acquire))?;
         self.touch(session);
         Some(Access { session: Some((session.valid.clone(), session.expires_at)), device: Some(session.id.clone()), changes })
+    }
+
+    fn kind_of(&self, access: &Access) -> Option<DeviceKind> {
+        let id = access.device.as_deref()?;
+        self.sessions.read().unwrap().values().find(|s| s.id == id).map(|s| s.kind)
     }
 
     /// Records the device's last activity, at most once per `SEEN_INTERVAL`, off the request path.
@@ -400,24 +449,25 @@ impl Auth {
         if expiry.is_none_or(|expiry| expiry <= now()) {
             return Ok(None);
         }
-        Ok(Some(self.create_device(name).await?))
+        Ok(Some(self.create_device(name, DeviceKind::Browser).await?))
     }
 
-    async fn create_device(&self, name: String) -> anyhow::Result<String> {
+    async fn create_device(&self, name: String, kind: DeviceKind) -> anyhow::Result<String> {
         let token = secret();
         let id = uuid::Uuid::new_v4().to_string();
         let secret_hash = hash(&token);
         let expires_at = now() + DEVICE_LIFETIME;
         let (h, i) = (secret_hash.clone(), id.clone());
         self.db.call(move |conn| {
-            conn.execute("INSERT INTO browser_device (id, secret_hash, name, created_at, expires_at, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?5, ?4)",
-                (i, h, name, now(), expires_at))?;
+            conn.execute("INSERT INTO browser_device (id, secret_hash, name, created_at, expires_at, last_seen_at, kind) VALUES (?1, ?2, ?3, ?4, ?5, ?4, ?6)",
+                (i, h, name, now(), expires_at, kind.as_str()))?;
             Ok(())
         }).await?;
         self.sessions.write().unwrap().insert(
             secret_hash,
             Session {
                 id,
+                kind,
                 expires_at,
                 valid: Arc::new(AtomicBool::new(true)),
                 seen: AtomicI64::new(now()),
@@ -459,8 +509,10 @@ pub fn router() -> Router<Server> {
         .route("/api/devices/pairing-info", get(pairing_info))
         .route("/api/devices/https/run", post(run_https))
         .route("/api/devices/https/check", post(check_https))
+        .route("/api/devices/self", axum::routing::delete(revoke_self))
         .route("/api/devices/{id}", axum::routing::delete(revoke))
         .route("/api/devices/extension", post(extension_device))
+        .route("/api/devices/desktop", post(desktop_device))
         .route("/api/extension/disconnect", post(extension_disconnect))
 }
 
@@ -576,6 +628,11 @@ async fn guard_inner(s: Server, mut req: Request, next: Next) -> Response {
         if s.app.paths.role == launchpad_core::role::Role::Runner && access.device.is_some() && !runner_window_path(path) {
             return (StatusCode::FORBIDDEN, Json(json!({"error": "This runner's window shows its status only: open Home for everything else"}))).into_response();
         }
+        // A device secret sent as a header (the extension, the desktop companion) never manages devices: it may
+        // only delete its own device. Paired browsers (cookie) and bearer clients keep Settings → Devices.
+        if access.device.is_some() && req.headers().contains_key(DEVICE_HEADER) && !device_header_path(req.method(), path) {
+            return (StatusCode::FORBIDDEN, Json(json!({"error": "Devices are managed from a signed-in Launchpad window"}))).into_response();
+        }
         req.extensions_mut().insert(access);
         return private_response(next.run(req).await, private);
     }
@@ -587,6 +644,12 @@ async fn guard_inner(s: Server, mut req: Request, next: Next) -> Response {
             .into_response();
     }
     sign_in().await.into_response()
+}
+
+/// Whether a call authenticated by `X-Launchpad-Device` may reach this path: anything but device management, except
+/// `DELETE /api/devices/self`.
+fn device_header_path(method: &Method, path: &str) -> bool {
+    !(path == "/api/devices" || path.starts_with("/api/devices/")) || (method == Method::DELETE && path == "/api/devices/self")
 }
 
 /// What a browser signed in to a runner may call: the page itself, its status and checklist, Takes new sessions,
@@ -728,6 +791,10 @@ fn device_response(auth: &Auth, headers: &HeaderMap, token: &str) -> Response {
 #[derive(Deserialize)]
 struct ReverseStart {
     name: String,
+    /// `desktop`: a native desktop client, which then gets its secret as JSON (with `X-Launchpad-Client: desktop/…`
+    /// and no Origin on the poll); anything else is a browser.
+    #[serde(default)]
+    kind: Option<String>,
 }
 #[derive(Deserialize)]
 struct ReverseCode {
@@ -747,7 +814,7 @@ fn normalize_code(code: &str) -> String {
 }
 
 impl Auth {
-    fn start_reverse(&self, name: String, source: std::net::IpAddr) -> Result<Value, ApiError> {
+    fn start_reverse(&self, name: String, kind: DeviceKind, source: std::net::IpAddr) -> Result<Value, ApiError> {
         let name = name.trim().to_string();
         if name.is_empty() || name.chars().count() > 80 {
             return Err(ApiError::bad_request(
@@ -794,6 +861,7 @@ impl Auth {
             ReversePair {
                 secret_hash: hash(&secret),
                 name,
+                kind,
                 expires_at,
                 approved: false,
                 polled_at: 0,
@@ -813,10 +881,10 @@ impl Auth {
         if approve {
             pair.approved = true;
         }
-        Ok(json!({"name":pair.name,"expires_at":pair.expires_at}))
+        Ok(json!({"name":pair.name,"kind":pair.kind.as_str(),"expires_at":pair.expires_at}))
     }
 
-    fn collect_reverse(&self, code: &str, secret: &str) -> Result<Option<String>, ApiError> {
+    fn collect_reverse(&self, code: &str, secret: &str, desktop: bool) -> Result<Option<(String, DeviceKind)>, ApiError> {
         let mut state = self.reverse.write().unwrap();
         let code = normalize_code(code);
         let pair = state
@@ -828,6 +896,9 @@ impl Auth {
                     "Pairing request expired or unavailable. Generate a new code.",
                 )
             })?;
+        if (pair.kind == DeviceKind::Desktop) != desktop {
+            return Err(ApiError::bad_request("This pairing request was started by another kind of client. Generate a new code."));
+        }
         if pair.polled_at > now() - 2 {
             return Err(ApiError::new(
                 StatusCode::TOO_MANY_REQUESTS,
@@ -838,16 +909,22 @@ impl Auth {
         if !pair.approved {
             return Ok(None);
         }
-        Ok(state.pending.remove(&code).map(|pair| pair.name))
+        Ok(state.pending.remove(&code).map(|pair| (pair.name, pair.kind)))
     }
 }
 
 async fn reverse_start(
     State(s): State<Server>,
     axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
     Json(body): Json<ReverseStart>,
 ) -> ApiResult<Value> {
-    Ok(Json(s.auth.start_reverse(body.name, peer.ip())?))
+    let kind = match body.kind.as_deref() {
+        Some("desktop") if from_desktop(&headers) => DeviceKind::Desktop,
+        Some("desktop") => return Err(ApiError::bad_request("A desktop client sends X-Launchpad-Client: desktop/<version> and no Origin")),
+        _ => DeviceKind::Browser,
+    };
+    Ok(Json(s.auth.start_reverse(body.name, kind, peer.ip())?))
 }
 async fn reverse_check(State(s): State<Server>, Json(body): Json<ReverseCode>) -> ApiResult<Value> {
     Ok(Json(s.auth.check_reverse(&body.code, false)?))
@@ -863,19 +940,22 @@ async fn reverse_poll(
     headers: HeaderMap,
     Json(body): Json<ReversePoll>,
 ) -> Result<Response, ApiError> {
-    let Some(name) = s.auth.collect_reverse(&body.code, &body.secret)? else {
+    // A desktop request is collected only by the desktop client itself (no Origin), and never becomes a cookie.
+    let desktop = from_desktop(&headers);
+    let Some((name, kind)) = s.auth.collect_reverse(&body.code, &body.secret, desktop)? else {
         return Ok(Json(json!({"ok":false})).into_response());
     };
-    let token = s.auth.create_device(name).await?;
-    // The extension keeps its secret and sends it as `X-Launchpad-Device`, like on Home's Space.
-    if from_extension(&headers) {
+    let kind = if kind == DeviceKind::Browser && from_extension(&headers) { DeviceKind::Extension } else { kind };
+    let token = s.auth.create_device(name, kind).await?;
+    // The extension and the desktop companion keep their secret and send it as `X-Launchpad-Device`.
+    if kind != DeviceKind::Browser {
         return Ok(([(header::CACHE_CONTROL, "no-store")], Json(json!({"ok":true,"device":token}))).into_response());
     }
     Ok(device_response(&s.auth, &headers, &token))
 }
 
 #[derive(Deserialize)]
-struct ExtensionDevice {
+struct NativeDevice {
     name: String,
 }
 /// A device for the Chrome extension on Home's Space: the gateway calls it with the daemon's own credential for
@@ -883,16 +963,30 @@ struct ExtensionDevice {
 async fn extension_device(
     State(s): State<Server>,
     Extension(access): Extension<Access>,
-    Json(body): Json<ExtensionDevice>,
+    Json(body): Json<NativeDevice>,
 ) -> ApiResult<Value> {
+    native_device(&s, &access, &body.name, DeviceKind::Extension).await
+}
+
+/// A device for the desktop companion on Home's Space: the gateway calls it with the daemon's own credential for
+/// `POST /_home/desktop/connect` (name: the machine's, from the companion). Owner bearer only.
+async fn desktop_device(
+    State(s): State<Server>,
+    Extension(access): Extension<Access>,
+    Json(body): Json<NativeDevice>,
+) -> ApiResult<Value> {
+    native_device(&s, &access, &body.name, DeviceKind::Desktop).await
+}
+
+async fn native_device(s: &Server, access: &Access, name: &str, kind: DeviceKind) -> ApiResult<Value> {
     if access.device.is_some() {
-        return Err(ApiError::new(StatusCode::FORBIDDEN, "Only Home's Space gateway creates extension devices"));
+        return Err(ApiError::new(StatusCode::FORBIDDEN, format!("Only Home's Space gateway creates {} devices", kind.as_str())));
     }
-    let name = body.name.trim();
+    let name = name.trim();
     if name.is_empty() || name.chars().count() > 80 {
         return Err(ApiError::bad_request("Use a device name of 1 to 80 characters"));
     }
-    let token = s.auth.create_device(name.to_string()).await?;
+    let token = s.auth.create_device(name.to_string(), kind).await?;
     let id = s.auth.sessions.read().unwrap().get(&hash(&token)).map(|d| d.id.clone());
     Ok(Json(json!({"id": id, "device": token})))
 }
@@ -910,10 +1004,21 @@ async fn extension_disconnect(
     Ok(Json(json!({"ok":true})))
 }
 
+/// Any device's Sign out (the desktop companion's): it deletes its own device record. A bearer client has none.
+async fn revoke_self(State(s): State<Server>, Extension(access): Extension<Access>) -> ApiResult<Value> {
+    let Some(id) = access.device else {
+        return Err(ApiError::bad_request("Only a paired device deletes itself here"));
+    };
+    s.auth.revoke(id).await?;
+    Ok(Json(json!({"ok":true})))
+}
+
 #[derive(Serialize)]
 struct Device {
     id: String,
     name: String,
+    /// browser, extension or desktop.
+    kind: String,
     created_at: i64,
     expires_at: i64,
     last_seen_at: Option<i64>,
@@ -928,7 +1033,7 @@ async fn devices(
         .db
         .call(move |conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, name, created_at, expires_at, last_seen_at
+                "SELECT id, name, created_at, expires_at, last_seen_at, kind
             FROM browser_device WHERE expires_at > ?1 ORDER BY created_at DESC",
             )?;
             let rows = stmt.query_map([now()], |r| {
@@ -938,6 +1043,7 @@ async fn devices(
                     created_at: r.get(2)?,
                     expires_at: r.get(3)?,
                     last_seen_at: r.get(4)?,
+                    kind: r.get(5)?,
                     current: false,
                 })
             })?;
@@ -1020,7 +1126,7 @@ mod tests {
     async fn reverse_pairing_requires_approval_and_private_secret() {
         let fixture = Fixture::new();
         let auth = fixture.auth().await;
-        let request = auth.start_reverse("Phone".into(), "127.0.0.1".parse().unwrap()).unwrap();
+        let request = auth.start_reverse("Phone".into(), DeviceKind::Browser, "127.0.0.1".parse().unwrap()).unwrap();
         let code = request["code"].as_str().unwrap();
         let secret = request["secret"].as_str().unwrap();
         assert_eq!(code.len(), 8);
@@ -1028,9 +1134,9 @@ mod tests {
             code.bytes()
                 .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
         );
-        assert!(auth.collect_reverse(code, "wrong").is_err());
-        assert_eq!(auth.collect_reverse(code, secret).unwrap(), None);
-        assert!(auth.collect_reverse(code, secret).is_err()); // poll rate limit
+        assert!(auth.collect_reverse(code, "wrong", false).is_err());
+        assert_eq!(auth.collect_reverse(code, secret, false).unwrap(), None);
+        assert!(auth.collect_reverse(code, secret, false).is_err()); // poll rate limit
         assert_eq!(
             auth.check_reverse(&code.to_lowercase(), false).unwrap()["name"],
             "Phone"
@@ -1044,11 +1150,45 @@ mod tests {
             .get_mut(code)
             .unwrap()
             .polled_at = 0;
-        assert!(auth.collect_reverse(code, "wrong").is_err());
-        let name = auth.collect_reverse(code, secret).unwrap().unwrap();
-        let token = auth.create_device(name).await.unwrap();
+        assert!(auth.collect_reverse(code, "wrong", false).is_err());
+        let (name, kind) = auth.collect_reverse(code, secret, false).unwrap().unwrap();
+        assert_eq!(kind, DeviceKind::Browser);
+        let token = auth.create_device(name, kind).await.unwrap();
         assert!(auth.authenticate(&browser(&auth, &token)).is_some());
-        assert!(auth.collect_reverse(code, secret).is_err());
+        assert!(auth.collect_reverse(code, secret, false).is_err());
+    }
+
+    #[tokio::test]
+    async fn desktop_pairing_is_collected_only_by_a_desktop_client_and_never_with_an_origin() {
+        let fixture = Fixture::new();
+        let auth = fixture.auth().await;
+        let request = auth.start_reverse("Desktop · laptop".into(), DeviceKind::Desktop, "127.0.0.1".parse().unwrap()).unwrap();
+        let (code, secret) = (request["code"].as_str().unwrap(), request["secret"].as_str().unwrap());
+        assert_eq!(auth.check_reverse(code, true).unwrap()["kind"], "desktop");
+        // A browser (or a page) cannot collect it: the request is the desktop client's.
+        assert!(auth.collect_reverse(code, secret, false).is_err());
+        let (name, kind) = auth.collect_reverse(code, secret, true).unwrap().unwrap();
+        assert_eq!(kind, DeviceKind::Desktop);
+        let token = auth.create_device(name, kind).await.unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(DEVICE_HEADER, token.parse().unwrap());
+        headers.insert(CLIENT_HEADER, "desktop/1.0".parse().unwrap());
+        assert!(from_desktop(&headers));
+        assert!(auth.authenticate(&headers).is_some());
+        // Never with an Origin: a web page's, and not the extension's either.
+        for origin in ["https://launchpad.example".to_string(), extension_origin()] {
+            let mut with_origin = headers.clone();
+            with_origin.insert(header::ORIGIN, origin.parse().unwrap());
+            assert!(!from_desktop(&with_origin));
+            assert!(auth.authenticate(&with_origin).is_none(), "{origin}");
+        }
+        // A device header manages no devices, except deleting itself.
+        assert!(!device_header_path(&Method::GET, "/api/devices"));
+        assert!(!device_header_path(&Method::DELETE, "/api/devices/abc"));
+        assert!(!device_header_path(&Method::POST, "/api/devices/reverse/approve"));
+        assert!(device_header_path(&Method::DELETE, "/api/devices/self"));
+        assert!(device_header_path(&Method::GET, "/api/version"));
+        assert!(device_header_path(&Method::GET, "/api/devicesx"));
     }
 
     #[tokio::test]
@@ -1056,10 +1196,10 @@ mod tests {
         let fixture = Fixture::new();
         let auth = fixture.auth().await;
         for last in 1..=20 {
-            auth.start_reverse("Phone".into(), std::net::Ipv4Addr::new(100, 64, 0, last).into()).unwrap();
+            auth.start_reverse("Phone".into(), DeviceKind::Browser, std::net::Ipv4Addr::new(100, 64, 0, last).into()).unwrap();
         }
         for last in 21..=100 {
-            assert!(auth.start_reverse("Phone".into(), std::net::Ipv4Addr::new(100, 64, 0, last).into()).is_err());
+            assert!(auth.start_reverse("Phone".into(), DeviceKind::Browser, std::net::Ipv4Addr::new(100, 64, 0, last).into()).is_err());
         }
         let state = auth.reverse.read().unwrap();
         assert_eq!(state.sources.len(), 20);
@@ -1070,8 +1210,8 @@ mod tests {
     async fn reverse_requests_expire_and_are_bounded() {
         let fixture = Fixture::new();
         let auth = fixture.auth().await;
-        assert!(auth.start_reverse(" ".into(), "127.0.0.1".parse().unwrap()).is_err());
-        let request = auth.start_reverse("Phone".into(), "127.0.0.1".parse().unwrap()).unwrap();
+        assert!(auth.start_reverse(" ".into(), DeviceKind::Browser, "127.0.0.1".parse().unwrap()).is_err());
+        let request = auth.start_reverse("Phone".into(), DeviceKind::Browser, "127.0.0.1".parse().unwrap()).unwrap();
         let code = request["code"].as_str().unwrap();
         auth.reverse
             .write()
@@ -1082,15 +1222,15 @@ mod tests {
             .expires_at = now() - 1;
         assert!(auth.check_reverse(code, true).is_err());
         assert!(
-            auth.collect_reverse(code, request["secret"].as_str().unwrap())
+            auth.collect_reverse(code, request["secret"].as_str().unwrap(), false)
                 .is_err()
         );
         for _ in 1..5 {
-            auth.start_reverse("Phone".into(), "127.0.0.1".parse().unwrap()).unwrap();
+            auth.start_reverse("Phone".into(), DeviceKind::Browser, "127.0.0.1".parse().unwrap()).unwrap();
         }
-        assert!(auth.start_reverse("Phone".into(), "127.0.0.1".parse().unwrap()).is_err());
+        assert!(auth.start_reverse("Phone".into(), DeviceKind::Browser, "127.0.0.1".parse().unwrap()).is_err());
         // A saturated peer cannot consume the remaining global budget.
-        assert!(auth.start_reverse("Other phone".into(), "100.64.0.2".parse().unwrap()).is_ok());
+        assert!(auth.start_reverse("Other phone".into(), DeviceKind::Browser, "100.64.0.2".parse().unwrap()).is_ok());
         for _ in 1..30 {
             assert!(auth.check_reverse("INVALID", false).is_err());
         }

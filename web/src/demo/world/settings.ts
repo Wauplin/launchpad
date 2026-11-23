@@ -14,8 +14,8 @@ import type { TerminalInfo } from "@/gen/TerminalInfo";
 import { clock } from "../daemon";
 import { P, ROOT, USER } from "./ids";
 
-/** A paired browser, as `GET /api/devices` returns it (Unix seconds). */
-export type DemoDevice = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
+/** A paired device (browser, Chrome extension or desktop companion), as `GET /api/devices` returns it (Unix seconds). */
+export type DemoDevice = { id: string; name: string; kind: "browser" | "extension" | "desktop"; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
 
 export const HOME = "/home/demo";
 
@@ -116,8 +116,9 @@ export function settingsWorld() {
   const harnessDefaults: Record<string, HarnessDefaults> = structuredClone(DEFAULTS);
   const routerModels: ModelInfo[] = structuredClone(ROUTER_MODELS);
   const devices: DemoDevice[] = [
-    { id: "demo-device-desktop", name: "Laptop", created_at: seconds(clock.ago(60 * 24 * 40)), expires_at: seconds(clock.ago(-60 * 24 * 325)), last_seen_at: seconds(clock.now()), current: true },
-    { id: "demo-device-phone", name: "Phone", created_at: seconds(clock.ago(60 * 24 * 12)), expires_at: seconds(clock.ago(-60 * 24 * 353)), last_seen_at: seconds(clock.ago(95)), current: false },
+    { id: "demo-device-desktop", name: "Laptop", kind: "browser", created_at: seconds(clock.ago(60 * 24 * 40)), expires_at: seconds(clock.ago(-60 * 24 * 325)), last_seen_at: seconds(clock.now()), current: true },
+    { id: "demo-device-phone", name: "Phone", kind: "browser", created_at: seconds(clock.ago(60 * 24 * 12)), expires_at: seconds(clock.ago(-60 * 24 * 353)), last_seen_at: seconds(clock.ago(95)), current: false },
+    { id: "demo-device-companion", name: "Desktop · workstation", kind: "desktop", created_at: seconds(clock.ago(60 * 24 * 5)), expires_at: seconds(clock.ago(-60 * 24 * 360)), last_seen_at: seconds(clock.ago(3)), current: false },
   ];
   // One recorded shell exists from the start ("Terminals · 1" in the status bar), on the laptop runner like every
   // demo terminal (Home relays it); its replay starts when it is shown.

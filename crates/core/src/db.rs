@@ -364,6 +364,8 @@ CREATE TABLE IF NOT EXISTS folio_block_use (folio_id TEXT NOT NULL, name TEXT NO
     if !folio_rev_columns.iter().any(|c| c == "sealed") { conn.execute_batch("ALTER TABLE folio_rev ADD COLUMN sealed INTEGER NOT NULL DEFAULT 0;")?; }
     if !bot_columns.iter().any(|c| c == "paused") { conn.execute_batch("ALTER TABLE bot ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;")?; }
     if !device_columns.iter().any(|c| c == "last_seen_at") { conn.execute_batch("ALTER TABLE browser_device ADD COLUMN last_seen_at INTEGER;")?; }
+    // browser (cookie), extension or desktop (`auth::DeviceKind`); older devices read as browsers.
+    if !device_columns.iter().any(|c| c == "kind") { conn.execute_batch("ALTER TABLE browser_device ADD COLUMN kind TEXT NOT NULL DEFAULT 'browser';")?; }
     // When a browser operation completed, so completed claims can be pruned (`operations::prune`).
     let operation_columns = conn.prepare("PRAGMA table_info(browser_operation)")?.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !operation_columns.iter().any(|c| c == "done_at") {

@@ -190,6 +190,31 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub sleep: Option<Sleep>,
+    /// The session's group in lists (`Session::group`), computed by `light()` for lists and bus events so every
+    /// client (web, extension, desktop companion) groups alike; absent in stored and full records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub group: Option<SessionGroup>,
+}
+
+/// Where a session sits in a list of agents, decided by `Session::group` (the Agents list's groups, in their order).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionGroup {
+    /// `Session::needs_you`: an open question, or an unseen Done, Failed or Interrupted.
+    NeedsYou,
+    /// Starting, working or waiting for a background command.
+    Running,
+    QuotaPaused,
+    /// `Session::sleeping`.
+    Sleeping,
+    /// Done (seen, or nothing to see) and not sleeping.
+    Done,
+    Stopped,
+    Interrupted,
+    Failed,
+    InTerminal,
+    Archived,
 }
 
 /// A wake-up an agent asked for: Home sends the session a message once its conditions hold (its scheduled follow-up
@@ -257,7 +282,34 @@ impl Session {
                 for image in &mut message.images { image.data_url.clear(); }
             }
         }
+        s.group = Some(self.group());
         s
+    }
+
+    /// The session's group in lists: needs you first (out of its state's group), then by state. The only grouping
+    /// rule; the web app reads `group` (`sessionGroup` in `web/src/lib/sessionStatus.ts`, same cases in
+    /// `web/tests/session-groups/cases.json`).
+    pub fn group(&self) -> SessionGroup {
+        use SessionStatus::*;
+        if self.status == Closed {
+            return SessionGroup::Archived;
+        }
+        if self.needs_you() {
+            return SessionGroup::NeedsYou;
+        }
+        if self.sleeping() {
+            return SessionGroup::Sleeping;
+        }
+        match self.status {
+            Waiting => SessionGroup::Done,
+            Starting | Working | Background => SessionGroup::Running,
+            QuotaPaused => SessionGroup::QuotaPaused,
+            Stopped => SessionGroup::Stopped,
+            Interrupted => SessionGroup::Interrupted,
+            Error => SessionGroup::Failed,
+            InTerminal => SessionGroup::InTerminal,
+            Closed => SessionGroup::Archived,
+        }
     }
 
     /// The session without inline attachment bytes (data URLs; `upload:` references and names stay): what a runner
@@ -1092,6 +1144,34 @@ mod when_done_tests {
         assert_eq!(spec.when_done(), WhenDone::Merge);
         for w in [WhenDone::Keep, WhenDone::Merge, WhenDone::LocalPr, WhenDone::DraftPr, WhenDone::OpenPr, WhenDone::ReadOnly] {
             assert_eq!(WhenDone::parse(w.as_str()), w);
+        }
+    }
+}
+
+#[cfg(test)]
+mod group_tests {
+    use super::*;
+
+    /// The shared cases of `web/tests/session-groups/cases.json`, read by both languages (`pnpm test:sessions`).
+    #[test]
+    fn shared_group_cases() {
+        let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!("../../../web/tests/session-groups/cases.json")).unwrap();
+        assert!(cases.len() >= 10);
+        for c in cases {
+            let s = Session {
+                id: "s".into(), harness: HarnessKind::new("test"), runner_id: None, generation: 0, harness_session_id: None,
+                project_id: None, cwd: String::new(), title: String::new(), title_pending: false, title_refreshed: false,
+                status: serde_json::from_value(c["status"].clone()).unwrap(), archived_done: false, status_since: 10,
+                live: false, open_question: c["open_question"].as_bool().unwrap(), model: None, effort: None, prompt: String::new(),
+                usage: Default::default(), started_at: 0, ended_at: None, last_seq: 0, launch_spec: Default::default(),
+                quota_pause: None, capacity_retry_count: 0, capacity_retry_at: None,
+                seen_at: if c["unseen"].as_bool().unwrap() { 5 } else { 20 }, last_message: None, unsaved: None,
+                sleep: c["sleep"].as_bool().unwrap().then(|| Sleep { until: Some(1), waits: String::new(), deadline: None, note: String::new(), schedule_id: "x".into() }),
+                group: None,
+            };
+            let expected: SessionGroup = serde_json::from_value(c["group"].clone()).unwrap();
+            assert_eq!(s.group(), expected, "{c}");
+            assert_eq!(s.light().group, Some(expected));
         }
     }
 }

@@ -46,6 +46,7 @@ fn dir(workspace: &str, folder: &str, started_at: i64, id: &str) -> Result<Strin
 fn metadata(session: &Session, workspace: &str, folder: &str) -> Result<Vec<u8>> {
     let mut s = session.light();
     s.prompt = session.prompt.clone();
+    s.group = None;
     Ok(serde_json::to_vec_pretty(&serde_json::json!({ "format": "launchpad", "version": 2, "workspace": workspace, "folder": folder, "session": s }))?)
 }
 

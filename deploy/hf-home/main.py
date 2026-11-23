@@ -12,7 +12,7 @@ import aiohttp
 from aiohttp import web
 import tomlkit
 
-from gateway.proxy import CORS_HEADERS, Proxy, canonical_path, cors, from_extension
+from gateway.proxy import CORS_HEADERS, Proxy, canonical_path, cors, from_desktop, from_extension
 from onboarding import KEY_MISMATCH, MIN_KEY, Setup, derive_key
 
 
@@ -30,8 +30,8 @@ class HomeProxy(Proxy):
 
     async def handle(self, request):
         path = self.guard(request)
-        if from_extension(request):
-            response = await self.extension(request, path)
+        if from_extension(request) or from_desktop(request):
+            response = await (self.extension(request, path) if from_extension(request) else self.desktop(request, path))
             if response is not None:
                 return response
         response = await self.setup.handle(request, path)
@@ -51,28 +51,47 @@ class HomeProxy(Proxy):
         if request.method == "OPTIONS":
             return web.Response(status=204, headers=CORS_HEADERS)
         if path == "/_home/status" and request.method == "GET":
-            # Discovery: is this a Launchpad Home, and does it answer? Nothing of the setup page's state.
-            return web.json_response({"launchpad": True, "space": self.setup.space, "complete": self.setup.complete,
-                                      "unlocked": self.setup.unlocked}, headers={"Cache-Control": "no-store"})
+            return self.status()
         if path == "/_home/extension/connect" and request.method == "POST":
-            if not self.setup.complete or not self.setup.api:
-                return web.json_response({"error": "Finish Home setup first.", "setup": "/_home/setup"}, status=503)
-            try:
-                body = await request.json()
-            except ValueError:
-                body = None
-            name = " ".join(str(body.get("name", "")).split()) if isinstance(body, dict) else ""
-            if not name or len(name) > 80:
-                return web.json_response({"error": "Use a device name of 1 to 80 characters"}, status=400)
-            try:
-                device = await self.setup.api("POST", "/api/devices/extension", {"name": name})
-            except (ValueError, aiohttp.ClientError) as error:
-                return web.json_response({"error": str(error) or "Home did not answer"}, status=502)
-            return web.json_response({"id": device.get("id"), "device": device.get("device"), "name": name},
-                                     headers={"Cache-Control": "no-store"})
+            return await self.connect(request, "/api/devices/extension")
         if path.startswith("/_home/"):
             raise web.HTTPForbidden(text="Not available to the extension")
         return None
+
+    async def desktop(self, request, path):
+        """The desktop companion's own routes (`X-Launchpad-Client: desktop/…`, no Origin, no CORS); None lets a call
+        with its device header through to Home."""
+        if path == "/_home/status" and request.method == "GET":
+            return self.status()
+        if path == "/_home/desktop/connect" and request.method == "POST":
+            return await self.connect(request, "/api/devices/desktop")
+        if path.startswith("/_home/"):
+            raise web.HTTPForbidden(text="Not available to the desktop companion")
+        return None
+
+    def status(self):
+        # Discovery: is this a Launchpad Home, and does it answer? Nothing of the setup page's state.
+        return web.json_response({"launchpad": True, "space": self.setup.space, "complete": self.setup.complete,
+                                  "unlocked": self.setup.unlocked}, headers={"Cache-Control": "no-store"})
+
+    async def connect(self, request, route):
+        """A new device of Home for the extension or the desktop companion: the Hub's private-Space check (the owner's
+        Hugging Face token) stands for pairing. Home's own route (owner bearer only) creates it."""
+        if not self.setup.complete or not self.setup.api:
+            return web.json_response({"error": "Finish Home setup first.", "setup": "/_home/setup"}, status=503)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        name = " ".join(str(body.get("name", "")).split()) if isinstance(body, dict) else ""
+        if not name or len(name) > 80:
+            return web.json_response({"error": "Use a device name of 1 to 80 characters"}, status=400)
+        try:
+            device = await self.setup.api("POST", route, {"name": name})
+        except (ValueError, aiohttp.ClientError) as error:
+            return web.json_response({"error": str(error) or "Home did not answer"}, status=502)
+        return web.json_response({"id": device.get("id"), "device": device.get("device"), "name": name},
+                                 headers={"Cache-Control": "no-store"})
 
     def guard(self, request):
         path = canonical_path(request.raw_path)

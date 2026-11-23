@@ -1,4 +1,5 @@
 import type { Session } from "@/gen/Session";
+import type { SessionGroup } from "@/gen/SessionGroup";
 import type { Sleep } from "@/gen/Sleep";
 import { when } from "./format.ts";
 export const isDone = (s: Session) => s.status === "waiting";
@@ -23,7 +24,25 @@ export function sleepUntil(z: Sleep): string {
 export const sleepOrder = (s: Session) => s.sleep?.until ?? s.sleep?.deadline ?? Number.MAX_SAFE_INTEGER;
 /** The shared "Needs you" predicate (same as `Session::needs_you` in Rust): an open question, or Done (not sleeping), Failed or Interrupted not seen since its status changed. */
 export const needsYou = (s: Session) => (isDone(s) && (s.open_question || (isUnseen(s) && !isSleeping(s)))) || ((s.status === "error" || s.status === "interrupted") && isUnseen(s));
+/** A session's group in lists: Home's `group` (`Session::group` in Rust) on light records and bus events; the same
+ * rule here for full records and the demo. Both are checked against `web/tests/session-groups/cases.json`. */
+export function sessionGroup(s: Session): SessionGroup {
+  if (s.group) return s.group;
+  if (s.status === "closed") return "archived";
+  if (needsYou(s)) return "needs_you";
+  if (isSleeping(s)) return "sleeping";
+  switch (s.status) {
+    case "waiting": return "done";
+    case "starting": case "working": case "background": return "running";
+    case "quota_paused": return "quota_paused";
+    case "stopped": return "stopped";
+    case "interrupted": return "interrupted";
+    case "error": return "failed";
+    case "in_terminal": return "in_terminal";
+  }
+}
+const PICKER: Record<SessionGroup, number> = { needs_you: 0, running: 1, quota_paused: 1, in_terminal: 1, done: 2, sleeping: 2, stopped: 3, interrupted: 3, failed: 3, archived: 4 };
 /** Group order for session pickers: needs you, running, done, stopped or failed, archived. */
-const pickerGroup = (s: Session) => needsYou(s) ? 0 : isRunning(s) || isQuotaPaused(s) || s.status === "in_terminal" ? 1 : isDone(s) ? 2 : s.status === "closed" ? 4 : 3;
+const pickerGroup = (s: Session) => PICKER[sessionGroup(s)];
 /** Sorts sessions by group, then by latest status change first. */
 export const byPickerOrder = (a: Session, b: Session) => pickerGroup(a) - pickerGroup(b) || b.status_since - a.status_since;

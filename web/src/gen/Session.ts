@@ -2,6 +2,7 @@
 import type { HarnessKind } from "./HarnessKind";
 import type { LaunchSpec } from "./LaunchSpec";
 import type { QuotaPause } from "./QuotaPause";
+import type { SessionGroup } from "./SessionGroup";
 import type { SessionStatus } from "./SessionStatus";
 import type { Sleep } from "./Sleep";
 import type { Unsaved } from "./Unsaved";
@@ -61,4 +62,9 @@ unsaved?: Unsaved,
  * Home: the agent asked Launchpad to wake it later (`launchpad sleep`). Kept by Home over the runner's records;
  * cleared when the wake-up is sent, cancelled or fails.
  */
-sleep?: Sleep, };
+sleep?: Sleep, 
+/**
+ * The session's group in lists (`Session::group`), computed by `light()` for lists and bus events so every
+ * client (web, extension, desktop companion) groups alike; absent in stored and full records.
+ */
+group?: SessionGroup, };

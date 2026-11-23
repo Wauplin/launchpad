@@ -6,46 +6,36 @@ import { externalLinkProps } from "@/lib/platform";
 import { signOut } from "@/lib/clientStorage";
 import { api } from "@/lib/api";
 import { Icon } from "@/components/Icon";
-import { Empty, ErrorState, Loading } from "@/components/ui";
+import { Badge, Empty, ErrorState, Loading } from "@/components/ui";
+import { ActionButton } from "@/components/ActionButton";
 import { copyText } from "@/lib/clipboard";
 import { toast, toastError } from "@/components/Toast";
 import { ago, when } from "@/lib/format";
 import { Card, SettingsPage } from "./SettingsView";
 
-type Device = { id: string; name: string; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
+type Device = { id: string; name: string; kind: "browser" | "extension" | "desktop"; created_at: number; expires_at: number; last_seen_at: number | null; current: boolean };
 type Pair = { url: string; svg: string; expires_at: number; warning: string | null };
 
 export function DevicesView() {
-  if (delegatedAccess()) return <SettingsPage title="Access"><Card title="Managed by your host"><p className="text-[13px] text-ink-2">Access to this workspace is provided by its hosting gateway. Every admitted visitor has full Launchpad access. Manage who can connect in your host’s settings.</p></Card></SettingsPage>;
+  // On a Space, the Hub admits browsers (no pairing here); the Chrome extension and the desktop companion are devices.
+  if (delegatedAccess()) return <SettingsPage title="Devices" intro="Your Space's gateway admits your browsers. The Chrome extension and the desktop companion connect as devices; each one has full access.">
+    <DeviceList title="Connected apps" empty="No Chrome extension or desktop companion is connected." />
+  </SettingsPage>;
   return <PairedDevicesView />;
 }
 
 function PairedDevicesView() {
-  const qc = useQueryClient();
-  const devices = useQuery({ queryKey: ["devices"], queryFn: () => api.get<Device[]>("/api/devices"), refetchInterval: 5000 });
   const [pair, setPair] = useState<Pair | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
-  const scroll = useRef<HTMLDivElement>(null);
-  const rows = devices.data ?? [];
-  const virtualizer = useVirtualizer({ count: rows.length, getScrollElement: () => scroll.current, estimateSize: () => 72, useFlushSync: false });
   const createPair = async () => {
     setBusy("pair");
     try { setPair(await api.post<Pair>("/api/devices/pair")); } catch (error) { toastError(error); }
     finally { setBusy(null); }
   };
-  const revoke = useCallback(async (device: Device) => {
-    setBusy(device.id);
-    try {
-      await api.delete(`/api/devices/${device.id}`);
-      if (device.current) { await signOut(); return; }
-      await qc.invalidateQueries({ queryKey: ["devices"] });
-    } catch (error) { toastError(error); }
-    finally { setBusy(null); }
-  }, [qc]);
   const remaining = pair ? Math.max(0, Math.ceil((pair.expires_at * 1000 - now) / 1000)) : 0;
-  return <SettingsPage title="Devices" intro="Browsers paired with this daemon. Each one has full access.">
+  return <SettingsPage title="Devices" intro="Browsers, the Chrome extension and the desktop companion paired with this daemon. Each one has full access.">
     <Card title="Pair a device" end={<button className="btn btn-sm btn-primary" disabled={busy !== null} data-tour="devices.pair" onClick={() => void createPair()}>Create pairing link</button>}>
       <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Scan the QR code, or open the link in another browser. <span className="text-ink-3" title="Give that browser a name to finish pairing. Each link works once and expires after five minutes."><Icon name="info" size={12} /></span></p>
       <ReversePairing disabled={busy !== null} />
@@ -63,20 +53,35 @@ function PairedDevicesView() {
         <span className="text-[12px] text-ink-3" role="status">Expires in {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} · single use</span>
       </div> : <p className="text-[13px] text-ink-3" role="status">Pairing link expired. Create a new link.</p>)}
     </Card>
-    <Card title="Paired browsers">
-      <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Revoke signs a browser out. <span className="text-ink-3" title="Revoking disconnects its event and terminal viewers. Agents and terminals keep running on the host."><Icon name="info" size={12} /></span></p>
-      {devices.error && <ErrorState error={devices.error} onRetry={() => void devices.refetch()} />}
-      {!devices.data ? <Loading what="browsers" /> : !rows.length ? <Empty icon="window">No paired browser.</Empty> :
-        <div ref={scroll} className="overflow-y-auto" style={{ height: Math.min(rows.length * 72, 360) }}>
-          <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-            {virtualizer.getVirtualItems().map((item) => {
-              const device = rows[item.index]!;
-              return <DeviceRow key={device.id} device={device} height={item.size} top={item.start} busy={busy !== null} onRevoke={revoke} />;
-            })}
-          </div>
-        </div>}
-    </Card>
+    <DeviceList title="Paired devices" empty="No paired device." />
   </SettingsPage>;
+}
+
+/** Every device with its kind and last activity, and Revoke (`device.revoke`); on a Space only the extension and
+ * the desktop companion are devices. */
+function DeviceList({ title, empty }: { title: string; empty: string }) {
+  const qc = useQueryClient();
+  const devices = useQuery({ queryKey: ["devices"], queryFn: () => api.get<Device[]>("/api/devices"), refetchInterval: 5000 });
+  const scroll = useRef<HTMLDivElement>(null);
+  const rows = devices.data ?? [];
+  const virtualizer = useVirtualizer({ count: rows.length, getScrollElement: () => scroll.current, estimateSize: () => 72, useFlushSync: false });
+  const revoked = useCallback(async (device: Device) => {
+    if (device.current) { await signOut(); return; }
+    await qc.invalidateQueries({ queryKey: ["devices"] });
+  }, [qc]);
+  return <Card title={title}>
+    <p className="m-0 flex items-center gap-1.5 text-[13px] text-ink-2">Revoke signs a device out. <span className="text-ink-3" title="Revoking disconnects its event and terminal viewers. Agents and terminals keep running on the host."><Icon name="info" size={12} /></span></p>
+    {devices.error && <ErrorState error={devices.error} onRetry={() => void devices.refetch()} />}
+    {!devices.data ? <Loading what="devices" /> : !rows.length ? <Empty icon="window">{empty}</Empty> :
+      <div ref={scroll} className="overflow-y-auto" style={{ height: Math.min(rows.length * 72, 360) }}>
+        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+          {virtualizer.getVirtualItems().map((item) => {
+            const device = rows[item.index]!;
+            return <DeviceRow key={device.id} device={device} height={item.size} top={item.start} onRevoked={revoked} />;
+          })}
+        </div>
+      </div>}
+  </Card>;
 }
 
 function ReversePairing({ disabled }: { disabled: boolean }) {
@@ -171,13 +176,15 @@ function HttpsSetup({ disabled, onBusy, onPair }: { disabled: boolean; onBusy: (
   </div>;
 }
 
-const DeviceRow = memo(function DeviceRow({ device, height, top, busy, onRevoke }: { device: Device; height: number; top: number; busy: boolean; onRevoke: (device: Device) => Promise<void> }) {
+const KIND: Record<Device["kind"], string> = { browser: "Browser", extension: "Chrome extension", desktop: "Desktop companion" };
+
+const DeviceRow = memo(function DeviceRow({ device, height, top, onRevoked }: { device: Device; height: number; top: number; onRevoked: (device: Device) => Promise<void> }) {
   return <div className="absolute left-0 top-0 flex w-full items-center gap-3 border-b border-line-2" style={{ height, transform: `translateY(${top}px)` }}>
-    <div className="min-w-0 flex-1"><div className="truncate text-[13px] font-semibold">{device.name}{device.current && <span className="ml-2 text-[12px] font-normal text-ink-3">This browser</span>}</div>
+    <div className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><span className="truncate text-[13px] font-semibold">{device.name}</span><Badge>{KIND[device.kind] ?? KIND.browser}</Badge>{device.current && <span className="text-[12px] text-ink-3">This browser</span>}</div>
       <div className="truncate text-[12px] text-ink-3">
         {device.last_seen_at ? `Last active ${lastActive(device.last_seen_at)}` : "Not active since pairing"} · paired {ago(device.created_at * 1000)} · expires {when(device.expires_at * 1000)}
       </div></div>
-    <button className="btn btn-sm" disabled={busy} onClick={() => void onRevoke(device)}>{device.current ? "Sign out" : "Revoke"}</button>
+    <ActionButton name="device.revoke" params={{ id: device.id }} vars={{ name: device.name }} icon={null} onDone={() => onRevoked(device)}>{device.current ? "Sign out" : "Revoke"}</ActionButton>
   </div>;
 });
 

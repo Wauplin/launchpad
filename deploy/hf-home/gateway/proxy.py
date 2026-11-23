@@ -12,6 +12,9 @@ BLOCKED = ("/auth", "/api/devices", "/api/push", "/api/open", "/api/window")
 # `key` of extension/public/manifest.json.
 EXTENSION_ORIGIN = "chrome-extension://bbefehapjjlbeodihifmpgidgjhmcklj"
 DEVICE_HEADER = "X-Launchpad-Device"
+# The desktop companion names itself (`desktop/<version>`) and sends no Origin; keep in sync with `CLIENT_HEADER` in
+# crates/server/src/auth.rs.
+CLIENT_HEADER = "X-Launchpad-Client"
 CORS_HEADERS = {
     "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE",
     "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key, X-Launchpad-Device, Last-Event-ID",
@@ -34,6 +37,33 @@ def denied(path):
     return any(path == p or path.startswith(p + "/") for p in BLOCKED)
 
 
+def blocked(method, path, device):
+    """Whether the gateway refuses a route. Device management (`/api/devices`) stays closed except: the owner's own
+    Space-origin browser lists and revokes devices (`GET /api/devices`, `DELETE /api/devices/<id>`), and a device
+    call (the extension or the desktop companion, `device` true) deletes only itself (`DELETE /api/devices/self`).
+    Pairing, `/auth` and the other blocked routes stay closed to everyone."""
+    parts = path.split("/")
+    one = len(parts) == 4 and path.startswith("/api/devices/") and parts[3] != ""
+    if device:
+        if one and method == "DELETE" and parts[3] == "self":
+            return False
+    elif (path == "/api/devices" and method in ("GET", "HEAD")) or (one and method == "DELETE" and parts[3] != "self"):
+        return False
+    return denied(path)
+
+
+def from_desktop(request):
+    """A call of the desktop companion: it says so with `X-Launchpad-Client: desktop/<version>` and sends no Origin.
+    Like the extension, it passed the Hub's private-Space check with the owner's Hugging Face token and acts as its
+    own device (`X-Launchpad-Device`), never with the daemon's credential."""
+    return not request.headers.getall("Origin", []) and request.headers.get(CLIENT_HEADER, "").startswith("desktop/")
+
+
+def device_call(request):
+    """A call that acts as a device (the extension or the desktop companion), never with the daemon's credential."""
+    return from_extension(request) or from_desktop(request)
+
+
 def from_extension(request):
     """A call of the Chrome extension's service worker. It passed the Hub's private-Space check with the owner's
     Hugging Face token, like every request here; the daemon still checks its device secret. Chrome sends no Origin on
@@ -43,6 +73,8 @@ def from_extension(request):
     origins = request.headers.getall("Origin", [])
     if origins == [EXTENSION_ORIGIN]:
         return True
+    if from_desktop(request):
+        return False
     worker = request.headers.get("Sec-Fetch-Site") == "none" and request.headers.get("Sec-Fetch-Mode") not in (None, "navigate")
     return not origins and (DEVICE_HEADER in request.headers or worker)
 
@@ -72,7 +104,7 @@ class Proxy:
     def guard(self, request):
         if request.headers.getall("Host", []) != [self.host]:
             raise web.HTTPForbidden(text="Unexpected host")
-        if from_extension(request):
+        if device_call(request):
             return canonical_path(request.raw_path)
         if request.method not in ("GET", "HEAD") or request.headers.get("Upgrade"):
             if request.headers.getall("Origin", []) != [self.origin]:
@@ -91,6 +123,9 @@ class Proxy:
         if from_extension(request):
             # The extension acts as its device (`X-Launchpad-Device`), never with the daemon's credential.
             headers.update(Host=self.host, Origin=EXTENSION_ORIGIN)
+        elif from_desktop(request):
+            # The desktop companion too, and without an Origin (the daemon accepts its device only so).
+            headers.update(Host=self.host)
         else:
             headers = {k: v for k, v in headers.items() if k.lower() != DEVICE_HEADER.lower()}
             headers.update(Host=self.host, Origin=self.origin, Authorization=f"Bearer {self.token}")
@@ -101,10 +136,10 @@ class Proxy:
 
     async def handle(self, request, *, body=None):
         path = self.guard(request)
-        if denied(path):
+        if blocked(request.method, path, device_call(request)):
             raise web.HTTPNotFound()
-        if from_extension(request) and not request.headers.get(DEVICE_HEADER):
-            return web.json_response({"error": "Connect this browser first"}, status=401)
+        if device_call(request) and not request.headers.get(DEVICE_HEADER):
+            return web.json_response({"error": "Connect this browser first" if from_extension(request) else "Connect this computer first"}, status=401)
         headers = self.headers(request)
         url = self.base + request.raw_path
         if request.headers.get("Upgrade", "").lower() == "websocket":

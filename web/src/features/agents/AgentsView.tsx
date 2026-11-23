@@ -18,7 +18,8 @@ import type { Predraft } from "@/gen/Predraft";
 import type { WorktreeInfo } from "@/gen/WorktreeInfo";
 import { workTags, WorkTagPill, type WorkTag } from "./workTag";
 import { HarnessMark } from "@/components/HarnessMark";
-import { isRunning, isDone, isQuotaPaused, isSleeping, isStopped, isUnseen, needsYou, sleepOrder } from "@/lib/sessionStatus";
+import { isRunning, isDone, isQuotaPaused, isUnseen, needsYou, sessionGroup, sleepOrder } from "@/lib/sessionStatus";
+import type { SessionGroup } from "@/gen/SessionGroup";
 import { Icon } from "@/components/Icon";
 import { LaunchButton } from "@/features/launch/LaunchButton";
 import { projectName, useProjects, useSession, useSessions } from "@/lib/queries";
@@ -204,20 +205,20 @@ export function AgentsView() {
   const filtered = sessions.filter((s) => (!search.topic || topics.some((t) => t.id === search.topic && t.session_ids.includes(s.id))) && (!needle || searchText(s).includes(needle) || projectName(projects, s.project_id, s.cwd).toLocaleLowerCase().includes(needle) || (debounced === filter.trim() && matches.data?.includes(s.id))));
   const order = (a: Session, b: Session) => b.started_at - a.started_at;
   const newest = (a: Session, b: Session) => b.status_since - a.status_since;
-  // What needs you (a question, an unseen Done, Failed or Interrupted) comes first, out of its state's group.
-  const needs = filtered.filter((s) => s.status !== "closed" && needsYou(s)).sort(newest);
-  const needIds = new Set(needs.map((s) => s.id));
-  const local = filtered.filter((s) => !needIds.has(s.id));
+  // Home's groups (`sessionGroup`): what needs you (a question, an unseen Done, Failed or Interrupted) comes first,
+  // out of its state's group.
+  const of = (g: SessionGroup) => filtered.filter((s) => sessionGroup(s) === g);
+  const needs = of("needs_you").sort(newest);
   // Asleep (`launchpad sleep`): the next to wake up first.
-  const sleeping = local.filter(isSleeping).sort((a, b) => sleepOrder(a) - sleepOrder(b));
-  const done = local.filter((s) => isDone(s) && !isSleeping(s)).sort(newest);
-  const running = local.filter((s) => isRunning(s)).sort(order);
-  const quotaPaused = local.filter(isQuotaPaused).sort(order);
-  const stopped = local.filter(isStopped).sort(order);
-  const interrupted = local.filter((s) => s.status === "interrupted").sort(order);
-  const failed = local.filter((s) => s.status === "error").sort(order);
-  const inTerminal = local.filter((s) => s.status === "in_terminal").sort(order);
-  const archived = local.filter((s) => s.status === "closed").sort(order);
+  const sleeping = of("sleeping").sort((a, b) => sleepOrder(a) - sleepOrder(b));
+  const done = of("done").sort(newest);
+  const running = of("running").sort(order);
+  const quotaPaused = of("quota_paused").sort(order);
+  const stopped = of("stopped").sort(order);
+  const interrupted = of("interrupted").sort(order);
+  const failed = of("failed").sort(order);
+  const inTerminal = of("in_terminal").sort(order);
+  const archived = of("archived").sort(order);
   const now = Date.now();
   const oldDone = done.filter((s) => !needsYou(s) && now - s.status_since > 3 * DAY);
 

@@ -1,0 +1,20 @@
+[
+  { "status": "waiting", "open_question": true, "unseen": false, "sleep": false, "group": "needs_you" },
+  { "status": "waiting", "open_question": true, "unseen": false, "sleep": true, "group": "needs_you" },
+  { "status": "waiting", "open_question": false, "unseen": true, "sleep": false, "group": "needs_you" },
+  { "status": "waiting", "open_question": false, "unseen": true, "sleep": true, "group": "sleeping" },
+  { "status": "waiting", "open_question": false, "unseen": false, "sleep": true, "group": "sleeping" },
+  { "status": "waiting", "open_question": false, "unseen": false, "sleep": false, "group": "done" },
+  { "status": "error", "open_question": false, "unseen": true, "sleep": false, "group": "needs_you" },
+  { "status": "error", "open_question": false, "unseen": false, "sleep": false, "group": "failed" },
+  { "status": "interrupted", "open_question": false, "unseen": true, "sleep": false, "group": "needs_you" },
+  { "status": "interrupted", "open_question": false, "unseen": false, "sleep": false, "group": "interrupted" },
+  { "status": "starting", "open_question": false, "unseen": true, "sleep": false, "group": "running" },
+  { "status": "working", "open_question": true, "unseen": true, "sleep": false, "group": "running" },
+  { "status": "background", "open_question": false, "unseen": false, "sleep": false, "group": "running" },
+  { "status": "quota_paused", "open_question": false, "unseen": true, "sleep": false, "group": "quota_paused" },
+  { "status": "stopped", "open_question": false, "unseen": true, "sleep": false, "group": "stopped" },
+  { "status": "in_terminal", "open_question": false, "unseen": true, "sleep": false, "group": "in_terminal" },
+  { "status": "closed", "open_question": false, "unseen": true, "sleep": false, "group": "archived" },
+  { "status": "closed", "open_question": true, "unseen": false, "sleep": true, "group": "archived" }
+]
